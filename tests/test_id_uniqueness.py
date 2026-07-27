@@ -21,8 +21,6 @@ from punt_lux.domain.ids import ElementId, SceneId
 from punt_lux.protocol.elements import (
     CollapsingHeaderElement,
     GroupElement,
-    LegacyGroupElement,
-    LegacyTabBarElement,
     SeparatorElement,
     Tab,
     TabBarElement,
@@ -104,27 +102,6 @@ class TestDuplicateIdScanner:
         found = DuplicateIdScanner().first_duplicate(_SCENE, [bar])
         assert found == DuplicateIdError(scene_id=_SCENE, element_id=ElementId("dup"))
 
-    def test_duplicate_buried_in_legacy_tab_bar_tab_is_caught(self) -> None:
-        bar = LegacyTabBarElement(
-            id="ltb",
-            tabs=[
-                {"label": "One", "children": [TextElement(id="dup", content="a")]},
-                {"label": "Two", "children": [TextElement(id="dup", content="b")]},
-            ],
-        )
-        found = DuplicateIdScanner().first_duplicate(_SCENE, [bar])
-        assert found == DuplicateIdError(scene_id=_SCENE, element_id=ElementId("dup"))
-
-    def test_duplicate_in_legacy_group_page_is_caught(self) -> None:
-        group = LegacyGroupElement(
-            id="lg",
-            layout="paged",
-            children=[TextElement(id="dup", content="nav")],
-            pages=[[TextElement(id="dup", content="page")]],
-        )
-        found = DuplicateIdScanner().first_duplicate(_SCENE, [group])
-        assert found == DuplicateIdError(scene_id=_SCENE, element_id=ElementId("dup"))
-
     def test_duplicate_in_collapsing_header_is_caught(self) -> None:
         header = CollapsingHeaderElement(
             id="ch",
@@ -147,20 +124,18 @@ class TestDuplicateIdScanner:
         assert found == DuplicateIdError(scene_id=_SCENE, element_id=ElementId("dup"))
 
     def test_anonymous_separators_repeat_inside_a_container(self) -> None:
-        group = LegacyGroupElement(
-            id="g", children=[SeparatorElement(), SeparatorElement()]
-        )
+        group = GroupElement(id="g", children=(SeparatorElement(), SeparatorElement()))
         assert DuplicateIdScanner().first_duplicate(_SCENE, [group]) is None
 
     def test_named_duplicate_caught_amid_anonymous_repeats(self) -> None:
-        group = LegacyGroupElement(
+        group = GroupElement(
             id="g",
-            children=[
+            children=(
                 SeparatorElement(),
                 TextElement(id="dup", content="a"),
                 SeparatorElement(),
                 TextElement(id="dup", content="b"),
-            ],
+            ),
         )
         found = DuplicateIdScanner().first_duplicate(_SCENE, [group])
         assert found == DuplicateIdError(scene_id=_SCENE, element_id=ElementId("dup"))
@@ -263,13 +238,13 @@ class TestShowRejectsNestedDuplicates:
         )
 
     @patch(_CLIENT_GET)
-    def test_show_rejects_dup_in_legacy_tab_bar_tab(self, mock_get: MagicMock) -> None:
+    def test_show_rejects_dup_in_tab_bar_tab(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
-        # A separator (not a migrated-ABC kind) forks the whole tab_bar legacy.
+        # The same id appears in two tabs of one tab_bar — a buried duplicate.
         _assert_show_rejects_dup(
             client,
-            "dup-legacy-tab-bar",
+            "dup-tab-bar",
             [
                 {
                     "kind": "tab_bar",

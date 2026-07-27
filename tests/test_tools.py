@@ -12,7 +12,6 @@ import pytest
 from punt_lux.display_client import agent_element_factory
 from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.hub import client_registry, hub
-from punt_lux.domain.hub.element_index import UnknownElementError
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.inbox import ensure_writer, next_event
@@ -37,9 +36,6 @@ from punt_lux.protocol import (
     DrawElement,
     GroupElement,
     InputTextElement,
-    LegacyGroupElement,
-    LegacyTableElement,
-    LegacyWindowElement,
     MarkdownElement,
     PlotElement,
     PongMessage,
@@ -1056,79 +1052,6 @@ def _seed_group_with_child(
     )
 
 
-def _seed_legacy_root(
-    store: HubDisplay,
-    *,
-    scene: str = "s1",
-    element_id: str = "sl1",
-    title: str = "opt",
-    connection: str = "local",
-) -> None:
-    """Install one legacy (non-ABC) window root under ``connection``.
-
-    A frozen wire dataclass is realized by ``dataclasses.replace`` on the write
-    path — a legacy *root* is fully patchable, and its index entry is rebound to
-    the fresh instance. Built directly rather than decoded: a childless window
-    wire dict is all-ABC and would fork onto the ABC ``WindowElement``, so the
-    legacy dataclass is constructed in place to keep the root on the legacy path.
-    """
-    window = LegacyWindowElement(id=element_id, title=title)
-    store.replace_scene(
-        ConnectionId(connection),
-        SceneId(scene),
-        [cast("DomainElement", window)],
-    )
-
-
-def _seed_legacy_window_with_child(
-    store: HubDisplay,
-    *,
-    scene: str = "s1",
-    window_id: str = "w1",
-    child_id: str = "sl_child",
-    title: str = "Old",
-    connection: str = "local",
-) -> LegacyTableElement:
-    """Install a legacy window root holding one legacy table child.
-
-    A legacy composite: the whole subtree is frozen values, so a ``replace`` on
-    the root shares the child by reference. Returns the child object so a test
-    can assert its identity survives a root patch.
-    """
-    child = LegacyTableElement(id=child_id, columns=["A"], rows=[["x"]])
-    window = LegacyWindowElement(id=window_id, title=title, children=[child])
-    store.replace_scene(
-        ConnectionId(connection),
-        SceneId(scene),
-        [cast("DomainElement", window)],
-    )
-    return child
-
-
-def _seed_legacy_group_with_child(
-    store: HubDisplay,
-    *,
-    scene: str = "s1",
-    group_id: str = "grp",
-    child_id: str = "c1",
-    connection: str = "local",
-) -> TextElement:
-    """Install a legacy group root holding one legacy text child.
-
-    A ``LegacyGroupElement`` carries child Elements in ``children`` (and, when
-    paged, ``pages``). Returns the child so a test can assert it survives — and no
-    new child is installed — after a rejected structural patch.
-    """
-    child = TextElement(id=child_id, content="old")
-    group = LegacyGroupElement(id=group_id, children=[child])
-    store.replace_scene(
-        ConnectionId(connection),
-        SceneId(scene),
-        [cast("DomainElement", group)],
-    )
-    return child
-
-
 class TestUpdateTool:
     def test_update_writes_hub_store_and_marks_dirty(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1493,25 +1416,6 @@ class TestUpdateTool:
         assert store.resolve(SceneId("s1"), ElementId("hdr")).id == "hdr"
         client.show_async.assert_not_called()
 
-    def test_update_rejects_immutable_kind_field_legacy(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A ``set`` targeting ``kind`` on a legacy root is refused, untouched.
-
-        ``kind`` is a real dataclass field on a legacy element, so without the
-        uniform immutability gate ``replace`` would silently morph its type.
-        """
-        store = HubDisplay()
-        _seed_legacy_root(store, element_id="sl1")
-        client = _bind_store(monkeypatch, store)
-
-        result = update("s1", [{"id": "sl1", "set": {"kind": "button"}}])
-
-        assert result.startswith("error: scene not updated")
-        assert "immutable" in result
-        assert store.resolve(SceneId("s1"), ElementId("sl1")).kind == "window"
-        client.show_async.assert_not_called()
-
     def test_update_rejects_unknown_field_abc(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1524,37 +1428,6 @@ class TestUpdateTool:
 
         assert result.startswith("error: scene not updated")
         assert "unknown field" in result
-        client.show_async.assert_not_called()
-
-    def test_update_rejects_structural_children_field(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Patching ``children`` on a legacy composite root defers to ``show``.
-
-        The value-replacement seam rebinds only the root's index entry — it installs
-        no new children and evicts no old ones. Accepting the patch would render a
-        child the Hub index does not know (a dead interaction) and strand the old
-        one. So a structural field is refused before any mutation: the old child
-        still resolves, no new child id is installed, and nothing is re-pushed.
-        """
-        store = HubDisplay()
-        child = _seed_legacy_group_with_child(store, group_id="grp", child_id="c1")
-        client = _bind_store(monkeypatch, store)
-
-        result = update(
-            "s1",
-            [{"id": "grp", "set": {"children": [{"kind": "text", "id": "d1"}]}}],
-        )
-
-        assert result.startswith("error: scene not updated")
-        assert "show" in result
-        assert "children" in result
-        resolved = store.resolve(SceneId("s1"), ElementId("grp"))
-        group = cast("LegacyGroupElement", resolved)
-        assert group.children == [child]
-        assert store.resolve(SceneId("s1"), ElementId("c1")) is child
-        with pytest.raises(UnknownElementError):
-            store.resolve(SceneId("s1"), ElementId("d1"))
         client.show_async.assert_not_called()
 
     def test_update_mixed_abc_and_legacy_batch_both_land_one_repush(
@@ -1594,34 +1467,6 @@ class TestUpdateTool:
         assert isinstance(patched_selectable, SelectableElement)
         assert patched_selectable.selected is True
         assert client.replicator.dirtied == [SceneId("s1")]
-
-    def test_update_cross_connection_legacy_ownership_is_rejected(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A legacy root seeded under one connection is not writable by another.
-
-        Ownership is checked before the seam for legacy roots exactly as for ABC
-        elements: connection ``other`` may neither patch nor remove ``local``'s
-        selectable. The store is untouched and nothing is re-pushed.
-        """
-        store = HubDisplay()
-        _seed_legacy_root(store, element_id="sl1", title="opt", connection="local")
-        client = _bind_store(monkeypatch, store)
-
-        token = _session_key.set("intruder")
-        try:
-            patched = update("s1", [{"id": "sl1", "set": {"title": "hacked"}}])
-            removed = update("s1", [{"id": "sl1", "remove": True}])
-        finally:
-            _session_key.reset(token)
-
-        assert patched.startswith("error: scene not updated")
-        assert removed.startswith("error: scene not updated")
-        window = cast(
-            "LegacyWindowElement", store.resolve(SceneId("s1"), ElementId("sl1"))
-        )
-        assert window.title == "opt"
-        client.show_async.assert_not_called()
 
     def test_update_setter_bug_surfaces_as_bug(
         self, monkeypatch: pytest.MonkeyPatch

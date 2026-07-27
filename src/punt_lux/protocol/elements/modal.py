@@ -26,7 +26,6 @@ from punt_lux.domain.handlers.decorators import PublishSink
 from punt_lux.domain.remote_dispatch_spec import RemoteDispatchSpec
 from punt_lux.domain.validation import ValidationError
 from punt_lux.protocol.elements.abc_di_defaults import NO_EMIT, RAISING_FACTORY
-from punt_lux.protocol.elements.container_abc_gate import ContainerAbcGate
 from punt_lux.protocol.elements.container_dispatch import dispatch
 from punt_lux.protocol.elements.modal_codec import JsonModalDecoder, JsonModalEncoder
 from punt_lux.protocol.elements.patch_field import PatchField
@@ -231,17 +230,11 @@ class ModalElement(Element):
     def from_dict(cls, d: Mapping[str, object]) -> Self:
         """Construct a ModalElement from a JSON-decoded mapping.
 
-        Recurses children through the shared container dispatcher and rejects a
-        wire dict whose subtree is not all-ABC — the invariant belongs at this
-        type's own boundary, not only in the tier factory (PY-EH-1). A wire
-        ``publish`` handler resolves against a ``RaisingPublishSink`` so a stray
-        publish on this no-tier path fails loud rather than silently.
+        Recurses children through the shared container dispatcher, which rejects
+        an unknown child kind (PY-EH-1). A wire ``publish`` handler resolves
+        against a ``RaisingPublishSink`` so a stray publish on this no-tier path
+        fails loud rather than silently.
         """
-        if not ContainerAbcGate.is_all_abc(d):
-            offending = ContainerAbcGate.first_non_abc_kind(d)
-            modal_id = d.get("id")
-            msg = f"modal {modal_id!r} is not all-ABC — offending kind: {offending!r}"
-            raise ValueError(msg)
         decoder = JsonModalDecoder(
             decode_element=dispatch.from_dict,
             element_cls=cls,

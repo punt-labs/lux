@@ -9,18 +9,12 @@ helpers:
 - ``graphics``: 2D canvas and chart (Draw, Plot)
 - ``table``: tabular data with filters and detail panels
 
-The ``codec`` sub-module holds the ``ElementCodec`` class — the dispatch
-table that maps wire ``kind`` strings to (class, to_dict, from_dict)
-triples.  Tests can construct isolated codecs; the production codec is
-the module-level ``_codec`` instance populated at import time.
-
 This ``__init__`` is the package surface: it re-exports every public
 name, assembles the ``Element`` union from per-family contributions, and
-provides the ``element_to_dict`` dispatcher. Decoding lives on
-:class:`JsonElementFactory` — every tier constructs one at startup with
-its own ``RendererFactory`` / ``Emit`` / ``PublishSink`` and calls
-``factory.element_from_dict(d)``. ``build_element_codec()`` returns the
-shared ``ElementCodec`` instance every factory uses for non-ABC kinds.
+provides the ``element_to_dict`` encode dispatcher. Every kind is on the
+Element-ABC path; decoding lives on :class:`JsonElementFactory`, which each
+tier constructs at startup with its own ``RendererFactory`` / ``Emit`` /
+``PublishSink`` and drives via ``factory.element_from_dict(d)``.
 """
 
 from __future__ import annotations
@@ -32,10 +26,8 @@ from punt_lux.protocol.elements import container_dispatch
 # _strip_none is re-exported for protocol.messages.scene; lives in
 # _util because the codec layer above the per-element modules uses it.
 from punt_lux.protocol.elements._util import strip_none as _strip_none
-from punt_lux.protocol.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
 from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.checkbox import CheckboxElement
-from punt_lux.protocol.elements.codec import ElementCodec
 from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement
 from punt_lux.protocol.elements.color_picker import ColorPickerElement
 from punt_lux.protocol.elements.combo import ComboElement
@@ -45,19 +37,6 @@ from punt_lux.protocol.elements.group import GroupElement
 from punt_lux.protocol.elements.image import ImageElement
 from punt_lux.protocol.elements.input_number import InputNumberElement
 from punt_lux.protocol.elements.input_text import InputTextElement
-from punt_lux.protocol.elements.layout import (
-    LegacyCollapsingHeaderElement,
-    LegacyGroupElement,
-    LegacyModalElement,
-    LegacyTabBarElement,
-    LegacyWindowElement,
-)
-from punt_lux.protocol.elements.legacy_table import (
-    LegacyTableElement,
-    TableDetail,
-    TableFilter,
-    register_codecs as _register_table,
-)
 from punt_lux.protocol.elements.markdown import MarkdownElement
 from punt_lux.protocol.elements.modal import ModalElement
 from punt_lux.protocol.elements.plot import PlotElement
@@ -84,17 +63,10 @@ __all__ = [
     "DialogElement",
     "DrawElement",
     "Element",
-    "ElementCodec",
     "GroupElement",
     "ImageElement",
     "InputNumberElement",
     "InputTextElement",
-    "LegacyCollapsingHeaderElement",
-    "LegacyGroupElement",
-    "LegacyModalElement",
-    "LegacyTabBarElement",
-    "LegacyTableElement",
-    "LegacyWindowElement",
     "MarkdownElement",
     "ModalElement",
     "PlotElement",
@@ -106,15 +78,12 @@ __all__ = [
     "SpinnerElement",
     "Tab",
     "TabBarElement",
-    "TableDetail",
     "TableElement",
-    "TableFilter",
     "TextElement",
     "TreeElement",
     "WindowElement",
     "_element_to_dict",
     "_strip_none",
-    "build_element_codec",
     "element_to_dict",
 ]
 # The underscore-prefixed names above are package-internal API kept in
@@ -136,62 +105,31 @@ Element = (
     | ColorPickerElement
     | DrawElement
     | GroupElement
-    | LegacyGroupElement
     | TabBarElement
-    | LegacyTabBarElement
     | CollapsingHeaderElement
-    | LegacyCollapsingHeaderElement
     | WindowElement
-    | LegacyWindowElement
     | SelectableElement
     | TreeElement
     | TableElement
-    | LegacyTableElement
     | PlotElement
     | ProgressElement
     | SpinnerElement
     | MarkdownElement
     | ModalElement
-    | LegacyModalElement
 )
 
 
-def build_element_codec() -> ElementCodec:
-    """Return a fresh :class:`ElementCodec` with the still-legacy kinds registered.
-
-    Only the not-yet-migrated families (layout, table) register here; the basics
-    and graphics families have fully crossed onto the Element-ABC path and are
-    decoded through ``DEFAULT_ABC_REGISTRY`` instead. Each :class:`JsonElementFactory`
-    owns its own codec instance — the codec carries no DI, but binding a separate
-    instance per factory keeps factory construction self-contained.
-    """
-    codec = ElementCodec()
-    LegacyGroupElement.register_codecs(codec.register)
-    _register_table(codec.register)
-    return codec
-
-
-# Encode-side codec (to_dict) has no DI; decode (from_dict) lives on
-# JsonElementFactory so tier-injected DI flows into every decoded element.
-_to_dict_codec: ElementCodec = build_element_codec()
+# Encode has no DI; each per-kind encoder owns its own tooltip emission.
 _ENCODER_FACTORY = JsonEncoderFactory()
 
 
 def _element_to_dict(elem: Element) -> dict[str, Any]:
-    """Serialize an element — legacy dataclass or ABC kind — to a wire dict."""
-    if isinstance(elem, DEFAULT_ABC_REGISTRY.abc_types):
-        # Each per-kind encoder owns its own tooltip emission.
-        return _ENCODER_FACTORY.encode(elem)
-    result = _to_dict_codec.to_dict(elem)
-    # The remaining dataclass kinds' per-kind codecs don't emit tooltip;
-    # the Element Protocol guarantees the attribute (PY-TS-10: no hasattr).
-    if elem.tooltip is not None:
-        result["tooltip"] = elem.tooltip
-    return result
+    """Serialize an Element to its JSON-compatible wire dict."""
+    return _ENCODER_FACTORY.encode(elem)
 
 
 def element_to_dict(elem: Element) -> dict[str, Any]:
-    """Serialize an Element dataclass to a JSON-compatible dict."""
+    """Serialize an Element to a JSON-compatible dict."""
     return _element_to_dict(elem)
 
 

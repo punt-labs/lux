@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from punt_lux.protocol.elements import (
     Element,
-    _element_to_dict,
     _strip_none,
     container_dispatch,
 )
@@ -24,13 +23,13 @@ class SceneCodec:
 
     @staticmethod
     def encode(msg: SceneMessage) -> dict[str, Any]:
-        """Serialize the scene and frame; ABC elements cross as base64 pickles."""
-        from punt_lux.domain.element_abc import Element as AbcElement
+        """Serialize the scene and frame; every element crosses as a base64 pickle.
 
+        Pickling preserves the Hub-side handlers the Display re-wraps for remote
+        dispatch — every kind is an Element-ABC instance carrying them.
+        """
         elements: list[dict[str, Any]] = [
             {"_pickled": base64.b64encode(pickle.dumps(e)).decode("ascii")}
-            if isinstance(e, AbcElement)
-            else _element_to_dict(e)
             for e in msg.elements
         ]
         return _strip_none(

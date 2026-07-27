@@ -26,7 +26,6 @@ if TYPE_CHECKING:
     from punt_lux.domain.handlers.decorators import PublishSink
     from punt_lux.protocol.elements.abc_kind_spec import KindDecoder
     from punt_lux.protocol.elements.abc_registry import AbcElementRegistry
-    from punt_lux.protocol.elements.codec import ElementCodec
     from punt_lux.protocol.renderer import Emit, RendererFactory
 
 __all__ = ["JsonElementFactory"]
@@ -42,7 +41,6 @@ class JsonElementFactory:
     path without per-call allocation.
     """
 
-    _codec: ElementCodec
     _registry: AbcElementRegistry
     _decoders: dict[str, KindDecoder]
 
@@ -52,10 +50,8 @@ class JsonElementFactory:
         renderer_factory: RendererFactory,
         emit: Emit,
         publish_sink: PublishSink,
-        codec: ElementCodec,
     ) -> Self:
         self = super().__new__(cls)
-        self._codec = codec
         self._registry = DEFAULT_ABC_REGISTRY
         # Each container decoder recurses its children through this factory's
         # own ``element_from_dict`` so a nested container decodes exactly as a
@@ -93,8 +89,3 @@ class JsonElementFactory:
             msg = "Element missing or invalid 'kind' field"
             raise ValueError(msg)
         return self.decode(d)
-
-    @property
-    def codec(self) -> ElementCodec:
-        """Return the element codec this factory is constructed with."""
-        return self._codec

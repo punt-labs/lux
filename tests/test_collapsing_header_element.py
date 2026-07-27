@@ -31,11 +31,9 @@ from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.elements import (
     ButtonElement,
     CollapsingHeaderElement,
-    LegacyCollapsingHeaderElement,
     ProgressElement,
     TextElement,
 )
-from punt_lux.protocol.elements.container_abc_gate import ContainerAbcGate
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
 from punt_lux.protocol.messages import message_from_dict, message_to_dict
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
@@ -169,9 +167,6 @@ class TestLevel1Serialization:
 
 
 class TestForkGate:
-    def test_all_abc_header_is_abc(self) -> None:
-        assert ContainerAbcGate.is_all_abc(_abc_header().to_dict())
-
     def test_from_dict_rejects_non_abc_subtree(self) -> None:
         wire = {
             "kind": "collapsing_header",
@@ -422,15 +417,6 @@ class TestLevel5Introspection:
         assert props["open"] is True
         assert props["label"] == "Section"
         assert props["children"] == ["t1", "b1"]
-
-    def test_legacy_header_reports_legacy_render_path(self) -> None:
-        legacy = LegacyCollapsingHeaderElement(
-            id="ch",
-            label="S",
-            children=[TextElement(id="t1", content="x")],
-        )
-        resp = _inspect(_server(), legacy)
-        assert _record(resp, "ch")["render_path"] == "legacy"
 
 
 class TestEncoderFactoryGuard:

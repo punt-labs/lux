@@ -26,8 +26,7 @@ from punt_lux.domain.ids import ClientId, ElementId, SceneId
 from punt_lux.domain.interaction import ValueChanged
 from punt_lux.domain.validation_walk import ElementTreeValidator
 from punt_lux.protocol import SceneMessage
-from punt_lux.protocol.elements import InputNumberElement, build_element_codec
-from punt_lux.protocol.elements.container_abc_gate import ContainerAbcGate
+from punt_lux.protocol.elements import InputNumberElement
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
 from punt_lux.protocol.messages import message_from_dict, message_to_dict
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
@@ -137,13 +136,6 @@ class TestLevel1Serialization:
         encoded = JsonEncoderFactory().encode(InputNumberElement(id="in", label="N"))
         assert encoded["kind"] == "input_number"
         assert encoded["value"] == 0.0
-
-    def test_absent_from_legacy_codec_table(self) -> None:
-        # No dual live path: the migrated kind leaves the ``ElementCodec`` table.
-        # A still-legacy kind (``table``) stays the negative control.
-        kinds = build_element_codec().registered_kinds
-        assert "input_number" not in kinds
-        assert "table" in kinds
 
 
 # -- wire-boundary rejection (reject, do not silently coerce) ----------------
@@ -405,20 +397,6 @@ class TestPatchPath:
             n.apply_patch({"integer": True})
         assert n.integer is False
         assert n.format == "%.3f"
-
-
-# -- the all-ABC fork gate --------------------------------------------------
-
-
-class TestForkGate:
-    def test_input_number_is_a_migrated_abc_kind(self) -> None:
-        wire = {
-            "kind": "group",
-            "id": "g",
-            "layout": "rows",
-            "children": [{"kind": "input_number", "id": "in", "label": "N"}],
-        }
-        assert ContainerAbcGate.is_all_abc(wire)
 
 
 # -- Level 2: pickle scene wire ---------------------------------------------

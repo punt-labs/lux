@@ -34,7 +34,6 @@ from punt_lux.display.menu_manager import MenuManager
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.texture_cache import TextureCache
 from punt_lux.domain.display import Display
-from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.domain.ids import ClientId
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
@@ -229,7 +228,6 @@ class DisplayServer:
         # that path must fail loudly instead of silently dropping the publish.
         from punt_lux.display_client import no_op_emit
         from punt_lux.protocol.element_factory import JsonElementFactory
-        from punt_lux.protocol.elements import build_element_codec
         from punt_lux.protocol.elements.container_dispatch import (
             dispatch as _container_dispatch,
         )
@@ -242,7 +240,6 @@ class DisplayServer:
                 "Any",
                 RaisingPublishSink("DisplayServer._luxd_factory"),
             ),
-            codec=build_element_codec(),
         )
         _container_dispatch.install_from_dict(self._luxd_factory.element_from_dict)
         self._event_queue = []
@@ -853,17 +850,14 @@ class DisplayServer:
             self._auto_click_buttons(msg)
 
     def _wrap_abc_elements(self, msg: SceneMessage) -> None:
-        """Rebind the real factory and wrap handlers on received ABC elements.
+        """Rebind the real factory and wrap handlers on received elements.
 
-        Each top-level ABC element and its ``_children()`` ABC subtree get
-        the Display's ``ImGuiRendererFactory`` and ``remote_dispatch`` handler
-        wrapping. ABC nested in a legacy container is NOT reached (audit C3).
+        Each top-level element and its ``_children()`` subtree get the Display's
+        ``ImGuiRendererFactory`` and ``remote_dispatch`` handler wrapping.
         """
         for elem in msg.elements:
-            # ABC subtrees only, by design pending the migration-strategy decision.
-            if isinstance(elem, AbcElement):
-                elem.bind_renderer_factory(self._imgui_renderer_factory)
-                elem.wrap_handlers_for_remote(self._emit_event)
+            elem.bind_renderer_factory(self._imgui_renderer_factory)
+            elem.wrap_handlers_for_remote(self._emit_event)
 
     def _route_to_domain_display(self, msg: SceneMessage) -> None:
         """Mirror basics-only scenes through Display.apply (PR 1 dual-write)."""
@@ -1320,12 +1314,8 @@ class DisplayServer:
         """Paint one element through its ABC ``render()`` template.
 
         Every kind is an Element-ABC subclass, so painting is a single
-        ``render()`` call. A non-ABC element reaching the paint path is a
-        store-invariant violation and fails loud.
+        ``render()`` call.
         """
-        if not isinstance(elem, AbcElement):
-            msg = f"non-ABC element {elem.kind!r} reached the paint path"
-            raise TypeError(msg)
         elem.render()
 
     def _close_frame(self, frame_id: str, *, notify: bool = True) -> None:

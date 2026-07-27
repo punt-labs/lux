@@ -38,27 +38,27 @@ import io
 import struct
 import sys
 import zlib
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Final, Self
+from typing import Final, Self, cast
 
 from PIL import Image, UnidentifiedImageError
 
 from punt_lux.display_client import DisplayClient
+from punt_lux.domain.validation_walk import HasChildElements
 from punt_lux.protocol import Element
 from punt_lux.protocol.elements import (
     ButtonElement,
     CheckboxElement,
+    CollapsingHeaderElement,
     ColorPickerElement,
     ComboElement,
     DrawElement,
+    GroupElement,
     ImageElement,
     InputNumberElement,
     InputTextElement,
-    LegacyCollapsingHeaderElement,
-    LegacyGroupElement,
-    LegacyTabBarElement,
-    LegacyWindowElement,
     MarkdownElement,
     ModalElement,
     PlotElement,
@@ -68,9 +68,12 @@ from punt_lux.protocol.elements import (
     SeparatorElement,
     SliderElement,
     SpinnerElement,
+    Tab,
+    TabBarElement,
     TableElement,
     TextElement,
     TreeElement,
+    WindowElement,
 )
 from punt_lux.protocol.elements.draw_bounds import Radius
 from punt_lux.protocol.elements.draw_commands_curve import BezierCubic
@@ -81,6 +84,7 @@ from punt_lux.protocol.elements.draw_values import Color, Point2, Thickness
 from punt_lux.protocol.elements.plot_series import PlotSeries
 from punt_lux.protocol.elements.table_flags import TableFlags
 from punt_lux.protocol.elements.tree_node import TreeNode
+from punt_lux.protocol.elements.window_chrome import WindowPlacement
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,42 +168,20 @@ _EXPECTED_KINDS: Final = frozenset(
 # ---------------------------------------------------------------------------
 
 
-def _collect_kinds(elements: list[Element]) -> frozenset[str]:
-    """Walk every element (and its containers) and return the set of kinds.
+def _collect_kinds(elements: Iterable[Element]) -> frozenset[str]:
+    """Walk every element and its container children, returning the set of kinds.
 
-    Recurses into ``children`` (Group, CollapsingHeader, Window, Modal),
-    ``pages`` (Group with ``layout="paged"``), ``tabs[].children``
-    (TabBar), and ``nodes[].children`` (Tree).  ``DrawElement.commands``
-    are not separate elements — they're commands of the ``draw`` kind
-    and contribute only ``"draw"`` itself.
+    A container exposes its children through the ``HasChildElements`` protocol
+    (``child_elements()``): a group/header/window/modal returns its children, a
+    tab_bar flattens every tab's children. A tree's nodes are a typed value
+    family carrying no element kinds, so it contributes only ``"tree"``.
+    ``DrawElement.commands`` likewise contribute only ``"draw"``.
     """
     kinds: set[str] = set()
     for elem in elements:
         kinds.add(elem.kind)
-        if isinstance(
-            elem,
-            LegacyGroupElement
-            | LegacyCollapsingHeaderElement
-            | LegacyWindowElement
-            | ModalElement,
-        ):
-            kinds |= _collect_kinds(elem.children)
-        if isinstance(elem, LegacyGroupElement):
-            # LegacyGroupElement(layout="paged") puts indexed content panels in
-            # ``pages`` — recurse into every page so paged content counts
-            # toward coverage.
-            for page in elem.pages:
-                if isinstance(page, list):
-                    kinds |= _collect_kinds(page)
-        if isinstance(elem, LegacyTabBarElement):
-            for tab in elem.tabs:
-                # Wire boundary — LegacyTabBarElement.tabs holds raw dicts in the
-                # protocol; children inside each tab are Element instances.
-                tab_children = tab.get("children", [])
-                if isinstance(tab_children, list):
-                    kinds |= _collect_kinds(tab_children)
-        # A tree's nodes are a typed value family carrying no element kinds; the
-        # tree contributes only its own "tree" kind, added above.
+        if isinstance(elem, HasChildElements):
+            kinds |= _collect_kinds(cast("Iterable[Element]", elem.child_elements()))
     return frozenset(kinds)
 
 
@@ -586,21 +568,20 @@ class SmokeRunner:
                 content="Layout & Containers",
                 style="heading",
             ),
-            LegacyGroupElement(
-                id="layout-group", layout="rows", children=group_children
-            ),
-            LegacyCollapsingHeaderElement(
+            GroupElement(id="layout-group", layout="rows", children=group_children),
+            CollapsingHeaderElement(
                 id="layout-header",
                 label="Disclosure region",
-                default_open=True,
+                open=True,
                 children=header_children,
             ),
-            LegacyTabBarElement(
+            TabBarElement(
                 id="layout-tabs",
-                tabs=[
-                    {"label": "Tab A", "children": tab_a_children},
-                    {"label": "Tab B", "children": tab_b_children},
-                ],
+                tabs=(
+                    Tab(tab_id="tab-a", label="Tab A", children=tuple(tab_a_children)),
+                    Tab(tab_id="tab-b", label="Tab B", children=tuple(tab_b_children)),
+                ),
+                active_tab="tab-a",
             ),
             TreeElement(
                 id="layout-tree",
@@ -616,13 +597,10 @@ class SmokeRunner:
                     TreeNode(label="branch-2", children=(TreeNode(label="leaf-2a"),)),
                 ),
             ),
-            LegacyWindowElement(
+            WindowElement(
                 id="layout-window",
                 title="Sub-window",
-                x=80.0,
-                y=80.0,
-                width=320.0,
-                height=180.0,
+                placement=WindowPlacement(x=80.0, y=80.0, width=320.0, height=180.0),
                 children=window_children,
             ),
         ]

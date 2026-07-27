@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Any, Self, cast
 import pytest
 
 from punt_lux.protocol.element_factory import JsonElementFactory
-from punt_lux.protocol.elements import build_element_codec
 from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 
 if TYPE_CHECKING:
@@ -53,7 +52,6 @@ def _build_test_factory(sink: _TestRecordingSink | None = None) -> JsonElementFa
         renderer_factory=RaisingRendererFactory(),
         emit=_no_op_emit,
         publish_sink=cast("Any", sink or _TestRecordingSink()),
-        codec=build_element_codec(),
     )
 
 

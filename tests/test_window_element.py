@@ -27,12 +27,10 @@ from punt_lux.domain.validation_walk import ElementTreeValidator, HasChildElemen
 from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.elements import (
     ButtonElement,
-    LegacyWindowElement,
     ProgressElement,
     TextElement,
     WindowElement,
 )
-from punt_lux.protocol.elements.container_abc_gate import ContainerAbcGate
 from punt_lux.protocol.elements.window_chrome import WindowFlags, WindowPlacement
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
 from punt_lux.protocol.messages import message_from_dict, message_to_dict
@@ -147,9 +145,6 @@ class TestLevel1Serialization:
 
 
 class TestForkGate:
-    def test_all_abc_window_is_abc(self) -> None:
-        assert ContainerAbcGate.is_all_abc(_abc_window().to_dict())
-
     def test_from_dict_rejects_non_abc_subtree(self) -> None:
         wire = {
             "kind": "window",
@@ -382,13 +377,6 @@ class TestLevel5Introspection:
         assert props["width"] == 400
         assert props["flags"] == ["no_move"]
         assert props["children"] == ["t1", "b1"]
-
-    def test_legacy_window_reports_legacy_render_path(self) -> None:
-        legacy = LegacyWindowElement(
-            id="w", title="W", children=[TextElement(id="t1", content="x")]
-        )
-        resp = _inspect(_server(), legacy)
-        assert _record(resp, "w")["render_path"] == "legacy"
 
 
 class TestEncoderFactoryGuard:

@@ -29,13 +29,11 @@ from punt_lux.protocol.elements import (
     ButtonElement,
     CollapsingHeaderElement,
     GroupElement,
-    LegacyModalElement,
     ModalElement,
     ProgressElement,
     TextElement,
     WindowElement,
 )
-from punt_lux.protocol.elements.container_abc_gate import ContainerAbcGate
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
 from punt_lux.protocol.messages import message_from_dict, message_to_dict
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
@@ -143,9 +141,6 @@ class TestLevel1Serialization:
 
 
 class TestForkGate:
-    def test_all_abc_modal_is_abc(self) -> None:
-        assert ContainerAbcGate.is_all_abc(_abc_modal().to_dict())
-
     def test_from_dict_rejects_non_abc_subtree(self) -> None:
         wire = {
             "kind": "modal",
@@ -452,15 +447,6 @@ class TestLevel5Introspection:
         assert props["open"] is True
         assert props["title"] == "Confirm"
         assert props["children"] == ["t1", "b1"]
-
-    def test_legacy_modal_reports_legacy_render_path(self) -> None:
-        legacy = LegacyModalElement(
-            id="m",
-            title="T",
-            children=[TextElement(id="t1", content="x")],
-        )
-        resp = _inspect(_server(), legacy)
-        assert _record(resp, "m")["render_path"] == "legacy"
 
 
 class TestEncoderFactoryGuard:

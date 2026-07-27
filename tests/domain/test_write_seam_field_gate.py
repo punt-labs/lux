@@ -3,9 +3,9 @@
 A structural field carries child Elements, so replacing its value would install a
 new child set and evict the old one — work only ``show`` performs. Two seams must
 refuse it: the batch ``update`` path (:class:`HubSceneWriter`) and the D21 store
-primitive (:meth:`WriteSeam.set_property`). The legacy child-bearing fields are
-exactly ``{children, pages, tabs}``; ``tabs`` is the third, easy to miss because
-``LegacyTabBarElement`` names its children neither ``children`` nor ``pages``.
+primitive (:meth:`WriteSeam.set_property`). The child-bearing fields are exactly
+``{children, tabs}``; ``tabs`` is easy to miss because a ``tab_bar`` names its
+children neither ``children`` nor ``pages``.
 """
 
 from __future__ import annotations
@@ -14,11 +14,9 @@ import os
 import subprocess
 import sys
 import textwrap
-from typing import cast
 
 import pytest
 
-from punt_lux.domain.element import Element
 from punt_lux.domain.hub.deferral_errors import StructuralFieldWriteError
 from punt_lux.domain.hub.field_gate import FieldGate
 from punt_lux.domain.hub.hub_display import HubDisplay, UnknownElementError
@@ -27,8 +25,7 @@ from punt_lux.domain.hub.write_errors import ImmutableFieldError
 from punt_lux.domain.hub.write_result import WriteRejected
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.domain.update import AddElement
-from punt_lux.protocol.elements import Tab, TabBarElement
-from punt_lux.protocol.elements.layout import LegacyTabBarElement
+from punt_lux.protocol.elements import Tab, TabBarElement, TextElement
 
 _SCENE = SceneId("gate-scene")
 _CONN = ConnectionId("gate-conn")
@@ -75,37 +72,33 @@ def _assert_gate_names_field_under_adversarial_seed(
     assert result.returncode == 0, result.stderr
 
 
-def _seed_legacy_tab_bar() -> HubDisplay:
-    """Install a ``LegacyTabBarElement`` root whose tab holds a legacy child."""
+def _seed_tab_bar() -> HubDisplay:
+    """Install a ``TabBarElement`` root whose tab holds a child."""
     hub_display = HubDisplay()
     hub_display.register_client(_CONN)
-    bar = LegacyTabBarElement(
+    bar = TabBarElement(
         id=str(_TAB_BAR_ID),
-        tabs=[
-            {
-                "label": "One",
-                "children": [{"id": "old-child", "kind": "slider", "label": "s"}],
-            }
-        ],
+        tabs=(
+            Tab(
+                tab_id="tab-1",
+                label="One",
+                children=(TextElement(id="old-child", content="s"),),
+            ),
+        ),
+        active_tab="tab-1",
     )
-    # The production scene decoder yields legacy elements as ``Element``; the cast
-    # mirrors that runtime contract past a codec-signature variance quibble.
-    hub_display.apply(
-        _CONN,
-        AddElement(scene_id=_SCENE, element=cast("Element", bar), parent_id=None),
-    )
+    hub_display.apply(_CONN, AddElement(scene_id=_SCENE, element=bar, parent_id=None))
     return hub_display
 
 
-def test_update_set_tabs_on_legacy_tab_bar_is_rejected() -> None:
-    """A ``set`` of ``tabs`` on a legacy tab_bar root defers to ``show``.
+def test_update_set_tabs_is_rejected() -> None:
+    """A ``set`` of ``tabs`` on a tab_bar root defers to ``show``.
 
     Without ``tabs`` in the structural set the write would slip past the gate and
-    ``dataclasses.replace`` the root's tab list, rebinding only the root — the new
-    tab children never installed, the old never evicted. The gate refuses it whole,
-    leaving the stored root's tabs untouched.
+    rebind the root's tab list — the new tab children never installed, the old
+    never evicted. The gate refuses it whole, leaving the stored root untouched.
     """
-    hub_display = _seed_legacy_tab_bar()
+    hub_display = _seed_tab_bar()
     writer = HubSceneWriter(hub_display)
 
     result = writer.apply(
@@ -130,8 +123,9 @@ def test_update_set_tabs_on_legacy_tab_bar_is_rejected() -> None:
     assert "tabs" in result.reason
     assert "show" in result.reason
 
-    stored = cast("LegacyTabBarElement", hub_display.resolve(_SCENE, _TAB_BAR_ID))
-    assert stored.tabs[0]["label"] == "One"
+    stored = hub_display.resolve(_SCENE, _TAB_BAR_ID)
+    assert isinstance(stored, TabBarElement)
+    assert stored.tabs[0].label == "One"
     with pytest.raises(UnknownElementError):
         hub_display.resolve(_SCENE, ElementId("new-child"))
 
@@ -184,7 +178,7 @@ def test_reject_names_highest_precedence_structural_field() -> None:
     The adversarial-seed child makes the fixed precedence a guaranteed guard: a
     reintroduced set-iteration would name ``tabs`` under that seed, not ``children``.
     """
-    fields: dict[str, object] = {"tabs": [], "pages": [], "children": []}
+    fields: dict[str, object] = {"tabs": [], "children": []}
     with pytest.raises(StructuralFieldWriteError) as caught:
         FieldGate.reject(ElementId("x"), fields)
     assert caught.value.field == "children"
@@ -193,7 +187,7 @@ def test_reject_names_highest_precedence_structural_field() -> None:
         set_name="_STRUCTURAL_FIELDS",
         error_module="punt_lux.domain.hub.deferral_errors",
         error_name="StructuralFieldWriteError",
-        keys='{"tabs": [], "pages": [], "children": []}',
+        keys='{"tabs": [], "children": []}',
         expected="children",
     )
 

@@ -55,9 +55,6 @@ class ListSlot:
     def apply_set(self, fields: Mapping[str, Any]) -> Element:
         """Apply ``fields`` to the slotted element in place; return the result."""
         elem = self._parent[self._index]
-        if not isinstance(elem, ABCElement):
-            msg = "scene-root element is not a mutable ABC Element"
-            raise TypeError(msg)
         elem.apply_patch(fields)
         return elem
 
@@ -148,10 +145,9 @@ class SceneTreeWalk:
         for index, element in enumerate(elements):
             if getattr(element, "id", None) == target_id:
                 return ListSlot(elements, index)
-            if isinstance(element, ABCElement):
-                found = self._find_in_abc(element, target_id)
-                if found is not None:
-                    return found
+            found = self._find_in_abc(element, target_id)
+            if found is not None:
+                return found
         return None
 
     def _find_in_abc(self, element: ABCElement, target_id: str) -> AbcNode | None:

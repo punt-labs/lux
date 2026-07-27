@@ -10,12 +10,9 @@ running display's own ring buffers, so they proxy over luxd's one connection.
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Literal, Self, cast, final
+from typing import TYPE_CHECKING, Self, cast, final
 
-from punt_lux.domain.element_abc import Element as ElementABC
 from punt_lux.domain.ids import SceneId
-from punt_lux.domain.inspectable import Inspectable
-from punt_lux.domain.validation_walk import HasChildElements
 from punt_lux.operations.display_facts import DisplayFactProxy
 from punt_lux.operations.frame_grouping import FrameAccumulator
 from punt_lux.operations.models.common import OpError
@@ -28,7 +25,6 @@ from punt_lux.operations.models.query_inspection import (
     SceneInspection,
 )
 from punt_lux.operations.models.query_scenes import SceneList, SceneSummary
-from punt_lux.protocol.elements import element_to_dict
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.hub import Hub
@@ -157,27 +153,20 @@ class QueryOperations:
     # -- inspection tree ----------------------------------------------------
 
     def _inspect(self, element: WireElement) -> InspectedElement:
-        """Classify an element's render path and resolved state, then recurse."""
-        render_path: Literal["abc", "legacy"] = (
-            "abc" if isinstance(element, ElementABC) else "legacy"
-        )
-        props = (
-            element.resolved_props()
-            if isinstance(element, Inspectable)
-            else element_to_dict(element)
-        )
-        children = (
-            [
-                self._inspect(cast("WireElement", child))
-                for child in element.child_elements()
-            ]
-            if isinstance(element, HasChildElements)
-            else []
-        )
+        """Return an element's resolved state and recurse into its children.
+
+        Every kind is on the Element-ABC path, so ``render_path`` is always
+        ``"abc"`` and every element resolves its own props and exposes its
+        children.
+        """
+        children = [
+            self._inspect(cast("WireElement", child))
+            for child in element.child_elements()
+        ]
         return InspectedElement(
             id=element.id,
             kind=element.kind,
-            render_path=render_path,
-            resolved_props=dict(props),
+            render_path="abc",
+            resolved_props=dict(element.resolved_props()),
             children=children,
         )

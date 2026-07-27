@@ -16,16 +16,15 @@ import pytest
 
 from punt_lux.protocol.elements import (
     ButtonElement,
-    CheckboxElement,
-    ComboElement,
-    LegacyCollapsingHeaderElement,
-    LegacyGroupElement,
-    LegacyModalElement,
-    LegacyTabBarElement,
-    LegacyWindowElement,
+    CollapsingHeaderElement,
+    GroupElement,
+    ModalElement,
     SeparatorElement,
+    Tab,
+    TabBarElement,
     TextElement,
     TreeElement,
+    WindowElement,
 )
 from punt_lux.protocol.elements.tree_node import TreeNode
 
@@ -55,35 +54,26 @@ def manual_smoke() -> ModuleType:
     return mod
 
 
-def test_collect_kinds_paged_group(manual_smoke: ModuleType) -> None:
-    """Group(layout='paged', pages=[...]) must contribute every nested kind."""
-    pages: list[list[object]] = [
-        [TextElement(id="p1-text", content="page 1")],
-        [ButtonElement(id="p2-btn", label="page 2")],
-        [CheckboxElement(id="p3-check", label="page 3")],
-    ]
-    group = LegacyGroupElement(
-        id="paged",
-        layout="paged",
-        children=[ComboElement(id="picker", label="page", items=["a", "b"])],
-        pages=pages,
-        page_source="picker",
-    )
-    kinds = manual_smoke._collect_kinds([group])
-    # Group itself, combo from children, plus every kind from each page.
-    assert kinds == frozenset({"group", "combo", "text", "button", "checkbox"})
-
-
 def test_collect_kinds_recurses_into_containers(manual_smoke: ModuleType) -> None:
     """Group/CollapsingHeader/Window/Modal children must be walked."""
-    inner = [
+    inner = (
         TextElement(id="inner-text", content="x"),
         SeparatorElement(id="inner-sep"),
-    ]
-    group = LegacyGroupElement(id="g", layout="rows", children=inner)
-    header = LegacyCollapsingHeaderElement(id="h", children=inner)
-    window = LegacyWindowElement(id="w", children=inner)
-    modal = LegacyModalElement(id="m", children=inner)
+    )
+    group = GroupElement(id="g", layout="rows", children=inner)
+    header = CollapsingHeaderElement(id="h", label="H", children=inner)
+    window = WindowElement(id="w", children=inner)
+    # A modal installs its body via the decoder seam, not the constructor.
+    modal = ModalElement.from_dict(
+        {
+            "kind": "modal",
+            "id": "m",
+            "children": [
+                {"kind": "text", "id": "m-text", "content": "x"},
+                {"kind": "separator", "id": "m-sep"},
+            ],
+        }
+    )
     kinds = manual_smoke._collect_kinds([group, header, window, modal])
     assert kinds == frozenset(
         {"group", "collapsing_header", "window", "modal", "text", "separator"}
@@ -91,12 +81,15 @@ def test_collect_kinds_recurses_into_containers(manual_smoke: ModuleType) -> Non
 
 
 def test_collect_kinds_recurses_into_tabs(manual_smoke: ModuleType) -> None:
-    """LegacyTabBarElement.tabs[*].children must be walked."""
-    tabs: list[dict[str, object]] = [
-        {"label": "a", "children": [ButtonElement(id="b", label="x")]},
-        {"label": "b", "children": [SeparatorElement(id="s")]},
-    ]
-    tabbar = LegacyTabBarElement(id="t", tabs=tabs)
+    """A tab_bar's every-tab children must be walked."""
+    tabbar = TabBarElement(
+        id="t",
+        tabs=(
+            Tab(tab_id="a", label="a", children=(ButtonElement(id="b", label="x"),)),
+            Tab(tab_id="b", label="b", children=(SeparatorElement(id="s"),)),
+        ),
+        active_tab="a",
+    )
     kinds = manual_smoke._collect_kinds([tabbar])
     assert kinds == frozenset({"tab_bar", "button", "separator"})
 

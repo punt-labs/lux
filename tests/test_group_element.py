@@ -23,7 +23,6 @@ from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.elements import (
     ButtonElement,
     GroupElement,
-    LegacyGroupElement,
     TextElement,
 )
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
@@ -320,12 +319,6 @@ class TestLevel5Introspection:
         assert isinstance(props, dict)
         assert props["layout"] == "columns"
         assert props["children"] == ["t1", "b1"]
-
-    def test_mixed_group_reports_legacy_render_path(self) -> None:
-        child = TextElement(id="t1", content="x")
-        legacy_group = LegacyGroupElement(id="g1", children=[child])
-        resp = _inspect(_server(), legacy_group)
-        assert _record(resp, "g1")["render_path"] == "legacy"
 
 
 # -- scene-inspection recursion (unit) --------------------------------------

@@ -121,8 +121,7 @@ class InProcessLoop:
         # renders, so re-bind the fail-loud sentinel to make "no render call"
         # a proven property — an accidental render() raises rather than passes.
         for elem in replica.elements:
-            if isinstance(elem, AbcElement):
-                elem.bind_renderer_factory(RaisingRendererFactory())
+            elem.bind_renderer_factory(RaisingRendererFactory())
         self._server._scene_manager.handle_framed_scene(replica, _RIG_OWNER_FD)
         self._server._route_to_domain_display(replica)
         # Render would set this before any click; the rig sets it so a

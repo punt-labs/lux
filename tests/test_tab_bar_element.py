@@ -31,13 +31,11 @@ from punt_lux.domain.validation_walk import ElementTreeValidator, HasChildElemen
 from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.elements import (
     ButtonElement,
-    LegacyTabBarElement,
     ProgressElement,
     Tab,
     TabBarElement,
     TextElement,
 )
-from punt_lux.protocol.elements.container_abc_gate import ContainerAbcGate
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
 from punt_lux.protocol.messages import message_from_dict, message_to_dict
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
@@ -201,9 +199,6 @@ class TestLevel1Serialization:
 
 
 class TestForkGate:
-    def test_all_abc_tab_bar_is_abc(self) -> None:
-        assert ContainerAbcGate.is_all_abc(_abc_tab_bar().to_dict())
-
     def test_from_dict_rejects_non_abc_subtree(self) -> None:
         wire = {
             "kind": "tab_bar",
@@ -217,14 +212,6 @@ class TestForkGate:
         }
         with pytest.raises(ValueError, match="paged"):
             TabBarElement.from_dict(wire)
-
-    def test_non_mapping_tab_surfaces_as_non_abc(self) -> None:
-        # A malformed tab entry must not be silently dropped: the gate has to
-        # report it as non-ABC so decode raises rather than treating the subtree
-        # as fully migrated.
-        wire = {"kind": "tab_bar", "id": "tb", "tabs": ["not-a-tab"]}
-        assert ContainerAbcGate.first_non_abc_kind(wire) is not None
-        assert not ContainerAbcGate.is_all_abc(wire)
 
 
 # -- malformed-wire rejection (reject, do not silently empty) ----------------
@@ -838,14 +825,6 @@ class TestLevel5Introspection:
         tabs = props["tabs"]
         assert isinstance(tabs, list)
         assert [t["tab_id"] for t in tabs] == ["tab-1", "tab-2"]
-
-    def test_legacy_tab_bar_reports_legacy_render_path(self) -> None:
-        legacy = LegacyTabBarElement(
-            id="tb",
-            tabs=[{"label": "One", "children": [TextElement(id="t1", content="x")]}],
-        )
-        resp = _inspect(_server(), legacy)
-        assert _record(resp, "tb")["render_path"] == "legacy"
 
 
 class TestEncoderFactoryGuard:
