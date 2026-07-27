@@ -724,3 +724,5 @@
 {"ts":"2026-07-27T00:37:34Z","commit":"bb2478d","files_scored":377,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
 {"ts":"2026-07-27T00:46:54Z","commit":"b8d1276","files_scored":378,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
 {"ts":"2026-07-27T00:53:17Z","commit":"774af76","files_scored":378,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
+{"ts":"2026-07-27T02:38:23Z","commit":"c1a77b8","files_scored":378,"files_improved":1,"files_regressed":2,"verdict":"fail","deltas":{"src/punt_lux/protocol/elements/group.py":{"avg_complexity":[1.22,1.11],"module_size":[121.0,109.0]}}}
+{"ts":"2026-07-27T02:39:12Z","commit":"c1a77b8","files_scored":378,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
