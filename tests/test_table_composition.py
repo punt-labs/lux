@@ -160,6 +160,11 @@ class TestHubSideFiltering:
         assert isinstance(group, GroupElement)
         return group
 
+    def test_search_input_is_the_autofocus_target(self) -> None:
+        # PR #283 polish: the composed search is the keyboard-focus target so the
+        # user can type immediately; other scenes' inputs stay autofocus=False.
+        assert _search(self._explorer()).autofocus is True
+
     def test_search_filters_hub_side(self) -> None:
         group = self._explorer()
         _change(_search(group), "c")

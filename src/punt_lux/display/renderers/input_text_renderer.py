@@ -16,6 +16,7 @@ from punt_lux.display.renderers.imgui.continuous_edit_accessors import StrValueA
 from punt_lux.display.renderers.imgui.continuous_edit_selection import (
     ContinuousEditArbiter,
 )
+from punt_lux.display.renderers.imgui.search_focus_arbiter import SearchFocusArbiter
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
 from punt_lux.domain.interaction import ValueChanged
 from punt_lux.protocol.elements.input_text import InputTextElement
@@ -56,6 +57,7 @@ class InputTextRenderer:
     @trace
     def render(self, elem: InputTextElement) -> None:
         arbiter = ContinuousEditArbiter(self._widget_state, elem.id, _ACCESSOR)
+        focus = self._arm_focus(elem)
         label = f"{elem.label}##{elem.id}"
         changed, text = imgui.input_text_with_hint(
             label, elem.hint, arbiter.resolve(elem.value)
@@ -74,3 +76,31 @@ class InputTextRenderer:
                 )
             )
             arbiter.commit(text, elem.value)
+            if focus is not None and self._enter_committed():
+                focus.arm_refocus()  # return focus here after the user's Enter
+
+    def _arm_focus(self, elem: InputTextElement) -> SearchFocusArbiter | None:
+        """Steal keyboard focus for an autofocus input when armed; else no-op.
+
+        Returns the arbiter (so ``render`` can re-arm after an enter-commit) for an
+        autofocus input, or ``None`` for an ordinary input that never grabs focus.
+        ``set_keyboard_focus_here`` targets the *next* widget, so it must run before
+        the ``input_text`` call.
+        """
+        if not elem.autofocus:
+            return None
+        focus = SearchFocusArbiter(self._widget_state, elem.id)
+        if focus.should_focus():
+            imgui.set_keyboard_focus_here()
+            focus.record_focused()
+        return focus
+
+    @staticmethod
+    def _enter_committed() -> bool:
+        """Return whether the just-ended edit was committed by an Enter key.
+
+        Distinguishes an Enter-commit (refocus the search) from a blur-commit
+        (the user clicked away — do not yank focus back)."""
+        return imgui.is_key_pressed(imgui.Key.enter) or imgui.is_key_pressed(
+            imgui.Key.keypad_enter
+        )

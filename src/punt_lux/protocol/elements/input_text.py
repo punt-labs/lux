@@ -53,6 +53,7 @@ class InputTextElement(Element):
     _value: str
     _hint: str
     _tooltip: str | None
+    _autofocus: bool
     _kind: Literal["input_text"]
 
     def __new__(
@@ -65,6 +66,7 @@ class InputTextElement(Element):
         value: str = "",
         hint: str = "",
         tooltip: str | None = None,
+        autofocus: bool = False,
     ) -> Self:
         self = super().__new__(cls, renderer_factory=renderer_factory, emit=emit)
         self._id = id
@@ -72,6 +74,7 @@ class InputTextElement(Element):
         self._value = value
         self._hint = hint
         self._tooltip = tooltip
+        self._autofocus = autofocus
         self._kind = "input_text"
         return self
 
@@ -106,6 +109,17 @@ class InputTextElement(Element):
     def action(self) -> Literal["changed"]:
         """Return the input action name — always ``"changed"``."""
         return "changed"
+
+    @property
+    def autofocus(self) -> bool:
+        """Return whether this input claims keyboard focus on its scene's arrival.
+
+        A declarative render hint (like HTML ``autofocus``): a composed table sets
+        it on its search box so focus starts there and returns after an
+        enter-commit. The actual focus tracking is ephemeral Display state
+        (``SearchFocusArbiter`` over ``WidgetState``), never re-pushed.
+        """
+        return self._autofocus
 
     @property
     def tooltip(self) -> str | None:
@@ -167,4 +181,5 @@ class InputTextElement(Element):
             "value": self._value,
             "hint": self._hint,
             "tooltip": self._tooltip,
+            "autofocus": self._autofocus,
         }

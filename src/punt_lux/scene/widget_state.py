@@ -53,6 +53,15 @@ class WidgetState:
     ROW_SELECTION_PENDING_SUFFIX: ClassVar[str] = ":row_selection_pending"
     ROW_SELECTION_HONOURED_SUFFIX: ClassVar[str] = ":row_selection_honoured"
 
+    # Suffixes of an autofocus input's keyboard-focus slots, owned by the display's
+    # ``SearchFocusArbiter``. Durable across a re-push (off ``_SESSION_SUFFIXES``) so
+    # a scene the poller replaces every few seconds keeps focus where the user left
+    # it: seen = the scene has focused this input once (focus-once at first arrival,
+    # never re-stolen on a resend); refocus = a return-to-focus armed by the input's
+    # own enter-commit, consumed the next frame.
+    FOCUS_SEEN_SUFFIX: ClassVar[str] = ":focus_seen"
+    FOCUS_REFOCUS_SUFFIX: ClassVar[str] = ":focus_refocus"
+
     _state: dict[str, Any]
 
     def __new__(cls) -> Self:
@@ -153,6 +162,8 @@ class WidgetState:
         self.discard(f"{element_id}{self.CONTINUOUS_EDIT_COMMIT_HUB_SUFFIX}")
         self.discard(f"{element_id}{self.ROW_SELECTION_PENDING_SUFFIX}")
         self.discard(f"{element_id}{self.ROW_SELECTION_HONOURED_SUFFIX}")
+        self.discard(f"{element_id}{self.FOCUS_SEEN_SUFFIX}")
+        self.discard(f"{element_id}{self.FOCUS_REFOCUS_SUFFIX}")
 
     def reset_honoured(self) -> None:
         """Discard every tab-bar suppression slot, keeping durable user state.

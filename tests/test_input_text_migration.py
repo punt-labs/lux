@@ -75,6 +75,17 @@ class TestLevel1Serialization:
         assert isinstance(restored, InputTextElement)
         assert restored.tooltip is None
 
+    def test_autofocus_round_trips(self) -> None:
+        elem = InputTextElement(id="it", label="N", autofocus=True)
+        restored = _decode(elem.to_dict())
+        assert isinstance(restored, InputTextElement)
+        assert restored.autofocus is True
+
+    def test_autofocus_defaults_to_false(self) -> None:
+        restored = _decode(InputTextElement(id="it", label="N").to_dict())
+        assert isinstance(restored, InputTextElement)
+        assert restored.autofocus is False
+
     def test_encoder_factory_encodes_without_raising(self) -> None:
         encoded = JsonEncoderFactory().encode(
             InputTextElement(id="it", label="N", value="v")

@@ -221,6 +221,7 @@ class TableComposition:
             id=f"{table_id}-search",
             label=str(filt.get("label", "Search")),
             hint=str(filt.get("hint", "")),
+            autofocus=True,  # the search is the composition's keyboard-focus target
         )
         search.add_handler(ValueChanged, ApplyPatchOnChange(search, field="value"))
         search.add_handler(ValueChanged, SearchFilterHandler(model))
