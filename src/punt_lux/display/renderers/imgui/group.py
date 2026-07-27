@@ -7,9 +7,8 @@ through the default recursion, and ``end`` closes the matching surface.
 ``paint`` is a no-op — a container's only body is its children, exactly as
 ``ImGuiDialogRenderer.paint`` is a no-op.
 
-An ABC ``GroupElement``'s ``layout`` is ``Literal["rows", "columns"]`` —
-``paged`` lives entirely on the legacy path — so ``rows`` and its
-complement are the only two cases this adapter ever sees.
+A ``GroupElement``'s ``layout`` is ``Literal["rows", "columns"]``, so ``rows``
+and its complement are the only two cases this adapter ever sees.
 """
 
 from __future__ import annotations
