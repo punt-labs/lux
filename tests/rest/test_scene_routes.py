@@ -9,6 +9,7 @@ from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.ids import ElementId, SceneId
 from punt_lux.domain.interaction import ValueChanged
+from punt_lux.operations import RenderTableRequest
 from punt_lux.operations.display_reply import DisplayReplied
 from punt_lux.protocol.compositions import TableComposition, TableCompositionSpec
 
@@ -269,6 +270,42 @@ def test_replacing_a_composed_scene_does_not_leak_the_old_model() -> None:
     client.put("/scenes/issues/table", json=_TABLE_BODY)  # replace with fresh build
     gc.collect()
     assert ref() is None, "the replaced table (and its observer cycle) leaked"
+
+
+def test_beads_board_request_installs_live_chrome_through_the_table_route() -> None:
+    # `lux show beads` builds a RenderTableRequest; through the /table route the
+    # Hub CONSTRUCTS the composition, so the beads board's search box, status/type
+    # combos, and detail are live — the fix for the dead-chrome defect where the
+    # generic render route decoded a pre-composed tree with built-in handlers only.
+    from punt_lux.apps.beads_board import BeadsBoard
+
+    issues = [
+        {
+            "id": "b-1",
+            "title": "one",
+            "status": "open",
+            "priority": 1,
+            "issue_type": "bug",
+            "description": "d",
+            "owner": "a",
+            "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-02T00:00:00Z",
+        }
+    ]
+    request = BeadsBoard("beads-cli-proj", "Beads: proj").request((issues, None))
+    assert isinstance(request, RenderTableRequest)  # issues yield a table, not text
+    store = HubDisplay()
+    client = make_client(store=store)
+    resp = client.put("/scenes/beads-cli-proj/table", json=request.model_dump())
+    assert resp.status_code == 200
+    scene = SceneId("beads-cli-proj")
+    # The composed chrome is present as real elements, not a lone dead table.
+    for element_id in ("table-search", "table", "table-detail"):
+        assert store.resolve(scene, ElementId(element_id)) is not None
+    search = cast("AbcElement", store.resolve(scene, ElementId("table-search")))
+    # The search input carries the composition's live SearchFilterHandler on top
+    # of its built-in value mirror — two ValueChanged handlers, live chrome.
+    assert search.handler_count(ValueChanged) == 2
 
 
 def test_render_table_route_rejects_a_body_scene_id_that_differs() -> None:
