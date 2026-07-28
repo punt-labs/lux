@@ -18,14 +18,17 @@ class _FakeSocket:
     ``eagain_before`` would-blocks precede real progress; each accepting ``send``
     takes at most ``chunk`` bytes so partial-write resumption is exercised.
     ``block_after`` (set for the torn-stream case) would-blocks forever once that
-    many bytes have been accepted. A ``fail_with`` error is raised instead.
+    many bytes have been accepted. ``returns_zero`` accepts nothing (a broken
+    stream socket). A ``fail_with`` error is raised instead. ``calls`` counts sends.
     """
 
     _eagain_left: int
     _chunk: int
     _block_after: int | None
+    _returns_zero: bool
     _fail_with: OSError | None
     sent: bytearray
+    calls: int
 
     def __new__(
         cls,
@@ -33,19 +36,25 @@ class _FakeSocket:
         eagain_before: int = 0,
         chunk: int = 1 << 30,
         block_after: int | None = None,
+        returns_zero: bool = False,
         fail_with: OSError | None = None,
     ) -> _FakeSocket:
         self = super().__new__(cls)
         self._eagain_left = eagain_before
         self._chunk = chunk
         self._block_after = block_after
+        self._returns_zero = returns_zero
         self._fail_with = fail_with
         self.sent = bytearray()
+        self.calls = 0
         return self
 
     def send(self, data: memoryview) -> int:
+        self.calls += 1
         if self._fail_with is not None:
             raise self._fail_with
+        if self._returns_zero:
+            return 0
         if self._eagain_left > 0:
             self._eagain_left -= 1
             raise BlockingIOError(errno.EAGAIN, "resource temporarily unavailable")
@@ -131,3 +140,13 @@ class TestDeadPeer:
             BoundedSend().send(
                 cast("socket.socket", sock), b"payload", time.monotonic() + 1.0
             )
+
+    def test_zero_byte_send_raises_without_spinning(self) -> None:
+        # A stream socket that accepts 0 bytes is broken: without this the loop
+        # would tight-spin forever (offset never advances). It must raise at once.
+        sock = _FakeSocket(returns_zero=True)
+        with pytest.raises(OSError, match="zero bytes"):
+            BoundedSend().send(
+                cast("socket.socket", sock), b"payload", time.monotonic() + 1.0
+            )
+        assert sock.calls == 1  # raised on the first send, never looped

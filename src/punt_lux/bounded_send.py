@@ -65,19 +65,25 @@ class BoundedSend:
         would-block resumes cleanly. On the deadline: an untouched frame
         (``offset == 0``) re-raises ``BlockingIOError`` for the caller to defer; a
         partial frame raises ``TornStreamError`` because the stream is unusable.
-        A dead-peer ``OSError`` propagates.
+        A ``send`` that accepts zero bytes is a broken stream (looping would spin
+        forever) and raises ``OSError``; a dead-peer ``OSError`` propagates.
         """
         view = memoryview(data)
         offset = 0
         while offset < len(view):
             try:
-                offset += sock.send(view[offset:])
+                sent = sock.send(view[offset:])
             except BlockingIOError:
-                if not self._wait_writable(sock, deadline):
-                    if offset > 0:
-                        msg = "send deadline hit after a partial write; stream torn"
-                        raise TornStreamError(msg) from None
-                    raise
+                if self._wait_writable(sock, deadline):
+                    continue
+                if offset > 0:
+                    msg = "send deadline hit after a partial write; stream torn"
+                    raise TornStreamError(msg) from None
+                raise
+            if sent == 0:
+                msg = "socket accepted zero bytes; stream is dead"
+                raise OSError(msg)
+            offset += sent
 
     @staticmethod
     def _wait_writable(sock: socket.socket, deadline: float) -> bool:
