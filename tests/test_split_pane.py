@@ -19,6 +19,7 @@ drag itself is a Level-6 visual check.
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING, Self, cast
 from unittest.mock import MagicMock
 
@@ -64,16 +65,43 @@ class TestSplitRatioStore:
         # re-push rebuilds the arbiter but keeps the WidgetState, so the drag holds.
         assert SplitRatioStore(state, "sp").ratio(0.6) == pytest.approx(0.42)
 
-    def test_ratio_is_clamped_into_the_guard_band(self) -> None:
+    def test_ratio_is_clamped_only_off_the_degenerate_edges(self) -> None:
+        # The store's job is to reject 0/1 garbage, not impose layout policy; the
+        # renderer's per-frame pixel floors are the real clamp. So the band is
+        # degenerate: 1.0 -> 0.99, 0.0 -> 0.01, and everything strictly between is
+        # left untouched.
         store = SplitRatioStore(WidgetState(), "sp")
-        store.set_ratio(0.99)
-        assert store.ratio(0.6) == 0.9  # capped
-        store.set_ratio(0.01)
-        assert store.ratio(0.6) == 0.1  # floored
+        store.set_ratio(1.0)
+        assert store.ratio(0.6) == 0.99  # capped off the top edge
+        store.set_ratio(0.0)
+        assert store.ratio(0.6) == 0.01  # floored off the bottom edge
 
-    def test_an_out_of_band_default_is_also_clamped(self) -> None:
+    def test_pixel_floor_fraction_on_a_tall_pane_survives_unclamped(self) -> None:
+        # Regression: on a tall pane the renderer's floor (a few grid rows) sits at
+        # a fraction well below the old [0.1, 0.9] band, so a drag to the extreme
+        # snapped back on release when the store reclamped. The degenerate band
+        # must pass such a fraction through untouched, so the drag holds.
+        state = WidgetState()
+        floor_fraction = 0.03  # e.g. 64px of grid in a ~2000px pane
+        SplitRatioStore(state, "sp").set_ratio(floor_fraction)
+        assert SplitRatioStore(state, "sp").ratio(0.6) == pytest.approx(floor_fraction)
+        SplitRatioStore(state, "sp").set_ratio(0.97)  # symmetric detail-floor case
+        assert SplitRatioStore(state, "sp").ratio(0.6) == pytest.approx(0.97)
+
+    def test_non_finite_is_rejected_as_garbage(self) -> None:
+        # NaN/inf never come from the renderer (top+bottom > 0 is guarded), but a
+        # corrupt slot or a bad caller must not poison the split: set is ignored,
+        # and a corrupted stored NaN reads back as the default.
+        store = SplitRatioStore(WidgetState(), "sp")
+        store.set_ratio(0.4)
+        store.set_ratio(math.nan)  # ignored — the good value stands
+        assert store.ratio(0.6) == pytest.approx(0.4)
+        store.set_ratio(math.inf)  # ignored too
+        assert store.ratio(0.6) == pytest.approx(0.4)
+
+    def test_an_out_of_band_default_is_confined(self) -> None:
         # A corrupt or extreme default can never collapse a pane on first render.
-        assert SplitRatioStore(WidgetState(), "sp").ratio(2.0) == 0.9
+        assert SplitRatioStore(WidgetState(), "sp").ratio(2.0) == 0.99
 
     def test_panes_are_isolated_per_scene(self) -> None:
         # Two scenes each keep their own divider; a drag in one never moves the
