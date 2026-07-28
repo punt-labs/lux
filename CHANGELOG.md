@@ -119,6 +119,17 @@
 
 ### Fixed
 
+- **Display clicks survive a Hub connection drop.** The display no longer
+  severs its one client on a transient would-block send (a slow-but-alive peer
+  defers; only a dead peer disconnects), interactions are held in a short
+  bounded buffer across a dropout and delivered in order on reconnect, and
+  luxd runs a keepalive that detects a dead display connection within seconds
+  instead of waiting for the next scene push. Previously one full socket
+  buffer during a busy frame silently killed row selection and every other
+  interaction for minutes. The buffer bound is derived from the keepalive
+  constants so a tuning change cannot silently break the coverage; an
+  interaction that still ages out is compensated (a modal reopens, an
+  optimistic row selection clears) so the two tiers never silently diverge.
 - **The beads board's search, filters, and detail pane work again.** `lux show
   beads` (and the Hub-menu beads item) built the table chrome client-side and
   pushed it through the generic render route, whose wire decode cannot carry
