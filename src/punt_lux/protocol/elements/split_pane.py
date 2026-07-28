@@ -25,6 +25,8 @@ from punt_lux.protocol.elements.group import GroupElement
 from punt_lux.protocol.renderer import Renderer
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from punt_lux.domain.element_abc import Element
     from punt_lux.protocol.renderer import Emit, RendererFactory
 
@@ -79,6 +81,24 @@ class SplitPaneElement(GroupElement):
     def default_ratio(self) -> float:
         """Return the initial top-height fraction, before any user drag."""
         return self._default_ratio
+
+    @classmethod
+    def from_dict(cls, d: Mapping[str, object]) -> Self:
+        """Reject wire decode — a split pane is server-constructed, never decoded.
+
+        The pane emits ``kind="group"`` and its JSON decodes as a plain rows
+        ``GroupElement`` through the registry — the documented one-way degradation
+        (see the module docstring). The inherited ``GroupElement.from_dict`` would
+        call ``cls(id=, layout=, children=, tooltip=)``, keywords this ``__new__``
+        does not accept, raising a confusing ``TypeError``; refuse explicitly.
+        """
+        _ = d
+        msg = (
+            "SplitPaneElement is server-constructed and has no wire decode: its "
+            "JSON emits kind='group' and decodes as a plain rows GroupElement "
+            "through the element registry"
+        )
+        raise ValueError(msg)
 
     def _render_children(self, renderer: Renderer) -> None:
         """Render the top pane, draw the divider, then render the bottom pane.

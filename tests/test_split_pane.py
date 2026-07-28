@@ -29,6 +29,8 @@ from imgui_bundle import imgui
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.renderers.imgui.split_pane import ImGuiSplitPaneRenderer
 from punt_lux.display.renderers.imgui.split_ratio_store import SplitRatioStore
+from punt_lux.protocol.element_factory import JsonElementFactory
+from punt_lux.protocol.elements.group import GroupElement
 from punt_lux.protocol.elements.split_pane import SplitPaneElement, SplitPaneRenderer
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.renderer import Renderer
@@ -267,6 +269,30 @@ class TestRenderOrder:
         assert split.children == ()
         split._render_children(_PlainRenderer())
         assert rec.events == []
+
+
+# -- wire decode: the one-way degradation to a plain group ------------------
+
+
+class TestWireDecode:
+    def test_from_dict_rejects_the_server_constructed_split(self) -> None:
+        # SplitPaneElement inherits GroupElement's encoder but not its __new__
+        # signature, so the inherited from_dict would raise a confusing TypeError.
+        # The override refuses explicitly, naming the degradation contract.
+        with pytest.raises(ValueError, match="server-constructed and has no wire"):
+            SplitPaneElement.from_dict(_split().to_dict())
+
+    def test_emitted_json_decodes_as_a_plain_group(
+        self, element_factory: JsonElementFactory
+    ) -> None:
+        # The pane emits kind="group"; the registry decodes that JSON to a plain
+        # rows GroupElement — the documented one-way degradation. Production decode
+        # takes this path and never touches the rejected SplitPaneElement.from_dict.
+        decoded = element_factory.element_from_dict(_split().to_dict())
+        assert type(decoded) is GroupElement
+        assert decoded.kind == "group"
+        assert decoded.layout == "rows"
+        assert [child.id for child in decoded.children] == ["grid", "detail"]
 
 
 # -- geometry relationship (fake layout) -----------------------------------

@@ -751,3 +751,5 @@
 {"ts":"2026-07-28T04:29:46Z","commit":"4103274","files_scored":379,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
 {"ts":"2026-07-28T05:40:30Z","commit":"0ff2d93","files_scored":379,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
 {"ts":"2026-07-28T05:48:40Z","commit":"78e71f5","files_scored":379,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
+{"ts":"2026-07-28T06:32:37Z","commit":"14e9bac","files_scored":379,"files_improved":0,"files_regressed":1,"verdict":"fail","deltas":{}}
+{"ts":"2026-07-28T06:37:54Z","commit":"14e9bac","files_scored":379,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
