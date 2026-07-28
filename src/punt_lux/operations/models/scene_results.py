@@ -19,7 +19,7 @@ class SceneShown(BaseModel):
 
 
 class Cleared(BaseModel):
-    """Every scene the caller owned was removed and the display blanked."""
+    """The caller's scenes — all, or the one named — were removed and blanked."""
 
     model_config = ConfigDict(frozen=True)
 

@@ -121,9 +121,9 @@ def test_inspect_scene_tool_carries_z_order_geometry(
             element_factory=hub_element_factory,
             ensure_writer=ensure_writer,
             next_event=next_event,
-        ),
-        display_port=HubDisplayConnection(
-            is_running=lambda: True, clients=client_registry
+            display_port=HubDisplayConnection(
+                is_running=lambda: True, clients=client_registry
+            ),
         ),
     )
     monkeypatch.setattr("punt_lux.tools.tools.OPERATIONS", ops)

@@ -250,11 +250,16 @@ class ToolExerciser:
         """Build the Hub ports for a replay, stubbing the inbox for recv scenarios."""
         inbox_event = setup.get("inbox_event")
         inbox_empty = setup.get("inbox_empty")
+        display_port = HubDisplayConnection(
+            is_running=lambda: DisplayPaths().is_running(),
+            clients=client_registry,
+        )
         if inbox_event is None and not inbox_empty:
             return HubPorts(
                 element_factory=hub_element_factory,
                 ensure_writer=ensure_writer,
                 next_event=next_event,
+                display_port=display_port,
             )
         message = cls._inbox_message(inbox_event) if inbox_event is not None else None
 
@@ -270,6 +275,7 @@ class ToolExerciser:
             element_factory=hub_element_factory,
             ensure_writer=_no_writer,
             next_event=_stub_next,
+            display_port=display_port,
         )
 
     @staticmethod
@@ -315,10 +321,6 @@ class ToolExerciser:
             client_registry=client_registry,
             menu_registry=HubMenuRegistry(),
             ports=cls._hub_ports(setup),
-            display_port=HubDisplayConnection(
-                is_running=lambda: DisplayPaths().is_running(),
-                clients=client_registry,
-            ),
         )
         # All tools resolve the DisplayClient through the Hub-side
         # ClientRegistry singleton in ``punt_lux.domain.hub``. Patching

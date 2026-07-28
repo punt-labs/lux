@@ -1,0 +1,16 @@
+{
+  "inputs": [
+    [
+      "scene_id",
+      "s1"
+    ]
+  ],
+  "response": "cleared",
+  "setup": {
+    "client": {
+      "clear": {}
+    },
+    "display_running": true
+  },
+  "tool": "clear_scene"
+}

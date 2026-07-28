@@ -195,9 +195,55 @@ def test_update_rejects_an_unknown_element_and_leaves_the_store_untouched() -> N
     assert store.resolve(SceneId("s1"), ElementId("hdr")).id == "hdr"
 
 
-def test_clear_empties_the_scene_and_marks_cleared() -> None:
+def test_clear_empties_every_owned_scene_and_marks_each_dirty() -> None:
+    # No-arg clear empties all the caller's scenes and marks each one dirty so the
+    # replicator blanks it into its own frame — never a global mark_cleared, which
+    # would blank the whole display while the Hub still held other owners' scenes.
     store, recorder = HubDisplay(), _Recorder()
     _seed_header(store)
+    store.replace_scene(
+        ConnectionId("local"),
+        SceneId("s2"),
+        [CollapsingHeaderElement(id="hdr2", label="More", open=False)],
+    )
     _ops(store, recorder).clear(scope=_LOCAL)
     assert store.scene_roots(SceneId("s1")) == []
-    assert recorder.cleared == 1
+    assert store.scene_roots(SceneId("s2")) == []
+    assert set(recorder.dirtied) == {SceneId("s1"), SceneId("s2")}
+    assert recorder.cleared == 0
+
+
+def test_scene_scoped_clear_empties_only_the_named_scene() -> None:
+    # clear(scene_id="s1") removes only that scene's roots and dirties only it; the
+    # caller's other scene stays installed and is never marked for a blank.
+    store, recorder = HubDisplay(), _Recorder()
+    _seed_header(store)
+    store.replace_scene(
+        ConnectionId("local"),
+        SceneId("s2"),
+        [CollapsingHeaderElement(id="hdr2", label="More", open=False)],
+    )
+    _ops(store, recorder).clear(scope=_LOCAL, scene_id="s1")
+    assert store.scene_roots(SceneId("s1")) == []
+    assert store.resolve(SceneId("s2"), ElementId("hdr2")).id == "hdr2"
+    assert recorder.dirtied == [SceneId("s1")]
+    assert recorder.cleared == 0
+
+
+def test_scene_scoped_clear_preserves_a_custom_frame_binding() -> None:
+    # A scene shown in a custom frame keeps its presentation through clear: the
+    # writer no longer forgets the frame, so the replicator's empty-push blanks the
+    # frame the scene was actually shown in, not one guessed from the scene id.
+    from punt_lux.domain.hub.scene_presentation import ScenePresentation
+
+    store, recorder = HubDisplay(), _Recorder()
+    store.show_scene(
+        ConnectionId("local"),
+        SceneId("board"),
+        [CollapsingHeaderElement(id="hdr", label="Board", open=False)],
+        ScenePresentation(frame_id="beads-lux"),
+        ttl_seconds=None,
+    )
+    _ops(store, recorder).clear(scope=_LOCAL, scene_id="board")
+    assert store.scene_roots(SceneId("board")) == []
+    assert store.frames.presentation_for(SceneId("board")).frame_id == "beads-lux"

@@ -45,11 +45,12 @@ __all__ = [
 
 
 def _hub_ports() -> HubPorts:
-    """Bundle the Hub helpers (element decode, inbox) the operations compose."""
+    """Bundle the Hub collaborators (element decode, inbox, display) for operations."""
     return HubPorts(
         element_factory=hub_element_factory,
         ensure_writer=ensure_writer,
         next_event=next_event,
+        display_port=_display_connection(),
     )
 
 
@@ -74,7 +75,6 @@ def _build_operations() -> Operations:
         client_registry=client_registry,
         menu_registry=hub_menu_registry,
         ports=_hub_ports(),
-        display_port=_display_connection(),
     )
 
 

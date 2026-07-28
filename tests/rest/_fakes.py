@@ -106,8 +106,8 @@ def make_facade(*, display_port: object, store: HubDisplay | None = None) -> Ope
             element_factory=hub_element_factory,
             ensure_writer=inbox.ensure_writer,
             next_event=inbox.next_event,
+            display_port=display_port,  # type: ignore[arg-type]  # DisplayPort protocol; fakes satisfy it structurally
         ),
-        display_port=display_port,  # type: ignore[arg-type]  # DisplayPort protocol; fakes satisfy it structurally
     )
 
 

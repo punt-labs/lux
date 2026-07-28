@@ -122,6 +122,15 @@ def test_clear_returns_ok() -> None:
     assert resp.json() == {"kind": "ok"}
 
 
+def test_scene_scoped_delete_removes_only_the_named_scene() -> None:
+    client = make_client()
+    _render(client, "alpha")
+    _render(client, "beta")
+    resp = client.delete("/scenes/alpha")
+    assert resp.status_code == 200
+    assert [s["scene_id"] for s in client.get("/scenes").json()["scenes"]] == ["beta"]
+
+
 def test_list_scenes_reflects_a_rendered_scene() -> None:
     client = make_client()
     _render(client, "alpha")

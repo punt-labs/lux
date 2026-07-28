@@ -17,7 +17,7 @@ import logging
 import pytest
 
 from punt_lux.domain.hub.hub_display import HubDisplay, UnknownElementError
-from punt_lux.domain.hub.scene_writer import HubSceneWriter
+from punt_lux.domain.hub.scene_writer import HubSceneWriter, SceneScope
 from punt_lux.domain.hub.write_result import WriteAccepted, WriteRejected
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.domain.update import AddElement
@@ -59,7 +59,9 @@ def test_remove_present_owned_element_evicts_it() -> None:
     hub_display = _seed_one_text()
     writer = HubSceneWriter(hub_display)
 
-    result = writer.apply(_OWNER, _SCENE, [{"id": str(_ELEM_ID), "remove": True}])
+    result = writer.apply(
+        SceneScope(_OWNER, _SCENE), [{"id": str(_ELEM_ID), "remove": True}]
+    )
 
     assert isinstance(result, WriteAccepted)
     with pytest.raises(UnknownElementError):
@@ -78,7 +80,9 @@ def test_absent_removal_skip_is_logged(
     writer = HubSceneWriter(hub_display)
 
     with caplog.at_level(logging.DEBUG, logger="punt_lux.domain.hub.scene_writer"):
-        writer.apply(_OWNER, _SCENE, [{"id": "submit-buton", "remove": True}])
+        writer.apply(
+            SceneScope(_OWNER, _SCENE), [{"id": "submit-buton", "remove": True}]
+        )
 
     assert any(
         "submit-buton" in r.getMessage() and str(_SCENE) in r.getMessage()
@@ -98,7 +102,7 @@ def test_remove_absent_by_non_owner_is_accepted() -> None:
     hub_display.register_client(_OTHER)
     writer = HubSceneWriter(hub_display)
 
-    result = writer.apply(_OTHER, _SCENE, [{"id": "ghost", "remove": True}])
+    result = writer.apply(SceneScope(_OTHER, _SCENE), [{"id": "ghost", "remove": True}])
 
     assert isinstance(result, WriteAccepted)
     # The stranger's phantom remove left the owned element untouched.
@@ -115,8 +119,7 @@ def test_mixed_batch_absent_skip_does_not_abort_field_or_present_removal() -> No
     writer = HubSceneWriter(hub_display)
 
     result = writer.apply(
-        _OWNER,
-        _SCENE,
+        SceneScope(_OWNER, _SCENE),
         [
             {"id": str(_ELEM_ID), "set": {"content": "patched"}},
             {"id": "ghost", "remove": True},
@@ -139,7 +142,7 @@ def test_remove_absent_element_is_idempotent_no_op() -> None:
     hub_display = _seed_one_text()
     writer = HubSceneWriter(hub_display)
 
-    result = writer.apply(_OWNER, _SCENE, [{"id": "ghost", "remove": True}])
+    result = writer.apply(SceneScope(_OWNER, _SCENE), [{"id": "ghost", "remove": True}])
 
     assert isinstance(result, WriteAccepted)
     # The installed element survives, and the absent target stays absent.
@@ -155,7 +158,9 @@ def test_remove_owned_by_another_connection_is_rejected() -> None:
     hub_display.register_client(_OTHER)
     writer = HubSceneWriter(hub_display)
 
-    result = writer.apply(_OTHER, _SCENE, [{"id": str(_ELEM_ID), "remove": True}])
+    result = writer.apply(
+        SceneScope(_OTHER, _SCENE), [{"id": str(_ELEM_ID), "remove": True}]
+    )
 
     assert isinstance(result, WriteRejected)
     # The rejection leaves the owned element in place.

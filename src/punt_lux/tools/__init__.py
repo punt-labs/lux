@@ -1,9 +1,8 @@
 """Lux MCP server — expose display tools to AI agents.
 
-Display tools (``show``, ``update``, ``ping``, ...) use
-:class:`DisplayClient`; Agent Subscribe tools (``subscribe``,
-``unsubscribe``, ``publish``, ``recv``) route through the in-process
-Hub scoped to the calling session. luxd serves these tools over its
+Display tools (``show``, ``update``, ``ping``, ...) use :class:`DisplayClient`;
+Agent Subscribe tools (``subscribe``, ``publish``, ``recv``) route through the
+in-process Hub scoped to the calling session. luxd serves these over its
 streamable-HTTP ``/mcp`` endpoint.
 """
 
@@ -37,6 +36,7 @@ from punt_lux.tools.read_tools import (
 # Importing write_tools.py registers the state-changing render/settings/config tools.
 from punt_lux.tools.write_tools import (
     clear,
+    clear_scene,
     display_mode,
     register_tool,
     set_display_mode,
@@ -54,8 +54,7 @@ from punt_lux.tools.composite_tools import (
     show_table,
 )
 
-# Importing subscribe_tools.py registers Agent Subscribe / Publish tools
-# including the per-session business-event poller (``recv``).
+# Importing subscribe_tools.py registers Agent Subscribe / Publish tools (``recv``).
 from punt_lux.tools.subscribe_tools import (
     publish,
     recv,
@@ -65,6 +64,7 @@ from punt_lux.tools.subscribe_tools import (
 
 __all__ = [
     "clear",
+    "clear_scene",
     "display_mode",
     "get_display_info",
     "get_theme",

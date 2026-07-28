@@ -18,7 +18,7 @@ from typing import Literal, Self
 
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
-from punt_lux.domain.hub.scene_writer import HubSceneWriter
+from punt_lux.domain.hub.scene_writer import HubSceneWriter, SceneScope
 from punt_lux.domain.hub.write_result import WriteAccepted
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.domain.update import AddElement
@@ -74,22 +74,25 @@ def test_frame_persists_after_an_empty_replace() -> None:
     assert hub_display.frames.presentation_for(_SCENE).frame_id == _FRAME
 
 
-def test_clear_forgets_each_scenes_frame() -> None:
-    """The whole-display clear forgets each emptied scene's frame up front.
+def test_clear_keeps_each_emptied_scenes_frame_for_the_replicator_to_blank() -> None:
+    """A clear empties each scene but keeps its frame, exactly like update-to-empty.
 
-    Unlike the update-to-empty path, a clear blanks the whole display and needs no
-    per-frame targeting, so it reclaims the presentation immediately — bounding the
-    frame map under a churning-id clear workload. A later lookup falls back to the
-    self-framed default.
+    The clear routes each emptied scene through the replicator's per-scene blank
+    (not a whole-display wipe), so the presentation must survive: the replicator
+    blanks the scene into the frame it was shown in, then reclaims the frame once
+    the blank lands. Forgetting it here would strand a custom frame — the blank
+    would target a frame guessed from the scene id — so the writer leaves reclaim
+    to the replicator's post-blank step.
     """
     hub_display = _seed_framed_scene()
     assert hub_display.frames.presentation_for(_SCENE).frame_id == _FRAME
 
-    HubSceneWriter(hub_display).clear(_OWNER)
+    touched = HubSceneWriter(hub_display).clear(_OWNER)
 
+    assert touched == frozenset({_SCENE})
     assert not hub_display.scene_roots(_SCENE)  # emptied
-    # forgotten — falls back to the self-framed default
-    assert hub_display.frames.presentation_for(_SCENE).frame_id == str(_SCENE)
+    # kept — the empty-push blanks this real frame, not the self-framed default
+    assert hub_display.frames.presentation_for(_SCENE).frame_id == _FRAME
 
 
 def test_clear_keeps_the_frame_of_a_scene_a_survivor_still_holds() -> None:
@@ -236,7 +239,7 @@ def test_removing_last_root_via_update_keeps_the_frame() -> None:
     assert hub_display.frames.presentation_for(_SCENE).frame_id == _FRAME
 
     result = HubSceneWriter(hub_display).apply(
-        _OWNER, _SCENE, [{"id": "t1", "remove": True}]
+        SceneScope(_OWNER, _SCENE), [{"id": "t1", "remove": True}]
     )
 
     assert isinstance(result, WriteAccepted)

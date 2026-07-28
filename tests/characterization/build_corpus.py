@@ -170,6 +170,12 @@ LIFECYCLE_SCENARIOS: tuple[Scenario, ...] = (
         setup={"display_running": False},
     ),
     Scenario(
+        name="clear_scene-running",
+        tool="clear_scene",
+        inputs={"scene_id": "s1"},
+        setup={"display_running": True, "client": {"clear": {}}},
+    ),
+    Scenario(
         name="show-shown",
         tool="show",
         inputs={
