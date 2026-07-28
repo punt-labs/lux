@@ -19,6 +19,13 @@
 
 ### Added
 
+- **The table's grid/detail split is draggable.** Every `show_table` view with
+  a detail pane now renders the grid and the detail as two panes separated by
+  a horizontal divider you can drag to reallocate their heights. The dragged
+  ratio is display-local view state — it survives scene re-pushes (the beads
+  poller included) and clears when the scene is removed. The initial split
+  still comes from the Hub-side default, biased toward the detail.
+
 - **The table migrated to the Element-ABC path — all 25 kinds now on the new
   architecture.** The core `table` is a basic data grid: columns, rows, a
   `key_column` attribute (index or column name) giving every row a stable id,
