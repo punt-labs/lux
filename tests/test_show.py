@@ -386,7 +386,7 @@ class TestBoardRequest:
         )
         assert isinstance(request, RenderRequest)
         elem = request.elements[0]
-        assert elem["id"] == "bd-error"
+        assert elem["id"] == "beads-error"
         assert "bd unavailable" in str(elem["content"])
         assert "timed out" in str(elem["content"])
         # The error element distinguishes itself visually (a set color).
@@ -397,7 +397,7 @@ class TestBoardRequest:
         request = self._build(([], "connection refused"))
         assert isinstance(request, RenderRequest)
         elem = request.elements[0]
-        assert elem["id"] == "bd-error"
+        assert elem["id"] == "beads-error"
         assert "No active issues" not in str(elem["content"])
 
 
@@ -512,7 +512,7 @@ class TestShowBeadsCLI:
         assert "bd error" in result.output
         assert isinstance(client.request, RenderRequest)
         ids = [e.get("id") for e in client.request.elements]
-        assert "bd-error" in ids, f"expected bd-error element, got: {ids}"
+        assert "beads-error" in ids, f"expected beads-error element, got: {ids}"
 
     def test_show_beads_sends_to_luxd(
         self,

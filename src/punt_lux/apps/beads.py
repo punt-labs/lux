@@ -45,20 +45,19 @@ class BeadsBrowser:
         Imports are local to avoid an import-time cycle: the facade lives in
         ``tools``, which imports the client registry that imports this module.
         The board lives under the Hub menu's ``beads-`` namespace, distinct from
-        the CLI's ``beads-cli-`` board (a separate owner).
+        the CLI's ``beads-cli-`` board (a separate owner). A rejected install is
+        logged and shown as a red failure scene — the menu surface must not fail
+        silently where the CLI surface reports the reason.
         """
         from pathlib import Path
 
         from punt_lux.apps.beads_board import BeadsBoard
+        from punt_lux.apps.beads_installer import BeadsBoardInstaller
         from punt_lux.domain.ids import ConnectionId
-        from punt_lux.operations import RenderTableRequest, Scope
-        from punt_lux.tools.tools import OPERATIONS
+        from punt_lux.operations import Scope
 
         project = Path.cwd().name or "unknown"
         board = BeadsBoard(f"beads-{project}", f"Beads: {project}")
         request = board.request(self.load())
         scope = Scope(ConnectionId("app-beads"))
-        if isinstance(request, RenderTableRequest):
-            OPERATIONS.render_table(request, scope=scope)
-        else:
-            OPERATIONS.render(request, scope=scope)
+        BeadsBoardInstaller.install(board, request, scope)

@@ -45,13 +45,7 @@ class BeadsBoard:
         """
         issues, error = result
         if error is not None:
-            return self._message(
-                TextElement(
-                    id="bd-error",
-                    content=f"bd unavailable — {error}",
-                    color="#FF5555",
-                )
-            )
+            return self.failure(f"bd unavailable — {error}")
         if not issues:
             return self._message(TextElement(id="empty", content="No active issues."))
         payload = BeadsPayloadBuilder().build(issues)
@@ -65,6 +59,12 @@ class BeadsBoard:
             title=self._title,
             frame_id=self._scene_id,
             frame_title=self._title,
+        )
+
+    def failure(self, reason: str) -> RenderRequest:
+        """Return a red message scene reporting why the board could not be shown."""
+        return self._message(
+            TextElement(id="beads-error", content=reason, color="#FF5555")
         )
 
     def _message(self, element: TextElement) -> RenderRequest:
