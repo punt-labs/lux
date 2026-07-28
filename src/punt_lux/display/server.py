@@ -30,6 +30,7 @@ from punt_lux.display.glfw_window import GlfwWindow
 from punt_lux.display.idle_screen import render_idle
 from punt_lux.display.interaction_delivery import InteractionDelivery
 from punt_lux.display.macos import hide_from_dock_and_cmd_tab
+from punt_lux.display.markdown_font import MarkdownFont
 from punt_lux.display.menu_manager import MenuManager
 from punt_lux.display.pending_interactions import PendingInteractions
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
@@ -441,16 +442,15 @@ class DisplayServer:
 
         addons = immapp.AddOnsParams()
         addons.with_implot = True
-        # Set markdown regular_size to match the system font visually.
-        # imgui_md loads Roboto (bundled) which renders larger than system
-        # fonts at the same nominal px.  Do NOT also set with_markdown=True
-        # -- InitializeMarkdown has a static guard that silently drops the
-        # second call, so the custom options would be ignored.
+        # MarkdownFont points imgui_md at the packaged DejaVu (its own font lacks
+        # arrows like U+2192). Options go through with_markdown_options once --
+        # InitializeMarkdown has a static guard that drops a second call.
         try:
             from imgui_bundle import imgui_md
 
             md_opts = imgui_md.MarkdownOptions()
             md_opts.font_options.regular_size = 13.0
+            MarkdownFont().apply_to(md_opts, hello_imgui.add_assets_search_path)
             addons.with_markdown_options = md_opts
         except ImportError:
             addons.with_markdown = True
