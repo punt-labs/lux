@@ -56,8 +56,22 @@ def _change(element: object, value: bool | int | float | str) -> None:
     )
 
 
+def _descendants(group: GroupElement) -> list[object]:
+    """Flatten the group's children, descending through nested split panes."""
+    out: list[object] = []
+    for child in group.children:
+        out.append(child)
+        if isinstance(child, GroupElement):  # a split pane is a GroupElement
+            out.extend(_descendants(child))
+    return out
+
+
 def _table(group: GroupElement) -> TableElement:
-    return next(c for c in group.children if isinstance(c, TableElement))
+    return next(c for c in _descendants(group) if isinstance(c, TableElement))
+
+
+def _markdown(group: GroupElement) -> MarkdownElement:
+    return next(c for c in _descendants(group) if isinstance(c, MarkdownElement))
 
 
 def _combo(group: GroupElement) -> ComboElement:
@@ -68,19 +82,19 @@ def _search(group: GroupElement) -> InputTextElement:
     return next(c for c in group.children if isinstance(c, InputTextElement))
 
 
-class TestScrollReserve:
-    def test_a_grid_without_a_detail_reserves_nothing(self) -> None:
+class TestDefaultGridRatio:
+    def test_no_detail_uses_the_base_grid_ratio(self) -> None:
         from punt_lux.protocol.compositions.table_chrome import TableChrome
 
-        assert TableChrome.detail_reserve_lines(None) == 0
+        assert TableChrome.default_grid_ratio(None) == 0.6
 
-    def test_reserve_is_proportioned_to_the_field_count_and_clamped(self) -> None:
+    def test_ratio_shrinks_with_more_fields_and_is_clamped(self) -> None:
         from punt_lux.protocol.compositions.table_chrome import TableChrome
 
-        reserve = TableChrome.detail_reserve_lines
-        assert reserve({"fields": []}) == 12  # clamped up to the min
-        assert reserve({"fields": list("abcdefghij")}) == 14  # 10 + 4, above floor
-        assert reserve({"fields": list("abcdefghijklmnopqrst")}) == 18  # 20 -> max
+        ratio = TableChrome.default_grid_ratio
+        assert ratio({"fields": []}) == 0.6  # base, no trim below the field floor
+        assert ratio({"fields": list("abcdef")}) == pytest.approx(0.57)  # 6 -> -0.03
+        assert ratio({"fields": list("abcdefghijklmnopqrst")}) == 0.5  # 20 -> clamped
 
 
 class TestBuilderShape:
@@ -105,8 +119,15 @@ class TestBuilderShape:
         assert len(roots) == 1
         group = roots[0]
         assert isinstance(group, GroupElement)
+        # The grid and detail share the frame through a draggable split pane; the
+        # search input stays above it at natural height.
         assert [type(c).__name__ for c in group.children] == [
             "InputTextElement",
+            "SplitPaneElement",
+        ]
+        split = group.children[-1]
+        assert isinstance(split, GroupElement)
+        assert [type(c).__name__ for c in split.children] == [
             "TableElement",
             "MarkdownElement",
         ]
@@ -332,7 +353,7 @@ class TestDetailBinding:
 
     def test_detail_binds_to_the_anchor_row(self) -> None:
         group = self._master_detail()
-        detail = next(c for c in group.children if isinstance(c, MarkdownElement))
+        detail = _markdown(group)
         _select(_table(group), "b", anchor="b")
         assert "about beta" in detail.content
         assert "**Title:** Beta" in detail.content
@@ -341,28 +362,34 @@ class TestDetailBinding:
         # Field lines are separated by a blank line so markdown renders them one
         # per line; a single newline would collapse them into one inline run.
         group = self._master_detail()
-        detail = next(c for c in group.children if isinstance(c, MarkdownElement))
+        detail = _markdown(group)
         _select(_table(group), "b", anchor="b")
         assert "**ID:** b\n\n**Title:** Beta" in detail.content
         assert "**ID:** b\n**Title:**" not in detail.content  # never inline
 
     def test_detail_starts_with_a_placeholder(self) -> None:
         group = self._master_detail()
-        detail = next(c for c in group.children if isinstance(c, MarkdownElement))
+        detail = _markdown(group)
         assert "Select a row" in detail.content
 
-    def test_detail_reserves_scroll_space_on_the_grid(self) -> None:
-        # PR #283 demo #1: with a detail below it, the grid reserves scroll space
-        # so the detail is not pushed off the bottom of the frame.
+    def test_detail_shares_the_frame_through_a_draggable_split(self) -> None:
+        # The grid and detail are the two panes of a split whose divider the user
+        # drags; the grid no longer reserves scroll lines (the split bounds it).
+        from punt_lux.protocol.elements.split_pane import SplitPaneElement
+
         group = self._master_detail()
-        assert _table(group).scroll_reserve_lines > 0
+        split = group.children[-1]
+        assert isinstance(split, SplitPaneElement)
+        assert [c.id for c in split.children] == [_table(group).id, _markdown(group).id]
+        assert 0.5 <= split.default_ratio <= 0.6
+        assert _table(group).scroll_reserve_lines == 0
 
     def test_anchor_only_patch_re_drives_the_detail(self) -> None:
         # PR #283: an anchor-only agent patch must re-drive the detail through the
         # selection observer, not leave it stale until the next selection write.
         group = self._master_detail()
         table = _table(group)
-        detail = next(c for c in group.children if isinstance(c, MarkdownElement))
+        detail = _markdown(group)
         _select(table, "a", anchor="a")
         assert "about alpha" in detail.content
         detail.apply_patch({"content": "STALE"})  # force the detail out of sync
@@ -375,7 +402,7 @@ class TestDetailBinding:
         # must re-drive the detail (via the _set_rows reconcile notification), not
         # leave it showing the vanished row.
         group = self._master_detail()
-        detail = next(c for c in group.children if isinstance(c, MarkdownElement))
+        detail = _markdown(group)
         _select(_table(group), "a", anchor="a")
         assert "about alpha" in detail.content
         _table(group).apply_patch({"rows": [["b", "Beta"]]})  # drops row a
@@ -387,7 +414,7 @@ class TestDetailBinding:
         # no RowSelectionChanged) must re-drive the detail through the same path a
         # gesture and a filter re-projection use — the selection observer.
         group = self._master_detail()
-        detail = next(c for c in group.children if isinstance(c, MarkdownElement))
+        detail = _markdown(group)
         _select(_table(group), "a", anchor="a")
         assert "about alpha" in detail.content
         _table(group).apply_patch({"selected_row_ids": ["b"]})  # AGENT write
@@ -412,7 +439,7 @@ class TestDetailBinding:
             )
         )[0]
         assert isinstance(group, GroupElement)
-        detail = next(c for c in group.children if isinstance(c, MarkdownElement))
+        detail = _markdown(group)
         _select(_table(group), "a", anchor="a")
         assert "about a" in detail.content
         _change(_combo(group), 2)  # "closed" hides row a
