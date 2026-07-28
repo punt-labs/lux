@@ -9,19 +9,21 @@ from typing import cast
 
 import pytest
 
-from punt_lux.bounded_send import BoundedSend
+from punt_lux.bounded_send import BoundedSend, TornStreamError
 
 
 class _FakeSocket:
     """A socket stand-in whose ``send`` yields EAGAIN, chunks, or a dead peer.
 
     ``eagain_before`` would-blocks precede real progress; each accepting ``send``
-    takes at most ``chunk`` bytes so partial-write resumption is exercised. A
-    ``fail_with`` error (set for the dead-peer case) is raised instead of blocking.
+    takes at most ``chunk`` bytes so partial-write resumption is exercised.
+    ``block_after`` (set for the torn-stream case) would-blocks forever once that
+    many bytes have been accepted. A ``fail_with`` error is raised instead.
     """
 
     _eagain_left: int
     _chunk: int
+    _block_after: int | None
     _fail_with: OSError | None
     sent: bytearray
 
@@ -30,11 +32,13 @@ class _FakeSocket:
         *,
         eagain_before: int = 0,
         chunk: int = 1 << 30,
+        block_after: int | None = None,
         fail_with: OSError | None = None,
     ) -> _FakeSocket:
         self = super().__new__(cls)
         self._eagain_left = eagain_before
         self._chunk = chunk
+        self._block_after = block_after
         self._fail_with = fail_with
         self.sent = bytearray()
         return self
@@ -45,7 +49,11 @@ class _FakeSocket:
         if self._eagain_left > 0:
             self._eagain_left -= 1
             raise BlockingIOError(errno.EAGAIN, "resource temporarily unavailable")
+        if self._block_after is not None and len(self.sent) >= self._block_after:
+            raise BlockingIOError(errno.EAGAIN, "would block after a partial write")
         take = min(len(data), self._chunk)
+        if self._block_after is not None:
+            take = min(take, self._block_after - len(self.sent))
         self.sent.extend(bytes(data[:take]))
         return take
 
@@ -87,17 +95,31 @@ class TestBackpressure:
 
 
 class TestGiveUp:
-    """A peer still unwritable at the deadline raises BlockingIOError."""
+    """At the deadline, a clean would-block defers but a partial write severs."""
 
-    def test_past_deadline_reraises_blocking(self) -> None:
-        # A deadline already in the past: the first would-block gives up at once,
-        # no waiting, so the give-up is deterministic without touching the clock.
+    def test_untouched_frame_reraises_blocking(self) -> None:
+        # Deadline already past and nothing written: a clean would-block. The
+        # frame never reached the wire, so BlockingIOError lets the caller defer.
         sock = _FakeSocket(eagain_before=1_000_000)
         with pytest.raises(BlockingIOError):
             BoundedSend().send(
                 cast("socket.socket", sock), b"payload", time.monotonic() - 1.0
             )
         assert bytes(sock.sent) == b""  # nothing was delivered
+
+    def test_partial_write_at_deadline_raises_torn_stream(self) -> None:
+        # Some bytes went out, then the peer blocks past the deadline: the stream
+        # now carries half a frame and can never be finished. TornStreamError
+        # (an OSError) tells the caller to sever, never reuse the torn stream.
+        sock = _FakeSocket(chunk=4, block_after=4)
+        with pytest.raises(TornStreamError):
+            BoundedSend().send(
+                cast("socket.socket", sock),
+                b"a much longer frame",
+                time.monotonic() - 1.0,
+            )
+        assert len(sock.sent) == 4  # a partial frame is stranded on the wire
+        assert not isinstance(TornStreamError(), BlockingIOError)  # never "defer"
 
 
 class TestDeadPeer:

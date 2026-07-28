@@ -74,3 +74,21 @@ class TestExpire:
         evicted = buf.expire(now=110.0)  # the stalled next frame arrives 10s later
         assert _ids(evicted) == ["held"]  # aged out on its original clock, not reset
         assert buf.is_empty
+
+
+class TestBulkEviction:
+    """Clear and stale-element sweeps evict held interactions for compensation."""
+
+    def test_evict_all_returns_everything_and_empties(self) -> None:
+        buf = PendingInteractions(max_age=3.0, max_count=128)
+        buf.admit([_event("a"), _event("b")], now=100.0)
+        evicted = buf.evict_all()  # the display was cleared
+        assert _ids(evicted) == ["a", "b"]
+        assert buf.is_empty
+
+    def test_discard_elements_removes_matching_preserving_order(self) -> None:
+        buf = PendingInteractions(max_age=3.0, max_count=128)
+        buf.admit([_event("keep1"), _event("gone"), _event("keep2")], now=100.0)
+        removed = buf.discard_elements({"gone"})  # element was replaced away
+        assert _ids(removed) == ["gone"]
+        assert _ids(buf.pending_events()) == ["keep1", "keep2"]  # order preserved

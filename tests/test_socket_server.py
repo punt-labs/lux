@@ -356,6 +356,25 @@ class TestSendClientLifecycle:
         assert not client.closed  # ...but the alive peer is kept
         assert sock in server.clients
 
+    def test_torn_stream_severs_the_client(self) -> None:
+        """A torn stream (a partial frame that can't finish) removes the client.
+
+        Unlike a clean would-block (defer + keep), a half-written frame makes the
+        connection unusable -- reusing it would interleave the next frame -- so it
+        is severed like a dead peer and never reused.
+        """
+        from punt_lux.bounded_send import TornStreamError
+
+        server = _make_server()
+        client = _FakeClient(fd=4324, fail_with=TornStreamError("stream torn"))
+        sock = _inject_client(server, client)
+
+        delivered = server.send_to_client(sock, ReadyMessage())
+
+        assert delivered is False
+        assert client.closed  # the torn stream is severed
+        assert sock not in server.clients
+
 
 class _BindRaises:
     """Fake socket whose bind raises a chosen ``OSError`` — for the race window."""

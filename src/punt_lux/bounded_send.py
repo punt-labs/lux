@@ -9,11 +9,19 @@ so a partial write never corrupts the framed message the way a non-blocking
 
 The wait is bounded by a deadline the *caller* supplies, not a per-send timeout,
 so many sends in one render frame share one budget rather than each blocking the
-render thread up to a full timeout. If the deadline passes with bytes still
-unsent, the send re-raises ``BlockingIOError``; the caller decides what that
-means (defer, not drop — a slow peer is alive). A ``BrokenPipeError`` /
-``ConnectionResetError`` / other ``OSError`` from the send itself is a genuine
-dead peer and propagates immediately, unbounded — there is nothing to wait for.
+render thread up to a full timeout. What the deadline means depends on whether
+the frame was already touched:
+
+- **nothing written yet** (a clean would-block): re-raise ``BlockingIOError``.
+  The frame never reached the wire, so the caller may keep the connection and
+  defer — a slow peer is alive, and re-sending the whole frame later is safe.
+- **partially written**: raise ``TornStreamError``. Half a frame is on the wire
+  and can never be finished; reusing the connection would write the next frame
+  after the torn one, interleaving two frames into protocol corruption. The
+  caller must sever, exactly as for a dead peer.
+
+A ``BrokenPipeError`` / ``ConnectionResetError`` / other ``OSError`` from the send
+itself is a genuine dead peer and propagates immediately, unbounded.
 """
 
 from __future__ import annotations
@@ -23,7 +31,16 @@ import socket
 import time
 from typing import Self, final
 
-__all__ = ["BoundedSend"]
+__all__ = ["BoundedSend", "TornStreamError"]
+
+
+class TornStreamError(OSError):
+    """A send left a partial frame it cannot finish; the stream must be severed.
+
+    Subclasses ``OSError`` so a caller that already removes a client on a
+    dead-peer ``OSError`` severs a torn stream by the same path, never reusing a
+    connection that carries half a frame.
+    """
 
 
 @final
@@ -31,9 +48,9 @@ class BoundedSend:
     """Send every byte of a message before an absolute deadline, or raise.
 
     Stateless: the deadline is passed per call so a caller can thread one shared
-    deadline through a whole frame's worth of sends. ``BlockingIOError`` means the
-    peer did not drain before the deadline (alive but slow); a dead-peer
-    ``OSError`` is distinct and passes straight through.
+    deadline through a whole frame's worth of sends. On the deadline a clean
+    would-block raises ``BlockingIOError`` (defer) and a partial write raises
+    ``TornStreamError`` (sever); a dead-peer ``OSError`` passes straight through.
     """
 
     __slots__ = ()
@@ -45,9 +62,10 @@ class BoundedSend:
         """Send all of ``data`` on ``sock`` before ``deadline`` (monotonic), or raise.
 
         Uses ``send`` with an advancing offset rather than ``sendall`` so a
-        would-block after a partial write resumes cleanly instead of losing the
-        bytes already accepted. Raises ``BlockingIOError`` if the deadline passes
-        with the message unfinished; propagates any dead-peer ``OSError``.
+        would-block resumes cleanly. On the deadline: an untouched frame
+        (``offset == 0``) re-raises ``BlockingIOError`` for the caller to defer; a
+        partial frame raises ``TornStreamError`` because the stream is unusable.
+        A dead-peer ``OSError`` propagates.
         """
         view = memoryview(data)
         offset = 0
@@ -56,6 +74,9 @@ class BoundedSend:
                 offset += sock.send(view[offset:])
             except BlockingIOError:
                 if not self._wait_writable(sock, deadline):
+                    if offset > 0:
+                        msg = "send deadline hit after a partial write; stream torn"
+                        raise TornStreamError(msg) from None
                     raise
 
     @staticmethod

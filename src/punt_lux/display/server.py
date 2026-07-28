@@ -296,11 +296,13 @@ class DisplayServer:
         return self._socket_server
 
     def _drain_stale_events(self, stale_ids: list[str]) -> None:
-        """Remove queued events for elements that no longer exist."""
+        """Drop queued and held interactions for removed elements -- both queues."""
         stale = set(stale_ids)
+        evicted = self._pending.discard_elements(stale)
         self._event_queue = [
             ev for ev in self._event_queue if ev.element_id not in stale
         ]
+        self._interaction_delivery.compensate_evicted(evicted)
 
     # -- font loading ------------------------------------------------------
 
@@ -539,12 +541,10 @@ class DisplayServer:
         self._font_scale = scale
 
     def _clear_all(self) -> None:
-        """Callback for MenuManager: clear all frames and scenes."""
+        """Callback for MenuManager: close every frame, then clear scenes and state."""
         for fid in list(self._scene_manager.frames):
             self._close_frame(fid)
-        self._scene_manager.clear_all()
-        self._event_queue.clear()
-        self._widget_state = WidgetState()
+        self._handle_clear()
 
     def _request_fit_all(self) -> None:
         """Callback for MenuManager: request fit-all layout."""
@@ -623,6 +623,7 @@ class DisplayServer:
 
     def _handle_clear(self) -> None:
         """Drop all scenes and reset the display's per-frame state."""
+        self._interaction_delivery.compensate_evicted(self._pending.evict_all())
         self._scene_manager.clear_all()
         self._event_queue.clear()
         self._widget_state = WidgetState()
@@ -1363,8 +1364,7 @@ class DisplayServer:
     def _flush_events(self) -> None:
         """Deliver queued interactions within one frame budget; hold the rest.
 
-        New interactions join the buffer, aged ones expire and compensate, and the
-        survivors deliver in order; whatever the budget leaves unsent stays held.
+        New join the buffer; aged expire and compensate; the unsent remainder holds.
         """
         if not self._event_queue and self._pending.is_empty:
             return

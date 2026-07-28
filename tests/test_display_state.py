@@ -766,6 +766,51 @@ class TestFrameSendBudget:
         assert held == [f"c{i}" for i in range(4)]  # every click re-held, none lost
 
 
+class TestPendingSurvivesRemoval:
+    """Clearing or replacing UI must drop the held interactions that targeted it."""
+
+    def test_clear_evicts_held_interactions(self) -> None:
+        """A clear removes the UI, so its held clicks must not deliver later."""
+        server = _make_server()
+        server._pending.admit(
+            [RemoteEventHandlerInvocation(element_id="b1", action="click", ts=1.0)],
+            now=100.0,
+        )
+        assert not server._pending.is_empty
+
+        server._handle_clear()
+
+        assert server._pending.is_empty  # held clicks for the cleared UI are gone
+
+    def test_menu_clear_all_evicts_held_interactions(self) -> None:
+        """The menu's clear-all path drops held interactions too."""
+        server = _make_server()
+        server._pending.admit(
+            [RemoteEventHandlerInvocation(element_id="b1", action="click", ts=1.0)],
+            now=100.0,
+        )
+
+        server._clear_all()
+
+        assert server._pending.is_empty
+
+    def test_stale_element_drops_its_held_interactions(self) -> None:
+        """A replaced element's held clicks drop too, not just the queued ones."""
+        server = _make_server()
+        server._pending.admit(
+            [
+                RemoteEventHandlerInvocation(element_id="gone", action="click", ts=1.0),
+                RemoteEventHandlerInvocation(element_id="keep", action="click", ts=1.0),
+            ],
+            now=100.0,
+        )
+
+        server._drain_stale_events(["gone"])
+
+        held = [ev.element_id for ev in server._pending.pending_events()]
+        assert held == ["keep"]  # only the removed element's held click dropped
+
+
 # -----------------------------------------------------------------------
 # Multi-scene (persistent dismissable tabs)
 # -----------------------------------------------------------------------

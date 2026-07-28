@@ -114,6 +114,31 @@ class PendingInteractions:
         for _ in range(count):
             self._events.popleft()
 
+    def evict_all(self) -> list[RemoteEventHandlerInvocation]:
+        """Remove and return every held interaction — the display was cleared.
+
+        A clear removes the UI the held interactions targeted, so they must not
+        deliver against it later; the caller compensates the returned events.
+        """
+        evicted = [pending.event for pending in self._events]
+        self._events.clear()
+        return evicted
+
+    def discard_elements(
+        self, element_ids: set[str]
+    ) -> list[RemoteEventHandlerInvocation]:
+        """Remove and return held interactions targeting a now-removed element.
+
+        A held click for an element a scene replacement dropped would deliver
+        against UI that no longer exists; the caller compensates the returned
+        events. Order among the survivors is preserved.
+        """
+        removed = [p.event for p in self._events if p.event.element_id in element_ids]
+        self._events = deque(
+            p for p in self._events if p.event.element_id not in element_ids
+        )
+        return removed
+
     def _evict_aged(self, now: float) -> list[RemoteEventHandlerInvocation]:
         """Remove and return interactions held past ``max_age`` (oldest first)."""
         evicted: list[RemoteEventHandlerInvocation] = []
