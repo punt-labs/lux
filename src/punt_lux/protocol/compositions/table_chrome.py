@@ -187,12 +187,12 @@ class TableChrome:
 
     @staticmethod
     def _detail_card(fields: list[str], values: list[object], body: str) -> str:
-        """Return a markdown detail card: bold field/value lines then the body."""
+        """Return a markdown card: blank-line-separated field/value lines, then body."""
         lines = [
             f"**{field}:** {values[i] if i < len(values) else ''}"
             for i, field in enumerate(fields)
         ]
-        return "\n\n".join(["\n".join(lines), body]) if body else "\n".join(lines)
+        return "\n\n".join([*lines, body]) if body else "\n\n".join(lines)
 
     @staticmethod
     def _require_list(value: object, name: str) -> list[object]:

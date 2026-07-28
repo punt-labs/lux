@@ -337,6 +337,15 @@ class TestDetailBinding:
         assert "about beta" in detail.content
         assert "**Title:** Beta" in detail.content
 
+    def test_detail_renders_one_field_per_line(self) -> None:
+        # Field lines are separated by a blank line so markdown renders them one
+        # per line; a single newline would collapse them into one inline run.
+        group = self._master_detail()
+        detail = next(c for c in group.children if isinstance(c, MarkdownElement))
+        _select(_table(group), "b", anchor="b")
+        assert "**ID:** b\n\n**Title:** Beta" in detail.content
+        assert "**ID:** b\n**Title:**" not in detail.content  # never inline
+
     def test_detail_starts_with_a_placeholder(self) -> None:
         group = self._master_detail()
         detail = next(c for c in group.children if isinstance(c, MarkdownElement))
