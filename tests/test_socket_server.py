@@ -306,7 +306,7 @@ def _never_writable(
 
 
 class TestSendClientLifecycle:
-    """send_to_client distinguishes transient backpressure from a dead peer."""
+    """send_to_client keeps a slow-but-alive peer; only a dead peer is removed."""
 
     def test_would_block_then_drains_keeps_client(
         self, monkeypatch: pytest.MonkeyPatch
@@ -336,10 +336,15 @@ class TestSendClientLifecycle:
         assert client.closed
         assert sock not in server.clients
 
-    def test_bounded_give_up_removes_slow_client(
+    def test_bounded_give_up_defers_and_keeps_client(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A peer that never drains within the bound is removed as too slow."""
+        """A peer unwritable past the deadline defers (not delivered) but is kept.
+
+        A slow-but-alive peer must not be removed on a would-block -- removing it
+        is the original defect. The send reports non-delivery so the caller can
+        re-hold, and the connection survives for the next frame or a keepalive.
+        """
         monkeypatch.setattr("punt_lux.bounded_send.select.select", _never_writable)
         server = _make_server()
         client = _FakeClient(fd=4323, eagain_before=1_000_000)
@@ -347,9 +352,9 @@ class TestSendClientLifecycle:
 
         delivered = server.send_to_client(sock, ReadyMessage())
 
-        assert delivered is False
-        assert client.closed
-        assert sock not in server.clients
+        assert delivered is False  # unsent this frame
+        assert not client.closed  # ...but the alive peer is kept
+        assert sock in server.clients
 
 
 class _BindRaises:

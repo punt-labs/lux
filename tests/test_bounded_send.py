@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import errno
 import socket
+import time
 from typing import cast
 
 import pytest
@@ -70,7 +71,7 @@ class TestBackpressure:
         _patch_writable(monkeypatch, writable=True)
         sock = _FakeSocket(eagain_before=3)
         payload = b"hello world" * 5
-        BoundedSend(timeout=1.0).send(cast("socket.socket", sock), payload)
+        BoundedSend().send(cast("socket.socket", sock), payload, time.monotonic() + 1.0)
         assert bytes(sock.sent) == payload
 
     def test_partial_writes_resume_from_offset(
@@ -81,18 +82,21 @@ class TestBackpressure:
         # across both so the framed bytes arrive contiguous, never re-sent.
         sock = _FakeSocket(eagain_before=2, chunk=4)
         payload = bytes(range(37))
-        BoundedSend(timeout=1.0).send(cast("socket.socket", sock), payload)
+        BoundedSend().send(cast("socket.socket", sock), payload, time.monotonic() + 1.0)
         assert bytes(sock.sent) == payload
 
 
 class TestGiveUp:
-    """A peer that never drains within the bound raises BlockingIOError."""
+    """A peer still unwritable at the deadline raises BlockingIOError."""
 
-    def test_deadline_reraises_blocking(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        _patch_writable(monkeypatch, writable=False)  # never becomes writable
+    def test_past_deadline_reraises_blocking(self) -> None:
+        # A deadline already in the past: the first would-block gives up at once,
+        # no waiting, so the give-up is deterministic without touching the clock.
         sock = _FakeSocket(eagain_before=1_000_000)
         with pytest.raises(BlockingIOError):
-            BoundedSend(timeout=0.05).send(cast("socket.socket", sock), b"payload")
+            BoundedSend().send(
+                cast("socket.socket", sock), b"payload", time.monotonic() - 1.0
+            )
         assert bytes(sock.sent) == b""  # nothing was delivered
 
 
@@ -102,4 +106,6 @@ class TestDeadPeer:
     def test_broken_pipe_propagates(self) -> None:
         sock = _FakeSocket(fail_with=BrokenPipeError(errno.EPIPE, "broken pipe"))
         with pytest.raises(BrokenPipeError):
-            BoundedSend(timeout=1.0).send(cast("socket.socket", sock), b"payload")
+            BoundedSend().send(
+                cast("socket.socket", sock), b"payload", time.monotonic() + 1.0
+            )

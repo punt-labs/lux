@@ -20,25 +20,19 @@ import logging
 import threading
 from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
 
+from punt_lux.connection_timing import CONNECTION_TIMING
+
 if TYPE_CHECKING:
     from punt_lux.protocol import PongMessage
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "DEFAULT_KEEPALIVE_INTERVAL",
-    "DEFAULT_PING_TIMEOUT",
     "DisplayLiveness",
     "KeepaliveClients",
     "KeepaliveConnection",
 ]
 
-# Ping this often. A dropped connection is noticed and reconnected within about
-# one interval, so this is also the ceiling on the silent window a dropped
-# display can swallow interactions for.
-DEFAULT_KEEPALIVE_INTERVAL = 2.0
-# Wait this long for a pong before treating the connection as unresponsive.
-DEFAULT_PING_TIMEOUT = 1.0
 # Bound the join at stop so a wedged final ping cannot hang shutdown.
 _STOP_JOIN_TIMEOUT = 3.0
 
@@ -84,8 +78,8 @@ class DisplayLiveness:
     def __new__(
         cls,
         clients: KeepaliveClients,
-        interval: float = DEFAULT_KEEPALIVE_INTERVAL,
-        ping_timeout: float = DEFAULT_PING_TIMEOUT,
+        interval: float = CONNECTION_TIMING.keepalive_interval,
+        ping_timeout: float = CONNECTION_TIMING.ping_timeout,
     ) -> Self:
         self = super().__new__(cls)
         self._clients = clients

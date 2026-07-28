@@ -13,48 +13,64 @@ def _event(element_id: str, *, kind: str = "clicked") -> RemoteEventHandlerInvoc
     )
 
 
-class TestHoldAndDrain:
-    """Interactions held during a dropout deliver on reconnect, in order."""
+def _ids(events: list[RemoteEventHandlerInvocation]) -> list[str]:
+    return [ev.element_id for ev in events]
 
-    def test_hold_keeps_within_bound(self) -> None:
+
+class TestAdmitAndDeliver:
+    """Admitted interactions are readable in order and dropped by prefix."""
+
+    def test_admit_then_pending_events_preserves_order(self) -> None:
         buf = PendingInteractions(max_age=3.0, max_count=128)
-        evicted = buf.hold([_event("a"), _event("b")], now=100.0)
-        assert evicted == []  # nothing past the bound yet
+        assert buf.pending_events() == []  # empty before anything is admitted
+        buf.admit([_event("a"), _event("b")], now=100.0)
         assert not buf.is_empty
+        assert _ids(buf.pending_events()) == ["a", "b"]
 
-    def test_drain_delivers_held_before_new_in_order(self) -> None:
+    def test_discard_prefix_drops_the_delivered_front(self) -> None:
         buf = PendingInteractions(max_age=3.0, max_count=128)
-        buf.hold([_event("held1"), _event("held2")], now=100.0)
-        batch = buf.drain_to([_event("new1")])
-        assert [ev.element_id for ev in batch] == ["held1", "held2", "new1"]
-        assert buf.is_empty  # drain empties the buffer
+        buf.admit([_event("a"), _event("b"), _event("c")], now=100.0)
+        buf.discard_prefix(2)  # a and b delivered
+        assert _ids(buf.pending_events()) == ["c"]
 
-    def test_reconnect_after_gap_delivers_the_gap_clicks(self) -> None:
+    def test_reconnect_delivers_the_whole_gap_in_order(self) -> None:
         buf = PendingInteractions(max_age=3.0, max_count=128)
-        # Three clicks land across a no-client gap, each a separate flush.
-        buf.hold([_event("c1")], now=100.0)
-        buf.hold([_event("c2")], now=100.5)
-        buf.hold([_event("c3")], now=101.0)
-        # A client returns within the bound: every gap click is delivered, in order.
-        batch = buf.drain_to([])
-        assert [ev.element_id for ev in batch] == ["c1", "c2", "c3"]
+        # Clicks land across a no-client gap, each admitted on its own frame.
+        buf.admit([_event("c1")], now=100.0)
+        buf.admit([_event("c2")], now=100.5)
+        buf.admit([_event("c3")], now=101.0)
+        events = buf.pending_events()
+        assert _ids(events) == ["c1", "c2", "c3"]
+        buf.discard_prefix(len(events))  # a reconnect delivers them all
+        assert buf.is_empty
 
 
-class TestEviction:
-    """Interactions past the bound are returned for compensation, not delivered."""
+class TestExpire:
+    """Aged or overflowed interactions are returned for compensation."""
 
-    def test_aged_past_bound_is_evicted(self) -> None:
+    def test_expire_evicts_aged_leaving_fresh(self) -> None:
         buf = PendingInteractions(max_age=3.0, max_count=128)
-        buf.hold([_event("stale")], now=100.0)
-        # A later flush past max_age evicts the stale click for compensation.
-        evicted = buf.hold([_event("fresh")], now=104.0)
-        assert [ev.element_id for ev in evicted] == ["stale"]
-        # The fresh click, still within the bound, stays held.
-        assert not buf.is_empty
-        assert [ev.element_id for ev in buf.drain_to([])] == ["fresh"]
+        buf.admit([_event("stale")], now=100.0)
+        buf.admit([_event("fresh")], now=104.0)
+        evicted = buf.expire(now=104.0)  # stale is 4s old, past the 3s bound
+        assert _ids(evicted) == ["stale"]
+        assert _ids(buf.pending_events()) == ["fresh"]
 
-    def test_overflow_evicts_oldest_first(self) -> None:
+    def test_expire_evicts_overflow_oldest_first(self) -> None:
         buf = PendingInteractions(max_age=100.0, max_count=2)
-        evicted = buf.hold([_event("old"), _event("mid"), _event("new")], now=100.0)
-        assert [ev.element_id for ev in evicted] == ["old"]  # oldest pushed out
-        assert [ev.element_id for ev in buf.drain_to([])] == ["mid", "new"]
+        buf.admit([_event("old"), _event("mid"), _event("new")], now=100.0)
+        evicted = buf.expire(now=100.0)
+        assert _ids(evicted) == ["old"]  # oldest pushed out past the cap
+        assert _ids(buf.pending_events()) == ["mid", "new"]
+
+    def test_age_survives_a_discard_so_a_stalled_frame_still_expires(self) -> None:
+        # A held event keeps its original age across a prefix discard, so a later
+        # frame -- even one stalled long past the bound -- still expires it and
+        # does not carry it forever.
+        buf = PendingInteractions(max_age=3.0, max_count=128)
+        buf.admit([_event("delivered"), _event("held")], now=100.0)
+        buf.discard_prefix(1)  # "delivered" landed; "held" kept its held_at=100
+        assert _ids(buf.pending_events()) == ["held"]
+        evicted = buf.expire(now=110.0)  # the stalled next frame arrives 10s later
+        assert _ids(evicted) == ["held"]  # aged out on its original clock, not reset
+        assert buf.is_empty

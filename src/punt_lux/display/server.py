@@ -1361,20 +1361,20 @@ class DisplayServer:
             )
 
     def _flush_events(self) -> None:
-        """Deliver queued interactions, holding them briefly across a Hub dropout.
+        """Deliver queued interactions within one frame budget; hold the rest.
 
-        With a client, held clicks deliver first (in order) then the new ones; with
-        none, interactions wait in a short bounded buffer so a reconnect within the
-        bound delivers them and only those past it are compensated (an undeliverable
-        ``modal_closed`` reopens -- see ``revert_modal_dismissals``).
+        New interactions join the buffer, aged ones expire and compensate, and the
+        survivors deliver in order; whatever the budget leaves unsent stays held.
         """
         if not self._event_queue and self._pending.is_empty:
             return
         self._record_queued_events()
-        if self._socket_server.clients:
-            batch = self._pending.drain_to(self._event_queue)
-            undelivered = self._interaction_delivery.deliver(batch)
-        else:
-            undelivered = self._pending.hold(self._event_queue, time.monotonic())
-        self._interaction_delivery.revert_modal_dismissals(undelivered)
+        now = time.monotonic()
+        self._pending.admit(self._event_queue, now)
         self._event_queue.clear()
+        expired = self._pending.expire(now)
+        if self._socket_server.clients:
+            self._pending.discard_prefix(
+                self._interaction_delivery.deliver(self._pending.pending_events())
+            )
+        self._interaction_delivery.revert_modal_dismissals(expired)

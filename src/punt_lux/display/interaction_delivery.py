@@ -2,16 +2,17 @@
 
 The display renders a replica and forwards each interaction (a
 ``RemoteEventHandlerInvocation``) to the Hub that owns the UI. This collaborator
-owns that outbound leg: for each queued event it resolves the target client
-(menu owner, scene owner, or broadcast), sends it, and reports the events that
-reached no client. An undeliverable ``modal_closed`` is compensated by reopening
-the optimistically-dismissed popup, so the display reverts to Hub truth instead
-of silently diverging when the Hub never learns of the close.
+owns that outbound leg: it resolves each event's target client (menu owner, scene
+owner, or broadcast) and sends it under one shared frame deadline, so a slow peer
+cannot freeze the render thread per event. Events past the first it cannot send
+stay the caller's to re-hold, in order; a held ``modal_closed`` that later ages
+out of the buffer is what reverts the optimistic dismiss to Hub truth.
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from typing import TYPE_CHECKING, Self, cast
 
 from punt_lux.scene import WidgetState
@@ -28,6 +29,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 __all__ = ["InteractionDelivery"]
+
+# Total time one flush may block the render thread, shared across every send in
+# the frame (not per event) so a slow-but-alive peer costs at most this once.
+_FRAME_SEND_BUDGET = 1.0
 
 
 class InteractionDelivery:
@@ -57,16 +62,21 @@ class InteractionDelivery:
         return self
 
     @trace
-    def deliver(
-        self, events: Sequence[RemoteEventHandlerInvocation]
-    ) -> list[RemoteEventHandlerInvocation]:
-        """Send each event to its owner or broadcast; return the undelivered.
+    def deliver(self, events: Sequence[RemoteEventHandlerInvocation]) -> int:
+        """Send events in order under one frame budget; return the count sent.
 
-        An event is undelivered when it reached no client — a failed send or an
-        owner whose socket had already gone. The caller compensates for those
-        (an optimistic modal dismiss is reverted in ``revert_modal_dismissals``).
+        Render-thread blocking is capped once per frame by a single deadline taken
+        here, not per event. Delivery is a prefix: the moment an event cannot be
+        sent — the budget lapsed, the peer is slow, or its client went — that event
+        and every one after it stay the caller's to re-hold, in their original order.
         """
-        return [ev for ev in events if not self._deliver_one(ev)]
+        deadline = time.monotonic() + _FRAME_SEND_BUDGET
+        for index, event in enumerate(events):
+            if time.monotonic() >= deadline:
+                return index
+            if not self._deliver_one(event, deadline):
+                return index
+        return len(events)
 
     @staticmethod
     def _is_world_menu(event: RemoteEventHandlerInvocation) -> bool:
@@ -76,8 +86,10 @@ class InteractionDelivery:
             return False
         return cast("dict[str, object]", raw).get("menu") == "World"
 
-    def _deliver_one(self, event: RemoteEventHandlerInvocation) -> bool:
-        """Send one event to its owning client or broadcast; return if it landed."""
+    def _deliver_one(
+        self, event: RemoteEventHandlerInvocation, deadline: float
+    ) -> bool:
+        """Send one event to its owner or broadcast under ``deadline``; landed?"""
         owner_fd = (
             self._menu_manager.menu_owners.get(event.element_id)
             if self._is_world_menu(event)
@@ -89,12 +101,12 @@ class InteractionDelivery:
             target = self._socket_server.fd_to_client.get(owner_fd)
             if target is None:
                 return False
-            return self._socket_server.send_to_client(target, event)
+            return self._socket_server.send_to_client(target, event, deadline)
         # Broadcast to every client — the list comprehension sends to all before
         # reducing, so one success never short-circuits the rest (a generator in
         # ``any`` would stop at the first delivered send and skip the others).
         sent = [
-            self._socket_server.send_to_client(client, event)
+            self._socket_server.send_to_client(client, event, deadline)
             for client in list(self._socket_server.clients)
         ]
         return any(sent)

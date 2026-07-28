@@ -2,16 +2,18 @@
 
 A full kernel send buffer surfaces as ``BlockingIOError`` (``EAGAIN``) on a
 non-blocking socket. That is transient backpressure — a peer momentarily not
-reading during a busy frame — not a dead peer, and dropping the connection on it
-is the defect this class exists to prevent. Instead it waits for the socket to
-become writable and resumes from the unsent offset, so a partial write never
-corrupts the framed message the way a non-blocking ``sendall`` would.
+reading during a busy frame — not a dead peer. Instead of giving up on it, the
+send waits for the socket to become writable and resumes from the unsent offset,
+so a partial write never corrupts the framed message the way a non-blocking
+``sendall`` would.
 
-The wait is bounded. If the deadline passes with bytes still unsent, the send
-re-raises ``BlockingIOError`` so the caller can remove a peer too slow to keep. A
-``BrokenPipeError`` / ``ConnectionResetError`` / other ``OSError`` from the send
-itself is a genuine dead peer and propagates immediately, unbounded — there is
-nothing to wait for.
+The wait is bounded by a deadline the *caller* supplies, not a per-send timeout,
+so many sends in one render frame share one budget rather than each blocking the
+render thread up to a full timeout. If the deadline passes with bytes still
+unsent, the send re-raises ``BlockingIOError``; the caller decides what that
+means (defer, not drop — a slow peer is alive). A ``BrokenPipeError`` /
+``ConnectionResetError`` / other ``OSError`` from the send itself is a genuine
+dead peer and propagates immediately, unbounded — there is nothing to wait for.
 """
 
 from __future__ import annotations
@@ -21,43 +23,34 @@ import socket
 import time
 from typing import Self, final
 
-__all__ = ["DEFAULT_BACKPRESSURE_TIMEOUT", "BoundedSend"]
-
-# A full send buffer during a busy frame drains in tens of milliseconds once the
-# peer reads again; this ceiling declares a peer that still has not drained "too
-# slow to keep" and bounds any render-loop stall the wait imposes.
-DEFAULT_BACKPRESSURE_TIMEOUT = 1.0
+__all__ = ["BoundedSend"]
 
 
 @final
 class BoundedSend:
-    """Send every byte of a message within a time bound, or raise.
+    """Send every byte of a message before an absolute deadline, or raise.
 
-    ``BlockingIOError`` from the caller's perspective is unambiguous: the peer did
-    not drain within the bound. A dead-peer ``OSError`` is distinct and passes
-    straight through. The caller keys on that distinction to decide whether to
-    retry a client or remove it.
+    Stateless: the deadline is passed per call so a caller can thread one shared
+    deadline through a whole frame's worth of sends. ``BlockingIOError`` means the
+    peer did not drain before the deadline (alive but slow); a dead-peer
+    ``OSError`` is distinct and passes straight through.
     """
 
-    _timeout: float
-    __slots__ = ("_timeout",)
+    __slots__ = ()
 
-    def __new__(cls, timeout: float = DEFAULT_BACKPRESSURE_TIMEOUT) -> Self:
-        self = super().__new__(cls)
-        self._timeout = timeout
-        return self
+    def __new__(cls) -> Self:
+        return super().__new__(cls)
 
-    def send(self, sock: socket.socket, data: bytes) -> None:
-        """Send all of ``data`` on ``sock``, waiting out backpressure to the bound.
+    def send(self, sock: socket.socket, data: bytes, deadline: float) -> None:
+        """Send all of ``data`` on ``sock`` before ``deadline`` (monotonic), or raise.
 
         Uses ``send`` with an advancing offset rather than ``sendall`` so a
         would-block after a partial write resumes cleanly instead of losing the
-        bytes already accepted. Raises ``BlockingIOError`` if the bound elapses
+        bytes already accepted. Raises ``BlockingIOError`` if the deadline passes
         with the message unfinished; propagates any dead-peer ``OSError``.
         """
         view = memoryview(data)
         offset = 0
-        deadline = time.monotonic() + self._timeout
         while offset < len(view):
             try:
                 offset += sock.send(view[offset:])

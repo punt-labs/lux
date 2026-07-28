@@ -6,6 +6,7 @@ patching — all pure logic that doesn't touch ImGui or OpenGL.
 
 from __future__ import annotations
 
+import errno
 import logging
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
@@ -648,7 +649,12 @@ class TestModalDismissRevertOnUndeliverable:
         sock.send.assert_called_once()
         assert server._pending.is_empty
 
-    def test_send_failure_reverts_modal_dismiss_and_removes_client(self) -> None:
+    def test_dead_peer_removes_client_and_holds_the_close(self) -> None:
+        """A dead-peer send removes the client; the close is held, not reverted now.
+
+        A reconnect (or the keepalive) can still deliver the held close, so it must
+        not be compensated the instant the peer dies -- only on aging out.
+        """
         server = _make_server()
         sock = _mock_sock()
         sock.send.side_effect = OSError("boom")
@@ -661,8 +667,9 @@ class TestModalDismissRevertOnUndeliverable:
 
         server._flush_events()
 
-        assert ws.get(f"m1{WidgetState.DISMISS_SUFFIX}") is None
-        assert sock not in server._socket_server.clients
+        assert sock not in server._socket_server.clients  # dead peer removed
+        assert ws.get(f"m1{WidgetState.DISMISS_SUFFIX}") == 1  # held, not reverted
+        assert not server._pending.is_empty
 
     def test_delivered_modal_dismiss_is_not_reverted(self) -> None:
         server = _make_server()
@@ -690,6 +697,47 @@ class TestModalDismissRevertOnUndeliverable:
         server._flush_events()  # no client connected
 
         assert ws.get(f"m1{WidgetState.DISMISS_SUFFIX}") == 1
+
+
+class TestFrameSendBudget:
+    """One flush blocks by the shared frame budget once, not once per event."""
+
+    def test_slow_peer_caps_the_frame_and_holds_the_remainder(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Many held events + a peer that always EAGAINs: one send is attempted.
+
+        The shared deadline is spent by the first would-block, so delivery stops
+        after one attempt (not one per event) and every event stays held, in
+        order, for the next frame -- none dropped, none compensated.
+        """
+
+        # A ``select`` that never reports writability, so the first would-block
+        # exhausts the budget with no real wait -- the cap is structural, not timed.
+        def _never_writable(
+            _r: list[object], _w: list[object], _x: list[object], _t: float
+        ) -> tuple[list[object], list[object], list[object]]:
+            return ([], [], [])
+
+        monkeypatch.setattr("punt_lux.bounded_send.select.select", _never_writable)
+        server = _make_server()
+        slow = _mock_sock_fd(10)
+        slow.send.side_effect = BlockingIOError(errno.EAGAIN, "would block")
+        server._socket_server.clients.append(slow)
+        server._socket_server._fd_to_client[10] = slow
+        for i in range(8):  # eight broadcast clicks queued this frame
+            server._event_queue.append(
+                RemoteEventHandlerInvocation(element_id=f"b{i}", action="click", ts=1.0)
+            )
+
+        server._flush_events()
+
+        # The budget is shared: only the first event's send was attempted, not all.
+        assert slow.send.call_count == 1
+        # Every click stays held, in order, for the next frame -- none lost.
+        held = [ev.element_id for ev in server._pending.pending_events()]
+        assert held == [f"b{i}" for i in range(8)]
+        assert slow in server._socket_server.clients  # the slow peer is kept
 
 
 # -----------------------------------------------------------------------
