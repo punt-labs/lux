@@ -112,6 +112,17 @@
 
 ### Fixed
 
+- **The beads board's search, filters, and detail pane work again.** `lux show
+  beads` (and the Hub-menu beads item) built the table chrome client-side and
+  pushed it through the generic render route, whose wire decode cannot carry
+  Hub-constructed handlers — so search, status/type filters, and the detail
+  pane were dead while sort and selection worked. The CLI now sends the board
+  as data over `PUT /scenes/{id}/table` and the Hub composes the chrome with
+  live handlers. The detail pane also got a cleanup: a fields table (ID,
+  status, priority, type, owner, dates), a rule, then the description as
+  paragraphs — and the generic `show_table` detail card now renders one field
+  per line instead of collapsing them inline. A board render rejected by the
+  Hub now shows a visible error scene instead of silently doing nothing.
 - **Multi-client event broadcast no longer stops at the first successful
   send** — every connected display client receives the event.
 - **A `window` element rejects non-finite placement** (infinite or NaN
