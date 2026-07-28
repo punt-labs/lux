@@ -119,6 +119,19 @@
 
 ### Fixed
 
+- **Clearing is scene-scoped and honest.** A new `clear_scene` MCP tool and
+  `DELETE /scenes/{scene_id}` REST route clear one scene; `clear()` empties
+  only the caller's scenes. Clearing one scene no longer blanks every board on
+  the display, a cleared scene blanks into its own frame (custom frame
+  bindings preserved), and a clear that removes nothing says so — an unknown
+  scene returns not-found and an unowned scene a rejection, never a false
+  "cleared". The dead global-clear wire machinery is deleted.
+- **Markdown arrows render.** The markdown renderer now uses a packaged,
+  subsetted DejaVu Sans quad (~648 KB) instead of imgui_md's bundled Roboto
+  subset, which lacks the arrow glyphs entirely — so U+2192 and kin render in
+  markdown text and tables instead of tofu. Markdown body text changes
+  typeface to DejaVu. If the packaged fonts are missing the display warns and
+  falls back to the default font rather than failing.
 - **Display clicks survive a Hub connection drop.** The display no longer
   severs its one client on a transient would-block send (a slow-but-alive peer
   defers; only a dead peer disconnects), interactions are held in a short
