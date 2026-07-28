@@ -5,21 +5,36 @@ divider ratio in per-scene ``WidgetState`` — clamped, isolated per scene, and
 durable across a re-push. ``SplitPaneElement`` drives a ``SplitPaneRenderer`` in
 top → divider → bottom order and rejects a plain renderer. A geometry double
 proves the fixed relationship the real ImGui splitter must keep: the grid rect
-sits above the divider, which sits above the detail rect, with no overlap. The
-live drag itself is a Level-6 visual check.
+sits above the divider, which sits above the detail rect, with no overlap.
+
+Two guards close the ImGui-boundary gaps the rest of the file's Python doubles
+leave open. ``TestSplitterSignature`` replays ``ImGuiSplitPaneRenderer`` itself
+against the *installed* ``imgui.internal.splitter_behavior`` binding — the call
+site's positional order and its 3-tuple unpack must bind to the real signature,
+so a binding upgrade or a call-site edit fails a test, not the live display.
+``TestFactoryDispatch`` proves a real ``ImGuiRendererFactory`` resolves the split
+to its own renderer, not to the ``GroupElement`` entry it also matches. The live
+drag itself is a Level-6 visual check.
 """
 
 from __future__ import annotations
 
-from typing import Self, cast
+from typing import TYPE_CHECKING, Self, cast
+from unittest.mock import MagicMock
 
 import pytest
+from imgui_bundle import imgui
 
+from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
+from punt_lux.display.renderers.imgui.split_pane import ImGuiSplitPaneRenderer
 from punt_lux.display.renderers.imgui.split_ratio_store import SplitRatioStore
 from punt_lux.protocol.elements.split_pane import SplitPaneElement, SplitPaneRenderer
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.renderer import Renderer
 from punt_lux.scene.widget_state import WidgetState
+
+if TYPE_CHECKING:
+    from punt_lux.display.texture_cache import TextureCache
 
 # -- builders ---------------------------------------------------------------
 
@@ -303,3 +318,162 @@ class TestSplitGeometry:
         assert bot_hi == pytest.approx(400.0)
         # The default ratio gives the grid the larger share.
         assert (top_hi - top_lo) > (bot_hi - bot_lo)
+
+
+# -- real splitter_behavior signature guard --------------------------------
+
+
+def _parse_params(fn: object) -> list[tuple[str, str]]:
+    """Parse ``[(name, annotation)]`` from a nanobind function's doc signature.
+
+    ``inspect.signature`` raises on nanobind bindings, so read the first doc
+    line: ``splitter_behavior(bb: ...ImRect, id_: int, ...) -> tuple[...]``. No
+    parameter annotation contains a comma (they are dotted paths), so the split
+    on comma is safe up to the ``->`` return.
+    """
+    doc = (fn.__doc__ or "").splitlines()[0]
+    inner = doc[doc.index("(") + 1 : doc.rindex(") ->")]
+    params: list[tuple[str, str]] = []
+    for raw in inner.split(","):
+        part = raw.strip()
+        if not part:
+            continue
+        name = part.split(":")[0].split("=")[0].strip()
+        annotation = part.split(":", 1)[1].split("=")[0].strip() if ":" in part else ""
+        params.append((name, annotation))
+    return params
+
+
+def _return_arity(fn: object) -> int:
+    """Return the arity of a ``-> tuple[...]`` return from the doc signature."""
+    doc = (fn.__doc__ or "").splitlines()[0]
+    inner = doc[doc.rindex("tuple[") + len("tuple[") : doc.rindex("]")]
+    return len(inner.split(","))
+
+
+class _RealSignatureSplitter:
+    """A ``splitter_behavior`` double validating each call against the binding.
+
+    It binds the call's positional arguments to the parameters parsed from the
+    installed imgui-bundle signature and rejects a type mismatch — a ``float`` in
+    the ``int`` ``id_`` slot, or a value whose class does not match the ``ImRect``
+    / ``Axis`` slot — the shape a reordered or drifted call site would produce. It
+    returns a tuple of the binding's declared return arity, so the renderer's
+    ``held, top, bottom = ...`` unpack pins that arity too.
+    """
+
+    _params: list[tuple[str, str]]
+    _arity: int
+    __slots__ = ("_arity", "_params")
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._params = _parse_params(imgui.internal.splitter_behavior)
+        self._arity = _return_arity(imgui.internal.splitter_behavior)
+        return self
+
+    def __call__(self, *args: object) -> tuple[object, ...]:
+        if len(args) > len(self._params):
+            msg = f"{len(args)} positional args, signature has {len(self._params)}"
+            raise TypeError(msg)
+        for value, (name, annotation) in zip(args, self._params, strict=False):
+            self._check(name, annotation, value)
+        return (True, *([100.0] * (self._arity - 1)))
+
+    @staticmethod
+    def _check(name: str, annotation: str, value: object) -> None:
+        if annotation == "int":
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise TypeError(f"{name!r} expects int, got {type(value).__name__}")
+        elif annotation == "float":
+            if isinstance(value, bool) or not isinstance(value, int | float):
+                raise TypeError(f"{name!r} expects float, got {type(value).__name__}")
+        elif type(value).__name__ != annotation.rsplit(".", maxsplit=1)[-1]:
+            got = type(value).__name__
+            raise TypeError(f"{name!r} expects {annotation}, got {got}")
+
+
+class _StoreFactory:
+    """A minimal factory exposing the ``widget_state`` the store is keyed on."""
+
+    _state: WidgetState
+    __slots__ = ("_state",)
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._state = WidgetState()
+        return self
+
+    @property
+    def widget_state(self) -> WidgetState:
+        return self._state
+
+
+def _fake_split_imgui(splitter: _RealSignatureSplitter) -> MagicMock:
+    """A fake ``imgui`` for the renderer: real geometry types, faked frame calls.
+
+    ``ImRect``/``Axis``/``ImVec2`` are the real (context-free) constructors so the
+    call passes genuine types into the splitter double; the calls that need a live
+    frame (``get_id``, cursor/region, colour, draw list, ``dummy``) are stubbed.
+    """
+    fake = MagicMock()
+    fake.get_id.return_value = 7
+    fake.get_content_region_avail.return_value = imgui.ImVec2(400.0, 300.0)
+    fake.get_cursor_screen_pos.return_value = imgui.ImVec2(0.0, 100.0)
+    fake.get_text_line_height_with_spacing.return_value = 16.0
+    fake.get_color_u32.return_value = 0xFFFFFFFF
+    fake.Col_.separator.value = 28
+    fake.ImVec2 = imgui.ImVec2
+    fake.internal.ImRect = imgui.internal.ImRect
+    fake.internal.Axis = imgui.internal.Axis
+    fake.internal.splitter_behavior = splitter
+    return fake
+
+
+class TestSplitterSignature:
+    def test_draw_divider_binds_to_the_installed_splitter_signature(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Drive the real renderer against the real binding's signature: the call
+        # site's positional order and 3-tuple unpack must bind cleanly, and the
+        # held drag must persist the new ratio into the store.
+        splitter = _RealSignatureSplitter()
+        monkeypatch.setattr(
+            "punt_lux.display.renderers.imgui.split_pane.imgui",
+            _fake_split_imgui(splitter),
+        )
+        factory = cast("ImGuiRendererFactory", _StoreFactory())
+        renderer = ImGuiSplitPaneRenderer(_split(), factory)
+        renderer.draw_divider()  # raises TypeError on any signature mismatch
+        # held=True with top==bottom==100 → the store records the 0.5 split.
+        store = SplitRatioStore(factory.widget_state, "sp")
+        assert store.ratio(0.6) == pytest.approx(0.5)
+
+    def test_the_guard_reproduces_a_drifted_call_site(self) -> None:
+        # A float bound to the int ``id_`` slot — the shape a reordered call site
+        # (size where the id belongs) produces — is caught, not passed to a live
+        # frame.
+        splitter = _RealSignatureSplitter()
+        rect = imgui.internal.ImRect(0.0, 0.0, 10.0, 8.0)
+        with pytest.raises(TypeError, match="id_"):
+            splitter(rect, 3.0, imgui.internal.Axis.y, 100.0, 100.0, 64.0, 48.0)
+
+    def test_the_guard_pins_the_three_tuple_return_arity(self) -> None:
+        # The renderer unpacks three values; the binding must declare three.
+        assert _return_arity(imgui.internal.splitter_behavior) == 3
+
+
+# -- factory dispatch guard -------------------------------------------------
+
+
+class TestFactoryDispatch:
+    def test_factory_resolves_the_split_to_its_own_renderer(self) -> None:
+        # SplitPaneElement isinstance-matches both its own dispatch entry and
+        # GroupElement's; a reorder would silently downgrade it to an inert
+        # stacked group. A real factory must yield the split renderer.
+        factory = ImGuiRendererFactory(
+            widget_state=WidgetState(),
+            texture_cache=cast("TextureCache", MagicMock()),
+            emit=lambda _payload: None,
+        )
+        assert isinstance(factory(_split()), ImGuiSplitPaneRenderer)

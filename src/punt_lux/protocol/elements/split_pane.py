@@ -1,9 +1,8 @@
 """SplitPaneElement — two vertically-stacked panes with a draggable divider.
 
 The composed table's grid and detail share the frame through a draggable
-horizontal divider: dragging it up or down reallocates their heights. That
-arrangement is a two-pane vertical split, so it lives here as its own container
-rather than as a special case threaded through the generic ``rows`` group.
+horizontal divider that reallocates their heights. That two-pane vertical split
+lives here as its own container rather than a special case of the ``rows`` group.
 
 A ``SplitPaneElement`` is a ``GroupElement`` refinement: a rows stack of exactly
 two children, ``top`` above the divider and ``bottom`` below it, rendered by a
@@ -11,9 +10,13 @@ two children, ``top`` above the divider and ``bottom`` below it, rendered by a
 Display-local view state (like a column width or the Display-side sort), so it
 never crosses to the Hub; ``default_ratio`` is only the *initial* top-height
 fraction, superseded the moment the user drags. On the Hub→Display wire the pane
-crosses as its exact type (native pickle preserves it), so the Display resolves
-the split renderer; the JSON codec it inherits still emits ``kind="group"``, so
-an agent-side decode degrades gracefully to a plain rows stack of the two panes.
+crosses as its exact type (native pickle), so the Display resolves the split
+renderer; the JSON codec it inherits still emits ``kind="group"``.
+
+One trade-off of that inherited codec: through ``inspect_scene`` the live split
+is indistinguishable from a plain rows group (same ``kind`` and
+``resolved_props``), because the divider and its ratio are Display-local, not Hub
+state — confirmed visually and by the renderer tests, not introspection.
 """
 
 from __future__ import annotations
@@ -30,8 +33,7 @@ if TYPE_CHECKING:
 
 __all__ = ["SplitPaneElement", "SplitPaneRenderer"]
 
-# Fallback initial top-height fraction when a caller does not set one.
-_DEFAULT_TOP_RATIO = 0.6
+_DEFAULT_TOP_RATIO = 0.6  # initial top-height fraction when a caller sets none
 
 
 @runtime_checkable
@@ -41,8 +43,7 @@ class SplitPaneRenderer(Renderer, Protocol):
     ``_render_children`` renders the top child, draws the divider, then the
     bottom child; this sub-protocol owns the ImGui (the two pane regions and the
     ``splitter_behavior`` grab), keeping the element ImGui-free (PY-IC-8).
-    ``open_top`` reads the stored ratio; ``draw_divider`` writes it back after a
-    drag. The ratio is Display-local — a drag never crosses to the Hub.
+    ``open_top`` reads the stored ratio; ``draw_divider`` writes it back on a drag.
     """
 
     def open_top(self) -> None: ...
