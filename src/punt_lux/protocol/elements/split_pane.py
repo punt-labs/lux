@@ -1,22 +1,19 @@
 """SplitPaneElement — two vertically-stacked panes with a draggable divider.
 
 The composed table's grid and detail share the frame through a draggable
-horizontal divider that reallocates their heights. That two-pane vertical split
-lives here as its own container rather than a special case of the ``rows`` group.
+horizontal divider that reallocates their heights — a two-pane vertical split,
+its own container rather than a special case of the ``rows`` group.
 
 A ``SplitPaneElement`` is a ``GroupElement`` refinement: a rows stack of exactly
 two children, ``top`` above the divider and ``bottom`` below it, rendered by a
-``SplitPaneRenderer`` that owns the ImGui splitter. The split ratio is
-Display-local view state (like a column width or the Display-side sort), so it
-never crosses to the Hub; ``default_ratio`` is only the *initial* top-height
-fraction, superseded the moment the user drags. On the Hub→Display wire the pane
-crosses as its exact type (native pickle), so the Display resolves the split
-renderer; the JSON codec it inherits still emits ``kind="group"``.
+``SplitPaneRenderer``. The split ratio is Display-local view state (like a column
+width) superseded on the first drag, so it never crosses to the Hub. On the
+Hub→Display wire the pane crosses as its exact type (native pickle), so the
+Display resolves the split renderer; its inherited JSON codec emits ``kind="group"``.
 
-One trade-off of that inherited codec: through ``inspect_scene`` the live split
-is indistinguishable from a plain rows group (same ``kind`` and
-``resolved_props``), because the divider and its ratio are Display-local, not Hub
-state — confirmed visually and by the renderer tests, not introspection.
+A trade-off of that codec: ``inspect_scene`` shows the live split as a plain rows
+group (same ``kind`` / ``resolved_props``); the divider and ratio are
+Display-local, confirmed by the renderer tests and the eye, not introspection.
 """
 
 from __future__ import annotations
@@ -40,10 +37,9 @@ _DEFAULT_TOP_RATIO = 0.6  # initial top-height fraction when a caller sets none
 class SplitPaneRenderer(Renderer, Protocol):
     """The render surface a ``SplitPaneElement`` requires of its adapter.
 
-    ``_render_children`` renders the top child, draws the divider, then the
-    bottom child; this sub-protocol owns the ImGui (the two pane regions and the
-    ``splitter_behavior`` grab), keeping the element ImGui-free (PY-IC-8).
-    ``open_top`` reads the stored ratio; ``draw_divider`` writes it back on a drag.
+    Owns the ImGui — the two pane regions and the ``splitter_behavior`` grab —
+    keeping the element ImGui-free (PY-IC-8): ``open_top`` reads the stored ratio,
+    ``draw_divider`` writes it back on a drag.
     """
 
     def open_top(self) -> None: ...
@@ -87,12 +83,16 @@ class SplitPaneElement(GroupElement):
     def _render_children(self, renderer: Renderer) -> None:
         """Render the top pane, draw the divider, then render the bottom pane.
 
-        The domain drives the order; the ``SplitPaneRenderer`` owns the two
-        ``begin_child`` pane regions and the splitter grab between them (PY-IC-8),
-        exactly as a columns group hands its block brackets to a
-        ``ColumnsRenderer``. A plain ``Renderer`` lacking the split surface is
-        rejected here at the boundary, not deep in an opaque ``AttributeError``.
+        The domain drives the order; the ``SplitPaneRenderer`` owns the two pane
+        regions and the splitter grab (PY-IC-8). A detach can leave other than two
+        children — a patch removing the detail drops it to one — with nothing to
+        split, so the remaining child (or none) renders as the inherited plain rows
+        stack rather than raising a two-value unpack that would kill the frame; the
+        ``SplitPaneRenderer`` is required only for a real split.
         """
+        if len(self._children_tuple) != 2:
+            super()._render_children(renderer)
+            return
         if not isinstance(renderer, SplitPaneRenderer):
             msg = (
                 f"split pane {self.id!r} requires a SplitPaneRenderer "

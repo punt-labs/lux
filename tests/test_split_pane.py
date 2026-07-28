@@ -243,6 +243,31 @@ class TestRenderOrder:
         with pytest.raises(TypeError, match="SplitPaneRenderer"):
             split._render_children(_PlainRenderer())
 
+    def test_a_detached_pane_renders_as_a_plain_stack_without_a_divider(self) -> None:
+        # A patch removing the detail detaches a child (remove_child), leaving one
+        # pane. With nothing to split, the remaining child renders through the
+        # inherited plain stack — no divider, no SplitPaneRenderer required — so a
+        # two-value unpack can never raise and kill the frame.
+        rec = _Recorder()
+        split = _split()
+        split.bind_renderer_factory(_RecordingFactory(rec))
+        split.remove_child(split.children[1])  # drop the detail pane
+        assert len(split.children) == 1
+        split._render_children(_PlainRenderer())  # a non-split renderer is accepted
+        assert rec.events == ["render:grid"]  # the survivor renders, no split calls
+
+    def test_a_fully_detached_split_renders_nothing(self) -> None:
+        # Both panes gone: the stack is empty, so rendering is a no-op — never an
+        # unpack error.
+        rec = _Recorder()
+        split = _split()
+        split.bind_renderer_factory(_RecordingFactory(rec))
+        split.remove_child(split.children[1])
+        split.remove_child(split.children[0])
+        assert split.children == ()
+        split._render_children(_PlainRenderer())
+        assert rec.events == []
+
 
 # -- geometry relationship (fake layout) -----------------------------------
 
@@ -351,24 +376,25 @@ class TestSplitGeometry:
 # -- real splitter_behavior signature guard --------------------------------
 
 
-def _parse_params(fn: object) -> list[tuple[str, str]]:
-    """Parse ``[(name, annotation)]`` from a nanobind function's doc signature.
+def _parse_params(fn: object) -> list[tuple[str, str, bool]]:
+    """Parse ``[(name, annotation, required)]`` from a nanobind doc signature.
 
     ``inspect.signature`` raises on nanobind bindings, so read the first doc
-    line: ``splitter_behavior(bb: ...ImRect, id_: int, ...) -> tuple[...]``. No
-    parameter annotation contains a comma (they are dotted paths), so the split
-    on comma is safe up to the ``->`` return.
+    line: ``splitter_behavior(bb: ...ImRect, id_: int, ..., bg_col: int = 0)``. No
+    parameter annotation contains a comma (they are dotted paths), so the split on
+    comma is safe up to the ``->`` return. ``required`` is False for a trailing
+    optional (a param carrying a ``=`` default) — the call site need not supply it.
     """
     doc = (fn.__doc__ or "").splitlines()[0]
     inner = doc[doc.index("(") + 1 : doc.rindex(") ->")]
-    params: list[tuple[str, str]] = []
+    params: list[tuple[str, str, bool]] = []
     for raw in inner.split(","):
         part = raw.strip()
         if not part:
             continue
         name = part.split(":")[0].split("=")[0].strip()
         annotation = part.split(":", 1)[1].split("=")[0].strip() if ":" in part else ""
-        params.append((name, annotation))
+        params.append((name, annotation, "=" not in part))
     return params
 
 
@@ -382,29 +408,37 @@ def _return_arity(fn: object) -> int:
 class _RealSignatureSplitter:
     """A ``splitter_behavior`` double validating each call against the binding.
 
-    It binds the call's positional arguments to the parameters parsed from the
-    installed imgui-bundle signature and rejects a type mismatch — a ``float`` in
-    the ``int`` ``id_`` slot, or a value whose class does not match the ``ImRect``
-    / ``Axis`` slot — the shape a reordered or drifted call site would produce. It
+    It requires the call to supply *exactly* the binding's required (non-default)
+    positional args — so a dropped argument fails as loudly as an added one — and
+    binds each to its parameter, rejecting a type mismatch: a ``float`` in the
+    ``int`` ``id_`` slot, or a value whose class does not match the ``ImRect`` /
+    ``Axis`` slot, the shape a reordered or drifted call site would produce. It
     returns a tuple of the binding's declared return arity, so the renderer's
     ``held, top, bottom = ...`` unpack pins that arity too.
     """
 
-    _params: list[tuple[str, str]]
+    _params: list[tuple[str, str, bool]]
+    _required: int
     _arity: int
-    __slots__ = ("_arity", "_params")
+    __slots__ = ("_arity", "_params", "_required")
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
         self._params = _parse_params(imgui.internal.splitter_behavior)
+        self._required = sum(1 for _, _, required in self._params if required)
         self._arity = _return_arity(imgui.internal.splitter_behavior)
         return self
 
     def __call__(self, *args: object) -> tuple[object, ...]:
-        if len(args) > len(self._params):
-            msg = f"{len(args)} positional args, signature has {len(self._params)}"
+        if len(args) != self._required:
+            msg = (
+                f"{len(args)} positional args, binding requires exactly "
+                f"{self._required}"
+            )
             raise TypeError(msg)
-        for value, (name, annotation) in zip(args, self._params, strict=False):
+        for value, (name, annotation, _required) in zip(
+            args, self._params, strict=False
+        ):
             self._check(name, annotation, value)
         return (True, *([100.0] * (self._arity - 1)))
 
@@ -485,6 +519,27 @@ class TestSplitterSignature:
         rect = imgui.internal.ImRect(0.0, 0.0, 10.0, 8.0)
         with pytest.raises(TypeError, match="id_"):
             splitter(rect, 3.0, imgui.internal.Axis.y, 100.0, 100.0, 64.0, 48.0)
+
+    def test_the_guard_rejects_a_dropped_argument(self) -> None:
+        # A call site that DROPS a required arg (six, not the seven the binding
+        # requires) must fail as loudly as a reorder — not slip through.
+        splitter = _RealSignatureSplitter()
+        rect = imgui.internal.ImRect(0.0, 0.0, 10.0, 8.0)
+        with pytest.raises(TypeError, match="requires exactly"):
+            splitter(rect, 7, imgui.internal.Axis.y, 100.0, 100.0, 64.0)
+
+    def test_the_guard_accepts_exactly_the_required_arity_and_rejects_more(
+        self,
+    ) -> None:
+        # Exactly the seven required params (bb, id_, axis, size1, size2,
+        # min_size1, min_size2) bind cleanly; an eighth positional — supplying a
+        # defaulted trailing param the call site should not — is rejected too.
+        splitter = _RealSignatureSplitter()
+        rect = imgui.internal.ImRect(0.0, 0.0, 10.0, 8.0)
+        seven = (rect, 7, imgui.internal.Axis.y, 100.0, 100.0, 64.0, 48.0)
+        assert splitter(*seven) == (True, 100.0, 100.0)  # binds, returns 3-tuple
+        with pytest.raises(TypeError, match="requires exactly"):
+            splitter(*seven, 0.0)  # an eighth positional
 
     def test_the_guard_pins_the_three_tuple_return_arity(self) -> None:
         # The renderer unpacks three values; the binding must declare three.
