@@ -601,16 +601,52 @@ class TestModalDismissRevertOnUndeliverable:
             )
         )
 
-    def test_no_client_drop_reverts_modal_dismiss(self) -> None:
+    def test_no_client_holds_modal_dismiss_within_bound(self) -> None:
+        """A dropped connection holds the close for a reconnect, not reverts it."""
         server = _make_server()
         ws = self._latch_modal(server, "s1", "m1")
         self._queue_modal_closed(server, "s1", "m1")
 
-        server._flush_events()  # no client connected
+        server._flush_events()  # no client connected; within the buffer bound
+
+        # The modal stays dismissed -- the close is held for a reconnect, not lost.
+        assert ws.get(f"m1{WidgetState.OPEN_SUFFIX}") == 1
+        assert ws.get(f"m1{WidgetState.DISMISS_SUFFIX}") == 1
+        assert not server._pending.is_empty
+        assert len(server._event_queue) == 0
+
+    def test_no_client_reverts_modal_dismiss_past_bound(self) -> None:
+        """A close still undelivered past the buffer bound reverts to Hub truth."""
+        from punt_lux.display.pending_interactions import PendingInteractions
+
+        server = _make_server()
+        server._pending = PendingInteractions(
+            max_age=-1.0
+        )  # any held event is past bound
+        ws = self._latch_modal(server, "s1", "m1")
+        self._queue_modal_closed(server, "s1", "m1")
+
+        server._flush_events()  # no client; the close ages out immediately
 
         assert ws.get(f"m1{WidgetState.OPEN_SUFFIX}") is None
         assert ws.get(f"m1{WidgetState.DISMISS_SUFFIX}") is None
+        assert server._pending.is_empty
         assert len(server._event_queue) == 0
+
+    def test_reconnect_delivers_held_modal_dismiss(self) -> None:
+        """A held close delivers on reconnect and the dismiss latch holds."""
+        server = _make_server()
+        self._latch_modal(server, "s1", "m1")
+        self._queue_modal_closed(server, "s1", "m1")
+        server._flush_events()  # no client: the close is held
+
+        sock = _mock_sock_fd(10)
+        server._socket_server.clients.append(sock)
+        server._socket_server._fd_to_client[10] = sock
+        server._flush_events()  # client back: the held close is delivered
+
+        sock.send.assert_called_once()
+        assert server._pending.is_empty
 
     def test_send_failure_reverts_modal_dismiss_and_removes_client(self) -> None:
         server = _make_server()

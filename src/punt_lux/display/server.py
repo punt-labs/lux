@@ -31,6 +31,7 @@ from punt_lux.display.idle_screen import render_idle
 from punt_lux.display.interaction_delivery import InteractionDelivery
 from punt_lux.display.macos import hide_from_dock_and_cmd_tab
 from punt_lux.display.menu_manager import MenuManager
+from punt_lux.display.pending_interactions import PendingInteractions
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.texture_cache import TextureCache
 from punt_lux.domain.display import Display
@@ -133,6 +134,7 @@ class DisplayServer:
     _domain_pump: DomainPump
     _event_queue: list[RemoteEventHandlerInvocation]
     _interaction_delivery: InteractionDelivery
+    _pending: PendingInteractions
     _textures: TextureCache
     _widget_state: WidgetState
     _menu_manager: MenuManager
@@ -243,6 +245,7 @@ class DisplayServer:
         )
         _container_dispatch.install_from_dict(self._luxd_factory.element_from_dict)
         self._event_queue = []
+        self._pending = PendingInteractions()
         self._textures = TextureCache()
         self._widget_state = WidgetState()  # active scene's state (swapped)
         self._screenshot_pending = None
@@ -1358,23 +1361,20 @@ class DisplayServer:
             )
 
     def _flush_events(self) -> None:
-        """Send queued interactions to the Hub, then compensate the undelivered.
+        """Deliver queued interactions, holding them briefly across a Hub dropout.
 
-        Delivery is delegated to ``InteractionDelivery``; an undeliverable
-        ``modal_closed`` reopens the optimistically-dismissed popup so the two
-        tiers never silently diverge (see ``revert_modal_dismissals``).
+        With a client, held clicks deliver first (in order) then the new ones; with
+        none, interactions wait in a short bounded buffer so a reconnect within the
+        bound delivers them and only those past it are compensated (an undeliverable
+        ``modal_closed`` reopens -- see ``revert_modal_dismissals``).
         """
-        if not self._event_queue:
+        if not self._event_queue and self._pending.is_empty:
             return
         self._record_queued_events()
         if self._socket_server.clients:
-            undelivered = self._interaction_delivery.deliver(self._event_queue)
+            batch = self._pending.drain_to(self._event_queue)
+            undelivered = self._interaction_delivery.deliver(batch)
         else:
-            undelivered = list(self._event_queue)
-            logger.warning(
-                "no display client connected; dropping %d queued interaction(s): %s",
-                len(undelivered),
-                [f"{ev.element_id}:{ev.event_kind}" for ev in undelivered],
-            )
+            undelivered = self._pending.hold(self._event_queue, time.monotonic())
         self._interaction_delivery.revert_modal_dismissals(undelivered)
         self._event_queue.clear()
