@@ -286,17 +286,34 @@ class TestBuildBeadsPayload:
         assert payload["rows"][0][0] == "beads-001"
         assert payload["rows"][0][3] == "P1"
 
-    def test_detail_truncates_dates(self) -> None:
-        active = [_ISSUES[0]]
-        payload = BeadsBrowser().build_payload(active)
-        detail_row = payload["detail"]["rows"][0]
-        assert detail_row[5] == "2026-03-01"  # created_at truncated
-        assert detail_row[6] == "2026-03-09"  # updated_at truncated
+    def test_detail_body_separates_the_metadata_table_from_the_description(
+        self,
+    ) -> None:
+        # The detail pane is a two-column metadata table, a horizontal rule, then
+        # the description as its own text — not one inline run of fields + prose.
+        payload = BeadsBrowser().build_payload([_ISSUES[0]])
+        body = payload["detail"]["body"][0]
+        table, _, description = body.partition("\n\n---\n\n")
+        assert "| Field | Value |" in table
+        assert "| ID | beads-001 |" in table
+        assert "| Priority | P1 |" in table
+        # Dates are truncated to the day inside the metadata table.
+        assert "| Created | 2026-03-01 |" in table
+        assert "| Updated | 2026-03-09 |" in table
+        # The description body is the issue's own text, kept below the rule.
+        assert description == "Login fails on slow networks."
 
-    def test_empty_description_shows_placeholder(self) -> None:
+    def test_detail_body_degrades_when_the_description_is_empty(self) -> None:
         active = [_ISSUES[1]]  # description is ""
-        payload = BeadsBrowser().build_payload(active)
-        assert payload["detail"]["body"][0] == "No description."
+        body = BeadsBrowser().build_payload(active)["detail"]["body"][0]
+        _, sep, description = body.partition("\n\n---\n\n")
+        assert sep  # the rule still separates the fields from the placeholder
+        assert description == "_No description._"
+
+    def test_detail_body_shows_unassigned_owner(self) -> None:
+        active = [_ISSUES[1]]  # owner is ""
+        body = BeadsBrowser().build_payload(active)["detail"]["body"][0]
+        assert "| Owner | unassigned |" in body
 
     def test_filters_include_unique_values(self) -> None:
         active = [i for i in _ISSUES if i["status"] in {"open", "in_progress"}]
@@ -309,7 +326,7 @@ class TestBuildBeadsPayload:
     def test_empty_issues(self) -> None:
         payload = BeadsBrowser().build_payload([])
         assert payload["rows"] == []
-        assert payload["detail"]["rows"] == []
+        assert payload["detail"]["body"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -341,11 +358,11 @@ class TestBoardRequest:
         # The search box and both status/type combos ride as filter data.
         assert request.filters is not None
         assert {f["type"] for f in request.filters} == {"search", "combo"}
-        # The drill-down detail rides parallel to the rows.
+        # The drill-down detail rides one composed markdown body per row.
         assert request.detail is not None
-        detail_rows = request.detail["rows"]
-        assert isinstance(detail_rows, list)
-        assert len(detail_rows) == 2
+        detail_body = request.detail["body"]
+        assert isinstance(detail_body, list)
+        assert len(detail_body) == 2
         # Sort/copy chrome the CLI board carried is preserved as flags.
         assert request.flags is not None
         assert "sortable" in request.flags
