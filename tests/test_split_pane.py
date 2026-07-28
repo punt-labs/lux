@@ -483,8 +483,11 @@ def _fake_split_imgui(splitter: _RealSignatureSplitter) -> MagicMock:
     fake.get_content_region_avail.return_value = imgui.ImVec2(400.0, 300.0)
     fake.get_cursor_screen_pos.return_value = imgui.ImVec2(0.0, 100.0)
     fake.get_text_line_height_with_spacing.return_value = 16.0
-    fake.get_color_u32.return_value = 0xFFFFFFFF
+    # The grab colour resolves through the vec4 helpers, never the ambiguous
+    # get_color_u32 int overloads.
     fake.Col_.separator.value = 28
+    fake.get_style_color_vec4.return_value = imgui.ImVec4(0.5, 0.5, 0.5, 1.0)
+    fake.color_convert_float4_to_u32.return_value = 0xFF808080
     fake.ImVec2 = imgui.ImVec2
     fake.internal.ImRect = imgui.internal.ImRect
     fake.internal.Axis = imgui.internal.Axis
@@ -544,6 +547,21 @@ class TestSplitterSignature:
     def test_the_guard_pins_the_three_tuple_return_arity(self) -> None:
         # The renderer unpacks three values; the binding must declare three.
         assert _return_arity(imgui.internal.splitter_behavior) == 3
+
+    def test_grab_colour_avoids_the_ambiguous_int_overload(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # get_color_u32 has both an index-int and a packed-u32-int overload, so a
+        # bare int is ambiguous (two reviewers disagreed which wins). The grab must
+        # resolve the theme colour to a vec4 and pack it — never call get_color_u32.
+        fake = _fake_split_imgui(_RealSignatureSplitter())
+        monkeypatch.setattr("punt_lux.display.renderers.imgui.split_pane.imgui", fake)
+        factory = cast("ImGuiRendererFactory", _StoreFactory())
+        ImGuiSplitPaneRenderer(_split(), factory).draw_divider()
+        fake.get_color_u32.assert_not_called()
+        fake.color_convert_float4_to_u32.assert_called_once_with(
+            fake.get_style_color_vec4.return_value
+        )
 
 
 # -- factory dispatch guard -------------------------------------------------

@@ -1,14 +1,11 @@
 # pyright: reportUnknownMemberType=false, reportMissingModuleSource=false
 """ImGuiSplitPaneRenderer — the ImGui adapter for a draggable two-pane split.
 
-Renders a ``SplitPaneElement``'s top and bottom children in two ``begin_child``
-regions with an ``imgui_internal.splitter_behavior`` grab between them. The grab
-reallocates the two heights on drag; the new proportion is written straight back
-to the Display-local ``SplitRatioStore`` (per scene, no Hub round-trip). The top
-fraction is read from that store each frame, defaulting to the pane's
-``default_ratio`` until the user first drags. Both panes are clamped to a usable
-floor — the grid keeps at least a few rows, the detail at least a few lines — so
-the divider can never collapse either to nothing.
+Renders a ``SplitPaneElement``'s two children in ``begin_child`` regions with an
+``imgui_internal.splitter_behavior`` grab between them. A drag reallocates the
+heights and writes the proportion back to the Display-local ``SplitRatioStore``
+(per scene, no Hub round-trip); the top fraction is read each frame, defaulting to
+``default_ratio``. Both panes clamp to a usable floor so neither collapses.
 """
 
 from __future__ import annotations
@@ -113,8 +110,12 @@ class ImGuiSplitPaneRenderer:
     # -- geometry helpers ---------------------------------------------------
 
     def _paint_grab(self, pos: imgui.ImVec2, width: float) -> None:
-        """Draw a thin separator-coloured bar centred in the grab band."""
-        color = imgui.get_color_u32(int(imgui.Col_.separator.value))
+        """Draw a separator-coloured bar centred in the grab band.
+
+        Packed via the vec4 helpers, not the ambiguous two-overload get_color_u32.
+        """
+        style_color = imgui.get_style_color_vec4(int(imgui.Col_.separator.value))
+        color = imgui.color_convert_float4_to_u32(style_color)
         middle = pos.y + _DIVIDER_THICKNESS * 0.5
         imgui.get_window_draw_list().add_rect_filled(
             imgui.ImVec2(pos.x, middle - 1.0),
