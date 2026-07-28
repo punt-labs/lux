@@ -34,6 +34,7 @@ from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.renderers.imgui.group import ImGuiGroupRenderer
 from punt_lux.display.renderers.imgui.leaf import LeafRenderer
 from punt_lux.display.renderers.imgui.modal import ImGuiModalRenderer
+from punt_lux.display.renderers.imgui.split_pane import ImGuiSplitPaneRenderer
 from punt_lux.display.renderers.imgui.tab_bar import ImGuiTabBarRenderer
 from punt_lux.display.renderers.imgui.tree import ImGuiTreeRenderer
 from punt_lux.display.renderers.imgui.window import ImGuiWindowRenderer
@@ -53,6 +54,7 @@ _CONTAINER_ADAPTERS: frozenset[type] = frozenset(
         ImGuiModalRenderer,
         ImGuiDialogRenderer,
         ImGuiGroupRenderer,
+        ImGuiSplitPaneRenderer,
         ImGuiTabBarRenderer,
         ImGuiCollapsingHeaderRenderer,
     }
