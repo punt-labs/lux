@@ -6,6 +6,7 @@ patching — all pure logic that doesn't touch ImGui or OpenGL.
 
 from __future__ import annotations
 
+import errno
 import logging
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
@@ -52,7 +53,7 @@ def _make_scene(
 
 def _mock_sock() -> MagicMock:
     sock = MagicMock()
-    sock.sendall = MagicMock()
+    sock.send.side_effect = len  # a real socket accepts the bytes and returns the count
     sock.fileno.return_value = 42
     return sock
 
@@ -462,7 +463,7 @@ class TestFlushEvents:
 
         server._flush_events()
 
-        sock.sendall.assert_not_called()
+        sock.send.assert_not_called()
 
     def test_flush_routes_menu_event_to_owner(self) -> None:
         """Tools menu events are sent only to the owning client, not broadcast."""
@@ -484,8 +485,8 @@ class TestFlushEvents:
 
         server._flush_events()
 
-        owner.sendall.assert_called_once()
-        other.sendall.assert_not_called()
+        owner.send.assert_called_once()
+        other.send.assert_not_called()
 
     def test_flush_broadcasts_non_menu_event(self) -> None:
         """Events for element IDs not in _menu_owners broadcast to all."""
@@ -501,8 +502,8 @@ class TestFlushEvents:
 
         server._flush_events()
 
-        sock1.sendall.assert_called_once()
-        sock2.sendall.assert_called_once()
+        sock1.send.assert_called_once()
+        sock2.send.assert_called_once()
 
     def test_flush_broadcasts_non_menu_action_even_if_in_menu_owners(self) -> None:
         """Non-menu actions broadcast even when element_id is in _menu_owners."""
@@ -519,8 +520,8 @@ class TestFlushEvents:
 
         server._flush_events()
 
-        sock1.sendall.assert_called_once()
-        sock2.sendall.assert_called_once()
+        sock1.send.assert_called_once()
+        sock2.send.assert_called_once()
 
     def test_flush_broadcasts_agent_menu_even_if_id_in_menu_owners(self) -> None:
         """Agent menu clicks broadcast even when ID collides with _menu_owners."""
@@ -542,8 +543,8 @@ class TestFlushEvents:
 
         server._flush_events()
 
-        sock1.sendall.assert_called_once()
-        sock2.sendall.assert_called_once()
+        sock1.send.assert_called_once()
+        sock2.send.assert_called_once()
 
     def test_flush_routes_menu_drops_if_owner_disconnected(self) -> None:
         """If owner fd is in _menu_owners but not in _fd_to_client, event is dropped."""
@@ -563,7 +564,7 @@ class TestFlushEvents:
 
         server._flush_events()
 
-        other.sendall.assert_not_called()
+        other.send.assert_not_called()
         assert len(server._event_queue) == 0
 
 
@@ -601,21 +602,62 @@ class TestModalDismissRevertOnUndeliverable:
             )
         )
 
-    def test_no_client_drop_reverts_modal_dismiss(self) -> None:
+    def test_no_client_holds_modal_dismiss_within_bound(self) -> None:
+        """A dropped connection holds the close for a reconnect, not reverts it."""
         server = _make_server()
         ws = self._latch_modal(server, "s1", "m1")
         self._queue_modal_closed(server, "s1", "m1")
 
-        server._flush_events()  # no client connected
+        server._flush_events()  # no client connected; within the buffer bound
+
+        # The modal stays dismissed -- the close is held for a reconnect, not lost.
+        assert ws.get(f"m1{WidgetState.OPEN_SUFFIX}") == 1
+        assert ws.get(f"m1{WidgetState.DISMISS_SUFFIX}") == 1
+        assert not server._pending.is_empty
+        assert len(server._event_queue) == 0
+
+    def test_no_client_reverts_modal_dismiss_past_bound(self) -> None:
+        """A close still undelivered past the buffer bound reverts to Hub truth."""
+        from punt_lux.display.pending_interactions import PendingInteractions
+
+        server = _make_server()
+        server._pending = PendingInteractions(
+            max_age=-1.0
+        )  # any held event is past bound
+        ws = self._latch_modal(server, "s1", "m1")
+        self._queue_modal_closed(server, "s1", "m1")
+
+        server._flush_events()  # no client; the close ages out immediately
 
         assert ws.get(f"m1{WidgetState.OPEN_SUFFIX}") is None
         assert ws.get(f"m1{WidgetState.DISMISS_SUFFIX}") is None
+        assert server._pending.is_empty
         assert len(server._event_queue) == 0
 
-    def test_send_failure_reverts_modal_dismiss_and_removes_client(self) -> None:
+    def test_reconnect_delivers_held_modal_dismiss(self) -> None:
+        """A held close delivers on reconnect and the dismiss latch holds."""
+        server = _make_server()
+        self._latch_modal(server, "s1", "m1")
+        self._queue_modal_closed(server, "s1", "m1")
+        server._flush_events()  # no client: the close is held
+
+        sock = _mock_sock_fd(10)
+        server._socket_server.clients.append(sock)
+        server._socket_server._fd_to_client[10] = sock
+        server._flush_events()  # client back: the held close is delivered
+
+        sock.send.assert_called_once()
+        assert server._pending.is_empty
+
+    def test_dead_peer_removes_client_and_holds_the_close(self) -> None:
+        """A dead-peer send removes the client; the close is held, not reverted now.
+
+        A reconnect (or the keepalive) can still deliver the held close, so it must
+        not be compensated the instant the peer dies -- only on aging out.
+        """
         server = _make_server()
         sock = _mock_sock()
-        sock.sendall.side_effect = OSError("boom")
+        sock.send.side_effect = OSError("boom")
         server._socket_server.clients.append(sock)
         from punt_lux.protocol import FrameReader
 
@@ -625,8 +667,9 @@ class TestModalDismissRevertOnUndeliverable:
 
         server._flush_events()
 
-        assert ws.get(f"m1{WidgetState.DISMISS_SUFFIX}") is None
-        assert sock not in server._socket_server.clients
+        assert sock not in server._socket_server.clients  # dead peer removed
+        assert ws.get(f"m1{WidgetState.DISMISS_SUFFIX}") == 1  # held, not reverted
+        assert not server._pending.is_empty
 
     def test_delivered_modal_dismiss_is_not_reverted(self) -> None:
         server = _make_server()
@@ -638,7 +681,7 @@ class TestModalDismissRevertOnUndeliverable:
 
         server._flush_events()
 
-        sock.sendall.assert_called_once()
+        sock.send.assert_called_once()
         # Delivered: the Hub will re-push the removal, so the latch must hold.
         assert ws.get(f"m1{WidgetState.DISMISS_SUFFIX}") == 1
 
@@ -654,6 +697,118 @@ class TestModalDismissRevertOnUndeliverable:
         server._flush_events()  # no client connected
 
         assert ws.get(f"m1{WidgetState.DISMISS_SUFFIX}") == 1
+
+
+class TestFrameSendBudget:
+    """One flush blocks by the shared frame budget once, not once per event."""
+
+    def test_slow_peer_caps_the_frame_and_holds_the_remainder(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Many held events + a peer that always EAGAINs: one send is attempted.
+
+        The shared deadline is spent by the first would-block, so delivery stops
+        after one attempt (not one per event) and every event stays held, in
+        order, for the next frame -- none dropped, none compensated.
+        """
+
+        # A ``select`` that never reports writability, so the first would-block
+        # exhausts the budget with no real wait -- the cap is structural, not timed.
+        def _never_writable(
+            _r: list[object], _w: list[object], _x: list[object], _t: float
+        ) -> tuple[list[object], list[object], list[object]]:
+            return ([], [], [])
+
+        monkeypatch.setattr("punt_lux.bounded_send.select.select", _never_writable)
+        server = _make_server()
+        slow = _mock_sock_fd(10)
+        slow.send.side_effect = BlockingIOError(errno.EAGAIN, "would block")
+        server._socket_server.clients.append(slow)
+        server._socket_server._fd_to_client[10] = slow
+        for i in range(8):  # eight broadcast clicks queued this frame
+            server._event_queue.append(
+                RemoteEventHandlerInvocation(element_id=f"b{i}", action="click", ts=1.0)
+            )
+
+        server._flush_events()
+
+        # The budget is shared: only the first event's send was attempted, not all.
+        assert slow.send.call_count == 1
+        # Every click stays held, in order, for the next frame -- none lost.
+        held = [ev.element_id for ev in server._pending.pending_events()]
+        assert held == [f"b{i}" for i in range(8)]
+        assert slow in server._socket_server.clients  # the slow peer is kept
+
+    def test_connection_dying_mid_flush_reholds_the_undelivered(self) -> None:
+        """A client dying at the first send holds the rest for a reconnect, not lost.
+
+        The drain-then-die path: delivery reads the buffer, the peer dies on the
+        first send, and the undelivered suffix must stay held (a reconnect
+        delivers it) rather than being destroyed at the failed send.
+        """
+        from punt_lux.protocol import FrameReader
+
+        server = _make_server()
+        dead = _mock_sock_fd(10)
+        dead.send.side_effect = OSError("boom")
+        server._socket_server.clients.append(dead)
+        server._socket_server._fd_to_client[10] = dead
+        server._socket_server._readers[10] = FrameReader()
+        for i in range(4):
+            server._event_queue.append(
+                RemoteEventHandlerInvocation(element_id=f"c{i}", action="click", ts=1.0)
+            )
+
+        server._flush_events()
+
+        assert dead not in server._socket_server.clients  # dead peer removed
+        held = [ev.element_id for ev in server._pending.pending_events()]
+        assert held == [f"c{i}" for i in range(4)]  # every click re-held, none lost
+
+
+class TestPendingSurvivesRemoval:
+    """Clearing or replacing UI must drop the held interactions that targeted it."""
+
+    def test_clear_evicts_held_interactions(self) -> None:
+        """A clear removes the UI, so its held clicks must not deliver later."""
+        server = _make_server()
+        server._pending.admit(
+            [RemoteEventHandlerInvocation(element_id="b1", action="click", ts=1.0)],
+            now=100.0,
+        )
+        assert not server._pending.is_empty
+
+        server._handle_clear()
+
+        assert server._pending.is_empty  # held clicks for the cleared UI are gone
+
+    def test_menu_clear_all_evicts_held_interactions(self) -> None:
+        """The menu's clear-all path drops held interactions too."""
+        server = _make_server()
+        server._pending.admit(
+            [RemoteEventHandlerInvocation(element_id="b1", action="click", ts=1.0)],
+            now=100.0,
+        )
+
+        server._clear_all()
+
+        assert server._pending.is_empty
+
+    def test_stale_element_drops_its_held_interactions(self) -> None:
+        """A replaced element's held clicks drop too, not just the queued ones."""
+        server = _make_server()
+        server._pending.admit(
+            [
+                RemoteEventHandlerInvocation(element_id="gone", action="click", ts=1.0),
+                RemoteEventHandlerInvocation(element_id="keep", action="click", ts=1.0),
+            ],
+            now=100.0,
+        )
+
+        server._drain_stale_events(["gone"])
+
+        held = [ev.element_id for ev in server._pending.pending_events()]
+        assert held == ["keep"]  # only the removed element's held click dropped
 
 
 # -----------------------------------------------------------------------
@@ -928,7 +1083,7 @@ class TestMultiScene:
 def _mock_sock_fd(fd: int) -> MagicMock:
     """Create a mock socket with a specific fileno()."""
     sock = MagicMock()
-    sock.sendall = MagicMock()
+    sock.send.side_effect = len  # a real socket accepts the bytes and returns the count
     sock.fileno.return_value = fd
     return sock
 

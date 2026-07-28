@@ -381,6 +381,7 @@ class TestInteraction:
 def _mock_sock() -> MagicMock:
     sock = MagicMock()
     sock.fileno.return_value = 7
+    sock.send.side_effect = len  # a real socket accepts the bytes and returns the count
     return sock
 
 

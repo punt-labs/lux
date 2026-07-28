@@ -7,10 +7,12 @@ import errno
 import logging
 import select
 import socket
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Self
 
+from punt_lux.bounded_send import BoundedSend
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
     HEADER_SIZE,
@@ -23,6 +25,10 @@ from punt_lux.protocol.messages import Message
 
 logger = logging.getLogger(__name__)
 
+# Budget for a one-off send (no caller deadline): a full buffer drains in tens of
+# milliseconds once the peer reads, so this only bounds a genuinely stuck peer.
+_ONE_OFF_SEND_BUDGET = 1.0
+
 # AF_UNIX bind() rejects an already-owned path with EADDRINUSE on Linux and
 # EEXIST on macOS/BSD; either means a concurrent binder won the race.
 _BIND_RACE_ERRNOS = frozenset({errno.EADDRINUSE, errno.EEXIST})
@@ -31,7 +37,6 @@ _BIND_RACE_ERRNOS = frozenset({errno.EADDRINUSE, errno.EEXIST})
 # breakpoint) that is not draining accepts isn't misread as dead: a probe would
 # get ECONNREFUSED only once 128+ connects are queued, far beyond lux's real
 # client count (luxd's one persistent connection plus occasional probes).
-# See lux-h29e.
 _LISTEN_BACKLOG = 128
 
 
@@ -199,15 +204,22 @@ class SocketServer:
             sock.close()
         logger.debug("Client disconnected (remaining: %d)", len(self._clients))
 
-    def send_to_client(self, sock: socket.socket, msg: Message) -> bool:
-        """Send ``msg`` to ``sock``; return whether it was delivered.
+    def send_to_client(
+        self, sock: socket.socket, msg: Message, deadline: float | None = None
+    ) -> bool:
+        """Send ``msg`` to ``sock`` before ``deadline``; return whether it landed.
 
-        On failure name the dropped message kind (a dropped interaction leaves
-        the Hub unaware), remove the dead client, and report ``False`` so the
-        caller can compensate.
+        The render loop passes one shared ``deadline`` so a frame's sends share a
+        budget; a one-off send omits it and gets its own. A ``BlockingIOError`` (the
+        peer alive but not drained before the deadline) keeps the client and reports
+        ``False`` so the caller defers; only a dead-peer ``OSError`` removes it.
         """
+        if deadline is None:
+            deadline = time.monotonic() + _ONE_OFF_SEND_BUDGET
         try:
-            sock.sendall(encode_message(msg))
+            BoundedSend().send(sock, encode_message(msg), deadline)
+        except BlockingIOError:
+            return False  # alive but slow past the deadline -- defer, do not remove
         except (ConnectionError, OSError) as exc:
             logger.warning(
                 "send failed (%s); dropped %s, removing client",

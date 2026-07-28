@@ -56,6 +56,7 @@ def _server() -> DisplayServer:
 
 def _inspect(server: DisplayServer, elem: object) -> QueryResponse:
     sock = MagicMock()
+    sock.send.side_effect = len  # a real socket accepts the bytes and returns the count
     sock.fileno.return_value = 7
     server._handle_message(
         sock, SceneMessage(id="s1", elements=[cast("Any", elem)], frame_id="s1")

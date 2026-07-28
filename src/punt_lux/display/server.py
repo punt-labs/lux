@@ -31,6 +31,7 @@ from punt_lux.display.idle_screen import render_idle
 from punt_lux.display.interaction_delivery import InteractionDelivery
 from punt_lux.display.macos import hide_from_dock_and_cmd_tab
 from punt_lux.display.menu_manager import MenuManager
+from punt_lux.display.pending_interactions import PendingInteractions
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.texture_cache import TextureCache
 from punt_lux.domain.display import Display
@@ -133,6 +134,7 @@ class DisplayServer:
     _domain_pump: DomainPump
     _event_queue: list[RemoteEventHandlerInvocation]
     _interaction_delivery: InteractionDelivery
+    _pending: PendingInteractions
     _textures: TextureCache
     _widget_state: WidgetState
     _menu_manager: MenuManager
@@ -243,6 +245,7 @@ class DisplayServer:
         )
         _container_dispatch.install_from_dict(self._luxd_factory.element_from_dict)
         self._event_queue = []
+        self._pending = PendingInteractions()
         self._textures = TextureCache()
         self._widget_state = WidgetState()  # active scene's state (swapped)
         self._screenshot_pending = None
@@ -293,11 +296,13 @@ class DisplayServer:
         return self._socket_server
 
     def _drain_stale_events(self, stale_ids: list[str]) -> None:
-        """Remove queued events for elements that no longer exist."""
+        """Drop queued and held interactions for removed elements -- both queues."""
         stale = set(stale_ids)
+        evicted = self._pending.discard_elements(stale)
         self._event_queue = [
             ev for ev in self._event_queue if ev.element_id not in stale
         ]
+        self._interaction_delivery.compensate_evicted(evicted)
 
     # -- font loading ------------------------------------------------------
 
@@ -536,12 +541,10 @@ class DisplayServer:
         self._font_scale = scale
 
     def _clear_all(self) -> None:
-        """Callback for MenuManager: clear all frames and scenes."""
+        """Callback for MenuManager: close every frame, then clear scenes and state."""
         for fid in list(self._scene_manager.frames):
             self._close_frame(fid)
-        self._scene_manager.clear_all()
-        self._event_queue.clear()
-        self._widget_state = WidgetState()
+        self._handle_clear()
 
     def _request_fit_all(self) -> None:
         """Callback for MenuManager: request fit-all layout."""
@@ -620,6 +623,7 @@ class DisplayServer:
 
     def _handle_clear(self) -> None:
         """Drop all scenes and reset the display's per-frame state."""
+        self._interaction_delivery.compensate_evicted(self._pending.evict_all())
         self._scene_manager.clear_all()
         self._event_queue.clear()
         self._widget_state = WidgetState()
@@ -1358,23 +1362,19 @@ class DisplayServer:
             )
 
     def _flush_events(self) -> None:
-        """Send queued interactions to the Hub, then compensate the undelivered.
+        """Deliver queued interactions within one frame budget; hold the rest.
 
-        Delivery is delegated to ``InteractionDelivery``; an undeliverable
-        ``modal_closed`` reopens the optimistically-dismissed popup so the two
-        tiers never silently diverge (see ``revert_modal_dismissals``).
+        New join the buffer; aged expire and compensate; the unsent remainder holds.
         """
-        if not self._event_queue:
+        if not self._event_queue and self._pending.is_empty:
             return
         self._record_queued_events()
-        if self._socket_server.clients:
-            undelivered = self._interaction_delivery.deliver(self._event_queue)
-        else:
-            undelivered = list(self._event_queue)
-            logger.warning(
-                "no display client connected; dropping %d queued interaction(s): %s",
-                len(undelivered),
-                [f"{ev.element_id}:{ev.event_kind}" for ev in undelivered],
-            )
-        self._interaction_delivery.revert_modal_dismissals(undelivered)
+        now = time.monotonic()
+        self._pending.admit(self._event_queue, now)
         self._event_queue.clear()
+        expired = self._pending.expire(now)
+        if self._socket_server.clients:
+            self._pending.discard_prefix(
+                self._interaction_delivery.deliver(self._pending.pending_events())
+            )
+        self._interaction_delivery.compensate_evicted(expired)
