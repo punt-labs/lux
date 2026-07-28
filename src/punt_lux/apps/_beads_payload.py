@@ -8,6 +8,8 @@ import subprocess
 from enum import Enum
 from typing import Any, ClassVar, cast, final
 
+from punt_lux.apps.beads_detail import BeadsDetail
+
 _log = logging.getLogger(__name__)
 _STDOUT_PREVIEW_CHARS = 80
 _BD_TIMEOUT_SECONDS = 60
@@ -120,8 +122,6 @@ class BeadsPayloadBuilder:
     def build(self, issues: list[dict[str, Any]]) -> dict[str, Any]:
         """Build the show_table element dict and metadata for beads issues."""
         rows = [self._row(i) for i in issues]
-        detail_rows = [self._detail_row(i) for i in issues]
-        detail_bodies = [i["description"] or "No description." for i in issues]
         statuses = sorted({i["status"] for i in issues})
         types = sorted({i["issue_type"] for i in issues})
 
@@ -147,19 +147,10 @@ class BeadsPayloadBuilder:
                     "label": "Type",
                 },
             ],
-            "detail": {
-                "fields": [
-                    "ID",
-                    "Status",
-                    "Priority",
-                    "Type",
-                    "Owner",
-                    "Created",
-                    "Updated",
-                ],
-                "rows": detail_rows,
-                "body": detail_bodies,
-            },
+            # BeadsDetail composes each issue's detail markdown (a metadata table,
+            # a rule, then the description) so the fields and prose read as
+            # distinct regions rather than one inline run.
+            "detail": BeadsDetail.for_issues(issues),
         }
 
     @staticmethod
@@ -170,16 +161,4 @@ class BeadsPayloadBuilder:
             issue["status"],
             f"P{issue['priority']}",
             issue["issue_type"],
-        ]
-
-    @staticmethod
-    def _detail_row(issue: dict[str, Any]) -> list[str]:
-        return [
-            issue.get("id", ""),
-            issue["status"],
-            f"P{issue['priority']}",
-            issue["issue_type"],
-            issue["owner"],
-            issue["created_at"][:10],
-            issue["updated_at"][:10],
         ]

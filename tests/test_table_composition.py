@@ -78,9 +78,9 @@ class TestScrollReserve:
         from punt_lux.protocol.compositions.table_chrome import TableChrome
 
         reserve = TableChrome.detail_reserve_lines
-        assert reserve({"fields": []}) == 6  # clamped up to the min
-        assert reserve({"fields": ["a", "b", "c", "d", "e"]}) == 9
-        assert reserve({"fields": list("abcdefghijklmnop")}) == 16  # max
+        assert reserve({"fields": []}) == 12  # clamped up to the min
+        assert reserve({"fields": list("abcdefghij")}) == 14  # 10 + 4, above floor
+        assert reserve({"fields": list("abcdefghijklmnopqrst")}) == 18  # 20 -> max
 
 
 class TestBuilderShape:
@@ -336,6 +336,15 @@ class TestDetailBinding:
         _select(_table(group), "b", anchor="b")
         assert "about beta" in detail.content
         assert "**Title:** Beta" in detail.content
+
+    def test_detail_renders_one_field_per_line(self) -> None:
+        # Field lines are separated by a blank line so markdown renders them one
+        # per line; a single newline would collapse them into one inline run.
+        group = self._master_detail()
+        detail = next(c for c in group.children if isinstance(c, MarkdownElement))
+        _select(_table(group), "b", anchor="b")
+        assert "**ID:** b\n\n**Title:** Beta" in detail.content
+        assert "**ID:** b\n**Title:**" not in detail.content  # never inline
 
     def test_detail_starts_with_a_placeholder(self) -> None:
         group = self._master_detail()

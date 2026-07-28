@@ -1,17 +1,21 @@
-"""Beads Browser — display beads issues in a Lux frame."""
+"""Beads Browser — load beads issues and install the Hub menu board."""
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from punt_lux.apps._beads_payload import BeadsLoader, BeadsPayloadBuilder
-from punt_lux.protocol import Element, TextElement
-from punt_lux.protocol.compositions import TableComposition, TableCompositionSpec
 
 
 class BeadsBrowser:
-    """Fetch, format, and render beads issues as a Lux table."""
+    """Fetch beads issues and install the Hub menu board in-process.
+
+    The browser is the data provider — ``load`` runs ``bd`` and ``build_payload``
+    shapes its rows — plus ``render``, the in-process install the Hub menu
+    triggers. Request construction lives on ``BeadsBoard``; ``render`` builds one
+    and installs it through the same ``render_table`` operation the CLI and MCP
+    surfaces use, so the composed chrome runs Hub-side and stays live.
+    """
 
     def load(
         self, *, all_issues: bool = False
@@ -32,63 +36,28 @@ class BeadsBrowser:
         return issues, None
 
     def build_payload(self, issues: list[dict[str, Any]]) -> dict[str, Any]:
-        """Build the show_table element dict and metadata for beads issues."""
+        """Build the table columns/rows/filters/detail payload for beads issues."""
         return BeadsPayloadBuilder().build(issues)
 
-    def build_elements(
-        self,
-        result: tuple[list[dict[str, Any]], str | None],
-    ) -> list[Element]:
-        """Build display elements for the ``(issues, error)`` tuple from :meth:`load`.
-
-        A set ``error`` yields a red error element, not the empty-frame placeholder.
-        """
-        issues, error = result
-        if error is not None:
-            return [
-                TextElement(
-                    id="bd-error",
-                    content=f"bd unavailable — {error}",
-                    color="#FF5555",
-                )
-            ]
-        if not issues:
-            return [TextElement(id="empty", content="No active issues.")]
-        payload = self.build_payload(issues)
-        spec = TableCompositionSpec(
-            columns=tuple(payload["columns"]),
-            rows=tuple(tuple(row) for row in payload["rows"]),
-            filters=tuple(payload["filters"]),
-            detail=payload["detail"],
-            flags=("borders", "row_bg", "resizable", "sortable", "copy_id"),
-        )
-        # The composition roots are ABC elements — members of the Element union;
-        # the cast bridges the base-type/union variance across that crossing.
-        return cast("list[Element]", TableComposition.build(spec))
-
     def render(self) -> None:
-        """Install the beads board into the Hub; the replicator resends it.
+        """Install the Hub menu beads board through the operations facade.
 
-        Imports are local to avoid a cycle with the Hub package.
+        Imports are local to avoid an import-time cycle: the facade lives in
+        ``tools``, which imports the client registry that imports this module.
+        The board lives under the Hub menu's ``beads-`` namespace, distinct from
+        the CLI's ``beads-cli-`` board (a separate owner). A rejected install is
+        logged and shown as a red failure scene — the menu surface must not fail
+        silently where the CLI surface reports the reason.
         """
-        from typing import cast
+        from pathlib import Path
 
-        from punt_lux.domain.element import Element as DomainElement
-        from punt_lux.domain.hub import hub_display
-        from punt_lux.domain.hub.replicator_instance import hub_replicator
-        from punt_lux.domain.hub.scene_presentation import ScenePresentation
-        from punt_lux.domain.ids import ConnectionId, SceneId
+        from punt_lux.apps.beads_board import BeadsBoard
+        from punt_lux.apps.beads_installer import BeadsBoardInstaller
+        from punt_lux.domain.ids import ConnectionId
+        from punt_lux.operations import Scope
 
         project = Path.cwd().name or "unknown"
-        scene_id = SceneId(f"beads-{project}")
-        elements = cast("list[DomainElement]", self.build_elements(self.load()))
-        # One write region: the roots and their frame land together, so the
-        # replicator can never snapshot the new roots with a stale frame. show_scene
-        # registers the connection as part of the replace, so no separate call.
-        hub_display.show_scene(
-            ConnectionId("app-beads"),
-            scene_id,
-            elements,
-            ScenePresentation(frame_id=scene_id, frame_title=f"Beads: {project}"),
-        )
-        hub_replicator.mark_dirty(scene_id)
+        board = BeadsBoard(f"beads-{project}", f"Beads: {project}")
+        request = board.request(self.load())
+        scope = Scope(ConnectionId("app-beads"))
+        BeadsBoardInstaller.install(board, request, scope)

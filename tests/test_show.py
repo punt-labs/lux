@@ -15,11 +15,15 @@ if TYPE_CHECKING:
 
 from punt_lux.__main__ import app
 from punt_lux.apps.beads import BeadsBrowser
-from punt_lux.operations import OpError, RenderRequest, SceneShown
-from punt_lux.operations.models.render import FrameSpec
-from punt_lux.protocol import GroupElement, TableElement, TextElement
+from punt_lux.apps.beads_board import BeadsBoard
+from punt_lux.operations import (
+    OpError,
+    RenderRequest,
+    RenderTableRequest,
+    SceneShown,
+)
 from punt_lux.rest_transport import HubUnavailableError
-from punt_lux.show import BeadsBoard
+from punt_lux.show import BeadsBoardCommand
 
 runner = CliRunner()
 
@@ -282,17 +286,34 @@ class TestBuildBeadsPayload:
         assert payload["rows"][0][0] == "beads-001"
         assert payload["rows"][0][3] == "P1"
 
-    def test_detail_truncates_dates(self) -> None:
-        active = [_ISSUES[0]]
-        payload = BeadsBrowser().build_payload(active)
-        detail_row = payload["detail"]["rows"][0]
-        assert detail_row[5] == "2026-03-01"  # created_at truncated
-        assert detail_row[6] == "2026-03-09"  # updated_at truncated
+    def test_detail_body_separates_the_metadata_table_from_the_description(
+        self,
+    ) -> None:
+        # The detail pane is a two-column metadata table, a horizontal rule, then
+        # the description as its own text — not one inline run of fields + prose.
+        payload = BeadsBrowser().build_payload([_ISSUES[0]])
+        body = payload["detail"]["body"][0]
+        table, _, description = body.partition("\n\n---\n\n")
+        assert "| Field | Value |" in table
+        assert "| ID | beads-001 |" in table
+        assert "| Priority | P1 |" in table
+        # Dates are truncated to the day inside the metadata table.
+        assert "| Created | 2026-03-01 |" in table
+        assert "| Updated | 2026-03-09 |" in table
+        # The description body is the issue's own text, kept below the rule.
+        assert description == "Login fails on slow networks."
 
-    def test_empty_description_shows_placeholder(self) -> None:
+    def test_detail_body_degrades_when_the_description_is_empty(self) -> None:
         active = [_ISSUES[1]]  # description is ""
-        payload = BeadsBrowser().build_payload(active)
-        assert payload["detail"]["body"][0] == "No description."
+        body = BeadsBrowser().build_payload(active)["detail"]["body"][0]
+        _, sep, description = body.partition("\n\n---\n\n")
+        assert sep  # the rule still separates the fields from the placeholder
+        assert description == "_No description._"
+
+    def test_detail_body_shows_unassigned_owner(self) -> None:
+        active = [_ISSUES[1]]  # owner is ""
+        body = BeadsBrowser().build_payload(active)["detail"]["body"][0]
+        assert "| Owner | unassigned |" in body
 
     def test_filters_include_unique_values(self) -> None:
         active = [i for i in _ISSUES if i["status"] in {"open", "in_progress"}]
@@ -305,55 +326,79 @@ class TestBuildBeadsPayload:
     def test_empty_issues(self) -> None:
         payload = BeadsBrowser().build_payload([])
         assert payload["rows"] == []
-        assert payload["detail"]["rows"] == []
+        assert payload["detail"]["body"] == []
 
 
 # ---------------------------------------------------------------------------
-# build_beads_elements
+# BeadsBoard.request — the data-to-request builder
 # ---------------------------------------------------------------------------
 
 
-class TestBuildBeadsElements:
-    def test_empty_issues_returns_placeholder(self) -> None:
-        elements = BeadsBrowser().build_elements(([], None))
-        assert len(elements) == 1
-        assert elements[0].kind == "text"
-        assert "No active issues" in elements[0].content
+class TestBoardRequest:
+    _SCENE = "beads-cli-proj"
+    _TITLE = "Beads: proj"
 
-    def test_nonempty_issues_returns_table(self) -> None:
+    def _build(
+        self, result: tuple[list[dict[str, Any]], str | None]
+    ) -> RenderTableRequest | RenderRequest:
+        return BeadsBoard(self._SCENE, self._TITLE).request(result)
+
+    def test_issues_yield_a_table_request_carrying_filters_and_detail(self) -> None:
+        # The board sends columns/rows/filters/detail as DATA; the Hub composes
+        # the live chrome from the table route, not a pre-built element tree.
         active = [i for i in _ISSUES if i["status"] in {"open", "in_progress"}]
-        elements = BeadsBrowser().build_elements((active, None))
-        # The board is a composition: one group root with the grid + chrome.
-        assert len(elements) == 1
-        root = elements[0]
-        assert root.kind == "group"
-        assert isinstance(root, GroupElement)
-        table = next(c for c in root.children if isinstance(c, TableElement))
-        assert table.id == "table"
-        assert len(table.rows) == 2
-        assert list(table.columns) == ["ID", "Title", "Status", "P", "Type"]
+        request = self._build((active, None))
+        assert isinstance(request, RenderTableRequest)
+        assert request.scene_id == self._SCENE
+        assert request.title == self._TITLE
+        assert request.frame_id == self._SCENE
+        assert request.frame_title == self._TITLE
+        assert request.columns == ["ID", "Title", "Status", "P", "Type"]
+        assert len(request.rows) == 2
+        # The search box and both status/type combos ride as filter data.
+        assert request.filters is not None
+        assert {f["type"] for f in request.filters} == {"search", "combo"}
+        # The drill-down detail rides one composed markdown body per row.
+        assert request.detail is not None
+        detail_body = request.detail["body"]
+        assert isinstance(detail_body, list)
+        assert len(detail_body) == 2
+        # Sort/copy chrome the CLI board carried is preserved as flags.
+        assert request.flags is not None
+        assert "sortable" in request.flags
+        assert "copy_id" in request.flags
 
-    def test_error_returns_visible_error_element(self) -> None:
+    def test_empty_issues_yield_a_placeholder_message(self) -> None:
+        request = self._build(([], None))
+        assert isinstance(request, RenderRequest)
+        assert len(request.elements) == 1
+        elem = request.elements[0]
+        assert elem["id"] == "empty"
+        assert "No active issues" in str(elem["content"])
+        # A message renders into the same board frame as a table would.
+        assert request.frame is not None
+        assert request.frame.frame_id == self._SCENE
+
+    def test_error_yields_a_visible_error_message(self) -> None:
         """When bd fails, surface the reason instead of 'No active issues'."""
-        elements = BeadsBrowser().build_elements(
+        request = self._build(
             ([], "bd list --json --status open,in_progress: timed out after 60s"),
         )
-        assert len(elements) == 1
-        elem = elements[0]
-        assert isinstance(elem, TextElement)
-        assert elem.id == "bd-error"
-        assert "bd unavailable" in elem.content
-        assert "timed out" in elem.content
-        # Error element distinguishes itself visually (non-None color).
-        assert elem.color is not None
+        assert isinstance(request, RenderRequest)
+        elem = request.elements[0]
+        assert elem["id"] == "beads-error"
+        assert "bd unavailable" in str(elem["content"])
+        assert "timed out" in str(elem["content"])
+        # The error element distinguishes itself visually (a set color).
+        assert elem["color"] == "#FF5555"
 
     def test_error_overrides_empty_placeholder(self) -> None:
         """Empty issues + error renders the error, not the empty placeholder."""
-        elements = BeadsBrowser().build_elements(([], "connection refused"))
-        elem = elements[0]
-        assert isinstance(elem, TextElement)
-        assert elem.id == "bd-error"
-        assert "No active issues" not in elem.content
+        request = self._build(([], "connection refused"))
+        assert isinstance(request, RenderRequest)
+        elem = request.elements[0]
+        assert elem["id"] == "beads-error"
+        assert "No active issues" not in str(elem["content"])
 
 
 # ---------------------------------------------------------------------------
@@ -362,18 +407,26 @@ class TestBuildBeadsElements:
 
 
 class _RecordingClient:
-    """A LuxRestClient stand-in that records the request and reports success."""
+    """A LuxRestClient stand-in that records the request and reports success.
+
+    Both surfaces record into ``request``: a table board reaches ``render_table``
+    and a message board reaches ``render``, so a test reads the one that fired.
+    """
 
     def __init__(self) -> None:
-        self.request: RenderRequest | None = None
+        self.request: RenderTableRequest | RenderRequest | None = None
 
     def render(self, request: RenderRequest) -> SceneShown:
         self.request = request
         return SceneShown(scene_id=request.scene_id)
 
+    def render_table(self, request: RenderTableRequest) -> SceneShown:
+        self.request = request
+        return SceneShown(scene_id=request.scene_id)
+
 
 class _RejectingClient:
-    """A LuxRestClient stand-in whose render is refused by the Hub."""
+    """A LuxRestClient stand-in whose installs are refused by the Hub."""
 
     def __init__(self, reason: str) -> None:
         self._reason = reason
@@ -381,23 +434,29 @@ class _RejectingClient:
     def render(self, request: RenderRequest) -> OpError:
         return OpError(code="rejected", reason=self._reason)
 
+    def render_table(self, request: RenderTableRequest) -> OpError:
+        return OpError(code="rejected", reason=self._reason)
+
 
 class _UnreachableClient:
-    """A LuxRestClient stand-in whose render finds luxd gone mid-call.
+    """A LuxRestClient stand-in whose installs find luxd gone mid-call.
 
-    ``connect`` only reads the port file; the socket work happens in ``render``,
-    so an unreachable luxd raises there, not at connect time.
+    ``connect`` only reads the port file; the socket work happens in the install
+    call, so an unreachable luxd raises there, not at connect time.
     """
 
     def render(self, request: RenderRequest) -> SceneShown:
         raise HubUnavailableError("luxd is not reachable on port 5001 — refused")
 
+    def render_table(self, request: RenderTableRequest) -> SceneShown:
+        raise HubUnavailableError("luxd is not reachable on port 5001 — refused")
+
 
 class TestBeadsBoard:
-    def test_request_carries_the_frame_envelope(
+    def test_table_request_carries_the_frame_envelope(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # The render envelope names the scene and frame after the project, under
+        # The table request names the scene and frame after the project, under
         # the CLI's own "beads-cli-" namespace so it never collides with the Hub
         # menu's "beads-{project}" board (a distinct owner). The title is shared.
         monkeypatch.chdir(tmp_path)
@@ -407,13 +466,27 @@ class TestBeadsBoard:
             "punt_lux.apps._beads_payload.subprocess.run",
             return_value=_mock_bd_result(active),
         ):
-            request, note = BeadsBoard().request(all_issues=False)
+            request, note = BeadsBoardCommand().request(all_issues=False)
+        assert isinstance(request, RenderTableRequest)
         assert request.scene_id == f"beads-cli-{project}"
         assert request.title == f"Beads: {project}"
-        assert request.frame == FrameSpec(
-            frame_id=f"beads-cli-{project}", frame_title=f"Beads: {project}"
-        )
+        assert request.frame_id == f"beads-cli-{project}"
+        assert request.frame_title == f"Beads: {project}"
         assert note == "2 issues"
+
+    def test_bd_error_yields_a_message_request_and_note(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A bd failure names the error in the note and yields a message request
+        # (not a table), so the CLI reports the reason instead of "0 issues".
+        monkeypatch.chdir(tmp_path)
+        with patch(
+            "punt_lux.apps._beads_payload.subprocess.run",
+            return_value=_mock_bd_result([], returncode=1),
+        ):
+            request, note = BeadsBoardCommand().request(all_issues=False)
+        assert isinstance(request, RenderRequest)
+        assert note.startswith("bd error:")
 
 
 class TestShowBeadsCLI:
@@ -434,12 +507,12 @@ class TestShowBeadsCLI:
             result = runner.invoke(app, ["show", "beads"])
 
         # When bd fails, the CLI reports the error rather than misleading "0 issues".
-        # luxd still receives a scene carrying a visible error element.
+        # luxd still receives a message scene carrying a visible error element.
         assert result.exit_code == 0
         assert "bd error" in result.output
-        assert client.request is not None
+        assert isinstance(client.request, RenderRequest)
         ids = [e.get("id") for e in client.request.elements]
-        assert "bd-error" in ids, f"expected bd-error element, got: {ids}"
+        assert "beads-error" in ids, f"expected beads-error element, got: {ids}"
 
     def test_show_beads_sends_to_luxd(
         self,
@@ -461,7 +534,9 @@ class TestShowBeadsCLI:
 
         assert result.exit_code == 0
         assert "2 issues" in result.output
-        assert client.request is not None
+        # Active issues reach the Hub as a table request the composition route
+        # builds with live chrome — not a pre-composed tree through render.
+        assert isinstance(client.request, RenderTableRequest)
         # CLI-namespaced, project-scoped tab — distinct from the Hub menu board.
         assert client.request.scene_id.startswith("beads-cli-")
 
