@@ -9,9 +9,11 @@ from typing import Any, final
 class BeadsDetail:
     """Render beads issues as detail-pane markdown: a fields table, a rule, a body.
 
-    Cell values are pipe-escaped and carry no U+2192, so the metadata table is
-    safe from lux-efun tofu. The description follows a rule as its own paragraphs,
-    presented as written, so the fields and description read as distinct regions.
+    Cell values are pipe-escaped. The values placed in cells — ids, status and
+    type enums, priorities, owner handles, truncated dates — are plain ASCII in
+    practice; free-form prose (the one realistic source of symbol glyphs the
+    markdown-table font cannot render) goes in the description, which sits below
+    the rule as its own paragraphs, outside the table, presented as written.
     """
 
     __slots__ = ()
