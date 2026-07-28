@@ -86,9 +86,6 @@ class _StubReplicator:
     def mark_dirty(self, scene_id: object) -> None:
         """Swallow the mark — the exerciser only records the tool's response."""
 
-    def mark_cleared(self) -> None:
-        """Swallow the clear mark."""
-
     def mark_menus(self) -> None:
         """Swallow the menu-dirty flag."""
 

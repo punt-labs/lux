@@ -33,14 +33,10 @@ class Recorder:
 
     def __init__(self) -> None:
         self.dirtied: list[SceneId] = []
-        self.cleared = 0
         self.menus = 0
 
     def mark_dirty(self, scene_id: SceneId) -> None:
         self.dirtied.append(scene_id)
-
-    def mark_cleared(self) -> None:
-        self.cleared += 1
 
     def mark_menus(self) -> None:
         self.menus += 1

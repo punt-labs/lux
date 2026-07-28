@@ -5,7 +5,7 @@
       "s1"
     ]
   ],
-  "response": "cleared",
+  "response": "error: scene 's1' not found",
   "setup": {
     "client": {
       "clear": {}

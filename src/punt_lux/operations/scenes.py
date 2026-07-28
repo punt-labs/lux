@@ -91,9 +91,8 @@ class SceneOperations:
         """Validate a built element tree and install it, or return why it was refused.
 
         The shared path for the wire-decode surface (``render``) and the Hub-side
-        conveniences that *construct* their tree as objects: same validation walk,
-        same ``show_scene``, so a constructed scene is indistinguishable from a
-        decoded one downstream (target.md — the Hub decodes *or constructs* UI).
+        conveniences that *construct* their tree: same validation walk, same
+        ``show_scene`` (target.md — the Hub decodes *or constructs* UI).
         """
         rejection = SubmissionGate().first_rejection(SceneId(scene_id), elements)
         if rejection is not None:
@@ -126,18 +125,31 @@ class SceneOperations:
         self._replicator.mark_dirty(SceneId(scene_id))
         return SceneShown(scene_id=scene_id)
 
-    def clear(self, *, scope: Scope, scene_id: str | None = None) -> Cleared:
+    def clear(self, *, scope: Scope, scene_id: str | None = None) -> Cleared | OpError:
         """Blank the caller's scenes — all, or just ``scene_id`` — one scene at a time.
 
         The writer removes only the caller's roots and marks each emptied scene dirty,
-        so the replicator blanks each into its own frame and nothing else — another
-        agent's boards, the caller's other scenes — is touched. Never a global
-        ``mark_cleared`` blank that would empty the Display while the Hub held them.
+        so nothing else is touched. A scene-scoped clear that removes nothing must not
+        lie ``cleared``; it reports ``not_found`` or a rejection instead. The no-arg
+        clear removing nothing stays a settled no-op.
         """
         target = SceneId(scene_id) if scene_id is not None else None
         touched = HubSceneWriter(self._display).clear(scope.connection_id, target)
+        if target is not None and not touched:
+            return self._scoped_clear_miss(target)
         self._mark_dirty_all(touched)
         return Cleared()
+
+    def _scoped_clear_miss(self, scene_id: SceneId) -> OpError:
+        """Say why a scene-scoped clear removed nothing: unknown scene, or unowned.
+
+        No non-removed root means the scene is unknown (the ``not_found`` inspect_scene
+        returns); roots present but none the caller owns is an ownership rejection.
+        """
+        name = str(scene_id)
+        if not self._display.scene_roots(scene_id):
+            return OpError(code="not_found", reason=f"scene {name!r} not found")
+        return OpError(code="rejected", reason=f"scene {name!r} holds nothing you own")
 
     def _mark_dirty_all(self, scenes: frozenset[SceneId]) -> None:
         """Mark every scene in ``scenes`` for resend."""

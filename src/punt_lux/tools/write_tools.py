@@ -270,23 +270,22 @@ def set_frame_state(
 
 @mcp.tool()
 def clear() -> str:
-    """Clear every scene you own; returns ``"cleared"``. Use ``clear_scene`` for one.
-
-    Scene-scoped either way (only your scenes, never another agent's UI) and never
-    blocked on the display: the replicator blanks each scene in the background.
-    """
+    """Clear every scene you own (not other agents' UI); use ``clear_scene`` for one."""
     _core.OPERATIONS.clear(scope=_core._scope())
     return "cleared"
 
 
 @mcp.tool()
 def clear_scene(scene_id: str) -> str:
-    """Clear one scene and blank its frame; returns ``"cleared"``.
+    """Clear one scene and blank its frame; only ``scene_id`` goes.
 
-    Only ``scene_id`` goes — your other scenes and other agents' UIs stay up.
+    An unknown scene, or one you own nothing in, is an error, never a false
+    ``"cleared"`` — a mistyped id cannot look like a successful clear.
     """
-    _core.OPERATIONS.clear(scope=_core._scope(), scene_id=scene_id)
-    return "cleared"
+    return _core._fault_or(
+        _core.OPERATIONS.clear_scene(scope=_core._scope(), scene_id=scene_id),
+        lambda _cleared: "cleared",
+    )
 
 
 @mcp.tool()

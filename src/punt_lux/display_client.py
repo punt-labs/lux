@@ -33,7 +33,6 @@ from punt_lux.paths import DisplayPaths
 from punt_lux.polled_event import PolledEvent
 from punt_lux.protocol import (
     AckMessage,
-    ClearMessage,
     ConnectMessage,
     FrameReader,
     MenuMessage,
@@ -585,10 +584,6 @@ class DisplayClient:
         self._send(
             RegisterMenuMessage(items=self._menu_items.replace_agent_items(items))
         )
-
-    def clear_async(self) -> None:
-        """Clear all content from the display.  Safe from callbacks."""
-        self._send(ClearMessage())
 
     def ping(self, timeout: float | None = None) -> PongMessage | None:
         """Send a ping and wait for the pong within ``timeout`` (else recv budget)."""

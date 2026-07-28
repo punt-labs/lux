@@ -18,8 +18,8 @@ from unittest.mock import MagicMock
 from punt_lux.display import DisplayServer
 from punt_lux.protocol import (
     ButtonElement,
-    ClearMessage,
     FrameReader,
+    PingMessage,
     RemoteEventHandlerInvocation,
     SceneMessage,
     SeparatorElement,
@@ -253,35 +253,32 @@ class TestRefinementClearScene:
 
     def test_clear_scene_commutes(self):
         server = _make_server()
-        sock = _mock_sock()
         _set_scene(server)
         abs_before = abstract(server)
 
-        server._handle_message(sock, ClearMessage())
+        server._handle_clear()
 
         abs_after = abstract_clear_scene(abs_before)
         assert abstract(server) == abs_after
 
     def test_clear_scene_with_events_commutes(self):
         server = _make_server()
-        sock = _mock_sock()
         _set_scene(server)
         server._event_queue.append(
             RemoteEventHandlerInvocation(element_id="b1", action="b1", ts=1.0)
         )
         abs_before = abstract(server)
 
-        server._handle_message(sock, ClearMessage())
+        server._handle_clear()
 
         abs_after = abstract_clear_scene(abs_before)
         assert abstract(server) == abs_after
 
     def test_clear_when_no_scene_commutes(self):
         server = _make_server()
-        sock = _mock_sock()
         abs_before = abstract(server)
 
-        server._handle_message(sock, ClearMessage())
+        server._handle_clear()
 
         abs_after = abstract_clear_scene(abs_before)
         assert abstract(server) == abs_after
@@ -508,8 +505,8 @@ class TestRefinementDrainMessages:
 
     def test_drain_two_messages_consumes_both(self):
         reader = FrameReader()
-        msg1 = ClearMessage()
-        msg2 = ClearMessage()
+        msg1 = PingMessage(ts=1.0)
+        msg2 = PingMessage(ts=2.0)
         reader.feed(encode_message(msg1) + encode_message(msg2))
 
         messages = reader.drain_typed()
@@ -536,7 +533,7 @@ class TestRefinementComposed:
             id="s1", elements=[TextElement(id="t1", content="A")], frame_id="s1"
         )
         server._handle_message(sock, scene)
-        server._handle_message(sock, ClearMessage())
+        server._handle_clear()
 
         # Abstract: same sequence
         abs_state = abstract_receive_scene(

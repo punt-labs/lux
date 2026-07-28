@@ -46,17 +46,12 @@ class MenuReader(Protocol):
 
 @runtime_checkable
 class DisplaySender(ScenePusher, Protocol):
-    """A connection the replicator sends whole scenes, clears, and menus over.
+    """A connection the replicator sends whole scenes and menus over.
 
-    Extends ``ScenePusher`` (``show_async``) with ``clear_async`` so the
-    replicator blanks the display before it repaints a coalesced batch, and with
-    the two menu writes so the replicator is the sole writer of the menu state:
-    ``set_menu`` for the agent menu bar and ``set_registered_items`` for the
-    World-menu tool items.
+    Extends ``ScenePusher`` (``show_async``) with the two menu writes so the
+    replicator is the sole writer of the menu state: ``set_menu`` for the agent
+    menu bar and ``set_registered_items`` for the World-menu tool items.
     """
-
-    def clear_async(self) -> None:
-        """Blank the display without waiting for an acknowledgement."""
 
     def set_menu(self, menus: list[dict[str, object]]) -> None:
         """Replace the display's agent menu bar with the given wire menus."""

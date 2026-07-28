@@ -68,10 +68,11 @@ class SceneRoutes:
             "/scenes/{scene_id}", self.update, methods=["PATCH"], name="update"
         )
         router.add_api_route("/scenes", self.clear, methods=["DELETE"], name="clear")
-        # Both DELETE routes are the one facade ``clear`` operation (all scenes, or
-        # the one named); the route-name guard maps each to that operation.
         router.add_api_route(
-            "/scenes/{scene_id}", self.clear_scene, methods=["DELETE"], name="clear"
+            "/scenes/{scene_id}",
+            self.clear_scene,
+            methods=["DELETE"],
+            name="clear_scene",
         )
         router.add_api_route(
             "/scenes", self.list_scenes, methods=["GET"], name="list_scenes"
@@ -136,9 +137,9 @@ class SceneRoutes:
         return self._errors.respond(self._ops.clear(scope=self._scope))
 
     def clear_scene(self, scene_id: str) -> Cleared:
-        """Clear just the named scene; the scope's other scenes stay up."""
+        """Clear just the named scene; unknown or unowned is a 404 / rejection."""
         return self._errors.respond(
-            self._ops.clear(scope=self._scope, scene_id=scene_id)
+            self._ops.clear_scene(scope=self._scope, scene_id=scene_id)
         )
 
     def list_scenes(self) -> SceneList:

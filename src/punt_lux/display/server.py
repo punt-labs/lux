@@ -42,7 +42,6 @@ from punt_lux.protocol import (
     AckMessage,
     ButtonElement,
     CheckboxElement,
-    ClearMessage,
     ColorPickerElement,
     ComboElement,
     ConnectMessage,
@@ -443,8 +442,7 @@ class DisplayServer:
         addons = immapp.AddOnsParams()
         addons.with_implot = True
         # MarkdownFont points imgui_md at the packaged DejaVu (its own font lacks
-        # arrows like U+2192). Options go through with_markdown_options once --
-        # InitializeMarkdown has a static guard that drops a second call.
+        # arrows). Options go once through with_markdown_options (static-guard drop).
         try:
             from imgui_bundle import imgui_md
 
@@ -453,6 +451,7 @@ class DisplayServer:
             MarkdownFont().apply_to(md_opts, hello_imgui.add_assets_search_path)
             addons.with_markdown_options = md_opts
         except ImportError:
+            logger.warning("imgui_md unavailable; markdown renders as plain text")
             addons.with_markdown = True
 
         immapp.run(runner_params, addons)
@@ -608,8 +607,6 @@ class DisplayServer:
         """Dispatch a scene/menu/theme-mutating message; read-only kinds delegate."""
         if isinstance(msg, SceneMessage):
             self._handle_scene(sock, msg)
-        elif isinstance(msg, ClearMessage):
-            self._handle_clear()
         elif isinstance(msg, RegisterMenuMessage):
             self._handle_register_menu(sock, msg)
         elif isinstance(msg, MenuMessage):
@@ -622,7 +619,7 @@ class DisplayServer:
             self._handle_readonly_message(sock, msg)
 
     def _handle_clear(self) -> None:
-        """Drop all scenes and reset the display's per-frame state."""
+        """Drop all scenes and reset per-frame state — the World-menu 'clear all'."""
         self._interaction_delivery.compensate_evicted(self._pending.evict_all())
         self._scene_manager.clear_all()
         self._event_queue.clear()

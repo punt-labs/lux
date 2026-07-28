@@ -5,12 +5,12 @@ and marks the changed scene dirty; this worker alone sends those changes to the
 display, and it alone handles a slow or dead one. So a stuck display can never
 freeze an agent.
 
-The worker waits on a ``DirtySignal``, wakes when a scene is dirty or the screen
-was cleared, coalesces a 16 ms burst, and drains the whole changed set. It blanks
-first when a clear is pending — a ``clear`` then ``show`` in one window must leave
-the new scene on screen — then repaints each scene from a copy the store took
-under its read lock and handed out, so the store lock and the client send lock are
-never held together. A send is time-limited (``SO_SNDTIMEO`` on the socket): a
+The worker waits on a ``DirtySignal``, wakes when a scene is dirty or the menu
+changed, coalesces a 16 ms burst, and drains the whole changed set. It repaints
+each scene from a copy the store took under its read lock and handed out, so the
+store lock and the client send lock are never held together; an emptied scene is
+pushed with no roots to blank its own frame. A send is time-limited
+(``SO_SNDTIMEO`` on the socket): a
 wedged display raises ``BlockingIOError`` and a dead peer raises ``OSError``, and
 either failure is handed to ``SendRecovery``, which heals the display and re-marks
 the work. A recovery that cannot heal the display restores the batch and backs
@@ -73,9 +73,8 @@ class HubReplicator:
 
     Composes the store's scene reader — its locked read side, so the worker takes
     exactly the reads it needs — the client provider, the dirty signal, and the
-    ``SendRecovery`` that heals a failed send. ``mark_dirty`` / ``mark_cleared``
-    are the surface tools and click dispatch call; the worker thread owns every
-    send.
+    ``SendRecovery`` that heals a failed send. ``mark_dirty`` / ``mark_menus`` are
+    the surface tools and click dispatch call; the worker thread owns every send.
     """
 
     _reader: SceneReader
@@ -118,16 +117,12 @@ class HubReplicator:
         """Signal that ``scene_id`` changed. Queue-only — never sends."""
         self._signal.mark_dirty(scene_id)
 
-    def mark_cleared(self) -> None:
-        """Signal that the screen was cleared. Queue-only — never sends."""
-        self._signal.mark_cleared()
-
     def mark_menus(self) -> None:
         """Signal that the menu registry changed. Queue-only — never sends.
 
-        Payload-less, like ``mark_cleared``: a menu change lands the same way a
-        scene change does — the operation writes the Hub registry and flags it
-        here, and this worker alone reads the registry fresh and sends it.
+        Payload-less: a menu change lands the same way a scene change does — the
+        operation writes the Hub registry and flags it here, and this worker alone
+        reads the registry fresh and sends it.
         """
         self._signal.mark_menus()
 
@@ -241,14 +236,9 @@ class HubReplicator:
     def _attempt(self, batch: DrainedBatch) -> tuple[SceneId, ...]:
         """Send the cycle and return the scenes it found empty, for later reclaim.
 
-        When the batch carried a clear, ``clear_async`` already blanked the whole
-        display, so an empty scene in the batch is skipped rather than re-blanked;
-        otherwise an empty scene is pushed to blank its own frame. Either way an
-        empty scene is a reclaim candidate — its frame is dead once the display is
-        blank — so it is collected regardless of the clear.
+        An empty scene is pushed to blank its own frame, and is a reclaim candidate
+        — its frame is dead once the display blanks it — so it is collected here.
         """
-        if batch.cleared:
-            self._clients.get().clear_async()
         if batch.menus_dirty:
             # Read the registry fresh, so the newest menu state wins even if a
             # change landed after this batch was drained.
@@ -258,22 +248,17 @@ class HubReplicator:
             sender.set_registered_items([dict(item) for item in state.items])
         # Each ``_send_scene`` sends and reports whether the scene was empty; the
         # comprehension keeps the empties as reclaim candidates.
-        return tuple(
-            scene
-            for scene in batch.scenes
-            if self._send_scene(scene, blank_empty=not batch.cleared)
-        )
+        return tuple(scene for scene in batch.scenes if self._send_scene(scene))
 
-    def _send_scene(self, scene_id: SceneId, *, blank_empty: bool) -> bool:
+    def _send_scene(self, scene_id: SceneId) -> bool:
         """Send a copy of the scene; return whether it was empty (a reclaim candidate).
 
         The store returns a snapshot whose roots are already copied out, so the
         send happens with no store lock held — the store lock and the client send
-        lock are never held together. An empty scene blanks its frame unless the
-        cycle already blanked the whole display with a clear.
+        lock are never held together. An empty scene blanks its own frame.
         """
         snapshot = self._reader.snapshot(scene_id)
-        snapshot.push(self._clients.get(), blank_empty=blank_empty)
+        snapshot.push(self._clients.get())
         return snapshot.is_empty
 
     def _reclaim_emptied(self, scenes: tuple[SceneId, ...]) -> None:

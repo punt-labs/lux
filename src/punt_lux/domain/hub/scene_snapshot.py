@@ -42,8 +42,7 @@ class SceneSnapshot:
 
     Holds the deep-copied roots and the presentation. An empty scene is pushed
     with no roots to blank its frame — that is how a scene a session left, or one
-    an update stripped to nothing, disappears — unless the cycle already blanked
-    the whole display with a clear, in which case the empty scene is skipped.
+    an update stripped to nothing, disappears.
     """
 
     _scene_id: SceneId
@@ -55,15 +54,9 @@ class SceneSnapshot:
         """Whether the scene had no roots — an emptied or departed scene."""
         return not self._roots
 
-    def push(self, sender: ScenePusher, *, blank_empty: bool) -> None:
-        """Resend the copied scene; blank an empty scene's frame, or skip it.
-
-        A scene with roots is always sent. An empty scene is sent with no roots —
-        blanking its frame — unless ``blank_empty`` is false, meaning the cycle
-        already blanked the whole display with a clear.
-        """
-        if self._roots or blank_empty:
-            self._presentation.push(sender, self._scene_id, self._roots)
+    def push(self, sender: ScenePusher) -> None:
+        """Resend the copied scene; an empty scene sends no roots to blank its frame."""
+        self._presentation.push(sender, self._scene_id, self._roots)
 
 
 @final

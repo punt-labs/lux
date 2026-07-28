@@ -136,8 +136,12 @@ class Operations:
         """Apply a patch batch to a scene."""
         return self._scenes.update(scene_id, request, scope=scope)
 
-    def clear(self, *, scope: Scope, scene_id: str | None = None) -> Cleared:
-        """Clear the caller's scenes — all of them, or just ``scene_id``."""
+    def clear(self, *, scope: Scope) -> Cleared | OpError:
+        """Clear every scene the caller owns."""
+        return self._scenes.clear(scope=scope)
+
+    def clear_scene(self, *, scope: Scope, scene_id: str) -> Cleared | OpError:
+        """Clear just ``scene_id``; unknown or unowned is an error, not a false pass."""
         return self._scenes.clear(scope=scope, scene_id=scene_id)
 
     def render_table(

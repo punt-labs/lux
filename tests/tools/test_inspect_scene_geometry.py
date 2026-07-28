@@ -87,9 +87,6 @@ class _NullReplicator:
     def mark_dirty(self, scene_id: SceneId) -> None:
         """Ignore the dirty mark — no display to replicate to."""
 
-    def mark_cleared(self) -> None:
-        """Ignore the clear — no display to replicate to."""
-
     def mark_menus(self) -> None:
         """Ignore the menu mark — no display to replicate to."""
 

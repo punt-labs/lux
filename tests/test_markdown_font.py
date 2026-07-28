@@ -9,10 +9,15 @@ through the packaged base path.
 
 from __future__ import annotations
 
+import logging
 import struct
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from punt_lux.display.markdown_font import MarkdownFont
+
+if TYPE_CHECKING:
+    import pytest
 
 # The glyphs imgui_md's own Roboto subset omits, which the packaged DejaVu must
 # carry — and which the dev-time subset (scripts/subset-markdown-fonts.sh) must keep.
@@ -96,3 +101,25 @@ def test_apply_to_routes_markdown_options_through_the_packaged_font() -> None:
     font.apply_to(options, registered.append)
     assert options.font_options.font_base_path == font.base_path
     assert registered == [str(font.search_dir)]
+
+
+def test_apply_to_degrades_to_the_default_font_when_a_weight_is_missing(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    # A broken install (missing TTFs) must not override font_base_path onto absent
+    # files — that fails the load deep in the immapp runner and kills the display.
+    # Degrade to imgui_md's default (tofu arrows) with a warning instead.
+    from imgui_bundle import imgui_md
+
+    font = MarkdownFont()
+    font._dir = tmp_path  # empty — no weight files
+    options = imgui_md.MarkdownOptions()
+    default_base = options.font_options.font_base_path
+    registered: list[str] = []
+
+    with caplog.at_level(logging.WARNING):
+        font.apply_to(options, registered.append)
+
+    assert options.font_options.font_base_path == default_base
+    assert registered == []
+    assert any("missing" in record.getMessage() for record in caplog.records)

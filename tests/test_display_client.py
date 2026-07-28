@@ -14,7 +14,6 @@ import pytest
 from punt_lux.display_client import DisplayClient
 from punt_lux.protocol import (
     AckMessage,
-    ClearMessage,
     PingMessage,
     PongMessage,
     ReadyMessage,
@@ -296,42 +295,6 @@ class TestSendMessages:
             if server_conn:
                 server_conn.close()
             t.join(timeout=2)
-            import shutil
-
-            shutil.rmtree(short_dir, ignore_errors=True)
-
-    def test_clear_sends_clear(self, tmp_path: Path) -> None:
-        """clear_async() sends a ClearMessage (no ack expected)."""
-        import tempfile
-
-        short_dir = tempfile.mkdtemp(prefix="lux-")
-        sock_path = Path(short_dir) / "d.sock"
-        ready_event = threading.Event()
-        server_conn: socket.socket | None = None
-
-        def serve() -> None:
-            nonlocal server_conn
-            server_conn = _mini_display(sock_path, ready_event)
-            assert server_conn is not None
-            msg = recv_message(server_conn, timeout=5)
-            assert isinstance(msg, ClearMessage)
-
-        t = threading.Thread(target=serve, daemon=True)
-        t.start()
-        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
-
-        try:
-            with DisplayClient(
-                sock_path, auto_spawn=False, connect_timeout=2.0
-            ) as client:
-                client.clear_async()
-            # Join BEFORE closing server_conn — the server thread may
-            # still be inside recv_message's finally block restoring
-            # sock.settimeout() when the main thread closes the fd.
-            t.join(timeout=5)
-        finally:
-            if server_conn:
-                server_conn.close()
             import shutil
 
             shutil.rmtree(short_dir, ignore_errors=True)
