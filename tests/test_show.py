@@ -313,7 +313,7 @@ class TestBuildBeadsPayload:
 
 
 # ---------------------------------------------------------------------------
-# board_request — the data-to-request builder
+# BeadsBoard.request — the data-to-request builder
 # ---------------------------------------------------------------------------
 
 

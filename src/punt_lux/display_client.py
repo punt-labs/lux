@@ -98,8 +98,8 @@ def _build_agent_side_factory() -> JsonElementFactory:
 
     Constructed lazily at module load so any code path that decodes a
     wire dict on the agent side (DisplayClient.recv, tools.show
-    validation, beads.build_elements) routes through one shared
-    factory. ``RaisingRendererFactory`` makes any accidental
+    validation) routes through one shared factory.
+    ``RaisingRendererFactory`` makes any accidental
     ``elem.render()`` from the agent tier loud; ``_NoOpAgentSideSink``
     drops publishes that the agent has no Hub to deliver to.
     """
