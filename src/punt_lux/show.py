@@ -1,9 +1,7 @@
 """CLI subcommands for ``lux show`` — pre-built display scenes.
 
-Each command reads local data, builds an element tree, and sends it to luxd over
-its REST API through :class:`LuxRestClient`. No display socket, no MCP round-trip,
-no LLM in the loop — the CLI is a thin REST client of the one engine, and luxd
-decides whether the display is reachable.
+Each command reads local data, builds a request, and sends it to luxd through
+:class:`LuxRestClient`: the CLI is a thin REST client of the one engine.
 """
 
 from __future__ import annotations
@@ -14,8 +12,8 @@ from typing import Self, final
 import typer
 
 from punt_lux.apps.beads import BeadsBrowser
-from punt_lux.operations import OpError, RenderRequest
-from punt_lux.operations.models.render import FrameSpec
+from punt_lux.apps.beads_board import BeadsBoard
+from punt_lux.operations import OpError, RenderRequest, RenderTableRequest
 from punt_lux.rest_client import LuxRestClient
 from punt_lux.rest_transport import HubUnavailableError
 
@@ -28,8 +26,8 @@ __all__ = ["show_app"]
 
 
 @final
-class BeadsBoard:
-    """The beads issue board: load it, build its scene, name its outcome."""
+class BeadsBoardCommand:
+    """The ``lux show beads`` command: load the board, build its request, name it."""
 
     _browser: BeadsBrowser
     __slots__ = ("_browser",)
@@ -39,34 +37,35 @@ class BeadsBoard:
         self._browser = BeadsBrowser()
         return self
 
-    def request(self, *, all_issues: bool) -> tuple[RenderRequest, str]:
-        """Build the scene render request and a note describing what it carries.
-
-        A bd failure still yields a request — the board renders a visible error
-        element — so the note distinguishes that case from a real issue count.
+    def request(
+        self, *, all_issues: bool
+    ) -> tuple[RenderTableRequest | RenderRequest, str]:
+        """Build the board's request and a note, under the CLI's own ``beads-cli-``
+        namespace (distinct from the Hub menu's ``beads-`` board); the note
+        distinguishes a bd failure from a real issue count.
         """
-        issues, load_error = self._browser.load(all_issues=all_issues)
-        elements = self._browser.build_elements((issues, load_error))
+        issues, load_error = result = self._browser.load(all_issues=all_issues)
         project = Path.cwd().name or "unknown"
+        board = BeadsBoard(f"beads-cli-{project}", f"Beads: {project}")
         note = f"bd error: {load_error}" if load_error else f"{len(issues)} issues"
-        scene_id = f"beads-cli-{project}"  # its own namespace vs the Hub menu board
-        request = RenderRequest(
-            scene_id=scene_id,
-            elements=[e.to_dict() for e in elements],
-            title=f"Beads: {project}",
-            frame=FrameSpec(frame_id=scene_id, frame_title=f"Beads: {project}"),
-        )
-        return request, note
+        return board.request(result), note
 
 
 @show_app.command("beads")
 def beads(
     all_issues: bool = typer.Option(False, "--all", "-a", help="Include closed issues"),
 ) -> None:
-    """Display the beads issue board in the Lux window."""
-    request, note = BeadsBoard().request(all_issues=all_issues)
+    """Display the beads issue board — a table routes to ``render_table`` so the
+    Hub *constructs* live chrome; a message routes to ``render``.
+    """
+    request, note = BeadsBoardCommand().request(all_issues=all_issues)
     try:
-        result = LuxRestClient.connect().render(request)
+        client = LuxRestClient.connect()
+        result = (
+            client.render_table(request)
+            if isinstance(request, RenderTableRequest)
+            else client.render(request)
+        )
     except HubUnavailableError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from None
