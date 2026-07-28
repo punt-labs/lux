@@ -60,6 +60,13 @@ def test_empty_owner_reads_as_unassigned() -> None:
     assert "| Owner | unassigned |" in _body({**_ISSUE, "owner": ""})
 
 
+def test_a_pipe_in_a_cell_value_is_escaped() -> None:
+    # A literal pipe in free-ish assignee text would split the row into extra
+    # columns; escaping keeps it inside one cell, table intact.
+    body = _body({**_ISSUE, "owner": "a|b"})
+    assert "| Owner | a\\|b |" in body
+
+
 def test_for_issues_body_is_parallel_to_the_input() -> None:
     detail = BeadsDetail.for_issues([_ISSUE, {**_ISSUE, "id": "beads-002"}])
     body = detail["body"]

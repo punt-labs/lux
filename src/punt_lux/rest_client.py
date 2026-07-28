@@ -115,7 +115,7 @@ class LuxRestClient:
         and reads the display ping without one (GET), so the caller never repeats
         a verb the body already implies.
         """
-        method = "PUT" if body is not None else "GET"
+        method = "PUT" if body is not None else "GET"  # a body means a write (PUT)
         payload = body.model_dump_json().encode() if body is not None else None
         response = self._transport.request(method, path, payload)
         if 200 <= response.status < 300:

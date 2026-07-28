@@ -34,8 +34,8 @@ if TYPE_CHECKING:
 
 __all__ = ["TableChrome"]
 
-_MIN_DETAIL_RESERVE = 6  # a detail always gets at least this many lines
-_MAX_DETAIL_RESERVE = 16  # cap so a big detail never starves the grid
+_MIN_DETAIL_RESERVE = 12  # floor; biased toward the detail (~60/40 grid/detail)
+_MAX_DETAIL_RESERVE = 18  # cap so a big detail never starves the grid
 
 
 @final
@@ -49,7 +49,7 @@ class TableChrome:
         """Return the text lines the grid reserves below itself for ``detail``.
 
         Proportioned to the detail's field count (its cards are field lines plus a
-        short body), clamped to ``[6, 16]`` so the panel is always visible without
+        short body), clamped to ``[12, 18]`` so the panel is always visible without
         swallowing the grid. ``None`` (no detail) reserves nothing.
         """
         if detail is None:

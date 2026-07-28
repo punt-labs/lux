@@ -78,9 +78,9 @@ class TestScrollReserve:
         from punt_lux.protocol.compositions.table_chrome import TableChrome
 
         reserve = TableChrome.detail_reserve_lines
-        assert reserve({"fields": []}) == 6  # clamped up to the min
-        assert reserve({"fields": ["a", "b", "c", "d", "e"]}) == 9
-        assert reserve({"fields": list("abcdefghijklmnop")}) == 16  # max
+        assert reserve({"fields": []}) == 12  # clamped up to the min
+        assert reserve({"fields": list("abcdefghij")}) == 14  # 10 + 4, above floor
+        assert reserve({"fields": list("abcdefghijklmnopqrst")}) == 18  # 20 -> max
 
 
 class TestBuilderShape:
