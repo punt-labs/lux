@@ -135,19 +135,40 @@ class TestDeliver:
         socket_server.send_to_client.assert_not_called()
 
 
-class TestRevertModalDismissals:
-    def test_undelivered_modal_close_clears_latches(self) -> None:
+class TestCompensateEvicted:
+    def test_evicted_modal_close_clears_latches(self) -> None:
         ws = WidgetState()
         ws.set(f"m{WidgetState.OPEN_SUFFIX}", 1)
         ws.set(f"m{WidgetState.DISMISS_SUFFIX}", 1)
         delivery, _ = _build(widget_state=ws)
 
-        delivery.revert_modal_dismissals([_modal_closed("s1", "m")])
+        delivery.compensate_evicted([_modal_closed("s1", "m")])
 
         assert ws.get(f"m{WidgetState.OPEN_SUFFIX}") is None
         assert ws.get(f"m{WidgetState.DISMISS_SUFFIX}") is None
 
-    def test_non_modal_event_is_ignored(self) -> None:
+    def test_evicted_row_selection_clears_pending_slot(self) -> None:
+        # An evicted row_selection_changed leaves the optimistic pending selection
+        # rendering forever (the Hub, never told, holds the pre-gesture set and a
+        # grow-from-empty pick never converges). The eviction must clear it.
+        ws = WidgetState()
+        ws.set(f"t{WidgetState.ROW_SELECTION_PENDING_SUFFIX}", frozenset({"A"}))
+        ws.set(f"t{WidgetState.ROW_SELECTION_HONOURED_SUFFIX}", frozenset())
+        delivery, _ = _build(widget_state=ws)
+        evicted = RemoteEventHandlerInvocation(
+            element_id="t",
+            action="changed",
+            event_kind="row_selection_changed",
+            scene_id="s1",
+            ts=1.0,
+        )
+
+        delivery.compensate_evicted([evicted])
+
+        assert ws.get(f"t{WidgetState.ROW_SELECTION_PENDING_SUFFIX}") is None
+        assert ws.get(f"t{WidgetState.ROW_SELECTION_HONOURED_SUFFIX}") is None
+
+    def test_non_compensated_event_is_ignored(self) -> None:
         ws = WidgetState()
         ws.set(f"m{WidgetState.DISMISS_SUFFIX}", 1)
         delivery, _ = _build(widget_state=ws)
@@ -155,11 +176,11 @@ class TestRevertModalDismissals:
             element_id="m", action="click", scene_id="s1", ts=1.0
         )
 
-        delivery.revert_modal_dismissals([click])
+        delivery.compensate_evicted([click])
 
         assert ws.get(f"m{WidgetState.DISMISS_SUFFIX}") == 1
 
     def test_scene_less_event_is_ignored(self) -> None:
         delivery, _ = _build(widget_state=None)
         # No scene_id → no widget state to revert; must not raise.
-        delivery.revert_modal_dismissals([_modal_closed(None, "m")])
+        delivery.compensate_evicted([_modal_closed(None, "m")])

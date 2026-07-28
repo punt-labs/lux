@@ -1377,4 +1377,4 @@ class DisplayServer:
             self._pending.discard_prefix(
                 self._interaction_delivery.deliver(self._pending.pending_events())
             )
-        self._interaction_delivery.revert_modal_dismissals(expired)
+        self._interaction_delivery.compensate_evicted(expired)

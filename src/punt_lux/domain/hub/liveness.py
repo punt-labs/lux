@@ -111,33 +111,43 @@ class DisplayLiveness:
                 self._thread = None
 
     def check_once(self) -> None:
-        """Run one liveness cycle: prove the connection, else drop and reconnect.
+        """Prove the connection; on a twice-failed probe, drop and reconnect.
 
-        Reconnecting in the same cycle re-registers luxd as a display client at
-        once, so a dropped connection swallows at most about one interval of
-        interactions rather than everything until the next scene push.
+        The re-probe before dropping spares a connection a concurrent
+        ``SendRecovery`` just reconnected, avoiding a needless close. The reconnect
+        in the same cycle re-registers luxd at once, so a real drop swallows at
+        most about one interval of interactions, not everything until the next push.
         """
-        if self._probe():
+        if self._probe() or self._probe():
             return
-        logger.info("display connection unresponsive; dropping and reconnecting")
+        logger.warning("display connection unresponsive; dropping and reconnecting")
         self._clients.drop()
         self._probe()
 
     def _run(self) -> None:
-        """Tick every interval until asked to stop."""
+        """Tick every interval until stopped, surviving any cycle failure.
+
+        A raising cycle must never kill the thread: nothing restarts it, so one
+        escape would silently retire the keepalive for the life of luxd and reopen
+        the dropped-click window. Every exception is logged and the loop continues.
+        """
         while not self._stop.wait(self._interval):
-            self.check_once()
+            try:
+                self.check_once()
+            except Exception:
+                logger.exception("liveness cycle failed; continuing")
 
     def _probe(self) -> bool:
         """Return whether a ``get`` + ping round-trip succeeded.
 
-        ``get`` reconnects and re-registers a dropped connection before the ping,
-        so a successful probe also means luxd is a registered display client. An
-        ``OSError`` (a dead socket surfacing on the ping send) counts as a failed
-        probe, not an escape.
+        ``get`` reconnects a dropped connection before the ping, so success also
+        means luxd is a registered display client. A connect that cannot complete
+        surfaces as ``RuntimeError`` (``ClientRegistry`` wraps a refused socket,
+        spawn failure, or handshake timeout) and a dead ping send as ``OSError``;
+        both are a failed probe, never an escape that could kill the worker.
         """
         try:
             return self._clients.get().ping(self._ping_timeout) is not None
-        except OSError as exc:
-            logger.info("liveness ping failed: %s", exc)
+        except (OSError, RuntimeError) as exc:
+            logger.warning("liveness probe failed: %s", exc)
             return False

@@ -739,6 +739,32 @@ class TestFrameSendBudget:
         assert held == [f"b{i}" for i in range(8)]
         assert slow in server._socket_server.clients  # the slow peer is kept
 
+    def test_connection_dying_mid_flush_reholds_the_undelivered(self) -> None:
+        """A client dying at the first send holds the rest for a reconnect, not lost.
+
+        The drain-then-die path: delivery reads the buffer, the peer dies on the
+        first send, and the undelivered suffix must stay held (a reconnect
+        delivers it) rather than being destroyed at the failed send.
+        """
+        from punt_lux.protocol import FrameReader
+
+        server = _make_server()
+        dead = _mock_sock_fd(10)
+        dead.send.side_effect = OSError("boom")
+        server._socket_server.clients.append(dead)
+        server._socket_server._fd_to_client[10] = dead
+        server._socket_server._readers[10] = FrameReader()
+        for i in range(4):
+            server._event_queue.append(
+                RemoteEventHandlerInvocation(element_id=f"c{i}", action="click", ts=1.0)
+            )
+
+        server._flush_events()
+
+        assert dead not in server._socket_server.clients  # dead peer removed
+        held = [ev.element_id for ev in server._pending.pending_events()]
+        assert held == [f"c{i}" for i in range(4)]  # every click re-held, none lost
+
 
 # -----------------------------------------------------------------------
 # Multi-scene (persistent dismissable tabs)

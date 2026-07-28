@@ -41,7 +41,7 @@ class InteractionDelivery:
     Stateless across frames — it holds only the collaborators it routes through
     (the socket server, the menu owner map, and the scene owner / widget-state
     lookups). The display owns the event queue and calls :meth:`deliver` then
-    :meth:`revert_modal_dismissals` each flush.
+    :meth:`compensate_evicted` each flush.
     """
 
     _socket_server: SocketServer
@@ -111,27 +111,47 @@ class InteractionDelivery:
         ]
         return any(sent)
 
-    def revert_modal_dismissals(
-        self, undelivered: Sequence[RemoteEventHandlerInvocation]
+    def compensate_evicted(
+        self, evicted: Sequence[RemoteEventHandlerInvocation]
     ) -> None:
-        """Reopen any modal whose close never reached the Hub.
+        """Revert optimistic display state whose interaction never reached the Hub.
 
-        A modal dismiss is optimistic: the renderer latches the popup shut and
-        fires ``ModalClosed`` toward the Hub, which owns the authoritative
-        remove. When that interaction is undeliverable the Hub still holds the
-        modal open, so clearing the display-side open/dismiss latches reverts the
-        replica to Hub truth — the popup reopens and a later dismiss re-fires the
-        close instead of the tiers silently diverging.
+        An interaction the buffer evicted (aged or overflowed) never reaches the
+        Hub, so the display-side latch it fired optimistically would render forever
+        against an unchanged Hub — a modal held shut, a table row held selected.
+        Reverting that latch returns the replica to Hub truth. Both cases are the
+        same move: drop the latch the lost interaction was speaking for.
         """
-        for event in undelivered:
-            if event.event_kind != "modal_closed" or event.scene_id is None:
+        for event in evicted:
+            if event.scene_id is None:
                 continue
             ws = self._scene_manager.widget_state_for(event.scene_id)
             if ws is None:
                 continue
-            ws.discard(f"{event.element_id}{WidgetState.OPEN_SUFFIX}")
-            ws.discard(f"{event.element_id}{WidgetState.DISMISS_SUFFIX}")
-            logger.warning(
-                "reverted modal '%s' dismiss — close was undeliverable to the Hub",
-                event.element_id,
-            )
+            if event.event_kind == "modal_closed":
+                self._revert_modal(ws, event.element_id)
+            elif event.event_kind == "row_selection_changed":
+                self._revert_row_selection(ws, event.element_id)
+
+    @staticmethod
+    def _revert_modal(ws: WidgetState, element_id: str) -> None:
+        """Reopen a modal whose optimistic close never reached the Hub."""
+        ws.discard(f"{element_id}{WidgetState.OPEN_SUFFIX}")
+        ws.discard(f"{element_id}{WidgetState.DISMISS_SUFFIX}")
+        logger.warning(
+            "reverted modal '%s' dismiss — close was undeliverable", element_id
+        )
+
+    @staticmethod
+    def _revert_row_selection(ws: WidgetState, element_id: str) -> None:
+        """Drop a table's optimistic pending selection that never reached the Hub.
+
+        Without this the pending set renders forever -- the Hub, never told, holds
+        the pre-gesture set and a grow-from-empty pick ({} subset of {A}) never
+        converges, so no confirming re-push comes.
+        """
+        ws.discard(f"{element_id}{WidgetState.ROW_SELECTION_PENDING_SUFFIX}")
+        ws.discard(f"{element_id}{WidgetState.ROW_SELECTION_HONOURED_SUFFIX}")
+        logger.warning(
+            "reverted table '%s' selection — change was undeliverable", element_id
+        )
