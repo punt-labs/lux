@@ -1,11 +1,10 @@
 """``TableChrome`` — the show_table composition's chrome builders.
 
-The filter controls (a search ``input_text``, status ``combo``s) and the detail
-``markdown`` region, each wired to the shared ``FilteredTableModel`` through the
-Hub-side handlers. ``TableComposition`` owns the grid and the group assembly and
-delegates the chrome here, so the two concerns — assemble vs. build-a-control —
-live in separate modules. Open wire shapes (a filter's ``items``, a detail's
-``fields``/``rows``/``body``) are validated fail-loud with the field named.
+The filter controls (a search ``input_text``, status ``combo``s), the grid/detail
+region (a draggable split when there is detail), and the detail ``markdown``
+itself, each wired to the shared ``FilteredTableModel``. ``TableComposition`` owns
+the group assembly and delegates the chrome here. Open wire shapes (a filter's
+``items``, a detail's ``fields``/``rows``/``body``) are validated fail-loud.
 """
 
 from __future__ import annotations
@@ -34,8 +33,10 @@ if TYPE_CHECKING:
 
 __all__ = ["TableChrome"]
 
-_MIN_DETAIL_RESERVE = 12  # floor; biased toward the detail (~60/40 grid/detail)
-_MAX_DETAIL_RESERVE = 18  # cap so a big detail never starves the grid
+# Initial grid (top) height fraction before any drag; a richer detail trims it.
+_MAX_GRID_RATIO = 0.6
+_MIN_GRID_RATIO = 0.5
+_RATIO_PER_FIELD = 0.015
 
 
 @final
@@ -45,18 +46,18 @@ class TableChrome:
     __slots__ = ()
 
     @staticmethod
-    def detail_reserve_lines(detail: dict[str, object] | None) -> int:
-        """Return the text lines the grid reserves below itself for ``detail``.
+    def default_grid_ratio(detail: dict[str, object] | None) -> float:
+        """Return the split's initial grid height fraction, clamped to [0.5, 0.6].
 
-        Proportioned to the detail's field count (its cards are field lines plus a
-        short body), clamped to ``[12, 18]`` so the panel is always visible without
-        swallowing the grid. ``None`` (no detail) reserves nothing.
+        Proportioned to the detail's field count so a richer card opens a little
+        taller; ``None`` has no split and the base fraction applies.
         """
         if detail is None:
-            return 0
+            return _MAX_GRID_RATIO
         fields = detail.get("fields")
         count = len(cast("list[object]", fields)) if isinstance(fields, list) else 0
-        return min(max(count + 4, _MIN_DETAIL_RESERVE), _MAX_DETAIL_RESERVE)
+        trimmed = _MAX_GRID_RATIO - max(count - 4, 0) * _RATIO_PER_FIELD
+        return min(max(trimmed, _MIN_GRID_RATIO), _MAX_GRID_RATIO)
 
     @classmethod
     def filter_controls(
@@ -64,9 +65,8 @@ class TableChrome:
     ) -> list[Element]:
         """Build the search input and combo controls, each wired to the model.
 
-        An unrecognised filter ``type`` is rejected here (fail-loud, like
-        ``TableFlags.from_wire``) rather than silently dropped — a typo that
-        produced no control with no feedback is worse than an error.
+        An unrecognised filter ``type`` is rejected here fail-loud rather than
+        silently dropped — a typo that produced no control is worse than an error.
         """
         controls: list[Element] = []
         num_columns = len(spec.columns)
@@ -112,8 +112,7 @@ class TableChrome:
         )
         items = [str(item) for item in raw_items]
         if not items:
-            # An empty/omitted items list builds a choiceless control — fail loud,
-            # matching the legacy TableFilter contract and the other build guards.
+            # An empty/omitted items list builds a choiceless control — fail loud.
             msg = f"combo filter {index} 'items' must be a non-empty list"
             raise ValueError(msg)
         raw_column = filt.get("column", 0)
@@ -141,21 +140,18 @@ class TableChrome:
         return combo
 
     @classmethod
-    def append_detail(
+    def build_detail(
         cls,
         spec: TableCompositionSpec,
         table: TableElement,
         model: FilteredTableModel,
-        children: list[Element],
-    ) -> None:
-        """Append a detail region, binding it to the anchor and to filter changes.
+    ) -> MarkdownElement:
+        """Build the detail region, binding it to the anchor and to filter changes.
 
-        The same binder drives on a selection gesture (a ``RowSelectionChanged``
-        handler) and after a filter re-projection (``model.bind_detail``), so the
-        panel tracks the anchor whether the user clicked or filtered.
+        One binder drives on a selection gesture (``RowSelectionChanged``) and
+        after a filter re-projection (``model.bind_detail``), so the panel tracks
+        the anchor whether the user clicked or filtered.
         """
-        if spec.detail is None:
-            return
         placeholder = "Select a row to see its detail."
         region = MarkdownElement(id=f"{spec.table_id}-detail", content=placeholder)
         binder = DetailBindingHandler(
@@ -163,7 +159,7 @@ class TableChrome:
         )
         table.add_handler(RowSelectionChanged, binder)
         model.bind_detail(binder)
-        children.append(region)
+        return region
 
     @classmethod
     def _detail_content(cls, spec: TableCompositionSpec) -> dict[str, str]:

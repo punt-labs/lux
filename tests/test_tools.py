@@ -840,17 +840,23 @@ class TestShowTableTool:
             title="Issues",
         )
         assert result == "shown:t2"
-        # Chrome is composed from primitives under one group root.
+        # Chrome is composed from primitives under one group root; the grid and
+        # detail share the frame through a draggable split pane below the filters.
         root: object = store.scene_roots(SceneId("t2"))[0]
         assert isinstance(root, GroupElement)
         kinds = [type(child).__name__ for child in root.children]
         assert kinds == [
             "InputTextElement",
             "ComboElement",
+            "SplitPaneElement",
+        ]
+        split = root.children[-1]
+        assert isinstance(split, GroupElement)
+        assert [type(c).__name__ for c in split.children] == [
             "TableElement",
             "MarkdownElement",
         ]
-        table = next(c for c in root.children if isinstance(c, TableElement))
+        table = next(c for c in split.children if isinstance(c, TableElement))
         # Detail present -> single-select (the detail binds to one anchor row).
         assert table.selection_mode == "single"
 

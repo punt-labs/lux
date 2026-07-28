@@ -31,6 +31,7 @@ from punt_lux.display.renderers.imgui.selectable import ImGuiSelectableRenderer
 from punt_lux.display.renderers.imgui.separator import ImGuiSeparatorRenderer
 from punt_lux.display.renderers.imgui.slider import ImGuiSliderRenderer
 from punt_lux.display.renderers.imgui.spinner import ImGuiSpinnerRenderer
+from punt_lux.display.renderers.imgui.split_pane import ImGuiSplitPaneRenderer
 from punt_lux.display.renderers.imgui.tab_bar import ImGuiTabBarRenderer
 from punt_lux.display.renderers.imgui.table import ImGuiTableRenderer
 from punt_lux.display.renderers.imgui.text import ImGuiTextRenderer
@@ -57,6 +58,7 @@ from punt_lux.protocol.elements.selectable import SelectableElement
 from punt_lux.protocol.elements.separator import SeparatorElement
 from punt_lux.protocol.elements.slider import SliderElement
 from punt_lux.protocol.elements.spinner import SpinnerElement
+from punt_lux.protocol.elements.split_pane import SplitPaneElement
 from punt_lux.protocol.elements.tab_bar import TabBarElement
 from punt_lux.protocol.elements.table import TableElement
 from punt_lux.protocol.elements.text import TextElement
@@ -84,12 +86,10 @@ class ImGuiRendererFactory:
     _texture_cache: TextureCache
     _emit: Emit
     # The one geometry capture the render loop writes and a query reads; owned
-    # here so a window-like adapter records through ``geometry`` with no render
-    # seam threading a recorder into per-frame adapter construction.
+    # here so a window-like adapter records through ``geometry`` directly.
     _geometry: GeometryCapture
 
-    # Element type -> adapter constructor driving ``__call__`` dispatch. Every
-    # adapter shares the ``(elem, factory)`` constructor shape.
+    # Element type -> adapter for ``__call__``; all share the ``(elem, factory)`` shape.
     _DISPATCH: ClassVar[tuple[tuple[type, Callable[..., Renderer]], ...]] = (
         (TextElement, ImGuiTextRenderer),
         (ButtonElement, ImGuiButtonRenderer),
@@ -99,6 +99,8 @@ class ImGuiRendererFactory:
         (DialogElement, ImGuiDialogRenderer),
         (ModalElement, ImGuiModalRenderer),
         (WindowElement, ImGuiWindowRenderer),
+        # SplitPaneElement subclasses GroupElement, so it must match first.
+        (SplitPaneElement, ImGuiSplitPaneRenderer),
         (GroupElement, ImGuiGroupRenderer),
         (CollapsingHeaderElement, ImGuiCollapsingHeaderRenderer),
         (TabBarElement, ImGuiTabBarRenderer),
@@ -139,11 +141,8 @@ class ImGuiRendererFactory:
 
     @widget_state.setter
     def widget_state(self, value: WidgetState) -> None:
-        """Re-thread the factory to the scene being rendered.
-
-        ABC adapters read per-scene state (echo suppression, edit buffers)
-        through the factory, so a scene switch must reach it here.
-        """
+        """Re-thread the factory to the scene being rendered — ABC adapters read
+        per-scene state (echo suppression, edit buffers, split ratios) here."""
         self._widget_state = value
 
     @property

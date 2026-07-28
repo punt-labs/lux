@@ -24,32 +24,24 @@ class WidgetState:
     _SESSION_SUFFIXES: ClassVar[tuple[str, ...]] = (HONOURED_SUFFIX, PENDING_SUFFIX)
 
     # Suffixes of a continuous-edit widget's commit-echo slots, shared by every
-    # non-atomic mutable kind (input_text, slider, color_picker) — all kept
-    # across a re-push (off ``_SESSION_SUFFIXES``) so a commit in flight across
-    # the resend survives. Buffer = the live local edit (text, thumb position,
-    # or RGBA tuple) that stays authoritative while the widget is being edited;
-    # editing = the flag that marks that authority; committed = the value last
-    # committed, honoured optimistically until its Hub echo arrives; commit-hub =
-    # the Hub value observed at commit time, the marker that tells ``resolve``
-    # when the echo has moved past it. One neutral quad serves all three: element
-    # ids are unique within a scene and the arbiter is the sole reader/writer of
-    # these slots, so no two widgets collide, and the type-guarding getters map a
-    # wrong-typed stored value to their default. The buffer takes its own suffix
-    # (never the bare id) so it can never alias a per-patch hex-string mirror of
-    # ``widget_value`` on one key, for any kind uniformly.
+    # non-atomic mutable kind (input_text, slider, color_picker) and kept across a
+    # re-push so a commit in flight survives. Buffer = the live local edit,
+    # authoritative while editing; editing = the flag marking that authority;
+    # committed = the value honoured optimistically until its Hub echo arrives;
+    # commit-hub = the Hub value at commit time, telling ``resolve`` when the echo
+    # moved past it. Unique element ids keep the one quad from colliding across
+    # widgets; the buffer takes its own suffix so it never aliases the bare id.
     CONTINUOUS_EDIT_BUFFER_SUFFIX: ClassVar[str] = ":continuous_edit_buffer"
     CONTINUOUS_EDIT_EDITING_SUFFIX: ClassVar[str] = ":continuous_edit_editing"
     CONTINUOUS_EDIT_COMMITTED_SUFFIX: ClassVar[str] = ":continuous_edit_committed"
     CONTINUOUS_EDIT_COMMIT_HUB_SUFFIX: ClassVar[str] = ":continuous_edit_commit_hub"
 
     # Suffixes of a table's row-selection bridge slots, owned by the display's
-    # ``TableSelectionArbiter``. Durable across a re-push (off ``_SESSION_SUFFIXES``,
-    # like the continuous-edit quad) so a selection gesture in flight survives the
-    # Hub's confirming resend: pending = the fired set held optimistically through
-    # the gesture-to-re-push window, so a second gesture accumulates on the first
-    # instead of dropping it; honoured = the authoritative set observed last frame,
-    # the marker that tells the arbiter when the Hub value has moved on and the
-    # pending must be dropped in its favour.
+    # ``TableSelectionArbiter`` and durable across a re-push so a gesture in flight
+    # survives: pending = the fired set held optimistically through the
+    # gesture-to-re-push window, so a second gesture accumulates on the first;
+    # honoured = the authoritative set observed last frame, telling the arbiter
+    # when the Hub value moved on and the pending must yield to it.
     ROW_SELECTION_PENDING_SUFFIX: ClassVar[str] = ":row_selection_pending"
     ROW_SELECTION_HONOURED_SUFFIX: ClassVar[str] = ":row_selection_honoured"
 
@@ -61,6 +53,12 @@ class WidgetState:
     # own enter-commit, consumed the next frame.
     FOCUS_SEEN_SUFFIX: ClassVar[str] = ":focus_seen"
     FOCUS_REFOCUS_SUFFIX: ClassVar[str] = ":focus_refocus"
+
+    # Suffix of a split pane's grid/detail divider ratio, owned by the display's
+    # ``SplitRatioStore``. Durable across a re-push so a dragged divider survives
+    # the poller replacing a scene: the ratio is the top pane's height fraction,
+    # applied locally with no Hub round-trip on drag.
+    SPLIT_RATIO_SUFFIX: ClassVar[str] = ":split_ratio"
 
     _state: dict[str, Any]
 
@@ -147,7 +145,9 @@ class WidgetState:
         continuous-edit buffer and commit-echo quad lets a re-added input_text,
         slider, or color_picker honour its fresh value instead of an earlier
         commit's optimistic echo; clearing the table selection bridge lets a
-        re-added table honour its fresh selection instead of a stale pending set.
+        re-added table honour its fresh selection instead of a stale pending set;
+        clearing the split ratio lets a re-added split pane honour its fresh
+        default proportion instead of a departed scene's dragged divider.
         """
         if not element_id:
             return
@@ -164,6 +164,7 @@ class WidgetState:
         self.discard(f"{element_id}{self.ROW_SELECTION_HONOURED_SUFFIX}")
         self.discard(f"{element_id}{self.FOCUS_SEEN_SUFFIX}")
         self.discard(f"{element_id}{self.FOCUS_REFOCUS_SUFFIX}")
+        self.discard(f"{element_id}{self.SPLIT_RATIO_SUFFIX}")
 
     def reset_honoured(self) -> None:
         """Discard every tab-bar suppression slot, keeping durable user state.
