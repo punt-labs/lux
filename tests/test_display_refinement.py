@@ -51,7 +51,7 @@ def _make_server() -> DisplayServer:
 
 def _mock_sock(fd: int = 42) -> MagicMock:
     sock = MagicMock()
-    sock.sendall = MagicMock()
+    sock.send.side_effect = len  # a real socket accepts the bytes and returns the count
     sock.fileno.return_value = fd
     sock.close = MagicMock()
     return sock

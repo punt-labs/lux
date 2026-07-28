@@ -52,7 +52,7 @@ def _make_scene(
 
 def _mock_sock() -> MagicMock:
     sock = MagicMock()
-    sock.sendall = MagicMock()
+    sock.send.side_effect = len  # a real socket accepts the bytes and returns the count
     sock.fileno.return_value = 42
     return sock
 
@@ -462,7 +462,7 @@ class TestFlushEvents:
 
         server._flush_events()
 
-        sock.sendall.assert_not_called()
+        sock.send.assert_not_called()
 
     def test_flush_routes_menu_event_to_owner(self) -> None:
         """Tools menu events are sent only to the owning client, not broadcast."""
@@ -484,8 +484,8 @@ class TestFlushEvents:
 
         server._flush_events()
 
-        owner.sendall.assert_called_once()
-        other.sendall.assert_not_called()
+        owner.send.assert_called_once()
+        other.send.assert_not_called()
 
     def test_flush_broadcasts_non_menu_event(self) -> None:
         """Events for element IDs not in _menu_owners broadcast to all."""
@@ -501,8 +501,8 @@ class TestFlushEvents:
 
         server._flush_events()
 
-        sock1.sendall.assert_called_once()
-        sock2.sendall.assert_called_once()
+        sock1.send.assert_called_once()
+        sock2.send.assert_called_once()
 
     def test_flush_broadcasts_non_menu_action_even_if_in_menu_owners(self) -> None:
         """Non-menu actions broadcast even when element_id is in _menu_owners."""
@@ -519,8 +519,8 @@ class TestFlushEvents:
 
         server._flush_events()
 
-        sock1.sendall.assert_called_once()
-        sock2.sendall.assert_called_once()
+        sock1.send.assert_called_once()
+        sock2.send.assert_called_once()
 
     def test_flush_broadcasts_agent_menu_even_if_id_in_menu_owners(self) -> None:
         """Agent menu clicks broadcast even when ID collides with _menu_owners."""
@@ -542,8 +542,8 @@ class TestFlushEvents:
 
         server._flush_events()
 
-        sock1.sendall.assert_called_once()
-        sock2.sendall.assert_called_once()
+        sock1.send.assert_called_once()
+        sock2.send.assert_called_once()
 
     def test_flush_routes_menu_drops_if_owner_disconnected(self) -> None:
         """If owner fd is in _menu_owners but not in _fd_to_client, event is dropped."""
@@ -563,7 +563,7 @@ class TestFlushEvents:
 
         server._flush_events()
 
-        other.sendall.assert_not_called()
+        other.send.assert_not_called()
         assert len(server._event_queue) == 0
 
 
@@ -615,7 +615,7 @@ class TestModalDismissRevertOnUndeliverable:
     def test_send_failure_reverts_modal_dismiss_and_removes_client(self) -> None:
         server = _make_server()
         sock = _mock_sock()
-        sock.sendall.side_effect = OSError("boom")
+        sock.send.side_effect = OSError("boom")
         server._socket_server.clients.append(sock)
         from punt_lux.protocol import FrameReader
 
@@ -638,7 +638,7 @@ class TestModalDismissRevertOnUndeliverable:
 
         server._flush_events()
 
-        sock.sendall.assert_called_once()
+        sock.send.assert_called_once()
         # Delivered: the Hub will re-push the removal, so the latch must hold.
         assert ws.get(f"m1{WidgetState.DISMISS_SUFFIX}") == 1
 
@@ -928,7 +928,7 @@ class TestMultiScene:
 def _mock_sock_fd(fd: int) -> MagicMock:
     """Create a mock socket with a specific fileno()."""
     sock = MagicMock()
-    sock.sendall = MagicMock()
+    sock.send.side_effect = len  # a real socket accepts the bytes and returns the count
     sock.fileno.return_value = fd
     return sock
 

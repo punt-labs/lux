@@ -9,7 +9,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -236,6 +236,120 @@ class TestSendToClient:
                 client.close()
         finally:
             server.shutdown()
+
+
+class _FakeClient:
+    """An injected client socket that EAGAINs, drains, or dies on ``send``.
+
+    Registered directly into the server's client maps so ``send_to_client`` runs
+    against it without a real peer. ``fileno`` is a stable positive int so the
+    fd-keyed maps behave; ``close`` is recorded so removal can be asserted.
+    """
+
+    _eagain_left: int
+    _fail_with: OSError | None
+    _fd: int
+    sent: bytearray
+    closed: bool
+
+    def __new__(
+        cls, *, fd: int, eagain_before: int = 0, fail_with: OSError | None = None
+    ) -> _FakeClient:
+        self = super().__new__(cls)
+        self._eagain_left = eagain_before
+        self._fail_with = fail_with
+        self._fd = fd
+        self.sent = bytearray()
+        self.closed = False
+        return self
+
+    def send(self, data: memoryview) -> int:
+        if self._fail_with is not None:
+            raise self._fail_with
+        if self._eagain_left > 0:
+            self._eagain_left -= 1
+            raise BlockingIOError(errno.EAGAIN, "resource temporarily unavailable")
+        self.sent.extend(bytes(data))
+        return len(data)
+
+    def fileno(self) -> int:
+        return self._fd
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def _inject_client(server: SocketServer, client: _FakeClient) -> socket.socket:
+    """Register ``client`` as if just accepted; return it typed as a socket.
+
+    The returned socket-typed handle is what socket-typed APIs and membership
+    checks use, so the structural fake never trips the type checker.
+    """
+    sock = cast("socket.socket", client)
+    server.clients.append(sock)
+    server.fd_to_client[client.fileno()] = sock
+    return sock
+
+
+def _always_writable(
+    _r: list[object], w: list[object], _x: list[object], _t: float
+) -> tuple[list[object], list[object], list[object]]:
+    """A ``select`` that always reports the write set ready — drain never blocks."""
+    return ([], list(w), [])
+
+
+def _never_writable(
+    _r: list[object], _w: list[object], _x: list[object], _t: float
+) -> tuple[list[object], list[object], list[object]]:
+    """A ``select`` that never reports writability — force the bounded give-up."""
+    return ([], [], [])
+
+
+class TestSendClientLifecycle:
+    """send_to_client distinguishes transient backpressure from a dead peer."""
+
+    def test_would_block_then_drains_keeps_client(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A few EAGAINs then a drain delivers the message and keeps the client."""
+        monkeypatch.setattr("punt_lux.bounded_send.select.select", _always_writable)
+        server = _make_server()
+        client = _FakeClient(fd=4321, eagain_before=3)
+        sock = _inject_client(server, client)
+
+        delivered = server.send_to_client(sock, ReadyMessage())
+
+        assert delivered is True
+        assert client.sent  # the message bytes landed after the would-blocks
+        assert not client.closed
+        assert sock in server.clients  # a transient EAGAIN never removes
+
+    def test_dead_peer_removed_immediately(self) -> None:
+        """A BrokenPipeError removes the client at once and reports failure."""
+        server = _make_server()
+        client = _FakeClient(fd=4322, fail_with=BrokenPipeError(errno.EPIPE, "gone"))
+        sock = _inject_client(server, client)
+
+        delivered = server.send_to_client(sock, ReadyMessage())
+
+        assert delivered is False
+        assert client.closed
+        assert sock not in server.clients
+
+    def test_bounded_give_up_removes_slow_client(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A peer that never drains within the bound is removed as too slow."""
+        monkeypatch.setattr("punt_lux.bounded_send.select.select", _never_writable)
+        server = _make_server()
+        client = _FakeClient(fd=4323, eagain_before=1_000_000)
+        sock = _inject_client(server, client)
+
+        delivered = server.send_to_client(sock, ReadyMessage())
+
+        assert delivered is False
+        assert client.closed
+        assert sock not in server.clients
 
 
 class _BindRaises:

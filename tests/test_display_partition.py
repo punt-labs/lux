@@ -61,7 +61,7 @@ def _scene(server: DisplayServer, scene_id: str) -> SceneMessage:
 
 def _sock(fd: int = 42) -> MagicMock:
     s = MagicMock()
-    s.sendall = MagicMock()
+    s.send.side_effect = len  # a real socket accepts the bytes and returns the count
     s.fileno.return_value = fd
     s.close = MagicMock()
     return s
@@ -497,7 +497,7 @@ class TestFlushEventsPartitions:
         _register(server, sock)
         server._flush_events()
         assert len(server._event_queue) == 0
-        sock.sendall.assert_not_called()
+        sock.send.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -944,9 +944,9 @@ class TestCloseFramePartitions:
         assert "s1" not in server._scene_manager._scene_widget_state
         assert "s2" not in server._scene_manager._scene_widget_state
         # Close event sent directly to owner socket
-        calls = sock.sendall.call_args_list
-        # Last sendall should contain frame_close interaction
-        last_payload = calls[-1][0][0]
+        calls = sock.send.call_args_list
+        # Last send should contain the frame_close interaction
+        last_payload = bytes(calls[-1][0][0])
         assert b"frame_close" in last_payload
 
     def test_close_nonexistent_frame_is_noop(self):

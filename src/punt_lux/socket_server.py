@@ -11,6 +11,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Self
 
+from punt_lux.bounded_send import BoundedSend
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
     HEADER_SIZE,
@@ -31,7 +32,6 @@ _BIND_RACE_ERRNOS = frozenset({errno.EADDRINUSE, errno.EEXIST})
 # breakpoint) that is not draining accepts isn't misread as dead: a probe would
 # get ECONNREFUSED only once 128+ connects are queued, far beyond lux's real
 # client count (luxd's one persistent connection plus occasional probes).
-# See lux-h29e.
 _LISTEN_BACKLOG = 128
 
 
@@ -202,12 +202,12 @@ class SocketServer:
     def send_to_client(self, sock: socket.socket, msg: Message) -> bool:
         """Send ``msg`` to ``sock``; return whether it was delivered.
 
-        On failure name the dropped message kind (a dropped interaction leaves
-        the Hub unaware), remove the dead client, and report ``False`` so the
-        caller can compensate.
+        ``BoundedSend`` waits out a momentary full buffer, so a raised error is a
+        too-slow or dead peer -- remove the client (naming the dropped kind, since
+        a dropped interaction leaves the Hub unaware) and report ``False``.
         """
         try:
-            sock.sendall(encode_message(msg))
+            BoundedSend().send(sock, encode_message(msg))
         except (ConnectionError, OSError) as exc:
             logger.warning(
                 "send failed (%s); dropped %s, removing client",
