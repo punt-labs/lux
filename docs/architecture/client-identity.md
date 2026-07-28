@@ -25,9 +25,14 @@ which repository, put the dialog up.
 Both are symptoms of the same gap. A Lux client today carries a *connection*,
 not an *identity*. The REST front door does not even carry a distinct connection
 — every REST and command-line caller shares one reserved pseudo-connection named
-`"rest"`, because REST had no identity to give and borrowed an immortal stand-in
-so its scenes would not be swept away. That stand-in is the `"rest"` owner on
-every board.
+`"rest"` (`RESERVED_REST_CONNECTION` in `session_key.py`), because REST had no
+identity to give and borrowed one shared stand-in.
+
+Note what the problem is *not*. The boards do not persist because they are owned
+by `"rest"`. They persist because every scene is durable — a scene survives its
+creating connection, ratified in PR #275 (see the lifetime section). The `"rest"`
+owner is not keeping the boards alive; it is only making them indistinguishable.
+The problem is attribution, cleanly separated from lifetime.
 
 The operator's ruling: "All clients of the rest service and display need to have
 an identity/owner." And the boundary on it: "I do not want to go overboard with
@@ -60,8 +65,7 @@ section. Nothing in this design builds it.
 A client identity is a small record the Hub stores for a caller. It has these
 fields.
 
-- **kind** — one of `mcp-session`, `cli`, or `app`. This is the discriminator,
-  and it decides the identity's lifetime (see ownership below).
+- **kind** — one of `mcp-session`, `cli`, or `app`. This is the discriminator.
   - `mcp-session` is a Claude Code agent's live MCP connection to the Hub.
   - `cli` is a `lux` command invocation, such as `lux show beads`.
   - `app` is luxd itself, the plugin that owns the built-in capabilities.
@@ -80,8 +84,8 @@ The identity is metadata bound to a connection, not a replacement for it. The
 wire-level `ConnectionId` stays exactly what it is today — the key that scopes a
 session's subscriptions, its inbox, and the cleanup that runs when the wire
 drops. What changes is that the Hub now also holds an identity record for that
-connection, and the identity — not the bare `ConnectionId` — is what a scene
-records as its owner.
+connection, and the identity — not the bare `ConnectionId` — is what an installed
+root records as its owner.
 
 ### Who declares it, and how each front door carries it
 
@@ -94,7 +98,7 @@ the engine" ([one-code-path.md](one-code-path.md)).
   value becomes its `ConnectionId`. The session gains an identity by declaring
   its `kind`, `name`, `repo`, and `agent` when it connects — the same moment it
   already declares `session_key`. Exactly how it declares them is a genuine fork,
-  raised as Open Question 1.
+  raised as Open Question 2.
 
 - **The REST and command-line caller** carries its identity in the request. The
   command-line tool resolves the identity from its context (its working
@@ -106,57 +110,66 @@ the engine" ([one-code-path.md](one-code-path.md)).
 - **The app (luxd's built-ins)** declares its identity at startup, once, when it
   registers the capabilities it owns.
 
-## Ownership: Who Owns a Scene, and For How Long
+## Ownership Is Per-Root, and a Scene Can Have Several Owners
 
-Ownership today conflates two things that must be pulled apart: *who* owns a
-scene, and *how long* it lives. The Hub records a scene's owner as a
-`ConnectionId` (`domain/hub/owner_tracker.py`), and a scene lives exactly as long
-as that connection does. When the connection drops, the disconnect cascade sweeps
-every scene it owned.
+Ownership in Lux is recorded per installed root, not per scene. The `OwnerTracker`
+keys `(scene_id, element_id) → ConnectionId` (`domain/hub/owner_tracker.py`), so
+one scene can hold roots installed by different connections, and each root has its
+own owner. The introspection model already reflects this: `SceneSummary.owners`
+is a list — "every distinct connection owning a root in the scene"
+(`operations/models/query_scenes.py`).
 
-That single rule is wrong for two of the three kinds of client.
+This design changes the *value* recorded as an owner, not the granularity. The
+per-root owner becomes the identity record instead of a bare `ConnectionId`. A
+scene's `owners` list therefore becomes a list of distinct identities — the
+repositories and agents that own the roots in that scene.
 
-A `lux show beads` process connects to REST, installs one board, and exits
-immediately. If the board's life were tied to that process's connection, the
-board would vanish the instant the command returned. The only reason the board
-survives today is the accident that it is owned by the immortal `"rest"`
-pseudo-connection, which never disconnects. The board persists for the wrong
-reason, and un-attributed.
+The mixed case is real and must be answered. A `lux show beads` board is a
+`cli`-owned root; an agent may then install its own dialog root into a scene
+presented in the same frame, a `mcp-session`-owned root. Under per-root
+ownership these coexist: the scene reports two owners, and each root keeps its own
+owner for as long as it lives. There is no single scene owner to be in conflict,
+because ownership was never per-scene. Whatever cleanup rule applies, it applies
+to a root, not to the whole scene — a point that matters for the lifetime fork
+below, because dropping a session drops that session's *roots*, and a scene
+empties only when its last root is gone.
 
-So ownership splits along the identity's kind.
+## Scene Lifetime Is Already Settled — and This Design Must Not Quietly Change It
 
-- **A scene owned by an `mcp-session` identity dies when that session
-  disconnects.** This is the existing cascade, unchanged, and it is correct: an
-  ad-hoc dialog an agent put up is the agent's ephemeral UI, and it should leave
-  with the agent.
+Here is the fact that reshapes the rest of this design. Today every scene is
+durable. When an MCP session disconnects, the cascade forgets the connection as a
+Hub client, tears down its subscription scope and its writer binding, and
+releases its inbox — and it deliberately leaves the scenes standing
+(`domain/hub/lifecycle.py`, `HubDisplay.drop_connection` in `hub_display.py`).
+The roots stay installed and stay owned by the departed connection id until a
+later explicit removal: the user closing the frame, an agent clearing, or a frame
+TTL expiring.
 
-- **A scene owned by a `cli` identity is durable.** Its owner is the caller's
-  repository context, not the short-lived command process. It persists after the
-  command exits, and it is cleaned up the way durable UI already is — by an
-  explicit `clear`, or by the frame-expiry timeout the Hub already runs
-  (`domain/hub/frame_expiry.py`) — never by a disconnect. The command invocation
-  that installed or last wrote it is recorded as metadata (the last writer), so
-  the board shows both its durable owner (the repository) and who touched it last.
+This is not incidental. It is PR #275, the scene-frame lifecycle, ratified by the
+operator. Its taxonomy: a **frame** is the user's unit — the user closes it, or a
+TTL set on it expires — and a **scene** is the agent's unit, which survives the
+agent's session. A session's UI outliving the session is the point, so an agent
+can put up UI, drop its connection, reconnect, and find its UI still there.
 
-- **A scene owned by an `app` identity is durable for luxd's lifetime.** These
-  are the built-ins; they persist until the Hub stops, matching the menu design's
-  rule that a plugin built-in is never unregistered while luxd runs.
+An earlier draft of this design said `mcp-session`-owned scenes "die on
+disconnect" and called that the existing behavior. That was wrong on both counts.
+It is not the existing behavior — the existing behavior is that they survive — and
+adopting it would reverse a ratified operator decision while claiming to preserve
+it. That reversal is now surfaced as an explicit fork for the operator (Open
+Question 1), not smuggled in as a settled default.
 
-The rule in one sentence: a scene's lifetime follows its owner's kind, and only
-`mcp-session`-owned scenes die with a wire.
-
-The disconnect cascade changes accordingly. Today it drops every scene the
-dropping `ConnectionId` owned. After this change it drops only the scenes owned
-by a *session* identity whose connection dropped, and leaves durable (`cli`,
-`app`) owners alone.
+The consequence for the rest of the design: **identity is attribution, and by
+itself it changes no lifetime.** An owner's identity records *who* owns a root;
+it does not decide *how long* the root lives. The lifetime model is PR #275's, and
+it stands unless the operator rules on the fork to change it.
 
 ## The Fate of the Reserved "rest" Connection
 
 `RESERVED_REST_CONNECTION = ConnectionId("rest")` and the `DEFAULT_SCOPE` built
 from it (`session_key.py`, `rest/app.py`) exist for one reason: REST had no
-identity, so it borrowed one immortal connection for all its callers, and the
-Hub reserved that name so an MCP session could not collide with it and, on
-disconnect, sweep away REST-created scenes.
+identity, so it borrowed one connection for all its callers, and the Hub reserved
+that name so an MCP session could not claim it and interfere with REST-created
+state.
 
 Once every REST and command-line caller carries its own real identity, there is
 no shared pseudo-connection to protect, and nothing to reserve. So both the
@@ -174,21 +187,22 @@ declares no identity at all? The answer splits by what the caller is doing.
   command-line tool always resolves one from its working directory before it
   calls, so in practice a write arrives with an identity. Whether a write that
   still carries *nothing* should be given an auto-derived identity or refused
-  with a named error is a genuine fork, raised as Open Question 2.
+  with a named error is a genuine fork, raised as Open Question 3.
 
 ## How Introspection Answers "Who Owns What"
 
 The operator's question — "which sessions own which scenes" — has no true answer
 today. After this change it does, because both `list_clients` and `list_scenes`
-report the identity, not the bare connection.
+report the identity, not the bare connection. The `owners` list stays plural, as
+it already is; each entry becomes a structured identity.
 
 Before, from the live Hub:
 
 ```text
 list_scenes → scenes: [
-  { scene_id: "beads-lux",  owner: "rest" },
-  { scene_id: "beads-vox",  owner: "rest" },
-  { scene_id: "beads-quarry", owner: "rest" },
+  { scene_id: "beads-lux",  owners: ["rest"] },
+  { scene_id: "beads-vox",  owners: ["rest"] },
+  { scene_id: "beads-quarry", owners: ["rest"] },
   ...
 ]
 list_clients → clients: [
@@ -203,62 +217,68 @@ After:
 ```text
 list_scenes → scenes: [
   { scene_id: "beads-lux",
-    owner: { kind: "cli", name: "lux-cli", repo: "/…/lux" },
-    last_writer: "lux-cli" },
+    owners: [ { kind: "cli", name: "lux-cli", repo: "/…/lux" } ] },
   { scene_id: "beads-vox",
-    owner: { kind: "cli", name: "lux-cli", repo: "/…/vox" },
-    last_writer: "lux-cli" },
+    owners: [ { kind: "cli", name: "lux-cli", repo: "/…/vox" } ] },
+  { scene_id: "review-panel",
+    owners: [ { kind: "cli", name: "lux-cli", repo: "/…/lux" },
+              { kind: "mcp-session", name: "claude", repo: "/…/lux", agent: "claude" } ] },
   ...
 ]
 list_clients → clients: [
   { identity: { kind: "mcp-session", name: "claude", repo: "/…/lux", agent: "claude" },
     connection_id: "2e3f1621",
-    owned_scenes: ["dialog-1"] }
+    owned_scenes: ["review-panel"] }
 ]
 ```
 
-Each board names the repository that owns it and the kind of client that created
-it. Each connected client names its identity and the scenes it owns. The
-operator can now read ownership straight off the introspection output.
+Each board names the repository that owns its root and the kind of client that
+created it. The `review-panel` scene shows the mixed case: a `cli` root and an
+`mcp-session` root, two owners, side by side. Each connected client names its
+identity and the scenes it holds a root in. The operator can now read ownership
+straight off the introspection output.
 
-Concretely, `SceneSummary.owner` (`operations/models/query_scenes.py`) changes
-from a bare owner string to the structured identity, and `HubClient`
-(`operations/models/query_clients.py`) gains an `identity` field. These are the
-read shapes; the owner mechanics above are what fill them.
+Concretely, each entry in `SceneSummary.owners`
+(`operations/models/query_scenes.py`) changes from an owner string to the
+structured identity, and `HubClient` (`operations/models/query_clients.py`) gains
+an `identity` field. These are the read shapes; the per-root owner value above is
+what fills them.
 
 ## The Command-Line Identity Flow
 
 The operator's sketch was a gh-like flow, "which perhaps could be simplified if
 it is in a repo with an active session." Developing that sketch turns up a
-simplification bigger than the operator suggested: Lux needs no enrollment step
-at all.
+simplification bigger than the operator suggested: Lux needs no enrollment step at
+all, and the "attach to an active session" step is not needed either.
 
-gh enrolls because it needs a *credential* — a token it stores and later
-presents. Lux, under the same-user-localhost trust model, needs only a *name*,
-and a name can be derived from the working directory. There is no secret to
-store, so there is no enrollment to do. The whole "auth flow" collapses to
-resolving a name from context, with an override.
+gh enrolls because it needs a *credential* — a token it stores and later presents.
+Lux, under the same-user-localhost trust model, needs only a *name*, and a name
+can be derived from the working directory. There is no secret to store, so there
+is no enrollment to do.
+
+And deriving from the working directory already produces the outcome the
+"attach to an active session" step was reaching for. If a repository has an active
+MCP session, that session reported the same repository the command-line tool would
+derive, so both resolve to the *same repository context*. Attaching would add only
+the session's agent name — but a `lux` invocation is a `cli`, not the agent, and
+attributing a command-line board to the agent would be wrong. So deriving is not
+merely equivalent to attaching; it is more correct, and it has no session to race.
+The operator's "simplified if in a repo with an active session" intent is
+satisfied — a command in such a repo Just Works — by derivation, without the
+attach step.
 
 The command-line tool resolves its identity in this order.
 
 1. **An explicit override.** A `--as <name>` flag or a `LUX_CLIENT` environment
-   variable, when the caller wants to name itself. This is the escape hatch; it
-   is rarely needed.
+   variable, when the caller wants to name itself. This is the escape hatch; it is
+   rarely needed.
 
-2. **Attach to a live repository context.** If the working directory is inside a
-   repository that already has an active MCP session connected to the Hub, the
-   command attaches to that repository's context — its board is owned by that
-   repository, attributed to `lux-cli`. This is the operator's "simplified if in
-   a repo with an active session" path: the context already exists in the Hub's
-   registry, so the command joins it rather than inventing one.
+2. **Derive from the repository.** The command derives its identity from the git
+   repository root — `name` from the repository's directory name, `repo` from the
+   root path. This is deterministic and needs no stored state and no session
+   lookup, because the working directory already determines the answer.
 
-3. **Derive from the repository.** With no active session for this repository,
-   the command derives its identity from the git repository root — `name` from
-   the repository's directory name, `repo` from the root path. This is
-   deterministic and needs no stored state, because the working directory already
-   determines the answer.
-
-4. **Headless or non-repository.** In CI, or when the working directory is not a
+3. **Headless or non-repository.** In CI, or when the working directory is not a
    repository, the command derives a fallback identity — `name` of `lux-cli`,
    `repo` absent — and installs a context-free scene. The owner is still real and
    named; it is never the anonymous `"rest"`.
@@ -266,19 +286,24 @@ The command-line tool resolves its identity in this order.
 First run and every repeat run take the same path, because nothing is persisted:
 the working directory yields the same identity each time. Persisting an identity
 record would only start to matter when step-two security adds a token to present,
-and that is out of scope here (raised as Open Question 3).
+and that is out of scope here (raised as Open Question 4).
+
+Dropping the attach step retires the spike an earlier draft named — whether
+attaching to a live session could be made race-free. There is no race to worry
+about, because every resolution path above is a deterministic read of the working
+directory. No spike is needed for step one; the resolution is total and local.
 
 ## Alignment With the Menu Capability Model
 
 The [menu capability model](menu-capability-model.md) needs the Hub to know each
 session's repository, so it can present the live set of repositories under a
-per-repo menu item. Its PR-1 is titled "session context registry" and does
-exactly one thing: record each connected session's repository in the Hub session
-registry, and expose the set of live repositories.
+per-repo menu item. Its PR-1 is titled "session context registry" and does exactly
+one thing: record each connected session's repository in the Hub session registry,
+and expose the set of live repositories.
 
 That is a strict subset of the identity record this design defines. The `repo`
-field is the same field. There must be **one** registry, and it holds the
-identity record.
+field is the same field. There must be **one** registry, and it holds the identity
+record.
 
 - **What is shared:** the Hub session registry (`domain/hub/hub_clients.py`, the
   `HubClientRegistry`) grows from holding a bare connect-time to holding the
@@ -286,16 +311,39 @@ identity record.
   the same act — the client declaring its identity when it connects.
 - **What the menu design adds on top:** the live-context projection (the set of
   distinct connected repositories) and the capability model that reads it.
-- **What this design adds on top:** the full identity record (kind, name,
-  agent), the owner-is-an-identity model for scenes, the command-line identity
-  flow, the deletion of the reserved `"rest"` connection, and the introspection
-  shapes.
+- **What this design adds on top:** the full identity record (kind, name, agent),
+  the identity-as-owner model for roots, the command-line identity flow, the
+  deletion of the reserved `"rest"` connection, and the introspection shapes.
 
-The concrete coordination: this design's registry record is the shared
-foundation, and the menu design's PR-1 folds into this design's first PR (below)
-rather than building a second registry. Whichever epic lands that PR first builds
-the registry; the other reads it. The leader sequences the two epics; this
-document only fixes that they share one registry and names it.
+The concrete coordination: this design's registry record is the shared foundation,
+and the menu design's PR-1 folds into this design's first PR (below) rather than
+building a second registry. Whichever epic lands that PR first builds the
+registry; the other reads it. The leader sequences the two epics; this document
+only fixes that they share one registry and names it.
+
+## The Cleanup Story for Durable Scenes
+
+If a `cli`-owned board is durable, and the command that made it has exited, what
+eventually removes it? The answer is the same as for every scene today, because
+this design does not change scene lifetime — it changes attribution.
+
+A durable scene is removed by exactly the three paths PR #275 established, and no
+others.
+
+- The **user closes its frame**. Frames are the user's removal unit; closing a
+  frame removes the scenes it presented.
+- An **agent or command clears** it explicitly.
+- A **frame TTL expires**, if one was set when the frame was created. The TTL is
+  opt-in per frame (`domain/hub/frame_expiry.py`), not a background collector that
+  reaps orphans. A frame with no TTL is not swept.
+
+There is deliberately no automatic orphan collector for durable scenes. That is
+the PR #275 model, not an omission: the user owns removal through the frame, and a
+board that the user has not closed and did not TTL is a board the user still
+wants. An agent or command that wants its board to clean itself up sets a frame
+TTL when it creates it. If unbounded accumulation of never-closed, never-TTL'd
+boards ever becomes a real problem, that is a lifetime question for the frame
+model to answer, not something client identity introduces or should solve.
 
 ## Interactions To Note
 
@@ -309,17 +357,17 @@ does not solve them.
   identity record is the prerequisite; the reconciliation is that bead's work.
 
 - **lux-s4wg (the display socket accepts any client).** The display socket
-  handshake already carries a client name (`ConnectMessage(name=…)`), which is
-  the display-leg of identity. Today only luxd connects to that socket, so the
+  handshake already carries a client name (`ConnectMessage(name=…)`), which is the
+  display leg of identity. Today only luxd connects to that socket, so the
   identity there is latent. The same identity record should stamp that handshake
   if a non-luxd client ever connects. That is the display leg of this same
   contract, out of scope under the same-user trust model, named here so the two
   legs stay one contract.
 
 - **lux-0shg (command-line parity).** The session-scoped operations — subscribe,
-  unsubscribe, publish, receive, and a per-caller `clear` — were held off the
-  REST front door in [one-code-path.md](one-code-path.md) precisely because every
-  REST caller shared one anonymous scope, so a REST publish could never reach a
+  unsubscribe, publish, receive, and a per-caller `clear` — were held off the REST
+  front door in [one-code-path.md](one-code-path.md) precisely because every REST
+  caller shared one anonymous scope, so a REST publish could never reach a
   subscriber. Giving each REST and command-line caller a real,
   `ConnectionId`-bearing identity removes that blocker. Those operations become
   expressible over REST once this contract lands; whether to expose them is that
@@ -330,62 +378,96 @@ does not solve them.
 These follow from the diagnosis and the target architecture. They are recorded so
 the design leaves them closed.
 
-**An owner is an identity, not a bare connection.** A scene records the identity
+**An owner is an identity, not a bare connection.** A root records the identity
 that installed it — kind, name, repository, optional agent — not an opaque
 `ConnectionId`. The connection stays the wire key for scope and cleanup; the
 identity is the owner.
 
-**A scene's lifetime follows its owner's kind.** An `mcp-session`-owned scene
-dies when its session disconnects, by the existing cascade. A `cli`-owned scene
-is durable, owned by its repository context, cleaned by explicit `clear` or the
-existing frame-expiry timeout, and never by a disconnect. An `app`-owned scene
-lives for luxd's lifetime. Only session-owned scenes die with a wire.
+**Ownership is per-root, and a scene can have several owners.** This is the
+existing granularity (`OwnerTracker` keys `(scene_id, element_id)`, `SceneSummary`
+already reports `owners` plural), kept unchanged. This design changes the owner
+*value* to the identity, not the per-root granularity. A scene holding a `cli`
+root and an `mcp-session` root reports both owners.
 
-**The reserved "rest" connection dies.** It was a stand-in for identity-less
-REST. Every caller now carries a real identity, so there is no shared
-pseudo-connection to protect and no reserved name to collide with; the
-reserved-key refusal in the MCP endpoint goes with it.
+**Identity is attribution and does not, by itself, change scene lifetime.** The
+lifetime model is PR #275's — scenes are durable and survive their session; frames
+are the user's removal unit. Recording who owns a root does not decide how long
+the root lives. Whether to *add* a lifetime rule that ties a session's roots to
+its connection is the fork in Open Question 1, not a default this design assumes.
+
+**The reserved "rest" connection dies.** It was a stand-in for identity-less REST.
+Every caller now carries a real identity, so there is no shared pseudo-connection
+to protect and no reserved name to collide with; the reserved-key refusal in the
+MCP endpoint goes with it.
 
 **There is one identity registry, shared with the menu design.** The `repo` field
 is the same field both designs need; the menu design's live-context set is a
 projection over this registry. No second registry is built.
 
-**The command-line tool derives its name from context; it does not enroll.** The
-same-user-localhost trust model authenticates nothing, so there is no credential
-to store and no enrollment step. The working directory and git root yield the
-name; a flag or environment variable overrides it.
+**The command-line tool derives its name from context; it does not enroll and does
+not attach to a session.** The same-user-localhost trust model authenticates
+nothing, so there is no credential to store and no enrollment step. The working
+directory and git root yield the name deterministically; a flag or environment
+variable overrides it. A repository with an active session resolves to the same
+repository context by derivation, so no attach step is needed.
 
-**Same-user-localhost trust is the model.** The Hub records what a client
-declares and verifies nothing. luxd is already loopback-only. Identity is
-attribution, not access control.
+**Same-user-localhost trust is the model.** The Hub records what a client declares
+and verifies nothing. luxd is already loopback-only. Identity is attribution, not
+access control.
 
 ## Open Questions for the Operator
 
 These are genuine forks. Each carries a recommendation.
 
-**1. How an MCP session declares its identity.** The choices are: (a) query
-parameters alongside `session_key`, so the URL carries `?session_key=…&repo=…&agent=…`;
-(b) an explicit `identify` operation the session calls first, carrying the whole
-record; (c) piggyback on the first write that already carries a repo, as
-`display_mode` does today. Recommendation: **(b) an `identify` first-call.** It is
-the one place to declare kind, name, repo, and agent together; it is symmetric
-with the REST header; and it does not overload the connection URL or scatter the
-record across later calls. The menu design's "report the repo on connect" becomes
-a part of this one call, not a separate mechanism. Choose (a) instead if the
-record must never be more than a repo, in which case a query parameter is
-simplest.
+**1. Whether a session's roots should die when its connection drops.** Today they
+do not — PR #275 made every scene durable, so an agent's UI survives its session.
+This design's identity model makes it *possible* to reintroduce
+ephemeral-on-disconnect for `mcp-session`-owned roots (drop those roots in the
+disconnect cascade, leaving `cli` and `app` roots standing), because per-root
+ownership means the cascade can drop one session's roots without touching a
+shared scene. The choice is:
 
-**2. What an anonymous write does — derive or refuse.** A scene-owning write
+- (a) **Ephemeral session UI** — an `mcp-session` root is dropped when its
+  connection drops. An agent's ad-hoc dialog leaves with the agent. This reverses
+  PR #275 for session-owned roots.
+- (b) **Durable as today** — every root survives its session, and removal stays
+  the user's frame close, an explicit clear, or a frame TTL, regardless of owner
+  kind.
+
+Recommendation: **(b) durable as today.** PR #275's taxonomy is deliberate and
+ratified: a scene is the agent's unit and survives the agent, while the user
+controls removal through the frame. An agent that wants its dialog to clean itself
+up already has the opt-in tool — a frame TTL — which is more precise than
+disconnect-coupling, because it does not lose UI on a transient reconnect. Choosing
+(a) would make an agent's UI vanish every time its MCP connection blips, which is
+the fragility PR #275 removed. Identity should stay attribution; lifetime should
+stay PR #275's. Choose (a) only if the operator now wants agent UI to be genuinely
+session-scoped, in which case this is the place to say so — but it is a reversal,
+and it is called out as one.
+
+**2. How an MCP session declares its identity.** The choices are: (a) query
+parameters alongside `session_key`, so the URL carries
+`?session_key=…&repo=…&agent=…`; (b) an explicit `identify` operation the session
+calls first, carrying the whole record; (c) piggyback on the first write that
+already carries a repo, as `display_mode` does today. Recommendation: **(b) an
+`identify` first-call.** It is the one place to declare kind, name, repo, and
+agent together; it is symmetric with the REST header; and it does not overload the
+connection URL or scatter the record across later calls. The menu design's "report
+the repo on connect" becomes a part of this one call, not a separate mechanism.
+Choose (a) instead if the record must never be more than a repo, in which case a
+query parameter is simplest.
+
+**3. What an anonymous write does — derive or refuse.** A scene-owning write
 (`render`, `update`) that arrives with no resolvable identity. The choices are:
-(a) auto-derive a fallback identity from whatever the request carries, such as
-its working directory; (b) refuse with a named error that says a write needs an
-identity. Recommendation: **derive where the request carries a working directory
-— the command-line tool always does — and refuse only a write that carries
-literally nothing.** This matches "clear ownership, not gatekeeping": nothing
-legitimate reaches the refusal path, and a truly context-free write that wants to
-own a scene is the one case worth stopping.
+(a) auto-derive a fallback identity from whatever the request carries, such as its
+working directory; (b) refuse with a named error that says a write needs an
+identity. Recommendation: **derive where the request carries a working directory —
+the command-line tool always does — and refuse only a write that carries literally
+nothing.** This matches "clear ownership, not gatekeeping": nothing legitimate
+reaches the refusal path, and a truly context-free write that wants to own a scene
+is the one case worth stopping.
 
-**3. Whether the command-line identity is derived every time or persisted.** The
+**4. Whether the command-line identity is derived every time or persisted.** The
 choices are: (a) derive the identity from the working directory on every
 invocation, storing nothing; (b) persist an identity record, like gh's
 `hosts.yml`, for stability across invocations. Recommendation: **(a) derive every
@@ -399,14 +481,14 @@ persisted record would arrive, together with the thing worth persisting.
 This design is scoped to attribution and stops there. When Lux later serves more
 than one user, or reaches beyond loopback, a declared identity stops being
 trustworthy and must be backed by a credential the Hub verifies. The exact point
-where that plugs in is nameable now, so the design leaves a clean place for it:
+where that plugs in is nameable now, so the design leaves a clean place for it.
 
 - The command-line identity file gains a token, stored the way gh stores its
   token, and the command presents it with each request. This is the enrollment
   step this design deliberately omits.
 - The Hub verifies the presented token against the declared identity before
-  recording ownership, instead of recording the declaration as-is. This is the
-  one behavioral change: declaration becomes verified declaration.
+  recording ownership, instead of recording the declaration as-is. This is the one
+  behavioral change: declaration becomes verified declaration.
 - luxd's off-loopback bind, which it refuses today, is enabled together with that
   verification and an origin policy derived from the bind host, exactly as
   [one-code-path.md](one-code-path.md) already stages it.
@@ -414,14 +496,6 @@ where that plugs in is nameable now, so the design leaves a clean place for it:
 None of that is built here. It is named so that step one does not accidentally
 close the door on it. The identity record this design defines is the same record
 step two would verify; step two adds verification, it does not redefine identity.
-
-**A named spike, not run here:** whether the "attach to a live repository
-context" path (command-line resolution step 2) can reliably detect an active
-session for the working directory without racing session connect and disconnect.
-If it cannot be made race-free cheaply, the fallback is derivation (step 3),
-which is always available. The spike decides whether step 2 is worth its
-complexity or whether the command-line tool should derive unconditionally. This
-document names the spike; it does not run it.
 
 ## Proposed PR Decomposition
 
@@ -433,14 +507,20 @@ session registry hold it, populated from what each client declares on connect.
 This is the shared foundation the menu capability model's PR-1 folds into. It is
 additive: nothing owns-by-identity yet, so it lands and is exercised on its own.
 
-**PR 2 — owner is an identity, and lifetime follows kind.** Change the owner a
-scene records from a `ConnectionId` to the identity, and change the disconnect
-cascade to drop only session-owned scenes, leaving `cli` and `app` owners
-durable. Delete `RESERVED_REST_CONNECTION`, its `DEFAULT_SCOPE`, and the
-reserved-key refusal, and make every REST route resolve a real identity. The
-introspection owner shape changes here because it must — `SceneSummary.owner`
-becomes the structured identity in the same unit. This is the change that makes
-ownership real.
+**PR 2 — the identity becomes the per-root owner, and REST resolves it
+per-request.** Change the owner value recorded per root from a `ConnectionId` to
+the identity, and change each entry in `SceneSummary.owners` and the new
+`HubClient.identity` to the structured shape. Delete `RESERVED_REST_CONNECTION`,
+its `DEFAULT_SCOPE`, and the reserved-key refusal. That last part is the bulk of
+the PR, not a rename. The REST layer does not resolve a caller's identity
+per request today — `RestSurface` and its routers take one `scope` at construction
+(`rest/app.py`, `DEFAULT_SCOPE`), so a per-request identity inverts that wiring.
+Each route must read the caller's identity from the request (a header, via a
+dependency or middleware) and pass it into the operation, rather than share one
+construction-time scope. Size the PR for that inversion. The disconnect cascade is
+unchanged in this PR, because recommendation (b) keeps scenes durable; if the
+operator rules (a) on Open Question 1, dropping a session's roots is an added,
+separately-committed change within this unit.
 
 **PR 3 — the command-line identity flow.** Make `LuxRestClient` and the `lux`
 commands resolve an identity from context (working directory and git root, with a
@@ -457,10 +537,13 @@ not with this design doc.
 - [target/target.md](target/target.md) — the Hub-authoritative model this builds
   on.
 - [one-code-path.md](one-code-path.md) — the operations facade, the session
-  registry, the reserved-`"rest"` scope this design retires, and the
-  loopback-only bind policy step-two security extends.
+  registry, the reserved-`"rest"` scope this design retires, and the loopback-only
+  bind policy step-two security extends.
 - [menu-capability-model.md](menu-capability-model.md) — the session-context
   registry this design's identity record subsumes, and the capability model that
   reads the shared `repo` field.
 - [target/introspection-api.md](target/introspection-api.md) — the `list_clients`
   and `list_scenes` read surface whose owner shapes this design makes meaningful.
+- PR #275 (the scene-frame lifecycle) — the ratified rule that scenes are durable
+  and frames are the user's removal unit, which this design's lifetime section
+  must not silently change.
