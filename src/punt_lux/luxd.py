@@ -157,23 +157,23 @@ def serve(
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
-        # The one background writer to the display starts and stops with luxd; the
-        # frame-TTL sweep runs on this event loop beside it, retiring expired frames
-        # through the replicator's dirty queue. These are imported lazily to keep
-        # the Hub singletons out of module import (import-cycle avoidance).
+        # luxd's display-connection workers (the sole scene writer and the
+        # connection keepalive) start and stop with luxd; the frame-TTL sweep runs
+        # beside them, retiring expired frames through the replicator's dirty queue.
+        # Imported lazily to keep the Hub singletons out of module import.
         from punt_lux.domain.hub import hub_display
+        from punt_lux.domain.hub.display_workers import display_workers
         from punt_lux.domain.hub.expiry_sweep import ExpirySweep
-        from punt_lux.domain.hub.replicator_instance import hub_replicator
 
-        hub_replicator.start()
-        sweep = ExpirySweep(hub_display.frames, hub_replicator)
+        display_workers.start()
+        sweep = ExpirySweep(hub_display.frames, display_workers.replicator)
         try:
             # The sweep is cancelled and awaited when this block exits — before the
             # replicator stops — so no pending task survives shutdown.
             async with _expiry_sweep_running(sweep):
                 yield
         finally:
-            hub_replicator.stop()
+            display_workers.stop()
             _remove_port_file(port_path)
             pid_path.unlink(missing_ok=True)
 
