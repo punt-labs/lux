@@ -19,6 +19,21 @@
 
 ### Added
 
+- **`LuxRestClient` is the public Python library API.** `from punt_lux import
+  LuxRestClient` — typed requests and results, no display extras required, and
+  client identity built in. Python programs use the library; shell scripts and
+  cron jobs may still call the REST routes directly.
+- **The CLI identifies itself on every run.** Identity derives from the git
+  root (override with `LUX_CLIENT`, headless fallback otherwise), so scenes
+  installed from a repo are owned by that repo — `lux show beads` boards now
+  attribute truthfully.
+- **Client sessions carry TTL leases.** Any authenticated contact renews;
+  expired sessions are swept opportunistically, so identified REST callers no
+  longer accumulate forever. Per-kind defaults: MCP sessions 30 min, CLI runs
+  90 s, apps permanent.
+- **Anonymous REST writes are rejected.** An identity-less scene-owning write
+  now returns 401 with the identification-required challenge (reads stay
+  open), completing the phased shutdown of anonymous ownership.
 - **Scene owners are real identities now.** Ownership records carry the
   declared identity (kind, name, repo) snapshotted at install — attribution
   survives the owning connection's departure — and `list_scenes` reports

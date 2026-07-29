@@ -3,35 +3,32 @@
 A REST request declares who it is in ``X-Lux-Client-*`` headers; this resolver
 turns that declaration into the :class:`~punt_lux.operations.scope.Scope` the
 request's writes own. An identified request records its identity against a
-connection derived deterministically from that identity — so the same caller
-owns the same scenes across requests — while an unidentified request gets a
-distinct per-request connection (two anonymous callers never share ownership)
-and carries the ``identification_required`` challenge on its response.
-
-There is no reserved shared connection: every caller carries a real, named
-identity, or an anonymous one unique to the request.
+connection derived deterministically from that identity, so the same caller owns
+the same scenes across requests. A request that carries no identity is refused
+with the ``identification_required`` challenge — a write owns UI, and only a named
+caller may — while reads take no scope and stay open to an unnamed caller.
 """
 
 from __future__ import annotations
 
-import uuid
 from hashlib import blake2s
 from typing import TYPE_CHECKING, Final, Self, cast, final
 
+from fastapi import HTTPException
 from starlette.requests import Request
-from starlette.responses import Response
 
 from punt_lux.domain.ids import ConnectionId
+from punt_lux.identity_headers import ClientHeaders
 from punt_lux.operations.scope import Scope
 
 if TYPE_CHECKING:
     from punt_lux.operations import Operations
     from punt_lux.rest.status import HttpErrorMap
 
-__all__ = ["CHALLENGE_HEADER", "RestCaller", "resolve_scope"]
+__all__ = ["RestCaller", "resolve_scope"]
 
 
-def resolve_scope(request: Request, response: Response) -> Scope:
+def resolve_scope(request: Request) -> Scope:
     """FastAPI dependency: the owning scope for a write route, from its identity.
 
     The mounted :class:`RestSurface` stores its :class:`RestCaller` on ``app.state``,
@@ -39,18 +36,10 @@ def resolve_scope(request: Request, response: Response) -> Scope:
     than threading the resolver through each route and taking the raw request.
     """
     caller = cast("RestCaller", request.app.state.rest_caller)
-    return caller.resolve(request, response)
+    return caller.resolve(request)
 
 
-# The response header an identity-less write carries — the HTTP analogue of a
-# 401/403 challenge. A caller learns from it that owning UI needs an identity.
-CHALLENGE_HEADER: Final = "X-Lux-Identification-Required"
-
-_KIND = "X-Lux-Client-Kind"
-_NAME = "X-Lux-Client-Name"
-_REPO = "X-Lux-Client-Repo"
-_AGENT = "X-Lux-Client-Agent"
-_CHALLENGE_REASON: Final = "declare an identity to own the scenes this request creates"
+_CHALLENGE_REASON: Final = "declare an identity to own the writes this request makes"
 
 
 @final
@@ -67,42 +56,35 @@ class RestCaller:
         self._errors = errors
         return self
 
-    def resolve(self, request: Request, response: Response) -> Scope:
-        """Return the scope this request's writes own, challenging an anonymous one.
+    def resolve(self, request: Request) -> Scope:
+        """Return the scope this request's writes own, or reject an unidentified one.
 
         A named request records its declared identity against a stable, derived
-        connection and returns that scope. A nameless request is given a distinct
-        per-request connection and its response carries the challenge header — the
-        write still proceeds, but the caller is told it must identify to own UI.
+        connection and returns that scope. A request that carries no identity is
+        refused with the ``identification_required`` challenge (a 401 carrying the
+        challenge header), so nothing anonymous owns a write — a scene or a menu item.
         """
         declaration = self._declaration(request)
         if declaration is None:
-            response.headers[CHALLENGE_HEADER] = _CHALLENGE_REASON
-            return Scope(ConnectionId(f"anon-{uuid.uuid4().hex[:12]}"))
+            raise HTTPException(
+                status_code=self._errors.status_for("identification_required"),
+                detail=_CHALLENGE_REASON,
+                headers={ClientHeaders.CHALLENGE: _CHALLENGE_REASON},
+            )
         scope = Scope(self._connection_for(declaration))
         self._errors.respond(self._ops.identify(declaration, scope=scope))
         return scope
 
     @staticmethod
     def _declaration(request: Request) -> dict[str, object] | None:
-        """Read the identity headers into a declaration, or ``None`` if unnamed.
+        """Read this request's identity headers into a declaration, or ``None``.
 
-        A request is identified when it names itself; ``kind`` defaults to ``cli``.
-        A blank or whitespace-only header equals no header — dropped, not passed to
-        ``identify`` (which rejects a blank repo/agent); it validates what remains.
+        RestCaller is the HTTP adapter: it pulls the headers off the starlette
+        request and hands their shape to the one shared :class:`ClientHeaders`
+        contract, so ``resolve`` never touches ``request.headers`` directly and the
+        header names live in a single place both the client and the Hub read.
         """
-        name = request.headers.get(_NAME, "").strip()
-        if not name:
-            return None
-        declaration: dict[str, object] = {
-            "kind": request.headers.get(_KIND, "cli"),
-            "name": name,
-        }
-        for field, header in (("repo", _REPO), ("agent", _AGENT)):
-            value = request.headers.get(header, "").strip()
-            if value:
-                declaration[field] = value
-        return declaration
+        return ClientHeaders.declaration_from(request.headers)
 
     @staticmethod
     def _connection_for(declaration: dict[str, object]) -> ConnectionId:

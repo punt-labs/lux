@@ -1,16 +1,18 @@
 """The HTTP transport contract the CLI's REST client speaks over.
 
-One round-trip, one reply value, one failure. Isolating the contract from the
-client lets a test substitute a transport that routes into a ``TestClient``
-while the shipped client uses the urllib transport, and keeps the client itself
-free of any wire-level concern beyond "send this and read the reply".
+One round-trip, one reply value, one failure. Isolating the contract lets a test
+substitute a transport routed into a ``TestClient`` while the shipped client uses
+urllib, and keeps the client free of any wire concern beyond send-and-read.
 """
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from pydantic import BaseModel, ConfigDict
+
+if TYPE_CHECKING:
+    from punt_lux.rest_http_call import HttpCall
 
 __all__ = ["HttpResponse", "HttpTransport", "HubUnavailableError"]
 
@@ -18,8 +20,7 @@ __all__ = ["HttpResponse", "HttpTransport", "HubUnavailableError"]
 class HubUnavailableError(Exception):
     """luxd could not be reached: no port file, a refused connection, or a stall.
 
-    Carries a single actionable sentence for the CLI to print; the command
-    catches it at its entry point and exits non-zero without a traceback.
+    Carries a single actionable sentence the CLI prints before exiting non-zero.
     """
 
 
@@ -35,10 +36,10 @@ class HttpResponse(BaseModel):
 class HttpTransport(Protocol):
     """The one HTTP round-trip the client needs, so tests can substitute one.
 
-    The transport owns the endpoint (luxd's loopback host and port); the client
-    passes only a method, a path, and an optional body.
+    The transport owns the endpoint; the client hands it one :class:`HttpCall` —
+    verb, target, body, and the caller's identity headers — to send.
     """
 
-    def request(self, method: str, path: str, body: bytes | None) -> HttpResponse:
+    def request(self, call: HttpCall) -> HttpResponse:
         """Send one request to a reachable luxd or raise ``HubUnavailableError``."""
         ...

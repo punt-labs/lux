@@ -3,7 +3,8 @@
 Bind, identify, and unbind run on the transport's connection threads while
 ``list_clients`` reads on a tool thread, so every access to the roster is
 guarded by the registry's lock. These tests exercise the ``record`` upsert (bare
-registration and identity declaration are the same primitive), the repository
+registration and identity declaration are the same primitive), the lease renewal
+and the lease-filtered live reads (driven by an injected clock), the repository
 projection, and hammer the registry from many threads to prove the reads stay
 coherent and no thread raises.
 """
@@ -11,10 +12,25 @@ coherent and no thread raises.
 from __future__ import annotations
 
 import threading
+from typing import final
 
 from punt_lux.domain.hub.client_identity import ClientIdentity, ClientSession
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.ids import ConnectionId
+
+
+@final
+class _Clock:
+    """A hand-advanced monotonic clock, so lease expiry is deterministic."""
+
+    def __init__(self, now: float = 0.0) -> None:
+        self._now = now
+
+    def __call__(self) -> float:
+        return self._now
+
+    def advance(self, seconds: float) -> None:
+        self._now += seconds
 
 
 def _churn(
@@ -130,6 +146,71 @@ def test_repos_excludes_headless_and_unidentified_sessions() -> None:
     reg.record(ConnectionId("headless"), ClientIdentity(kind="cli", name="lux-cli"))
     reg.record(ConnectionId("app"), ClientIdentity(kind="app", name="lux"))
     assert reg.repos() == frozenset()
+
+
+def _cli(name: str = "lux") -> ClientIdentity:
+    return ClientIdentity(kind="cli", name=name, repo="/w/lux")
+
+
+def test_live_sessions_filters_and_sweeps_an_expired_session() -> None:
+    clock = _Clock()
+    reg = HubClientRegistry(clock)
+    conn = ConnectionId("cli")
+    reg.record(conn, _cli())
+    assert conn in reg.live_sessions()
+
+    clock.advance(91.0)  # past the 90s cli lease
+    assert reg.live_sessions() == {}  # filtered out
+    assert reg.sessions() == {}  # and swept from the store on the live read
+
+
+def test_any_contact_renews_the_lease() -> None:
+    clock = _Clock()
+    reg = HubClientRegistry(clock)
+    conn = ConnectionId("cli")
+    reg.record(conn, _cli())
+
+    clock.advance(80.0)
+    reg.record(conn)  # a bare contact renews, keeping the declared identity
+    clock.advance(80.0)  # 160s from the start, but only 80s since the renewal
+
+    live = reg.live_sessions()
+    assert conn in live  # still inside the 90s window from the renewal
+    assert live[conn].identity == _cli()
+
+
+def test_an_mcp_session_outlives_a_cli_session() -> None:
+    clock = _Clock()
+    reg = HubClientRegistry(clock)
+    cli, mcp = ConnectionId("cli"), ConnectionId("mcp")
+    reg.record(cli, _cli())
+    reg.record(mcp, ClientIdentity(kind="mcp-session", name="claude", repo="/w/lux"))
+
+    clock.advance(120.0)  # past the cli lease (90s), well within the mcp lease (1800s)
+    live = reg.live_sessions()
+    assert cli not in live
+    assert mcp in live
+
+
+def test_sessions_read_does_not_sweep_until_a_live_read() -> None:
+    clock = _Clock()
+    reg = HubClientRegistry(clock)
+    conn = ConnectionId("cli")
+    reg.record(conn, _cli())
+    clock.advance(91.0)
+    # The raw read carries no lease filter, so the lapsed entry is still present.
+    assert conn in reg.sessions()
+    reg.live_sessions()  # the live read is what reaps it
+    assert conn not in reg.sessions()
+
+
+def test_repos_excludes_a_session_whose_lease_lapsed() -> None:
+    clock = _Clock()
+    reg = HubClientRegistry(clock)
+    reg.record(ConnectionId("cli"), _cli())
+    assert reg.repos() == frozenset({"/w/lux"})
+    clock.advance(91.0)
+    assert reg.repos() == frozenset()  # the lapsed session drops from live-context
 
 
 def test_discard_is_a_noop_when_absent() -> None:

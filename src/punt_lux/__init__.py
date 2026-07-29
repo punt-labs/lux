@@ -9,6 +9,13 @@ try:
 except PackageNotFoundError:  # pragma: no cover
     __version__ = "0.0.0"
 
+from punt_lux.operations import (
+    OpError,
+    Pong,
+    RenderRequest,
+    RenderTableRequest,
+    SceneShown,
+)
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
     AckMessage,
@@ -50,6 +57,8 @@ from punt_lux.protocol import (
     recv_message,
     send_message,
 )
+from punt_lux.rest_client import LuxRestClient
+from punt_lux.rest_transport import HubUnavailableError
 
 __all__ = [
     "AckMessage",
@@ -62,19 +71,26 @@ __all__ = [
     "DrawElement",
     "FrameReader",
     "GroupElement",
+    "HubUnavailableError",
     "ImageElement",
     "InputTextElement",
+    "LuxRestClient",
     "MarkdownElement",
     "MenuMessage",
+    "OpError",
     "PingMessage",
     "PlotElement",
+    "Pong",
     "PongMessage",
     "ProgressElement",
     "RadioElement",
     "ReadyMessage",
     "RegisterMenuMessage",
     "RemoteEventHandlerInvocation",
+    "RenderRequest",
+    "RenderTableRequest",
     "SceneMessage",
+    "SceneShown",
     "SelectableElement",
     "SeparatorElement",
     "SliderElement",

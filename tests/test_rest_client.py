@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from punt_lux.cli_identity import CliIdentity
+from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.hub_paths import HubPaths
 from punt_lux.operations import (
     OpError,
@@ -27,45 +29,56 @@ from punt_lux.rest_transport import HttpResponse, HubUnavailableError
 from .rest._fakes import make_client
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from fastapi.testclient import TestClient
 
+    from punt_lux.rest_http_call import HttpCall
+
 _TEXT: dict[str, object] = {"kind": "text", "id": "t1", "content": "hi"}
+_IDENTITY = ClientIdentity(kind="cli", name="rest-test", repo="/w/lux")
 
 
 class CannedTransport:
-    """Return one preset reply, or raise, recording the last request."""
+    """Return one preset reply, or raise, recording the last call it was handed."""
 
     def __init__(self, reply: HttpResponse | HubUnavailableError) -> None:
         self._reply = reply
-        self.method = ""
-        self.path = ""
-        self.body: bytes | None = None
+        self.call: HttpCall | None = None
 
-    def request(self, method: str, path: str, body: bytes | None) -> HttpResponse:
-        self.method, self.path, self.body = method, path, body
+    def request(self, call: HttpCall) -> HttpResponse:
+        self.call = call
         if isinstance(self._reply, HubUnavailableError):
             raise self._reply
         return self._reply
 
 
 class SurfaceTransport:
-    """Route the client's requests into a FastAPI ``TestClient``.
+    """Route the client's calls into a FastAPI ``TestClient``.
 
-    Mirrors ``LoopbackTransport``: a JSON content-type accompanies any body, so
-    FastAPI binds it as a request model rather than a bare string.
+    Mirrors ``LoopbackTransport``: the call's ``wire_headers`` carry the caller's
+    identity and a JSON content-type for a body, so FastAPI binds the body as a
+    request model rather than a bare string.
     """
 
     def __init__(self, client: TestClient) -> None:
         self._client = client
 
-    def request(self, method: str, path: str, body: bytes | None) -> HttpResponse:
-        headers = {"Content-Type": "application/json"} if body is not None else {}
-        resp = self._client.request(method, path, content=body, headers=headers)
+    def request(self, call: HttpCall) -> HttpResponse:
+        resp = self._client.request(
+            call.method, call.path, content=call.body, headers=call.wire_headers()
+        )
         return HttpResponse(status=resp.status_code, body=resp.content)
 
 
 def _client_over(transport: object) -> LuxRestClient:
-    return LuxRestClient(transport)  # type: ignore[arg-type]  # HttpTransport protocol; fakes satisfy it structurally
+    return LuxRestClient(transport, _IDENTITY)  # type: ignore[arg-type]  # HttpTransport protocol; fakes satisfy it structurally
+
+
+def _sent(transport: CannedTransport) -> HttpCall:
+    """Return the call the transport recorded, asserting one was made."""
+    assert transport.call is not None
+    return transport.call
 
 
 def _render_request(scene_id: str = "s1") -> RenderRequest:
@@ -81,9 +94,10 @@ def test_render_returns_the_typed_success() -> None:
     )
     result = _client_over(transport).render(_render_request())
     assert result == SceneShown(scene_id="s1")
-    assert transport.method == "PUT"
-    assert transport.path == "/scenes/s1"
-    assert transport.body is not None
+    call = _sent(transport)
+    assert call.method == "PUT"
+    assert call.path == "/scenes/s1"
+    assert call.body is not None
 
 
 def test_render_table_targets_the_table_route() -> None:
@@ -97,9 +111,31 @@ def test_render_table_targets_the_table_route() -> None:
     )
     result = _client_over(transport).render_table(request)
     assert result == SceneShown(scene_id="issues")
-    assert transport.method == "PUT"
-    assert transport.path == "/scenes/issues/table"
-    assert transport.body is not None
+    call = _sent(transport)
+    assert call.method == "PUT"
+    assert call.path == "/scenes/issues/table"
+    assert call.body is not None
+
+
+def test_identity_headers_ride_a_write() -> None:
+    # Every request carries the caller's identity so the Hub attributes the write.
+    transport = CannedTransport(
+        HttpResponse(status=200, body=b'{"kind":"ok","scene_id":"s1"}')
+    )
+    _client_over(transport).render(_render_request())
+    headers = _sent(transport).wire_headers()
+    assert headers["X-Lux-Client-Kind"] == "cli"
+    assert headers["X-Lux-Client-Name"] == "rest-test"
+    assert headers["X-Lux-Client-Repo"] == "/w/lux"
+
+
+def test_identity_headers_ride_a_bodiless_read() -> None:
+    # A GET carries the identity too — headers ride regardless of a body.
+    transport = CannedTransport(
+        HttpResponse(status=200, body=b'{"kind":"ok","rtt_seconds":0.01}')
+    )
+    _client_over(transport).ping(1.0)
+    assert _sent(transport).wire_headers()["X-Lux-Client-Name"] == "rest-test"
 
 
 def test_ping_returns_the_typed_pong() -> None:
@@ -108,10 +144,11 @@ def test_ping_returns_the_typed_pong() -> None:
     )
     result = _client_over(transport).ping(2.5)
     assert result == Pong(rtt_seconds=0.01)
-    assert transport.method == "GET"
-    assert transport.body is None
+    call = _sent(transport)
+    assert call.method == "GET"
+    assert call.body is None
     # The display-leg budget rides through as the timeout query param.
-    assert transport.path == "/display/ping?timeout=2.5"
+    assert call.path == "/display/ping?timeout=2.5"
 
 
 def test_ping_without_a_wait_omits_the_timeout_param() -> None:
@@ -121,7 +158,7 @@ def test_ping_without_a_wait_omits_the_timeout_param() -> None:
     )
     result = _client_over(transport).ping(None)
     assert result == Pong(rtt_seconds=0.02)
-    assert transport.path == "/display/ping"
+    assert _sent(transport).path == "/display/ping"
 
 
 @pytest.mark.parametrize(
@@ -237,6 +274,30 @@ def test_render_installs_a_scene_over_the_real_surface() -> None:
     client = _client_over(SurfaceTransport(make_client()))
     result = client.render(_render_request("alpha"))
     assert result == SceneShown(scene_id="alpha")
+
+
+def test_a_derived_cli_identity_owns_its_scene_by_repository(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # The operator's probe, closed end to end: a cli invocation derives its
+    # identity from the git root and the scene it installs is owned by that repo —
+    # never the old anonymous "rest".
+    repo = tmp_path / "myrepo"
+    (repo / ".git").mkdir(parents=True)
+    monkeypatch.chdir(repo)
+    monkeypatch.delenv("LUX_CLIENT", raising=False)
+
+    surface = make_client()
+    client = LuxRestClient(SurfaceTransport(surface), CliIdentity.resolve())
+    assert client.render(_render_request("board")) == SceneShown(scene_id="board")
+
+    scene = next(
+        s for s in surface.get("/scenes").json()["scenes"] if s["scene_id"] == "board"
+    )
+    identity = scene["owners"][0]["identity"]
+    assert identity["kind"] == "cli"
+    assert identity["name"] == "myrepo"
+    assert identity["repo"] == str(repo)
 
 
 def test_render_table_composes_a_live_scene_over_the_real_surface() -> None:

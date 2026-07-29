@@ -240,6 +240,35 @@ All elements with an `id` support an optional `tooltip` field (string shown on h
 | `lux hub-status` | Report `luxd` service status |
 | `lux version` | Print version |
 
+## Library (Python)
+
+`LuxRestClient` is the public Python client of `luxd`. A downstream application
+reaches the Hub through this typed client — not by hand-rolling REST calls — so it
+gets the same validation, typing, and identity handling the CLI does. It imports
+without the `[display]` extra (no ImGui/OpenGL pulled in).
+
+```python
+from punt_lux import LuxRestClient, RenderRequest, SceneShown
+
+# connect() locates a running luxd and derives this invocation's identity from
+# the git repository it runs in — so the scene below is owned by that repo.
+client = LuxRestClient.connect()
+
+result = client.render(
+    RenderRequest(
+        scene_id="hello",
+        elements=[{"kind": "text", "id": "t1", "content": "Hello from Python"}],
+    )
+)
+if isinstance(result, SceneShown):
+    print("shown:", result.scene_id)
+```
+
+Every request carries the caller's `X-Lux-Client-*` identity headers, so each
+installed scene is attributed to its repository rather than an anonymous caller.
+An unreachable `luxd` raises `HubUnavailableError`; a reachable Hub's refusal of a
+request comes back as a typed `OpError` in the result.
+
 ## Architecture
 
 ```text

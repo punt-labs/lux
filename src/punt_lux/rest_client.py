@@ -1,17 +1,13 @@
-"""The command-line tool's HTTP client of luxd's REST surface.
+"""The public Python client of luxd's REST surface.
 
-The CLI is the third thin client of the one engine. An MCP agent reaches the Hub
-through a tool and a REST caller through a route; ``lux show beads`` and
-``lux ping`` reach it through :class:`LuxRestClient`. The client locates luxd's
-port, speaks the operations layer's request and result models over HTTP, and
-never touches the display socket — the Hub decides whether the display is
-reachable and answers with a typed result.
-
-Two failures are distinct. luxd being unreachable — no port file, a refused
-connection, a stalled response — is the one exceptional outcome and raises
-:class:`HubUnavailableError` with an actionable message. The Hub's own refusal of
-a reachable request comes back as a typed :class:`OpError` in the result, mapped
-from the HTTP status the shared REST error table produced.
+:class:`LuxRestClient` is the library surface a consumer imports — the CLI and any
+downstream app use it rather than hand-rolling REST. It locates luxd's port,
+speaks the operations request/result models over HTTP, and never touches the
+display socket. It stamps the caller's ``X-Lux-Client-*`` identity headers on
+every request, so each installed scene is attributed to the caller's repository;
+:class:`HttpCall` builds the request and :class:`RestReply` reads the reply. An
+unreachable luxd raises :class:`HubUnavailableError`; a reachable Hub's refusal
+returns a typed :class:`OpError`.
 """
 
 from __future__ import annotations
@@ -19,9 +15,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 from urllib.parse import quote, urlencode
 
-from pydantic import BaseModel, ValidationError
-
+from punt_lux.cli_identity import CliIdentity
 from punt_lux.hub_paths import HubPaths
+from punt_lux.identity_headers import ClientHeaders
 from punt_lux.operations import (
     OpError,
     Pong,
@@ -29,49 +25,49 @@ from punt_lux.operations import (
     RenderTableRequest,
     SceneShown,
 )
-from punt_lux.rest_error_body import ErrorBody
+from punt_lux.rest_http_call import HttpCall
 from punt_lux.rest_loopback import LoopbackTransport
+from punt_lux.rest_reply import RestReply
 from punt_lux.rest_transport import HttpTransport, HubUnavailableError
 
 if TYPE_CHECKING:
-    from punt_lux.operations.models.common import OpErrorCode
+    from punt_lux.domain.hub.client_identity import ClientIdentity
 
 __all__ = ["LuxRestClient"]
-
-# The inverse of the REST error table (rest/status.py maps code -> status): the
-# client observes the same wire contract from the other end. The statuses are
-# distinct, so the inverse is total; an unexpected status is an engine fault.
-_CODE_BY_STATUS: dict[int, OpErrorCode] = {
-    422: "invalid_request",
-    404: "not_found",
-    409: "rejected",
-    502: "fault",
-    503: "display_unavailable",
-    504: "timeout",
-}
 
 
 @final
 class LuxRestClient:
-    """A thin typed client of luxd's REST routes, owned by the CLI layer."""
+    """The public Python client of luxd — the library surface every consumer uses.
+
+    A downstream app (vox, a headless tool) reaches the Hub through this typed
+    client, not by hand-rolling REST, so it gets the same validation, typing, and
+    identity behavior the CLI does. Build it with :meth:`connect`.
+    """
 
     _transport: HttpTransport
-    __slots__ = ("_transport",)
+    _headers: dict[str, str]
+    __slots__ = ("_headers", "_transport")
 
-    def __new__(cls, transport: HttpTransport) -> Self:
+    def __new__(cls, transport: HttpTransport, identity: ClientIdentity) -> Self:
         self = super().__new__(cls)
         self._transport = transport
+        self._headers = ClientHeaders.to_wire(identity)
         return self
 
     @classmethod
     def connect(cls, *, timeout: float = 2.0) -> Self:
-        """Locate luxd's port and build a client, or raise if luxd is not running."""
+        """Locate luxd's port and build a client, or raise if luxd is not running.
+
+        The client's identity is derived from the invocation's context every run —
+        a ``LUX_CLIENT`` override, else the git repository, else headless.
+        """
         port = HubPaths().read_port()
         if port is None:
             raise HubUnavailableError(
                 "luxd is not running. Run 'lux hub-install' to register the service."
             )
-        return cls(LoopbackTransport(port, timeout))
+        return cls(LoopbackTransport(port, timeout), CliIdentity.resolve())
 
     def render(self, request: RenderRequest) -> SceneShown | OpError:
         """Install a whole scene through ``PUT /scenes/{scene_id}``.
@@ -80,22 +76,20 @@ class LuxRestClient:
         id bearing spaces or reserved characters must not break the request-target.
         """
         segment = quote(request.scene_id, safe="")
-        return self._send(f"/scenes/{segment}", request, SceneShown)
+        return self._send(HttpCall.write(f"/scenes/{segment}", request, self._headers))
 
     def render_table(self, request: RenderTableRequest) -> SceneShown | OpError:
         """Install a composed table scene through ``PUT /scenes/{scene_id}/table``.
 
-        The Hub *constructs* the composition — search box, status combos, the
-        grid, and a selection-bound detail panel wired through a shared
+        The Hub *constructs* the composition — search box, status combos, the grid,
+        and a selection-bound detail panel wired through a shared
         ``FilteredTableModel`` — so its chrome runs Hub-side and stays live. A
         pre-composed tree pushed through ``render`` decodes to dead handlers; the
         table route carries the data and lets the Hub build the handlers.
-
-        The scene id is a path segment, so it is percent-encoded, matching
-        ``render``.
         """
         segment = quote(request.scene_id, safe="")
-        return self._send(f"/scenes/{segment}/table", request, SceneShown)
+        path = f"/scenes/{segment}/table"
+        return self._send(HttpCall.write(path, request, self._headers))
 
     def ping(self, wait: float | None = None) -> Pong | OpError:
         """Round-trip a display ping through ``GET /display/ping``.
@@ -104,35 +98,9 @@ class LuxRestClient:
         display-leg budget); ``None`` omits it so luxd uses its standing budget.
         """
         suffix = f"?{urlencode({'timeout': wait})}" if wait is not None else ""
-        return self._send(f"/display/ping{suffix}", None, Pong)
+        call = HttpCall.read(f"/display/ping{suffix}", self._headers)
+        return RestReply(self._transport.request(call)).read(Pong)
 
-    def _send[T: BaseModel](
-        self, path: str, body: BaseModel | None, ok: type[T]
-    ) -> T | OpError:
-        """Send ``body`` to ``path`` and read the reply as ``ok`` or an ``OpError``.
-
-        The verb follows the body: this client writes scenes with a body (PUT)
-        and reads the display ping without one (GET), so the caller never repeats
-        a verb the body already implies.
-        """
-        method = "PUT" if body is not None else "GET"  # a body means a write (PUT)
-        payload = body.model_dump_json().encode() if body is not None else None
-        response = self._transport.request(method, path, payload)
-        if 200 <= response.status < 300:
-            try:
-                return ok.model_validate_json(response.body)
-            except ValidationError:
-                # A 2xx whose body is not the model we expect is not success — a
-                # stale ephemeral port answered by a foreign server makes this
-                # real. Defend it like the error path, not with a traceback, and
-                # name a short body preview so the wrong server is recognizable.
-                snippet = ErrorBody(response.body).snippet()
-                tail = f": {snippet}" if snippet else ""
-                return OpError(
-                    code="fault",
-                    reason=f"luxd returned an unexpected {response.status} body{tail}",
-                )
-        return OpError(
-            code=_CODE_BY_STATUS.get(response.status, "fault"),
-            reason=ErrorBody(response.body).reason(response.status),
-        )
+    def _send(self, call: HttpCall) -> SceneShown | OpError:
+        """Send a scene-write call and read its reply as a ``SceneShown`` or error."""
+        return RestReply(self._transport.request(call)).read(SceneShown)
