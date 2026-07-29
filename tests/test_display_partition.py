@@ -24,7 +24,6 @@ from punt_lux.protocol import (
     ConnectMessage,
     FrameReader,
     PingMessage,
-    RegisterMenuMessage,
     RemoteEventHandlerInvocation,
     SceneMessage,
     SeparatorElement,
@@ -1370,71 +1369,6 @@ class TestFrameLayoutPartitions:
         msg = message_from_dict(d)
         assert isinstance(msg, SceneMessage)
         assert msg.frame_layout is None
-
-
-class TestWorldMenuPartitions:
-    """World menu: per-client namespaces from ConnectMessage identity."""
-
-    def test_named_client_uses_name(self):
-        """Client with ConnectMessage name appears under that name."""
-        server = _server()
-        sock = _sock(fd=10)
-        _register(server, sock)
-        server._handle_connect(sock, ConnectMessage(name="Vox"))
-        items = [{"label": "Speak", "id": "speak"}]
-        server._handle_register_menu(sock, RegisterMenuMessage(items=items))
-
-        # Client name is used for namespace
-        assert server._socket_server._client_names[10] == "Vox"
-        assert 10 in server._menu_manager.menu_registrations
-        assert server._menu_manager.menu_registrations[10] == items
-
-    def test_unnamed_client_fallback(self):
-        """Client without ConnectMessage gets 'Client {fd}' fallback."""
-        server = _server()
-        sock = _sock(fd=10)
-        _register(server, sock)
-        # No ConnectMessage sent
-        items = [{"label": "Do Thing", "id": "thing"}]
-        server._handle_register_menu(sock, RegisterMenuMessage(items=items))
-
-        assert 10 not in server._socket_server._client_names
-        # Name resolution falls back to "Client {fd}"
-        resolved = server._socket_server._client_names.get(10, f"Client {10}")
-        assert resolved == "Client 10"
-
-    def test_disconnect_clears_menu_items(self):
-        """Disconnecting removes client's menu registrations."""
-        server = _server()
-        sock = _sock(fd=10)
-        _register(server, sock)
-        server._handle_connect(sock, ConnectMessage(name="Quarry"))
-        items = [{"label": "Search", "id": "search"}]
-        server._handle_register_menu(sock, RegisterMenuMessage(items=items))
-
-        server._socket_server.remove_client(sock)
-
-        assert 10 not in server._menu_manager.menu_registrations
-        assert "search" not in server._menu_manager.menu_owners
-
-    def test_menu_owner_bookkeeping(self):
-        """Menu owner map tracks which client owns each menu item."""
-        server = _server()
-        s1 = _sock(fd=10)
-        s2 = _sock(fd=20)
-        _register(server, s1)
-        _register(server, s2)
-        server._handle_connect(s1, ConnectMessage(name="Lux"))
-        server._handle_connect(s2, ConnectMessage(name="Vox"))
-        server._handle_register_menu(
-            s1, RegisterMenuMessage(items=[{"label": "Board", "id": "board"}])
-        )
-        server._handle_register_menu(
-            s2, RegisterMenuMessage(items=[{"label": "Speak", "id": "speak"}])
-        )
-
-        assert server._menu_manager.menu_owners["board"] == 10
-        assert server._menu_manager.menu_owners["speak"] == 20
 
 
 class TestFrameMinimizeDockPartitions:

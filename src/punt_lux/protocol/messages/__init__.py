@@ -50,7 +50,6 @@ from punt_lux.protocol.messages.lifecycle import (
 from punt_lux.protocol.messages.menu import (
     CallbackMenuMessage,
     MenuMessage,
-    RegisterMenuMessage,
     ThemeMessage,
     register_codecs as _register_menu,
 )
@@ -89,7 +88,6 @@ __all__ = [
     "QueryRequest",
     "QueryResponse",
     "ReadyMessage",
-    "RegisterMenuMessage",
     "RemoteEventHandlerInvocation",
     "SceneMessage",
     "ScreenshotRequest",
@@ -110,7 +108,6 @@ ClientMessage = (
     | MenuMessage
     | CallbackMenuMessage
     | ThemeMessage
-    | RegisterMenuMessage
     | ConnectMessage
     | QueryRequest
 )

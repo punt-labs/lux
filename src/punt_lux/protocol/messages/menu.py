@@ -1,17 +1,16 @@
-"""Display-configuration messages — menu, theme, register-menu."""
+"""Display-configuration messages — menu, callback-menu, theme."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
 from punt_lux.protocol.messages.callback_menu_message import CallbackMenuMessage
 
 __all__ = [
     "CallbackMenuMessage",
     "MenuMessage",
-    "RegisterMenuMessage",
     "ThemeMessage",
     "register_codecs",
 ]
@@ -33,19 +32,6 @@ class ThemeMessage:
     type: Literal["theme"] = "theme"
 
 
-@dataclass(frozen=True, slots=True)
-class RegisterMenuMessage:
-    """Register menu items owned by this client.
-
-    Additive: each client's items are merged into the Tools menu.
-    Replaces any previous registration from the same client (socket).
-    Automatically cleaned up on disconnect.
-    """
-
-    items: list[dict[str, Any]]  # [{label, id, shortcut?, enabled?, icon?}]
-    type: Literal["register_menu"] = "register_menu"
-
-
 def _menu_to_dict(m: MenuMessage) -> dict[str, Any]:
     return {"type": m.type, "menus": m.menus}
 
@@ -55,17 +41,13 @@ def _callback_menu_to_dict(m: CallbackMenuMessage) -> dict[str, Any]:
 
 
 def _callback_menu_from_dict(d: dict[str, Any]) -> CallbackMenuMessage:
-    raw = d.get("submenus")
-    submenus = raw if isinstance(raw, list) else []
-    return CallbackMenuMessage(submenus=[e for e in submenus if isinstance(e, dict)])
+    # The Hub composes these submenus and re-sends the whole set, so the decode
+    # trusts the wire like the sibling menu codec rather than re-filtering it.
+    return CallbackMenuMessage(submenus=d.get("submenus", []))
 
 
 def _theme_to_dict(m: ThemeMessage) -> dict[str, Any]:
     return {"type": m.type, "theme": m.theme}
-
-
-def _register_menu_to_dict(m: RegisterMenuMessage) -> dict[str, Any]:
-    return {"type": m.type, "items": m.items}
 
 
 def _menu_from_dict(d: dict[str, Any]) -> MenuMessage:
@@ -74,12 +56,6 @@ def _menu_from_dict(d: dict[str, Any]) -> MenuMessage:
 
 def _theme_from_dict(d: dict[str, Any]) -> ThemeMessage:
     return ThemeMessage(theme=d["theme"])
-
-
-def _register_menu_from_dict(d: dict[str, Any]) -> RegisterMenuMessage:
-    raw = d.get("items")
-    raw_items = cast("list[Any]", raw) if isinstance(raw, list) else []  # type: ignore[redundant-cast]
-    return RegisterMenuMessage(items=[e for e in raw_items if isinstance(e, dict)])
 
 
 _Register = Callable[
@@ -98,9 +74,3 @@ def register_codecs(register: _Register) -> None:
         _callback_menu_from_dict,
     )
     register("theme", ThemeMessage, _theme_to_dict, _theme_from_dict)
-    register(
-        "register_menu",
-        RegisterMenuMessage,
-        _register_menu_to_dict,
-        _register_menu_from_dict,
-    )

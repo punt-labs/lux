@@ -162,6 +162,7 @@ ignore = [
 "src/punt_lux/domain/event_handler_host.py" = ["PLC0415"]
 "src/punt_lux/domain/hub/hub_interaction_dispatch.py" = ["PLC0415"]
 "src/punt_lux/domain/hub/element_index.py" = ["PLC0415"]
+"src/punt_lux/domain/hub/builtin_callbacks.py" = ["PLC0415"]
 "src/punt_lux/protocol/element_factory.py" = ["PLC0415"]
 "src/punt_lux/protocol/elements/dialog_codec.py" = ["PLC0415"]
 # Lazy import of SceneMessage inside decode() breaks a codec↔message cycle

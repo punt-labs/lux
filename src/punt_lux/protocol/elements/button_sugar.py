@@ -9,7 +9,7 @@ decode, and the Dialog codec applies it to each child Button.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Self, cast
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -45,7 +45,9 @@ class ButtonWireSugar:
         """
         click = raw.get("click")
         publish = raw.get("publish")
-        decorator_publish = publish if isinstance(publish, list) else None
+        decorator_publish = (
+            cast("list[object]", publish) if isinstance(publish, list) else None
+        )
         if click is None and decorator_publish is None:
             return raw
         if "handlers" in raw:

@@ -14,10 +14,10 @@ import pytest
 from punt_lux.display_client import DisplayClient
 from punt_lux.protocol import (
     AckMessage,
+    MenuMessage,
     PingMessage,
     PongMessage,
     ReadyMessage,
-    RegisterMenuMessage,
     RemoteEventHandlerInvocation,
     SceneMessage,
     TextElement,
@@ -646,238 +646,6 @@ class TestAutoSpawn:
 
 
 # ---------------------------------------------------------------------------
-# Menu registration
-# ---------------------------------------------------------------------------
-
-
-class TestRegisterMenuItem:
-    def test_set_registered_items_sends_the_whole_set(self, tmp_path: Path) -> None:
-        """set_registered_items() sends one RegisterMenuMessage with the set."""
-        import tempfile
-
-        short_dir = tempfile.mkdtemp(prefix="lux-")
-        sock_path = Path(short_dir) / "d.sock"
-        ready_event = threading.Event()
-        server_conn: socket.socket | None = None
-        received: list[RegisterMenuMessage] = []
-
-        def serve() -> None:
-            nonlocal server_conn
-            server_conn = _mini_display(sock_path, ready_event)
-            assert server_conn is not None
-            msg = recv_message(server_conn, timeout=5)
-            assert isinstance(msg, RegisterMenuMessage)
-            received.append(msg)
-
-        t = threading.Thread(target=serve, daemon=True)
-        t.start()
-        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
-
-        try:
-            with DisplayClient(
-                sock_path, auto_spawn=False, connect_timeout=2.0
-            ) as client:
-                client.set_registered_items(
-                    [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]
-                )
-            t.join(timeout=5)
-            assert len(received) == 1
-            assert [i["id"] for i in received[0].items] == ["a", "b"]
-        finally:
-            if server_conn:
-                server_conn.close()
-            t.join(timeout=2)
-            import shutil
-
-            shutil.rmtree(short_dir, ignore_errors=True)
-
-    def test_set_registered_items_replaces_and_keeps_builtins(
-        self, tmp_path: Path
-    ) -> None:
-        """A set replaces the agent items but preserves declared built-ins."""
-        import tempfile
-
-        short_dir = tempfile.mkdtemp(prefix="lux-")
-        sock_path = Path(short_dir) / "d.sock"
-        ready_event = threading.Event()
-        server_conn: socket.socket | None = None
-        received: list[RegisterMenuMessage] = []
-
-        def serve() -> None:
-            nonlocal server_conn
-            server_conn = _mini_display(sock_path, ready_event)
-            assert server_conn is not None
-            for _ in range(2):
-                msg = recv_message(server_conn, timeout=5)
-                assert isinstance(msg, RegisterMenuMessage)
-                received.append(msg)
-
-        t = threading.Thread(target=serve, daemon=True)
-        t.start()
-        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
-
-        try:
-            with DisplayClient(
-                sock_path, auto_spawn=False, connect_timeout=2.0
-            ) as client:
-                client.declare_menu_item({"id": "beads", "label": "Beads"})
-                client.set_registered_items([{"id": "x", "label": "Old"}])
-                client.set_registered_items([{"id": "y", "label": "New"}])
-            t.join(timeout=5)
-            # The second set replaced "x" with "y"; the declared built-in stays.
-            assert len(received) == 2
-            assert [i["id"] for i in received[1].items] == ["beads", "y"]
-        finally:
-            if server_conn:
-                server_conn.close()
-            t.join(timeout=2)
-            import shutil
-
-            shutil.rmtree(short_dir, ignore_errors=True)
-
-    def test_set_registered_items_dedupes_duplicate_ids(self, tmp_path: Path) -> None:
-        """A set carrying the same id twice stores one entry, last write winning."""
-        import tempfile
-
-        short_dir = tempfile.mkdtemp(prefix="lux-")
-        sock_path = Path(short_dir) / "d.sock"
-        ready_event = threading.Event()
-        server_conn: socket.socket | None = None
-        received: list[RegisterMenuMessage] = []
-
-        def serve() -> None:
-            nonlocal server_conn
-            server_conn = _mini_display(sock_path, ready_event)
-            assert server_conn is not None
-            msg = recv_message(server_conn, timeout=5)
-            assert isinstance(msg, RegisterMenuMessage)
-            received.append(msg)
-
-        t = threading.Thread(target=serve, daemon=True)
-        t.start()
-        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
-
-        try:
-            with DisplayClient(
-                sock_path, auto_spawn=False, connect_timeout=2.0
-            ) as client:
-                client.set_registered_items(
-                    [{"id": "a", "label": "First"}, {"id": "a", "label": "Second"}]
-                )
-            t.join(timeout=5)
-            assert len(received) == 1
-            # One "a" entry survives; the second write updated it in place.
-            assert [i["id"] for i in received[0].items] == ["a"]
-            assert received[0].items[0]["label"] == "Second"
-        finally:
-            if server_conn:
-                server_conn.close()
-            t.join(timeout=2)
-            import shutil
-
-            shutil.rmtree(short_dir, ignore_errors=True)
-
-    def test_set_registered_items_never_overrides_a_declared_builtin(
-        self, tmp_path: Path
-    ) -> None:
-        """A Hub item whose id collides with a declared built-in is skipped."""
-        import tempfile
-
-        short_dir = tempfile.mkdtemp(prefix="lux-")
-        sock_path = Path(short_dir) / "d.sock"
-        ready_event = threading.Event()
-        server_conn: socket.socket | None = None
-        received: list[RegisterMenuMessage] = []
-
-        def serve() -> None:
-            nonlocal server_conn
-            server_conn = _mini_display(sock_path, ready_event)
-            assert server_conn is not None
-            msg = recv_message(server_conn, timeout=5)
-            assert isinstance(msg, RegisterMenuMessage)
-            received.append(msg)
-
-        t = threading.Thread(target=serve, daemon=True)
-        t.start()
-        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
-
-        try:
-            with DisplayClient(
-                sock_path, auto_spawn=False, connect_timeout=2.0
-            ) as client:
-                client.declare_menu_item({"id": "beads", "label": "Beads"})
-                client.set_registered_items(
-                    [{"id": "beads", "label": "Hijack"}, {"id": "y", "label": "Y"}]
-                )
-            t.join(timeout=5)
-            assert len(received) == 1
-            # The declared built-in keeps its label; the colliding Hub item is
-            # dropped, and the genuinely-new item lands.
-            assert [i["id"] for i in received[0].items] == ["beads", "y"]
-            beads = next(i for i in received[0].items if i["id"] == "beads")
-            assert beads["label"] == "Beads"
-        finally:
-            if server_conn:
-                server_conn.close()
-            t.join(timeout=2)
-            import shutil
-
-            shutil.rmtree(short_dir, ignore_errors=True)
-
-    def test_reconnect_replays_registered_items(self, tmp_path: Path) -> None:
-        """connect() replays the registered items after ReadyMessage handshake."""
-        import tempfile
-
-        short_dir = tempfile.mkdtemp(prefix="lux-")
-        sock_path = Path(short_dir) / "d.sock"
-        replay_msg: list[RegisterMenuMessage] = []
-        conns: list[socket.socket] = []
-
-        def serve_two(server: socket.socket, ready: threading.Event) -> None:
-            """Accept two connections, send ReadyMessage on each."""
-            ready.set()
-            for _ in range(2):
-                conn, _ = server.accept()
-                conns.append(conn)
-                send_message(conn, ReadyMessage())
-
-        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        server.bind(str(sock_path))
-        server.listen(2)
-        ready_event = threading.Event()
-        t = threading.Thread(target=serve_two, args=(server, ready_event), daemon=True)
-        t.start()
-        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
-
-        try:
-            # First connection: register an item
-            client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
-            client.connect()
-            client.set_registered_items([{"id": "t1", "label": "Tool 1"}])
-            msg = recv_message(conns[0], timeout=5)
-            assert isinstance(msg, RegisterMenuMessage)
-
-            # Simulate disconnect + reconnect
-            client.close()
-            client.connect()
-            replay = recv_message(conns[1], timeout=5)
-            assert isinstance(replay, RegisterMenuMessage)
-            replay_msg.append(replay)
-            assert len(replay.items) == 1
-            assert replay.items[0]["id"] == "t1"
-
-            client.close()
-        finally:
-            for c in conns:
-                c.close()
-            server.close()
-            t.join(timeout=2)
-            import shutil
-
-            shutil.rmtree(short_dir, ignore_errors=True)
-
-
-# ---------------------------------------------------------------------------
 # Background listener
 # ---------------------------------------------------------------------------
 
@@ -1310,9 +1078,11 @@ class TestBackgroundListener:
     def test_hello_world_menu_callback(self) -> None:
         """E2E proof: menu click → callback → show_async opens a frame.
 
-        Simulates the full pipeline: a plugin registers a menu item,
-        a user clicks it, the callback fires show_async to display
-        "Hello World!" in a frame.
+        Simulates the full pipeline: a menu leaf click arrives as a
+        ``RemoteEventHandlerInvocation``, the registered callback fires
+        show_async to display "Hello World!" in a frame. The client's own
+        ``set_menu`` doubles as the readiness handshake so the server sends the
+        click only after the listener is up.
         """
         import tempfile
 
@@ -1327,9 +1097,10 @@ class TestBackgroundListener:
             nonlocal server_conn
             server_conn = _mini_display(sock_path, ready_event)
             assert server_conn is not None
-            # Read the RegisterMenuMessage from the client
-            reg = recv_message(server_conn, timeout=5)
-            assert isinstance(reg, RegisterMenuMessage)
+            # The client's set_menu is the readiness signal: once it arrives, the
+            # listener is up and a click will be dispatched.
+            signal = recv_message(server_conn, timeout=5)
+            assert isinstance(signal, MenuMessage)
             # Simulate user clicking the "Hello" menu item
             send_message(
                 server_conn,
@@ -1366,8 +1137,10 @@ class TestBackgroundListener:
             client.on_event("hello-world", "menu", on_hello)
             client.connect()
             client.start_listener()
-            # Register the menu item (triggers the flow)
-            client.set_registered_items([{"id": "hello-world", "label": "Hello"}])
+            # Signal readiness (and trigger the flow) with a real menu write.
+            client.set_menu(
+                [{"label": "Tools", "items": [{"label": "Hello", "id": "hello-world"}]}]
+            )
             # Wait for the full pipeline to complete
             assert callback_fired.wait(timeout=3.0), "Callback never fired"
             t.join(timeout=3)

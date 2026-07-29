@@ -16,8 +16,8 @@ def _make_dispatcher() -> QueryDispatcher:
         scene_manager=sm,
         get_client_names=dict,
         get_client_connect_times=dict,
-        get_menu_registrations=dict,
         get_agent_menus=list,
+        get_callback_menus=list,
     )
 
 

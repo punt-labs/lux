@@ -37,19 +37,6 @@ def test_set_menu_rejects_a_malformed_entry_with_422() -> None:
     assert client.put("/menus", json=body).status_code == 422
 
 
-def test_register_menu_item() -> None:
-    client = make_client()
-    resp = client.post("/menus/items", json={"tool_id": "run", "label": "Run"})
-    assert resp.status_code == 200
-    assert resp.json() == {"kind": "ok"}
-
-
-def test_register_menu_item_rejects_an_empty_id_with_422() -> None:
-    client = make_client()
-    resp = client.post("/menus/items", json={"tool_id": "", "label": "Run"})
-    assert resp.status_code == 422
-
-
 def test_register_callback_succeeds_for_an_identified_caller() -> None:
     client = make_client()  # default identity headers are sent
     resp = client.post(

@@ -101,17 +101,13 @@ class _StubClient:
     (per PY-EH-8 and PL-PP-3).
 
     ``_PASSTHROUGH_METHODS`` names the methods that may be called without
-    a spec entry. They are confined to side effects ``_setup_apps()`` fires
-    on first ``_get_client()`` invocation (declare a beads-browser menu
-    item, register a callback for it). Those side effects are a constant
-    overhead the corpus does not need to model; without the allowlist
-    every scenario would have to declare them, which is the noisy-stub
-    smell ``_require_spec`` is meant to prevent.
+    a spec entry — the click-callback registration a tool may fire as a
+    constant side effect the corpus does not need to model. Without the
+    allowlist every scenario would have to declare them, which is the
+    noisy-stub smell ``_require_spec`` is meant to prevent.
     """
 
-    _PASSTHROUGH_METHODS: ClassVar[frozenset[str]] = frozenset(
-        {"declare_menu_item", "on_event"}
-    )
+    _PASSTHROUGH_METHODS: ClassVar[frozenset[str]] = frozenset({"on_event"})
 
     # PY-TS-14: per-method config shapes are heterogeneous (dicts, literals,
     # error strings) and JSON-loaded from snapshot files — typing them
@@ -148,13 +144,6 @@ class _StubClient:
     def set_menu(self, _menus: object) -> None:
         self._require_spec("set_menu")
         return
-
-    def register_menu_item(self, _item: object) -> None:
-        self._require_spec("register_menu_item")
-        return
-
-    def declare_menu_item(self, _item: object) -> None:
-        self._require_spec("declare_menu_item")
 
     def on_event(self, *_args: object, **_kwargs: object) -> None:
         self._require_spec("on_event")

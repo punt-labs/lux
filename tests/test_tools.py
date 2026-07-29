@@ -24,7 +24,6 @@ from punt_lux.operations import (
     OpError,
     SceneInspection,
     SceneList,
-    Scope,
 )
 from punt_lux.operations.display_connection import HubDisplayConnection
 from punt_lux.operations.ports import HubPorts
@@ -59,7 +58,6 @@ from punt_lux.tools import (
     list_scenes,
     ping,
     recv,
-    register_tool,
     screenshot,
     set_display_mode,
     set_menu,
@@ -70,16 +68,6 @@ from punt_lux.tools import (
     update,
 )
 from punt_lux.tools.server import _session_key
-from punt_lux.tools.tools import OPERATIONS
-
-
-def _end_session(key: str) -> None:
-    """Drop a session's Hub-owned menu items — session-end menu cleanup.
-
-    The transport leg runs this in ``SessionScopedServer`` on disconnect; the
-    tests drive the same operation directly to prove the menu-drop behavior.
-    """
-    OPERATIONS.drop_session(Scope(ConnectionId(key)))
 
 
 class TestElementFromDict:
@@ -1868,75 +1856,3 @@ class TestSessionKey:
         finally:
             _session_key.reset(token)
         assert _session_key.get() == "local"
-
-
-def _tools_menu_has(item_id: str) -> bool:
-    """Whether ``list_menus`` reports a registered tool item with ``item_id``.
-
-    Registered items surface under Applications → the client submenu of the
-    Hub-authoritative ``list_menus`` read — the structure the display renders.
-    """
-    from punt_lux.domain.hub.menu_models import Menu, MenuAction
-    from punt_lux.tools import list_menus
-
-    for menu in list_menus().menus:
-        if menu.label != "Applications":
-            continue
-        for submenu in menu.items:
-            if isinstance(submenu, Menu) and any(
-                isinstance(item, MenuAction) and item.id == item_id
-                for item in submenu.items
-            ):
-                return True
-    return False
-
-
-class TestCleanupSession:
-    def test_drops_the_sessions_menu_items(self) -> None:
-        token = _session_key.set("sess-1")
-        try:
-            register_tool(label="Run", tool_id="cleanup-tool")
-            assert _tools_menu_has("cleanup-tool")
-            _end_session("sess-1")
-            assert not _tools_menu_has("cleanup-tool")
-        finally:
-            _session_key.reset(token)
-
-    def test_noop_when_no_items(self) -> None:
-        _end_session("nonexistent-session")  # must not raise
-
-
-class TestRegisterToolSessionTracking:
-    def test_registers_the_item_in_the_hub_registry(self) -> None:
-        token = _session_key.set("local")
-        try:
-            assert (
-                register_tool(label="Run", tool_id="track-run")
-                == "registered:track-run"
-            )
-            assert _tools_menu_has("track-run")
-        finally:
-            _end_session("local")
-            _session_key.reset(token)
-
-    def test_registers_under_custom_session_key(self) -> None:
-        token = _session_key.set("ws-99")
-        try:
-            register_tool(label="Build", tool_id="track-build")
-            assert _tools_menu_has("track-build")
-        finally:
-            _end_session("ws-99")
-            _session_key.reset(token)
-
-    def test_empty_tool_id_returns_an_error_line_without_crashing(self) -> None:
-        # The never-raising adapter contract: an invalid tool_id yields an error
-        # string naming the field, not an uncaught ValidationError, and registers
-        # nothing.
-        token = _session_key.set("bad-id")
-        try:
-            result = register_tool(label="Nameless", tool_id="")
-            assert result.startswith("error:")
-            assert "tool_id" in result
-        finally:
-            _end_session("bad-id")
-            _session_key.reset(token)

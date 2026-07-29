@@ -28,7 +28,6 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Self, cast
 
-from punt_lux.menu_item_registry import MenuItemRegistry
 from punt_lux.paths import DisplayPaths
 from punt_lux.polled_event import PolledEvent
 from punt_lux.protocol import (
@@ -43,7 +42,6 @@ from punt_lux.protocol import (
     QueryRequest,
     QueryResponse,
     ReadyMessage,
-    RegisterMenuMessage,
     RemoteEventHandlerInvocation,
     SceneMessage,
     ThemeMessage,
@@ -155,7 +153,6 @@ class DisplayClient:
     _recv_timeout: float
     _sock: socket.socket | None
     _ready: ReadyMessage | None
-    _menu_items: MenuItemRegistry
     _lock: threading.Lock
     _callbacks: dict[tuple[str, str], Callable[[RemoteEventHandlerInvocation], None]]
     _fallback_interaction_handler: Callable[[RemoteEventHandlerInvocation], None] | None
@@ -183,8 +180,6 @@ class DisplayClient:
         self._recv_timeout = recv_timeout
         self._sock = None
         self._ready = None
-        # Built-ins declared here survive a Hub-pushed agent-item replace (beads).
-        self._menu_items = MenuItemRegistry()
 
         # Push-based event handling state
         self._lock = threading.Lock()
@@ -280,22 +275,13 @@ class DisplayClient:
             self.start_listener()
 
     def _post_handshake(self, sock: socket.socket) -> None:
-        """Send identity and replay registrations after handshake."""
+        """Send the connection's declared identity after handshake."""
         if self._name:
             try:
                 send_message(sock, ConnectMessage(name=self._name))
             except OSError as exc:
                 self.close()
                 err = f"ConnectMessage failed after handshake: {exc}"
-                raise RuntimeError(err) from exc
-        items = self._menu_items.snapshot()
-        if items:
-            try:
-                replay = RegisterMenuMessage(items=items)
-                send_message(sock, replay)
-            except OSError as exc:
-                self.close()
-                err = f"Menu replay failed after handshake: {exc}"
                 raise RuntimeError(err) from exc
 
     def close(self) -> None:
@@ -563,28 +549,6 @@ class DisplayClient:
     def set_theme(self, theme: str) -> None:
         """Set the display theme by name (e.g. 'imgui_colors_light')."""
         self._send(ThemeMessage(theme=theme))
-
-    def declare_menu_item(self, item: dict[str, Any]) -> None:
-        """Declare a built-in menu item without requiring a connection.
-
-        The item is stored locally and sent to the display on the next
-        ``connect()`` via ``_post_handshake``. Its id is remembered as a built-in
-        so a later Hub-pushed agent-item replace does not clobber it. Safe to call
-        before ``connect()``.
-        """
-        self._menu_items.declare(item)
-
-    def set_registered_items(self, items: list[dict[str, Any]]) -> None:
-        """Replace the Hub-owned agent tool items, keeping declared built-ins.
-
-        The Hub is authoritative for the agent items; the registry keeps declared
-        built-ins, dedupes by id, and skips any item colliding with a built-in.
-        The snapshot is sent after the registry mutation so ``_send`` never nests
-        the registry's lock.
-        """
-        self._send(
-            RegisterMenuMessage(items=self._menu_items.replace_agent_items(items))
-        )
 
     def set_callback_menus(self, submenus: list[dict[str, Any]]) -> None:
         """Replace the display's session-then-callback submenus (Hub-composed)."""

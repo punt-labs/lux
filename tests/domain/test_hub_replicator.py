@@ -58,7 +58,6 @@ class _FakeSender:
     frames: list[str | None]
     roots: list[list[WireElement]]
     menus: list[list[dict[str, object]]]
-    registered_items: list[list[dict[str, object]]]
     callback_submenus: list[list[dict[str, object]]]
     timeline: list[str]
     _fail: Exception | None
@@ -77,7 +76,6 @@ class _FakeSender:
         "callback_submenus",
         "frames",
         "menus",
-        "registered_items",
         "roots",
         "shows",
         "timeline",
@@ -89,7 +87,6 @@ class _FakeSender:
         self.frames = []
         self.roots = []
         self.menus = []
-        self.registered_items = []
         self.callback_submenus = []
         self.timeline = []
         self._fail = None
@@ -162,10 +159,6 @@ class _FakeSender:
             self.menus.append(list(menus))
             self.timeline.append("menu")
         self._sent.set()
-
-    def set_registered_items(self, items: list[dict[str, object]]) -> None:
-        with self._lock:
-            self.registered_items.append(list(items))
 
     def set_callback_menus(self, submenus: list[dict[str, object]]) -> None:
         with self._lock:
@@ -272,19 +265,19 @@ def test_a_dirty_scene_is_sent_to_the_display() -> None:
 
 def test_menu_state_is_pushed_from_a_fresh_registry_read() -> None:
     # A menu change is Hub-owned and payload-less: the operation flags it, and this
-    # one background writer reads the registry fresh and sends both the agent bar
-    # (set_menu) and the World-menu items (set_registered_items).
+    # one background writer reads the registry fresh and sends the agent bar.
     store = HubDisplay()
     registry = HubMenuRegistry()
-    registry.set_menus([Menu(label="File", items=[])])
-    registry.register_item(ConnectionId("c1"), MenuAction(id="run", label="Run"))
+    registry.set_menus(
+        [Menu(label="File", items=[MenuAction(id="open", label="Open")])]
+    )
     repl, sender, _provider, _lifecycle = _replicator(store, registry)
     repl.start()
     try:
         repl.mark_menus()
         assert sender.wait_sent(2.0)
-        assert sender.menus == [[{"label": "File", "items": []}]]
-        assert sender.registered_items == [[{"label": "Run", "id": "run"}]]
+        expected = [{"label": "File", "items": [{"label": "Open", "id": "open"}]}]
+        assert sender.menus == [expected]
     finally:
         repl.stop()
 

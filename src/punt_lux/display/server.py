@@ -57,7 +57,6 @@ from punt_lux.protocol import (
     PongMessage,
     QueryRequest,
     RadioElement,
-    RegisterMenuMessage,
     RemoteEventHandlerInvocation,
     SceneMessage,
     ScreenshotRequest,
@@ -200,7 +199,6 @@ class DisplayServer:
             get_opacity=lambda: self._opacity,
             get_font_scale=lambda: self._font_scale,
             get_frames=lambda: self._scene_manager.frames,
-            get_client_names=lambda: self._socket_server.client_names,
             on_clear_all=self._clear_all,
             on_fit_all=self._request_fit_all,
         )
@@ -210,8 +208,8 @@ class DisplayServer:
             scene_manager=self._scene_manager,
             get_client_names=lambda: self._socket_server.client_names,
             get_client_connect_times=lambda: self._socket_server.client_connect_times,
-            get_menu_registrations=lambda: self._menu_manager.menu_registrations,
             get_agent_menus=lambda: self._menu_manager.agent_menus,
+            get_callback_menus=lambda: self._menu_manager.callback_menus,
         )
         self._socket_server = SocketServer(
             on_message=self._handle_message,
@@ -220,7 +218,6 @@ class DisplayServer:
         )
         self._interaction_delivery = InteractionDelivery(
             socket_server=self._socket_server,
-            menu_manager=self._menu_manager,
             scene_manager=self._scene_manager,
         )
         # Bind a fail-loud decode factory to the shared container-dispatch
@@ -559,7 +556,6 @@ class DisplayServer:
         """Called before the window closes."""
         self._textures.cleanup()
         self._socket_server.shutdown()
-        self._menu_manager.clear_menus()
         self._socket_path.unlink(missing_ok=True)
         self._display_paths.remove_pid()
         logger.info("Display server stopped")
@@ -594,12 +590,10 @@ class DisplayServer:
         """Handle domain-specific cleanup when a client disconnects.
 
         Called by SocketServer after socket-level state is already cleaned up.
-        Handles menu registration cleanup and scene ownership transfer.
+        Transfers ownership of this client's scenes to another client in the same
+        frame, or marks them as orphans if no other client remains. Scenes
+        persist — they are never dismissed on disconnect.
         """
-        self._menu_manager.on_client_disconnected(fd)
-        # Transfer ownership of this client's scenes to another client in the same
-        # frame, or mark them as orphans if no other client remains.  Scenes
-        # persist -- they are never dismissed on disconnect.
         self._scene_manager.reassign_scenes_of(fd, _ORPHAN_FD)
 
     # -- message handling --------------------------------------------------
@@ -608,8 +602,6 @@ class DisplayServer:
         """Dispatch a scene/menu/theme-mutating message; read-only kinds delegate."""
         if isinstance(msg, SceneMessage):
             self._handle_scene(sock, msg)
-        elif isinstance(msg, RegisterMenuMessage):
-            self._handle_register_menu(sock, msg)
         elif isinstance(msg, MenuMessage):
             self._menu_manager.agent_menus = msg.menus
         elif isinstance(msg, CallbackMenuMessage):
@@ -818,21 +810,6 @@ class DisplayServer:
     def client_name(self, fd: int) -> str | None:
         """Return the display name for a connected client, or ``None``."""
         return self._socket_server.client_names.get(fd)
-
-    def _handle_register_menu(
-        self, sock: socket.socket, msg: RegisterMenuMessage
-    ) -> None:
-        """Register menu items owned by this client into the Applications menu."""
-        logger.info(
-            "RegisterMenuMessage from fd=%s: %d items",
-            sock.fileno(),
-            len(msg.items),
-        )
-        try:
-            fd = sock.fileno()
-        except OSError:
-            return
-        self._menu_manager.handle_register_menu(fd, msg.items)
 
     def _handle_scene(self, sock: socket.socket, msg: SceneMessage) -> None:
         """Route a scene into its frame, creating the frame if needed.

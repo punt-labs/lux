@@ -282,7 +282,7 @@ LIFECYCLE_SCENARIOS: tuple[Scenario, ...] = (
 
 
 # ---------------------------------------------------------------------------
-# Composition scenarios — show_table, show_dashboard, register_tool, set_menu.
+# Composition scenarios — show_table, show_dashboard, set_menu.
 # These tools assemble higher-level structures (tables, dashboards, menu
 # trees) on top of show(); the corpus pins their response shape so the
 # migration cannot drift on convenience-wrapper output.
@@ -379,27 +379,9 @@ COMPOSITION_SCENARIOS: tuple[Scenario, ...] = (
             "client": {"show": {"return": {"scene_id": "empty", "ts": 1000.0}}},
         },
     ),
-    # set_menu and register_tool are Hub writes now: they store the menu bar in
-    # the Hub registry (the replicator pushes it) instead of reaching the
-    # display, so their setup declares no client stub. Their string return is
-    # unchanged and still pinned here.
-    Scenario(
-        name="register_tool-basic",
-        tool="register_tool",
-        inputs={"label": "Run", "tool_id": "run-btn"},
-        setup={"session_key": "corpus-register-basic"},
-    ),
-    Scenario(
-        name="register_tool-with-shortcut-and-icon",
-        tool="register_tool",
-        inputs={
-            "label": "Build",
-            "tool_id": "build-btn",
-            "shortcut": "Cmd+B",
-            "icon": "hammer",
-        },
-        setup={"session_key": "corpus-register-shortcut"},
-    ),
+    # set_menu is a Hub write now: it stores the menu bar in the Hub registry
+    # (the replicator pushes it) instead of reaching the display, so its setup
+    # declares no client stub. Its string return is unchanged and still pinned.
     Scenario(
         name="set_menu-ok",
         tool="set_menu",

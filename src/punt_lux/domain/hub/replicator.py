@@ -245,13 +245,12 @@ class HubReplicator:
         — its frame is dead once the display blanks it — so it is collected here.
         """
         if batch.menus_dirty:
-            # Read the registry and the live sessions fresh, so the newest menu
+            # Read the agent bar and the live sessions fresh, so the newest menu
             # state wins even if a change landed after this batch was drained.
-            state = self._menu_reader.wire_snapshot()
+            bar = self._menu_reader.wire_snapshot()
             callback_menus = self._callback_reader.callback_menu_wire()
             sender = self._clients.get()
-            sender.set_menu([dict(menu) for menu in state.bar])
-            sender.set_registered_items([dict(item) for item in state.items])
+            sender.set_menu([dict(menu) for menu in bar])
             sender.set_callback_menus(callback_menus)
         # Each ``_send_scene`` sends and reports whether the scene was empty; the
         # comprehension keeps the empties as reclaim candidates.

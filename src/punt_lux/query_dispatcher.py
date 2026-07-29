@@ -24,8 +24,8 @@ class QueryDispatcher:
     _scene_manager: SceneManager
     _get_client_names: Callable[[], dict[int, str]]
     _get_client_connect_times: Callable[[], dict[int, float]]
-    _get_menu_registrations: Callable[[], dict[int, list[dict[str, Any]]]]
     _get_agent_menus: Callable[[], list[dict[str, Any]]]
+    _get_callback_menus: Callable[[], list[dict[str, Any]]]
     _query_handlers: dict[str, Callable[..., dict[str, Any]]]
     _recent_events: deque[dict[str, Any]]
     _recent_errors: deque[dict[str, Any]]
@@ -35,15 +35,15 @@ class QueryDispatcher:
         scene_manager: SceneManager,
         get_client_names: Callable[[], dict[int, str]],
         get_client_connect_times: Callable[[], dict[int, float]],
-        get_menu_registrations: Callable[[], dict[int, list[dict[str, Any]]]],
         get_agent_menus: Callable[[], list[dict[str, Any]]],
+        get_callback_menus: Callable[[], list[dict[str, Any]]],
     ) -> Self:
         self = super().__new__(cls)
         self._scene_manager = scene_manager
         self._get_client_names = get_client_names
         self._get_client_connect_times = get_client_connect_times
-        self._get_menu_registrations = get_menu_registrations
         self._get_agent_menus = get_agent_menus
+        self._get_callback_menus = get_callback_menus
 
         self._query_handlers = {
             "list_scenes": self._query_list_scenes,
@@ -127,36 +127,40 @@ class QueryDispatcher:
         now = time.time()
         client_names = self._get_client_names()
         connect_times = self._get_client_connect_times()
-        menu_regs = self._get_menu_registrations()
         clients: list[dict[str, Any]] = []
         for fd, name in client_names.items():
             connected_at = connect_times.get(fd, now)
-            menu_count = len(menu_regs.get(fd, []))
             clients.append(
                 {
                     "connection_id": fd,
                     "name": name,
                     "connected_seconds": round(now - connected_at, 1),
-                    "menu_item_count": menu_count,
                 }
             )
         return {"clients": clients}
 
     def _query_list_menus(self, **_kwargs: Any) -> dict[str, Any]:
-        """Return all registered menus and their items."""
-        client_names = self._get_client_names()
-        menu_regs = self._get_menu_registrations()
-        menus: list[dict[str, Any]] = [
-            {
-                "id": item.get("id", ""),
-                "label": item.get("label", ""),
-                "shortcut": item.get("shortcut"),
-                "owner_fd": fd,
-                "owner_name": client_names.get(fd, f"fd={fd}"),
-            }
-            for fd, items in menu_regs.items()
-            for item in items
-        ]
+        """Return the display's rendered menu bars: agent menus and session menus.
+
+        The authoritative menu is the Hub's; this reports what the display holds —
+        each agent bar and each session-then-callback submenu, with their leaf
+        items, so an agent can see the bar the display is actually rendering.
+        """
+        menus: list[dict[str, Any]] = []
+        for source, bars in (
+            ("agent", self._get_agent_menus()),
+            ("session", self._get_callback_menus()),
+        ):
+            menus.extend(
+                {
+                    "id": item.get("id", ""),
+                    "label": item.get("label", ""),
+                    "menu": bar.get("label", ""),
+                    "source": source,
+                }
+                for bar in bars
+                for item in bar.get("items", [])
+            )
         return {"menu_items": menus, "total": len(menus)}
 
     def _query_list_recent_events(

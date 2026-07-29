@@ -16,7 +16,6 @@ from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub import disconnect_connection
 from punt_lux.domain.hub.inbox import drop_session
-from punt_lux.operations import Scope
 from punt_lux.tools.tools import OPERATIONS
 
 if TYPE_CHECKING:
@@ -47,9 +46,7 @@ class SessionCleanup:
         Legs are independent and idempotent; each is isolated so one failing leg
         never starves the other.
         """
-        self._leg(
-            "menu", key, lambda: OPERATIONS.drop_session(Scope(self._connection_id))
-        )
+        self._leg("menu", key, OPERATIONS.drop_session)
         self._leg(
             "disconnect",
             key,

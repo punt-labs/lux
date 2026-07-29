@@ -2,18 +2,18 @@
 
 The display renders a replica and forwards each interaction (a
 ``RemoteEventHandlerInvocation``) to the Hub that owns the UI. This collaborator
-owns that outbound leg: it resolves each event's target client (menu owner, scene
-owner, or broadcast) and sends it under one shared frame deadline, so a slow peer
-cannot freeze the render thread per event. Events past the first it cannot send
-stay the caller's to re-hold, in order; a held ``modal_closed`` that later ages
-out of the buffer is what reverts the optimistic dismiss to Hub truth.
+owns that outbound leg: it resolves each event's target client (scene owner, else
+broadcast) and sends it under one shared frame deadline, so a slow peer cannot
+freeze the render thread per event. Events past the first it cannot send stay the
+caller's to re-hold, in order; a held ``modal_closed`` that later ages out of the
+buffer is what reverts the optimistic dismiss to Hub truth.
 """
 
 from __future__ import annotations
 
 import logging
 import time
-from typing import TYPE_CHECKING, Self, cast
+from typing import TYPE_CHECKING, Self
 
 from punt_lux.scene import WidgetState
 from punt_lux.tracing import trace
@@ -21,7 +21,6 @@ from punt_lux.tracing import trace
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from punt_lux.display.menu_manager import MenuManager
     from punt_lux.protocol import RemoteEventHandlerInvocation
     from punt_lux.scene import SceneManager
     from punt_lux.socket_server import SocketServer
@@ -39,25 +38,22 @@ class InteractionDelivery:
     """Send queued display interactions to their owning Hub client.
 
     Stateless across frames — it holds only the collaborators it routes through
-    (the socket server, the menu owner map, and the scene owner / widget-state
-    lookups). The display owns the event queue and calls :meth:`deliver` then
-    :meth:`compensate_evicted` each flush.
+    (the socket server and the scene owner / widget-state lookups). The display
+    owns the event queue and calls :meth:`deliver` then :meth:`compensate_evicted`
+    each flush.
     """
 
     _socket_server: SocketServer
-    _menu_manager: MenuManager
     _scene_manager: SceneManager
 
     def __new__(
         cls,
         *,
         socket_server: SocketServer,
-        menu_manager: MenuManager,
         scene_manager: SceneManager,
     ) -> Self:
         self = super().__new__(cls)
         self._socket_server = socket_server
-        self._menu_manager = menu_manager
         self._scene_manager = scene_manager
         return self
 
@@ -78,25 +74,20 @@ class InteractionDelivery:
                 return index
         return len(events)
 
-    @staticmethod
-    def _is_world_menu(event: RemoteEventHandlerInvocation) -> bool:
-        """Return whether ``event`` is a click on the built-in World menu."""
-        raw: object = event.value  # wire payload is ``Any``; pin it to ``object``
-        if event.action != "menu" or not isinstance(raw, dict):
-            return False
-        return cast("dict[str, object]", raw).get("menu") == "World"
-
     def _deliver_one(
         self, event: RemoteEventHandlerInvocation, deadline: float
     ) -> bool:
-        """Send one event to its owner or broadcast under ``deadline``; landed?"""
+        """Send one event to its scene owner or broadcast under ``deadline``; landed?
+
+        A menu-bar click carries no ``scene_id``, so it broadcasts to every
+        display client — reaching luxd, whose fallback handler resolves the
+        callback leaf back to the owning session.
+        """
         owner_fd = (
-            self._menu_manager.menu_owners.get(event.element_id)
-            if self._is_world_menu(event)
+            self._scene_manager.scene_to_owner.get(event.scene_id)
+            if event.scene_id
             else None
         )
-        if owner_fd is None and event.scene_id:
-            owner_fd = self._scene_manager.scene_to_owner.get(event.scene_id)
         if owner_fd is not None:
             target = self._socket_server.fd_to_client.get(owner_fd)
             if target is None:

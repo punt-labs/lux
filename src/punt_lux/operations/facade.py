@@ -57,7 +57,6 @@ if TYPE_CHECKING:
     from punt_lux.operations.models.query_events import RecentEvents
     from punt_lux.operations.models.query_inspection import SceneInspection
     from punt_lux.operations.models.query_scenes import SceneList
-    from punt_lux.operations.models.register_tool import RegisterToolRequest
     from punt_lux.operations.models.theme import SetThemeRequest, ThemeState
     from punt_lux.operations.models.window import WindowSettings, WindowSettingsPatch
     from punt_lux.operations.ports import DirtyMarker, HubPorts
@@ -270,12 +269,6 @@ class Operations:
         """Replace the Hub-owned menu bar; the replicator pushes it."""
         return self._menus.set_menu(request)
 
-    def register_menu_item(
-        self, request: RegisterToolRequest | OpError, *, scope: Scope
-    ) -> Ok | OpError:
-        """Register a tool item for the caller's session; the replicator pushes."""
-        return self._menus.register_menu_item(request, scope=scope)
-
     def list_menus(self) -> MenuList:
         """Return the Hub-authoritative menu bar, including the callback submenus."""
         return self._menus.list_menus()
@@ -308,6 +301,6 @@ class Operations:
         """Record the caller's declared identity, or reject a malformed one."""
         return self._identity.identify(declaration, scope=scope)
 
-    def drop_session(self, scope: Scope) -> None:
-        """Forget a departed session's tool items and re-push the menu state."""
-        self._menus.drop_session(scope)
+    def drop_session(self) -> None:
+        """Re-push the menu after a session departs so its submenu vanishes."""
+        self._callbacks.drop_session()

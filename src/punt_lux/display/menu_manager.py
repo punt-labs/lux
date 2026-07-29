@@ -9,7 +9,6 @@ import time
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any, Self
 
-from punt_lux.client_label import ClientLabel
 from punt_lux.protocol import RemoteEventHandlerInvocation
 
 if TYPE_CHECKING:
@@ -35,14 +34,11 @@ class MenuManager:
     _get_opacity: Callable[[], float]
     _get_font_scale: Callable[[], float]
     _get_frames: Callable[[], Mapping[str, Frame]]
-    _get_client_names: Callable[[], dict[int, str]]
     _on_clear_all: Callable[[], None]
     _on_fit_all: Callable[[], None]
 
     _agent_menus: list[dict[str, Any]]
     _callback_menus: list[dict[str, Any]]
-    _menu_registrations: dict[int, list[dict[str, Any]]]
-    _menu_owners: dict[str, int]
     _world_menu_open: bool
     _world_menu_pinned: bool
     _world_menu_spawn_pos: tuple[float, float] | None
@@ -60,7 +56,6 @@ class MenuManager:
         get_opacity: Callable[[], float],
         get_font_scale: Callable[[], float],
         get_frames: Callable[[], Mapping[str, Frame]],
-        get_client_names: Callable[[], dict[int, str]],
         on_clear_all: Callable[[], None],
         on_fit_all: Callable[[], None],
     ) -> Self:
@@ -75,13 +70,10 @@ class MenuManager:
         self._get_opacity = get_opacity
         self._get_font_scale = get_font_scale
         self._get_frames = get_frames
-        self._get_client_names = get_client_names
         self._on_clear_all = on_clear_all
         self._on_fit_all = on_fit_all
         self._agent_menus = []
         self._callback_menus = []
-        self._menu_registrations = {}
-        self._menu_owners = {}
         self._world_menu_open = False
         self._world_menu_pinned = False
         self._world_menu_spawn_pos = None
@@ -108,16 +100,6 @@ class MenuManager:
         self._callback_menus = value
 
     @property
-    def menu_registrations(self) -> dict[int, list[dict[str, Any]]]:
-        """Return per-client menu item registrations."""
-        return self._menu_registrations
-
-    @property
-    def menu_owners(self) -> dict[str, int]:
-        """Return item-id to owning fd mapping."""
-        return self._menu_owners
-
-    @property
     def world_menu_open(self) -> bool:
         """Return whether the World panel is open."""
         return self._world_menu_open
@@ -125,12 +107,11 @@ class MenuManager:
     # -- menu bar rendering --------------------------------------------------
 
     def show_menus(self) -> None:
-        """Render the full menu bar (Lux, Applications, Windows, Help, agents)."""
+        """Render the full menu bar (Lux, Windows, Help, agent + session menus)."""
         from imgui_bundle import imgui
 
         try:
             self._show_lux_menu(imgui)
-            self._show_apps_menu(imgui)
             self._show_window_menu(imgui)
             self._show_help_menu(imgui)
             for menu in self._agent_menus:
@@ -228,24 +209,6 @@ class MenuManager:
             finally:
                 imgui.end_menu()
         return clicked
-
-    def _show_apps_menu(self, imgui: Any) -> None:
-        """Render the Applications menu in the menu bar."""
-        if not self._menu_registrations:
-            return
-        if not imgui.begin_menu("Applications"):
-            return
-        try:
-            for name, fd, items in self._sorted_app_clients():
-                if imgui.begin_menu(f"{name}##{fd}"):
-                    try:
-                        items_sorted = sorted(items, key=lambda i: i.get("label") or "")
-                        for item in items_sorted:
-                            self._render_registered_item(imgui, item, "Applications")
-                    finally:
-                        imgui.end_menu()
-        finally:
-            imgui.end_menu()
 
     def _show_window_menu(self, imgui: Any) -> None:
         from imgui_bundle import hello_imgui
@@ -430,10 +393,6 @@ class MenuManager:
             finally:
                 imgui.end_menu()
 
-        # Applications submenu: agent-registered menu items grouped by client.
-        if self._menu_registrations:
-            clicked_any = self._render_world_panel_apps(imgui) or clicked_any
-
         if imgui.begin_menu("Windows##world"):
             try:
                 clicked_any = self._show_window_frame_items(imgui) or clicked_any
@@ -448,149 +407,6 @@ class MenuManager:
             finally:
                 imgui.end_menu()
         return clicked_any
-
-    def _render_world_panel_apps(self, imgui: Any) -> bool:
-        """Render Applications submenu in the World panel."""
-        if not imgui.begin_menu("Applications##world"):
-            return False
-        clicked = False
-        try:
-            for name, fd, items in self._sorted_app_clients():
-                if imgui.begin_menu(f"{name}##{fd}"):
-                    try:
-                        items_sorted = sorted(items, key=lambda i: i.get("label") or "")
-                        for item in items_sorted:
-                            rendered = self._render_registered_item(
-                                imgui, item, "Applications"
-                            )
-                            clicked = clicked or rendered
-                    finally:
-                        imgui.end_menu()
-        finally:
-            imgui.end_menu()
-        return clicked
-
-    # -- registered menu item rendering --------------------------------------
-
-    def _render_registered_item(
-        self,
-        imgui: Any,
-        item: dict[str, Any],
-        menu_name: str,
-    ) -> bool:
-        """Render a single registered menu item. Returns True if clicked."""
-        label = item.get("label")
-        if not isinstance(label, str):
-            return False
-        if label == "---":
-            imgui.separator()
-            return False
-        enabled = item.get("enabled", True)
-        clicked, _ = imgui.menu_item(
-            label,
-            item.get("shortcut", ""),
-            False,  # noqa: FBT003
-            enabled,
-        )
-        if clicked and isinstance(item.get("id"), str):
-            self._emit_event(
-                RemoteEventHandlerInvocation(
-                    element_id=item["id"],
-                    action="menu",
-                    ts=time.time(),
-                    value={
-                        "menu": menu_name,
-                        "item": label,
-                    },
-                )
-            )
-        return bool(clicked)
-
-    # -- pure logic (no ImGui) -----------------------------------------------
-
-    def sorted_app_clients(
-        self,
-    ) -> list[tuple[str, int, list[dict[str, Any]]]]:
-        """Return registered clients sorted by display name (public API)."""
-        return self._sorted_app_clients()
-
-    def _sorted_app_clients(
-        self,
-    ) -> list[tuple[str, int, list[dict[str, Any]]]]:
-        """Return registered clients sorted by display name."""
-        clients: list[tuple[str, int, list[dict[str, Any]]]] = []
-        for fd, items in self._menu_registrations.items():
-            if items:
-                raw = self._get_client_names().get(fd, f"Client {fd}")
-                clients.append((self._display_name(raw), fd, items))
-        clients.sort(key=lambda c: c[0].lower())
-        return clients
-
-    @staticmethod
-    def _display_name(raw: str) -> str:
-        """Derive a client's display name via the shared ``ClientLabel`` rule."""
-        return ClientLabel.of(raw)
-
-    def sanitize_menu_items(
-        self, fd: int, items: list[Any]
-    ) -> list[dict[str, Any]] | None:
-        """Validate and deduplicate menu items for registration.
-
-        Returns sanitized items, or None if registration should be rejected
-        (item ID owned by a different client).
-        """
-        seen_ids: set[str] = set()
-        sanitized: list[dict[str, Any]] = []
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            item_id = item.get("id")
-            if item_id is not None and not isinstance(item_id, str):
-                continue
-            if item_id is not None:
-                if item_id in seen_ids:
-                    continue
-                owner_fd = self._menu_owners.get(item_id)
-                if owner_fd is not None and owner_fd != fd:
-                    logger.warning(
-                        "Menu item %r already owned by fd %d, "
-                        "rejecting registration from fd %d",
-                        item_id,
-                        owner_fd,
-                        fd,
-                    )
-                    return None
-                seen_ids.add(item_id)
-            sanitized.append(item)
-        return sanitized
-
-    def handle_register_menu(self, fd: int, items: list[Any]) -> None:
-        """Register menu items owned by a client into the Applications menu."""
-        sanitized = self.sanitize_menu_items(fd, items)
-        if sanitized is None:
-            return  # rejected -- ID collision
-        # Remove old ownership entries for this fd
-        self._menu_owners = {k: v for k, v in self._menu_owners.items() if v != fd}
-        # Store new items (empty list clears this client's items)
-        if sanitized:
-            self._menu_registrations[fd] = sanitized
-        else:
-            self._menu_registrations.pop(fd, None)
-        # Update ownership
-        for item in sanitized:
-            item_id = item.get("id")
-            if item_id is not None:
-                self._menu_owners[item_id] = fd
-
-    def clear_menus(self) -> None:
-        """Remove all menu registrations and ownership records."""
-        self._menu_registrations.clear()
-        self._menu_owners.clear()
-
-    def on_client_disconnected(self, fd: int) -> None:
-        """Clean up menu registrations when a client disconnects."""
-        self._menu_registrations.pop(fd, None)
-        self._menu_owners = {k: v for k, v in self._menu_owners.items() if v != fd}
 
 
 # Module-level constant used by check_world_menu_background_click.

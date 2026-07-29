@@ -13,7 +13,6 @@ from fastapi import APIRouter, Depends
 
 from punt_lux.operations import MenuList, Ok, PendingCallbacks, Scope, SetMenuRequest
 from punt_lux.operations.models.callbacks import RegisterCallbackRequest
-from punt_lux.operations.models.register_tool import RegisterToolRequest
 from punt_lux.rest.identity import resolve_scope
 
 if TYPE_CHECKING:
@@ -45,12 +44,6 @@ class MenuRoutes:
         )
         router.add_api_route("/menus", self.set_menu, methods=["PUT"], name="set_menu")
         router.add_api_route(
-            "/menus/items",
-            self.register_menu_item,
-            methods=["POST"],
-            name="register_menu_item",
-        )
-        router.add_api_route(
             "/menus/callbacks",
             self.register_callback,
             methods=["POST"],
@@ -77,12 +70,6 @@ class MenuRoutes:
     def set_menu(self, request: SetMenuRequest) -> Ok:
         """Replace the agent-defined menu bar; the replicator pushes it."""
         return self._errors.respond(self._ops.set_menu(request))
-
-    def register_menu_item(
-        self, request: RegisterToolRequest, scope: _OwningScope
-    ) -> Ok:
-        """Register one tool item for the calling identity; the replicator pushes it."""
-        return self._errors.respond(self._ops.register_menu_item(request, scope=scope))
 
     def register_callback(
         self, request: RegisterCallbackRequest, scope: _OwningScope

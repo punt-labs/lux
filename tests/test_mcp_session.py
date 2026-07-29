@@ -90,7 +90,7 @@ class TestUncleanDisconnect:
         legs: list[str] = []
 
         class _Menu:
-            def drop_session(self, scope: object) -> None:
+            def drop_session(self) -> None:
                 legs.append("menu")
 
         def _record_disconnect(conn: object, drop: object) -> None:
@@ -161,7 +161,7 @@ class TestSharedKeyCleanup:
         legs: list[str] = []
 
         class _Menu:
-            def drop_session(self, scope: object) -> None:
+            def drop_session(self) -> None:
                 legs.append("menu")
 
         def _record_disconnect(conn: object, drop: object) -> None:
