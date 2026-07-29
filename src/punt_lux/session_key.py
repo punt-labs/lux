@@ -1,11 +1,9 @@
 """The MCP session identity luxd admits onto the hub.
 
-One connection identity is reserved for the connection-less REST surface
-(:data:`punt_lux.rest.app.DEFAULT_SCOPE` scopes every REST request to it). An
-MCP session may not claim it: sharing it would cross scene, menu, and topic
-ownership, and the session's disconnect cascade would destroy REST-created
-state. This module owns both the reserved constant and the rule that enforces
-it, so the REST scope and luxd's admission check read one source of truth.
+The raw ``?session_key=`` query value is sanitized here into the connection
+identity a session claims. There is no reserved identity: every REST and
+command-line caller now carries its own declared identity, so no shared
+pseudo-connection exists for an MCP session to collide with.
 """
 
 from __future__ import annotations
@@ -16,12 +14,9 @@ from typing import Self, final
 
 from punt_lux.domain.ids import ConnectionId
 
-__all__ = ["RESERVED_REST_CONNECTION", "SessionKey"]
+__all__ = ["SessionKey"]
 
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f]")
-
-# The connection identity the connection-less REST surface owns.
-RESERVED_REST_CONNECTION = ConnectionId("rest")
 
 
 @final
@@ -56,11 +51,6 @@ class SessionKey:
     def connection_id(self) -> ConnectionId:
         """The hub connection this session claims."""
         return ConnectionId(self._value)
-
-    @property
-    def is_reserved(self) -> bool:
-        """Whether this key collides with the reserved REST identity."""
-        return self.connection_id == RESERVED_REST_CONNECTION
 
     def __str__(self) -> str:
         return self._value

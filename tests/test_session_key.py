@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from punt_lux.domain.ids import ConnectionId
-from punt_lux.session_key import RESERVED_REST_CONNECTION, SessionKey
+from punt_lux.session_key import SessionKey
 
 
 class TestSanitization:
@@ -47,30 +47,15 @@ class TestFromRequest:
         assert key.value != ""
         assert len(key.value) == 8
 
-    def test_sanitizes_to_reserved_still_collides(self):
-        """The handle default never masks a value that sanitizes to the
-        reserved id — ``rest`` with a trailing NUL is still refused."""
-        assert SessionKey.from_request("rest\x00").is_reserved
-
-    def test_sanitizes_to_empty_is_not_reserved(self):
-        assert not SessionKey.from_request("\x01\x02").is_reserved
-
 
 class TestConnectionId:
     def test_connection_id_is_the_sanitized_value(self):
         assert SessionKey("pid-1234").connection_id == ConnectionId("pid-1234")
 
+    def test_rest_is_now_an_ordinary_session_key(self):
+        """No reserved identity survives: ``rest`` is just another connection.
 
-class TestReserved:
-    def test_rest_key_is_reserved(self):
-        assert SessionKey("rest").is_reserved
-
-    def test_reserved_matches_the_constant(self):
-        assert SessionKey("rest").connection_id == RESERVED_REST_CONNECTION
-
-    def test_ordinary_key_is_not_reserved(self):
-        assert not SessionKey("pid-1234").is_reserved
-
-    def test_control_char_variant_still_collides(self):
-        """A key that sanitizes to the reserved id is caught, not smuggled past."""
-        assert SessionKey("rest\x00").is_reserved
+        The shared REST pseudo-connection is gone, so a session claiming ``rest``
+        is admitted like any other and resolves to the ordinary connection id.
+        """
+        assert SessionKey("rest").connection_id == ConnectionId("rest")

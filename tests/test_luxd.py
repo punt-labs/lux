@@ -12,8 +12,6 @@ from starlette.testclient import TestClient
 
 from punt_lux.luxd import build_app, serve
 from punt_lux.mcp_transport import McpHttpTransport
-from punt_lux.rest.app import DEFAULT_SCOPE
-from punt_lux.session_key import RESERVED_REST_CONNECTION
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -33,21 +31,6 @@ class TestHealthRoute:
 
 
 class TestMcpRoute:
-    def test_rejects_reserved_rest_session_key(self):
-        """A session_key colliding with the REST scope id is refused (403).
-
-        Otherwise the session would share REST-owned scene/menu state and its
-        disconnect cascade would destroy REST-created state. The refusal precedes
-        the transport's own Host/Origin guard, so it holds for any Host.
-        """
-        with TestClient(build_app()) as client:
-            resp = client.post(
-                f"/mcp?session_key={RESERVED_REST_CONNECTION}",
-                headers={"content-type": "application/json"},
-                json={"jsonrpc": "2.0", "id": 1, "method": "initialize"},
-            )
-        assert resp.status_code == 403
-
     def test_rejects_foreign_host(self):
         """A non-loopback Host is rejected by the SDK DNS-rebinding guard (421)."""
         with TestClient(build_app()) as client:
@@ -100,17 +83,6 @@ class TestMcpRoute:
                 json={"jsonrpc": "2.0", "id": 1, "method": "initialize"},
             )
         assert resp.status_code == 403
-
-
-class TestReservedRestIdentity:
-    def test_rest_scope_is_the_reserved_connection(self):
-        """The REST scope and luxd's refusal read one constant, not two strings.
-
-        The reserved identity lives in one place; the REST surface scopes to it
-        and luxd refuses a session that would collide with it, so the two sides
-        can never drift apart.
-        """
-        assert DEFAULT_SCOPE.connection_id == RESERVED_REST_CONNECTION
 
 
 class TestBuildApp:

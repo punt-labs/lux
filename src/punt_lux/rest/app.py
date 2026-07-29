@@ -20,25 +20,20 @@ from punt_lux.domain.hub import client_registry, hub, hub_display
 from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.inbox import ensure_writer, next_event
 from punt_lux.domain.hub.replicator_instance import hub_menu_registry, hub_replicator
-from punt_lux.operations import HubPorts, Operations, Scope
+from punt_lux.operations import HubPorts, Operations
 from punt_lux.operations.display_connection import HubDisplayConnection
 from punt_lux.paths import DisplayPaths
 from punt_lux.rest.config import DisplayModeRoutes
 from punt_lux.rest.display import DisplayRoutes
+from punt_lux.rest.identity import RestCaller
 from punt_lux.rest.menus import MenuRoutes
 from punt_lux.rest.scenes import SceneRoutes
 from punt_lux.rest.status import HttpErrorMap
-from punt_lux.session_key import RESERVED_REST_CONNECTION
 
 if TYPE_CHECKING:
     from fastapi import APIRouter, FastAPI
 
-__all__ = ["DEFAULT_SCOPE", "HubHealth", "RestSurface"]
-
-# A connection-less REST request lands in one default Hub scope for this unit.
-# Per-caller scoping arrives with the multi-user future, when a REST call carries
-# an explicit session identity.
-DEFAULT_SCOPE = Scope(RESERVED_REST_CONNECTION)
+__all__ = ["HubHealth", "RestSurface"]
 
 
 class HubHealth(BaseModel):
@@ -61,14 +56,16 @@ class RestSurface:
     """Every typed REST router, composed over one Operations facade."""
 
     _routers: tuple[APIRouter, ...]
-    __slots__ = ("_routers",)
+    _caller: RestCaller
+    __slots__ = ("_caller", "_routers")
 
-    def __new__(cls, ops: Operations, *, scope: Scope) -> Self:
+    def __new__(cls, ops: Operations) -> Self:
         self = super().__new__(cls)
         errors = HttpErrorMap()
+        self._caller = RestCaller(ops, errors)
         self._routers = (
-            SceneRoutes(ops, scope, errors).router,
-            MenuRoutes(ops, scope, errors).router,
+            SceneRoutes(ops, errors).router,
+            MenuRoutes(ops, errors).router,
             DisplayRoutes(ops, errors).router,
             DisplayModeRoutes(ops, errors).router,
         )
@@ -77,7 +74,7 @@ class RestSurface:
     @classmethod
     def for_hub(cls) -> Self:
         """Wire the surface over the facade the Hub singletons compose."""
-        return cls(cls._hub_operations(), scope=DEFAULT_SCOPE)
+        return cls(cls._hub_operations())
 
     @staticmethod
     def _hub_operations() -> Operations:
@@ -106,6 +103,11 @@ class RestSurface:
         return self._routers
 
     def mount(self, app: FastAPI) -> None:
-        """Include every router on the given FastAPI app."""
+        """Include every router on the app, and publish the per-request resolver.
+
+        The write routes read the caller off ``app.state`` through the
+        ``resolve_scope`` dependency, so one resolver serves the whole surface.
+        """
+        app.state.rest_caller = self._caller
         for router in self._routers:
             app.include_router(router)
