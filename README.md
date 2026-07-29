@@ -269,6 +269,40 @@ installed scene is attributed to its repository rather than an anonymous caller.
 An unreachable `luxd` raises `HubUnavailableError`; a reachable Hub's refusal of a
 request comes back as a typed `OpError` in the result.
 
+### Listening: a persistent hub client
+
+A daemon that wants to *receive* — pub-sub events it subscribed to, and the menu
+callbacks the user clicked — holds one WebSocket to `luxd` with `LuxHubClient`.
+It shares the identity of a `LuxRestClient`, so a callback the daemon registers
+over REST is delivered on this stream. The receive loop renews the lease on every
+contact and reconnects on a dropped connection, re-subscribing automatically; the
+Hub buffers any clicks missed during a gap and drains them on reconnect.
+
+```python
+import asyncio
+
+from punt_lux import ClientIdentity, LuxRestClient
+
+# One identity for both legs: scene pushes over REST, the listen stream over the
+# WebSocket. A long-lived daemon declares an "app" identity — who it is, not where
+# it ran — and a short lease TTL so its menu entries leave when it dies.
+rest = LuxRestClient.for_identity(ClientIdentity(kind="app", name="voxd", lease_ttl=30))
+
+def on_callback(callback_id: str) -> None:
+    print("menu click:", callback_id)          # e.g. run the action for this item
+
+def on_event(topic: str, payload: dict[str, object]) -> None:
+    print("event:", topic, payload)            # e.g. {"album_id": "jazz-1"}
+
+listener = rest.listener(on_callback=on_callback, on_event=on_event)
+listener.subscribe("music.play", "music.stop")
+asyncio.run(listener.listen())                 # blocks, reconnecting as needed
+```
+
+The handlers may be sync or async; the loop awaits a coroutine. Call `stop()` to
+end the loop after its current connection closes. Events and callbacks are
+generic — the topics and callback ids are the app's own vocabulary, not Lux's.
+
 ## Architecture
 
 ```text

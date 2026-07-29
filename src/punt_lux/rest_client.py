@@ -16,15 +16,18 @@ from typing import TYPE_CHECKING, Self, final
 from urllib.parse import quote, urlencode
 
 from punt_lux.cli_identity import CliIdentity
+from punt_lux.hub_client import LuxHubClient
 from punt_lux.hub_paths import HubPaths
 from punt_lux.identity_headers import ClientHeaders
 from punt_lux.operations import (
+    Ok,
     OpError,
     Pong,
     RenderRequest,
     RenderTableRequest,
     SceneShown,
 )
+from punt_lux.operations.models.callbacks import RegisterCallbackRequest
 from punt_lux.rest_http_call import HttpCall
 from punt_lux.rest_loopback import LoopbackTransport
 from punt_lux.rest_reply import RestReply
@@ -32,6 +35,7 @@ from punt_lux.rest_transport import HttpTransport, HubUnavailableError
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.client_identity import ClientIdentity
+    from punt_lux.hub_client import CallbackHandler, EventHandler
 
 __all__ = ["LuxRestClient"]
 
@@ -42,32 +46,65 @@ class LuxRestClient:
 
     A downstream app (vox, a headless tool) reaches the Hub through this typed
     client, not by hand-rolling REST, so it gets the same validation, typing, and
-    identity behavior the CLI does. Build it with :meth:`connect`.
+    identity behavior the CLI does. A daemon or app builds it with
+    :meth:`for_identity`, declaring an EXPLICIT identity — who it is, an ``app``
+    named for the service, not where it happened to run. A ``lux`` command uses
+    :meth:`connect`, which derives a ``cli`` identity from its working context.
     """
 
     _transport: HttpTransport
+    _identity: ClientIdentity
     _headers: dict[str, str]
-    __slots__ = ("_headers", "_transport")
+    __slots__ = ("_headers", "_identity", "_transport")
 
     def __new__(cls, transport: HttpTransport, identity: ClientIdentity) -> Self:
         self = super().__new__(cls)
         self._transport = transport
+        self._identity = identity
         self._headers = ClientHeaders.to_wire(identity)
         return self
 
     @classmethod
     def connect(cls, *, timeout: float = 2.0) -> Self:
-        """Locate luxd's port and build a client, or raise if luxd is not running.
+        """The CLI convenience: build a client whose identity comes from the context.
 
-        The client's identity is derived from the invocation's context every run —
-        a ``LUX_CLIENT`` override, else the git repository, else headless.
+        A ``lux`` command has no identity to declare, so one is derived from where it
+        runs — a ``LUX_CLIENT`` override, else the git repository, else headless — as
+        a ``cli`` identity. A daemon or app must NOT use this: it would be attributed
+        by accident to wherever it started rather than to what it is. Such a caller
+        declares itself with :meth:`for_identity`.
+        """
+        return cls.for_identity(CliIdentity.resolve(), timeout=timeout)
+
+    @classmethod
+    def for_identity(cls, identity: ClientIdentity, *, timeout: float = 2.0) -> Self:
+        """Build a client that declares an EXPLICIT ``identity``, or raise if luxd down.
+
+        The daemon and app path: a long-lived service names itself — an ``app`` with
+        its own name, optionally its declared lease TTL — rather than deriving a
+        ``cli`` identity from its working directory. A daemon that both pushes scenes
+        and holds a listen connection builds one client here, then :meth:`listener`
+        shares this identity so both legs resolve to a single connection.
         """
         port = HubPaths().read_port()
         if port is None:
             raise HubUnavailableError(
                 "luxd is not running. Run 'lux hub-install' to register the service."
             )
-        return cls(LoopbackTransport(port, timeout), CliIdentity.resolve())
+        return cls(LoopbackTransport(port, timeout), identity)
+
+    def listener(
+        self, *, on_callback: CallbackHandler, on_event: EventHandler
+    ) -> LuxHubClient:
+        """Build a persistent listen client that shares this client's identity.
+
+        Scene pushes stay on this REST client; the returned :class:`LuxHubClient`
+        holds the WebSocket listen connection. Both carry one identity, so a callback
+        this client registers over REST is delivered on the listener's stream.
+        """
+        return LuxHubClient.connect(
+            self._identity, on_callback=on_callback, on_event=on_event
+        )
 
     def render(self, request: RenderRequest) -> SceneShown | OpError:
         """Install a whole scene through ``PUT /scenes/{scene_id}``.
@@ -90,6 +127,20 @@ class LuxRestClient:
         segment = quote(request.scene_id, safe="")
         path = f"/scenes/{segment}/table"
         return self._send(HttpCall.write(path, request, self._headers))
+
+    def register_callback(self, callback_id: str, label: str) -> Ok | OpError:
+        """Register a menu callback for this identity through ``POST /menus/callbacks``.
+
+        The daemon path: a client registers the callback it wants on the menu here,
+        then receives the user's clicks on it over its :meth:`listener` stream — both
+        under this client's identity, so the click routes back to the same session. A
+        malformed id or label is reported as an ``OpError`` without a round-trip.
+        """
+        request = RegisterCallbackRequest.parse(callback_id=callback_id, label=label)
+        if isinstance(request, OpError):
+            return request
+        call = HttpCall.post("/menus/callbacks", request, self._headers)
+        return RestReply(self._transport.request(call)).read(Ok)
 
     def ping(self, wait: float | None = None) -> Pong | OpError:
         """Round-trip a display ping through ``GET /display/ping``.

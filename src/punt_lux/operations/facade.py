@@ -43,7 +43,10 @@ if TYPE_CHECKING:
         Unsubscribed,
         UpdateRequest,
     )
-    from punt_lux.operations.models.callbacks import RegisterCallbackRequest
+    from punt_lux.operations.models.callbacks import (
+        PendingCallbacks,
+        RegisterCallbackRequest,
+    )
     from punt_lux.operations.models.display_info import DisplayInfo
     from punt_lux.operations.models.display_probe import Pong, Screenshot
     from punt_lux.operations.models.display_write import FrameStatePatch
@@ -282,12 +285,22 @@ class Operations:
     ) -> Ok | OpError:
         """Register a menu callback for the caller's session; the replicator pushes.
 
-        Routing a click (``invoke_callback``) and draining a session's hold
-        (``pending_callbacks``) are Hub-internal — the display dispatches clicks and
-        the delivery legs drain holds — so they stay on ``CallbackOperations`` and
-        off the client facade, like the element-click dispatch.
+        Routing a click (``invoke_callback``) stays Hub-internal — the display
+        dispatches clicks, not a client — so it is off this facade, like the
+        element-click dispatch. Draining a session's owed invocations, by contrast,
+        is a client's own poll and is exposed as ``take_pending_callbacks``.
         """
         return self._callbacks.register_callback(request, scope=scope)
+
+    def take_pending_callbacks(self, *, scope: Scope) -> PendingCallbacks:
+        """Drain the caller session's owed callback invocations — the poll legs' read.
+
+        The REST GET and the MCP tool both call this; each resolves its own session's
+        connection from its transport, so the drain is keyed by the caller and never
+        branches on client kind. A persistent client is pushed instead and does not
+        poll here; this is the pull path for the periodic and MCP legs.
+        """
+        return self._callbacks.take_pending(scope.connection_id)
 
     def identify(
         self, declaration: dict[str, object], *, scope: Scope

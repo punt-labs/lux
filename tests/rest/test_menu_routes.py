@@ -83,3 +83,16 @@ def test_register_callback_rejects_an_empty_id_with_422() -> None:
         "/menus/callbacks", json={"callback": {"id": "", "label": "Beads"}}
     )
     assert resp.status_code == 422
+
+
+def test_pending_callbacks_is_empty_for_an_identified_caller_with_no_clicks() -> None:
+    client = make_client()
+    resp = client.get("/menus/callbacks/pending")
+    assert resp.status_code == 200
+    assert resp.json() == {"kind": "ok", "callback_ids": []}
+
+
+def test_pending_callbacks_without_identity_is_challenged() -> None:
+    # The drain is keyed by the caller, so it is identity-guarded like a write.
+    client = make_client(identity={})
+    assert client.get("/menus/callbacks/pending").status_code == 401

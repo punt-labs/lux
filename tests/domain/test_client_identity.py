@@ -68,3 +68,31 @@ def test_blank_agent_is_rejected() -> None:
 def test_unknown_field_is_rejected() -> None:
     with pytest.raises(ValidationError):
         ClientIdentity(kind="cli", name="lux", role="admin")  # type: ignore[call-arg]
+
+
+def test_absent_lease_ttl_is_none_the_kind_default() -> None:
+    # Absence is the documented "use my kind's default" state, not a give-up.
+    assert ClientIdentity(kind="app", name="voxd").lease_ttl is None
+
+
+def test_a_declared_lease_ttl_in_bounds_is_kept() -> None:
+    identity = ClientIdentity(kind="app", name="voxd", lease_ttl=30.0)
+    assert identity.lease_ttl == 30.0
+    assert ClientIdentity.model_validate(identity.model_dump()) == identity
+
+
+def test_a_lease_ttl_below_the_floor_is_rejected() -> None:
+    with pytest.raises(ValidationError) as exc:
+        ClientIdentity(kind="app", name="voxd", lease_ttl=1.0)
+    assert "lease_ttl" in str(exc.value)
+
+
+def test_a_lease_ttl_above_the_cap_is_rejected() -> None:
+    with pytest.raises(ValidationError) as exc:
+        ClientIdentity(kind="cli", name="cron", lease_ttl=7200.0)
+    assert "lease_ttl" in str(exc.value)
+
+
+def test_the_cron_twenty_minute_cadence_is_within_bounds() -> None:
+    # The operator's example: a cron client declares a 20-minute lease.
+    assert ClientIdentity(kind="cli", name="cron", lease_ttl=1200.0).lease_ttl == 1200.0

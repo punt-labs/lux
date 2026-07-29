@@ -96,9 +96,20 @@ class CallbackOperations:
         return self._result_for(self._router.route(invocation))
 
     def pending_callbacks(self, connection_id: ConnectionId) -> PendingCallbacks:
-        """Return the callback ids held for a session, awaiting delivery to it."""
+        """Return the callback ids held for a session, without draining them."""
         held = self._router.pending(connection_id)
         return PendingCallbacks(callback_ids=tuple(inv.callback_id for inv in held))
+
+    def take_pending(self, connection_id: ConnectionId) -> PendingCallbacks:
+        """Take and clear a session's held callback ids — the poll legs' drain.
+
+        The MCP tool and the REST GET both call this with their own session's
+        connection id; the transport supplies the id, so the drain is keyed by the
+        caller and never branches on client kind. A session drains only its own hold,
+        and a session gone from the live set drains empty — the router sweeps it.
+        """
+        taken = self._router.take(connection_id)
+        return PendingCallbacks(callback_ids=tuple(inv.callback_id for inv in taken))
 
     def callback_menus(self) -> list[Menu]:
         """Build the uniform session-then-callback submenus from the live sessions."""

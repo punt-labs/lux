@@ -271,6 +271,48 @@ def test_a_lapsed_lease_sweeps_the_session_and_its_callbacks_together() -> None:
     assert reg.sessions() == {}
 
 
+def test_a_declared_ttl_lapses_an_app_session_that_would_be_permanent() -> None:
+    # The dead-daemon story: an "app" kind is permanent by default, but a daemon
+    # that DECLARES a short lease leaves the menu on that timer when it dies, with
+    # no reconnect to renew.
+    clock = _Clock()
+    reg = HubClientRegistry(clock)
+    conn = ConnectionId("voxd")
+    reg.record(conn, ClientIdentity(kind="app", name="voxd", lease_ttl=30.0))
+    reg.register_callback(conn, _beads())
+    assert conn in reg.live_sessions()
+
+    clock.advance(31.0)  # past the declared 30s lease, no contact in between
+    assert reg.live_sessions() == {}  # the session and its callback withdrew
+    assert reg.sessions() == {}
+
+
+def test_an_undeclared_app_lease_stays_permanent() -> None:
+    # luxd's built-ins declare no TTL, so they fall to the permanent app default and
+    # never lapse — the "appear once and always work" items.
+    clock = _Clock()
+    reg = HubClientRegistry(clock)
+    conn = ConnectionId("luxd")
+    reg.record(conn, ClientIdentity(kind="app", name="luxd"))
+    clock.advance(1_000_000.0)
+    assert conn in reg.live_sessions()
+
+
+def test_a_declared_ttl_renews_on_contact_like_any_lease() -> None:
+    # Any authenticated contact renews the declared lease, so a daemon that keeps in
+    # touch within its cadence stays live.
+    clock = _Clock()
+    reg = HubClientRegistry(clock)
+    conn = ConnectionId("voxd")
+    identity = ClientIdentity(kind="app", name="voxd", lease_ttl=30.0)
+    reg.record(conn, identity)
+
+    clock.advance(20.0)
+    reg.record(conn, identity)  # a renewal within the 30s window
+    clock.advance(20.0)  # 40s from the start, but only 20s since the renewal
+    assert conn in reg.live_sessions()
+
+
 def test_discard_is_a_noop_when_absent() -> None:
     reg = HubClientRegistry()
     reg.discard(ConnectionId("never-registered"))

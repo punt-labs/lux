@@ -29,6 +29,27 @@
   session's lease lapses. A click routes to the owning session's bounded hold;
   the delivery legs that drain it, and the display rendering, arrive in the
   following slices. See `docs/architecture/menu-capability-model.md`.
+- **Menu clicks are delivered to their owning session.** A click's held
+  invocation reaches the session three ways, chosen by how the session connects,
+  never by a client-kind branch: an MCP session polls the `pending_callbacks`
+  tool, a periodic/cron client polls `GET /menus/callbacks/pending` (both drain
+  the caller's own hold), and a persistent daemon is **pushed** the click the
+  instant it lands, over a new WebSocket listen leg at `/ws`. The persistent leg
+  works click-to-handler end to end.
+- **`LuxHubClient` — the persistent hub client.** `from punt_lux import
+  LuxHubClient` (or `rest_client.listener(...)`, sharing one identity) holds a
+  live WebSocket to `luxd`, subscribes to pub-sub topics, and dispatches both
+  those events and the menu callbacks routed to its session to app handlers in a
+  blocking receive loop that renews the lease on contact and reconnects on a
+  dropped connection. The Hub buffers clicks missed during a gap and drains them
+  on reconnect. The wire frames are typed (pydantic, discriminated by `kind`).
+- **Sessions declare their own lease.** `ClientIdentity.lease_ttl` (5 s–1 h,
+  rejected outside the bounds, carried on both REST and WebSocket identify) —
+  a daemon declaring 30 s vanishes from the menu on the lease timer if it
+  dies; sessions that declare nothing keep their kind defaults, so luxd's
+  built-ins stay permanent. Daemons identify explicitly via
+  `LuxRestClient.for_identity(ClientIdentity(...))`; `connect()` remains the
+  CLI's context-deriving path, and `ClientIdentity` is now a public export.
 - **`LuxRestClient` is the public Python library API.** `from punt_lux import
   LuxRestClient` — typed requests and results, no display extras required, and
   client identity built in. Python programs use the library; shell scripts and

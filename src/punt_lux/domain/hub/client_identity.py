@@ -32,6 +32,16 @@ ClientKind = Literal["mcp-session", "cli", "app"]
 # than by a hand-written validator.
 _Label = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
+# The bounds a declared lease TTL must fall within, in seconds. The floor keeps a
+# session alive across its own contact round-trip — a lease shorter than a few
+# seconds could sweep a client between two of its own beats — and the cap keeps a
+# declared lease from defeating the sweep: a client claiming hours is
+# indistinguishable from a leak, and an hour covers any real polling cadence (a
+# cron client's twenty minutes sits well inside it). luxd's own built-ins declare
+# no TTL and fall to the permanent ``app`` default, so the cap never binds them.
+_LEASE_TTL_FLOOR_SECONDS = 5.0
+_LEASE_TTL_CAP_SECONDS = 3600.0
+
 
 class ClientIdentity(BaseModel):
     """What a client declares itself to be — the owner the Hub attributes UI to.
@@ -41,6 +51,12 @@ class ClientIdentity(BaseModel):
     give-ups: a headless CLI and the app own no repository, and only an agent
     carries a persona handle. Each is validated when present and left ``None``
     when the caller legitimately has neither.
+
+    ``lease_ttl`` lets a session originator set how long it may idle between
+    contacts — a cron client declares its cadence's length, a live daemon a short
+    one so its menu entries leave when it dies. Absent is the documented default:
+    the session falls to its kind's length, which is how luxd's built-ins stay
+    permanent without declaring anything.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -50,6 +66,29 @@ class ClientIdentity(BaseModel):
     repo: str | None = None  # absent for a headless CLI and the app; genuine
     # A non-blank handle when present; absent unless the caller is an agent.
     agent: str | None = Field(default=None, min_length=1)
+    # Absent is not a give-up: it is the documented "use my kind's default" state,
+    # which keeps luxd's built-ins permanent. A present value is bounded below.
+    lease_ttl: float | None = None
+
+    @field_validator("lease_ttl")
+    @classmethod
+    def _bound_lease_ttl(cls, value: float | None) -> float | None:
+        """Accept an absent TTL, or a present one within the bounds; reject outside.
+
+        Absence means the kind default. A present TTL is rejected at the boundary
+        when it falls outside ``[floor, cap]`` rather than silently clamped, so a
+        caller learns its cadence declaration was unusable instead of getting a
+        length it did not ask for.
+        """
+        if value is not None and not (
+            _LEASE_TTL_FLOOR_SECONDS <= value <= _LEASE_TTL_CAP_SECONDS
+        ):
+            msg = (
+                f"lease_ttl must be between {_LEASE_TTL_FLOOR_SECONDS}s and "
+                f"{_LEASE_TTL_CAP_SECONDS}s when declared; got {value}"
+            )
+            raise ValueError(msg)
+        return value
 
     @field_validator("repo")
     @classmethod

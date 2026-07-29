@@ -26,6 +26,7 @@ from punt_lux.operations.models import (
     Unsubscribed,
     UpdateRequest,
 )
+from punt_lux.operations.models.callbacks import PendingCallbacks
 from punt_lux.operations.models.display_info import DisplayInfo
 from punt_lux.operations.models.display_probe import Pong, Screenshot
 from punt_lux.operations.models.display_write import FrameStatePatch
@@ -65,6 +66,7 @@ __all__ = [
     "Ok",
     "OpError",
     "Operations",
+    "PendingCallbacks",
     "Pong",
     "PublishRequest",
     "Published",

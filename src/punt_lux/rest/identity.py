@@ -11,17 +11,17 @@ caller may — while reads take no scope and stay open to an unnamed caller.
 
 from __future__ import annotations
 
-from hashlib import blake2s
 from typing import TYPE_CHECKING, Final, Self, cast, final
 
 from fastapi import HTTPException
 from starlette.requests import Request
 
-from punt_lux.domain.ids import ConnectionId
+from punt_lux.connection_identity import connection_for
 from punt_lux.identity_headers import ClientHeaders
 from punt_lux.operations.scope import Scope
 
 if TYPE_CHECKING:
+    from punt_lux.domain.ids import ConnectionId
     from punt_lux.operations import Operations
     from punt_lux.rest.status import HttpErrorMap
 
@@ -88,14 +88,10 @@ class RestCaller:
 
     @staticmethod
     def _connection_for(declaration: dict[str, object]) -> ConnectionId:
-        """Derive a stable connection id from the declared identity.
+        """Derive the stable connection id the declared identity owns.
 
-        Deterministic in the identity fields, so a caller that re-declares the same
-        identity owns the same scenes across requests; distinct identities never
-        collide. Not a credential — attribution under the same-user trust model.
+        Shared with the WebSocket listen leg through :func:`connection_for`, so a
+        caller that registers a callback over REST and listens over the WebSocket
+        under the same identity resolves to one connection on both.
         """
-        parts = (
-            declaration.get(field, "") for field in ("kind", "name", "repo", "agent")
-        )
-        seed = "\x00".join(str(part) for part in parts)
-        return ConnectionId(blake2s(seed.encode(), digest_size=8).hexdigest())
+        return connection_for(declaration)

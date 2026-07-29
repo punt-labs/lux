@@ -58,6 +58,17 @@ class SessionLease:
         """The lease a session of ``kind`` holds, renewed at ``now``."""
         return cls(now, _TTL_BY_KIND[kind])
 
+    @classmethod
+    def for_declared(cls, kind: ClientKind, ttl: float | None, now: float) -> Self:
+        """The lease a session holds: its declared ``ttl`` when given, else its kind's.
+
+        An originator that declares a TTL sets its own cadence; one that declares
+        none falls to the kind default, which is how luxd's built-ins stay permanent
+        without carrying a TTL. The declared value is already bounds-checked at the
+        identity boundary, so this is pure selection.
+        """
+        return cls(now, ttl) if ttl is not None else cls.for_kind(kind, now)
+
     def is_live(self, now: float) -> bool:
         """Whether the lease has not lapsed as of ``now``."""
         return now - self.renewed_at <= self.ttl_seconds

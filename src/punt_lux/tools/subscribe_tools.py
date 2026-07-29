@@ -1,10 +1,13 @@
-"""MCP tool surface for Agent Subscribe / Publish.
+"""MCP tool surface for Agent Subscribe / Publish and menu-callback pickup.
 
-Four tools — ``subscribe``, ``unsubscribe``, ``publish``, ``recv`` — each an
-adapter that parses its arguments, calls one operation on the Hub-owned pub-sub
-surface scoped to the calling session, and formats the result. The subscription
-scope, inbox, and fan-out live in the operations layer; the inbox helpers are
-re-exported here for tests that snapshot a session's queue.
+The pub-sub tools — ``subscribe``, ``unsubscribe``, ``publish``, ``recv`` — each
+parse their arguments, call one operation on the Hub-owned pub-sub surface scoped
+to the calling session, and format the result. ``pending_callbacks`` is the
+MCP delivery leg for menu clicks: the session polls the invocations owed to it and
+the read drains them. All are session-scoped receive-or-send tools that share the
+same ``_scope`` resolution; the subscription scope, inbox, callback hold, and
+fan-out live in the operations layer, and the inbox helpers are re-exported here
+for tests that snapshot a session's queue.
 """
 
 from __future__ import annotations
@@ -13,7 +16,7 @@ import json
 
 from punt_lux.domain.hub.inbox import drain_inbox, inbox_for, next_event
 from punt_lux.domain.ids import ConnectionId
-from punt_lux.operations import PublishRequest, Scope
+from punt_lux.operations import PendingCallbacks, PublishRequest, Scope
 from punt_lux.tools.server import _session_key, mcp
 from punt_lux.tools.tools import OPERATIONS
 
@@ -21,6 +24,7 @@ __all__ = [
     "drain_inbox",
     "inbox_for",
     "next_event",
+    "pending_callbacks",
     "publish",
     "recv",
     "subscribe",
@@ -81,3 +85,16 @@ def recv() -> str:
         return "none"
     payload = json.dumps(result.event.payload, sort_keys=True)
     return f"event:{result.event.topic}:{payload}"
+
+
+@mcp.tool()
+def pending_callbacks() -> PendingCallbacks:
+    """Take the menu-callback clicks owed to the calling session, draining them.
+
+    A menu item is a callback this session registered; when the user clicks it, the
+    Hub holds the invocation until the session picks it up. This tool is the MCP
+    pickup leg of that delivery: it returns the callback ids that fired, in click
+    order, and clears them so each is delivered once. Poll it on your own schedule —
+    like ``recv`` it never blocks; an empty result means no click since last poll.
+    """
+    return OPERATIONS.take_pending_callbacks(scope=_scope())
