@@ -41,6 +41,7 @@ from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
     AckMessage,
     ButtonElement,
+    CallbackMenuMessage,
     CheckboxElement,
     ColorPickerElement,
     ComboElement,
@@ -611,6 +612,8 @@ class DisplayServer:
             self._handle_register_menu(sock, msg)
         elif isinstance(msg, MenuMessage):
             self._menu_manager.agent_menus = msg.menus
+        elif isinstance(msg, CallbackMenuMessage):
+            self._menu_manager.callback_menus = msg.submenus
         elif isinstance(msg, ThemeMessage):
             self._apply_theme(msg.theme)
         elif isinstance(msg, ConnectMessage):

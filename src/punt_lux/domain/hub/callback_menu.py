@@ -15,7 +15,7 @@ session that registered it.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, final
+from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.menu_models import Menu, MenuAction
 from punt_lux.domain.hub.session_callback import CallbackInvocation
@@ -23,12 +23,13 @@ from punt_lux.domain.hub.session_callback import CallbackInvocation
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
 
+    from punt_lux.domain.hub.callback_hold import LiveSessions
     from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.domain.hub.client_session import ClientSession
     from punt_lux.domain.hub.session_callback import SessionCallback
     from punt_lux.domain.ids import ConnectionId
 
-__all__ = ["CallbackMenu"]
+__all__ = ["CallbackMenu", "CallbackMenuReplica"]
 
 # One qualifying session's parts for a submenu: its connection, its declared
 # identity, and the callbacks it registered — narrowed past the None-identity case.
@@ -91,3 +92,26 @@ class CallbackMenu:
         """
         repo = identity.repo
         return identity.name if repo is None else f"{identity.name} — {repo}"
+
+
+@final
+class CallbackMenuReplica:
+    """The replicator's read of the live session-then-callback submenus, as wire.
+
+    Reads the live sessions fresh on each send and composes them through
+    :class:`CallbackMenu`, so the display always receives the sessions in lease at
+    send time — the read-at-send discipline the agent bar uses.
+    """
+
+    _sessions: LiveSessions
+    __slots__ = ("_sessions",)
+
+    def __new__(cls, sessions: LiveSessions) -> Self:
+        self = super().__new__(cls)
+        self._sessions = sessions
+        return self
+
+    def callback_menu_wire(self) -> list[dict[str, object]]:
+        """Return the uniform session-then-callback submenus as wire payloads."""
+        menus = CallbackMenu.from_sessions(self._sessions.live_sessions())
+        return [menu.to_wire() for menu in menus]

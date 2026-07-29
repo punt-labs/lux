@@ -12,6 +12,7 @@ from punt_lux.display_client import agent_element_factory
 from punt_lux.protocol import (
     AckMessage,
     ButtonElement,
+    CallbackMenuMessage,
     CheckboxElement,
     ColorPickerElement,
     ComboElement,
@@ -432,6 +433,24 @@ class TestMessages:
         msg = message_from_dict(d)
         assert isinstance(msg, RegisterMenuMessage)
         assert msg.items == []
+
+    def test_callback_menu_roundtrip(self):
+        submenus: list[dict[str, Any]] = [
+            {"label": "voxd", "items": [{"label": "Music", "id": "voxd\x1fmusic"}]},
+            {"label": "lux — /w/lux", "items": [{"label": "Beads", "id": "lux\x1fb"}]},
+        ]
+        original = CallbackMenuMessage(submenus=submenus)
+        d = message_to_dict(original)
+        assert d["type"] == "callback_menu"
+        assert d["submenus"] == submenus
+        restored = message_from_dict(d)
+        assert isinstance(restored, CallbackMenuMessage)
+        assert restored.submenus == submenus
+
+    def test_callback_menu_from_dict_empty(self):
+        msg = message_from_dict({"type": "callback_menu"})
+        assert isinstance(msg, CallbackMenuMessage)
+        assert msg.submenus == []
 
 
 # ---------------------------------------------------------------------------
@@ -1528,6 +1547,7 @@ class TestMessageRegistry:
             "screenshot_request",
             "screenshot_response",
             "menu",
+            "callback_menu",
             "theme",
             "register_menu",
             "connect",

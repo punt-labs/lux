@@ -22,12 +22,27 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 __all__ = [
+    "CallbackMenuReader",
     "ClientProvider",
     "DisplayLifecycle",
     "DisplaySender",
     "MenuReader",
     "MenuState",
 ]
+
+
+@runtime_checkable
+class CallbackMenuReader(Protocol):
+    """The live session-then-callback submenus, read fresh at send time.
+
+    Composed from the session registry, so whatever sessions are in lease when the
+    send runs is what the display renders — the same read-at-send discipline the
+    agent bar uses, with no payload to go stale.
+    """
+
+    def callback_menu_wire(self) -> list[dict[str, object]]:
+        """Return the uniform session-then-callback submenus as wire payloads."""
+        ...
 
 
 @runtime_checkable
@@ -58,6 +73,9 @@ class DisplaySender(ScenePusher, Protocol):
 
     def set_registered_items(self, items: list[dict[str, object]]) -> None:
         """Replace the display's registered World-menu tool items."""
+
+    def set_callback_menus(self, submenus: list[dict[str, object]]) -> None:
+        """Replace the display's session-then-callback submenus."""
 
 
 @runtime_checkable

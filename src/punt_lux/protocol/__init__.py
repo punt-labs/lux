@@ -44,6 +44,7 @@ from punt_lux.protocol.elements import (
 from punt_lux.protocol.messages import (
     PROTOCOL_VERSION,
     AckMessage,
+    CallbackMenuMessage,
     ClientMessage,
     ConnectMessage,
     DisplayMessage,
@@ -77,6 +78,7 @@ __all__ = [
     "PROTOCOL_VERSION",
     "AckMessage",
     "ButtonElement",
+    "CallbackMenuMessage",
     "CheckboxElement",
     "ClientMessage",
     "CollapsingHeaderElement",

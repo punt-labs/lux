@@ -59,6 +59,7 @@ class _FakeSender:
     roots: list[list[WireElement]]
     menus: list[list[dict[str, object]]]
     registered_items: list[list[dict[str, object]]]
+    callback_submenus: list[list[dict[str, object]]]
     timeline: list[str]
     _fail: Exception | None
     _fail_scene: tuple[str, OSError] | None
@@ -73,6 +74,7 @@ class _FakeSender:
         "_gate",
         "_lock",
         "_sent",
+        "callback_submenus",
         "frames",
         "menus",
         "registered_items",
@@ -88,6 +90,7 @@ class _FakeSender:
         self.roots = []
         self.menus = []
         self.registered_items = []
+        self.callback_submenus = []
         self.timeline = []
         self._fail = None
         self._fail_scene = None
@@ -164,6 +167,25 @@ class _FakeSender:
         with self._lock:
             self.registered_items.append(list(items))
 
+    def set_callback_menus(self, submenus: list[dict[str, object]]) -> None:
+        with self._lock:
+            self.callback_submenus.append(list(submenus))
+
+
+class _FakeCallbackReader:
+    """A CallbackMenuReader returning a fixed set of session-callback submenus."""
+
+    _wire: list[dict[str, object]]
+    __slots__ = ("_wire",)
+
+    def __new__(cls, wire: list[dict[str, object]] | None = None) -> Self:
+        self = super().__new__(cls)
+        self._wire = wire if wire is not None else []
+        return self
+
+    def callback_menu_wire(self) -> list[dict[str, object]]:
+        return [dict(menu) for menu in self._wire]
+
 
 class _FakeProvider:
     """Hands out one sender; ``drop`` heals it, modelling a reconnect."""
@@ -219,12 +241,19 @@ class _FakeLifecycle:
 def _replicator(
     store: HubDisplay,
     menu_registry: HubMenuRegistry | None = None,
+    callback_wire: list[dict[str, object]] | None = None,
 ) -> tuple[HubReplicator, _FakeSender, _FakeProvider, _FakeLifecycle]:
     sender = _FakeSender()
     provider = _FakeProvider(sender)
     lifecycle = _FakeLifecycle()
     registry = menu_registry if menu_registry is not None else HubMenuRegistry()
-    repl = HubReplicator(store.reader, registry, provider, lifecycle)
+    repl = HubReplicator(
+        store.reader,
+        registry,
+        _FakeCallbackReader(callback_wire),
+        provider,
+        lifecycle,
+    )
     return repl, sender, provider, lifecycle
 
 
@@ -256,6 +285,24 @@ def test_menu_state_is_pushed_from_a_fresh_registry_read() -> None:
         assert sender.wait_sent(2.0)
         assert sender.menus == [[{"label": "File", "items": []}]]
         assert sender.registered_items == [[{"label": "Run", "id": "run"}]]
+    finally:
+        repl.stop()
+
+
+def test_callback_submenus_are_pushed_on_a_menu_change() -> None:
+    # A menu change also re-sends the live session-then-callback submenus, read
+    # fresh from the session registry beside the agent bar.
+    store = HubDisplay()
+    submenu: dict[str, object] = {
+        "label": "voxd",
+        "items": [{"label": "Music", "id": "voxd\x1fmusic"}],
+    }
+    repl, sender, _provider, _lifecycle = _replicator(store, callback_wire=[submenu])
+    repl.start()
+    try:
+        repl.mark_menus()
+        assert sender.wait_sent(2.0)
+        assert sender.callback_submenus == [[submenu]]
     finally:
         repl.stop()
 

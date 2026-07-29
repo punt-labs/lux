@@ -40,6 +40,7 @@ class MenuManager:
     _on_fit_all: Callable[[], None]
 
     _agent_menus: list[dict[str, Any]]
+    _callback_menus: list[dict[str, Any]]
     _menu_registrations: dict[int, list[dict[str, Any]]]
     _menu_owners: dict[str, int]
     _world_menu_open: bool
@@ -78,6 +79,7 @@ class MenuManager:
         self._on_clear_all = on_clear_all
         self._on_fit_all = on_fit_all
         self._agent_menus = []
+        self._callback_menus = []
         self._menu_registrations = {}
         self._menu_owners = {}
         self._world_menu_open = False
@@ -95,6 +97,15 @@ class MenuManager:
     @agent_menus.setter
     def agent_menus(self, value: list[dict[str, Any]]) -> None:
         self._agent_menus = value
+
+    @property
+    def callback_menus(self) -> list[dict[str, Any]]:
+        """Return the Hub-composed session-then-callback submenus."""
+        return self._callback_menus
+
+    @callback_menus.setter
+    def callback_menus(self, value: list[dict[str, Any]]) -> None:
+        self._callback_menus = value
 
     @property
     def menu_registrations(self) -> dict[int, list[dict[str, Any]]]:
@@ -123,6 +134,11 @@ class MenuManager:
             self._show_window_menu(imgui)
             self._show_help_menu(imgui)
             for menu in self._agent_menus:
+                self._show_agent_menu(imgui, menu)
+            # Each session's submenu renders through the same agent-menu path: a
+            # leaf carries the CallbackInvocation id, so a click emits an
+            # action="menu" the Hub routes back to the owning session.
+            for menu in self._callback_menus:
                 self._show_agent_menu(imgui, menu)
         except Exception:
             logger.exception("Error rendering menus")

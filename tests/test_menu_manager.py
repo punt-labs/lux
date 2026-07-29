@@ -103,3 +103,18 @@ class TestSanitizeMenuItems:
         # fd=11 unaffected
         assert 11 in mgr.menu_registrations
         assert mgr.menu_owners["item-b"] == 11
+
+
+class TestCallbackMenus:
+    """The Hub-composed session-then-callback submenus the display renders."""
+
+    def test_callback_menus_default_empty(self) -> None:
+        assert _make_manager().callback_menus == []
+
+    def test_callback_menus_setter_replaces_the_whole_set(self) -> None:
+        mgr = _make_manager()
+        submenus = [{"label": "voxd", "items": [{"label": "Music", "id": "v\x1fm"}]}]
+        mgr.callback_menus = submenus
+        assert mgr.callback_menus == submenus
+        mgr.callback_menus = []
+        assert mgr.callback_menus == []

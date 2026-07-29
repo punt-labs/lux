@@ -48,6 +48,7 @@ from punt_lux.protocol.messages.lifecycle import (
     register_codecs as _register_lifecycle,
 )
 from punt_lux.protocol.messages.menu import (
+    CallbackMenuMessage,
     MenuMessage,
     RegisterMenuMessage,
     ThemeMessage,
@@ -71,6 +72,7 @@ _register_scene = SceneMessage.register_codecs
 __all__ = [
     "PROTOCOL_VERSION",
     "AckMessage",
+    "CallbackMenuMessage",
     "ClientMessage",
     "ConnectMessage",
     "DisplayMessage",
@@ -106,6 +108,7 @@ ClientMessage = (
     | ListScenesRequest
     | ScreenshotRequest
     | MenuMessage
+    | CallbackMenuMessage
     | ThemeMessage
     | RegisterMenuMessage
     | ConnectMessage

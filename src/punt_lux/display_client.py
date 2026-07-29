@@ -33,6 +33,7 @@ from punt_lux.paths import DisplayPaths
 from punt_lux.polled_event import PolledEvent
 from punt_lux.protocol import (
     AckMessage,
+    CallbackMenuMessage,
     ConnectMessage,
     FrameReader,
     MenuMessage,
@@ -584,6 +585,10 @@ class DisplayClient:
         self._send(
             RegisterMenuMessage(items=self._menu_items.replace_agent_items(items))
         )
+
+    def set_callback_menus(self, submenus: list[dict[str, Any]]) -> None:
+        """Replace the display's session-then-callback submenus (Hub-composed)."""
+        self._send(CallbackMenuMessage(submenus=submenus))
 
     def ping(self, timeout: float | None = None) -> PongMessage | None:
         """Send a ping and wait for the pong within ``timeout`` (else recv budget)."""
