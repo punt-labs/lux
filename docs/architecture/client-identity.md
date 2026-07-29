@@ -1,7 +1,8 @@
 # Client Identity and Scene Ownership
 
-**Status:** design proposal for the operator to ratify. Read
-[target/target.md](target/target.md) first; on any conflict that document wins.
+**Status:** ratified with amendments (operator, 2026-07-28 — see
+[Ratification](#ratification)). Read [target/target.md](target/target.md)
+first; on any conflict that document wins.
 
 This document decides what a client of Lux is, how each client tells the Hub who
 it is, and who owns a scene once it is installed. It is a contract change across
@@ -415,7 +416,34 @@ repository context by derivation, so no attach step is needed.
 and verifies nothing. luxd is already loopback-only. Identity is attribution, not
 access control.
 
-## Open Questions for the Operator
+## Ratification
+
+The operator ruled on the open questions on 2026-07-28:
+
+1. **Session-scene lifetime: durable.** An MCP session's scenes survive its
+   disconnect, exactly as PR #275 established. Identity changes attribution
+   only, never lifetime.
+2. **The `identify` first-call: approved, extended with a challenge.** A
+   session declares its identity with an `identify` call. In addition — the
+   operator's amendment — an operation that requires identity, invoked by a
+   caller that has not identified, must return a structured
+   "identification required" error, the analogue of a 401/403 challenge in
+   web authentication. Callers learn to identify from the response; nothing
+   proceeds silently unidentified.
+3. **Anonymous REST: rejected.** The operator does not accept identity-less
+   REST requests as a valid end state — "I don't see this as valid." The
+   shutdown may take a few steps: a transition window in which unidentified
+   writes still work (with the challenge response signalling the coming
+   requirement) is acceptable, but the end state is that every REST request
+   carries an identity. The CLI deriving its identity from the git root and
+   sending it remains the mechanism — what dies is the Hub accepting requests
+   that carry nothing.
+
+The implementation missions build to these rulings; the design's
+derive-where-cwd-present recommendation for anonymous writes is superseded by
+ruling 3.
+
+## Open Questions for the Operator (ruled — see Ratification)
 
 These are genuine forks. Each carries a recommendation.
 
