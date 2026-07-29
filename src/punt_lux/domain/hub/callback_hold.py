@@ -118,14 +118,28 @@ class CallbackRouter:
             return "routed"
 
     def take(self, connection_id: ConnectionId) -> tuple[CallbackInvocation, ...]:
-        """Take and clear the session's held invocations — the delivery legs' drain."""
+        """Take and clear the session's held invocations — the delivery legs' drain.
+
+        Sweeps first, so a hold whose session has since left the live set is dropped
+        rather than delivered: the hold dies with the lease even when no ``route``
+        fired in between. The live read runs before the router lock, so the two
+        locks never nest.
+        """
+        live = self._lookup.live_sessions()
         with self._lock:
+            self._sweep(live)
             hold = self._holds.pop(connection_id, None)
             return hold.take_all() if hold is not None else ()
 
     def pending(self, connection_id: ConnectionId) -> tuple[CallbackInvocation, ...]:
-        """Return the session's held invocations without clearing them."""
+        """Return the session's held invocations without clearing them.
+
+        Sweeps first for the same reason as ``take``: an expired session's hold is
+        never readable. The live read precedes the router lock, so no lock nests.
+        """
+        live = self._lookup.live_sessions()
         with self._lock:
+            self._sweep(live)
             hold = self._holds.get(connection_id)
             return hold.snapshot() if hold is not None else ()
 

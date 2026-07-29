@@ -48,3 +48,9 @@ def test_a_leaf_id_without_the_separator_is_rejected() -> None:
 def test_a_leaf_id_with_an_empty_callback_is_rejected() -> None:
     with pytest.raises(ValueError, match="not a callback leaf id"):
         CallbackInvocation.from_menu_id("vox-session\x1f")
+
+
+def test_a_leaf_id_with_an_empty_connection_is_rejected() -> None:
+    # A separator-leading id would yield ConnectionId("") — a nonexistent session.
+    with pytest.raises(ValueError, match="not a callback leaf id"):
+        CallbackInvocation.from_menu_id("\x1fbeads")

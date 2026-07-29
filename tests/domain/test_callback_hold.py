@@ -100,3 +100,24 @@ def test_a_departed_session_has_its_hold_swept() -> None:
     # The next routing sweeps the departed session's hold rather than stranding it.
     router.route(CallbackInvocation(ConnectionId("other"), "x"))
     assert router.pending(conn) == ()
+
+
+def test_pending_sweeps_an_expired_session_without_a_route_in_between() -> None:
+    conn = ConnectionId("vox")
+    live = _Live({conn: _session("vox", "beads")})
+    router = CallbackRouter(live)
+    router.route(CallbackInvocation(conn, "beads"))
+
+    live._sessions.clear()  # the lease lapses; no route() fires after this
+    # pending() itself sweeps against the live set, so the hold dies with the lease.
+    assert router.pending(conn) == ()
+
+
+def test_take_sweeps_an_expired_session_without_a_route_in_between() -> None:
+    conn = ConnectionId("vox")
+    live = _Live({conn: _session("vox", "beads")})
+    router = CallbackRouter(live)
+    router.route(CallbackInvocation(conn, "beads"))
+
+    live._sessions.clear()  # the lease lapses; no route() fires after this
+    assert router.take(conn) == ()

@@ -76,11 +76,12 @@ class CallbackInvocation:
         """Parse a clicked leaf id back into its session and callback, or reject it.
 
         A leaf id is the connection and callback joined on the unit separator; an
-        id lacking the separator never named a callback leaf and is rejected rather
-        than routed to a mangled session.
+        id lacking the separator, or with an empty connection or callback segment,
+        never named a callback leaf and is rejected rather than routed to a
+        nonexistent session or callback.
         """
         connection, separator, callback = menu_id.partition(_ID_SEPARATOR)
-        if not separator or not callback:
+        if not separator or not connection or not callback:
             msg = f"not a callback leaf id: {menu_id!r}"
             raise ValueError(msg)
         return cls(ConnectionId(connection), callback)
