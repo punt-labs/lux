@@ -22,11 +22,13 @@ from typing import TYPE_CHECKING, Self, cast
 
 from punt_lux.domain.interaction import ButtonClicked
 from punt_lux.protocol.elements._util import strip_none
+from punt_lux.protocol.elements.button_publish import ButtonPublish
 from punt_lux.protocol.elements.element_wire import ElementWireContext
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from punt_lux.domain.handlers.decorators import PublishSink
     from punt_lux.protocol.elements.button import ButtonElement
     from punt_lux.protocol.handler_decoder import HandlerDecoder
     from punt_lux.protocol.renderer import Emit, RendererFactory
@@ -58,6 +60,7 @@ class JsonButtonDecoder:
     _emit: Emit
     _cls: type[ButtonElement]
     _handler_decoder: HandlerDecoder[ButtonClicked]
+    _publish_sink: PublishSink
 
     def __new__(
         cls,
@@ -66,17 +69,20 @@ class JsonButtonDecoder:
         emit: Emit,
         element_cls: type[ButtonElement],
         handler_decoder: HandlerDecoder[ButtonClicked],
+        publish_sink: PublishSink,
     ) -> Self:
         self = super().__new__(cls)
         self._rf = renderer_factory
         self._emit = emit
         self._cls = element_cls
         self._handler_decoder = handler_decoder
+        self._publish_sink = publish_sink
         return self
 
     def decode(self, raw: Mapping[str, object]) -> ButtonElement:
         """Construct a ButtonElement from a JSON-decoded mapping."""
         ctx = ElementWireContext.for_kind("button")
+        publish = self._publish_from_wire(raw)
         elem = self._cls(
             renderer_factory=self._rf,
             emit=self._emit,
@@ -87,9 +93,31 @@ class JsonButtonDecoder:
             small=ctx.optional_bool(raw, "small", default=False),
             arrow=ctx.optional_nullable_str(raw, "arrow"),
             tooltip=ctx.optional_nullable_str(raw, "tooltip"),
+            publish=publish,
         )
         self._install_handlers(elem, raw)
+        self._install_publish(elem, publish)
         return elem
+
+    @staticmethod
+    def _publish_from_wire(raw: Mapping[str, object]) -> ButtonPublish | None:
+        """Build the publish declaration from the wire ``publish`` field, if present."""
+        entry = raw.get("publish")
+        return None if entry is None else ButtonPublish.from_wire(entry)
+
+    def _install_publish(
+        self, elem: ButtonElement, publish: ButtonPublish | None
+    ) -> None:
+        """Install the click handler that fires a declared publish through the sink.
+
+        Added to the same click bucket as the button's other handlers, so the
+        Display collapses them together for remote dispatch and the Hub fires them
+        together on the authoritative copy — publish composes with the existing
+        on-click path rather than replacing it. A button that declares no publish
+        installs nothing.
+        """
+        if publish is not None:
+            elem.add_handler(ButtonClicked, publish.handler_for(self._publish_sink))
 
     def _install_handlers(self, elem: ButtonElement, raw: Mapping[str, object]) -> None:
         """Install click handlers declared by the wire ``handlers`` list."""
@@ -153,12 +181,14 @@ class JsonButtonEncoder:
 
     def encode(self, elem: ButtonElement) -> dict[str, object]:
         """Serialize a ButtonElement to a JSON-compatible dict."""
+        declaration = elem.publish
         payload: dict[str, object | None] = {
             "kind": elem.kind,
             "id": elem.id,
             "label": elem.label,
             "action": elem.action,
             "tooltip": elem.tooltip,
+            "publish": None if declaration is None else declaration.to_wire(),
         }
         if elem.disabled:
             payload["disabled"] = True

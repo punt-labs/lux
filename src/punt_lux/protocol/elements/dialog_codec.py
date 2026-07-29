@@ -154,6 +154,7 @@ class JsonDialogDecoder:
             emit=self._emit,
             element_cls=ButtonElement,
             handler_decoder=handler_decoder,
+            publish_sink=self._sink,
         )
 
 

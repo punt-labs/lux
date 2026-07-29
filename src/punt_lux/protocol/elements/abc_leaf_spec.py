@@ -27,7 +27,7 @@ __all__ = ["LeafKindSpec"]
 class LeafKindSpec:
     """A migrated leaf kind decoded through a ``renderer_factory``/``emit`` decoder."""
 
-    __slots__ = ("_codec", "_handler_builder", "_kind", "_pre_decode")
+    __slots__ = ("_codec", "_handler_builder", "_kind", "_pre_decode", "_wants_sink")
 
     _kind: str
     _codec: KindCodec
@@ -35,6 +35,9 @@ class LeafKindSpec:
     _handler_builder: HandlerBuilder | None
     # genuinely optional — only Button canonicalizes click/publish wire sugar.
     _pre_decode: WirePreDecode | None
+    # True only for Button: its decoder takes the tier sink directly so a
+    # declared publish-on-click fires through the Hub's pub-sub.
+    _wants_sink: bool
 
     def __new__(
         cls,
@@ -43,12 +46,14 @@ class LeafKindSpec:
         codec: KindCodec,
         handler_builder: HandlerBuilder | None = None,
         pre_decode: WirePreDecode | None = None,
+        wants_publish_sink: bool = False,
     ) -> Self:
         self = super().__new__(cls)
         self._kind = kind
         self._codec = codec
         self._handler_builder = handler_builder
         self._pre_decode = pre_decode
+        self._wants_sink = wants_publish_sink
         return self
 
     @property
@@ -80,6 +85,8 @@ class LeafKindSpec:
         extra: dict[str, object] = {}
         if self._handler_builder is not None:
             extra["handler_decoder"] = self._handler_builder(binding.publish_sink)
+        if self._wants_sink:
+            extra["publish_sink"] = binding.publish_sink
         decoder = self._codec.decoder_cls(
             renderer_factory=binding.renderer_factory,
             emit=binding.emit,

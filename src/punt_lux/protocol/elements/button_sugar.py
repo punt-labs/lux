@@ -27,19 +27,26 @@ class ButtonWireSugar:
 
     @staticmethod
     def canonicalize(raw: Mapping[str, object]) -> Mapping[str, object]:
-        """Promote top-level ``click`` and ``publish`` sugar to ``handlers``.
+        """Promote top-level ``click`` and list-``publish`` sugar to ``handlers``.
 
         Wire sugar examples:
           ``{"click": "confirm", "publish": ["topic"]}``
           ``{"publish": ["topic"]}``  (no click verb → noop factory)
           ``{"click": "cancel"}``     (no publish → no decorator)
 
+        The list form of ``publish`` is the decorator shorthand — a topic list the
+        decorator fans empty payloads to. A *mapping* ``publish`` (``{"topic":
+        ..., "payload": ...}``) is the typed publish-on-click attribute the Button
+        codec reads directly; it is deliberately left in place here, never promoted
+        to a decorator, so the two forms never collide.
+
         If the raw dict already has a ``handlers`` key, returns unchanged.
         Idempotent — a second pass finds ``handlers`` present and no-ops.
         """
         click = raw.get("click")
         publish = raw.get("publish")
-        if click is None and publish is None:
+        decorator_publish = publish if isinstance(publish, list) else None
+        if click is None and decorator_publish is None:
             return raw
         if "handlers" in raw:
             return raw
@@ -48,8 +55,8 @@ class ButtonWireSugar:
         if click:
             params["verb"] = click
         wrap: list[dict[str, object]] = []
-        if publish:
-            wrap.append({"decorator": "publish", "topics": publish})
+        if decorator_publish:
+            wrap.append({"decorator": "publish", "topics": decorator_publish})
         handler_spec: dict[str, object] = {
             "event": "click",
             "factory": factory,
@@ -59,5 +66,8 @@ class ButtonWireSugar:
         merged = dict(raw)
         merged["handlers"] = [handler_spec]
         merged.pop("click", None)
-        merged.pop("publish", None)
+        # The mapping publish attribute stays; only the list decorator form is
+        # consumed into ``handlers`` here.
+        if decorator_publish is not None:
+            merged.pop("publish", None)
         return merged
