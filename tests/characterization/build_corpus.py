@@ -573,6 +573,30 @@ IDENTITY_SCENARIOS: tuple[Scenario, ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Callback scenarios — ``register_callback`` requires an identified session; an
+# unidentified session receives the identification_required challenge (the same
+# challenge REST's anonymous writes get, not MCP scene writes, which carry no
+# identity gate). An unidentified session (a fresh session_key never recorded in
+# the client registry) is refused, which is the security-relevant behavior the
+# corpus pins; the happy path needs a prior ``identify`` and is covered by the
+# operation and tool unit tests instead.
+# ---------------------------------------------------------------------------
+
+
+CALLBACK_SCENARIOS: tuple[Scenario, ...] = (
+    Scenario(
+        name="register-callback-unidentified",
+        tool="register_callback",
+        inputs={"callback_id": "beads", "label": "Beads"},
+        setup={
+            "display_running": False,
+            "session_key": "corpus-register-callback-unidentified",
+        },
+    ),
+)
+
+
 SCENARIOS: tuple[Scenario, ...] = (
     LIFECYCLE_SCENARIOS
     + COMPOSITION_SCENARIOS
@@ -580,6 +604,7 @@ SCENARIOS: tuple[Scenario, ...] = (
     + INTERACTION_SCENARIOS
     + PUBSUB_SCENARIOS
     + IDENTITY_SCENARIOS
+    + CALLBACK_SCENARIOS
 )
 
 

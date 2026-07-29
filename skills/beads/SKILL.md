@@ -14,11 +14,43 @@ allowed-tools:
   - mcp__plugin_lux_lux__show
   - mcp__plugin_lux-dev_lux__show
   - mcp__lux__show
+  - mcp__plugin_lux_lux__identify
+  - mcp__plugin_lux-dev_lux__identify
+  - mcp__lux__identify
+  - mcp__plugin_lux_lux__register_callback
+  - mcp__plugin_lux-dev_lux__register_callback
+  - mcp__lux__register_callback
+  - mcp__plugin_lux_lux__pending_callbacks
+  - mcp__plugin_lux-dev_lux__pending_callbacks
+  - mcp__lux__pending_callbacks
 ---
 
 # /lux:beads — Beads Issue Board
 
 Display beads issues in a filterable list/detail table in the Lux window.
+
+Beads belongs to this session, not to luxd: luxd runs under launchd with no
+`PATH`, no repository credentials, and no repository working directory, so it
+cannot run `bd`. This session has a repo shell, so it fetches the data and
+services its own menu clicks.
+
+## Step 0: Register this session's Beads menu entry
+
+So the user can reopen the board from the menu bar, register a callback this
+session owns:
+
+1. Call the lux `identify` tool if you have not already this session
+   (`kind="mcp-session"`, `name` your handle, `repo` this repository's absolute
+   path). Registration is refused for an unidentified session.
+2. Call the lux `register_callback` tool with `callback_id="beads"` and
+   `label="Beads"`. On success it returns `registered:beads` and a "Beads" entry
+   appears under this session's submenu in the Lux menu bar.
+
+When the user clicks that entry, lux holds the click for this session. Poll the
+lux `pending_callbacks` tool on your own schedule; when it returns `beads`, run
+this skill again (or `lux show beads`) to refresh the board from this repo's
+shell. This is the same board the steps below build — the click just re-triggers
+the render, which is why luxd never needs to run `bd` itself.
 
 ## Step 1: Fetch the data
 

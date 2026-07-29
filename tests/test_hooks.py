@@ -39,6 +39,33 @@ class TestHandleSessionStart:
             result = handle_session_start()
         assert "on" in _ctx(result)
 
+    def test_display_on_carries_the_beads_callback_convention(self) -> None:
+        # A lux-enabled session must be told to register its own Beads menu entry
+        # and service clicks from its shell — luxd cannot run bd itself.
+        mock_cls = _mock_config_manager(_DISPLAY_ON)
+        with patch("punt_lux.hooks.ConfigManager", mock_cls):
+            ctx = _ctx(handle_session_start())
+        assert "register_callback" in ctx
+        assert "beads" in ctx
+        assert "pending_callbacks" in ctx
+        assert "lux show beads" in ctx
+
+    def test_display_on_instructs_identify_before_registration(self) -> None:
+        # Registration is refused for an unidentified session and nothing else
+        # auto-identifies, so the instruction must lead with identify — otherwise
+        # the Beads entry never appears from SessionStart alone.
+        mock_cls = _mock_config_manager(_DISPLAY_ON)
+        with patch("punt_lux.hooks.ConfigManager", mock_cls):
+            ctx = _ctx(handle_session_start())
+        assert "identify" in ctx
+        assert ctx.index("identify") < ctx.index("register_callback")
+
+    def test_display_off_omits_the_beads_callback_convention(self) -> None:
+        mock_cls = _mock_config_manager(_DISPLAY_OFF)
+        with patch("punt_lux.hooks.ConfigManager", mock_cls):
+            ctx = _ctx(handle_session_start())
+        assert "register_callback" not in ctx
+
     def test_display_off(self) -> None:
         mock_cls = _mock_config_manager(_DISPLAY_OFF)
         with patch("punt_lux.hooks.ConfigManager", mock_cls):

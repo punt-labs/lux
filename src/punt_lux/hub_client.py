@@ -12,7 +12,12 @@ a callback the daemon registers over REST is delivered here.
 The receive loop renews the lease on every contact and reconnects on a dropped
 connection, re-declaring identity and re-subscribing, so a transient network gap is
 invisible to the app: the Hub buffers the clicks it missed and drains them on
-reconnect.
+reconnect. Re-subscribing restores the topic set, but not an app's
+REST/MCP-registered callbacks — those live on the session's lease, which lapses
+during a long gap. An app re-establishes them in the optional ``on_connect``
+callback, which :class:`LuxHubClient` invokes after every handshake — first
+connect and every reconnect — so the register-fresh work runs at the layer that
+owns reconnects rather than in an outer loop the internal reconnect never re-runs.
 """
 
 from __future__ import annotations
@@ -45,12 +50,16 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["CallbackHandler", "EventHandler", "LuxHubClient"]
+__all__ = ["CallbackHandler", "ConnectHandler", "EventHandler", "LuxHubClient"]
 
 # An app handler for a menu click (the callback id) and for a subscribed event
 # (its topic and payload). Either may be sync or async; the loop awaits a coroutine.
 type CallbackHandler = Callable[[str], Awaitable[None] | None]
 type EventHandler = Callable[[str, Mapping[str, object]], Awaitable[None] | None]
+# An app's per-connection setup, run after every handshake: re-register callbacks,
+# re-push scenes. Takes no arguments — the app closes over its own client and
+# identity. Sync or async; the loop awaits a coroutine.
+type ConnectHandler = Callable[[], Awaitable[None] | None]
 
 # Reconnect backoff: start fast, double to a ceiling, reset on a clean session, so a
 # briefly-down Hub is rejoined at once and a long-down one is retried at a sane rate.
@@ -69,6 +78,9 @@ class LuxHubClient:
     _headers: dict[str, str]
     _on_callback: CallbackHandler
     _on_event: EventHandler
+    # None when the app only receives and re-subscription is enough; genuinely
+    # optional per-connection setup, so its absence is a real state, not a default.
+    _on_connect: ConnectHandler | None
     _renew_interval: float
     _topics: set[str]
     _stopped: asyncio.Event
@@ -77,6 +89,7 @@ class LuxHubClient:
         "_connection_id",
         "_headers",
         "_on_callback",
+        "_on_connect",
         "_on_event",
         "_renew_interval",
         "_reresolve",
@@ -92,6 +105,7 @@ class LuxHubClient:
         *,
         on_callback: CallbackHandler,
         on_event: EventHandler,
+        on_connect: ConnectHandler | None = None,
         renew_interval: float = _RENEW_INTERVAL_SECONDS,
         reresolve: bool = False,
     ) -> Self:
@@ -105,6 +119,7 @@ class LuxHubClient:
         self._headers = ClientHeaders.to_wire(identity)
         self._on_callback = on_callback
         self._on_event = on_event
+        self._on_connect = on_connect
         self._renew_interval = renew_interval
         self._topics = set()
         self._stopped = asyncio.Event()
@@ -118,6 +133,7 @@ class LuxHubClient:
         *,
         on_callback: CallbackHandler,
         on_event: EventHandler,
+        on_connect: ConnectHandler | None = None,
         renew_interval: float = _RENEW_INTERVAL_SECONDS,
     ) -> Self:
         """Build a client for ``identity``, resolving luxd's port, or raise if down.
@@ -137,6 +153,7 @@ class LuxHubClient:
             identity,
             on_callback=on_callback,
             on_event=on_event,
+            on_connect=on_connect,
             renew_interval=renew_interval,
             reresolve=True,
         )
@@ -215,12 +232,13 @@ class LuxHubClient:
         await asyncio.sleep(seconds)
 
     async def _run_session(self, connection: ClientConnection) -> None:
-        """Read the handshake, subscribe, then dispatch frames until the socket ends."""
+        """Read the handshake, subscribe, re-register, then dispatch frames."""
         self._connection_id = self._ready(await connection.recv())
         if self._topics:
             await connection.send(
                 SubscribeFrame(topics=tuple(sorted(self._topics))).model_dump_json()
             )
+        await self._fire_on_connect()
         renew = asyncio.create_task(self._renew_loop(connection))
         try:
             async for raw in connection:
@@ -229,6 +247,27 @@ class LuxHubClient:
             renew.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await renew
+
+    async def _fire_on_connect(self) -> None:
+        """Run the app's per-connection setup after a handshake, isolated from the loop.
+
+        A raising ``on_connect`` is logged and the session proceeds — it does not
+        reconnect. ``on_connect`` is an app side effect (re-register callbacks,
+        re-push scenes), not part of the transport, so a failed registration must
+        not tear down a healthy socket: coupling transport liveness to app-logic
+        success would turn a deterministically-raising callback (an app bug) into a
+        reconnect/backoff loop hammering luxd, and it would strip the app of control
+        over its own retry. The connection stays up and keeps delivering clicks and
+        events; the app retries its setup on its own schedule or at the next natural
+        reconnect. This mirrors the Hub-side router wake, which also logs and
+        continues rather than letting a callout kill the loop.
+        """
+        if self._on_connect is None:
+            return
+        try:
+            await self._await_maybe(self._on_connect())
+        except Exception:
+            logger.exception("on_connect callback failed; the session continues")
 
     @staticmethod
     def _ready(raw: str | bytes) -> str:

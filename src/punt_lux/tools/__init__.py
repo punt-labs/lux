@@ -53,11 +53,12 @@ from punt_lux.tools.composite_tools import (
 )
 
 # Importing subscribe_tools.py registers Agent Subscribe / Publish tools (``recv``)
-# and the menu-callback pickup tool (``pending_callbacks``).
+# and the menu-callback tools (``register_callback``, ``pending_callbacks``).
 from punt_lux.tools.subscribe_tools import (
     pending_callbacks,
     publish,
     recv,
+    register_callback,
     subscribe,
     unsubscribe,
 )
@@ -81,6 +82,7 @@ __all__ = [
     "ping",
     "publish",
     "recv",
+    "register_callback",
     "screenshot",
     "set_display_mode",
     "set_frame_state",

@@ -71,6 +71,44 @@ def _reads_port(value: int | None) -> Callable[[HubPaths], int | None]:
     return _read
 
 
+class _FakeConnection:
+    """A stand-in websocket: a ready handshake, then an immediately-ended stream.
+
+    ``recv`` returns the handshake frame and async-iteration stops at once, so a
+    session runs its handshake and ``on_connect`` and returns, which drives the
+    listen loop's reconnect. Reused across connects — it holds no per-session state.
+    """
+
+    async def __aenter__(self) -> _FakeConnection:
+        return self
+
+    async def __aexit__(self, *_exc: object) -> bool:
+        return False
+
+    async def recv(self) -> str:
+        return ReadyFrame(connection_id="c").model_dump_json()
+
+    async def send(self, _frame: str) -> None:
+        return None
+
+    def __aiter__(self) -> _FakeConnection:
+        return self
+
+    async def __anext__(self) -> str:
+        raise StopAsyncIteration
+
+
+def _client_with_on_connect(on_connect: Callable[[], None]) -> LuxHubClient:
+    """A pinned client (no port file) carrying an ``on_connect`` callback."""
+    return LuxHubClient(
+        "ws://127.0.0.1:0/ws",
+        _identity(),
+        on_callback=_noop_callback,
+        on_event=_noop_event,
+        on_connect=on_connect,
+    )
+
+
 def test_a_callback_frame_dispatches_to_the_callback_handler() -> None:
     seen: list[str] = []
     client = _client(on_callback=seen.append)
@@ -145,6 +183,58 @@ def test_a_subscribe_frame_round_trips_through_the_wire() -> None:
         frame.model_dump_json()
         == '{"kind":"subscribe","topics":["music.play","music.stop"]}'
     )
+
+
+def test_on_connect_fires_after_the_first_connect_and_again_after_a_reconnect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The register-fresh callback runs after every handshake, not just the first:
+    # the internal reconnect restores subscriptions but not lease-expired callbacks,
+    # so an app re-registers here. Each fake session ends at once, driving a clean
+    # reconnect; on_connect stops the loop after the second so the test terminates.
+    ids: list[str] = []
+
+    def on_connect() -> None:
+        ids.append(client.connection_id)  # set by the handshake before this runs
+        if len(ids) >= 2:
+            client.stop()
+
+    client = _client_with_on_connect(on_connect)
+
+    def _connect(*_a: object, **_k: object) -> _FakeConnection:
+        return _FakeConnection()
+
+    monkeypatch.setattr(websockets, "connect", _connect)
+
+    asyncio.run(client.listen())
+
+    # Fired once per handshake, and each ran after the connection id was bound.
+    assert ids == ["c", "c"]
+
+
+def test_a_raising_on_connect_is_isolated_and_the_listen_loop_survives(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A failed register-fresh must not tear down a healthy connection: the callout
+    # is logged and the session proceeds. The loop ends only because the fake
+    # connection stops it, and listen() returns rather than propagating the error.
+    calls: list[int] = []
+
+    def on_connect() -> None:
+        calls.append(1)
+        raise RuntimeError("register-fresh failed")
+
+    client = _client_with_on_connect(on_connect)
+
+    def _connect(*_a: object, **_k: object) -> _FakeConnection:
+        client.stop()  # end after this one session so the loop terminates
+        return _FakeConnection()
+
+    monkeypatch.setattr(websockets, "connect", _connect)
+
+    # listen() must not raise — the RuntimeError was isolated, not propagated.
+    asyncio.run(client.listen())
+    assert calls == [1]
 
 
 def test_a_reconnect_re_resolves_a_changed_port_file_value(

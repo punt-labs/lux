@@ -35,7 +35,7 @@ from punt_lux.rest_transport import HttpTransport, HubUnavailableError
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.client_identity import ClientIdentity
-    from punt_lux.hub_client import CallbackHandler, EventHandler
+    from punt_lux.hub_client import CallbackHandler, ConnectHandler, EventHandler
 
 __all__ = ["LuxRestClient"]
 
@@ -94,16 +94,27 @@ class LuxRestClient:
         return cls(LoopbackTransport(port, timeout), identity)
 
     def listener(
-        self, *, on_callback: CallbackHandler, on_event: EventHandler
+        self,
+        *,
+        on_callback: CallbackHandler,
+        on_event: EventHandler,
+        on_connect: ConnectHandler | None = None,
     ) -> LuxHubClient:
         """Build a persistent listen client that shares this client's identity.
 
         Scene pushes stay on this REST client; the returned :class:`LuxHubClient`
         holds the WebSocket listen connection. Both carry one identity, so a callback
         this client registers over REST is delivered on the listener's stream.
+
+        Pass ``on_connect`` to re-register those callbacks (and re-push scenes) after
+        every handshake — the listener's internal reconnect restores subscriptions
+        but not lease-expired callbacks, so the register-fresh work belongs here.
         """
         return LuxHubClient.connect(
-            self._identity, on_callback=on_callback, on_event=on_event
+            self._identity,
+            on_callback=on_callback,
+            on_event=on_event,
+            on_connect=on_connect,
         )
 
     def render(self, request: RenderRequest) -> SceneShown | OpError:

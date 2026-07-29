@@ -50,6 +50,7 @@ _EXPECTED_TOOLS = frozenset(
         "ping",
         "publish",
         "recv",
+        "register_callback",
         "screenshot",
         "set_display_mode",
         "set_frame_state",

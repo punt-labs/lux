@@ -1,13 +1,15 @@
-"""MCP tool surface for Agent Subscribe / Publish and menu-callback pickup.
+"""MCP tool surface for Agent Subscribe / Publish and menu callbacks.
 
 The pub-sub tools — ``subscribe``, ``unsubscribe``, ``publish``, ``recv`` — each
 parse their arguments, call one operation on the Hub-owned pub-sub surface scoped
-to the calling session, and format the result. ``pending_callbacks`` is the
-MCP delivery leg for menu clicks: the session polls the invocations owed to it and
-the read drains them. All are session-scoped receive-or-send tools that share the
-same ``_scope`` resolution; the subscription scope, inbox, callback hold, and
-fan-out live in the operations layer, and the inbox helpers are re-exported here
-for tests that snapshot a session's queue.
+to the calling session, and format the result. The two menu-callback tools are
+the session's own end of the callback model: ``register_callback`` puts a menu
+entry in the bar under the calling session's identity, and ``pending_callbacks``
+is the MCP delivery leg for its clicks — the session polls the invocations owed to
+it and the read drains them. All are session-scoped tools that share the same
+``_scope`` resolution; the subscription scope, inbox, callback hold, and fan-out
+live in the operations layer, and the inbox helpers are re-exported here for tests
+that snapshot a session's queue.
 """
 
 from __future__ import annotations
@@ -16,7 +18,8 @@ import json
 
 from punt_lux.domain.hub.inbox import drain_inbox, inbox_for, next_event
 from punt_lux.domain.ids import ConnectionId
-from punt_lux.operations import PendingCallbacks, PublishRequest, Scope
+from punt_lux.operations import OpError, PendingCallbacks, PublishRequest, Scope
+from punt_lux.operations.models.callbacks import RegisterCallbackRequest
 from punt_lux.tools.server import _session_key, mcp
 from punt_lux.tools.tools import OPERATIONS
 
@@ -27,6 +30,7 @@ __all__ = [
     "pending_callbacks",
     "publish",
     "recv",
+    "register_callback",
     "subscribe",
     "unsubscribe",
 ]
@@ -85,6 +89,31 @@ def recv() -> str:
         return "none"
     payload = json.dumps(result.event.payload, sort_keys=True)
     return f"event:{result.event.topic}:{payload}"
+
+
+@mcp.tool()
+def register_callback(callback_id: str, label: str) -> str:
+    """Register one menu callback the calling session owns and services.
+
+    ``label`` is the entry the display shows under this session's submenu;
+    ``callback_id`` is the id its clicks carry back. Registration requires an
+    identified session — an unidentified caller is refused with
+    ``"error: <identify challenge>"`` and owns nothing, the same challenge REST's
+    anonymous writes receive (MCP scene writes carry no such gate). On success
+    returns
+    ``"registered:<callback_id>"``; the replicator pushes the updated bar. Poll
+    ``pending_callbacks`` to pick up the clicks this entry produces. A callback
+    lives on its session and leaves the menu when the session's lease lapses, so
+    there is no separate withdrawal — disconnecting or letting the lease expire
+    removes it.
+    """
+    result = OPERATIONS.register_callback(
+        RegisterCallbackRequest.parse(callback_id=callback_id, label=label),
+        scope=_scope(),
+    )
+    if isinstance(result, OpError):
+        return f"error: {result.reason}"
+    return f"registered:{callback_id}"
 
 
 @mcp.tool()
