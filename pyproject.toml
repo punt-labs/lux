@@ -31,6 +31,10 @@ dependencies = [
     "starlette>=1.3.1,<2",
     "fastapi>=0.115.0,<1",
     "uvicorn>=0.34.0",
+    # The persistent hub client (LuxHubClient) speaks the WebSocket listen leg;
+    # uvicorn already resolves websockets for its own server protocol, so this only
+    # makes the client's dependency explicit rather than pulling a new package.
+    "websockets>=16.0,<17",
 ]
 
 [project.optional-dependencies]

@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Self, final
 from urllib.parse import quote, urlencode
 
 from punt_lux.cli_identity import CliIdentity
+from punt_lux.hub_client import LuxHubClient
 from punt_lux.hub_paths import HubPaths
 from punt_lux.identity_headers import ClientHeaders
 from punt_lux.operations import (
@@ -32,6 +33,7 @@ from punt_lux.rest_transport import HttpTransport, HubUnavailableError
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.client_identity import ClientIdentity
+    from punt_lux.hub_client import CallbackHandler, EventHandler
 
 __all__ = ["LuxRestClient"]
 
@@ -46,12 +48,14 @@ class LuxRestClient:
     """
 
     _transport: HttpTransport
+    _identity: ClientIdentity
     _headers: dict[str, str]
-    __slots__ = ("_headers", "_transport")
+    __slots__ = ("_headers", "_identity", "_transport")
 
     def __new__(cls, transport: HttpTransport, identity: ClientIdentity) -> Self:
         self = super().__new__(cls)
         self._transport = transport
+        self._identity = identity
         self._headers = ClientHeaders.to_wire(identity)
         return self
 
@@ -62,12 +66,35 @@ class LuxRestClient:
         The client's identity is derived from the invocation's context every run —
         a ``LUX_CLIENT`` override, else the git repository, else headless.
         """
+        return cls.for_identity(CliIdentity.resolve(), timeout=timeout)
+
+    @classmethod
+    def for_identity(cls, identity: ClientIdentity, *, timeout: float = 2.0) -> Self:
+        """Build a client that declares ``identity``, or raise if luxd is not running.
+
+        A daemon that both pushes scenes and holds a listen connection builds one
+        client here from its own app identity, then :meth:`listener` shares that
+        identity so both legs resolve to a single connection.
+        """
         port = HubPaths().read_port()
         if port is None:
             raise HubUnavailableError(
                 "luxd is not running. Run 'lux hub-install' to register the service."
             )
-        return cls(LoopbackTransport(port, timeout), CliIdentity.resolve())
+        return cls(LoopbackTransport(port, timeout), identity)
+
+    def listener(
+        self, *, on_callback: CallbackHandler, on_event: EventHandler
+    ) -> LuxHubClient:
+        """Build a persistent listen client that shares this client's identity.
+
+        Scene pushes stay on this REST client; the returned :class:`LuxHubClient`
+        holds the WebSocket listen connection. Both carry one identity, so a callback
+        this client registers over REST is delivered on the listener's stream.
+        """
+        return LuxHubClient.connect(
+            self._identity, on_callback=on_callback, on_event=on_event
+        )
 
     def render(self, request: RenderRequest) -> SceneShown | OpError:
         """Install a whole scene through ``PUT /scenes/{scene_id}``.
