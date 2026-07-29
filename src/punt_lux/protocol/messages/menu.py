@@ -36,16 +36,6 @@ def _menu_to_dict(m: MenuMessage) -> dict[str, Any]:
     return {"type": m.type, "menus": m.menus}
 
 
-def _callback_menu_to_dict(m: CallbackMenuMessage) -> dict[str, Any]:
-    return {"type": m.type, "submenus": m.submenus}
-
-
-def _callback_menu_from_dict(d: dict[str, Any]) -> CallbackMenuMessage:
-    # The Hub composes these submenus and re-sends the whole set, so the decode
-    # trusts the wire like the sibling menu codec rather than re-filtering it.
-    return CallbackMenuMessage(submenus=d.get("submenus", []))
-
-
 def _theme_to_dict(m: ThemeMessage) -> dict[str, Any]:
     return {"type": m.type, "theme": m.theme}
 
@@ -70,7 +60,7 @@ def register_codecs(register: _Register) -> None:
     register(
         "callback_menu",
         CallbackMenuMessage,
-        _callback_menu_to_dict,
-        _callback_menu_from_dict,
+        CallbackMenuMessage.to_dict,
+        CallbackMenuMessage.from_dict,
     )
     register("theme", ThemeMessage, _theme_to_dict, _theme_from_dict)

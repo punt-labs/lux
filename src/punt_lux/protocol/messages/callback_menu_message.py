@@ -26,3 +26,16 @@ class CallbackMenuMessage:
 
     submenus: list[dict[str, Any]]  # [{label, items: [{label, id}]}]
     type: Literal["callback_menu"] = "callback_menu"
+
+    def to_dict(self) -> dict[str, Any]:
+        """Render as the wire dict the message registry transports."""
+        return {"type": self.type, "submenus": self.submenus}
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> CallbackMenuMessage:
+        """Rebuild from the wire dict.
+
+        The Hub composes these submenus and re-sends the whole set, so the decode
+        trusts the wire like the sibling menu codec rather than re-filtering it.
+        """
+        return cls(submenus=d.get("submenus", []))
