@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from punt_lux.rest_http_call import HttpCall
 from punt_lux.rest_loopback import LoopbackTransport
 from punt_lux.rest_transport import HubUnavailableError
 
@@ -46,7 +47,7 @@ def test_loopback_transport_wraps_a_refused_connection() -> None:
     with _bound_unlistened_port() as port:
         transport = LoopbackTransport(port, timeout=1.0)
         with pytest.raises(HubUnavailableError, match="not reachable"):
-            transport.request("GET", "/display/ping", None)
+            transport.request(HttpCall.read("/display/ping", {}))
 
 
 def test_loopback_transport_sends_json_and_reads_the_reply() -> None:
@@ -57,6 +58,7 @@ def test_loopback_transport_sends_json_and_reads_the_reply() -> None:
             length = int(self.headers.get("Content-Length", "0"))
             captured["path"] = self.path
             captured["content_type"] = self.headers.get("Content-Type")
+            captured["client_name"] = self.headers.get("X-Lux-Client-Name")
             captured["body"] = self.rfile.read(length)
             self.send_response(200)
             self.end_headers()
@@ -70,14 +72,19 @@ def test_loopback_transport_sends_json_and_reads_the_reply() -> None:
     worker.start()
     try:
         transport = LoopbackTransport(server.server_address[1], timeout=2.0)
-        response = transport.request("PUT", "/scenes/s1", b'{"scene_id":"s1"}')
+        call = HttpCall(
+            "PUT", "/scenes/s1", b'{"scene_id":"s1"}', {"X-Lux-Client-Name": "cli-tool"}
+        )
+        response = transport.request(call)
     finally:
         worker.join(timeout=2.0)
         server.server_close()
-    # The reply was read back, and the connection carried a JSON content-type and
-    # the exact path. The request returned (the finally-close ran) without leak.
+    # The reply was read back, and the connection carried a JSON content-type, the
+    # exact path, and the caller's identity header. The request returned (the
+    # finally-close ran) without leak.
     assert response.status == 200
     assert response.body == b'{"kind":"ok","scene_id":"s1"}'
     assert captured["path"] == "/scenes/s1"
     assert captured["content_type"] == "application/json"
+    assert captured["client_name"] == "cli-tool"
     assert captured["body"] == b'{"scene_id":"s1"}'

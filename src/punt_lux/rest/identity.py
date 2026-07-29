@@ -22,13 +22,14 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from punt_lux.domain.ids import ConnectionId
+from punt_lux.identity_headers import ClientHeaders
 from punt_lux.operations.scope import Scope
 
 if TYPE_CHECKING:
     from punt_lux.operations import Operations
     from punt_lux.rest.status import HttpErrorMap
 
-__all__ = ["CHALLENGE_HEADER", "RestCaller", "resolve_scope"]
+__all__ = ["RestCaller", "resolve_scope"]
 
 
 def resolve_scope(request: Request, response: Response) -> Scope:
@@ -42,14 +43,6 @@ def resolve_scope(request: Request, response: Response) -> Scope:
     return caller.resolve(request, response)
 
 
-# The response header an identity-less write carries — the HTTP analogue of a
-# 401/403 challenge. A caller learns from it that owning UI needs an identity.
-CHALLENGE_HEADER: Final = "X-Lux-Identification-Required"
-
-_KIND = "X-Lux-Client-Kind"
-_NAME = "X-Lux-Client-Name"
-_REPO = "X-Lux-Client-Repo"
-_AGENT = "X-Lux-Client-Agent"
 _CHALLENGE_REASON: Final = "declare an identity to own the scenes this request creates"
 
 
@@ -77,7 +70,7 @@ class RestCaller:
         """
         declaration = self._declaration(request)
         if declaration is None:
-            response.headers[CHALLENGE_HEADER] = _CHALLENGE_REASON
+            response.headers[ClientHeaders.CHALLENGE] = _CHALLENGE_REASON
             return Scope(ConnectionId(f"anon-{uuid.uuid4().hex[:12]}"))
         scope = Scope(self._connection_for(declaration))
         self._errors.respond(self._ops.identify(declaration, scope=scope))
@@ -85,24 +78,14 @@ class RestCaller:
 
     @staticmethod
     def _declaration(request: Request) -> dict[str, object] | None:
-        """Read the identity headers into a declaration, or ``None`` if unnamed.
+        """Read this request's identity headers into a declaration, or ``None``.
 
-        A request is identified when it names itself; ``kind`` defaults to ``cli``.
-        A blank or whitespace-only header equals no header — dropped, not passed to
-        ``identify`` (which rejects a blank repo/agent); it validates what remains.
+        RestCaller is the HTTP adapter: it pulls the headers off the starlette
+        request and hands their shape to the one shared :class:`ClientHeaders`
+        contract, so ``resolve`` never touches ``request.headers`` directly and the
+        header names live in a single place both the client and the Hub read.
         """
-        name = request.headers.get(_NAME, "").strip()
-        if not name:
-            return None
-        declaration: dict[str, object] = {
-            "kind": request.headers.get(_KIND, "cli"),
-            "name": name,
-        }
-        for field, header in (("repo", _REPO), ("agent", _AGENT)):
-            value = request.headers.get(header, "").strip()
-            if value:
-                declaration[field] = value
-        return declaration
+        return ClientHeaders.declaration_from(request.headers)
 
     @staticmethod
     def _connection_for(declaration: dict[str, object]) -> ConnectionId:
