@@ -153,31 +153,35 @@ design's first PR merged the registry; the lease is the registry's next field,
 implemented in the identity train and consumed here. The menu model does not
 introduce a second registry — it reads the one that already exists.
 
-### Rendering: flat for one callback, grouped for several, never collapsed
+### Rendering: session ▸ callback, uniformly
 
-One rule never bends: two callbacks that belong to two different sessions never
-share a menu entry, even when they have the same label and do the same thing.
-How a single session's callbacks render depends on how many that session has, so
-the menu stays fast to read:
+The menu nests one way and one way only: session first, callbacks as its leaves.
+Every session becomes one submenu labeled from its identity, and that session's
+callbacks are the entries under it. This holds no matter how many callbacks a
+session has — a session with one callback is a submenu with a single leaf, a
+session with several is a submenu with several leaves. There is no case logic and
+no count threshold that switches the shape.
 
-- A session with **one** callback renders as **one flat labeled entry**. The
-  label carries the session's repository, so the user reads it in a single scan —
-  "Beads — vox" — with no submenu to expand.
-- A session with **several** callbacks renders as **one session-labeled group**
-  with the callbacks as bare leaves under it — "vox ▸ Beads, Dashboard" — so the
-  repository is named once on the group, not repeated on every line.
+> **RULED (operator, 2026-07-29):** "Would only do it one way: Session-name ->
+> callback-name. No case logic."
+
+The uniform nesting was chosen deliberately over count-dependent flattening. An
+earlier revision special-cased a one-callback session into a flat labeled entry
+("Beads — vox") and only nested when a session had several callbacks. The
+operator struck that: the menu never flattens by count. The
+eight-sessions-one-callback case renders as eight single-leaf submenus, by
+design — "vox ▸ Beads," "lux ▸ Beads," "quarry ▸ Beads," and so on — not as eight
+flat entries. One shape, every time.
 
 The pretty name for each session comes from its `ClientIdentity` in the
 registry: a display name and the repository it connects from.
 
-This is the direct answer to "I see Beads Browser once, which repo?" At the
-operator's exact case — eight Claude Code sessions, one Beads callback each — the
-menu is eight flat entries: "Beads — lux," "Beads — vox," "Beads — quarry," and
-so on, read in a single scan with the repository visible on each. It is never one
-entry the user has to disambiguate, and it is never eight single-item submenus
-the user has to expand one at a time. Two sessions' callbacks are never merged,
-whatever the count — that merge is exactly the confusion the operator reported,
-so the model forbids it.
+This is the direct answer to "I see Beads Browser once, which repo?" The
+repository is named on the submenu, so the user reads which repo an action
+belongs to before opening it. Two callbacks that belong to two different sessions
+never share a menu entry — each session is its own submenu, so they cannot be
+merged. That merge is exactly the confusion the operator reported, and uniform
+per-session nesting forbids it structurally.
 
 ## What Happens on Click
 
@@ -194,14 +198,14 @@ Here is the operator's exact situation, resolved step by step.
    registry with a `ClientIdentity` (name and repository) and a lease matched to
    its cadence, and registers its own Beads callback.
 
-3. The menu shows one entry per live callback, labeled from the session's
-   identity. Each of these sessions has exactly one callback, so each renders as
-   one flat labeled entry: "Beads — lux," "Beads — vox," "Beads — quarry," and so
-   on. Eight sessions with a Beads callback each means eight flat Beads entries,
-   read in a single scan. Nothing is collapsed. The user reads the repository off
-   the label.
+3. The menu nests one submenu per live session, labeled from the session's
+   identity, with that session's callbacks as its leaves. Each of these sessions
+   has exactly one callback, so each renders as a single-leaf submenu: "lux ▸
+   Beads," "vox ▸ Beads," "quarry ▸ Beads," and so on. Eight sessions with a Beads
+   callback each means eight single-leaf submenus. Nothing is collapsed. The user
+   reads the repository off the submenu.
 
-4. The user clicks "Beads — vox."
+4. The user clicks "vox ▸ Beads."
 
 5. The display sends the click to the Hub. The Hub fires a `CallbackInvocation`
    carrying `{session_id, callback_id}` — the vox session and its beads
@@ -213,9 +217,9 @@ Here is the operator's exact situation, resolved step by step.
    `show_table` to install the board. The board shows vox's beads, from vox's
    own working directory, with no `Path.cwd()` guessing anywhere.
 
-The "which repo?" question is answered before the click, by labeling each entry
-with the session that owns it, drawn from the identity the registry already
-holds.
+The "which repo?" question is answered before the click, by nesting each
+callback under the session that owns it, labeled from the identity the registry
+already holds.
 
 ### Pickup is routed by how the session connects
 
@@ -271,14 +275,14 @@ Session registry  (owned by the identity design; lease is a field)
         |  live sessions = those whose lease has not expired
         v
 Menu build
-  one entry per callback of a live session, labeled from ClientIdentity;
-  one callback -> a flat labeled entry, several -> a session group;
+  one submenu per live session, labeled from ClientIdentity,
+  its callbacks as leaves; session -> callback, uniformly, no case logic;
   two sessions are never merged into one entry
         |
         |  menu replica, re-pushed on any change
         |  (including withdrawal when a lease expires)
         v
-Display renders the menu; user clicks "Beads - vox"
+Display renders the menu; user clicks "vox -> Beads"
         |
         |  click
         v
@@ -321,20 +325,21 @@ callbacks are never withdrawn while luxd runs, because its lease never expires.
 
 ## What the Menu Bar Shows
 
-The menu shows the live callbacks, following the count-dependent rendering rule
-above, so the user sees which action belongs to which repository before clicking.
+The menu shows the live callbacks, nested session ▸ callback uniformly as above,
+so the user sees which action belongs to which repository before clicking.
 
 - **Built-in callbacks** — Settings, Windows, Help — appear as luxd's own
-  entries. They are always present because luxd's lease never lapses.
+  session submenu. They are always present because luxd's lease never lapses.
 
-- **A session with one callback** appears as one flat labeled entry. "Beads —
-  vox" is one entry; "Beads — lux" is another; they are never merged. The label
-  carries the repository, so the user never has to ask which repo an entry means,
-  and never has to expand a submenu to reach a single item.
+- **Every session appears as one submenu** labeled from its `ClientIdentity`,
+  with its callbacks as the leaves under it. "vox ▸ Beads" and "lux ▸ Beads" are
+  separate submenus; they are never merged. The submenu carries the repository,
+  so the user never has to ask which repo an entry means.
 
-- **A session with several callbacks** appears as one session-labeled group with
-  its callbacks as bare leaves — "vox ▸ Beads, Dashboard" — so the repository is
-  named once rather than repeated on each line.
+- **The shape does not change with the count.** A session with one callback is a
+  single-leaf submenu; a session with several is a submenu with several leaves.
+  There is no flat-entry special case for a lone callback — the operator ruled
+  for one shape, no case logic.
 
 - **A session that leaves takes its entries with it.** When a lease expires, the
   menu re-pushes without that session's callbacks. The user is never left with a
@@ -416,12 +421,14 @@ renews it.** luxd's built-ins are an ordinary session with a permanent lease, so
 the built-in beads board is no longer a special case. There is no separate renew
 verb.
 
-**Two sessions' callbacks are never merged; rendering is count-dependent.** A
-session with one callback renders as a flat labeled entry ("Beads — vox"); a
-session with several renders as a session-labeled group ("vox ▸ Beads,
-Dashboard"). Every Claude Code repo session has its own callback, labeled from
-`ClientIdentity`, so eight one-callback sessions are eight flat entries — never
-one entry to disambiguate, and never eight single-item submenus to expand.
+**Rendering is session ▸ callback, uniformly — no case logic.** Every session is
+one submenu labeled from its `ClientIdentity`, with its callbacks as the leaves
+under it, whatever the count. The operator ruled: "Would only do it one way:
+Session-name -> callback-name. No case logic." A count-dependent variant that
+flattened a lone callback into a labeled entry was considered and overruled. Two
+sessions' callbacks are never merged; each session is its own submenu, so eight
+one-callback sessions are eight single-leaf submenus — never one entry to
+disambiguate.
 
 **A lease expiring withdraws the session's menu registrations, with a re-push.**
 The click-versus-expiry race is handled reasonably, not with heavy locking: a
@@ -484,10 +491,10 @@ periodic clients — generalizing the display's `PendingInteractions` discipline
 Hub-side. The MCP-stream detail follows the delivery spike.
 
 **PR 3 — the menu bar shows sessions and withdraws on expiry.** Render callbacks
-by the count-dependent rule — a one-callback session as a flat labeled entry, a
-several-callback session as a session-labeled group — labeled from
-`ClientIdentity`, and withdraw a session's entries with a menu re-push when its
-lease expires, including the "provider is gone" notice on the expiry race. Remove
+by the uniform rule — every session one submenu labeled from `ClientIdentity`,
+its callbacks as leaves, whatever the count — and withdraw a session's entries
+with a menu re-push when its lease expires, including the "provider is gone"
+notice on the expiry race. Remove
 the file-descriptor-keyed `menu_registrations` and `menu_owners` fiction from the
 display's menu manager. This is the visible affordance change.
 
