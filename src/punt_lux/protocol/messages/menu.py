@@ -6,6 +6,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal, cast
 
+from punt_lux.protocol.messages.callback_menu_message import CallbackMenuMessage
+
 __all__ = [
     "CallbackMenuMessage",
     "MenuMessage",
@@ -21,21 +23,6 @@ class MenuMessage:
 
     menus: list[dict[str, Any]]  # [{label, items: [{label, id, shortcut?, enabled?}]}]
     type: Literal["menu"] = "menu"
-
-
-@dataclass(frozen=True, slots=True)
-class CallbackMenuMessage:
-    """Replace the session-then-callback submenus the display renders.
-
-    The Hub composes one submenu per live session (``{label, items: [{label,
-    id}]}``) from the session registry — it owns the grouping because it owns the
-    identities and leases — and re-sends the whole set on any change. The display
-    replaces its copy and renders each submenu in the bar; a leaf id is a
-    ``CallbackInvocation`` menu id, so a click round-trips to the owning session.
-    """
-
-    submenus: list[dict[str, Any]]  # [{label, items: [{label, id}]}]
-    type: Literal["callback_menu"] = "callback_menu"
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,7 +56,7 @@ def _callback_menu_to_dict(m: CallbackMenuMessage) -> dict[str, Any]:
 
 def _callback_menu_from_dict(d: dict[str, Any]) -> CallbackMenuMessage:
     raw = d.get("submenus")
-    submenus = cast("list[Any]", raw) if isinstance(raw, list) else []  # type: ignore[redundant-cast]
+    submenus = raw if isinstance(raw, list) else []
     return CallbackMenuMessage(submenus=[e for e in submenus if isinstance(e, dict)])
 
 
