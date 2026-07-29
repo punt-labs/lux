@@ -92,9 +92,9 @@ def pending_callbacks() -> PendingCallbacks:
     """Take the menu-callback clicks owed to the calling session, draining them.
 
     A menu item is a callback this session registered; when the user clicks it, the
-    Hub holds the invocation until the session picks it up. This is that pickup for
-    an MCP session: it returns the callback ids that fired, in click order, and
-    clears them so each is delivered once. Poll it on your own schedule — like
-    ``recv``, it never blocks. Empty means nothing was clicked since the last poll.
+    Hub holds the invocation until the session picks it up. This tool is the MCP
+    pickup leg of that delivery: it returns the callback ids that fired, in click
+    order, and clears them so each is delivered once. Poll it on your own schedule —
+    like ``recv`` it never blocks; an empty result means no click since last poll.
     """
     return OPERATIONS.take_pending_callbacks(scope=_scope())
