@@ -1,19 +1,13 @@
-"""The command-line tool's HTTP client of luxd's REST surface.
+"""The public Python client of luxd's REST surface.
 
-The CLI is the third thin client of the one engine. An MCP agent reaches the Hub
-through a tool and a REST caller through a route; ``lux show beads`` and
-``lux ping`` reach it through :class:`LuxRestClient`. The client locates luxd's
-port, speaks the operations layer's request and result models over HTTP, and
-never touches the display socket — the Hub decides whether the display is
-reachable and answers with a typed result.
-
-The client carries the caller's identity and stamps its ``X-Lux-Client-*`` headers
-on every request, so the Hub attributes each scene the CLI installs to the
-repository the command ran in. Building the request is :class:`HttpCall`'s job and
-reading the reply is :class:`RestReply`'s; the client only orchestrates the two.
-luxd being unreachable is the one exceptional outcome and raises
-:class:`HubUnavailableError`; the Hub's refusal of a reachable request comes back
-as a typed :class:`OpError` in the result.
+:class:`LuxRestClient` is the library surface a consumer imports — the CLI and any
+downstream app use it rather than hand-rolling REST. It locates luxd's port,
+speaks the operations request/result models over HTTP, and never touches the
+display socket. It stamps the caller's ``X-Lux-Client-*`` identity headers on
+every request, so each installed scene is attributed to the caller's repository;
+:class:`HttpCall` builds the request and :class:`RestReply` reads the reply. An
+unreachable luxd raises :class:`HubUnavailableError`; a reachable Hub's refusal
+returns a typed :class:`OpError`.
 """
 
 from __future__ import annotations
@@ -44,7 +38,12 @@ __all__ = ["LuxRestClient"]
 
 @final
 class LuxRestClient:
-    """A thin typed client of luxd's REST routes, owned by the CLI layer."""
+    """The public Python client of luxd — the library surface every consumer uses.
+
+    A downstream app (vox, a headless tool) reaches the Hub through this typed
+    client, not by hand-rolling REST, so it gets the same validation, typing, and
+    identity behavior the CLI does. Build it with :meth:`connect`.
+    """
 
     _transport: HttpTransport
     _headers: dict[str, str]
