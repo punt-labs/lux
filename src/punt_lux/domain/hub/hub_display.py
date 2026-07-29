@@ -65,7 +65,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
     from contextlib import AbstractContextManager
 
-    from punt_lux.domain.hub.client_identity import ClientIdentity, ClientSession
+    from punt_lux.domain.hub.client_identity import ClientIdentity
+    from punt_lux.domain.hub.client_session import ClientSession
 
 __all__ = [
     "HubDisplay",
