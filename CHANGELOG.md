@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-07-29
+
 ### Removed
 
 - **The `register_tool` menu path.** The `register_tool` MCP tool, the
