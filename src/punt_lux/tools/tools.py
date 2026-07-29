@@ -17,7 +17,11 @@ from collections.abc import Callable
 from punt_lux.domain.hub import client_registry, hub, hub_display
 from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.inbox import ensure_writer, next_event
-from punt_lux.domain.hub.replicator_instance import hub_menu_registry, hub_replicator
+from punt_lux.domain.hub.replicator_instance import (
+    hub_callback_router,
+    hub_menu_registry,
+    hub_replicator,
+)
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.operations import (
     DisplayModeState,
@@ -74,6 +78,7 @@ def _build_operations() -> Operations:
         hub=hub,
         client_registry=client_registry,
         menu_registry=hub_menu_registry,
+        callback_router=hub_callback_router,
         ports=_hub_ports(),
     )
 

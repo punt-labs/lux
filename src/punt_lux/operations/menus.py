@@ -19,6 +19,7 @@ from punt_lux.operations.models.menu_results import MenuList, Ok
 if TYPE_CHECKING:
     from punt_lux.domain.hub.menu_models import MenuAction, MenuEntry
     from punt_lux.domain.hub.menu_registry import HubMenuRegistry
+    from punt_lux.operations.callbacks import CallbackMenuSource
     from punt_lux.operations.models.menu_results import SetMenuRequest
     from punt_lux.operations.models.register_tool import RegisterToolRequest
     from punt_lux.operations.ports import DirtyMarker
@@ -39,12 +40,19 @@ class MenuOperations:
 
     _registry: HubMenuRegistry
     _replicator: DirtyMarker
-    __slots__ = ("_registry", "_replicator")
+    _callback_menus: CallbackMenuSource
+    __slots__ = ("_callback_menus", "_registry", "_replicator")
 
-    def __new__(cls, registry: HubMenuRegistry, replicator: DirtyMarker) -> Self:
+    def __new__(
+        cls,
+        registry: HubMenuRegistry,
+        replicator: DirtyMarker,
+        callback_menus: CallbackMenuSource,
+    ) -> Self:
         self = super().__new__(cls)
         self._registry = registry
         self._replicator = replicator
+        self._callback_menus = callback_menus
         return self
 
     def set_menu(self, request: SetMenuRequest | OpError) -> Ok | OpError:
@@ -78,15 +86,17 @@ class MenuOperations:
     def list_menus(self) -> MenuList:
         """Return the whole Hub-authoritative menu state with no reach-around.
 
-        Reports the agent menu bar plus, when any tool items are registered, the
-        Applications menu composed exactly as the display renders it: a per-client
-        submenu (luxd's label) holding the items sorted by label. One read
-        inventories everything the Hub owns, matching what is on screen.
+        Reports the agent menu bar, then — when any tool items are registered — the
+        legacy Applications menu, then the session-then-callback submenus for the
+        live sessions. One read inventories every menu the Hub owns: the legacy
+        registry path and the callback model side by side, as the migration builds
+        the second out from under the first.
         """
         menus = list(self._registry.menu_bar())
         items = self._registry.registered_items()
         if items:
             menus.append(self._applications_menu(items))
+        menus.extend(self._callback_menus.callback_menus())
         return MenuList(menus=menus)
 
     @staticmethod

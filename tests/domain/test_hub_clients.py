@@ -14,8 +14,10 @@ from __future__ import annotations
 import threading
 from typing import final
 
-from punt_lux.domain.hub.client_identity import ClientIdentity, ClientSession
+from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.domain.hub.client_session import ClientSession
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
+from punt_lux.domain.hub.session_callback import SessionCallback
 from punt_lux.domain.ids import ConnectionId
 
 
@@ -211,6 +213,62 @@ def test_repos_excludes_a_session_whose_lease_lapsed() -> None:
     assert reg.repos() == frozenset({"/w/lux"})
     clock.advance(91.0)
     assert reg.repos() == frozenset()  # the lapsed session drops from live-context
+
+
+def _beads() -> SessionCallback:
+    return SessionCallback(id="beads", label="Beads")
+
+
+def test_register_callback_stores_it_on_an_identified_session() -> None:
+    reg = HubClientRegistry()
+    conn = ConnectionId("mcp")
+    reg.record(conn, ClientIdentity(kind="mcp-session", name="claude", repo="/w/lux"))
+    assert reg.register_callback(conn, _beads()) is True
+    assert reg.sessions()[conn].callbacks == (_beads(),)
+
+
+def test_register_callback_refuses_an_unidentified_session() -> None:
+    reg = HubClientRegistry()
+    conn = ConnectionId("bare")
+    reg.record(conn)  # bound but no identity declared
+    assert reg.register_callback(conn, _beads()) is False
+    assert reg.sessions()[conn].callbacks == ()
+
+
+def test_register_callback_refuses_an_unknown_session() -> None:
+    reg = HubClientRegistry()
+    assert reg.register_callback(ConnectionId("never"), _beads()) is False
+
+
+def test_register_callback_refuses_a_lapsed_session() -> None:
+    clock = _Clock()
+    reg = HubClientRegistry(clock)
+    conn = ConnectionId("cli")
+    reg.record(conn, _cli())
+    clock.advance(91.0)  # past the 90s cli lease
+    assert reg.register_callback(conn, _beads()) is False
+
+
+def test_registering_the_same_id_replaces_the_earlier_callback() -> None:
+    reg = HubClientRegistry()
+    conn = ConnectionId("mcp")
+    reg.record(conn, ClientIdentity(kind="mcp-session", name="claude", repo="/w/lux"))
+    reg.register_callback(conn, SessionCallback(id="beads", label="Beads"))
+    reg.register_callback(conn, SessionCallback(id="beads", label="Beads Browser"))
+    callbacks = reg.sessions()[conn].callbacks
+    assert callbacks == (SessionCallback(id="beads", label="Beads Browser"),)
+
+
+def test_a_lapsed_lease_sweeps_the_session_and_its_callbacks_together() -> None:
+    clock = _Clock()
+    reg = HubClientRegistry(clock)
+    conn = ConnectionId("cli")
+    reg.record(conn, _cli())
+    reg.register_callback(conn, _beads())
+    clock.advance(91.0)  # past the cli lease
+    # The live read sweeps the session; its callbacks leave in the same motion.
+    assert reg.live_sessions() == {}
+    assert reg.sessions() == {}
 
 
 def test_discard_is_a_noop_when_absent() -> None:

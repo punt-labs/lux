@@ -12,6 +12,7 @@ import pytest
 from punt_lux.display_client import agent_element_factory
 from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.hub import client_registry, hub
+from punt_lux.domain.hub.callback_hold import CallbackRouter
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.inbox import ensure_writer, next_event
@@ -978,6 +979,7 @@ def _bind_store(monkeypatch: pytest.MonkeyPatch, store: HubDisplay) -> MagicMock
         hub=hub,
         client_registry=client_registry,
         menu_registry=HubMenuRegistry(),
+        callback_router=CallbackRouter(store.clients),
         ports=HubPorts(
             element_factory=hub_element_factory,
             ensure_writer=ensure_writer,
@@ -1006,12 +1008,14 @@ def _bind_pubsub(
     def _no_writer(_connection_id: ConnectionId) -> None:
         return None
 
+    display = HubDisplay()
     ops = Operations.for_store(
-        HubDisplay(),
+        display,
         _ReplicatorSpy(),
         hub=hub,
         client_registry=client_registry,
         menu_registry=HubMenuRegistry(),
+        callback_router=CallbackRouter(display.clients),
         ports=HubPorts(
             element_factory=hub_element_factory,
             ensure_writer=_no_writer,

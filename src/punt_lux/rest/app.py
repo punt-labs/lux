@@ -19,7 +19,11 @@ from pydantic import BaseModel, ConfigDict
 from punt_lux.domain.hub import client_registry, hub, hub_display
 from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.inbox import ensure_writer, next_event
-from punt_lux.domain.hub.replicator_instance import hub_menu_registry, hub_replicator
+from punt_lux.domain.hub.replicator_instance import (
+    hub_callback_router,
+    hub_menu_registry,
+    hub_replicator,
+)
 from punt_lux.operations import HubPorts, Operations
 from punt_lux.operations.display_connection import HubDisplayConnection
 from punt_lux.paths import DisplayPaths
@@ -94,6 +98,7 @@ class RestSurface:
             hub=hub,
             client_registry=client_registry,
             menu_registry=hub_menu_registry,
+            callback_router=hub_callback_router,
             ports=ports,
         )
 

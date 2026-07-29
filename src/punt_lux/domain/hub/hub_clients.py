@@ -14,13 +14,14 @@ import time
 from operator import attrgetter
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.client_identity import ClientSession
+from punt_lux.domain.hub.client_session import ClientSession
 from punt_lux.domain.ids import ConnectionId
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
     from punt_lux.domain.hub.client_identity import ClientIdentity
+    from punt_lux.domain.hub.session_callback import SessionCallback
 
 __all__ = ["HubClientRegistry"]
 
@@ -57,6 +58,28 @@ class HubClientRegistry:
             self._sessions[connection_id] = (
                 base.with_identity(identity) if identity is not None else base
             )
+
+    def register_callback(
+        self, connection_id: ConnectionId, callback: SessionCallback
+    ) -> bool:
+        """Register ``callback`` on an identified live session; report whether it took.
+
+        The callback lives on the session, so this is one guarded upsert under the
+        registry's own lock — the same lock ``record`` and the live reads hold, so
+        withdrawal on a lapsed lease needs no second lock and cannot race the sweep.
+        The session itself decides whether it accepts the callback (``registering``
+        returns ``None`` from an unknown, unidentified, or lapsed session); the
+        registry stores the returned session or leaves the store untouched, and the
+        caller turns a ``False`` into an identify challenge.
+        """
+        with self._lock:
+            now = self._clock()
+            session = self._sessions.get(connection_id)
+            updated = None if session is None else session.registering(callback, now)
+            self._sessions.update(
+                {connection_id: updated} if updated is not None else {}
+            )
+            return updated is not None
 
     def session_of(self, connection_id: ConnectionId) -> ClientSession | None:
         """Return the connection's raw session, or ``None``, with no lease filter.

@@ -9,7 +9,8 @@ round-trips the separator sentinel through the typed model.
 
 from __future__ import annotations
 
-from typing import Self
+from collections.abc import Sequence
+from typing import Self, final
 
 import pytest
 from pydantic import ValidationError
@@ -23,6 +24,21 @@ from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.menu_results import MenuList, Ok, SetMenuRequest
 from punt_lux.operations.models.register_tool import RegisterToolRequest
 from punt_lux.operations.scope import Scope
+
+
+@final
+class _CallbackMenus:
+    """A CallbackMenuSource returning fixed submenus — the callback model's side."""
+
+    _menus: list[Menu]
+
+    def __new__(cls, menus: Sequence[Menu] = ()) -> Self:
+        self = super().__new__(cls)
+        self._menus = list(menus)
+        return self
+
+    def callback_menus(self) -> list[Menu]:
+        return list(self._menus)
 
 
 class _MenuMarkerSpy:
@@ -50,7 +66,7 @@ class _MenuMarkerSpy:
 def test_set_menu_writes_the_registry_and_pushes_via_the_replicator() -> None:
     registry = HubMenuRegistry()
     marker = _MenuMarkerSpy()
-    ops = MenuOperations(registry, marker)
+    ops = MenuOperations(registry, marker, _CallbackMenus())
 
     request = SetMenuRequest.parse(
         [{"label": "File", "items": [{"label": "Run", "id": "run"}]}]
@@ -147,7 +163,7 @@ def test_register_tool_request_rejects_an_empty_label() -> None:
 def test_register_menu_item_scopes_to_the_connection_and_pushes() -> None:
     registry = HubMenuRegistry()
     marker = _MenuMarkerSpy()
-    ops = MenuOperations(registry, marker)
+    ops = MenuOperations(registry, marker, _CallbackMenus())
 
     result = ops.register_menu_item(
         RegisterToolRequest(tool_id="build", label="Build"),
@@ -166,7 +182,7 @@ def test_register_menu_item_passes_a_parse_error_through_without_pushing() -> No
     # adapter renders, and no push is flagged because nothing was registered.
     registry = HubMenuRegistry()
     marker = _MenuMarkerSpy()
-    ops = MenuOperations(registry, marker)
+    ops = MenuOperations(registry, marker, _CallbackMenus())
 
     result = ops.register_menu_item(
         RegisterToolRequest.parse(
@@ -184,7 +200,7 @@ def test_register_menu_item_passes_a_parse_error_through_without_pushing() -> No
 
 def test_list_menus_round_trips_the_separator_sentinel() -> None:
     registry = HubMenuRegistry()
-    ops = MenuOperations(registry, _MenuMarkerSpy())
+    ops = MenuOperations(registry, _MenuMarkerSpy(), _CallbackMenus())
     ops.set_menu(
         SetMenuRequest.parse(
             [
@@ -210,7 +226,7 @@ def test_drop_session_forgets_items_and_re_pushes_so_no_stale_menu_lingers() -> 
     # until the next unrelated menu write.
     registry = HubMenuRegistry()
     marker = _MenuMarkerSpy()
-    ops = MenuOperations(registry, marker)
+    ops = MenuOperations(registry, marker, _CallbackMenus())
     scope = Scope(ConnectionId("c1"))
     ops.register_menu_item(RegisterToolRequest(tool_id="x", label="X"), scope=scope)
 
@@ -227,7 +243,7 @@ def test_list_menus_reports_the_display_applications_composition() -> None:
     # → the client's submenu (luxd's label), items sorted by label — not an
     # invented "Tools" group.
     registry = HubMenuRegistry()
-    ops = MenuOperations(registry, _MenuMarkerSpy())
+    ops = MenuOperations(registry, _MenuMarkerSpy(), _CallbackMenus())
     conn = Scope(ConnectionId("c1"))
     ops.register_menu_item(RegisterToolRequest(tool_id="z", label="Zebra"), scope=conn)
     ops.register_menu_item(RegisterToolRequest(tool_id="a", label="Apple"), scope=conn)
@@ -243,11 +259,25 @@ def test_list_menus_reports_the_display_applications_composition() -> None:
     assert labels == ["Apple", "Zebra"]
 
 
+def test_list_menus_appends_the_callback_submenus_alongside_the_legacy_bar() -> None:
+    # The migration reads both paths side by side: the legacy agent bar first,
+    # then the session-then-callback submenus the callback model contributes.
+    registry = HubMenuRegistry()
+    callback_submenu = Menu(
+        label="vox — /w/vox", items=[MenuAction(id="c", label="Beads")]
+    )
+    ops = MenuOperations(registry, _MenuMarkerSpy(), _CallbackMenus([callback_submenu]))
+    ops.set_menu(SetMenuRequest.parse([{"label": "File", "items": []}]))
+
+    labels = [menu.label for menu in ops.list_menus().menus]
+    assert labels == ["File", "vox — /w/vox"]
+
+
 def test_list_menus_keeps_an_action_labelled_like_the_separator() -> None:
     # An action carrying an id survives round-trip as an action even when its
     # label is the "---" sentinel — discrimination is on the id, not the label.
     registry = HubMenuRegistry()
-    ops = MenuOperations(registry, _MenuMarkerSpy())
+    ops = MenuOperations(registry, _MenuMarkerSpy(), _CallbackMenus())
     ops.set_menu(
         SetMenuRequest.parse(
             [{"label": "Edit", "items": [{"label": "---", "id": "dash"}]}]

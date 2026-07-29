@@ -14,6 +14,7 @@ from collections.abc import Mapping
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from punt_lux.domain.hub.callback_hold import CallbackRouter
 from punt_lux.domain.hub.clients import ClientRegistry
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
@@ -99,12 +100,14 @@ def make_facade(*, display_port: object, store: HubDisplay | None = None) -> Ope
     installed; a fresh one is made when it is not supplied.
     """
     inbox = ForbiddenInbox()
+    display = store if store is not None else HubDisplay()
     return Operations.for_store(
-        store if store is not None else HubDisplay(),
+        display,
         Recorder(),
         hub=Hub(),
         client_registry=ClientRegistry(),
         menu_registry=HubMenuRegistry(),
+        callback_router=CallbackRouter(display.clients),
         ports=HubPorts(
             element_factory=hub_element_factory,
             ensure_writer=inbox.ensure_writer,

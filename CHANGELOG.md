@@ -19,6 +19,16 @@
 
 ### Added
 
+- **Menu items are session callbacks now.** An identified session registers a
+  named callback (`POST /menus/callbacks`, guarded by the same identity
+  challenge as a scene write); the menu shows one submenu per live session that
+  registered one, labeled from the session's identity and the repository it
+  connects from, with its callbacks as the leaves — the uniform
+  session-then-callback shape, whatever the count, and two sessions are never
+  merged. A callback lives on its session, so it leaves the menu the moment the
+  session's lease lapses. A click routes to the owning session's bounded hold;
+  the delivery legs that drain it, and the display rendering, arrive in the
+  following slices. See `docs/architecture/menu-capability-model.md`.
 - **`LuxRestClient` is the public Python library API.** `from punt_lux import
   LuxRestClient` — typed requests and results, no display extras required, and
   client identity built in. Python programs use the library; shell scripts and

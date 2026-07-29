@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from punt_lux.domain.element import Element as WireElement
-    from punt_lux.domain.hub.client_identity import ClientSession
+    from punt_lux.domain.hub.client_session import ClientSession
     from punt_lux.domain.hub.element_index import ElementIndex
     from punt_lux.domain.hub.hub_clients import HubClientRegistry
     from punt_lux.domain.hub.owner import Owner
