@@ -19,6 +19,15 @@
 
 ### Added
 
+- **Clients can identify themselves.** A new `identify` MCP call lets a
+  session declare who it is — kind (`mcp-session`, `cli`, or `app`), name,
+  repository, and optionally an agent handle — and `list_clients` shows the
+  declared identity beside each connection. This is the first slice of the
+  client-identity model: an "identification required" error shape now exists
+  (HTTP 401 on REST) for operations that will demand identity in the next
+  slice. Identity is attribution only — nothing about scene lifetimes
+  changes.
+
 - **The table's grid/detail split is draggable.** Every `show_table` view with
   a detail pane now renders the grid and the detail as two panes separated by
   a horizontal divider you can drag to reallocate their heights. The dragged
