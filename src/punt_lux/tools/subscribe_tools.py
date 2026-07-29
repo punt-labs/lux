@@ -96,9 +96,11 @@ def register_callback(callback_id: str, label: str) -> str:
     """Register one menu callback the calling session owns and services.
 
     ``label`` is the entry the display shows under this session's submenu;
-    ``callback_id`` is the id its clicks carry back. Registration is a menu write,
-    so it is guarded like a scene write — an unidentified session is refused with
-    ``"error: <identify challenge>"`` and owns nothing. On success returns
+    ``callback_id`` is the id its clicks carry back. Registration requires an
+    identified session — an unidentified caller is refused with
+    ``"error: <identify challenge>"`` and owns nothing, the same challenge REST's
+    anonymous writes receive (MCP scene writes carry no such gate). On success
+    returns
     ``"registered:<callback_id>"``; the replicator pushes the updated bar. Poll
     ``pending_callbacks`` to pick up the clicks this entry produces. A callback
     lives on its session and leaves the menu when the session's lease lapses, so

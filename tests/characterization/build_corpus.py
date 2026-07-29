@@ -574,11 +574,13 @@ IDENTITY_SCENARIOS: tuple[Scenario, ...] = (
 
 
 # ---------------------------------------------------------------------------
-# Callback scenarios — ``register_callback`` is a menu write guarded by the same
-# identity challenge as a scene write. An unidentified session (a fresh
-# session_key never recorded in the client registry) is refused, which is the
-# security-relevant behavior the corpus pins; the happy path needs a prior
-# ``identify`` and is covered by the operation and tool unit tests instead.
+# Callback scenarios — ``register_callback`` requires an identified session; an
+# unidentified session receives the identification_required challenge (the same
+# challenge REST's anonymous writes get, not MCP scene writes, which carry no
+# identity gate). An unidentified session (a fresh session_key never recorded in
+# the client registry) is refused, which is the security-relevant behavior the
+# corpus pins; the happy path needs a prior ``identify`` and is covered by the
+# operation and tool unit tests instead.
 # ---------------------------------------------------------------------------
 
 
