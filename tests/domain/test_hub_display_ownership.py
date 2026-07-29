@@ -14,6 +14,7 @@ from typing import Literal, Self
 import pytest
 
 from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.owner_tracker import Owner
 from punt_lux.domain.hub.ownership_error import HubOwnershipError
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.domain.update import AddElement, RemoveElement, SetProperty
@@ -162,7 +163,53 @@ def test_reshow_from_a_new_connection_replaces_a_departed_sessions_roots() -> No
     roots = hub_display.scene_roots(_SCENE)
     assert {e.id for e in roots} == {"new"}  # orphan gone, only the new root
     assert hub_display.owner_of(_SCENE, ElementId("new")) == fresh
-    assert hub_display.scene_owners(_SCENE) == (fresh,)  # single ownership
+    # A single owning connection, carrying no declared identity (none was set).
+    assert hub_display.scene_owners(_SCENE) == (Owner(fresh),)
+
+
+def test_show_scene_snapshots_the_identity_onto_every_owner() -> None:
+    """The connection's declared identity is recorded as each root's attribution."""
+    from punt_lux.domain.hub.client_identity import ClientIdentity
+    from punt_lux.domain.hub.scene_presentation import ScenePresentation
+
+    hub_display = HubDisplay()
+    identity = ClientIdentity(kind="cli", name="lux", repo="/w/lux")
+    hub_display.identify_client(_OWNER, identity)  # declared before showing
+    hub_display.show_scene(
+        _OWNER,
+        _SCENE,
+        [_WireLeaf(id="a"), _WireLeaf(id="b")],
+        ScenePresentation(frame_id=str(_SCENE)),
+    )
+
+    owners = hub_display.scene_owners(_SCENE)
+    assert owners == (Owner(_OWNER, identity),)  # one connection, its identity
+
+
+def test_owner_identity_outlives_the_connection_that_installed_it() -> None:
+    """A durable root keeps its declared identity after the connection drops.
+
+    The board a departed ``cli`` command installed must still name its repository:
+    the identity is snapshotted on the owner record at install, not resolved from
+    the live session registry, so dropping the connection keeps the attribution.
+    """
+    from punt_lux.domain.hub.client_identity import ClientIdentity
+    from punt_lux.domain.hub.scene_presentation import ScenePresentation
+
+    hub_display = HubDisplay()
+    identity = ClientIdentity(kind="cli", name="lux", repo="/w/lux")
+    hub_display.identify_client(_OWNER, identity)
+    hub_display.show_scene(
+        _OWNER,
+        _SCENE,
+        [_WireLeaf(id="a")],
+        ScenePresentation(frame_id=str(_SCENE)),
+    )
+
+    hub_display.drop_connection(_OWNER)  # the command exits, its board stands
+
+    assert _OWNER not in hub_display.client_sessions()  # gone from the live registry
+    assert hub_display.scene_owners(_SCENE) == (Owner(_OWNER, identity),)  # still named
 
 
 def test_clear_leaves_a_root_another_connection_owns_in_a_shared_scene() -> None:

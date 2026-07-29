@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.client_identity import ClientSession
     from punt_lux.domain.hub.element_index import ElementIndex
     from punt_lux.domain.hub.hub_clients import HubClientRegistry
-    from punt_lux.domain.hub.owner_tracker import OwnerTracker
+    from punt_lux.domain.hub.owner_tracker import Owner, OwnerTracker
     from punt_lux.domain.hub.store_lock import StoreLock
     from punt_lux.domain.ids import ConnectionId, SceneId
 
@@ -58,10 +58,9 @@ class HubReads:
         with self._lock.read():
             return self._index.element_count(scene_id)
 
-    def scene_owners(self, scene_id: SceneId) -> tuple[ConnectionId, ...]:
-        """Return each scene's distinct root owners, first-appearance order.
-
-        Empty if unowned; filter(None) drops a root whose owner is unrecorded.
+    def scene_owners(self, scene_id: SceneId) -> tuple[Owner, ...]:
+        """Return each scene's distinct root owners (with declared identity),
+        first-appearance order; filter(None) drops a root whose owner is unrecorded.
         """
         with self._lock.read():
             roots = self._index.scene_root_items(scene_id)

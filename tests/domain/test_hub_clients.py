@@ -80,10 +80,26 @@ def test_a_later_bare_record_never_drops_a_declared_identity() -> None:
 def test_record_with_identity_registers_an_unseen_connection() -> None:
     reg = HubClientRegistry()
     conn = ConnectionId("conn")
-    assert conn not in reg
+    assert reg.session_of(conn) is None
     reg.record(conn, ClientIdentity(kind="cli", name="lux-cli"))
-    assert conn in reg  # membership is the O(1) __contains__ check
+    assert reg.session_of(conn) is not None  # membership via the O(1) session read
     assert reg.sessions()[conn].identity is not None
+
+
+def test_session_of_returns_the_record_or_none() -> None:
+    reg = HubClientRegistry()
+    identified = ConnectionId("identified")
+    bare = ConnectionId("bare")
+    identity = ClientIdentity(kind="cli", name="lux", repo="/w/lux")
+    reg.record(identified, identity)
+    reg.record(bare)
+    identified_session = reg.session_of(identified)
+    assert identified_session is not None
+    assert identified_session.identity == identity
+    bare_session = reg.session_of(bare)
+    assert bare_session is not None  # registered but unidentified
+    assert bare_session.identity is None
+    assert reg.session_of(ConnectionId("never")) is None  # unknown connection
 
 
 def test_discard_drops_the_identity_with_the_connection() -> None:

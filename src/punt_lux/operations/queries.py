@@ -24,6 +24,7 @@ from punt_lux.operations.models.query_inspection import (
     InspectedElement,
     SceneInspection,
 )
+from punt_lux.operations.models.query_ownership import SceneOwner
 from punt_lux.operations.models.query_scenes import SceneList, SceneSummary
 
 if TYPE_CHECKING:
@@ -89,7 +90,7 @@ class QueryOperations:
                     scene_id=str(sid),
                     element_count=self._display.element_count(sid),
                     frame_id=presentation.frame_id,
-                    owners=[str(owner) for owner in self._display.scene_owners(sid)],
+                    owners=self._owners_of(sid),
                 )
             )
             layout = presentation.frame_layout or "tab"
@@ -122,17 +123,16 @@ class QueryOperations:
                     str(topic) for topic in self._hub.topics_for(connection_id)
                 ),
                 owned_scenes=sorted(
-                    {
-                        str(scene)
-                        for scene, _elem in self._display.elements_owned_by(
-                            connection_id
-                        )
-                    }
+                    {str(s) for s, _ in self._display.elements_owned_by(connection_id)}
                 ),
             )
             for connection_id, session in self._display.client_sessions().items()
         ]
         return ClientList(clients=clients)
+
+    def _owners_of(self, scene_id: SceneId) -> list[SceneOwner]:
+        """Return the scene's distinct owners as introspection read shapes."""
+        return [SceneOwner.of(owner) for owner in self._display.scene_owners(scene_id)]
 
     # -- proxied display facts ---------------------------------------------
 

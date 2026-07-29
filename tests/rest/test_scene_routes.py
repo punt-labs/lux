@@ -142,7 +142,8 @@ def test_list_scenes_reflects_a_rendered_scene() -> None:
     _render(client, "alpha")
     body = client.get("/scenes").json()
     assert [s["scene_id"] for s in body["scenes"]] == ["alpha"]
-    assert body["scenes"][0]["owners"] == ["rest-test"]
+    owners = body["scenes"][0]["owners"]
+    assert [o["connection_id"] for o in owners] == ["rest-test"]
 
 
 def test_render_without_a_frame_lands_framed_by_its_scene_id() -> None:

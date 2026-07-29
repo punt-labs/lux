@@ -6,6 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from punt_lux.operations.models.query_ownership import SceneOwner
+
 __all__ = ["FrameSummary", "SceneList", "SceneSummary"]
 
 
@@ -17,10 +19,9 @@ class SceneSummary(BaseModel):
     scene_id: str
     element_count: int
     frame_id: str  # total: an unframed scene defaults to a frame named by its id
-    # Every distinct connection owning a root in the scene, first-appearance
-    # order; empty when the scene is unowned. Plural because a scene can hold
-    # roots from more than one session.
-    owners: list[str]
+    # Every distinct owner of a root in the scene, first-appearance order; empty
+    # when unowned, plural because a scene can hold roots from several sessions.
+    owners: list[SceneOwner]
 
 
 class FrameSummary(BaseModel):

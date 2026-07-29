@@ -111,7 +111,7 @@ class SubtreeRemover:
         ]
         for element_id, owner in roots:
             if owner is not None:
-                self.drop_root(scene_id, element_id, owner)
+                self.drop_root(scene_id, element_id, owner.connection_id)
 
     def _drop_storage(self, scene_id: SceneId, element_id: ElementId) -> None:
         """Drop one element from every storage collaborator. Idempotent."""

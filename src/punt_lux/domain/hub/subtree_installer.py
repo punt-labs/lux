@@ -27,9 +27,10 @@ if TYPE_CHECKING:
     from punt_lux.domain.element import Element as WireElement
     from punt_lux.domain.hub.child_index import ChildIndex
     from punt_lux.domain.hub.element_index import ElementIndex
+    from punt_lux.domain.hub.owner import Owner
     from punt_lux.domain.hub.owner_tracker import OwnerTracker
     from punt_lux.domain.hub.root_registry import RootRegistry
-    from punt_lux.domain.ids import ConnectionId, SceneId
+    from punt_lux.domain.ids import SceneId
 
 __all__ = ["SubtreeInstaller"]
 
@@ -67,16 +68,14 @@ class SubtreeInstaller:
         element: WireElement,
         *,
         parent_id: ElementId | None,
-        owner: ConnectionId,
+        owner: Owner,
     ) -> None:
         """Install ``element`` and recurse into composite children.
 
-        Single entry point shared by the root and child branches — the
-        display-side ``DomainPump._install_subtree`` follows the same
-        Composite-Protocol recursion, so the two stores stay in lockstep.
-        Without recursion, a Dialog whose Buttons live in ``children`` would
-        land in the index alone; subsequent clicks would route to elements
-        ``resolve`` cannot find.
+        Single entry point shared by the root and child branches — the display-side
+        ``DomainPump._install_subtree`` follows the same Composite-Protocol recursion,
+        so the two stores stay in lockstep. Without recursion, a Dialog whose Buttons
+        live in ``children`` would land in the index alone and later clicks misroute.
         """
         if parent_id is None:
             key = self._install_scene(scene_id, element, owner=owner)
@@ -87,7 +86,7 @@ class SubtreeInstaller:
                 self.install(scene_id, child, parent_id=key, owner=owner)
 
     def _install_scene(
-        self, scene_id: SceneId, element: WireElement, *, owner: ConnectionId
+        self, scene_id: SceneId, element: WireElement, *, owner: Owner
     ) -> ElementId:
         """Install ``element`` as a scene-root; return its assigned store key.
 
@@ -109,7 +108,7 @@ class SubtreeInstaller:
         parent_id: ElementId,
         element: WireElement,
         *,
-        owner: ConnectionId,
+        owner: Owner,
     ) -> ElementId:
         """Install ``element`` under ``parent_id``; return its assigned store key.
 

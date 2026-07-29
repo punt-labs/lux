@@ -14,6 +14,7 @@ from typing import Self
 
 from punt_lux.domain.hub.child_index import ChildIndex
 from punt_lux.domain.hub.element_index import ElementIndex
+from punt_lux.domain.hub.owner import Owner
 from punt_lux.domain.hub.owner_tracker import OwnerTracker
 from punt_lux.domain.hub.root_registry import RootRegistry
 from punt_lux.domain.hub.subtree_remover import SubtreeRemover
@@ -21,7 +22,8 @@ from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.protocol.elements.text import TextElement
 
 _SCENE = SceneId("remover-scene")
-_OWNER = ConnectionId("owner-conn")
+_CONN = ConnectionId("owner-conn")
+_OWNER = Owner(_CONN)
 _ROOT = ElementId("root")
 _CHILD = ElementId("child")
 
@@ -82,7 +84,7 @@ def test_drop_root_of_wire_root_tears_down_through_the_walk() -> None:
     store = _Store()
     store.install_wire_root_with_child()
 
-    store.remover.drop_root(_SCENE, _ROOT, _OWNER)
+    store.remover.drop_root(_SCENE, _ROOT, _CONN)
 
     assert not store.index.contains(_SCENE, _ROOT)
     assert not store.index.contains(_SCENE, _CHILD)
@@ -106,7 +108,7 @@ def test_drop_root_of_abc_root_marks_removed_and_lets_the_cascade_run() -> None:
         )
     )
 
-    store.remover.drop_root(_SCENE, _ROOT, _OWNER)
+    store.remover.drop_root(_SCENE, _ROOT, _CONN)
 
     assert root.removed
     assert not store.index.contains(_SCENE, _ROOT)
