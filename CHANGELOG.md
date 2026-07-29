@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.22.1] - 2026-07-29
+
 ### Removed
 
 - **The built-in luxd-side Beads Browser.** luxd no longer registers a
