@@ -26,12 +26,34 @@ _BD_CMD_RE = re.compile(
 )
 
 
+# The convention every lux-enabled session follows so its own Beads menu entry
+# appears and its clicks are serviced from this repo's shell. luxd cannot run
+# ``bd`` itself — its launchd environment has no PATH, credentials, or repo cwd —
+# so Beads belongs to the session that has a repo shell. A shell hook cannot call
+# an MCP tool, so the registration is injected here as an instruction the session
+# acts on when it connects.
+_BEADS_CALLBACK_CONTEXT = (
+    "Lux display mode: on. Visual output will be rendered when appropriate. "
+    "This session owns a 'Beads' entry in the Lux menu bar: once you have called "
+    "the lux `identify` tool, call the lux `register_callback` tool with "
+    "callback_id='beads' and label='Beads' so the entry appears under this "
+    "session's submenu. When the user clicks it, lux holds the click for you — "
+    "poll the lux `pending_callbacks` tool on your own schedule and, when 'beads' "
+    "is returned, run `lux show beads` to refresh the board from this repo's shell."
+)
+
+
 def handle_session_start() -> dict[str, object]:
-    """SessionStart — read display mode and return context."""
+    """SessionStart — read display mode and return context.
+
+    When the display is on, the context also carries the Beads-callback
+    convention so the session registers its own repo-labeled menu entry and
+    services clicks from its shell.
+    """
     cfg = ConfigManager().read()
 
     if cfg.display == "y":
-        msg = "Lux display mode: on. Visual output will be rendered when appropriate."
+        msg = _BEADS_CALLBACK_CONTEXT
     else:
         msg = "Lux display mode: off. Visual output disabled."
 

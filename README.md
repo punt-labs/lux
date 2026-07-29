@@ -105,7 +105,7 @@ Demos are in `demos/` --- each connects as a client and drives the display:
 - **Frames** --- scenes target named frames (inner windows) via `frame_id`. Frames persist after disconnect, can be adopted by new clients, and support initial sizing (`frame_size`) and ImGui window flags (`frame_flags`)
 - **Layout nesting** --- windows contain tab bars contain groups contain any element, arbitrarily deep
 - **Incremental updates** --- `update` patches individual elements by ID without replacing the scene
-- **World menu** --- per-client namespaced menus. Each connected MCP server gets its own submenu. Items registered via `register_tool` are routed only to the owning client
+- **Session menus** --- the menu bar shows one submenu per live session. A session registers a menu entry via `register_callback`; a click on it is held for the owning session, which services it from its own shell. The built-in "Beads" entry each lux-enabled session registers is how the beads board reopens from the menu
 - **Interaction handling** --- button clicks, slider changes, and menu clicks fire their handlers on the Hub (D21 remote dispatch); the raw event log is readable via `list_recent_events`. Hub handlers can `publish` app events that the agent reads via `recv`
 - **Frame auto-focus** --- frames automatically focus (brought to front) when they receive a scene update
 - **Persistent tabs** --- each `show()` call opens a dismissable tab; same `scene_id` replaces content in-place. Users can close individual tabs
@@ -115,7 +115,7 @@ Demos are in `demos/` --- each connects as a client and drives the display:
 
 ## MCP Tools
 
-Agents interact with Lux through **27 MCP tools** that `luxd` serves over its streamable-HTTP `/mcp` endpoint:
+Agents interact with Lux through **30 MCP tools** that `luxd` serves over its streamable-HTTP `/mcp` endpoint:
 
 | Tool | What it does |
 |------|-------------|
@@ -129,7 +129,8 @@ Agents interact with Lux through **27 MCP tools** that `luxd` serves over its st
 | `ping()` | Round-trip latency check |
 | `recv()` | Take the next queued app event for this session (pub/sub) without blocking; returns `event:<topic>:<payload>` or `none` immediately. Poll on your own schedule. UI interactions are handled Hub-side, not delivered here |
 | `set_menu(menus)` | Add custom menus to the menu bar |
-| `register_tool(id, label)` | Register a World menu item routed only to the calling server via `recv()` |
+| `register_callback(callback_id, label)` | Register a menu entry this session owns; clicks are held for it (identity-guarded) |
+| `pending_callbacks()` | Take the menu clicks held for this session, draining them (poll on your own schedule) |
 | `set_theme(theme)` | Switch display theme |
 | **Configuration** | |
 | `display_mode(repo)` | Read current display mode (`y`/`n`) for the caller's project --- pass the absolute project path |
@@ -144,7 +145,7 @@ Agents interact with Lux through **27 MCP tools** that `luxd` serves over its st
 | `get_window_settings()` | Current window configuration |
 | `get_theme()` | Current theme name |
 | `list_clients()` | Connected clients with names and scene counts |
-| `list_menus()` | Registered menu items |
+| `list_menus()` | The menu bar, including the per-session callback submenus |
 | `list_recent_events(count)` | Recent interaction events |
 | `list_errors(count)` | Recent error log entries |
 | **Pub/Sub (Agent Subscribe)** | |
