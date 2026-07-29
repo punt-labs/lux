@@ -87,11 +87,11 @@ class RestCaller:
     def _declaration(request: Request) -> dict[str, object] | None:
         """Read the identity headers into a declaration, or ``None`` if unnamed.
 
-        A request is identified when it names itself; ``kind`` defaults to ``cli``
-        (the command-line and raw-REST caller), and ``repo``/``agent`` are carried
-        only when present. Validation of the values is the ``identify`` operation's.
+        A request is identified when it names itself; ``kind`` defaults to ``cli``.
+        A blank or whitespace-only header equals no header — dropped, not passed to
+        ``identify`` (which rejects a blank repo/agent); it validates what remains.
         """
-        name = request.headers.get(_NAME)
+        name = request.headers.get(_NAME, "").strip()
         if not name:
             return None
         declaration: dict[str, object] = {
@@ -99,8 +99,8 @@ class RestCaller:
             "name": name,
         }
         for field, header in (("repo", _REPO), ("agent", _AGENT)):
-            value = request.headers.get(header)
-            if value is not None:
+            value = request.headers.get(header, "").strip()
+            if value:
                 declaration[field] = value
         return declaration
 

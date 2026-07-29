@@ -173,6 +173,27 @@ def test_identity_less_read_stays_silent() -> None:
     assert "X-Lux-Identification-Required" not in resp.headers
 
 
+def test_blank_optional_header_is_treated_as_absent() -> None:
+    # An empty or whitespace-only optional header must equal no header: identify
+    # correctly rejects a blank repo, so passing "" through would 422 a valid
+    # caller. The caller identifies successfully with repo left unset.
+    client = make_client(
+        identity={
+            "X-Lux-Client-Kind": "cli",
+            "X-Lux-Client-Name": "cli-tool",
+            "X-Lux-Client-Repo": "   ",
+        }
+    )
+    resp = _render(client, "blank-repo")
+    assert resp.status_code == 200
+    body = client.get("/scenes").json()
+    owner = next(s for s in body["scenes"] if s["scene_id"] == "blank-repo")["owners"][
+        0
+    ]
+    assert owner["identity"]["name"] == "cli-tool"
+    assert owner["identity"]["repo"] is None  # the blank header was dropped
+
+
 def test_two_anonymous_writers_own_separate_scenes() -> None:
     # Distinct per-request connections: two anonymous callers never share
     # ownership, so each scene lists its own owner connection.
