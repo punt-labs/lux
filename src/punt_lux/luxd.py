@@ -163,12 +163,10 @@ def serve(
         # The display-connection workers and the frame-TTL sweep start and stop
         # with luxd. Imported lazily to keep the Hub singletons out of module import.
         from punt_lux.domain.hub import hub_display
-        from punt_lux.domain.hub.builtin_callbacks import BuiltinBeadsCallbacks
         from punt_lux.domain.hub.display_workers import display_workers
         from punt_lux.domain.hub.expiry_sweep import ExpirySweep
 
         display_workers.start()
-        BuiltinBeadsCallbacks.install_process_builtins()  # permanent-lease built-ins
         sweep = ExpirySweep(hub_display.frames, display_workers.replicator)
         try:
             # The sweep is cancelled and awaited when this block exits — before the

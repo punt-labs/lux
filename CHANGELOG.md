@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+### Removed
+
+- **The built-in luxd-side Beads Browser.** luxd no longer registers a
+  permanent-lease "Lux — Beads Browser" session and no longer runs `bd`
+  in-process. luxd's launchd environment has no `PATH`, no repository
+  credentials, and no repository working directory, so a click on the built-in
+  produced `bd unavailable — No such file or directory: 'bd'`. Beads now
+  belongs to the session that has a repo shell: each lux-enabled session
+  registers its own Beads menu callback and services a click by running `bd`
+  from its own working directory. `BuiltinBeadsCallbacks`, its startup
+  registration, `BeadsBrowser.render()`, and the `BeadsBoardInstaller` are gone;
+  the `bd` load-and-shape payload machinery the CLI's `lux show beads` uses is
+  unchanged.
+
+### Added
+
+- **`register_callback` MCP tool.** A session registers its own menu callback
+  over MCP (the same operation the `POST /menus/callbacks` REST route exposes),
+  guarded by the same identity challenge as a scene write. This lets a
+  lux-enabled Claude Code session put its own repo-labeled Beads entry in the
+  menu and service the click from its shell.
+
 ## [0.22.0] - 2026-07-29
 
 ### Removed

@@ -95,11 +95,11 @@ class ClientRegistry:
     def _setup_apps(self) -> None:
         """Wire the Hub-side dispatch for display clicks. Idempotent per client.
 
-        The built-in Beads Browser is no longer a display-declared menu item: it is
-        a permanent-lease callback session registered Hub-side (see
-        ``BuiltinBeadsCallbacks``), so this only installs the D21 fallback that
-        routes every display interaction back through Hub-side element dispatch.
-        Reads ``self._client``, which ``get`` ensures is bound before calling.
+        Beads is no longer a Hub-side built-in: each session registers its own
+        Beads menu callback and services clicks from its repo shell, so this only
+        installs the D21 fallback that routes every display interaction back
+        through Hub-side element dispatch. Reads ``self._client``, which ``get``
+        ensures is bound before calling.
         """
         client = self._client
         if client is None or self._apps_registered_for == id(client):
