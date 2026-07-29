@@ -20,6 +20,7 @@ OpErrorCode = Literal[
     "invalid_request",  # the request itself did not type-check
     "not_found",  # the named scene or resource does not exist
     "fault",  # an engine-side failure: a malformed display reply, unreadable config
+    "identification_required",  # the caller must identify before this operation
 ]
 
 
@@ -41,6 +42,15 @@ class OpError(BaseModel):
     def from_validation(cls, exc: ValidationError) -> OpError:
         """Build an ``invalid_request`` from a Pydantic failure, naming the field."""
         return cls(code="invalid_request", reason=cls.describe(exc.errors()[0]))
+
+    @classmethod
+    def identification_required(cls, reason: str) -> OpError:
+        """Build the challenge an operation returns to a caller that has not identified.
+
+        The analogue of a 401/403: the caller learns from the response that the
+        operation needs an identity, and identifies before retrying.
+        """
+        return cls(code="identification_required", reason=reason)
 
     @classmethod
     def from_reply(cls, exc: ValidationError) -> OpError:

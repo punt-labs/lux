@@ -25,15 +25,18 @@ _SCOPE = Scope(ConnectionId("rest-test"))
 # design's reason. publish/subscribe/unsubscribe/receive are session-scoped and
 # blocked on the REST session decision — a connection-less REST publish in one
 # fixed scope can never deliver, so it is not exposed; drop_session is session
-# lifecycle. render_table/render_dashboard ARE routed: a composed table must be
-# CONSTRUCTED server-side (its handlers + model are not wire-expressible), so a
-# REST caller pushing composed JSON through the generic render gets dead chrome.
+# lifecycle. identify is the MCP session's first-call; REST per-request identity
+# resolution is a later step, so identify carries no REST route yet.
+# render_table/render_dashboard ARE routed: a composed table must be CONSTRUCTED
+# server-side (its handlers + model are not wire-expressible), so a REST caller
+# pushing composed JSON through the generic render gets dead chrome.
 _MCP_ONLY = {
     "publish",
     "subscribe",
     "unsubscribe",
     "receive",
     "drop_session",
+    "identify",
 }
 
 
