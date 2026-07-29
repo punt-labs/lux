@@ -1,8 +1,9 @@
 """The callback-menu wire message — the Hub-composed session-callback bar.
 
-Kept in its own module so the display-configuration ``menu`` module stays at its
-three legacy menu messages; this is the one carrier for the session-then-callback
-tree the callback model introduces.
+Kept in its own module so the display-configuration ``menu`` module stays small:
+this is the one carrier for the session-then-callback tree the callback model
+introduces, owning its own codec, while ``menu`` imports it, re-exports it, and
+registers its codec alongside the agent-bar and theme messages.
 """
 
 from __future__ import annotations

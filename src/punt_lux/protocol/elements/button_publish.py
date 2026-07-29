@@ -42,13 +42,31 @@ class ButtonPublish:
 
     def __new__(cls, topic: str, payload: Mapping[str, object] = _EMPTY) -> Self:
         # An empty payload is the common, valid case (a topic with no arguments,
-        # e.g. music.stop), so it is the default rather than an absence. The
-        # default is an immutable empty mapping and the value is copied, so no
-        # caller can mutate shared state through it.
+        # e.g. music.stop), so it is the default rather than an absence. The value
+        # is copied so no caller can mutate shared state through it, and its keys
+        # are enforced to be strings here — both construction doors, direct and
+        # from_wire, pass through this one check.
         self = super().__new__(cls)
         self._topic = topic
-        self._payload = dict(payload)
+        self._payload = cls._require_string_keys(payload)
         return self
+
+    @staticmethod
+    def _require_string_keys(payload: Mapping[str, object]) -> dict[str, object]:
+        """Return a copy of ``payload``, rejecting any non-string key.
+
+        A JSON object and ``__hash__``'s sorted-key tuple both require string
+        keys, so a non-string key would make ``to_wire`` non-serializable or a
+        mixed-key sort raise. The check lives on the constructor so a directly
+        built instance is held to the same invariant ``from_wire`` enforces at
+        the wire boundary — one validation, both doors.
+        """
+        entry = cast("Mapping[object, object]", payload)
+        for key in entry:
+            if not isinstance(key, str):
+                msg = f"button 'publish.payload' keys must be strings, got {key!r}"
+                raise TypeError(msg)
+        return dict(payload)
 
     @property
     def topic(self) -> str:
@@ -82,7 +100,12 @@ class ButtonPublish:
 
     @staticmethod
     def _payload_from_wire(raw: object) -> Mapping[str, object]:
-        """Return the payload mapping, defaulting to empty, rejecting a non-mapping."""
+        """Return the payload mapping, defaulting to empty, rejecting a non-mapping.
+
+        Only the wire shape (present and a mapping) is checked here; the
+        key-is-string invariant is enforced in the constructor, so both the wire
+        door and direct construction share it.
+        """
         if raw is None:
             return {}
         if not isinstance(raw, Mapping):
@@ -90,12 +113,7 @@ class ButtonPublish:
                 f"button 'publish.payload' must be a mapping, got {type(raw).__name__}"
             )
             raise TypeError(msg)
-        entry = cast("Mapping[object, object]", raw)
-        for key in entry:
-            if not isinstance(key, str):
-                msg = f"button 'publish.payload' keys must be strings, got {key!r}"
-                raise TypeError(msg)
-        return cast("Mapping[str, object]", dict(entry))
+        return cast("Mapping[str, object]", raw)
 
     def to_wire(self) -> dict[str, object]:
         """Render as the wire ``publish`` field; an empty payload is omitted."""

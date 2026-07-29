@@ -11,6 +11,7 @@ handler, never replacing it.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import cast
 
 import pytest
 
@@ -120,6 +121,15 @@ def test_non_mapping_payload_is_rejected_at_decode() -> None:
         ButtonElement.from_dict(
             {"kind": "button", "id": "b", "publish": {"topic": "t", "payload": [1]}}
         )
+
+
+def test_direct_construction_rejects_a_non_string_payload_key() -> None:
+    # The constructor enforces string keys, not just from_wire: a non-string key
+    # would make to_wire() non-JSON-serializable and __hash__'s sorted-key tuple
+    # raise on mixed types.
+    bad: dict[object, object] = {1: "a1"}
+    with pytest.raises(TypeError, match=r"publish\.payload' keys must be strings"):
+        ButtonPublish("music.play", cast("dict[str, object]", bad))
 
 
 # -- Hub-side fire publishes through the sink --------------------------------
