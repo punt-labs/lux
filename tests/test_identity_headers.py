@@ -54,3 +54,12 @@ def test_blank_optional_header_is_dropped() -> None:
         {"X-Lux-Client-Name": "tool", "X-Lux-Client-Repo": "   "}
     )
     assert declaration == {"kind": "cli", "name": "tool"}
+
+
+def test_blank_kind_falls_back_to_the_cli_default() -> None:
+    # A whitespace-only kind equals no kind — stripped and defaulted to cli, not
+    # forwarded as an empty string that identify would reject.
+    declaration = ClientHeaders.declaration_from(
+        {"X-Lux-Client-Name": "tool", "X-Lux-Client-Kind": "   "}
+    )
+    assert declaration == {"kind": "cli", "name": "tool"}

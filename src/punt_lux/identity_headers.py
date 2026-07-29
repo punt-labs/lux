@@ -3,14 +3,12 @@
 A CLI or REST caller declares who it is in request headers; the Hub reads that
 declaration back. Both ends must agree on the header names and the shape they
 carry, so one class owns them: :meth:`ClientHeaders.to_wire` renders an identity
-into the request headers the client sends, and :meth:`ClientHeaders.declaration_from`
-reads those same headers into the declaration the ``identify`` operation validates.
-Defining the contract in one place keeps the client's write and the server's read
-from drifting apart.
+into the request headers, and :meth:`ClientHeaders.declaration_from` reads them
+back into the declaration the ``identify`` operation validates — defining the
+contract once keeps the client's write and the server's read from drifting apart.
 
 The challenge header is the response side of the same contract: the Hub stamps it
-on a write that arrived without an identity, so the caller learns owning UI needs
-one — the HTTP analogue of a 401/403 challenge.
+on a write that arrived without an identity — the HTTP analogue of a 401 challenge.
 """
 
 from __future__ import annotations
@@ -65,8 +63,10 @@ class ClientHeaders:
         name = headers.get(cls.NAME, "").strip()
         if not name:
             return None
+        # A blank kind equals no kind — stripped and defaulted to cli, not sent on.
+        kind = headers.get(cls.KIND, "").strip()
         declaration: dict[str, object] = {
-            "kind": headers.get(cls.KIND, "cli"),
+            "kind": kind if kind else "cli",
             "name": name,
         }
         for field, header in (("repo", cls.REPO), ("agent", cls.AGENT)):

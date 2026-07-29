@@ -23,13 +23,13 @@ if TYPE_CHECKING:
 
 __all__ = ["RestReply"]
 
-# The inverse of the REST error table (rest/status.py maps code -> status): the
-# client observes the same wire contract from the other end. The statuses are
-# distinct, so the inverse is total; an unexpected status is an engine fault.
+# The inverse of the REST error table (rest/status.py maps code -> status), read
+# from the client's end; an unmapped status is a fault.
 _CODE_BY_STATUS: dict[int, OpErrorCode] = {
-    422: "invalid_request",
+    401: "identification_required",
     404: "not_found",
     409: "rejected",
+    422: "invalid_request",
     502: "fault",
     503: "display_unavailable",
     504: "timeout",

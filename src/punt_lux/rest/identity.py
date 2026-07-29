@@ -39,7 +39,7 @@ def resolve_scope(request: Request) -> Scope:
     return caller.resolve(request)
 
 
-_CHALLENGE_REASON: Final = "declare an identity to own the scenes this request creates"
+_CHALLENGE_REASON: Final = "declare an identity to own the writes this request makes"
 
 
 @final
@@ -62,7 +62,7 @@ class RestCaller:
         A named request records its declared identity against a stable, derived
         connection and returns that scope. A request that carries no identity is
         refused with the ``identification_required`` challenge (a 401 carrying the
-        challenge header), so nothing anonymous owns a scene.
+        challenge header), so nothing anonymous owns a write — a scene or a menu item.
         """
         declaration = self._declaration(request)
         if declaration is None:

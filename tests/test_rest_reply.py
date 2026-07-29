@@ -30,6 +30,9 @@ def test_a_2xx_of_the_wrong_shape_is_a_fault_with_a_snippet() -> None:
 @pytest.mark.parametrize(
     ("status", "code"),
     [
+        # 401 must read back as identification_required, matching HttpErrorMap —
+        # a challenge the client can recognize, not a downgraded "fault".
+        (401, "identification_required"),
         (422, "invalid_request"),
         (404, "not_found"),
         (409, "rejected"),
