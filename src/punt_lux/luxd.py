@@ -29,6 +29,7 @@ from starlette.middleware.cors import CORSMiddleware
 from punt_lux.mcp_transport import McpHttpTransport
 from punt_lux.rest import HubHealth, RestSurface
 from punt_lux.transport_policy import LoopbackTransportPolicy
+from punt_lux.ws_listen import HubListenTransport
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,8 @@ def build_app(
     """Build the FastAPI application luxd serves.
 
     A factory so tests can construct the app without uvicorn, via ``TestClient``.
-    The streamable-HTTP MCP leg mounts beside the typed REST surface on one app.
+    The streamable-HTTP MCP leg, the typed REST surface, and the persistent
+    WebSocket listen leg (``/ws``) all mount beside each other on one app.
 
     The caller's lifespan (replicator, port file) is the outer scope on purpose:
     the inner transport scope unwinds first on shutdown, so a session's cleanup
@@ -79,6 +81,7 @@ def build_app(
     app.add_api_route("/health", _health_route, methods=["GET"])
     transport.mount(app)
     RestSurface.for_hub().mount(app)
+    HubListenTransport.for_hub().mount(app)
     return app
 
 
