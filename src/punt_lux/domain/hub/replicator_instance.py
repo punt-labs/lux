@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
+from punt_lux.domain.hub.callback_hold import CallbackRouter
 from punt_lux.domain.hub.clients import client_registry
 from punt_lux.domain.hub.hub_display import hub_display
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
@@ -24,11 +25,16 @@ from punt_lux.paths import DisplayPaths
 if TYPE_CHECKING:
     from punt_lux.domain.hub.replicator_ports import ClientProvider
 
-__all__ = ["hub_menu_registry", "hub_replicator"]
+__all__ = ["hub_callback_router", "hub_menu_registry", "hub_replicator"]
 
 # The authoritative menu state — read fresh by the replicator worker, written
 # only through MenuOperations, injected into the operations facade by tools.py.
 hub_menu_registry = HubMenuRegistry()
+
+# The one process-wide router for menu-callback clicks. Both composition roots
+# inject this instance so a click held on one surface is drained on any other; it
+# routes against the session registry that lives in the shared HubDisplay.
+hub_callback_router = CallbackRouter(hub_display.clients)
 
 # DisplayClient satisfies the port at runtime — its show_async takes the concrete
 # protocol.Element union every WireElement root is; the cast bridges list invariance.

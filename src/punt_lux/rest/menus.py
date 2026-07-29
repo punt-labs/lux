@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Annotated, Self, final
 from fastapi import APIRouter, Depends
 
 from punt_lux.operations import MenuList, Ok, Scope, SetMenuRequest
+from punt_lux.operations.models.callbacks import RegisterCallbackRequest
 from punt_lux.operations.models.register_tool import RegisterToolRequest
 from punt_lux.rest.identity import resolve_scope
 
@@ -49,6 +50,12 @@ class MenuRoutes:
             methods=["POST"],
             name="register_menu_item",
         )
+        router.add_api_route(
+            "/menus/callbacks",
+            self.register_callback,
+            methods=["POST"],
+            name="register_callback",
+        )
         self._router = router
         return self
 
@@ -70,3 +77,13 @@ class MenuRoutes:
     ) -> Ok:
         """Register one tool item for the calling identity; the replicator pushes it."""
         return self._errors.respond(self._ops.register_menu_item(request, scope=scope))
+
+    def register_callback(
+        self, request: RegisterCallbackRequest, scope: _OwningScope
+    ) -> Ok:
+        """Register one menu callback for the calling identity; the replicator pushes.
+
+        The write owns a menu item, so an unidentified request is refused with the
+        identify challenge ``resolve_scope`` raises — the same 401 a scene write gets.
+        """
+        return self._errors.respond(self._ops.register_callback(request, scope=scope))

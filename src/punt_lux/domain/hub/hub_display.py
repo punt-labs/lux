@@ -160,6 +160,16 @@ class HubDisplay:
         """Return True if the connection is currently registered."""
         return self._clients.session_of(connection_id) is not None
 
+    @property
+    def clients(self) -> HubClientRegistry:
+        """Return the session registry — the identity, lease, and callback authority.
+
+        Exposed like ``reader`` and ``frames`` so the callback operations can
+        register a session's callbacks and read the live sessions through the one
+        registry, rather than each holding a duplicate of its lease and identity.
+        """
+        return self._clients
+
     # -- index access ------------------------------------------------------
 
     def scene_roots(self, scene_id: SceneId) -> list[WireElement]:

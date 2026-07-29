@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.operations.callbacks import CallbackOperations
 from punt_lux.operations.config import DisplayModeOperations
 from punt_lux.operations.conveniences import ConvenienceOperations
 from punt_lux.operations.display_control import DisplayControlOperations
@@ -21,6 +22,7 @@ from punt_lux.operations.queries import QueryOperations
 from punt_lux.operations.scenes import SceneOperations
 
 if TYPE_CHECKING:
+    from punt_lux.domain.hub.callback_hold import CallbackRouter
     from punt_lux.domain.hub.clients import ClientRegistry
     from punt_lux.domain.hub.hub import Hub
     from punt_lux.domain.hub.hub_display import HubDisplay
@@ -41,6 +43,7 @@ if TYPE_CHECKING:
         Unsubscribed,
         UpdateRequest,
     )
+    from punt_lux.operations.models.callbacks import RegisterCallbackRequest
     from punt_lux.operations.models.display_info import DisplayInfo
     from punt_lux.operations.models.display_probe import Pong, Screenshot
     from punt_lux.operations.models.display_write import FrameStatePatch
@@ -72,7 +75,9 @@ class Operations:
     _queries: QueryOperations
     _menus: MenuOperations
     _identity: IdentityOperations
+    _callbacks: CallbackOperations
     __slots__ = (
+        "_callbacks",
         "_config",
         "_conveniences",
         "_display",
@@ -94,6 +99,7 @@ class Operations:
         queries: QueryOperations,
         menus: MenuOperations,
         identity: IdentityOperations,
+        callbacks: CallbackOperations,
     ) -> Self:
         self = super().__new__(cls)
         self._scenes = scenes
@@ -104,6 +110,7 @@ class Operations:
         self._queries = queries
         self._menus = menus
         self._identity = identity
+        self._callbacks = callbacks
         return self
 
     @classmethod
@@ -115,10 +122,17 @@ class Operations:
         hub: Hub,
         client_registry: ClientRegistry,
         menu_registry: HubMenuRegistry,
+        callback_router: CallbackRouter,
         ports: HubPorts,
     ) -> Self:
-        """Wire every concern class from injected collaborators — no singletons."""
+        """Wire every concern class from injected collaborators — no singletons.
+
+        ``callback_router`` is the one process-wide router: both the MCP and REST
+        composition roots pass the same instance, so a click routed on one surface
+        and drained on another share one set of per-session holds.
+        """
         scenes = SceneOperations(display, replicator, ports.element_factory)
+        callbacks = CallbackOperations(display.clients, callback_router, replicator)
         return cls(
             scenes=scenes,
             conveniences=ConvenienceOperations(scenes),
@@ -126,8 +140,9 @@ class Operations:
             config=DisplayModeOperations(client_registry),
             display=DisplayControlOperations(ports.display_port),
             queries=QueryOperations(display, hub, ports.display_port),
-            menus=MenuOperations(menu_registry, replicator),
+            menus=MenuOperations(menu_registry, replicator, callbacks),
             identity=IdentityOperations(display),
+            callbacks=callbacks,
         )
 
     def render(
@@ -259,8 +274,20 @@ class Operations:
         return self._menus.register_menu_item(request, scope=scope)
 
     def list_menus(self) -> MenuList:
-        """Return the Hub-authoritative menu bar."""
+        """Return the Hub-authoritative menu bar, including the callback submenus."""
         return self._menus.list_menus()
+
+    def register_callback(
+        self, request: RegisterCallbackRequest | OpError, *, scope: Scope
+    ) -> Ok | OpError:
+        """Register a menu callback for the caller's session; the replicator pushes.
+
+        Routing a click (``invoke_callback``) and draining a session's hold
+        (``pending_callbacks``) are Hub-internal — the display dispatches clicks and
+        the delivery legs drain holds — so they stay on ``CallbackOperations`` and
+        off the client facade, like the element-click dispatch.
+        """
+        return self._callbacks.register_callback(request, scope=scope)
 
     def identify(
         self, declaration: dict[str, object], *, scope: Scope
