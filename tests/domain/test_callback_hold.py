@@ -221,3 +221,28 @@ def test_the_persistent_listener_and_the_poll_hold_are_the_same_buffer() -> None
     router.route(CallbackInvocation(conn, "beads"))
     assert router.take(conn) == (CallbackInvocation(conn, "beads"),)
     assert router.pending(conn) == ()
+
+
+def _raise() -> None:
+    msg = "listener loop already closing"
+    raise RuntimeError(msg)
+
+
+def test_a_raising_listener_is_isolated_and_dropped_but_the_click_is_kept() -> None:
+    # A listener whose loop/socket is tearing down may raise on wake; the hold write
+    # already happened, so the click must survive and the dead listener must go.
+    conn = ConnectionId("vox")
+    router = CallbackRouter(_Live({conn: _session("vox", "beads")}))
+    boom = _Waker(on_wake=_raise)
+    router.add_listener(conn, boom)
+
+    # Routing survives the raising wake and reports success — the click landed.
+    assert router.route(CallbackInvocation(conn, "beads")) == "routed"
+    assert router.pending(conn) == (CallbackInvocation(conn, "beads"),)  # kept
+    assert boom.wakes == 1
+
+    # The dead listener was dropped: a second routed click is not woken again, and
+    # the click still buffers for a later drain.
+    assert router.route(CallbackInvocation(conn, "beads")) == "routed"
+    assert boom.wakes == 1  # not woken a second time
+    assert len(router.pending(conn)) == 2  # both clicks held for the drain

@@ -26,6 +26,7 @@ mode is chosen by listener presence, never by a client-kind branch.
 
 from __future__ import annotations
 
+import logging
 import threading
 from collections import deque
 from typing import TYPE_CHECKING, Literal, Protocol, Self, final, runtime_checkable
@@ -36,6 +37,8 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.client_session import ClientSession
     from punt_lux.domain.hub.session_callback import CallbackInvocation
     from punt_lux.domain.ids import ConnectionId
+
+logger = logging.getLogger(__name__)
 
 __all__ = ["CallbackListener", "CallbackRouter", "CallbackRouting", "LiveSessions"]
 
@@ -143,8 +146,23 @@ class CallbackRouter:
             self._hold_for(invocation.connection_id).add(invocation)
             listener = self._listeners.get(invocation.connection_id)
         if listener is not None:
-            listener.wake()
+            self._wake(invocation.connection_id, listener)
         return "routed"
+
+    def _wake(self, connection_id: ConnectionId, listener: CallbackListener) -> None:
+        """Wake a connection's listener, isolating a raising one from the routing.
+
+        The hold write already committed before this runs, so a wake that raises —
+        a listener whose loop or socket is mid-teardown — must not fail the route or
+        lose the click: the invocation stays buffered for a later drain, and the dead
+        listener is dropped so it is not woken again. Runs outside the router lock, so
+        ``remove_listener`` re-taking that lock nests with nothing.
+        """
+        try:
+            listener.wake()
+        except Exception:
+            logger.exception("callback listener wake failed; dropping the listener")
+            self.remove_listener(connection_id)
 
     def add_listener(
         self, connection_id: ConnectionId, listener: CallbackListener

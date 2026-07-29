@@ -61,6 +61,9 @@ WS_PATH = "/ws"
 # A client that declares no identity in its handshake headers is refused: a listen
 # leg owns a session, and only a named client may. 1008 is the WebSocket policy code.
 _POLICY_VIOLATION = 1008
+# A client that sends a frame the wire does not define is closed as a protocol
+# violation (1002) rather than left to bubble into a 1011 server error.
+_PROTOCOL_ERROR = 1002
 
 
 @final
@@ -145,18 +148,29 @@ class HubListenSession:
         self._loop.call_soon_threadsafe(self._outbound.put_nowait, frame)
 
     async def _read_loop(self) -> None:
-        """Apply inbound frames until the client disconnects; any frame renews."""
+        """Apply inbound frames until the client disconnects; any frame renews.
+
+        A frame the wire does not define is a protocol violation, not a server
+        fault: the connection is closed cleanly (1002) rather than letting the
+        parse error bubble into a 1011 internal error, which would also mislog a
+        misbehaving client as a server bug.
+        """
         while True:
             try:
                 raw = await self._ws.receive_text()
             except WebSocketDisconnect:
                 return
             self._clients.record(self._conn, self._identity)
-            self._apply(raw)
+            try:
+                frame = ClientFrames.validate_json(raw)
+            except ValidationError:
+                logger.info("listen client sent a malformed frame; closing")
+                await self._ws.close(code=_PROTOCOL_ERROR)
+                return
+            self._apply(frame)
 
-    def _apply(self, raw: str) -> None:
-        """Parse one client frame and act on it — subscribe, or a bare renewal."""
-        frame = ClientFrames.validate_json(raw)
+    def _apply(self, frame: SubscribeFrame | RenewFrame) -> None:
+        """Act on one parsed client frame — subscribe, or a bare renewal."""
         match frame:
             case SubscribeFrame(topics=topics):
                 for topic in topics:
@@ -165,10 +179,19 @@ class HubListenSession:
                 pass  # the lease renewal already happened on receipt
 
     async def _write_loop(self) -> None:
-        """Drain the outbound queue to the socket until cancelled on disconnect."""
+        """Drain the outbound queue to the socket until the peer or a cancel ends it.
+
+        A send to a peer that is already going away raises (a ``WebSocketDisconnect``
+        or, once starlette has seen the close, a ``RuntimeError``); that is a normal
+        end of the connection, not a server error, so it ends the loop cleanly rather
+        than propagating out of ``run`` and turning a routine disconnect into a fault.
+        """
         while True:
             frame = await self._outbound.get()
-            await self._ws.send_text(frame.model_dump_json())
+            try:
+                await self._ws.send_text(frame.model_dump_json())
+            except (WebSocketDisconnect, RuntimeError):
+                return
 
     def _drain_callbacks(self) -> None:
         """Take this session's held invocations and enqueue one frame each.

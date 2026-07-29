@@ -8,8 +8,10 @@ is routed to the very connection the WebSocket bound — the two legs' shared id
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import Callable
+from typing import final
 
 import pytest
 from fastapi import FastAPI
@@ -23,7 +25,8 @@ from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
 from punt_lux.domain.ids import Topic
-from punt_lux.ws_listen import HubListenTransport
+from punt_lux.protocol.messages.listen import CallbackFrame
+from punt_lux.ws_listen import HubListenSession, HubListenTransport
 
 _HEADERS = {
     "X-Lux-Client-Kind": "app",
@@ -98,3 +101,68 @@ def test_a_subscribed_topics_publish_is_pushed() -> None:
             "topic": "music.play",
             "payload": {"album_id": "jazz-1"},
         }
+
+
+def test_a_non_json_frame_closes_the_connection_as_a_protocol_error() -> None:
+    client, *_ = _wired()
+    with client.websocket_connect("/ws", headers=_HEADERS) as ws:
+        ws.receive_json()  # ready
+        ws.send_text("this is not a frame")
+        with pytest.raises(WebSocketDisconnect) as exc:
+            ws.receive_json()
+        assert exc.value.code == 1002  # protocol error, not a 1011 server fault
+
+
+def test_an_unknown_frame_kind_closes_the_connection_as_a_protocol_error() -> None:
+    client, *_ = _wired()
+    with client.websocket_connect("/ws", headers=_HEADERS) as ws:
+        ws.receive_json()  # ready
+        ws.send_json({"kind": "teleport"})  # not a defined client frame
+        with pytest.raises(WebSocketDisconnect) as exc:
+            ws.receive_json()
+        assert exc.value.code == 1002
+
+
+@final
+class _GoneWebSocket:
+    """A WebSocket whose send raises, standing in for a peer that has gone away."""
+
+    def __init__(self, send_error: Exception) -> None:
+        self._send_error = send_error
+
+    async def send_text(self, _text: str) -> None:
+        raise self._send_error
+
+
+def _session_over(send_error: Exception) -> HubListenSession:
+    hub, clients = Hub(), HubClientRegistry()
+    return HubListenSession(
+        _GoneWebSocket(send_error),  # type: ignore[arg-type]  # structural fake for the write path
+        _CONN,
+        ClientIdentity(kind="app", name="voxd", repo="/w/vox"),
+        hub,
+        clients,
+        CallbackRouter(clients),
+    )
+
+
+def test_the_write_loop_ends_cleanly_when_the_peer_disconnected() -> None:
+    # A send to a peer already going away raises WebSocketDisconnect; a normal
+    # disconnect must not become a server error out of run().
+    async def scenario() -> None:
+        session = _session_over(WebSocketDisconnect(code=1006))
+        session._outbound.put_nowait(CallbackFrame(callback_id="beads"))
+        await session._write_loop()  # returns rather than propagating
+
+    asyncio.run(scenario())
+
+
+def test_the_write_loop_ends_cleanly_on_a_send_after_close() -> None:
+    # Once starlette has seen the close, send raises RuntimeError; that too is
+    # peer-gone, not a fault, so the loop ends cleanly.
+    async def scenario() -> None:
+        session = _session_over(RuntimeError("Cannot call send once closed"))
+        session._outbound.put_nowait(CallbackFrame(callback_id="beads"))
+        await session._write_loop()
+
+    asyncio.run(scenario())
