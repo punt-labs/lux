@@ -556,12 +556,48 @@ PUBSUB_SCENARIOS: tuple[Scenario, ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Identity scenarios — ``identify`` records the caller's declared identity against
+# its session scope and returns ``"identified:<name>"``, or ``"error: <reason>"``
+# for a malformed declaration. The stub setup only overrides the session_key so
+# each scenario binds a fresh connection; no display is involved.
+# ---------------------------------------------------------------------------
+
+
+IDENTITY_SCENARIOS: tuple[Scenario, ...] = (
+    Scenario(
+        name="identify-agent",
+        tool="identify",
+        inputs={
+            "kind": "mcp-session",
+            "name": "claude",
+            "repo": "/work/lux",
+            "agent": "claude",
+        },
+        setup={"display_running": False, "session_key": "corpus-identify-agent"},
+    ),
+    Scenario(
+        name="identify-headless-cli",
+        tool="identify",
+        inputs={"kind": "cli", "name": "lux-cli"},
+        setup={"display_running": False, "session_key": "corpus-identify-headless"},
+    ),
+    Scenario(
+        name="identify-bad-kind",
+        tool="identify",
+        inputs={"kind": "daemon", "name": "x"},
+        setup={"display_running": False, "session_key": "corpus-identify-bad-kind"},
+    ),
+)
+
+
 SCENARIOS: tuple[Scenario, ...] = (
     LIFECYCLE_SCENARIOS
     + COMPOSITION_SCENARIOS
     + INTROSPECTION_SCENARIOS
     + INTERACTION_SCENARIOS
     + PUBSUB_SCENARIOS
+    + IDENTITY_SCENARIOS
 )
 
 

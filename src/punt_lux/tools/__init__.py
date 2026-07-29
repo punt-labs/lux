@@ -1,9 +1,7 @@
 """Lux MCP server — expose display tools to AI agents.
 
-Display tools (``show``, ``update``, ``ping``, ...) use :class:`DisplayClient`;
-Agent Subscribe tools (``subscribe``, ``publish``, ``recv``) route through the
-in-process Hub scoped to the calling session. luxd serves these over its
-streamable-HTTP ``/mcp`` endpoint.
+Display tools use :class:`DisplayClient`; Agent Subscribe tools route through the
+in-process Hub. luxd serves these over its streamable-HTTP ``/mcp`` endpoint.
 """
 
 # isort: skip_file
@@ -38,6 +36,7 @@ from punt_lux.tools.write_tools import (
     clear,
     clear_scene,
     display_mode,
+    identify,
     register_tool,
     set_display_mode,
     set_frame_state,
@@ -69,6 +68,7 @@ __all__ = [
     "get_display_info",
     "get_theme",
     "get_window_settings",
+    "identify",
     "inspect_scene",
     "list_clients",
     "list_errors",

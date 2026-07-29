@@ -1,0 +1,26 @@
+{
+  "inputs": [
+    [
+      "agent",
+      "claude"
+    ],
+    [
+      "kind",
+      "mcp-session"
+    ],
+    [
+      "name",
+      "claude"
+    ],
+    [
+      "repo",
+      "/work/lux"
+    ]
+  ],
+  "response": "identified:claude",
+  "setup": {
+    "display_running": false,
+    "session_key": "corpus-identify-agent"
+  },
+  "tool": "identify"
+}
