@@ -45,3 +45,16 @@ def test_unidentified_grace_matches_the_mcp_length() -> None:
     # A connected-but-unidentified session is an MCP session mid-handshake, so its
     # grace is the generous length, not the short cli one.
     assert SessionLease.unidentified(0.0).ttl_seconds == 1800.0
+
+
+def test_a_declared_ttl_overrides_the_kind_default() -> None:
+    # A daemon declares a short lease even though its "app" kind would be permanent.
+    lease = SessionLease.for_declared("app", 30.0, 0.0)
+    assert lease.ttl_seconds == 30.0
+    assert not lease.is_live(31.0)
+
+
+def test_an_absent_declared_ttl_falls_to_the_kind_default() -> None:
+    # No declaration → the kind default, so luxd's built-in app stays permanent.
+    assert SessionLease.for_declared("app", None, 0.0).ttl_seconds == math.inf
+    assert SessionLease.for_declared("cli", None, 0.0).ttl_seconds == 90.0

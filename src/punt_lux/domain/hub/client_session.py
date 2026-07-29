@@ -96,13 +96,17 @@ class ClientSession:
         return ClientSession(self._connected_at, self._identity, lease, self._callbacks)
 
     def with_identity(self, identity: ClientIdentity) -> ClientSession:
-        """Return this session carrying ``identity`` and its kind's lease length.
+        """Return this session carrying ``identity`` and the lease it declared.
 
-        The connect time is kept, and the lease is reset to the length ``identity``'s
-        kind declares while holding the current renewal instant — declaring who you
-        are both attributes the session and sets how long it may idle.
+        The connect time is kept, and the lease is reset while holding the current
+        renewal instant — declaring who you are both attributes the session and sets
+        how long it may idle. The length is the identity's declared ``lease_ttl`` when
+        it named one, else its kind's default, so a daemon that declares a short TTL
+        leaves the menu on its own timer while luxd's built-ins stay permanent.
         """
-        lease = SessionLease.for_kind(identity.kind, self._lease.renewed_at)
+        lease = SessionLease.for_declared(
+            identity.kind, identity.lease_ttl, self._lease.renewed_at
+        )
         return ClientSession(self._connected_at, identity, lease, self._callbacks)
 
     def with_callback(self, callback: SessionCallback) -> ClientSession:

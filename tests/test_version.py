@@ -9,6 +9,8 @@ import sys
 # and the request/result types it speaks, plus the one exceptional error.
 _PUBLIC_CLIENT_API = (
     "LuxRestClient",
+    "LuxHubClient",
+    "ClientIdentity",
     "RenderRequest",
     "RenderTableRequest",
     "SceneShown",

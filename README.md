@@ -281,12 +281,12 @@ Hub buffers any clicks missed during a gap and drains them on reconnect.
 ```python
 import asyncio
 
-from punt_lux import LuxRestClient
-from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux import ClientIdentity, LuxRestClient
 
 # One identity for both legs: scene pushes over REST, the listen stream over the
-# WebSocket. A long-lived daemon declares an "app" identity.
-rest = LuxRestClient.for_identity(ClientIdentity(kind="app", name="voxd"))
+# WebSocket. A long-lived daemon declares an "app" identity — who it is, not where
+# it ran — and a short lease TTL so its menu entries leave when it dies.
+rest = LuxRestClient.for_identity(ClientIdentity(kind="app", name="voxd", lease_ttl=30))
 
 def on_callback(callback_id: str) -> None:
     print("menu click:", callback_id)          # e.g. run the action for this item

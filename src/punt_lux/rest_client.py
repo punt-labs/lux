@@ -46,7 +46,10 @@ class LuxRestClient:
 
     A downstream app (vox, a headless tool) reaches the Hub through this typed
     client, not by hand-rolling REST, so it gets the same validation, typing, and
-    identity behavior the CLI does. Build it with :meth:`connect`.
+    identity behavior the CLI does. A daemon or app builds it with
+    :meth:`for_identity`, declaring an EXPLICIT identity — who it is, an ``app``
+    named for the service, not where it happened to run. A ``lux`` command uses
+    :meth:`connect`, which derives a ``cli`` identity from its working context.
     """
 
     _transport: HttpTransport
@@ -63,20 +66,25 @@ class LuxRestClient:
 
     @classmethod
     def connect(cls, *, timeout: float = 2.0) -> Self:
-        """Locate luxd's port and build a client, or raise if luxd is not running.
+        """The CLI convenience: build a client whose identity comes from the context.
 
-        The client's identity is derived from the invocation's context every run —
-        a ``LUX_CLIENT`` override, else the git repository, else headless.
+        A ``lux`` command has no identity to declare, so one is derived from where it
+        runs — a ``LUX_CLIENT`` override, else the git repository, else headless — as
+        a ``cli`` identity. A daemon or app must NOT use this: it would be attributed
+        by accident to wherever it started rather than to what it is. Such a caller
+        declares itself with :meth:`for_identity`.
         """
         return cls.for_identity(CliIdentity.resolve(), timeout=timeout)
 
     @classmethod
     def for_identity(cls, identity: ClientIdentity, *, timeout: float = 2.0) -> Self:
-        """Build a client that declares ``identity``, or raise if luxd is not running.
+        """Build a client that declares an EXPLICIT ``identity``, or raise if luxd down.
 
-        A daemon that both pushes scenes and holds a listen connection builds one
-        client here from its own app identity, then :meth:`listener` shares that
-        identity so both legs resolve to a single connection.
+        The daemon and app path: a long-lived service names itself — an ``app`` with
+        its own name, optionally its declared lease TTL — rather than deriving a
+        ``cli`` identity from its working directory. A daemon that both pushes scenes
+        and holds a listen connection builds one client here, then :meth:`listener`
+        shares this identity so both legs resolve to a single connection.
         """
         port = HubPaths().read_port()
         if port is None:

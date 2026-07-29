@@ -31,6 +31,9 @@ class ClientHeaders:
     NAME: ClassVar[str] = "X-Lux-Client-Name"
     REPO: ClassVar[str] = "X-Lux-Client-Repo"
     AGENT: ClassVar[str] = "X-Lux-Client-Agent"
+    # The declared lease TTL, in seconds — a session's chosen cadence length. Absent
+    # means the kind default (see ClientIdentity.lease_ttl).
+    LEASE_TTL: ClassVar[str] = "X-Lux-Client-Lease-Ttl"
     # The response header a Hub stamps on an identity-less write — the challenge.
     CHALLENGE: ClassVar[str] = "X-Lux-Identification-Required"
     __slots__ = ()
@@ -39,16 +42,19 @@ class ClientHeaders:
     def to_wire(cls, identity: ClientIdentity) -> dict[str, str]:
         """Render ``identity`` into the request headers a client sends.
 
-        ``kind`` and ``name`` are always present; ``repo`` and ``agent`` are
-        genuine absences (a headless CLI owns no repository, only an agent carries
-        a persona), so an absent one is omitted rather than sent blank — a blank
-        header equals no header on the read side.
+        ``kind`` and ``name`` are always present; ``repo``, ``agent``, and
+        ``lease_ttl`` are genuine absences (a headless CLI owns no repository, only
+        an agent carries a persona, and an undeclared TTL means the kind default), so
+        an absent one is omitted rather than sent blank — a blank header equals no
+        header on the read side.
         """
         headers = {cls.KIND: identity.kind, cls.NAME: identity.name}
         if identity.repo is not None:
             headers[cls.REPO] = identity.repo
         if identity.agent is not None:
             headers[cls.AGENT] = identity.agent
+        if identity.lease_ttl is not None:
+            headers[cls.LEASE_TTL] = str(identity.lease_ttl)
         return headers
 
     @classmethod
@@ -58,7 +64,9 @@ class ClientHeaders:
         A request is identified when it names itself; ``kind`` defaults to ``cli``.
         A blank or whitespace-only header equals no header — dropped, not passed to
         ``identify`` (which rejects a blank repo/agent). ``None`` is the documented
-        contract for an unidentified caller, not a give-up on the type.
+        contract for an unidentified caller, not a give-up on the type. A declared
+        ``lease_ttl`` rides as a string the identity model coerces and bounds-checks,
+        so a non-numeric or out-of-range value is a named rejection, not a crash.
         """
         name = headers.get(cls.NAME, "").strip()
         if not name:
@@ -69,7 +77,12 @@ class ClientHeaders:
             "kind": kind if kind else "cli",
             "name": name,
         }
-        for field, header in (("repo", cls.REPO), ("agent", cls.AGENT)):
+        optional = (
+            ("repo", cls.REPO),
+            ("agent", cls.AGENT),
+            ("lease_ttl", cls.LEASE_TTL),
+        )
+        for field, header in optional:
             value = headers.get(header, "").strip()
             if value:
                 declaration[field] = value

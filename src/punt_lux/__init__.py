@@ -9,6 +9,7 @@ try:
 except PackageNotFoundError:  # pragma: no cover
     __version__ = "0.0.0"
 
+from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.hub_client import CallbackHandler, EventHandler, LuxHubClient
 from punt_lux.operations import (
     OpError,
@@ -66,6 +67,7 @@ __all__ = [
     "ButtonElement",
     "CallbackHandler",
     "CheckboxElement",
+    "ClientIdentity",
     "CollapsingHeaderElement",
     "ColorPickerElement",
     "ComboElement",

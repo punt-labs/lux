@@ -63,3 +63,21 @@ def test_blank_kind_falls_back_to_the_cli_default() -> None:
         {"X-Lux-Client-Name": "tool", "X-Lux-Client-Kind": "   "}
     )
     assert declaration == {"kind": "cli", "name": "tool"}
+
+
+def test_a_declared_lease_ttl_crosses_both_directions() -> None:
+    # The daemon's declared cadence rides the same header set REST and the WS
+    # handshake read, so both legs see the same lease.
+    identity = ClientIdentity(kind="app", name="voxd", lease_ttl=30.0)
+    wire = ClientHeaders.to_wire(identity)
+    assert wire["X-Lux-Client-Lease-Ttl"] == "30.0"
+    declaration = ClientHeaders.declaration_from(wire)
+    assert ClientIdentity.model_validate(declaration) == identity
+
+
+def test_an_absent_lease_ttl_sends_no_header() -> None:
+    # An undeclared TTL is omitted, not sent blank — the read side reads the kind
+    # default, and luxd's built-ins stay permanent.
+    assert "X-Lux-Client-Lease-Ttl" not in ClientHeaders.to_wire(
+        ClientIdentity(kind="app", name="luxd")
+    )
