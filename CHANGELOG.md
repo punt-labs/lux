@@ -43,6 +43,13 @@
   blocking receive loop that renews the lease on contact and reconnects on a
   dropped connection. The Hub buffers clicks missed during a gap and drains them
   on reconnect. The wire frames are typed (pydantic, discriminated by `kind`).
+- **Sessions declare their own lease.** `ClientIdentity.lease_ttl` (5 s–1 h,
+  rejected outside the bounds, carried on both REST and WebSocket identify) —
+  a daemon declaring 30 s vanishes from the menu on the lease timer if it
+  dies; sessions that declare nothing keep their kind defaults, so luxd's
+  built-ins stay permanent. Daemons identify explicitly via
+  `LuxRestClient.for_identity(ClientIdentity(...))`; `connect()` remains the
+  CLI's context-deriving path, and `ClientIdentity` is now a public export.
 - **`LuxRestClient` is the public Python library API.** `from punt_lux import
   LuxRestClient` — typed requests and results, no display extras required, and
   client identity built in. Python programs use the library; shell scripts and
