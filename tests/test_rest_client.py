@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from punt_lux.cli_identity import CliIdentity
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.hub_paths import HubPaths
 from punt_lux.operations import (
@@ -28,6 +29,8 @@ from punt_lux.rest_transport import HttpResponse, HubUnavailableError
 from .rest._fakes import make_client
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from fastapi.testclient import TestClient
 
     from punt_lux.rest_http_call import HttpCall
@@ -271,6 +274,30 @@ def test_render_installs_a_scene_over_the_real_surface() -> None:
     client = _client_over(SurfaceTransport(make_client()))
     result = client.render(_render_request("alpha"))
     assert result == SceneShown(scene_id="alpha")
+
+
+def test_a_derived_cli_identity_owns_its_scene_by_repository(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # The operator's probe, closed end to end: a cli invocation derives its
+    # identity from the git root and the scene it installs is owned by that repo —
+    # never the old anonymous "rest".
+    repo = tmp_path / "myrepo"
+    (repo / ".git").mkdir(parents=True)
+    monkeypatch.chdir(repo)
+    monkeypatch.delenv("LUX_CLIENT", raising=False)
+
+    surface = make_client()
+    client = LuxRestClient(SurfaceTransport(surface), CliIdentity.resolve())
+    assert client.render(_render_request("board")) == SceneShown(scene_id="board")
+
+    scene = next(
+        s for s in surface.get("/scenes").json()["scenes"] if s["scene_id"] == "board"
+    )
+    identity = scene["owners"][0]["identity"]
+    assert identity["kind"] == "cli"
+    assert identity["name"] == "myrepo"
+    assert identity["repo"] == str(repo)
 
 
 def test_render_table_composes_a_live_scene_over_the_real_surface() -> None:

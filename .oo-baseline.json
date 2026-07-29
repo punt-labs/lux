@@ -4695,7 +4695,7 @@
   "src/punt_lux/rest/identity.py": {
     "method_ratio": 0.8,
     "encapsulation_ratio": 1.0,
-    "avg_params": 1.6,
+    "avg_params": 1.2,
     "max_complexity": 3.0,
     "avg_complexity": 1.6,
     "module_size": 79.0,

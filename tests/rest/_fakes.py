@@ -26,8 +26,8 @@ from punt_lux.protocol.messages.observer import ObserverMessage
 from punt_lux.rest import RestSurface
 
 # The default identity every fake client declares, so its writes own scenes under
-# a named ``cli`` caller; a test omits it (``identity=None``) to exercise the
-# anonymous path and the identification challenge.
+# a named ``cli`` caller; a test passes ``identity={}`` to send none and exercise
+# the identity-less rejection (a 401 challenge on a write).
 DEFAULT_IDENTITY = {
     "X-Lux-Client-Kind": "cli",
     "X-Lux-Client-Name": "rest-test",
@@ -124,7 +124,7 @@ def make_client(
 
     Pass ``store`` to hold the ``HubDisplay`` the routes install into. The client
     declares :data:`DEFAULT_IDENTITY` on every request unless ``identity`` overrides
-    it; pass ``identity={}`` to send no identity headers (the anonymous path).
+    it; pass ``identity={}`` to send no identity headers (a write is then rejected).
     """
     port = display_port if display_port is not None else ForbiddenPort()
     app = FastAPI()

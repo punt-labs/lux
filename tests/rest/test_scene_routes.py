@@ -151,22 +151,19 @@ def test_list_scenes_reflects_a_rendered_scene() -> None:
     assert owners[0]["identity"]["repo"] == "/w/lux"
 
 
-def test_anonymous_write_carries_the_challenge_and_still_installs() -> None:
-    # Phase one of the shutdown: an identity-less write works, but its response
-    # carries the identification challenge so the caller learns it must identify.
+def test_anonymous_write_is_rejected_with_the_challenge() -> None:
+    # The shutdown's end state: an identity-less write owns nothing, so it is
+    # refused with a 401 carrying the identification challenge — and installs no scene.
     client = make_client(identity={})  # send no identity headers
     resp = _render(client, "anon")
-    assert resp.status_code == 200
+    assert resp.status_code == 401
     assert "X-Lux-Identification-Required" in resp.headers
-    body = client.get("/scenes").json()
-    owners = next(s for s in body["scenes"] if s["scene_id"] == "anon")["owners"]
-    # The owner is a real, named-nothing connection — never the old shared "rest".
-    assert owners[0]["identity"] is None
-    assert owners[0]["connection_id"] != "rest"
+    # Nothing was installed: the refused write never reached the store.
+    assert client.get("/scenes").json()["scenes"] == []
 
 
-def test_identity_less_read_stays_silent() -> None:
-    # Reads own nothing, so an unidentified read is not challenged.
+def test_identity_less_read_stays_open() -> None:
+    # Reads own nothing, so an unidentified read is served, not challenged.
     client = make_client(identity={})
     resp = client.get("/scenes")
     assert resp.status_code == 200
@@ -192,24 +189,6 @@ def test_blank_optional_header_is_treated_as_absent() -> None:
     ]
     assert owner["identity"]["name"] == "cli-tool"
     assert owner["identity"]["repo"] is None  # the blank header was dropped
-
-
-def test_two_anonymous_writers_own_separate_scenes() -> None:
-    # Distinct per-request connections: two anonymous callers never share
-    # ownership, so each scene lists its own owner connection.
-    store = HubDisplay()
-    first = make_client(store=store, identity={})
-    second = make_client(store=store, identity={})
-    _render(first, "one")
-    _render(second, "two")
-
-    body = first.get("/scenes").json()
-    owners = {
-        s["scene_id"]: s["owners"][0]["connection_id"]
-        for s in body["scenes"]
-        if s["scene_id"] in {"one", "two"}
-    }
-    assert owners["one"] != owners["two"]  # separate owners, no shared scope
 
 
 def test_an_identified_writer_owns_its_scene_across_requests() -> None:
