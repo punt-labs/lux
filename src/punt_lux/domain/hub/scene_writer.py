@@ -69,11 +69,10 @@ class HubSceneWriter:
 
     def apply(
         self,
-        connection_id: ConnectionId,
-        scene_id: SceneId,
+        scope: SceneScope,
         patches: Sequence[Mapping[str, object]],
     ) -> WriteResult:
-        """Parse and write ``patches`` to the store once, or reject the batch whole.
+        """Write ``patches`` to the scoped scene in one batch, or reject it whole.
 
         Stage a realization per field patch, guard every removal, check every
         rejection, and — only if all pass — commit the fields atomically (a
@@ -81,7 +80,6 @@ class HubSceneWriter:
         (idempotent, see :meth:`_apply_removals`). Any rejection leaves the store
         untouched.
         """
-        scope = SceneScope(connection_id, scene_id)
         # One store-lock hold spans the whole batch so the replicator never
         # snapshots it half-applied; reentrant, so nested writes re-enter freely.
         with self._display.write_lock():
@@ -106,24 +104,26 @@ class HubSceneWriter:
             self._apply_removals(scope, batch.removals)
             return WriteAccepted()
 
-    def clear(self, connection_id: ConnectionId) -> None:
-        """Remove every element the connection owns, keeping it registered.
+    def clear(
+        self, connection_id: ConnectionId, scene_id: SceneId | None = None
+    ) -> frozenset[SceneId]:
+        """Remove the connection's roots and return the scenes they were removed from.
 
-        Owner-scoped, unlike a re-show (whole-scene regardless of owner): a root
-        another connection holds in a shared scene stays, and removing a root drops
-        its subtree so a co-owned child is an idempotent no-op. A scene left empty
-        has its frame forgotten (bounding the frame map under a churning-id clear);
-        one a survivor still holds keeps its frame for the next re-push.
+        Owner-scoped; ``scene_id`` limits it to one scene, else every scene the caller
+        owns. Returned so the caller marks each dirty; the replicator blanks each into
+        its real frame and reclaims it after (deferred so the blank keeps its frame).
         """
         touched: set[SceneId] = set()
         with self._display.write_lock():
-            for scene_id, element_id in self._display.elements_owned_by(connection_id):
-                touched.add(scene_id)
-                removal = RemoveElement(scene_id=scene_id, element_id=element_id)
+            for owned_scene, element_id in self._display.elements_owned_by(
+                connection_id
+            ):
+                if scene_id is not None and owned_scene != scene_id:
+                    continue
+                touched.add(owned_scene)
+                removal = RemoveElement(scene_id=owned_scene, element_id=element_id)
                 self._display.apply(connection_id, removal)
-            for scene_id in touched:
-                if not self._display.scene_roots(scene_id):
-                    self._display.frames.forget(scene_id)
+        return frozenset(touched)
 
     def _field_realizations(
         self, scope: SceneScope, batch: PatchBatch

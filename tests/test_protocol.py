@@ -13,7 +13,6 @@ from punt_lux.protocol import (
     AckMessage,
     ButtonElement,
     CheckboxElement,
-    ClearMessage,
     ColorPickerElement,
     ComboElement,
     ConnectMessage,
@@ -332,10 +331,6 @@ class TestMessages:
         assert msg.type == "scene"
         assert len(msg.elements) == 1
 
-    def test_clear_message(self):
-        msg = ClearMessage()
-        assert msg.type == "clear"
-
     def test_ping_message(self):
         msg = PingMessage(ts=1234.5)
         assert msg.ts == 1234.5
@@ -612,7 +607,6 @@ class TestSerialization:
                 ),
                 id="SceneMessage",
             ),
-            pytest.param(ClearMessage(), id="ClearMessage"),
             pytest.param(PingMessage(ts=1.0), id="PingMessage"),
             pytest.param(IntrospectRequest(scene_id="s1"), id="IntrospectRequest"),
             pytest.param(
@@ -1526,7 +1520,6 @@ class TestMessageRegistry:
 
         expected_types = {
             "scene",
-            "clear",
             "ping",
             "introspect_request",
             "introspect_response",

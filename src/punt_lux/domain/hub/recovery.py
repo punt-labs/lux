@@ -73,40 +73,28 @@ class SendRecovery:
 
     def restore(self, batch: DrainedBatch) -> None:
         """Put a failed batch back on the queue so the next cycle retries it."""
-        self._requeue(
-            batch.scenes, cleared=batch.cleared, menus_dirty=batch.menus_dirty
-        )
+        self._requeue(batch.scenes, menus_dirty=batch.menus_dirty)
 
     def _remark(self, batch: DrainedBatch) -> None:
-        """Re-mark the live scenes, the batch's own scenes, a clear, and the menu.
+        """Re-mark the live scenes, the batch's own scenes, and the menu.
 
         An emptied scene the batch drained has no roots, so it is absent from
         ``live_scene_ids``; re-marking the batch's scenes keeps its lost blank
-        queued. The clear is re-marked so a same-display reconnect blanks again
-        rather than leaving the old scene up (blank-then-repaint is idempotent).
-        The menu is re-marked unconditionally because a respawn or a reconnect onto
-        a new process comes back with no agent bar, and the handshake replays only
-        the World-menu items, never ``set_menu``; the fresh registry read at send
-        time supplies the current bar, or a harmless blank if none is set.
+        queued. The menu is re-marked unconditionally because a respawn or a
+        reconnect onto a new process comes back with no agent bar, and the
+        handshake replays only the World-menu items, never ``set_menu``; the fresh
+        registry read at send time supplies the current bar, or a harmless blank.
         """
         scenes = frozenset(self._reader.live_scene_ids()) | batch.scenes
-        self._requeue(scenes, cleared=batch.cleared, menus_dirty=True)
+        self._requeue(scenes, menus_dirty=True)
 
-    def _requeue(
-        self,
-        scenes: frozenset[SceneId],
-        *,
-        cleared: bool,
-        menus_dirty: bool,
-    ) -> None:
-        """Re-mark scenes, a consumed clear, and the menu flag onto the signal.
+    def _requeue(self, scenes: frozenset[SceneId], *, menus_dirty: bool) -> None:
+        """Re-mark scenes and the menu flag onto the signal.
 
         When set, the menu flag makes the worker read the registry fresh at the
         next send, so a change during the failed send wins. The heal path always
         sets it; restore only when the batch itself carried one.
         """
-        if cleared:
-            self._signal.mark_cleared()
         if menus_dirty:
             self._signal.mark_menus()
         self._signal.add_all(scenes)

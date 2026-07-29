@@ -25,9 +25,6 @@ class _Recorder:
     def mark_dirty(self, scene_id: SceneId) -> None:
         self.dirtied.append(scene_id)
 
-    def mark_cleared(self) -> None:  # pragma: no cover - unused here
-        pass
-
     def mark_menus(self) -> None:  # pragma: no cover - unused here
         pass
 

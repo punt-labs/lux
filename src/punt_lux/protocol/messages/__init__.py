@@ -63,7 +63,6 @@ from punt_lux.protocol.messages.remote_invocation import (
     register_codecs as _register_remote_invocation,
 )
 from punt_lux.protocol.messages.scene import (
-    ClearMessage,
     SceneMessage,
 )
 
@@ -72,7 +71,6 @@ _register_scene = SceneMessage.register_codecs
 __all__ = [
     "PROTOCOL_VERSION",
     "AckMessage",
-    "ClearMessage",
     "ClientMessage",
     "ConnectMessage",
     "DisplayMessage",
@@ -103,7 +101,6 @@ __all__ = [
 
 ClientMessage = (
     SceneMessage
-    | ClearMessage
     | PingMessage
     | IntrospectRequest
     | ListScenesRequest

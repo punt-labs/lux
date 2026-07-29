@@ -3,9 +3,9 @@
 Covers the Wake / Drain partitions of the replicator spec: many marks of one
 scene coalesce to a single batch entry (D2), two scenes drain together (D3), a
 mark that lands after a drain is carried to the next cycle (D4), and the drain
-takes the dirty set and the cleared flag together (D5). The menu flag rides the
+takes the dirty set (D5). The menu flag rides the
 same signal: many menu marks coalesce to one flag (MN1), the drain takes it
-alongside the dirty set and the cleared flag and resets it (MN2), an idle worker
+alongside the dirty set and resets it (MN2), an idle worker
 wakes on a menu mark alone (MN3), and a batch with no menu mark carries no menu
 flag (MN5).
 """
@@ -31,7 +31,6 @@ def test_many_marks_of_one_scene_coalesce_to_a_single_entry() -> None:
     batch = signal.wait_and_drain(_NO_COALESCE)
 
     assert batch.scenes == frozenset({_S1})
-    assert not batch.cleared
 
 
 def test_two_scenes_drain_in_one_batch() -> None:
@@ -57,22 +56,6 @@ def test_a_mark_after_the_drain_is_carried_to_the_next_cycle() -> None:
     assert second.scenes == frozenset({_S2})
 
 
-def test_drain_takes_dirty_and_cleared_together_and_resets_both() -> None:
-    signal = DirtySignal()
-    signal.mark_dirty(_S1)
-    signal.mark_cleared()
-
-    batch = signal.wait_and_drain(_NO_COALESCE)
-    assert batch.scenes == frozenset({_S1})
-    assert batch.cleared
-
-    # Both were reset: the next cycle has no work until something new is marked.
-    signal.mark_dirty(_S2)
-    nxt = signal.wait_and_drain(_NO_COALESCE)
-    assert nxt.scenes == frozenset({_S2})
-    assert not nxt.cleared
-
-
 def test_many_menu_marks_coalesce_to_a_single_flag() -> None:
     # MN1: the menu flag is payload-less, so a burst of marks collapses to one
     # flag — the worker pushes the registry once, not once per mark.
@@ -84,33 +67,29 @@ def test_many_menu_marks_coalesce_to_a_single_flag() -> None:
 
     assert batch.menus_dirty
     assert batch.scenes == frozenset()
-    assert not batch.cleared
 
 
-def test_drain_takes_menus_alongside_dirty_and_cleared_and_resets() -> None:
-    # MN2: one drain takes the dirty set, the cleared flag, and the menu flag
-    # together and resets all three, so the next cycle carries none of them until
+def test_drain_takes_menus_alongside_dirty_and_resets() -> None:
+    # MN2: one drain takes the dirty set and the menu flag
+    # together and resets both, so the next cycle carries none of them until
     # something new is marked.
     signal = DirtySignal()
     signal.mark_dirty(_S1)
-    signal.mark_cleared()
     signal.mark_menus()
 
     batch = signal.wait_and_drain(_NO_COALESCE)
     assert batch.scenes == frozenset({_S1})
-    assert batch.cleared
     assert batch.menus_dirty
 
     signal.mark_dirty(_S2)
     nxt = signal.wait_and_drain(_NO_COALESCE)
     assert nxt.scenes == frozenset({_S2})
-    assert not nxt.cleared
     assert not nxt.menus_dirty
 
 
 def test_an_idle_signal_wakes_on_a_menu_mark_alone() -> None:
     # MN3: a menu change is enough to wake the worker on its own — no scene need be
-    # dirty and no clear pending. The worker parks on the condition until the menu
+    # dirty. The worker parks on the condition until the menu
     # mark arrives, then drains a batch that carries only the menu flag.
     signal = DirtySignal()
     drained: list[DrainedBatch] = []
@@ -121,7 +100,7 @@ def test_an_idle_signal_wakes_on_a_menu_mark_alone() -> None:
     t = threading.Thread(target=worker)
     t.start()
     t.join(timeout=0.2)
-    assert t.is_alive()  # parked: nothing dirty, not cleared, no menu yet
+    assert t.is_alive()  # parked: nothing dirty, no menu yet
     assert drained == []
 
     signal.mark_menus()
@@ -129,7 +108,6 @@ def test_an_idle_signal_wakes_on_a_menu_mark_alone() -> None:
     assert len(drained) == 1
     assert drained[0].menus_dirty
     assert drained[0].scenes == frozenset()
-    assert not drained[0].cleared
 
 
 def test_a_batch_without_a_menu_mark_carries_no_menu_flag() -> None:

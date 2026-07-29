@@ -38,9 +38,6 @@ class _MenuMarkerSpy:
     def mark_dirty(self, scene_id: SceneId) -> None:
         raise AssertionError("a menu write must not mark a scene dirty")
 
-    def mark_cleared(self) -> None:
-        raise AssertionError("a menu write must not mark a clear")
-
     def mark_menus(self) -> None:
         self._flags += 1
 

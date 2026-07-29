@@ -34,9 +34,10 @@ _SENDER_MODULES = frozenset(
 # binding the client to a name other than ``client``. The blocking ``show`` is
 # matched with its ``(`` argument list; there is deliberately no ``.clear(`` term —
 # the blocking clear no longer exists, and leaving it out keeps a no-arg dict
-# ``.clear()`` (e.g. ``_fd_to_client.clear()``) from matching. ``clear_async`` is
-# the only display clear.
-_SEND_CALL_RE = re.compile(r"\.show_async\(|\.clear_async\(|\.show\(")
+# ``.clear()`` (e.g. ``_fd_to_client.clear()``) from matching. An emptied scene
+# blanks its frame through the ordinary ``show_async`` (no roots), so there is no
+# separate display-clear send to guard.
+_SEND_CALL_RE = re.compile(r"\.show_async\(|\.show\(")
 
 
 def test_no_module_outside_the_sender_set_writes_to_the_display() -> None:
@@ -57,12 +58,12 @@ def test_no_module_outside_the_sender_set_writes_to_the_display() -> None:
 
 
 def test_the_replicator_is_the_writer() -> None:
-    # The positive side: the replicator does send (clear_async), and the shared
-    # ScenePresentation.push it drives does the scene send (show_async). If these
-    # move, the guard above must be revisited too.
+    # The positive side: the replicator drives the send through the snapshot's
+    # ``push``, and the shared ScenePresentation.push does the scene send
+    # (show_async). If these move, the guard above must be revisited too.
     replicator = (_SRC / "domain/hub/replicator.py").read_text(encoding="utf-8")
     presentation = (_SRC / "domain/hub/scene_presentation.py").read_text(
         encoding="utf-8"
     )
-    assert ".clear_async()" in replicator
+    assert "snapshot.push(" in replicator
     assert ".show_async(" in presentation

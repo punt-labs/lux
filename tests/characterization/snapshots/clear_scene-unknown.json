@@ -1,0 +1,16 @@
+{
+  "inputs": [
+    [
+      "scene_id",
+      "s1"
+    ]
+  ],
+  "response": "error: scene 's1' not found",
+  "setup": {
+    "client": {
+      "clear": {}
+    },
+    "display_running": true
+  },
+  "tool": "clear_scene"
+}

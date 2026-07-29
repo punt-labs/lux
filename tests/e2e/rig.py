@@ -261,6 +261,3 @@ class SyncReplicator:
         roots = hub_display.scene_roots(scene_id)
         presentation = hub_display.frames.presentation_for(scene_id)
         presentation.push(self._rig.repush_client, scene_id, roots)
-
-    def mark_cleared(self) -> None:
-        """No harness scenario clears; a real clear would blank the replica."""

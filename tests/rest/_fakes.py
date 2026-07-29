@@ -33,14 +33,10 @@ class Recorder:
 
     def __init__(self) -> None:
         self.dirtied: list[SceneId] = []
-        self.cleared = 0
         self.menus = 0
 
     def mark_dirty(self, scene_id: SceneId) -> None:
         self.dirtied.append(scene_id)
-
-    def mark_cleared(self) -> None:
-        self.cleared += 1
 
     def mark_menus(self) -> None:
         self.menus += 1
@@ -106,8 +102,8 @@ def make_facade(*, display_port: object, store: HubDisplay | None = None) -> Ope
             element_factory=hub_element_factory,
             ensure_writer=inbox.ensure_writer,
             next_event=inbox.next_event,
+            display_port=display_port,  # type: ignore[arg-type]  # DisplayPort protocol; fakes satisfy it structurally
         ),
-        display_port=display_port,  # type: ignore[arg-type]  # DisplayPort protocol; fakes satisfy it structurally
     )
 
 

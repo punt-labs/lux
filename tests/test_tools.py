@@ -52,6 +52,7 @@ from punt_lux.protocol import (
 from punt_lux.protocol.messages.observer import ObserverMessage
 from punt_lux.tools import (
     clear,
+    clear_scene,
     display_mode,
     inspect_scene,
     list_scenes,
@@ -945,23 +946,18 @@ def _seed_store(
 
 
 class _ReplicatorSpy:
-    """Records mark_dirty / mark_cleared — the tool's only contact with sends."""
+    """Records mark_dirty — the tool's only contact with sends."""
 
     dirtied: list[SceneId]
-    cleared: int
-    __slots__ = ("cleared", "dirtied")
+    __slots__ = ("dirtied",)
 
     def __new__(cls) -> _ReplicatorSpy:
         self = super().__new__(cls)
         self.dirtied = []
-        self.cleared = 0
         return self
 
     def mark_dirty(self, scene_id: SceneId) -> None:
         self.dirtied.append(scene_id)
-
-    def mark_cleared(self) -> None:
-        self.cleared += 1
 
     def mark_menus(self) -> None:
         """Swallow the menu-dirty flag; the spy only records scene signals."""
@@ -986,10 +982,10 @@ def _bind_store(monkeypatch: pytest.MonkeyPatch, store: HubDisplay) -> MagicMock
             element_factory=hub_element_factory,
             ensure_writer=ensure_writer,
             next_event=next_event,
-        ),
-        display_port=HubDisplayConnection(
-            is_running=lambda: DisplayPaths().is_running(),
-            clients=client_registry,
+            display_port=HubDisplayConnection(
+                is_running=lambda: DisplayPaths().is_running(),
+                clients=client_registry,
+            ),
         ),
     )
     monkeypatch.setattr("punt_lux.tools.tools.OPERATIONS", ops)
@@ -1020,10 +1016,10 @@ def _bind_pubsub(
             element_factory=hub_element_factory,
             ensure_writer=_no_writer,
             next_event=next_fn,
-        ),
-        display_port=HubDisplayConnection(
-            is_running=lambda: DisplayPaths().is_running(),
-            clients=client_registry,
+            display_port=HubDisplayConnection(
+                is_running=lambda: DisplayPaths().is_running(),
+                clients=client_registry,
+            ),
         ),
     )
     monkeypatch.setattr("punt_lux.tools.subscribe_tools.OPERATIONS", ops)
@@ -1498,10 +1494,10 @@ class TestUpdateTool:
 
 
 class TestClearTool:
-    def test_clear_empties_hub_store_and_marks_cleared(
+    def test_clear_empties_hub_store_and_marks_the_scene_dirty(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Clear empties the caller's authoritative scenes and signals a blank."""
+        """Clear empties the caller's authoritative scenes, blanking each one by one."""
         store = HubDisplay()
         _seed_store(store)
         client = _bind_store(monkeypatch, store)
@@ -1511,7 +1507,39 @@ class TestClearTool:
         assert result == "cleared"
         assert store.scene_roots(SceneId("s1")) == []
         assert store.elements_owned_by(ConnectionId("local")) == ()
-        assert client.replicator.cleared == 1
+        # Per-scene dirty, never a global blank: the display drops only the caller's
+        # emptied scenes, so another agent's UI cannot be wiped by this clear.
+        assert client.replicator.dirtied == [SceneId("s1")]
+
+    def test_clear_scene_empties_only_the_named_scene(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """clear_scene(scene_id) removes just that scene; the others stay up."""
+        store = HubDisplay()
+        _seed_store(store, scene="s1", header_id="a")
+        _seed_store(store, scene="s2", header_id="b", label="B")
+        client = _bind_store(monkeypatch, store)
+
+        result = clear_scene("s1")
+
+        assert result == "cleared"
+        assert store.scene_roots(SceneId("s1")) == []
+        assert store.resolve(SceneId("s2"), ElementId("b")).id == "b"
+        assert client.replicator.dirtied == [SceneId("s1")]
+
+    def test_clear_scene_of_an_unknown_scene_reports_an_error_not_cleared(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A mistyped id must read as an error, never a false "cleared"."""
+        store = HubDisplay()
+        client = _bind_store(monkeypatch, store)
+
+        result = clear_scene("ghost")
+
+        assert result != "cleared"
+        assert result.startswith("error:")
+        assert "ghost" in result
+        assert client.replicator.dirtied == []
 
     def test_clear_leaves_other_connections_scenes(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1706,7 +1734,7 @@ class TestClearIsDisplayIndependent:
         # The tool thread never opens a connection to the display.
         mock_get.assert_not_called()
 
-    def test_clear_empties_the_store_and_signals_a_blank(
+    def test_clear_empties_the_store_and_signals_a_scene_blank(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         store = HubDisplay()
@@ -1718,7 +1746,7 @@ class TestClearIsDisplayIndependent:
         assert result == "cleared"
         assert store.scene_roots(SceneId("s1")) == []
         assert store.elements_owned_by(ConnectionId("local")) == ()
-        assert client.replicator.cleared == 1
+        assert client.replicator.dirtied == [SceneId("s1")]
 
     @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_clear_returns_cleared_even_with_an_empty_store(

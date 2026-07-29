@@ -57,7 +57,6 @@ class _FakeSender:
     shows: list[str]
     frames: list[str | None]
     roots: list[list[WireElement]]
-    clears: int
     menus: list[list[dict[str, object]]]
     registered_items: list[list[dict[str, object]]]
     timeline: list[str]
@@ -74,7 +73,6 @@ class _FakeSender:
         "_gate",
         "_lock",
         "_sent",
-        "clears",
         "frames",
         "menus",
         "registered_items",
@@ -88,7 +86,6 @@ class _FakeSender:
         self.shows = []
         self.frames = []
         self.roots = []
-        self.clears = 0
         self.menus = []
         self.registered_items = []
         self.timeline = []
@@ -154,13 +151,6 @@ class _FakeSender:
             self.frames.append(frame_id)
             self.roots.append(list(elements))
             self.timeline.append(f"show:{scene_id}")
-        self._sent.set()
-
-    def clear_async(self) -> None:
-        self._guard()
-        with self._lock:
-            self.clears += 1
-            self.timeline.append("clear")
         self._sent.set()
 
     def set_menu(self, menus: list[dict[str, object]]) -> None:
@@ -412,28 +402,6 @@ def test_the_resend_carries_the_stores_current_value() -> None:
         repl.stop()
 
 
-def test_clear_is_sent_before_the_batch() -> None:
-    # CL3 / E1: a clear coalesced with a show must leave the scene on screen —
-    # blank first, then repaint, never the reverse.
-    store = HubDisplay()
-    scene = _seed(store, "s1")
-    repl, sender, _provider, _lifecycle = _replicator(store)
-    repl.start()
-    try:
-        repl.mark_cleared()
-        repl.mark_dirty(scene)
-        assert sender.wait_sent(2.0)
-        # Give the batch send a moment to follow the clear.
-        for _ in range(50):
-            if sender.shows:
-                break
-            threading.Event().wait(0.01)
-        # Blank first, then repaint — never the reverse.
-        assert sender.timeline == ["clear", "show:s1"]
-    finally:
-        repl.stop()
-
-
 def test_a_wedged_display_is_reaped_respawned_and_repainted() -> None:
     # P3 / K1 / K2: BlockingIOError → reap then ensure (in that order), drop the
     # dead fd, re-mark every live scene, and repaint the fresh display.
@@ -489,34 +457,6 @@ def test_a_recovery_failure_restores_the_batch_and_retries() -> None:
         assert sender.wait_sent(3.0)
         assert sender.shows == ["s1"]
         assert lifecycle.calls == ["reap", "ensure"]  # ensure raised, not retried
-    finally:
-        repl.stop()
-
-
-def test_a_dead_peer_recovery_re_marks_a_consumed_clear() -> None:
-    # A clear coalesced with a show, where the clear's send hits a dead peer:
-    # the reconnect re-marks the consumed clear, so the display is blanked again
-    # on the retry. Without the re-mark, a same-display reconnect would leave the
-    # old scene on screen forever.
-    store = HubDisplay()
-    scene = _seed(store, "s1")
-    repl, sender, provider, _lifecycle = _replicator(store)
-    sender.arm_failure(OSError("EPIPE"))  # the clear's send finds a dead peer
-    repl.start()
-    try:
-        repl.mark_cleared()
-        repl.mark_dirty(scene)
-        assert sender.wait_sent(3.0)
-        # Give the retried cycle a moment to blank then repaint.
-        for _ in range(100):
-            if sender.shows:
-                break
-            threading.Event().wait(0.01)
-        assert provider.drops == 1
-        # The clear survived the dead-peer recovery: blank first, then repaint. The
-        # "menu" between them is the heal path's unconditional menu re-mark — the
-        # empty registry pushes a harmless blank bar on the way back.
-        assert sender.timeline == ["clear", "menu", "show:s1"]
     finally:
         repl.stop()
 
@@ -695,7 +635,7 @@ def test_a_recovered_cycle_backs_off_and_a_clean_cycle_resets(
     store = HubDisplay()
     scene = _seed(store, "s1")
     repl, sender, _provider, _lifecycle = _replicator(store)
-    batch = DrainedBatch(frozenset({scene}), cleared=False, shutting=False)
+    batch = DrainedBatch(frozenset({scene}), shutting=False)
 
     sender.arm_failure(OSError())  # the send fails; recovery reconnects
     repl._run_cycle(batch)
@@ -843,39 +783,6 @@ def test_a_stop_flushes_a_send_in_flight_then_exits() -> None:
     stopper.join(2.0)
     assert not stopper.is_alive()  # the stop joined the worker cleanly
     assert sender.shows == ["s1"]
-
-
-def test_a_show_then_clear_ends_blank() -> None:
-    # CL4: a show and a clear coalesce before the drain. The clear emptied the
-    # store, so the cycle blanks the display and the now-empty scene is skipped —
-    # the display ends blank, consistent with the emptied store.
-    store = HubDisplay()
-    scene = _seed(store, "s1")
-    store.replace_scene(_CONN, scene, ())  # the clear emptied the scene
-    repl, sender, _provider, _lifecycle = _replicator(store)
-    repl.start()
-    try:
-        repl.mark_dirty(scene)
-        repl.mark_cleared()
-        assert sender.wait_sent(2.0)
-        assert sender.timeline == ["clear"]  # blanked; the empty scene skipped
-        assert sender.shows == []
-    finally:
-        repl.stop()
-
-
-def test_a_clear_with_no_batch_only_blanks() -> None:
-    # E2: a clear pushed with an empty batch blanks the display and nothing else.
-    store = HubDisplay()
-    repl, sender, _provider, _lifecycle = _replicator(store)
-    repl.start()
-    try:
-        repl.mark_cleared()
-        assert sender.wait_sent(2.0)
-        assert sender.timeline == ["clear"]
-        assert sender.shows == []
-    finally:
-        repl.stop()
 
 
 def test_a_fresh_replicator_after_a_stop_starts_idle_and_works() -> None:

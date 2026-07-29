@@ -30,6 +30,7 @@ from punt_lux.display.glfw_window import GlfwWindow
 from punt_lux.display.idle_screen import render_idle
 from punt_lux.display.interaction_delivery import InteractionDelivery
 from punt_lux.display.macos import hide_from_dock_and_cmd_tab
+from punt_lux.display.markdown_font import MarkdownFont
 from punt_lux.display.menu_manager import MenuManager
 from punt_lux.display.pending_interactions import PendingInteractions
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
@@ -41,7 +42,6 @@ from punt_lux.protocol import (
     AckMessage,
     ButtonElement,
     CheckboxElement,
-    ClearMessage,
     ColorPickerElement,
     ComboElement,
     ConnectMessage,
@@ -441,18 +441,17 @@ class DisplayServer:
 
         addons = immapp.AddOnsParams()
         addons.with_implot = True
-        # Set markdown regular_size to match the system font visually.
-        # imgui_md loads Roboto (bundled) which renders larger than system
-        # fonts at the same nominal px.  Do NOT also set with_markdown=True
-        # -- InitializeMarkdown has a static guard that silently drops the
-        # second call, so the custom options would be ignored.
+        # MarkdownFont points imgui_md at the packaged DejaVu (its own font lacks
+        # arrows). Options go once through with_markdown_options (static-guard drop).
         try:
             from imgui_bundle import imgui_md
 
             md_opts = imgui_md.MarkdownOptions()
             md_opts.font_options.regular_size = 13.0
+            MarkdownFont().apply_to(md_opts, hello_imgui.add_assets_search_path)
             addons.with_markdown_options = md_opts
         except ImportError:
+            logger.warning("imgui_md unavailable; markdown renders as plain text")
             addons.with_markdown = True
 
         immapp.run(runner_params, addons)
@@ -608,8 +607,6 @@ class DisplayServer:
         """Dispatch a scene/menu/theme-mutating message; read-only kinds delegate."""
         if isinstance(msg, SceneMessage):
             self._handle_scene(sock, msg)
-        elif isinstance(msg, ClearMessage):
-            self._handle_clear()
         elif isinstance(msg, RegisterMenuMessage):
             self._handle_register_menu(sock, msg)
         elif isinstance(msg, MenuMessage):
@@ -622,7 +619,7 @@ class DisplayServer:
             self._handle_readonly_message(sock, msg)
 
     def _handle_clear(self) -> None:
-        """Drop all scenes and reset the display's per-frame state."""
+        """Drop all scenes and reset per-frame state — the World-menu 'clear all'."""
         self._interaction_delivery.compensate_evicted(self._pending.evict_all())
         self._scene_manager.clear_all()
         self._event_queue.clear()

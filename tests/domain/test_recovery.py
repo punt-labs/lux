@@ -67,20 +67,15 @@ class _FakeLifecycle:
 class _FakeSignal:
     """Records the re-marks a recovery makes."""
 
-    cleared_marks: int
     menu_marks: int
     added: list[SceneId]
-    __slots__ = ("added", "cleared_marks", "menu_marks")
+    __slots__ = ("added", "menu_marks")
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
-        self.cleared_marks = 0
         self.menu_marks = 0
         self.added = []
         return self
-
-    def mark_cleared(self) -> None:
-        self.cleared_marks += 1
 
     def mark_menus(self) -> None:
         self.menu_marks += 1
@@ -121,12 +116,9 @@ def _recovery(
 
 
 _SCENE = SceneId("s1")
-_BATCH = DrainedBatch(frozenset({_SCENE}), cleared=False, shutting=False)
-_CLEARED_BATCH = DrainedBatch(frozenset({_SCENE}), cleared=True, shutting=False)
-_SHUTTING_BATCH = DrainedBatch(frozenset({_SCENE}), cleared=False, shutting=True)
-_MENU_BATCH = DrainedBatch(
-    frozenset({_SCENE}), cleared=False, shutting=False, menus_dirty=True
-)
+_BATCH = DrainedBatch(frozenset({_SCENE}), shutting=False)
+_SHUTTING_BATCH = DrainedBatch(frozenset({_SCENE}), shutting=True)
+_MENU_BATCH = DrainedBatch(frozenset({_SCENE}), shutting=False, menus_dirty=True)
 
 
 def test_a_wedged_display_is_reaped_then_respawned_then_remarked() -> None:
@@ -142,13 +134,6 @@ def test_a_dead_peer_reconnects_without_reaping() -> None:
     recovery.recover(_BATCH, wedged=False)
     assert lifecycle.calls == []  # nothing killed
     assert provider.drops == 1
-    assert signal.added == [_SCENE]
-
-
-def test_recovery_of_a_cleared_batch_re_marks_the_clear() -> None:
-    recovery, _provider, _lifecycle, signal = _recovery((_SCENE,))
-    recovery.recover(_CLEARED_BATCH, wedged=False)
-    assert signal.cleared_marks == 1  # the consumed clear is re-marked
     assert signal.added == [_SCENE]
 
 
@@ -178,8 +163,8 @@ def test_a_shutdown_flush_heals_nothing() -> None:
 
 def test_restore_re_queues_the_exact_batch() -> None:
     recovery, _provider, _lifecycle, signal = _recovery(())
-    recovery.restore(_CLEARED_BATCH)
-    assert signal.cleared_marks == 1
+    recovery.restore(_MENU_BATCH)
+    assert signal.menu_marks == 1  # restore re-queues exactly what the batch carried
     assert signal.added == [_SCENE]  # the batch's own scenes, not live_scene_ids
 
 

@@ -122,6 +122,21 @@ def test_clear_returns_ok() -> None:
     assert resp.json() == {"kind": "ok"}
 
 
+def test_scene_scoped_delete_removes_only_the_named_scene() -> None:
+    client = make_client()
+    _render(client, "alpha")
+    _render(client, "beta")
+    resp = client.delete("/scenes/alpha")
+    assert resp.status_code == 200
+    assert [s["scene_id"] for s in client.get("/scenes").json()["scenes"]] == ["beta"]
+
+
+def test_scene_scoped_delete_of_an_unknown_scene_is_404() -> None:
+    # A DELETE that removes nothing must not report 200 — an unknown id is not_found.
+    client = make_client()
+    assert client.delete("/scenes/ghost").status_code == 404
+
+
 def test_list_scenes_reflects_a_rendered_scene() -> None:
     client = make_client()
     _render(client, "alpha")

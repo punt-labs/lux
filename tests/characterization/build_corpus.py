@@ -170,6 +170,14 @@ LIFECYCLE_SCENARIOS: tuple[Scenario, ...] = (
         setup={"display_running": False},
     ),
     Scenario(
+        # The replay store is fresh and empty, so a scene-scoped clear of an unknown
+        # id honestly reports not_found rather than a false "cleared".
+        name="clear_scene-unknown",
+        tool="clear_scene",
+        inputs={"scene_id": "s1"},
+        setup={"display_running": True, "client": {"clear": {}}},
+    ),
+    Scenario(
         name="show-shown",
         tool="show",
         inputs={

@@ -20,7 +20,7 @@ import pytest
 from punt_lux.domain.hub.deferral_errors import StructuralFieldWriteError
 from punt_lux.domain.hub.field_gate import FieldGate
 from punt_lux.domain.hub.hub_display import HubDisplay, UnknownElementError
-from punt_lux.domain.hub.scene_writer import HubSceneWriter
+from punt_lux.domain.hub.scene_writer import HubSceneWriter, SceneScope
 from punt_lux.domain.hub.write_errors import ImmutableFieldError
 from punt_lux.domain.hub.write_result import WriteRejected
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
@@ -102,8 +102,7 @@ def test_update_set_tabs_is_rejected() -> None:
     writer = HubSceneWriter(hub_display)
 
     result = writer.apply(
-        _CONN,
-        _SCENE,
+        SceneScope(_CONN, _SCENE),
         [
             {
                 "id": str(_TAB_BAR_ID),

@@ -17,7 +17,6 @@ from punt_lux.domain.interaction import ButtonClicked, ValueChanged
 from punt_lux.protocol import (
     ButtonElement,
     CheckboxElement,
-    ClearMessage,
     Element,
     MenuMessage,
     PingMessage,
@@ -265,7 +264,7 @@ class TestEventQueueOnSceneChange:
             )
         )
 
-        server._handle_message(sock, ClearMessage())
+        server._handle_clear()
 
         assert len(server._event_queue) == 0
         assert _scene_count(server) == 0
@@ -897,13 +896,13 @@ class TestMultiScene:
         assert stored.content == "second"
 
     def test_clear_removes_all_scenes(self) -> None:
-        """ClearMessage removes all scenes and resets tab state."""
+        """The World-menu clear removes all scenes and resets tab state."""
         server = _make_server()
         sock = _mock_sock()
 
         server._handle_message(sock, _make_scene(scene_id="s1"))
         server._handle_message(sock, _make_scene(scene_id="s2"))
-        server._handle_message(sock, ClearMessage())
+        server._handle_clear()
 
         assert _scene_count(server) == 0
         assert len(server._scene_manager.frames) == 0
@@ -1159,13 +1158,13 @@ class TestRegisterMenu:
         assert 20 not in server._menu_manager.menu_registrations
 
     def test_clear_does_not_clear_menu_registrations(self) -> None:
-        """ClearMessage clears scenes but not menu registrations."""
+        """Clear removes scenes but not menu registrations."""
         server = _make_server()
         sock = _mock_sock_fd(10)
 
         items = [{"label": "Run", "id": "run"}]
         server._handle_message(sock, RegisterMenuMessage(items=items))
-        server._handle_message(sock, ClearMessage())
+        server._handle_clear()
 
         assert server._menu_manager.menu_registrations[10] == items
         assert server._menu_manager.menu_owners["run"] == 10

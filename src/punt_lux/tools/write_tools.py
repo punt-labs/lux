@@ -42,6 +42,7 @@ from punt_lux.tools.server import mcp
 
 __all__ = [
     "clear",
+    "clear_scene",
     "display_mode",
     "register_tool",
     "set_display_mode",
@@ -118,12 +119,10 @@ def show(
                      "children": [{"kind": "text", ...}, ...]}
       Tab bar:      {"kind": "tab_bar", "id": "tb1",
                      "tabs": [{"label": "Tab 1", "children": [...]}, ...]}
-      Collapsing:   {"kind": "collapsing_header", "id": "ch1",
-                     "label": "Details", "default_open": true,
-                     "children": [...]}
-      Window:       {"kind": "window", "id": "w1", "title": "Panel",
-                     "x": 50, "y": 50, "width": 300, "height": 200,
-                     "children": [...]}
+      Collapsing:   {"kind": "collapsing_header", "id": "ch1", "label": "Details",
+                     "default_open": true, "children": [...]}
+      Window:       {"kind": "window", "id": "w1", "title": "Panel", "x": 50,
+                     "y": 50, "width": 300, "height": 200, "children": [...]}
 
     All elements with an id support an optional ``"tooltip"`` (shown on hover).
 
@@ -133,10 +132,8 @@ def show(
         auto_resize, no_title_bar, no_background, no_scrollbar.
       frame_layout: how multiple scenes share the frame — "tab" (one at a time via a
         tab bar, default) or "stack" (stacked with collapsing headers).
-      frame_ttl_seconds: a positive lifetime after which the Hub removes the frame
-        and its scenes from both tiers, unless a re-show refreshes it first. Omit
-        (the default) for a frame that never expires; a re-show with no TTL clears
-        a prior one.
+      frame_ttl_seconds: positive lifetime after which the Hub removes the frame and
+        its scenes, unless a re-show refreshes it; omit for a frame that never expires.
 
     Writes the scene to the Hub and returns ``"shown:<scene_id>"`` at once — the
     replicator sends it in the background; "shown" means accepted, not drawn.
@@ -273,17 +270,22 @@ def set_frame_state(
 
 @mcp.tool()
 def clear() -> str:
-    """Clear the Lux display window. Returns ``"cleared"``.
-
-    The Hub store is the authority, so emptying it never hinges on the display
-    being up: every scene the caller owns is removed, the replicator is told the
-    screen was cleared, and the tool returns at once — the replicator blanks the
-    display in the background. The blank is global (ALL rendered scenes, not only
-    the caller's) for the single-connection slice; per-caller scoping is a
-    separate change.
-    """
+    """Clear every scene you own (not other agents' UI); use ``clear_scene`` for one."""
     _core.OPERATIONS.clear(scope=_core._scope())
     return "cleared"
+
+
+@mcp.tool()
+def clear_scene(scene_id: str) -> str:
+    """Clear one scene and blank its frame; only ``scene_id`` goes.
+
+    An unknown scene, or one you own nothing in, is an error, never a false
+    ``"cleared"`` — a mistyped id cannot look like a successful clear.
+    """
+    return _core._fault_or(
+        _core.OPERATIONS.clear_scene(scope=_core._scope(), scene_id=scene_id),
+        lambda _cleared: "cleared",
+    )
 
 
 @mcp.tool()

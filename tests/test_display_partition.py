@@ -21,7 +21,6 @@ from punt_lux.display import DisplayServer
 from punt_lux.display.server import _ORPHAN_FD
 from punt_lux.protocol import (
     ButtonElement,
-    ClearMessage,
     ConnectMessage,
     FrameReader,
     PingMessage,
@@ -320,14 +319,13 @@ class TestClearScenePartitions:
         server._handle_message(
             sock, _scene_with("s1", TextElement(id="t1", content="A"))
         )
-        server._handle_message(sock, ClearMessage())
+        server._handle_clear()
         assert _scene_count(server) == 0
 
     def test_clear_2_idempotent_no_scene(self):
         """P2: Clear when no scene exists (idempotent)."""
         server = _server()
-        sock = _sock()
-        server._handle_message(sock, ClearMessage())
+        server._handle_clear()
         assert _scene_count(server) == 0
 
     def test_clear_3_clears_event_queue(self):
@@ -341,7 +339,7 @@ class TestClearScenePartitions:
         server._event_queue.append(
             RemoteEventHandlerInvocation(element_id="b1", action="click", ts=1.0)
         )
-        server._handle_message(sock, ClearMessage())
+        server._handle_clear()
         assert len(server._event_queue) == 0
 
 
@@ -570,7 +568,7 @@ class TestDrainMessagesPartitions:
     def test_drain_1_happy_path_complete_message(self):
         """P1: Drain a complete message -> buffer emptied."""
         reader = FrameReader()
-        msg = ClearMessage()
+        msg = PingMessage(ts=9.0)
         reader.feed(encode_message(msg))
         buf_before = len(reader._buf)
         assert buf_before > 0
@@ -583,7 +581,7 @@ class TestDrainMessagesPartitions:
         """P2 REJECTED-ish: Insufficient bytes for complete frame.
         bytesConsumed=0 because no complete message available."""
         reader = FrameReader()
-        frame = encode_message(ClearMessage())
+        frame = encode_message(PingMessage(ts=9.0))
         reader.feed(frame[:3])  # partial header
         messages = reader.drain_typed()
         assert len(messages) == 0
@@ -592,7 +590,7 @@ class TestDrainMessagesPartitions:
     def test_drain_3_multiple_messages(self):
         """P3: Buffer contains 2 complete messages."""
         reader = FrameReader()
-        reader.feed(encode_message(ClearMessage()))
+        reader.feed(encode_message(PingMessage(ts=9.0)))
         reader.feed(encode_message(PingMessage(ts=1.0)))
         messages = reader.drain_typed()
         assert len(messages) == 2
@@ -601,7 +599,7 @@ class TestDrainMessagesPartitions:
     def test_drain_4_boundary_message_plus_partial(self):
         """P4 BOUNDARY: Buffer has complete message + partial next."""
         reader = FrameReader()
-        full_frame = encode_message(ClearMessage())
+        full_frame = encode_message(PingMessage(ts=9.0))
         partial = encode_message(PingMessage(ts=1.0))[:3]
         reader.feed(full_frame + partial)
         messages = reader.drain_typed()

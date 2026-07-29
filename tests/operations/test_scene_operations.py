@@ -5,7 +5,13 @@ from __future__ import annotations
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
-from punt_lux.operations import OpError, RenderRequest, SceneShown, UpdateRequest
+from punt_lux.operations import (
+    Cleared,
+    OpError,
+    RenderRequest,
+    SceneShown,
+    UpdateRequest,
+)
 from punt_lux.operations.scenes import SceneOperations
 from punt_lux.operations.scope import Scope
 from punt_lux.protocol import CollapsingHeaderElement
@@ -18,13 +24,9 @@ class _Recorder:
 
     def __init__(self) -> None:
         self.dirtied: list[SceneId] = []
-        self.cleared = 0
 
     def mark_dirty(self, scene_id: SceneId) -> None:
         self.dirtied.append(scene_id)
-
-    def mark_cleared(self) -> None:
-        self.cleared += 1
 
     def mark_menus(self) -> None:
         """Unused here — scene operations never mark the menu bar."""
@@ -195,9 +197,80 @@ def test_update_rejects_an_unknown_element_and_leaves_the_store_untouched() -> N
     assert store.resolve(SceneId("s1"), ElementId("hdr")).id == "hdr"
 
 
-def test_clear_empties_the_scene_and_marks_cleared() -> None:
+def test_clear_empties_every_owned_scene_and_marks_each_dirty() -> None:
+    # No-arg clear empties all the caller's scenes and marks each one dirty so the
+    # replicator blanks each into its own frame — never a whole-display blank, which
+    # would empty the Display while the Hub still held other owners' scenes.
     store, recorder = HubDisplay(), _Recorder()
     _seed_header(store)
+    store.replace_scene(
+        ConnectionId("local"),
+        SceneId("s2"),
+        [CollapsingHeaderElement(id="hdr2", label="More", open=False)],
+    )
     _ops(store, recorder).clear(scope=_LOCAL)
     assert store.scene_roots(SceneId("s1")) == []
-    assert recorder.cleared == 1
+    assert store.scene_roots(SceneId("s2")) == []
+    assert set(recorder.dirtied) == {SceneId("s1"), SceneId("s2")}
+
+
+def test_scene_scoped_clear_empties_only_the_named_scene() -> None:
+    # clear(scene_id="s1") removes only that scene's roots and dirties only it; the
+    # caller's other scene stays installed and is never marked for a blank.
+    store, recorder = HubDisplay(), _Recorder()
+    _seed_header(store)
+    store.replace_scene(
+        ConnectionId("local"),
+        SceneId("s2"),
+        [CollapsingHeaderElement(id="hdr2", label="More", open=False)],
+    )
+    result = _ops(store, recorder).clear(scope=_LOCAL, scene_id="s1")
+    assert isinstance(result, Cleared)
+    assert store.scene_roots(SceneId("s1")) == []
+    assert store.resolve(SceneId("s2"), ElementId("hdr2")).id == "hdr2"
+    assert recorder.dirtied == [SceneId("s1")]
+
+
+def test_scene_scoped_clear_of_an_unknown_scene_is_not_found() -> None:
+    # A scene-scoped clear that removes nothing must not lie "cleared": an id no
+    # scene holds is not_found — the same verdict inspect_scene returns for it.
+    store, recorder = HubDisplay(), _Recorder()
+    result = _ops(store, recorder).clear(scope=_LOCAL, scene_id="ghost")
+    assert isinstance(result, OpError)
+    assert result.code == "not_found"
+    assert recorder.dirtied == []
+
+
+def test_scene_scoped_clear_of_an_unowned_scene_is_rejected() -> None:
+    # A real scene the caller owns nothing in is a rejection, not a false success,
+    # and the other owner's roots are left untouched.
+    store, recorder = HubDisplay(), _Recorder()
+    store.replace_scene(
+        ConnectionId("agent-b"),
+        SceneId("theirs"),
+        [CollapsingHeaderElement(id="x", label="X", open=False)],
+    )
+    result = _ops(store, recorder).clear(scope=_LOCAL, scene_id="theirs")
+    assert isinstance(result, OpError)
+    assert result.code == "rejected"
+    assert store.resolve(SceneId("theirs"), ElementId("x")).id == "x"
+    assert recorder.dirtied == []
+
+
+def test_scene_scoped_clear_preserves_a_custom_frame_binding() -> None:
+    # A scene shown in a custom frame keeps its presentation through clear: the
+    # writer no longer forgets the frame, so the replicator's empty-push blanks the
+    # frame the scene was actually shown in, not one guessed from the scene id.
+    from punt_lux.domain.hub.scene_presentation import ScenePresentation
+
+    store, recorder = HubDisplay(), _Recorder()
+    store.show_scene(
+        ConnectionId("local"),
+        SceneId("board"),
+        [CollapsingHeaderElement(id="hdr", label="Board", open=False)],
+        ScenePresentation(frame_id="beads-lux"),
+        ttl_seconds=None,
+    )
+    _ops(store, recorder).clear(scope=_LOCAL, scene_id="board")
+    assert store.scene_roots(SceneId("board")) == []
+    assert store.frames.presentation_for(SceneId("board")).frame_id == "beads-lux"

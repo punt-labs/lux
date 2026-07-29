@@ -83,7 +83,7 @@ def test_full_session_capabilities_over_streamable_http() -> None:
         time.sleep(0.3)
         sessions_after = _health_sessions(port)
 
-    assert result["tool_count"] == 27
+    assert result["tool_count"] == 28  # bump when a tool is added/removed
     assert result["scenes_error"] is False
     assert result["recv"] == 'event:itest.topic:{"n": 1}'
     assert result["sessions_during"] == 1

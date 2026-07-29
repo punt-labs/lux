@@ -1,6 +1,6 @@
-"""Scene-replacement messages — full-scene replace and clear.
+"""Scene-replacement message — the full-scene replace.
 
-The two value types. Their wire mapping and its validation live in the sibling
+Its wire mapping and validation live in the sibling
 :class:`~punt_lux.protocol.messages.scene_codec.SceneCodec`, to which ``to_dict`` /
 ``from_dict`` delegate.
 """
@@ -17,7 +17,6 @@ if TYPE_CHECKING:
     from punt_lux.protocol.elements import Element
 
 __all__ = [
-    "ClearMessage",
     "SceneMessage",
 ]
 
@@ -53,22 +52,5 @@ class SceneMessage:
 
     @staticmethod
     def register_codecs(register: _Register) -> None:
-        """Register the scene and clear codecs into a MessageRegistry."""
+        """Register the scene codec into a MessageRegistry."""
         register("scene", SceneMessage, SceneMessage.to_dict, SceneMessage.from_dict)
-        register("clear", ClearMessage, ClearMessage.to_dict, ClearMessage.from_dict)
-
-
-@dataclass(frozen=True, slots=True)
-class ClearMessage:
-    """Remove all content from the display."""
-
-    type: Literal["clear"] = "clear"
-
-    def to_dict(self) -> dict[str, Any]:
-        """Serialize the clear signal to its one-field wire dict."""
-        return {"type": self.type}
-
-    @classmethod
-    def from_dict(cls, _d: dict[str, Any]) -> Self:
-        """Rebuild the clear signal; it carries no wire state."""
-        return cls()

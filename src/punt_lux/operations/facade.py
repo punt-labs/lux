@@ -25,7 +25,6 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.hub import Hub
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.hub.menu_registry import HubMenuRegistry
-    from punt_lux.operations.display_port import DisplayPort
     from punt_lux.operations.models import (
         Cleared,
         DisplayModeRequest,
@@ -112,7 +111,6 @@ class Operations:
         client_registry: ClientRegistry,
         menu_registry: HubMenuRegistry,
         ports: HubPorts,
-        display_port: DisplayPort,
     ) -> Self:
         """Wire every concern class from injected collaborators — no singletons."""
         scenes = SceneOperations(display, replicator, ports.element_factory)
@@ -121,8 +119,8 @@ class Operations:
             conveniences=ConvenienceOperations(scenes),
             pubsub=PubSubOperations(hub, ports.ensure_writer, ports.next_event),
             config=DisplayModeOperations(client_registry),
-            display=DisplayControlOperations(display_port),
-            queries=QueryOperations(display, hub, display_port),
+            display=DisplayControlOperations(ports.display_port),
+            queries=QueryOperations(display, hub, ports.display_port),
             menus=MenuOperations(menu_registry, replicator),
         )
 
@@ -138,9 +136,13 @@ class Operations:
         """Apply a patch batch to a scene."""
         return self._scenes.update(scene_id, request, scope=scope)
 
-    def clear(self, *, scope: Scope) -> Cleared:
+    def clear(self, *, scope: Scope) -> Cleared | OpError:
         """Clear every scene the caller owns."""
         return self._scenes.clear(scope=scope)
+
+    def clear_scene(self, *, scope: Scope, scene_id: str) -> Cleared | OpError:
+        """Clear just ``scene_id``; unknown or unowned is an error, not a false pass."""
+        return self._scenes.clear(scope=scope, scene_id=scene_id)
 
     def render_table(
         self, request: RenderTableRequest | OpError, *, scope: Scope

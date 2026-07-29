@@ -86,10 +86,10 @@ class RestSurface:
             element_factory=hub_element_factory,
             ensure_writer=ensure_writer,
             next_event=next_event,
-        )
-        display_port = HubDisplayConnection(
-            is_running=lambda: DisplayPaths().is_running(),
-            clients=client_registry,
+            display_port=HubDisplayConnection(
+                is_running=lambda: DisplayPaths().is_running(),
+                clients=client_registry,
+            ),
         )
         return Operations.for_store(
             hub_display,
@@ -98,7 +98,6 @@ class RestSurface:
             client_registry=client_registry,
             menu_registry=hub_menu_registry,
             ports=ports,
-            display_port=display_port,
         )
 
     @property

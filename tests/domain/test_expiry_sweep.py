@@ -68,9 +68,6 @@ class SpyMarker:
     def mark_dirty(self, scene_id: SceneId) -> None:
         self._marked.append(scene_id)
 
-    def mark_cleared(self) -> None:  # pragma: no cover - unused by the sweep
-        raise AssertionError("sweep never clears the whole display")
-
     def mark_menus(self) -> None:  # pragma: no cover - unused by the sweep
         raise AssertionError("sweep never touches menus")
 

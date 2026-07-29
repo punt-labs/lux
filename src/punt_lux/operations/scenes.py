@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, cast, final
 
-from punt_lux.domain.hub.scene_writer import HubSceneWriter
+from punt_lux.domain.hub.scene_writer import HubSceneWriter, SceneScope
 from punt_lux.domain.hub.write_result import WriteRejected
 from punt_lux.domain.ids import SceneId
 from punt_lux.domain.submission_gate import SubmissionGate
@@ -56,31 +56,21 @@ class SceneOperations:
     def render(
         self, request: RenderRequest | OpError, *, scope: Scope
     ) -> SceneShown | OpError:
-        """Install a whole scene, or return why the tree was refused.
-
-        Decodes the wire tree in the caller's scope, rejects any malformed
-        submission whole, then installs it and marks it for resend.
-        """
+        """Decode the wire tree in the caller's scope, install it, or reject it."""
         if isinstance(request, OpError):
             return request
         factory = self._element_factory(scope.connection_id)
-        # Wire-decode boundary: a malformed element raises ``ValueError`` (a bad
-        # value or unknown ``kind``) or ``TypeError`` (a wrong-typed wire shape,
-        # e.g. a table's ``handlers`` that is not a list). Every ABC decoder
-        # reports an absent required field as a named ``ValueError`` rather than
-        # indexing the wire mapping directly, so a decode never raises
-        # ``KeyError``. The operation never raises through its signature, so each
-        # becomes a rejection the adapter renders. This catch wraps only the
-        # decode, not ``install`` below, so a store-miss ``KeyError`` still
-        # surfaces as the engine bug it is.
+        # Wire-decode boundary: a malformed element raises ``ValueError``/``TypeError``,
+        # each a rejection; the catch wraps only the decode, not ``install`` below,
+        # so a store-miss ``KeyError`` still surfaces as the engine bug it is.
         try:
             elements: list[WireElement] = [
                 factory.element_from_dict(e) for e in request.elements
             ]
         except (ValueError, TypeError) as exc:
             return OpError(code="rejected", reason=str(exc))
-        # WireElement is structurally the domain Element the store installs; the
-        # cast bridges list invariance across that crossing (PY-TS-12).
+        # WireElement is structurally the domain Element; the cast bridges list
+        # invariance across that crossing (PY-TS-12).
         return self.install(
             cast("Sequence[DomainElement]", elements),
             scene_id=request.scene_id,
@@ -100,11 +90,9 @@ class SceneOperations:
     ) -> SceneShown | OpError:
         """Validate a built element tree and install it, or return why it was refused.
 
-        The shared install path for both the wire-decode surface (``render``) and
-        the Hub-side conveniences that *construct* their tree as objects
-        (``ConvenienceOperations``): the same self-validation walk runs, the same
-        ``show_scene`` installs, so a constructed scene is downstream-indistinguishable
-        from a decoded one (target.md — the Hub decodes *or constructs* typed UI).
+        The shared path for the wire-decode surface (``render``) and the Hub-side
+        conveniences that *construct* their tree: same validation walk, same
+        ``show_scene`` (target.md — the Hub decodes *or constructs* UI).
         """
         rejection = SubmissionGate().first_rejection(SceneId(scene_id), elements)
         if rejection is not None:
@@ -124,21 +112,46 @@ class SceneOperations:
     ) -> SceneShown | OpError:
         """Apply a patch batch to the store, or return why it was rejected.
 
-        The request's boundary codec already mapped the wire shapes to variants;
-        the writer keeps its ownership, field-legality, and structural rejections
-        and a rejected batch leaves the store untouched.
+        The writer keeps its ownership and field-legality rejections; a rejected
+        batch leaves the store untouched.
         """
         if isinstance(request, OpError):
             return request
         writer = HubSceneWriter(self._display)
-        result = writer.apply(scope.connection_id, SceneId(scene_id), request.to_wire())
+        target = SceneScope(scope.connection_id, SceneId(scene_id))
+        result = writer.apply(target, request.to_wire())
         if isinstance(result, WriteRejected):
             return OpError(code="rejected", reason=result.reason)
         self._replicator.mark_dirty(SceneId(scene_id))
         return SceneShown(scene_id=scene_id)
 
-    def clear(self, *, scope: Scope) -> Cleared:
-        """Remove every scene the caller owns and signal a whole-display blank."""
-        HubSceneWriter(self._display).clear(scope.connection_id)
-        self._replicator.mark_cleared()
+    def clear(self, *, scope: Scope, scene_id: str | None = None) -> Cleared | OpError:
+        """Blank the caller's scenes — all, or just ``scene_id`` — one scene at a time.
+
+        The writer removes only the caller's roots and marks each emptied scene dirty,
+        so nothing else is touched. A scene-scoped clear that removes nothing must not
+        lie ``cleared``; it reports ``not_found`` or a rejection instead. The no-arg
+        clear removing nothing stays a settled no-op.
+        """
+        target = SceneId(scene_id) if scene_id is not None else None
+        touched = HubSceneWriter(self._display).clear(scope.connection_id, target)
+        if target is not None and not touched:
+            return self._scoped_clear_miss(target)
+        self._mark_dirty_all(touched)
         return Cleared()
+
+    def _scoped_clear_miss(self, scene_id: SceneId) -> OpError:
+        """Say why a scene-scoped clear removed nothing: unknown scene, or unowned.
+
+        No non-removed root means the scene is unknown (the ``not_found`` inspect_scene
+        returns); roots present but none the caller owns is an ownership rejection.
+        """
+        name = str(scene_id)
+        if not self._display.scene_roots(scene_id):
+            return OpError(code="not_found", reason=f"scene {name!r} not found")
+        return OpError(code="rejected", reason=f"scene {name!r} holds nothing you own")
+
+    def _mark_dirty_all(self, scenes: frozenset[SceneId]) -> None:
+        """Mark every scene in ``scenes`` for resend."""
+        for scene_id in scenes:
+            self._replicator.mark_dirty(scene_id)

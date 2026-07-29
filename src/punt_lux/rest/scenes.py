@@ -69,6 +69,12 @@ class SceneRoutes:
         )
         router.add_api_route("/scenes", self.clear, methods=["DELETE"], name="clear")
         router.add_api_route(
+            "/scenes/{scene_id}",
+            self.clear_scene,
+            methods=["DELETE"],
+            name="clear_scene",
+        )
+        router.add_api_route(
             "/scenes", self.list_scenes, methods=["GET"], name="list_scenes"
         )
         router.add_api_route(
@@ -89,17 +95,9 @@ class SceneRoutes:
         return self._router
 
     def render(self, scene_id: str, request: RenderRequest) -> SceneShown:
-        """Install a whole scene; the path names it and the body must agree.
-
-        The path ``scene_id`` is authoritative like the PATCH and GET siblings.
-        ``RenderRequest`` carries its own ``scene_id`` (its MCP-shared shape), so a
-        body naming a different scene is a contradiction the route rejects rather
-        than letting the body win.
-        """
+        """Install a whole scene named by the path; a mismatched body is rejected."""
         if request.scene_id != scene_id:
-            reason = (
-                f"body scene_id {request.scene_id!r} must match the path {scene_id!r}"
-            )
+            reason = f"body scene_id {request.scene_id!r} must match path {scene_id!r}"
             return self._errors.respond(OpError(code="invalid_request", reason=reason))
         return self._errors.respond(self._ops.render(request, scope=self._scope))
 
@@ -108,14 +106,12 @@ class SceneRoutes:
 
         The Hub *constructs* the composition (its filter/selection/detail handlers
         and ``FilteredTableModel``), so the chrome is live — unlike pushing a
-        pre-composed element tree through ``render``, whose JSON decode installs
-        only the built-in handlers and leaves the composition dead. The path
-        ``scene_id`` is authoritative; a body naming another scene is rejected.
+        pre-composed element tree through ``render``, whose JSON decode installs only
+        the built-in handlers and leaves the composition dead. A mismatched body is
+        rejected.
         """
         if request.scene_id != scene_id:
-            reason = (
-                f"body scene_id {request.scene_id!r} must match the path {scene_id!r}"
-            )
+            reason = f"body scene_id {request.scene_id!r} must match path {scene_id!r}"
             return self._errors.respond(OpError(code="invalid_request", reason=reason))
         return self._errors.respond(self._ops.render_table(request, scope=self._scope))
 
@@ -124,9 +120,7 @@ class SceneRoutes:
     ) -> SceneShown:
         """Construct a dashboard scene server-side; the path names it."""
         if request.scene_id != scene_id:
-            reason = (
-                f"body scene_id {request.scene_id!r} must match the path {scene_id!r}"
-            )
+            reason = f"body scene_id {request.scene_id!r} must match path {scene_id!r}"
             return self._errors.respond(OpError(code="invalid_request", reason=reason))
         return self._errors.respond(
             self._ops.render_dashboard(request, scope=self._scope)
@@ -141,6 +135,12 @@ class SceneRoutes:
     def clear(self) -> Cleared:
         """Clear every scene the default scope owns."""
         return self._errors.respond(self._ops.clear(scope=self._scope))
+
+    def clear_scene(self, scene_id: str) -> Cleared:
+        """Clear just the named scene; unknown or unowned is a 404 / rejection."""
+        return self._errors.respond(
+            self._ops.clear_scene(scope=self._scope, scene_id=scene_id)
+        )
 
     def list_scenes(self) -> SceneList:
         """List every live scene and frame from the authoritative store."""
