@@ -107,17 +107,17 @@ class QueryOperations:
         )
 
     def list_clients(self) -> ClientList:
-        """List the Hub's sessions — the meaningful client answer post-replicator.
+        """List the Hub's sessions with the identity each declared and its age.
 
-        Ages read the same ``time.monotonic`` clock the sessions were stamped
-        with, so ``connected_seconds`` is never negative and never jumps when the
-        wall clock is stepped.
+        Ages come off the monotonic clock the sessions were stamped with, so
+        ``connected_seconds`` never goes negative under a wall-clock step.
         """
         now = time.monotonic()
         clients = [
             HubClient(
                 connection_id=str(connection_id),
-                connected_seconds=round(now - connected_at, 1),
+                identity=session.identity,
+                connected_seconds=round(session.age(now), 1),
                 subscribed_topics=sorted(
                     str(topic) for topic in self._hub.topics_for(connection_id)
                 ),
@@ -130,7 +130,7 @@ class QueryOperations:
                     }
                 ),
             )
-            for connection_id, connected_at in self._display.client_sessions().items()
+            for connection_id, session in self._display.client_sessions().items()
         ]
         return ClientList(clients=clients)
 

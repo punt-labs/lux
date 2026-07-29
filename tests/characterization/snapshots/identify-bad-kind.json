@@ -1,0 +1,18 @@
+{
+  "inputs": [
+    [
+      "kind",
+      "daemon"
+    ],
+    [
+      "name",
+      "x"
+    ]
+  ],
+  "response": "error: kind: Input should be 'mcp-session', 'cli' or 'app'",
+  "setup": {
+    "display_running": false,
+    "session_key": "corpus-identify-bad-kind"
+  },
+  "tool": "identify"
+}

@@ -25,13 +25,15 @@ class HttpErrorMap:
 
     # The single failure table. The design fixes each code's status: a request
     # the schema rejects and a write the Hub refuses are both the caller's fault
-    # (422, 409); an absent resource is 404; an unreachable or slow display is a
-    # gateway timeout/unavailable (503, 504); a backing resource that failed a
-    # valid request — a malformed display reply, config-file I/O — is a bad
-    # gateway (502). FastAPI's own body-binding raises the 422 for a malformed
-    # request before an operation runs; these are the semantic errors.
+    # (422, 409); a caller that has not identified is challenged (401); an absent
+    # resource is 404; an unreachable or slow display is a gateway
+    # timeout/unavailable (503, 504); a backing resource that failed a valid
+    # request — a malformed display reply, config-file I/O — is a bad gateway
+    # (502). FastAPI's own body-binding raises the 422 for a malformed request
+    # before an operation runs; these are the semantic errors.
     _STATUS: ClassVar[dict[OpErrorCode, int]] = {
         "invalid_request": 422,
+        "identification_required": 401,
         "not_found": 404,
         "rejected": 409,
         "fault": 502,

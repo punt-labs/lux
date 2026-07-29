@@ -44,6 +44,7 @@ __all__ = [
     "clear",
     "clear_scene",
     "display_mode",
+    "identify",
     "register_tool",
     "set_display_mode",
     "set_frame_state",
@@ -53,6 +54,29 @@ __all__ = [
     "show",
     "update",
 ]
+
+
+@mcp.tool()
+def identify(
+    kind: str,
+    name: str,
+    repo: str | None = None,
+    agent: str | None = None,
+) -> str:
+    """Declare who this session is so the Hub attributes the UI it installs.
+
+    ``kind`` is one of "mcp-session", "cli", or "app"; ``name`` is the label
+    introspection shows for you; ``repo`` is the absolute path of your project
+    (omit when headless); ``agent`` is your persona handle when you are an agent.
+    Returns "identified:<name>", or "error: <reason>" for a malformed declaration.
+    """
+    return _core._fault_or(
+        _core.OPERATIONS.identify(
+            {"kind": kind, "name": name, "repo": repo, "agent": agent},
+            scope=_core._scope(),
+        ),
+        lambda result: f"identified:{result.identity.name}",
+    )
 
 
 @mcp.tool()

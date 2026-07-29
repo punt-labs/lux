@@ -1,0 +1,18 @@
+{
+  "inputs": [
+    [
+      "kind",
+      "cli"
+    ],
+    [
+      "name",
+      "lux-cli"
+    ]
+  ],
+  "response": "identified:lux-cli",
+  "setup": {
+    "display_running": false,
+    "session_key": "corpus-identify-headless"
+  },
+  "tool": "identify"
+}

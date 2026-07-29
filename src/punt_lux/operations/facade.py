@@ -1,10 +1,9 @@
 """The Operations facade — one object exposing every capability.
 
 The facade composes the concern classes so a single caller — an MCP adapter, a
-REST route, or a test — has one object to call. It imports no process singletons
-at module scope: every collaborator (store, replicator, hub, client registry,
-display connection) is injected into ``for_store`` by the composition root in the
-presentation layer, so nothing here binds the running process at import time.
+REST route, or a test — has one object to call. Every collaborator is injected
+into ``for_store`` by the presentation-layer composition root, so nothing here
+binds the running process at import time.
 """
 
 from __future__ import annotations
@@ -14,6 +13,7 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.operations.config import DisplayModeOperations
 from punt_lux.operations.conveniences import ConvenienceOperations
 from punt_lux.operations.display_control import DisplayControlOperations
+from punt_lux.operations.identity import IdentityOperations
 from punt_lux.operations.menus import MenuOperations
 from punt_lux.operations.models.inspect_scope import HUB_ONLY, InspectScope
 from punt_lux.operations.pubsub import PubSubOperations
@@ -44,6 +44,7 @@ if TYPE_CHECKING:
     from punt_lux.operations.models.display_info import DisplayInfo
     from punt_lux.operations.models.display_probe import Pong, Screenshot
     from punt_lux.operations.models.display_write import FrameStatePatch
+    from punt_lux.operations.models.identity import Identified
     from punt_lux.operations.models.menu_results import MenuList, Ok, SetMenuRequest
     from punt_lux.operations.models.query_clients import ClientList
     from punt_lux.operations.models.query_errors import RecentErrors
@@ -70,10 +71,12 @@ class Operations:
     _display: DisplayControlOperations
     _queries: QueryOperations
     _menus: MenuOperations
+    _identity: IdentityOperations
     __slots__ = (
         "_config",
         "_conveniences",
         "_display",
+        "_identity",
         "_menus",
         "_pubsub",
         "_queries",
@@ -90,6 +93,7 @@ class Operations:
         display: DisplayControlOperations,
         queries: QueryOperations,
         menus: MenuOperations,
+        identity: IdentityOperations,
     ) -> Self:
         self = super().__new__(cls)
         self._scenes = scenes
@@ -99,6 +103,7 @@ class Operations:
         self._display = display
         self._queries = queries
         self._menus = menus
+        self._identity = identity
         return self
 
     @classmethod
@@ -122,6 +127,7 @@ class Operations:
             display=DisplayControlOperations(ports.display_port),
             queries=QueryOperations(display, hub, ports.display_port),
             menus=MenuOperations(menu_registry, replicator),
+            identity=IdentityOperations(display),
         )
 
     def render(
@@ -201,10 +207,7 @@ class Operations:
         return self._display.screenshot()
 
     def ping(self, wait: float | None = None) -> Pong | OpError:
-        """Round-trip a ping bounded by ``wait`` seconds; return the elapsed time.
-
-        ``wait`` of ``None`` (the default) uses the standing display budget.
-        """
+        """Round-trip a ping bounded by ``wait`` seconds (``None`` uses the budget)."""
         return self._display.ping(wait)
 
     def set_theme(self, request: SetThemeRequest | OpError) -> ThemeState | OpError:
@@ -258,6 +261,12 @@ class Operations:
     def list_menus(self) -> MenuList:
         """Return the Hub-authoritative menu bar."""
         return self._menus.list_menus()
+
+    def identify(
+        self, declaration: dict[str, object], *, scope: Scope
+    ) -> Identified | OpError:
+        """Record the caller's declared identity, or reject a malformed one."""
+        return self._identity.identify(declaration, scope=scope)
 
     def drop_session(self, scope: Scope) -> None:
         """Forget a departed session's tool items and re-push the menu state."""

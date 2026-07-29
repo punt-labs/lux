@@ -1,71 +1,76 @@
-"""HubClientRegistry — the Hub sessions, each with the time it first connected.
+"""HubClientRegistry — the Hub sessions, each with its connect time and identity.
 
-A connection becomes a client when the transport binds it via the inbox-init
-path; it is removed when the connection drops. This registry is the Hub's own
-session roster — the meaningful answer to "which clients are connected", now that
-the display has exactly one socket client (luxd). Each session records a
-``time.monotonic`` reading at which it first registered, so ``list_clients`` can
-report an age that never jumps or goes negative when the wall clock is stepped.
-
-Distinct from ``ClientRegistry`` in ``clients.py``, which owns the
-``DisplayClient`` and reconnect policy on the rendering process side.
+The Hub's own session roster, keyed by ``ConnectionId``: when each client
+connected and the identity it declared. It is the one identity store — the menu
+capability model's live repository set is :meth:`repos`, a read over it, not a
+second store. Every access is serialized by ``_lock``, which guards only the dict.
 """
 
 from __future__ import annotations
 
 import threading
 import time
+from operator import attrgetter
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.domain.hub.client_identity import ClientSession
 from punt_lux.domain.ids import ConnectionId
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+
+    from punt_lux.domain.hub.client_identity import ClientIdentity
 
 __all__ = ["HubClientRegistry"]
 
 
 @final
 class HubClientRegistry:
-    """The registered Hub sessions, keyed by ``ConnectionId`` to connect time.
+    """The registered Hub sessions, keyed by ``ConnectionId`` to their session."""
 
-    Bind and unbind run on connection threads while ``list_clients`` reads on a
-    tool thread, so every access to the roster is serialized by ``_lock``. The
-    lock guards only the dict; nothing is called out to while it is held.
-    """
-
-    _connected_at: dict[ConnectionId, float]
+    _sessions: dict[ConnectionId, ClientSession]
     _lock: threading.Lock
-    __slots__ = ("_connected_at", "_lock")
+    __slots__ = ("_lock", "_sessions")
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
-        self._connected_at = {}
+        self._sessions = {}
         self._lock = threading.Lock()
         return self
 
-    def register(self, connection_id: ConnectionId) -> None:
-        """Mark ``connection_id`` as a known client. Idempotent.
+    def record(
+        self, connection_id: ConnectionId, identity: ClientIdentity | None = None
+    ) -> None:
+        """Upsert the connection's session, recording a declared identity if given.
 
-        The first registration stamps a ``time.monotonic`` reading; a later
-        re-register keeps it, so a session's reported age never resets under
-        normal traffic. Monotonic, not wall clock, so an NTP step cannot make the
-        age jump or go negative.
+        Idempotent: the first call stamps the monotonic connect time; a later call
+        keeps it, so age never resets and re-recording without an identity never
+        drops one already declared.
         """
         with self._lock:
-            self._connected_at.setdefault(connection_id, time.monotonic())
+            existing = self._sessions.get(connection_id)
+            base = existing if existing is not None else ClientSession(time.monotonic())
+            self._sessions[connection_id] = (
+                base.with_identity(identity) if identity is not None else base
+            )
 
-    def is_registered(self, connection_id: ConnectionId) -> bool:
-        """Return whether ``connection_id`` is currently registered."""
+    def __contains__(self, connection_id: ConnectionId) -> bool:
+        """Return whether ``connection_id`` is registered — an O(1) lock-held check."""
         with self._lock:
-            return connection_id in self._connected_at
+            return connection_id in self._sessions
 
     def discard(self, connection_id: ConnectionId) -> None:
-        """Drop the registration. No-op if absent."""
+        """Drop the registration and its identity. No-op if absent."""
         with self._lock:
-            self._connected_at.pop(connection_id, None)
+            self._sessions.pop(connection_id, None)
 
-    def sessions(self) -> Mapping[ConnectionId, float]:
-        """Return each registered connection paired with its monotonic stamp."""
+    def sessions(self) -> Mapping[ConnectionId, ClientSession]:
+        """Return each registered connection paired with its session record."""
         with self._lock:
-            return dict(self._connected_at)
+            return dict(self._sessions)
+
+    def repos(self) -> frozenset[str]:
+        """Return the distinct repositories the identified sessions declared."""
+        with self._lock:
+            declared = map(attrgetter("declared_repo"), self._sessions.values())
+            return frozenset(filter(None, declared))

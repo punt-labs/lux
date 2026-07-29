@@ -29,6 +29,7 @@ from punt_lux.operations.models import (
 from punt_lux.operations.models.display_info import DisplayInfo
 from punt_lux.operations.models.display_probe import Pong, Screenshot
 from punt_lux.operations.models.display_write import FrameStatePatch
+from punt_lux.operations.models.identity import Identified
 from punt_lux.operations.models.inspect_scope import InspectScope
 from punt_lux.operations.models.menu_results import MenuList, Ok, SetMenuRequest
 from punt_lux.operations.models.query_clients import ClientList
@@ -55,6 +56,7 @@ __all__ = [
     "DisplayModeState",
     "FrameStatePatch",
     "HubPorts",
+    "Identified",
     "InspectScope",
     "MenuList",
     "MirrorNotRequested",
