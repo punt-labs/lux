@@ -17,7 +17,8 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.client_identity import ClientSession
     from punt_lux.domain.hub.element_index import ElementIndex
     from punt_lux.domain.hub.hub_clients import HubClientRegistry
-    from punt_lux.domain.hub.owner_tracker import Owner, OwnerTracker
+    from punt_lux.domain.hub.owner import Owner
+    from punt_lux.domain.hub.owner_tracker import OwnerTracker
     from punt_lux.domain.hub.store_lock import StoreLock
     from punt_lux.domain.ids import ConnectionId, SceneId
 
@@ -68,5 +69,5 @@ class HubReads:
             return tuple(dict.fromkeys(filter(None, owned)))
 
     def client_sessions(self) -> Mapping[ConnectionId, ClientSession]:
-        """Return each registered Hub session paired with its session record."""
-        return self._clients.sessions()
+        """Return each live Hub session, sweeping any whose lease has lapsed."""
+        return self._clients.live_sessions()

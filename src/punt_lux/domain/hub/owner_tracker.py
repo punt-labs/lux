@@ -12,7 +12,7 @@ from typing import Self, final
 from punt_lux.domain.hub.owner import Owner
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 
-__all__ = ["Owner", "OwnerTracker"]
+__all__ = ["OwnerTracker"]
 
 
 @final

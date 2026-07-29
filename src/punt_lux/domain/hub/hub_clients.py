@@ -1,8 +1,10 @@
-"""HubClientRegistry — the Hub sessions, each with its connect time and identity.
+"""HubClientRegistry — the Hub sessions, each with its connect time, identity, lease.
 
-The one identity store, keyed by ``ConnectionId``: when each client connected and
-the identity it declared. Every access is serialized by ``_lock``, which guards
-only the dict, so the transport and tool threads stay coherent.
+The one identity store, keyed by ``ConnectionId`` and serialized by ``_lock``.
+Each session carries a lease; any recorded contact renews it, and the live reads
+(:meth:`live_sessions`, :meth:`repos`) return only sessions still in lease,
+sweeping the lapsed as they pass so a departed caller cannot accrue forever. The
+clock is injected so a test can drive expiry deterministically.
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ from punt_lux.domain.hub.client_identity import ClientSession
 from punt_lux.domain.ids import ConnectionId
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
     from punt_lux.domain.hub.client_identity import ClientIdentity
 
@@ -29,33 +31,39 @@ class HubClientRegistry:
 
     _sessions: dict[ConnectionId, ClientSession]
     _lock: threading.Lock
-    __slots__ = ("_lock", "_sessions")
+    _clock: Callable[[], float]
+    __slots__ = ("_clock", "_lock", "_sessions")
 
-    def __new__(cls) -> Self:
+    def __new__(cls, clock: Callable[[], float] = time.monotonic) -> Self:
         self = super().__new__(cls)
         self._sessions = {}
         self._lock = threading.Lock()
+        self._clock = clock
         return self
 
     def record(
         self, connection_id: ConnectionId, identity: ClientIdentity | None = None
     ) -> None:
-        """Upsert the connection's session, recording a declared identity if given.
+        """Upsert the connection's session, renewing its lease and any given identity.
 
-        Idempotent: the first call stamps the monotonic connect time; a later call
-        keeps it, so age never resets and re-recording without an identity never
-        drops one already declared.
+        Any contact is a renewal: an existing session keeps its connect time and
+        pushes its lease forward, and a declared identity resets the lease to its
+        kind's length. The first call stamps the monotonic connect time.
         """
         with self._lock:
+            now = self._clock()
             existing = self._sessions.get(connection_id)
-            base = existing if existing is not None else ClientSession(time.monotonic())
+            base = existing.renewed(now) if existing is not None else ClientSession(now)
             self._sessions[connection_id] = (
                 base.with_identity(identity) if identity is not None else base
             )
 
     def session_of(self, connection_id: ConnectionId) -> ClientSession | None:
-        """Return the connection's session, or ``None`` — the read behind both
-        membership (``is not None``) and identity (``.identity``)."""
+        """Return the connection's raw session, or ``None``, with no lease filter.
+
+        The read behind membership (``is not None``) and identity (``.identity``);
+        ownership and cleanup address a session by its bare connection key.
+        """
         with self._lock:
             return self._sessions.get(connection_id)
 
@@ -65,12 +73,24 @@ class HubClientRegistry:
             self._sessions.pop(connection_id, None)
 
     def sessions(self) -> Mapping[ConnectionId, ClientSession]:
-        """Return each registered connection paired with its session record."""
+        """Return every recorded session, live or lapsed, without sweeping."""
         with self._lock:
             return dict(self._sessions)
 
-    def repos(self) -> frozenset[str]:
-        """Return the distinct repositories the identified sessions declared."""
+    def live_sessions(self) -> Mapping[ConnectionId, ClientSession]:
+        """Return the sessions whose lease has not lapsed, sweeping the expired.
+
+        The opportunistic reap: each live read rebuilds the store keeping only the
+        in-lease sessions, so no timer thread is needed — introspection and menu
+        reads pass through often enough to bound accrual.
+        """
         with self._lock:
-            declared = map(attrgetter("declared_repo"), self._sessions.values())
-            return frozenset(filter(None, declared))
+            now = self._clock()
+            survivors = filter(lambda kv: kv[1].is_live(now), self._sessions.items())
+            self._sessions = dict(survivors)
+            return dict(self._sessions)
+
+    def repos(self) -> frozenset[str]:
+        """Return the distinct repositories the live identified sessions declared."""
+        declared = map(attrgetter("declared_repo"), self.live_sessions().values())
+        return frozenset(filter(None, declared))

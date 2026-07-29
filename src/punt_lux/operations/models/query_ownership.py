@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict
 from punt_lux.domain.hub.client_identity import ClientIdentity
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.owner_tracker import Owner
+    from punt_lux.domain.hub.owner import Owner
 
 __all__ = ["SceneOwner"]
 

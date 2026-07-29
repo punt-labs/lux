@@ -14,7 +14,7 @@ from typing import Literal, Self
 import pytest
 
 from punt_lux.domain.hub.hub_display import HubDisplay
-from punt_lux.domain.hub.owner_tracker import Owner
+from punt_lux.domain.hub.owner import Owner
 from punt_lux.domain.hub.ownership_error import HubOwnershipError
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.domain.update import AddElement, RemoveElement, SetProperty
