@@ -161,7 +161,7 @@ class HubDisplay:
 
     def is_client(self, connection_id: ConnectionId) -> bool:
         """Return True if the connection is currently registered."""
-        return connection_id in self._clients.sessions()
+        return connection_id in self._clients
 
     # -- index access ------------------------------------------------------
 

@@ -80,8 +80,9 @@ def test_a_later_bare_record_never_drops_a_declared_identity() -> None:
 def test_record_with_identity_registers_an_unseen_connection() -> None:
     reg = HubClientRegistry()
     conn = ConnectionId("conn")
+    assert conn not in reg
     reg.record(conn, ClientIdentity(kind="cli", name="lux-cli"))
-    assert conn in reg.sessions()
+    assert conn in reg  # membership is the O(1) __contains__ check
     assert reg.sessions()[conn].identity is not None
 
 

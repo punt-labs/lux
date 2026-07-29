@@ -48,10 +48,16 @@ class HubClientRegistry:
         drops one already declared.
         """
         with self._lock:
-            base = self._sessions.get(connection_id, ClientSession(time.monotonic()))
+            existing = self._sessions.get(connection_id)
+            base = existing if existing is not None else ClientSession(time.monotonic())
             self._sessions[connection_id] = (
                 base.with_identity(identity) if identity is not None else base
             )
+
+    def __contains__(self, connection_id: ConnectionId) -> bool:
+        """Return whether ``connection_id`` is registered — an O(1) lock-held check."""
+        with self._lock:
+            return connection_id in self._sessions
 
     def discard(self, connection_id: ConnectionId) -> None:
         """Drop the registration and its identity. No-op if absent."""

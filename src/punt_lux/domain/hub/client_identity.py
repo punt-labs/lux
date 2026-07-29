@@ -50,6 +50,15 @@ class ClientIdentity(BaseModel):
     repo: str | None = None  # absent for a headless CLI and the app; genuine
     agent: str | None = None  # absent unless the caller is an agent with a handle
 
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, value: str) -> str:
+        """Reject a blank-after-strip name — the attribution label must be real."""
+        if not value.strip():
+            msg = "name must not be blank or whitespace-only"
+            raise ValueError(msg)
+        return value
+
     @field_validator("repo")
     @classmethod
     def _validate_repo(cls, value: str | None) -> str | None:

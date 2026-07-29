@@ -1,7 +1,7 @@
 """Lux MCP server — expose display tools to AI agents.
 
-Display tools use :class:`DisplayClient`; Agent Subscribe tools route through the
-in-process Hub. luxd serves these over its streamable-HTTP ``/mcp`` endpoint.
+Every tool is a thin adapter over the ``Operations`` facade (render, settings,
+introspection, ``identify``, pub/sub); luxd serves them over streamable-HTTP ``/mcp``.
 """
 
 # isort: skip_file

@@ -44,6 +44,13 @@ def test_empty_name_is_rejected() -> None:
         ClientIdentity(kind="cli", name="")
 
 
+def test_whitespace_only_name_is_rejected() -> None:
+    # A blank-after-strip label is not a real attribution — reject it, don't store it.
+    with pytest.raises(ValidationError) as exc:
+        ClientIdentity(kind="cli", name="   ")
+    assert "name" in str(exc.value)
+
+
 def test_relative_repo_is_rejected() -> None:
     with pytest.raises(ValidationError) as exc:
         ClientIdentity(kind="cli", name="lux", repo="relative/path")
