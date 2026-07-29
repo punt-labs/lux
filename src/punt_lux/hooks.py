@@ -34,8 +34,10 @@ _BD_CMD_RE = re.compile(
 # acts on when it connects.
 _BEADS_CALLBACK_CONTEXT = (
     "Lux display mode: on. Visual output will be rendered when appropriate. "
-    "This session owns a 'Beads' entry in the Lux menu bar: once you have called "
-    "the lux `identify` tool, call the lux `register_callback` tool with "
+    "This session owns a 'Beads' entry in the Lux menu bar. To make it appear, "
+    "first call the lux `identify` tool (kind='mcp-session', name your handle, "
+    "repo this repository's absolute path) — registration is refused for an "
+    "unidentified session — then call the lux `register_callback` tool with "
     "callback_id='beads' and label='Beads' so the entry appears under this "
     "session's submenu. When the user clicks it, lux holds the click for you — "
     "poll the lux `pending_callbacks` tool on your own schedule and, when 'beads' "
