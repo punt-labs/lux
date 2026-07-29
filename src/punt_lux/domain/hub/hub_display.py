@@ -65,6 +65,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
     from contextlib import AbstractContextManager
 
+    from punt_lux.domain.hub.client_identity import ClientIdentity, ClientSession
+
 __all__ = [
     "HubDisplay",
     "HubOwnershipError",
@@ -149,11 +151,17 @@ class HubDisplay:
 
     def register_client(self, connection_id: ConnectionId) -> None:
         """Mark a connection as a known client. Idempotent."""
-        self._clients.register(connection_id)
+        self._clients.record(connection_id)
+
+    def identify_client(
+        self, connection_id: ConnectionId, identity: ClientIdentity
+    ) -> None:
+        """Record the identity a connection declared, registering it if new."""
+        self._clients.record(connection_id, identity)
 
     def is_client(self, connection_id: ConnectionId) -> bool:
         """Return True if the connection is currently registered."""
-        return self._clients.is_registered(connection_id)
+        return connection_id in self._clients.sessions()
 
     # -- index access ------------------------------------------------------
 
@@ -165,8 +173,7 @@ class HubDisplay:
     def reader(self) -> SceneReader:
         """Return the replicator-facing read side — locked snapshots and live ids.
 
-        The replicator depends on exactly this, not the whole store: the
-        composition root wires it in, so the replicator never reaches through
+        Wired in by the composition root so the replicator never reaches through
         the facade to take a lock.
         """
         return self._reader
@@ -175,10 +182,8 @@ class HubDisplay:
     def frames(self) -> FrameLifecycle:
         """Return the frame authority — presentations, TTL expiry, and teardown.
 
-        Callers reach how a scene is framed (``presentation_for``), close a frame
-        (``remove_frame``), and sweep expiry (``expire_due``) through this
-        sub-object, exposed like ``reader`` so the facade carries no per-frame
-        delegator.
+        Callers reach ``presentation_for``, ``remove_frame``, and ``expire_due``
+        through this sub-object, exposed like ``reader``.
         """
         return self._frame_lifecycle
 
@@ -218,9 +223,13 @@ class HubDisplay:
         """Return each scene's distinct root owners, first-appearance order."""
         return self._reads.scene_owners(scene_id)
 
-    def client_sessions(self) -> Mapping[ConnectionId, float]:
-        """Return each registered Hub session paired with its connect time."""
+    def client_sessions(self) -> Mapping[ConnectionId, ClientSession]:
+        """Return each registered Hub session paired with its session record."""
         return self._reads.client_sessions()
+
+    def client_repos(self) -> frozenset[str]:
+        """Return the distinct repositories the identified sessions declared."""
+        return self._clients.repos()
 
     @trace
     def replace_scene(
@@ -231,13 +240,11 @@ class HubDisplay:
     ) -> None:
         """Replace ``scene_id`` wholesale with ``roots`` owned by ``connection_id``.
 
-        The scene is the unit of replacement: a re-show first tears down every
-        root the scene holds — whatever connection owns it — then installs the
-        new roots through the normal ``apply(AddElement(...))`` path so ownership,
-        root observers, and child indexes are rebuilt in one place. Clearing every
-        root regardless of owner is the whole-UI-resend contract: the latest show
-        of a scene_id defines the whole scene, so an orphan left by a departed
-        session is cleared by the next show, never stranded beside the new roots.
+        The scene is the unit of replacement: a re-show tears down every root the
+        scene holds — whatever connection owns it — then re-installs through the
+        normal ``apply(AddElement(...))`` path, rebuilding ownership, observers, and
+        child indexes in one place. The latest show defines the whole scene, so an
+        orphan from a departed session is cleared, never stranded beside new roots.
         """
         with self._lock.write():
             self.register_client(connection_id)
@@ -259,11 +266,9 @@ class HubDisplay:
     ) -> None:
         """Replace a scene's roots and show it into its frame with a TTL.
 
-        Both writes share one write lock, so a concurrent snapshot never pairs new
-        roots with an old presentation and a concurrent expiry sweep never races the
-        deadline arm (``FrameLifecycle.present`` records the presentation and arms
-        the deadline as one step). A ``ttl_seconds`` of None clears any prior
-        deadline, making a re-show without a TTL permanent.
+        Both writes share one write lock, so a snapshot never pairs new roots with
+        an old presentation and an expiry sweep never races the deadline arm. A
+        ``ttl_seconds`` of None clears any prior deadline, making a re-show permanent.
         """
         with self._lock.write():
             self.replace_scene(connection_id, scene_id, roots)
@@ -278,17 +283,14 @@ class HubDisplay:
     ) -> None:
         """Commit a state change to the index. Owner is the caller.
 
-        ``AddElement`` installs the root and then recurses into composite
-        children using the Composite Protocol — the same structural-typing
-        gate the display-side pump uses. Click resolution downstream is
-        keyed by ``(scene, element_id)``; a child Button buried in a
-        Dialog is reachable only if its row sits in the index.
+        ``AddElement`` installs the root then recurses into composite children via
+        the Composite Protocol — the same structural-typing gate the display pump
+        uses. Downstream click resolution is keyed by ``(scene, element_id)``, so a
+        child Button buried in a Dialog is reachable only if its row sits in the index.
 
-        ``SetProperty`` and ``RemoveElement`` are mutations against an
-        already-installed element and require the caller to own that
-        element. The check mirrors ``Display.apply``'s ownership
-        enforcement so a misbehaving client cannot mutate or evict
-        another client's state from the Hub mirror.
+        ``SetProperty`` and ``RemoveElement`` mutate an already-installed element and
+        require the caller to own it, mirroring ``Display.apply``'s ownership
+        enforcement so a misbehaving client cannot evict another client's state.
         """
         with self._lock.write():
             match update:

@@ -1,9 +1,4 @@
-"""ClientList — the Hub session registry, the meaningful client answer.
-
-After the Hub took over, the display has exactly one socket client: luxd. The
-meaningful client list is the set of Hub sessions — the connections and their
-scopes — which the Hub already holds.
-"""
+"""ClientList and HubClient — the Hub session roster the introspection read returns."""
 
 from __future__ import annotations
 
@@ -11,15 +6,18 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from punt_lux.domain.hub.client_identity import ClientIdentity
+
 __all__ = ["ClientList", "HubClient"]
 
 
 class HubClient(BaseModel):
-    """One Hub session: its connection, age, subscriptions, and owned scenes."""
+    """One Hub session: connection, identity (None until identified), age, scenes."""
 
     model_config = ConfigDict(frozen=True)
 
     connection_id: str
+    identity: ClientIdentity | None = None
     connected_seconds: float
     subscribed_topics: list[str]
     owned_scenes: list[str]

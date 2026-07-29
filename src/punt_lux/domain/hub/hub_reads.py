@@ -1,12 +1,9 @@
 """HubReads — the authoritative introspection reads over the Hub store.
 
-The read half of ``HubDisplay`` that answers "what is in the store right now?"
-for introspection: a scene's roots, its element count, its distinct root owners,
-and the live client sessions. The three reads over the element tree take the
-store's read lock, so that lock discipline lives here with the reads and never
-escapes to the facade, which delegates to this object. ``client_sessions`` reads
-the client registry, which is not part of the locked element store and keeps its
-own consistency, so it takes no store lock.
+The read half of ``HubDisplay``: a scene's roots, element count, and distinct root
+owners (each taking the store's read lock, so that discipline stays here), plus the
+live client sessions and the repositories they declared. The client registry keeps
+its own consistency, so the two client reads take no store lock.
 """
 
 from __future__ import annotations
@@ -17,6 +14,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from punt_lux.domain.element import Element as WireElement
+    from punt_lux.domain.hub.client_identity import ClientSession
     from punt_lux.domain.hub.element_index import ElementIndex
     from punt_lux.domain.hub.hub_clients import HubClientRegistry
     from punt_lux.domain.hub.owner_tracker import OwnerTracker
@@ -70,6 +68,6 @@ class HubReads:
             owned = (self._owners.get(scene_id, key) for key, _ in roots)
             return tuple(dict.fromkeys(filter(None, owned)))
 
-    def client_sessions(self) -> Mapping[ConnectionId, float]:
-        """Return each registered Hub session paired with its connect time."""
+    def client_sessions(self) -> Mapping[ConnectionId, ClientSession]:
+        """Return each registered Hub session paired with its session record."""
         return self._clients.sessions()

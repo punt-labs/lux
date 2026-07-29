@@ -1,15 +1,18 @@
 """HubClientRegistry — session roster reads and writes are serialized.
 
-Bind and unbind run on the transport's connection threads while
+Bind, identify, and unbind run on the transport's connection threads while
 ``list_clients`` reads on a tool thread, so every access to the roster is
-guarded by the registry's lock. These tests hammer the registry from many
-threads at once and assert the reads stay coherent and no thread raises.
+guarded by the registry's lock. These tests exercise the ``record`` upsert (bare
+registration and identity declaration are the same primitive), the repository
+projection, and hammer the registry from many threads to prove the reads stay
+coherent and no thread raises.
 """
 
 from __future__ import annotations
 
 import threading
 
+from punt_lux.domain.hub.client_identity import ClientIdentity, ClientSession
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.ids import ConnectionId
 
@@ -17,29 +20,99 @@ from punt_lux.domain.ids import ConnectionId
 def _churn(
     reg: HubClientRegistry, conns: list[ConnectionId], stop: threading.Event
 ) -> None:
-    """Register then discard every connection until told to stop."""
+    """Record then discard every connection until told to stop."""
     while not stop.is_set():
         for conn in conns:
-            reg.register(conn)
+            reg.record(conn)
         for conn in conns:
             reg.discard(conn)
 
 
 def _read(reg: HubClientRegistry, stop: threading.Event) -> None:
-    """Snapshot the roster until told to stop; every value is a connect time."""
+    """Snapshot the roster until told to stop; every value is a session record."""
     while not stop.is_set():
         for value in reg.sessions().values():
-            assert isinstance(value, float)
+            assert isinstance(value, ClientSession)
 
 
-def test_register_is_idempotent_and_stamps_once() -> None:
+def test_record_is_idempotent_and_stamps_once() -> None:
     reg = HubClientRegistry()
     conn = ConnectionId("conn")
-    reg.register(conn)
-    first = reg.sessions()[conn]
-    reg.register(conn)
-    # A re-register keeps the original connect time — age never resets.
-    assert reg.sessions()[conn] == first
+    reg.record(conn)
+    first = reg.sessions()[conn].connected_at
+    reg.record(conn)
+    # A re-record keeps the original connect time — age never resets.
+    assert reg.sessions()[conn].connected_at == first
+
+
+def test_a_bare_record_leaves_the_session_unidentified() -> None:
+    reg = HubClientRegistry()
+    conn = ConnectionId("conn")
+    reg.record(conn)
+    assert reg.sessions()[conn].identity is None
+
+
+def test_record_with_identity_keeps_the_connect_time() -> None:
+    reg = HubClientRegistry()
+    conn = ConnectionId("conn")
+    reg.record(conn)
+    stamped = reg.sessions()[conn].connected_at
+
+    identity = ClientIdentity(kind="mcp-session", name="claude", repo="/w/lux")
+    reg.record(conn, identity)
+
+    session = reg.sessions()[conn]
+    assert session.identity == identity
+    # Declaring an identity records who, not when — the age is unchanged.
+    assert session.connected_at == stamped
+
+
+def test_a_later_bare_record_never_drops_a_declared_identity() -> None:
+    reg = HubClientRegistry()
+    conn = ConnectionId("conn")
+    identity = ClientIdentity(kind="cli", name="lux", repo="/w/lux")
+    reg.record(conn, identity)
+    # The connect path re-records without an identity; the declaration survives.
+    reg.record(conn)
+    assert reg.sessions()[conn].identity == identity
+
+
+def test_record_with_identity_registers_an_unseen_connection() -> None:
+    reg = HubClientRegistry()
+    conn = ConnectionId("conn")
+    reg.record(conn, ClientIdentity(kind="cli", name="lux-cli"))
+    assert conn in reg.sessions()
+    assert reg.sessions()[conn].identity is not None
+
+
+def test_discard_drops_the_identity_with_the_connection() -> None:
+    reg = HubClientRegistry()
+    conn = ConnectionId("conn")
+    reg.record(conn, ClientIdentity(kind="mcp-session", name="claude", repo="/w/lux"))
+    reg.discard(conn)
+    assert reg.sessions() == {}
+
+
+def test_repos_projects_the_distinct_declared_repositories() -> None:
+    reg = HubClientRegistry()
+    reg.record(ConnectionId("a"), ClientIdentity(kind="cli", name="lux", repo="/w/lux"))
+    reg.record(ConnectionId("b"), ClientIdentity(kind="cli", name="vox", repo="/w/vox"))
+    # A second session in an already-listed repo does not double it.
+    reg.record(
+        ConnectionId("c"),
+        ClientIdentity(
+            kind="mcp-session", name="claude", repo="/w/lux", agent="claude"
+        ),
+    )
+    assert reg.repos() == frozenset({"/w/lux", "/w/vox"})
+
+
+def test_repos_excludes_headless_and_unidentified_sessions() -> None:
+    reg = HubClientRegistry()
+    reg.record(ConnectionId("unidentified"))
+    reg.record(ConnectionId("headless"), ClientIdentity(kind="cli", name="lux-cli"))
+    reg.record(ConnectionId("app"), ClientIdentity(kind="app", name="lux"))
+    assert reg.repos() == frozenset()
 
 
 def test_discard_is_a_noop_when_absent() -> None:
@@ -48,7 +121,7 @@ def test_discard_is_a_noop_when_absent() -> None:
     assert reg.sessions() == {}
 
 
-def test_concurrent_register_and_discard_against_iterating_sessions() -> None:
+def test_concurrent_record_and_discard_against_iterating_sessions() -> None:
     reg = HubClientRegistry()
     conns = [ConnectionId(f"conn-{i}") for i in range(50)]
     stop = threading.Event()
