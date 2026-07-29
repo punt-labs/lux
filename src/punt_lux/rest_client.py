@@ -20,12 +20,14 @@ from punt_lux.hub_client import LuxHubClient
 from punt_lux.hub_paths import HubPaths
 from punt_lux.identity_headers import ClientHeaders
 from punt_lux.operations import (
+    Ok,
     OpError,
     Pong,
     RenderRequest,
     RenderTableRequest,
     SceneShown,
 )
+from punt_lux.operations.models.callbacks import RegisterCallbackRequest
 from punt_lux.rest_http_call import HttpCall
 from punt_lux.rest_loopback import LoopbackTransport
 from punt_lux.rest_reply import RestReply
@@ -117,6 +119,20 @@ class LuxRestClient:
         segment = quote(request.scene_id, safe="")
         path = f"/scenes/{segment}/table"
         return self._send(HttpCall.write(path, request, self._headers))
+
+    def register_callback(self, callback_id: str, label: str) -> Ok | OpError:
+        """Register a menu callback for this identity through ``POST /menus/callbacks``.
+
+        The daemon path: a client registers the callback it wants on the menu here,
+        then receives the user's clicks on it over its :meth:`listener` stream — both
+        under this client's identity, so the click routes back to the same session. A
+        malformed id or label is reported as an ``OpError`` without a round-trip.
+        """
+        request = RegisterCallbackRequest.parse(callback_id=callback_id, label=label)
+        if isinstance(request, OpError):
+            return request
+        call = HttpCall.post("/menus/callbacks", request, self._headers)
+        return RestReply(self._transport.request(call)).read(Ok)
 
     def ping(self, wait: float | None = None) -> Pong | OpError:
         """Round-trip a display ping through ``GET /display/ping``.

@@ -184,6 +184,35 @@ def test_the_wake_runs_outside_the_router_lock() -> None:
     assert observed == [(CallbackInvocation(conn, "beads"),)]
 
 
+def test_the_live_read_precedes_the_router_lock() -> None:
+    # PR-1's invariant: the live read (the client-registry side) completes before
+    # the router lock is taken, so the two never nest. A LiveSessions that reenters
+    # a lock-taking router method during that read would deadlock on the
+    # non-reentrant router lock if the order were reversed; that route() returns
+    # proves the read stays outside the lock.
+    conn = ConnectionId("vox")
+    session = _session("vox", "beads")
+    probe: list[tuple[CallbackInvocation, ...]] = []
+
+    @final
+    class _Reentrant:
+        def __init__(self) -> None:
+            self.router: CallbackRouter | None = None
+            self._entered = False
+
+        def live_sessions(self) -> dict[ConnectionId, ClientSession]:
+            if self.router is not None and not self._entered:
+                self._entered = True  # one-shot, or pending() would recurse forever
+                probe.append(self.router.pending(ConnectionId("probe")))
+            return {conn: session}
+
+    live = _Reentrant()
+    router = CallbackRouter(live)
+    live.router = router
+    assert router.route(CallbackInvocation(conn, "beads")) == "routed"  # no deadlock
+    assert probe == [()]  # the reentrant router read completed and saw nothing
+
+
 def test_the_persistent_listener_and_the_poll_hold_are_the_same_buffer() -> None:
     # A woken listener drains via take(), the identical hold a poller would drain.
     conn = ConnectionId("vox")

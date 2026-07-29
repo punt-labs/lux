@@ -36,6 +36,11 @@ class HttpCall:
         return cls("PUT", path, body.model_dump_json().encode(), headers)
 
     @classmethod
+    def post(cls, path: str, body: BaseModel, headers: Mapping[str, str]) -> Self:
+        """A ``POST`` carrying ``body`` as JSON — a create that is not a PUT-by-id."""
+        return cls("POST", path, body.model_dump_json().encode(), headers)
+
+    @classmethod
     def read(cls, path: str, headers: Mapping[str, str]) -> Self:
         """A ``GET`` with no body under the caller's headers."""
         return cls("GET", path, None, headers)
