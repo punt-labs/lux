@@ -174,3 +174,46 @@ def test_a_malformed_leaf_id_is_invalid_request() -> None:
 def test_pending_is_empty_for_a_session_with_no_clicks() -> None:
     ops = _ops(HubClientRegistry(), _MarkerSpy())
     assert ops.pending_callbacks(ConnectionId("nobody")).callback_ids == ()
+
+
+def test_take_pending_drains_the_hold_so_a_second_poll_is_empty() -> None:
+    clients = HubClientRegistry()
+    conn = ConnectionId("mcp")
+    clients.record(conn, _identity())
+    ops = _ops(clients, _MarkerSpy())
+    _register(ops, conn, "beads")
+    ops.invoke_callback(CallbackInvocation(conn, "beads").menu_id)
+
+    # The poll legs' drain: the first take returns the click, the second is empty.
+    assert ops.take_pending(conn).callback_ids == ("beads",)
+    assert ops.take_pending(conn).callback_ids == ()
+
+
+def test_peek_does_not_drain_but_take_does() -> None:
+    clients = HubClientRegistry()
+    conn = ConnectionId("mcp")
+    clients.record(conn, _identity())
+    ops = _ops(clients, _MarkerSpy())
+    _register(ops, conn, "beads")
+    ops.invoke_callback(CallbackInvocation(conn, "beads").menu_id)
+
+    assert ops.pending_callbacks(conn).callback_ids == ("beads",)  # peek keeps it
+    assert ops.pending_callbacks(conn).callback_ids == ("beads",)  # still there
+    assert ops.take_pending(conn).callback_ids == ("beads",)  # drain
+    assert ops.pending_callbacks(conn).callback_ids == ()  # now gone
+
+
+def test_take_pending_drains_only_the_polling_session() -> None:
+    clients = HubClientRegistry()
+    vox, lux = ConnectionId("vox"), ConnectionId("lux")
+    clients.record(vox, _identity("vox", "/w/vox"))
+    clients.record(lux, _identity("lux", "/w/lux"))
+    ops = _ops(clients, _MarkerSpy())
+    _register(ops, vox, "beads")
+    _register(ops, lux, "beads")
+    ops.invoke_callback(CallbackInvocation(vox, "beads").menu_id)
+    ops.invoke_callback(CallbackInvocation(lux, "beads").menu_id)
+
+    # A session drains only its own hold; the other's stays intact.
+    assert ops.take_pending(vox).callback_ids == ("beads",)
+    assert ops.pending_callbacks(lux).callback_ids == ("beads",)

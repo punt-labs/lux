@@ -55,6 +55,7 @@ STRUCTURED_TOOLS = frozenset(
         "list_menus",
         "list_recent_events",
         "list_scenes",
+        "pending_callbacks",
         "set_frame_state",
         "set_theme",
         "set_window_settings",
@@ -63,6 +64,8 @@ STRUCTURED_TOOLS = frozenset(
 # ``list_menus`` joined the structured set in the menu-ownership commit; the
 # setters (``set_theme``, ``set_window_settings``, ``set_frame_state``) joined it
 # when they were changed to return their write's own result model.
+# ``pending_callbacks`` returns the ``PendingCallbacks`` model — its behavior is
+# pinned by the typed operation and adapter tests, not the string-parity corpus.
 
 
 def _snapshot_files() -> list[Path]:
