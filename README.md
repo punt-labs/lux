@@ -279,6 +279,12 @@ over REST is delivered on this stream. The receive loop renews the lease on ever
 contact and reconnects on a dropped connection, re-subscribing automatically; the
 Hub buffers any clicks missed during a gap and drains them on reconnect.
 
+Re-subscribing restores topics, but a menu callback lives on the session's lease,
+which lapses during a long outage — so register it (and re-push scenes) in
+`on_connect`, which runs after *every* handshake, first connect and each
+reconnect. Registering in an outer register-then-listen sequence would run once;
+the internal reconnect would never re-run it, and the menu entry would stay gone.
+
 ```python
 import asyncio
 
@@ -295,14 +301,23 @@ def on_callback(callback_id: str) -> None:
 def on_event(topic: str, payload: dict[str, object]) -> None:
     print("event:", topic, payload)            # e.g. {"album_id": "jazz-1"}
 
-listener = rest.listener(on_callback=on_callback, on_event=on_event)
+def on_connect() -> None:
+    # Runs after every handshake — re-establish the per-connection state the
+    # reconnect does not: register menu callbacks, re-push any scenes.
+    rest.register_callback("music", "Music")
+
+listener = rest.listener(
+    on_callback=on_callback, on_event=on_event, on_connect=on_connect
+)
 listener.subscribe("music.play", "music.stop")
 asyncio.run(listener.listen())                 # blocks, reconnecting as needed
 ```
 
-The handlers may be sync or async; the loop awaits a coroutine. Call `stop()` to
-end the loop after its current connection closes. Events and callbacks are
-generic — the topics and callback ids are the app's own vocabulary, not Lux's.
+The handlers may be sync or async; the loop awaits a coroutine. A raising
+`on_connect` is logged and the connection continues — a failed re-registration
+never tears down a healthy socket. Call `stop()` to end the loop after its current
+connection closes. Events and callbacks are generic — the topics and callback ids
+are the app's own vocabulary, not Lux's.
 
 ## Architecture
 
