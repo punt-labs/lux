@@ -27,6 +27,44 @@ from punt_lux.mcp_transport import SESSION_IDLE_TIMEOUT_SECONDS, McpHttpTranspor
 
 pytestmark = pytest.mark.integration
 
+# The full MCP tool roster the transport must expose over the wire. Pinned
+# explicitly (not derived from ``tools.__all__``) so adding or removing a tool
+# trips this test on purpose; comparing the roster as a set means the failure
+# names the exact tool that changed rather than only a count that moved.
+_EXPECTED_TOOLS = frozenset(
+    {
+        "clear",
+        "clear_scene",
+        "display_mode",
+        "get_display_info",
+        "get_theme",
+        "get_window_settings",
+        "identify",
+        "inspect_scene",
+        "list_clients",
+        "list_errors",
+        "list_menus",
+        "list_recent_events",
+        "list_scenes",
+        "ping",
+        "publish",
+        "recv",
+        "register_tool",
+        "screenshot",
+        "set_display_mode",
+        "set_frame_state",
+        "set_menu",
+        "set_theme",
+        "set_window_settings",
+        "show",
+        "show_dashboard",
+        "show_table",
+        "subscribe",
+        "unsubscribe",
+        "update",
+    }
+)
+
 
 @contextmanager
 def _running_luxd() -> Generator[int]:
@@ -71,7 +109,7 @@ def test_full_session_capabilities_over_streamable_http() -> None:
             received = await session.call_tool("recv", {})
             block = received.content[0]
             return {
-                "tool_count": len(tools.tools),
+                "tool_names": frozenset(tool.name for tool in tools.tools),
                 "scenes_error": scenes.isError,
                 "recv": block.text if isinstance(block, TextContent) else "",
                 "sessions_during": _health_sessions(port),
@@ -83,7 +121,8 @@ def test_full_session_capabilities_over_streamable_http() -> None:
         time.sleep(0.3)
         sessions_after = _health_sessions(port)
 
-    assert result["tool_count"] == 28  # bump when a tool is added/removed
+    # Set equality, so a drift fails naming the exact tool added or removed.
+    assert result["tool_names"] == _EXPECTED_TOOLS
     assert result["scenes_error"] is False
     assert result["recv"] == 'event:itest.topic:{"n": 1}'
     assert result["sessions_during"] == 1
