@@ -9,6 +9,7 @@ by the delivery legs, and swept when a session leaves the live set.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import final
 
 from punt_lux.domain.hub.callback_hold import CallbackRouter
@@ -27,6 +28,20 @@ class _Live:
 
     def live_sessions(self) -> dict[ConnectionId, ClientSession]:
         return dict(self._sessions)
+
+
+@final
+class _Waker:
+    """A CallbackListener counting wakes; an optional side effect proves lock state."""
+
+    def __init__(self, on_wake: Callable[[], None] | None = None) -> None:
+        self.wakes = 0
+        self._on_wake = on_wake
+
+    def wake(self) -> None:
+        self.wakes += 1
+        if self._on_wake is not None:
+            self._on_wake()
 
 
 def _session(name: str, *callback_ids: str) -> ClientSession:
@@ -121,3 +136,59 @@ def test_take_sweeps_an_expired_session_without_a_route_in_between() -> None:
 
     live._sessions.clear()  # the lease lapses; no route() fires after this
     assert router.take(conn) == ()
+
+
+def test_a_routed_invocation_wakes_the_connections_listener() -> None:
+    conn = ConnectionId("vox")
+    router = CallbackRouter(_Live({conn: _session("vox", "beads")}))
+    waker = _Waker()
+    router.add_listener(conn, waker)
+    assert router.route(CallbackInvocation(conn, "beads")) == "routed"
+    assert waker.wakes == 1
+
+
+def test_a_rejected_click_never_wakes_a_listener() -> None:
+    conn = ConnectionId("vox")
+    router = CallbackRouter(_Live({conn: _session("vox", "beads")}))
+    waker = _Waker()
+    router.add_listener(conn, waker)
+    # unknown_callback and provider_gone both short-circuit before the hold/notify.
+    assert router.route(CallbackInvocation(conn, "other")) == "unknown_callback"
+    assert (
+        router.route(CallbackInvocation(ConnectionId("gone"), "x")) == "provider_gone"
+    )
+    assert waker.wakes == 0
+
+
+def test_a_removed_listener_is_no_longer_woken() -> None:
+    conn = ConnectionId("vox")
+    router = CallbackRouter(_Live({conn: _session("vox", "beads")}))
+    waker = _Waker()
+    router.add_listener(conn, waker)
+    router.remove_listener(conn)
+    router.route(CallbackInvocation(conn, "beads"))
+    assert waker.wakes == 0
+
+
+def test_the_wake_runs_outside_the_router_lock() -> None:
+    # A reentrant router call inside wake() would deadlock on the non-reentrant lock
+    # if the notify ran under it; that it returns proves the wake is post-release.
+    conn = ConnectionId("vox")
+    router = CallbackRouter(_Live({conn: _session("vox", "beads")}))
+    observed: list[tuple[CallbackInvocation, ...]] = []
+    router.add_listener(
+        conn, _Waker(on_wake=lambda: observed.append(router.pending(conn)))
+    )
+    router.route(CallbackInvocation(conn, "beads"))
+    # The reentrant pending() saw the just-held invocation and did not deadlock.
+    assert observed == [(CallbackInvocation(conn, "beads"),)]
+
+
+def test_the_persistent_listener_and_the_poll_hold_are_the_same_buffer() -> None:
+    # A woken listener drains via take(), the identical hold a poller would drain.
+    conn = ConnectionId("vox")
+    router = CallbackRouter(_Live({conn: _session("vox", "beads")}))
+    router.add_listener(conn, _Waker())
+    router.route(CallbackInvocation(conn, "beads"))
+    assert router.take(conn) == (CallbackInvocation(conn, "beads"),)
+    assert router.pending(conn) == ()

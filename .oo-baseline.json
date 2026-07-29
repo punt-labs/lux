@@ -1471,10 +1471,10 @@
   "src/punt_lux/domain/hub/callback_hold.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
-    "avg_params": 0.82,
+    "avg_params": 0.86,
     "max_complexity": 4.0,
-    "avg_complexity": 1.55,
-    "module_size": 125.0,
+    "avg_complexity": 1.5,
+    "module_size": 164.0,
     "classes_per_module": 2.0,
     "class_to_func_ratio": 1.0,
     "init_violations": 0.0,
