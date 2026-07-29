@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, cast
 
 from punt_lux.domain.hub.callback_hold import CallbackRouter
+from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
 from punt_lux.domain.hub.clients import client_registry
 from punt_lux.domain.hub.hub_display import hub_display
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
@@ -41,6 +42,7 @@ hub_callback_router = CallbackRouter(hub_display.clients)
 hub_replicator = HubReplicator(
     hub_display.reader,
     hub_menu_registry,
+    CallbackMenuReplica(hub_display.clients),
     cast("ClientProvider", client_registry),
     DisplayPaths(),
 )

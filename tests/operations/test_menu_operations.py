@@ -1,10 +1,10 @@
-"""MenuOperations — menus are Hub-owned; the replicator pushes every change.
+"""MenuOperations — the agent menu bar is Hub-owned; the replicator pushes it.
 
-These tests encode the third correction: set_menu and register_menu_item write
-the Hub menu registry and hand the composed bar to the replicator (the sole
-writer), never reaching the display directly. A spy replicator records the
-marks, proving there is no second writer. list_menus reads the registry and
-round-trips the separator sentinel through the typed model.
+set_menu writes the Hub menu registry and hands the composed bar to the
+replicator (the sole writer), never reaching the display directly. A spy
+replicator records the marks, proving there is no second writer. list_menus
+reads the registry and round-trips the separator sentinel through the typed
+model, then appends the session-then-callback submenus.
 """
 
 from __future__ import annotations
@@ -15,15 +15,12 @@ from typing import Self, final
 import pytest
 from pydantic import ValidationError
 
-from punt_lux.client_label import ClientLabel
 from punt_lux.domain.hub.menu_models import Menu, MenuAction, MenuSeparator
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
-from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.domain.ids import SceneId
 from punt_lux.operations.menus import MenuOperations
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.menu_results import MenuList, Ok, SetMenuRequest
-from punt_lux.operations.models.register_tool import RegisterToolRequest
-from punt_lux.operations.scope import Scope
 
 
 @final
@@ -150,54 +147,6 @@ def test_set_menu_rejects_an_action_item_with_a_non_string_id() -> None:
     assert "menus.0.items.0.id" in result.reason
 
 
-def test_register_tool_request_rejects_an_empty_label() -> None:
-    # to_action must never build a blank-label MenuAction, so parse catches it.
-    result = RegisterToolRequest.parse(
-        tool_id="build", label="", shortcut=None, icon=None
-    )
-    assert isinstance(result, OpError)
-    assert result.code == "invalid_request"
-    assert "label" in result.reason
-
-
-def test_register_menu_item_scopes_to_the_connection_and_pushes() -> None:
-    registry = HubMenuRegistry()
-    marker = _MenuMarkerSpy()
-    ops = MenuOperations(registry, marker, _CallbackMenus())
-
-    result = ops.register_menu_item(
-        RegisterToolRequest(tool_id="build", label="Build"),
-        scope=Scope(ConnectionId("c1")),
-    )
-
-    # The item lands in the registered (World-menu) items, not the agent bar.
-    assert isinstance(result, Ok)
-    assert any(i.id == "build" for i in registry.registered_items())
-    assert registry.menu_bar() == []
-    assert marker.pushed == 1
-
-
-def test_register_menu_item_passes_a_parse_error_through_without_pushing() -> None:
-    # A never-raising parse: an empty tool_id is rejected as an OpError the
-    # adapter renders, and no push is flagged because nothing was registered.
-    registry = HubMenuRegistry()
-    marker = _MenuMarkerSpy()
-    ops = MenuOperations(registry, marker, _CallbackMenus())
-
-    result = ops.register_menu_item(
-        RegisterToolRequest.parse(
-            tool_id="", label="Nameless", shortcut=None, icon=None
-        ),
-        scope=Scope(ConnectionId("c1")),
-    )
-
-    assert isinstance(result, OpError)
-    assert result.code == "invalid_request"
-    assert "tool_id" in result.reason
-    assert registry.registered_items() == []
-    assert marker.pushed == 0
-
-
 def test_list_menus_round_trips_the_separator_sentinel() -> None:
     registry = HubMenuRegistry()
     ops = MenuOperations(registry, _MenuMarkerSpy(), _CallbackMenus())
@@ -220,48 +169,9 @@ def test_list_menus_round_trips_the_separator_sentinel() -> None:
     assert isinstance(menu.items[1], MenuSeparator)
 
 
-def test_drop_session_forgets_items_and_re_pushes_so_no_stale_menu_lingers() -> None:
-    # The stale-menu-on-disconnect regression: dropping a session must mark a
-    # push, or the display keeps showing the departed session's World-menu items
-    # until the next unrelated menu write.
-    registry = HubMenuRegistry()
-    marker = _MenuMarkerSpy()
-    ops = MenuOperations(registry, marker, _CallbackMenus())
-    scope = Scope(ConnectionId("c1"))
-    ops.register_menu_item(RegisterToolRequest(tool_id="x", label="X"), scope=scope)
-
-    ops.drop_session(scope)
-
-    # The registry is emptied AND a second push is flagged — the drop replicates,
-    # so the worker's next fresh read of the registry finds no items to send.
-    assert registry.registered_items() == []
-    assert marker.pushed == 2
-
-
-def test_list_menus_reports_the_display_applications_composition() -> None:
-    # The read must match the screen: registered items render under Applications
-    # → the client's submenu (luxd's label), items sorted by label — not an
-    # invented "Tools" group.
-    registry = HubMenuRegistry()
-    ops = MenuOperations(registry, _MenuMarkerSpy(), _CallbackMenus())
-    conn = Scope(ConnectionId("c1"))
-    ops.register_menu_item(RegisterToolRequest(tool_id="z", label="Zebra"), scope=conn)
-    ops.register_menu_item(RegisterToolRequest(tool_id="a", label="Apple"), scope=conn)
-
-    menus = ops.list_menus().menus
-
-    apps = next(m for m in menus if m.label == "Applications")
-    submenu = apps.items[0]
-    assert isinstance(submenu, Menu)
-    assert submenu.label == ClientLabel.of(ClientLabel.LUX)  # "Lux"
-    # Items are sorted by label, matching the display's own ordering.
-    labels = [i.label for i in submenu.items if isinstance(i, MenuAction)]
-    assert labels == ["Apple", "Zebra"]
-
-
-def test_list_menus_appends_the_callback_submenus_alongside_the_legacy_bar() -> None:
-    # The migration reads both paths side by side: the legacy agent bar first,
-    # then the session-then-callback submenus the callback model contributes.
+def test_list_menus_appends_the_callback_submenus_after_the_agent_bar() -> None:
+    # The read reports both parts side by side: the agent bar first, then the
+    # session-then-callback submenus the callback model contributes.
     registry = HubMenuRegistry()
     callback_submenu = Menu(
         label="vox — /w/vox", items=[MenuAction(id="c", label="Beads")]

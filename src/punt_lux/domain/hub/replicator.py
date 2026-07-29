@@ -31,6 +31,7 @@ from punt_lux.domain.hub.recovery import SendRecovery
 if TYPE_CHECKING:
     from punt_lux.domain.hub.dirty_signal import DrainedBatch
     from punt_lux.domain.hub.replicator_ports import (
+        CallbackMenuReader,
         ClientProvider,
         DisplayLifecycle,
         MenuReader,
@@ -79,6 +80,7 @@ class HubReplicator:
 
     _reader: SceneReader
     _menu_reader: MenuReader
+    _callback_reader: CallbackMenuReader
     _clients: ClientProvider
     _signal: DirtySignal
     _recovery: SendRecovery
@@ -86,6 +88,7 @@ class HubReplicator:
     _backoff: float
     __slots__ = (
         "_backoff",
+        "_callback_reader",
         "_clients",
         "_menu_reader",
         "_reader",
@@ -98,12 +101,14 @@ class HubReplicator:
         cls,
         reader: SceneReader,
         menu_reader: MenuReader,
+        callback_reader: CallbackMenuReader,
         clients: ClientProvider,
         lifecycle: DisplayLifecycle,
     ) -> Self:
         self = super().__new__(cls)
         self._reader = reader
         self._menu_reader = menu_reader
+        self._callback_reader = callback_reader
         self._clients = clients
         self._signal = DirtySignal()
         self._recovery = SendRecovery(clients, lifecycle, self._signal, reader)
@@ -240,12 +245,13 @@ class HubReplicator:
         — its frame is dead once the display blanks it — so it is collected here.
         """
         if batch.menus_dirty:
-            # Read the registry fresh, so the newest menu state wins even if a
-            # change landed after this batch was drained.
-            state = self._menu_reader.wire_snapshot()
+            # Read the agent bar and the live sessions fresh, so the newest menu
+            # state wins even if a change landed after this batch was drained.
+            bar = self._menu_reader.wire_snapshot()
+            callback_menus = self._callback_reader.callback_menu_wire()
             sender = self._clients.get()
-            sender.set_menu([dict(menu) for menu in state.bar])
-            sender.set_registered_items([dict(item) for item in state.items])
+            sender.set_menu([dict(menu) for menu in bar])
+            sender.set_callback_menus(callback_menus)
         # Each ``_send_scene`` sends and reports whether the scene was empty; the
         # comprehension keeps the empties as reclaim candidates.
         return tuple(scene for scene in batch.scenes if self._send_scene(scene))

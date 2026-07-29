@@ -21,11 +21,13 @@ from punt_lux.domain.element_abc import Element
 from punt_lux.domain.handlers.decorators import PublishSink
 from punt_lux.domain.interaction import ButtonClicked
 from punt_lux.domain.remote_dispatch_spec import RemoteDispatchSpec
+from punt_lux.domain.validation import ValidationError
 from punt_lux.protocol.elements.abc_di_defaults import NO_EMIT, RAISING_FACTORY
 from punt_lux.protocol.elements.button_codec import (
     JsonButtonDecoder,
     JsonButtonEncoder,
 )
+from punt_lux.protocol.elements.button_publish import ButtonPublish
 from punt_lux.protocol.elements.patch_field import PatchField
 from punt_lux.protocol.raising_publish_sink import RaisingPublishSink
 from punt_lux.protocol.standalone_button_handler import (
@@ -56,6 +58,10 @@ class ButtonElement(Element):
     _small: bool
     _arrow: str | None
     _tooltip: str | None
+    # PY-TS-14 OK: None is the documented "no publish declared" contract — a
+    # button that publishes nothing on click, distinct from one that publishes
+    # an empty payload (ButtonPublish with an empty payload mapping).
+    _publish: ButtonPublish | None
     _kind: Literal["button"]
 
     def __new__(
@@ -70,6 +76,7 @@ class ButtonElement(Element):
         small: bool = False,
         arrow: str | None = None,
         tooltip: str | None = None,
+        publish: ButtonPublish | None = None,
     ) -> Self:
         self = super().__new__(cls, renderer_factory=renderer_factory, emit=emit)
         self._id = id
@@ -79,6 +86,7 @@ class ButtonElement(Element):
         self._small = small
         self._arrow = arrow
         self._tooltip = tooltip
+        self._publish = publish
         self._kind = "button"
         return self
 
@@ -124,6 +132,26 @@ class ButtonElement(Element):
         """Return the hover-tooltip text, or None for no tooltip."""
         return self._tooltip
 
+    @property
+    def publish(self) -> ButtonPublish | None:
+        """Return the publish-on-click declaration, or None if none was declared."""
+        return self._publish
+
+    def validate(self) -> tuple[ValidationError, ...]:
+        """Reject a malformed publish declaration; an absent one is valid.
+
+        The one component-appropriate check a button owns: a declared publish
+        must name a non-empty topic. The tree walk collects this alongside every
+        other element's errors, so a bad ``publish`` returns the tree to the agent
+        rather than installing a button that would publish to an empty topic.
+        """
+        if self._publish is None:
+            return ()
+        message = self._publish.topic_error()
+        if message is None:
+            return ()
+        return (ValidationError(self._id, self._kind, message),)
+
     # -- minimal setters for the scene patch path --------------------------
 
     def _set_label(self, value: object) -> None:
@@ -150,6 +178,10 @@ class ButtonElement(Element):
         """Replace the tooltip text."""
         self._tooltip = PatchField("tooltip").as_optional_str(value)
 
+    def _set_publish(self, value: object) -> None:
+        """Replace the publish-on-click declaration; None clears it."""
+        self._publish = None if value is None else ButtonPublish.from_wire(value)
+
     def _remote_dispatch_specs(self) -> tuple[RemoteDispatchSpec, ...]:
         """Return the click bucket's spec; a None action falls back to the id."""
         return (RemoteDispatchSpec(ButtonClicked, self._action, "button_clicked"),)
@@ -171,13 +203,13 @@ class ButtonElement(Element):
         ``RaisingPublishSink`` — the directive bans silent swallowing
         of decorator side effects.
         """
+        sink = cast("PublishSink", RaisingPublishSink("ButtonElement.from_dict"))
         decoder = JsonButtonDecoder(
             renderer_factory=RAISING_FACTORY,
             emit=NO_EMIT,
             element_cls=cls,
-            handler_decoder=build_standalone_button_handler_decoder(
-                cast("PublishSink", RaisingPublishSink("ButtonElement.from_dict")),
-            ),
+            handler_decoder=build_standalone_button_handler_decoder(sink),
+            publish_sink=sink,
         )
         return cast("Self", decoder.decode(d))
 
@@ -192,4 +224,5 @@ class ButtonElement(Element):
             "small": self._small,
             "arrow": self._arrow,
             "tooltip": self._tooltip,
+            "publish": None if self._publish is None else self._publish.to_wire(),
         }

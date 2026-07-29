@@ -43,7 +43,6 @@ from punt_lux.operations.models.query_mirror import (
     MirrorUnavailable,
 )
 from punt_lux.operations.models.query_scenes import SceneList
-from punt_lux.operations.models.register_tool import RegisterToolRequest
 from punt_lux.operations.models.theme import SetThemeRequest, ThemeName, ThemeState
 from punt_lux.operations.models.window import WindowSettings, WindowSettingsPatch
 from punt_lux.operations.ports import HubPorts
@@ -73,7 +72,6 @@ __all__ = [
     "Received",
     "RecentErrors",
     "RecentEvents",
-    "RegisterToolRequest",
     "RenderDashboardRequest",
     "RenderRequest",
     "RenderTableRequest",

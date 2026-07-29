@@ -115,3 +115,34 @@ def test_every_submenu_is_a_menu() -> None:
         {ConnectionId("vox"): _session("vox", "/w/vox", _beads())}
     )
     assert all(isinstance(menu, Menu) for menu in menus)
+
+
+def test_replica_returns_the_live_submenus_as_wire() -> None:
+    """CallbackMenuReplica composes the live sessions into wire submenus."""
+    from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
+    from punt_lux.domain.hub.hub_clients import HubClientRegistry
+
+    registry = HubClientRegistry()
+    conn = ConnectionId("vox")
+    registry.record(conn, ClientIdentity(kind="app", name="voxd"))
+    registry.register_callback(conn, SessionCallback(id="music", label="Music"))
+
+    wire = CallbackMenuReplica(registry).callback_menu_wire()
+
+    assert wire == [
+        {
+            "label": "voxd",
+            "items": [
+                {"label": "Music", "id": CallbackInvocation(conn, "music").menu_id}
+            ],
+        }
+    ]
+
+
+def test_replica_is_empty_when_no_session_has_a_callback() -> None:
+    from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
+    from punt_lux.domain.hub.hub_clients import HubClientRegistry
+
+    registry = HubClientRegistry()
+    registry.record(ConnectionId("lux"), ClientIdentity(kind="mcp-session", name="lux"))
+    assert CallbackMenuReplica(registry).callback_menu_wire() == []

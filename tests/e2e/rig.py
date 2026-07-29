@@ -10,7 +10,7 @@ The rig owns exactly one genuinely new piece of wiring the design flags:
 the queued interaction the Display's ``_emit_event`` produces is drained
 and shipped over the ``InMemoryConnection`` (instead of the
 ``SocketServer`` client fds), then read back on the Hub end and handed to
-the production ``ClientRegistry._hub_interaction_dispatch``. Everything
+the production ``HubInteractionDispatch.dispatch``. Everything
 else — the wrap, the emit point, the Hub dispatch, the real handler,
 ``hub.publish``, the inbox — runs for real.
 
@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Self, cast
 
 from punt_lux.display.server import DisplayServer
 from punt_lux.domain.element_abc import Element as AbcElement
-from punt_lux.domain.hub import client_registry
+from punt_lux.domain.hub.hub_interaction_dispatch import HubInteractionDispatch
 from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.in_memory_connection import InMemoryConnection
 from punt_lux.protocol.messages import message_from_dict, message_to_dict
@@ -90,7 +90,7 @@ class InProcessLoop:
     def repush_client(self) -> _HubRepushClient:
         """Return the client double the Hub re-push resolves to.
 
-        ``_hub_interaction_dispatch`` re-pushes the mutated scene through
+        ``HubInteractionDispatch.dispatch`` re-pushes the mutated scene through
         ``client_registry.get()``; the conftest points ``get`` at this
         double so the handler-driven re-push lands in the same replica the
         agent's own ``update`` re-pushes to — hermetic, no socket.
@@ -154,7 +154,7 @@ class InProcessLoop:
         Drains the Display's ``_emit_event`` queue, sends each invocation
         over the ``InMemoryConnection``, reads it back on the Hub end
         through the shared ``Connection`` interface, and hands it to the
-        production ``_hub_interaction_dispatch``. Returns the invocations as
+        production ``HubInteractionDispatch.dispatch``. Returns the invocations as
         the Hub received them (loop invariant I1 asserts against these).
         """
         pending = tuple(self._server._event_queue)
@@ -187,7 +187,7 @@ class InProcessLoop:
         """Read one frame on the Hub end and run production dispatch on it."""
         received = message_from_dict(next(self._hub_reader))
         assert isinstance(received, RemoteEventHandlerInvocation)
-        client_registry._hub_interaction_dispatch(received)
+        HubInteractionDispatch.dispatch(received)
         return received
 
     def _find(self, element: object, element_id: str) -> AbcElement | None:
@@ -211,7 +211,7 @@ class InProcessLoop:
 class _HubRepushClient:
     """Client double the Hub re-push resolves to — routes to the replica.
 
-    Satisfies the one call ``_hub_interaction_dispatch`` makes,
+    Satisfies the one call ``HubInteractionDispatch.dispatch`` makes,
     ``show_async``, by re-installing the mutated scene into the rig's
     Display replica. Keeps the harness hermetic (no ``DisplayClient``
     socket connect) while still exercising the handler-driven re-push leg.

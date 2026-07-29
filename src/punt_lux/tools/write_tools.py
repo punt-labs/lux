@@ -22,7 +22,6 @@ from punt_lux.operations import (
     FrameStatePatch,
     Ok,
     OpError,
-    RegisterToolRequest,
     RenderRequest,
     SetMenuRequest,
     SetThemeRequest,
@@ -45,7 +44,6 @@ __all__ = [
     "clear_scene",
     "display_mode",
     "identify",
-    "register_tool",
     "set_display_mode",
     "set_frame_state",
     "set_menu",
@@ -213,29 +211,6 @@ def set_menu(menus: list[dict[str, Any]]) -> str:
     """
     return _core._fault_or(
         _core.OPERATIONS.set_menu(SetMenuRequest.parse(menus)), lambda _r: "ok"
-    )
-
-
-@mcp.tool()
-def register_tool(
-    label: str,
-    tool_id: str,
-    shortcut: str | None = None,
-    icon: str | None = None,
-) -> str:
-    """Register a menu item in the shared Lux Tools menu.
-
-    Only this server receives the click via recv(). The item is scoped to this
-    session in the Hub menu registry and removed when the session disconnects.
-    """
-    return _core._fault_or(
-        _core.OPERATIONS.register_menu_item(
-            RegisterToolRequest.parse(
-                tool_id=tool_id, label=label, shortcut=shortcut, icon=icon
-            ),
-            scope=_core._scope(),
-        ),
-        lambda _r: f"registered:{tool_id}",
     )
 
 

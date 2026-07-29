@@ -2,7 +2,7 @@
 
 Cover the three delivery routes (scene owner, broadcast, undeliverable) and the
 modal-dismiss compensation, driving the collaborator directly with lightweight
-stand-ins for the socket server, menu owners, and scene widget state.
+stand-ins for the socket server and scene widget state.
 """
 
 from __future__ import annotations
@@ -37,14 +37,11 @@ def _build(
         return results.get(sock, True)
 
     socket_server.send_to_client.side_effect = _send
-    menu_manager = MagicMock()
-    menu_manager.menu_owners = {}
     scene_manager = MagicMock()
     scene_manager.scene_to_owner = scene_to_owner or {}
     scene_manager.widget_state_for.return_value = widget_state
     delivery = InteractionDelivery(
         socket_server=socket_server,
-        menu_manager=menu_manager,
         scene_manager=scene_manager,
     )
     return delivery, socket_server

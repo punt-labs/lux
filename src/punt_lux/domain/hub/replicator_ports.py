@@ -15,19 +15,33 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from punt_lux.domain.hub.menu_models import MenuState
 from punt_lux.domain.hub.scene_presentation import ScenePusher
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from pathlib import Path
 
 __all__ = [
+    "CallbackMenuReader",
     "ClientProvider",
     "DisplayLifecycle",
     "DisplaySender",
     "MenuReader",
-    "MenuState",
 ]
+
+
+@runtime_checkable
+class CallbackMenuReader(Protocol):
+    """The live session-then-callback submenus, read fresh at send time.
+
+    Composed from the session registry, so whatever sessions are in lease when the
+    send runs is what the display renders — the same read-at-send discipline the
+    agent bar uses, with no payload to go stale.
+    """
+
+    def callback_menu_wire(self) -> list[dict[str, object]]:
+        """Return the uniform session-then-callback submenus as wire payloads."""
+        ...
 
 
 @runtime_checkable
@@ -39,8 +53,8 @@ class MenuReader(Protocol):
     resent because there is no payload to go stale.
     """
 
-    def wire_snapshot(self) -> MenuState:
-        """Return the current menu state as wire payloads, read atomically."""
+    def wire_snapshot(self) -> tuple[Mapping[str, object], ...]:
+        """Return the agent menu bar as wire payloads, read atomically."""
         ...
 
 
@@ -50,14 +64,14 @@ class DisplaySender(ScenePusher, Protocol):
 
     Extends ``ScenePusher`` (``show_async``) with the two menu writes so the
     replicator is the sole writer of the menu state: ``set_menu`` for the agent
-    menu bar and ``set_registered_items`` for the World-menu tool items.
+    menu bar and ``set_callback_menus`` for the session-then-callback submenus.
     """
 
     def set_menu(self, menus: list[dict[str, object]]) -> None:
         """Replace the display's agent menu bar with the given wire menus."""
 
-    def set_registered_items(self, items: list[dict[str, object]]) -> None:
-        """Replace the display's registered World-menu tool items."""
+    def set_callback_menus(self, submenus: list[dict[str, object]]) -> None:
+        """Replace the display's session-then-callback submenus."""
 
 
 @runtime_checkable

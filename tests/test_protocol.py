@@ -12,6 +12,7 @@ from punt_lux.display_client import agent_element_factory
 from punt_lux.protocol import (
     AckMessage,
     ButtonElement,
+    CallbackMenuMessage,
     CheckboxElement,
     ColorPickerElement,
     ComboElement,
@@ -37,7 +38,6 @@ from punt_lux.protocol import (
     QueryResponse,
     RadioElement,
     ReadyMessage,
-    RegisterMenuMessage,
     RemoteEventHandlerInvocation,
     SceneMessage,
     ScreenshotRequest,
@@ -395,43 +395,23 @@ class TestMessages:
         assert isinstance(restored, ThemeMessage)
         assert restored.theme == "imgui_colors_light"
 
-    def test_register_menu_message(self):
-        items = [
-            {"label": "Run Script", "id": "run_script"},
-            {"label": "Settings", "id": "settings", "shortcut": "Ctrl+,"},
+    def test_callback_menu_roundtrip(self):
+        submenus: list[dict[str, Any]] = [
+            {"label": "voxd", "items": [{"label": "Music", "id": "voxd\x1fmusic"}]},
+            {"label": "lux — /w/lux", "items": [{"label": "Beads", "id": "lux\x1fb"}]},
         ]
-        msg = RegisterMenuMessage(items=items)
-        assert msg.type == "register_menu"
-        assert len(msg.items) == 2
-        assert msg.items[0]["label"] == "Run Script"
-
-    def test_register_menu_roundtrip(self):
-        items: list[dict[str, Any]] = [
-            {"label": "Deploy", "id": "deploy", "enabled": False},
-            {"label": "Test", "id": "test", "shortcut": "Ctrl+T", "icon": "play"},
-        ]
-        original = RegisterMenuMessage(items=items)
+        original = CallbackMenuMessage(submenus=submenus)
         d = message_to_dict(original)
-        assert d["type"] == "register_menu"
-        assert d["items"] == items
+        assert d["type"] == "callback_menu"
+        assert d["submenus"] == submenus
         restored = message_from_dict(d)
-        assert isinstance(restored, RegisterMenuMessage)
-        assert restored.items == items
+        assert isinstance(restored, CallbackMenuMessage)
+        assert restored.submenus == submenus
 
-    def test_register_menu_from_dict(self):
-        d = {
-            "type": "register_menu",
-            "items": [{"label": "Foo", "id": "foo"}],
-        }
-        msg = message_from_dict(d)
-        assert isinstance(msg, RegisterMenuMessage)
-        assert msg.items == [{"label": "Foo", "id": "foo"}]
-
-    def test_register_menu_from_dict_empty_items(self):
-        d = {"type": "register_menu"}
-        msg = message_from_dict(d)
-        assert isinstance(msg, RegisterMenuMessage)
-        assert msg.items == []
+    def test_callback_menu_from_dict_empty(self):
+        msg = message_from_dict({"type": "callback_menu"})
+        assert isinstance(msg, CallbackMenuMessage)
+        assert msg.submenus == []
 
 
 # ---------------------------------------------------------------------------
@@ -636,10 +616,6 @@ class TestSerialization:
                 id="MenuMessage",
             ),
             pytest.param(ThemeMessage(theme="imgui_colors_dark"), id="ThemeMessage"),
-            pytest.param(
-                RegisterMenuMessage(items=[{"label": "Deploy", "id": "deploy"}]),
-                id="RegisterMenuMessage",
-            ),
             pytest.param(ConnectMessage(name="quarry"), id="ConnectMessage"),
             pytest.param(
                 QueryRequest(method="get_theme", params={"key": "bg"}),
@@ -1528,8 +1504,8 @@ class TestMessageRegistry:
             "screenshot_request",
             "screenshot_response",
             "menu",
+            "callback_menu",
             "theme",
-            "register_menu",
             "connect",
             "query_request",
             "query_response",

@@ -15,23 +15,23 @@ if TYPE_CHECKING:
 class _RaisingMenu:
     """Stand-in whose menu teardown always raises."""
 
-    def drop_session(self, scope: object) -> None:
+    def drop_session(self) -> None:
         raise RuntimeError("menu teardown exploded")
 
 
 class _RecordingMenu:
-    """Stand-in that records the scopes it was asked to drop."""
+    """Stand-in that records each drop it was asked to perform."""
 
-    scopes: list[object]
-    __slots__ = ("scopes",)
+    calls: list[None]
+    __slots__ = ("calls",)
 
     def __new__(cls) -> _RecordingMenu:
         self = super().__new__(cls)
-        self.scopes = []
+        self.calls = []
         return self
 
-    def drop_session(self, scope: object) -> None:
-        self.scopes.append(scope)
+    def drop_session(self) -> None:
+        self.calls.append(None)
 
 
 class TestSessionCleanup:
@@ -91,6 +91,6 @@ class TestSessionCleanup:
         with caplog.at_level(logging.ERROR, logger="punt_lux.session_cleanup"):
             SessionCleanup(ConnectionId("sess-z")).run("sess-z")
 
-        assert len(menu.scopes) == 1
+        assert len(menu.calls) == 1
         assert disconnected == ["sess-z"]
         assert caplog.text == ""

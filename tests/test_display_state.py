@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import errno
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 from punt_lux.display import DisplayServer
@@ -20,7 +20,6 @@ from punt_lux.protocol import (
     Element,
     MenuMessage,
     PingMessage,
-    RegisterMenuMessage,
     RemoteEventHandlerInvocation,
     SceneMessage,
     SeparatorElement,
@@ -54,6 +53,14 @@ def _mock_sock() -> MagicMock:
     sock = MagicMock()
     sock.send.side_effect = len  # a real socket accepts the bytes and returns the count
     sock.fileno.return_value = 42
+    return sock
+
+
+def _mock_sock_fd(fd: int) -> MagicMock:
+    """Create a mock socket with a specific fileno()."""
+    sock = MagicMock()
+    sock.send.side_effect = len  # a real socket accepts the bytes and returns the count
+    sock.fileno.return_value = fd
     return sock
 
 
@@ -464,31 +471,8 @@ class TestFlushEvents:
 
         sock.send.assert_not_called()
 
-    def test_flush_routes_menu_event_to_owner(self) -> None:
-        """Tools menu events are sent only to the owning client, not broadcast."""
-        server = _make_server()
-        owner = _mock_sock_fd(10)
-        other = _mock_sock_fd(20)
-        server._socket_server.clients.extend([owner, other])
-        server._socket_server._fd_to_client[10] = owner
-        server._socket_server._fd_to_client[20] = other
-        server._menu_manager.menu_owners["tool_a"] = 10
-        server._event_queue.append(
-            RemoteEventHandlerInvocation(
-                element_id="tool_a",
-                action="menu",
-                ts=1.0,
-                value={"menu": "World", "item": "Tool A"},
-            )
-        )
-
-        server._flush_events()
-
-        owner.send.assert_called_once()
-        other.send.assert_not_called()
-
     def test_flush_broadcasts_non_menu_event(self) -> None:
-        """Events for element IDs not in _menu_owners broadcast to all."""
+        """An event with no scene owner broadcasts to every client."""
         server = _make_server()
         sock1 = _mock_sock_fd(10)
         sock2 = _mock_sock_fd(20)
@@ -504,39 +488,24 @@ class TestFlushEvents:
         sock1.send.assert_called_once()
         sock2.send.assert_called_once()
 
-    def test_flush_broadcasts_non_menu_action_even_if_in_menu_owners(self) -> None:
-        """Non-menu actions broadcast even when element_id is in _menu_owners."""
+    def test_flush_broadcasts_menu_bar_click_with_no_scene(self) -> None:
+        """A menu-bar click carries no scene_id, so it broadcasts to every client.
+
+        Menu items are no longer owner-routed: a callback-leaf click reaches
+        luxd, whose fallback handler resolves the leaf back to the owning session.
+        """
         server = _make_server()
         sock1 = _mock_sock_fd(10)
         sock2 = _mock_sock_fd(20)
         server._socket_server.clients.extend([sock1, sock2])
         server._socket_server._fd_to_client[10] = sock1
         server._socket_server._fd_to_client[20] = sock2
-        server._menu_manager.menu_owners["button_x"] = 10
-        server._event_queue.append(
-            RemoteEventHandlerInvocation(element_id="button_x", action="click", ts=1.0)
-        )
-
-        server._flush_events()
-
-        sock1.send.assert_called_once()
-        sock2.send.assert_called_once()
-
-    def test_flush_broadcasts_agent_menu_even_if_id_in_menu_owners(self) -> None:
-        """Agent menu clicks broadcast even when ID collides with _menu_owners."""
-        server = _make_server()
-        sock1 = _mock_sock_fd(10)
-        sock2 = _mock_sock_fd(20)
-        server._socket_server.clients.extend([sock1, sock2])
-        server._socket_server._fd_to_client[10] = sock1
-        server._socket_server._fd_to_client[20] = sock2
-        server._menu_manager.menu_owners["tool_a"] = 10
         server._event_queue.append(
             RemoteEventHandlerInvocation(
-                element_id="tool_a",
+                element_id="voxd\x1fmusic",
                 action="menu",
                 ts=1.0,
-                value={"menu": "Custom", "item": "Tool A"},
+                value={"menu": "voxd", "item": "Music"},
             )
         )
 
@@ -544,27 +513,6 @@ class TestFlushEvents:
 
         sock1.send.assert_called_once()
         sock2.send.assert_called_once()
-
-    def test_flush_routes_menu_drops_if_owner_disconnected(self) -> None:
-        """If owner fd is in _menu_owners but not in _fd_to_client, event is dropped."""
-        server = _make_server()
-        other = _mock_sock_fd(20)
-        server._socket_server.clients.append(other)
-        server._socket_server._fd_to_client[20] = other
-        server._menu_manager.menu_owners["tool_a"] = 10  # fd 10 not in _fd_to_client
-        server._event_queue.append(
-            RemoteEventHandlerInvocation(
-                element_id="tool_a",
-                action="menu",
-                ts=1.0,
-                value={"menu": "World", "item": "Tool A"},
-            )
-        )
-
-        server._flush_events()
-
-        other.send.assert_not_called()
-        assert len(server._event_queue) == 0
 
 
 class TestModalDismissRevertOnUndeliverable:
@@ -1072,151 +1020,3 @@ class TestMultiScene:
 
         assert len(server._event_queue) == 1
         assert server._event_queue[0].element_id == "shared_btn"
-
-
-# -----------------------------------------------------------------------
-# RegisterMenuMessage: additive menu registration per client
-# -----------------------------------------------------------------------
-
-
-def _mock_sock_fd(fd: int) -> MagicMock:
-    """Create a mock socket with a specific fileno()."""
-    sock = MagicMock()
-    sock.send.side_effect = len  # a real socket accepts the bytes and returns the count
-    sock.fileno.return_value = fd
-    return sock
-
-
-class TestRegisterMenu:
-    def test_register_stores_items(self) -> None:
-        """RegisterMenuMessage stores items in _menu_registrations and _menu_owners."""
-        server = _make_server()
-        sock = _mock_sock_fd(10)
-        items = [
-            {"label": "Run", "id": "run"},
-            {"label": "Test", "id": "test"},
-        ]
-
-        server._handle_message(sock, RegisterMenuMessage(items=items))
-
-        assert server._menu_manager.menu_registrations[10] == items
-        assert server._menu_manager.menu_owners["run"] == 10
-        assert server._menu_manager.menu_owners["test"] == 10
-
-    def test_disconnect_cleans_up(self) -> None:
-        """Disconnecting a client removes its menu registrations and ownership."""
-        server = _make_server()
-        sock = _mock_sock_fd(10)
-        server._socket_server.clients.append(sock)
-        from punt_lux.protocol import FrameReader
-
-        server._socket_server._readers[10] = FrameReader()
-        server._socket_server._fd_to_client[10] = sock
-
-        items = [{"label": "Run", "id": "run"}]
-        server._handle_message(sock, RegisterMenuMessage(items=items))
-
-        assert 10 in server._menu_manager.menu_registrations
-        assert "run" in server._menu_manager.menu_owners
-
-        server._socket_server.remove_client(sock)
-
-        assert 10 not in server._menu_manager.menu_registrations
-        assert "run" not in server._menu_manager.menu_owners
-
-    def test_re_register_replaces_old_items(self) -> None:
-        """Same client re-registering replaces old items."""
-        server = _make_server()
-        sock = _mock_sock_fd(10)
-        old_items = [{"label": "Old", "id": "old_item"}]
-        new_items = [{"label": "New", "id": "new_item"}]
-
-        server._handle_message(sock, RegisterMenuMessage(items=old_items))
-        assert server._menu_manager.menu_owners.get("old_item") == 10
-
-        server._handle_message(sock, RegisterMenuMessage(items=new_items))
-        assert server._menu_manager.menu_registrations[10] == new_items
-        assert "old_item" not in server._menu_manager.menu_owners
-        assert server._menu_manager.menu_owners["new_item"] == 10
-
-    def test_id_uniqueness_rejects_second_client(self) -> None:
-        """Two different clients registering the same item ID: second is rejected."""
-        server = _make_server()
-        sock_a = _mock_sock_fd(10)
-        sock_b = _mock_sock_fd(20)
-
-        items_a = [{"label": "Run", "id": "run"}]
-        items_b = [{"label": "Also Run", "id": "run"}]
-
-        server._handle_message(sock_a, RegisterMenuMessage(items=items_a))
-        server._handle_message(sock_b, RegisterMenuMessage(items=items_b))
-
-        # Client A's registration stands
-        assert server._menu_manager.menu_registrations[10] == items_a
-        assert server._menu_manager.menu_owners["run"] == 10
-        # Client B's registration was rejected
-        assert 20 not in server._menu_manager.menu_registrations
-
-    def test_clear_does_not_clear_menu_registrations(self) -> None:
-        """Clear removes scenes but not menu registrations."""
-        server = _make_server()
-        sock = _mock_sock_fd(10)
-
-        items = [{"label": "Run", "id": "run"}]
-        server._handle_message(sock, RegisterMenuMessage(items=items))
-        server._handle_clear()
-
-        assert server._menu_manager.menu_registrations[10] == items
-        assert server._menu_manager.menu_owners["run"] == 10
-
-    def test_non_dict_items_filtered(self) -> None:
-        """Non-dict entries in items list are silently filtered."""
-        server = _make_server()
-        sock = _mock_sock_fd(10)
-        items: list[Any] = [
-            {"label": "Good", "id": "good"},
-            "not a dict",
-            42,
-            {"label": "Also Good", "id": "also_good"},
-        ]
-        server._handle_message(sock, RegisterMenuMessage(items=items))
-        assert len(server._menu_manager.menu_registrations[10]) == 2
-        assert server._menu_manager.menu_owners["good"] == 10
-        assert server._menu_manager.menu_owners["also_good"] == 10
-
-    def test_non_string_id_filtered(self) -> None:
-        """Items with non-string IDs are silently filtered."""
-        server = _make_server()
-        sock = _mock_sock_fd(10)
-        items: list[dict[str, Any]] = [
-            {"label": "Good", "id": "good"},
-            {"label": "Bad ID", "id": 123},
-            {"label": "List ID", "id": ["a"]},
-        ]
-        server._handle_message(sock, RegisterMenuMessage(items=items))
-        assert len(server._menu_manager.menu_registrations[10]) == 1
-        assert server._menu_manager.menu_owners["good"] == 10
-
-    def test_duplicate_ids_within_registration_deduped(self) -> None:
-        """Duplicate IDs within a single registration keep first."""
-        server = _make_server()
-        sock = _mock_sock_fd(10)
-        items = [
-            {"label": "First", "id": "dup"},
-            {"label": "Second", "id": "dup"},
-        ]
-        server._handle_message(sock, RegisterMenuMessage(items=items))
-        assert len(server._menu_manager.menu_registrations[10]) == 1
-        assert server._menu_manager.menu_registrations[10][0]["label"] == "First"
-
-    def test_empty_items_clears_registration(self) -> None:
-        """Registering empty items removes client from _menu_registrations."""
-        server = _make_server()
-        sock = _mock_sock_fd(10)
-        items = [{"label": "Run", "id": "run"}]
-        server._handle_message(sock, RegisterMenuMessage(items=items))
-        assert 10 in server._menu_manager.menu_registrations
-
-        server._handle_message(sock, RegisterMenuMessage(items=[]))
-        assert 10 not in server._menu_manager.menu_registrations
-        assert "run" not in server._menu_manager.menu_owners

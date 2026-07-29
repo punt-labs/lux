@@ -100,12 +100,12 @@ class TestRaisesOnBadSetup:
 
 class TestPassthroughAllowlist:
     def test_query_tool_runs_without_declaring_setup_apps_side_effects(self) -> None:
-        # _setup_apps calls declare_menu_item and on_event on first _get_client().
-        # Those two are in _PASSTHROUGH_METHODS, so a query-path tool that declares
-        # only its own query gets past them. set_theme then returns a typed
-        # ThemeState; the exerciser's str-only contract surfaces that as "returned
-        # non-string" — reaching it proves the passthrough methods and the query
-        # both ran without a missing-spec ToolCallError.
+        # on_event is in _PASSTHROUGH_METHODS, so a query-path tool that declares
+        # only its own query gets past a stray click-callback registration.
+        # set_theme then returns a typed ThemeState; the exerciser's str-only
+        # contract surfaces that as "returned non-string" — reaching it proves
+        # the passthrough method and the query both ran without a missing-spec
+        # ToolCallError.
         with pytest.raises(ToolCallError, match="returned non-string"):
             ToolExerciser.call(
                 "set_theme",
@@ -122,10 +122,9 @@ class TestPassthroughAllowlist:
             )
 
     def test_non_allowlisted_method_still_raises(self) -> None:
-        # The allowlist is constrained — only declare_menu_item and
-        # on_event pass through silently. Any other unstubbed method
-        # still raises, so the F4 safety net survives the F4-style
-        # exception.
+        # The allowlist is constrained — only on_event passes through
+        # silently. Any other unstubbed method still raises, so the F4
+        # safety net survives the F4-style exception.
         from .exerciser import _StubClient
 
         client = _StubClient({})

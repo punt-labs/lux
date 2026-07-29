@@ -9,12 +9,14 @@ WebSocket end-to-end test.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 
 import pytest
+import websockets
 
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.hub_client import LuxHubClient
+from punt_lux.hub_paths import HubPaths
 from punt_lux.identity_headers import ClientHeaders
 from punt_lux.protocol.messages.listen import (
     CallbackFrame,
@@ -47,6 +49,26 @@ def _client(
         on_callback=on_callback,  # type: ignore[arg-type]  # handler protocol; test doubles satisfy it
         on_event=on_event,  # type: ignore[arg-type]
     )
+
+
+def _reresolve_client(url: str = "ws://127.0.0.1:0/ws") -> LuxHubClient:
+    """A client whose reconnect loop re-reads the port file (the daemon path)."""
+    return LuxHubClient(
+        url,
+        _identity(),
+        on_callback=_noop_callback,
+        on_event=_noop_event,
+        reresolve=True,
+    )
+
+
+def _reads_port(value: int | None) -> Callable[[HubPaths], int | None]:
+    """A ``HubPaths.read_port`` stand-in returning a fixed port (or ``None``)."""
+
+    def _read(_self: HubPaths) -> int | None:
+        return value
+
+    return _read
 
 
 def test_a_callback_frame_dispatches_to_the_callback_handler() -> None:
@@ -123,3 +145,72 @@ def test_a_subscribe_frame_round_trips_through_the_wire() -> None:
         frame.model_dump_json()
         == '{"kind":"subscribe","topics":["music.play","music.stop"]}'
     )
+
+
+def test_a_reconnect_re_resolves_a_changed_port_file_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A luxd restart onto a new port must be followed, not backed off against
+    # forever: each reconnect re-reads the port file and rebuilds the url.
+    client = _reresolve_client()
+    monkeypatch.setattr(HubPaths, "read_port", _reads_port(9001))
+    assert client._current_url() == "ws://127.0.0.1:9001/ws"
+    monkeypatch.setattr(HubPaths, "read_port", _reads_port(9002))
+    assert client._current_url() == "ws://127.0.0.1:9002/ws"
+
+
+def test_a_missing_port_file_yields_no_url_and_keeps_the_last_known(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _reresolve_client()
+    monkeypatch.setattr(HubPaths, "read_port", _reads_port(9001))
+    assert client._current_url() == "ws://127.0.0.1:9001/ws"
+    # luxd goes down mid-restart: the port file is gone. No url to connect to,
+    # but the last-known url is preserved so nothing is lost.
+    monkeypatch.setattr(HubPaths, "read_port", _reads_port(None))
+    assert client._current_url() is None
+    assert client._url == "ws://127.0.0.1:9001/ws"
+
+
+def test_a_pinned_client_never_re_resolves_from_the_port_file(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A client built with an explicit url (a test, a direct endpoint) keeps it
+    # across reconnects and never consults the port file.
+    client = _client()  # reresolve defaults to False
+    monkeypatch.setattr(HubPaths, "read_port", _reads_port(9999))
+    assert client._current_url() == "ws://127.0.0.1:0/ws"
+
+
+def test_the_loop_backs_off_while_the_port_is_absent_then_connects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The reconnect loop stays alive across a missing port file and connects the
+    # moment a port reappears — a restarting luxd is rejoined, not abandoned.
+    client = _reresolve_client()
+    reads = {"n": 0}
+
+    def _read_port(_self: HubPaths) -> int | None:
+        reads["n"] += 1
+        return None if reads["n"] <= 2 else 9100  # absent twice, then a port
+
+    connected: list[str] = []
+
+    def _connect(url: str, **_kwargs: object) -> object:
+        connected.append(url)
+        client.stop()  # one attempt is enough to prove the loop reached connect
+        raise OSError("no server")
+
+    async def _no_delay(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(HubPaths, "read_port", _read_port)
+    monkeypatch.setattr(websockets, "connect", _connect)
+    monkeypatch.setattr(asyncio, "sleep", _no_delay)
+
+    asyncio.run(client.listen())
+
+    # Two absent reads were tolerated (loop kept going), then the reappeared port
+    # was used for the one connect attempt.
+    assert connected == ["ws://127.0.0.1:9100/ws"]
+    assert reads["n"] == 3

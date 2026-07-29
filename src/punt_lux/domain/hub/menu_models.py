@@ -1,4 +1,4 @@
-"""The Hub-owned menu types: the entries, the menu, and the push snapshot.
+"""The Hub-owned menu types: the entries and the menu.
 
 Menus are UI the agent submits, and submitted UI is Hub-authoritative state, so
 these types live in the domain layer — the operations layer imports them, keeping
@@ -11,20 +11,16 @@ discriminated on the *presence of an id*, not its label: an entry with an id is 
 action (even one labelled ``"---"``, which round-trips as an action), and the
 id-less ``"---"`` sentinel is the only separator. Any other id-less entry is
 malformed and rejected with a named-field error rather than silently coerced.
-
-:class:`MenuState` is the whole menu state the replicator reads fresh at send time
-and pushes — the agent bar and the World-menu tool items, as wire payloads.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
-from typing import Annotated, Literal, cast, final
+from typing import Annotated, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
-__all__ = ["Menu", "MenuAction", "MenuEntry", "MenuSeparator", "MenuState"]
+__all__ = ["Menu", "MenuAction", "MenuEntry", "MenuSeparator"]
 
 # The wire label that stands in for a separator in the untyped menu payload.
 _SEPARATOR_SENTINEL = "---"
@@ -172,17 +168,3 @@ class Menu(BaseModel):
 MenuEntry = Annotated[MenuAction | MenuSeparator | Menu, Field(discriminator="kind")]
 
 Menu.model_rebuild()
-
-
-@final
-@dataclass(frozen=True, slots=True)
-class MenuState:
-    """The whole menu state to push: the agent bar and the World-menu tool items.
-
-    Both are wire payloads — the display's own untyped menu dicts, composed from
-    the registry's typed models at read time. The replicator resends the whole of
-    each, so the newest registry state always wins.
-    """
-
-    bar: tuple[Mapping[str, object], ...]
-    items: tuple[Mapping[str, object], ...]

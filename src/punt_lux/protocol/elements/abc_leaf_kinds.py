@@ -175,6 +175,7 @@ class DefaultLeafKinds:
                 ),
                 handler_builder=build_standalone_button_handler_decoder,
                 pre_decode=ButtonWireSugar.canonicalize,
+                wants_publish_sink=True,
             ),
             LeafKindSpec(
                 kind="checkbox",

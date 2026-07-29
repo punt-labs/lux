@@ -115,6 +115,17 @@ class CallbackOperations:
         """Build the uniform session-then-callback submenus from the live sessions."""
         return CallbackMenu.from_sessions(self._clients.live_sessions())
 
+    def drop_session(self) -> None:
+        """Re-push the menu after a session departs so its submenu vanishes.
+
+        The departed session is removed from the live set by the disconnect
+        cascade; the callback menu reads that set fresh at send time, so a single
+        ``mark_menus`` here is enough to drop the session's submenu from the
+        display — no per-session bookkeeping, the same read-at-send discipline the
+        agent bar uses.
+        """
+        self._replicator.mark_menus()
+
     @staticmethod
     def _result_for(routing: CallbackRouting) -> Ok | OpError:
         """Map a routing outcome to the operation result the surfaces return."""
