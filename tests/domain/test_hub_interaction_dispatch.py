@@ -6,10 +6,10 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
-from punt_lux.domain.hub import clients as clients_module
 from punt_lux.domain.hub.callback_hold import CallbackRouter
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.hub_interaction_dispatch import HubInteractionDispatch
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.domain.interaction import ButtonClicked, ValueChanged
@@ -56,7 +56,7 @@ def test_hub_interaction_dispatch_runs_grouped_button_handlers_once(
         "punt_lux.domain.hub.replicator_instance.hub_replicator", mock_replicator
     )
 
-    clients_module.ClientRegistry._hub_interaction_dispatch(
+    HubInteractionDispatch.dispatch(
         RemoteEventHandlerInvocation(
             scene_id=str(scene_id),
             element_id=str(element_id),
@@ -104,7 +104,7 @@ def test_menu_click_routes_the_callback_to_its_owning_session(
     registry.register_callback(conn, SessionCallback(id="music", label="Music"))
 
     menu_id = CallbackInvocation(conn, "music").menu_id
-    clients_module.ClientRegistry._hub_interaction_dispatch(
+    HubInteractionDispatch.dispatch(
         RemoteEventHandlerInvocation(
             scene_id=None, element_id=menu_id, action="menu", ts=1.0, value=None
         )
@@ -123,7 +123,7 @@ def test_menu_click_for_a_departed_session_repushes_the_menu(
 
     _registry, _router, replicator = _isolated_router(monkeypatch)
     menu_id = CallbackInvocation(ConnectionId("gone"), "music").menu_id
-    clients_module.ClientRegistry._hub_interaction_dispatch(
+    HubInteractionDispatch.dispatch(
         RemoteEventHandlerInvocation(
             scene_id=None, element_id=menu_id, action="menu", ts=1.0, value=None
         )
@@ -136,7 +136,7 @@ def test_menu_click_for_a_non_callback_id_is_ignored(
 ) -> None:
     """A legacy menu id without the leaf separator is ignored, never routed."""
     _registry, _router, replicator = _isolated_router(monkeypatch)
-    clients_module.ClientRegistry._hub_interaction_dispatch(
+    HubInteractionDispatch.dispatch(
         RemoteEventHandlerInvocation(
             scene_id=None, element_id="app-beads", action="menu", ts=1.0, value=None
         )
@@ -153,7 +153,7 @@ def test_hub_interaction_dispatch_missing_scene_id_returns_silently(
     isolated_display = HubDisplay()
     monkeypatch.setattr(hub_module, "hub_display", isolated_display)
 
-    clients_module.ClientRegistry._hub_interaction_dispatch(
+    HubInteractionDispatch.dispatch(
         RemoteEventHandlerInvocation(
             scene_id=None,
             element_id="btn",
@@ -173,7 +173,7 @@ def test_hub_interaction_dispatch_unknown_element_returns_silently(
     isolated_display = HubDisplay()
     monkeypatch.setattr(hub_module, "hub_display", isolated_display)
 
-    clients_module.ClientRegistry._hub_interaction_dispatch(
+    HubInteractionDispatch.dispatch(
         RemoteEventHandlerInvocation(
             scene_id="scene",
             element_id="missing",
@@ -221,7 +221,7 @@ def test_hub_interaction_dispatch_non_abc_element_returns_silently(
     monkeypatch.setattr(hub_module, "hub_display", isolated_display)
     monkeypatch.setattr(hub_module, "client_registry", fake_registry)
 
-    clients_module.ClientRegistry._hub_interaction_dispatch(
+    HubInteractionDispatch.dispatch(
         RemoteEventHandlerInvocation(
             scene_id="scene",
             element_id="leaf",
@@ -264,7 +264,7 @@ def test_hub_interaction_dispatch_marks_dirty_without_display_io(
         "punt_lux.domain.hub.replicator_instance.hub_replicator", mock_replicator
     )
 
-    clients_module.ClientRegistry._hub_interaction_dispatch(
+    HubInteractionDispatch.dispatch(
         RemoteEventHandlerInvocation(
             scene_id=str(scene_id),
             element_id=str(element_id),
@@ -309,7 +309,7 @@ def test_hub_interaction_dispatch_runs_checkbox_value_changed_handler(
         "punt_lux.domain.hub.replicator_instance.hub_replicator", mock_replicator
     )
 
-    clients_module.ClientRegistry._hub_interaction_dispatch(
+    HubInteractionDispatch.dispatch(
         RemoteEventHandlerInvocation(
             scene_id=str(scene_id),
             element_id=str(element_id),
@@ -346,7 +346,7 @@ def test_hub_interaction_dispatch_unknown_event_kind_returns_silently(
 
     monkeypatch.setattr(hub_module, "hub_display", isolated_display)
 
-    clients_module.ClientRegistry._hub_interaction_dispatch(
+    HubInteractionDispatch.dispatch(
         RemoteEventHandlerInvocation(
             scene_id=str(scene_id),
             element_id=str(element_id),
@@ -394,7 +394,7 @@ def test_hub_interaction_dispatch_frame_close_removes_the_frames_scenes(
         "punt_lux.domain.hub.replicator_instance.hub_replicator", mock_replicator
     )
 
-    clients_module.ClientRegistry._hub_interaction_dispatch(
+    HubInteractionDispatch.dispatch(
         RemoteEventHandlerInvocation(
             element_id=frame_id,
             action="frame_close",
@@ -436,7 +436,7 @@ def test_hub_interaction_dispatch_value_changed_rejects_non_scalar(
 
     monkeypatch.setattr(hub_module, "hub_display", isolated_display)
 
-    clients_module.ClientRegistry._hub_interaction_dispatch(
+    HubInteractionDispatch.dispatch(
         RemoteEventHandlerInvocation(
             scene_id=str(scene_id),
             element_id=str(element_id),
@@ -481,7 +481,7 @@ def test_hub_interaction_dispatch_kindless_invocation_denied(
         "punt_lux.domain.hub.replicator_instance.hub_replicator", mock_replicator
     )
 
-    clients_module.ClientRegistry._hub_interaction_dispatch(
+    HubInteractionDispatch.dispatch(
         RemoteEventHandlerInvocation(
             scene_id=str(scene_id),
             element_id=str(element_id),

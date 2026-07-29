@@ -160,15 +160,15 @@ def serve(
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
-        # luxd's display-connection workers (the sole scene writer and the
-        # connection keepalive) start and stop with luxd; the frame-TTL sweep runs
-        # beside them, retiring expired frames through the replicator's dirty queue.
-        # Imported lazily to keep the Hub singletons out of module import.
+        # The display-connection workers and the frame-TTL sweep start and stop
+        # with luxd. Imported lazily to keep the Hub singletons out of module import.
         from punt_lux.domain.hub import hub_display
+        from punt_lux.domain.hub.builtin_callbacks import BuiltinBeadsCallbacks
         from punt_lux.domain.hub.display_workers import display_workers
         from punt_lux.domain.hub.expiry_sweep import ExpirySweep
 
         display_workers.start()
+        BuiltinBeadsCallbacks.install_process_builtins()  # permanent-lease built-ins
         sweep = ExpirySweep(hub_display.frames, display_workers.replicator)
         try:
             # The sweep is cancelled and awaited when this block exits — before the
