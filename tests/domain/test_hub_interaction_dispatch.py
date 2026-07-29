@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 from punt_lux.domain.hub import clients as clients_module
+from punt_lux.domain.hub.callback_hold import CallbackRouter
+from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
@@ -71,6 +73,75 @@ def test_hub_interaction_dispatch_runs_grouped_button_handlers_once(
     ]
     # A click marks the scene dirty; the replicator resends it, not the dispatch.
     mock_replicator.mark_dirty.assert_called_once_with(scene_id)
+
+
+def _isolated_router(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[HubClientRegistry, CallbackRouter, MagicMock]:
+    """Swap the process router/replicator for fresh ones; return the three."""
+    registry = HubClientRegistry()
+    router = CallbackRouter(registry)
+    replicator = MagicMock()
+    monkeypatch.setattr(
+        "punt_lux.domain.hub.replicator_instance.hub_callback_router", router
+    )
+    monkeypatch.setattr(
+        "punt_lux.domain.hub.replicator_instance.hub_replicator", replicator
+    )
+    return registry, router, replicator
+
+
+def test_menu_click_routes_the_callback_to_its_owning_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A callback-leaf menu click is held for the session that registered it."""
+    from punt_lux.domain.hub.client_identity import ClientIdentity
+    from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
+
+    registry, router, replicator = _isolated_router(monkeypatch)
+    conn = ConnectionId("vox-1")
+    registry.record(conn, ClientIdentity(kind="app", name="voxd"))
+    registry.register_callback(conn, SessionCallback(id="music", label="Music"))
+
+    menu_id = CallbackInvocation(conn, "music").menu_id
+    clients_module.ClientRegistry._hub_interaction_dispatch(
+        RemoteEventHandlerInvocation(
+            scene_id=None, element_id=menu_id, action="menu", ts=1.0, value=None
+        )
+    )
+
+    held = router.pending(conn)
+    assert [inv.callback_id for inv in held] == ["music"]
+    replicator.mark_menus.assert_not_called()
+
+
+def test_menu_click_for_a_departed_session_repushes_the_menu(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A callback click for a session that never registered re-pushes, no crash."""
+    from punt_lux.domain.hub.session_callback import CallbackInvocation
+
+    _registry, _router, replicator = _isolated_router(monkeypatch)
+    menu_id = CallbackInvocation(ConnectionId("gone"), "music").menu_id
+    clients_module.ClientRegistry._hub_interaction_dispatch(
+        RemoteEventHandlerInvocation(
+            scene_id=None, element_id=menu_id, action="menu", ts=1.0, value=None
+        )
+    )
+    replicator.mark_menus.assert_called_once_with()
+
+
+def test_menu_click_for_a_non_callback_id_is_ignored(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A legacy menu id without the leaf separator is ignored, never routed."""
+    _registry, _router, replicator = _isolated_router(monkeypatch)
+    clients_module.ClientRegistry._hub_interaction_dispatch(
+        RemoteEventHandlerInvocation(
+            scene_id=None, element_id="app-beads", action="menu", ts=1.0, value=None
+        )
+    )
+    replicator.mark_menus.assert_not_called()
 
 
 def test_hub_interaction_dispatch_missing_scene_id_returns_silently(

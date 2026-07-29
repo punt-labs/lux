@@ -130,6 +130,9 @@ class ClientRegistry:
         if msg.action == "frame_close":
             ClientRegistry._close_frame(msg.element_id)
             return
+        if msg.action == "menu":
+            ClientRegistry._dispatch_menu_callback(msg.element_id)
+            return
         scene_id = msg.scene_id
         element_id = msg.element_id
         if scene_id is None:
@@ -185,6 +188,37 @@ class ClientRegistry:
         from punt_lux.domain.hub.replicator_instance import hub_replicator
 
         hub_replicator.mark_dirty(SceneId(scene_id))
+
+    @staticmethod
+    def _dispatch_menu_callback(menu_id: str) -> None:
+        """Route a clicked menu leaf back to the session that owns its callback.
+
+        A menu launch is not a scene-element interaction — it carries no scene id
+        and must never be resolved against the element index (the drop that made
+        launching fail). The leaf id names the owning session and callback; the
+        router holds the invocation for that session's delivery leg to drain. A
+        malformed id (a legacy tool item that is not a callback leaf) or a click
+        for a departed session is logged, never crashes, and the menu re-pushes so
+        a stale entry cannot linger.
+        """
+        from punt_lux.domain.hub.replicator_instance import (
+            hub_callback_router,
+            hub_replicator,
+        )
+        from punt_lux.domain.hub.session_callback import CallbackInvocation
+
+        try:
+            invocation = CallbackInvocation.from_menu_id(menu_id)
+        except ValueError:
+            logger.info("menu click for a non-callback leaf id=%r; ignoring", menu_id)
+            return
+        routing = hub_callback_router.route(invocation)
+        if routing == "routed":
+            return
+        logger.info(
+            "menu callback %r not delivered: %s; re-pushing menu", menu_id, routing
+        )
+        hub_replicator.mark_menus()
 
     @staticmethod
     def _close_frame(frame_id: str) -> None:
