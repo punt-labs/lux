@@ -12,14 +12,10 @@ import inspect
 
 from fastapi.routing import APIRoute
 
-from punt_lux.domain.ids import ConnectionId
-from punt_lux.operations import Scope
 from punt_lux.operations.facade import Operations
 from punt_lux.rest import HubHealth, RestSurface
 
 from ._fakes import ForbiddenPort, make_facade
-
-_SCOPE = Scope(ConnectionId("rest-test"))
 
 # Operations that live in the facade but are not routed over REST, each with the
 # design's reason. publish/subscribe/unsubscribe/receive are session-scoped and
@@ -48,7 +44,7 @@ def _facade_operations() -> set[str]:
 
 
 def _routed_operations() -> set[str]:
-    surface = RestSurface(make_facade(display_port=ForbiddenPort()), scope=_SCOPE)
+    surface = RestSurface(make_facade(display_port=ForbiddenPort()))
     return {
         route.name
         for router in surface.routers
@@ -80,7 +76,7 @@ def test_exempt_set_names_only_real_operations() -> None:
 
 
 def test_surface_exposes_one_router_per_concern() -> None:
-    surface = RestSurface(make_facade(display_port=ForbiddenPort()), scope=_SCOPE)
+    surface = RestSurface(make_facade(display_port=ForbiddenPort()))
     assert len(surface.routers) == 4
 
 

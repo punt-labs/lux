@@ -1,9 +1,8 @@
 """HubClientRegistry — the Hub sessions, each with its connect time and identity.
 
-The Hub's own session roster, keyed by ``ConnectionId``: when each client
-connected and the identity it declared. It is the one identity store — the menu
-capability model's live repository set is :meth:`repos`, a read over it, not a
-second store. Every access is serialized by ``_lock``, which guards only the dict.
+The one identity store, keyed by ``ConnectionId``: when each client connected and
+the identity it declared. Every access is serialized by ``_lock``, which guards
+only the dict, so the transport and tool threads stay coherent.
 """
 
 from __future__ import annotations
@@ -54,10 +53,11 @@ class HubClientRegistry:
                 base.with_identity(identity) if identity is not None else base
             )
 
-    def __contains__(self, connection_id: ConnectionId) -> bool:
-        """Return whether ``connection_id`` is registered — an O(1) lock-held check."""
+    def session_of(self, connection_id: ConnectionId) -> ClientSession | None:
+        """Return the connection's session, or ``None`` — the read behind both
+        membership (``is not None``) and identity (``.identity``)."""
         with self._lock:
-            return connection_id in self._sessions
+            return self._sessions.get(connection_id)
 
     def discard(self, connection_id: ConnectionId) -> None:
         """Drop the registration and its identity. No-op if absent."""

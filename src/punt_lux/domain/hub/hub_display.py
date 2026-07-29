@@ -10,10 +10,9 @@ responsibility:
 - ``ChildIndex`` — parent → children edges for one-walk descendant removal.
 - ``HubClientRegistry`` — connections registered as Hub clients.
 - ``ScenePresentationRegistry`` — how each live scene is framed for a resend.
-- ``FrameExpiry`` — per-frame TTL deadlines; armed at ``show_scene`` and swept by
-  ``expire_due`` under the store lock, so a re-show and an expiry never race.
-- ``SubtreeInstaller`` / ``SubtreeRemover`` — the mirror install and teardown
-  walks ``apply`` delegates to.
+- ``FrameExpiry`` — per-frame TTL deadlines, swept under the store lock so a
+  re-show and an expiry never race.
+- ``SubtreeInstaller`` / ``SubtreeRemover`` — the install and teardown walks.
 
 A scene's presentation is kept until the scene is blanked away or re-shown, so an
 emptied scene can still be blanked into the frame it was shown in; once the
@@ -45,6 +44,7 @@ from punt_lux.domain.hub.frame_expiry import FrameExpiry
 from punt_lux.domain.hub.frame_lifecycle import FrameLifecycle
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.hub.hub_reads import HubReads
+from punt_lux.domain.hub.owner import Owner
 from punt_lux.domain.hub.owner_tracker import OwnerTracker
 from punt_lux.domain.hub.ownership_error import HubOwnershipError
 from punt_lux.domain.hub.root_registry import RootRegistry
@@ -79,14 +79,10 @@ __all__ = [
 class HubDisplay:
     """Hub-side authoritative store of Elements, owners, and clients.
 
-    Facade over typed collaborators. State invariants (established at ``apply``
-    time, trusted thereafter):
-
-    - Every Element installed has a known owner ``ConnectionId``.
-    - A scene-root ABC Element (``parent_id=None``) carries a HubDisplay-owned
-      observer; flipping ``_removed`` calls back into ``apply(RemoveElement(...))``.
-    - A child Element (``parent_id`` set) is observed by its parent composite, not
-      by HubDisplay, which drives its ``apply(RemoveElement(...))`` instead.
+    Facade over typed collaborators. Invariants established at ``apply`` time,
+    trusted thereafter: every installed Element has a known owner; a scene-root ABC
+    Element carries a HubDisplay-owned observer that routes its ``_removed`` back
+    through ``apply``, while a child Element is observed by its parent composite.
 
     Tests construct their own ``HubDisplay()``; the module exposes
     ``hub_display`` as the production singleton.
@@ -109,10 +105,10 @@ class HubDisplay:
     def __new__(cls, clock: Callable[[], float] = time.monotonic) -> Self:
         self = super().__new__(cls)
         self._index = ElementIndex()
+        self._clients = HubClientRegistry()
         self._owners = OwnerTracker()
         self._roots = RootRegistry()
         self._children = ChildIndex()
-        self._clients = HubClientRegistry()
         self._frames = ScenePresentationRegistry()
         self._seam = WriteSeam(self._index)
         self._remover = SubtreeRemover(
@@ -161,7 +157,7 @@ class HubDisplay:
 
     def is_client(self, connection_id: ConnectionId) -> bool:
         """Return True if the connection is currently registered."""
-        return connection_id in self._clients
+        return self._clients.session_of(connection_id) is not None
 
     # -- index access ------------------------------------------------------
 
@@ -192,15 +188,14 @@ class HubDisplay:
         return self._index.lookup(scene_id, element_id)
 
     def owner_of(self, scene_id: SceneId, element_id: ElementId) -> ConnectionId:
-        """Return the connection that installed the Element.
+        """Return the connection that installed the Element, or raise if absent.
 
-        Raises ``UnknownElementError`` if the element is not indexed —
-        ownership of an absent element is meaningless.
+        ``UnknownElementError`` — ownership of an unindexed element is meaningless.
         """
         owner = self._owners.get(scene_id, element_id)
         if owner is None:
             raise UnknownElementError(scene_id=scene_id, element_id=element_id)
-        return owner
+        return owner.connection_id
 
     def elements_owned_by(
         self,
@@ -219,7 +214,7 @@ class HubDisplay:
         """Return the count of non-removed elements in a scene, read under lock."""
         return self._reads.element_count(scene_id)
 
-    def scene_owners(self, scene_id: SceneId) -> tuple[ConnectionId, ...]:
+    def scene_owners(self, scene_id: SceneId) -> tuple[Owner, ...]:
         """Return each scene's distinct root owners, first-appearance order."""
         return self._reads.scene_owners(scene_id)
 
@@ -284,9 +279,8 @@ class HubDisplay:
         """Commit a state change to the index. Owner is the caller.
 
         ``AddElement`` installs the root then recurses into composite children via
-        the Composite Protocol — the same structural-typing gate the display pump
-        uses. Downstream click resolution is keyed by ``(scene, element_id)``, so a
-        child Button buried in a Dialog is reachable only if its row sits in the index.
+        the Composite Protocol, so a child Button buried in a Dialog lands in the
+        index and later clicks — keyed by ``(scene, element_id)`` — resolve.
 
         ``SetProperty`` and ``RemoveElement`` mutate an already-installed element and
         require the caller to own it, mirroring ``Display.apply``'s ownership
@@ -295,9 +289,9 @@ class HubDisplay:
         with self._lock.write():
             match update:
                 case AddElement(scene_id=sid, parent_id=pid, element=elem):
-                    self._installer.install(
-                        sid, elem, parent_id=pid, owner=connection_id
-                    )
+                    session = self._clients.session_of(connection_id)
+                    owner = Owner.from_session(connection_id, session)
+                    self._installer.install(sid, elem, parent_id=pid, owner=owner)
                 case SetProperty(
                     scene_id=sid, element_id=eid, field=field, value=value
                 ):
@@ -332,7 +326,8 @@ class HubDisplay:
         """
         owner = self._owners.get(scene_id, element_id)
         if owner is not None:
-            self.apply(owner, RemoveElement(scene_id=scene_id, element_id=element_id))
+            removal = RemoveElement(scene_id=scene_id, element_id=element_id)
+            self.apply(owner.connection_id, removal)
 
 
 hub_display = HubDisplay()

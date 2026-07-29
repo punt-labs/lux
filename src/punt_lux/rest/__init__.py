@@ -15,6 +15,6 @@ is FastAPI's, the string form is the operation's — see ``HttpErrorMap.respond`
 
 from __future__ import annotations
 
-from punt_lux.rest.app import DEFAULT_SCOPE, HubHealth, RestSurface
+from punt_lux.rest.app import HubHealth, RestSurface
 
-__all__ = ["DEFAULT_SCOPE", "HubHealth", "RestSurface"]
+__all__ = ["HubHealth", "RestSurface"]

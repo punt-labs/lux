@@ -7,18 +7,22 @@ binds its request, calls one operation, and maps the result.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self, final
+from typing import TYPE_CHECKING, Annotated, Self, final
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
-from punt_lux.operations import MenuList, Ok, SetMenuRequest
+from punt_lux.operations import MenuList, Ok, Scope, SetMenuRequest
 from punt_lux.operations.models.register_tool import RegisterToolRequest
+from punt_lux.rest.identity import resolve_scope
 
 if TYPE_CHECKING:
-    from punt_lux.operations import Operations, Scope
+    from punt_lux.operations import Operations
     from punt_lux.rest.status import HttpErrorMap
 
 __all__ = ["MenuRoutes"]
+
+# The owning scope of a menu write, resolved per request from its identity headers.
+_OwningScope = Annotated[Scope, Depends(resolve_scope)]
 
 
 @final
@@ -26,15 +30,13 @@ class MenuRoutes:
     """Routes over the Hub-owned menu registry."""
 
     _ops: Operations
-    _scope: Scope
     _errors: HttpErrorMap
     _router: APIRouter
-    __slots__ = ("_errors", "_ops", "_router", "_scope")
+    __slots__ = ("_errors", "_ops", "_router")
 
-    def __new__(cls, ops: Operations, scope: Scope, errors: HttpErrorMap) -> Self:
+    def __new__(cls, ops: Operations, errors: HttpErrorMap) -> Self:
         self = super().__new__(cls)
         self._ops = ops
-        self._scope = scope
         self._errors = errors
         router = APIRouter(tags=["menus"])
         router.add_api_route(
@@ -63,8 +65,8 @@ class MenuRoutes:
         """Replace the agent-defined menu bar; the replicator pushes it."""
         return self._errors.respond(self._ops.set_menu(request))
 
-    def register_menu_item(self, request: RegisterToolRequest) -> Ok:
-        """Register one tool item for the default scope; the replicator pushes it."""
-        return self._errors.respond(
-            self._ops.register_menu_item(request, scope=self._scope)
-        )
+    def register_menu_item(
+        self, request: RegisterToolRequest, scope: _OwningScope
+    ) -> Ok:
+        """Register one tool item for the calling identity; the replicator pushes it."""
+        return self._errors.respond(self._ops.register_menu_item(request, scope=scope))

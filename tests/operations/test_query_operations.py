@@ -327,7 +327,10 @@ def test_list_scenes_reads_the_hub_without_touching_the_display() -> None:
     summary = next(s for s in result.scenes if s.scene_id == "s1")
     assert summary.element_count == 2  # the group and its text child
     assert summary.frame_id == "frame-a"
-    assert summary.owners == ["c1"]  # a single-owner scene lists the one owner
+    # A single-owner scene lists the one owner; unidentified here, so the
+    # connection is the only handle and no identity is declared.
+    assert [o.connection_id for o in summary.owners] == ["c1"]
+    assert summary.owners[0].identity is None
     frame = next(f for f in result.frames if f.frame_id == "frame-a")
     assert frame.scene_ids == ["s1"]
     assert frame.layout == "tab"  # no explicit frame layout defaults to tab
@@ -353,7 +356,23 @@ def test_list_scenes_lists_every_owning_connection_of_a_shared_scene() -> None:
     ops = QueryOperations(store, Hub(), _ForbiddenPort())
 
     summary = next(s for s in ops.list_scenes().scenes if s.scene_id == "s1")
-    assert summary.owners == ["c1", "c2"]
+    assert [o.connection_id for o in summary.owners] == ["c1", "c2"]
+
+
+def test_list_scenes_surfaces_the_owner_declared_identity() -> None:
+    # A session that declared its identity before installing is attributed by
+    # that identity — kind, name, repo — not just its opaque connection id.
+    from punt_lux.domain.hub.client_identity import ClientIdentity
+
+    store = HubDisplay()
+    identity = ClientIdentity(kind="cli", name="lux", repo="/w/lux")
+    store.identify_client(ConnectionId("c1"), identity)
+    _seed_scene(store, scene="s1", connection="c1")
+    ops = QueryOperations(store, Hub(), _ForbiddenPort())
+
+    summary = next(s for s in ops.list_scenes().scenes if s.scene_id == "s1")
+    assert summary.owners[0].connection_id == "c1"
+    assert summary.owners[0].identity == identity  # structured attribution
 
 
 def test_list_clients_reads_the_hub_session_registry() -> None:

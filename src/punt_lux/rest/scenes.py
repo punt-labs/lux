@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Annotated, Self, final
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
 from punt_lux.operations import (
     Cleared,
@@ -23,30 +23,37 @@ from punt_lux.operations import (
     SceneInspection,
     SceneList,
     SceneShown,
+    Scope,
     UpdateRequest,
 )
+from punt_lux.rest.identity import resolve_scope
 
 if TYPE_CHECKING:
-    from punt_lux.operations import Operations, Scope
+    from punt_lux.operations import Operations
     from punt_lux.rest.status import HttpErrorMap
 
 __all__ = ["SceneRoutes"]
 
+# The owning scope of a write, resolved per request from its identity headers.
+_OwningScope = Annotated[Scope, Depends(resolve_scope)]
+
 
 @final
 class SceneRoutes:
-    """Routes over the Hub-authoritative scene store and session registry."""
+    """Routes over the Hub-authoritative scene store and session registry.
+
+    Each write resolves its owning scope from the request's identity headers via
+    the ``resolve_scope`` dependency; the reads are global and carry no scope.
+    """
 
     _ops: Operations
-    _scope: Scope
     _errors: HttpErrorMap
     _router: APIRouter
-    __slots__ = ("_errors", "_ops", "_router", "_scope")
+    __slots__ = ("_errors", "_ops", "_router")
 
-    def __new__(cls, ops: Operations, scope: Scope, errors: HttpErrorMap) -> Self:
+    def __new__(cls, ops: Operations, errors: HttpErrorMap) -> Self:
         self = super().__new__(cls)
         self._ops = ops
-        self._scope = scope
         self._errors = errors
         router = APIRouter(tags=["scenes"])
         router.add_api_route(
@@ -94,14 +101,18 @@ class SceneRoutes:
         """The router to mount on the app."""
         return self._router
 
-    def render(self, scene_id: str, request: RenderRequest) -> SceneShown:
+    def render(
+        self, scene_id: str, request: RenderRequest, scope: _OwningScope
+    ) -> SceneShown:
         """Install a whole scene named by the path; a mismatched body is rejected."""
         if request.scene_id != scene_id:
             reason = f"body scene_id {request.scene_id!r} must match path {scene_id!r}"
             return self._errors.respond(OpError(code="invalid_request", reason=reason))
-        return self._errors.respond(self._ops.render(request, scope=self._scope))
+        return self._errors.respond(self._ops.render(request, scope=scope))
 
-    def render_table(self, scene_id: str, request: RenderTableRequest) -> SceneShown:
+    def render_table(
+        self, scene_id: str, request: RenderTableRequest, scope: _OwningScope
+    ) -> SceneShown:
         """Construct a composed table scene server-side; the path names it.
 
         The Hub *constructs* the composition (its filter/selection/detail handlers
@@ -113,33 +124,31 @@ class SceneRoutes:
         if request.scene_id != scene_id:
             reason = f"body scene_id {request.scene_id!r} must match path {scene_id!r}"
             return self._errors.respond(OpError(code="invalid_request", reason=reason))
-        return self._errors.respond(self._ops.render_table(request, scope=self._scope))
+        return self._errors.respond(self._ops.render_table(request, scope=scope))
 
     def render_dashboard(
-        self, scene_id: str, request: RenderDashboardRequest
+        self, scene_id: str, request: RenderDashboardRequest, scope: _OwningScope
     ) -> SceneShown:
         """Construct a dashboard scene server-side; the path names it."""
         if request.scene_id != scene_id:
             reason = f"body scene_id {request.scene_id!r} must match path {scene_id!r}"
             return self._errors.respond(OpError(code="invalid_request", reason=reason))
-        return self._errors.respond(
-            self._ops.render_dashboard(request, scope=self._scope)
-        )
+        return self._errors.respond(self._ops.render_dashboard(request, scope=scope))
 
-    def update(self, scene_id: str, request: UpdateRequest) -> SceneShown:
+    def update(
+        self, scene_id: str, request: UpdateRequest, scope: _OwningScope
+    ) -> SceneShown:
         """Apply a patch batch to the scene named in the path."""
-        return self._errors.respond(
-            self._ops.update(scene_id, request, scope=self._scope)
-        )
+        return self._errors.respond(self._ops.update(scene_id, request, scope=scope))
 
-    def clear(self) -> Cleared:
-        """Clear every scene the default scope owns."""
-        return self._errors.respond(self._ops.clear(scope=self._scope))
+    def clear(self, scope: _OwningScope) -> Cleared:
+        """Clear every scene the calling identity owns."""
+        return self._errors.respond(self._ops.clear(scope=scope))
 
-    def clear_scene(self, scene_id: str) -> Cleared:
+    def clear_scene(self, scene_id: str, scope: _OwningScope) -> Cleared:
         """Clear just the named scene; unknown or unowned is a 404 / rejection."""
         return self._errors.respond(
-            self._ops.clear_scene(scope=self._scope, scene_id=scene_id)
+            self._ops.clear_scene(scope=scope, scene_id=scene_id)
         )
 
     def list_scenes(self) -> SceneList:

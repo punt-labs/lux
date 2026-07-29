@@ -19,6 +19,14 @@
 
 ### Added
 
+- **Scene owners are real identities now.** Ownership records carry the
+  declared identity (kind, name, repo) snapshotted at install — attribution
+  survives the owning connection's departure — and `list_scenes` reports
+  structured owners. The anonymous shared `rest` pseudo-session is gone:
+  every REST request resolves its own identity, two anonymous callers never
+  share a connection, and an identity-less write still works but carries an
+  identification-required signal (the first step of phasing anonymous REST
+  out). Reads stay silent.
 - **Clients can identify themselves.** A new `identify` MCP call lets a
   session declare who it is — kind (`mcp-session`, `cli`, or `app`), name,
   repository, and optionally an agent handle — and `list_clients` shows the

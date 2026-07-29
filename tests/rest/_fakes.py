@@ -20,12 +20,19 @@ from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.ids import ConnectionId, SceneId
-from punt_lux.operations import HubPorts, Operations, Scope
+from punt_lux.operations import HubPorts, Operations
 from punt_lux.operations.display_reply import DisplayReply
 from punt_lux.protocol.messages.observer import ObserverMessage
 from punt_lux.rest import RestSurface
 
-_TEST_SCOPE = Scope(ConnectionId("rest-test"))
+# The default identity every fake client declares, so its writes own scenes under
+# a named ``cli`` caller; a test omits it (``identity=None``) to exercise the
+# anonymous path and the identification challenge.
+DEFAULT_IDENTITY = {
+    "X-Lux-Client-Kind": "cli",
+    "X-Lux-Client-Name": "rest-test",
+    "X-Lux-Client-Repo": "/w/lux",
+}
 
 
 class Recorder:
@@ -108,14 +115,20 @@ def make_facade(*, display_port: object, store: HubDisplay | None = None) -> Ope
 
 
 def make_client(
-    *, display_port: object | None = None, store: HubDisplay | None = None
+    *,
+    display_port: object | None = None,
+    store: HubDisplay | None = None,
+    identity: Mapping[str, str] | None = None,
 ) -> TestClient:
     """Mount the real REST surface over a fake-backed facade on a bare app.
 
-    Pass ``store`` to hold the ``HubDisplay`` the routes install into.
+    Pass ``store`` to hold the ``HubDisplay`` the routes install into. The client
+    declares :data:`DEFAULT_IDENTITY` on every request unless ``identity`` overrides
+    it; pass ``identity={}`` to send no identity headers (the anonymous path).
     """
     port = display_port if display_port is not None else ForbiddenPort()
     app = FastAPI()
     facade = make_facade(display_port=port, store=store)
-    RestSurface(facade, scope=_TEST_SCOPE).mount(app)
-    return TestClient(app)
+    RestSurface(facade).mount(app)
+    headers = dict(DEFAULT_IDENTITY if identity is None else identity)
+    return TestClient(app, headers=headers)

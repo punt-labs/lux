@@ -11,7 +11,9 @@ from __future__ import annotations
 from typing import Self
 
 from punt_lux.domain.hub.child_index import ChildIndex
+from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.element_index import ElementIndex
+from punt_lux.domain.hub.owner import Owner
 from punt_lux.domain.hub.owner_tracker import OwnerTracker
 from punt_lux.domain.hub.root_registry import RootRegistry
 from punt_lux.domain.hub.subtree_installer import SubtreeInstaller
@@ -19,7 +21,7 @@ from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.protocol.elements import ButtonElement, GroupElement, TextElement
 
 _SCENE = SceneId("installer-scene")
-_OWNER = ConnectionId("owner-conn")
+_OWNER = Owner(ConnectionId("owner-conn"))
 
 
 class _Store:
@@ -45,7 +47,11 @@ class _Store:
         self.children = ChildIndex()
         self.removed = []
         self.installer = SubtreeInstaller(
-            self.index, self.owners, self.roots, self.children, self._record_removed
+            self.index,
+            self.owners,
+            self.roots,
+            self.children,
+            self._record_removed,
         )
         return self
 
@@ -62,6 +68,19 @@ def test_install_root_lands_in_index_and_owners() -> None:
     assert store.index.contains(_SCENE, ElementId("root"))
     assert store.owners.get(_SCENE, ElementId("root")) == _OWNER
     assert store.children.is_root(_SCENE, ElementId("root"))
+
+
+def test_install_stamps_the_same_owner_onto_every_element() -> None:
+    """The owner handed in is recorded on the root and every descendant."""
+    store = _Store()
+    identity = ClientIdentity(kind="cli", name="lux", repo="/w/lux")
+    owner = Owner(ConnectionId("owner-conn"), identity)
+    group = GroupElement(id="grp", children=[TextElement(id="c1", content="a")])
+
+    store.installer.install(_SCENE, group, parent_id=None, owner=owner)
+
+    assert store.owners.get(_SCENE, ElementId("grp")) == owner  # the root
+    assert store.owners.get(_SCENE, ElementId("c1")) == owner  # and its child
 
 
 def test_install_composite_recurses_into_children() -> None:

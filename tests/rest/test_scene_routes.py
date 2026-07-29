@@ -142,7 +142,86 @@ def test_list_scenes_reflects_a_rendered_scene() -> None:
     _render(client, "alpha")
     body = client.get("/scenes").json()
     assert [s["scene_id"] for s in body["scenes"]] == ["alpha"]
-    assert body["scenes"][0]["owners"] == ["rest-test"]
+    owners = body["scenes"][0]["owners"]
+    # The default client declared a cli identity named "rest-test"; the scene is
+    # attributed to that declared identity, not to a bare connection string.
+    assert len(owners) == 1
+    assert owners[0]["identity"]["kind"] == "cli"
+    assert owners[0]["identity"]["name"] == "rest-test"
+    assert owners[0]["identity"]["repo"] == "/w/lux"
+
+
+def test_anonymous_write_carries_the_challenge_and_still_installs() -> None:
+    # Phase one of the shutdown: an identity-less write works, but its response
+    # carries the identification challenge so the caller learns it must identify.
+    client = make_client(identity={})  # send no identity headers
+    resp = _render(client, "anon")
+    assert resp.status_code == 200
+    assert "X-Lux-Identification-Required" in resp.headers
+    body = client.get("/scenes").json()
+    owners = next(s for s in body["scenes"] if s["scene_id"] == "anon")["owners"]
+    # The owner is a real, named-nothing connection — never the old shared "rest".
+    assert owners[0]["identity"] is None
+    assert owners[0]["connection_id"] != "rest"
+
+
+def test_identity_less_read_stays_silent() -> None:
+    # Reads own nothing, so an unidentified read is not challenged.
+    client = make_client(identity={})
+    resp = client.get("/scenes")
+    assert resp.status_code == 200
+    assert "X-Lux-Identification-Required" not in resp.headers
+
+
+def test_blank_optional_header_is_treated_as_absent() -> None:
+    # An empty or whitespace-only optional header must equal no header: identify
+    # correctly rejects a blank repo, so passing "" through would 422 a valid
+    # caller. The caller identifies successfully with repo left unset.
+    client = make_client(
+        identity={
+            "X-Lux-Client-Kind": "cli",
+            "X-Lux-Client-Name": "cli-tool",
+            "X-Lux-Client-Repo": "   ",
+        }
+    )
+    resp = _render(client, "blank-repo")
+    assert resp.status_code == 200
+    body = client.get("/scenes").json()
+    owner = next(s for s in body["scenes"] if s["scene_id"] == "blank-repo")["owners"][
+        0
+    ]
+    assert owner["identity"]["name"] == "cli-tool"
+    assert owner["identity"]["repo"] is None  # the blank header was dropped
+
+
+def test_two_anonymous_writers_own_separate_scenes() -> None:
+    # Distinct per-request connections: two anonymous callers never share
+    # ownership, so each scene lists its own owner connection.
+    store = HubDisplay()
+    first = make_client(store=store, identity={})
+    second = make_client(store=store, identity={})
+    _render(first, "one")
+    _render(second, "two")
+
+    body = first.get("/scenes").json()
+    owners = {
+        s["scene_id"]: s["owners"][0]["connection_id"]
+        for s in body["scenes"]
+        if s["scene_id"] in {"one", "two"}
+    }
+    assert owners["one"] != owners["two"]  # separate owners, no shared scope
+
+
+def test_an_identified_writer_owns_its_scene_across_requests() -> None:
+    # The derived connection is deterministic in the identity, so the same caller
+    # can patch the scene it rendered — ownership holds across requests.
+    client = make_client()
+    _render(client, "mine")
+    patch = client.patch(
+        "/scenes/mine",
+        json={"patches": [{"id": "t1", "set": {"content": "changed"}}]},
+    )
+    assert patch.status_code == 200  # the second request owns the first's scene
 
 
 def test_render_without_a_frame_lands_framed_by_its_scene_id() -> None:
