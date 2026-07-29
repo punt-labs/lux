@@ -65,6 +65,7 @@ class LuxHubClient:
     """A daemon's live connection to luxd: subscribe, receive, dispatch, reconnect."""
 
     _url: str
+    _reresolve: bool
     _headers: dict[str, str]
     _on_callback: CallbackHandler
     _on_event: EventHandler
@@ -78,6 +79,7 @@ class LuxHubClient:
         "_on_callback",
         "_on_event",
         "_renew_interval",
+        "_reresolve",
         "_stopped",
         "_topics",
         "_url",
@@ -91,9 +93,15 @@ class LuxHubClient:
         on_callback: CallbackHandler,
         on_event: EventHandler,
         renew_interval: float = _RENEW_INTERVAL_SECONDS,
+        reresolve: bool = False,
     ) -> Self:
+        # reresolve=True means this client's endpoint is luxd's port file: the
+        # reconnect loop re-reads it each attempt so a luxd restart onto a new
+        # port is followed, not backed off against forever. A pinned client
+        # (an explicit url, e.g. a test) keeps that url across reconnects.
         self = super().__new__(cls)
         self._url = url
+        self._reresolve = reresolve
         self._headers = ClientHeaders.to_wire(identity)
         self._on_callback = on_callback
         self._on_event = on_event
@@ -112,19 +120,52 @@ class LuxHubClient:
         on_event: EventHandler,
         renew_interval: float = _RENEW_INTERVAL_SECONDS,
     ) -> Self:
-        """Build a client for ``identity``, resolving luxd's port, or raise if down."""
-        port = HubPaths().read_port()
-        if port is None:
+        """Build a client for ``identity``, resolving luxd's port, or raise if down.
+
+        The first resolution is fail-fast: a missing port file means luxd is not
+        running, and there is nothing to connect to yet. Once built, the client
+        re-reads the port file on every reconnect (``reresolve=True``), so a later
+        luxd restart onto a new port is followed rather than stranded.
+        """
+        url = cls._read_hub_endpoint()
+        if url is None:
             raise HubUnavailableError(
                 "luxd is not running. Run 'lux hub-install' to register the service."
             )
         return cls(
-            f"ws://127.0.0.1:{port}/ws",
+            url,
             identity,
             on_callback=on_callback,
             on_event=on_event,
             renew_interval=renew_interval,
+            reresolve=True,
         )
+
+    @staticmethod
+    def _read_hub_endpoint() -> str | None:
+        """Return luxd's WebSocket URL from the current port file, or ``None``.
+
+        ``None`` is the documented absence — luxd is down or mid-restart, so its
+        port file is gone. Read fresh on each reconnect so a restart onto a new
+        port is picked up.
+        """
+        port = HubPaths().read_port()
+        return None if port is None else f"ws://127.0.0.1:{port}/ws"
+
+    def _current_url(self) -> str | None:
+        """Return the URL for the next connect attempt, re-resolving if needed.
+
+        A pinned client returns its fixed url. A port-file client re-reads the
+        port each attempt: a fresh port updates the stored url and is used;
+        ``None`` (the port file gone) leaves the last-known url untouched and
+        signals the caller to keep backing off until luxd reappears.
+        """
+        if not self._reresolve:
+            return self._url
+        url = self._read_hub_endpoint()
+        if url is not None:
+            self._url = url
+        return url
 
     @property
     def connection_id(self) -> str:
@@ -147,17 +188,31 @@ class LuxHubClient:
         """
         backoff = _BASE_BACKOFF_SECONDS
         while not self._stopped.is_set():
+            url = self._current_url()
+            if url is None:
+                # luxd is down or mid-restart (its port file is gone). Keep the
+                # loop alive and back off until the port reappears, rather than
+                # exiting or hammering a dead endpoint.
+                await self._backoff(backoff)
+                backoff = min(backoff * 2, _MAX_BACKOFF_SECONDS)
+                continue
             try:
                 async with websockets.connect(
-                    self._url, additional_headers=self._headers
+                    url, additional_headers=self._headers
                 ) as connection:
                     backoff = _BASE_BACKOFF_SECONDS
                     await self._run_session(connection)
             except (OSError, websockets.WebSocketException):
                 if self._stopped.is_set():
                     return
-                await asyncio.sleep(backoff)
+                await self._backoff(backoff)
                 backoff = min(backoff * 2, _MAX_BACKOFF_SECONDS)
+
+    async def _backoff(self, seconds: float) -> None:
+        """Sleep the current backoff, unless a stop was requested meanwhile."""
+        if self._stopped.is_set():
+            return
+        await asyncio.sleep(seconds)
 
     async def _run_session(self, connection: ClientConnection) -> None:
         """Read the handshake, subscribe, then dispatch frames until the socket ends."""
