@@ -4,6 +4,11 @@
 
 ### Removed
 
+- **The `register_tool` menu path.** The `register_tool` MCP tool, the
+  `POST /menus/items` REST route, and the display's per-connection
+  registered-items machinery are gone — a menu item is a session callback
+  now (`register_callback`), withdrawn with its session's lease. Agent menu
+  bars via `set_menu` are unaffected.
 - **The legacy render path is gone** — the element migration's final step.
   Every element kind renders through the Element-ABC / Hub-Display
   architecture; the legacy dataclass classes, their codec registry, and the
@@ -19,6 +24,18 @@
 
 ### Added
 
+- **The menu bar shows live sessions.** The display renders the Hub's
+  session-then-callback tree — one submenu per live session ("name — repo"),
+  its callbacks as entries — updated whenever a session registers, withdraws,
+  or lapses. A click travels from the pixels through the Hub to the owning
+  session's delivery leg, end to end. Agent-defined menu bars (`set_menu`)
+  are unchanged, and the built-in beads browser is now itself a
+  permanent-lease callback session invoking through the same path.
+- **Buttons can publish.** An in-scene button may declare
+  `publish: {topic, payload}`; a click fires Hub-side and publishes the
+  payload to the topic on Hub pub-sub, reaching WebSocket and MCP
+  subscribers. Composes with regular click handlers; a blank topic rejects
+  the element tree before render.
 - **Menu items are session callbacks now.** An identified session registers a
   named callback (`POST /menus/callbacks`, guarded by the same identity
   challenge as a scene write); the menu shows one submenu per live session that
