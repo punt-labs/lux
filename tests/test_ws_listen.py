@@ -180,6 +180,9 @@ class _GoneWebSocket:
     def __init__(self, send_error: Exception) -> None:
         self._send_error = send_error
 
+    async def accept(self) -> None:
+        """Accepting succeeds; the peer is only discovered gone on the first write."""
+
     async def send_text(self, _text: str) -> None:
         raise self._send_error
 
@@ -217,3 +220,34 @@ def test_the_write_loop_ends_cleanly_on_a_send_after_close() -> None:
         await session._write_loop()
 
     asyncio.run(scenario())
+
+
+def test_a_peer_that_dies_before_the_handshake_leaves_no_listener() -> None:
+    """The gate's own invariant: no listener outlives the connection that made it.
+
+    A client can go away between the accept and the handshake write, by which
+    point the listener is registered. If that failure escaped the teardown, the
+    Hub would hold a listener for a connection nothing can reach — and would then
+    admit a menu callback from that identity, since holding a listener is exactly
+    what the registration gate checks for.
+    """
+    hub, clients = Hub(), HubClientRegistry()
+    router = CallbackRouter(clients)
+
+    async def _drive() -> None:
+        # The session binds the running loop at construction, so it is built here.
+        session = HubListenSession(
+            _GoneWebSocket(WebSocketDisconnect(code=1006)),  # type: ignore[arg-type]  # structural fake
+            _CONN,
+            ClientIdentity(kind="app", name="voxd", repo="/w/vox"),
+            hub,
+            clients,
+            router,
+            _MenuFlag(),
+        )
+        await session.run()
+
+    with pytest.raises(WebSocketDisconnect):
+        asyncio.run(_drive())
+
+    assert not router.has_listener(_CONN)  # nothing is left holding the gate open

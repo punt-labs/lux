@@ -123,16 +123,32 @@ class HubListenSession:
         return self
 
     async def run(self) -> None:
-        """Accept the connection, wire its bridges, and pump until it disconnects."""
+        """Accept the connection, wire its bridges, and pump until it disconnects.
+
+        Everything from the first piece of registered state onward is inside the
+        teardown's guard. A client that goes away between the accept and the
+        handshake write is the case that needs it: the listener is registered by
+        then, and if the failing write escaped un-torn-down the Hub would hold a
+        listener for a connection nothing can reach — and would then admit a
+        menu callback from that identity, because holding a listener is exactly
+        what the registration gate checks for.
+        """
         await self._ws.accept()
         self._loop = asyncio.get_running_loop()
-        self._clients.record(self._conn, self._identity)
-        self._hub.register_writer(self._conn, self.deliver_event)
-        self._router.add_listener(self._conn, self)
-        await self._ws.send_text(
-            ReadyFrame(connection_id=str(self._conn)).model_dump_json()
-        )
-        self._drain_callbacks()  # push clicks buffered before this (re)connect
+        try:
+            self._clients.record(self._conn, self._identity)
+            self._hub.register_writer(self._conn, self.deliver_event)
+            self._router.add_listener(self._conn, self)
+            await self._ws.send_text(
+                ReadyFrame(connection_id=str(self._conn)).model_dump_json()
+            )
+            self._drain_callbacks()  # push clicks buffered before this (re)connect
+            await self._pump()
+        finally:
+            self._teardown()
+
+    async def _pump(self) -> None:
+        """Read until the peer goes away, with the writer draining alongside."""
         writer = asyncio.create_task(self._write_loop())
         try:
             await self._read_loop()
@@ -140,7 +156,6 @@ class HubListenSession:
             writer.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await writer
-            self._teardown()
 
     def wake(self) -> None:
         """CallbackListener: a click was routed to this session — schedule a drain."""

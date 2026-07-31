@@ -102,6 +102,10 @@ def test_a_slow_click_does_not_stall_the_loop_that_holds_the_lease(
         for _ in range(5):  # the loop keeps running while the work blocks
             await asyncio.sleep(0)
             ticks += 1
+        # The assertion that makes this bite: the work is STILL blocked, and the
+        # loop advanced anyway. Counting ticks alone proves nothing — work that
+        # ran on the loop would simply finish first and let them run afterwards.
+        assert service.serviced == 0
         release.set()
         await click
         return ticks
