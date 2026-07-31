@@ -335,7 +335,7 @@ class TestBuildBeadsPayload:
 
 
 class TestBoardRequest:
-    _SCENE = "beads-cli-proj"
+    _SCENE = "beads-proj"
     _TITLE = "Beads: proj"
 
     def _build(
@@ -456,9 +456,9 @@ class TestBeadsBoard:
     def test_table_request_carries_the_frame_envelope(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # The table request names the scene and frame after the project, under
-        # the CLI's own "beads-cli-" namespace so it never collides with the Hub
-        # menu's "beads-{project}" board (a distinct owner). The title is shared.
+        # The table request names the scene and frame after the project — the
+        # repository's one board, the same scene a session's menu entry refreshes,
+        # so a command and a click land in one tab rather than two identical ones.
         monkeypatch.chdir(tmp_path)
         project = tmp_path.name
         active = [i for i in _ISSUES if i["status"] in {"open", "in_progress"}]
@@ -468,9 +468,9 @@ class TestBeadsBoard:
         ):
             request, note = BeadsBoardCommand().request(all_issues=False)
         assert isinstance(request, RenderTableRequest)
-        assert request.scene_id == f"beads-cli-{project}"
+        assert request.scene_id == f"beads-{project}"
         assert request.title == f"Beads: {project}"
-        assert request.frame_id == f"beads-cli-{project}"
+        assert request.frame_id == f"beads-{project}"
         assert request.frame_title == f"Beads: {project}"
         assert note == "2 issues"
 
@@ -537,8 +537,8 @@ class TestShowBeadsCLI:
         # Active issues reach the Hub as a table request the composition route
         # builds with live chrome — not a pre-composed tree through render.
         assert isinstance(client.request, RenderTableRequest)
-        # CLI-namespaced, project-scoped tab — distinct from the Hub menu board.
-        assert client.request.scene_id.startswith("beads-cli-")
+        # The repository's one project-scoped board, whichever surface refreshed it.
+        assert client.request.scene_id.startswith("beads-")
 
     def test_show_beads_reports_a_render_rejection(
         self,

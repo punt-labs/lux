@@ -10,6 +10,13 @@ same-user trust model, not a credential.
 
 Both the REST caller and the WebSocket handshake resolve their connection through
 :func:`connection_for` so the two legs cannot drift onto different derivations.
+
+An absent field is absent however it is spelled. A declaration read from headers
+omits the key entirely, while one dumped from a
+:class:`~punt_lux.domain.hub.client_identity.ClientIdentity` carries an explicit
+``None`` — and both mean "this client declared no repository". They are folded to
+the same seed here, so one identity has one connection id no matter which shape a
+caller had it in.
 """
 
 from __future__ import annotations
@@ -31,5 +38,8 @@ _FIELDS = ("kind", "name", "repo", "agent")
 
 def connection_for(declaration: Mapping[str, object]) -> ConnectionId:
     """Derive the stable connection id a declared identity owns across transports."""
-    seed = "\x00".join(str(declaration.get(field, "")) for field in _FIELDS)
+    seed = "\x00".join(
+        "" if (value := declaration.get(field)) is None else str(value)
+        for field in _FIELDS
+    )
     return ConnectionId(blake2s(seed.encode(), digest_size=8).hexdigest())

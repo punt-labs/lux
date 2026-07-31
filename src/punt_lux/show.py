@@ -40,13 +40,14 @@ class BeadsBoardCommand:
     def request(
         self, *, all_issues: bool
     ) -> tuple[RenderTableRequest | RenderRequest, str]:
-        """Build the board's request and a note, under the CLI's own ``beads-cli-``
-        namespace (distinct from the Hub menu's ``beads-`` board); the note
-        distinguishes a bd failure from a real issue count.
+        """Build the board's request and a note describing what it will show.
+
+        The board is the repository's one board, so this command refreshes the same
+        scene a session's menu entry does rather than opening a second copy. The
+        note distinguishes a bd failure from a real issue count.
         """
         issues, load_error = result = self._browser.load(all_issues=all_issues)
-        project = Path.cwd().name or "unknown"
-        board = BeadsBoard(f"beads-cli-{project}", f"Beads: {project}")
+        board = BeadsBoard.for_project(Path.cwd().name or "unknown")
         note = f"bd error: {load_error}" if load_error else f"{len(issues)} issues"
         return board.request(result), note
 

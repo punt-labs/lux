@@ -35,6 +35,19 @@ class BeadsBoard:
         self._title = title
         return self
 
+    @classmethod
+    def for_project(cls, project: str) -> Self:
+        """The one beads board of a repository, by the name every surface uses.
+
+        A repository has one board, not one per surface: the ``lux show beads``
+        command, the post-``bd`` refresh, and a session's menu entry all name this
+        scene, so a refresh from any of them lands in the tab the user is already
+        looking at rather than opening a second identical one. A scene is replaced
+        wholesale by its latest show whoever owns it, so the last surface to
+        refresh simply owns it.
+        """
+        return cls(f"beads-{project}", f"Beads: {project}")
+
     def request(
         self, result: tuple[list[dict[str, Any]], str | None]
     ) -> RenderTableRequest | RenderRequest:

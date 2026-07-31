@@ -365,13 +365,13 @@ def test_beads_board_request_installs_live_chrome_through_the_table_route() -> N
             "updated_at": "2026-01-02T00:00:00Z",
         }
     ]
-    request = BeadsBoard("beads-cli-proj", "Beads: proj").request((issues, None))
+    request = BeadsBoard("beads-proj", "Beads: proj").request((issues, None))
     assert isinstance(request, RenderTableRequest)  # issues yield a table, not text
     store = HubDisplay()
     client = make_client(store=store)
-    resp = client.put("/scenes/beads-cli-proj/table", json=request.model_dump())
+    resp = client.put("/scenes/beads-proj/table", json=request.model_dump())
     assert resp.status_code == 200
-    scene = SceneId("beads-cli-proj")
+    scene = SceneId("beads-proj")
     # The composed chrome is present as real elements, not a lone dead table.
     for element_id in ("table-search", "table", "table-detail"):
         assert store.resolve(scene, ElementId(element_id)) is not None
