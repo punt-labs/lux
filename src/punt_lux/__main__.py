@@ -6,7 +6,7 @@ import logging
 import shutil
 import subprocess
 import sys
-from typing import Protocol
+from typing import Self, final
 
 import typer
 
@@ -62,8 +62,48 @@ _OPTIONAL = "\u2014"  # —
 _PLUGIN_ID = "lux@punt-labs"
 
 
-class _CheckFn(Protocol):
-    def __call__(self, symbol: str, message: str, *, required: bool = True) -> None: ...
+@final
+class _DoctorReport:
+    """The lines ``doctor`` has collected and the tally it will exit on.
+
+    The counting rule is the one thing here worth stating: a line counts as
+    failed only when it is both a failure and required, so the advisory checks —
+    fonts, the plugin, a display that simply is not up — colour the report without
+    turning a working installation into a non-zero exit.
+    """
+
+    _lines: list[str]
+    _passed: int
+    _failed: int
+    __slots__ = ("_failed", "_lines", "_passed")
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._lines = []
+        self._passed = 0
+        self._failed = 0
+        return self
+
+    def __call__(self, symbol: str, message: str, *, required: bool = True) -> None:
+        """Record one check's outcome — the ``CheckReporter`` the checks are given."""
+        self._lines.append(f"{symbol} {message}")
+        if symbol == _OK:
+            self._passed += 1
+        elif symbol == _FAIL and required:
+            self._failed += 1
+
+    def print(self) -> None:
+        """Print the report between rules, with the tally underneath."""
+        print("=" * 40)
+        for line in self._lines:
+            print(line)
+        print("=" * 40)
+        print(f"{self._passed} passed, {self._failed} failed")
+
+    @property
+    def failed(self) -> int:
+        """How many required checks failed — the command's exit code."""
+        return self._failed
 
 
 # Product commands
@@ -237,102 +277,6 @@ def status(
     raise typer.Exit(code=0 if running else 1)
 
 
-def _check_fonts(_check: _CheckFn) -> None:
-    """Check for system fonts used by the display server."""
-    import platform
-    from pathlib import Path
-
-    def _first_existing(*candidates: str) -> str | None:
-        for p in candidates:
-            if Path(p).is_file():
-                return p
-        return None
-
-    if platform.system() == "Darwin":
-        primary = _first_existing(
-            "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
-            "/System/Library/Fonts/Helvetica.ttc",
-        )
-        sym = _first_existing("/System/Library/Fonts/Apple Symbols.ttf")
-        math = _first_existing(
-            "/System/Library/Fonts/Supplemental/STIXTwoMath.otf",
-            "/Library/Fonts/STIXTwoMath.otf",
-        )
-        hint = ""  # macOS always has these
-        math_hint = ""  # ships with macOS
-    else:
-        primary = _first_existing(
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "/usr/share/fonts/TTF/DejaVuSans.ttf",
-            "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",
-            "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
-            "/usr/share/fonts/noto/NotoSans-Regular.ttf",
-        )
-        sym = _first_existing(
-            "/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf",
-            "/usr/share/fonts/noto/NotoSansSymbols2-Regular.ttf",
-        )
-        math = _first_existing(
-            "/usr/share/fonts/truetype/noto/NotoSansMath-Regular.ttf",
-            "/usr/share/fonts/noto/NotoSansMath-Regular.ttf",
-        )
-        hint = " \u2014 apt install fonts-dejavu-core or fonts-noto"
-        math_hint = " \u2014 apt install fonts-noto"
-
-    if primary:
-        _check(_OK, f"Font: {primary}", required=False)
-    else:
-        msg = f"No Unicode font found{hint} (falls back to Latin-only)"
-        _check(_FAIL, msg, required=False)
-
-    if sym:
-        _check(_OK, f"Symbol font: {sym}", required=False)
-    else:
-        _check(
-            _OPTIONAL,
-            "No symbol font found (math symbols may not render)",
-            required=False,
-        )
-
-    if math:
-        _check(_OK, f"Math font: {math}", required=False)
-    else:
-        _check(
-            _OPTIONAL,
-            f"No math font found{math_hint}"
-            " (Z notation double-struck letters may not render)",
-            required=False,
-        )
-
-
-def _check_plugin(
-    _check: _CheckFn,
-) -> None:
-    """Check Claude CLI and plugin registration (optional)."""
-    claude = shutil.which("claude")
-    if claude:
-        _check(_OK, f"claude CLI: {claude}", required=False)
-    else:
-        _check(_OPTIONAL, "claude CLI not found (needed for plugin)", required=False)
-        return
-
-    result = subprocess.run(  # noqa: S603
-        [claude, "plugin", "list"],
-        capture_output=True,
-        text=True,
-        check=False,
-        stdin=subprocess.DEVNULL,
-    )
-    if _PLUGIN_ID in result.stdout:
-        _check(_OK, f"Plugin: {_PLUGIN_ID}", required=False)
-    else:
-        _check(
-            _OPTIONAL,
-            "Plugin not installed (run 'lux install')",
-            required=False,
-        )
-
-
 @app.command()
 def doctor(
     socket: str | None = typer.Option(None, "--socket", "-s", help="Socket path"),
@@ -340,19 +284,10 @@ def doctor(
     """Check installation health."""
     from pathlib import Path
 
+    from punt_lux.doctor_checks import EnvironmentChecks
     from punt_lux.paths import DisplayPaths
 
-    passed = 0
-    failed = 0
-    lines: list[str] = []
-
-    def _check(symbol: str, message: str, *, required: bool = True) -> None:
-        nonlocal passed, failed
-        lines.append(f"{symbol} {message}")
-        if symbol == _OK:
-            passed += 1
-        elif symbol == _FAIL and required:
-            failed += 1
+    _check = _DoctorReport()
 
     # Python version
     v = sys.version_info
@@ -378,8 +313,10 @@ def doctor(
             required=False,
         )
 
-    # Fonts (not required — falls back to ImGui default, but Unicode won't render)
-    _check_fonts(_check)
+    # Fonts and the plugin are the machine's business, not lux's — advisory
+    # either way, so a missing one never fails the run.
+    checks = EnvironmentChecks(_check)
+    checks.fonts()
 
     # Display server
     dp = DisplayPaths(Path(socket) if socket else None)
@@ -389,17 +326,37 @@ def doctor(
     else:
         _check(_OPTIONAL, f"Display server not running at {path}", required=False)
 
-    # Claude CLI + plugin registration (optional)
-    _check_plugin(_check)
+    checks.plugin()
 
-    print("=" * 40)
-    for line in lines:
-        print(line)
-    print("=" * 40)
-    print(f"{passed} passed, {failed} failed")
-
-    if failed > 0:
+    _check.print()
+    if _check.failed > 0:
         raise typer.Exit(code=1)
+
+
+@app.command("mcp-serve")
+def mcp_serve() -> None:
+    """Serve this session's Lux MCP surface over stdio and service its menu clicks.
+
+    Run by Claude Code, not by hand: it speaks MCP on stdin/stdout, forwards it to
+    luxd, and holds the connection that makes this session's menu entries work.
+    """
+    import logging as _logging
+
+    from punt_lux.rest_transport import HubUnavailableError
+    from punt_lux.session_server import SessionServer
+
+    # stdout is the MCP wire, so every log line goes to stderr — a single stray
+    # byte on stdout is a protocol error the host reports as a broken server.
+    _logging.basicConfig(
+        stream=sys.stderr,
+        level=_logging.WARNING,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+    try:
+        SessionServer.for_cwd().serve()
+    except HubUnavailableError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from None
 
 
 @app.command("hub-install")
@@ -419,55 +376,15 @@ def hub_uninstall() -> None:
 
 
 def _restart_hub() -> None:
-    """Send SIGTERM and wait for the service manager to respawn luxd."""
-    import os as _os
-    import signal
-    import time
+    """Restart luxd through the service manager, reporting what came back."""
+    from punt_lux.hub_restart import HubRestart, HubRestartError
 
-    from punt_lux.hub_paths import HubPaths
-
-    hub_paths = HubPaths()
-    pid_path = hub_paths.pid_path
+    print("Restarting luxd...")
     try:
-        old_pid = int(pid_path.read_text().strip())
-        _os.kill(old_pid, signal.SIGTERM)
-        print(f"Sent SIGTERM to luxd (pid {old_pid}), waiting for restart...")
-    except (ValueError, OSError) as exc:
-        print(f"Could not signal luxd: {exc}")
+        print(HubRestart().run())
+    except HubRestartError as exc:
+        print(str(exc))
         raise typer.Exit(code=1) from None
-
-    # Wait for old process to die
-    for _ in range(20):  # 10 seconds
-        time.sleep(0.5)
-        try:
-            _os.kill(old_pid, 0)
-        except ProcessLookupError:
-            break  # Old process is gone
-        except PermissionError:
-            break  # Can't check, assume dead
-    else:
-        print(f"luxd (pid {old_pid}) did not stop within 10s")
-        raise typer.Exit(code=1)
-
-    # Wait for launchd/systemd to respawn with a new PID
-    for _ in range(20):  # 10 seconds
-        time.sleep(0.5)
-        if not hub_paths.is_running():
-            continue
-        try:
-            new_pid = int(pid_path.read_text().strip())
-        except (ValueError, OSError):
-            continue
-        if new_pid == old_pid:
-            continue
-        port = hub_paths.read_port()
-        if port is not None:
-            print(f"luxd restarted (pid {new_pid}, port {port})")
-        else:
-            print(f"luxd restarted (pid {new_pid}, port file not yet written)")
-        return
-    print("luxd did not restart within 10s")
-    raise typer.Exit(code=1)
 
 
 @app.command("ensure-hub")

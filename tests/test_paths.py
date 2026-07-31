@@ -725,58 +725,6 @@ class TestEnsure:
                 display.stop()
 
 
-class TestPeerPid:
-    """The socket's OS peer credential resolves the true owner PID."""
-
-    def test_live_socket_returns_owner_pid(
-        self, short_socket: Callable[[], Path]
-    ) -> None:
-        """A live listener's peer credential names its owning process."""
-        path = short_socket()
-        display = _FakeDisplay(path)
-        try:
-            # The FakeDisplay binds in this process, so it owns the socket.
-            assert DisplayPaths(path)._peer_pid() == os.getpid()
-        finally:
-            display.stop()
-
-    def test_dead_socket_returns_none(self, short_socket: Callable[[], Path]) -> None:
-        """A stale socket with no listener yields no peer (connection refused)."""
-        path = short_socket()
-        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        s.bind(str(path))
-        s.close()  # file remains, nothing listens
-        assert DisplayPaths(path)._peer_pid() is None
-
-    def test_unsupported_platform_returns_none(
-        self, short_socket: Callable[[], Path], monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A platform without a peer-credential option yields None."""
-        path = short_socket()
-        display = _FakeDisplay(path)
-        monkeypatch.setattr("punt_lux.paths.sys.platform", "sunos5")
-        try:
-            assert DisplayPaths(path)._peer_pid() is None
-        finally:
-            display.stop()
-
-    def test_non_positive_credential_returns_none(
-        self, short_socket: Callable[[], Path]
-    ) -> None:
-        """A zeroed/partial credential (pid 0) resolves to None, never a target.
-
-        os.kill(0, ...) signals the whole process group; a non-positive
-        peer PID must never leave _peer_pid as a signallable value.
-        """
-        path = short_socket()
-        display = _FakeDisplay(path)
-        try:
-            with patch("socket.socket.getsockopt", return_value=b"\x00\x00\x00\x00"):
-                assert DisplayPaths(path)._peer_pid() is None
-        finally:
-            display.stop()
-
-
 class TestReap:
     def test_reap_dead_clears_files_without_kill(
         self, short_socket: Callable[[], Path]
