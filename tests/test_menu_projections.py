@@ -12,8 +12,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, get_type_hints
 
-from punt_lux.display.menus import MenuBar, MenuModel, WorldPanel
-from punt_lux.display.menus.surface import MenuSurface
+from punt_lux.display.menus import MenuBar, MenuModel, MenuSurface, WorldPanel
 from punt_lux.protocol import RemoteEventHandlerInvocation
 
 from .menu_doubles import (

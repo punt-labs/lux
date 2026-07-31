@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, Self
 
 from punt_lux import __version__
 from punt_lux.display.menus import (
+    GuardedMenu,
     MenuBar,
     MenuItem,
     MenuModel,
@@ -22,7 +23,6 @@ from punt_lux.display.menus import (
     Submenu,
     WorldPanel,
 )
-from punt_lux.display.menus.surface import GuardedMenu
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
