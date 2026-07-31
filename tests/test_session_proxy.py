@@ -10,6 +10,7 @@ the client's side of it does, which is how a session says it is over.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -34,8 +35,6 @@ from punt_lux.session_proxy import StdioHubProxy
 if TYPE_CHECKING:
     from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
     from mcp.shared.message import SessionMessage
-
-pytestmark = pytest.mark.integration
 
 # A sample of the roster that must arrive unchanged: the universal render API, a
 # read, and the session's own callback registration. Asserting a subset rather
@@ -96,6 +95,7 @@ def _client_streams() -> tuple[
     )
 
 
+@pytest.mark.integration
 def test_a_session_sees_luxds_own_tool_surface_through_the_proxy() -> None:
     """Initialize, list tools, and call one — none of it touched on the way."""
 
@@ -129,6 +129,7 @@ def test_a_session_sees_luxds_own_tool_surface_through_the_proxy() -> None:
     assert event == 'event:proxy.itest:{"n": 1}'
 
 
+@pytest.mark.integration
 def test_the_conduit_ends_when_the_client_side_closes() -> None:
     """Closing the client's stream is how a session ends; the pump must return.
 
@@ -156,6 +157,7 @@ def test_the_conduit_ends_when_the_client_side_closes() -> None:
         assert anyio.run(_drive, port) is True
 
 
+@pytest.mark.integration
 def test_the_shipped_process_answers_and_then_exits_with_its_session(
     tmp_path: Path,
 ) -> None:
@@ -197,6 +199,7 @@ def test_the_shipped_process_answers_and_then_exits_with_its_session(
     assert proc.returncode == 0  # and it left when the session did
 
 
+@pytest.mark.integration
 def test_a_hub_that_never_appears_is_named_not_hung_on() -> None:
     """With no port file the proxy refuses to start, naming the fix."""
     original = HubPaths.read_port
@@ -208,6 +211,7 @@ def test_a_hub_that_never_appears_is_named_not_hung_on() -> None:
         HubPaths.read_port = original  # type: ignore[method-assign]  # restore the real read
 
 
+@pytest.mark.integration
 def test_the_session_key_reaches_luxd_as_this_sessions_connection() -> None:
     """Every request in a session lands on one Hub connection, not one per call."""
 
@@ -234,3 +238,51 @@ def test_the_session_key_reaches_luxd_as_this_sessions_connection() -> None:
     # The identity declared on one call is the identity the next call's session
     # still has — which only holds if both landed on the same connection.
     assert "proxy-key" in clients
+
+
+async def _closed_source() -> MemoryObjectReceiveStream[SessionMessage | Exception]:
+    """A stream standing in for a leg the far side has already closed."""
+    send, receive = anyio.create_memory_object_stream["SessionMessage"](0)
+    await send.aclose()
+    return cast("MemoryObjectReceiveStream[SessionMessage | Exception]", receive)
+
+
+def test_the_hub_closing_the_leg_is_reported_before_the_process_goes(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A restart of luxd takes a live session's lux tools with it, silently.
+
+    The session keeps running and its tools are simply gone; nothing in the
+    transcript, the Hub log, or the session log says why. Because ``mcp-serve``
+    logs at WARNING to stderr, this level is what makes the line visible at all.
+    """
+
+    async def _drive() -> bool:
+        to_client, _from_proxy = anyio.create_memory_object_stream["SessionMessage"](0)
+        scope = anyio.CancelScope()
+        with scope:
+            await StdioHubProxy._to_client(await _closed_source(), to_client, scope)
+        return scope.cancel_called
+
+    with caplog.at_level(logging.WARNING):
+        assert anyio.run(_drive) is True  # and the session ends with it
+
+    assert "hub connection closed" in caplog.text
+
+
+def test_the_client_closing_stdin_ends_the_session_without_comment(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The ordinary end of every session: expected, so it earns no warning."""
+
+    async def _drive() -> bool:
+        to_hub, _from_proxy = anyio.create_memory_object_stream["SessionMessage"](0)
+        scope = anyio.CancelScope()
+        with scope:
+            await StdioHubProxy._to_hub(await _closed_source(), to_hub, scope)
+        return scope.cancel_called
+
+    with caplog.at_level(logging.WARNING):
+        assert anyio.run(_drive) is True
+
+    assert caplog.text == ""

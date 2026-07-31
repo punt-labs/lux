@@ -12,9 +12,11 @@ runs a process of its own; once it does, that process is also the natural place 
 speak MCP from. The forwarding is the cheap half; the leg it runs beside
 (:mod:`punt_lux.session_service`) is the half that earns the process.
 
-Both directions end together. When Claude Code closes stdin the session is over,
-the pump for that direction finishes, and the whole task group is cancelled — the
-HTTP transport's own close then tells luxd the session ended.
+Both directions end together, but they do not mean the same thing. When Claude
+Code closes stdin the session is over, the pump for that direction finishes, and
+the whole task group is cancelled — the HTTP transport's own close then tells luxd
+the session ended. The Hub side closing instead means the session outlived its
+tools, which is worth a word before the process goes.
 """
 
 from __future__ import annotations
@@ -125,25 +127,54 @@ class StdioHubProxy:
             streamable_http_client(self._url) as (from_hub, to_hub, _session_id),
             anyio.create_task_group() as pumps,
         ):
-            pumps.start_soon(self._forward, from_client, to_hub, pumps.cancel_scope)
-            pumps.start_soon(self._forward, from_hub, to_client, pumps.cancel_scope)
+            pumps.start_soon(self._to_hub, from_client, to_hub, pumps.cancel_scope)
+            pumps.start_soon(self._to_client, from_hub, to_client, pumps.cancel_scope)
+
+    @classmethod
+    async def _to_hub(
+        cls,
+        source: MemoryObjectReceiveStream[SessionMessage | Exception],
+        sink: MemoryObjectSendStream[SessionMessage],
+        scope: CancelScope,
+    ) -> None:
+        """Carry the session's messages to luxd until Claude Code closes stdin.
+
+        Stdin closing is how a session says it is over — the expected end of every
+        run, so it passes without comment.
+        """
+        await cls._forward(source, sink)
+        scope.cancel()
+
+    @classmethod
+    async def _to_client(
+        cls,
+        source: MemoryObjectReceiveStream[SessionMessage | Exception],
+        sink: MemoryObjectSendStream[SessionMessage],
+        scope: CancelScope,
+    ) -> None:
+        """Carry luxd's replies back, and say so if luxd is what ended the session.
+
+        This direction ending means the Hub closed the leg under a live session —
+        a restart, or a luxd that died — taking every lux tool with it while the
+        session carries on. This is the one place that knows why, so it says so
+        before the process goes.
+        """
+        await cls._forward(source, sink)
+        logger.warning("hub connection closed; this session's lux tools are gone")
+        scope.cancel()
 
     @staticmethod
     async def _forward(
         source: MemoryObjectReceiveStream[SessionMessage | Exception],
         sink: MemoryObjectSendStream[SessionMessage],
-        scope: CancelScope,
     ) -> None:
-        """Carry every message from ``source`` to ``sink``, then end the session.
+        """Carry every message from ``source`` to ``sink`` until the source ends.
 
         A message the transport could not read arrives as the exception itself.
         Dropping it is the transparent thing to do: the proxy is not a party to the
         conversation, so it reports the malformed message and leaves the peers'
         own protocol handling — a timeout, a retry, an error reply — to them,
         rather than inventing a reply neither side asked it for.
-
-        Either direction ending ends both. Stdin closing is how a session says it
-        is over, and a Hub-side close leaves nothing to forward.
         """
         with contextlib.suppress(anyio.BrokenResourceError, anyio.ClosedResourceError):
             async for message in source:
@@ -151,4 +182,3 @@ class StdioHubProxy:
                     logger.warning("dropping an unreadable MCP message: %s", message)
                     continue
                 await sink.send(message)
-        scope.cancel()
