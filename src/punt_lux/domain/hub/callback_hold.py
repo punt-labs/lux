@@ -15,8 +15,9 @@ with the client registry's lock (the live read completes before it is taken), so
 the router adds no deadlock risk.
 
 A persistent leg (a daemon holding a live connection) registers a
-:class:`CallbackListener` for its connection so a routed invocation is pushed at
-once rather than waited for. The listener is a payload-less wake, like the
+:class:`~punt_lux.domain.hub.callback_ports.CallbackListener` for its connection
+so a routed invocation is pushed at once rather than waited for. The listener is a
+payload-less wake, like the
 replicator's menu flag: ``route`` snapshots it under the lock and calls ``wake``
 *after* releasing the lock, so the notify never runs under the router lock and adds
 no new lock or cross-lock path.
@@ -34,18 +35,20 @@ from __future__ import annotations
 import logging
 import threading
 from collections import deque
-from typing import TYPE_CHECKING, Literal, Protocol, Self, final, runtime_checkable
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Literal, Self, final
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Generator, Mapping
 
+    from punt_lux.domain.hub.callback_ports import CallbackListener, LiveSessions
     from punt_lux.domain.hub.client_session import ClientSession
     from punt_lux.domain.hub.session_callback import CallbackInvocation
     from punt_lux.domain.ids import ConnectionId
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["CallbackListener", "CallbackRouter", "CallbackRouting", "LiveSessions"]
+__all__ = ["CallbackRouter", "CallbackRouting"]
 
 # A routed invocation waits in its session's hold; a click for a lapsed session is
 # ``provider_gone`` (the design's "provider is gone" notice), and one naming a
@@ -55,28 +58,6 @@ CallbackRouting = Literal["routed", "provider_gone", "unknown_callback"]
 # The most invocations one session's hold keeps before the oldest is dropped: a
 # backstop against an undrained hold growing without bound, not a delivery quota.
 _HOLD_CAPACITY = 32
-
-
-@runtime_checkable
-class LiveSessions(Protocol):
-    """The live-session read the router routes against — the sessions still in lease."""
-
-    def live_sessions(self) -> Mapping[ConnectionId, ClientSession]:
-        """Return the sessions whose lease has not lapsed, sweeping the expired."""
-        ...
-
-
-@runtime_checkable
-class CallbackListener(Protocol):
-    """A persistent leg's wake: 'a routed invocation landed — drain and push it.'
-
-    Payload-less by design, like the replicator's menu flag: the leg reads the hold
-    itself on waking, so the wake carries no state the hold does not already own.
-    """
-
-    def wake(self) -> None:
-        """Signal that a routed invocation is waiting for this connection."""
-        ...
 
 
 @final
@@ -109,6 +90,21 @@ class _CallbackHold:
         """Return every held invocation in arrival order without clearing."""
         return tuple(self._pending)
 
+    def report_dropped(self, connection_id: ConnectionId) -> None:
+        """Say what goes with this hold when its session leaves; silent if empty.
+
+        An empty hold going is routine bookkeeping. A hold with invocations still
+        in it is not: every one of those clicks was answered ``routed``, so the
+        caller was told the work had been handed off and it never ran. That is the
+        one thing this module can lose without anyone noticing, so it says so.
+        """
+        if self._pending:
+            logger.warning(
+                "%s left with %d routed invocation(s) never delivered",
+                connection_id,
+                len(self._pending),
+            )
+
 
 @final
 class CallbackRouter:
@@ -130,19 +126,31 @@ class CallbackRouter:
         self._capacity = capacity
         return self
 
-    def route(self, invocation: CallbackInvocation) -> CallbackRouting:
-        """Hold ``invocation`` for its owning session, or report why it cannot land.
+    @contextmanager
+    def _swept(self) -> Generator[Mapping[ConnectionId, ClientSession]]:
+        """Hold the router lock over swept holds, yielding the live sessions.
 
-        The live read runs first and outside the router's lock, sweeping the client
-        registry; only then is the hold lock taken, so the two locks never nest. A
-        session gone from the live set is ``provider_gone``; a live session that
-        never registered the callback is ``unknown_callback``. A routed invocation
-        for a session with a registered persistent listener wakes it — the wake runs
-        *after* the lock is released, so no callout happens under the router lock.
+        Every read and write of the holds enters here, so the lock discipline is
+        structural rather than three methods each remembering it: the live read
+        runs first and outside the router's lock — sweeping the client registry
+        under *its* lock — and only then is this one taken, so the two never nest.
+        Sweeping on the way in is what makes a departed session's hold
+        unreachable rather than merely unwanted.
         """
         live = self._lookup.live_sessions()
         with self._lock:
             self._sweep(live)
+            yield live
+
+    def route(self, invocation: CallbackInvocation) -> CallbackRouting:
+        """Hold ``invocation`` for its owning session, or report why it cannot land.
+
+        A session gone from the live set is ``provider_gone``; a live session that
+        never registered the callback is ``unknown_callback``. A routed invocation
+        for a session with a registered persistent listener wakes it — the wake runs
+        *after* the lock is released, so no callout happens under the router lock.
+        """
+        with self._swept() as live:
             session = live.get(invocation.connection_id)
             if session is None:
                 return "provider_gone"
@@ -190,14 +198,11 @@ class CallbackRouter:
     def take(self, connection_id: ConnectionId) -> tuple[CallbackInvocation, ...]:
         """Take and clear the session's held invocations — the delivery legs' drain.
 
-        Sweeps first, so a hold whose session has since left the live set is dropped
-        rather than delivered: the hold dies with the lease even when no ``route``
-        fired in between. The live read runs before the router lock, so the two
-        locks never nest.
+        A hold whose session has since left the live set is dropped by the entry
+        sweep rather than delivered: the hold dies with the lease even when no
+        ``route`` fired in between.
         """
-        live = self._lookup.live_sessions()
-        with self._lock:
-            self._sweep(live)
+        with self._swept():
             hold = self._holds.pop(connection_id, None)
             return hold.take_all() if hold is not None else ()
 
@@ -208,13 +213,8 @@ class CallbackRouter:
         because it is the only way to observe the hold without draining it, and
         the hold's own tests need to assert what is buffered and then that a
         later drain still returns it. Deliveries go through ``take``.
-
-        Sweeps first for the same reason as ``take``: an expired session's hold is
-        never readable. The live read precedes the router lock, so no lock nests.
         """
-        live = self._lookup.live_sessions()
-        with self._lock:
-            self._sweep(live)
+        with self._swept():
             hold = self._holds.get(connection_id)
             return hold.snapshot() if hold is not None else ()
 
@@ -229,9 +229,12 @@ class CallbackRouter:
             return connection_id in self._listeners
 
     def _sweep(self, live: Mapping[ConnectionId, ClientSession]) -> None:
-        """Drop holds for sessions no longer live. Caller holds the lock."""
+        """Drop holds for sessions no longer live, each reporting what it loses.
+
+        Caller holds the lock.
+        """
         for connection_id in [c for c in self._holds if c not in live]:
-            del self._holds[connection_id]
+            self._holds.pop(connection_id).report_dropped(connection_id)
 
     def _hold_for(self, connection_id: ConnectionId) -> _CallbackHold:
         """Return the session's hold, creating it on first use; caller locks."""

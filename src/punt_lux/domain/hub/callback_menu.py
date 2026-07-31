@@ -29,7 +29,7 @@ from punt_lux.domain.hub.session_callback import CallbackInvocation
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
 
-    from punt_lux.domain.hub.callback_hold import LiveSessions
+    from punt_lux.domain.hub.callback_ports import LiveSessions
     from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.domain.hub.client_session import ClientSession
     from punt_lux.domain.hub.session_callback import SessionCallback

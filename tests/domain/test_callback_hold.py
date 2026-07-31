@@ -9,14 +9,18 @@ by the delivery legs, and swept when a session leaves the live set.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
-from typing import final
+from typing import TYPE_CHECKING, final
 
 from punt_lux.domain.hub.callback_hold import CallbackRouter
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.client_session import ClientSession
 from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
 from punt_lux.domain.ids import ConnectionId
+
+if TYPE_CHECKING:
+    import pytest
 
 
 @final
@@ -115,6 +119,45 @@ def test_a_departed_session_has_its_hold_swept() -> None:
     # The next routing sweeps the departed session's hold rather than stranding it.
     router.route(CallbackInvocation(ConnectionId("other"), "x"))
     assert router.pending(conn) == ()
+
+
+def test_a_sweep_that_loses_clicks_says_so(caplog: pytest.LogCaptureFixture) -> None:
+    """Every swept invocation was answered ``routed`` — a promise that went unkept.
+
+    The caller was told the click had been handed off to its session. If the hold
+    goes with the session before any leg drains it, that work never ran and no
+    other line in the system records it, so the sweep names the count and the
+    connection rather than dropping them in silence.
+    """
+    conn = ConnectionId("vox")
+    live = _Live({conn: _session("vox", "beads")})
+    router = CallbackRouter(live)
+    router.route(CallbackInvocation(conn, "beads"))
+    router.route(CallbackInvocation(conn, "beads"))
+
+    live._sessions.clear()
+    with caplog.at_level(logging.WARNING):
+        assert router.pending(conn) == ()
+
+    assert "vox" in caplog.text
+    assert "2 routed invocation(s) never delivered" in caplog.text
+
+
+def test_a_session_that_leaves_with_nothing_owed_is_silent(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The warning marks lost work, not departure — the ordinary exit stays quiet."""
+    conn = ConnectionId("vox")
+    live = _Live({conn: _session("vox", "beads")})
+    router = CallbackRouter(live)
+    router.route(CallbackInvocation(conn, "beads"))
+    assert len(router.take(conn)) == 1  # the leg drained it before the lease lapsed
+
+    live._sessions.clear()
+    with caplog.at_level(logging.WARNING):
+        router.route(CallbackInvocation(ConnectionId("other"), "x"))
+
+    assert caplog.text == ""
 
 
 def test_pending_sweeps_an_expired_session_without_a_route_in_between() -> None:
