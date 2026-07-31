@@ -119,10 +119,10 @@
   "src/punt_lux/cli_identity.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
-    "avg_params": 0.67,
+    "avg_params": 1.0,
     "max_complexity": 3.0,
-    "avg_complexity": 2.67,
-    "module_size": 60.0,
+    "avg_complexity": 2.5,
+    "module_size": 45.0,
     "classes_per_module": 1.0,
     "class_to_func_ratio": 1.0,
     "init_violations": 0.0,
@@ -4835,6 +4835,19 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
+  "src/punt_lux/repo_root.py": {
+    "method_ratio": 1.0,
+    "encapsulation_ratio": 1.0,
+    "avg_params": 1.0,
+    "max_complexity": 4.0,
+    "avg_complexity": 4.0,
+    "module_size": 32.0,
+    "classes_per_module": 1.0,
+    "class_to_func_ratio": 1.0,
+    "init_violations": 0.0,
+    "public_attr_violations": 0.0,
+    "future_annotations": 1.0
+  },
   "src/punt_lux/rest/__init__.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
@@ -5167,6 +5180,19 @@
     "max_complexity": 2.0,
     "avg_complexity": 1.33,
     "module_size": 48.0,
+    "classes_per_module": 1.0,
+    "class_to_func_ratio": 1.0,
+    "init_violations": 0.0,
+    "public_attr_violations": 0.0,
+    "future_annotations": 1.0
+  },
+  "src/punt_lux/session_identity.py": {
+    "method_ratio": 1.0,
+    "encapsulation_ratio": 1.0,
+    "avg_params": 0.4,
+    "max_complexity": 1.0,
+    "avg_complexity": 1.0,
+    "module_size": 75.0,
     "classes_per_module": 1.0,
     "class_to_func_ratio": 1.0,
     "init_violations": 0.0,
