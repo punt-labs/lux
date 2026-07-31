@@ -847,10 +847,17 @@ class TestReap:
 
         Under full-suite load a single connect against the live socket would fail,
         the owner read concluded "unresolvable", and reap raised "refusing to reap"
-        against a display that was plainly running. Failing the first connect
-        deterministically reproduces that condition; reap must now resolve the owner
-        on a later attempt and terminate it. The refusal itself is not weakened —
-        an owner that stays unresolvable still refuses, with no PID-file fallback.
+        against a display that was plainly running. Failing that read's first
+        connect deterministically reproduces the condition; reap must now resolve
+        the owner on a later attempt and terminate it. The refusal itself is not
+        weakened — an owner that stays unresolvable still refuses, with no
+        PID-file fallback.
+
+        The injection targets the owner read by *phase*, not by counting connects:
+        reap resolves the owner only after its liveness check has returned True, so
+        the first connect after that is the one under test. Tripping on an ordinal
+        would silently move onto the liveness probe the day that probe connects
+        twice, and the test would pass for the wrong reason.
         """
         path = short_socket()
         display = _FakeDisplay(path)
@@ -858,14 +865,22 @@ class TestReap:
         dp.pid_path.write_text(str(os.getpid()))
         terminated: list[int] = []
         real_connect = socket.socket.connect
-        connects = 0
+        real_is_running = DisplayPaths.is_running
+        resolving_owner = False
+        failed_once = False
+
+        def watching_is_running(self: DisplayPaths) -> bool:
+            nonlocal resolving_owner
+            alive = real_is_running(self)
+            # Its own probe has connected and returned by now, so every later
+            # connect belongs to the owner read reap is about to make.
+            resolving_owner = resolving_owner or alive
+            return alive
 
         def flaky_connect(sock: socket.socket, address: object) -> None:
-            nonlocal connects
-            connects += 1
-            # Fail only the owner read: the liveness probe connects first, and
-            # this is the connect that used to sink the whole operation.
-            if connects == 2:
+            nonlocal failed_once
+            if resolving_owner and not failed_once:
+                failed_once = True
                 raise TimeoutError("timed out")
             real_connect(sock, address)  # type: ignore[arg-type]  # the real address
 
@@ -878,10 +893,12 @@ class TestReap:
             display.stop()
 
         try:
+            monkeypatch.setattr(DisplayPaths, "is_running", watching_is_running)
             monkeypatch.setattr(socket.socket, "connect", flaky_connect)
             with patch("punt_lux.paths.os.kill", side_effect=fake_kill):
                 dp.reap(timeout=2.0)
-            assert terminated == [os.getpid()]  # the live owner was reaped
+            assert failed_once  # the owner read really did meet a failed connect
+            assert terminated == [os.getpid()]  # and the live owner was reaped
             assert not path.exists()
         finally:
             display.stop()
