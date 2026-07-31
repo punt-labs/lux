@@ -81,6 +81,25 @@ class HubClientRegistry:
             )
             return updated is not None
 
+    def withdraw_callbacks(self, connection_id: ConnectionId) -> bool:
+        """Drop the session's callbacks, keeping the session; report whether any went.
+
+        Called when a connection's listen leg goes away. Registration requires a
+        live listener because a click is delivered by push, so the callbacks must
+        not outlast one: an entry whose owner cannot be reached is an entry that
+        swallows clicks. The session, its identity, and its lease stay — a
+        reconnect re-registers what the app still wants.
+
+        The bool is the caller's cue to re-push the menu, so a teardown that
+        removed nothing does not trigger a pointless send.
+        """
+        with self._lock:
+            session = self._sessions.get(connection_id)
+            if session is None or not session.callbacks:
+                return False
+            self._sessions[connection_id] = session.without_callbacks()
+            return True
+
     def session_of(self, connection_id: ConnectionId) -> ClientSession | None:
         """Return the connection's raw session, or ``None``, with no lease filter.
 

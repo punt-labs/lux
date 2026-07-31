@@ -30,7 +30,10 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 from punt_lux.connection_identity import connection_for
 from punt_lux.domain.hub import hub, hub_display
 from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.domain.hub.replicator_instance import hub_callback_router
+from punt_lux.domain.hub.replicator_instance import (
+    hub_callback_router,
+    hub_replicator,
+)
 from punt_lux.domain.ids import Topic
 from punt_lux.identity_headers import ClientHeaders
 from punt_lux.protocol.messages.listen import (
@@ -50,6 +53,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.hub import Hub
     from punt_lux.domain.hub.hub_clients import HubClientRegistry
     from punt_lux.domain.ids import ConnectionId
+    from punt_lux.operations.ports import DirtyMarker
     from punt_lux.protocol.messages.observer import ObserverMessage
 
 logger = logging.getLogger(__name__)
@@ -83,12 +87,14 @@ class HubListenSession:
     _router: CallbackRouter
     _outbound: asyncio.Queue[ServerFrame]
     _loop: asyncio.AbstractEventLoop
+    _menus: DirtyMarker
     __slots__ = (
         "_clients",
         "_conn",
         "_hub",
         "_identity",
         "_loop",
+        "_menus",
         "_outbound",
         "_router",
         "_ws",
@@ -102,6 +108,7 @@ class HubListenSession:
         hub: Hub,
         clients: HubClientRegistry,
         router: CallbackRouter,
+        menus: DirtyMarker,
     ) -> Self:
         self = super().__new__(cls)
         self._ws = ws
@@ -110,6 +117,7 @@ class HubListenSession:
         self._hub = hub
         self._clients = clients
         self._router = router
+        self._menus = menus
         self._outbound = asyncio.Queue()
         self._loop = asyncio.get_running_loop()
         return self
@@ -203,14 +211,23 @@ class HubListenSession:
             self._outbound.put_nowait(CallbackFrame(callback_id=invocation.callback_id))
 
     def _teardown(self) -> None:
-        """Drop the connection-bound bridges; the session and its hold persist.
+        """Drop everything the socket carried, including the session's menu items.
 
-        The writer and subscriptions cannot outlive the socket, and the listener
-        must stop waking a dead loop, so all three go. The session, its lease, and
-        its callback hold stay: a reconnect within the lease drains the buffered
-        clicks, matching the hold's "buffer for transient gaps" contract.
+        The writer, the subscriptions, and the listener cannot outlive the socket.
+        Neither can the callbacks: a menu item is delivered by push, so one whose
+        listener has gone is an entry the user can click into silence — the click
+        routes, lands in a hold, and nothing ever drains it. They are withdrawn
+        here, and the menu is re-pushed so the entry leaves the bar with the
+        connection that owned it.
+
+        The session, its identity, and its lease stay, and so does its hold: a
+        reconnect within the lease drains the clicks buffered across the gap and
+        re-registers its callbacks from ``on_connect``. So a transient drop heals
+        itself, while a process that is gone stays gone.
         """
         self._router.remove_listener(self._conn)
+        if self._clients.withdraw_callbacks(self._conn):
+            self._menus.mark_menus()
         self._hub.on_disconnect(self._conn)
 
 
@@ -221,21 +238,27 @@ class HubListenTransport:
     _hub: Hub
     _clients: HubClientRegistry
     _router: CallbackRouter
-    __slots__ = ("_clients", "_hub", "_router")
+    _menus: DirtyMarker
+    __slots__ = ("_clients", "_hub", "_menus", "_router")
 
     def __new__(
-        cls, hub: Hub, clients: HubClientRegistry, router: CallbackRouter
+        cls,
+        hub: Hub,
+        clients: HubClientRegistry,
+        router: CallbackRouter,
+        menus: DirtyMarker,
     ) -> Self:
         self = super().__new__(cls)
         self._hub = hub
         self._clients = clients
         self._router = router
+        self._menus = menus
         return self
 
     @classmethod
     def for_hub(cls) -> Self:
         """Wire the transport over the Hub's process singletons."""
-        return cls(hub, hub_display.clients, hub_callback_router)
+        return cls(hub, hub_display.clients, hub_callback_router, hub_replicator)
 
     def mount(self, app: FastAPI) -> None:
         """Add the ``/ws`` WebSocket route to the parent app."""
@@ -257,7 +280,13 @@ class HubListenTransport:
             return
         conn = connection_for(declaration)
         session = HubListenSession(
-            websocket, conn, identity, self._hub, self._clients, self._router
+            websocket,
+            conn,
+            identity,
+            self._hub,
+            self._clients,
+            self._router,
+            self._menus,
         )
         await session.run()
 

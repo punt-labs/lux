@@ -121,6 +121,17 @@ class ClientSession:
             self._connected_at, self._identity, self._lease, (*kept, callback)
         )
 
+    def without_callbacks(self) -> ClientSession:
+        """Return this session owning no callbacks, its identity and lease intact.
+
+        What a session's menu items are worth when the connection they were
+        registered on goes away: nothing. A callback is delivered by push, so it
+        outlives its listener only as an entry the user can click into silence.
+        The session itself survives — the same identity reconnecting re-registers
+        what it still wants — so only the callbacks are dropped.
+        """
+        return ClientSession(self._connected_at, self._identity, self._lease, ())
+
     def registering(
         self, callback: SessionCallback, now: float
     ) -> ClientSession | None:

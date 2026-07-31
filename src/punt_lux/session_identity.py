@@ -6,11 +6,16 @@ produce. Both must resolve to one Hub connection, so both declare this identity;
 :func:`~punt_lux.connection_identity.connection_for` derives the shared
 connection id from its fields.
 
-The name carries the process, not just the repository. Two Claude Code sessions
-open on the same repository are two separate services with separate menu entries,
-and identities that compared equal would collapse them onto one connection —
-the second session's WebSocket would silently take over the first's clicks. The
-process id distinguishes them and dies with them.
+The name is what a user reads in the menu bar, so it says three things in one
+uniform shape — ``lux · <repository> · #<process>``: which tool the entries
+belong to, which repository this session works in, and which of possibly several
+sessions on that repository it is.
+
+The last part is not cosmetic. Two Claude Code sessions open on the same
+repository are two separate services with separate menu entries, and identities
+that compared equal would collapse them onto one connection — the second
+session's WebSocket would silently take over the first's clicks. The process id
+distinguishes them and dies with them.
 
 The declared lease is short on purpose: a session's menu entry should leave the
 bar shortly after the session does. The Hub sweeps a session whose lease lapses,
@@ -61,7 +66,7 @@ class SessionIdentity:
         return cls(
             ClientIdentity(
                 kind="mcp-session",
-                name=f"{project}#{os.getpid():x}",
+                name=f"lux · {project} · #{os.getpid():x}",
                 repo=str(repo) if repo is not None else None,
                 lease_ttl=_LEASE_TTL_SECONDS,
             ),

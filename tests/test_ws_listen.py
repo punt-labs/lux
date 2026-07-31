@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Callable
-from typing import final
+from typing import Self, final
 
 import pytest
 from fastapi import FastAPI
@@ -24,7 +24,7 @@ from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
-from punt_lux.domain.ids import Topic
+from punt_lux.domain.ids import SceneId, Topic
 from punt_lux.protocol.messages.listen import CallbackFrame
 from punt_lux.ws_listen import HubListenSession, HubListenTransport
 
@@ -36,11 +36,34 @@ _HEADERS = {
 _CONN = connection_for({"kind": "app", "name": "voxd", "repo": "/w/vox"})
 
 
+@final
+class _MenuFlag:
+    """A DirtyMarker recording the menu re-pushes a teardown triggers."""
+
+    _menus: int
+    __slots__ = ("_menus",)
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._menus = 0
+        return self
+
+    def mark_dirty(self, scene_id: SceneId) -> None:
+        raise AssertionError("the listen leg must never mark a scene dirty")
+
+    def mark_menus(self) -> None:
+        self._menus += 1
+
+    @property
+    def pushes(self) -> int:
+        return self._menus
+
+
 def _wired() -> tuple[TestClient, Hub, HubClientRegistry, CallbackRouter]:
     hub, clients = Hub(), HubClientRegistry()
     router = CallbackRouter(clients)
     app = FastAPI()
-    HubListenTransport(hub, clients, router).mount(app)
+    HubListenTransport(hub, clients, router, _MenuFlag()).mount(app)
     return TestClient(app), hub, clients, router
 
 
@@ -87,6 +110,33 @@ def test_a_click_buffered_before_connect_is_drained_on_connect() -> None:
         ws.receive_json()  # ready
         # The buffered click drains on connect, before any new route.
         assert ws.receive_json() == {"kind": "callback", "callback_id": "beads"}
+
+
+def test_a_departed_connections_menu_items_leave_with_it() -> None:
+    """No ghost entries: an item whose owner is gone must not stay clickable.
+
+    A callback outliving its listener is an entry the user can click into
+    silence — the click routes "Ok", lands in a hold, and nothing ever drains
+    it. The session itself survives, because the same identity reconnecting
+    re-registers from ``on_connect``; only the callbacks go.
+    """
+    client, _hub, clients, _router = _wired()
+    with client.websocket_connect("/ws", headers=_HEADERS) as ws:
+        ws.receive_json()  # ready — the leg is up and its listener registered
+        clients.register_callback(_CONN, SessionCallback(id="beads", label="Beads"))
+        session = clients.session_of(_CONN)
+        assert session is not None
+        assert session.owns_callback("beads")
+
+    _eventually(lambda: not _owns(clients, "beads"))
+    survivor = clients.session_of(_CONN)
+    assert survivor is not None  # the session stays; a reconnect re-registers
+    assert survivor.identity is not None
+
+
+def _owns(clients: HubClientRegistry, callback_id: str) -> bool:
+    session = clients.session_of(_CONN)
+    return session is not None and session.owns_callback(callback_id)
 
 
 def test_a_subscribed_topics_publish_is_pushed() -> None:
@@ -143,6 +193,7 @@ def _session_over(send_error: Exception) -> HubListenSession:
         hub,
         clients,
         CallbackRouter(clients),
+        _MenuFlag(),
     )
 
 

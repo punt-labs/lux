@@ -8,6 +8,7 @@ separation, the short declared lease, and the derived MCP session key.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -39,13 +40,14 @@ def test_declares_an_mcp_session_owning_the_git_repository(
     assert identity.project == "lux"
 
 
-def test_the_name_carries_the_repository_and_the_process(
+def test_the_name_reads_as_tool_repository_and_session(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    repo = _make_repo(tmp_path, "lux")
+    """The name is what a user reads in the menu bar, in one uniform shape."""
+    repo = _make_repo(tmp_path, "quarry")
     monkeypatch.chdir(repo)
     monkeypatch.setattr("punt_lux.session_identity.os.getpid", lambda: 0x2A)
-    assert SessionIdentity.resolve().client.name == "lux#2a"
+    assert SessionIdentity.resolve().client.name == "lux · quarry · #2a"
 
 
 def test_two_sessions_on_one_repository_are_two_connections(
@@ -81,7 +83,7 @@ def test_headless_outside_a_repository(monkeypatch: pytest.MonkeyPatch) -> None:
     identity = SessionIdentity.resolve()
     assert identity.project == "lux-session"
     assert identity.client.repo is None
-    assert identity.client.name.startswith("lux-session#")
+    assert identity.client.name == "lux · lux-session · #" + f"{os.getpid():x}"
 
 
 def test_the_mcp_session_key_is_not_the_service_connection(
