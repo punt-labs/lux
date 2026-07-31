@@ -195,7 +195,7 @@ def test_an_identified_listening_session_registers_and_the_menu_is_pushed() -> N
     assert wired.pushed == 1
     menus = wired.ops.callback_menus()
     assert len(menus) == 1
-    assert menus[0].label == "claude — /w/lux"
+    assert menus[0].label == "claude"
 
 
 def test_a_malformed_request_passes_through_without_pushing() -> None:

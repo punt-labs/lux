@@ -1,7 +1,7 @@
 """CallbackMenu — the uniform session-then-callback menu build.
 
-One submenu per identified live session that has callbacks, labeled from its
-identity, callbacks as leaves — the same shape whatever the count, and two
+One submenu per identified live session that has callbacks, labeled with the
+session's name, callbacks as leaves — the same shape whatever the count, and two
 sessions never merged. Unidentified sessions and sessions with no callbacks
 contribute nothing, and each leaf id round-trips a click back to its session.
 """
@@ -34,7 +34,7 @@ def test_a_one_callback_session_is_a_single_leaf_submenu() -> None:
     menus = CallbackMenu.from_sessions({conn: _session("vox", "/w/vox", _beads())})
     assert len(menus) == 1
     submenu = menus[0]
-    assert submenu.label == "vox — /w/vox"
+    assert submenu.label == "vox"
     assert submenu.items == [
         MenuAction(id=CallbackInvocation(conn, "beads").menu_id, label="Beads")
     ]
@@ -56,6 +56,13 @@ def test_a_many_callback_session_has_the_same_shape() -> None:
 
 
 def test_two_sessions_with_the_same_callback_are_never_merged() -> None:
+    """Two sessions are two submenus even when they chose the same name.
+
+    The label is the name and nothing else, so a client that wants to be told
+    apart says so in its name — which is why a session server names itself
+    ``lux · <repository> · #<process>``. Two that do not are still two entries,
+    routing to their own sessions; they simply read alike.
+    """
     vox, lux = ConnectionId("vox"), ConnectionId("lux")
     menus = CallbackMenu.from_sessions(
         {
@@ -63,9 +70,8 @@ def test_two_sessions_with_the_same_callback_are_never_merged() -> None:
             lux: _session("claude", "/w/lux", _beads()),
         }
     )
-    # Same name, same callback id, different repos: two distinct submenus.
     assert len(menus) == 2
-    assert {menu.label for menu in menus} == {"claude — /w/vox", "claude — /w/lux"}
+    assert [menu.label for menu in menus] == ["claude", "claude"]
     # The leaf ids carry their own session, so a click routes to the right one.
     leaf_ids = {
         menu.items[0].id for menu in menus if isinstance(menu.items[0], MenuAction)
@@ -86,10 +92,18 @@ def test_an_identified_session_with_no_callbacks_contributes_nothing() -> None:
     assert CallbackMenu.from_sessions({ConnectionId("vox"): session}) == []
 
 
-def test_a_headless_session_label_carries_no_repo() -> None:
+def test_a_headless_session_reads_the_same_as_any_other() -> None:
+    """One rule: the label is the name, whether or not a repository was declared."""
     session = _session("lux-cli", None, _beads())  # a headless CLI declares no repo
     menus = CallbackMenu.from_sessions({ConnectionId("cli"): session})
     assert menus[0].label == "lux-cli"
+
+
+def test_a_session_that_names_its_repository_reads_that_way() -> None:
+    """What a session server declares is what the user sees, with nothing appended."""
+    session = _session("lux · quarry · #2a", "/Users/someone/quarry", _beads())
+    menus = CallbackMenu.from_sessions({ConnectionId("s"): session})
+    assert menus[0].label == "lux · quarry · #2a"
 
 
 def test_the_leaf_id_round_trips_to_the_owning_session() -> None:
@@ -107,7 +121,7 @@ def test_submenus_are_ordered_by_label() -> None:
             ConnectionId("l"): _session("lux", "/w/lux", _beads()),
         }
     )
-    assert [menu.label for menu in menus] == ["lux — /w/lux", "quarry — /w/quarry"]
+    assert [menu.label for menu in menus] == ["lux", "quarry"]
 
 
 def test_every_submenu_is_a_menu() -> None:

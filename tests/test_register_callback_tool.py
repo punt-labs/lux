@@ -167,7 +167,7 @@ def test_an_identified_session_registers_and_the_menu_shows_its_entry() -> None:
         # appended after any agent menus, labeled from its identity and repo.
         menus = ops.list_menus().menus
     assert len(menus) == 1
-    assert menus[0].label == "claude — /w/lux"
+    assert menus[0].label == "claude"
     assert len(menus[0].items) == 1
     leaf = menus[0].items[0]
     assert isinstance(leaf, MenuAction)

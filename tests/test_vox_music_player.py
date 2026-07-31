@@ -5,7 +5,7 @@ voxd is a persistent app client (kind=app, name=voxd, lease 30) that registers a
 two v1 loops the menu epic ships, end to end over the production WebSocket listen
 leg:
 
-1. voxd registers 'Music'; the Hub menu build shows one submenu "voxd — /w/vox"
+1. voxd registers 'Music'; the Hub menu build shows one submenu "voxd"
    with a "Music" leaf; a leaf click routes back to voxd's live WebSocket
    connection as a callback frame.
 2. an in-scene Play-row button carries the typed publish attribute; firing it
@@ -176,7 +176,7 @@ def test_the_music_build_shows_one_voxd_submenu_with_a_music_leaf() -> None:
 
     # Exactly one submenu, labelled by identity and repository, with the Music leaf
     # whose id round-trips a click back to voxd's connection.
-    assert [menu.label for menu in menus] == ["voxd — /w/vox"]
+    assert [menu.label for menu in menus] == ["voxd"]
     leaf = menus[0].items[0]
     assert isinstance(leaf, MenuAction)
     assert leaf.label == "Music"

@@ -52,8 +52,8 @@ def test_register_callback_then_list_shows_the_session_submenu() -> None:
         "/menus/callbacks", json={"callback": {"id": "beads", "label": "Beads"}}
     )
     listed = client.get("/menus").json()
-    # The caller identified as rest-test in /w/lux; its submenu names the repo.
-    assert [m["label"] for m in listed["menus"]] == ["rest-test — /w/lux"]
+    # The submenu is labeled with the caller's name and nothing else.
+    assert [m["label"] for m in listed["menus"]] == ["rest-test"]
 
 
 def test_register_callback_without_a_listen_leg_is_refused_with_403() -> None:
