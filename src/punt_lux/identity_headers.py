@@ -14,6 +14,7 @@ on a write that arrived without an identity — the HTTP analogue of a 401 chall
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, ClassVar, final
+from urllib.parse import quote, unquote
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -21,6 +22,19 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.client_identity import ClientIdentity
 
 __all__ = ["ClientHeaders"]
+
+# Header values cross as ASCII, so anything else is percent-encoded here and
+# decoded on the read. The transports do not agree about the alternative: the
+# WebSocket client sends UTF-8 bytes where the HTTP client sends latin-1, and a
+# server decoding one as the other reads a different string — which resolves to a
+# different connection id, splitting one session's two legs into two connections
+# that cannot see each other's callbacks. A repository path with an accent in it
+# is enough to trigger that, so the encoding is not optional.
+#
+# Every printable ASCII character except ``%`` is left alone, so the values
+# callers have today cross the wire byte-for-byte as before; ``%`` itself is
+# encoded so a value containing one still round-trips.
+_WIRE_SAFE = " !\"#$&'()*+,-./:;<=>?@[\\]^_`{|}~"
 
 
 @final
@@ -47,15 +61,28 @@ class ClientHeaders:
         an agent carries a persona, and an undeclared TTL means the kind default), so
         an absent one is omitted rather than sent blank — a blank header equals no
         header on the read side.
+
+        Values are percent-encoded so a non-ASCII name or repository path crosses
+        every transport as the same bytes; :meth:`declaration_from` reverses it.
         """
-        headers = {cls.KIND: identity.kind, cls.NAME: identity.name}
+        headers = {cls.KIND: identity.kind, cls.NAME: cls._encode(identity.name)}
         if identity.repo is not None:
-            headers[cls.REPO] = identity.repo
+            headers[cls.REPO] = cls._encode(identity.repo)
         if identity.agent is not None:
-            headers[cls.AGENT] = identity.agent
+            headers[cls.AGENT] = cls._encode(identity.agent)
         if identity.lease_ttl is not None:
             headers[cls.LEASE_TTL] = str(identity.lease_ttl)
         return headers
+
+    @staticmethod
+    def _encode(value: str) -> str:
+        """Render a declared value as ASCII the wire carries unambiguously."""
+        return quote(value, safe=_WIRE_SAFE)
+
+    @staticmethod
+    def _decode(value: str) -> str:
+        """Read a wire value back; an ASCII value with no escape is unchanged."""
+        return unquote(value)
 
     @classmethod
     def declaration_from(cls, headers: Mapping[str, str]) -> dict[str, object] | None:
@@ -67,8 +94,12 @@ class ClientHeaders:
         contract for an unidentified caller, not a give-up on the type. A declared
         ``lease_ttl`` rides as a string the identity model coerces and bounds-checks,
         so a non-numeric or out-of-range value is a named rejection, not a crash.
+
+        Values are percent-decoded, the inverse of what :meth:`to_wire` wrote, so
+        both of a session's legs read one identity out of their own transport's
+        header encoding.
         """
-        name = headers.get(cls.NAME, "").strip()
+        name = cls._decode(headers.get(cls.NAME, "")).strip()
         if not name:
             return None
         # A blank kind equals no kind — stripped and defaulted to cli, not sent on.
@@ -83,7 +114,7 @@ class ClientHeaders:
             ("lease_ttl", cls.LEASE_TTL),
         )
         for field, header in optional:
-            value = headers.get(header, "").strip()
+            value = cls._decode(headers.get(header, "")).strip()
             if value:
                 declaration[field] = value
         return declaration
