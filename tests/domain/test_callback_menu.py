@@ -8,6 +8,8 @@ contribute nothing, and each leaf id round-trips a click back to its session.
 
 from __future__ import annotations
 
+from typing import final
+
 from punt_lux.domain.hub.callback_menu import CallbackMenu
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.client_session import ClientSession
@@ -131,6 +133,14 @@ def test_every_submenu_is_a_menu() -> None:
     assert all(isinstance(menu, Menu) for menu in menus)
 
 
+@final
+class _SilentLeg:
+    """A listen leg stand-in: the menu needs a session to hold one, not to push."""
+
+    def wake(self) -> None:
+        """No delivery here — this test is about what the bar shows."""
+
+
 def test_replica_returns_the_live_submenus_as_wire() -> None:
     """CallbackMenuReplica composes the live sessions into wire submenus."""
     from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
@@ -138,8 +148,9 @@ def test_replica_returns_the_live_submenus_as_wire() -> None:
 
     registry = HubClientRegistry()
     conn = ConnectionId("vox")
-    registry.record(conn, ClientIdentity(kind="app", name="voxd"))
-    registry.register_callback(conn, SessionCallback(id="music", label="Music"))
+    leg = _SilentLeg()
+    registry.attach_listener(conn, ClientIdentity(kind="app", name="voxd"), leg)
+    registry.register_callback(conn, SessionCallback(id="music", label="Music"), leg)
 
     wire = CallbackMenuReplica(registry).callback_menu_wire()
 

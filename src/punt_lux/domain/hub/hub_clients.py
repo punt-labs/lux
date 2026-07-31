@@ -5,6 +5,16 @@ Each session carries a lease; any recorded contact renews it, and the live reads
 (:meth:`live_sessions`, :meth:`repos`) return only sessions still in lease,
 sweeping the lapsed as they pass so a departed caller cannot accrue forever. The
 clock is injected so a test can drive expiry deterministically.
+
+The registry also holds each connection's listen leg, because the leg and the
+callbacks registered against it must be written under one lock. One connection is
+shared by successive sessions of one identity, so every write to that state is a
+compare against the session occupying the slot: :meth:`attach_listener` installs
+a new occupant and clears what the last one owned, :meth:`register_callback`
+commits only if the leg the caller was gated against still holds the slot, and
+:meth:`detach_listener` removes nothing unless the caller is the occupant. Each
+is one critical section; a comparison that is not atomic with its write is the
+gap it exists to close.
 """
 
 from __future__ import annotations
@@ -12,7 +22,7 @@ from __future__ import annotations
 import threading
 import time
 from operator import attrgetter
-from typing import TYPE_CHECKING, Self, final
+from typing import TYPE_CHECKING, Literal, Self, final
 
 from punt_lux.domain.hub.client_session import ClientSession
 from punt_lux.domain.ids import ConnectionId
@@ -20,10 +30,24 @@ from punt_lux.domain.ids import ConnectionId
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
+    from punt_lux.domain.hub.callback_ports import CallbackListener
     from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.domain.hub.session_callback import SessionCallback
 
-__all__ = ["HubClientRegistry"]
+__all__ = ["CallbackRegistration", "HubClientRegistry", "ListenerDetachment"]
+
+# What a registration did. ``superseded`` is the compare-and-set losing: the leg
+# the caller was gated against is no longer the connection's, so the entry would be
+# one nothing could ever deliver a click to. ``declined`` is the session refusing —
+# it is anonymous, or its lease has lapsed — and declaring an identity answers both,
+# since identifying is itself a renewal.
+CallbackRegistration = Literal["registered", "superseded", "declined"]
+
+# What a teardown did to the connection's slot. ``kept`` is the stale case: a
+# successor holds the slot, so nothing was removed and no disconnect cascade may
+# run. The other two both released it, differing only in whether menu items went
+# with it — the caller's cue to re-push the bar.
+ListenerDetachment = Literal["kept", "released", "released_with_callbacks"]
 
 
 @final
@@ -59,46 +83,89 @@ class HubClientRegistry:
                 base.with_identity(identity) if identity is not None else base
             )
 
-    def register_callback(
-        self, connection_id: ConnectionId, callback: SessionCallback
-    ) -> bool:
-        """Register ``callback`` on an identified live session; report whether it took.
+    def attach_listener(
+        self,
+        connection_id: ConnectionId,
+        identity: ClientIdentity,
+        listener: CallbackListener,
+    ) -> None:
+        """Install ``listener`` as the connection's leg, recording ``identity`` with it.
 
-        The callback lives on the session, so this is one guarded upsert under the
-        registry's own lock — the same lock ``record`` and the live reads hold, so
-        withdrawal on a lapsed lease needs no second lock and cannot race the sweep.
-        The session itself decides whether it accepts the callback (``registering``
-        returns ``None`` from an unknown, unidentified, or lapsed session); the
-        registry stores the returned session or leaves the store untouched, and the
-        caller turns a ``False`` into an identify challenge.
+        A connecting session records itself and takes the slot in one step, so no
+        thread can see it identified but unreachable, or reachable but anonymous.
+        Taking the slot clears the callbacks the previous occupant owned: they were
+        deliverable only to it, and it has lost the connection they were registered
+        on. The arriving app re-registers from its connect hook.
+        """
+        with self._lock:
+            now = self._clock()
+            existing = self._sessions.get(connection_id)
+            base = existing.renewed(now) if existing is not None else ClientSession(now)
+            self._sessions[connection_id] = base.with_identity(identity).attached(
+                listener
+            )
+
+    def detach_listener(
+        self, connection_id: ConnectionId, listener: CallbackListener
+    ) -> ListenerDetachment:
+        """Release the slot and its callbacks if ``listener`` still holds it.
+
+        The comparison and the removal are one critical section, so no registration
+        can land between them and no successor's state can be taken. A session that
+        lost the slot while suspended removes nothing and is told ``kept``, which is
+        also its instruction not to run the disconnect cascade — that cascade drops
+        the connection's writer, which by then belongs to the successor too.
+        """
+        with self._lock:
+            session = self._sessions.get(connection_id)
+            if session is None:
+                return "kept"
+            released = session.detached(listener)
+            if released is None:
+                return "kept"
+            self._sessions[connection_id] = released
+            return "released_with_callbacks" if session.callbacks else "released"
+
+    def register_callback(
+        self,
+        connection_id: ConnectionId,
+        callback: SessionCallback,
+        expected: CallbackListener,
+    ) -> CallbackRegistration:
+        """Register ``callback`` if ``expected`` still holds the connection's slot.
+
+        The compare-and-set the two-lock design could not express. The caller reads
+        the leg through :meth:`listener_of` to decide what to tell an unreachable
+        connection, and hands that leg back here; between those two moments the leg
+        may have torn down or been replaced, and committing anyway would leave an
+        entry with no listener and nothing left that would ever withdraw it. Because
+        the slot and the callbacks are one value under this lock, the comparison and
+        the write are a single critical section rather than a re-read that races.
+
+        The session itself decides whether it accepts the callback at all — an
+        anonymous or lapsed session declines — so identity and lease stay its own.
         """
         with self._lock:
             now = self._clock()
             session = self._sessions.get(connection_id)
-            updated = None if session is None else session.registering(callback, now)
-            self._sessions.update(
-                {connection_id: updated} if updated is not None else {}
-            )
-            return updated is not None
+            if session is None or not session.held_by(expected):
+                return "superseded"
+            updated = session.registering(callback, now)
+            if updated is None:
+                return "declined"
+            self._sessions[connection_id] = updated
+            return "registered"
 
-    def withdraw_callbacks(self, connection_id: ConnectionId) -> bool:
-        """Drop the session's callbacks, keeping the session; report whether any went.
+    def listener_of(self, connection_id: ConnectionId) -> CallbackListener | None:
+        """The connection's listen leg, or ``None`` when it holds none.
 
-        Called when a connection's listen leg goes away. Registration requires a
-        live listener because a click is delivered by push, so the callbacks must
-        not outlast one: an entry whose owner cannot be reached is an entry that
-        swallows clicks. The session, its identity, and its lease stay — a
-        reconnect re-registers what the app still wants.
-
-        The bool is the caller's cue to re-push the menu, so a teardown that
-        removed nothing does not trigger a pointless send.
+        The registration gate's read. ``None`` is the real state of a connection
+        that reached the Hub over a one-shot call rather than a held leg, so the
+        caller can name the requirement instead of guessing at a failure.
         """
         with self._lock:
             session = self._sessions.get(connection_id)
-            if session is None or not session.callbacks:
-                return False
-            self._sessions[connection_id] = session.without_callbacks()
-            return True
+            return session.listener if session is not None else None
 
     def session_of(self, connection_id: ConnectionId) -> ClientSession | None:
         """Return the connection's raw session, or ``None``, with no lease filter.

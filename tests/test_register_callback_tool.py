@@ -18,6 +18,7 @@ from unittest import mock
 
 from punt_lux.domain.hub import client_registry, hub
 from punt_lux.domain.hub.callback_hold import CallbackRouter
+from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.inbox import ensure_writer, next_event
@@ -33,6 +34,11 @@ from punt_lux.tools import subscribe_tools, write_tools
 from punt_lux.tools.server import _session_key
 
 _SESSION = "test-register-callback"
+
+
+def _tool_identity() -> ClientIdentity:
+    """The identity the rig's leg declares — the one the tests then re-declare."""
+    return ClientIdentity(kind="mcp-session", name="claude", repo="/w/lux")
 
 
 @final
@@ -106,7 +112,9 @@ def _isolated_ops(*, listening: bool = True) -> Generator[tuple[Operations, _Rig
     router = CallbackRouter(display.clients)
     listener = _Listener()
     if listening:
-        router.add_listener(ConnectionId(_SESSION), listener)
+        display.clients.attach_listener(
+            ConnectionId(_SESSION), _tool_identity(), listener
+        )
     ports = HubPorts(
         element_factory=hub_element_factory,
         ensure_writer=ensure_writer,
@@ -149,11 +157,18 @@ def test_a_session_with_no_listen_leg_is_refused_the_push_requirement() -> None:
     assert "mcp-serve" in result  # and the way to get one
 
 
-def test_an_unidentified_session_is_refused_the_identify_challenge() -> None:
-    with _isolated_ops():
+def test_a_session_that_never_identified_meets_the_leg_it_cannot_hold() -> None:
+    """An anonymous caller cannot reach the identity challenge; it has no leg to hold.
+
+    Identity and the listen leg arrive in one registry write, and the route that
+    serves ``/ws`` refuses an unnamed handshake, so nothing anonymous ever occupies
+    a connection's slot. The refusal an unidentified caller meets is therefore the
+    push requirement — and identifying alone would not clear it.
+    """
+    with _isolated_ops(listening=False):
         result = subscribe_tools.register_callback("beads", "Beads")
     assert result.startswith("error: ")
-    assert "identity" in result
+    assert "listen leg" in result
 
 
 def test_an_identified_session_registers_and_the_menu_shows_its_entry() -> None:

@@ -14,20 +14,20 @@ session never strands invocations. One lock serializes the holds; it never nests
 with the client registry's lock (the live read completes before it is taken), so
 the router adds no deadlock risk.
 
-A persistent leg (a daemon holding a live connection) registers a
-:class:`~punt_lux.domain.hub.callback_ports.CallbackListener` for its connection
-so a routed invocation is pushed at once rather than waited for. The listener is a
-payload-less wake, like the
-replicator's menu flag: ``route`` snapshots it under the lock and calls ``wake``
-*after* releasing the lock, so the notify never runs under the router lock and adds
-no new lock or cross-lock path.
+A routed invocation is pushed at once rather than waited for, by waking the
+session's :class:`~punt_lux.domain.hub.callback_ports.CallbackListener`. The
+listener belongs to the session, not to this router: it and the callbacks
+registered against it are one slot in the client registry, under that registry's
+lock, so installing, committing, and releasing are each one critical section. The
+router reads the listener off the same live-session snapshot it routes against and
+calls ``wake`` *after* releasing its own lock, like the replicator's menu flag, so
+the notify never runs under a lock and no cross-lock path appears.
 
 Push is the only delivery: a menu item must launch in the time a user reads as
 instant, and a poll cannot promise that at any interval a client would run. So a
-registered listener is the *precondition* for owning a callback at all
-(``has_listener`` is the gate's read), and the hold is not an alternative pickup
-route — it is the buffer that carries clicks across a listener's transient gap
-until it reconnects and drains them.
+held listen leg is the *precondition* for owning a callback at all, and the hold
+is not an alternative pickup route — it is the buffer that carries clicks across a
+listener's transient gap until it reconnects and drains them.
 """
 
 from __future__ import annotations
@@ -112,16 +112,14 @@ class CallbackRouter:
 
     _lookup: LiveSessions
     _holds: dict[ConnectionId, _CallbackHold]
-    _listeners: dict[ConnectionId, CallbackListener]
     _lock: threading.Lock
     _capacity: int
-    __slots__ = ("_capacity", "_holds", "_listeners", "_lock", "_lookup")
+    __slots__ = ("_capacity", "_holds", "_lock", "_lookup")
 
     def __new__(cls, lookup: LiveSessions, capacity: int = _HOLD_CAPACITY) -> Self:
         self = super().__new__(cls)
         self._lookup = lookup
         self._holds = {}
-        self._listeners = {}
         self._lock = threading.Lock()
         self._capacity = capacity
         return self
@@ -146,8 +144,8 @@ class CallbackRouter:
         """Hold ``invocation`` for its owning session, or report why it cannot land.
 
         A session gone from the live set is ``provider_gone``; a live session that
-        never registered the callback is ``unknown_callback``. A routed invocation
-        for a session with a registered persistent listener wakes it — the wake runs
+        never registered the callback is ``unknown_callback``. The listener comes
+        off the same snapshot the routing decision was made against, and is woken
         *after* the lock is released, so no callout happens under the router lock.
         """
         with self._swept() as live:
@@ -157,43 +155,27 @@ class CallbackRouter:
             if not session.owns_callback(invocation.callback_id):
                 return "unknown_callback"
             self._hold_for(invocation.connection_id).add(invocation)
-            listener = self._listeners.get(invocation.connection_id)
+            listener = session.listener
         if listener is not None:
-            self._wake(invocation.connection_id, listener)
+            self._wake(listener)
         return "routed"
 
-    def _wake(self, connection_id: ConnectionId, listener: CallbackListener) -> None:
-        """Wake a connection's listener, isolating a raising one from the routing.
+    @staticmethod
+    def _wake(listener: CallbackListener) -> None:
+        """Wake a listener, isolating a raising one from the routing.
 
         The hold write already committed before this runs, so a wake that raises —
         a listener whose loop or socket is mid-teardown — must not fail the route or
-        lose the click: the invocation stays buffered for a later drain, and the dead
-        listener is dropped so it is not woken again. Runs outside the router lock, so
-        ``remove_listener`` re-taking that lock nests with nothing.
+        lose the click; the invocation stays buffered for the next drain. The dead
+        listener is left where it is: the slot belongs to the session that installed
+        it, and only that session's teardown may release it. A router that cleared
+        it here would be a second writer to state it does not own, which is the
+        clobber this design exists to rule out.
         """
         try:
             listener.wake()
         except Exception:
-            logger.exception("callback listener wake failed; dropping the listener")
-            self.remove_listener(connection_id)
-
-    def add_listener(
-        self, connection_id: ConnectionId, listener: CallbackListener
-    ) -> None:
-        """Register a persistent leg's wake for a connection, replacing any prior one.
-
-        A live connection registers on connect so ``route`` pushes to it at once; it
-        unregisters on disconnect. Listener lifetime is the connection's, not the
-        lease's — a live connection renews its own lease — so the sweep leaves
-        listeners alone and ``remove_listener`` is the only exit.
-        """
-        with self._lock:
-            self._listeners[connection_id] = listener
-
-    def remove_listener(self, connection_id: ConnectionId) -> None:
-        """Drop a connection's registered listener. A no-op if none is registered."""
-        with self._lock:
-            self._listeners.pop(connection_id, None)
+            logger.exception("callback listener wake failed; the click stays held")
 
     def take(self, connection_id: ConnectionId) -> tuple[CallbackInvocation, ...]:
         """Take and clear the session's held invocations — the delivery legs' drain.
@@ -217,16 +199,6 @@ class CallbackRouter:
         with self._swept():
             hold = self._holds.get(connection_id)
             return hold.snapshot() if hold is not None else ()
-
-    def has_listener(self, connection_id: ConnectionId) -> bool:
-        """Whether a persistent leg is registered to be woken for this connection.
-
-        The push-reachability read the registration gate asks: a connection with a
-        listener receives its clicks the moment they are routed, and one without
-        would never learn of them, so only the former may own a menu callback.
-        """
-        with self._lock:
-            return connection_id in self._listeners
 
     def _sweep(self, live: Mapping[ConnectionId, ClientSession]) -> None:
         """Drop holds for sessions no longer live, each reporting what it loses.

@@ -7,21 +7,27 @@ renews the lease; declaring an identity also resets the lease length to the one
 its kind declares. Identifying never resets a session's connect time, so age
 keeps climbing across a re-identify.
 
-A session's menu callbacks live on the session itself, so withdrawal is
-structural: when the lease lapses and the registry sweeps the session, its
-callbacks leave with it in one motion — there is no separate callback store to
-reap. The session decides whether it will register a callback (``registering``):
-only an identified, in-lease session accepts one, so the registry tells the
-session rather than reaching into its identity and lease.
+A session's listen leg and menu callbacks live on the session itself, as one
+:class:`~punt_lux.domain.hub.listener_slot.ListenerSlot`, so both withdrawals are
+structural: when the lease lapses and the registry sweeps the session, the slot
+leaves with it in one motion, and so does a teardown that releases it. Keeping
+the slot here rather than in the router is what puts the listener and the
+callbacks under one lock — the registry's — so installing, committing, and
+releasing are each a single critical section. The session decides whether it will
+register a callback (``registering``): only an identified, in-lease session
+accepts one, so the registry tells the session rather than reaching into its
+identity and lease.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.domain.hub.listener_slot import ListenerSlot
 from punt_lux.domain.hub.session_lease import SessionLease
 
 if TYPE_CHECKING:
+    from punt_lux.domain.hub.callback_ports import CallbackListener
     from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.domain.hub.session_callback import SessionCallback
 
@@ -35,15 +41,15 @@ class ClientSession:
     _connected_at: float
     _identity: ClientIdentity | None
     _lease: SessionLease
-    _callbacks: tuple[SessionCallback, ...]
-    __slots__ = ("_callbacks", "_connected_at", "_identity", "_lease")
+    _slot: ListenerSlot
+    __slots__ = ("_connected_at", "_identity", "_lease", "_slot")
 
     def __new__(
         cls,
         connected_at: float,
         identity: ClientIdentity | None = None,
         lease: SessionLease | None = None,
-        callbacks: tuple[SessionCallback, ...] = (),
+        slot: ListenerSlot | None = None,
     ) -> Self:
         self = super().__new__(cls)
         self._connected_at = connected_at
@@ -51,7 +57,8 @@ class ClientSession:
         self._lease = (
             lease if lease is not None else SessionLease.unidentified(connected_at)
         )
-        self._callbacks = callbacks
+        # Absent means the empty slot — the default for a session with no leg yet.
+        self._slot = slot if slot is not None else ListenerSlot()
         return self
 
     @property
@@ -76,11 +83,29 @@ class ClientSession:
     @property
     def callbacks(self) -> tuple[SessionCallback, ...]:
         """The callbacks this session registered, in registration order."""
-        return self._callbacks
+        return self._slot.callbacks
+
+    @property
+    def listener(self) -> CallbackListener | None:
+        """The listen leg to wake for this connection, or ``None`` if it holds none."""
+        return self._slot.listener
+
+    @property
+    def is_push_reachable(self) -> bool:
+        """Whether a listen leg occupies this session's slot.
+
+        The registration gate's question: a menu item is delivered by push, so a
+        connection with no leg could never be told its item was clicked.
+        """
+        return self._slot.is_held
+
+    def held_by(self, listener: CallbackListener) -> bool:
+        """Whether ``listener`` is the session's current occupant, by identity."""
+        return self._slot.held_by(listener)
 
     def owns_callback(self, callback_id: str) -> bool:
         """Whether this session registered a callback with ``callback_id``."""
-        return any(callback.id == callback_id for callback in self._callbacks)
+        return self._slot.owns(callback_id)
 
     def age(self, now: float) -> float:
         """Seconds since the session connected, clamped so it never goes negative."""
@@ -93,7 +118,7 @@ class ClientSession:
     def renewed(self, now: float) -> ClientSession:
         """Return this session with its lease renewed at ``now``; any contact renews."""
         lease = self._lease.renewed(now)
-        return ClientSession(self._connected_at, self._identity, lease, self._callbacks)
+        return ClientSession(self._connected_at, self._identity, lease, self._slot)
 
     def with_identity(self, identity: ClientIdentity) -> ClientSession:
         """Return this session carrying ``identity`` and the lease it declared.
@@ -107,30 +132,55 @@ class ClientSession:
         lease = SessionLease.for_declared(
             identity.kind, identity.lease_ttl, self._lease.renewed_at
         )
-        return ClientSession(self._connected_at, identity, lease, self._callbacks)
+        return ClientSession(self._connected_at, identity, lease, self._slot)
 
     def with_callback(self, callback: SessionCallback) -> ClientSession:
-        """Return this session with ``callback`` registered, last write winning by id.
+        """Return this session also owning ``callback``, last write winning by id.
 
-        A callback whose id the session already holds replaces the earlier one, so
-        the session never carries two callbacks under one id; a new id is appended.
         Identity and lease are unchanged — registering a callback is not a renewal.
         """
-        kept = tuple(c for c in self._callbacks if c.id != callback.id)
         return ClientSession(
-            self._connected_at, self._identity, self._lease, (*kept, callback)
+            self._connected_at,
+            self._identity,
+            self._lease,
+            self._slot.with_callback(callback),
         )
 
-    def without_callbacks(self) -> ClientSession:
-        """Return this session owning no callbacks, its identity and lease intact.
+    def attached(self, listener: CallbackListener) -> ClientSession:
+        """Return this session with ``listener`` holding the slot and no callbacks.
 
-        What a session's menu items are worth when the connection they were
-        registered on goes away: nothing. A callback is delivered by push, so it
-        outlives its listener only as an entry the user can click into silence.
-        The session itself survives — the same identity reconnecting re-registers
-        what it still wants — so only the callbacks are dropped.
+        The displaced occupant's callbacks go with it. Two sessions of one identity
+        may be live at once — an old one still pumping while its successor connects
+        — and leaving the callbacks would keep the departing session's menu entries
+        in the bar with every click routed to the newcomer. Nothing else would ever
+        withdraw them, because the session that could has lost the slot.
         """
-        return ClientSession(self._connected_at, self._identity, self._lease, ())
+        return ClientSession(
+            self._connected_at,
+            self._identity,
+            self._lease,
+            self._slot.occupied_by(listener),
+        )
+
+    def detached(self, listener: CallbackListener) -> ClientSession | None:
+        """Return this session with an empty slot, or ``None`` if it is not its own.
+
+        The ownership test that keeps a superseded session from removing its
+        successor's state. A session whose socket has gone may still be suspended
+        in its teardown while a reconnect completes an entire connect; when it
+        resumes, it is no longer the occupant, and it must remove nothing. ``None``
+        is that decline — the stale case, a normal outcome rather than a failure.
+
+        The listener and the callbacks go together, so no reader can observe a
+        callback whose listener has already been cleared.
+        """
+        return (
+            ClientSession(
+                self._connected_at, self._identity, self._lease, self._slot.released()
+            )
+            if self._slot.held_by(listener)
+            else None
+        )
 
     def registering(
         self, callback: SessionCallback, now: float

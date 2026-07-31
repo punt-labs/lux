@@ -9,9 +9,11 @@ sessions into the uniform session-then-callback tree.
 Registration has two preconditions and refuses rather than half-granting either.
 The connection must hold a listen leg, because a menu item that cannot be
 delivered by push cannot launch at the speed a menu implies. And the session must
-have identified, so nothing anonymous owns a menu item. Identity and lease are the
-session registry's and push-reachability is the router's, each read through its
-owner — this concern keeps no duplicate of either.
+have identified, so nothing anonymous owns a menu item. Both are the session
+registry's to answer — the leg, the identity, and the lease all live on the
+session — so this concern keeps no duplicate of any of them, and the leg it reads
+to decide the first goes back to the registry as the condition the write commits
+under.
 """
 
 from __future__ import annotations
@@ -25,7 +27,7 @@ from punt_lux.operations.models.menu_results import Ok
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.callback_hold import CallbackRouter, CallbackRouting
-    from punt_lux.domain.hub.hub_clients import HubClientRegistry
+    from punt_lux.domain.hub.hub_clients import CallbackRegistration, HubClientRegistry
     from punt_lux.domain.hub.menu_models import Menu
     from punt_lux.operations.models.callbacks import RegisterCallbackRequest
     from punt_lux.operations.ports import DirtyMarker
@@ -85,12 +87,30 @@ class CallbackOperations:
         clicked. Then the session must have identified, refused with the same
         challenge a scene write returns, so nothing anonymous owns a menu item.
         A registration that took changes the menu, so the replicator re-pushes it.
+
+        The leg read here is carried into the write, which commits only if that
+        same leg still holds the connection. Reading and writing are separate
+        moments — this runs on an MCP or REST thread, and the leg lives on the
+        loop — so between them it may tear down or be replaced by a reconnect.
+        Committing anyway would leave a menu item with no listener and nothing
+        that would ever withdraw it, which is precisely what the gate is for.
         """
         if isinstance(request, OpError):
             return request
-        if not self._router.has_listener(scope.connection_id):
+        expected = self._clients.listener_of(scope.connection_id)
+        if expected is None:
             return OpError(code="push_required", reason=_PUSH_REQUIRED)
-        if not self._clients.register_callback(scope.connection_id, request.callback):
+        return self._registered(
+            self._clients.register_callback(
+                scope.connection_id, request.callback, expected
+            )
+        )
+
+    def _registered(self, outcome: CallbackRegistration) -> Ok | OpError:
+        """Turn a registration outcome into its result, pushing the menu if it took."""
+        if outcome == "superseded":
+            return OpError(code="push_required", reason=_PUSH_REQUIRED)
+        if outcome == "declined":
             return OpError.identification_required(
                 "declare an identity to own the menu callbacks this session registers"
             )

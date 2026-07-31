@@ -127,11 +127,14 @@ class _Wired:
     def connect(
         self, conn: ConnectionId, identity: ClientIdentity | None = None
     ) -> _Listener:
-        """Bring a session up as a live listen leg would: identity, then listener."""
-        self.identify(conn, identity)
+        """Bring a session up as a live listen leg does: one call, identity and leg."""
         listener = _Listener()
-        self._router.add_listener(conn, listener)
+        self._clients.attach_listener(conn, identity or _identity(), listener)
         return listener
+
+    def drop_leg(self, conn: ConnectionId, listener: _Listener) -> None:
+        """Tear the session's leg down the way its own teardown does."""
+        self._clients.detach_listener(conn, listener)
 
     def register(self, conn: ConnectionId, callback_id: str = "beads") -> Ok | OpError:
         request = RegisterCallbackRequest.parse(callback_id=callback_id, label="Beads")
@@ -175,10 +178,21 @@ def test_push_reachability_is_answered_before_identity() -> None:
     assert result.code == "push_required"
 
 
-def test_registration_still_requires_an_identified_session() -> None:
-    wired = _Wired()
-    conn = ConnectionId("bare")
-    wired.connect(conn)  # a listen leg, but no declared identity
+def test_a_session_whose_lease_lapsed_is_challenged_rather_than_registered() -> None:
+    """Holding a leg is not enough; the session must still be one the Hub knows.
+
+    This is now the only way a session with a leg can be refused on its own
+    account. Identity and the leg arrive in one registry write, so a connection
+    cannot hold a leg anonymously — the route that serves it refuses an unnamed
+    handshake, and attaching records the identity in the same step. What remains
+    is a session that stopped renewing, and re-identifying answers that, because
+    declaring an identity is itself a renewal.
+    """
+    clock = _Clock()
+    wired = _Wired(clock=clock)
+    conn = ConnectionId("mcp")
+    wired.connect(conn, _identity())
+    clock.advance(1801.0)  # past the 1800s mcp-session lease, no contact since
 
     result = wired.register(conn)
     assert isinstance(result, OpError)
@@ -283,10 +297,10 @@ def test_a_dropped_listener_closes_the_door_to_new_registrations() -> None:
     """
     wired = _Wired()
     conn = ConnectionId("mcp")
-    wired.connect(conn, _identity())
+    listener = wired.connect(conn, _identity())
     assert isinstance(wired.register(conn), Ok)
 
-    wired.router.remove_listener(conn)
+    wired.drop_leg(conn, listener)
     result = wired.register(conn, "second")
     assert isinstance(result, OpError)
     assert result.code == "push_required"

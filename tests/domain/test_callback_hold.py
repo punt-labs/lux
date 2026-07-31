@@ -22,6 +22,8 @@ from punt_lux.domain.ids import ConnectionId
 if TYPE_CHECKING:
     import pytest
 
+    from punt_lux.domain.hub.callback_ports import CallbackListener
+
 
 @final
 class _Live:
@@ -48,10 +50,19 @@ class _Waker:
             self._on_wake()
 
 
-def _session(name: str, *callback_ids: str) -> ClientSession:
+def _session(
+    name: str, *callback_ids: str, leg: CallbackListener | None = None
+) -> ClientSession:
+    """Build a live session, optionally holding ``leg`` as its listen connection.
+
+    The leg is attached before the callbacks because taking the slot clears what
+    its previous occupant owned — the order a real connect follows.
+    """
     session = ClientSession(0.0).with_identity(
         ClientIdentity(kind="mcp-session", name=name, repo=f"/w/{name}")
     )
+    if leg is not None:
+        session = session.attached(leg)
     for callback_id in callback_ids:
         session = session.with_callback(SessionCallback(id=callback_id, label="Beads"))
     return session
@@ -183,18 +194,16 @@ def test_take_sweeps_an_expired_session_without_a_route_in_between() -> None:
 
 def test_a_routed_invocation_wakes_the_connections_listener() -> None:
     conn = ConnectionId("vox")
-    router = CallbackRouter(_Live({conn: _session("vox", "beads")}))
     waker = _Waker()
-    router.add_listener(conn, waker)
+    router = CallbackRouter(_Live({conn: _session("vox", "beads", leg=waker)}))
     assert router.route(CallbackInvocation(conn, "beads")) == "routed"
     assert waker.wakes == 1
 
 
 def test_a_rejected_click_never_wakes_a_listener() -> None:
     conn = ConnectionId("vox")
-    router = CallbackRouter(_Live({conn: _session("vox", "beads")}))
     waker = _Waker()
-    router.add_listener(conn, waker)
+    router = CallbackRouter(_Live({conn: _session("vox", "beads", leg=waker)}))
     # unknown_callback and provider_gone both short-circuit before the hold/notify.
     assert router.route(CallbackInvocation(conn, "other")) == "unknown_callback"
     assert (
@@ -203,12 +212,13 @@ def test_a_rejected_click_never_wakes_a_listener() -> None:
     assert waker.wakes == 0
 
 
-def test_a_removed_listener_is_no_longer_woken() -> None:
+def test_a_session_that_released_its_leg_is_no_longer_woken() -> None:
+    """The slot is the session's, so a released one leaves nothing to wake."""
     conn = ConnectionId("vox")
-    router = CallbackRouter(_Live({conn: _session("vox", "beads")}))
     waker = _Waker()
-    router.add_listener(conn, waker)
-    router.remove_listener(conn)
+    live = _Live({conn: _session("vox", "beads", leg=waker)})
+    router = CallbackRouter(live)
+    live._sessions[conn] = _session("vox", "beads")  # the leg tore down
     router.route(CallbackInvocation(conn, "beads"))
     assert waker.wakes == 0
 
@@ -217,11 +227,9 @@ def test_the_wake_runs_outside_the_router_lock() -> None:
     # A reentrant router call inside wake() would deadlock on the non-reentrant lock
     # if the notify ran under it; that it returns proves the wake is post-release.
     conn = ConnectionId("vox")
-    router = CallbackRouter(_Live({conn: _session("vox", "beads")}))
     observed: list[tuple[CallbackInvocation, ...]] = []
-    router.add_listener(
-        conn, _Waker(on_wake=lambda: observed.append(router.pending(conn)))
-    )
+    waker = _Waker(on_wake=lambda: observed.append(router.pending(conn)))
+    router = CallbackRouter(_Live({conn: _session("vox", "beads", leg=waker)}))
     router.route(CallbackInvocation(conn, "beads"))
     # The reentrant pending() saw the just-held invocation and did not deadlock.
     assert observed == [(CallbackInvocation(conn, "beads"),)]
@@ -259,8 +267,7 @@ def test_the_live_read_precedes_the_router_lock() -> None:
 def test_the_persistent_listener_and_the_poll_hold_are_the_same_buffer() -> None:
     # A woken listener drains via take(), the identical hold a poller would drain.
     conn = ConnectionId("vox")
-    router = CallbackRouter(_Live({conn: _session("vox", "beads")}))
-    router.add_listener(conn, _Waker())
+    router = CallbackRouter(_Live({conn: _session("vox", "beads", leg=_Waker())}))
     router.route(CallbackInvocation(conn, "beads"))
     assert router.take(conn) == (CallbackInvocation(conn, "beads"),)
     assert router.pending(conn) == ()
@@ -271,21 +278,28 @@ def _raise() -> None:
     raise RuntimeError(msg)
 
 
-def test_a_raising_listener_is_isolated_and_dropped_but_the_click_is_kept() -> None:
-    # A listener whose loop/socket is tearing down may raise on wake; the hold write
-    # already happened, so the click must survive and the dead listener must go.
+def test_a_raising_listener_is_isolated_and_the_click_is_kept() -> None:
+    """A wake that raises must not fail the route, and must not release the slot.
+
+    A listener whose loop or socket is tearing down may raise. The hold write has
+    already happened, so the click survives. The leg stays where it is: the slot
+    belongs to the session that installed it and only that session's teardown may
+    release it, so a router that cleared it here would be a second writer to state
+    it does not own — the clobber the whole design rules out.
+    """
     conn = ConnectionId("vox")
-    router = CallbackRouter(_Live({conn: _session("vox", "beads")}))
     boom = _Waker(on_wake=_raise)
-    router.add_listener(conn, boom)
+    live = _Live({conn: _session("vox", "beads", leg=boom)})
+    router = CallbackRouter(live)
 
     # Routing survives the raising wake and reports success — the click landed.
     assert router.route(CallbackInvocation(conn, "beads")) == "routed"
     assert router.pending(conn) == (CallbackInvocation(conn, "beads"),)  # kept
     assert boom.wakes == 1
 
-    # The dead listener was dropped: a second routed click is not woken again, and
-    # the click still buffers for a later drain.
+    # The leg is still the session's, so the next click is offered to it again and
+    # is buffered just the same; the session's own teardown is what ends this.
     assert router.route(CallbackInvocation(conn, "beads")) == "routed"
-    assert boom.wakes == 1  # not woken a second time
+    assert boom.wakes == 2
+    assert live._sessions[conn].held_by(boom)
     assert len(router.pending(conn)) == 2  # both clicks held for the drain

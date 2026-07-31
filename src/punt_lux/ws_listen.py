@@ -8,13 +8,19 @@ one per client lives in :mod:`punt_lux.ws_transport`.
 The session is the bridge between two worlds. Hub-side, ``publish`` and a menu
 click run on arbitrary threads (an MCP tool thread, the click-dispatch thread);
 the WebSocket lives on the server's event loop. So the pub-sub writer and the
-:class:`~punt_lux.domain.hub.callback_hold.CallbackListener` wake both hop onto the
-loop with ``call_soon_threadsafe`` and enqueue a frame the write task drains — no
-Hub lock is ever taken from the loop except the router's own, and never nested with
-the client-registry lock, so the leg keeps PR-1's lock discipline. Connection-bound
-state (the writer, the listener, the subscriptions) is torn down on disconnect; the
-session, its lease, and its callback hold persist so a reconnect within the lease
-drains the buffered clicks.
+:class:`~punt_lux.domain.hub.callback_ports.CallbackListener` wake both hop onto
+the loop with ``call_soon_threadsafe`` and enqueue a frame the write task drains.
+The loop takes the client registry's lock to install and release the session's
+listener slot, and the router's to drain the hold, but never one inside the other,
+so no cross-lock path appears.
+
+The connection is keyed by an identity-derived id, so successive sessions of one
+identity share it, and the session occupying the listener slot is the connection's
+ownership token: state installed here is released only by the session that
+installed it, compared by object identity. Connection-bound state (the writer, the
+listener, its callbacks, the subscriptions) goes on disconnect; the session, its
+lease, and its callback hold persist so a reconnect within the lease drains the
+buffered clicks.
 """
 
 from __future__ import annotations
@@ -118,13 +124,18 @@ class HubListenSession:
         listener for a connection nothing can reach — and would then admit a
         menu callback from that identity, because holding a listener is exactly
         what the registration gate checks for.
+
+        The prologue runs as one uninterrupted stretch between the accept and the
+        handshake write, so no other loop-side step can land inside it. Recording
+        the identity and taking the connection's listener slot are one registry
+        call for the same reason at thread scope: nothing may observe this session
+        identified but unreachable, or holding the slot but anonymous.
         """
         await self._ws.accept()
         self._loop = asyncio.get_running_loop()
         try:
-            self._clients.record(self._conn, self._identity)
+            self._clients.attach_listener(self._conn, self._identity, self)
             self._hub.register_writer(self._conn, self.deliver_event)
-            self._router.add_listener(self._conn, self)
             await self._ws.send_text(
                 ReadyFrame(connection_id=str(self._conn)).model_dump_json()
             )
@@ -212,21 +223,40 @@ class HubListenSession:
             self._outbound.put_nowait(CallbackFrame(callback_id=invocation.callback_id))
 
     def _teardown(self) -> None:
-        """Drop everything the socket carried, including the session's menu items.
+        """Drop what this session installed — and only if it is still this session's.
 
-        The writer, the subscriptions, and the listener cannot outlive the socket.
-        Neither can the callbacks: a menu item is delivered by push, so one whose
-        listener has gone is an entry the user can click into silence — the click
-        routes, lands in a hold, and nothing ever drains it. They are withdrawn
-        here, and the menu is re-pushed so the entry leaves the bar with the
-        connection that owned it.
+        One connection is shared by successive sessions of one identity, because
+        the id is derived from that identity: an old session dying and a new one
+        reconnecting after its backoff address the same slot. A session that has
+        lost its socket may still be suspended here, awaiting its cancelled writer,
+        while its successor completes an entire connect. Removing unconditionally
+        at that point takes the *successor's* listener, callbacks, and writer, and
+        the damage does not heal — the successor keeps renewing its lease, so no
+        sweep ever repairs it, and it goes on believing it is push-reachable while
+        owning nothing. So the slot's occupant is compared to ``self`` first, and a
+        session that no longer holds it removes nothing at all.
+
+        The listener and the callbacks are released as one operation, because a
+        callback whose listener has already gone is observable from the threads
+        that route clicks and register entries. The menu is re-pushed only when
+        entries actually went, so the bar loses them with the connection that owned
+        them.
 
         The session, its identity, and its lease stay, and so does its hold: a
         reconnect within the lease drains the clicks buffered across the gap and
         re-registers its callbacks from ``on_connect``. So a transient drop heals
         itself, while a process that is gone stays gone.
+
+        This method must contain no ``await``. It is what makes the disconnect
+        cascade below safe without a guard of its own: with no suspension point,
+        the release and the cascade are one uninterrupted loop run, so no reconnect
+        can install a successor's writer between them. Adding an ``await`` here
+        reopens that window and invalidates the model this design was checked
+        against.
         """
-        self._router.remove_listener(self._conn)
-        if self._clients.withdraw_callbacks(self._conn):
+        detachment = self._clients.detach_listener(self._conn, self)
+        if detachment == "kept":
+            return  # a successor holds the connection; none of this is ours to drop
+        if detachment == "released_with_callbacks":
             self._menus.mark_menus()
         self._hub.on_disconnect(self._conn)

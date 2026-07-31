@@ -167,10 +167,23 @@ def _play_button(hub: Hub, album_id: str) -> ButtonElement:
     return button
 
 
+@final
+class _SilentLeg:
+    """A listen leg stand-in for the cases that build a menu without a socket."""
+
+    def wake(self) -> None:
+        """Delivery is the websocket's job in the click test below."""
+
+
 def test_the_music_build_shows_one_voxd_submenu_with_a_music_leaf() -> None:
     _client, _hub, clients, _router = _wired()
-    clients.record(_CONN, _IDENTITY)  # voxd identifies (app kind → permanent-ish lease)
-    assert clients.register_callback(_CONN, SessionCallback(id="music", label="Music"))
+    # voxd connects: identity and listen leg in one write, as the /ws route does.
+    leg = _SilentLeg()
+    clients.attach_listener(_CONN, _IDENTITY, leg)
+    outcome = clients.register_callback(
+        _CONN, SessionCallback(id="music", label="Music"), leg
+    )
+    assert outcome == "registered"
 
     menus = CallbackMenu.from_sessions(clients.live_sessions())
 
@@ -185,13 +198,20 @@ def test_the_music_build_shows_one_voxd_submenu_with_a_music_leaf() -> None:
 
 def test_a_music_leaf_click_reaches_voxds_live_websocket() -> None:
     client, _hub, clients, router = _wired()
-    clients.record(_CONN, _IDENTITY)
-    assert clients.register_callback(_CONN, SessionCallback(id="music", label="Music"))
     callbacks = CallbackOperations(clients, router, _Replicator())
     leaf_id = CallbackInvocation(_CONN, "music").menu_id
 
     with client.websocket_connect("/ws", headers=_HEADERS) as ws:
-        ws.receive_json()  # ready — voxd's listener is registered by now
+        ws.receive_json()  # ready — voxd's leg is installed by now
+        # Registration happens from the live connection, which is what an app's
+        # on_connect hook does: a leg taking the slot clears what the last one
+        # owned, so entries registered before connecting would not survive it.
+        leg = clients.listener_of(_CONN)
+        assert leg is not None
+        registration = clients.register_callback(
+            _CONN, SessionCallback(id="music", label="Music"), leg
+        )
+        assert registration == "registered"
         # The display-less stand-in for a leaf click: the invoke a menu-leaf click
         # dispatches, driven with the exact id the built leaf carries.
         outcome = callbacks.invoke_callback(leaf_id)

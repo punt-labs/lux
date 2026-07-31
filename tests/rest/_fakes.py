@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 
 from punt_lux.connection_identity import connection_for
 from punt_lux.domain.hub.callback_hold import CallbackRouter
+from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.clients import ClientRegistry
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
@@ -35,6 +36,10 @@ DEFAULT_IDENTITY = {
     "X-Lux-Client-Name": "rest-test",
     "X-Lux-Client-Repo": "/w/lux",
 }
+
+# The same declaration as a value, for standing the caller up as a listen leg: the
+# leg and the identity are one registry write, so attaching needs both.
+DEFAULT_IDENTITY_MODEL = ClientIdentity(kind="cli", name="rest-test", repo="/w/lux")
 
 # The connection the default identity resolves to on every transport. A test that
 # needs the caller push-reachable — registering a menu callback requires a live
@@ -159,7 +164,9 @@ def make_client(
     display = store if store is not None else HubDisplay()
     router = CallbackRouter(display.clients)
     if listening:
-        router.add_listener(DEFAULT_CONNECTION, SilentListener())
+        display.clients.attach_listener(
+            DEFAULT_CONNECTION, DEFAULT_IDENTITY_MODEL, SilentListener()
+        )
     facade = make_facade(display_port=port, store=display, router=router)
     RestSurface(facade).mount(app)
     headers = dict(DEFAULT_IDENTITY if identity is None else identity)
