@@ -72,20 +72,28 @@ class BeadsService:
     def service(self, client: LuxRestClient) -> None:
         """Answer a click: load the issues and push the board through ``client``.
 
-        Runs on the session's own servicing thread, which is the last thing between
-        a user's click and nothing happening — so an unforeseen failure becomes the
-        board's red message rather than a traceback into a log. Expected failures
-        (``bd`` missing, a bad repository) are already a message the loader
-        reports; this catch covers the rest.
+        Every failure this side of the Hub becomes something the user can see. A
+        load that fails renders its reason in red rather than leaving the board
+        blank, and a push the Hub refuses is reported — there is nowhere left to
+        render a message about the render itself.
+        """
+        self._push(client, self._request())
+
+    def _request(self) -> RenderTableRequest | RenderRequest:
+        """Build the board's request, turning any failure into a showable one.
+
+        The loader already reports its expected failures — ``bd`` missing, a bad
+        repository — as a reason to render. This covers the rest, because the
+        session's servicing thread is the last thing between a user's click and
+        nothing happening at all.
         """
         try:
-            request = self._board.request(self._source.load())
+            return self._board.request(self._source.load())
         except Exception:
             logger.exception("building the beads board failed")
-            request = self._board.failure(
+            return self._board.failure(
                 "the beads board could not be built — see the session log"
             )
-        self._push(client, request)
 
     def _push(
         self, client: LuxRestClient, request: RenderTableRequest | RenderRequest

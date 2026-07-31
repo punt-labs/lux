@@ -170,8 +170,27 @@ class SessionCallbackLeg:
         await asyncio.to_thread(self._service_now)
 
     def _service_now(self) -> None:
-        """Do the click's work — the blocking half, off the loop."""
-        self._service.service(self._rest())
+        """Do the click's work, absorbing failure rather than dropping the socket.
+
+        A click is not worth the connection. Building the client, running the
+        service, and its push all happen inside this boundary, and nothing that
+        goes wrong here reaches the receive loop — an escaping error would end
+        ``listen`` and tear down a socket that is perfectly healthy, so a single
+        bad click would cost the session its leg and its menu entry.
+
+        A Hub that cannot be reached is the ordinary version of that: a restart
+        between the click and the push. It is reported at WARNING because a click
+        that produced nothing is something the user is waiting on, and this
+        process logs at WARNING and above. The transport's own sentence goes with
+        it, because a push that timed out and a luxd that is not running are
+        different problems and only that sentence tells them apart.
+        """
+        try:
+            self._service.service(self._rest())
+        except HubUnavailableError as exc:
+            logger.warning("this click rendered nothing — luxd unreachable: %s", exc)
+        except Exception:
+            logger.exception("servicing a click failed; the leg stays up")
 
     @staticmethod
     def _on_event(topic: str, payload: Mapping[str, object]) -> None:
