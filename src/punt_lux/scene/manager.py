@@ -97,15 +97,11 @@ class SceneManager:
     def handle_framed_scene(self, msg: SceneMessage, owner_fd: int) -> None:
         """Route a scene into its frame, creating the frame if needed.
 
-        An empty push removes the scene from its frame instead of creating or
-        keeping one: the frame and its content appear and disappear together, so
-        an emptied scene never lingers as a husk frame.
+        An empty push removes the scene instead of creating or keeping a frame:
+        the frame and its content appear and disappear together, never as a husk.
         """
         frame_id = msg.frame_id
         if not msg.elements:
-            # An emptied scene push is the Hub signalling removal: dismiss it from
-            # whatever frame holds it and close the frame once it holds nothing,
-            # so no husk frame lingers. An untracked scene is a no-op.
             stale = self._book.frame_of_scene(msg.id) or self._book.frames.get(frame_id)
             if stale is not None and self.dismiss_framed_scene(stale, msg.id):
                 self.close_frame(stale.frame_id)
@@ -113,18 +109,21 @@ class SceneManager:
         frame = self._book.ensure(msg, frame_id, owner_fd)
         self.upsert_scene_in_frame(frame, msg)
         self._book.record_owner(msg.id, owner_fd)
-        frame.minimized = False
-        self._book.request_focus(frame_id)
 
     def upsert_scene_in_frame(self, frame: Frame, msg: SceneMessage) -> None:
-        """Add or replace a scene within a frame."""
-        # If this scene_id exists elsewhere, remove it from the old
-        # location to prevent the same scene rendering in two places.
-        old_frame_id = self._book.scene_to_frame.get(msg.id)
-        if old_frame_id is not None and old_frame_id != frame.frame_id:
-            old_frame = self._book.frames.get(old_frame_id)
-            if old_frame is not None and self.dismiss_framed_scene(old_frame, msg.id):
-                self.close_frame(old_frame.frame_id)
+        """Add or replace a scene within a frame.
+
+        A scene new to the frame earns its attention — tab, raise, focus; a
+        replacement repaints in place and earns none of it.
+        """
+        # A scene lives in one frame at a time: dismiss it from any other.
+        old_frame = self._book.frame_of_scene(msg.id)
+        if (
+            old_frame is not None
+            and old_frame.frame_id != frame.frame_id
+            and self.dismiss_framed_scene(old_frame, msg.id)
+        ):
+            self.close_frame(old_frame.frame_id)
         is_new = msg.id not in frame.scenes
         old_scene = frame.scenes.get(msg.id)
         frame.scenes[msg.id] = msg
@@ -132,7 +131,9 @@ class SceneManager:
             frame.scene_order.append(msg.id)
             self._scene_widget_state[msg.id] = WidgetState()
             frame.active_tab = msg.id
+            frame.minimized = False
             self._book.set_frame(msg.id, frame.frame_id)
+            self._book.request_focus(frame.frame_id)
         else:
             self._replace_scene_state(msg, old_scene)
 
