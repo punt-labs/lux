@@ -10,7 +10,7 @@ one and not the other fails here rather than in front of the user.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, get_type_hints
+from typing import TYPE_CHECKING, Any
 
 from punt_lux.display.menus import MenuBar, MenuModel, MenuSurface, WorldPanel
 from punt_lux.protocol import RemoteEventHandlerInvocation
@@ -26,6 +26,8 @@ from .menu_doubles import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     import pytest
 
     from punt_lux.display.menu_manager import MenuManager
@@ -78,6 +80,20 @@ def _draw_panel(manager: MenuManager, clicks: tuple[str, ...] = ()) -> FakeImGui
     manager.check_world_menu_background_click(imgui)
     manager.render_world_panel(imgui)
     return imgui
+
+
+def _counting_themes(composed: list[str]) -> Callable[[], list[FakeTheme]]:
+    """Return a theme supplier that records one entry per menu composition.
+
+    Composing the menu asks the display for its themes exactly once, so the
+    length of *composed* is the number of times the menu was built.
+    """
+
+    def themes() -> list[FakeTheme]:
+        composed.append("composed")
+        return []
+
+    return themes
 
 
 class TestOneMenuTwoSurfaces:
@@ -211,19 +227,11 @@ class TestAMenuThatCannotBeDrawn:
 
 
 class TestProjectionStructure:
-    """Both surfaces are typed to render a model they are handed."""
+    """Both surfaces render whatever composer they are handed."""
 
     def test_both_surfaces_are_menu_surfaces(self) -> None:
         assert isinstance(MenuBar(), MenuSurface)
         assert isinstance(WorldPanel(dict), MenuSurface)
-
-    def test_both_projections_take_the_menu_model(self) -> None:
-        namespace = {"MenuModel": MenuModel}
-        bar = get_type_hints(MenuBar.render, localns=namespace)
-        panel = get_type_hints(WorldPanel.render, localns=namespace)
-
-        assert bar["model"] is MenuModel
-        assert panel["model"] is MenuModel
 
     def test_a_projection_renders_the_model_it_is_given(self) -> None:
         manager = make_menu_manager()
@@ -234,10 +242,21 @@ class TestProjectionStructure:
         panel_imgui.click_background()
         panel.check_background_click(panel_imgui)
 
-        MenuBar().render(bar_imgui, model)
-        panel.render(panel_imgui, model)
+        MenuBar().render(bar_imgui, lambda: model)
+        panel.render(panel_imgui, lambda: model)
 
         assert _menus_drawn(bar_imgui) == _menus_drawn(panel_imgui)
+
+    def test_a_shut_surface_never_asks_for_a_model(self) -> None:
+        asked: list[str] = []
+
+        def compose() -> MenuModel:
+            asked.append("asked")
+            return MenuModel([])
+
+        WorldPanel(dict).render(FakeImGui(), compose)  # never opened
+
+        assert asked == []
 
 
 class TestWorldPanelOpening:
@@ -252,6 +271,31 @@ class TestWorldPanelOpening:
         assert not manager.world_menu_open
         assert imgui.lines == ()
         assert imgui.windows == ()
+
+    def test_a_shut_panel_composes_no_menu(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        composed: list[str] = []
+        manager = make_menu_manager(get_themes=_counting_themes(composed))
+        manager.callback_menus = [_UNDECODABLE_MENU]
+        imgui = FakeImGui()  # no background click: the panel stays shut
+
+        with caplog.at_level(logging.ERROR):
+            manager.render_world_panel(imgui)
+
+        assert composed == []  # nothing to draw, so nothing to decode
+        assert caplog.text == ""
+
+    def test_an_open_panel_composes_the_menu_once(self) -> None:
+        composed: list[str] = []
+        manager = make_menu_manager(get_themes=_counting_themes(composed))
+        imgui = FakeImGui()
+        imgui.click_background()
+        manager.check_world_menu_background_click(imgui)
+
+        manager.render_world_panel(imgui)
+
+        assert composed == ["composed"]
 
     def test_a_background_click_opens_the_panel(self) -> None:
         manager = make_menu_manager()
@@ -279,6 +323,7 @@ class TestWorldPanelOpening:
         imgui.click_background()
         manager.check_world_menu_background_click(imgui)
 
+        imgui.click_background()  # the user clicks the background again
         manager.check_world_menu_background_click(imgui)
 
         assert not manager.world_menu_open
@@ -296,16 +341,18 @@ class TestWorldPanelOpening:
 
     def test_the_close_button_shuts_the_panel_and_ends_its_window(self) -> None:
         manager = make_menu_manager()
-        imgui = FakeImGui()
-        imgui.click_background()
-        manager.check_world_menu_background_click(imgui)
-        imgui.click_close_button()
+        opened = FakeImGui()
+        opened.click_background()
+        manager.check_world_menu_background_click(opened)
+        manager.render_world_panel(opened)
 
-        manager.render_world_panel(imgui)
+        dismissed = FakeImGui()  # the next frame, with the user on the close button
+        dismissed.click_close_button()
+        manager.render_world_panel(dismissed)
 
         assert not manager.world_menu_open
-        assert imgui.open_windows == 0
-        assert imgui.lines == ()  # a dismissed panel draws no menus
+        assert dismissed.open_windows == 0
+        assert dismissed.lines == ()  # a dismissed panel draws no menus
 
     def test_clicking_a_menu_item_closes_the_unpinned_panel(self) -> None:
         manager = make_menu_manager()

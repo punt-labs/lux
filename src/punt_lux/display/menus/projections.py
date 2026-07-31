@@ -1,9 +1,9 @@
 """The two surfaces that show the menu: the menu bar and the World panel.
 
-Both take the same :class:`MenuModel` and render it. Neither builds entries of
-its own, so the bar and the World panel cannot drift apart: a menu added to the
-model appears on both, and a click on a leaf produces the same invocation
-whichever surface it came from.
+Both are handed the same composer and render the model it returns. Neither
+builds entries of its own, so the bar and the World panel cannot drift apart: a
+menu added to the model appears on both, and a click on a leaf produces the same
+invocation whichever surface it came from.
 
 ``imgui`` is typed ``Any``: imgui_bundle ships no type stubs.
 """
@@ -37,9 +37,9 @@ class MenuBar:
 
     __slots__ = ()
 
-    def render(self, imgui: Any, model: MenuModel) -> None:
+    def render(self, imgui: Any, menu: Callable[[], MenuModel]) -> None:
         """Render every menu in the model as a top-level bar menu."""
-        model.render(imgui)
+        menu().render(imgui)
 
 
 @final
@@ -95,10 +95,10 @@ class WorldPanel:
             self._spawn_pos = (pos.x, pos.y)
             self._placed = False
 
-    def render(self, imgui: Any, model: MenuModel) -> None:
+    def render(self, imgui: Any, menu: Callable[[], MenuModel]) -> None:
         """Render the panel over the background while it is open."""
         if not self._open:
-            return
+            return  # shut: never ask for the model, so nothing is composed
         self._place(imgui)
         wants_open = True  # ImGui writes the close-button's answer back into this
         _, still_open = imgui.begin(
@@ -111,7 +111,7 @@ class WorldPanel:
                 return
             self._render_pin(imgui)
             imgui.separator()
-            activated = model.render(imgui, _WORLD_ID_SUFFIX)
+            activated = menu().render(imgui, _WORLD_ID_SUFFIX)
         finally:
             imgui.end()  # a raising action must not leave the window stack unbalanced
         if activated and not self._pinned:

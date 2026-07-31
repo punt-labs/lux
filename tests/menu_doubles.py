@@ -293,8 +293,14 @@ class FakeImGui:
         """Accept the panel's requested position."""
 
     def is_mouse_clicked(self, _button: Flag) -> bool:
-        """Report whether the left button went down this frame."""
-        return self._mouse_clicked
+        """Report whether the left button went down, and consume the click.
+
+        A click is an edge, not a state: ImGui reports it for one frame only,
+        so an armed click must not read as a fresh click on the next one.
+        """
+        clicked = self._mouse_clicked
+        self._mouse_clicked = False
+        return clicked
 
     def is_any_item_hovered(self) -> bool:
         """Report whether the mouse is over a widget."""

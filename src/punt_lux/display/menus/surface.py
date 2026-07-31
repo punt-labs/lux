@@ -1,9 +1,9 @@
 """The contract a menu surface answers, and the guard both surfaces are drawn through.
 
-A surface is anything that takes a whole :class:`MenuModel` and shows it; the
-menu bar and the World panel are the two Lux ships. :class:`GuardedMenu` pairs
-one surface with the model it shows, so both surfaces are drawn through the same
-object and neither can fail in a way the other does not.
+A surface is anything handed a composer for the menu, which it calls if and when
+it draws; the menu bar and the World panel are the two Lux ships.
+:class:`GuardedMenu` pairs one surface with that composer, so both surfaces are
+drawn through the same object and neither can fail in a way the other does not.
 
 ``imgui`` is typed ``Any``: imgui_bundle ships no type stubs.
 """
@@ -27,8 +27,8 @@ __all__ = ["GuardedMenu", "MenuSurface"]
 class MenuSurface(Protocol):
     """Something that shows a whole menu model."""
 
-    def render(self, imgui: Any, model: MenuModel) -> None:
-        """Render every menu in *model* on this surface."""
+    def render(self, imgui: Any, menu: Callable[[], MenuModel]) -> None:
+        """Render the model *menu* returns, asking for it only if it draws."""
         ...
 
 
@@ -36,10 +36,10 @@ class MenuSurface(Protocol):
 class GuardedMenu:
     """One surface, the model it shows, and the guard between them.
 
-    Composing the model decodes the Hub-replicated payloads, and rendering it
-    runs the action behind whatever the user clicked; either can raise. The
-    render loop is the boundary, so a menu that cannot be drawn costs the frame
-    that drew it and never the display.
+    Composing the model decodes the Hub-replicated payloads and rendering it
+    runs the action behind a click; either can raise, and the render loop is the
+    boundary — a menu that cannot be drawn costs its frame, never the display.
+    The surface is handed the composer, so one that draws nothing costs nothing.
     """
 
     _surface: MenuSurface
@@ -53,8 +53,8 @@ class GuardedMenu:
         return self
 
     def draw(self, imgui: Any) -> None:
-        """Compose the menu and show it, logging whatever could not be drawn."""
+        """Show the menu, logging whatever could not be composed or drawn."""
         try:
-            self._surface.render(imgui, self._compose())
+            self._surface.render(imgui, self._compose)
         except Exception:
             logger.exception("Error rendering menus")
