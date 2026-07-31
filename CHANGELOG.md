@@ -12,6 +12,11 @@
   hard-coded sections. Both surfaces also fail identically: one guarded
   render path keeps the ImGui window stack balanced even when a menu
   action's event emission fails mid-click.
+- **Scene updates no longer steal focus.** Re-pushing an existing scene — a
+  beads refresh, a now-playing update — repaints it in place: a minimized
+  frame stays minimized, the focused frame keeps focus, and the selected tab
+  stays selected. Only a genuinely new scene raises its frame and takes
+  focus. The user controls what is front-most; updates do not.
 
 ## [0.22.1] - 2026-07-29
 
