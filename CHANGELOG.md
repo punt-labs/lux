@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **The World menu and the menu bar are one menu.** Both now render from a
+  single menu model as two projections — identical entries (agent bars and
+  the session-registered callbacks alike) with identical click routing from
+  either surface. Dynamically registered entries such as a session's Beads
+  or voxd's Music appear in the World menu, which previously showed only
+  hard-coded sections. Both surfaces also fail identically: one guarded
+  render path keeps the ImGui window stack balanced even when a menu
+  action's event emission fails mid-click.
+
 ## [0.22.1] - 2026-07-29
 
 ### Removed
