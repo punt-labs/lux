@@ -2,7 +2,59 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`lux mcp-serve` — one process per session, and menu clicks that launch
+  instantly.** The plugin now starts a small server for each Claude Code
+  session instead of pointing it at luxd's HTTP endpoint. That process
+  forwards the session's MCP traffic to luxd verbatim — the tool surface is
+  unchanged, because it *is* luxd's — and holds a live connection to luxd on a
+  background thread. The connection is what makes menu entries work: the
+  session registers its own entries on it, a click is pushed straight back
+  down it, and the process does the work itself, from the repository's own
+  shell, with nothing polling and no turn of the model in the path. Measured
+  on the author's machine: 0.4–0.5s from process start to its first MCP
+  response, and 0.12–0.14s to exit when the session ends.
+- **The Beads menu entry is automatic.** Every lux-enabled session's server
+  registers it on connect and refreshes the board when it is clicked. Neither
+  the session-start hook nor the `/lux:beads` skill asks the agent to register
+  a callback or poll for clicks any more.
+
+### Changed
+
+- **A menu callback may only be registered by a connection that can be pushed
+  to.** `register_callback` is refused — over MCP, REST, and the client library
+  alike — unless the calling connection holds luxd's listen leg, with a named
+  reason saying what to hold and how. A caller that could never be told its
+  menu item was clicked must not own one, and no interval a client would
+  actually poll at can meet what a menu implies.
+- **One beads board per repository.** `lux show beads`, the post-`bd` refresh,
+  and a session's menu entry now all refresh the same `beads-<project>` scene,
+  so they land in the tab already on screen instead of opening a second
+  identical one.
+
+### Removed
+
+- **`pending_callbacks`, the polling pickup leg** — the MCP tool and the
+  `GET /menus/callbacks/pending` route. With push the only delivery, it could
+  no longer return anything: a registered session is pushed its clicks, and a
+  session that cannot be pushed to now owns no callback to have clicks for.
+  Apps receive clicks through `LuxRestClient.listener(...)`, registering from
+  its `on_connect` hook.
+
 ### Fixed
+
+- **A transient socket hiccup no longer makes a live display unreapable.**
+  Reading the socket owner's peer credential failed the whole read on one
+  refused connect, so `reap` could report that a display which was plainly
+  running could not be resolved and refuse to act. The read now retries across
+  a bounded window, matching how the liveness probe already treats an ambiguous
+  connect.
+- **One identity, one connection id.** A declaration read from request headers
+  omits an absent field while one dumped from a `ClientIdentity` carries an
+  explicit `None`; the two hashed to different connections. An app deriving its
+  own connection id from the identity it holds now gets the connection its own
+  socket will bind.
 
 - **The World menu and the menu bar are one menu.** Both now render from a
   single menu model as two projections — identical entries (agent bars and

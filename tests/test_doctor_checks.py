@@ -19,6 +19,7 @@ from punt_lux.doctor_checks import EnvironmentChecks
 _OK = "✓"
 _FAIL = "✗"
 _OPTIONAL = "—"
+_PLUGIN_ID = "lux@punt-labs"
 
 
 # Typed stand-ins for the two facts every check reads off the machine: whether a
@@ -39,11 +40,11 @@ def _claude_at_bin(_name: str) -> str | None:
     return "/bin/claude"
 
 
-def _plugin_present(_claude: str) -> bool:
+def _plugin_present(_self: EnvironmentChecks, _claude: str) -> bool:
     return True
 
 
-def _plugin_absent(_claude: str) -> bool:
+def _plugin_absent(_self: EnvironmentChecks, _claude: str) -> bool:
     return False
 
 
@@ -86,7 +87,7 @@ class _Report:
 def test_present_fonts_are_reported_by_path(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("punt_lux.doctor_checks.Path.is_file", _every_path_is_a_file)
     report = _Report()
-    EnvironmentChecks(report).fonts()
+    EnvironmentChecks(report, _PLUGIN_ID).fonts()
 
     assert report.marks == [_OK, _OK, _OK]
     assert all(".ttf" in m or ".ttc" in m or ".otf" in m for m in report.messages)
@@ -99,7 +100,7 @@ def test_missing_fonts_name_the_consequence_without_failing_the_run(
     """No font on the box is a degraded render, not a broken installation."""
     monkeypatch.setattr("punt_lux.doctor_checks.Path.is_file", _no_path_is_a_file)
     report = _Report()
-    EnvironmentChecks(report).fonts()
+    EnvironmentChecks(report, _PLUGIN_ID).fonts()
 
     assert report.marks == [_FAIL, _OPTIONAL, _OPTIONAL]
     assert "Latin-only" in report.messages[0]
@@ -112,7 +113,7 @@ def test_linux_names_the_package_that_provides_them(
     monkeypatch.setattr("punt_lux.doctor_checks.platform.system", _linux)
     monkeypatch.setattr("punt_lux.doctor_checks.Path.is_file", _no_path_is_a_file)
     report = _Report()
-    EnvironmentChecks(report).fonts()
+    EnvironmentChecks(report, _PLUGIN_ID).fonts()
 
     assert "apt install" in report.messages[0]
     assert "apt install" in report.messages[2]
@@ -124,7 +125,7 @@ def test_macos_offers_no_advice_because_it_ships_them(
     monkeypatch.setattr("punt_lux.doctor_checks.platform.system", _darwin)
     monkeypatch.setattr("punt_lux.doctor_checks.Path.is_file", _no_path_is_a_file)
     report = _Report()
-    EnvironmentChecks(report).fonts()
+    EnvironmentChecks(report, _PLUGIN_ID).fonts()
 
     assert "apt install" not in " ".join(report.messages)
 
@@ -134,7 +135,7 @@ def test_without_the_claude_cli_the_plugin_is_not_asked_about(
 ) -> None:
     monkeypatch.setattr("punt_lux.doctor_checks.shutil.which", _no_claude)
     report = _Report()
-    EnvironmentChecks(report).plugin()
+    EnvironmentChecks(report, _PLUGIN_ID).plugin()
 
     assert report.marks == [_OPTIONAL]
     assert "claude CLI not found" in report.messages[0]
@@ -143,11 +144,9 @@ def test_without_the_claude_cli_the_plugin_is_not_asked_about(
 
 def test_an_installed_plugin_is_reported_by_id(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("punt_lux.doctor_checks.shutil.which", _claude_at_bin)
-    monkeypatch.setattr(
-        EnvironmentChecks, "_plugin_installed", staticmethod(_plugin_present)
-    )
+    monkeypatch.setattr(EnvironmentChecks, "_plugin_installed", _plugin_present)
     report = _Report()
-    EnvironmentChecks(report).plugin()
+    EnvironmentChecks(report, _PLUGIN_ID).plugin()
 
     assert report.marks == [_OK, _OK]
     assert "lux@punt-labs" in report.messages[1]
@@ -157,11 +156,9 @@ def test_an_absent_plugin_names_the_command_that_installs_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("punt_lux.doctor_checks.shutil.which", _claude_at_bin)
-    monkeypatch.setattr(
-        EnvironmentChecks, "_plugin_installed", staticmethod(_plugin_absent)
-    )
+    monkeypatch.setattr(EnvironmentChecks, "_plugin_installed", _plugin_absent)
     report = _Report()
-    EnvironmentChecks(report).plugin()
+    EnvironmentChecks(report, _PLUGIN_ID).plugin()
 
     assert report.marks == [_OK, _OPTIONAL]
     assert "lux install" in report.messages[1]

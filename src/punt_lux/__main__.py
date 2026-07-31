@@ -315,7 +315,7 @@ def doctor(
 
     # Fonts and the plugin are the machine's business, not lux's — advisory
     # either way, so a missing one never fails the run.
-    checks = EnvironmentChecks(_check)
+    checks = EnvironmentChecks(_check, _PLUGIN_ID)
     checks.fonts()
 
     # Display server

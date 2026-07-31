@@ -105,7 +105,7 @@ Demos are in `demos/` --- each connects as a client and drives the display:
 - **Frames** --- scenes target named frames (inner windows) via `frame_id`. Frames persist after disconnect, can be adopted by new clients, and support initial sizing (`frame_size`) and ImGui window flags (`frame_flags`)
 - **Layout nesting** --- windows contain tab bars contain groups contain any element, arbitrarily deep
 - **Incremental updates** --- `update` patches individual elements by ID without replacing the scene
-- **Session menus** --- the menu bar shows one submenu per live session. A session registers a menu entry via `register_callback`; a click on it is held for the owning session, which services it from its own shell. The built-in "Beads" entry each lux-enabled session registers is how the beads board reopens from the menu
+- **Session menus** --- the menu bar shows one submenu per live session. A session registers a menu entry via `register_callback` from the connection it holds open to the Hub, and a click on that entry is pushed straight down that connection for the session to service from its own shell. The "Beads" entry each lux-enabled session's `lux mcp-serve` process registers is how the beads board reopens from the menu
 - **Interaction handling** --- button clicks, slider changes, and menu clicks fire their handlers on the Hub (D21 remote dispatch); the raw event log is readable via `list_recent_events`. Hub handlers can `publish` app events that the agent reads via `recv`
 - **Frame auto-focus** --- frames automatically focus (brought to front) when they receive a scene update
 - **Persistent tabs** --- each `show()` call opens a dismissable tab; same `scene_id` replaces content in-place. Users can close individual tabs
@@ -129,8 +129,7 @@ Agents interact with Lux through **30 MCP tools** that `luxd` serves over its st
 | `ping()` | Round-trip latency check |
 | `recv()` | Take the next queued app event for this session (pub/sub) without blocking; returns `event:<topic>:<payload>` or `none` immediately. Poll on your own schedule. UI interactions are handled Hub-side, not delivered here |
 | `set_menu(menus)` | Add custom menus to the menu bar |
-| `register_callback(callback_id, label)` | Register a menu entry this session owns; clicks are held for it (identity-guarded) |
-| `pending_callbacks()` | Take the menu clicks held for this session, draining them (poll on your own schedule) |
+| `register_callback(callback_id, label)` | Register a menu entry the calling connection owns; refused unless that connection holds luxd's listen leg, since clicks are delivered by push |
 | `set_theme(theme)` | Switch display theme |
 | **Configuration** | |
 | `display_mode(repo)` | Read current display mode (`y`/`n`) for the caller's project --- pass the absolute project path |
@@ -313,6 +312,11 @@ listener.subscribe("music.play", "music.stop")
 asyncio.run(listener.listen())                 # blocks, reconnecting as needed
 ```
 
+Registering from `on_connect` is required, not merely tidy: the Hub refuses a
+callback from a connection that holds no listen leg, and the handshake this hook
+fires after is what gives this connection one. It is also what re-establishes the
+entry after a reconnect, since a callback lives on the session's lease.
+
 The handlers may be sync or async; the loop awaits a coroutine. A raising
 `on_connect` is logged and the connection continues — a failed re-registration
 never tears down a healthy socket. Call `stop()` to end the loop after its current
@@ -337,21 +341,25 @@ Window on screen
 
 The Hub is the single source of truth for element state, ownership, and handler dispatch. The Display is a rendering replica: it paints the current scene and forwards interactions back to the Hub, which runs the real handler and re-pushes updated state. MCP is one entry point, not the only one.
 
-### Connecting Claude Code directly over HTTP
+### How a session connects: `lux mcp-serve`
 
-`luxd` serves MCP over streamable HTTP at `http://127.0.0.1:8430/mcp`, on the same loopback port as its REST API. Claude Code can connect to that endpoint natively through its HTTP MCP configuration, with no `mcp-proxy` bridge in the path. Point Claude Code's MCP config (a project `.mcp.json` or the plugin's `mcpServers` block) at the endpoint:
+The bundled plugin runs one process per Claude Code session:
 
 ```json
 {
   "mcpServers": {
-    "lux": { "type": "http", "url": "http://127.0.0.1:8430/mcp" }
+    "lux": { "command": "lux", "args": ["mcp-serve"] }
   }
 }
 ```
 
-The bundled plugin ships exactly this HTTP config in its `mcpServers` block — no `mcp-proxy` bridge and no `lux serve` stdio fallback. The installer registers `luxd` as a launchd service pinned to `--port 8430`, so the static URL is correct on installed systems; if you run `luxd` on a non-default port, read the real one from the port file (`~/.punt-labs/lux/hub.port`, i.e. `HubPaths().read_port()`) and set the URL to match.
+That process does two things. It forwards the session's MCP traffic to `luxd` verbatim — no tool logic of its own, so the tool surface a session sees is exactly `luxd`'s — and it holds a live WebSocket to `luxd` on a background thread, which is what makes the session's menu entries work.
 
-A copy-paste example is in [`.claude-plugin/mcp-http.example.json`](.claude-plugin/mcp-http.example.json). Start `luxd` first (`lux hub-install` and start the service, or run `luxd` in a terminal), then verify the direct connection end to end:
+The second job is why the process exists. A menu entry must launch in the time a user reads as instant, so the click has to be answered by something already running and already reachable: not a poll, and never a turn of the model. The session's server registers its entries on that connection, receives clicks pushed down it, and does the work itself — running `bd` from the repository's own shell and pushing the board to the Hub, which `luxd` cannot do from launchd with no `PATH`, no credentials, and no working directory.
+
+`luxd` enforces the arrangement rather than trusting it: `register_callback` is refused unless the calling connection holds a listen leg, because a connection that could never be told its item was clicked must not own one.
+
+Connecting straight to `luxd`'s HTTP endpoint (`http://127.0.0.1:8430/mcp`) still works and needs no bridge — a copy-paste example is in [`.claude-plugin/mcp-http.example.json`](.claude-plugin/mcp-http.example.json). Such a session gets the whole tool surface but no menu entries of its own, since it holds no connection a click could arrive on. Start `luxd` first (`lux hub-install` and start the service, or run `luxd` in a terminal), then verify the direct connection end to end:
 
 ```bash
 uv run python scripts/direct_connection_probe.py

@@ -4,7 +4,9 @@ Fonts and the Claude plugin are properties of the machine, not of the display or
 the Hub, and answering "is this box set up to render Unicode" takes a table of
 platform paths that has no business sitting in the CLI. Each check reports through
 a :class:`CheckReporter` the command supplies, so the checking and the tallying
-stay apart: this decides what is true, the command decides how to show it.
+stay apart: this decides what is true, the command decides how to show it. The
+plugin id is given for the same reason — it is the CLI's to name, and lives in one
+place rather than a copy here.
 
 Every check here is advisory. A missing font degrades rendering and a missing
 plugin means lux is not wired into Claude Code, but neither makes the installation
@@ -25,8 +27,6 @@ __all__ = ["CheckReporter", "EnvironmentChecks"]
 _OK = "✓"
 _FAIL = "✗"
 _OPTIONAL = "—"
-
-_PLUGIN_ID = "lux@punt-labs"
 
 # Where each platform keeps the fonts the display needs, best first. The primary
 # carries Latin plus broad Unicode; the other two only matter for symbols and Z
@@ -79,11 +79,13 @@ class EnvironmentChecks:
     """The machine-level checks ``doctor`` runs, reporting through one reporter."""
 
     _report: CheckReporter
-    __slots__ = ("_report",)
+    _plugin_id: str
+    __slots__ = ("_plugin_id", "_report")
 
-    def __new__(cls, report: CheckReporter) -> Self:
+    def __new__(cls, report: CheckReporter, plugin_id: str) -> Self:
         self = super().__new__(cls)
         self._report = report
+        self._plugin_id = plugin_id
         return self
 
     def fonts(self) -> None:
@@ -121,7 +123,7 @@ class EnvironmentChecks:
             return
         self._report(_OK, f"claude CLI: {claude}", required=False)
         if self._plugin_installed(claude):
-            self._report(_OK, f"Plugin: {_PLUGIN_ID}", required=False)
+            self._report(_OK, f"Plugin: {self._plugin_id}", required=False)
         else:
             self._report(
                 _OPTIONAL, "Plugin not installed (run 'lux install')", required=False
@@ -151,9 +153,8 @@ class EnvironmentChecks:
         """
         return next((p for p in candidates if Path(p).is_file()), "")
 
-    @staticmethod
-    def _plugin_installed(claude: str) -> bool:
-        """Whether the Claude CLI lists lux among its installed plugins."""
+    def _plugin_installed(self, claude: str) -> bool:
+        """Whether the Claude CLI lists this plugin among its installed ones."""
         listed = subprocess.run(  # noqa: S603  # resolved binary, fixed argv
             [claude, "plugin", "list"],
             capture_output=True,
@@ -161,4 +162,4 @@ class EnvironmentChecks:
             check=False,
             stdin=subprocess.DEVNULL,
         )
-        return _PLUGIN_ID in listed.stdout
+        return self._plugin_id in listed.stdout
