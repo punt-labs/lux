@@ -840,6 +840,52 @@ class TestReap:
         finally:
             display.stop()
 
+    def test_reap_survives_a_transient_failure_resolving_the_owner(
+        self, short_socket: Callable[[], Path], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The named failure this reproduces: reap refusing to reap a live display.
+
+        Under full-suite load a single connect against the live socket would fail,
+        the owner read concluded "unresolvable", and reap raised "refusing to reap"
+        against a display that was plainly running. Failing the first connect
+        deterministically reproduces that condition; reap must now resolve the owner
+        on a later attempt and terminate it. The refusal itself is not weakened —
+        an owner that stays unresolvable still refuses, with no PID-file fallback.
+        """
+        path = short_socket()
+        display = _FakeDisplay(path)
+        dp = DisplayPaths(path)
+        dp.pid_path.write_text(str(os.getpid()))
+        terminated: list[int] = []
+        real_connect = socket.socket.connect
+        connects = 0
+
+        def flaky_connect(sock: socket.socket, address: object) -> None:
+            nonlocal connects
+            connects += 1
+            # Fail only the owner read: the liveness probe connects first, and
+            # this is the connect that used to sink the whole operation.
+            if connects == 2:
+                raise TimeoutError("timed out")
+            real_connect(sock, address)  # type: ignore[arg-type]  # the real address
+
+        def fake_kill(pid: int, sig: int) -> None:
+            if sig == 0:
+                if terminated:
+                    raise ProcessLookupError
+                return
+            terminated.append(pid)
+            display.stop()
+
+        try:
+            monkeypatch.setattr(socket.socket, "connect", flaky_connect)
+            with patch("punt_lux.paths.os.kill", side_effect=fake_kill):
+                dp.reap(timeout=2.0)
+            assert terminated == [os.getpid()]  # the live owner was reaped
+            assert not path.exists()
+        finally:
+            display.stop()
+
     def test_reap_terminates_accepting_but_silent_owner(
         self, short_socket: Callable[[], Path]
     ) -> None:

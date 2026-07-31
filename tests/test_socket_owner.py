@@ -8,6 +8,7 @@ an absent owner must stay absent rather than becoming a signallable value.
 from __future__ import annotations
 
 import os
+import shutil
 import socket
 import tempfile
 import time
@@ -43,9 +44,16 @@ class _Listener:
 
 @pytest.fixture
 def sock_path() -> Generator[Path]:
-    """A short socket path — macOS caps AF_UNIX paths at ~104 characters."""
+    """A short socket path — macOS caps AF_UNIX paths at ~104 characters.
+
+    Removed on teardown: ``mkdtemp`` has no owner of its own, so a fixture that
+    only creates one leaves a directory per test behind forever.
+    """
     directory = tempfile.mkdtemp(prefix="lux-")
-    yield Path(directory) / "d.sock"
+    try:
+        yield Path(directory) / "d.sock"
+    finally:
+        shutil.rmtree(directory, ignore_errors=True)
 
 
 def test_a_live_socket_names_its_owning_process(sock_path: Path) -> None:
