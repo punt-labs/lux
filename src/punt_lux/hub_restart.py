@@ -44,6 +44,9 @@ class HubRestart:
     _paths: HubPaths
     __slots__ = ("_paths",)
 
+    # ``paths`` absent means "the real Hub's paths" — resolved per instance rather
+    # than bound once at import, so a caller (a test) can restart against its own
+    # state directory without the default reaching into someone's home.
     def __new__(cls, paths: HubPaths | None = None) -> Self:
         self = super().__new__(cls)
         self._paths = paths if paths is not None else HubPaths()
