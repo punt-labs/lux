@@ -19,7 +19,7 @@ import platform
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Protocol, Self, final, runtime_checkable
+from typing import Literal, Protocol, Self, final, runtime_checkable
 
 __all__ = ["CheckReporter", "EnvironmentChecks"]
 
@@ -63,6 +63,16 @@ _LINUX_FONTS = {
 # advice; a Linux user gets the package that provides them.
 _LINUX_FONT_HINT = " — apt install fonts-dejavu-core or fonts-noto"
 _LINUX_MATH_HINT = " — apt install fonts-noto"
+
+# How long to let ``claude plugin list`` run. The CLI is a slow starter, so the
+# bound is generous rather than tight; what it rules out is the unbounded wait,
+# because a doctor that never returns reports nothing at all.
+_PLUGIN_LIST_TIMEOUT = 10.0
+
+# What the plugin list said: lux is there, lux is not there, or the CLI never
+# answered. The third is its own outcome — calling it "not installed" would send
+# the reader to reinstall a plugin that may be perfectly fine.
+_PluginState = Literal["installed", "absent", "unanswered"]
 
 
 @runtime_checkable
@@ -122,12 +132,24 @@ class EnvironmentChecks:
             )
             return
         self._report(_OK, f"claude CLI: {claude}", required=False)
-        if self._plugin_installed(claude):
+        self._report_plugin(self._plugin_state(claude))
+
+    def _report_plugin(self, state: _PluginState) -> None:
+        """Report the plugin line — one message per outcome, including no answer."""
+        if state == "installed":
             self._report(_OK, f"Plugin: {self._plugin_id}", required=False)
-        else:
+            return
+        if state == "absent":
             self._report(
                 _OPTIONAL, "Plugin not installed (run 'lux install')", required=False
             )
+            return
+        self._report(
+            _OPTIONAL,
+            "Plugin state unknown — 'claude plugin list' did not answer within "
+            f"{_PLUGIN_LIST_TIMEOUT:.0f}s",
+            required=False,
+        )
 
     def _report_font(
         self, label: str, found: str, *, missing: str, fatal_when_missing: bool
@@ -153,13 +175,23 @@ class EnvironmentChecks:
         """
         return next((p for p in candidates if Path(p).is_file()), "")
 
-    def _plugin_installed(self, claude: str) -> bool:
-        """Whether the Claude CLI lists this plugin among its installed ones."""
-        listed = subprocess.run(  # noqa: S603  # resolved binary, fixed argv
-            [claude, "plugin", "list"],
-            capture_output=True,
-            text=True,
-            check=False,
-            stdin=subprocess.DEVNULL,
-        )
-        return self._plugin_id in listed.stdout
+    def _plugin_state(self, claude: str) -> _PluginState:
+        """Ask the Claude CLI whether this plugin is installed, under a time bound.
+
+        The run is bounded because doctor is what a user reaches for when
+        something is already wrong, and a diagnostic that hangs on one check
+        reports none of the others either. A run that does not come back is
+        answered as such rather than as an absent plugin.
+        """
+        try:
+            listed = subprocess.run(  # noqa: S603  # resolved binary, fixed argv
+                [claude, "plugin", "list"],
+                capture_output=True,
+                text=True,
+                check=False,
+                stdin=subprocess.DEVNULL,
+                timeout=_PLUGIN_LIST_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            return "unanswered"
+        return "installed" if self._plugin_id in listed.stdout else "absent"

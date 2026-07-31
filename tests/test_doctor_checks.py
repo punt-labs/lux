@@ -8,6 +8,8 @@ perfectly working installation.
 
 from __future__ import annotations
 
+import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Self, final
 
@@ -40,12 +42,26 @@ def _claude_at_bin(_name: str) -> str | None:
     return "/bin/claude"
 
 
-def _plugin_present(_self: EnvironmentChecks, _claude: str) -> bool:
-    return True
+def _plugin_list(stdout: str) -> Callable[..., subprocess.CompletedProcess[str]]:
+    """A ``claude plugin list`` that answers with ``stdout``.
+
+    Substituted at the subprocess boundary rather than at the method that reads
+    it, so what the tests drive is the state the CLI's real output produces.
+    """
+
+    def _run(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            args=["claude", "plugin", "list"], returncode=0, stdout=stdout, stderr=""
+        )
+
+    return _run
 
 
-def _plugin_absent(_self: EnvironmentChecks, _claude: str) -> bool:
-    return False
+def _plugin_list_never_answers(
+    *_args: object, **_kwargs: object
+) -> subprocess.CompletedProcess[str]:
+    """A ``claude plugin list`` that outlasts its bound, as a slow CLI can."""
+    raise subprocess.TimeoutExpired(cmd="claude plugin list", timeout=10.0)
 
 
 def _linux() -> str:
@@ -144,7 +160,9 @@ def test_without_the_claude_cli_the_plugin_is_not_asked_about(
 
 def test_an_installed_plugin_is_reported_by_id(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("punt_lux.doctor_checks.shutil.which", _claude_at_bin)
-    monkeypatch.setattr(EnvironmentChecks, "_plugin_installed", _plugin_present)
+    monkeypatch.setattr(
+        "punt_lux.doctor_checks.subprocess.run", _plugin_list(f"{_PLUGIN_ID}\n")
+    )
     report = _Report()
     EnvironmentChecks(report, _PLUGIN_ID).plugin()
 
@@ -152,11 +170,56 @@ def test_an_installed_plugin_is_reported_by_id(monkeypatch: pytest.MonkeyPatch) 
     assert "lux@punt-labs" in report.messages[1]
 
 
+def test_a_claude_cli_that_never_answers_does_not_hang_doctor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unbounded run makes the whole diagnostic hang on its least vital check.
+
+    Reporting the timeout as an absent plugin would be worse than useless — it
+    sends the reader to reinstall a plugin that may be perfectly fine — so no
+    answer is its own outcome with its own line.
+    """
+    monkeypatch.setattr("punt_lux.doctor_checks.shutil.which", _claude_at_bin)
+    monkeypatch.setattr(
+        "punt_lux.doctor_checks.subprocess.run", _plugin_list_never_answers
+    )
+    report = _Report()
+    EnvironmentChecks(report, _PLUGIN_ID).plugin()
+
+    assert report.marks == [_OK, _OPTIONAL]
+    assert "did not answer" in report.messages[1]
+    assert "lux install" not in report.messages[1]
+    assert report.any_required is False
+
+
+def test_the_plugin_list_is_run_under_a_time_bound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The bound itself, not just its handling: without it there is nothing to catch."""
+    seen: dict[str, object] = {}
+
+    def _run(*_args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        seen.update(kwargs)
+        return subprocess.CompletedProcess(
+            args=["claude"], returncode=0, stdout="", stderr=""
+        )
+
+    monkeypatch.setattr("punt_lux.doctor_checks.shutil.which", _claude_at_bin)
+    monkeypatch.setattr("punt_lux.doctor_checks.subprocess.run", _run)
+    EnvironmentChecks(_Report(), _PLUGIN_ID).plugin()
+
+    bound = seen.get("timeout")
+    assert isinstance(bound, float)
+    assert bound > 0
+
+
 def test_an_absent_plugin_names_the_command_that_installs_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("punt_lux.doctor_checks.shutil.which", _claude_at_bin)
-    monkeypatch.setattr(EnvironmentChecks, "_plugin_installed", _plugin_absent)
+    monkeypatch.setattr(
+        "punt_lux.doctor_checks.subprocess.run", _plugin_list("other@elsewhere\n")
+    )
     report = _Report()
     EnvironmentChecks(report, _PLUGIN_ID).plugin()
 
