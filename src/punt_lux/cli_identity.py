@@ -41,13 +41,11 @@ class CliIdentity:
         is always derived from the git root when present, so an overridden *name* in
         a repo still owns that repo; a command outside a repository owns no repo.
         """
-        repo = RepoRoot.find()
-        derived = repo.name if repo is not None else _HEADLESS_NAME
-        name = cls._override(override) or derived
+        repo = RepoRoot.of(_HEADLESS_NAME)
         return ClientIdentity(
             kind="cli",
-            name=name,
-            repo=str(repo) if repo is not None else None,
+            name=cls._override(override) or repo.name,
+            repo=repo.declared_path,
         )
 
     @staticmethod

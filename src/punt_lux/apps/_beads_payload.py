@@ -9,6 +9,7 @@ from enum import Enum
 from typing import Any, ClassVar, cast, final
 
 from punt_lux.apps.beads_detail import BeadsDetail
+from punt_lux.apps.beads_result import BeadsFailure, BeadsResult, BeadsRows
 
 _log = logging.getLogger(__name__)
 _STDOUT_PREVIEW_CHARS = 80
@@ -41,19 +42,20 @@ class BoardScope(Enum):
 class BeadsLoader:
     """Invoke ``bd`` and parse its JSON output into issue dicts."""
 
-    def run(self, *, all_issues: bool) -> tuple[list[dict[str, Any]], str | None]:
-        """Fetch and parse beads issues. Return ``(issues, error)``.
+    def run(self, *, all_issues: bool) -> BeadsResult:
+        """Fetch and parse beads issues into the rows, or the reason there are none.
 
-        ``error`` is ``None`` on success and a short reason string on
-        failure (timeout, non-zero exit, empty output, malformed JSON,
-        or an unexpected JSON shape).
+        A failure — timeout, non-zero exit, empty output, malformed JSON, or an
+        unexpected JSON shape — comes back as the reason to show, never as an
+        empty board, so the caller can tell "nothing open" from "bd did not run".
         """
-        stdout, err = self._invoke(BoardScope.for_board(all_issues=all_issues))
-        if stdout is None:
-            return [], err
+        stdout = self._invoke(BoardScope.for_board(all_issues=all_issues))
+        if isinstance(stdout, BeadsFailure):
+            return stdout
         return self._parse(stdout)
 
-    def _invoke(self, scope: BoardScope) -> tuple[str | None, str | None]:
+    def _invoke(self, scope: BoardScope) -> str | BeadsFailure:
+        """Run ``bd`` and return its stdout, or why there is none."""
         cmd = scope.argv()
         cmd_str = " ".join(cmd)
         try:
@@ -65,25 +67,27 @@ class BeadsLoader:
                 timeout=_BD_TIMEOUT_SECONDS,
             )
         except subprocess.TimeoutExpired:
-            return None, f"{cmd_str}: timed out after {_BD_TIMEOUT_SECONDS}s"
+            return BeadsFailure(f"{cmd_str}: timed out after {_BD_TIMEOUT_SECONDS}s")
         except OSError as exc:
-            return None, f"{cmd_str}: {exc}"
+            return BeadsFailure(f"{cmd_str}: {exc}")
         if result.returncode != 0:
             err = result.stderr.strip()[:200] or f"exit {result.returncode}"
-            return None, f"{cmd_str}: {err}"
+            return BeadsFailure(f"{cmd_str}: {err}")
         if not result.stdout.strip():
-            return None, f"{cmd_str}: no output"
-        return result.stdout, None
+            return BeadsFailure(f"{cmd_str}: no output")
+        return result.stdout
 
-    def _parse(self, stdout: str) -> tuple[list[dict[str, Any]], str | None]:
+    def _parse(self, stdout: str) -> BeadsResult:
         try:
             raw = json.loads(stdout)
         except json.JSONDecodeError as exc:
             preview = stdout.strip()[:_STDOUT_PREVIEW_CHARS]
-            return [], f"malformed JSON from bd ({exc.msg}): {preview!r}"
+            return BeadsFailure(f"malformed JSON from bd ({exc.msg}): {preview!r}")
         if not isinstance(raw, list):
             kind = type(raw).__name__
-            return [], f"unexpected JSON shape: top-level is {kind}, expected list"
+            return BeadsFailure(
+                f"unexpected JSON shape: top-level is {kind}, expected list"
+            )
 
         builder = BeadsPayloadBuilder()
         issues: list[dict[str, Any]] = []
@@ -95,7 +99,7 @@ class BeadsLoader:
             issues.append(builder.apply_defaults(cast("dict[str, Any]", entry)))
         if skipped:
             _log.warning("dropped %d non-dict entries from bd output", skipped)
-        return issues, None
+        return BeadsRows.of(issues)
 
 
 class BeadsPayloadBuilder:

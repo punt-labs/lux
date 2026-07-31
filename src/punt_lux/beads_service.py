@@ -13,10 +13,11 @@ they clicked rather than in a log they will not read.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Protocol, Self, final
+from typing import TYPE_CHECKING, Protocol, Self, final
 
 from punt_lux.apps.beads import BeadsBrowser
 from punt_lux.apps.beads_board import BeadsBoard
+from punt_lux.apps.beads_result import BeadsResult
 from punt_lux.operations import OpError, RenderRequest, RenderTableRequest
 
 if TYPE_CHECKING:
@@ -34,14 +35,8 @@ _LABEL = "Beads"
 class BeadsSource(Protocol):
     """Where a board's rows come from — ``BeadsBrowser`` in the running session."""
 
-    def load(
-        self, *, all_issues: bool = False
-    ) -> tuple[list[dict[str, Any]], str | None]:
-        """Return ``(issues, error)``: rows and ``None``, or ``[]`` and a reason.
-
-        The rows are ``bd``'s own JSON objects, untyped at this boundary; the
-        error is the documented absence of a failure, not a give-up.
-        """
+    def load(self, *, all_issues: bool = False) -> BeadsResult:
+        """Return the issues that were read, or the reason none were."""
         ...
 
 

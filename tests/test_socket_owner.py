@@ -11,13 +11,13 @@ import os
 import shutil
 import socket
 import tempfile
-import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Self, final
 from unittest.mock import patch
 
 import pytest
 
+from punt_lux import socket_owner as socket_owner_module
 from punt_lux.socket_owner import SocketOwner
 
 if TYPE_CHECKING:
@@ -94,19 +94,29 @@ def test_a_transient_connect_failure_does_not_lose_the_owner(
         listener.close()
 
 
-def test_a_socket_nobody_owns_resolves_to_none_and_bounds_its_asking(
-    sock_path: Path,
+def test_a_socket_nobody_owns_resolves_to_none_after_a_bounded_number_of_asks(
+    sock_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Retrying must not turn "no owner" into a hang or a wrong answer."""
+    """Retrying must not turn "no owner" into a hang or an unbounded wait.
+
+    The bound is a count, not a duration: asserting elapsed time would measure
+    the machine. Counting the connects measures the design.
+    """
     stale = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     stale.bind(str(sock_path))
     stale.close()  # the file remains, nothing listens
 
-    start = time.monotonic()
+    real_connect = socket.socket.connect
+    attempts = 0
+
+    def counting_connect(sock: socket.socket, address: object) -> None:
+        nonlocal attempts
+        attempts += 1
+        real_connect(sock, address)  # type: ignore[arg-type]  # the real address object
+
+    monkeypatch.setattr(socket.socket, "connect", counting_connect)
     assert SocketOwner(sock_path).pid() is None
-    # Every attempt is refused immediately, so the retries stay well inside any
-    # caller's budget rather than accumulating a connect timeout each.
-    assert time.monotonic() - start < 5.0
+    assert attempts == socket_owner_module._ATTEMPTS  # gave up, and only then
 
 
 def test_an_unsupported_platform_resolves_to_none(

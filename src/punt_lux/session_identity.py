@@ -61,16 +61,15 @@ class SessionIdentity:
     @classmethod
     def resolve(cls) -> Self:
         """Derive this process's identity from the repository it was started in."""
-        repo = RepoRoot.find()
-        project = repo.name if repo is not None else _HEADLESS_PROJECT
+        repo = RepoRoot.of(_HEADLESS_PROJECT)
         return cls(
             ClientIdentity(
                 kind="mcp-session",
-                name=f"lux · {project} · #{os.getpid():x}",
-                repo=str(repo) if repo is not None else None,
+                name=f"lux · {repo.name} · #{os.getpid():x}",
+                repo=repo.declared_path,
                 lease_ttl=_LEASE_TTL_SECONDS,
             ),
-            project,
+            repo.name,
         )
 
     @property

@@ -9,9 +9,10 @@ client, so no ``bd`` and no Hub are involved.
 
 from __future__ import annotations
 
-from typing import Any, Self, final
+from typing import Self, final
 
 from punt_lux.apps.beads_board import BeadsBoard
+from punt_lux.apps.beads_result import BeadsFailure, BeadsResult, BeadsRows
 from punt_lux.beads_service import BeadsService
 from punt_lux.operations import OpError, RenderRequest, RenderTableRequest
 from punt_lux.operations.models.scene_results import SceneShown
@@ -31,26 +32,22 @@ _ISSUE = {
 
 @final
 class _Source:
-    """A beads source returning a preset load result, or raising one."""
+    """A beads source returning a preset load result, or raising instead."""
 
-    _result: tuple[list[dict[str, Any]], str | None]
+    _result: BeadsResult
     _raises: bool
     __slots__ = ("_raises", "_result")
 
     def __new__(
-        cls,
-        result: tuple[list[dict[str, Any]], str | None] = ([], None),
-        *,
-        raises: bool = False,
+        cls, result: BeadsResult | None = None, *, raises: bool = False
     ) -> Self:
         self = super().__new__(cls)
-        self._result = result
+        # Absent means the empty board — the default this stands in for.
+        self._result = result if result is not None else BeadsRows.of([])
         self._raises = raises
         return self
 
-    def load(
-        self, *, all_issues: bool = False
-    ) -> tuple[list[dict[str, Any]], str | None]:
+    def load(self, *, all_issues: bool = False) -> BeadsResult:
         if self._raises:
             raise RuntimeError("bd blew up in a way the loader does not model")
         return self._result
@@ -107,7 +104,7 @@ def test_the_entry_is_named_for_what_it_shows() -> None:
 def test_issues_are_pushed_through_the_table_route() -> None:
     """The Hub must construct the board's chrome, so the table route carries data."""
     client = _RecordingClient()
-    _service(_Source(([_ISSUE], None))).service(client)  # type: ignore[arg-type]  # structural stand-in for LuxRestClient
+    _service(_Source(BeadsRows.of([_ISSUE]))).service(client)  # type: ignore[arg-type]  # structural stand-in for LuxRestClient
 
     assert len(client.tables) == 1
     assert client.scenes == []
@@ -119,7 +116,7 @@ def test_issues_are_pushed_through_the_table_route() -> None:
 
 def test_a_bd_failure_renders_the_reason_in_the_window() -> None:
     client = _RecordingClient()
-    _service(_Source(([], "bd: command not found"))).service(client)  # type: ignore[arg-type]  # structural stand-in
+    _service(_Source(BeadsFailure("bd: command not found"))).service(client)  # type: ignore[arg-type]  # structural stand-in
 
     assert client.tables == []
     assert len(client.scenes) == 1
@@ -128,7 +125,7 @@ def test_a_bd_failure_renders_the_reason_in_the_window() -> None:
 
 def test_an_empty_board_still_renders() -> None:
     client = _RecordingClient()
-    _service(_Source(([], None))).service(client)  # type: ignore[arg-type]  # structural stand-in
+    _service(_Source(BeadsRows.of([]))).service(client)  # type: ignore[arg-type]  # structural stand-in
 
     assert len(client.scenes) == 1
     assert "No active issues." in str(client.scenes[0].elements)
@@ -146,6 +143,6 @@ def test_an_unforeseen_failure_renders_rather_than_vanishing() -> None:
 def test_a_refused_render_is_reported_not_raised() -> None:
     """The servicing thread survives a Hub refusal; there is nowhere to render it."""
     client = _RecordingClient(refuse=True)
-    _service(_Source(([_ISSUE], None))).service(client)  # type: ignore[arg-type]  # structural stand-in
+    _service(_Source(BeadsRows.of([_ISSUE]))).service(client)  # type: ignore[arg-type]  # structural stand-in
 
     assert len(client.tables) == 1  # the attempt happened and did not raise

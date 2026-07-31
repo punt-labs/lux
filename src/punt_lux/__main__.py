@@ -340,16 +340,14 @@ def mcp_serve() -> None:
     Run by Claude Code, not by hand: it speaks MCP on stdin/stdout, forwards it to
     luxd, and holds the connection that makes this session's menu entries work.
     """
-    import logging as _logging
-
     from punt_lux.rest_transport import HubUnavailableError
     from punt_lux.session_server import SessionServer
 
     # stdout is the MCP wire, so every log line goes to stderr — a single stray
     # byte on stdout is a protocol error the host reports as a broken server.
-    _logging.basicConfig(
+    logging.basicConfig(
         stream=sys.stderr,
-        level=_logging.WARNING,
+        level=logging.WARNING,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     try:

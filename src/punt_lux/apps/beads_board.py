@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any, Self, final
+from typing import Self, final
 
 from punt_lux.apps._beads_payload import BeadsPayloadBuilder
+from punt_lux.apps.beads_result import BeadsFailure, BeadsResult
 from punt_lux.operations import RenderRequest, RenderTableRequest
 from punt_lux.operations.models.render import FrameSpec
 from punt_lux.protocol import TextElement
@@ -48,20 +49,18 @@ class BeadsBoard:
         """
         return cls(f"beads-{project}", f"Beads: {project}")
 
-    def request(
-        self, result: tuple[list[dict[str, Any]], str | None]
-    ) -> RenderTableRequest | RenderRequest:
-        """Build the request that displays a ``(issues, error)`` load result.
+    def request(self, result: BeadsResult) -> RenderTableRequest | RenderRequest:
+        """Build the request that displays a load result.
 
-        A set error yields a red message; an empty board yields the placeholder
-        message; issues yield a table the Hub composes with live chrome.
+        Three outcomes, dispatched on the result itself: a failure yields a red
+        message naming the reason, no rows yield the empty-board placeholder, and
+        rows yield a table the Hub composes with live chrome.
         """
-        issues, error = result
-        if error is not None:
-            return self.failure(f"bd unavailable — {error}")
-        if not issues:
+        if isinstance(result, BeadsFailure):
+            return self.failure(f"bd unavailable — {result.reason}")
+        if not result:
             return self._message(TextElement(id="empty", content="No active issues."))
-        payload = BeadsPayloadBuilder().build(issues)
+        payload = BeadsPayloadBuilder().build(result.issues)
         return RenderTableRequest(
             scene_id=self._scene_id,
             columns=payload["columns"],

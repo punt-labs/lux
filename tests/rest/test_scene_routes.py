@@ -351,6 +351,7 @@ def test_beads_board_request_installs_live_chrome_through_the_table_route() -> N
     # combos, and detail are live — the fix for the dead-chrome defect where the
     # generic render route decoded a pre-composed tree with built-in handlers only.
     from punt_lux.apps.beads_board import BeadsBoard
+    from punt_lux.apps.beads_result import BeadsRows
 
     issues = [
         {
@@ -365,7 +366,7 @@ def test_beads_board_request_installs_live_chrome_through_the_table_route() -> N
             "updated_at": "2026-01-02T00:00:00Z",
         }
     ]
-    request = BeadsBoard("beads-proj", "Beads: proj").request((issues, None))
+    request = BeadsBoard("beads-proj", "Beads: proj").request(BeadsRows.of(issues))
     assert isinstance(request, RenderTableRequest)  # issues yield a table, not text
     store = HubDisplay()
     client = make_client(store=store)

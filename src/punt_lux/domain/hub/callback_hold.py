@@ -204,6 +204,11 @@ class CallbackRouter:
     def pending(self, connection_id: ConnectionId) -> tuple[CallbackInvocation, ...]:
         """Return the session's held invocations without clearing them.
 
+        No production caller: this is what remains of the retired poll leg, kept
+        because it is the only way to observe the hold without draining it, and
+        the hold's own tests need to assert what is buffered and then that a
+        later drain still returns it. Deliveries go through ``take``.
+
         Sweeps first for the same reason as ``take``: an expired session's hold is
         never readable. The live read precedes the router lock, so no lock nests.
         """

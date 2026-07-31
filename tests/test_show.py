@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 from punt_lux.__main__ import app
 from punt_lux.apps.beads import BeadsBrowser
 from punt_lux.apps.beads_board import BeadsBoard
+from punt_lux.apps.beads_result import BeadsFailure, BeadsResult, BeadsRows
 from punt_lux.operations import (
     OpError,
     RenderRequest,
@@ -86,6 +87,12 @@ def _mock_bd_result(
 # ---------------------------------------------------------------------------
 
 
+def _rows(result: BeadsResult) -> list[dict[str, Any]]:
+    """Narrow a load to its rows; a failure here means the load itself failed."""
+    assert isinstance(result, BeadsRows), result
+    return result.issues
+
+
 class TestLoadBeads:
     def test_filters_closed_by_default(self) -> None:
         # bd does the filtering server-side; mock returns only active issues
@@ -94,7 +101,7 @@ class TestLoadBeads:
             "punt_lux.apps._beads_payload.subprocess.run",
             return_value=_mock_bd_result(active),
         ):
-            result, _err = BeadsBrowser().load()
+            result = _rows(BeadsBrowser().load())
         assert len(result) == 2
         assert all(i["status"] in {"open", "in_progress"} for i in result)
 
@@ -103,7 +110,7 @@ class TestLoadBeads:
             "punt_lux.apps._beads_payload.subprocess.run",
             return_value=_mock_bd_result(_ISSUES),
         ):
-            result, _err = BeadsBrowser().load(all_issues=True)
+            result = _rows(BeadsBrowser().load(all_issues=True))
         assert len(result) == 3
 
     def test_sorted_in_progress_first_then_priority(self) -> None:
@@ -111,7 +118,7 @@ class TestLoadBeads:
             "punt_lux.apps._beads_payload.subprocess.run",
             return_value=_mock_bd_result(_ISSUES),
         ):
-            result, _err = BeadsBrowser().load(all_issues=True)
+            result = _rows(BeadsBrowser().load(all_issues=True))
         assert result[0]["id"] == "beads-002"  # in_progress floats to top
         assert result[1]["id"] == "beads-001"  # P1, open
 
@@ -124,7 +131,7 @@ class TestLoadBeads:
             "punt_lux.apps._beads_payload.subprocess.run",
             return_value=_mock_bd_result(active),
         ):
-            result, _err = BeadsBrowser().load()
+            result = _rows(BeadsBrowser().load())
         assert [i["id"] for i in result] == ["beads-002", "beads-001"]
         assert result[0]["status"] == "in_progress"
         assert result[1]["priority"] < result[0]["priority"]  # P1 open below P2
@@ -137,10 +144,9 @@ class TestLoadBeads:
             stderr="db locked",
         )
         with patch("punt_lux.apps._beads_payload.subprocess.run", return_value=cp):
-            issues, err = BeadsBrowser().load()
-        assert issues == []
-        assert err is not None
-        assert "db locked" in err
+            outcome = BeadsBrowser().load()
+        assert isinstance(outcome, BeadsFailure)
+        assert "db locked" in outcome.reason
 
     def test_defaults_applied(self) -> None:
         minimal = [{"id": "beads-100"}]
@@ -148,7 +154,7 @@ class TestLoadBeads:
             "punt_lux.apps._beads_payload.subprocess.run",
             return_value=_mock_bd_result(minimal),
         ):
-            result, _err = BeadsBrowser().load()
+            result = _rows(BeadsBrowser().load())
         assert result[0]["status"] == "open"
         assert result[0]["priority"] == 4
         assert result[0]["issue_type"] == "task"
@@ -161,10 +167,9 @@ class TestLoadBeads:
             stderr="",
         )
         with patch("punt_lux.apps._beads_payload.subprocess.run", return_value=cp):
-            issues, err = BeadsBrowser().load()
-        assert issues == []
-        assert err is not None
-        assert "no output" in err
+            outcome = BeadsBrowser().load()
+        assert isinstance(outcome, BeadsFailure)
+        assert "no output" in outcome.reason
 
     def test_invalid_json_returns_empty(self) -> None:
         cp = subprocess.CompletedProcess(
@@ -174,10 +179,9 @@ class TestLoadBeads:
             stderr="",
         )
         with patch("punt_lux.apps._beads_payload.subprocess.run", return_value=cp):
-            issues, err = BeadsBrowser().load()
-        assert issues == []
-        assert err is not None
-        assert "JSON" in err or "malformed" in err
+            outcome = BeadsBrowser().load()
+        assert isinstance(outcome, BeadsFailure)
+        assert "JSON" in outcome.reason or "malformed" in outcome.reason
 
     def test_unexpected_json_shape_returns_error(self) -> None:
         cp = subprocess.CompletedProcess(
@@ -187,10 +191,9 @@ class TestLoadBeads:
             stderr="",
         )
         with patch("punt_lux.apps._beads_payload.subprocess.run", return_value=cp):
-            issues, err = BeadsBrowser().load()
-        assert issues == []
-        assert err is not None
-        assert "unexpected JSON shape" in err
+            outcome = BeadsBrowser().load()
+        assert isinstance(outcome, BeadsFailure)
+        assert "unexpected JSON shape" in outcome.reason
 
     def test_subprocess_timeout_returns_error(self) -> None:
         with patch(
@@ -199,10 +202,9 @@ class TestLoadBeads:
                 cmd="bd list --json --status open,in_progress", timeout=60
             ),
         ):
-            issues, err = BeadsBrowser().load()
-        assert issues == []
-        assert err is not None
-        assert "timed out" in err
+            outcome = BeadsBrowser().load()
+        assert isinstance(outcome, BeadsFailure)
+        assert "timed out" in outcome.reason
 
     def test_non_dict_entries_dropped_with_warning(
         self, caplog: pytest.LogCaptureFixture
@@ -217,9 +219,9 @@ class TestLoadBeads:
             caplog.at_level("WARNING", logger="punt_lux.apps._beads_payload"),
             patch("punt_lux.apps._beads_payload.subprocess.run", return_value=cp),
         ):
-            issues, err = BeadsBrowser().load()
-        assert err is None
-        assert len(issues) == 1
+            outcome = BeadsBrowser().load()
+        assert isinstance(outcome, BeadsRows)
+        assert len(outcome) == 1
         assert "dropped 2 non-dict entries" in caplog.text
 
     def test_passes_all_flag_to_bd(self) -> None:
@@ -262,10 +264,10 @@ class TestLoadBeads:
             "punt_lux.apps._beads_payload.subprocess.run",
             side_effect=FileNotFoundError("bd not found"),
         ):
-            issues, err = BeadsBrowser().load()
-        assert issues == []
-        assert err is not None
-        assert "not found" in err.lower() or "no such file" in err.lower()
+            outcome = BeadsBrowser().load()
+        assert isinstance(outcome, BeadsFailure)
+        reason = outcome.reason.lower()
+        assert "not found" in reason or "no such file" in reason
 
 
 # ---------------------------------------------------------------------------
@@ -338,16 +340,14 @@ class TestBoardRequest:
     _SCENE = "beads-proj"
     _TITLE = "Beads: proj"
 
-    def _build(
-        self, result: tuple[list[dict[str, Any]], str | None]
-    ) -> RenderTableRequest | RenderRequest:
+    def _build(self, result: BeadsResult) -> RenderTableRequest | RenderRequest:
         return BeadsBoard(self._SCENE, self._TITLE).request(result)
 
     def test_issues_yield_a_table_request_carrying_filters_and_detail(self) -> None:
         # The board sends columns/rows/filters/detail as DATA; the Hub composes
         # the live chrome from the table route, not a pre-built element tree.
         active = [i for i in _ISSUES if i["status"] in {"open", "in_progress"}]
-        request = self._build((active, None))
+        request = self._build(BeadsRows.of(active))
         assert isinstance(request, RenderTableRequest)
         assert request.scene_id == self._SCENE
         assert request.title == self._TITLE
@@ -369,7 +369,7 @@ class TestBoardRequest:
         assert "copy_id" in request.flags
 
     def test_empty_issues_yield_a_placeholder_message(self) -> None:
-        request = self._build(([], None))
+        request = self._build(BeadsRows.of([]))
         assert isinstance(request, RenderRequest)
         assert len(request.elements) == 1
         elem = request.elements[0]
@@ -381,9 +381,7 @@ class TestBoardRequest:
 
     def test_error_yields_a_visible_error_message(self) -> None:
         """When bd fails, surface the reason instead of 'No active issues'."""
-        request = self._build(
-            ([], "bd list --json --status open,in_progress: timed out after 60s"),
-        )
+        request = self._build(BeadsFailure("bd list --json: timed out after 60s"))
         assert isinstance(request, RenderRequest)
         elem = request.elements[0]
         assert elem["id"] == "beads-error"
@@ -392,9 +390,9 @@ class TestBoardRequest:
         # The error element distinguishes itself visually (a set color).
         assert elem["color"] == "#FF5555"
 
-    def test_error_overrides_empty_placeholder(self) -> None:
-        """Empty issues + error renders the error, not the empty placeholder."""
-        request = self._build(([], "connection refused"))
+    def test_a_failure_renders_its_reason_not_the_empty_placeholder(self) -> None:
+        """A failure and an empty board are different states, shown differently."""
+        request = self._build(BeadsFailure("connection refused"))
         assert isinstance(request, RenderRequest)
         elem = request.elements[0]
         assert elem["id"] == "beads-error"
