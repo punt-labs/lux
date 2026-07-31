@@ -107,7 +107,7 @@ Demos are in `demos/` --- each connects as a client and drives the display:
 - **Incremental updates** --- `update` patches individual elements by ID without replacing the scene
 - **Session menus** --- the menu bar shows one submenu per live session. A session registers a menu entry via `register_callback` from the connection it holds open to the Hub, and a click on that entry is pushed straight down that connection for the session to service from its own shell. The "Beads" entry each lux-enabled session's `lux mcp-serve` process registers is how the beads board reopens from the menu
 - **Interaction handling** --- button clicks, slider changes, and menu clicks fire their handlers on the Hub (D21 remote dispatch); the raw event log is readable via `list_recent_events`. Hub handlers can `publish` app events that the agent reads via `recv`
-- **Frame auto-focus** --- frames automatically focus (brought to front) when they receive a scene update
+- **Announce on arrival, repaint in place** --- a genuinely new scene raises and focuses its frame; updating an existing scene repaints it where it is. A minimized frame stays minimized, the focused frame keeps focus, and the selected tab stays selected --- the user controls what is front-most, not updates
 - **Persistent tabs** --- each `show()` call opens a dismissable tab; same `scene_id` replaces content in-place. Users can close individual tabs
 - **Themes** --- 11 themes via `set_theme`: `imgui_colors_dark`, `imgui_colors_light`, `imgui_colors_classic`, `darcula`, `darcula_darker`, `material_flat`, `photoshop_style`, `grey_flat`, `cherry`, `light_rounded`, `microsoft_style`
 - **Auto-spawn** --- the Hub (luxd) starts the display renderer on first use if it isn't already running
@@ -115,7 +115,7 @@ Demos are in `demos/` --- each connects as a client and drives the display:
 
 ## MCP Tools
 
-Agents interact with Lux through **30 MCP tools** that `luxd` serves over its streamable-HTTP `/mcp` endpoint:
+Agents interact with Lux through the MCP tools `luxd` serves over its streamable-HTTP `/mcp` endpoint (the authoritative roster is pinned by a test; this table mirrors it):
 
 | Tool | What it does |
 |------|-------------|
@@ -124,9 +124,11 @@ Agents interact with Lux through **30 MCP tools** that `luxd` serves over its st
 | `show_table(scene_id, columns, rows)` | Display a filterable data table with optional detail panel |
 | `show_dashboard(scene_id, ...)` | Display a dashboard with metric cards, charts, and a table |
 | `update(scene_id, patches)` | Patch elements by ID (set fields or remove) |
-| `clear()` | Remove all content from the display |
+| `clear()` | Remove the caller's scenes from the display |
+| `clear_scene(scene_id)` | Clear one scene and blank its frame; unknown or unowned scenes are named errors, never a false "cleared" |
 | **Communication** | |
 | `ping()` | Round-trip latency check |
+| `identify(kind, name, repo, agent)` | Declare who this session is so the Hub attributes the UI it installs |
 | `recv()` | Take the next queued app event for this session (pub/sub) without blocking; returns `event:<topic>:<payload>` or `none` immediately. Poll on your own schedule. UI interactions are handled Hub-side, not delivered here |
 | `set_menu(menus)` | Add custom menus to the menu bar |
 | `register_callback(callback_id, label)` | Register a menu entry the calling connection owns; refused unless that connection holds luxd's listen leg, since clicks are delivered by push |
@@ -226,6 +228,7 @@ All elements with an `id` support an optional `tooltip` field (string shown on h
 | Command | What it does |
 |---------|-------------|
 | `lux display` | Start the display server (ImGui window) |
+| `lux mcp-serve` | Per-session MCP server: forwards MCP traffic to `luxd` and holds the WebSocket leg that services the session's menu clicks |
 | `lux enable` | Enable visual output for this project |
 | `lux disable` | Disable visual output for this project |
 | `lux status` | Check if the display server is running |
@@ -381,13 +384,14 @@ The probe initializes a session, lists the tool surface, and calls a read-only t
 ## Development
 
 ```bash
-uv sync --extra display       # Install dependencies (dev group installs by default)
-uv run ruff check .            # Lint
-uv run ruff format --check .   # Check formatting
-uv run mypy src/ tests/        # Type check (mypy)
-uv run pyright                 # Type check (pyright)
-uv run pytest                  # Test
+uv sync --extra display        # Install dependencies (dev group installs by default)
+make check                     # Full gate: lint, format, mypy, pyright, tests, OO ratchet
+make test-integration          # Integration tier
+make restart                   # Rebuild, reinstall, restart luxd AND the display
 ```
+
+`make check` is the commit gate — it runs ruff, mypy, pyright (via `npx`),
+pytest, and the OO ratchet exactly as CI does.
 
 ## Acknowledgements
 
