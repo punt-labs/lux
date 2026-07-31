@@ -1,7 +1,14 @@
 # Element migration: legacy kinds → distributed Element-ABC / Hub-Display
 
-This directory holds the plan for migrating Lux's element kinds off the legacy
-`SceneManager` path and onto the new distributed Element-ABC / Hub-Display
+> **COMPLETED — historical record.** The migration this directory planned is
+> done: all **25 of 25** element kinds are on the distributed Element-ABC /
+> Hub-Display path and the legacy render path is deleted (epic `lux-xs7r`,
+> closed 2026-07-27; B7 was the deletion PR). The per-element design documents
+> here are the record of how each kind crossed. Progress numbers in the body
+> below are snapshots from mid-migration and are superseded by this banner.
+
+This directory holds the plan that migrated Lux's element kinds off the legacy
+`SceneManager` path and onto the distributed Element-ABC / Hub-Display
 architecture (see [`../target/target.md`](../target/target.md) and the DES-030+
 ADRs in [`../../../DESIGN.md`](../../../DESIGN.md)).
 
