@@ -454,9 +454,10 @@ class TestBeadsBoard:
     def test_table_request_carries_the_frame_envelope(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # The table request names the scene and frame after the project — the
+        # The table request names the scene and frame after the repository — the
         # repository's one board, the same scene a session's menu entry refreshes,
         # so a command and a click land in one tab rather than two identical ones.
+        (tmp_path / ".git").mkdir()
         monkeypatch.chdir(tmp_path)
         project = tmp_path.name
         active = [i for i in _ISSUES if i["status"] in {"open", "in_progress"}]
@@ -471,6 +472,27 @@ class TestBeadsBoard:
         assert request.frame_id == f"beads-{project}"
         assert request.frame_title == f"Beads: {project}"
         assert note == "2 issues"
+
+    def test_a_subdirectory_shows_the_repositorys_board_not_a_second_one(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """One repository has one board, whichever directory the command runs in.
+
+        The name came from the working directory, so running the command from
+        ``lux/src`` opened a scene called ``beads-src`` — a second board beside
+        the repository's own, with neither refreshing the other.
+        """
+        (tmp_path / ".git").mkdir()
+        inside = tmp_path / "src" / "punt_lux"
+        inside.mkdir(parents=True)
+        monkeypatch.chdir(inside)
+        active = [i for i in _ISSUES if i["status"] in {"open", "in_progress"}]
+        with patch(
+            "punt_lux.apps._beads_payload.subprocess.run",
+            return_value=_mock_bd_result(active),
+        ):
+            request, _note = BeadsBoardCommand().request(all_issues=False)
+        assert request.scene_id == f"beads-{tmp_path.name}"
 
     def test_bd_error_yields_a_message_request_and_note(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

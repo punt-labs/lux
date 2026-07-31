@@ -6,7 +6,6 @@ Each command reads local data, builds a request, and sends it to luxd through
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Self, final
 
 import typer
@@ -49,7 +48,7 @@ class BeadsBoardCommand:
         note distinguishes a bd failure from a real issue count.
         """
         result = self._browser.load(all_issues=all_issues)
-        board = BeadsBoard.for_project(Path.cwd().name or "unknown")
+        board = BeadsBoard.for_repo()
         note = (
             f"bd error: {result.reason}"
             if isinstance(result, BeadsFailure)

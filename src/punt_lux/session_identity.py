@@ -33,9 +33,9 @@ from punt_lux.repo_root import RepoRoot
 
 __all__ = ["SessionIdentity"]
 
-# The project a session outside any repository owns its UI under — real and
-# named, the headless counterpart of the repository directory name.
-_HEADLESS_PROJECT = "lux-session"
+# What a session outside any repository calls itself — real and named, the
+# headless counterpart of the repository directory name.
+_HEADLESS_NAME = "lux-session"
 
 # How long the Hub may go without hearing from this session before sweeping it.
 # The listen client renews every 15s, so four beats may be lost before the menu
@@ -49,38 +49,30 @@ class SessionIdentity:
     """One session server's declared identity, and the names derived from it."""
 
     _client: ClientIdentity
-    _project: str
-    __slots__ = ("_client", "_project")
+    __slots__ = ("_client",)
 
-    def __new__(cls, client: ClientIdentity, project: str) -> Self:
+    def __new__(cls, client: ClientIdentity) -> Self:
         self = super().__new__(cls)
         self._client = client
-        self._project = project
         return self
 
     @classmethod
     def resolve(cls) -> Self:
         """Derive this process's identity from the repository it was started in."""
-        repo = RepoRoot.of(_HEADLESS_PROJECT)
+        repo = RepoRoot.of(_HEADLESS_NAME)
         return cls(
             ClientIdentity(
                 kind="mcp-session",
                 name=f"lux · {repo.name} · #{os.getpid():x}",
                 repo=repo.declared_path,
                 lease_ttl=_LEASE_TTL_SECONDS,
-            ),
-            repo.name,
+            )
         )
 
     @property
     def client(self) -> ClientIdentity:
         """The identity both Hub legs declare, and the menu labels this session."""
         return self._client
-
-    @property
-    def project(self) -> str:
-        """The repository's directory name; this session's scenes are named for it."""
-        return self._project
 
     @property
     def mcp_session_key(self) -> str:

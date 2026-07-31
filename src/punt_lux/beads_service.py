@@ -55,9 +55,9 @@ class BeadsService:
         return self
 
     @classmethod
-    def for_project(cls, project: str) -> Self:
-        """Build the service for a repository's one beads board, loaded from ``bd``."""
-        return cls(BeadsBoard.for_project(project), BeadsBrowser())
+    def for_repo(cls) -> Self:
+        """Build the service for this repository's one board, loaded from ``bd``."""
+        return cls(BeadsBoard.for_repo(), BeadsBrowser())
 
     @property
     def callback_id(self) -> str:

@@ -46,8 +46,7 @@ class SessionServer:
     @classmethod
     def for_cwd(cls) -> Self:
         """Build the server for the repository this session was started in."""
-        identity = SessionIdentity.resolve()
-        return cls(identity, BeadsService.for_project(identity.project))
+        return cls(SessionIdentity.resolve(), BeadsService.for_repo())
 
     def serve(self) -> None:
         """Run until the session ends — when Claude Code closes this process's stdin.

@@ -96,7 +96,7 @@ def _service(source: _Source) -> BeadsService:
 
 
 def test_the_entry_is_named_for_what_it_shows() -> None:
-    service = BeadsService.for_project("lux")
+    service = BeadsService.for_repo()
     assert service.callback_id == "beads"
     assert service.label == "Beads"
 

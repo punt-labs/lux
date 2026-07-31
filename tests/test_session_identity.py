@@ -37,7 +37,6 @@ def test_declares_an_mcp_session_owning_the_git_repository(
     identity = SessionIdentity.resolve()
     assert identity.client.kind == "mcp-session"
     assert identity.client.repo == str(repo)
-    assert identity.project == "lux"
 
 
 def test_the_name_reads_as_tool_repository_and_session(
@@ -81,7 +80,6 @@ def test_declares_a_lease_short_enough_to_retire_a_dead_session(
 def test_headless_outside_a_repository(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(Path, "cwd", staticmethod(lambda: _NO_REPO))
     identity = SessionIdentity.resolve()
-    assert identity.project == "lux-session"
     assert identity.client.repo is None
     assert identity.client.name == "lux · lux-session · #" + f"{os.getpid():x}"
 

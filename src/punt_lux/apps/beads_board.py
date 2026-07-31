@@ -9,10 +9,15 @@ from punt_lux.apps.beads_result import BeadsFailure, BeadsResult
 from punt_lux.operations import RenderRequest, RenderTableRequest
 from punt_lux.operations.models.render import FrameSpec
 from punt_lux.protocol import TextElement
+from punt_lux.repo_root import RepoRoot
 
 # The board's table flags: borders and row striping, plus resize, sort, and
 # copy-id — the same chrome the board carried before the table route.
 _BOARD_FLAGS = ["borders", "row_bg", "resizable", "sortable", "copy_id"]
+
+# What a board belongs to when the process runs outside any repository: real and
+# named, so a headless board has one home rather than one per directory.
+_HEADLESS_PROJECT = "lux-session"
 
 
 @final
@@ -48,6 +53,18 @@ class BeadsBoard:
         refresh simply owns it.
         """
         return cls(f"beads-{project}", f"Beads: {project}")
+
+    @classmethod
+    def for_repo(cls) -> Self:
+        """The board of the repository this process runs in, named from its root.
+
+        The name comes from the repository root rather than the working directory,
+        so ``lux show beads`` from a subdirectory refreshes the repository's board
+        instead of opening a second one named for that subdirectory. Both surfaces
+        that open a board derive its name here, which is what makes the one-board
+        promise above hold rather than depend on where each was started.
+        """
+        return cls.for_project(RepoRoot.of(_HEADLESS_PROJECT).name)
 
     def request(self, result: BeadsResult) -> RenderTableRequest | RenderRequest:
         """Build the request that displays a load result.
