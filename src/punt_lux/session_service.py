@@ -8,10 +8,16 @@ the work itself the moment a click arrives.
 
 The thread is the whole concurrency story, deliberately. It owns its event loop,
 its clients, and its handler; it shares no mutable state with the proxy that runs
-on the main thread, so there is no lock here and none is needed. Servicing a click
-runs to completion on that thread — the loop's only other job is a keepalive with
-several beats of headroom — so a click is serviced start to finish without
-interleaving with the next one.
+on the main thread, so there is no lock here and none is needed.
+
+The work a click asks for does not run on that loop, though. Servicing a Beads
+click shells out to ``bd`` and pushes a scene over HTTP — both blocking, and
+``bd`` may take as long as its own timeout. The loop's other job is the keepalive
+that holds the session's lease, so a slow click running *on* the loop would
+starve the renewal and lapse the very session whose menu item was clicked: the
+entry would vanish mid-service and the push would land from a session the Hub had
+already swept. Blocking work therefore goes to a worker thread, and the loop stays
+free to keep the lease alive while it runs.
 
 It is a daemon thread and has no stop: the leg's life is the process's life. When
 the session ends, stdin closes, the process exits, the socket drops, and the Hub
@@ -28,7 +34,7 @@ import time
 from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
 
 from punt_lux.hub_client import LuxHubClient
-from punt_lux.operations import OpError
+from punt_lux.operations import Ok, OpError
 from punt_lux.rest_client import LuxRestClient
 from punt_lux.rest_transport import HubUnavailableError
 
@@ -129,25 +135,42 @@ class SessionCallbackLeg:
             on_connect=self._register,
         )
 
-    def _register(self) -> None:
+    async def _register(self) -> None:
         """Put this session's entry in the menu — run after every handshake.
 
         Registration belongs here rather than before the connection, and not only
         because it must be re-done after a reconnect: the Hub refuses a callback
         from a connection that holds no listen leg, and the handshake this hook
         fires after is exactly what gives this connection one.
+
+        The call is HTTP and therefore blocking, so it runs off the loop — the
+        keepalive that holds this session's lease must not wait behind it.
         """
-        result = self._rest().register_callback(
-            self._service.callback_id, self._service.label
-        )
+        result = await asyncio.to_thread(self._register_now)
         if isinstance(result, OpError):
             logger.error("this session's menu entry was refused: %s", result.reason)
 
-    def _on_callback(self, callback_id: str) -> None:
-        """Service a click the Hub pushed, on this thread, with no turn in between."""
+    def _register_now(self) -> Ok | OpError:
+        """Register the session's callback over REST — the blocking half."""
+        return self._rest().register_callback(
+            self._service.callback_id, self._service.label
+        )
+
+    async def _on_callback(self, callback_id: str) -> None:
+        """Service a click the Hub pushed, with no poll and no turn in between.
+
+        The work runs on a worker thread because it blocks — ``bd`` and an HTTP
+        push — and the loop it would otherwise occupy is the one renewing this
+        session's lease. A click still starts the moment it arrives; only the
+        waiting happens elsewhere.
+        """
         if callback_id != self._service.callback_id:
             logger.warning("no service for callback %r in this session", callback_id)
             return
+        await asyncio.to_thread(self._service_now)
+
+    def _service_now(self) -> None:
+        """Do the click's work — the blocking half, off the loop."""
         self._service.service(self._rest())
 
     @staticmethod
