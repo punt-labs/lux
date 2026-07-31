@@ -26,7 +26,8 @@ from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
 from punt_lux.domain.ids import SceneId, Topic
 from punt_lux.protocol.messages.listen import CallbackFrame
-from punt_lux.ws_listen import HubListenSession, HubListenTransport
+from punt_lux.ws_listen import HubListenSession
+from punt_lux.ws_transport import HubListenTransport
 
 _HEADERS = {
     "X-Lux-Client-Kind": "app",

@@ -29,7 +29,7 @@ from starlette.middleware.cors import CORSMiddleware
 from punt_lux.mcp_transport import McpHttpTransport
 from punt_lux.rest import HubHealth, RestSurface
 from punt_lux.transport_policy import LoopbackTransportPolicy
-from punt_lux.ws_listen import HubListenTransport
+from punt_lux.ws_transport import HubListenTransport
 
 logger = logging.getLogger(__name__)
 

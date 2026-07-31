@@ -47,7 +47,7 @@ from punt_lux.operations.models.menu_results import Ok
 from punt_lux.protocol.element_factory import JsonElementFactory
 from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.renderers.raising import RaisingRendererFactory
-from punt_lux.ws_listen import HubListenTransport
+from punt_lux.ws_transport import HubListenTransport
 
 # voxd's identity and the connection id both legs share — the WebSocket handshake
 # declares the same X-Lux-Client-* headers REST uses, so the callback registered

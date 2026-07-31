@@ -2,8 +2,8 @@
 
 A daemon holds one WebSocket to luxd and receives, live, both the pub-sub events it
 subscribed to and the menu-callback clicks routed to its session.
-:class:`HubListenSession` is one such connection; :class:`HubListenTransport`
-mounts the ``/ws`` route and builds a session per connection.
+:class:`HubListenSession` is one such connection; the ``/ws`` route that builds
+one per client lives in :mod:`punt_lux.ws_transport`.
 
 The session is the bridge between two worlds. Hub-side, ``publish`` and a menu
 click run on arbitrary threads (an MCP tool thread, the click-dispatch thread);
@@ -27,15 +27,8 @@ from typing import TYPE_CHECKING, Self, final
 from pydantic import ValidationError
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
-from punt_lux.connection_identity import connection_for
-from punt_lux.domain.hub import hub, hub_display
 from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.domain.hub.replicator_instance import (
-    hub_callback_router,
-    hub_replicator,
-)
 from punt_lux.domain.ids import Topic
-from punt_lux.identity_headers import ClientHeaders
 from punt_lux.protocol.messages.listen import (
     CallbackFrame,
     ClientFrames,
@@ -47,8 +40,6 @@ from punt_lux.protocol.messages.listen import (
 )
 
 if TYPE_CHECKING:
-    from fastapi import FastAPI
-
     from punt_lux.domain.hub.callback_hold import CallbackRouter
     from punt_lux.domain.hub.hub import Hub
     from punt_lux.domain.hub.hub_clients import HubClientRegistry
@@ -58,13 +49,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["HubListenSession", "HubListenTransport"]
+__all__ = ["HubListenSession"]
 
-WS_PATH = "/ws"
-
-# A client that declares no identity in its handshake headers is refused: a listen
-# leg owns a session, and only a named client may. 1008 is the WebSocket policy code.
-_POLICY_VIOLATION = 1008
 # A client that sends a frame the wire does not define is closed as a protocol
 # violation (1002) rather than left to bubble into a 1011 server error.
 _PROTOCOL_ERROR = 1002
@@ -244,79 +230,3 @@ class HubListenSession:
         if self._clients.withdraw_callbacks(self._conn):
             self._menus.mark_menus()
         self._hub.on_disconnect(self._conn)
-
-
-@final
-class HubListenTransport:
-    """Mounts ``/ws`` and builds a :class:`HubListenSession` per connection."""
-
-    _hub: Hub
-    _clients: HubClientRegistry
-    _router: CallbackRouter
-    _menus: DirtyMarker
-    __slots__ = ("_clients", "_hub", "_menus", "_router")
-
-    def __new__(
-        cls,
-        hub: Hub,
-        clients: HubClientRegistry,
-        router: CallbackRouter,
-        menus: DirtyMarker,
-    ) -> Self:
-        self = super().__new__(cls)
-        self._hub = hub
-        self._clients = clients
-        self._router = router
-        self._menus = menus
-        return self
-
-    @classmethod
-    def for_hub(cls) -> Self:
-        """Wire the transport over the Hub's process singletons."""
-        return cls(hub, hub_display.clients, hub_callback_router, hub_replicator)
-
-    def mount(self, app: FastAPI) -> None:
-        """Add the ``/ws`` WebSocket route to the parent app."""
-        app.add_api_websocket_route(WS_PATH, self._endpoint, name="listen")
-
-    async def _endpoint(self, websocket: WebSocket) -> None:
-        """Resolve the client's identity from the handshake, then serve its session.
-
-        The identity rides the ``X-Lux-Client-*`` handshake headers exactly as it
-        does on REST, and the connection is derived from the same declaration dict
-        (:func:`connection_for`), so the two legs resolve to one shared id. An
-        unidentified or malformed handshake is refused with a policy-violation close
-        rather than served an anonymous session.
-        """
-        declaration = ClientHeaders.declaration_from(websocket.headers)
-        identity = self._identity_of(declaration)
-        if declaration is None or identity is None:
-            await websocket.close(code=_POLICY_VIOLATION)
-            return
-        conn = connection_for(declaration)
-        session = HubListenSession(
-            websocket,
-            conn,
-            identity,
-            self._hub,
-            self._clients,
-            self._router,
-            self._menus,
-        )
-        await session.run()
-
-    @staticmethod
-    def _identity_of(declaration: dict[str, object] | None) -> ClientIdentity | None:
-        """Validate a handshake declaration into an identity, or ``None`` if unusable.
-
-        A wire boundary: an unnamed handshake (``declaration`` is ``None``), or one
-        whose identity fields are garbled, is refused the leg — the absence is the
-        documented outcome, not a raised error that would crash the connection.
-        """
-        if declaration is None:
-            return None
-        try:
-            return ClientIdentity.model_validate(declaration)
-        except ValidationError:
-            logger.info("listen handshake declared a malformed identity; refusing")
-            return None

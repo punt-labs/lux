@@ -148,6 +148,10 @@ ignore = [
 # FastAPI resolves the resolve_scope dependency's annotations at runtime to inject
 # Request/Response, so these are runtime imports despite being annotation-only (TC002).
 "src/punt_lux/rest/identity.py" = ["TC002"]
+# Same reason for the /ws route: FastAPI reads the endpoint's `websocket: WebSocket`
+# hint at registration to know it is the socket rather than a query parameter, so
+# WebSocket is a runtime import here even though it appears only in an annotation.
+"src/punt_lux/ws_transport.py" = ["TC002"]
 "src/punt_lux/tools/__init__.py" = ["PLC0415"]
 # Element classes use `id` as a keyword/field name throughout the protocol —
 # it matches the wire format ({"kind":"text","id":...}), the spike, and 55+
