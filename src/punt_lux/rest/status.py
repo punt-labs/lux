@@ -29,11 +29,15 @@ class HttpErrorMap:
     # resource is 404; an unreachable or slow display is a gateway
     # timeout/unavailable (503, 504); a backing resource that failed a valid
     # request — a malformed display reply, config-file I/O — is a bad gateway
-    # (502). FastAPI's own body-binding raises the 422 for a malformed request
-    # before an operation runs; these are the semantic errors.
+    # (502). Push-reachability pairs with identification as 403 pairs with 401:
+    # the caller may be perfectly well named (so not a 401 challenge) and still
+    # hold a connection this operation may not be granted on. FastAPI's own
+    # body-binding raises the 422 for a malformed request before an operation
+    # runs; these are the semantic errors.
     _STATUS: ClassVar[dict[OpErrorCode, int]] = {
         "invalid_request": 422,
         "identification_required": 401,
+        "push_required": 403,
         "not_found": 404,
         "rejected": 409,
         "fault": 502,

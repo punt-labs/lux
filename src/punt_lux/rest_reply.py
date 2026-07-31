@@ -27,6 +27,7 @@ __all__ = ["RestReply"]
 # from the client's end; an unmapped status is a fault.
 _CODE_BY_STATUS: dict[int, OpErrorCode] = {
     401: "identification_required",
+    403: "push_required",
     404: "not_found",
     409: "rejected",
     422: "invalid_request",

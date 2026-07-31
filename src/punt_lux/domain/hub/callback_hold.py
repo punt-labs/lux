@@ -19,9 +19,14 @@ A persistent leg (a daemon holding a live connection) registers a
 once rather than waited for. The listener is a payload-less wake, like the
 replicator's menu flag: ``route`` snapshots it under the lock and calls ``wake``
 *after* releasing the lock, so the notify never runs under the router lock and adds
-no new lock or cross-lock path. A session with no registered listener — an MCP or
-periodic client — falls through to the hold and drains it by polling, so the pickup
-mode is chosen by listener presence, never by a client-kind branch.
+no new lock or cross-lock path.
+
+Push is the only delivery: a menu item must launch in the time a user reads as
+instant, and a poll cannot promise that at any interval a client would run. So a
+registered listener is the *precondition* for owning a callback at all
+(``has_listener`` is the gate's read), and the hold is not an alternative pickup
+route — it is the buffer that carries clicks across a listener's transient gap
+until it reconnects and drains them.
 """
 
 from __future__ import annotations
@@ -207,6 +212,16 @@ class CallbackRouter:
             self._sweep(live)
             hold = self._holds.get(connection_id)
             return hold.snapshot() if hold is not None else ()
+
+    def has_listener(self, connection_id: ConnectionId) -> bool:
+        """Whether a persistent leg is registered to be woken for this connection.
+
+        The push-reachability read the registration gate asks: a connection with a
+        listener receives its clicks the moment they are routed, and one without
+        would never learn of them, so only the former may own a menu callback.
+        """
+        with self._lock:
+            return connection_id in self._listeners
 
     def _sweep(self, live: Mapping[ConnectionId, ClientSession]) -> None:
         """Drop holds for sessions no longer live. Caller holds the lock."""

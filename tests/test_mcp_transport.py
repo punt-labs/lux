@@ -46,7 +46,6 @@ _EXPECTED_TOOLS = frozenset(
         "list_menus",
         "list_recent_events",
         "list_scenes",
-        "pending_callbacks",
         "ping",
         "publish",
         "recv",

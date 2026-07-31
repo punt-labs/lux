@@ -1,14 +1,17 @@
 """CallbackOperations — register menu callbacks, route their clicks, read the menu.
 
 A menu item is a session's callback. This concern owns the three Hub-side moves of
-the callback model: an identified session *registers* a callback (a menu write the
-replicator pushes); a click *invokes* a callback, which the router holds for the
-owning session until the delivery legs drain it; and the *menu build* reads the
-live sessions into the uniform session-then-callback tree.
+the callback model: a push-reachable, identified session *registers* a callback (a
+menu write the replicator pushes); a click *invokes* a callback, which the router
+routes to the owning session's live listener; and the *menu build* reads the live
+sessions into the uniform session-then-callback tree.
 
-Identity and lease are the session registry's, read through it — this concern
-keeps no duplicate. Registration is refused for a session that has not identified,
-the same challenge a scene write returns, so nothing anonymous owns a menu item.
+Registration has two preconditions and refuses rather than half-granting either.
+The connection must hold a listen leg, because a menu item that cannot be
+delivered by push cannot launch at the speed a menu implies. And the session must
+have identified, so nothing anonymous owns a menu item. Identity and lease are the
+session registry's and push-reachability is the router's, each read through its
+owner — this concern keeps no duplicate of either.
 """
 
 from __future__ import annotations
@@ -17,7 +20,6 @@ from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
 
 from punt_lux.domain.hub.callback_menu import CallbackMenu
 from punt_lux.domain.hub.session_callback import CallbackInvocation
-from punt_lux.operations.models.callbacks import PendingCallbacks
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.menu_results import Ok
 
@@ -25,12 +27,20 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.callback_hold import CallbackRouter, CallbackRouting
     from punt_lux.domain.hub.hub_clients import HubClientRegistry
     from punt_lux.domain.hub.menu_models import Menu
-    from punt_lux.domain.ids import ConnectionId
     from punt_lux.operations.models.callbacks import RegisterCallbackRequest
     from punt_lux.operations.ports import DirtyMarker
     from punt_lux.operations.scope import Scope
 
 __all__ = ["CallbackMenuSource", "CallbackOperations"]
+
+# What a caller that cannot be pushed to is told, naming both the requirement and
+# the way to meet it. A session reaching the Hub over MCP or a one-shot REST call
+# has no leg a click can arrive on; ``lux mcp-serve`` holds one for the session.
+_PUSH_REQUIRED = (
+    "this connection holds no listen leg, so a click on the menu item could never "
+    "reach it; register from a connection holding luxd's /ws leg — a session's "
+    "'lux mcp-serve' process, or a client built with LuxRestClient.listener"
+)
 
 
 @runtime_checkable
@@ -68,13 +78,18 @@ class CallbackOperations:
     ) -> Ok | OpError:
         """Register the caller's callback and push the menu, or return why not.
 
-        The session decides whether it accepts the callback: an unidentified or
-        lapsed caller is refused with the identify challenge a scene write returns,
-        never a silently orphaned menu item. A registration that took changes the
-        menu, so the replicator re-pushes it.
+        Two preconditions, in the order that tells the caller the most. First the
+        connection must be push-reachable — a menu item must launch in the time a
+        user reads as instant, which only a held listen connection can promise —
+        because no identity fixes a caller that could never be told its item was
+        clicked. Then the session must have identified, refused with the same
+        challenge a scene write returns, so nothing anonymous owns a menu item.
+        A registration that took changes the menu, so the replicator re-pushes it.
         """
         if isinstance(request, OpError):
             return request
+        if not self._router.has_listener(scope.connection_id):
+            return OpError(code="push_required", reason=_PUSH_REQUIRED)
         if not self._clients.register_callback(scope.connection_id, request.callback):
             return OpError.identification_required(
                 "declare an identity to own the menu callbacks this session registers"
@@ -94,22 +109,6 @@ class CallbackOperations:
         except ValueError as exc:
             return OpError(code="invalid_request", reason=str(exc))
         return self._result_for(self._router.route(invocation))
-
-    def pending_callbacks(self, connection_id: ConnectionId) -> PendingCallbacks:
-        """Return the callback ids held for a session, without draining them."""
-        held = self._router.pending(connection_id)
-        return PendingCallbacks(callback_ids=tuple(inv.callback_id for inv in held))
-
-    def take_pending(self, connection_id: ConnectionId) -> PendingCallbacks:
-        """Take and clear a session's held callback ids — the poll legs' drain.
-
-        The MCP tool and the REST GET both call this with their own session's
-        connection id; the transport supplies the id, so the drain is keyed by the
-        caller and never branches on client kind. A session drains only its own hold,
-        and a session gone from the live set drains empty — the router sweeps it.
-        """
-        taken = self._router.take(connection_id)
-        return PendingCallbacks(callback_ids=tuple(inv.callback_id for inv in taken))
 
     def callback_menus(self) -> list[Menu]:
         """Build the uniform session-then-callback submenus from the live sessions."""

@@ -1,18 +1,19 @@
 """register_callback MCP tool — a session registers its own menu callback.
 
-The tool is the session's end of the callback model: an identified session's
-call lands a menu entry under its own submenu, guarded by the same identity
-challenge as a scene write, and a click on that entry is held for the session
-to drain through ``pending_callbacks``. These tests drive the real tool
-functions against an isolated store so the adapter wiring — parse, scope from
-the session key, facade call, status line — is exercised end to end.
+The tool is the session's end of the callback model, and it answers to both of
+registration's preconditions: the calling connection must hold a listen leg (a
+bare MCP session has none, and is refused) and the session must have identified.
+A registration that takes lands a menu entry under the session's own submenu, and
+a click on that entry wakes the leg that owns it. These tests drive the real tool
+functions against an isolated store so the adapter wiring — parse, scope from the
+session key, facade call, status line — is exercised end to end.
 """
 
 from __future__ import annotations
 
 import contextlib
 from collections.abc import Generator
-from typing import final
+from typing import Self, final
 from unittest import mock
 
 from punt_lux.domain.hub import client_registry, hub
@@ -47,16 +48,65 @@ class _StubReplicator:
         """Swallow the menu-dirty flag."""
 
 
+@final
+class _Listener:
+    """A persistent leg's wake, counting the pushes a routed click produced."""
+
+    _woken: int
+    __slots__ = ("_woken",)
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._woken = 0
+        return self
+
+    def wake(self) -> None:
+        self._woken += 1
+
+    @property
+    def woken(self) -> int:
+        return self._woken
+
+
+@final
+class _Rig:
+    """The click seam of an isolated store: route a click, read what it woke."""
+
+    _router: CallbackRouter
+    _listener: _Listener
+    __slots__ = ("_listener", "_router")
+
+    def __new__(cls, router: CallbackRouter, listener: _Listener) -> Self:
+        self = super().__new__(cls)
+        self._router = router
+        self._listener = listener
+        return self
+
+    def click(self, callback_id: str) -> None:
+        """Stand in for a display click on this session's leaf."""
+        self._router.route(CallbackInvocation(ConnectionId(_SESSION), callback_id))
+
+    @property
+    def woken(self) -> int:
+        """How many times the session's listen leg was pushed to."""
+        return self._listener.woken
+
+
 @contextlib.contextmanager
-def _isolated_ops() -> Generator[tuple[Operations, CallbackRouter]]:
+def _isolated_ops(*, listening: bool = True) -> Generator[tuple[Operations, _Rig]]:
     """Bind both tool modules to one fresh Operations store for the session key.
 
-    Yields the store and its callback router; the router is the seam a test uses
-    to stand in for a display click, since routing a click stays Hub-internal and
-    is not exposed on the facade the tools call.
+    Yields the store and a rig over its callback router: the router is the seam a
+    test uses to stand in for a display click (routing stays Hub-internal and is
+    not on the facade the tools call) and to give the session the listen leg
+    registration requires. ``listening=False`` withholds that leg, which is what a
+    bare MCP session — no ``lux mcp-serve`` process behind it — actually has.
     """
     display = HubDisplay()
     router = CallbackRouter(display.clients)
+    listener = _Listener()
+    if listening:
+        router.add_listener(ConnectionId(_SESSION), listener)
     ports = HubPorts(
         element_factory=hub_element_factory,
         ensure_writer=ensure_writer,
@@ -84,9 +134,19 @@ def _isolated_ops() -> Generator[tuple[Operations, CallbackRouter]]:
         mock.patch.object(DisplayPaths, "is_running", return_value=False),
     ):
         try:
-            yield ops, router
+            yield ops, _Rig(router, listener)
         finally:
             _session_key.reset(token)
+
+
+def test_a_session_with_no_listen_leg_is_refused_the_push_requirement() -> None:
+    """What a bare MCP session gets: the tool exists, but the connection cannot."""
+    with _isolated_ops(listening=False):
+        write_tools.identify("mcp-session", "claude", "/w/lux")
+        result = subscribe_tools.register_callback("beads", "Beads")
+    assert result.startswith("error: ")
+    assert "listen leg" in result
+    assert "mcp-serve" in result  # and the way to get one
 
 
 def test_an_unidentified_session_is_refused_the_identify_challenge() -> None:
@@ -97,7 +157,7 @@ def test_an_unidentified_session_is_refused_the_identify_challenge() -> None:
 
 
 def test_an_identified_session_registers_and_the_menu_shows_its_entry() -> None:
-    with _isolated_ops() as (ops, _router):
+    with _isolated_ops() as (ops, _rig):
         assert write_tools.identify("mcp-session", "claude", "/w/lux").startswith(
             "identified:"
         )
@@ -117,14 +177,12 @@ def test_an_identified_session_registers_and_the_menu_shows_its_entry() -> None:
     assert leaf.id == CallbackInvocation(ConnectionId(_SESSION), "beads").menu_id
 
 
-def test_a_click_on_the_registered_entry_drains_through_pending_callbacks() -> None:
-    with _isolated_ops() as (_ops, router):
+def test_a_click_on_the_registered_entry_pushes_to_the_session() -> None:
+    with _isolated_ops() as (_ops, rig):
         write_tools.identify("mcp-session", "claude", "/w/lux")
         subscribe_tools.register_callback("beads", "Beads")
 
-        # A display click routes the leaf's invocation to the owning session; the
-        # MCP pickup leg drains it once, so a second poll is empty.
-        router.route(CallbackInvocation(ConnectionId(_SESSION), "beads"))
-
-        assert subscribe_tools.pending_callbacks().callback_ids == ("beads",)
-        assert subscribe_tools.pending_callbacks().callback_ids == ()
+        # A display click routes the leaf's invocation to the owning session, and
+        # the session's leg is woken then and there — no read to poll for it.
+        rig.click("beads")
+        assert rig.woken == 1

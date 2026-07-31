@@ -21,6 +21,7 @@ OpErrorCode = Literal[
     "not_found",  # the named scene or resource does not exist
     "fault",  # an engine-side failure: a malformed display reply, unreadable config
     "identification_required",  # the caller must identify before this operation
+    "push_required",  # the caller must hold a listen leg before this operation
 ]
 
 

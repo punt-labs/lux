@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Annotated, Self, final
 
 from fastapi import APIRouter, Depends
 
-from punt_lux.operations import MenuList, Ok, PendingCallbacks, Scope, SetMenuRequest
+from punt_lux.operations import MenuList, Ok, Scope, SetMenuRequest
 from punt_lux.operations.models.callbacks import RegisterCallbackRequest
 from punt_lux.rest.identity import resolve_scope
 
@@ -49,12 +49,6 @@ class MenuRoutes:
             methods=["POST"],
             name="register_callback",
         )
-        router.add_api_route(
-            "/menus/callbacks/pending",
-            self.take_pending_callbacks,
-            methods=["GET"],
-            name="take_pending_callbacks",
-        )
         self._router = router
         return self
 
@@ -80,14 +74,3 @@ class MenuRoutes:
         identify challenge ``resolve_scope`` raises — the same 401 a scene write gets.
         """
         return self._errors.respond(self._ops.register_callback(request, scope=scope))
-
-    def take_pending_callbacks(self, scope: _OwningScope) -> PendingCallbacks:
-        """Drain and return the callback invocations owed to the calling session.
-
-        The periodic/cron delivery leg: a client that connects in bursts polls this
-        for the clicks it missed while away, and the read drains what it returns so
-        each invocation is delivered once. It is identity-guarded like a write —
-        the caller drains only its own hold — so an unidentified request is refused
-        with the identify challenge ``resolve_scope`` raises.
-        """
-        return self._ops.take_pending_callbacks(scope=scope)

@@ -1,20 +1,17 @@
-"""The callback operations' request and read models.
+"""The callback operations' request model.
 
 ``RegisterCallbackRequest`` is the never-raising parse of a callback a session
-asks to register; ``PendingCallbacks`` is the read of a session's held
-invocations the delivery legs drain.
+asks to register.
 """
 
 from __future__ import annotations
-
-from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from punt_lux.domain.hub.session_callback import SessionCallback
 from punt_lux.operations.models.common import OpError
 
-__all__ = ["PendingCallbacks", "RegisterCallbackRequest"]
+__all__ = ["RegisterCallbackRequest"]
 
 
 class RegisterCallbackRequest(BaseModel):
@@ -39,12 +36,3 @@ class RegisterCallbackRequest(BaseModel):
             return cls(callback=SessionCallback(id=callback_id, label=label))
         except ValidationError as exc:
             return OpError.from_validation(exc)
-
-
-class PendingCallbacks(BaseModel):
-    """The callback ids a session is holding, awaiting delivery to that session."""
-
-    model_config = ConfigDict(frozen=True)
-
-    kind: Literal["ok"] = "ok"
-    callback_ids: tuple[str, ...]
