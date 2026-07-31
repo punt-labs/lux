@@ -30,8 +30,11 @@ if isinstance(result, SceneShown):
 
 Every request carries the caller's `X-Lux-Client-*` identity headers, so each
 installed scene is attributed to its repository rather than an anonymous caller.
-An unreachable `luxd` raises `HubUnavailableError`; a reachable Hub's refusal of a
-request comes back as a typed `OpError` in the result.
+Identity header values are percent-encoded on the wire (plain ASCII values
+cross unchanged); the Hub decodes them, so a caller hand-rolling these headers
+instead of using the clients must encode them the same way. An unreachable
+`luxd` raises `HubUnavailableError`; a reachable Hub's refusal of a request
+comes back as a typed `OpError` in the result.
 
 ## Listening: a persistent hub client
 
