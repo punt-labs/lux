@@ -165,17 +165,21 @@ class FakeImGui:
     _lines: list[MenuLine]
     _path: list[str]
     _windows: list[str]
+    _open_windows: int
+    _close_button: bool
     _mouse_clicked: bool
     _mouse_pos: Vec2
     _item_hovered: bool
     _window_hovered: bool
     __slots__ = (
         "_clicks",
+        "_close_button",
         "_item_hovered",
         "_lines",
         "_menus_open",
         "_mouse_clicked",
         "_mouse_pos",
+        "_open_windows",
         "_path",
         "_window_hovered",
         "_windows",
@@ -188,6 +192,8 @@ class FakeImGui:
         self._lines = []
         self._path = []
         self._windows = []
+        self._open_windows = 0
+        self._close_button = False
         self._mouse_clicked = False
         self._mouse_pos = Vec2(0.0, 0.0)
         self._item_hovered = False
@@ -206,6 +212,11 @@ class FakeImGui:
         """Return the titles of the windows opened this frame."""
         return tuple(self._windows)
 
+    @property
+    def open_windows(self) -> int:
+        """Return how many windows are still on the stack — 0 when balanced."""
+        return self._open_windows
+
     def labels_under(self, *path: str) -> tuple[str, ...]:
         """Return the labels drawn directly under *path*."""
         return tuple(line.label for line in self._lines if line.path == path)
@@ -221,11 +232,18 @@ class FakeImGui:
     # -- the ImGui surface the menus call -----------------------------------
 
     def begin_menu(self, label: str) -> bool:
-        """Open a menu, recording it as a line of its parent."""
+        """Open a menu, recording it as a line of its parent.
+
+        A shut menu records its own line and grows no path: production skips
+        ``end_menu`` when this returns False, so pushing here would leave the
+        next sibling recorded as a child.
+        """
         visible = self._visible(label)
         self._lines.append(MenuLine(tuple(self._path), visible))
+        if not self._menus_open:
+            return False
         self._path.append(visible)
-        return self._menus_open
+        return True
 
     def end_menu(self) -> None:
         """Close the innermost open menu."""
@@ -238,12 +256,16 @@ class FakeImGui:
         checked: bool = False,
         enabled: bool = True,
     ) -> tuple[bool, bool]:
-        """Record an item and report whether the user clicked it."""
+        """Record an item and report whether the user clicked it.
+
+        A disabled item never reports a click: ImGui does not activate one, so
+        neither may this double.
+        """
         visible = self._visible(label)
         self._lines.append(
             MenuLine(tuple(self._path), visible, shortcut, checked, enabled)
         )
-        clicked = visible in self._clicks
+        clicked = enabled and visible in self._clicks
         return clicked, checked != clicked
 
     def separator(self) -> None:
@@ -251,12 +273,14 @@ class FakeImGui:
         self._lines.append(MenuLine(tuple(self._path), SEPARATOR, enabled=False))
 
     def begin(self, name: str, p_open: bool, _flags: int) -> tuple[bool, bool]:
-        """Open a window, recording its title."""
+        """Open a window, recording its title and its place on the stack."""
         self._windows.append(self._visible(name))
-        return True, p_open
+        self._open_windows += 1
+        return True, p_open and not self._close_button
 
     def end(self) -> None:
-        """Close the current window."""
+        """Close the current window, taking it off the stack."""
+        self._open_windows -= 1
 
     def small_button(self, _label: str) -> bool:
         """Report a button the user did not press."""
@@ -301,6 +325,10 @@ class FakeImGui:
         """Arm a left click that lands on a widget rather than the background."""
         self._mouse_clicked = True
         self._item_hovered = True
+
+    def click_close_button(self) -> None:
+        """Arm the window's own close button — ImGui answers through ``begin``."""
+        self._close_button = True
 
     @staticmethod
     def _visible(label: str) -> str:

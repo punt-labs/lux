@@ -11,7 +11,6 @@ therefore never appear on one surface and not the other.
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Any, Self
 
 from punt_lux import __version__
@@ -23,6 +22,7 @@ from punt_lux.display.menus import (
     Submenu,
     WorldPanel,
 )
+from punt_lux.display.menus.surface import GuardedMenu
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -30,8 +30,6 @@ if TYPE_CHECKING:
     from punt_lux.display.window_chrome import WindowChromeCommands
     from punt_lux.protocol import RemoteEventHandlerInvocation
     from punt_lux.scene.frame import Frame
-
-logger = logging.getLogger(__name__)
 
 __all__ = ["MenuManager"]
 
@@ -66,8 +64,9 @@ class MenuManager:
 
     _agent_menus: list[dict[str, Any]]
     _callback_menus: list[dict[str, Any]]
-    _bar: MenuBar
+    _bar: GuardedMenu
     _panel: WorldPanel
+    _world: GuardedMenu
 
     def __new__(
         cls,
@@ -102,8 +101,9 @@ class MenuManager:
         self._chrome = chrome
         self._agent_menus = []
         self._callback_menus = []
-        self._bar = MenuBar()
+        self._bar = GuardedMenu(MenuBar(), self.menu_model)
         self._panel = WorldPanel(get_frames)
+        self._world = GuardedMenu(self._panel, self.menu_model)
         return self
 
     # -- replicated menu state ----------------------------------------------
@@ -150,18 +150,15 @@ class MenuManager:
         """Render the menu bar. This is the ImGui runner's per-frame callback."""
         from imgui_bundle import imgui
 
-        try:
-            self.render_bar(imgui)
-        except Exception:
-            logger.exception("Error rendering menus")
+        self.render_bar(imgui)
 
     def render_bar(self, imgui: Any) -> None:
         """Render the menu model as the application menu bar."""
-        self._bar.render(imgui, self.menu_model())
+        self._bar.draw(imgui)
 
     def render_world_panel(self, imgui: Any) -> None:
         """Render the menu model in the World panel, while the panel is open."""
-        self._panel.render(imgui, self.menu_model())
+        self._world.draw(imgui)
 
     def check_world_menu_background_click(self, imgui: Any) -> None:
         """Toggle the World panel on a left click on the window background."""

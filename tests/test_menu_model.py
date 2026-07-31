@@ -45,12 +45,12 @@ class TestMenuItem:
 
         assert imgui.line("Always on Top").checked is True
 
-    def test_a_caption_is_disabled_and_does_nothing_when_clicked(self) -> None:
+    def test_a_caption_is_disabled_and_cannot_be_clicked(self) -> None:
         imgui = FakeImGui(("Lux v9.9.9",))
 
         activated = MenuItem.caption("Lux v9.9.9").render(imgui)
 
-        assert activated is True  # ImGui reported the click; nothing came of it
+        assert activated is False  # ImGui never activates a disabled item
         assert imgui.line("Lux v9.9.9").enabled is False
 
     def test_an_item_reports_the_label_it_shows(self) -> None:
@@ -133,6 +133,21 @@ class TestSubmenuFromWire:
         assert sent[0].action == "menu"
         assert sent[0].value == {"menu": "voxd", "item": "Music"}
 
+    def test_a_disabled_item_routes_nothing_when_clicked(self) -> None:
+        sent: list[RemoteEventHandlerInvocation] = []
+        menu = Submenu.from_wire(
+            wire_menu(
+                "File", [{"label": "Close", "id": "file.close", "enabled": False}]
+            ),
+            sent.append,
+        )
+
+        imgui = FakeImGui(("Close",))
+
+        assert menu.render(imgui) is False
+        assert imgui.line("Close").enabled is False
+        assert sent == []
+
     def test_an_item_without_a_string_id_renders_but_routes_nothing(self) -> None:
         sent: list[RemoteEventHandlerInvocation] = []
         menu = Submenu.from_wire(wire_menu("File", [{"label": "Open"}]), sent.append)
@@ -200,6 +215,13 @@ class TestMenuModel:
         model.render(imgui)
 
         assert imgui.labels_under("Windows") == ("Clear All",)
+
+    def test_shut_menus_are_drawn_as_siblings(self) -> None:
+        imgui = FakeImGui(menus_open=False)
+
+        MenuModel([Submenu("Lux", []), Submenu("Windows", [])]).render(imgui)
+
+        assert imgui.labels_under() == ("Lux", "Windows")
 
     def test_an_empty_model_draws_nothing(self) -> None:
         imgui = FakeImGui()

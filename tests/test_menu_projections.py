@@ -9,9 +9,11 @@ one and not the other fails here rather than in front of the user.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, get_type_hints
+import logging
+from typing import TYPE_CHECKING, Any, get_type_hints
 
 from punt_lux.display.menus import MenuBar, MenuModel, WorldPanel
+from punt_lux.display.menus.surface import MenuSurface
 from punt_lux.protocol import RemoteEventHandlerInvocation
 
 from .menu_doubles import (
@@ -25,6 +27,8 @@ from .menu_doubles import (
 )
 
 if TYPE_CHECKING:
+    import pytest
+
     from punt_lux.display.menu_manager import MenuManager
 
     from .menu_doubles import MenuLine
@@ -35,6 +39,14 @@ _VOXD_MENU = wire_menu("voxd — vox", [{"label": "Music", "id": "conn-7\x1fmusi
 _AGENT_MENU = wire_menu(
     "File", [{"label": "Open", "id": "file.open"}, {"label": SEPARATOR}]
 )
+# A menu no surface can decode: ``items`` is not something to iterate over.
+_UNDECODABLE_MENU: dict[str, Any] = {"label": "voxd — vox", "items": 7}
+
+
+def _gone_away(_invocation: RemoteEventHandlerInvocation) -> None:
+    """Fail the way a click's action fails when the Hub is no longer there."""
+    msg = "the connection to the Hub is gone"
+    raise RuntimeError(msg)
 
 
 def _menus_drawn(fake: FakeImGui) -> tuple[MenuLine, ...]:
@@ -170,8 +182,41 @@ class TestClickRouting:
         assert sent == []
 
 
+class TestAMenuThatCannotBeDrawn:
+    """A menu that fails costs its frame, and costs both surfaces the same."""
+
+    def test_neither_surface_raises_through_a_malformed_menu(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        manager = make_menu_manager()
+        manager.callback_menus = [_UNDECODABLE_MENU]
+
+        with caplog.at_level(logging.ERROR):
+            _draw_bar(manager)
+            _draw_panel(manager)
+
+        assert caplog.text.count("Error rendering menus") == 2
+
+    def test_a_failing_action_still_closes_the_panels_window(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        manager = make_menu_manager(emit_event=_gone_away)
+        manager.callback_menus = [_VOXD_MENU]
+
+        with caplog.at_level(logging.ERROR):
+            imgui = _draw_panel(manager, clicks=("Music",))
+
+        assert imgui.windows == ("World",)
+        assert imgui.open_windows == 0  # the panel ended its window on the way out
+        assert "Error rendering menus" in caplog.text
+
+
 class TestProjectionStructure:
     """Both surfaces are typed to render a model they are handed."""
+
+    def test_both_surfaces_are_menu_surfaces(self) -> None:
+        assert isinstance(MenuBar(), MenuSurface)
+        assert isinstance(WorldPanel(dict), MenuSurface)
 
     def test_both_projections_take_the_menu_model(self) -> None:
         namespace = {"MenuModel": MenuModel}
@@ -249,6 +294,19 @@ class TestWorldPanelOpening:
         manager.check_world_menu_background_click(imgui)
 
         assert not manager.world_menu_open
+
+    def test_the_close_button_shuts_the_panel_and_ends_its_window(self) -> None:
+        manager = make_menu_manager()
+        imgui = FakeImGui()
+        imgui.click_background()
+        manager.check_world_menu_background_click(imgui)
+        imgui.click_close_button()
+
+        manager.render_world_panel(imgui)
+
+        assert not manager.world_menu_open
+        assert imgui.open_windows == 0
+        assert imgui.lines == ()  # a dismissed panel draws no menus
 
     def test_clicking_a_menu_item_closes_the_unpinned_panel(self) -> None:
         manager = make_menu_manager()

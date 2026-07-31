@@ -104,14 +104,16 @@ class WorldPanel:
         _, still_open = imgui.begin(
             "World###world_panel", wants_open, self._flags(imgui)
         )
-        if not still_open:
-            self._close()
-            imgui.end()
-            return
-        self._render_pin(imgui)
-        imgui.separator()
-        activated = model.render(imgui, _WORLD_ID_SUFFIX)
-        imgui.end()
+        activated = False
+        try:
+            if not still_open:
+                self._close()
+                return
+            self._render_pin(imgui)
+            imgui.separator()
+            activated = model.render(imgui, _WORLD_ID_SUFFIX)
+        finally:
+            imgui.end()  # a raising action must not leave the window stack unbalanced
         if activated and not self._pinned:
             self._open = False
 
@@ -145,7 +147,5 @@ class WorldPanel:
     @staticmethod
     def _flags(imgui: Any) -> int:
         """Return the window flags: no collapse arrow, sized to its contents."""
-        return int(
-            imgui.WindowFlags_.no_collapse.value
-            | imgui.WindowFlags_.always_auto_resize.value
-        )
+        flags = imgui.WindowFlags_
+        return int(flags.no_collapse.value | flags.always_auto_resize.value)
