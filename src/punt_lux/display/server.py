@@ -35,6 +35,7 @@ from punt_lux.display.menu_manager import MenuManager
 from punt_lux.display.pending_interactions import PendingInteractions
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.texture_cache import TextureCache
+from punt_lux.display.window_chrome import WindowChrome
 from punt_lux.domain.display import Display
 from punt_lux.domain.ids import ClientId
 from punt_lux.paths import DisplayPaths
@@ -186,8 +187,6 @@ class DisplayServer:
         self._font_scale = 1.1
         self._fit_all_frames = False
         self._current_theme = "imgui_colors_dark"
-        # MenuManager must be created before QueryDispatcher so that
-        # its properties are available for the lambda callbacks.
         self._menu_manager = MenuManager(
             emit_event=self._emit_event,
             on_theme_selected=self._apply_theme,
@@ -201,6 +200,7 @@ class DisplayServer:
             get_frames=lambda: self._scene_manager.frames,
             on_clear_all=self._clear_all,
             on_fit_all=self._request_fit_all,
+            chrome=WindowChrome(),
         )
         # QueryDispatcher must be created before SocketServer so that
         # the on_error callback is available.

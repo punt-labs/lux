@@ -1,11 +1,11 @@
 {
-  "total": 112,
+  "total": 99,
   "by_category": {
-    "noqa": 36,
-    "type_ignore": 5,
+    "noqa": 23,
+    "type_ignore": 4,
     "pylint_disable": 2,
     "pyright_ignore": 5,
-    "per_file_ignores": 64
+    "per_file_ignores": 65
   },
   "by_file": {
     "src/punt_lux/__main__.py": {
@@ -22,9 +22,6 @@
     "src/punt_lux/display/macos.py": {
       "type_ignore": 1,
       "pyright_ignore": 1
-    },
-    "src/punt_lux/display/menu_manager.py": {
-      "noqa": 13
     },
     "src/punt_lux/display/renderers/draw_element_renderer.py": {
       "noqa": 1
@@ -56,9 +53,6 @@
     "src/punt_lux/protocol/messages/lifecycle.py": {
       "noqa": 1
     },
-    "src/punt_lux/protocol/messages/menu.py": {
-      "type_ignore": 1
-    },
     "src/punt_lux/protocol/messages/scene_codec.py": {
       "pyright_ignore": 1
     },
@@ -72,5 +66,5 @@
       "noqa": 2
     }
   },
-  "updated_at": "2026-07-29T03:45:59Z"
+  "updated_at": "2026-07-31T02:33:41Z"
 }
