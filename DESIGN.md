@@ -1235,6 +1235,15 @@ Bundling a font file in the package would add weight and licensing complexity. B
 
 ## DES-021: Tools Menu — Multi-Client Registration and Routed Callbacks
 
+> **Superseded (v0.22.x, the menu epic + DES-058/DES-062):** the shared
+> "Tools" menu and the `register_tool` MCP tool described here no longer
+> exist. The shipped model is one submenu per live session (`session ▸
+> callback`), registered via `register_callback` under the caller's identity
+> and lease, with clicks pushed to the owning session's persistent connection
+> — never a shared menu, and (per DES-062) never a polling pickup. The
+> multi-client routing problem this ADR names was real; its solution was
+> replaced, not repaired.
+
 ### Problem
 
 Multiple MCP servers (Lux, Vox, Biff, etc.) connect to the same Lux display server. Each wants to register menu items in a shared "Tools" menu. When the user clicks one, the display must route the callback only to the server that registered it.
@@ -3810,7 +3819,9 @@ settled by the operator; capturing them here prevents re-litigation.
 - **`register_tool` → `register_action`.** The call registers a menu
   action that calls back to the agent (via `recv`); "tool" collided with
   both MCP-tool and the on-screen "Tools" menu. The name changes to
-  `register_action`.
+  `register_action`. *(Superseded in the menu epic: the shipped call is
+  `register_callback`, registered under the session's identity and lease —
+  see DES-058 — and `register_tool` was deleted, not renamed.)*
 - **No migration shims.** Lux's users are internal only; renamed or
   retired surfaces change directly (PL-PP-1), with no compatibility
   aliases.
@@ -5102,3 +5113,157 @@ running under three surfaces. The MCP string contract is preserved by the
 adapters, so agents see no change. The `mcp<2` pin is lifted. The command-line
 tool and introspection stop reaching around the Hub. The multi-machine future
 stays open but unbuilt: luxd is loopback-only until authentication is added.
+
+## DES-056: Scene-Frame Lifecycle — Frames Are the User's Unit, Scenes the Agent's
+
+**Status:** SETTLED (PR #275, #280; operator-ratified 2026-07-24)
+
+**Problem.** Closing behavior conflated three different lifetimes: a scene
+(the agent's unit of content), a frame (the window-like container the user
+arranges), and the `window` element (in-scene content). Closed frames left
+husks; scenes died with sessions; nothing had a TTL.
+
+**Decision.** Frames die with their scenes (no husks); scenes survive
+sessions; every scene renders in a frame (frames-always, PR #280). The frame
+is the *user's* unit — it carries the close affordance and the optional
+TTL (`ttl_seconds`, enforced by an `ExpirySweep` on luxd's loop, modeled in
+`docs/frame_expiry.tex`). The scene is the *agent's* unit. The `window`
+element is in-scene content and deliberately has **no** close affordance —
+closing content is the frame's job.
+
+**Alternatives rejected.** A close button on the `window` element (confuses
+content with container); session-scoped scenes (kills the persistent-board
+use); husk frames surviving their scenes (dead chrome the user must clean).
+
+## DES-057: Client Identity — Declared Kind/Name, Leases, One Identity for Both Legs
+
+**Status:** SETTLED (the identity train, PRs #290–#292)
+
+**Problem.** Hub state was keyed by anonymous connections: scenes and menu
+entries could not be attributed, survived their owners as ghosts, and a
+reconnecting client was a stranger to its own state.
+
+**Decision.** Every client declares a typed `ClientIdentity` — `kind`
+(`"repo"`, `"app"`, `"mcp-session"`, …), `name`, and a caller-declared lease
+TTL (5 s–1 h). REST carries it in `X-Lux-Client-*` headers; MCP sessions
+declare it via `identify`; `LuxRestClient.for_identity` and
+`LuxRestClient.connect` (repo-derived) construct it. One identity covers both
+legs — REST pushes and the WebSocket listen stream — so state registered on
+one leg is addressable from the other. Leases expire state whose owner left;
+an `on_connect` hook re-establishes per-connection state after every
+handshake, first connect and reconnects alike.
+
+**Alternatives rejected.** Connection-id keying (a reconnect orphans
+everything); Hub-assigned identity (the caller knows who it is; the Hub does
+not); permanent registrations (ghost menu entries from dead daemons).
+
+## DES-058: The Menu Is Sessions' Callbacks — Uniform `session ▸ callback`, Push Delivery
+
+**Status:** SETTLED (the menu epic, PRs #293–#296, #299; operator-ruled)
+
+**Problem.** The menu bar needed dynamic entries from many live clients
+without luxd owning any client's behavior, and an earlier "capability"
+abstraction (docs/architecture/menu-capability-model.md, since rewritten)
+over-modeled it.
+
+**Decision.** A menu item *is* a session's callback, nothing more. Each live
+session owns one submenu labeled by its identity, holding the callbacks it
+registered via `register_callback`; entries live on the session's lease and
+leave when it lapses. Rendering is uniform — one rule regardless of session
+count ("no case logic", operator-ruled). A click is held by the Hub and
+delivered to the owning session; luxd never executes the action. Sessions
+produce, the Hub displays: the session services its click from its own shell
+environment (the Beads board is produced by the session that registered it —
+luxd is never a `bd` client, PR #299).
+
+**Alternatives rejected.** A shared Tools menu with routed callbacks
+(DES-021 — superseded); luxd-side built-in executors (`BuiltinBeadsCallbacks`
+ran `bd` from launchd with no PATH/credentials/cwd — deleted); count-dependent
+menu rendering (a special case for one session — ruled out).
+
+## DES-059: One Menu, Two Projections — the Menu Bar and the World Menu Are Identical
+
+**Status:** SETTLED (PR #302; operator-ruled: "these have to be identical")
+
+**Problem.** The World menu (left-click on the display background) built its
+entries from a source predating the callback model, so dynamically registered
+entries appeared in the menu bar but not in the World menu — two menus
+diverging by construction.
+
+**Decision.** One `MenuModel`, composed in exactly one place
+(`MenuManager.menu_model()`), rendered by two projections (`MenuBar`,
+`WorldPanel`) that build nothing themselves. Both surfaces produce the same
+leaf ids and dispatch the identical invocation. A structural parity test pins
+the divergence class: a future second source fails a test, not the operator's
+demo. Surfaces receive the *composer* and call it only when they draw, so a
+closed World panel costs no composition; one guarded render path keeps the
+ImGui window stack balanced when a menu action raises mid-click.
+
+**Alternatives rejected.** Repairing the World menu's own builder (two
+sources that drift again); rendering the World menu from the bar's widget
+tree (couples projections instead of sharing the model).
+
+## DES-060: Announce on Arrival Only — Updates Never Take Focus, Minimize State, or the Tab
+
+**Status:** SETTLED (PR #302, bead lux-q3pu; operator-ruled)
+
+**Problem.** Every scene push — new or replace — unminimized its frame and
+requested focus, so a beads refresh or now-playing update re-raised whatever
+the user had put away, every few seconds.
+
+**Decision.** The new-content affordances (unminimize, focus, active-tab) are
+gated to genuinely *new* scenes; a replace repaints in place. The user
+controls what is front-most; updates do not. The user-initiated paths (dock
+pill click, Fit All) keep their explicit focus behavior.
+
+**Open stricter reading.** `docs/architecture/workspace-model.tex` specifies
+that even *new* content does not un-minimize (`AddSceneToFrame` keeps
+`frameVis`; only an explicit `RestoreFrame` restores). The shipped behavior
+follows the operator's instruction (new scenes announce); adopting the
+model's stricter reading is a one-line change awaiting an operator ruling.
+
+## DES-061: The 100ms Menu Contract — Only Push-Reachable Processes Own Menu Entries
+
+**Status:** SETTLED (operator absolute, 2026-07-31); implementation in PR-B
+(bead lux-uoy4)
+
+**Problem.** A menu entry serviced by polling — or by a turn of the model —
+answers a click seconds later. The operator's absolute: "The point of a menu
+is to launch something. There is no reason to have something in a menu if you
+cannot launch it in less than 100ms or 200ms max."
+
+**Decision.** Only a process the Hub can *push* to may own a menu entry.
+`register_callback` is refused unless the calling connection holds a live
+listen leg; clicks are delivered down that connection and serviced by the
+running process immediately — never queued for a poll, never routed through
+the LLM. Daemons (voxd) already comply via `LuxHubClient`. Claude Code
+sessions comply via `lux mcp-serve` (DES-062). The `pending_callbacks`
+polling pickup loses its menu role and is retired.
+
+**Alternatives rejected.** A cron polling `pending_callbacks` from inside the
+chat session (multi-second latency — operator-rejected in the strongest
+terms); a separate per-session listener daemon beside the session
+(process sprawl; rejected for the MCP server the session already runs).
+
+## DES-062: `lux mcp-serve` — the Per-Session MCP Server With a Servicing Thread
+
+**Status:** SETTLED (operator-confirmed design, 2026-07-31); shipping in PR-B
+(bead lux-uoy4)
+
+**Problem.** With the plugin connecting straight to luxd's HTTP endpoint, a
+Claude Code session holds no push-reachable connection, so it cannot own menu
+entries under DES-061 — yet the session is exactly the right owner of its
+Beads entry, because only it has the repo's shell environment (PATH, `.envrc`
+credentials, cwd) needed to produce the board.
+
+**Decision.** The plugin runs one `lux mcp-serve` process per session: a
+stdio MCP server that (a) forwards the session's MCP traffic to luxd
+verbatim — no tool logic, the session sees exactly luxd's surface — and (b)
+holds a `LuxHubClient` listen leg on a background thread that registers the
+session's callbacks on every handshake and services clicks instantly from the
+session's own shell. The process starts in under a second, dies with the
+session (stdin close), and its lease withdraws its entries.
+
+**Alternatives rejected.** Direct HTTP from the plugin (no push leg — the
+root cause of the poll latency); tool logic in the proxy (two tool surfaces
+to keep aligned); servicing clicks from the chat loop (DES-061 forbids it).
