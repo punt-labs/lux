@@ -866,8 +866,16 @@ split out of \texttt{SceneManager} so each has one job.
 \end{tabular}
 \end{center}
 
-Left-clicking the docking background opens the World menu: list frames,
-restore minimized frames, close all frames, and reach display settings.  A
+Left-clicking the docking background opens the World menu, which is the menu
+bar brought to where the user clicked.  Both surfaces render one menu model
+(\modpath{display/menus/model.py}) that \texttt{MenuManager} composes each
+frame: the display's own Lux, Windows, and Help menus, then the bars agents
+submit through \texttt{set\_menu}, then one submenu per live session that
+registered a callback.  Neither surface builds entries of its own
+(\texttt{MenuBar} and \texttt{WorldPanel} in
+\modpath{display/menus/projections.py} each take the model they render), so
+the two cannot show different menus, and a click on a leaf sends the same
+\texttt{RemoteEventHandlerInvocation} whichever surface it came from.  A
 minimized frame appears as a button in a bottom dock bar; clicking it
 restores the frame.
 

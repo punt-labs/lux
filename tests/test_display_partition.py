@@ -1172,15 +1172,25 @@ class TestFrameAutoFocusPartitions:
         server._handle_message(sock, _framed_scene("s1", "f1"))
         assert server._scene_manager.consume_focus("f1") is True
 
-    def test_scene_restores_minimized_frame(self):
-        """Receiving a framed scene un-minimizes the frame."""
+    def test_new_scene_restores_minimized_frame(self):
+        """A scene new to the frame un-minimizes it: the frame has something to say."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_message(sock, _framed_scene("s1", "f1"))
+        server._scene_manager.frames["f1"].minimized = True
+        server._handle_message(sock, _framed_scene("s2", "f1"))
+        assert not server._scene_manager.frames["f1"].minimized
+
+    def test_repushed_scene_leaves_minimized_frame_minimized(self):
+        """Replacing a scene repaints in place: a frame put away stays away."""
         server = _server()
         sock = _sock(fd=10)
         _register(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
         server._scene_manager.frames["f1"].minimized = True
         server._handle_message(sock, _framed_scene("s1", "f1"))
-        assert not server._scene_manager.frames["f1"].minimized
+        assert server._scene_manager.frames["f1"].minimized
 
     def test_close_frame_clears_focus(self):
         """Closing a frame clears its pending focus request."""

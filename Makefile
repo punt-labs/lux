@@ -145,7 +145,11 @@ LATEX_ARTIFACTS = *.aux *.log *.out *.bbl *.bcf *.blg *.run.xml *.fls \
                   *.fdb_latexmk *.synctex.gz *.toc \
                   docs/*.aux docs/*.log docs/*.out docs/*.bbl docs/*.bcf docs/*.blg \
                   docs/*.run.xml docs/*.fls docs/*.fdb_latexmk docs/*.synctex.gz \
-                  docs/*.toc docs/*.fuzz docs/*.mf docs/fuzz.sty
+                  docs/*.toc docs/*.fuzz docs/*.mf docs/fuzz.sty \
+                  docs/architecture/*.aux docs/architecture/*.log \
+                  docs/architecture/*.out docs/architecture/*.toc \
+                  docs/architecture/*.fls docs/architecture/*.fdb_latexmk \
+                  docs/architecture/*.synctex.gz
 
 TEX_FILES = prfaq.tex docs/architecture/system.tex
 

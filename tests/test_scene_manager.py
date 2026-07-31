@@ -395,6 +395,61 @@ class TestUpsertSceneDedup:
         assert "f1" not in mgr.frames
 
 
+class TestARepushLeavesThePresentationAlone:
+    """The user owns which frame is up and which tab is showing, not the agent.
+
+    A brand-new scene announces itself: it raises its frame and asks for focus.
+    Every push after that repaints in place, so a poller refreshing its board
+    cannot pull a minimized frame back up, steal focus from the window the user
+    is working in, or move them off the tab they chose.
+    """
+
+    def test_a_replace_leaves_a_minimized_frame_minimized(self) -> None:
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(_make_scene(frame_id="f1"), owner_fd=10)
+        mgr.minimize("f1")
+        mgr.consume_focus("f1")  # the new scene's focus request, already served
+
+        mgr.handle_framed_scene(_make_scene(frame_id="f1"), owner_fd=10)
+
+        assert mgr.frames["f1"].minimized is True
+        assert mgr.consume_focus("f1") is False
+
+    def test_a_replace_leaves_the_foreground_frame_focused(self) -> None:
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(_make_scene(scene_id="board", frame_id="f1"), 10)
+        mgr.handle_framed_scene(_make_scene(scene_id="notes", frame_id="f2"), 10)
+
+        mgr.handle_framed_scene(_make_scene(scene_id="board", frame_id="f1"), 10)
+
+        # f2 was the last frame to earn focus and a re-push of f1 cannot take it.
+        assert mgr.consume_focus("f1") is False
+        assert mgr.consume_focus("f2") is True
+
+    def test_a_replace_leaves_the_tab_the_user_picked(self) -> None:
+        mgr, _ = _make_manager()
+        for sid in ("s1", "s2"):
+            mgr.handle_framed_scene(_make_scene(scene_id=sid, frame_id="f1"), 10)
+        frame = mgr.frames["f1"]
+        frame.active_tab = "s1"  # the user clicked back to the first tab
+
+        mgr.handle_framed_scene(_make_scene(scene_id="s2", frame_id="f1"), 10)
+
+        assert frame.active_tab == "s1"
+
+    def test_a_new_scene_still_raises_its_frame_and_takes_focus(self) -> None:
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), 10)
+        mgr.minimize("f1")
+        mgr.consume_focus("f1")
+
+        mgr.handle_framed_scene(_make_scene(scene_id="s2", frame_id="f1"), 10)
+
+        assert mgr.frames["f1"].minimized is False
+        assert mgr.consume_focus("f1") is True
+        assert mgr.frames["f1"].active_tab == "s2"
+
+
 # -------------------------------------------------------------------
 # 8. test_clear_all
 # -------------------------------------------------------------------

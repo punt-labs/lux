@@ -1,27 +1,51 @@
-# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
-# pyright: reportUnknownArgumentType=false, reportMissingModuleSource=false
-"""Menu state management and rendering for the Lux display server."""
+"""MenuManager — the display's menu state and the model both surfaces render.
+
+The menu bar and the World panel are two projections of one :class:`MenuModel`.
+This class holds the menu state the Hub replicates — the agent bars and the
+session-then-callback submenus — composes the model from it alongside the
+display's own menus, and hands that one model to each surface. An entry can
+therefore never appear on one surface and not the other.
+
+``imgui`` is typed ``Any``: imgui_bundle ships no type stubs.
+"""
 
 from __future__ import annotations
 
-import logging
-import time
-from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any, Self
 
-from punt_lux.protocol import RemoteEventHandlerInvocation
+from punt_lux import __version__
+from punt_lux.display.menus import (
+    GuardedMenu,
+    MenuBar,
+    MenuItem,
+    MenuModel,
+    MenuSeparator,
+    Submenu,
+    WorldPanel,
+)
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping
+
+    from punt_lux.display.window_chrome import WindowChromeCommands
+    from punt_lux.protocol import RemoteEventHandlerInvocation
     from punt_lux.scene.frame import Frame
 
-logger = logging.getLogger(__name__)
+__all__ = ["MenuManager"]
+
+_FONT_STEP = 0.1
+_FONT_MIN = 0.5
+_FONT_MAX = 3.0
+_OPACITY_PRESETS = (25, 50, 75, 100)
+# An opacity preset reads as the current one when it is within half a step.
+_OPACITY_MATCH = 0.05
 
 
 class MenuManager:
-    """Own all menu state and render menu bar + World panel.
+    """Own the display's menu state and compose the menu every surface renders.
 
-    Receives callbacks for user selections (theme, opacity, etc.) but does
-    not own the state those callbacks mutate.
+    Receives callbacks for user selections (theme, opacity, and the rest) but
+    does not own the state those callbacks mutate.
     """
 
     _emit_event: Callable[[RemoteEventHandlerInvocation], None]
@@ -36,12 +60,13 @@ class MenuManager:
     _get_frames: Callable[[], Mapping[str, Frame]]
     _on_clear_all: Callable[[], None]
     _on_fit_all: Callable[[], None]
+    _chrome: WindowChromeCommands
 
     _agent_menus: list[dict[str, Any]]
     _callback_menus: list[dict[str, Any]]
-    _world_menu_open: bool
-    _world_menu_pinned: bool
-    _world_menu_spawn_pos: tuple[float, float] | None
+    _bar: GuardedMenu
+    _panel: WorldPanel
+    _world: GuardedMenu
 
     def __new__(
         cls,
@@ -58,6 +83,7 @@ class MenuManager:
         get_frames: Callable[[], Mapping[str, Frame]],
         on_clear_all: Callable[[], None],
         on_fit_all: Callable[[], None],
+        chrome: WindowChromeCommands,
     ) -> Self:
         self = super().__new__(cls)
         self._emit_event = emit_event
@@ -72,14 +98,15 @@ class MenuManager:
         self._get_frames = get_frames
         self._on_clear_all = on_clear_all
         self._on_fit_all = on_fit_all
+        self._chrome = chrome
         self._agent_menus = []
         self._callback_menus = []
-        self._world_menu_open = False
-        self._world_menu_pinned = False
-        self._world_menu_spawn_pos = None
+        self._bar = GuardedMenu(MenuBar(), self.menu_model)
+        self._panel = WorldPanel(get_frames)
+        self._world = GuardedMenu(self._panel, self.menu_model)
         return self
 
-    # -- public properties ---------------------------------------------------
+    # -- replicated menu state ----------------------------------------------
 
     @property
     def agent_menus(self) -> list[dict[str, Any]]:
@@ -99,316 +126,152 @@ class MenuManager:
     def callback_menus(self, value: list[dict[str, Any]]) -> None:
         self._callback_menus = value
 
-    @property
-    def world_menu_open(self) -> bool:
-        """Return whether the World panel is open."""
-        return self._world_menu_open
+    # -- the one model ------------------------------------------------------
 
-    # -- menu bar rendering --------------------------------------------------
+    def menu_model(self) -> MenuModel:
+        """Compose the menu: the display's own menus, agent bars, then sessions.
+
+        Rebuilt each frame, so every item reads live state — the theme in use,
+        which frames are minimized, which sessions still hold a callback lease.
+        """
+        return MenuModel(
+            [
+                self._lux_menu(),
+                self._windows_menu(),
+                self._help_menu(),
+                *(Submenu.from_wire(m, self._emit_event) for m in self._agent_menus),
+                *(Submenu.from_wire(m, self._emit_event) for m in self._callback_menus),
+            ]
+        )
+
+    # -- the two surfaces ---------------------------------------------------
 
     def show_menus(self) -> None:
-        """Render the full menu bar (Lux, Windows, Help, agent + session menus)."""
+        """Render the menu bar. This is the ImGui runner's per-frame callback."""
         from imgui_bundle import imgui
 
-        try:
-            self._show_lux_menu(imgui)
-            self._show_window_menu(imgui)
-            self._show_help_menu(imgui)
-            for menu in self._agent_menus:
-                self._show_agent_menu(imgui, menu)
-            # Each session's submenu renders through the same agent-menu path: a
-            # leaf carries the CallbackInvocation id, so a click emits an
-            # action="menu" the Hub routes back to the owning session.
-            for menu in self._callback_menus:
-                self._show_agent_menu(imgui, menu)
-        except Exception:
-            logger.exception("Error rendering menus")
+        self.render_bar(imgui)
 
-    def _show_lux_menu(self, imgui: Any) -> None:
-        if not imgui.begin_menu("Lux"):
-            return
-        try:
-            self._show_lux_items(imgui)
-        finally:
-            imgui.end_menu()
-
-    def _show_lux_items(self, imgui: Any) -> bool:
-        """Render Lux menu items. Returns True if any item clicked."""
-        from imgui_bundle import hello_imgui
-
-        clicked = False
-
-        # Settings submenu: theme, chrome, opacity.
-        if imgui.begin_menu("Settings"):
-            try:
-                clicked = self._show_settings_items(imgui) or clicked
-            finally:
-                imgui.end_menu()
-
-        imgui.separator()
-
-        if imgui.menu_item("Increase Font", "", False)[0]:  # noqa: FBT003
-            scale = self._get_font_scale()
-            self._on_font_scale_changed(min(round(scale + 0.1, 1), 3.0))
-            clicked = True
-        if imgui.menu_item("Decrease Font", "", False)[0]:  # noqa: FBT003
-            scale = self._get_font_scale()
-            self._on_font_scale_changed(max(round(scale - 0.1, 1), 0.5))
-            clicked = True
-
-        imgui.separator()
-
-        if imgui.menu_item("Quit", "Cmd+Q", False)[0]:  # noqa: FBT003
-            hello_imgui.get_runner_params().app_shall_exit = True
-            clicked = True
-        return clicked
-
-    def _show_settings_items(self, imgui: Any) -> bool:
-        """Render Settings submenu contents. Returns True if any item clicked."""
-        from imgui_bundle import hello_imgui
-
-        clicked = False
-
-        # Theme picker.
-        if imgui.begin_menu("Theme"):
-            try:
-                for theme in self._get_themes():
-                    name = theme.name.replace("_", " ").title()
-                    if imgui.menu_item(name, "", False)[0]:  # noqa: FBT003
-                        hello_imgui.apply_theme(theme)
-                        self._on_theme_selected(str(theme.name))
-                        clicked = True
-            finally:
-                imgui.end_menu()
-
-        imgui.separator()
-
-        # Window chrome toggles.
-        params = hello_imgui.get_runner_params()
-        wp = params.app_window_params
-        top_toggled, wp.top_most = imgui.menu_item("Always on Top", "", wp.top_most)
-        if top_toggled:
-            clicked = True
-
-        toggled, _ = imgui.menu_item("Borderless", "", not self._get_decorated())
-        if toggled:
-            self._on_decorated_toggled(not self._get_decorated())
-            clicked = True
-
-        imgui.separator()
-
-        # Opacity presets.
-        if imgui.begin_menu("Opacity"):
-            try:
-                for pct in (25, 50, 75, 100):
-                    val = pct / 100.0
-                    current = abs(self._get_opacity() - val) < 0.05
-                    if imgui.menu_item(f"{pct}%", "", current)[0]:
-                        self._on_opacity_changed(val)
-                        clicked = True
-            finally:
-                imgui.end_menu()
-        return clicked
-
-    def _show_window_menu(self, imgui: Any) -> None:
-        from imgui_bundle import hello_imgui
-
-        if not imgui.begin_menu("Windows"):
-            return
-        try:
-            self._show_window_frame_items(imgui)
-            imgui.separator()
-            self._show_window_chrome_items(imgui, hello_imgui)
-        finally:
-            imgui.end_menu()
-
-    def _show_window_frame_items(self, imgui: Any) -> bool:
-        """Render frame management items. Returns True if any item clicked."""
-        clicked = False
-        frames = self._get_frames()
-        has_frames = bool(frames)
-        has_visible = has_frames and any(not f.minimized for f in frames.values())
-        has_minimized = has_frames and any(f.minimized for f in frames.values())
-
-        if imgui.menu_item("Collapse All", "", False, has_visible)[0]:  # noqa: FBT003
-            for f in frames.values():
-                f.minimized = True
-            clicked = True
-        if imgui.menu_item("Expand All", "", False, has_minimized)[0]:  # noqa: FBT003
-            for f in frames.values():
-                f.minimized = False
-            clicked = True
-        if imgui.menu_item("Fit All", "", False, has_frames)[0]:  # noqa: FBT003
-            self._on_fit_all()
-            clicked = True
-        return clicked
-
-    def _show_window_chrome_items(self, imgui: Any, hello_imgui: Any) -> bool:
-        """Render window chrome items. Returns True if any item clicked."""
-        clicked = False
-        if imgui.menu_item("Clear All", "", False)[0]:  # noqa: FBT003
-            self._on_clear_all()
-            clicked = True
-        if imgui.menu_item("Reset Size", "", False)[0]:  # noqa: FBT003
-            hello_imgui.change_window_size((1200, 800))
-            clicked = True
-        return clicked
-
-    def _show_help_menu(self, imgui: Any) -> None:
-        if not imgui.begin_menu("Help"):
-            return
-        try:
-            self._show_help_items(imgui)
-        finally:
-            imgui.end_menu()
-
-    def _show_help_items(self, imgui: Any) -> bool:
-        """Render help items. Returns True if any item clicked."""
-        from punt_lux import __version__
-
-        imgui.menu_item(
-            f"Lux v{__version__}",
-            "",
-            False,  # noqa: FBT003
-            False,  # noqa: FBT003
-        )
-        return False  # version label is not clickable
-
-    def _show_agent_menu(self, imgui: Any, menu: dict[str, Any]) -> None:
-        if imgui.begin_menu(menu.get("label", "Custom")):
-            try:
-                for item in menu.get("items", []):
-                    label = item.get("label")
-                    if not isinstance(label, str):
-                        continue
-                    if label == "---":
-                        imgui.separator()
-                        continue
-                    enabled = item.get("enabled", True)
-                    clicked, _ = imgui.menu_item(
-                        label,
-                        item.get("shortcut", ""),
-                        False,  # noqa: FBT003
-                        enabled,
-                    )
-                    if clicked and isinstance(item.get("id"), str):
-                        self._emit_event(
-                            RemoteEventHandlerInvocation(
-                                element_id=item["id"],
-                                action="menu",
-                                ts=time.time(),
-                                value={
-                                    "menu": menu.get("label", "Custom"),
-                                    "item": label,
-                                },
-                            )
-                        )
-            finally:
-                imgui.end_menu()
-
-    # -- World panel ---------------------------------------------------------
-
-    def check_world_menu_background_click(self, imgui: Any) -> None:
-        """Toggle World panel on left-click on the main window background.
-
-        Uses ``is_window_hovered()`` (no flags) which checks whether the
-        *current* window (the main/root window at this point in the render
-        loop) is hovered.  When a frame or the World panel is on top,
-        the main window is not considered hovered, so clicks on frames
-        are ignored.
-
-        The dock bar renders later in the frame (its ``invisible_button``
-        items and ``##dock_bar`` window haven't been emitted yet), so the
-        hover checks above can't exclude it.  An explicit dock bar rect
-        check handles this case.
-        """
-        if not imgui.is_mouse_clicked(imgui.MouseButton_.left):
-            return
-        if imgui.is_any_item_hovered():
-            return
-        # Current window = main window.  False when a frame covers the spot.
-        if not imgui.is_window_hovered():
-            return
-        # Dock bar renders later in the frame, so its items/window aren't
-        # yet in ImGui's hover state.  Reject clicks in its region.
-        frames = self._get_frames()
-        if any(f.minimized for f in frames.values()):
-            viewport = imgui.get_main_viewport()
-            mouse = imgui.get_mouse_pos()
-            bar_top = viewport.pos.y + viewport.size.y - _DOCK_BAR_HEIGHT
-            if mouse.y >= bar_top:
-                return
-        self._world_menu_open = not self._world_menu_open
-        if self._world_menu_open:
-            pos = imgui.get_mouse_pos()
-            self._world_menu_spawn_pos = (pos.x, pos.y)
+    def render_bar(self, imgui: Any) -> None:
+        """Render the menu model as the application menu bar."""
+        self._bar.draw(imgui)
 
     def render_world_panel(self, imgui: Any) -> None:
-        """Render the detached World menu as a floating window."""
-        if not self._world_menu_open:
-            return
+        """Render the menu model in the World panel, while the panel is open."""
+        self._world.draw(imgui)
 
-        flags = (
-            imgui.WindowFlags_.no_collapse.value
-            | imgui.WindowFlags_.always_auto_resize.value
+    def check_world_menu_background_click(self, imgui: Any) -> None:
+        """Toggle the World panel on a left click on the window background."""
+        self._panel.check_background_click(imgui)
+
+    @property
+    def world_menu_open(self) -> bool:
+        """Return whether the World panel is showing."""
+        return self._panel.is_open
+
+    # -- the display's own menus --------------------------------------------
+
+    def _lux_menu(self) -> Submenu:
+        """Build the Lux menu: settings, font size, quit."""
+        return Submenu(
+            "Lux",
+            [
+                self._settings_menu(),
+                MenuSeparator(),
+                MenuItem("Increase Font", lambda: self._step_font(_FONT_STEP)),
+                MenuItem("Decrease Font", lambda: self._step_font(-_FONT_STEP)),
+                MenuSeparator(),
+                MenuItem("Quit", self._chrome.quit, shortcut="Cmd+Q"),
+            ],
         )
-        imgui.set_next_window_size((220, 0), imgui.Cond_.first_use_ever.value)
-        if self._world_menu_spawn_pos is not None:
-            imgui.set_next_window_pos(
-                self._world_menu_spawn_pos, imgui.Cond_.always.value
-            )
-            self._world_menu_spawn_pos = None
 
-        still_open = True
-        _, still_open = imgui.begin("World###world_panel", still_open, flags)
-        if not still_open:
-            self._world_menu_open = False
-            self._world_menu_pinned = False
-            imgui.end()
-            return
+    def _settings_menu(self) -> Submenu:
+        """Build the Settings submenu: theme, window chrome, opacity."""
+        decorated = self._get_decorated()
+        return Submenu(
+            "Settings",
+            [
+                self._theme_menu(),
+                MenuSeparator(),
+                MenuItem.toggle(
+                    "Always on Top",
+                    self._toggle_top_most,
+                    checked=self._chrome.top_most(),
+                ),
+                MenuItem.toggle(
+                    "Borderless",
+                    lambda: self._on_decorated_toggled(not decorated),
+                    checked=not decorated,
+                ),
+                MenuSeparator(),
+                self._opacity_menu(),
+            ],
+        )
 
-        # Pin dot -- filled when pinned, hollow when unpinned.
-        pin_dot = "●" if self._world_menu_pinned else "○"
-        if imgui.small_button(f"{pin_dot}##pin"):
-            self._world_menu_pinned = not self._world_menu_pinned
-        imgui.separator()
+    def _theme_menu(self) -> Submenu:
+        """Build the theme picker from the themes the display offers."""
+        return Submenu("Theme", [self._theme_item(t) for t in self._get_themes()])
 
-        clicked_any = self._render_world_panel_sections(imgui)
+    def _theme_item(self, theme: Any) -> MenuItem:
+        """Build one theme choice; selecting it applies that theme."""
+        name = str(theme.name)
+        return MenuItem(
+            name.replace("_", " ").title(), lambda: self._on_theme_selected(name)
+        )
 
-        imgui.end()
+    def _opacity_menu(self) -> Submenu:
+        """Build the opacity presets, checking the one in effect."""
+        return Submenu("Opacity", [self._opacity_item(p) for p in _OPACITY_PRESETS])
 
-        # Auto-close on click when unpinned.
-        if clicked_any and not self._world_menu_pinned:
-            self._world_menu_open = False
+    def _opacity_item(self, percent: int) -> MenuItem:
+        """Build one opacity preset; selecting it applies that opacity."""
+        value = percent / 100.0
+        in_effect = abs(self._get_opacity() - value) < _OPACITY_MATCH
+        return MenuItem.toggle(
+            f"{percent}%", lambda: self._on_opacity_changed(value), checked=in_effect
+        )
 
-    def _render_world_panel_sections(self, imgui: Any) -> bool:
-        """Render all World panel sections. Returns True if any item clicked."""
-        from imgui_bundle import hello_imgui
+    def _windows_menu(self) -> Submenu:
+        """Build the Windows menu: frame layout, then window chrome."""
+        frames = self._get_frames().values()
+        expanded = any(not frame.minimized for frame in frames)
+        minimized = any(frame.minimized for frame in frames)
+        return Submenu(
+            "Windows",
+            [
+                MenuItem(
+                    "Collapse All",
+                    lambda: self._minimize_all(minimized=True),
+                    enabled=expanded,
+                ),
+                MenuItem(
+                    "Expand All",
+                    lambda: self._minimize_all(minimized=False),
+                    enabled=minimized,
+                ),
+                MenuItem("Fit All", self._on_fit_all, enabled=bool(frames)),
+                MenuSeparator(),
+                MenuItem("Clear All", self._on_clear_all),
+                MenuItem("Reset Size", self._chrome.reset_size),
+            ],
+        )
 
-        clicked_any = False
+    def _help_menu(self) -> Submenu:
+        """Build the Help menu: the running version, as a line to read."""
+        return Submenu("Help", [MenuItem.caption(f"Lux v{__version__}")])
 
-        if imgui.begin_menu("Lux##world"):
-            try:
-                clicked_any = self._show_lux_items(imgui) or clicked_any
-            finally:
-                imgui.end_menu()
+    # -- what the display's own menu items do -------------------------------
 
-        if imgui.begin_menu("Windows##world"):
-            try:
-                clicked_any = self._show_window_frame_items(imgui) or clicked_any
-                imgui.separator()
-                chrome_clicked = self._show_window_chrome_items(imgui, hello_imgui)
-                clicked_any = chrome_clicked or clicked_any
-            finally:
-                imgui.end_menu()
-        if imgui.begin_menu("Help##world"):
-            try:
-                clicked_any = self._show_help_items(imgui) or clicked_any
-            finally:
-                imgui.end_menu()
-        return clicked_any
+    def _step_font(self, delta: float) -> None:
+        """Step the font scale by *delta*, held inside the supported range."""
+        scale = round(self._get_font_scale() + delta, 1)
+        self._on_font_scale_changed(min(max(scale, _FONT_MIN), _FONT_MAX))
 
+    def _toggle_top_most(self) -> None:
+        """Flip whether the window floats above other applications."""
+        self._chrome.set_top_most(on=not self._chrome.top_most())
 
-# Module-level constant used by check_world_menu_background_click.
-# Matches DisplayServer._DOCK_BAR_HEIGHT.
-_DOCK_BAR_HEIGHT = 28.0
+    def _minimize_all(self, *, minimized: bool) -> None:
+        """Minimize every frame, or restore every frame."""
+        for frame in self._get_frames().values():
+            frame.minimized = minimized
