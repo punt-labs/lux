@@ -68,16 +68,34 @@ class _CallbackHold:
     access under its one lock, so the hold is a plain bounded container.
     """
 
+    _connection_id: ConnectionId
+    _capacity: int
     _pending: deque[CallbackInvocation]
-    __slots__ = ("_pending",)
+    __slots__ = ("_capacity", "_connection_id", "_pending")
 
-    def __new__(cls, capacity: int) -> Self:
+    def __new__(cls, connection_id: ConnectionId, capacity: int) -> Self:
         self = super().__new__(cls)
+        self._connection_id = connection_id
+        self._capacity = capacity
         self._pending = deque(maxlen=capacity)
         return self
 
     def add(self, invocation: CallbackInvocation) -> None:
-        """Append ``invocation``; the deque drops the oldest past its capacity."""
+        """Append ``invocation``, saying so when a full hold drops the oldest.
+
+        The deque's bound is what keeps an undrained hold from growing without
+        end, but the click it discards was answered ``routed`` — the caller was
+        told the work had been handed off, and it never ran. So the drop is
+        reported for the same reason a departing hold reports what it loses: it
+        is a click this module can lose with nobody noticing.
+        """
+        if len(self._pending) == self._capacity:
+            logger.warning(
+                "%s hold is full at %d; dropping routed invocation %s undelivered",
+                self._connection_id,
+                self._capacity,
+                self._pending[0].callback_id,
+            )
         self._pending.append(invocation)
 
     def take_all(self) -> tuple[CallbackInvocation, ...]:
@@ -90,7 +108,7 @@ class _CallbackHold:
         """Return every held invocation in arrival order without clearing."""
         return tuple(self._pending)
 
-    def report_dropped(self, connection_id: ConnectionId) -> None:
+    def report_dropped(self) -> None:
         """Say what goes with this hold when its session leaves; silent if empty.
 
         An empty hold going is routine bookkeeping. A hold with invocations still
@@ -101,7 +119,7 @@ class _CallbackHold:
         if self._pending:
             logger.warning(
                 "%s left with %d routed invocation(s) never delivered",
-                connection_id,
+                self._connection_id,
                 len(self._pending),
             )
 
@@ -206,12 +224,12 @@ class CallbackRouter:
         Caller holds the lock.
         """
         for connection_id in [c for c in self._holds if c not in live]:
-            self._holds.pop(connection_id).report_dropped(connection_id)
+            self._holds.pop(connection_id).report_dropped()
 
     def _hold_for(self, connection_id: ConnectionId) -> _CallbackHold:
         """Return the session's hold, creating it on first use; caller locks."""
         hold = self._holds.get(connection_id)
         if hold is None:
-            hold = _CallbackHold(self._capacity)
+            hold = _CallbackHold(connection_id, self._capacity)
             self._holds[connection_id] = hold
         return hold

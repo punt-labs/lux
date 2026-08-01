@@ -13,7 +13,7 @@ import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, final
 
-from punt_lux.domain.hub.callback_hold import CallbackRouter
+from punt_lux.domain.hub.callback_hold import _HOLD_CAPACITY, CallbackRouter
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.client_session import ClientSession
 from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
@@ -108,6 +108,42 @@ def test_the_hold_is_bounded_dropping_the_oldest() -> None:
         router.route(CallbackInvocation(conn, "beads"))
     pending = router.pending(conn)
     assert len(pending) == 2  # capped at capacity, oldest dropped
+
+
+def test_a_full_hold_says_which_click_it_drops(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The bound is a backstop, and reaching it costs a click somebody was promised.
+
+    Every discarded invocation was answered ``routed``, exactly like the ones a
+    departing hold reports. Relying on the deque's silent overflow made this the
+    one loss in the module with no line anywhere recording it, so the drop names
+    the connection and the callback it discarded.
+    """
+    conn = ConnectionId("vox")
+    router = CallbackRouter(_Live({conn: _session("vox", "beads", "extra")}))
+    assert router.route(CallbackInvocation(conn, "beads")) == "routed"
+
+    with caplog.at_level(logging.WARNING):
+        for _ in range(_HOLD_CAPACITY):  # the last one overruns the bound
+            assert router.route(CallbackInvocation(conn, "extra")) == "routed"
+
+    assert caplog.text.count("hold is full") == 1  # only the overrun warns
+    assert "vox" in caplog.text
+    assert "beads" in caplog.text  # the oldest, named
+    assert len(router.pending(conn)) == _HOLD_CAPACITY
+
+
+def test_a_hold_below_its_bound_drops_nothing_and_says_nothing(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    conn = ConnectionId("vox")
+    router = CallbackRouter(_Live({conn: _session("vox", "beads")}), capacity=2)
+    with caplog.at_level(logging.WARNING):
+        router.route(CallbackInvocation(conn, "beads"))
+        router.route(CallbackInvocation(conn, "beads"))
+    assert caplog.text == ""
+    assert len(router.pending(conn)) == 2
 
 
 def test_take_clears_the_hold_and_pending_does_not() -> None:

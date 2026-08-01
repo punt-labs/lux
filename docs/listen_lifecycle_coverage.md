@@ -108,7 +108,7 @@ comparison and the write are one critical section.
 | H2 | Click with no listener → held, drained on the next connect | covered — `a_click_buffered_before_connect_is_drained_on_connect` |
 | H3 | Click for a departed session → `provider_gone` | covered — `a_click_for_a_lapsed_or_absent_session_reports_provider_gone` |
 | H4 | Click for an unregistered callback → `unknown_callback` | covered — `a_click_for_an_unregistered_callback_is_unknown` |
-| H5 | Hold is bounded; oldest dropped | covered — `the_hold_is_bounded_dropping_the_oldest` |
+| H5 | Hold is bounded; the oldest is dropped, and the drop is reported | covered — `the_hold_is_bounded_dropping_the_oldest`, `a_full_hold_says_which_click_it_drops`, `a_hold_below_its_bound_drops_nothing_and_says_nothing` |
 | H6 | Hold is swept when the lease lapses | covered — `a_departed_session_has_its_hold_swept`, `take_sweeps_an_expired_session_without_a_route_in_between` |
 | H7 | Holds are never shared between sessions | covered — `two_sessions_never_share_a_hold` |
 | H8 | A raising listener is dropped and the click kept | covered — `a_raising_listener_is_isolated_and_dropped_but_the_click_is_kept` |
