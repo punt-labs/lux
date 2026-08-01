@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import subprocess
 import sys
-from typing import Self, final
 
 import typer
 
 from punt_lux import __version__
+from punt_lux.doctor_report import FAIL, OK, OPTIONAL, DoctorReport
 from punt_lux.show import show_app
 
 _LOG_LEVELS: dict[str, int] = {
@@ -20,6 +21,25 @@ _LOG_LEVELS: dict[str, int] = {
     "ERROR": logging.ERROR,
     "CRITICAL": logging.CRITICAL,
 }
+
+
+def _level_from_env(default: str) -> int:
+    """Read ``LUX_LOG_LEVEL``, falling back to ``default`` and saying so if unusable.
+
+    Each entry point picks the floor its stream can afford — a session's stderr is
+    the MCP host's, the display writes to a file of its own — and this is the one
+    knob that lowers it, so what a process logs routinely can be read when someone
+    is looking without being emitted when nobody is.
+    """
+    raw = os.environ.get("LUX_LOG_LEVEL", default).upper()
+    level = _LOG_LEVELS.get(raw)
+    if level is None:
+        print(
+            f"WARNING: LUX_LOG_LEVEL={raw!r} is not valid, defaulting to {default}",
+            file=sys.stderr,
+        )
+        return _LOG_LEVELS[default]
+    return level
 
 
 def _version_callback(value: bool) -> None:
@@ -53,57 +73,7 @@ hook_app = typer.Typer(hidden=True)
 app.add_typer(hook_app, name="hook")
 app.add_typer(show_app, name="show")
 
-# Symbols for doctor output
-
-_OK = "\u2713"  # ✓
-_FAIL = "\u2717"  # ✗
-_OPTIONAL = "\u2014"  # —
-
 _PLUGIN_ID = "lux@punt-labs"
-
-
-@final
-class _DoctorReport:
-    """The lines ``doctor`` has collected and the tally it will exit on.
-
-    The counting rule is the one thing here worth stating: a line counts as
-    failed only when it is both a failure and required, so the advisory checks —
-    fonts, the plugin, a display that simply is not up — colour the report without
-    turning a working installation into a non-zero exit.
-    """
-
-    _lines: list[str]
-    _passed: int
-    _failed: int
-    __slots__ = ("_failed", "_lines", "_passed")
-
-    def __new__(cls) -> Self:
-        self = super().__new__(cls)
-        self._lines = []
-        self._passed = 0
-        self._failed = 0
-        return self
-
-    def __call__(self, symbol: str, message: str, *, required: bool = True) -> None:
-        """Record one check's outcome — the ``CheckReporter`` the checks are given."""
-        self._lines.append(f"{symbol} {message}")
-        if symbol == _OK:
-            self._passed += 1
-        elif symbol == _FAIL and required:
-            self._failed += 1
-
-    def print(self) -> None:
-        """Print the report between rules, with the tally underneath."""
-        print("=" * 40)
-        for line in self._lines:
-            print(line)
-        print("=" * 40)
-        print(f"{self._passed} passed, {self._failed} failed")
-
-    @property
-    def failed(self) -> int:
-        """How many required checks failed — the command's exit code."""
-        return self._failed
 
 
 # Product commands
@@ -140,21 +110,9 @@ def display(
     log_path = dp.log_path
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
-    import os
-
-    raw_level = os.environ.get("LUX_LOG_LEVEL", "INFO").upper()
-    log_level = _LOG_LEVELS.get(raw_level)
-    if log_level is None:
-        import sys
-
-        print(
-            f"WARNING: LUX_LOG_LEVEL={raw_level!r} is not valid, defaulting to INFO",
-            file=sys.stderr,
-        )
-        log_level = logging.INFO
     logging.basicConfig(
         filename=str(log_path),
-        level=log_level,
+        level=_level_from_env("INFO"),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
@@ -287,15 +245,15 @@ def doctor(
     from punt_lux.doctor_checks import EnvironmentChecks
     from punt_lux.paths import DisplayPaths
 
-    _check = _DoctorReport()
+    _check = DoctorReport()
 
     # Python version
     v = sys.version_info
     if v >= (3, 13):
-        _check(_OK, f"Python {v.major}.{v.minor}.{v.micro}")
+        _check(OK, f"Python {v.major}.{v.minor}.{v.micro}")
     else:
         _check(
-            _FAIL,
+            FAIL,
             f"Python {v.major}.{v.minor}.{v.micro} (requires 3.13+)",
         )
 
@@ -305,10 +263,10 @@ def doctor(
             imgui,  # noqa: F401  # pyright: ignore[reportUnusedImport]
         )
 
-        _check(_OK, "imgui-bundle installed")
+        _check(OK, "imgui-bundle installed")
     except ImportError:
         _check(
-            _OPTIONAL,
+            OPTIONAL,
             "imgui-bundle not installed (run: pip install 'punt-lux[display]')",
             required=False,
         )
@@ -322,13 +280,13 @@ def doctor(
     dp = DisplayPaths(Path(socket) if socket else None)
     path = dp.socket_path
     if dp.is_running():
-        _check(_OK, f"Display server running at {path}")
+        _check(OK, f"Display server running at {path}")
     else:
-        _check(_OPTIONAL, f"Display server not running at {path}", required=False)
+        _check(OPTIONAL, f"Display server not running at {path}", required=False)
 
     checks.plugin()
 
-    _check.print()
+    print(_check.render())
     if _check.failed > 0:
         raise typer.Exit(code=1)
 
@@ -345,9 +303,14 @@ def mcp_serve() -> None:
 
     # stdout is the MCP wire, so every log line goes to stderr — a single stray
     # byte on stdout is a protocol error the host reports as a broken server.
+    #
+    # WARNING by default because this stream is the host's, and a session that
+    # narrated itself would fill it. ``LUX_LOG_LEVEL`` lowers the floor, which is
+    # how the routine facts get read: the per-click response latency is reported
+    # at INFO and would otherwise only ever be visible when it broke its budget.
     logging.basicConfig(
         stream=sys.stderr,
-        level=logging.WARNING,
+        level=_level_from_env("WARNING"),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     try:

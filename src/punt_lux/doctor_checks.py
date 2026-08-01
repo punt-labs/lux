@@ -21,12 +21,12 @@ import subprocess
 from pathlib import Path
 from typing import Literal, Protocol, Self, final, runtime_checkable
 
+from punt_lux.doctor_report import FAIL, OK, OPTIONAL
+
 __all__ = ["CheckReporter", "EnvironmentChecks"]
 
 # The marks a report line carries: passed, failed, or present-but-optional.
-_OK = "✓"
-_FAIL = "✗"
-_OPTIONAL = "—"
+
 
 # Where each platform keeps the fonts the display needs, best first. The primary
 # carries Latin plus broad Unicode; the other two only matter for symbols and Z
@@ -128,24 +128,24 @@ class EnvironmentChecks:
         claude = shutil.which("claude")
         if not claude:
             self._report(
-                _OPTIONAL, "claude CLI not found (needed for plugin)", required=False
+                OPTIONAL, "claude CLI not found (needed for plugin)", required=False
             )
             return
-        self._report(_OK, f"claude CLI: {claude}", required=False)
+        self._report(OK, f"claude CLI: {claude}", required=False)
         self._report_plugin(self._plugin_state(claude))
 
     def _report_plugin(self, state: _PluginState) -> None:
         """Report the plugin line — one message per outcome, including no answer."""
         if state == "installed":
-            self._report(_OK, f"Plugin: {self._plugin_id}", required=False)
+            self._report(OK, f"Plugin: {self._plugin_id}", required=False)
             return
         if state == "absent":
             self._report(
-                _OPTIONAL, "Plugin not installed (run 'lux install')", required=False
+                OPTIONAL, "Plugin not installed (run 'lux install')", required=False
             )
             return
         self._report(
-            _OPTIONAL,
+            OPTIONAL,
             "Plugin state unknown — 'claude plugin list' did not answer within "
             f"{_PLUGIN_LIST_TIMEOUT:.0f}s",
             required=False,
@@ -161,9 +161,9 @@ class EnvironmentChecks:
         with less of the alphabet.
         """
         if found:
-            self._report(_OK, f"{label}: {found}", required=False)
+            self._report(OK, f"{label}: {found}", required=False)
             return
-        mark = _FAIL if fatal_when_missing else _OPTIONAL
+        mark = FAIL if fatal_when_missing else OPTIONAL
         self._report(mark, missing, required=False)
 
     @staticmethod
