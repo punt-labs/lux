@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, Any, Self, final
 
 from imgui_bundle import ImVec2
 
+from punt_lux.display.dock_pill import DockPill
+
 if TYPE_CHECKING:
     from punt_lux.scene import Frame, SceneManager
 
@@ -23,23 +25,21 @@ DOCK_BAR_HEIGHT = 28.0
 
 _PILL_PAD = 6.0
 _PILL_GAP = 4.0
-_PILL_TEXT_PAD = 8.0
-_PILL_ROUNDING = 4.0
 
 
 @final
 class DockBar:
-    """Paint minimized frames as clickable pills, and restore the one clicked.
+    """Lay minimized frames out as pills, and restore the one that was clicked.
 
     The bar is drawn on ImGui's foreground draw list so it stays visible whatever
-    the window stacking is. That has a consequence the layout below works around:
-    a foreground draw list has no window in the z-order, so `invisible_button`
-    widgets never receive clicks reliably and the pills are hit-tested against the
-    raw mouse position instead.
+    the window stacking is. What each pill looks like and where its edges are is
+    :class:`~punt_lux.display.dock_pill.DockPill`'s; what the strip holds and in
+    what order is here.
     """
 
     _imgui: Any  # the caller's imgui module; imgui_bundle ships no type stubs
     _scene_manager: SceneManager
+    __slots__ = ("_imgui", "_scene_manager")
 
     def __new__(cls, imgui: Any, scene_manager: SceneManager) -> Self:
         self = super().__new__(cls)
@@ -62,9 +62,8 @@ class DockBar:
         self._paint_chrome(left=viewport.pos.x, top=top, width=viewport.size.x)
         self._paint_pills(
             minimized,
-            left=viewport.pos.x,
-            top=top,
-            width=viewport.size.x,
+            ImVec2(viewport.pos.x + _PILL_PAD, top + _PILL_PAD),
+            viewport.pos.x + viewport.size.x - _PILL_PAD,
             clickable=self._clickable(any_frame_hovered=any_frame_hovered),
         )
 
@@ -100,48 +99,31 @@ class DockBar:
         )
 
     def _paint_pills(
-        self,
-        minimized: list[Frame],
-        *,
-        left: float,
-        top: float,
-        width: float,
-        clickable: bool,
+        self, minimized: list[Frame], anchor: ImVec2, max_x: float, *, clickable: bool
     ) -> None:
         """Lay pills out left to right, ellipsizing once they run out of room."""
         imgui = self._imgui
         draw = imgui.get_foreground_draw_list()
-        style = imgui.get_style()
-        text_col = imgui.get_color_u32(style.color_(imgui.Col_.text))
-        normal = imgui.get_color_u32(style.color_(imgui.Col_.button))
-        hovered_col = imgui.get_color_u32(style.color_(imgui.Col_.button_hovered))
-
         height = DOCK_BAR_HEIGHT - _PILL_PAD * 2.0
-        pill_y = top + _PILL_PAD
-        pill_x = left + _PILL_PAD
-        max_x = left + width - _PILL_PAD
-        mouse = imgui.get_mouse_pos()
+        pill_x = anchor.x
 
         for frame in minimized:
-            text_size = imgui.calc_text_size(frame.title)
-            pill_w = text_size.x + _PILL_TEXT_PAD * 2.0
-            if pill_x + pill_w > max_x:
-                ellipsis = imgui.calc_text_size("...")
-                ey = pill_y + (height - ellipsis.y) * 0.5
-                draw.add_text(ImVec2(pill_x, ey), text_col, "...")
+            pill = DockPill.at(imgui, frame, ImVec2(pill_x, anchor.y), height)
+            if pill.right > max_x:
+                self._paint_ellipsis(draw, ImVec2(pill_x, anchor.y), height)
                 return
-            p_min = ImVec2(pill_x, pill_y)
-            p_max = ImVec2(pill_x + pill_w, pill_y + height)
-            hovered = p_min.x <= mouse.x <= p_max.x and p_min.y <= mouse.y <= p_max.y
-            draw.add_rect_filled(
-                p_min, p_max, hovered_col if hovered else normal, _PILL_ROUNDING
-            )
-            draw.add_text(
-                ImVec2(pill_x + _PILL_TEXT_PAD, pill_y + (height - text_size.y) * 0.5),
-                text_col,
-                frame.title,
-            )
+            hovered = pill.hovered()
+            pill.paint(draw, hovered=hovered)
             if hovered and clickable:
-                frame.minimized = False
-                self._scene_manager.request_focus(frame.frame_id)
-            pill_x += pill_w + _PILL_GAP
+                pill.restore(self._scene_manager)
+            pill_x = pill.right + _PILL_GAP
+
+    def _paint_ellipsis(self, draw: Any, anchor: ImVec2, height: float) -> None:
+        """Say that pills were left out, where the next one would have gone."""
+        imgui = self._imgui
+        text = imgui.calc_text_size("...")
+        draw.add_text(
+            ImVec2(anchor.x, anchor.y + (height - text.y) * 0.5),
+            imgui.get_color_u32(imgui.get_style().color_(imgui.Col_.text)),
+            "...",
+        )
