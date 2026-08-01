@@ -68,6 +68,22 @@
   teardown removes only what it owns, so it can never strip its successor's
   entries, writer, or subscriptions. The succession rules are
   ProB-model-checked (`docs/listen_lifecycle.tex`).
+- **A click on a menu entry launches instead of waiting on a database.** The
+  first thing a Beads click did was run `bd`, so nothing at all happened until
+  the query returned — and the board was usually already on screen, so the
+  common case was waiting on a database to be shown what was already there. A
+  click now raises the board's frame first, which is the whole answer in that
+  case; a click with no board up opens one with a "Loading issues…" placeholder;
+  and `bd` runs behind whichever happened. Measured on the author's machine:
+  median 63 ms from click to visible response over fifteen clicks, fourteen of
+  them inside 100 ms. Set `LUX_LOG_LEVEL=INFO` on a session to read the number
+  per click; over budget, it is reported regardless.
+- **A frame can be raised.** `POST /display/frames/{id}/raise` (and
+  `LuxRestClient.raise_frame`) brings a frame to the front, restoring it first
+  if it was minimized. A frame the display does not hold answers `raised: false`
+  rather than failing, so a caller learns to push one. This is the only focus
+  change a client may ask for, and only on the user's behalf: a menu click
+  naming a frame is the user reaching for it.
 - **The bar never shows an entry whose callback has gone.** A reconnect that
   beats its predecessor's teardown clears the predecessor's entries as it takes
   the connection, and the bar is now re-pushed at that moment. Before, the
