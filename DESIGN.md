@@ -5331,6 +5331,15 @@ borrowed.
    100–200 ms operator absolute; entry visible ~0.5 s after session start
    (the warm-up runs behind the registration, never inside it); orphan exit
    within the watch interval.
+6. **Observability is lux-side only, and everything lux does is attributed.**
+   A click reports one line naming each stage and what that stage did. The
+   read from `bd` is decomposed on lux's own side of the process boundary —
+   the spawn, the wait, the parse, the bytes, the row count — which required
+   `Popen` in place of `subprocess.run`, since `run` bundles the spawn and the
+   wait into one number. `bd`'s wall time stays a single honest figure: its
+   inside is not ours to instrument, and lux does not modify `bd` to find out.
+   A real click reads `fetched 4899 ms (spawn 4, bd 4894, parse 0, 66 kB,
+   50 rows)` — which settles where the wait lives rather than arguing it.
 
 **Alternatives rejected.** The bundled proxy (DES-062 — no logic of its own);
 reusing the retired Go `mcp-proxy` for the bridge (moot once no bridge is

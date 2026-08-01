@@ -6,10 +6,10 @@ the session owns the entry and services its own clicks — it loads the issues f
 its shell and pushes the board to the Hub under its own identity.
 
 Reading those issues is a query to a hosted database and it is the whole wait, so
-the service never makes a user sit through one it could have run already. It
-loads a board when it registers and holds it, holds the board from every click
-after that, and answers each click with the board it is holding. The wait moves
-behind something real.
+the service never makes a user sit through one it could have run already: it
+loads a board when it registers, holds the board from every click after that, and
+answers each click with the one it is holding. The wait moves behind a real
+board.
 
 A click renders something either way. A ``bd`` that fails with no board held
 renders the board's red message naming the reason; with a board held it leaves
@@ -21,8 +21,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.applets.beads_source import BoardUnavailableError
 from punt_lux.applets.board_cache import CachedBoard, HeldBoard, NoBoard
-from punt_lux.applets.board_load import BoardLoad, BoardUnavailableError
+from punt_lux.applets.board_load import BoardLoad
 from punt_lux.applets.board_work import BoardWork
 from punt_lux.apps.beads import BeadsBrowser
 from punt_lux.apps.beads_board import BeadsBoard
@@ -46,9 +47,8 @@ class BeadsService:
 
     The board it holds is replaced whole, never edited, by whichever of its two
     callers loaded one last — the prefetch on a worker thread, or a click on
-    another. Neither reads a half-written board, because there is no half-written
-    state to read: each stores a board that has already loaded, and a click that
-    stores one a moment after the prefetch does simply wins.
+    another. Neither can read a half-written board because there is no such
+    state: each stores one that has already loaded, and the later store wins.
     """
 
     _cache: CachedBoard
@@ -84,9 +84,9 @@ class BeadsService:
         scene, so the first click after one would otherwise be the cold click
         that waits on the whole query.
 
-        Nothing is rendered here and nothing is reported to the user. A failure
-        means only that the first click waits, exactly as it did before there was
-        a prefetch at all, so it is a log line and not a red scene.
+        Nothing is rendered here. A failure means only that the first click
+        waits, as it did before there was a prefetch, so it is a log line rather
+        than a red scene.
         """
         try:
             self._cache = HeldBoard(self._load.fresh())

@@ -22,7 +22,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Protocol, Self, final
 
-from punt_lux.applets.board_load import BoardUnavailableError
+from punt_lux.applets.beads_source import BoardUnavailableError
 from punt_lux.rest_transport import HubUnavailableError
 
 if TYPE_CHECKING:
@@ -130,7 +130,7 @@ class HeldBoard:
         board reads very differently from one that was "Loading issues…" and the
         figure alone cannot tell them apart.
         """
-        work.answered_with(_FROM_CACHE)
+        work.note(_FROM_CACHE)
         return self._board
 
     def refreshed(self, work: BoardWork) -> CachedBoard:

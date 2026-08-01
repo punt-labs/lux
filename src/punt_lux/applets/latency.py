@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.applets.stage_times import StageTimes
+from punt_lux.applets.stage_times import ANSWERED, StageTimes
 
 if TYPE_CHECKING:
     from contextlib import AbstractContextManager
@@ -53,27 +53,27 @@ class ClickLatency:
     def __new__(cls, callback_id: str) -> Self:
         self = super().__new__(cls)
         self._callback_id = callback_id
-        self._times = StageTimes.begun()
+        self._times = StageTimes()
         return self
 
     def answering(self) -> AbstractContextManager[None]:
         """Time the click's visible answer — the one stage held to the budget."""
-        return self._times.answering()
+        return self._times.timing(ANSWERED)
 
     def stage(self, name: str) -> AbstractContextManager[None]:
         """Time one stage of the click's servicing and record it under ``name``."""
         return self._times.timing(name)
 
-    def answered_with(self, note: str) -> None:
-        """Say what the click's visible answer was, on the line that reports it.
+    def note(self, said: str) -> None:
+        """Say what the stage now being timed did, on the line that reports it.
 
-        A click answered with the board the applet already had is a different
-        click from one answered with a placeholder: in the first the user is
-        reading their issues while the fresh ones load, in the second they are
-        reading the word "Loading". The figures are the same and cannot tell them
-        apart, so the answer says which it was.
+        A figure alone cannot tell two clicks apart. Answering in 28 ms with the
+        board the applet already had is a different click from answering in
+        28 ms with the word "Loading", and a four-second read is a different
+        problem depending on whether the four seconds were ``bd``'s or ours. The
+        stage says which; the figure says how long.
         """
-        self._times.answered_with(note)
+        self._times.note(said)
 
     def report(self) -> None:
         """Log where this click's time went, and whether it owed the user faster.

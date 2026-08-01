@@ -1,81 +1,45 @@
-"""Beads loader and payload builder — subprocess, parsing, and table assembly."""
+"""Beads loader and payload builder — parsing and table assembly."""
 
 from __future__ import annotations
 
 import json
 import logging
-import subprocess
-from enum import Enum
-from typing import Any, ClassVar, cast, final
+import time
+from typing import Any, ClassVar, cast
 
+from punt_lux.apps.bd_command import BdOutput, BdRun, BoardScope
 from punt_lux.apps.beads_detail import BeadsDetail
+from punt_lux.apps.beads_load import BeadsLoad
 from punt_lux.apps.beads_result import BeadsFailure, BeadsResult, BeadsRows
 
 _log = logging.getLogger(__name__)
 _STDOUT_PREVIEW_CHARS = 80
-_BD_TIMEOUT_SECONDS = 60
-
-
-@final
-class BoardScope(Enum):
-    """Which beads the board shows — the query scope the loader owns.
-
-    ``ACTIVE``, the default, selects by stored status: every ``open`` issue
-    plus whatever is ``in_progress``. Selecting by status rather than
-    dependency-readiness keeps claimed beads visible once they flip to
-    ``in_progress`` and surfaces open-but-blocked issues too. ``ALL`` shows all.
-    """
-
-    ACTIVE = ("list", "--json", "--status", "open,in_progress")
-    ALL = ("list", "--json", "--all")
-
-    @classmethod
-    def for_board(cls, *, all_issues: bool) -> BoardScope:
-        """Return the scope a board load asks for."""
-        return cls.ALL if all_issues else cls.ACTIVE
-
-    def argv(self) -> list[str]:
-        """Return the full ``bd`` command line that selects this scope."""
-        return ["bd", *self.value]
 
 
 class BeadsLoader:
     """Invoke ``bd`` and parse its JSON output into issue dicts."""
 
-    def run(self, *, all_issues: bool) -> BeadsResult:
-        """Fetch and parse beads issues into the rows, or the reason there are none.
+    def run(self, *, all_issues: bool) -> BeadsLoad:
+        """Fetch and parse beads issues, with where the run's time went.
 
         A failure — timeout, non-zero exit, empty output, malformed JSON, or an
         unexpected JSON shape — comes back as the reason to show, never as an
         empty board, so the caller can tell "nothing open" from "bd did not run".
-        """
-        stdout = self._invoke(BoardScope.for_board(all_issues=all_issues))
-        if isinstance(stdout, BeadsFailure):
-            return stdout
-        return self._parse(stdout)
 
-    def _invoke(self, scope: BoardScope) -> str | BeadsFailure:
-        """Run ``bd`` and return its stdout, or why there is none."""
-        cmd = scope.argv()
-        cmd_str = " ".join(cmd)
-        try:
-            result = subprocess.run(  # noqa: S603
-                cmd,
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=_BD_TIMEOUT_SECONDS,
-            )
-        except subprocess.TimeoutExpired:
-            return BeadsFailure(f"{cmd_str}: timed out after {_BD_TIMEOUT_SECONDS}s")
-        except OSError as exc:
-            return BeadsFailure(f"{cmd_str}: {exc}")
-        if result.returncode != 0:
-            err = result.stderr.strip()[:200] or f"exit {result.returncode}"
-            return BeadsFailure(f"{cmd_str}: {err}")
-        if not result.stdout.strip():
-            return BeadsFailure(f"{cmd_str}: no output")
-        return result.stdout
+        The parse is timed here rather than inside ``bd``'s figure because it is
+        lux's own work: turning a pipe full of JSON into rows is a cost the
+        board pays, and one a large backlog can make visible.
+        """
+        output = BdRun().completed(BoardScope.for_board(all_issues=all_issues))
+        if isinstance(output, BeadsFailure):
+            return BeadsLoad.failed(output)
+        return self._parsed(output)
+
+    def _parsed(self, output: BdOutput) -> BeadsLoad:
+        """Turn what ``bd`` wrote into rows, timing that work as its own figure."""
+        began = time.perf_counter()
+        result = self._parse(output.text)
+        return BeadsLoad(result, output, (time.perf_counter() - began) * 1000.0)
 
     def _parse(self, stdout: str) -> BeadsResult:
         try:
@@ -124,38 +88,47 @@ class BeadsPayloadBuilder:
         return row
 
     def build(self, issues: list[dict[str, Any]]) -> dict[str, Any]:
-        """Build the show_table element dict and metadata for beads issues."""
-        rows = [self._row(i) for i in issues]
-        statuses = sorted({i["status"] for i in issues})
-        types = sorted({i["issue_type"] for i in issues})
+        """Build the show_table element dict and metadata for beads issues.
 
+        ``BeadsDetail`` composes each issue's detail markdown — a metadata table,
+        a rule, then the description — so the fields and the prose read as
+        distinct regions rather than as one inline run.
+        """
         return {
-            "columns": ["ID", "Title", "Status", "P", "Type"],
-            "rows": rows,
-            "filters": [
-                {
-                    "type": "search",
-                    "column": [0, 1],
-                    "hint": "Filter by ID or title...",
-                },
-                {
-                    "type": "combo",
-                    "column": 2,
-                    "items": ["All", *statuses],
-                    "label": "Status",
-                },
-                {
-                    "type": "combo",
-                    "column": 4,
-                    "items": ["All", *types],
-                    "label": "Type",
-                },
-            ],
-            # BeadsDetail composes each issue's detail markdown (a metadata table,
-            # a rule, then the description) so the fields and prose read as
-            # distinct regions rather than one inline run.
+            "columns": self._columns(),
+            "rows": [self._row(i) for i in issues],
+            "filters": self._filters(issues),
             "detail": BeadsDetail.for_issues(issues),
         }
+
+    @staticmethod
+    def _columns() -> list[str]:
+        """The board's columns, in the order the table shows them."""
+        return ["ID", "Title", "Status", "P", "Type"]
+
+    def _filters(self, issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """The board's chrome: a search over id and title, and a combo per facet.
+
+        A combo offers only the values actually present, plus ``All``, so a board
+        with nothing in progress does not offer to filter for it.
+        """
+        statuses = sorted({i["status"] for i in issues})
+        types = sorted({i["issue_type"] for i in issues})
+        return [
+            {"type": "search", "column": [0, 1], "hint": "Filter by ID or title..."},
+            {
+                "type": "combo",
+                "column": 2,
+                "items": ["All", *statuses],
+                "label": "Status",
+            },
+            {
+                "type": "combo",
+                "column": 4,
+                "items": ["All", *types],
+                "label": "Type",
+            },
+        ]
 
     @staticmethod
     def _row(issue: dict[str, Any]) -> list[Any]:

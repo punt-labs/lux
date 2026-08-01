@@ -17,40 +17,25 @@ keeps the board it has and logs it.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Protocol, Self, final
+from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.applets.beads_source import BoardUnavailableError
 from punt_lux.apps.beads_result import BeadsFailure
-from punt_lux.operations import OpError, RenderRequest, RenderTableRequest
+from punt_lux.operations import FrameRaise, OpError, RenderRequest, RenderTableRequest
 
 if TYPE_CHECKING:
+    from punt_lux.applets.beads_source import BeadsSource
     from punt_lux.apps.beads_board import BeadsBoard
-    from punt_lux.apps.beads_result import BeadsResult, BeadsRows
+    from punt_lux.apps.beads_load import BeadsLoad
     from punt_lux.rest_client import LuxRestClient
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["BeadsSource", "BoardLoad", "BoardRequest", "BoardUnavailableError"]
+__all__ = ["BoardLoad", "BoardRequest"]
 
 # What every board push carries: a table when there are issues to show, a plain
 # scene when there is a message instead. Both are requests the Hub installs.
 type BoardRequest = RenderTableRequest | RenderRequest
-
-
-class BeadsSource(Protocol):
-    """Where a board's rows come from — ``BeadsBrowser`` in the running session."""
-
-    def load(self, *, all_issues: bool = False) -> BeadsResult:
-        """Return the issues that were read, or the reason none were."""
-        ...
-
-
-class BoardUnavailableError(Exception):
-    """The issues could not be read, worded for the user rather than for the log.
-
-    It carries the sentence a user should see, because the two callers that catch
-    it do opposite things with it — one renders it where the board would have
-    been, the other logs it and leaves the board it already had standing.
-    """
 
 
 @final
@@ -77,22 +62,31 @@ class BoardLoad:
         same way: the board may well be up, and blanking a good board on the
         strength of a failed round trip is the worse of the two mistakes.
         """
-        raised = client.raise_frame(self._board.frame_id)
-        if isinstance(raised, OpError):
-            logger.warning("the board could not be raised: %s", raised.reason)
-            return True
-        return raised.raised
+        return self._raised(client.raise_frame(self._board.frame_id))
 
-    def issues(self) -> BeadsRows:
-        """Return the issues ``bd`` read, or raise the reason it could not."""
+    @staticmethod
+    def _raised(answer: FrameRaise | OpError) -> bool:
+        """Read the display's answer, counting one it could not give as a yes."""
+        if isinstance(answer, OpError):
+            logger.warning("the board could not be raised: %s", answer.reason)
+            return True
+        return answer.raised
+
+    def issues(self) -> BeadsLoad:
+        """Return the run ``bd`` completed, or raise the reason it could not.
+
+        The whole run comes back rather than only its rows, because how long it
+        spent — spawning, waiting, parsing — is reported beside the board it
+        produced.
+        """
         loaded = self._source.load()
-        if isinstance(loaded, BeadsFailure):
-            raise BoardUnavailableError(f"bd unavailable — {loaded.reason}")
+        if isinstance(loaded.result, BeadsFailure):
+            raise BoardUnavailableError(f"bd unavailable — {loaded.result.reason}")
         return loaded
 
-    def board(self, issues: BeadsRows) -> BoardRequest:
-        """Build the request that shows those issues."""
-        return self._board.request(issues)
+    def board(self, issues: BeadsLoad) -> BoardRequest:
+        """Build the request that shows what a run read."""
+        return self._board.request(issues.result)
 
     def fresh(self) -> BoardRequest:
         """Read the issues and build the board they make, as one step.

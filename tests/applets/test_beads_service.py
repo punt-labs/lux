@@ -21,7 +21,9 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.applets.beads_service import BeadsService
 from punt_lux.applets.board_load import BoardLoad
 from punt_lux.applets.latency import ClickLatency
+from punt_lux.apps.bd_command import BdOutput
 from punt_lux.apps.beads_board import BeadsBoard
+from punt_lux.apps.beads_load import BeadsLoad
 from punt_lux.apps.beads_result import BeadsFailure, BeadsResult, BeadsRows
 from punt_lux.operations import (
     FrameRaise,
@@ -45,6 +47,19 @@ _ISSUE = {
     "created_at": "2026-07-31",
     "updated_at": "2026-07-31",
 }
+
+
+# The figures a stand-in run reports, chosen to be told apart on sight in a
+# line: the spawn, the wait on bd, and the parse are each a different order of
+# magnitude, so an assertion about one cannot pass on another's number.
+_SPAWN_MS = 9.0
+_BD_MS = 4820.0
+_PARSE_MS = 44.0
+
+
+def _loaded(result: BeadsResult) -> BeadsLoad:
+    """A completed run: the preset result, and figures for where its time went."""
+    return BeadsLoad(result, BdOutput("[]", _SPAWN_MS, _BD_MS), _PARSE_MS)
 
 
 @final
@@ -95,11 +110,11 @@ class _Source:
         self._journal = journal if journal is not None else _Journal()
         return self
 
-    def load(self, *, all_issues: bool = False) -> BeadsResult:
+    def load(self, *, all_issues: bool = False) -> BeadsLoad:
         self._journal.note("load")
         if self._raises:
             raise RuntimeError("bd blew up in a way the loader does not model")
-        return self._result
+        return _loaded(self._result)
 
 
 @final
@@ -123,12 +138,12 @@ class _ThenFails:
         self._journal = journal
         return self
 
-    def load(self, *, all_issues: bool = False) -> BeadsResult:
+    def load(self, *, all_issues: bool = False) -> BeadsLoad:
         self._journal.note("load")
         self._loads += 1
         if self._loads > 1:
-            return BeadsFailure("bd: connection refused")
-        return self._first
+            return _loaded(BeadsFailure("bd: connection refused"))
+        return _loaded(self._first)
 
 
 @final
@@ -315,6 +330,52 @@ def test_the_stages_behind_the_answer_are_timed_one_by_one(
 
     line = _reported(caplog)
     assert line.index("fetched") < line.index("built") < line.index("pushed")
+
+
+def test_the_fetch_says_which_side_of_the_subprocess_the_time_went(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A four-second fetch is two different problems, and the line says which.
+
+    Everything lux does around ``bd`` is attributed — starting the process,
+    waiting on it, reading what came back — so a slow board names the slow part
+    instead of leaving "the query" to carry the blame for all three. ``bd``'s own
+    wall time stays one figure: its inside is not ours to instrument.
+    """
+    client = _RecordingClient()
+    latency = _click(_service(_Source(BeadsRows.of([_ISSUE]))), client)
+
+    with caplog.at_level(logging.INFO):
+        latency.report()
+
+    line = _reported(caplog)
+    assert "spawn 9" in line
+    assert "bd 4820" in line
+    assert "parse 44" in line
+    assert "1 rows" in line
+    assert line.index("spawn") < line.index("bd 4820") < line.index("parse")
+    # And it belongs to the stage that did it, not to the click at large.
+    assert "fetched" in line[: line.index("spawn")]
+
+
+def test_the_refresh_behind_a_standing_board_is_decomposed_too(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The reload nobody waits on still says where it went; it is the same query."""
+    client = _RecordingClient(frame_is_up=False)
+    service = _service(_Source(BeadsRows.of([_ISSUE])))
+
+    service.prefetch()
+    latency = _whole_click(service, client)
+
+    with caplog.at_level(logging.INFO):
+        latency.report()
+
+    line = _reported(caplog)
+    assert "refreshed" in line[: line.index("spawn")]
+    assert "spawn 9" in line
+    assert "bd 4820" in line
+    assert "parse 44" in line
 
 
 def test_a_load_that_fails_times_the_stage_it_failed_in_and_no_later_one(

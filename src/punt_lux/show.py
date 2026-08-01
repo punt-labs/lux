@@ -47,7 +47,7 @@ class BeadsBoardCommand:
         scene a session's menu entry does rather than opening a second copy. The
         note distinguishes a bd failure from a real issue count.
         """
-        result = self._browser.load(all_issues=all_issues)
+        result = self._browser.load(all_issues=all_issues).result
         board = BeadsBoard.for_repo()
         note = (
             f"bd error: {result.reason}"

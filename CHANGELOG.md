@@ -26,6 +26,19 @@
   stages it reached, which is how far it got. Set `LUX_LOG_LEVEL=INFO` on the
   applet to read the line; a click that broke the 100 ms answer budget is
   reported regardless.
+- **The read from `bd` is broken down, on lux's side of the boundary.** Reading
+  the issues is four things, and only one of them is `bd`'s: lux starts a
+  process, waits on it, reads what comes back, and turns it into rows. Each is
+  now measured separately and reported with the stage that did it — a real
+  click reads `fetched 4899 ms (spawn 4, bd 4894, parse 0, 66 kB, 50 rows)`, so
+  the 4894 ms is `bd`'s and everything lux does around it is 5 ms. `bd`'s own
+  wall time stays one figure, because what happens inside it is not lux's to
+  instrument, and the counts are there because a four-second wait for fifty rows
+  and a four-second wait for fifty thousand are different problems. The reload
+  behind a standing board carries the same breakdown. This changed how lux runs
+  `bd`: `Popen` instead of `subprocess.run`, so the spawn and the wait are two
+  numbers rather than one, with the same 60-second bound now applied to the wait
+  and an overrunning `bd` killed and reaped rather than left behind.
 - **A click shows the board the applet already has.** Reading the issues is a
   query to a hosted database and it is the whole wait — one measured click spent
   4873 ms of its 4915 ms there. So the click stops waiting on it: the applet
