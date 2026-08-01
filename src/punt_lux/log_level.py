@@ -2,8 +2,8 @@
 
 Each of lux's entry points picks the floor its stream can afford — a session
 applet's stderr belongs to whoever started it, the display writes to a file of
-its own — and this reads the override. What a process logs routinely can then be
-read when someone is looking without being emitted when nobody is.
+its own — and this reads the override. A process inheriting no value keeps its
+own floor, so nothing may set ``LUX_LOG_LEVEL`` on a child's behalf.
 """
 
 from __future__ import annotations

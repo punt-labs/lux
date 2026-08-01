@@ -10,7 +10,6 @@ from imgui_bundle import imgui
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
 from punt_lux.domain.interaction import ValueChanged
 from punt_lux.protocol.elements.checkbox import CheckboxElement
-from punt_lux.tracing import trace
 
 __all__ = ["CheckboxRenderer"]
 
@@ -38,7 +37,6 @@ class CheckboxRenderer:
     def __new__(cls) -> Self:
         return super().__new__(cls)
 
-    @trace
     def render(self, elem: CheckboxElement) -> None:
         changed, value = imgui.checkbox(f"{elem.label}##{elem.id}", elem.value)
         if changed:

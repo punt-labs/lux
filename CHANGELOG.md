@@ -102,6 +102,22 @@
 
 ### Fixed
 
+- **The display log is readable again.** Every renderer's `render`, and the
+  paint loop that called them, carried a call-tracing decorator that logged one
+  DEBUG line per element per frame. Against a live window that is sixty lines
+  per element per second: a log sampled while this was running held 31,464 DEBUG
+  lines, of which 31,254 — 99.3% — were the trace, and the 197 lines that said
+  something were buried among them. The trace is removed from the per-frame path
+  and kept on the event-driven paths, where one line still means one thing
+  happened.
+- **`make restart` no longer puts the display at DEBUG nobody asked for.** It
+  exported `LUX_LOG_LEVEL=DEBUG` as a default onto the display it spawns, which
+  overrode the display's own INFO floor on every restart. The variable is now
+  passed through rather than defaulted: an operator who exports it still reaches
+  both processes, and an operator who has asked for nothing gets luxd at DEBUG
+  for its timings and the display at INFO. An empty `LUX_LOG_LEVEL` is read as
+  unset rather than as a mistyped level, so clearing the variable no longer
+  warns on every start.
 - **A transient socket hiccup no longer makes a live display unreapable.**
   Reading the socket owner's peer credential failed the whole read on one
   refused connect, so `reap` could report that a display which was plainly

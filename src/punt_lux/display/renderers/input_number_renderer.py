@@ -33,7 +33,6 @@ from punt_lux.domain.ids import ClientId, ElementId, SceneId
 from punt_lux.domain.interaction import ValueChanged
 from punt_lux.protocol.elements.input_number import InputNumberElement
 from punt_lux.scene import WidgetState
-from punt_lux.tracing import trace
 
 __all__ = ["InputNumberRenderer"]
 
@@ -67,7 +66,6 @@ class InputNumberRenderer:
         """Re-thread the renderer to the scene being rendered."""
         self._widget_state = value
 
-    @trace
     def render(self, elem: InputNumberElement) -> None:
         arbiter = ContinuousEditArbiter(self._widget_state, elem.id, _ACCESSOR)
         resolved = arbiter.resolve(elem.value)

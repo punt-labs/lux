@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Self, final
 
+from punt_lux.display.dock_bar import DOCK_BAR_HEIGHT
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
@@ -23,10 +25,6 @@ __all__ = ["MenuBar", "WorldPanel"]
 # Distinguishes the World panel's ImGui ids from the menu bar's when both render
 # the same menu in one frame.
 _WORLD_ID_SUFFIX = "##world"
-
-# Height of the dock bar the server paints for minimized frames. The dock bar is
-# emitted after the World panel's hit test, so its region is rejected by hand.
-_DOCK_BAR_HEIGHT = 28.0
 
 _PANEL_WIDTH = 220.0
 
@@ -118,11 +116,14 @@ class WorldPanel:
             self._open = False
 
     def _over_dock_bar(self, imgui: Any) -> bool:
-        """Return whether the mouse is over the dock bar's strip of the viewport."""
+        """Return whether the mouse is over the dock bar's strip of the viewport.
+
+        The bar is painted after this test, so its region is rejected by hand.
+        """
         if not any(frame.minimized for frame in self._get_frames().values()):
             return False
         viewport = imgui.get_main_viewport()
-        bar_top = viewport.pos.y + viewport.size.y - _DOCK_BAR_HEIGHT
+        bar_top = viewport.pos.y + viewport.size.y - DOCK_BAR_HEIGHT
         return bool(imgui.get_mouse_pos().y >= bar_top)
 
     def _place(self, imgui: Any) -> None:

@@ -10,7 +10,6 @@ from imgui_bundle import imgui
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
 from punt_lux.domain.interaction import ValueChanged
 from punt_lux.protocol.elements.selectable import SelectableElement
-from punt_lux.tracing import trace
 
 __all__ = ["SelectableRenderer"]
 
@@ -38,7 +37,6 @@ class SelectableRenderer:
     def __new__(cls) -> Self:
         return super().__new__(cls)
 
-    @trace
     def render(self, elem: SelectableElement) -> None:
         clicked, value = imgui.selectable(f"{elem.label}##{elem.id}", elem.selected)
         if clicked:

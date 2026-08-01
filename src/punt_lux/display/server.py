@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Self, cast
 from PIL import Image
 
 from punt_lux.display.auto_click import AutoClicker
+from punt_lux.display.dock_bar import DockBar
 from punt_lux.display.domain_pump import DomainPump
 from punt_lux.display.frame_commands import FrameCommands
 from punt_lux.display.frame_tiling import FrameTiling
@@ -70,7 +71,6 @@ from punt_lux.protocol import (
     ThemeMessage,
     UnknownMessage,
 )
-from punt_lux.protocol.elements import Element
 from punt_lux.protocol.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
 from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.image import ImageElement
@@ -905,8 +905,6 @@ class DisplayServer:
                 result |= flag.value
         return result
 
-    _DOCK_BAR_HEIGHT = 28.0
-
     def _apply_fit_all(self) -> bool:
         """If fit-all was requested, restore all frames and compute tile layout.
 
@@ -1012,103 +1010,7 @@ class DisplayServer:
         for fid in minimized_frames:
             sm.minimize(fid)
         # Dock bar for minimized frames
-        self._render_dock_bar(imgui, any_frame_hovered=any_frame_hovered)
-
-    def _render_dock_bar(self, imgui: Any, *, any_frame_hovered: bool = False) -> None:
-        """Render a bottom dock bar showing minimized frames as pills.
-
-        *any_frame_hovered* is True when the mouse is over a visible frame
-        window.  When set, pill clicks are suppressed to prevent restoring
-        a frame when the user clicks on a frame that overlaps the dock bar.
-        """
-        minimized = [f for f in self._scene_manager.frames.values() if f.minimized]
-        if not minimized:
-            return
-
-        from imgui_bundle import ImVec2
-
-        viewport = imgui.get_main_viewport()
-        bar_h = self._DOCK_BAR_HEIGHT
-        bar_y = viewport.pos.y + viewport.size.y - bar_h
-        bar_x = viewport.pos.x
-        bar_w = viewport.size.x
-
-        # Draw bar background on the foreground draw list so it's
-        # always visible regardless of window stacking.
-        draw = imgui.get_foreground_draw_list()
-        style = imgui.get_style()
-
-        # Derive colors from the active theme.
-        bar_bg = imgui.get_color_u32(style.color_(imgui.Col_.title_bg))
-        border_col = imgui.get_color_u32(style.color_(imgui.Col_.border))
-        text_col = imgui.get_color_u32(style.color_(imgui.Col_.text))
-
-        draw.add_rect_filled(
-            ImVec2(bar_x, bar_y),
-            ImVec2(bar_x + bar_w, bar_y + bar_h),
-            bar_bg,
-        )
-        draw.add_line(
-            ImVec2(bar_x, bar_y),
-            ImVec2(bar_x + bar_w, bar_y),
-            border_col,
-            1.0,
-        )
-
-        # Pill layout -- use raw mouse hit-testing instead of an invisible
-        # ImGui window.  The dock bar renders on the foreground draw list
-        # which has no window in the z-order, so invisible_button widgets
-        # inside a helper window never receive clicks reliably.
-        pill_pad = 6.0
-        pill_h = bar_h - pill_pad * 2.0
-        pill_x = bar_x + pill_pad
-        pill_y = bar_y + pill_pad
-        pill_gap = 4.0
-        max_x = bar_x + bar_w - pill_pad
-
-        pill_normal = imgui.get_color_u32(style.color_(imgui.Col_.button))
-        pill_hovered = imgui.get_color_u32(style.color_(imgui.Col_.button_hovered))
-
-        mouse = imgui.get_mouse_pos()
-        # Accept clicks when no frame window or ImGui item is under the
-        # cursor.  The previous is_window_hovered(any_window) guard was
-        # always true because dock_space_over_viewport covers the entire
-        # viewport, blocking all pill clicks.  We now use the explicit
-        # any_frame_hovered flag computed during frame rendering.
-        clicked = (
-            imgui.is_mouse_clicked(imgui.MouseButton_.left)
-            and not imgui.is_any_item_hovered()
-            and not any_frame_hovered
-        )
-
-        for frame in minimized:
-            text_size = imgui.calc_text_size(frame.title)
-            pill_w = text_size.x + 16.0
-
-            # Truncate: if this pill would overflow, show ellipsis.
-            if pill_x + pill_w > max_x:
-                ellipsis_size = imgui.calc_text_size("...")
-                ey = pill_y + (pill_h - ellipsis_size.y) * 0.5
-                draw.add_text(ImVec2(pill_x, ey), text_col, "...")
-                break
-
-            p_min = ImVec2(pill_x, pill_y)
-            p_max = ImVec2(pill_x + pill_w, pill_y + pill_h)
-
-            # Raw hit-test: is the mouse inside this pill rect?
-            hovered = p_min.x <= mouse.x <= p_max.x and p_min.y <= mouse.y <= p_max.y
-
-            bg = pill_hovered if hovered else pill_normal
-            draw.add_rect_filled(p_min, p_max, bg, 4.0)
-
-            text_y = pill_y + (pill_h - text_size.y) * 0.5
-            draw.add_text(ImVec2(pill_x + 8.0, text_y), text_col, frame.title)
-
-            if hovered and clicked:
-                frame.minimized = False
-                self._scene_manager.request_focus(frame.frame_id)
-
-            pill_x += pill_w + pill_gap
+        DockBar(imgui, self._scene_manager).render(any_frame_hovered=any_frame_hovered)
 
     def _render_frame_contents(self, frame: Frame, imgui: Any) -> None:
         """Render scenes inside a frame.
@@ -1182,17 +1084,9 @@ class DisplayServer:
         self._paint_clock.painted(scene_id)
         self._imgui_renderer_factory.geometry.enter_scene(scene_id)
         scene = frame.scenes[scene_id]
+        # Every kind is an Element-ABC subclass, so painting is one render() call.
         for elem in scene.elements:
-            self._paint_element(elem)
-
-    @trace
-    def _paint_element(self, elem: Element) -> None:
-        """Paint one element through its ABC ``render()`` template.
-
-        Every kind is an Element-ABC subclass, so painting is a single
-        ``render()`` call.
-        """
-        elem.render()
+            elem.render()
 
     def _close_frame(self, frame_id: str, *, notify: bool = True) -> None:
         """Remove a frame and all its scenes.

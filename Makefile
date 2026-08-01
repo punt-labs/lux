@@ -86,9 +86,12 @@ restart: install ## Install + restart luxd (via launchd) and display
 	@# (e.g. the beads hook) raced into the reap->ensure gap — else spawns one. So a
 	@# concurrent spawn can never stack a second window. ensure() waits for the READY
 	@# handshake, so a display that cannot start (no monitor) fails LOUDLY here instead
-	@# of backgrounding a dead process and printing success. LUX_LOG_LEVEL propagates:
-	@# ensure()'s _spawn inherits this process's environment.
-	@LUX_LOG_LEVEL=$${LUX_LOG_LEVEL:-DEBUG} uv run --extra display python -c "from punt_lux.paths import DisplayPaths; dp = DisplayPaths(); dp.reap(); dp.ensure()" || \
+	@# of backgrounding a dead process and printing success. LUX_LOG_LEVEL is NOT
+	@# defaulted here: ensure()'s _spawn inherits this process's environment, so an
+	@# operator who exports it still reaches the display, while an operator who has
+	@# asked for nothing gets the display's own INFO floor rather than a DEBUG
+	@# firehose they never requested.
+	@uv run --extra display python -c "from punt_lux.paths import DisplayPaths; dp = DisplayPaths(); dp.reap(); dp.ensure()" || \
 		{ echo "error: could not reap and restart the display — aborting restart (see log above)" >&2; exit 1; }
 	@echo "luxd restarted via launchd; display reaped and exactly one live display ensured"
 

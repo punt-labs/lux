@@ -190,14 +190,16 @@ Start with `docs/architecture/target/target.md`. Use
 
 Two separate log files — luxd and the display are separate processes with separate log destinations:
 
-| Process | Log file | Level |
-|---------|----------|-------|
-| luxd (Hub) | `~/.punt-labs/lux/logs/luxd-stderr.log` | Configured by launchd |
-| lux-display | `/tmp/lux-jfreeman/display.sock.log` | INFO (set in `__main__.py`) |
+| Process | Log file | Default level |
+|---------|----------|---------------|
+| luxd (Hub) | `~/.punt-labs/lux/logs/luxd-stderr.log` | DEBUG — its per-operation timings are meant to be readable |
+| lux-display | `/tmp/lux-jfreeman/display.sock.log` | INFO |
 
 When debugging display-side behavior (rendering, click dispatch, handler wrapping), read the display log. When debugging Hub-side behavior (MCP tools, HubDisplay, publish), read the luxd log.
 
-DEBUG-level logs do not appear by default. To see them, change the level in `__main__.py:100` or add WARNING-level logs. Do not add ad-hoc debug prints — use the logger at the appropriate level.
+**One variable, two defaults.** `LUX_LOG_LEVEL` lowers the floor of whichever process reads it, and each entry point keeps its own default when the variable is unset. Nothing may set it on a child's behalf: the display is spawned by luxd and inherits its environment, so an exported `LUX_LOG_LEVEL=DEBUG` is only ever the operator asking for DEBUG everywhere. To read the display at DEBUG for one run: `LUX_LOG_LEVEL=DEBUG make restart`.
+
+Do not add ad-hoc debug prints — use the logger at the appropriate level. **Nothing on the per-frame render path may log.** ImGui repaints every element every frame, so one line there is sixty lines per element per second; the `@trace` decorator belongs on event-driven paths (a click, a decode, a send), never on a renderer's `render`. `tests/test_per_frame_tracing.py` enforces this.
 
 ## Code Quality
 

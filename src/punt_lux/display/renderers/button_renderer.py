@@ -12,7 +12,6 @@ from punt_lux.display.renderers._arrow import ArrowDirections
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
 from punt_lux.domain.interaction import ButtonClicked
 from punt_lux.protocol.elements.button import ButtonElement
-from punt_lux.tracing import trace
 
 __all__ = ["ButtonRenderer"]
 
@@ -37,7 +36,6 @@ class ButtonRenderer:
         self._arrows = ArrowDirections()
         return self
 
-    @trace
     def render(self, elem: ButtonElement) -> None:
         if elem.disabled:
             imgui.begin_disabled()

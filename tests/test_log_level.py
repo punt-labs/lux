@@ -45,3 +45,25 @@ def test_an_unset_log_level_leaves_the_entry_point_its_own_floor(
     monkeypatch.delenv("LUX_LOG_LEVEL", raising=False)
     assert level_from_env("WARNING") == logging.WARNING
     assert level_from_env("INFO") == logging.INFO
+
+
+def test_luxd_and_the_display_it_spawns_keep_their_own_floors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """luxd sits at DEBUG for its timings without dragging the display down.
+
+    The display is spawned by luxd and inherits its environment, so the two
+    floors can only differ while nothing exports a level on the child's behalf.
+    One variable, two defaults: absence is what keeps them apart.
+    """
+    monkeypatch.delenv("LUX_LOG_LEVEL", raising=False)
+    assert level_from_env("DEBUG") == logging.DEBUG  # luxd's floor
+    assert level_from_env("INFO") == logging.INFO  # the display's floor
+
+
+def test_an_explicit_level_reaches_the_display_the_operator_asked_about(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An operator who exports DEBUG still gets it — the knob is theirs to turn."""
+    monkeypatch.setenv("LUX_LOG_LEVEL", "DEBUG")
+    assert level_from_env("INFO") == logging.DEBUG

@@ -24,7 +24,6 @@ from punt_lux.domain.ids import ClientId, ElementId, SceneId
 from punt_lux.domain.interaction import ValueChanged
 from punt_lux.protocol.elements.slider import SliderElement
 from punt_lux.scene import WidgetState
-from punt_lux.tracing import trace
 
 __all__ = ["SliderRenderer"]
 
@@ -58,7 +57,6 @@ class SliderRenderer:
         """Re-thread the renderer to the scene being rendered."""
         self._widget_state = value
 
-    @trace
     def render(self, elem: SliderElement) -> None:
         arbiter = ContinuousEditArbiter(self._widget_state, elem.id, _ACCESSOR)
         label = f"{elem.label}##{elem.id}"
