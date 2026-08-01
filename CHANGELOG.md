@@ -46,6 +46,19 @@
   shutdown hook would not fire. Measured: 4.4–6.4s from the session ending to
   the applet exiting. The Hub's lease sweeps the menu entry underneath this
   regardless.
+- **Every process on the click path now times its own work.** The applet
+  already reported its stages; the two processes between it and the glass said
+  nothing. luxd logs one line per mutating operation — `op render
+  scene=beads-lux 14 ms` — covering the scene installs, the frame raise, the
+  menu push, and the clears, and the display logs the other half from the
+  message arriving to the buffer swap that first painted it: `paint
+  scene=beads-lux 41 ms`. A frame raise is logged where it actually takes
+  effect (`raise frame=beads-lux applied`), which is the visible half of a
+  click. No process vouches for another's clock: each figure is measured by
+  the process that did the work, so a slow click is attributed rather than
+  argued about. Read-only queries are not timed — they change nothing a user
+  sees, and a line each would bury the mutations. Both lines are at INFO,
+  which is at or above each process's default floor.
 
 ### Changed
 
