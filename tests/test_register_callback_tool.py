@@ -106,7 +106,7 @@ def _isolated_ops(*, listening: bool = True) -> Generator[tuple[Operations, _Rig
     test uses to stand in for a display click (routing stays Hub-internal and is
     not on the facade the tools call) and to give the session the listen leg
     registration requires. ``listening=False`` withholds that leg, which is what a
-    bare MCP session — no ``lux mcp-serve`` process behind it — actually has.
+    bare MCP session — no applet behind it — actually has.
     """
     display = HubDisplay()
     router = CallbackRouter(display.clients)

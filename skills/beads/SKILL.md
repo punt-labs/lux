@@ -27,7 +27,7 @@ Beads belongs to this session, not to luxd: luxd runs under launchd with no
 `PATH`, no repository credentials, and no repository working directory, so it
 cannot run `bd`. This session has a repo shell, so it fetches the data.
 
-The menu entry is not your job. The session's own `lux mcp-serve` process — the
+The menu entry is not your job. The session's own `lux-beads` applet — the
 same process serving these tools — already registered a "Beads" entry under this
 session's submenu, and it services a click on that entry itself, in milliseconds,
 without a turn of yours. Do not register a callback and do not poll for clicks;

@@ -105,7 +105,7 @@ Demos are in `demos/` --- each connects as a client and drives the display:
 - **Frames** --- scenes target named frames (inner windows) via `frame_id`. Frames persist after disconnect, can be adopted by new clients, and support initial sizing (`frame_size`) and ImGui window flags (`frame_flags`)
 - **Layout nesting** --- windows contain tab bars contain groups contain any element, arbitrarily deep
 - **Incremental updates** --- `update` patches individual elements by ID without replacing the scene
-- **Session menus** --- the menu bar shows one submenu per live session. A session registers a menu entry via `register_callback` from the connection it holds open to the Hub, and a click on that entry is pushed straight down that connection for the session to service from its own shell. The "Beads" entry each lux-enabled session's `lux mcp-serve` process registers is how the beads board reopens from the menu
+- **Session menus** --- the menu bar shows one submenu per live session. A session registers a menu entry via `register_callback` from the connection it holds open to the Hub, and a click on that entry is pushed straight down that connection for the session to service from its own shell. The "Beads" entry each lux-enabled session's `lux-beads` applet registers is how the beads board reopens from the menu
 - **Interaction handling** --- button clicks, slider changes, and menu clicks fire their handlers on the Hub (D21 remote dispatch); the raw event log is readable via `list_recent_events`. Hub handlers can `publish` app events that the agent reads via `recv`
 - **Announce on arrival, repaint in place** --- a genuinely new scene raises and focuses its frame; updating an existing scene repaints it where it is. A minimized frame stays minimized, the focused frame keeps focus, and the selected tab stays selected --- the user controls what is front-most, not updates
 - **Persistent tabs** --- each `show()` call opens a dismissable tab; same `scene_id` replaces content in-place. Users can close individual tabs
@@ -227,7 +227,7 @@ All elements with an `id` support an optional `tooltip` field (string shown on h
 | Command | What it does |
 |---------|-------------|
 | `lux display` | Start the display server (ImGui window) |
-| `lux mcp-serve` | Per-session MCP server: forwards MCP traffic to `luxd` and holds the WebSocket leg that services the session's menu clicks |
+| `lux-beads` | The Beads applet: owns this session's Beads menu entry and services its clicks (launched by the plugin's session-start hook) |
 | `lux enable` | Enable visual output for this project |
 | `lux disable` | Disable visual output for this project |
 | `lux status` | Check if the display server is running |
@@ -269,25 +269,27 @@ Window on screen
 
 The Hub is the single source of truth for element state, ownership, and handler dispatch. The Display is a rendering replica: it paints the current scene and forwards interactions back to the Hub, which runs the real handler and re-pushes updated state. MCP is one entry point, not the only one.
 
-### How a session connects: `lux mcp-serve`
+### How a session connects, and how its menu entries work
 
-The bundled plugin runs one process per Claude Code session:
+The bundled plugin connects Claude Code straight to `luxd`, with no per-session process in the path:
 
 ```json
 {
   "mcpServers": {
-    "lux": { "command": "lux", "args": ["mcp-serve"] }
+    "lux": { "type": "http", "url": "http://127.0.0.1:8430/mcp" }
   }
 }
 ```
 
-That process does two things. It forwards the session's MCP traffic to `luxd` verbatim — no tool logic of its own, so the tool surface a session sees is exactly `luxd`'s — and it holds a live WebSocket to `luxd` on a background thread, which is what makes the session's menu entries work.
+Menu entries are a separate connection, and they belong to the session's **applets**. An applet is a small program — not a daemon, not part of `luxd` — that the plugin's session-start hook launches and that runs for the life of that session, in that session's repository and shell. `lux-beads` is the first.
 
-The second job is why the process exists. A menu entry must launch in the time a user reads as instant, so the click has to be answered by something already running and already reachable: not a poll, and never a turn of the model. The session's server registers its entries on that connection, receives clicks pushed down it, and does the work itself — running `bd` from the repository's own shell and pushing the board to the Hub, which `luxd` cannot do from launchd with no `PATH`, no credentials, and no working directory.
+An applet exists because a menu entry must launch in the time a user reads as instant, so the click has to be answered by something already running and already reachable: not a poll, and never a turn of the model. The applet registers its entry on its own connection, receives clicks pushed down it, and does the work itself — running `bd` from the repository's own shell and pushing the board to the Hub, which `luxd` cannot do from launchd with no `PATH`, no credentials, and no working directory.
 
-`luxd` enforces the arrangement rather than trusting it: `register_callback` is refused unless the calling connection holds a listen leg, because a connection that could never be told its item was clicked must not own one.
+It leaves when its session does. Handed the session's process id at spawn, it checks every few seconds whether that process still exists and exits when it does not, so an applet cannot outlive its session even when the session is killed rather than closed. The Hub's lease sweeps the menu entry underneath that regardless.
 
-Connecting straight to `luxd`'s HTTP endpoint also works — the whole tool surface, but no menu entries of your own. Setup and verification are in [docs/library.md](docs/library.md).
+`luxd` enforces the arrangement rather than trusting it: `register_callback` is refused unless the calling connection holds a listen leg, because a connection that could never be told its item was clicked must not own one. That is why the tool surface a session talks to owns no entries.
+
+Setup and verification for a hand-configured direct connection are in [docs/library.md](docs/library.md).
 
 ## Documentation
 
