@@ -23,9 +23,11 @@
   slow — the `bd` query, the board build, or the push to luxd — instead of
   leaving them to be told apart by guesswork, and a user who reports it can
   paste one line that carries the whole story. A click that failed reports the
-  stages it reached, which is how far it got. Set `LUX_LOG_LEVEL=INFO` on the
-  applet to read the line; a click that broke the 100 ms answer budget is
-  reported regardless.
+  stages it reached, which is how far it got. The applet logs at INFO, so the
+  line is written for every click, into the log the session-start hook gives it
+  — `$TMPDIR/lux-beads-<session pid>.log`. A click that broke the 100 ms answer
+  budget goes out at WARNING instead, so it is read even where the floor has
+  been raised above INFO.
 - **The read from `bd` is broken down, on lux's side of the boundary.** Reading
   the issues is four things, and only one of them is `bd`'s: lux starts a
   process, waits on it, reads what comes back, and turns it into rows. Each is
@@ -151,9 +153,9 @@
   and `bd` runs behind whichever happened. Measured on the author's machine:
   median ~55 ms from click to visible response, with the one breach in each run
   being the first click — the cold path, which has no frame to raise and pays a
-  second round trip to open one. Set `LUX_LOG_LEVEL=INFO` on the applet to read
-  the per-click line, which carries this number and every stage behind it; over
-  budget, it is reported regardless.
+  second round trip to open one. The per-click line carries this number and
+  every stage behind it, and the applet writes it at INFO for every click; over
+  budget, it goes out at WARNING instead.
 - **A frame can be raised.** `POST /display/frames/{id}/raise` (and
   `LuxRestClient.raise_frame`) brings a frame to the front, restoring it first
   if it was minimized. A frame the display does not hold answers `raised: false`

@@ -38,6 +38,19 @@ def test_an_unusable_log_level_falls_back_and_says_so(
     assert "not valid" in capsys.readouterr().err
 
 
+def test_an_emptied_log_level_reads_as_unset_rather_than_as_a_mistake(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``LUX_LOG_LEVEL=`` is an operator clearing the knob, not mistyping it.
+
+    A shell that exports the variable empty — the ordinary way to stop asking
+    for a level — used to warn on every start of every process that read it.
+    """
+    monkeypatch.setenv("LUX_LOG_LEVEL", "")
+    assert level_from_env("WARNING") == logging.WARNING
+    assert capsys.readouterr().err == ""
+
+
 def test_an_unset_log_level_leaves_the_entry_point_its_own_floor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

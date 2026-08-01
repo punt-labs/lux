@@ -26,14 +26,14 @@ _LOG_LEVELS: dict[str, int] = {
 def level_from_env(default: str) -> int:
     """Read ``LUX_LOG_LEVEL``, falling back to ``default`` and saying so if unusable.
 
-    An unusable value is reported and ignored rather than fatal: a mistyped
-    environment variable must not stop a session's applet from starting.
+    A mistyped value is reported and ignored rather than fatal: it must not stop
+    a session's applet from starting. An emptied one is not mistyped — it is the
+    knob cleared, asking for the same floor that never setting it asks for.
     """
     raw = os.environ.get("LUX_LOG_LEVEL", default).upper()
-    level = _LOG_LEVELS.get(raw)
+    level = (_LOG_LEVELS | {"": _LOG_LEVELS[default]}).get(raw)
     if level is None:
-        # Written to the stream rather than logged: this runs to decide how
-        # logging is configured, so there is no logger to say it through yet.
+        # Written to the stream: this runs to decide how logging is configured.
         sys.stderr.write(
             f"WARNING: LUX_LOG_LEVEL={raw!r} is not valid, defaulting to {default}\n"
         )
