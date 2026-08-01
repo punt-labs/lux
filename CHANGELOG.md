@@ -4,21 +4,25 @@
 
 ### Added
 
-- **`lux mcp-serve` — one process per session, and menu clicks that launch
-  instantly.** The plugin now starts a small server for each Claude Code
-  session instead of pointing it at luxd's HTTP endpoint. That process
-  forwards the session's MCP traffic to luxd verbatim — the tool surface is
-  unchanged, because it *is* luxd's — and holds a live connection to luxd on a
-  background thread. The connection is what makes menu entries work: the
-  session registers its own entries on it, a click is pushed straight back
-  down it, and the process does the work itself, from the repository's own
-  shell, with nothing polling and no turn of the model in the path. Measured
-  on the author's machine: 0.4–0.5s from process start to its first MCP
-  response, and 0.12–0.14s to exit when the session ends.
-- **The Beads menu entry is automatic.** Every lux-enabled session's server
-  registers it on connect and refreshes the board when it is clicked. Neither
-  the session-start hook nor the `/lux:beads` skill asks the agent to register
-  a callback or poll for clicks any more.
+- **Applets — small session-bound programs that own a menu entry.** An applet
+  runs for the life of one Claude Code session, in that session's repository
+  and shell, holding its own connection to luxd. It exists because luxd cannot
+  do this work itself: launchd starts luxd with no `PATH`, no repository, and
+  no repository credentials, while the session has all three. Applets are for
+  software Punt Labs did not build; `lux-beads` is the first.
+- **The Beads menu entry is automatic.** The plugin's session-start hook
+  launches `lux-beads`, which registers the entry on connect and refreshes the
+  board when it is clicked. Neither the hook nor the `/lux:beads` skill asks
+  the agent to register a callback or poll for clicks any more. Measured on
+  the author's machine: 0.43–0.56s from spawn to the entry being visible in
+  the menu.
+- **An applet leaves when its session does.** It is handed the session's
+  process id at spawn and checks every five seconds whether that process still
+  exists, exiting when it does not — so an applet cannot outlive its session
+  even when the session is killed rather than closed, which is exactly when a
+  shutdown hook would not fire. Measured: 4.4–6.4s from the session ending to
+  the applet exiting. The Hub's lease sweeps the menu entry underneath this
+  regardless.
 
 ### Changed
 
@@ -35,6 +39,11 @@
 
 ### Removed
 
+- **The per-session stdio MCP proxy (`lux mcp-serve`).** The plugin connects
+  straight to luxd's HTTP endpoint again, as it did in 0.21.0. The proxy was
+  reintroduced to give a session a connection its menu clicks could be pushed
+  down; applets provide that without putting a hop in front of every one of a
+  session's MCP calls.
 - **`pending_callbacks`, the polling pickup leg** — the MCP tool and the
   `GET /menus/callbacks/pending` route. With push the only delivery, it could
   no longer return anything: a registered session is pushed its clicks, and a
@@ -75,9 +84,10 @@
   click now raises the board's frame first, which is the whole answer in that
   case; a click with no board up opens one with a "Loading issues…" placeholder;
   and `bd` runs behind whichever happened. Measured on the author's machine:
-  median 63 ms from click to visible response over fifteen clicks, fourteen of
-  them inside 100 ms. Set `LUX_LOG_LEVEL=INFO` on a session to read the number
-  per click; over budget, it is reported regardless.
+  median ~55 ms from click to visible response, with the one breach in each run
+  being the first click — the cold path, which has no frame to raise and pays a
+  second round trip to open one. Set `LUX_LOG_LEVEL=INFO` on the applet to read
+  the number per click; over budget, it is reported regardless.
 - **A frame can be raised.** `POST /display/frames/{id}/raise` (and
   `LuxRestClient.raise_frame`) brings a frame to the front, restoring it first
   if it was minimized. A frame the display does not hold answers `raised: false`

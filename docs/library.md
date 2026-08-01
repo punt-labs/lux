@@ -96,13 +96,16 @@ its listener, and pushes the player scene over REST.
 
 ## Connecting to `luxd`'s MCP endpoint directly
 
-A session that connects straight to `luxd`'s HTTP endpoint
-(`http://127.0.0.1:8430/mcp`) needs no bridge — a copy-paste example is in
+This is how the plugin connects, and a session configured by hand connects the
+same way: straight to `luxd`'s HTTP endpoint (`http://127.0.0.1:8430/mcp`), with
+no per-session process in the path. A copy-paste example is in
 [`.claude-plugin/mcp-http.example.json`](../.claude-plugin/mcp-http.example.json).
-Such a session gets the whole tool surface but no menu entries of its own, since
-it holds no connection a click could arrive on (see the README's
-[architecture section](../README.md#architecture) for why menu entries require
-the per-session `lux mcp-serve` process).
+
+Such a session gets the whole tool surface but owns no menu entries, because it
+holds no connection a click could arrive on. Menu entries belong to the session's
+**applets** — `lux-beads` and the like — which the session-start hook launches
+and which hold their own listener; `register_callback` from the tool surface is
+refused, saying so.
 
 Start `luxd` first (`lux hub-install` and start the service, or run `luxd` in a
 terminal), then verify the direct connection end to end:
