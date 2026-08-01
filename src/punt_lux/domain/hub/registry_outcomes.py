@@ -15,7 +15,13 @@ from __future__ import annotations
 
 from typing import Literal
 
-__all__ = ["CallbackRegistration", "ListenerDetachment"]
+__all__ = ["CallbackRegistration", "ListenerAttachment", "ListenerDetachment"]
+
+# What taking the slot did to the entries already in it. A connection that had
+# none is ``attached``; one whose previous occupant still owned entries is
+# ``attached_over_callbacks``, and those entries have just stopped being
+# deliverable — the caller's cue to re-push the bar.
+ListenerAttachment = Literal["attached", "attached_over_callbacks"]
 
 # What a registration did. ``superseded`` is the compare-and-set losing: the leg
 # the caller was gated against is no longer the connection's, so the entry would be

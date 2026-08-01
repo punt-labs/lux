@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.domain.hub.client_session import ClientSession
 from punt_lux.domain.hub.registry_outcomes import (
     CallbackRegistration,
+    ListenerAttachment,
     ListenerDetachment,
 )
 from punt_lux.domain.ids import ConnectionId
@@ -77,7 +78,7 @@ class HubClientRegistry:
         connection_id: ConnectionId,
         identity: ClientIdentity,
         listener: CallbackListener,
-    ) -> None:
+    ) -> ListenerAttachment:
         """Install ``listener`` as the connection's leg, recording ``identity`` with it.
 
         A connecting session records itself and takes the slot in one step, so no
@@ -85,12 +86,20 @@ class HubClientRegistry:
         Taking the slot clears the callbacks the previous occupant owned: they were
         deliverable only to it, and it has lost the connection they were registered
         on. The arriving app re-registers from its connect hook.
+
+        Whether entries were cleared is the caller's, because clearing them is what
+        makes the bar wrong. The events that would correct it are not guaranteed —
+        the arriving app may register nothing, and a click on a dead entry only
+        finds the fault rather than fixing it — so the caller marks the menu on
+        ``attached_over_callbacks`` and the bar never shows an entry whose callback
+        has gone.
         """
         with self._lock:
             base = self._renewed(connection_id)
             self._sessions[connection_id] = base.with_identity(identity).attached(
                 listener
             )
+            return "attached_over_callbacks" if base.callbacks else "attached"
 
     def detach_listener(
         self, connection_id: ConnectionId, listener: CallbackListener

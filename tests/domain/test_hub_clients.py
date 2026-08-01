@@ -322,10 +322,20 @@ def test_a_new_leg_starts_with_none_of_its_predecessors_callbacks() -> None:
     reg.register_callback(conn, _beads(), first)
     assert reg.sessions()[conn].callbacks == (_beads(),)
 
-    second = _attached(reg, conn, _mcp())
+    second = _Leg()
+    # The arriving session is told it cleared entries, because that is what makes
+    # the bar wrong and nothing else is guaranteed to correct it.
+    assert reg.attach_listener(conn, _mcp(), second) == "attached_over_callbacks"
 
     assert reg.sessions()[conn].callbacks == ()
     assert reg.sessions()[conn].held_by(second)
+
+
+def test_a_first_leg_clears_nothing_and_says_so() -> None:
+    """An empty slot has no entries to lose, so the bar is already right."""
+    reg = HubClientRegistry()
+    conn = ConnectionId("mcp")
+    assert reg.attach_listener(conn, _mcp(), _Leg()) == "attached"
 
 
 def test_a_teardown_by_a_session_that_lost_the_slot_removes_nothing() -> None:

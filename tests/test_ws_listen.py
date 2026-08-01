@@ -359,15 +359,28 @@ def test_a_new_leg_arrives_with_none_of_its_predecessors_menu_entries() -> None:
     that could has lost the slot.
     """
     wired = _wired()
-    client, clients = wired.client, wired.clients
+    client, clients, menus = wired.client, wired.clients, wired.menus
     with client.websocket_connect("/ws", headers=_HEADERS) as first:
         first.receive_json()  # ready
         _register(clients, "beads")
         assert _owns(clients, "beads")
+        pushes = menus.pushes
 
         with client.websocket_connect("/ws", headers=_HEADERS) as second:
             second.receive_json()  # ready
             assert not _owns(clients, "beads")
+            # The bar must lose them here. Nothing else would: this session may
+            # register nothing, and a click on a cleared entry finds the fault
+            # rather than repairing it.
+            assert menus.pushes == pushes + 1
+
+
+def test_a_first_leg_with_no_entries_to_clear_asks_for_no_menu_push() -> None:
+    """The mark tracks entries that stopped being deliverable, not connects."""
+    wired = _wired()
+    with wired.client.websocket_connect("/ws", headers=_HEADERS) as ws:
+        ws.receive_json()  # ready
+        assert wired.menus.pushes == 0
 
 
 def test_a_superseded_sessions_teardown_leaves_its_successor_whole() -> None:

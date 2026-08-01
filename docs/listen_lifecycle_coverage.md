@@ -33,7 +33,7 @@ they cover it honestly.
 | C1 | First occupant: attach with the listener slot empty | covered — `the_handshake_readies_the_shared_connection_id` |
 | C2 | Attach displacing a **pumping** predecessor (two live sessions of one identity) | covered — `a_second_live_session_of_one_identity_takes_the_connection` |
 | C3 | Attach displacing a **suspended** predecessor (the reconnect after backoff) | covered — `a_superseded_sessions_teardown_leaves_its_successor_whole` |
-| C4 | Attach clears the previous occupant's callbacks | covered — `a_new_leg_arrives_with_none_of_its_predecessors_menu_entries`, `a_new_leg_starts_with_none_of_its_predecessors_callbacks`, `taking_the_slot_leaves_the_previous_occupants_callbacks_behind` |
+| C4 | Attach clears the previous occupant's callbacks, and the bar is re-pushed when it does | covered — `a_new_leg_arrives_with_none_of_its_predecessors_menu_entries` (asserts the mark), `a_new_leg_starts_with_none_of_its_predecessors_callbacks`, `a_first_leg_clears_nothing_and_says_so`, `a_first_leg_with_no_entries_to_clear_asks_for_no_menu_push`, `taking_the_slot_leaves_the_previous_occupants_callbacks_behind` |
 | C5 | Attach renews the lease | covered — attach records identity and lease in the one write `a_declared_ttl_lapses_an_app_session_that_would_be_permanent` drives |
 
 C2 and C3 are the whole point. Neither can be written with one WebSocket

@@ -130,11 +130,18 @@ class HubListenSession:
         the identity and taking the connection's listener slot are one registry
         call for the same reason at thread scope: nothing may observe this session
         identified but unreachable, or holding the slot but anonymous.
+
+        Taking the slot clears the entries its previous occupant owned, and the bar
+        is re-pushed when it does. Nothing else would: this session may register
+        nothing of its own, and a user clicking a cleared entry discovers the fault
+        rather than repairing it.
         """
         await self._ws.accept()
         self._loop = asyncio.get_running_loop()
         try:
-            self._clients.attach_listener(self._conn, self._identity, self)
+            attachment = self._clients.attach_listener(self._conn, self._identity, self)
+            if attachment == "attached_over_callbacks":
+                self._menus.mark_menus()
             self._hub.register_writer(self._conn, self.deliver_event)
             await self._ws.send_text(
                 ReadyFrame(connection_id=str(self._conn)).model_dump_json()
