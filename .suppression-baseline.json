@@ -1,7 +1,7 @@
 {
-  "total": 98,
+  "total": 97,
   "by_category": {
-    "noqa": 23,
+    "noqa": 22,
     "type_ignore": 4,
     "pylint_disable": 2,
     "pyright_ignore": 5,
@@ -16,8 +16,10 @@
       "pylint_disable": 2
     },
     "src/punt_lux/apps/_beads_payload.py": {
-      "noqa": 1,
       "type_ignore": 1
+    },
+    "src/punt_lux/apps/bd_command.py": {
+      "noqa": 1
     },
     "src/punt_lux/display/macos.py": {
       "type_ignore": 1,
@@ -47,7 +49,7 @@
       "noqa": 1
     },
     "src/punt_lux/luxd.py": {
-      "noqa": 2,
+      "noqa": 1,
       "type_ignore": 1
     },
     "src/punt_lux/paths.py": {
@@ -69,5 +71,5 @@
       "noqa": 2
     }
   },
-  "updated_at": "2026-07-31T08:01:17Z"
+  "updated_at": "2026-08-01T22:21:24Z"
 }
