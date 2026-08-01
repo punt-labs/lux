@@ -223,40 +223,46 @@ class HubListenSession:
             self._outbound.put_nowait(CallbackFrame(callback_id=invocation.callback_id))
 
     def _teardown(self) -> None:
-        """Drop what this session installed — and only if it is still this session's.
+        """Release what belongs to this session, by identity, and nothing else.
 
-        One connection is shared by successive sessions of one identity, because
-        the id is derived from that identity: an old session dying and a new one
-        reconnecting after its backoff address the same slot. A session that has
-        lost its socket may still be suspended here, awaiting its cancelled writer,
-        while its successor completes an entire connect. Removing unconditionally
-        at that point takes the *successor's* listener, callbacks, and writer, and
-        the damage does not heal — the successor keeps renewing its lease, so no
-        sweep ever repairs it, and it goes on believing it is push-reachable while
-        owning nothing. So the slot's occupant is compared to ``self`` first, and a
-        session that no longer holds it removes nothing at all.
+        One connection is shared by successive sessions of one identity: an old
+        session dying and a new one reconnecting after its backoff address the same
+        slot, and the old one may still be suspended here, awaiting its cancelled
+        writer, long after its successor has completed an entire connect. So every
+        removal compares first, and each piece of state is compared against the
+        thing that owns it.
 
-        The listener and the callbacks are released as one operation, because a
-        callback whose listener has already gone is observable from the threads
-        that route clicks and register entries. The menu is re-pushed only when
-        entries actually went, so the bar loses them with the connection that owned
-        them.
+        The listener slot and its callbacks belong to *whoever holds the slot*, so
+        they go only while ``self`` still does — the compare that keeps a
+        superseded session from taking its successor's leg and entries, damage that
+        would never heal because the successor keeps renewing its lease and goes on
+        believing it is push-reachable while owning nothing. The two are released
+        as one operation, because a callback whose listener has already gone is
+        observable from the threads that route clicks and register entries.
 
-        The session, its identity, and its lease stay, and so does its hold: a
-        reconnect within the lease drains the clicks buffered across the gap and
-        re-registers its callbacks from ``on_connect``. So a transient drop heals
-        itself, while a process that is gone stays gone.
+        The writer and the subscriptions belong to *this session*: they are its own
+        ``deliver_event``, so they are released on every path — including the one
+        where a successor took the slot, and the one where the lease lapsed and the
+        sweep took the session out from under a socket that lingered. Skipping them
+        there left a dead session's ``deliver_event`` subscribed, and nothing could
+        withdraw it — ``unsubscribe`` resolves the connection's *current* writer,
+        which by then is the successor's — so every publish on the topic went on
+        filling an outbound queue no write task drains, pinning the session and its
+        socket for the life of the process.
 
-        This method must contain no ``await``. It is what makes the disconnect
-        cascade below safe without a guard of its own: with no suspension point,
-        the release and the cascade are one uninterrupted loop run, so no reconnect
-        can install a successor's writer between them. Adding an ``await`` here
-        reopens that window and invalidates the model this design was checked
-        against.
+        The bar is re-pushed whenever entries stopped being deliverable, and left
+        alone only in the stale case, where a successor's entries are live. The
+        session, its identity, its lease, and its hold survive: a reconnect within
+        the lease drains the clicks buffered across the gap and re-registers from
+        ``on_connect``, so a transient drop heals itself while a process that is
+        gone stays gone.
+
+        This method must contain no ``await``. With no suspension point the detach,
+        the mark, and the release are one uninterrupted loop run, so no reconnect
+        can interleave among them. Adding an ``await`` here reopens that window and
+        invalidates the model this design was checked against.
         """
         detachment = self._clients.detach_listener(self._conn, self)
-        if detachment == "kept":
-            return  # a successor holds the connection; none of this is ours to drop
-        if detachment == "released_with_callbacks":
+        if detachment in {"released_with_callbacks", "session_gone"}:
             self._menus.mark_menus()
-        self._hub.on_disconnect(self._conn)
+        self._hub.release_writer(self._conn, self.deliver_event)

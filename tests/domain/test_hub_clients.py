@@ -368,6 +368,26 @@ def test_a_teardown_releases_the_leg_and_its_callbacks_together() -> None:
     assert session.identity is not None  # the session itself survives the leg
 
 
+def test_a_teardown_after_the_sweep_says_the_session_itself_is_gone() -> None:
+    """Not the same answer as a successor holding the slot, and not the same cue.
+
+    A lapsed lease takes the session, its slot, and its entries, while its socket
+    is still winding down. When that socket's teardown finally runs there is
+    nothing of anyone's to remove — but the bar is still showing entries whose
+    owner has been swept away, so the caller must be told this is not the stale
+    case, where a successor's entries are live and the bar is correct.
+    """
+    clock = _Clock()
+    reg = HubClientRegistry(clock)
+    conn = ConnectionId("cli")
+    leg = _attached(reg, conn, _cli())
+    reg.register_callback(conn, _beads(), leg)
+    clock.advance(91.0)  # past the 90s cli lease
+    assert reg.live_sessions() == {}  # the read sweeps it as it passes
+
+    assert reg.detach_listener(conn, leg) == "session_gone"
+
+
 def test_a_teardown_that_removed_no_entries_asks_for_no_menu_push() -> None:
     reg = HubClientRegistry()
     conn = ConnectionId("mcp")

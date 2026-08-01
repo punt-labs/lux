@@ -19,6 +19,7 @@ import logging
 from typing import TYPE_CHECKING, Self
 
 from punt_lux.domain.hub.subscription_registry import Handler, SubscriptionRegistry
+from punt_lux.domain.hub.writer_registry import WriterRegistry
 from punt_lux.domain.ids import ConnectionId, Topic
 from punt_lux.protocol.messages.observer import ObserverMessage
 
@@ -33,11 +34,12 @@ logger = logging.getLogger(__name__)
 class Hub:
     """Connection-scoped pub-sub coordinator.
 
-    Holds two per-connection registries: ``_subscriptions`` (topics →
-    handlers) and ``_writers`` (connection → outbound wire writer). The
-    writer registry is populated when a connection comes online — the
-    transport adapter calls ``register_writer`` before any tool call on
-    that connection runs ``subscribe`` or ``publish``.
+    Holds two per-connection registries and does the coordinating between
+    them: ``_subscriptions`` (topics → handlers) and ``_writers``
+    (connection → outbound wire writer). The writer registry is
+    populated when a connection comes online — the transport adapter
+    calls ``register_writer`` before any tool call on that connection
+    runs ``subscribe`` or ``publish``.
 
     Publish fan-out is snapshot-then-iterate: the registry copies the
     subscriber set under a short lock, then the Hub iterates the
@@ -46,12 +48,12 @@ class Hub:
     """
 
     _subscriptions: SubscriptionRegistry
-    _writers: dict[ConnectionId, Handler]
+    _writers: WriterRegistry
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
         self._subscriptions = SubscriptionRegistry()
-        self._writers = {}
+        self._writers = WriterRegistry()
         return self
 
     def register_writer(
@@ -60,15 +62,25 @@ class Hub:
         writer: Handler,
     ) -> None:
         """Bind a connection's outbound writer. Idempotent overwrites."""
-        self._writers[connection_id] = writer
+        self._writers.bind(connection_id, writer)
 
-    def unregister_writer(self, connection_id: ConnectionId) -> None:
-        """Drop the connection's writer binding. No-op if absent."""
-        self._writers.pop(connection_id, None)
+    def release_writer(self, connection_id: ConnectionId, writer: Handler) -> None:
+        """Drop what ``writer`` installed on this connection, and only that.
+
+        The counterpart of :meth:`register_writer`, for a leg whose connection id
+        it shares with the sessions that precede and follow it. Both removals are
+        by the writer's own identity: its subscriptions go from every topic it
+        joined, and the binding goes only while it is still the connection's. A
+        session that was superseded while suspended therefore takes its own state
+        and leaves its successor's — the ownership rule the listener slot already
+        enforces, applied to the state the Hub holds.
+        """
+        self._subscriptions.drop_handler(connection_id, writer)
+        self._writers.release(connection_id, writer)
 
     def has_writer(self, connection_id: ConnectionId) -> bool:
         """Return whether a writer is registered for ``connection_id``."""
-        return connection_id in self._writers
+        return self._writers.has(connection_id)
 
     def subscribe(self, connection_id: ConnectionId, topic: Topic) -> None:
         """Register the caller's connection for ``topic``.
@@ -78,12 +90,12 @@ class Hub:
         ``KeyError`` if no writer has been registered for the
         connection: the registration would have no recipient.
         """
-        handler = self._writer_for(connection_id)
+        handler = self._writers.writer_for(connection_id)
         self._subscriptions.subscribe(connection_id, topic, handler)
 
     def unsubscribe(self, connection_id: ConnectionId, topic: Topic) -> None:
         """Drop the caller's subscription to ``topic``. No-op if absent."""
-        handler = self._writer_for(connection_id)
+        handler = self._writers.writer_for(connection_id)
         self._subscriptions.unsubscribe(connection_id, topic, handler)
 
     def publish(
@@ -119,21 +131,18 @@ class Hub:
         return delivered
 
     def on_disconnect(self, connection_id: ConnectionId) -> None:
-        """Cascade cleanup: drop all subscriptions and the writer binding."""
+        """Cascade cleanup: drop all subscriptions and the writer binding.
+
+        Connection-scoped: the whole connection has gone, so everything under its
+        id goes. A leg that shares its connection id with a successor must use
+        :meth:`release_writer` instead, which removes only its own.
+        """
         self._subscriptions.drop_connection(connection_id)
-        self.unregister_writer(connection_id)
+        self._writers.drop(connection_id)
 
     def topics_for(self, connection_id: ConnectionId) -> frozenset[Topic]:
         """Return the connection's currently subscribed topics."""
         return self._subscriptions.topics_for(connection_id)
-
-    def _writer_for(self, connection_id: ConnectionId) -> Handler:
-        """Resolve the connection's outbound writer; raise if unbound."""
-        writer = self._writers.get(connection_id)
-        if writer is None:
-            msg = f"no writer registered for connection {connection_id!r}"
-            raise KeyError(msg)
-        return writer
 
 
 # Module-level singleton — the production Hub. Tests construct their own

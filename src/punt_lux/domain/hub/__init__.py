@@ -22,6 +22,7 @@ from punt_lux.domain.hub.lifecycle import disconnect_connection
 from punt_lux.domain.hub.owner_tracker import OwnerTracker
 from punt_lux.domain.hub.root_registry import RootRegistry
 from punt_lux.domain.hub.subscription_registry import Handler, SubscriptionRegistry
+from punt_lux.domain.hub.writer_registry import WriterRegistry
 
 __all__ = [
     "ClientRegistry",
@@ -35,6 +36,7 @@ __all__ = [
     "SubscriptionRegistry",
     "UnknownElementError",
     "UnknownSceneError",
+    "WriterRegistry",
     "client_registry",
     "disconnect_connection",
     "hub",

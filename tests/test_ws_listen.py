@@ -14,6 +14,7 @@ import contextlib
 import inspect
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Self, final
 
@@ -64,12 +65,47 @@ class _MenuFlag:
         return self._menus
 
 
-def _wired() -> tuple[TestClient, Hub, HubClientRegistry, CallbackRouter]:
-    hub, clients = Hub(), HubClientRegistry()
+@final
+class _Clock:
+    """A monotonic clock the test advances, so a lease lapses on demand."""
+
+    _now: float
+    __slots__ = ("_now",)
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._now = 0.0
+        return self
+
+    def __call__(self) -> float:
+        return self._now
+
+    def advance(self, seconds: float) -> None:
+        self._now += seconds
+
+
+@dataclass(frozen=True, slots=True)
+class _Wiring:
+    """One mounted listen transport and the domain objects it writes through.
+
+    Returned whole rather than as a tuple: a test names the parts it uses, and
+    the menu flag is reachable without a fifth positional element nobody reads.
+    """
+
+    client: TestClient
+    hub: Hub
+    clients: HubClientRegistry
+    router: CallbackRouter
+    menus: _MenuFlag
+
+
+def _wired(clock: Callable[[], float] = time.monotonic) -> _Wiring:
+    hub, clients = Hub(), HubClientRegistry(clock)
     router = CallbackRouter(clients)
+    menus = _MenuFlag()
     app = FastAPI()
-    HubListenTransport(hub, clients, router, _MenuFlag()).mount(app)
-    return TestClient(app), hub, clients, router
+    HubListenTransport(hub, clients, router, menus).mount(app)
+    return _Wiring(TestClient(app), hub, clients, router, menus)
 
 
 def _eventually(predicate: Callable[[], bool], *, timeout: float = 2.0) -> None:
@@ -104,19 +140,20 @@ def _register(clients: HubClientRegistry, callback_id: str) -> None:
 
 
 def test_the_handshake_readies_the_shared_connection_id() -> None:
-    client, *_ = _wired()
+    client = _wired().client
     with client.websocket_connect("/ws", headers=_HEADERS) as ws:
         assert ws.receive_json() == {"kind": "ready", "connection_id": str(_CONN)}
 
 
 def test_an_unidentified_handshake_is_refused() -> None:
-    client, *_ = _wired()
+    client = _wired().client
     with pytest.raises(WebSocketDisconnect), client.websocket_connect("/ws") as ws:
         ws.receive_json()
 
 
 def test_a_routed_click_is_pushed_to_the_live_connection() -> None:
-    client, _hub, clients, router = _wired()
+    wired = _wired()
+    client, clients, router = wired.client, wired.clients, wired.router
     with client.websocket_connect("/ws", headers=_HEADERS) as ws:
         ws.receive_json()  # ready — the leg holds the connection's slot by now
         _register(clients, "beads")
@@ -133,7 +170,8 @@ def test_a_click_buffered_before_connect_is_drained_on_connect() -> None:
     quiet leg here is a listener that took the slot and never delivers, which is
     what a socket in mid-teardown amounts to.
     """
-    client, _hub, clients, router = _wired()
+    wired = _wired()
+    client, clients, router = wired.client, wired.clients, wired.router
     quiet = _SilentLeg()
     clients.attach_listener(_CONN, _IDENTITY, quiet)
     outcome = clients.register_callback(
@@ -156,7 +194,8 @@ def test_a_departed_connections_menu_items_leave_with_it() -> None:
     it. The session itself survives, because the same identity reconnecting
     re-registers from ``on_connect``; only the callbacks go.
     """
-    client, _hub, clients, _router = _wired()
+    wired = _wired()
+    client, clients = wired.client, wired.clients
     with client.websocket_connect("/ws", headers=_HEADERS) as ws:
         ws.receive_json()  # ready — the leg is up and holds the connection's slot
         _register(clients, "beads")
@@ -176,7 +215,8 @@ def _owns(clients: HubClientRegistry, callback_id: str) -> bool:
 
 
 def test_a_subscribed_topics_publish_is_pushed() -> None:
-    client, hub, _clients, _router = _wired()
+    wired = _wired()
+    client, hub = wired.client, wired.hub
     with client.websocket_connect("/ws", headers=_HEADERS) as ws:
         ws.receive_json()  # ready
         ws.send_json({"kind": "subscribe", "topics": ["music.play"]})
@@ -190,7 +230,7 @@ def test_a_subscribed_topics_publish_is_pushed() -> None:
 
 
 def test_a_non_json_frame_closes_the_connection_as_a_protocol_error() -> None:
-    client, *_ = _wired()
+    client = _wired().client
     with client.websocket_connect("/ws", headers=_HEADERS) as ws:
         ws.receive_json()  # ready
         ws.send_text("this is not a frame")
@@ -200,7 +240,7 @@ def test_a_non_json_frame_closes_the_connection_as_a_protocol_error() -> None:
 
 
 def test_an_unknown_frame_kind_closes_the_connection_as_a_protocol_error() -> None:
-    client, *_ = _wired()
+    client = _wired().client
     with client.websocket_connect("/ws", headers=_HEADERS) as ws:
         ws.receive_json()  # ready
         ws.send_json({"kind": "teleport"})  # not a defined client frame
@@ -298,7 +338,8 @@ def test_a_second_live_session_of_one_identity_takes_the_connection() -> None:
     that beats its predecessor's teardown — lands on the same slot. Whoever
     connected last is the one a click must reach.
     """
-    client, _hub, clients, _router = _wired()
+    wired = _wired()
+    client, clients = wired.client, wired.clients
     with client.websocket_connect("/ws", headers=_HEADERS) as first:
         first.receive_json()  # ready
         first_leg = clients.listener_of(_CONN)
@@ -317,7 +358,8 @@ def test_a_new_leg_arrives_with_none_of_its_predecessors_menu_entries() -> None:
     routed to the newcomer, and nothing would ever withdraw them: the session
     that could has lost the slot.
     """
-    client, _hub, clients, _router = _wired()
+    wired = _wired()
+    client, clients = wired.client, wired.clients
     with client.websocket_connect("/ws", headers=_HEADERS) as first:
         first.receive_json()  # ready
         _register(clients, "beads")
@@ -338,7 +380,8 @@ def test_a_superseded_sessions_teardown_leaves_its_successor_whole() -> None:
     renewing its lease, so no sweep ever reaches it, and it goes on believing it
     is push-reachable while owning nothing.
     """
-    client, _hub, clients, router = _wired()
+    wired = _wired()
+    client, clients, router = wired.client, wired.clients, wired.router
     predecessor = contextlib.ExitStack()
     first = predecessor.enter_context(client.websocket_connect("/ws", headers=_HEADERS))
     first.receive_json()  # ready
@@ -360,14 +403,16 @@ def test_a_superseded_sessions_teardown_leaves_its_successor_whole() -> None:
         assert second.receive_json() == {"kind": "callback", "callback_id": "beads"}
 
 
-def test_only_an_owned_teardown_runs_the_disconnect_cascade() -> None:
+def test_a_stale_teardown_leaves_the_successors_subscriptions_and_writer() -> None:
     """A stale teardown must not drop the successor's subscriptions or writer.
 
-    The cascade unbinds the connection's writer and its subscriptions, which by
-    the time a superseded session resumes belong to the session that replaced it.
-    Running it from a session that removed nothing would silence a live leg.
+    The connection's writer and its subscriptions belong, by the time a
+    superseded session resumes, to the session that replaced it. Removing them
+    wholesale would silence a live leg — so the departing session removes only
+    what its own writer installed, which here is nothing.
     """
-    client, hub, _clients, _router = _wired()
+    wired = _wired()
+    client, hub = wired.client, wired.hub
     predecessor = contextlib.ExitStack()
     first = predecessor.enter_context(client.websocket_connect("/ws", headers=_HEADERS))
     first.receive_json()  # ready
@@ -379,7 +424,8 @@ def test_only_an_owned_teardown_runs_the_disconnect_cascade() -> None:
 
         predecessor.close()  # its teardown runs before this returns
 
-        assert Topic("music.play") in hub.topics_for(_CONN)  # the cascade stayed away
+        assert hub.has_writer(_CONN)  # the successor's binding stands
+        assert Topic("music.play") in hub.topics_for(_CONN)
         hub.publish(_CONN, Topic("music.play"), {"album_id": "jazz-1"})
         assert second.receive_json() == {
             "kind": "event",
@@ -388,16 +434,80 @@ def test_only_an_owned_teardown_runs_the_disconnect_cascade() -> None:
         }
 
 
-def test_the_teardown_contains_no_await() -> None:
-    """The condition the unguarded writer removal rests on, checked structurally.
+def test_a_superseded_leg_takes_the_subscriptions_it_made_when_it_goes() -> None:
+    """The other half of ownership: a departing session's own topics must go too.
 
-    The disconnect cascade drops the connection's writer without comparing it to
-    anything, and that is sound only because nothing can interleave between the
-    release that authorised it and the cascade itself. On a single event loop
-    that holds exactly as long as the teardown has no suspension point. An
-    ``await`` added here would reopen the window and quietly invalidate the model
-    this design was verified against, so it is caught at the source rather than
-    waited for in production.
+    A subscription's handler is the subscribing session's ``deliver_event``, and
+    the registry keys handlers under the connection, which its successor shares.
+    Left behind, every publish on that topic feeds an outbound queue whose write
+    task was cancelled — counted as delivered, growing without bound, pinning a
+    dead session and its socket for the life of the process — and nothing can
+    withdraw it, because ``unsubscribe`` resolves the connection's current
+    writer, which is the successor's. So removal is by the handler's own
+    identity, on every path, whoever holds the slot.
+    """
+    wired = _wired()
+    client, hub = wired.client, wired.hub
+    predecessor = contextlib.ExitStack()
+    first = predecessor.enter_context(client.websocket_connect("/ws", headers=_HEADERS))
+    first.receive_json()  # ready
+    first.send_json({"kind": "subscribe", "topics": ["music.play"]})
+    _eventually(lambda: Topic("music.play") in hub.topics_for(_CONN))
+
+    with client.websocket_connect("/ws", headers=_HEADERS) as second:
+        second.receive_json()  # ready
+        second.send_json({"kind": "subscribe", "topics": ["music.stop"]})
+        _eventually(lambda: Topic("music.stop") in hub.topics_for(_CONN))
+
+        predecessor.close()  # its teardown runs before this returns
+
+        assert hub.topics_for(_CONN) == frozenset({Topic("music.stop")})
+        assert hub.publish(_CONN, Topic("music.play"), {"album_id": "jazz-1"}) == 0
+        assert hub.publish(_CONN, Topic("music.stop"), {}) == 1
+        assert second.receive_json() == {
+            "kind": "event",
+            "topic": "music.stop",
+            "payload": {},
+        }
+
+
+def test_a_swept_session_still_has_its_writer_and_subscriptions_released() -> None:
+    """Nothing holds the slot, so nothing else will ever clean up after this leg.
+
+    A short-lease session whose socket lingers past its lease is swept out of the
+    registry by the next live read. Its teardown then finds no session at all —
+    neither its own nor a successor's — and skipping the release there strands
+    the writer binding and its subscriptions with nobody left to withdraw them.
+    The bar is re-pushed for the same reason: whatever entries the session showed
+    went with it.
+    """
+    clock = _Clock()
+    wired = _wired(clock)
+    hub, clients, menus = wired.hub, wired.clients, wired.menus
+    headers = {**_HEADERS, "X-Lux-Client-Lease-Ttl": "5"}
+
+    with wired.client.websocket_connect("/ws", headers=headers) as ws:
+        ws.receive_json()  # ready
+        ws.send_json({"kind": "subscribe", "topics": ["music.play"]})
+        _eventually(lambda: Topic("music.play") in hub.topics_for(_CONN))
+
+        clock.advance(6.0)  # past the declared 5s lease
+        assert clients.live_sessions() == {}  # the read sweeps it as it passes
+
+    _eventually(lambda: not hub.has_writer(_CONN))
+    assert hub.topics_for(_CONN) == frozenset()
+    assert menus.pushes == 1  # the bar loses the swept session's entries
+
+
+def test_the_teardown_contains_no_await() -> None:
+    """The condition the whole teardown rests on, checked structurally.
+
+    Nothing may interleave between the detach, the menu mark, and the release of
+    this session's writer and subscriptions. On a single event loop that holds
+    exactly as long as the teardown has no suspension point. An ``await`` added
+    here would reopen the window and quietly invalidate the model this design was
+    verified against, so it is caught at the source rather than waited for in
+    production.
     """
     source = Path(inspect.getsourcefile(HubListenSession) or "").read_text()
     teardown = next(

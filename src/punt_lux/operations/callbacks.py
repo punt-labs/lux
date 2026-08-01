@@ -27,8 +27,9 @@ from punt_lux.operations.models.menu_results import Ok
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.callback_hold import CallbackRouter, CallbackRouting
-    from punt_lux.domain.hub.hub_clients import CallbackRegistration, HubClientRegistry
+    from punt_lux.domain.hub.hub_clients import HubClientRegistry
     from punt_lux.domain.hub.menu_models import Menu
+    from punt_lux.domain.hub.registry_outcomes import CallbackRegistration
     from punt_lux.operations.models.callbacks import RegisterCallbackRequest
     from punt_lux.operations.ports import DirtyMarker
     from punt_lux.operations.scope import Scope
@@ -38,10 +39,13 @@ __all__ = ["CallbackMenuSource", "CallbackOperations"]
 # What a caller that cannot be pushed to is told, naming both the requirement and
 # the way to meet it. A session reaching the Hub over MCP or a one-shot REST call
 # has no leg a click can arrive on; ``lux mcp-serve`` holds one for the session.
-_PUSH_REQUIRED = (
-    "this connection holds no listen leg, so a click on the menu item could never "
-    "reach it; register from a connection holding luxd's /ws leg — a session's "
-    "'lux mcp-serve' process, or a client built with LuxRestClient.listener"
+# One value: no leg at the gate, and a leg that went between the gate and the
+# write, leave the caller in exactly the same position.
+_PUSH_REQUIRED = OpError(
+    code="push_required",
+    reason="this connection holds no listen leg, so a click on the menu item could "
+    "never reach it; register from a connection holding luxd's /ws leg — a session's "
+    "'lux mcp-serve' process, or a client built with LuxRestClient.listener",
 )
 
 
@@ -99,7 +103,7 @@ class CallbackOperations:
             return request
         expected = self._clients.listener_of(scope.connection_id)
         if expected is None:
-            return OpError(code="push_required", reason=_PUSH_REQUIRED)
+            return _PUSH_REQUIRED
         return self._registered(
             self._clients.register_callback(
                 scope.connection_id, request.callback, expected
@@ -109,7 +113,7 @@ class CallbackOperations:
     def _registered(self, outcome: CallbackRegistration) -> Ok | OpError:
         """Turn a registration outcome into its result, pushing the menu if it took."""
         if outcome == "superseded":
-            return OpError(code="push_required", reason=_PUSH_REQUIRED)
+            return _PUSH_REQUIRED
         if outcome == "declined":
             return OpError.identification_required(
                 "declare an identity to own the menu callbacks this session registers"

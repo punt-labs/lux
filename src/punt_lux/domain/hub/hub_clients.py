@@ -22,9 +22,13 @@ from __future__ import annotations
 import threading
 import time
 from operator import attrgetter
-from typing import TYPE_CHECKING, Literal, Self, final
+from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.client_session import ClientSession
+from punt_lux.domain.hub.registry_outcomes import (
+    CallbackRegistration,
+    ListenerDetachment,
+)
 from punt_lux.domain.ids import ConnectionId
 
 if TYPE_CHECKING:
@@ -34,20 +38,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.domain.hub.session_callback import SessionCallback
 
-__all__ = ["CallbackRegistration", "HubClientRegistry", "ListenerDetachment"]
-
-# What a registration did. ``superseded`` is the compare-and-set losing: the leg
-# the caller was gated against is no longer the connection's, so the entry would be
-# one nothing could ever deliver a click to. ``declined`` is the session refusing —
-# it is anonymous, or its lease has lapsed — and declaring an identity answers both,
-# since identifying is itself a renewal.
-CallbackRegistration = Literal["registered", "superseded", "declined"]
-
-# What a teardown did to the connection's slot. ``kept`` is the stale case: a
-# successor holds the slot, so nothing was removed and no disconnect cascade may
-# run. The other two both released it, differing only in whether menu items went
-# with it — the caller's cue to re-push the bar.
-ListenerDetachment = Literal["kept", "released", "released_with_callbacks"]
+__all__ = ["HubClientRegistry"]
 
 
 @final
@@ -76,9 +67,7 @@ class HubClientRegistry:
         kind's length. The first call stamps the monotonic connect time.
         """
         with self._lock:
-            now = self._clock()
-            existing = self._sessions.get(connection_id)
-            base = existing.renewed(now) if existing is not None else ClientSession(now)
+            base = self._renewed(connection_id)
             self._sessions[connection_id] = (
                 base.with_identity(identity) if identity is not None else base
             )
@@ -98,9 +87,7 @@ class HubClientRegistry:
         on. The arriving app re-registers from its connect hook.
         """
         with self._lock:
-            now = self._clock()
-            existing = self._sessions.get(connection_id)
-            base = existing.renewed(now) if existing is not None else ClientSession(now)
+            base = self._renewed(connection_id)
             self._sessions[connection_id] = base.with_identity(identity).attached(
                 listener
             )
@@ -112,14 +99,15 @@ class HubClientRegistry:
 
         The comparison and the removal are one critical section, so no registration
         can land between them and no successor's state can be taken. A session that
-        lost the slot while suspended removes nothing and is told ``kept``, which is
-        also its instruction not to run the disconnect cascade — that cascade drops
-        the connection's writer, which by then belongs to the successor too.
+        lost the slot while suspended removes nothing and is told ``kept``; a
+        session the lease sweep already took is told ``session_gone``, which is not
+        the same answer, because in that case nobody holds the connection and the
+        entries the bar is still showing have no owner left.
         """
         with self._lock:
             session = self._sessions.get(connection_id)
             if session is None:
-                return "kept"
+                return "session_gone"
             released = session.detached(listener)
             if released is None:
                 return "kept"
@@ -203,3 +191,14 @@ class HubClientRegistry:
         """Return the distinct repositories the live identified sessions declared."""
         declared = map(attrgetter("declared_repo"), self.live_sessions().values())
         return frozenset(filter(None, declared))
+
+    def _renewed(self, connection_id: ConnectionId) -> ClientSession:
+        """The connection's session, renewed now, or a fresh one; caller locks.
+
+        Every contact starts here, so arriving is one concept with one
+        implementation: an existing session keeps its connect time and pushes its
+        lease forward, and a first contact stamps the monotonic connect time.
+        """
+        now = self._clock()
+        existing = self._sessions.get(connection_id)
+        return existing.renewed(now) if existing is not None else ClientSession(now)

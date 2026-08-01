@@ -49,10 +49,30 @@ the first's socket has gone but before its teardown has run (C3).
 | T2 | Drop from `spumping` — the peer goes away | covered — `a_departed_connections_menu_items_leave_with_it` |
 | T3 | Teardown **owned**: this session still holds the slot; listener and callbacks both go | covered — `a_teardown_releases_the_leg_and_its_callbacks_together` asserts both, and `a_peer_that_dies_before_the_handshake_leaves_no_listener` asserts the slot |
 | T4 | Teardown **owned**: listener and callbacks go in one critical section | covered — `releasing_the_slot_cannot_leave_the_callbacks_behind` (no such state exists to reach) and `the_leg_and_its_callbacks_are_written_under_one_lock` |
-| T5 | Teardown **stale**: a successor holds the slot; nothing is removed | covered — `a_superseded_sessions_teardown_leaves_its_successor_whole`, `a_teardown_by_a_session_that_lost_the_slot_removes_nothing` |
-| T6 | The disconnect cascade runs only after an owned teardown | covered — `only_an_owned_teardown_runs_the_disconnect_cascade` |
-| T7 | A stale teardown leaves the successor's writer and subscriptions alone | covered — `only_an_owned_teardown_runs_the_disconnect_cascade` publishes on the survivor's topic |
+| T5 | Teardown **stale**: a successor holds the slot; the slot and its callbacks are not removed | covered — `a_superseded_sessions_teardown_leaves_its_successor_whole`, `a_teardown_by_a_session_that_lost_the_slot_removes_nothing` |
+| T6 | Teardown releases this session's **own** writer and subscriptions on every path | covered — `a_superseded_leg_takes_the_subscriptions_it_made_when_it_goes`, `release_writer_takes_the_departing_legs_subscriptions_only` |
+| T7 | A stale teardown leaves the successor's writer and subscriptions alone | covered — `a_stale_teardown_leaves_the_successors_subscriptions_and_writer` publishes on the survivor's topic |
 | T8 | The session, its identity, and its lease survive any teardown | covered — `a_departed_connections_menu_items_leave_with_it` asserts the survivor |
+| T9 | Teardown after the **lease sweep**: no session at all; the writer and subscriptions still go, and the bar is re-pushed | covered — `a_swept_session_still_has_its_writer_and_subscriptions_released`, `a_teardown_after_the_sweep_says_the_session_itself_is_gone` |
+
+T6 and T9 apply the model's ownership clause to state the model abstracts.
+`listen_lifecycle.tex` tracks the subscriptions only at connection granularity —
+`TeardownDisconnect` removes "the pub-sub writer and the subscriptions" in one
+step, with no component standing for who registered which — so the model's third
+consequence ("if this session is still the listener, clear the listener and the
+callbacks together, then run the disconnect cascade; otherwise remove nothing at
+all") reads, at that granularity, as *skip the cascade when stale*. Refined to
+the handler, the same clause reads differently and more exactly: a teardown
+removes what it owns by object identity and skips what belongs to others. A
+subscription handler is a bound method of the session that registered it, so it
+names its owner unambiguously; removing by that identity takes nothing a
+successor installed, on any path. That is strictly stronger than skipping, and it
+cannot introduce the cross-session removal Invariant 3 forbids — a compare that
+fails removes nothing. The same reasoning guards the writer binding, which the
+model removes unguarded (sound there only because the cascade shares one loop run
+with the detach that authorised it): comparing before removing preserves
+Invariant 1 under strictly more interleavings than the model requires, so no
+re-run of the model was needed.
 
 T5 is the regression test for defect (A), written against the model's trace:
 connect A, connect B under the same identity, register from B, let A's teardown
@@ -124,7 +144,7 @@ deserve a second look, because the fix changes the code they exercise:
 
 ## Summary
 
-Of thirty-four partitions, thirty-two are covered. The two that remain are H9 (a
+Of thirty-five partitions, thirty-three are covered. The two that remain are H9 (a
 click routed *during* a teardown lands in a hold nothing drains) and H10 (a
 pumping session's keepalive holds the entry open indefinitely). Neither is an
 invariant break: H9 is a nuisance the bounded hold absorbs, and H10 is the
