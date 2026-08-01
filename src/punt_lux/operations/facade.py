@@ -20,6 +20,7 @@ from punt_lux.operations.models.inspect_scope import HUB_ONLY, InspectScope
 from punt_lux.operations.pubsub import PubSubOperations
 from punt_lux.operations.queries import QueryOperations
 from punt_lux.operations.scenes import SceneOperations
+from punt_lux.operations.timing import Timed
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.callback_hold import CallbackRouter
@@ -146,32 +147,38 @@ class Operations:
             callbacks=callbacks,
         )
 
+    @Timed("render")
     def render(
         self, request: RenderRequest | OpError, *, scope: Scope
     ) -> SceneShown | OpError:
         """Install a whole scene."""
         return self._scenes.render(request, scope=scope)
 
+    @Timed("update")
     def update(
         self, scene_id: str, request: UpdateRequest | OpError, *, scope: Scope
     ) -> SceneShown | OpError:
         """Apply a patch batch to a scene."""
         return self._scenes.update(scene_id, request, scope=scope)
 
+    @Timed("clear")
     def clear(self, *, scope: Scope) -> Cleared | OpError:
         """Clear every scene the caller owns."""
         return self._scenes.clear(scope=scope)
 
+    @Timed("clear_scene")
     def clear_scene(self, *, scope: Scope, scene_id: str) -> Cleared | OpError:
         """Clear just ``scene_id``; unknown or unowned is an error, not a false pass."""
         return self._scenes.clear(scope=scope, scene_id=scene_id)
 
+    @Timed("render_table")
     def render_table(
         self, request: RenderTableRequest | OpError, *, scope: Scope
     ) -> SceneShown | OpError:
         """Render a filterable table scene."""
         return self._conveniences.render_table(request, scope=scope)
 
+    @Timed("render_dashboard")
     def render_dashboard(
         self, request: RenderDashboardRequest | OpError, *, scope: Scope
     ) -> SceneShown | OpError:
@@ -236,12 +243,14 @@ class Operations:
         """Change the provided window settings and return the new settings."""
         return self._display.set_window_settings(patch)
 
+    @Timed("set_frame_state")
     def set_frame_state(
         self, frame_id: str, patch: FrameStatePatch | OpError
     ) -> Ok | OpError:
         """Change a frame's minimize state."""
         return self._display.set_frame_state(frame_id, patch)
 
+    @Timed("raise_frame")
     def raise_frame(self, frame_id: str) -> FrameRaise | OpError:
         """Bring a frame to the front, restoring it if it was minimized."""
         return self._display.raise_frame(frame_id)
@@ -268,6 +277,7 @@ class Operations:
         """Return the display's recent errors, proxied."""
         return self._queries.list_errors(count)
 
+    @Timed("set_menu")
     def set_menu(self, request: SetMenuRequest | OpError) -> Ok | OpError:
         """Replace the Hub-owned menu bar; the replicator pushes it."""
         return self._menus.set_menu(request)
@@ -276,6 +286,7 @@ class Operations:
         """Return the Hub-authoritative menu bar, including the callback submenus."""
         return self._menus.list_menus()
 
+    @Timed("register_callback")
     def register_callback(
         self, request: RegisterCallbackRequest | OpError, *, scope: Scope
     ) -> Ok | OpError:

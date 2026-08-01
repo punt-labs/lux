@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
+from punt_lux.log_level import level_from_env
 from punt_lux.mcp_transport import McpHttpTransport
 from punt_lux.rest import HubHealth, RestSurface
 from punt_lux.transport_policy import LoopbackTransportPolicy
@@ -215,21 +216,14 @@ def serve(
     logger.info("luxd stopped")
 
 
-_LOG_LEVELS: dict[str, int] = logging.getLevelNamesMapping()
-
-
 def main() -> None:
-    """Entry point for the luxd binary."""
-    raw_level = os.environ.get("LUX_LOG_LEVEL", "DEBUG").upper()
-    log_level = _LOG_LEVELS.get(raw_level)
-    if log_level is None:
-        print(  # noqa: T201 — before basicConfig, logging unavailable
-            f"WARNING: LUX_LOG_LEVEL={raw_level!r} is not valid, defaulting to DEBUG",
-            file=sys.stderr,
-        )
-        log_level = logging.DEBUG
+    """Entry point for the luxd binary.
+
+    The floor is DEBUG: luxd's stderr goes to a file launchd owns, so the
+    per-operation duration lines are readable whenever someone looks.
+    """
     logging.basicConfig(
-        level=log_level,
+        level=level_from_env("DEBUG"),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
