@@ -5247,6 +5247,16 @@ terms); a separate per-session listener daemon beside the session
 
 ## DES-062: `lux mcp-serve` — the Per-Session MCP Server With a Servicing Thread
 
+> **Superseded before release (DES-063, operator-ruled 2026-08-01).** Built
+> and verified, then recognized as the reintroduction of the per-session
+> transport bridge DES-055 had deliberately retired — the proxy leg carried
+> no logic and existed only to borrow a session-bound lifetime from Claude
+> Code's MCP spawning. The plugin returned to direct HTTP and the servicing
+> leg became `lux-beads`, the first session-bound applet. Everything this
+> design's implementation verified (the push-reachability gate, the
+> model-checked succession rules, the identity encoding, the raise-first
+> click order) shipped unchanged; only the process carrying it changed.
+
 **Status:** SETTLED (operator-confirmed design, 2026-07-31); shipping in PR-B
 (bead lux-uoy4)
 
@@ -5267,3 +5277,55 @@ session (stdin close), and its lease withdraws its entries.
 **Alternatives rejected.** Direct HTTP from the plugin (no push leg — the
 root cause of the poll latency); tool logic in the proxy (two tool surfaces
 to keep aligned); servicing clicks from the chat loop (DES-061 forbids it).
+
+## DES-063: Lux Applets — Session-Bound Programs on the Client Surface; Direct HTTP for the Tool Surface
+
+**Status:** SETTLED (operator-ruled 2026-08-01); shipped in PR-B
+
+**Problem.** Two things had been conflated in one process: the path by which
+Claude Code calls MCP tools hosted in luxd, and the mechanism by which a menu
+entry's owner services a click. DES-062 bundled them into `lux mcp-serve` —
+reintroducing the per-session transport proxy the one-code-path epic had
+retired, with the proxy leg justified only by the session-bound lifetime it
+borrowed.
+
+**Decision.** The two paths are separate and stay separate.
+
+1. **The tool surface is direct HTTP.** The plugin connects to
+   `http://127.0.0.1:8430/mcp` with no per-session process in the path — the
+   DES-055 architecture, restored.
+2. **Menu entries belong to applets.** A Lux applet is a standalone program
+   holding the library client (REST pushes + the WebSocket listen leg),
+   registering its callbacks from `on_connect`, servicing clicks itself. The
+   applet species so far: machine-global daemon (voxd — one instance, one
+   entry), session-bound applet (`lux-beads` — one instance per Claude Code
+   session, the session's identity and repo shell), and on-demand renderer
+   (z-spec — push-only until it wants an entry).
+3. **`lux-applets` is the collection of lux-default applets** — one for any
+   software that is not punt-labs-built (beads first; top, clock, irc-class
+   candidates later). Tools Punt Labs builds ship their own applet in their
+   own repo (vox's music player is the reference); the collection covers
+   everything else. This reverses the earlier "applications and applets are
+   out of scope" constraint by explicit operator ruling.
+4. **Session binding is a parent-pid watch, not a hook.** The session-start
+   hook spawns the applet with the session's pid; the applet polls
+   process-existence and exits when the session dies. A SessionEnd hook was
+   rejected because it fires on clean exits only — absent exactly in the
+   crash case that creates orphans. The Hub's lease sweeps the entry
+   underneath regardless; an applet restarted against a live session is a
+   succession the DES-058/listen-lifecycle rules already handle, because the
+   identity follows the session, not the applet process.
+5. **Clicks are raise-first.** The applet's first act on a click is the
+   visible response — `raise_frame` on the existing board (restore+focus,
+   one gesture), or an immediate placeholder frame when cold — and the data
+   work follows. Measured at ship: click-to-visible-response ~55 ms median
+   against the 100–200 ms operator absolute; entry visible ~0.5 s after
+   session start; orphan exit within the watch interval.
+
+**Alternatives rejected.** The bundled proxy (DES-062 — no logic of its own);
+reusing the retired Go `mcp-proxy` for the bridge (moot once no bridge is
+needed, and it spoke WebSocket where luxd now speaks HTTP); a SessionEnd-hook
+kill (absent in the orphan case); a machine-global beads daemon (the
+luxd-as-bd-client failure, again); embedding the beads applet in the beads
+fork (deepens upstream divergence, and the applet is display-side
+presentation, not issue tracking).

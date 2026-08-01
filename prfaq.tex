@@ -656,10 +656,12 @@ architecture, or contribute a new element kind.
   library) bind to the developer's own machine: there is no hosted service, no
   public web API, and no account. It has one rendering mode (native ImGui), not
   several. It does not host local model inference, does not render to the web or
-  Electron, and does not target mobile or tablet. Applications and applets
-  (clocks, calculators, standalone viewers) are out of scope. These exclusions
+  Electron, and does not target mobile or tablet. These exclusions
   are what keep the built-in vocabulary coherent and the trust model simple; the
-  full list is in the Feature Appendix.
+  full list is in the Feature Appendix. One earlier exclusion was reversed:
+  applets are now in scope as \emph{Lux applets} -- programs on the library
+  client that own menu entries and service clicks (the vox music player is the
+  first third-party one; \texttt{lux-beads} the first bundled one).
 \end{faqpair}
 
 % ══════════════════════════════════════════════════════════════════════════════
@@ -802,8 +804,15 @@ Explicitly excluded to keep the vocabulary curated and the trust model simple.
     account}\label{feat:no-http}
   \featureitem{Multiple rendering modes}{one native ImGui mode only, with no
     texture-buffer or separate-OS-window rendering modes}\label{feat:no-modes}
-  \featureitem{Applications and applets}{clocks, calculators, docks, and
-    standalone viewers are out of scope}\label{feat:no-apps}
+  \featureitem{Applets as arbitrary in-display applications}{what IS in scope
+    (reversing this row's earlier full exclusion, by operator ruling
+    2026-08-01): \emph{Lux applets} -- external programs on the library client
+    that own menu entries and render through the Hub, either shipped by their
+    own tool (vox's music player) or bundled with Lux for software that is not
+    Punt Labs-built (\texttt{lux-beads}; top/clock/irc-class candidates). What
+    stays out: applications running \emph{inside} the display process, and Lux
+    itself becoming an application platform with in-display code
+    execution}\label{feat:no-apps}
   \featureitem{Local model inference}{Lux renders; it does not host models}\label{feat:no-inference}
   \featureitem{Web or Electron rendering}{Lux renders natively via ImGui on the
     developer's GPU. HTML, Electron, and webviews are out of scope, since web
