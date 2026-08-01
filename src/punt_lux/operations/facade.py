@@ -48,7 +48,7 @@ if TYPE_CHECKING:
     )
     from punt_lux.operations.models.display_info import DisplayInfo
     from punt_lux.operations.models.display_probe import Pong, Screenshot
-    from punt_lux.operations.models.display_write import FrameStatePatch
+    from punt_lux.operations.models.display_write import FrameRaise, FrameStatePatch
     from punt_lux.operations.models.identity import Identified
     from punt_lux.operations.models.menu_results import MenuList, Ok, SetMenuRequest
     from punt_lux.operations.models.query_clients import ClientList
@@ -241,6 +241,10 @@ class Operations:
     ) -> Ok | OpError:
         """Change a frame's minimize state."""
         return self._display.set_frame_state(frame_id, patch)
+
+    def raise_frame(self, frame_id: str) -> FrameRaise | OpError:
+        """Bring a frame to the front, restoring it if it was minimized."""
+        return self._display.raise_frame(frame_id)
 
     def inspect_scene(
         self, scene_id: str, scope: InspectScope = HUB_ONLY

@@ -45,7 +45,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["SessionCallbackLeg", "SessionService"]
+__all__ = ["ClickLatency", "SessionCallbackLeg", "SessionService"]
 
 # How long to wait before reaching for luxd again when it is down or restarting.
 # The leg's own reconnect handles a live Hub going away; this covers the case
@@ -53,10 +53,57 @@ __all__ = ["SessionCallbackLeg", "SessionService"]
 # terms, not tight.
 _HUB_RETRY_SECONDS = 2.0
 
+# What a click has to answer within to read as instant. It is the reason the
+# servicing is split in two: the visible response is measured against this, and
+# the work behind it is not.
+_RESPONSE_BUDGET_MS = 100.0
+
+
+@final
+class ClickLatency:
+    """The clock a click starts, and the gap it reports when the answer lands.
+
+    What is being measured is the contract: a click must produce a visible
+    response inside :data:`_RESPONSE_BUDGET_MS`. The clock therefore starts where
+    the click arrives — on the receive loop, before the hop to the worker — so the
+    hop is inside the number rather than hidden beside it.
+    """
+
+    _started: float
+    __slots__ = ("_started",)
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._started = time.perf_counter()
+        return self
+
+    def elapsed_ms(self) -> float:
+        """Milliseconds since the click arrived."""
+        return (time.perf_counter() - self._started) * 1000.0
+
+    def report(self, callback_id: str) -> None:
+        """Log the click's visible-response latency against its budget."""
+        elapsed = self.elapsed_ms()
+        if elapsed > _RESPONSE_BUDGET_MS:
+            logger.warning(
+                "click %s answered in %.0f ms — over the %.0f ms budget",
+                callback_id,
+                elapsed,
+                _RESPONSE_BUDGET_MS,
+            )
+            return
+        logger.info("click %s answered in %.0f ms", callback_id, elapsed)
+
 
 @runtime_checkable
 class SessionService(Protocol):
-    """One callback a session owns: the entry it puts up and the work a click does."""
+    """One callback a session owns: the entry it puts up and the work a click does.
+
+    The work is two phases with different deadlines, and the split is the whole
+    reason a menu entry feels like a menu entry. ``acknowledge`` is what the user
+    sees happen and has a budget measured in milliseconds; ``service`` is whatever
+    the entry actually does and may take as long as it takes.
+    """
 
     @property
     def callback_id(self) -> str:
@@ -66,6 +113,10 @@ class SessionService(Protocol):
     @property
     def label(self) -> str:
         """The entry the display shows under this session's submenu."""
+        ...
+
+    def acknowledge(self, client: LuxRestClient) -> None:
+        """Show the user their click landed — the fastest visible thing there is."""
         ...
 
     def service(self, client: LuxRestClient) -> None:
@@ -159,24 +210,31 @@ class SessionCallbackLeg:
     async def _on_callback(self, callback_id: str) -> None:
         """Service a click the Hub pushed, with no poll and no turn in between.
 
-        The work runs on a worker thread because it blocks — ``bd`` and an HTTP
-        push — and the loop it would otherwise occupy is the one renewing this
+        The clock starts here, where the click arrives, because the contract it
+        measures is the user's: from their click to something visible. The work
+        runs on a worker thread because it blocks — an HTTP round trip, then
+        ``bd`` — and the loop it would otherwise occupy is the one renewing this
         session's lease. A click still starts the moment it arrives; only the
         waiting happens elsewhere.
         """
         if callback_id != self._service.callback_id:
             logger.warning("no service for callback %r in this session", callback_id)
             return
-        await asyncio.to_thread(self._service_now)
+        await asyncio.to_thread(self._service_now, ClickLatency())
 
-    def _service_now(self) -> None:
-        """Do the click's work, absorbing failure rather than dropping the socket.
+    def _service_now(self, latency: ClickLatency) -> None:
+        """Answer the click, then do its work, absorbing failure either way.
 
-        A click is not worth the connection. Building the client, running the
-        service, and its push all happen inside this boundary, and nothing that
-        goes wrong here reaches the receive loop — an escaping error would end
-        ``listen`` and tear down a socket that is perfectly healthy, so a single
-        bad click would cost the session its leg and its menu entry.
+        The order is the point. The visible answer goes first and is measured
+        against its budget; only then does the slow half run, however long it
+        takes. Running them the other way round is what put a database query
+        between a user's click and any sign it had registered.
+
+        A click is not worth the connection. Building the client, both phases, and
+        their pushes all happen inside this boundary, and nothing that goes wrong
+        here reaches the receive loop — an escaping error would end ``listen`` and
+        tear down a socket that is perfectly healthy, so a single bad click would
+        cost the session its leg and its menu entry.
 
         A Hub that cannot be reached is the ordinary version of that: a restart
         between the click and the push. It is reported at WARNING because a click
@@ -186,7 +244,10 @@ class SessionCallbackLeg:
         different problems and only that sentence tells them apart.
         """
         try:
-            self._service.service(self._rest())
+            client = self._rest()
+            self._service.acknowledge(client)
+            latency.report(self._service.callback_id)
+            self._service.service(client)
         except HubUnavailableError as exc:
             logger.warning("this click rendered nothing — luxd unreachable: %s", exc)
         except Exception:

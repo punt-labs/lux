@@ -54,6 +54,15 @@ class BeadsBoard:
         """
         return cls(f"beads-{project}", f"Beads: {project}")
 
+    @property
+    def frame_id(self) -> str:
+        """The frame this board renders into — the one a click asks to be raised.
+
+        Every request this board builds names it, so a session can reach for the
+        frame before it has any rows to put in it.
+        """
+        return self._scene_id
+
     @classmethod
     def for_repo(cls) -> Self:
         """The board of the repository this process runs in, named from its root.
@@ -95,6 +104,16 @@ class BeadsBoard:
         return self._message(
             TextElement(id="beads-error", content=reason, color="#FF5555")
         )
+
+    def starting(self) -> RenderRequest:
+        """Return the placeholder a click puts up before the issues have loaded.
+
+        Reading the issues means a query to a hosted database, which takes as long
+        as it takes; a user who clicked a menu item must not wait on it to see
+        anything happen. This scene is what the frame opens with, and the loaded
+        board replaces it in the same frame when the rows arrive.
+        """
+        return self._message(TextElement(id="beads-loading", content="Loading issues…"))
 
     def _message(self, element: TextElement) -> RenderRequest:
         """Wrap a single text element as a one-element scene in the board's frame."""

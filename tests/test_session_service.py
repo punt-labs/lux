@@ -12,12 +12,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+import time
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.operations import OpError
 from punt_lux.rest_transport import HubUnavailableError
-from punt_lux.session_service import SessionCallbackLeg
+from punt_lux.session_service import ClickLatency, SessionCallbackLeg
 
 if TYPE_CHECKING:
     import pytest
@@ -50,6 +51,9 @@ class _SlowService:
     @property
     def label(self) -> str:
         return "Beads"
+
+    def acknowledge(self, client: LuxRestClient) -> None:
+        """Instant by construction: the phase under a budget never blocks."""
 
     def service(self, client: LuxRestClient) -> None:
         self._started.set()
@@ -172,6 +176,9 @@ class _PushingService:
     def label(self) -> str:
         return "Beads"
 
+    def acknowledge(self, client: LuxRestClient) -> None:
+        """Nothing to answer with: this service exists to exercise the push."""
+
     def service(self, client: LuxRestClient) -> None:
         client.render_table(None)  # type: ignore[arg-type]  # the push is what is under test, not its payload
 
@@ -189,6 +196,9 @@ class _ExplodingService:
     @property
     def label(self) -> str:
         return "Beads"
+
+    def acknowledge(self, client: LuxRestClient) -> None:
+        """The failure under test is in the work, not in answering the click."""
 
     def service(self, client: LuxRestClient) -> None:
         raise RuntimeError("something nobody modelled")
@@ -249,3 +259,79 @@ def test_an_unforeseen_servicing_failure_does_not_tear_the_socket(
 
     assert "servicing a click failed" in caplog.text
     assert "the leg stays up" in caplog.text
+
+
+@final
+class _OrderedService:
+    """A service recording which phase ran, so the leg's ordering can be pinned."""
+
+    _steps: list[str]
+    __slots__ = ("_steps",)
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._steps = []
+        return self
+
+    @property
+    def callback_id(self) -> str:
+        return "beads"
+
+    @property
+    def label(self) -> str:
+        return "Beads"
+
+    def acknowledge(self, client: LuxRestClient) -> None:
+        self._steps.append("acknowledge")
+
+    def service(self, client: LuxRestClient) -> None:
+        self._steps.append("service")
+
+    @property
+    def steps(self) -> tuple[str, ...]:
+        return tuple(self._steps)
+
+
+def test_the_click_is_answered_before_its_work_runs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The order the response budget rests on, pinned at the leg.
+
+    The visible answer is the phase under a deadline; the work behind it is not.
+    Running them the other way round puts a database query between a user's click
+    and any sign that it registered.
+    """
+    service = _OrderedService()
+    _patch_rest(monkeypatch, _RefusingClient())
+    leg = SessionCallbackLeg(_IDENTITY, service)
+
+    asyncio.run(leg._on_callback("beads"))
+
+    assert service.steps == ("acknowledge", "service")
+
+
+def test_the_answered_latency_is_reported_against_its_budget(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The contract is a number, so the leg measures it rather than assuming it."""
+    _patch_rest(monkeypatch, _RefusingClient())
+    leg = SessionCallbackLeg(_IDENTITY, _OrderedService())
+
+    with caplog.at_level(logging.INFO):
+        asyncio.run(leg._on_callback("beads"))
+
+    assert "click beads answered in" in caplog.text
+
+
+def test_a_click_slower_than_its_budget_says_so(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A latency inside the budget is routine; one outside it is worth a warning."""
+    latency = ClickLatency()
+    time.sleep(0.12)  # past the 100ms budget
+
+    with caplog.at_level(logging.INFO):
+        latency.report("beads")
+
+    assert "over the 100 ms budget" in caplog.text
+    assert caplog.records[0].levelno == logging.WARNING

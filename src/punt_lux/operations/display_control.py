@@ -23,7 +23,11 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.display_info import DisplayInfo
 from punt_lux.operations.models.display_probe import Pong, Screenshot
-from punt_lux.operations.models.display_write import FrameStateAck, FrameStatePatch
+from punt_lux.operations.models.display_write import (
+    FrameRaise,
+    FrameStateAck,
+    FrameStatePatch,
+)
 from punt_lux.operations.models.menu_results import Ok
 from punt_lux.operations.models.theme import SetThemeRequest, ThemeState
 from punt_lux.operations.models.window import WindowSettings, WindowSettingsPatch
@@ -136,3 +140,25 @@ class DisplayControlOperations:
             reason = f"set_frame_state acknowledged {ack.frame_id!r}, not {frame_id!r}"
             return OpError(code="fault", reason=reason)
         return Ok()
+
+    def raise_frame(self, frame_id: str) -> FrameRaise | OpError:
+        """Bring a frame to the front, restoring it if it was minimized.
+
+        The one focus change a client may ask for, and only because the user
+        asked: a menu click naming a frame is the user reaching for it. Nothing
+        here takes focus on its own initiative.
+
+        A frame the display does not hold answers ``raised`` false rather than an
+        error — the caller is expected to push one — so only a display that could
+        not be reached, or that answered off-schema, yields an ``OpError``.
+        """
+        payload = self._port.query("raise_frame", {"frame_id": frame_id}).resolve()
+        if isinstance(payload, OpError):
+            return payload
+        raised = FrameRaise.from_reply(payload)
+        if isinstance(raised, OpError):
+            return raised
+        if raised.frame_id != frame_id:
+            reason = f"raise_frame answered for {raised.frame_id!r}, not {frame_id!r}"
+            return OpError(code="fault", reason=reason)
+        return raised

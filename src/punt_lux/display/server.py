@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Self, cast
 from PIL import Image
 
 from punt_lux.display.domain_pump import DomainPump
+from punt_lux.display.frame_commands import FrameCommands
 from punt_lux.display.frame_tiling import FrameTiling
 from punt_lux.display.glfw_window import GlfwWindow
 from punt_lux.display.idle_screen import render_idle
@@ -270,7 +271,9 @@ class DisplayServer:
         qd.register_handler("get_window_settings", self._query_get_window_settings)
         qd.register_handler("get_theme", self._query_get_theme)
         qd.register_handler("set_window_settings", self._query_set_window_settings)
-        qd.register_handler("set_frame_state", self._query_set_frame_state)
+        frames = FrameCommands(self._scene_manager)
+        qd.register_handler("set_frame_state", frames.set_state)
+        qd.register_handler("raise_frame", frames.raise_it)
         qd.register_handler("set_theme", self._query_set_theme)
         return self
 
@@ -776,28 +779,6 @@ class DisplayServer:
             hello_imgui.get_runner_params().fps_idling.fps_idle = fps
 
         return self._query_get_window_settings()
-
-    def _query_set_frame_state(
-        self, frame_id: str = "", **kwargs: Any
-    ) -> dict[str, Any]:
-        """Modify frame state."""
-        if not frame_id:
-            msg = "frame_id is required"
-            raise ValueError(msg)
-        frame = self._scene_manager.frames.get(frame_id)
-        if frame is None:
-            msg = f"frame '{frame_id}' not found"
-            raise LookupError(msg)
-        changed: dict[str, Any] = {}
-
-        if "minimized" in kwargs:
-            frame.minimized = bool(kwargs["minimized"])
-            changed["minimized"] = frame.minimized
-        elif "collapsed" in kwargs:
-            frame.minimized = bool(kwargs["collapsed"])
-            changed["minimized"] = frame.minimized
-
-        return {"frame_id": frame_id, "changed": changed}
 
     def _query_set_theme(self, theme: str = "", **_kwargs: Any) -> dict[str, Any]:
         """Apply the display theme and return the new theme state."""

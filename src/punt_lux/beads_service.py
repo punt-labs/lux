@@ -69,13 +69,38 @@ class BeadsService:
         """The entry the display shows under this session's submenu."""
         return _LABEL
 
+    def acknowledge(self, client: LuxRestClient) -> None:
+        """Put something on screen now, before any issue has been read.
+
+        A click has to launch in the time a user reads as instant, and reading the
+        issues cannot promise that — it is a query to a hosted database. So the
+        click's first act is not the query: it is raising the board's frame, which
+        is the whole answer in the common case, where the board is already up and
+        the user is asking to look at it again.
+
+        A frame that is not up gets the placeholder instead, so the cold click
+        opens a window immediately and fills it when the rows arrive. A raise that
+        could not be answered at all — no display, a timed-out round trip — pushes
+        nothing: the board is about to be pushed anyway, and replacing a good board
+        with "Loading" on the strength of a failed round trip would be a step
+        backwards for the user.
+        """
+        raised = client.raise_frame(self._board.frame_id)
+        if isinstance(raised, OpError):
+            logger.warning("the board could not be raised: %s", raised.reason)
+            return
+        if not raised.raised:
+            self._push(client, self._board.starting())
+
     def service(self, client: LuxRestClient) -> None:
         """Answer a click: load the issues and push the board through ``client``.
 
-        Every failure this side of the Hub becomes something the user can see. A
-        load that fails renders its reason in red rather than leaving the board
-        blank, and a push the Hub refuses is reported — there is nowhere left to
-        render a message about the render itself.
+        Runs after :meth:`acknowledge` has already made the frame visible, so this
+        half may take as long as ``bd`` takes. Every failure this side of the Hub
+        becomes something the user can see: a load that fails renders its reason in
+        red rather than leaving the board blank, and a push the Hub refuses is
+        reported — there is nowhere left to render a message about the render
+        itself.
         """
         self._push(client, self._request())
 

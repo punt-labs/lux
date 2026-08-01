@@ -41,6 +41,15 @@ class HttpCall:
         return cls("POST", path, body.model_dump_json().encode(), headers)
 
     @classmethod
+    def command(cls, path: str, headers: Mapping[str, str]) -> Self:
+        """A ``POST`` with no body — an action on a resource that takes no arguments.
+
+        The target names everything the call needs, so there is nothing to send;
+        a body of ``{}`` would only invite a schema to grow where none belongs.
+        """
+        return cls("POST", path, None, headers)
+
+    @classmethod
     def read(cls, path: str, headers: Mapping[str, str]) -> Self:
         """A ``GET`` with no body under the caller's headers."""
         return cls("GET", path, None, headers)
