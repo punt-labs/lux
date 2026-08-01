@@ -16,6 +16,7 @@ query begins.
 from __future__ import annotations
 
 import logging
+import threading
 from typing import TYPE_CHECKING
 
 from punt_lux.applets.beads_service import BeadsService
@@ -25,7 +26,9 @@ from punt_lux.apps.beads_board import BeadsBoard
 from punt_lux.apps.beads_result import BeadsFailure, BeadsRows
 
 from .board_doubles import (
+    GATE_SECONDS,
     ISSUE,
+    Gated,
     Journal,
     RecordingClient,
     Source,
@@ -37,7 +40,7 @@ if TYPE_CHECKING:
     import pytest
 
 
-def _service(source: Source | ThenFails) -> BeadsService:
+def _service(source: Source | ThenFails | Gated) -> BeadsService:
     return BeadsService(BoardLoad(BeadsBoard.for_project("lux"), source))
 
 
@@ -322,6 +325,40 @@ def test_a_load_that_fails_leaves_the_board_on_screen_standing(
     assert len(client.tables) == 1  # only the answer was pushed; nothing after it
     assert "the one on screen stands" in caplog.text
     assert "bd: connection refused" in caplog.text
+
+
+def test_a_board_that_arrives_mid_click_outlives_the_click_that_failed() -> None:
+    """A click failing while the warm-up lands must not cost the board it landed.
+
+    The first click of a session can arrive before the warm-up has finished: the
+    entry is registered as soon as the Hub accepts it, and the load behind it
+    runs on another thread, so an early click is the intended path rather than an
+    edge. That click reads the applet's state — nothing yet — runs its own load,
+    and its ``bd`` can fail while the warm-up's board is landing. What it holds
+    afterwards is nothing, and writing that back over the arrived board would
+    make the next click pay the whole query again.
+    """
+    source = Gated(BeadsRows.of([ISSUE]))
+    service = _service(source)
+    failing = RecordingClient(frame_is_up=False)
+    click = threading.Thread(
+        target=service.service, args=(failing, ClickLatency("beads"))
+    )
+
+    click.start()
+    source.reached()  # the click has read the state and its load is in flight
+    service.prefetch()  # the warm-up's board lands behind it
+    source.release()  # and only now does the click's load fail
+    click.join(timeout=GATE_SECONDS)
+
+    assert not click.is_alive()
+    assert "connection refused" in str(failing.scenes[0].elements)  # the click failed
+
+    # And the next click answers with the board that arrived, not a placeholder.
+    answering = RecordingClient(frame_is_up=False)
+    service.acknowledge(answering, ClickLatency("beads"))  # type: ignore[arg-type]  # structural stand-in
+    assert len(answering.tables) == 1
+    assert answering.scenes == []
 
 
 def test_a_board_that_could_not_be_prefetched_leaves_the_click_cold(

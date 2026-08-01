@@ -13,6 +13,7 @@ pair: :mod:`tests.applets.test_beads_service` through the service, and
 
 from __future__ import annotations
 
+import threading
 from typing import Self, final
 
 from punt_lux.apps.bd_command import BdOutput
@@ -24,9 +25,11 @@ from punt_lux.rest_transport import HubUnavailableError
 
 __all__ = [
     "BD_MS",
+    "GATE_SECONDS",
     "ISSUE",
     "PARSE_MS",
     "SPAWN_MS",
+    "Gated",
     "Journal",
     "RecordingClient",
     "Source",
@@ -143,6 +146,55 @@ class ThenFails:
         if self._loads > 1:
             return loaded(BeadsFailure("bd: connection refused"))
         return loaded(self._first)
+
+
+# How long a test waits on the other thread before giving up. Long enough that a
+# loaded machine cannot trip it, short enough that a genuine hang fails the run
+# rather than holding it.
+GATE_SECONDS = 5.0
+
+
+@final
+class Gated:
+    """A source whose first load hangs until released, and then fails.
+
+    The interleaving two loading threads can produce, made deterministic. A click
+    reads the applet's state, its own load hangs here, the warm-up behind it loads
+    a board and stores one, and only then does the click's load fail. Stored
+    without a rule about which board is newer, that failure lands on top of the
+    board that just arrived and the next click is cold again.
+    """
+
+    _result: BeadsResult
+    _loads: int
+    _reached: threading.Event
+    _released: threading.Event
+    __slots__ = ("_loads", "_reached", "_released", "_result")
+
+    def __new__(cls, result: BeadsResult) -> Self:
+        self = super().__new__(cls)
+        self._result = result
+        self._loads = 0
+        self._reached = threading.Event()
+        self._released = threading.Event()
+        return self
+
+    def load(self, *, all_issues: bool = False) -> BeadsLoad:
+        """Hang the first run at the gate; answer every later one straight away."""
+        self._loads += 1
+        if self._loads > 1:
+            return loaded(self._result)
+        self._reached.set()
+        self._released.wait(timeout=GATE_SECONDS)
+        return loaded(BeadsFailure("bd: connection refused"))
+
+    def reached(self) -> None:
+        """Block until the gated run is in flight, so the next one crosses it."""
+        assert self._reached.wait(timeout=GATE_SECONDS), "the gated load never ran"
+
+    def release(self) -> None:
+        """Let the gated run finish — and fail."""
+        self._released.set()
 
 
 @final

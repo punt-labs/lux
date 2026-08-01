@@ -17,10 +17,11 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from punt_lux.applets.board_cache import HeldBoard, NoBoard
 from punt_lux.applets.board_load import BoardLoad
 from punt_lux.applets.board_work import BoardWork
+from punt_lux.applets.held_board import HeldBoard
 from punt_lux.applets.latency import ClickLatency
+from punt_lux.applets.no_board import NoBoard
 from punt_lux.apps.beads_board import BeadsBoard
 from punt_lux.apps.beads_result import BeadsFailure, BeadsRows
 from punt_lux.operations import RenderTableRequest

@@ -22,9 +22,10 @@ import logging
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.applets.beads_source import BoardUnavailableError
-from punt_lux.applets.board_cache import CachedBoard, HeldBoard, NoBoard
 from punt_lux.applets.board_load import BoardLoad
+from punt_lux.applets.board_slot import BoardSlot
 from punt_lux.applets.board_work import BoardWork
+from punt_lux.applets.held_board import HeldBoard
 from punt_lux.apps.beads import BeadsBrowser
 from punt_lux.apps.beads_board import BeadsBoard
 
@@ -45,20 +46,19 @@ _LABEL = "Beads"
 class BeadsService:
     """A session's Beads entry: load this repository's issues and push its board.
 
-    The board it holds is replaced whole, never edited, by whichever of its two
-    callers loaded one last — the prefetch on a worker thread, or a click on
-    another. Neither can read a half-written board because there is no such
-    state: each stores one that has already loaded, and the later store wins.
+    Its two loaders — the prefetch on one worker thread, a click on another —
+    both store whole boards through :class:`BoardSlot`, which decides between
+    them.
     """
 
-    _cache: CachedBoard
     _load: BoardLoad
-    __slots__ = ("_cache", "_load")
+    _slot: BoardSlot
+    __slots__ = ("_load", "_slot")
 
     def __new__(cls, load: BoardLoad) -> Self:
         self = super().__new__(cls)
         self._load = load
-        self._cache = NoBoard()
+        self._slot = BoardSlot()
         return self
 
     @classmethod
@@ -84,16 +84,15 @@ class BeadsService:
         scene, so the first click after one would otherwise be the cold click
         that waits on the whole query.
 
-        Nothing is rendered here. A failure means only that the first click
-        waits, as it did before there was a prefetch, so it is a log line rather
-        than a red scene.
+        Nothing is rendered here. A ``bd`` that would not run means only that the
+        first click pays the wait, as it did before there was a prefetch, so it
+        is a log line rather than a red scene. Anything else goes to the runner
+        that called this, which is the boundary for the warm-up.
         """
         try:
-            self._cache = HeldBoard(self._load.fresh())
+            self._slot.store(HeldBoard(self._load.fresh()))
         except BoardUnavailableError as exc:
             logger.warning("no board could be loaded ahead of the first click: %s", exc)
-        except Exception:
-            logger.exception("loading a board ahead of the first click failed")
 
     def acknowledge(self, client: LuxRestClient, latency: ClickLatency) -> None:
         """Put something on screen now, before any issue has been read.
@@ -112,7 +111,7 @@ class BeadsService:
         work = BoardWork(self._load, client, latency)
         if work.showing():
             return
-        work.push(self._cache.opening(work))
+        work.push(self._slot.held.opening(work))
 
     def service(self, client: LuxRestClient, latency: ClickLatency) -> None:
         """Answer a click: load the issues and push the board through ``client``.
@@ -122,6 +121,7 @@ class BeadsService:
         reported either way, timed stage by stage when the user was watching a
         placeholder and as one figure when they were reading a board.
 
-        Whatever loads is held for the next click, so the wait is paid once.
+        Whatever loads is stored for the next click, so the wait is paid once.
         """
-        self._cache = self._cache.refreshed(BoardWork(self._load, client, latency))
+        work = BoardWork(self._load, client, latency)
+        self._slot.store(self._slot.held.refreshed(work))
