@@ -16,6 +16,16 @@
   the agent to register a callback or poll for clicks any more. Measured on
   the author's machine: 0.43–0.56s from spawn to the entry being visible in
   the menu.
+- **A click says where its time went.** The applet reports one line per click,
+  timing each stage separately and ending with the whole wait — for example
+  `click beads: answered 97 ms, fetched 2340 ms, built 12 ms, pushed 45 ms,
+  total 2494 ms`. A board that was slow to arrive now names which stage was
+  slow — the `bd` query, the board build, or the push to luxd — instead of
+  leaving them to be told apart by guesswork, and a user who reports it can
+  paste one line that carries the whole story. A click that failed reports the
+  stages it reached, which is how far it got. Set `LUX_LOG_LEVEL=INFO` on the
+  applet to read the line; a click that broke the 100 ms answer budget is
+  reported regardless.
 - **An applet leaves when its session does.** It is handed the session's
   process id at spawn and checks every five seconds whether that process still
   exists, exiting when it does not — so an applet cannot outlive its session
@@ -87,7 +97,8 @@
   median ~55 ms from click to visible response, with the one breach in each run
   being the first click — the cold path, which has no frame to raise and pays a
   second round trip to open one. Set `LUX_LOG_LEVEL=INFO` on the applet to read
-  the number per click; over budget, it is reported regardless.
+  the per-click line, which carries this number and every stage behind it; over
+  budget, it is reported regardless.
 - **A frame can be raised.** `POST /display/frames/{id}/raise` (and
   `LuxRestClient.raise_frame`) brings a frame to the front, restoring it first
   if it was minimized. A frame the display does not hold answers `raised: false`

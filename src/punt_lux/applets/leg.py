@@ -72,8 +72,13 @@ class AppletService(Protocol):
         """Show the user their click landed — the fastest visible thing there is."""
         ...
 
-    def service(self, client: LuxRestClient) -> None:
-        """Do the work a click asks for, pushing whatever it produces via ``client``."""
+    def service(self, client: LuxRestClient, latency: ClickLatency) -> None:
+        """Do the work a click asks for, pushing whatever it produces via ``client``.
+
+        The stages of that work are timed into ``latency`` and reported with the
+        answer, because a click that was answered in 97 ms and produced a board
+        two seconds later is a different problem from either number alone.
+        """
         ...
 
 
@@ -160,7 +165,7 @@ class AppletLeg:
         if callback_id != self._service.callback_id:
             logger.warning("no service for callback %r in this session", callback_id)
             return
-        await asyncio.to_thread(self._service_now, ClickLatency())
+        await asyncio.to_thread(self._service_now, ClickLatency(callback_id))
 
     def _service_now(self, latency: ClickLatency) -> None:
         """Answer the click, then do its work, absorbing failure either way.
@@ -182,16 +187,22 @@ class AppletLeg:
         process logs at WARNING and above. The transport's own sentence goes with
         it, because a push that timed out and a luxd that is not running are
         different problems and only that sentence tells them apart.
+
+        The line saying where the click's time went is reported last and
+        unconditionally, so a click that failed still says which stage it failed
+        in and how long it had been running by then.
         """
         try:
             client = self._rest()
-            self._service.acknowledge(client)
-            latency.report(self._service.callback_id)
-            self._service.service(client)
+            with latency.answering():
+                self._service.acknowledge(client)
+            self._service.service(client, latency)
         except HubUnavailableError as exc:
             logger.warning("this click rendered nothing — luxd unreachable: %s", exc)
         except Exception:
             logger.exception("servicing a click failed; the leg stays up")
+        finally:
+            latency.report()
 
     @staticmethod
     def _on_event(topic: str, payload: Mapping[str, object]) -> None:

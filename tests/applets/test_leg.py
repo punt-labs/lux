@@ -12,10 +12,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-import time
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.applets.latency import ClickLatency
 from punt_lux.applets.leg import AppletLeg
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.operations import OpError
@@ -24,6 +22,7 @@ from punt_lux.rest_transport import HubUnavailableError
 if TYPE_CHECKING:
     import pytest
 
+    from punt_lux.applets.latency import ClickLatency
     from punt_lux.rest_client import LuxRestClient
 
 _IDENTITY = ClientIdentity(kind="mcp-session", name="lux · lux · #1", repo="/w/lux")
@@ -56,7 +55,7 @@ class _SlowService:
     def acknowledge(self, client: LuxRestClient) -> None:
         """Instant by construction: the phase under a budget never blocks."""
 
-    def service(self, client: LuxRestClient) -> None:
+    def service(self, client: LuxRestClient, latency: ClickLatency) -> None:
         self._started.set()
         self._release.wait(timeout=5)
         self._serviced += 1
@@ -180,7 +179,7 @@ class _PushingService:
     def acknowledge(self, client: LuxRestClient) -> None:
         """Nothing to answer with: this service exists to exercise the push."""
 
-    def service(self, client: LuxRestClient) -> None:
+    def service(self, client: LuxRestClient, latency: ClickLatency) -> None:
         client.render_table(None)  # type: ignore[arg-type]  # the push is what is under test, not its payload
 
 
@@ -201,7 +200,7 @@ class _ExplodingService:
     def acknowledge(self, client: LuxRestClient) -> None:
         """The failure under test is in the work, not in answering the click."""
 
-    def service(self, client: LuxRestClient) -> None:
+    def service(self, client: LuxRestClient, latency: ClickLatency) -> None:
         raise RuntimeError("something nobody modelled")
 
 
@@ -283,7 +282,7 @@ class _OrderedService:
     def acknowledge(self, client: LuxRestClient) -> None:
         self._steps.append("acknowledge")
 
-    def service(self, client: LuxRestClient) -> None:
+    def service(self, client: LuxRestClient, latency: ClickLatency) -> None:
         self._steps.append("service")
 
     @property
@@ -309,28 +308,37 @@ def test_the_click_is_answered_before_its_work_runs(
     assert service.steps == ("acknowledge", "service")
 
 
-def test_the_answered_latency_is_reported_against_its_budget(
+def test_the_leg_times_the_answer_it_is_the_one_holding_the_clock_for(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """The contract is a number, so the leg measures it rather than assuming it."""
+    """The contract is a number, so the leg measures it rather than assuming it.
+
+    The answer is the stage under a budget and the leg is what wraps it: the
+    service does not know it is being timed, and the stages it does time are
+    named for its own work.
+    """
     _patch_rest(monkeypatch, _RefusingClient())
     leg = AppletLeg(_IDENTITY, _OrderedService())
 
     with caplog.at_level(logging.INFO):
         asyncio.run(leg._on_callback("beads"))
 
-    assert "click beads answered in" in caplog.text
+    assert "click beads: answered" in caplog.text
 
 
-def test_a_click_slower_than_its_budget_says_so(
-    caplog: pytest.LogCaptureFixture,
+def test_a_click_that_failed_still_says_where_its_time_went(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """A latency inside the budget is routine; one outside it is worth a warning."""
-    latency = ClickLatency()
-    time.sleep(0.12)  # past the 100ms budget
+    """The line a user pastes is most needed for the click that went wrong.
+
+    Reporting it only on the way out of a clean click would lose it exactly when
+    someone is asking what happened, so it is reported however the click ended.
+    """
+    _patch_rest(monkeypatch, _UnreachableHub())
+    leg = AppletLeg(_IDENTITY, _ExplodingService())
 
     with caplog.at_level(logging.INFO):
-        latency.report("beads")
+        asyncio.run(leg._on_callback("beads"))
 
-    assert "over the 100 ms budget" in caplog.text
-    assert caplog.records[0].levelno == logging.WARNING
+    assert "click beads: answered" in caplog.text
+    assert "total" in caplog.text

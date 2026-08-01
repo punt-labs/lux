@@ -9,9 +9,11 @@ client, so no ``bd`` and no Hub are involved.
 
 from __future__ import annotations
 
-from typing import Self, final
+import logging
+from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.applets.beads_service import BeadsService
+from punt_lux.applets.latency import ClickLatency
 from punt_lux.apps.beads_board import BeadsBoard
 from punt_lux.apps.beads_result import BeadsFailure, BeadsResult, BeadsRows
 from punt_lux.operations import (
@@ -21,6 +23,9 @@ from punt_lux.operations import (
     RenderTableRequest,
 )
 from punt_lux.operations.models.scene_results import SceneShown
+
+if TYPE_CHECKING:
+    import pytest
 
 _ISSUE = {
     "id": "lux-1",
@@ -174,6 +179,22 @@ def _service(source: _Source) -> BeadsService:
     return BeadsService(BeadsBoard.for_project("lux"), source)
 
 
+def _click(service: BeadsService, client: object) -> ClickLatency:
+    """Service one click and return the clock it was timed on.
+
+    The stand-in clients are structural, so the one cast the tests need lives
+    here rather than on every call.
+    """
+    latency = ClickLatency("beads")
+    service.service(client, latency)  # type: ignore[arg-type]  # structural stand-in
+    return latency
+
+
+def _reported(caplog: pytest.LogCaptureFixture) -> str:
+    """The line the click's clock reported, whatever else was logged around it."""
+    return caplog.records[-1].getMessage()
+
+
 def test_the_entry_is_named_for_what_it_shows() -> None:
     service = BeadsService.for_repo()
     assert service.callback_id == "beads"
@@ -183,7 +204,7 @@ def test_the_entry_is_named_for_what_it_shows() -> None:
 def test_issues_are_pushed_through_the_table_route() -> None:
     """The Hub must construct the board's chrome, so the table route carries data."""
     client = _RecordingClient()
-    _service(_Source(BeadsRows.of([_ISSUE]))).service(client)  # type: ignore[arg-type]  # structural stand-in for LuxRestClient
+    _click(_service(_Source(BeadsRows.of([_ISSUE]))), client)
 
     assert len(client.tables) == 1
     assert client.scenes == []
@@ -195,7 +216,7 @@ def test_issues_are_pushed_through_the_table_route() -> None:
 
 def test_a_bd_failure_renders_the_reason_in_the_window() -> None:
     client = _RecordingClient()
-    _service(_Source(BeadsFailure("bd: command not found"))).service(client)  # type: ignore[arg-type]  # structural stand-in
+    _click(_service(_Source(BeadsFailure("bd: command not found"))), client)
 
     assert client.tables == []
     assert len(client.scenes) == 1
@@ -204,7 +225,7 @@ def test_a_bd_failure_renders_the_reason_in_the_window() -> None:
 
 def test_an_empty_board_still_renders() -> None:
     client = _RecordingClient()
-    _service(_Source(BeadsRows.of([]))).service(client)  # type: ignore[arg-type]  # structural stand-in
+    _click(_service(_Source(BeadsRows.of([]))), client)
 
     assert len(client.scenes) == 1
     assert "No active issues." in str(client.scenes[0].elements)
@@ -213,7 +234,7 @@ def test_an_empty_board_still_renders() -> None:
 def test_an_unforeseen_failure_renders_rather_than_vanishing() -> None:
     """A click that produces nothing visible reads to the user as a broken menu."""
     client = _RecordingClient()
-    _service(_Source(raises=True)).service(client)  # type: ignore[arg-type]  # structural stand-in
+    _click(_service(_Source(raises=True)), client)
 
     assert len(client.scenes) == 1
     assert "could not be built" in str(client.scenes[0].elements)
@@ -222,9 +243,44 @@ def test_an_unforeseen_failure_renders_rather_than_vanishing() -> None:
 def test_a_refused_render_is_reported_not_raised() -> None:
     """The servicing thread survives a Hub refusal; there is nowhere to render it."""
     client = _RecordingClient(refuse=True)
-    _service(_Source(BeadsRows.of([_ISSUE]))).service(client)  # type: ignore[arg-type]  # structural stand-in
+    _click(_service(_Source(BeadsRows.of([_ISSUE]))), client)
 
     assert len(client.tables) == 1  # the attempt happened and did not raise
+
+
+def test_the_stages_behind_the_answer_are_timed_one_by_one(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A board that took a while has to name which of its stages took it.
+
+    The query goes to a hosted database, the build is local, and the push is a
+    round trip to luxd — three different problems wearing one wait. Timing them
+    separately is what turns "it took a while" into which of the three it was.
+    """
+    client = _RecordingClient()
+    latency = _click(_service(_Source(BeadsRows.of([_ISSUE]))), client)
+
+    with caplog.at_level(logging.INFO):
+        latency.report()
+
+    line = _reported(caplog)
+    assert line.index("fetched") < line.index("built") < line.index("pushed")
+
+
+def test_a_load_that_fails_times_the_stage_it_failed_in_and_no_later_one(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """How far the click got is the first thing to know about a click that broke."""
+    client = _RecordingClient()
+    latency = _click(_service(_Source(raises=True)), client)
+
+    with caplog.at_level(logging.INFO):
+        latency.report()
+
+    line = _reported(caplog)
+    assert "fetched" in line
+    assert "built" not in line  # the build never ran; nothing claims it did
+    assert "pushed" in line  # but the failure message reached the window
 
 
 def test_a_click_on_a_board_already_up_raises_it_before_asking_bd_anything() -> None:
@@ -240,7 +296,7 @@ def test_a_click_on_a_board_already_up_raises_it_before_asking_bd_anything() -> 
     service = _service(_Source(BeadsRows.of([_ISSUE]), journal=journal))
 
     service.acknowledge(client)  # type: ignore[arg-type]  # structural stand-in
-    service.service(client)  # type: ignore[arg-type]  # structural stand-in
+    _click(service, client)
 
     assert journal.steps == ("raise", "load", "render_table")
     assert client.scenes == []  # a board that is up needs no placeholder
@@ -253,7 +309,7 @@ def test_a_click_with_no_board_up_opens_one_before_asking_bd_anything() -> None:
     service = _service(_Source(BeadsRows.of([_ISSUE]), journal=journal))
 
     service.acknowledge(client)  # type: ignore[arg-type]  # structural stand-in
-    service.service(client)  # type: ignore[arg-type]  # structural stand-in
+    _click(service, client)
 
     assert journal.steps == ("raise", "render", "load", "render_table")
     assert "Loading issues" in str(client.scenes[0].elements)
@@ -274,6 +330,6 @@ def test_a_raise_that_cannot_be_answered_leaves_a_good_board_alone() -> None:
     service = _service(_Source(BeadsRows.of([_ISSUE]), journal=journal))
 
     service.acknowledge(client)  # type: ignore[arg-type]  # structural stand-in
-    service.service(client)  # type: ignore[arg-type]  # structural stand-in
+    _click(service, client)
 
     assert journal.steps == ("raise", "load", "render_table")

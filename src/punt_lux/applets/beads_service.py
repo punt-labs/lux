@@ -21,6 +21,7 @@ from punt_lux.apps.beads_result import BeadsResult
 from punt_lux.operations import OpError, RenderRequest, RenderTableRequest
 
 if TYPE_CHECKING:
+    from punt_lux.applets.latency import ClickLatency
     from punt_lux.rest_client import LuxRestClient
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,13 @@ __all__ = ["BeadsService", "BeadsSource"]
 # The callback id a click carries back, and the entry the display shows for it.
 _CALLBACK_ID = "beads"
 _LABEL = "Beads"
+
+# The three stages behind the answer, named for what the user is waiting on:
+# the query to the hosted database, the board built from what it returned, and
+# the round trip that puts that board on screen.
+_FETCHED = "fetched"
+_BUILT = "built"
+_PUSHED = "pushed"
 
 
 class BeadsSource(Protocol):
@@ -92,7 +100,7 @@ class BeadsService:
         if not raised.raised:
             self._push(client, self._board.starting())
 
-    def service(self, client: LuxRestClient) -> None:
+    def service(self, client: LuxRestClient, latency: ClickLatency) -> None:
         """Answer a click: load the issues and push the board through ``client``.
 
         Runs after :meth:`acknowledge` has already made the frame visible, so this
@@ -101,19 +109,31 @@ class BeadsService:
         red rather than leaving the board blank, and a push the Hub refuses is
         reported — there is nowhere left to render a message about the render
         itself.
-        """
-        self._push(client, self._request())
 
-    def _request(self) -> RenderTableRequest | RenderRequest:
+        Because it may take as long as ``bd`` takes, it says how long it took:
+        each of the three things it does is timed separately into ``latency``, so
+        a board that was slow to arrive names which of them was slow rather than
+        leaving the query and the round trip to be told apart by guesswork.
+        """
+        request = self._request(latency)
+        with latency.stage(_PUSHED):
+            self._push(client, request)
+
+    def _request(self, latency: ClickLatency) -> RenderTableRequest | RenderRequest:
         """Build the board's request, turning any failure into a showable one.
 
         The loader already reports its expected failures — ``bd`` missing, a bad
         repository — as a reason to render. This covers the rest, because the
         session's servicing thread is the last thing between a user's click and
-        nothing happening at all.
+        nothing happening at all. A failure that lands here is timed into
+        whichever stage it happened in and none of the ones after it, so the line
+        for a broken click says how far the click got.
         """
         try:
-            return self._board.request(self._source.load())
+            with latency.stage(_FETCHED):
+                loaded = self._source.load()
+            with latency.stage(_BUILT):
+                return self._board.request(loaded)
         except Exception:
             logger.exception("building the beads board failed")
             return self._board.failure(
