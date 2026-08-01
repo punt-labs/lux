@@ -18,9 +18,24 @@ from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCall
 from punt_lux.domain.ids import ConnectionId
 
 
+@final
+class _SilentLeg:
+    """A listen leg stand-in: the menu needs a session to hold one, not to push."""
+
+    def wake(self) -> None:
+        """No delivery here — these tests are about what the bar shows."""
+
+
 def _session(name: str, repo: str | None, *callbacks: SessionCallback) -> ClientSession:
-    session = ClientSession(0.0).with_identity(
-        ClientIdentity(kind="mcp-session", name=name, repo=repo)
+    """Build an identified session holding a leg and the callbacks it registered.
+
+    The leg comes first because taking the slot clears what its last occupant
+    owned, and because an entry with no leg to push a click to cannot be held.
+    """
+    session = (
+        ClientSession(0.0)
+        .with_identity(ClientIdentity(kind="mcp-session", name=name, repo=repo))
+        .attached(_SilentLeg())
     )
     for callback in callbacks:
         session = session.with_callback(callback)
@@ -85,7 +100,8 @@ def test_two_sessions_with_the_same_callback_are_never_merged() -> None:
 
 
 def test_an_unidentified_session_contributes_no_submenu() -> None:
-    bare = ClientSession(0.0).with_callback(_beads())  # never identified
+    # Reachable by push and holding an entry, but it never said who it is.
+    bare = ClientSession(0.0).attached(_SilentLeg()).with_callback(_beads())
     assert CallbackMenu.from_sessions({ConnectionId("bare"): bare}) == []
 
 
@@ -131,14 +147,6 @@ def test_every_submenu_is_a_menu() -> None:
         {ConnectionId("vox"): _session("vox", "/w/vox", _beads())}
     )
     assert all(isinstance(menu, Menu) for menu in menus)
-
-
-@final
-class _SilentLeg:
-    """A listen leg stand-in: the menu needs a session to hold one, not to push."""
-
-    def wake(self) -> None:
-        """No delivery here — this test is about what the bar shows."""
 
 
 def test_replica_returns_the_live_submenus_as_wire() -> None:

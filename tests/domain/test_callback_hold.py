@@ -53,16 +53,18 @@ class _Waker:
 def _session(
     name: str, *callback_ids: str, leg: CallbackListener | None = None
 ) -> ClientSession:
-    """Build a live session, optionally holding ``leg`` as its listen connection.
+    """Build a live session holding ``leg``, or an anonymous one, as its connection.
 
-    The leg is attached before the callbacks because taking the slot clears what
-    its previous occupant owned — the order a real connect follows.
+    Every session here holds a leg: a callback is delivered by push, so the slot
+    will not hold one for a session with nothing to push to. The leg is attached
+    before the callbacks because taking the slot clears what its previous occupant
+    owned — the order a real connect follows. A test that cares which listener is
+    woken names its own; the rest take one they never look at.
     """
     session = ClientSession(0.0).with_identity(
         ClientIdentity(kind="mcp-session", name=name, repo=f"/w/{name}")
     )
-    if leg is not None:
-        session = session.attached(leg)
+    session = session.attached(leg if leg is not None else _Waker())
     for callback_id in callback_ids:
         session = session.with_callback(SessionCallback(id=callback_id, label="Beads"))
     return session
@@ -249,13 +251,22 @@ def test_a_rejected_click_never_wakes_a_listener() -> None:
 
 
 def test_a_session_that_released_its_leg_is_no_longer_woken() -> None:
-    """The slot is the session's, so a released one leaves nothing to wake."""
+    """The slot is the session's, so a released one leaves nothing to wake.
+
+    Its entries go with it: they were deliverable only to the leg that registered
+    them, so the click that used to route now finds no such callback at all.
+    """
     conn = ConnectionId("vox")
     waker = _Waker()
-    live = _Live({conn: _session("vox", "beads", leg=waker)})
+    session = _session("vox", "beads", leg=waker)
+    live = _Live({conn: session})
     router = CallbackRouter(live)
-    live._sessions[conn] = _session("vox", "beads")  # the leg tore down
-    router.route(CallbackInvocation(conn, "beads"))
+
+    torn_down = session.detached(waker)  # the leg tore down and released the slot
+    assert torn_down is not None
+    live._sessions[conn] = torn_down
+
+    assert router.route(CallbackInvocation(conn, "beads")) == "unknown_callback"
     assert waker.wakes == 0
 
 

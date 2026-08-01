@@ -3,13 +3,19 @@
 A session starts unidentified with a grace lease, gains an identity (and that
 kind's lease length) on declaration without resetting its connect time, and is
 renewed by any contact. Its menu callbacks live on the session: it accepts one
-only while identified and in lease, carries them across renewals and re-identify,
-and hands them over intact for the registry to sweep with the session.
+only while it holds a listen leg, is identified, and is in lease; it carries them
+across renewals and re-identify, and hands them over intact for the registry to
+sweep with the session.
+
+The sessions here attach a leg before registering, which is the order a real
+connect follows — a callback is delivered by push, so one with no leg to push to
+is a state the slot refuses to hold.
 """
 
 from __future__ import annotations
 
 import time
+from typing import final
 
 import pytest
 
@@ -19,12 +25,25 @@ from punt_lux.domain.hub.session_callback import SessionCallback
 from punt_lux.domain.hub.session_lease import SessionLease
 
 
+@final
+class _Leg:
+    """A listen leg stand-in; the session needs one to hold, not one that pushes."""
+
+    def wake(self) -> None:
+        """Delivery is elsewhere: this class exists to occupy the slot."""
+
+
 def _cli() -> ClientIdentity:
     return ClientIdentity(kind="cli", name="lux", repo="/w/lux")
 
 
 def _beads() -> SessionCallback:
     return SessionCallback(id="beads", label="Beads")
+
+
+def _listening() -> ClientSession:
+    """A session holding a leg, ready to be handed a callback."""
+    return ClientSession(0.0).attached(_Leg())
 
 
 def test_session_starts_unidentified_with_a_grace_lease() -> None:
@@ -85,38 +104,49 @@ def test_a_new_session_owns_no_callbacks() -> None:
 
 
 def test_with_callback_registers_it_and_reports_ownership() -> None:
-    session = ClientSession(0.0).with_callback(_beads())
+    session = _listening().with_callback(_beads())
     assert session.owns_callback("beads")
     assert session.callbacks == (_beads(),)
 
 
 def test_with_callback_replaces_the_earlier_callback_of_the_same_id() -> None:
     session = (
-        ClientSession(0.0)
+        _listening()
         .with_callback(SessionCallback(id="beads", label="Beads"))
         .with_callback(SessionCallback(id="beads", label="Beads Browser"))
     )
     assert session.callbacks == (SessionCallback(id="beads", label="Beads Browser"),)
 
 
+def test_a_session_with_no_leg_cannot_be_handed_a_callback() -> None:
+    """The slot's refusal reaches the session, because the slot is where it lives.
+
+    The registry never asks for this — it compares the leg it gated against before
+    it commits — so the raise marks a caller that skipped the gate rather than a
+    condition the running system meets.
+    """
+    with pytest.raises(ValueError, match="callback needs its listener"):
+        ClientSession(0.0).with_callback(_beads())
+
+
 def test_renewed_and_with_identity_carry_the_callbacks_forward() -> None:
-    session = ClientSession(0.0).with_callback(_beads())
+    session = _listening().with_callback(_beads())
     assert session.renewed(10.0).owns_callback("beads")
     assert session.with_identity(_cli()).owns_callback("beads")
 
 
 def test_an_identified_live_session_accepts_a_callback() -> None:
-    session = ClientSession(0.0).with_identity(_cli())
+    session = _listening().with_identity(_cli())
     accepted = session.registering(_beads(), now=10.0)
     assert accepted is not None
     assert accepted.owns_callback("beads")
 
 
 def test_an_unidentified_session_declines_a_callback() -> None:
-    assert ClientSession(0.0).registering(_beads(), now=10.0) is None
+    assert _listening().registering(_beads(), now=10.0) is None
 
 
 def test_a_lapsed_session_declines_a_callback() -> None:
-    session = ClientSession(0.0).with_identity(_cli())
+    session = _listening().with_identity(_cli())
     # Past the 90s cli lease — the session declines rather than accrue a dead entry.
     assert session.registering(_beads(), now=100.0) is None
