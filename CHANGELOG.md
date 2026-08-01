@@ -10,6 +10,20 @@
   do this work itself: launchd starts luxd with no `PATH`, no repository, and
   no repository credentials, while the session has all three. Applets are for
   software Punt Labs did not build; `lux-beads` is the first.
+- **A session gets one applet, however many times its hook fires.** `/resume`
+  and `/clear` both fire SessionStart again against the same process, and
+  every firing used to start another `lux-beads` under the same session
+  identity — one identity is one Hub connection, so each new applet took the
+  session's callbacks from the one before it and the menu entry flapped
+  between them. An applet now claims its session before it serves it, under a
+  lock on `$TMPDIR/lux-beads-<session pid>.pid`: the holder serves, and a
+  second one says the session is already served and exits without connecting
+  to anything. The lock arbitrates rather than the pid written inside it,
+  because the kernel drops a lock when its holder dies — no stale claim to
+  recognise, no recycled pid to mistake for a live applet, and two applets
+  starting at the same instant cannot both find the session free. The
+  session-start hook checks for a running applet before it spawns one, so the
+  ordinary re-fire costs no process at all.
 - **The Beads menu entry is automatic.** The plugin's session-start hook
   launches `lux-beads`, which registers the entry on connect and refreshes the
   board when it is clicked. Neither the hook nor the `/lux:beads` skill asks
