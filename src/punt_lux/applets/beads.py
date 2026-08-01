@@ -6,14 +6,10 @@ starts luxd with no ``PATH``, no repository working directory, and no repository
 credentials, while the session has all three. So the session's own program owns
 the entry, loads the issues from the session's shell, and pushes the board.
 
-Two things run on its loop and the second decides its life:
-
-- the leg, which registers the entry on connect and services every click;
-- the watch, which returns when the session's process is gone.
-
-When the watch returns the leg is cancelled and the process exits. Nothing else
-ends it, and nothing else needs to: the socket drops with the process, and the
-Hub sweeps the entry with the session's lease whether or not the exit was clean.
+What it is assembled from is the same for any applet — a claim on the session, a
+leg to serve it on, and a watch that ends it — so the living of that life belongs
+to :class:`~punt_lux.applets.program.AppletProgram`. What is Beads' own is the
+service the leg carries.
 """
 
 from __future__ import annotations
@@ -27,9 +23,11 @@ from typing import Self, final
 import typer
 
 from punt_lux.applets.beads_service import BeadsService
+from punt_lux.applets.claim import NoClaim, SessionClaim
 from punt_lux.applets.identity import AppletIdentity
 from punt_lux.applets.leg import AppletLeg
-from punt_lux.applets.watch import NoSession, SessionEnd, SessionWatch
+from punt_lux.applets.program import AppletProgram
+from punt_lux.applets.watch import NoSession, SessionWatch
 from punt_lux.log_level import level_from_env
 
 logger = logging.getLogger(__name__)
@@ -42,34 +40,43 @@ app = typer.Typer(
     add_completion=False,
 )
 
+# What this program is called wherever a session's files are named after it: its
+# console script, its log, and the claim it takes on the session it serves.
+_PROGRAM = "lux-beads"
+
 
 @final
 class BeadsApplet:
-    """The Beads applet's two concurrent jobs, and the one that ends it."""
+    """The Beads applet: how it is assembled for a session, and what runs it."""
 
-    _leg: AppletLeg
-    _watch: SessionEnd
-    __slots__ = ("_leg", "_watch")
+    _program: AppletProgram
+    __slots__ = ("_program",)
 
-    def __new__(cls, leg: AppletLeg, watch: SessionEnd) -> Self:
+    def __new__(cls, program: AppletProgram) -> Self:
         self = super().__new__(cls)
-        self._leg = leg
-        self._watch = watch
+        self._program = program
         return self
 
     @classmethod
     def for_session(cls, session_pid: int) -> Self:
         """Assemble the applet for the session that spawned it, and bound to it."""
-        return cls(cls._leg_for(session_pid), SessionWatch(session_pid))
+        return cls(
+            AppletProgram(
+                SessionClaim.for_session(_PROGRAM, session_pid),
+                cls._leg_for(session_pid),
+                SessionWatch(session_pid),
+            )
+        )
 
     @classmethod
     def unattended(cls) -> Self:
         """Assemble the applet with nothing to outlive: a hand-run invocation.
 
         It names itself after its own process, because there is no session to
-        name it after, and nothing but its terminal will end it.
+        name it after, and nothing but its terminal will end it. There is no
+        session to be the sole applet of either, so it claims nothing.
         """
-        return cls(cls._leg_for(os.getpid()), NoSession())
+        return cls(AppletProgram(NoClaim(), cls._leg_for(os.getpid()), NoSession()))
 
     @staticmethod
     def _leg_for(session_pid: int) -> AppletLeg:
@@ -78,19 +85,8 @@ class BeadsApplet:
         return AppletLeg(identity.client, BeadsService.for_repo())
 
     async def run(self) -> None:
-        """Serve the entry until the session ends, then stop serving.
-
-        The leg has no terminal state of its own — it reconnects through every
-        failure it can — so ending it is a cancellation, not a request. Awaiting
-        the cancelled task before returning means the process leaves with its
-        teardown run rather than mid-write.
-        """
-        leg = asyncio.create_task(self._leg.serve())
-        try:
-            await self._watch.until_session_ends()
-        finally:
-            leg.cancel()
-            await asyncio.gather(leg, return_exceptions=True)
+        """Run the applet, which is to say run its program."""
+        await self._program.run()
 
 
 @app.command()
