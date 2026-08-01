@@ -111,7 +111,7 @@ comparison and the write are one critical section.
 | H5 | Hold is bounded; the oldest is dropped, and the drop is reported | covered — `the_hold_is_bounded_dropping_the_oldest`, `a_full_hold_says_which_click_it_drops`, `a_hold_below_its_bound_drops_nothing_and_says_nothing` |
 | H6 | Hold is swept when the lease lapses | covered — `a_departed_session_has_its_hold_swept`, `take_sweeps_an_expired_session_without_a_route_in_between` |
 | H7 | Holds are never shared between sessions | covered — `two_sessions_never_share_a_hold` |
-| H8 | A raising listener is dropped and the click kept | covered — `a_raising_listener_is_isolated_and_dropped_but_the_click_is_kept` |
+| H8 | A raising listener is isolated and the click kept — the leg deliberately stays listening, since the slot's only exit is its owner's teardown | covered — `a_raising_listener_is_isolated_and_the_click_is_kept` |
 | H9 | A click routed **during** a teardown lands in a hold nothing will drain | **gap** — a nuisance, not an invariant break; worth one test to pin the behaviour |
 | H10 | A pumping session's keepalive holds the entry open indefinitely | **gap** — this is what makes a clobbered state permanent rather than self-healing |
 

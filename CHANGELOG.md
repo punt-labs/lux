@@ -55,7 +55,28 @@
   explicit `None`; the two hashed to different connections. An app deriving its
   own connection id from the identity it holds now gets the connection its own
   socket will bind.
-
+- **Identity crosses both transports intact.** Identity header values are
+  percent-encoded on the wire, so the WebSocket leg (UTF-8) and the HTTP leg
+  (latin-1) read the same bytes as the same identity. Before, a repository
+  path with a non-ASCII character split one session into two connections and
+  its menu entry silently never appeared. Plain-ASCII values cross unchanged.
+- **Menu entries survive a reconnect and leave with their owner.** A
+  session's entries are withdrawn the moment its listening connection ends —
+  no more ghost entries whose clicks report success into a queue nobody
+  drains — while a transient drop heals automatically: the connect hook
+  re-registers on every handshake. A superseded or lease-swept connection's
+  teardown removes only what it owns, so it can never strip its successor's
+  entries, writer, or subscriptions. The succession rules are
+  ProB-model-checked (`docs/listen_lifecycle.tex`).
+- **A failed click no longer costs the session its menu entry.** A click
+  whose board build fails renders the error in the window; a click that
+  cannot reach the Hub (a `make restart` mid-click, a slow push) logs
+  visibly and leaves the listening connection intact. A slow `bd` no longer
+  starves the lease keepalive, so servicing a click can no longer expire the
+  session doing the servicing.
+- **`lux doctor` no longer hangs** when `claude plugin list` does not
+  answer: the probe is bounded at 10 seconds and reports "did not answer"
+  distinctly from "not installed".
 - **The World menu and the menu bar are one menu.** Both now render from a
   single menu model as two projections — identical entries (agent bars and
   the session-registered callbacks alike) with identical click routing from
