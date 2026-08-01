@@ -23,7 +23,6 @@ import logging
 from typing import TYPE_CHECKING, Protocol, Self, final
 
 from punt_lux.applets.beads_source import BoardUnavailableError
-from punt_lux.rest_transport import HubUnavailableError
 
 if TYPE_CHECKING:
     from punt_lux.applets.board_load import BoardRequest
@@ -86,8 +85,9 @@ class NoBoard:
         ``bd`` that would not run renders its own reason, and anything else
         renders a line pointing at the session log, where its traceback is.
 
-        A failure is not held. The next click starts cold again rather than
-        showing a red message as though it were a board.
+        A failed *load* is not held: the next click starts cold rather than
+        answering with a red message. A load that succeeded is held whatever
+        became of the push behind it, which has not made the query any less paid.
         """
         try:
             with work.stage(_FETCHED):
@@ -148,7 +148,7 @@ class HeldBoard:
             with work.stage(_REFRESHED):
                 board = work.fresh()
                 work.push(board)
-        except (BoardUnavailableError, HubUnavailableError) as exc:
+        except BoardUnavailableError as exc:
             logger.warning(
                 "the board was not refreshed; the one on screen stands: %s", exc
             )

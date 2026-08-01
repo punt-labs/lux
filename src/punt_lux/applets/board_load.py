@@ -12,24 +12,26 @@ The reading raises rather than returning a reason, so that no caller can push a
 failure as though it were a board. Which is the whole difference between the two
 states in :mod:`punt_lux.applets.board_cache`: one shows the reason, the other
 keeps the board it has and logs it.
+
+The two steps that talk to the Hub are that class's, not this one's: what a board
+is made of and how it reaches luxd are different jobs, so they are different
+modules — see :class:`~punt_lux.applets.board_channel.BoardChannel`.
 """
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.applets.beads_source import BoardUnavailableError
+from punt_lux.applets.board_channel import BoardChannel
 from punt_lux.apps.beads_result import BeadsFailure
-from punt_lux.operations import FrameRaise, OpError, RenderRequest, RenderTableRequest
+from punt_lux.operations import RenderRequest, RenderTableRequest
 
 if TYPE_CHECKING:
     from punt_lux.applets.beads_source import BeadsSource
     from punt_lux.apps.beads_board import BeadsBoard
     from punt_lux.apps.beads_load import BeadsLoad
     from punt_lux.rest_client import LuxRestClient
-
-logger = logging.getLogger(__name__)
 
 __all__ = ["BoardLoad", "BoardRequest"]
 
@@ -53,24 +55,8 @@ class BoardLoad:
         return self
 
     def showing(self, client: LuxRestClient) -> bool:
-        """Bring the board's frame to the front; say whether the user has it already.
-
-        Three outcomes collapse into two, and which way they collapse is the
-        point. A frame that was raised means the board is in front of the user
-        and nothing should be pushed over it. A raise that could not be answered
-        at all — no display, a timed-out round trip — is reported and treated the
-        same way: the board may well be up, and blanking a good board on the
-        strength of a failed round trip is the worse of the two mistakes.
-        """
-        return self._raised(client.raise_frame(self._board.frame_id))
-
-    @staticmethod
-    def _raised(answer: FrameRaise | OpError) -> bool:
-        """Read the display's answer, counting one it could not give as a yes."""
-        if isinstance(answer, OpError):
-            logger.warning("the board could not be raised: %s", answer.reason)
-            return True
-        return answer.raised
+        """Ask for this board's frame; say whether the user has it already."""
+        return BoardChannel(client).raised(self._board.frame_id)
 
     def issues(self) -> BeadsLoad:
         """Return the run ``bd`` completed, or raise the reason it could not.
@@ -105,16 +91,5 @@ class BoardLoad:
         return self._board.failure(reason)
 
     def push(self, client: LuxRestClient, request: BoardRequest) -> None:
-        """Install a board, or log why the Hub refused it.
-
-        A table goes through the table route so the Hub *constructs* its live
-        chrome; a message is a plain scene. A refusal has nowhere to be rendered —
-        the render itself is what failed — so it is logged.
-        """
-        result = (
-            client.render_table(request)
-            if isinstance(request, RenderTableRequest)
-            else client.render(request)
-        )
-        if isinstance(result, OpError):
-            logger.error("beads board not shown: %s", result.reason)
+        """Install a board through *client*, which logs whatever kept it off screen."""
+        BoardChannel(client).send(request)
