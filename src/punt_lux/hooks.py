@@ -27,16 +27,16 @@ _BD_CMD_RE = re.compile(
 
 
 # What a session is told at start when the display is on. The Beads entry it owns
-# is no longer anything the agent does: the session's own ``lux mcp-serve``
-# process registers it on connect and services the click itself. Saying so is
-# still worth the line, because it tells the agent what NOT to do — a callback it
-# registered over MCP would be refused (an MCP connection holds no listen leg),
-# and a poll for clicks would find nothing and add latency to a path that has none.
+# is no longer anything the agent does: this session's applet registers it on
+# connect and services the click itself. Saying so is still worth the line,
+# because it tells the agent what NOT to do — a callback it registered over MCP
+# would be refused (an MCP connection holds no listen leg), and a poll for clicks
+# would find nothing and add latency to a path that has none.
 _DISPLAY_ON_CONTEXT = (
     "Lux display mode: on. Visual output will be rendered when appropriate. "
-    "This session's own 'lux mcp-serve' process owns its entries in the Lux menu "
-    "bar and services their clicks directly, in milliseconds and without a turn "
-    "of yours — so do not register menu callbacks and do not poll for clicks. "
+    "This session's own applets own their entries in the Lux menu bar and "
+    "service their clicks directly, in milliseconds and without a turn of "
+    "yours — so do not register menu callbacks and do not poll for clicks. "
     "When the user asks for the beads board, build it with the /lux:beads skill."
 )
 

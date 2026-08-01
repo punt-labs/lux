@@ -154,7 +154,7 @@ def test_a_session_with_no_listen_leg_is_refused_the_push_requirement() -> None:
         result = subscribe_tools.register_callback("beads", "Beads")
     assert result.startswith("error: ")
     assert "listen leg" in result
-    assert "mcp-serve" in result  # and the way to get one
+    assert "applet" in result  # and the way to get one
 
 
 def test_a_session_that_never_identified_meets_the_leg_it_cannot_hold() -> None:

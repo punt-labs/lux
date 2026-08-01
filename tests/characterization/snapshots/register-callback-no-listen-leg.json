@@ -9,7 +9,7 @@
       "Beads"
     ]
   ],
-  "response": "error: this connection holds no listen leg, so a click on the menu item could never reach it; register from a connection holding luxd's /ws leg \u2014 a session's 'lux mcp-serve' process, or a client built with LuxRestClient.listener",
+  "response": "error: this connection holds no listen leg, so a click on the menu item could never reach it; register from a connection holding luxd's /ws leg \u2014 a session's applet, or a client built with LuxRestClient.listener",
   "setup": {
     "display_running": false,
     "session_key": "corpus-register-callback-no-listen-leg"

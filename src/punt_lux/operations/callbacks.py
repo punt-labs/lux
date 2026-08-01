@@ -38,14 +38,14 @@ __all__ = ["CallbackMenuSource", "CallbackOperations"]
 
 # What a caller that cannot be pushed to is told, naming both the requirement and
 # the way to meet it. A session reaching the Hub over MCP or a one-shot REST call
-# has no leg a click can arrive on; ``lux mcp-serve`` holds one for the session.
+# has no leg a click can arrive on; a session's applet holds one.
 # One value: no leg at the gate, and a leg that went between the gate and the
 # write, leave the caller in exactly the same position.
 _PUSH_REQUIRED = OpError(
     code="push_required",
     reason="this connection holds no listen leg, so a click on the menu item could "
-    "never reach it; register from a connection holding luxd's /ws leg — a session's "
-    "'lux mcp-serve' process, or a client built with LuxRestClient.listener",
+    "never reach it; register from a connection holding luxd's /ws leg — a "
+    "session's applet, or a client built with LuxRestClient.listener",
 )
 
 

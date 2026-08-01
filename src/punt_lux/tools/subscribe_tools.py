@@ -100,7 +100,7 @@ def register_callback(callback_id: str, label: str) -> str:
     ``"error: <reason>"`` rather than half-granted. The connection must hold
     luxd's listen leg, because a click is delivered by push and a connection with
     no leg would never learn of it — an MCP session on its own has none, so this
-    tool is for a caller whose process holds one (``lux mcp-serve`` does, and
+    tool is for a caller whose process holds one (an applet does, and
     registers its session's entries itself). And the session must have identified,
     the same challenge REST's anonymous writes receive.
 

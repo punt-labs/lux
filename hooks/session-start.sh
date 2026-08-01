@@ -72,4 +72,20 @@ if command -v jq &>/dev/null && [[ -f "$SETTINGS" ]]; then
   fi
 fi
 
+# ── Launch this session's applets ────────────────────────────────────
+# An applet is a session-bound program that owns an entry in the Lux menu and
+# services its clicks directly — in milliseconds, with no poll and no turn of the
+# model. luxd cannot do this work itself: launchd starts it with no PATH, no
+# repository, and no credentials, while this session has all three.
+#
+# $PPID is the Claude Code process that ran this hook. The applet watches it and
+# exits when it goes, so an applet never outlives its session — including when
+# the session is killed rather than closed, which is the case a SessionEnd hook
+# would miss. The Hub's lease sweeps the menu entry regardless.
+if command -v lux-beads &>/dev/null; then
+  LUX_APPLET_LOG="${TMPDIR:-/tmp}/lux-beads-$PPID.log"
+  nohup lux-beads --session-pid "$PPID" >"$LUX_APPLET_LOG" 2>&1 &
+  disown
+fi
+
 exit 0

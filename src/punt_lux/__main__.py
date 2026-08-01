@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import shutil
 import subprocess
 import sys
@@ -12,34 +11,8 @@ import typer
 
 from punt_lux import __version__
 from punt_lux.doctor_report import FAIL, OK, OPTIONAL, DoctorReport
+from punt_lux.log_level import level_from_env
 from punt_lux.show import show_app
-
-_LOG_LEVELS: dict[str, int] = {
-    "DEBUG": logging.DEBUG,
-    "INFO": logging.INFO,
-    "WARNING": logging.WARNING,
-    "ERROR": logging.ERROR,
-    "CRITICAL": logging.CRITICAL,
-}
-
-
-def _level_from_env(default: str) -> int:
-    """Read ``LUX_LOG_LEVEL``, falling back to ``default`` and saying so if unusable.
-
-    Each entry point picks the floor its stream can afford — a session's stderr is
-    the MCP host's, the display writes to a file of its own — and this is the one
-    knob that lowers it, so what a process logs routinely can be read when someone
-    is looking without being emitted when nobody is.
-    """
-    raw = os.environ.get("LUX_LOG_LEVEL", default).upper()
-    level = _LOG_LEVELS.get(raw)
-    if level is None:
-        print(
-            f"WARNING: LUX_LOG_LEVEL={raw!r} is not valid, defaulting to {default}",
-            file=sys.stderr,
-        )
-        return _LOG_LEVELS[default]
-    return level
 
 
 def _version_callback(value: bool) -> None:
@@ -89,7 +62,6 @@ def display(
     ),
 ) -> None:
     """Start the Lux display server."""
-    import logging
     from pathlib import Path
 
     from punt_lux.paths import DisplayPaths
@@ -112,7 +84,7 @@ def display(
 
     logging.basicConfig(
         filename=str(log_path),
-        level=_level_from_env("INFO"),
+        level=level_from_env("INFO"),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
@@ -289,35 +261,6 @@ def doctor(
     print(_check.render())
     if _check.failed > 0:
         raise typer.Exit(code=1)
-
-
-@app.command("mcp-serve")
-def mcp_serve() -> None:
-    """Serve this session's Lux MCP surface over stdio and service its menu clicks.
-
-    Run by Claude Code, not by hand: it speaks MCP on stdin/stdout, forwards it to
-    luxd, and holds the connection that makes this session's menu entries work.
-    """
-    from punt_lux.rest_transport import HubUnavailableError
-    from punt_lux.session_server import SessionServer
-
-    # stdout is the MCP wire, so every log line goes to stderr — a single stray
-    # byte on stdout is a protocol error the host reports as a broken server.
-    #
-    # WARNING by default because this stream is the host's, and a session that
-    # narrated itself would fill it. ``LUX_LOG_LEVEL`` lowers the floor, which is
-    # how the routine facts get read: the per-click response latency is reported
-    # at INFO and would otherwise only ever be visible when it broke its budget.
-    logging.basicConfig(
-        stream=sys.stderr,
-        level=_level_from_env("WARNING"),
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
-    try:
-        SessionServer.for_cwd().serve()
-    except HubUnavailableError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(code=1) from None
 
 
 @app.command("hub-install")

@@ -1,4 +1,4 @@
-"""SessionCallbackLeg — servicing a click without starving the leg's own lease.
+"""AppletLeg — servicing a click without starving the leg's own lease.
 
 The leg's loop does two things: it renews the session's lease, and it receives
 clicks. The work a click asks for blocks — ``bd`` runs to its own timeout, the
@@ -15,10 +15,11 @@ import threading
 import time
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.applets.latency import ClickLatency
+from punt_lux.applets.leg import AppletLeg
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.operations import OpError
 from punt_lux.rest_transport import HubUnavailableError
-from punt_lux.session_service import ClickLatency, SessionCallbackLeg
 
 if TYPE_CHECKING:
     import pytest
@@ -82,7 +83,7 @@ def _patch_rest(monkeypatch: pytest.MonkeyPatch, client: object) -> None:
         return client
 
     monkeypatch.setattr(
-        "punt_lux.session_service.LuxRestClient.for_identity", _for_identity
+        "punt_lux.applets.leg.LuxRestClient.for_identity", _for_identity
     )
 
 
@@ -98,7 +99,7 @@ def test_a_slow_click_does_not_stall_the_loop_that_holds_the_lease(
     started, release = threading.Event(), threading.Event()
     service = _SlowService(started, release)
     _patch_rest(monkeypatch, _RefusingClient())
-    leg = SessionCallbackLeg(_IDENTITY, service)
+    leg = AppletLeg(_IDENTITY, service)
 
     async def _drive() -> int:
         ticks = 0
@@ -126,7 +127,7 @@ def test_an_unknown_callback_is_reported_and_not_serviced(
     release.set()
     service = _SlowService(started, release)
     _patch_rest(monkeypatch, _RefusingClient())
-    leg = SessionCallbackLeg(_IDENTITY, service)
+    leg = AppletLeg(_IDENTITY, service)
 
     with caplog.at_level(logging.WARNING):
         asyncio.run(leg._on_callback("something-else"))
@@ -141,7 +142,7 @@ def test_a_refused_registration_is_reported_and_the_session_continues(
     """A failed register must not raise: the listen leg has to stay up either way."""
     started, release = threading.Event(), threading.Event()
     _patch_rest(monkeypatch, _RefusingClient())
-    leg = SessionCallbackLeg(_IDENTITY, _SlowService(started, release))
+    leg = AppletLeg(_IDENTITY, _SlowService(started, release))
 
     with caplog.at_level(logging.ERROR):
         asyncio.run(leg._register())
@@ -216,7 +217,7 @@ def test_a_push_that_cannot_reach_the_hub_is_reported_and_the_leg_survives(
     The transport's own sentence is what distinguishes the two, so it is logged.
     """
     _patch_rest(monkeypatch, _UnreachableHub())
-    leg = SessionCallbackLeg(_IDENTITY, _PushingService())
+    leg = AppletLeg(_IDENTITY, _PushingService())
 
     with caplog.at_level(logging.WARNING):
         asyncio.run(leg._on_callback("beads"))  # must not raise
@@ -233,12 +234,10 @@ def test_a_hub_that_vanishes_before_the_client_is_built_leaves_the_leg_up(
     def _unreachable(_identity: ClientIdentity, *, timeout: float = 2.0) -> object:
         raise HubUnavailableError("luxd is not running")
 
-    monkeypatch.setattr(
-        "punt_lux.session_service.LuxRestClient.for_identity", _unreachable
-    )
+    monkeypatch.setattr("punt_lux.applets.leg.LuxRestClient.for_identity", _unreachable)
     started, release = threading.Event(), threading.Event()
     release.set()
-    leg = SessionCallbackLeg(_IDENTITY, _SlowService(started, release))
+    leg = AppletLeg(_IDENTITY, _SlowService(started, release))
 
     with caplog.at_level(logging.WARNING):
         asyncio.run(leg._on_callback("beads"))  # must not raise
@@ -252,7 +251,7 @@ def test_an_unforeseen_servicing_failure_does_not_tear_the_socket(
 ) -> None:
     """Anything at all going wrong in a click is survivable; the leg is not."""
     _patch_rest(monkeypatch, _UnreachableHub())
-    leg = SessionCallbackLeg(_IDENTITY, _ExplodingService())
+    leg = AppletLeg(_IDENTITY, _ExplodingService())
 
     with caplog.at_level(logging.ERROR):
         asyncio.run(leg._on_callback("beads"))  # must not raise
@@ -303,7 +302,7 @@ def test_the_click_is_answered_before_its_work_runs(
     """
     service = _OrderedService()
     _patch_rest(monkeypatch, _RefusingClient())
-    leg = SessionCallbackLeg(_IDENTITY, service)
+    leg = AppletLeg(_IDENTITY, service)
 
     asyncio.run(leg._on_callback("beads"))
 
@@ -315,7 +314,7 @@ def test_the_answered_latency_is_reported_against_its_budget(
 ) -> None:
     """The contract is a number, so the leg measures it rather than assuming it."""
     _patch_rest(monkeypatch, _RefusingClient())
-    leg = SessionCallbackLeg(_IDENTITY, _OrderedService())
+    leg = AppletLeg(_IDENTITY, _OrderedService())
 
     with caplog.at_level(logging.INFO):
         asyncio.run(leg._on_callback("beads"))

@@ -9,7 +9,7 @@ are never merged: each is its own submenu.
 
 The label is the identity's name and nothing else. A client is what it calls
 itself, not where it happens to sit, and a session that needs its repository read
-out loud puts the repository in its name — which is what ``lux mcp-serve`` does
+out loud puts the repository in its name — which is what an applet does
 (``lux · <repository> · #<process>``). Appending the path here as well would
 duplicate that for a session and hang location noise off an app that has one name
 and one meaning wherever it runs.

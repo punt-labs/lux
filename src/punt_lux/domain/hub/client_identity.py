@@ -22,10 +22,11 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_vali
 
 __all__ = ["ClientIdentity", "ClientKind"]
 
-# The three front doors a client reaches the Hub through. ``mcp-session`` is a
-# Claude Code agent's live MCP connection, ``cli`` a ``lux`` command invocation,
-# and ``app`` luxd itself declaring the built-in capabilities it owns.
-ClientKind = Literal["mcp-session", "cli", "app"]
+# The four kinds of client that reach the Hub. ``mcp-session`` is a Claude Code
+# agent's live MCP connection, ``cli`` a ``lux`` command invocation, ``applet`` a
+# session-bound program that owns menu entries and services their clicks, and
+# ``app`` luxd itself declaring the built-in capabilities it owns.
+ClientKind = Literal["mcp-session", "cli", "applet", "app"]
 
 # A real, displayable label: whitespace is stripped and the result must be
 # non-empty, so a blank or whitespace-only name is rejected declaratively rather

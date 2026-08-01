@@ -9,7 +9,7 @@
       "x"
     ]
   ],
-  "response": "error: kind: Input should be 'mcp-session', 'cli' or 'app'",
+  "response": "error: kind: Input should be 'mcp-session', 'cli', 'applet' or 'app'",
   "setup": {
     "display_running": false,
     "session_key": "corpus-identify-bad-kind"

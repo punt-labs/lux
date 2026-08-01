@@ -68,6 +68,7 @@ dev = [
 [project.scripts]
 lux = "punt_lux.__main__:app"
 luxd = "punt_lux.luxd:main"
+lux-beads = "punt_lux.applets.beads:app"
 
 [project.urls]
 Homepage = "https://github.com/punt-labs/lux"

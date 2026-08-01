@@ -47,7 +47,7 @@ class TestHandleSessionStart:
         mock_cls = _mock_config_manager(_DISPLAY_ON)
         with patch("punt_lux.hooks.ConfigManager", mock_cls):
             ctx = _ctx(handle_session_start())
-        assert "mcp-serve" in ctx
+        assert "applets" in ctx
         assert "do not register menu callbacks" in ctx
         assert "do not poll for clicks" in ctx
 

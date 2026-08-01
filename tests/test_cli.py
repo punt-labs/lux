@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 import os
 from pathlib import Path
 from typing import Any
@@ -11,7 +10,7 @@ from unittest.mock import patch
 import pytest
 from typer.testing import CliRunner
 
-from punt_lux.__main__ import _level_from_env, app
+from punt_lux.__main__ import app
 from punt_lux.paths import DisplayPaths
 
 runner = CliRunner()
@@ -254,33 +253,3 @@ class TestNoArgs:
         assert "display" in result.output.lower()
         assert "version" in result.output.lower()
         assert "status" in result.output.lower()
-
-
-def test_the_log_level_comes_from_the_environment(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The one knob that lowers a process's floor, so routine facts can be read.
-
-    A session's stderr is the MCP host's, so it logs at WARNING and its per-click
-    response latency — reported at INFO — would otherwise only ever be visible
-    when it broke its budget, which is exactly when the number stops being useful.
-    """
-    monkeypatch.setenv("LUX_LOG_LEVEL", "info")
-    assert _level_from_env("WARNING") == logging.INFO
-
-
-def test_an_unusable_log_level_falls_back_and_says_so(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    monkeypatch.setenv("LUX_LOG_LEVEL", "chatty")
-    assert _level_from_env("WARNING") == logging.WARNING
-    assert "not valid" in capsys.readouterr().err
-
-
-def test_an_unset_log_level_leaves_the_entry_point_its_own_floor(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Each entry point picks the floor its stream can afford; absence keeps it."""
-    monkeypatch.delenv("LUX_LOG_LEVEL", raising=False)
-    assert _level_from_env("WARNING") == logging.WARNING
-    assert _level_from_env("INFO") == logging.INFO

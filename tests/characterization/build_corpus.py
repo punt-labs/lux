@@ -577,7 +577,7 @@ IDENTITY_SCENARIOS: tuple[Scenario, ...] = (
 # Callback scenarios — ``register_callback`` requires a connection that holds
 # luxd's listen leg, because a menu click is delivered by push and a connection
 # with no leg could never learn of it. A bare MCP session has none, so a tool call
-# with no ``lux mcp-serve`` process behind it is refused with the push
+# with no applet behind it is refused with the push
 # requirement — the behavior the corpus pins, since it is what an agent calling
 # the tool directly will meet. The identity gate behind it, and the happy path
 # (which needs both a leg and a prior ``identify``), are covered by the operation

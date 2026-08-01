@@ -5,7 +5,7 @@ in, and that repository is read from the filesystem rather than configured: the
 directory the process started in, or the first ancestor of it holding a ``.git``
 entry. One class answers that question for every caller — a ``lux`` command
 (:class:`~punt_lux.cli_identity.CliIdentity`) and a session's MCP server
-(:class:`~punt_lux.session_identity.SessionIdentity`) — so the two cannot drift
+(:class:`~punt_lux.session_identity.AppletIdentity`) — so the two cannot drift
 onto different derivations of the same fact.
 
 Not being in a repository is a real state rather than a failure, and this class

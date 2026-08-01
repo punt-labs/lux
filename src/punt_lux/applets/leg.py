@@ -1,38 +1,32 @@
-"""The session's listen leg: hold luxd's WebSocket and service the clicks it pushes.
+"""AppletLeg — the connection an applet holds, and what it does with a click.
 
 A menu entry must launch in the time a user reads as instant, which rules out
 both a poll and a chat turn: nothing that waits for a model to be asked can meet
-it. So the process serving a session's MCP surface also holds a live connection
-to luxd on a thread of its own, registers the session's callbacks on it, and does
-the work itself the moment a click arrives.
+it. So an applet holds a live connection to luxd, registers its callbacks on it,
+and does the work itself the moment a click arrives.
 
-The thread is the whole concurrency story, deliberately. It owns its event loop,
-its clients, and its handler; it shares no mutable state with the proxy that runs
-on the main thread, so there is no lock here and none is needed.
+The leg owns the applet's event loop and nothing else runs on it but the
+keepalive that holds the session's lease. The work a click asks for does not run
+there: servicing a Beads click shells out to ``bd`` and pushes a scene over HTTP —
+both blocking, and ``bd`` may take as long as its own timeout. A slow click
+running *on* the loop would starve the renewal and lapse the very session whose
+menu item was clicked, so the entry would vanish mid-service and the push would
+land from a session the Hub had already swept. Blocking work therefore goes to a
+worker thread, and the loop stays free to keep the lease alive while it runs.
 
-The work a click asks for does not run on that loop, though. Servicing a Beads
-click shells out to ``bd`` and pushes a scene over HTTP — both blocking, and
-``bd`` may take as long as its own timeout. The loop's other job is the keepalive
-that holds the session's lease, so a slow click running *on* the loop would
-starve the renewal and lapse the very session whose menu item was clicked: the
-entry would vanish mid-service and the push would land from a session the Hub had
-already swept. Blocking work therefore goes to a worker thread, and the loop stays
-free to keep the lease alive while it runs.
-
-It is a daemon thread and has no stop: the leg's life is the process's life. When
-the session ends, stdin closes, the process exits, the socket drops, and the Hub
-sweeps the session's menu entry with its lease. Nothing to shut down means no
-shutdown to get wrong.
+The leg has no stop of its own: it runs until whoever started it cancels it,
+which is the applet, when its session goes. The socket drops with the process and
+the Hub sweeps the menu entry with the lease, so there is no shutdown to get
+wrong even if the exit is not clean.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import threading
-import time
 from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
 
+from punt_lux.applets.latency import ClickLatency
 from punt_lux.hub_client import LuxHubClient
 from punt_lux.operations import Ok, OpError
 from punt_lux.rest_client import LuxRestClient
@@ -45,7 +39,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["ClickLatency", "SessionCallbackLeg", "SessionService"]
+__all__ = ["AppletLeg", "AppletService"]
 
 # How long to wait before reaching for luxd again when it is down or restarting.
 # The leg's own reconnect handles a live Hub going away; this covers the case
@@ -53,50 +47,9 @@ __all__ = ["ClickLatency", "SessionCallbackLeg", "SessionService"]
 # terms, not tight.
 _HUB_RETRY_SECONDS = 2.0
 
-# What a click has to answer within to read as instant. It is the reason the
-# servicing is split in two: the visible response is measured against this, and
-# the work behind it is not.
-_RESPONSE_BUDGET_MS = 100.0
-
-
-@final
-class ClickLatency:
-    """The clock a click starts, and the gap it reports when the answer lands.
-
-    What is being measured is the contract: a click must produce a visible
-    response inside :data:`_RESPONSE_BUDGET_MS`. The clock therefore starts where
-    the click arrives — on the receive loop, before the hop to the worker — so the
-    hop is inside the number rather than hidden beside it.
-    """
-
-    _started: float
-    __slots__ = ("_started",)
-
-    def __new__(cls) -> Self:
-        self = super().__new__(cls)
-        self._started = time.perf_counter()
-        return self
-
-    def elapsed_ms(self) -> float:
-        """Milliseconds since the click arrived."""
-        return (time.perf_counter() - self._started) * 1000.0
-
-    def report(self, callback_id: str) -> None:
-        """Log the click's visible-response latency against its budget."""
-        elapsed = self.elapsed_ms()
-        if elapsed > _RESPONSE_BUDGET_MS:
-            logger.warning(
-                "click %s answered in %.0f ms — over the %.0f ms budget",
-                callback_id,
-                elapsed,
-                _RESPONSE_BUDGET_MS,
-            )
-            return
-        logger.info("click %s answered in %.0f ms", callback_id, elapsed)
-
 
 @runtime_checkable
-class SessionService(Protocol):
+class AppletService(Protocol):
     """One callback a session owns: the entry it puts up and the work a click does.
 
     The work is two phases with different deadlines, and the split is the whole
@@ -125,34 +78,21 @@ class SessionService(Protocol):
 
 
 @final
-class SessionCallbackLeg:
+class AppletLeg:
     """A session's live connection to luxd: register on connect, service on click."""
 
     _identity: ClientIdentity
-    _service: SessionService
+    _service: AppletService
     __slots__ = ("_identity", "_service")
 
-    def __new__(cls, identity: ClientIdentity, service: SessionService) -> Self:
+    def __new__(cls, identity: ClientIdentity, service: AppletService) -> Self:
         self = super().__new__(cls)
         self._identity = identity
         self._service = service
         return self
 
-    def start(self) -> None:
-        """Run the leg on a daemon thread and return at once.
-
-        Returning at once is the point: the caller is a session's MCP server, which
-        must answer its first request in well under a second whether or not luxd is
-        up yet. Nothing here blocks that — the connecting, the waiting, and the
-        retrying all happen on the thread.
-        """
-        thread = threading.Thread(
-            target=self._serve, name="lux-session-leg", daemon=True
-        )
-        thread.start()
-
-    def _serve(self) -> None:
-        """Hold the leg for the life of the process, reaching for luxd when it drops.
+    async def serve(self) -> None:
+        """Hold the leg until cancelled, reaching for luxd again when it drops.
 
         ``listen`` reconnects on its own while luxd is merely unreachable, so this
         loop covers only the two cases it cannot: luxd not yet running when the
@@ -160,22 +100,22 @@ class SessionCallbackLeg:
         as fatal. Both wait a beat before trying again, so no failure can spin.
         """
         while True:
-            self._listen_once()
-            time.sleep(_HUB_RETRY_SECONDS)
+            await self._listen_once()
+            await asyncio.sleep(_HUB_RETRY_SECONDS)
 
-    def _listen_once(self) -> None:
+    async def _listen_once(self) -> None:
         """Build the leg and run it until it ends; report why rather than dying.
 
-        The thread is a service boundary: an unexpected failure here must not take
-        the session's menu entry away for the rest of the session, so it is logged
-        and the caller tries again.
+        This is a service boundary: an unexpected failure must not take the
+        session's menu entry away for the rest of the session, so it is logged and
+        the caller tries again.
         """
         try:
-            asyncio.run(self._client().listen())
+            await self._client().listen()
         except HubUnavailableError:
-            logger.debug("luxd is not running yet; the session leg will retry")
+            logger.debug("luxd is not running yet; the applet will retry")
         except Exception:
-            logger.exception("the session's listen leg failed; retrying")
+            logger.exception("the applet's listen leg failed; retrying")
 
     def _client(self) -> LuxHubClient:
         """Build the listen client, registering the session's callbacks on connect."""

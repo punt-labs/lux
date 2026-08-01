@@ -11,9 +11,9 @@ from __future__ import annotations
 
 from typing import Self, final
 
+from punt_lux.applets.beads_service import BeadsService
 from punt_lux.apps.beads_board import BeadsBoard
 from punt_lux.apps.beads_result import BeadsFailure, BeadsResult, BeadsRows
-from punt_lux.beads_service import BeadsService
 from punt_lux.operations import (
     FrameRaise,
     OpError,
