@@ -26,6 +26,19 @@
   stages it reached, which is how far it got. Set `LUX_LOG_LEVEL=INFO` on the
   applet to read the line; a click that broke the 100 ms answer budget is
   reported regardless.
+- **A click shows the board the applet already has.** Reading the issues is a
+  query to a hosted database and it is the whole wait — one measured click spent
+  4873 ms of its 4915 ms there. So the click stops waiting on it: the applet
+  loads a board as soon as its entry is registered, and holds the board from
+  every click after that, so a click answers with real issues and reloads behind
+  them instead of opening "Loading issues…" and waiting. The fresh board
+  replaces the standing one in place and never takes focus. A load that fails
+  leaves that board standing and says why in the log, so a `bd` that has stopped
+  answering costs a log line rather than the board. A session with no board yet
+  opens the placeholder and waits, exactly as before. The click's line says
+  which it was: `click beads: answered 28 ms (cached board), refreshed 4310 ms,
+  total 4341 ms` — one figure for the reload, because the user was reading their
+  issues throughout it and waiting on no stage of it.
 - **An applet leaves when its session does.** It is handed the session's
   process id at spawn and checks every five seconds whether that process still
   exists, exiting when it does not — so an applet cannot outlive its session

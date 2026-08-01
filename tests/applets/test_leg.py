@@ -5,6 +5,11 @@ clicks. The work a click asks for blocks — ``bd`` runs to its own timeout, the
 board push is HTTP — so it must not run on that loop. If it did, a slow click
 would stall the renewal until the lease lapsed, and the session's menu entry
 would disappear mid-service.
+
+The load that runs ahead of the first click blocks for the same reason and is
+held to the same rule, plus one of its own: the handshake it is started from must
+not wait for it either, or the entry would take as long to appear as ``bd`` takes
+to answer.
 """
 
 from __future__ import annotations
@@ -16,7 +21,7 @@ from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.applets.leg import AppletLeg
 from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.operations import OpError
+from punt_lux.operations import Ok, OpError
 from punt_lux.rest_transport import HubUnavailableError
 
 if TYPE_CHECKING:
@@ -52,7 +57,10 @@ class _SlowService:
     def label(self) -> str:
         return "Beads"
 
-    def acknowledge(self, client: LuxRestClient) -> None:
+    def prefetch(self) -> None:
+        """Nothing to warm: this service exists to exercise the click."""
+
+    def acknowledge(self, client: LuxRestClient, latency: ClickLatency) -> None:
         """Instant by construction: the phase under a budget never blocks."""
 
     def service(self, client: LuxRestClient, latency: ClickLatency) -> None:
@@ -66,6 +74,70 @@ class _SlowService:
 
 
 @final
+class _WarmingService:
+    """A service whose prefetch blocks a worker thread until it is released."""
+
+    _started: threading.Event
+    _release: threading.Event
+    _prefetched: int
+    __slots__ = ("_prefetched", "_release", "_started")
+
+    def __new__(cls, started: threading.Event, release: threading.Event) -> Self:
+        self = super().__new__(cls)
+        self._started = started
+        self._release = release
+        self._prefetched = 0
+        return self
+
+    @property
+    def callback_id(self) -> str:
+        return "beads"
+
+    @property
+    def label(self) -> str:
+        return "Beads"
+
+    def prefetch(self) -> None:
+        self._started.set()
+        self._release.wait(timeout=5)
+        self._prefetched += 1
+
+    def acknowledge(self, client: LuxRestClient, latency: ClickLatency) -> None:
+        """Not under test here: this service exists to exercise the warm-up."""
+
+    def service(self, client: LuxRestClient, latency: ClickLatency) -> None:
+        """Not under test here: this service exists to exercise the warm-up."""
+
+    @property
+    def prefetched(self) -> int:
+        return self._prefetched
+
+
+@final
+class _ExplodingWarmUp:
+    """A service whose warm-up raises something nobody modelled."""
+
+    __slots__ = ()
+
+    @property
+    def callback_id(self) -> str:
+        return "beads"
+
+    @property
+    def label(self) -> str:
+        return "Beads"
+
+    def prefetch(self) -> None:
+        raise RuntimeError("something nobody modelled")
+
+    def acknowledge(self, client: LuxRestClient, latency: ClickLatency) -> None:
+        """The failure under test is in the warm-up, not in answering a click."""
+
+    def service(self, client: LuxRestClient, latency: ClickLatency) -> None:
+        """The failure under test is in the warm-up, not in the click's work."""
+
+
+@final
 class _RefusingClient:
     """A REST client stand-in whose registration is refused."""
 
@@ -73,6 +145,16 @@ class _RefusingClient:
 
     def register_callback(self, callback_id: str, label: str) -> OpError:
         return OpError(code="push_required", reason="no listen leg")
+
+
+@final
+class _AcceptingClient:
+    """A REST client stand-in whose registration puts the entry up."""
+
+    __slots__ = ()
+
+    def register_callback(self, callback_id: str, label: str) -> Ok:
+        return Ok()
 
 
 def _patch_rest(monkeypatch: pytest.MonkeyPatch, client: object) -> None:
@@ -149,6 +231,65 @@ def test_a_refused_registration_is_reported_and_the_session_continues(
     assert "menu entry was refused" in caplog.text
 
 
+def test_registration_does_not_wait_for_the_warm_up_behind_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The entry appears when it always did; the load behind it is not in the way.
+
+    ``on_connect`` is awaited before the receive loop starts and before the
+    keepalive that holds the session's lease, so a prefetch awaited there would
+    hold both for as long as ``bd`` takes. Registration must return with the
+    warm-up still in flight — which is what this pins: the prefetch has begun and
+    is blocked, and ``_register`` has already returned.
+    """
+    started, release = threading.Event(), threading.Event()
+    service = _WarmingService(started, release)
+    _patch_rest(monkeypatch, _AcceptingClient())
+    leg = AppletLeg(_IDENTITY, service)
+
+    async def _drive() -> None:
+        await leg._register()  # returns with the warm-up still blocked
+        await asyncio.to_thread(started.wait, 5)
+        assert service.prefetched == 0
+        release.set()
+        await asyncio.gather(*leg._prefetching)
+
+    asyncio.run(_drive())
+    assert service.prefetched == 1  # and it still ran to completion
+
+
+def test_an_entry_that_was_refused_is_not_warmed_up(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """There is nothing to prefetch for: no entry exists to be clicked."""
+    started, release = threading.Event(), threading.Event()
+    release.set()
+    service = _WarmingService(started, release)
+    _patch_rest(monkeypatch, _RefusingClient())
+    leg = AppletLeg(_IDENTITY, service)
+
+    asyncio.run(leg._register())
+
+    assert service.prefetched == 0
+
+
+def test_a_warm_up_that_raises_leaves_the_leg_up(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A task nobody awaits must not swallow its own failure, or lose the leg."""
+    _patch_rest(monkeypatch, _AcceptingClient())
+    leg = AppletLeg(_IDENTITY, _ExplodingWarmUp())
+
+    async def _drive() -> None:
+        await leg._register()
+        await asyncio.gather(*leg._prefetching)
+
+    with caplog.at_level(logging.ERROR):
+        asyncio.run(_drive())  # must not raise
+
+    assert "the first click waits" in caplog.text
+
+
 @final
 class _UnreachableHub:
     """A REST client stand-in whose every call finds luxd gone."""
@@ -176,7 +317,10 @@ class _PushingService:
     def label(self) -> str:
         return "Beads"
 
-    def acknowledge(self, client: LuxRestClient) -> None:
+    def prefetch(self) -> None:
+        """Nothing to warm: this service exists to exercise the push."""
+
+    def acknowledge(self, client: LuxRestClient, latency: ClickLatency) -> None:
         """Nothing to answer with: this service exists to exercise the push."""
 
     def service(self, client: LuxRestClient, latency: ClickLatency) -> None:
@@ -197,7 +341,10 @@ class _ExplodingService:
     def label(self) -> str:
         return "Beads"
 
-    def acknowledge(self, client: LuxRestClient) -> None:
+    def prefetch(self) -> None:
+        """Nothing to warm: the failure under test is in the click's work."""
+
+    def acknowledge(self, client: LuxRestClient, latency: ClickLatency) -> None:
         """The failure under test is in the work, not in answering the click."""
 
     def service(self, client: LuxRestClient, latency: ClickLatency) -> None:
@@ -279,7 +426,10 @@ class _OrderedService:
     def label(self) -> str:
         return "Beads"
 
-    def acknowledge(self, client: LuxRestClient) -> None:
+    def prefetch(self) -> None:
+        self._steps.append("prefetch")
+
+    def acknowledge(self, client: LuxRestClient, latency: ClickLatency) -> None:
         self._steps.append("acknowledge")
 
     def service(self, client: LuxRestClient, latency: ClickLatency) -> None:

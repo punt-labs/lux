@@ -15,17 +15,17 @@ The three parts an applet is assembled from:
 - :class:`~punt_lux.applets.identity.AppletIdentity` — who it says it is, which
   is what the user reads in the menu bar and what both legs resolve to one Hub
   connection through;
-- :class:`~punt_lux.applets.leg.AppletLeg` — the connection: register on connect,
-  service the clicks it pushes, and never let one bad click cost the socket;
-- :class:`~punt_lux.applets.watch.SessionWatch` — the promise that it leaves when
-  its session does.
+- :class:`~punt_lux.applets.leg.AppletLeg` — the connection: register, warm up,
+  service the clicks it pushes, never let one bad click cost the socket;
+- :class:`~punt_lux.applets.watch.SessionWatch` — it leaves when its session does.
 """
 
 from __future__ import annotations
 
 from punt_lux.applets.identity import AppletIdentity
 from punt_lux.applets.latency import ClickLatency
-from punt_lux.applets.leg import AppletLeg, AppletService
+from punt_lux.applets.leg import AppletLeg
+from punt_lux.applets.service import AppletService
 from punt_lux.applets.watch import SessionWatch
 
 __all__ = [

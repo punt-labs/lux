@@ -5,20 +5,27 @@ credentials, and no repository working directory. The session has all three, so
 the session owns the entry and services its own clicks — it loads the issues from
 its shell and pushes the board to the Hub under its own identity.
 
-A click renders something either way. A ``bd`` that fails renders the board's red
-message naming the reason, so the user sees what went wrong in the window where
-they clicked rather than in a log they will not read.
+Reading those issues is a query to a hosted database and it is the whole wait, so
+the service never makes a user sit through one it could have run already. It
+loads a board when it registers and holds it, holds the board from every click
+after that, and answers each click with the board it is holding. The wait moves
+behind something real.
+
+A click renders something either way. A ``bd`` that fails with no board held
+renders the board's red message naming the reason; with a board held it leaves
+that board standing and says why in the log.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Protocol, Self, final
+from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.applets.board_cache import CachedBoard, HeldBoard, NoBoard
+from punt_lux.applets.board_load import BoardLoad, BoardUnavailableError
+from punt_lux.applets.board_work import BoardWork
 from punt_lux.apps.beads import BeadsBrowser
 from punt_lux.apps.beads_board import BeadsBoard
-from punt_lux.apps.beads_result import BeadsResult
-from punt_lux.operations import OpError, RenderRequest, RenderTableRequest
 
 if TYPE_CHECKING:
     from punt_lux.applets.latency import ClickLatency
@@ -26,46 +33,38 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["BeadsService", "BeadsSource"]
+__all__ = ["BeadsService"]
 
 # The callback id a click carries back, and the entry the display shows for it.
 _CALLBACK_ID = "beads"
 _LABEL = "Beads"
 
-# The three stages behind the answer, named for what the user is waiting on:
-# the query to the hosted database, the board built from what it returned, and
-# the round trip that puts that board on screen.
-_FETCHED = "fetched"
-_BUILT = "built"
-_PUSHED = "pushed"
-
-
-class BeadsSource(Protocol):
-    """Where a board's rows come from — ``BeadsBrowser`` in the running session."""
-
-    def load(self, *, all_issues: bool = False) -> BeadsResult:
-        """Return the issues that were read, or the reason none were."""
-        ...
-
 
 @final
 class BeadsService:
-    """A session's Beads entry: load this repository's issues and push its board."""
+    """A session's Beads entry: load this repository's issues and push its board.
 
-    _board: BeadsBoard
-    _source: BeadsSource
-    __slots__ = ("_board", "_source")
+    The board it holds is replaced whole, never edited, by whichever of its two
+    callers loaded one last — the prefetch on a worker thread, or a click on
+    another. Neither reads a half-written board, because there is no half-written
+    state to read: each stores a board that has already loaded, and a click that
+    stores one a moment after the prefetch does simply wins.
+    """
 
-    def __new__(cls, board: BeadsBoard, source: BeadsSource) -> Self:
+    _cache: CachedBoard
+    _load: BoardLoad
+    __slots__ = ("_cache", "_load")
+
+    def __new__(cls, load: BoardLoad) -> Self:
         self = super().__new__(cls)
-        self._board = board
-        self._source = source
+        self._load = load
+        self._cache = NoBoard()
         return self
 
     @classmethod
     def for_repo(cls) -> Self:
         """Build the service for this repository's one board, loaded from ``bd``."""
-        return cls(BeadsBoard.for_repo(), BeadsBrowser())
+        return cls(BoardLoad(BeadsBoard.for_repo(), BeadsBrowser()))
 
     @property
     def callback_id(self) -> str:
@@ -77,82 +76,52 @@ class BeadsService:
         """The entry the display shows under this session's submenu."""
         return _LABEL
 
-    def acknowledge(self, client: LuxRestClient) -> None:
+    def prefetch(self) -> None:
+        """Load a board before anyone clicks, so the first click has one to show.
+
+        Run once the entry is registered and again after every reconnect, which
+        is when a board is most worth having: a Hub that just restarted holds no
+        scene, so the first click after one would otherwise be the cold click
+        that waits on the whole query.
+
+        Nothing is rendered here and nothing is reported to the user. A failure
+        means only that the first click waits, exactly as it did before there was
+        a prefetch at all, so it is a log line and not a red scene.
+        """
+        try:
+            self._cache = HeldBoard(self._load.fresh())
+        except BoardUnavailableError as exc:
+            logger.warning("no board could be loaded ahead of the first click: %s", exc)
+        except Exception:
+            logger.exception("loading a board ahead of the first click failed")
+
+    def acknowledge(self, client: LuxRestClient, latency: ClickLatency) -> None:
         """Put something on screen now, before any issue has been read.
 
-        A click has to launch in the time a user reads as instant, and reading the
-        issues cannot promise that — it is a query to a hosted database. So the
-        click's first act is not the query: it is raising the board's frame, which
-        is the whole answer in the common case, where the board is already up and
-        the user is asking to look at it again.
+        A click has to launch in the time a user reads as instant, and reading
+        the issues cannot promise that. So the click's first act is not the
+        query: it is raising the board's frame, which is the whole answer in the
+        common case, where the board is already up and the user is asking to look
+        at it again.
 
-        A frame that is not up gets the placeholder instead, so the cold click
-        opens a window immediately and fills it when the rows arrive. A raise that
-        could not be answered at all — no display, a timed-out round trip — pushes
-        nothing: the board is about to be pushed anyway, and replacing a good board
-        with "Loading" on the strength of a failed round trip would be a step
-        backwards for the user.
+        A frame that is not up gets the board this service is holding, or the
+        placeholder when it is holding none. Both open the window immediately;
+        the difference is whether the user reads their issues while the fresh
+        ones load or the word "Loading".
         """
-        raised = client.raise_frame(self._board.frame_id)
-        if isinstance(raised, OpError):
-            logger.warning("the board could not be raised: %s", raised.reason)
+        work = BoardWork(self._load, client, latency)
+        if work.showing():
             return
-        if not raised.raised:
-            self._push(client, self._board.starting())
+        work.push(self._cache.opening(work))
 
     def service(self, client: LuxRestClient, latency: ClickLatency) -> None:
         """Answer a click: load the issues and push the board through ``client``.
 
-        Runs after :meth:`acknowledge` has already made the frame visible, so this
-        half may take as long as ``bd`` takes. Every failure this side of the Hub
-        becomes something the user can see: a load that fails renders its reason in
-        red rather than leaving the board blank, and a push the Hub refuses is
-        reported — there is nowhere left to render a message about the render
-        itself.
+        Runs after :meth:`acknowledge` has already made the frame visible, so
+        this half may take as long as ``bd`` takes — and how long that was is
+        reported either way, timed stage by stage when the user was watching a
+        placeholder and as one figure when they were reading a board.
 
-        Because it may take as long as ``bd`` takes, it says how long it took:
-        each of the three things it does is timed separately into ``latency``, so
-        a board that was slow to arrive names which of them was slow rather than
-        leaving the query and the round trip to be told apart by guesswork.
+        Whatever loads is held for the next click, so the wait is paid once.
         """
-        request = self._request(latency)
-        with latency.stage(_PUSHED):
-            self._push(client, request)
-
-    def _request(self, latency: ClickLatency) -> RenderTableRequest | RenderRequest:
-        """Build the board's request, turning any failure into a showable one.
-
-        The loader already reports its expected failures — ``bd`` missing, a bad
-        repository — as a reason to render. This covers the rest, because the
-        session's servicing thread is the last thing between a user's click and
-        nothing happening at all. A failure that lands here is timed into
-        whichever stage it happened in and none of the ones after it, so the line
-        for a broken click says how far the click got.
-        """
-        try:
-            with latency.stage(_FETCHED):
-                loaded = self._source.load()
-            with latency.stage(_BUILT):
-                return self._board.request(loaded)
-        except Exception:
-            logger.exception("building the beads board failed")
-            return self._board.failure(
-                "the beads board could not be built — see the session log"
-            )
-
-    def _push(
-        self, client: LuxRestClient, request: RenderTableRequest | RenderRequest
-    ) -> None:
-        """Install the board, or log why the Hub refused it.
-
-        A table goes through the table route so the Hub *constructs* its live
-        chrome; a message is a plain scene. A refusal has nowhere to be rendered —
-        the render itself is what failed — so it is logged.
-        """
-        result = (
-            client.render_table(request)
-            if isinstance(request, RenderTableRequest)
-            else client.render(request)
-        )
-        if isinstance(result, OpError):
-            logger.error("beads board not shown: %s", result.reason)
+        self._cache = self._cache.refreshed(BoardWork(self._load, client, latency))

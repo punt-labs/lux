@@ -5315,12 +5315,22 @@ borrowed.
    underneath regardless; an applet restarted against a live session is a
    succession the DES-058/listen-lifecycle rules already handle, because the
    identity follows the session, not the applet process.
-5. **Clicks are raise-first.** The applet's first act on a click is the
-   visible response — `raise_frame` on the existing board (restore+focus,
-   one gesture), or an immediate placeholder frame when cold — and the data
-   work follows. Measured at ship: click-to-visible-response ~55 ms median
-   against the 100–200 ms operator absolute; entry visible ~0.5 s after
-   session start; orphan exit within the watch interval.
+5. **Clicks are raise-first, and answer with a board rather than a word.**
+   The applet's first act on a click is the visible response — `raise_frame`
+   on the existing board (restore+focus, one gesture), or, when there is no
+   frame to raise, the board the applet is holding — and the data work
+   follows. The applet loads a board when its entry registers and holds the
+   board from every click after that, because the `bd` query is the whole
+   wait: one measured click spent 4873 ms of its 4915 ms there, so the wait
+   moves behind something real instead of behind "Loading issues…". The
+   reload replaces the board in place (DES-060: no focus steal); a reload
+   that fails leaves the standing board and logs the reason, since a board a
+   few minutes old is worth more than a red message where the board was. A
+   session holding no board yet keeps the placeholder path unchanged.
+   Measured at ship: click-to-visible-response ~55 ms median against the
+   100–200 ms operator absolute; entry visible ~0.5 s after session start
+   (the warm-up runs behind the registration, never inside it); orphan exit
+   within the watch interval.
 
 **Alternatives rejected.** The bundled proxy (DES-062 — no logic of its own);
 reusing the retired Go `mcp-proxy` for the bridge (moot once no bridge is

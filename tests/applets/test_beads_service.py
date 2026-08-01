@@ -1,10 +1,16 @@
 """BeadsService — what a click on a session's Beads entry produces.
 
 A click always renders something. Issues become the table the Hub composes; a
-``bd`` failure becomes the board's red message; an unforeseen failure becomes a
-message too, because a click that produces nothing visible is indistinguishable
-from a broken menu. The service is driven with a stubbed source and a recording
-client, so no ``bd`` and no Hub are involved.
+``bd`` failure with nothing loaded becomes the board's red message; an unforeseen
+failure becomes a message too, because a click that produces nothing visible is
+indistinguishable from a broken menu. The service is driven with a stubbed source
+and a recording client, so no ``bd`` and no Hub are involved.
+
+Once a board has loaded the click changes shape: the answer is that board rather
+than a placeholder, the fresh load runs behind it, and a load that fails leaves
+it standing. The tests below pin both shapes and the order within them, because
+the order is the whole contract — the user must see something real before any
+query begins.
 """
 
 from __future__ import annotations
@@ -13,6 +19,7 @@ import logging
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.applets.beads_service import BeadsService
+from punt_lux.applets.board_load import BoardLoad
 from punt_lux.applets.latency import ClickLatency
 from punt_lux.apps.beads_board import BeadsBoard
 from punt_lux.apps.beads_result import BeadsFailure, BeadsResult, BeadsRows
@@ -96,6 +103,35 @@ class _Source:
 
 
 @final
+class _ThenFails:
+    """A source that reads once and then cannot — the shape a stale board is for.
+
+    The prefetch gets a board; every load after it fails. That is a ``bd`` that
+    worked at spawn and stopped working, which is the case the held board exists
+    to survive.
+    """
+
+    _first: BeadsResult
+    _loads: int
+    _journal: _Journal
+    __slots__ = ("_first", "_journal", "_loads")
+
+    def __new__(cls, first: BeadsResult, journal: _Journal) -> Self:
+        self = super().__new__(cls)
+        self._first = first
+        self._loads = 0
+        self._journal = journal
+        return self
+
+    def load(self, *, all_issues: bool = False) -> BeadsResult:
+        self._journal.note("load")
+        self._loads += 1
+        if self._loads > 1:
+            return BeadsFailure("bd: connection refused")
+        return self._first
+
+
+@final
 class _RecordingClient:
     """A LuxRestClient stand-in recording the scene writes a service makes."""
 
@@ -175,8 +211,8 @@ class _UnraisableClient:
         return SceneShown(scene_id=request.scene_id)
 
 
-def _service(source: _Source) -> BeadsService:
-    return BeadsService(BeadsBoard.for_project("lux"), source)
+def _service(source: _Source | _ThenFails) -> BeadsService:
+    return BeadsService(BoardLoad(BeadsBoard.for_project("lux"), source))
 
 
 def _click(service: BeadsService, client: object) -> ClickLatency:
@@ -186,6 +222,20 @@ def _click(service: BeadsService, client: object) -> ClickLatency:
     here rather than on every call.
     """
     latency = ClickLatency("beads")
+    service.service(client, latency)  # type: ignore[arg-type]  # structural stand-in
+    return latency
+
+
+def _whole_click(service: BeadsService, client: object) -> ClickLatency:
+    """Drive both halves of a click exactly as the leg drives them.
+
+    The answer is timed by the leg rather than by the service, so the helper
+    wraps it here too — a click whose answer went untimed would report a line no
+    real click can produce.
+    """
+    latency = ClickLatency("beads")
+    with latency.answering():
+        service.acknowledge(client, latency)  # type: ignore[arg-type]  # structural stand-in
     service.service(client, latency)  # type: ignore[arg-type]  # structural stand-in
     return latency
 
@@ -295,8 +345,7 @@ def test_a_click_on_a_board_already_up_raises_it_before_asking_bd_anything() -> 
     client = _RecordingClient(journal=journal, frame_is_up=True)
     service = _service(_Source(BeadsRows.of([_ISSUE]), journal=journal))
 
-    service.acknowledge(client)  # type: ignore[arg-type]  # structural stand-in
-    _click(service, client)
+    _whole_click(service, client)
 
     assert journal.steps == ("raise", "load", "render_table")
     assert client.scenes == []  # a board that is up needs no placeholder
@@ -308,8 +357,7 @@ def test_a_click_with_no_board_up_opens_one_before_asking_bd_anything() -> None:
     client = _RecordingClient(journal=journal, frame_is_up=False)
     service = _service(_Source(BeadsRows.of([_ISSUE]), journal=journal))
 
-    service.acknowledge(client)  # type: ignore[arg-type]  # structural stand-in
-    _click(service, client)
+    _whole_click(service, client)
 
     assert journal.steps == ("raise", "render", "load", "render_table")
     assert "Loading issues" in str(client.scenes[0].elements)
@@ -329,7 +377,94 @@ def test_a_raise_that_cannot_be_answered_leaves_a_good_board_alone() -> None:
     client = _UnraisableClient(journal)
     service = _service(_Source(BeadsRows.of([_ISSUE]), journal=journal))
 
-    service.acknowledge(client)  # type: ignore[arg-type]  # structural stand-in
-    _click(service, client)
+    _whole_click(service, client)
 
     assert journal.steps == ("raise", "load", "render_table")
+
+
+def test_a_prefetched_board_is_shown_before_the_fresh_load_begins() -> None:
+    """The click the whole warm-up is for: the answer is a board, not a word.
+
+    A cold click opens "Loading issues…" and the user reads it for as long as the
+    query takes — measured at ~4.9 s against the hosted database. With a board
+    already loaded there is something real to put up instead, and it goes up
+    before the fresh query starts rather than after it returns.
+    """
+    journal = _Journal()
+    client = _RecordingClient(journal=journal, frame_is_up=False)
+    service = _service(_Source(BeadsRows.of([_ISSUE]), journal=journal))
+
+    service.prefetch()
+    _whole_click(service, client)
+
+    # The board is pushed between the raise and the click's own load — the two
+    # facts that make it an answer rather than a result.
+    assert journal.steps == ("load", "raise", "render_table", "load", "render_table")
+    assert client.scenes == []  # and no placeholder was shown at any point
+
+
+def test_a_click_says_when_its_answer_was_a_board_it_already_had(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Two clicks with the same figures are not the same click.
+
+    Answering in 28 ms with the board reads differently from answering in 28 ms
+    with the word "Loading", and the load behind them is a wait in one case and
+    not in the other. The line says which, and times the load as one figure
+    because no stage of it is the user's problem.
+    """
+    client = _RecordingClient(frame_is_up=False)
+    service = _service(_Source(BeadsRows.of([_ISSUE])))
+
+    service.prefetch()
+    latency = _whole_click(service, client)
+
+    with caplog.at_level(logging.INFO):
+        latency.report()
+
+    line = _reported(caplog)
+    assert "answered" in line
+    assert "(cached board)" in line
+    assert "refreshed" in line
+    assert "fetched" not in line  # nobody watched the stages; they are one figure
+
+
+def test_a_load_that_fails_leaves_the_board_on_screen_standing(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A board a few minutes old beats a red message where the board was.
+
+    The user asked to look at their issues. The ones from the last load are still
+    very nearly the answer, so a ``bd`` that has stopped answering costs a log
+    line rather than the board.
+    """
+    journal = _Journal()
+    client = _RecordingClient(journal=journal, frame_is_up=False)
+    service = _service(_ThenFails(BeadsRows.of([_ISSUE]), journal))
+
+    service.prefetch()
+    with caplog.at_level(logging.WARNING):
+        _whole_click(service, client)
+
+    assert client.scenes == []  # no red message replaced the board
+    assert len(client.tables) == 1  # only the answer was pushed; nothing after it
+    assert "the one on screen stands" in caplog.text
+    assert "bd: connection refused" in caplog.text
+
+
+def test_a_board_that_could_not_be_prefetched_leaves_the_click_cold(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A failed warm-up holds nothing: the next click must not answer with it."""
+    journal = _Journal()
+    client = _RecordingClient(journal=journal, frame_is_up=False)
+    service = _service(_Source(BeadsFailure("bd: command not found"), journal=journal))
+
+    with caplog.at_level(logging.WARNING):
+        service.prefetch()
+    _whole_click(service, client)
+
+    assert "ahead of the first click" in caplog.text
+    assert journal.steps == ("load", "raise", "render", "load", "render")
+    assert "Loading issues" in str(client.scenes[0].elements)  # the cold answer
+    assert "bd: command not found" in str(client.scenes[1].elements)

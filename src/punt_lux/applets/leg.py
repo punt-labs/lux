@@ -5,9 +5,10 @@ both a poll and a chat turn: nothing that waits for a model to be asked can meet
 it. So an applet holds a live connection to luxd, registers its callbacks on it,
 and does the work itself the moment a click arrives.
 
-The leg owns the applet's event loop and nothing else runs on it but the
-keepalive that holds the session's lease. The work a click asks for does not run
-there: servicing a Beads click shells out to ``bd`` and pushes a scene over HTTP —
+The leg owns the applet's event loop and nothing that blocks may run on it — not
+the work a click asks for, and not the load that runs ahead of the first click.
+What must keep running there is the keepalive that holds the session's lease.
+Servicing a Beads click shells out to ``bd`` and pushes a scene over HTTP —
 both blocking, and ``bd`` may take as long as its own timeout. A slow click
 running *on* the loop would starve the renewal and lapse the very session whose
 menu item was clicked, so the entry would vanish mid-service and the push would
@@ -24,9 +25,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
+from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.applets.latency import ClickLatency
+from punt_lux.applets.runner import ServiceRunner
 from punt_lux.hub_client import LuxHubClient
 from punt_lux.operations import Ok, OpError
 from punt_lux.rest_client import LuxRestClient
@@ -35,11 +37,12 @@ from punt_lux.rest_transport import HubUnavailableError
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from punt_lux.applets.service import AppletService
     from punt_lux.domain.hub.client_identity import ClientIdentity
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["AppletLeg", "AppletService"]
+__all__ = ["AppletLeg"]
 
 # How long to wait before reaching for luxd again when it is down or restarting.
 # The leg's own reconnect handles a live Hub going away; this covers the case
@@ -48,52 +51,24 @@ __all__ = ["AppletLeg", "AppletService"]
 _HUB_RETRY_SECONDS = 2.0
 
 
-@runtime_checkable
-class AppletService(Protocol):
-    """One callback a session owns: the entry it puts up and the work a click does.
-
-    The work is two phases with different deadlines, and the split is the whole
-    reason a menu entry feels like a menu entry. ``acknowledge`` is what the user
-    sees happen and has a budget measured in milliseconds; ``service`` is whatever
-    the entry actually does and may take as long as it takes.
-    """
-
-    @property
-    def callback_id(self) -> str:
-        """The id a click on this entry carries back to the session."""
-        ...
-
-    @property
-    def label(self) -> str:
-        """The entry the display shows under this session's submenu."""
-        ...
-
-    def acknowledge(self, client: LuxRestClient) -> None:
-        """Show the user their click landed — the fastest visible thing there is."""
-        ...
-
-    def service(self, client: LuxRestClient, latency: ClickLatency) -> None:
-        """Do the work a click asks for, pushing whatever it produces via ``client``.
-
-        The stages of that work are timed into ``latency`` and reported with the
-        answer, because a click that was answered in 97 ms and produced a board
-        two seconds later is a different problem from either number alone.
-        """
-        ...
-
-
 @final
 class AppletLeg:
     """A session's live connection to luxd: register on connect, service on click."""
 
     _identity: ClientIdentity
+    _prefetching: set[asyncio.Task[None]]
+    _runner: ServiceRunner
     _service: AppletService
-    __slots__ = ("_identity", "_service")
+    __slots__ = ("_identity", "_prefetching", "_runner", "_service")
 
     def __new__(cls, identity: ClientIdentity, service: AppletService) -> Self:
         self = super().__new__(cls)
         self._identity = identity
         self._service = service
+        self._runner = ServiceRunner(identity, service)
+        # A running prefetch is held here for as long as it runs: a task with no
+        # reference to it may be collected mid-flight.
+        self._prefetching = set()
         return self
 
     async def serve(self) -> None:
@@ -141,10 +116,16 @@ class AppletLeg:
 
         The call is HTTP and therefore blocking, so it runs off the loop — the
         keepalive that holds this session's lease must not wait behind it.
+
+        The entry is up the moment that call returns, and the warm-up behind it
+        starts there: an entry nobody can click yet has nothing to prefetch for,
+        and one that was refused never will.
         """
         result = await asyncio.to_thread(self._register_now)
         if isinstance(result, OpError):
             logger.error("this session's menu entry was refused: %s", result.reason)
+            return
+        self._start_prefetch()
 
     def _register_now(self) -> Ok | OpError:
         """Register the session's callback over REST — the blocking half."""
@@ -152,57 +133,31 @@ class AppletLeg:
             self._service.callback_id, self._service.label
         )
 
+    def _start_prefetch(self) -> None:
+        """Warm the service up behind the handshake, never inside it.
+
+        This runs from ``on_connect``, which the client awaits before it starts
+        its receive loop and before the keepalive that holds this session's lease
+        — so a prefetch awaited here would hold both for as long as it took, and
+        it takes as long as ``bd`` takes. It is a task, and the handshake goes on
+        without it.
+        """
+        task = asyncio.create_task(self._runner.warmed())
+        self._prefetching.add(task)
+        task.add_done_callback(self._prefetching.discard)
+
     async def _on_callback(self, callback_id: str) -> None:
-        """Service a click the Hub pushed, with no poll and no turn in between.
+        """Route a click the Hub pushed, with no poll and no turn in between.
 
         The clock starts here, where the click arrives, because the contract it
-        measures is the user's: from their click to something visible. The work
-        runs on a worker thread because it blocks — an HTTP round trip, then
-        ``bd`` — and the loop it would otherwise occupy is the one renewing this
-        session's lease. A click still starts the moment it arrives; only the
-        waiting happens elsewhere.
+        measures is the user's: from their click to something visible. Only the
+        routing happens on this loop; the work the click asks for is the runner's,
+        and it runs off the loop that renews this session's lease.
         """
         if callback_id != self._service.callback_id:
             logger.warning("no service for callback %r in this session", callback_id)
             return
-        await asyncio.to_thread(self._service_now, ClickLatency(callback_id))
-
-    def _service_now(self, latency: ClickLatency) -> None:
-        """Answer the click, then do its work, absorbing failure either way.
-
-        The order is the point. The visible answer goes first and is measured
-        against its budget; only then does the slow half run, however long it
-        takes. Running them the other way round is what put a database query
-        between a user's click and any sign it had registered.
-
-        A click is not worth the connection. Building the client, both phases, and
-        their pushes all happen inside this boundary, and nothing that goes wrong
-        here reaches the receive loop — an escaping error would end ``listen`` and
-        tear down a socket that is perfectly healthy, so a single bad click would
-        cost the session its leg and its menu entry.
-
-        A Hub that cannot be reached is the ordinary version of that: a restart
-        between the click and the push. It is reported at WARNING because a click
-        that produced nothing is something the user is waiting on, and this
-        process logs at WARNING and above. The transport's own sentence goes with
-        it, because a push that timed out and a luxd that is not running are
-        different problems and only that sentence tells them apart.
-
-        The line saying where the click's time went is reported last and
-        unconditionally, so a click that failed still says which stage it failed
-        in and how long it had been running by then.
-        """
-        try:
-            client = self._rest()
-            with latency.answering():
-                self._service.acknowledge(client)
-            self._service.service(client, latency)
-        except HubUnavailableError as exc:
-            logger.warning("this click rendered nothing — luxd unreachable: %s", exc)
-        except Exception:
-            logger.exception("servicing a click failed; the leg stays up")
-        finally:
-            latency.report()
+        await self._runner.clicked(ClickLatency(callback_id))
 
     @staticmethod
     def _on_event(topic: str, payload: Mapping[str, object]) -> None:
@@ -218,6 +173,6 @@ class AppletLeg:
 
         Built per use rather than held, because the port is luxd's current one: a
         Hub that restarted onto a new port is followed here exactly as the listen
-        client follows it, instead of pushing to a port nobody is on.
+        client follows it, instead of registering against a port nobody is on.
         """
         return LuxRestClient.for_identity(self._identity)

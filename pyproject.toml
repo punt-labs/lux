@@ -242,6 +242,10 @@ reportPrivateUsage = false
 
 [[tool.pyright.executionEnvironments]]
 root = "tests"
+# The repo root, so a test importing a fixture from a sibling test package by its
+# full path (`tests.rest._fakes`) resolves the same way pytest and mypy resolve
+# it. Without it the root is `tests/` and only relative imports resolve.
+extraPaths = ["."]
 reportPrivateUsage = false
 reportUnknownVariableType = false
 reportUnknownArgumentType = false
