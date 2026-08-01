@@ -68,6 +68,16 @@
   teardown removes only what it owns, so it can never strip its successor's
   entries, writer, or subscriptions. The succession rules are
   ProB-model-checked (`docs/listen_lifecycle.tex`).
+- **The bar never shows an entry whose callback has gone.** A reconnect that
+  beats its predecessor's teardown clears the predecessor's entries as it takes
+  the connection, and the bar is now re-pushed at that moment. Before, the
+  clearing was silent and nothing was guaranteed to correct it: the arriving
+  session may register nothing of its own, and clicking a cleared entry found
+  the fault rather than repairing it.
+- **A dropped click says so.** A session's pending-click buffer is bounded, and
+  reaching that bound discards the oldest click — one that was already reported
+  as routed. luxd now logs which connection and which callback lost it, instead
+  of discarding it silently.
 - **A failed click no longer costs the session its menu entry.** A click
   whose board build fails renders the error in the window; a click that
   cannot reach the Hub (a `make restart` mid-click, a slow push) logs

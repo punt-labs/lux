@@ -270,6 +270,6 @@ class HubListenSession:
         invalidates the model this design was checked against.
         """
         detachment = self._clients.detach_listener(self._conn, self)
-        if detachment in {"released_with_callbacks", "session_gone"}:
+        if detachment in {"released_with_callbacks", "released_with_session"}:
             self._menus.mark_menus()
         self._hub.release_writer(self._conn, self.deliver_event)

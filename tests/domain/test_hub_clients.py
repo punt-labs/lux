@@ -378,14 +378,15 @@ def test_a_teardown_releases_the_leg_and_its_callbacks_together() -> None:
     assert session.identity is not None  # the session itself survives the leg
 
 
-def test_a_teardown_after_the_sweep_says_the_session_itself_is_gone() -> None:
-    """Not the same answer as a successor holding the slot, and not the same cue.
+def test_a_teardown_after_the_sweep_is_a_release_not_a_keep() -> None:
+    """The two ways to not hold the slot are not the same answer.
 
-    A lapsed lease takes the session, its slot, and its entries, while its socket
+    A lapsed lease takes the session, its slot, and its entries while its socket
     is still winding down. When that socket's teardown finally runs there is
-    nothing of anyone's to remove — but the bar is still showing entries whose
-    owner has been swept away, so the caller must be told this is not the stale
-    case, where a successor's entries are live and the bar is correct.
+    nothing of anyone's left in the registry to remove — but nobody holds the
+    connection either, and the bar is still showing entries whose owner was swept
+    away. Answering ``kept`` there says a successor's entries are live, which is
+    false, and leaves them on screen.
     """
     clock = _Clock()
     reg = HubClientRegistry(clock)
@@ -395,7 +396,7 @@ def test_a_teardown_after_the_sweep_says_the_session_itself_is_gone() -> None:
     clock.advance(91.0)  # past the 90s cli lease
     assert reg.live_sessions() == {}  # the read sweeps it as it passes
 
-    assert reg.detach_listener(conn, leg) == "session_gone"
+    assert reg.detach_listener(conn, leg) == "released_with_session"
 
 
 def test_a_teardown_that_removed_no_entries_asks_for_no_menu_push() -> None:

@@ -107,16 +107,21 @@ class HubClientRegistry:
         """Release the slot and its callbacks if ``listener`` still holds it.
 
         The comparison and the removal are one critical section, so no registration
-        can land between them and no successor's state can be taken. A session that
-        lost the slot while suspended removes nothing and is told ``kept``; a
-        session the lease sweep already took is told ``session_gone``, which is not
-        the same answer, because in that case nobody holds the connection and the
-        entries the bar is still showing have no owner left.
+        can land between them and no successor's state can be taken.
+
+        Two different situations leave a session not holding the slot, and calling
+        them both ``kept`` is a defect of its own. A session superseded while
+        suspended is genuinely kept: a successor holds the connection, its entries
+        are live, and the bar is right. A session the lease sweep already took is
+        not — nobody holds the connection, the sweep carried off its slot and its
+        entries, and the bar is still showing them. That is a release, and it is
+        told so, because a caller reading it as a keep leaves orphan entries on
+        screen.
         """
         with self._lock:
             session = self._sessions.get(connection_id)
             if session is None:
-                return "session_gone"
+                return "released_with_session"
             released = session.detached(listener)
             if released is None:
                 return "kept"

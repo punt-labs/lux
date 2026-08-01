@@ -53,26 +53,37 @@ the first's socket has gone but before its teardown has run (C3).
 | T6 | Teardown releases this session's **own** writer and subscriptions on every path | covered — `a_superseded_leg_takes_the_subscriptions_it_made_when_it_goes`, `release_writer_takes_the_departing_legs_subscriptions_only` |
 | T7 | A stale teardown leaves the successor's writer and subscriptions alone | covered — `a_stale_teardown_leaves_the_successors_subscriptions_and_writer` publishes on the survivor's topic |
 | T8 | The session, its identity, and its lease survive any teardown | covered — `a_departed_connections_menu_items_leave_with_it` asserts the survivor |
-| T9 | Teardown after the **lease sweep**: no session at all; the writer and subscriptions still go, and the bar is re-pushed | covered — `a_swept_session_still_has_its_writer_and_subscriptions_released`, `a_teardown_after_the_sweep_says_the_session_itself_is_gone` |
+| T9 | Teardown after the **lease sweep**: no session at all; the writer and subscriptions still go, and the bar is re-pushed | covered — `a_swept_session_still_has_its_writer_and_subscriptions_released`, `a_teardown_after_the_sweep_is_a_release_not_a_keep`; model-checked as Invariant 5 |
 
-T6 and T9 apply the model's ownership clause to state the model abstracts.
-`listen_lifecycle.tex` tracks the subscriptions only at connection granularity —
-`TeardownDisconnect` removes "the pub-sub writer and the subscriptions" in one
-step, with no component standing for who registered which — so the model's third
-consequence ("if this session is still the listener, clear the listener and the
-callbacks together, then run the disconnect cascade; otherwise remove nothing at
-all") reads, at that granularity, as *skip the cascade when stale*. Refined to
-the handler, the same clause reads differently and more exactly: a teardown
-removes what it owns by object identity and skips what belongs to others. A
-subscription handler is a bound method of the session that registered it, so it
-names its owner unambiguously; removing by that identity takes nothing a
-successor installed, on any path. That is strictly stronger than skipping, and it
-cannot introduce the cross-session removal Invariant 3 forbids — a compare that
-fails removes nothing. The same reasoning guards the writer binding, which the
-model removes unguarded (sound there only because the cascade shares one loop run
-with the detach that authorised it): comparing before removing preserves
-Invariant 1 under strictly more interleavings than the model requires, so no
-re-run of the model was needed.
+T6 and T9 are the model's ownership clause carried onto Hub-side state, and the
+model was amended to state them rather than left to be argued around.
+
+Two things were wrong in the model as written. Its `Sweep` cleared the
+callbacks, the pending registrations, and the hold, but left the *listener*
+installed — a state the implementation cannot occupy, because the slot is a
+field of the very session object the reap deletes; the model was then asserting
+Invariant 1 over unreachable states. And its teardown had no clause holding a
+session to releasing its own Hub-side state on the path where it does not hold
+the slot. `Sweep` now clears the listener and the incumbent ghost, and both
+teardown paths release the writer by identity ($writer \setminus \{s\}$).
+
+What `Sweep` deliberately does **not** clear is the writer. It is bound in the
+Hub, a store the registry's reap cannot reach, so it outlives the sweep and only
+the session's own teardown can withdraw it. Modelling the sweep as clearing it
+would have described a cleanup that does not happen and hidden the defect. The
+new Invariant 5 — no session in `sdone` still holds the writer — is what holds
+the teardown to it, and fidelity variant 5 reproduces the defect in five steps
+when the release clause is removed, while Invariants 1–3 stay unreachable
+throughout. That last part is the point: guarding the slot does not imply
+releasing the writer, so each needs its own statement.
+
+Subscriptions are not a component of the model; the writer stands for them
+term-for-term. Both are Hub-side, connection-keyed, installed by one session,
+untouched by the registry's sweep, and removable only by the handler's own
+identity — a bound method of the session that registered it, which names its
+owner unambiguously. Every argument Invariant 5 makes about the writer is the
+same argument for the handler, which is why the implementation releases them in
+one step.
 
 T5 is the regression test for defect (A), written against the model's trace:
 connect A, connect B under the same identity, register from B, let A's teardown
@@ -147,9 +158,10 @@ deserve a second look, because the fix changes the code they exercise:
 Of thirty-five partitions, thirty-three are covered. The two that remain are H9 (a
 click routed *during* a teardown lands in a hold nothing drains) and H10 (a
 pumping session's keepalive holds the entry open indefinitely). Neither is an
-invariant break: H9 is a nuisance the bounded hold absorbs, and H10 is the
-property that made a clobbered state permanent — which, with the clobber ruled
-out, no longer has a state to preserve.
+invariant break: H9 is a nuisance the bounded hold absorbs — and one it now
+reports rather than swallows — and H10 is the property that made a clobbered
+state permanent, which, with the clobber ruled out, no longer has a state to
+preserve.
 
 Every partition that was a gap before the fix was a lifecycle case: two sessions
 on one connection, a teardown that is not the current owner's, or a registration

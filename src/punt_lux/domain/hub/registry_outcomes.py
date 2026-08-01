@@ -30,12 +30,24 @@ ListenerAttachment = Literal["attached", "attached_over_callbacks"]
 # since identifying is itself a renewal.
 CallbackRegistration = Literal["registered", "superseded", "declined"]
 
-# What a teardown did to the connection's slot. ``kept`` is the stale case: a
-# successor holds the slot, so nothing was removed and the bar still shows entries
-# that are live. ``session_gone`` is the lapsed case: the sweep took the session,
-# its slot and its entries with it, while this socket was still winding down. The
-# other two released the slot here, differing only in whether menu items went with
-# it. Every outcome but ``kept`` is the caller's cue to re-push the bar.
+# What a teardown found the connection's slot to be. Exactly one outcome is a
+# keep, and the distinction that matters is what the bar is showing afterwards.
+#
+#   kept                      a successor holds the slot; its entries are live and
+#                             the bar is right, so nothing here may be removed.
+#   released                  this session held the slot and owned no entries.
+#   released_with_callbacks   this session held the slot, and its entries went
+#                             with it.
+#   released_with_session     the lease lapsed and the sweep took the whole
+#                             session — slot, entries, and all — while this socket
+#                             was still winding down. Nobody holds the connection,
+#                             so this is a release like the two above and not a
+#                             keep: reading it as one leaves the bar showing
+#                             entries with no owner left.
+#
+# Every outcome but ``kept`` and bare ``released`` is the caller's cue to re-push
+# the bar. None of them decides what happens to the session's own Hub-side state,
+# which is released by identity on every path.
 ListenerDetachment = Literal[
-    "kept", "session_gone", "released", "released_with_callbacks"
+    "kept", "released", "released_with_callbacks", "released_with_session"
 ]

@@ -76,7 +76,7 @@ happened, with nothing that will ever withdraw it.
 
 This document models the leg as a finite state machine over a small
 fixed set of sessions and callbacks, so that ProB can enumerate every
-interleaving and either confirm the three safety invariants or produce
+interleaving and either confirm the four safety invariants or produce
 the exact offending trace.
 
 \paragraph{Concurrency model.}
@@ -142,8 +142,9 @@ detaching step has fired and the disconnect cascade is still to run.
 
 Whether the connection's registry entry is still within its lease.  Any
 recorded contact renews it; it lapses only when no session is attached,
-and the sweep that follows takes the entry's callbacks and its hold with
-it.
+and the sweep that follows takes the whole registry entry --- its
+callbacks, its hold, and its listener slot.  What the sweep cannot take
+is the writer, which is bound in the Hub rather than on the entry.
 
 % ============================================================
 \section{State}
@@ -338,9 +339,20 @@ run token, so no reconnect can interleave before the disconnect cascade.
 \end{schema}
 
 \texttt{TeardownStale} is the other case: the session is no longer the
-listener, so a successor has taken the connection and every piece of
-connection-bound state now belongs to that successor.  The stale session
-removes nothing and finishes.
+listener.  Two different situations reach it, and conflating them is a
+defect of its own.  Either a successor has taken the connection, and the
+slot and its callbacks now belong to that successor; or the lease
+lapsed and the sweep took the session out from under a socket that was
+still winding down, and nobody holds the connection at all.
+
+The slot and its callbacks are untouched either way --- there is nothing
+here this session may remove.  Its \emph{own writer} is another matter,
+and it is released on this path too, guarded by identity: $writer
+\setminus \{ s? \}$ removes the binding when it is still this session's
+and removes nothing when a successor has replaced it.  Without that
+clause a swept session leaves its writer bound with nothing left in the
+system that could ever withdraw it (Section~\ref{sec:fidelity},
+variant~5).
 
 \begin{schema}{TeardownStale}
   \Delta Leg \\
@@ -351,7 +363,7 @@ removes nothing and finishes.
   listener \neq \{ s? \} \\
   phase' = phase \oplus \{ s? \mapsto sdone \} \\
   listener' = listener \\
-  writer' = writer \\
+  writer' = writer \setminus \{ s? \} \\
   incumbent' = incumbent \\
   owner' = owner \\
   gated' = gated \\
@@ -362,9 +374,14 @@ removes nothing and finishes.
 \end{schema}
 
 \texttt{TeardownDisconnect} is the Hub's disconnect cascade --- the
-pub-sub writer and the subscriptions --- which runs only after a
-successful detach and while the run token is still held, so it cannot
-reach a successor's writer.
+pub-sub writer and the subscriptions --- which runs after a successful
+detach, while the run token is still held.  The removal is by the
+writer's own identity, $writer \setminus \{ s? \}$, the same clause
+\texttt{TeardownStale} carries: the two paths differ in what they do to
+the slot, never in what they do to the session's own Hub-side state.
+The \texttt{clobbered} ghost is kept on this step even though the guard
+makes it unwritable, so that removing the guard is caught rather than
+merely allowed.
 
 \begin{schema}{TeardownDisconnect}
   \Delta Leg \\
@@ -373,7 +390,7 @@ reach a successor's writer.
   phase~s? = stearing \\
   looprun = \{ s? \} \\
   phase' = phase \oplus \{ s? \mapsto sdone \} \\
-  writer' = \emptyset \\
+  writer' = writer \setminus \{ s? \} \\
   looprun' = \emptyset \\
   clobbered' = \\
   \quad~ \IF writer \subseteq \{ s? \} \THEN clobbered \\
@@ -582,8 +599,20 @@ sweep that would clear a wrongly-emptied entry never runs.
   clobbered' = clobbered
 \end{schema}
 
-\texttt{Sweep} is the opportunistic reap on a lapsed lease: the entry's
-callbacks, its pending registrations, and its hold all go.
+\texttt{Sweep} is the opportunistic reap on a lapsed lease.  Everything
+the registry holds for the session goes with the session record: its
+callbacks, its pending registrations, its hold, and its \emph{listener
+slot}, because the slot is a field of the session object the reap
+deletes.  A model that left the listener installed after a sweep would
+describe a state the implementation cannot occupy, and would then assert
+Invariant~1 over it.  The \texttt{incumbent} ghost goes for the same
+reason: a session the registry has reaped is no longer one the design
+promises to keep push-reachable.
+
+What does \emph{not} go is the writer.  It is bound in the Hub, a
+separate store the registry's reap cannot reach, so it outlives the
+sweep and only the session's own teardown can withdraw it.  That
+asymmetry is real, and Invariant~5 is what holds the teardown to it.
 
 \begin{schema}{Sweep}
   \Delta Leg
@@ -592,10 +621,10 @@ callbacks, its pending registrations, and its hold all go.
   owner' = \emptyset \\
   gated' = \emptyset \\
   held' = \emptyset \\
+  listener' = \emptyset \\
+  incumbent' = \emptyset \\
   phase' = phase \\
-  listener' = listener \\
   writer' = writer \\
-  incumbent' = incumbent \\
   leased' = leased \\
   looprun' = looprun \\
   clobbered' = clobbered
@@ -606,7 +635,7 @@ callbacks, its pending registrations, and its hold all go.
 \label{sec:inv}
 % ============================================================
 
-Four properties must hold across all reachable states.  None is placed
+Five properties must hold across all reachable states.  None is placed
 in the \texttt{Leg} schema: a predicate placed there would be enforced
 as a guard on every successor, silently disabling any operation that
 would break it and thereby masking the very defect this model exists to
@@ -642,6 +671,20 @@ shared state, so its emptiness is a property of the transition relation
 expressed as a property of a state, and ProB reports the offending trace
 rather than merely the offending state.
 
+\paragraph{Invariant 5 --- a departed session leaves no writer behind.}
+No session that has finished still holds the connection's writer:
+\[
+  \forall s : SESSION @ phase~s = sdone \implies s \notin writer.
+\]
+This is the Hub-side counterpart of Invariant~1.  Invariant~1 says a
+live session stays reachable; Invariant~5 says a dead one stops being
+reachable, which is a different failure and needs its own statement.
+The writer is bound in the Hub, so no sweep of the registry can reclaim
+it: if a teardown declines to release it, it stays bound for the life of
+the process, and every publish on a topic it subscribed to goes on
+feeding a session that is gone.  It is what a teardown that skips its
+own Hub-side state breaks (Section~\ref{sec:fidelity}, variant~5).
+
 \paragraph{Invariant 4 --- deadlock freedom.}
 No reachable state leaves the system unable to progress.  The only
 mutual-exclusion device is \texttt{looprun}, taken by
@@ -661,9 +704,9 @@ Type-checking is a \texttt{fuzz} pass:
   fuzz -t docs/listen_lifecycle.tex
 \end{verbatim}
 
-Invariants 1--3 are state properties, checked by asking ProB whether
-their negation is \emph{reachable}.  A goal that is not found means the
-invariant holds on every reachable state:
+Invariants 1--3 and 5 are state properties, checked by asking ProB
+whether their negation is \emph{reachable}.  A goal that is not found
+means the invariant holds on every reachable state:
 \begin{verbatim}
   # Invariant 1 (must report: goal NOT found)
   probcli docs/listen_lifecycle.tex -model_check -nodead \
@@ -678,6 +721,11 @@ invariant holds on every reachable state:
   # Invariant 3 (must report: goal NOT found)
   probcli docs/listen_lifecycle.tex -model_check -nodead \
     -goal "clobbered /= {}" \
+    -p DEFAULT_SETSIZE 2
+
+  # Invariant 5 (must report: goal NOT found)
+  probcli docs/listen_lifecycle.tex -model_check -nodead \
+    -goal "#ss.(ss : SESSION & phase(ss) = sdone & ss : writer)" \
     -p DEFAULT_SETSIZE 2
 \end{verbatim}
 
@@ -695,10 +743,10 @@ singletons --- since ProB carries a state schema's predicate as a
 machine invariant.
 
 \paragraph{Results.}
-At \texttt{DEFAULT\_SETSIZE 2} the reachable space is 3\,136 states over
-14\,545 transitions, every operation covered, no deadlock, and all three
+At \texttt{DEFAULT\_SETSIZE 2} the reachable space is 3\,142 states over
+14\,563 transitions, every operation covered, no deadlock, and all four
 goals reported \emph{not found}.  At \texttt{DEFAULT\_SETSIZE 3} --- three
-sessions and three callbacks --- it is 277\,136 states over 1\,885\,113
+sessions and three callbacks --- it is 277\,163 states over 1\,885\,221
 transitions, again exhaustive, again with no counter-example to any goal.
 Two sessions are enough to exhibit every defect of
 Section~\ref{sec:fidelity}; three confirm that nothing depends on the
@@ -726,9 +774,19 @@ must be a single critical section.
     with the write reinstates the gap.
   \item \textbf{Teardown} (\texttt{TeardownDetach} /
     \texttt{TeardownStale}).  If this session is still the listener,
-    clear the listener and the callbacks together, then run the
-    disconnect cascade; otherwise remove nothing at all.
+    clear the listener and the callbacks together; otherwise leave both
+    alone.  Either way release this session's \emph{own} Hub-side state,
+    by its own identity: the slot decides what belongs to whoever holds
+    it, and the writer belongs to the session that bound it.
 \end{enumerate}
+
+Those two removals answer different questions and must not be collapsed
+into one.  ``Am I still the listener?'' decides the slot and its
+callbacks.  ``Is this writer still mine?'' decides the Hub-side state,
+and it has a different answer in the case the sweep has already taken
+the session: nobody holds the slot, so the first question says leave
+everything, while the second correctly says take the writer.  Reading
+the first answer as covering both is variant~5.
 
 Two structural consequences follow, and neither is optional.
 
@@ -888,8 +946,43 @@ nothing to close, because the recommended fix already places the
 listener slot and the callback set under one lock, where clearing both
 is one operation.
 
-Each of the four variants is therefore necessary, and together they are
-sufficient: with all four clauses in place the model is exhaustively
+\subsection*{Variant 5 --- the teardown that skips its own Hub-side state}
+
+Restore everything and instead replace \texttt{writer' = writer
+$\setminus$ \{s?\}} in \texttt{TeardownStale} with \texttt{writer' =
+writer}.  This is the teardown that treats ``I am not the listener'' as
+``none of this is mine'', which reads correctly for the slot and is
+wrong for the writer.  The trace needs no successor at all:
+
+\begin{enumerate}
+  \item \texttt{Connect(A)}: $A$ is the listener, the writer, and the
+    incumbent.
+  \item \texttt{Drop(A)}: the socket goes; $A$ suspends in the
+    \texttt{finally}, still holding everything.
+  \item \texttt{LeaseLapse}, \texttt{Sweep}: the lease lapses while the
+    socket winds down and the reap takes the session record --- with it
+    the listener slot, the callbacks, and the incumbent ghost.  The
+    writer is in the Hub, so it stays.
+  \item \texttt{TeardownStale(A)}: $A$ resumes, finds it is not the
+    listener, and removes nothing.
+\end{enumerate}
+
+The resulting state has \texttt{phase A = sdone} with \texttt{writer =
+\{A\}} --- Invariant~5.  Nothing can repair it: the registry has already
+forgotten the session, so no later sweep reaches the Hub, and the entry
+that could have been overwritten by a reconnect never is if the process
+is gone for good.  In the implementation this is the dead session's
+\texttt{deliver\_event} left subscribed, filling an outbound queue whose
+write task was cancelled.
+
+The trace is short and needs no pathology: a client may declare a lease
+as short as five seconds while the keepalive cadence is fifteen, so the
+lapse in step~3 is ordinary operation, not a stall.  Invariants~1--3 stay
+unreachable throughout, which is the point --- the ownership guard on the
+slot does not imply the release of the writer, and each has to be stated.
+
+Each of the five variants is therefore necessary, and together they are
+sufficient: with all five clauses in place the model is exhaustively
 clean.
 
 \end{document}
