@@ -7,7 +7,7 @@ every way it can fail becomes something they can see, because a click that
 produces nothing visible is indistinguishable from a broken menu.
 
 It holds no board, so it never displaces one — see
-:class:`~punt_lux.applets.board_cache.CachedBoard` for the order that decides.
+:class:`~punt_lux.applets.board_order.BoardOrder` for the order that decides.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ import logging
 from typing import TYPE_CHECKING, final
 
 from punt_lux.applets.beads_source import BoardUnavailableError
+from punt_lux.applets.board_order import BoardOrder
 from punt_lux.applets.held_board import HeldBoard
 
 if TYPE_CHECKING:
@@ -38,11 +39,6 @@ _PUSHED = "pushed"
 # modelled: the reason itself is a traceback, which belongs in the log.
 _UNBUILDABLE = "the beads board could not be built — see the session log"
 
-# Where a state holding no board sits in the order boards loaded: before every
-# board there has been or will be, so it is older than anything it might
-# displace. Boards themselves are numbered from zero.
-_BEFORE_ANY_BOARD = -1
-
 
 @final
 class NoBoard:
@@ -51,9 +47,9 @@ class NoBoard:
     __slots__ = ()
 
     @property
-    def loaded_at(self) -> int:
-        """Before every board: this is the state there was before any loaded."""
-        return _BEFORE_ANY_BOARD
+    def began_at(self) -> BoardOrder:
+        """Before every load: this is the state there was before any began."""
+        return BoardOrder.before_any_load()
 
     def newer_of(self, held: CachedBoard) -> CachedBoard:
         """Whatever is already held — a state with no board displaces nothing.
@@ -81,21 +77,22 @@ class NoBoard:
         """
         try:
             with work.stage(_FETCHED):
-                issues = work.issues()
+                read = work.issues()
             with work.stage(_BUILT):
-                board = work.board(issues)
+                built = work.board(read)
         except BoardUnavailableError as exc:
-            self._show(work, work.unavailable(str(exc)))
+            self._show_reason(work, work.unavailable(str(exc)))
             return self
         except Exception:
             logger.exception("building the beads board failed")
-            self._show(work, work.unavailable(_UNBUILDABLE))
+            self._show_reason(work, work.unavailable(_UNBUILDABLE))
             return self
-        self._show(work, board)
-        return HeldBoard(board)
+        with work.stage(_PUSHED):
+            built.push(work)
+        return HeldBoard(built)
 
     @staticmethod
-    def _show(work: BoardWork, request: BoardRequest) -> None:
-        """Push what the user has been waiting for, timing the round trip."""
+    def _show_reason(work: BoardWork, request: BoardRequest) -> None:
+        """Put the red message where the user was waiting, timing the round trip."""
         with work.stage(_PUSHED):
             work.push(request)

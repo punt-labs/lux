@@ -20,12 +20,11 @@ classes rather than one class and a flag:
 
 Two loads can be in flight at once — the warm-up on one worker thread and an
 early click on another, which is the case the warm-up exists for — so a state
-also says where the board it holds sits in the order boards finished loading.
-Boards are numbered from zero as they load; a state holding none sits at -1,
-before them all. That numbering is what lets whoever stores last keep the newer
-board rather than the later-written one, in
-:class:`~punt_lux.applets.board_slot.BoardSlot` — the only place either state is
-stored.
+also says where the load behind the board it holds sits in the order loads began,
+as a :class:`~punt_lux.applets.board_order.BoardOrder`. That order is what lets
+whoever stores last keep the board with the newer issues rather than the
+later-written one, in :class:`~punt_lux.applets.board_slot.BoardSlot` — the only
+place either state is stored.
 """
 
 from __future__ import annotations
@@ -34,6 +33,7 @@ from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from punt_lux.applets.board_load import BoardRequest
+    from punt_lux.applets.board_order import BoardOrder
     from punt_lux.applets.board_work import BoardWork
 
 __all__ = ["CachedBoard"]
@@ -43,12 +43,12 @@ class CachedBoard(Protocol):
     """What a click shows before its fresh load lands, and what happens after."""
 
     @property
-    def loaded_at(self) -> int:
-        """Where the board this holds sits in the order boards loaded in."""
+    def began_at(self) -> BoardOrder:
+        """Where the load behind the board this holds sits in the order they began."""
         ...
 
     def newer_of(self, held: CachedBoard) -> CachedBoard:
-        """Whichever of this state and *held* holds the board that loaded last."""
+        """Whichever of this state and *held* holds the board whose load began last."""
         ...
 
     def opening(self, work: BoardWork) -> BoardRequest:

@@ -6,10 +6,10 @@ know nothing of each other, and every test here asks the same question — after
 both have stored, which board is the next click going to answer with?
 
 The answer must not depend on who stored last. A click's load can fail while the
-warm-up's board is landing, and a warm-up that started first can finish storing
+warm-up's board is landing, and a warm-up that began first can finish storing
 after a click that read fresher issues. In both cases the slot keeps the board
-that finished loading last, and a state holding no board never displaces one that
-does.
+from the load that began last, and a state holding no board never displaces one
+that does.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from __future__ import annotations
 import threading
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.applets.board_load import BoardLoad, BoardRequest
+from punt_lux.applets.board_load import BoardLoad
 from punt_lux.applets.board_slot import BoardSlot
 from punt_lux.applets.held_board import HeldBoard
 from punt_lux.applets.no_board import NoBoard
@@ -28,6 +28,8 @@ from .board_doubles import GATE_SECONDS, ISSUE, Source
 
 if TYPE_CHECKING:
     from punt_lux.applets.board_cache import CachedBoard
+    from punt_lux.applets.board_load import BoardRequest
+    from punt_lux.applets.board_order import BoardOrder
     from punt_lux.applets.board_work import BoardWork
 
 # Enough writers to interleave on a real machine without making the test slow.
@@ -39,10 +41,10 @@ _WRITERS = 16
 _CROSSING_SECONDS = 0.05
 
 
-def _board() -> BoardRequest:
-    """A board that loaded, of the shape a real one has."""
+def _held() -> HeldBoard:
+    """A board that loaded, holding the place its load took as a real one does."""
     source = Source(BeadsRows.of([ISSUE]))
-    return BoardLoad(BeadsBoard.for_project("lux"), source).fresh()
+    return HeldBoard(BoardLoad(BeadsBoard.for_project("lux"), source).fresh())
 
 
 @final
@@ -68,8 +70,8 @@ class Crossing:
         return self
 
     @property
-    def loaded_at(self) -> int:
-        return self._held.loaded_at
+    def began_at(self) -> BoardOrder:
+        return self._held.began_at
 
     def newer_of(self, held: CachedBoard) -> CachedBoard:
         """Say the store is under way, and hold it there until it is released."""
@@ -94,7 +96,7 @@ class Crossing:
 
 def test_a_board_answers_where_there_was_none() -> None:
     slot = BoardSlot()
-    held = HeldBoard(_board())
+    held = _held()
 
     slot.store(held)
 
@@ -111,7 +113,7 @@ def test_a_state_with_no_board_never_displaces_one_that_has_it() -> None:
     that arrived meanwhile would cost the next click the whole query.
     """
     slot = BoardSlot()
-    held = HeldBoard(_board())
+    held = _held()
     slot.store(held)
 
     slot.store(NoBoard())
@@ -120,15 +122,15 @@ def test_a_state_with_no_board_never_displaces_one_that_has_it() -> None:
 
 
 def test_the_board_that_loaded_last_wins_however_late_the_older_one_lands() -> None:
-    """Which writer stored last does not decide it; which load finished last does.
+    """Which writer stored last does not decide it; which load began last does.
 
     A warm-up that began before a click can still be storing after that click has
     finished. The issues it read are the older ones, and arriving late does not
     make them newer.
     """
     slot = BoardSlot()
-    older = HeldBoard(_board())
-    newer = HeldBoard(_board())
+    older = _held()
+    newer = _held()
 
     slot.store(newer)
     slot.store(older)
@@ -139,8 +141,8 @@ def test_the_board_that_loaded_last_wins_however_late_the_older_one_lands() -> N
 def test_a_board_that_loaded_later_replaces_the_one_held() -> None:
     """The ordinary case the cache is for: a fresh board takes the stale one's place."""
     slot = BoardSlot()
-    older = HeldBoard(_board())
-    newer = HeldBoard(_board())
+    older = _held()
+    newer = _held()
 
     slot.store(older)
     slot.store(newer)
@@ -158,8 +160,8 @@ def test_a_writer_cannot_cross_a_store_already_under_way() -> None:
     does not get through — its board is written after, and it is the one kept.
     """
     slot = BoardSlot()
-    crossed = Crossing(HeldBoard(_board()))
-    newer = HeldBoard(_board())
+    crossed = Crossing(_held())
+    newer = _held()
 
     first = threading.Thread(target=slot.store, args=(crossed,))
     first.start()
@@ -181,10 +183,10 @@ def test_the_newest_board_survives_writers_storing_at_once() -> None:
     Two threads is the real case and this is more, because a comparison and a
     write that are not one step drop a board only on the interleaving that lands
     between them. Whatever order these arrive in, the slot ends up holding the
-    board that loaded last.
+    board from the load that began last.
     """
     slot = BoardSlot()
-    boards = [HeldBoard(_board()) for _ in range(_WRITERS)]
+    boards = [_held() for _ in range(_WRITERS)]
     ready = threading.Barrier(_WRITERS)
 
     def store(held: HeldBoard) -> None:

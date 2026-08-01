@@ -6,13 +6,13 @@ overlap by design: an early click during warm-up is the case the warm-up exists
 for, so the two are expected to be in flight at once.
 
 Both end in a store, and the read-modify-write in between takes as long as ``bd``
-takes, so neither may simply assign. The rule instead is that the board which
-finished loading last is the one kept, and a state holding no board never
+takes, so neither may simply assign. The rule instead is that the board from the
+load which began last is the one kept, and a state holding no board never
 displaces one that does. Under it a store is a maximum over a total order, so
-boards may be stored in any order and the slot still ends up holding the newest
-one. Without it, a click whose ``bd`` failed while the warm-up was landing would
-write its empty state over the board that had just arrived, and the next click
-would be cold again — the one cost the warm-up exists to prevent.
+boards may be stored in any order and the slot still ends up holding the one with
+the newest issues. Without it, a click whose ``bd`` failed while the warm-up was
+landing would write its empty state over the board that had just arrived, and the
+next click would be cold again — the one cost the warm-up exists to prevent.
 
 The lock is the whole of the coordination. There is one, it is taken nowhere
 else, and it is never held across a load or a push: what runs inside it is a
@@ -55,6 +55,6 @@ class BoardSlot:
             return self._held
 
     def store(self, loaded: CachedBoard) -> None:
-        """Keep *loaded*, unless what is here holds a board that loaded later."""
+        """Keep *loaded*, unless what is here holds a board whose load began later."""
         with self._lock:
             self._held = loaded.newer_of(self._held)

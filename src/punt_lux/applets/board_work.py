@@ -1,10 +1,9 @@
 """BoardWork — one click's work: what to load, where to push it, and the clock.
 
 The three travel together through every phase of a click — the answer, the load
-behind it, the push that ends it — so they travel as one object rather than as
-three parameters threaded down each path. It is also what keeps the two states in
-:mod:`punt_lux.applets.board_cache` from reaching through a load to a client:
-they are handed the work and tell it what to do.
+behind it, the push that ends it — so they travel as one object rather than three
+parameters threaded down each path. It is also what keeps the two states in
+:mod:`punt_lux.applets.board_cache` from reaching past a load to a client.
 """
 
 from __future__ import annotations
@@ -15,8 +14,9 @@ if TYPE_CHECKING:
     from contextlib import AbstractContextManager
 
     from punt_lux.applets.board_load import BoardLoad, BoardRequest
+    from punt_lux.applets.board_read import BoardRead
+    from punt_lux.applets.built_board import BuiltBoard
     from punt_lux.applets.latency import ClickLatency
-    from punt_lux.apps.beads_load import BeadsLoad
     from punt_lux.rest_client import LuxRestClient
 
 __all__ = ["BoardWork"]
@@ -52,16 +52,16 @@ class BoardWork:
         """Raise the board's frame; say whether the user already has the board."""
         return self._load.showing(self._client)
 
-    def issues(self) -> BeadsLoad:
+    def issues(self) -> BoardRead:
         """Read the issues, noting where the run's time went, or raise."""
-        self.note((loaded := self._load.issues()).summary())
-        return loaded
+        self.note((read := self._load.issues()).summary())
+        return read
 
-    def board(self, issues: BeadsLoad) -> BoardRequest:
-        """Build the board those issues make."""
-        return self._load.board(issues)
+    def board(self, read: BoardRead) -> BuiltBoard:
+        """Build the board those issues make, at the place their read began."""
+        return self._load.board(read)
 
-    def fresh(self) -> BoardRequest:
+    def fresh(self) -> BuiltBoard:
         """Read the issues and build their board, for a click not timing the two."""
         return self._load.board(self.issues())
 

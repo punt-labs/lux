@@ -156,24 +156,34 @@ GATE_SECONDS = 5.0
 
 @final
 class Gated:
-    """A source whose first load hangs until released, and then fails.
+    """A source whose first load hangs until released, while a later one overtakes.
 
-    The interleaving two loading threads can produce, made deterministic. A click
-    reads the applet's state, its own load hangs here, the warm-up behind it loads
-    a board and stores one, and only then does the click's load fail. Stored
-    without a rule about which board is newer, that failure lands on top of the
-    board that just arrived and the next click is cold again.
+    The interleaving two loading threads can produce, made deterministic. One
+    load begins, hangs here, and is released only after the load that started
+    behind it has finished and stored — so the two arrive in the opposite order
+    to the one they began in, which is the order that decides between them.
+
+    What the gated load ends with says which case is under test. It fails by
+    default: a click whose ``bd`` died while the warm-up's board was landing.
+    Given rows instead, it is the load that began first and returned last, whose
+    issues are the older ones however late its board arrives.
     """
 
     _result: BeadsResult
+    _gated: BeadsResult
     _loads: int
     _reached: threading.Event
     _released: threading.Event
-    __slots__ = ("_loads", "_reached", "_released", "_result")
+    __slots__ = ("_gated", "_loads", "_reached", "_released", "_result")
 
-    def __new__(cls, result: BeadsResult) -> Self:
+    def __new__(cls, result: BeadsResult, gated: BeadsResult | None = None) -> Self:
         self = super().__new__(cls)
         self._result = result
+        # Absent means the gated load fails — the case the ordering rule was
+        # first written for, where nothing is held to write back.
+        self._gated = (
+            gated if gated is not None else BeadsFailure("bd: connection refused")
+        )
         self._loads = 0
         self._reached = threading.Event()
         self._released = threading.Event()
@@ -186,7 +196,7 @@ class Gated:
             return loaded(self._result)
         self._reached.set()
         self._released.wait(timeout=GATE_SECONDS)
-        return loaded(BeadsFailure("bd: connection refused"))
+        return loaded(self._gated)
 
     def reached(self) -> None:
         """Block until the gated run is in flight, so the next one crosses it."""

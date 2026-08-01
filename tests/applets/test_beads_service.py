@@ -39,6 +39,11 @@ from .board_doubles import (
 if TYPE_CHECKING:
     import pytest
 
+# Two boards a test can tell apart on sight, so that the id a later click
+# answers with says which of two overlapping loads the applet kept.
+_STALE = ISSUE | {"id": "lux-stale"}
+_FRESH = ISSUE | {"id": "lux-fresh"}
+
 
 def _service(source: Source | ThenFails | Gated) -> BeadsService:
     return BeadsService(BoardLoad(BeadsBoard.for_project("lux"), source))
@@ -359,6 +364,33 @@ def test_a_board_that_arrives_mid_click_outlives_the_click_that_failed() -> None
     service.acknowledge(answering, ClickLatency("beads"))  # type: ignore[arg-type]  # structural stand-in
     assert len(answering.tables) == 1
     assert answering.scenes == []
+
+
+def test_the_board_from_the_load_that_began_last_is_the_one_kept() -> None:
+    """A warm-up that began before a click must not displace the click's board.
+
+    A board's issues are as old as the query that read them, and that query's
+    snapshot is fixed when it starts. So the warm-up here holds the older issues
+    even though it returns last: it began first. Deciding between the two by
+    which returned last would put the stale board back and hold it there until
+    somebody clicked again.
+    """
+    source = Gated(BeadsRows.of([_FRESH]), gated=BeadsRows.of([_STALE]))
+    service = _service(source)
+    warm = threading.Thread(target=service.prefetch)
+
+    warm.start()
+    source.reached()  # the warm-up's query began first and is in flight
+    _click(service, RecordingClient(frame_is_up=False))  # a later query returns first
+    source.release()  # and only now does the warm-up return, with older issues
+    warm.join(timeout=GATE_SECONDS)
+
+    assert not warm.is_alive()
+
+    # The next click answers with the issues read last, not the board stored last.
+    answering = RecordingClient(frame_is_up=False)
+    service.acknowledge(answering, ClickLatency("beads"))  # type: ignore[arg-type]  # structural stand-in
+    assert [row[0] for row in answering.tables[0].rows] == ["lux-fresh"]
 
 
 def test_a_board_that_could_not_be_prefetched_leaves_the_click_cold(

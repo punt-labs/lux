@@ -5,15 +5,15 @@ it immediately and reloads underneath, so the query nobody wants to watch runs
 behind something real; and a reload that fails leaves it standing, because a
 board a few minutes old is worth more than a red message where the board was.
 
-Each one records where it sits in the order boards loaded, which is what decides
-a race between two loading threads: see
-:class:`~punt_lux.applets.board_cache.CachedBoard`.
+What it holds is the board a load built, which carries the place that load began
+at — and that place is what decides a race between two loading threads. See
+:class:`~punt_lux.applets.built_board.BuiltBoard` and
+:class:`~punt_lux.applets.board_order.BoardOrder`.
 """
 
 from __future__ import annotations
 
 import logging
-from itertools import count
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.applets.beads_source import BoardUnavailableError
@@ -21,7 +21,9 @@ from punt_lux.applets.beads_source import BoardUnavailableError
 if TYPE_CHECKING:
     from punt_lux.applets.board_cache import CachedBoard
     from punt_lux.applets.board_load import BoardRequest
+    from punt_lux.applets.board_order import BoardOrder
     from punt_lux.applets.board_work import BoardWork
+    from punt_lux.applets.built_board import BuiltBoard
 
 logger = logging.getLogger(__name__)
 
@@ -34,42 +36,32 @@ _REFRESHED = "refreshed"
 # What the click's line says its answer was, when the answer was the real board.
 _FROM_CACHE = "cached board"
 
-# The order boards finished loading in. A counter rather than a clock, because
-# all the rule needs is which of two boards loaded later, and a counter answers
-# that at every clock resolution — including two loads that finished inside the
-# same tick of one.
-_LOADS = count()
-
 
 @final
 class HeldBoard:
     """A board that loaded: the click shows it now and replaces it when it can."""
 
-    _board: BoardRequest
-    _loaded_at: int
-    __slots__ = ("_board", "_loaded_at")
+    _built: BuiltBoard
+    __slots__ = ("_built",)
 
-    def __new__(cls, board: BoardRequest) -> Self:
+    def __new__(cls, built: BuiltBoard) -> Self:
         self = super().__new__(cls)
-        self._board = board
-        # Taken here because here is where a board has just finished loading:
-        # every one of these is built from a load that has this moment returned.
-        self._loaded_at = next(_LOADS)
+        self._built = built
         return self
 
     @property
-    def loaded_at(self) -> int:
-        """Where this board sits in the order boards loaded in."""
-        return self._loaded_at
+    def began_at(self) -> BoardOrder:
+        """Where the load that produced this board sits in the order they began."""
+        return self._built.began_at
 
     def newer_of(self, held: CachedBoard) -> CachedBoard:
-        """This board, unless *held* holds one that loaded after it.
+        """This board, unless *held* holds one whose load began after this one's.
 
-        Which writer stored last does not decide it. A warm-up that began before
-        a click can finish storing after it, and the board it read is the older
-        one however late it arrives.
+        Neither which writer stored last nor which load returned last decides it.
+        A warm-up that began before a click can return and store after it, and
+        the issues it read are the older ones however late its board arrives.
         """
-        return held if held.loaded_at > self._loaded_at else self
+        return held if held.began_at.after(self.began_at) else self
 
     def opening(self, work: BoardWork) -> BoardRequest:
         """The board itself: the click's answer is the real thing, not a stand-in.
@@ -79,7 +71,7 @@ class HeldBoard:
         figure alone cannot tell them apart.
         """
         work.note(_FROM_CACHE)
-        return self._board
+        return self._built.request
 
     def refreshed(self, work: BoardWork) -> CachedBoard:
         """Replace the board in place, or leave the one on screen where it is.
@@ -91,11 +83,15 @@ class HeldBoard:
         board a few minutes old is worth more than a red message where the board
         was — the user asked to look at their issues, and the ones from the last
         load are still very nearly the answer.
+
+        A load that succeeded is held whatever became of the push behind it: a
+        Hub that went away between the query and the round trip has not made the
+        issues any less read.
         """
         try:
             with work.stage(_REFRESHED):
-                board = work.fresh()
-                work.push(board)
+                built = work.fresh()
+                built.push(work)
         except BoardUnavailableError as exc:
             logger.warning(
                 "the board was not refreshed; the one on screen stands: %s", exc
@@ -104,4 +100,4 @@ class HeldBoard:
         except Exception:
             logger.exception("refreshing the board failed; the one on screen stands")
             return self
-        return HeldBoard(board)
+        return HeldBoard(built)

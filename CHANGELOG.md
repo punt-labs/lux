@@ -63,7 +63,11 @@
   them instead of opening "Loading issues…" and waiting. The fresh board
   replaces the standing one in place and never takes focus. A load that fails
   leaves that board standing and says why in the log, so a `bd` that has stopped
-  answering costs a log line rather than the board. A session with no board yet
+  answering costs a log line rather than the board. When the warm-up and a click
+  overlap — the case the warm-up exists for — the board kept is the one whose
+  load *began* last, because a query's snapshot is fixed when it starts: a slow
+  warm-up that returns after a click read fresher issues cannot put the staler
+  ones back on screen. A session with no board yet
   opens the placeholder and waits, exactly as before. The click's line says
   which it was: `click beads: answered 28 ms (cached board), refreshed 4310 ms,
   total 4341 ms` — one figure for the reload, because the user was reading their
