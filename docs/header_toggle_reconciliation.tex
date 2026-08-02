@@ -578,6 +578,63 @@ detects the defect the code was changed to prevent, and that the pending slot
 decision --- is the minimal state that achieves it.
 
 % ============================================================
+\section{Where the Code is Stronger: Superseded Evictions}
+\label{sec:evict}
+% ============================================================
+
+The model abstracts the Display's outbound leg away.  A fire is instantaneous
+here, and \texttt{pending} is cleared only by the three Hub-driven operations.
+The running Display has a fourth clear: an interaction that never reaches the
+Hub --- aged out of \texttt{PendingInteractions} or pushed past its count cap
+--- is \emph{compensated}, which clears the same slot on the grounds that no
+answer for it will ever come.  That is sound, and it refines \texttt{Repush} in
+the direction the model already sanctions: eviction is a rejection that never
+got said.
+
+What the model cannot express is \emph{how many} gestures are outstanding.  Its
+state has one \texttt{pending} value, not a queue of invocations, so a second
+click simply overwrites the first and the two are indistinguishable afterwards.
+The interleaving that matters to the code is therefore outside this state space:
+the user toggles twice in quick succession, the first invocation ages out of the
+buffer while the second is still in flight, and compensating the \emph{older}
+one would clear a slot the \emph{newer} gesture is still speaking for.  The
+Display would show the Hub's value while a live interaction waited to be
+answered --- a double-step reached by a second route, invariant~1's negation
+with the buffer supplying the extra transition.
+
+The implementation is accordingly stronger than the model requires:
+compensation is \emph{conditional}.  An eviction reverts a latch only when it is
+the last of its gesture --- same scene, same element, same event kind --- with
+nothing newer outstanding (\texttt{Evictions.of}, the split taken by the buffer
+at the moment of eviction, while what is still held is known).  Two properties
+make the refinement safe against the invariants proved above:
+
+\begin{itemize}
+  \item \textbf{It only clears less often, never more.}  Conditional
+    compensation is a subset of unconditional compensation, and every state the
+    model reaches by clearing \texttt{pending} it also reaches by
+    \texttt{Repush}.  No new clear is introduced, so invariants 1, 2, 3 and 5
+    are untouched.
+  \item \textbf{No optimism is stranded (invariant~4).}  Eviction is FIFO by
+    hold time, so the newest interaction of a gesture is evicted last, and that
+    last eviction is always compensable.  A gesture held back from compensation
+    is therefore still outstanding, and it ends in one of two ways: the Hub
+    answers it (\texttt{Repush} clears the slot) or it is itself evicted (its
+    own compensation clears it).  Either way the slot has a terminating clear.
+\end{itemize}
+
+Extending the model to prove this directly would mean adding a saturating count
+of outstanding invocations, two eviction operations distinguished by it, and a
+re-derivation of all five invariants and the three fidelity variants --- not the
+one-guard edit the variants in Section~\ref{sec:fidelity} are.  The refinement
+is instead held by tests at the boundary the model abstracts away: an older
+interaction aged out while a newer is held reverts nothing, per latching kind,
+and the newer one still compensates when it is lost in turn
+(\texttt{tests/test\_interaction\_delivery.py},
+\texttt{tests/test\_pending\_interactions.py},
+\texttt{tests/test\_evictions.py}).
+
+% ============================================================
 \section{From the Model to the Code}
 % ============================================================
 

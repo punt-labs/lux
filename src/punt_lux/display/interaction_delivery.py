@@ -5,9 +5,9 @@ The display renders a replica and forwards each interaction (a
 owns that outbound leg: it resolves each event's target client (scene owner, else
 broadcast) and sends it under one shared frame deadline, so a slow peer cannot
 freeze the render thread per event. Events past the first it cannot send stay the
-caller's to re-hold, in order; a held interaction that later ages out of the
-buffer takes its kind's ``Compensation``, which gives up whatever the display was
-holding optimistically for it and returns the widget to Hub truth.
+caller's to re-hold, in order; one that later ages out of the buffer takes its
+kind's ``Compensation``, giving up what the display held optimistically for it —
+unless a newer gesture of the same kind is still speaking for that element.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from punt_lux.tracing import trace
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from punt_lux.display.evictions import Evictions
     from punt_lux.protocol import RemoteEventHandlerInvocation
     from punt_lux.scene import SceneManager
     from punt_lux.socket_server import SocketServer
@@ -100,20 +101,20 @@ class InteractionDelivery:
         ]
         return any(sent)
 
-    def compensate_evicted(
-        self, evicted: Sequence[RemoteEventHandlerInvocation]
-    ) -> None:
+    def compensate_evicted(self, evicted: Evictions) -> None:
         """Revert optimistic display state whose interaction never reached the Hub.
 
         An interaction the buffer evicted (aged or overflowed) never reaches the
         Hub, so no answer for it will come and the display-side latch it fired
         optimistically would render forever against an unchanged Hub — a modal
-        held shut, a table row held selected, a header held open. Eviction is
-        behaviourally a rejection that never got said, and a rejection clears the
-        latch: each kind's ``Compensation`` drops what it was holding and the next
-        frame renders the Hub's value.
+        held shut, a table row held selected, a header held open. Eviction is a
+        rejection that never got said, so each kind's ``Compensation`` drops what
+        it was holding and the next frame renders the Hub's value.
+
+        Only the compensable evictions are reverted: one a newer gesture of the
+        same kind supersedes is left alone, its latch speaking for that gesture.
         """
-        for event in evicted:
+        for event in evicted.compensable:
             self._compensate_one(event)
 
     def _compensate_one(self, event: RemoteEventHandlerInvocation) -> None:

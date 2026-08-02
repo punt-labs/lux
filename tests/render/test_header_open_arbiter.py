@@ -14,6 +14,7 @@ import dataclasses
 from itertools import pairwise
 from typing import TYPE_CHECKING, Any, Self, cast, final
 
+from punt_lux.display.evictions import Evictions
 from punt_lux.display.interaction_delivery import InteractionDelivery
 from punt_lux.display.renderers.imgui import collapsing_header as header_module
 from punt_lux.display.renderers.imgui.collapsing_header import (
@@ -250,10 +251,11 @@ class _HeaderRig:
         up by. The scene id is the one the display's ``_emit_event`` stamps on the
         way out; the socket server is never reached on this path.
         """
+        lost = dataclasses.replace(self._sent[-1], scene_id="scene")
         InteractionDelivery(
             socket_server=cast("Any", None),
             scene_manager=cast("Any", _SceneManagerDouble(self._state)),
-        ).compensate_evicted([dataclasses.replace(self._sent[-1], scene_id="scene")])
+        ).compensate_evicted(Evictions.of([lost], ()))
 
     def repush(self, *, open: bool) -> None:
         """Apply the Hub's answer, as a whole-scene re-push would.

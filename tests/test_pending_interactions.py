@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from punt_lux.display.pending_interactions import PendingInteractions
 from punt_lux.protocol import RemoteEventHandlerInvocation
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 
 def _event(element_id: str, *, kind: str = "clicked") -> RemoteEventHandlerInvocation:
@@ -13,7 +18,7 @@ def _event(element_id: str, *, kind: str = "clicked") -> RemoteEventHandlerInvoc
     )
 
 
-def _ids(events: list[RemoteEventHandlerInvocation]) -> list[str]:
+def _ids(events: Sequence[RemoteEventHandlerInvocation]) -> list[str]:
     return [ev.element_id for ev in events]
 
 
@@ -53,14 +58,15 @@ class TestExpire:
         buf.admit([_event("stale")], now=100.0)
         buf.admit([_event("fresh")], now=104.0)
         evicted = buf.expire(now=104.0)  # stale is 4s old, past the 3s bound
-        assert _ids(evicted) == ["stale"]
+        assert _ids(evicted.lost) == ["stale"]
+        assert _ids(evicted.compensable) == ["stale"]  # nothing newer holds it
         assert _ids(buf.pending_events()) == ["fresh"]
 
     def test_expire_evicts_overflow_oldest_first(self) -> None:
         buf = PendingInteractions(max_age=100.0, max_count=2)
         buf.admit([_event("old"), _event("mid"), _event("new")], now=100.0)
         evicted = buf.expire(now=100.0)
-        assert _ids(evicted) == ["old"]  # oldest pushed out past the cap
+        assert _ids(evicted.lost) == ["old"]  # oldest pushed out past the cap
         assert _ids(buf.pending_events()) == ["mid", "new"]
 
     def test_age_survives_a_discard_so_a_stalled_frame_still_expires(self) -> None:
@@ -72,7 +78,32 @@ class TestExpire:
         buf.discard_prefix(1)  # "delivered" landed; "held" kept its held_at=100
         assert _ids(buf.pending_events()) == ["held"]
         evicted = buf.expire(now=110.0)  # the stalled next frame arrives 10s later
-        assert _ids(evicted) == ["held"]  # aged out on its original clock, not reset
+        assert _ids(evicted.lost) == ["held"]  # aged out on its original clock
+        assert buf.is_empty
+
+    def test_an_eviction_a_still_held_gesture_supersedes_is_not_compensable(
+        self,
+    ) -> None:
+        # Two quick toggles of one header: the first ages out while the second is
+        # still held. The split is taken against the buffer as it stands, so the
+        # older eviction owes nothing -- the second toggle is still speaking.
+        buf = PendingInteractions(max_age=3.0, max_count=128)
+        buf.admit([_event("h", kind="header_toggled")], now=100.0)
+        buf.admit([_event("h", kind="header_toggled")], now=103.5)
+        evicted = buf.expire(now=104.0)  # the first is 4s old
+        assert _ids(evicted.lost) == ["h"]
+        assert evicted.compensable == ()
+        assert _ids(buf.pending_events()) == ["h"]  # the second toggle still held
+
+    def test_a_gesture_lost_whole_compensates_its_last_eviction_only(self) -> None:
+        # Both toggles age out together: nothing is left speaking for the header,
+        # so the newest eviction -- and only it -- hands the latch back.
+        buf = PendingInteractions(max_age=3.0, max_count=128)
+        buf.admit([_event("h", kind="header_toggled")], now=100.0)
+        buf.admit([_event("h", kind="header_toggled")], now=100.5)
+        evicted = buf.expire(now=110.0)
+        assert _ids(evicted.lost) == ["h", "h"]
+        assert evicted.compensable == (evicted.lost[-1],)
         assert buf.is_empty
 
 
@@ -83,12 +114,14 @@ class TestBulkEviction:
         buf = PendingInteractions(max_age=3.0, max_count=128)
         buf.admit([_event("a"), _event("b")], now=100.0)
         evicted = buf.evict_all()  # the display was cleared
-        assert _ids(evicted) == ["a", "b"]
+        assert _ids(evicted.lost) == ["a", "b"]
+        assert _ids(evicted.compensable) == ["a", "b"]  # nothing survives to hold
         assert buf.is_empty
 
     def test_discard_elements_removes_matching_preserving_order(self) -> None:
         buf = PendingInteractions(max_age=3.0, max_count=128)
         buf.admit([_event("keep1"), _event("gone"), _event("keep2")], now=100.0)
         removed = buf.discard_elements({"gone"})  # element was replaced away
-        assert _ids(removed) == ["gone"]
+        assert _ids(removed.lost) == ["gone"]
+        assert _ids(removed.compensable) == ["gone"]  # the element took all of them
         assert _ids(buf.pending_events()) == ["keep1", "keep2"]  # order preserved

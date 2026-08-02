@@ -8,27 +8,27 @@ display-side and vanished. This buffer holds them so a reconnect within the boun
 
 Each held interaction keeps the time it was first held, so the age bound is
 re-checked every flush -- even one a stalled frame delays past the bound. An
-interaction that ages out (or is pushed past the count cap) is returned for
-compensation: an optimistic modal dismiss is reverted so the display reverts to
-Hub truth. Delivery removes a delivered prefix and leaves the rest held, their
-original ages intact, for the next frame.
+interaction that ages out (or is pushed past the count cap) leaves as an
+``Evictions``, which names the ones the caller must compensate: an optimistic
+modal dismiss is reverted so the display returns to Hub truth, while an eviction
+a newer gesture of the same kind supersedes is left alone. Delivery removes a
+delivered prefix and leaves the rest held, their original ages intact, for the
+next frame.
 """
 
 from __future__ import annotations
 
-import logging
 from collections import deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.connection_timing import CONNECTION_TIMING
+from punt_lux.display.evictions import Evictions
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
     from punt_lux.protocol import RemoteEventHandlerInvocation
-
-logger = logging.getLogger(__name__)
 
 __all__ = ["DEFAULT_MAX_AGE", "DEFAULT_MAX_COUNT", "PendingInteractions"]
 
@@ -54,12 +54,12 @@ class _Held:
 class PendingInteractions:
     """A bounded FIFO of interactions awaiting delivery to the Hub.
 
-    ``admit`` adds this frame's interactions; ``expire`` returns the ones that
-    aged or overflowed past the bound (the caller compensates those); a delivery
-    attempt reads ``pending_events`` and then ``discard_prefix`` removes the ones
-    that landed, leaving the rest held -- with their original ages -- for the next
-    frame. Ages are held per event, so a stalled frame cannot make an entry
-    immortal: the very next ``expire`` re-checks it.
+    ``admit`` adds this frame's interactions; ``expire`` evicts the ones that
+    aged or overflowed past the bound (the caller compensates what it names); a
+    delivery attempt reads ``pending_events`` and then ``discard_prefix`` removes
+    the ones that landed, leaving the rest held -- with their original ages --
+    for the next frame. Ages are held per event, so a stalled frame cannot make
+    an entry immortal: the very next ``expire`` re-checks it.
     """
 
     _events: deque[_Held]
@@ -87,22 +87,20 @@ class PendingInteractions:
         """Append this frame's interactions, each stamped with the time held."""
         self._events.extend(_Held(event, now) for event in new)
 
-    def expire(self, now: float) -> list[RemoteEventHandlerInvocation]:
-        """Remove and return interactions aged or overflowed past the bound.
+    def expire(self, now: float) -> Evictions:
+        """Remove interactions aged or overflowed past the bound; split them.
 
         Checked every flush, so an entry a stalled frame carried past ``max_age``
-        is evicted the next time this runs, not left to live forever. The returned
-        events are undeliverable and the caller compensates them.
+        is evicted the next time this runs, not left to live forever. The split
+        against what is still held is taken here rather than left to the caller:
+        a newer gesture is outstanding now even if delivery sends it this frame,
+        and only what is outstanding at eviction distinguishes a lost gesture
+        from a superseded one.
         """
-        evicted = self._evict_aged(now)
-        evicted.extend(self._evict_overflow())
-        if evicted:
-            logger.warning(
-                "%d interaction(s) undeliverable past the %.1fs buffer: %s",
-                len(evicted),
-                self._max_age,
-                [f"{ev.element_id}:{ev.event_kind}" for ev in evicted],
-            )
+        lost = self._evict_aged(now)
+        lost.extend(self._evict_overflow())
+        evicted = Evictions.of(lost, self.pending_events())
+        evicted.log_undeliverable(self._max_age)
         return evicted
 
     def pending_events(self) -> list[RemoteEventHandlerInvocation]:
@@ -114,30 +112,29 @@ class PendingInteractions:
         for _ in range(count):
             self._events.popleft()
 
-    def evict_all(self) -> list[RemoteEventHandlerInvocation]:
-        """Remove and return every held interaction — the display was cleared.
+    def evict_all(self) -> Evictions:
+        """Remove every held interaction — the display was cleared.
 
         A clear removes the UI the held interactions targeted, so they must not
-        deliver against it later; the caller compensates the returned events.
+        deliver against it later. Nothing is left holding, so every gesture's
+        last eviction is the caller's to compensate.
         """
-        evicted = [pending.event for pending in self._events]
+        evicted = Evictions.of((held.event for held in self._events), ())
         self._events.clear()
         return evicted
 
-    def discard_elements(
-        self, element_ids: set[str]
-    ) -> list[RemoteEventHandlerInvocation]:
-        """Remove and return held interactions targeting a now-removed element.
+    def discard_elements(self, element_ids: set[str]) -> Evictions:
+        """Remove held interactions targeting a now-removed element.
 
         A held click for an element a scene replacement dropped would deliver
-        against UI that no longer exists; the caller compensates the returned
-        events. Order among the survivors is preserved.
+        against UI that no longer exists; the caller compensates what comes back.
+        Order among the survivors is preserved.
         """
         removed = [p.event for p in self._events if p.event.element_id in element_ids]
         self._events = deque(
             p for p in self._events if p.event.element_id not in element_ids
         )
-        return removed
+        return Evictions.of(removed, self.pending_events())
 
     def _evict_aged(self, now: float) -> list[RemoteEventHandlerInvocation]:
         """Remove and return interactions held past ``max_age`` (oldest first)."""

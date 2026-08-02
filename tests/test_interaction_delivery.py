@@ -11,7 +11,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from unittest.mock import ANY, MagicMock
 
+from punt_lux.display.evictions import Evictions
 from punt_lux.display.interaction_delivery import InteractionDelivery
+from punt_lux.display.pending_interactions import PendingInteractions
 from punt_lux.protocol import RemoteEventHandlerInvocation
 from punt_lux.scene import WidgetState
 
@@ -60,6 +62,27 @@ def _evicted(
         ts=1.0,
         value=None,
     )
+
+
+def _lost(*events: RemoteEventHandlerInvocation) -> Evictions:
+    """Return ``events`` as the buffer reports them with nothing left holding."""
+    return Evictions.of(events, ())
+
+
+def _aged_out_while_newer_held(
+    event_kind: str, element_id: str
+) -> tuple[Evictions, PendingInteractions]:
+    """Age one gesture out of a real buffer while a second one is still held.
+
+    The user interacts twice in quick succession -- two toggles of a header, two
+    tab switches, two commits of an edit -- and the first ages out before the
+    Hub answers. The buffer is the real one, so the split under test is the one
+    the display's flush actually produces.
+    """
+    buf = PendingInteractions(max_age=3.0, max_count=128)
+    buf.admit([_evicted(event_kind, element_id)], now=100.0)
+    buf.admit([_evicted(event_kind, element_id)], now=103.5)
+    return buf.expire(now=104.0), buf
 
 
 class TestDeliver:
@@ -150,7 +173,7 @@ class TestCompensateEvicted:
         ws.set(f"m{WidgetState.DISMISS_SUFFIX}", 1)
         delivery, _ = _build(widget_state=ws)
 
-        delivery.compensate_evicted([_evicted("modal_closed", "m")])
+        delivery.compensate_evicted(_lost(_evicted("modal_closed", "m")))
 
         assert ws.get(f"m{WidgetState.OPEN_SUFFIX}") is None
         assert ws.get(f"m{WidgetState.DISMISS_SUFFIX}") is None
@@ -164,7 +187,7 @@ class TestCompensateEvicted:
         ws.set(f"t{WidgetState.ROW_SELECTION_HONOURED_SUFFIX}", frozenset())
         delivery, _ = _build(widget_state=ws)
 
-        delivery.compensate_evicted([_evicted("row_selection_changed", "t")])
+        delivery.compensate_evicted(_lost(_evicted("row_selection_changed", "t")))
 
         assert ws.get(f"t{WidgetState.ROW_SELECTION_PENDING_SUFFIX}") is None
         assert ws.get(f"t{WidgetState.ROW_SELECTION_HONOURED_SUFFIX}") is None
@@ -178,7 +201,7 @@ class TestCompensateEvicted:
         ws.set(f"h{WidgetState.HEADER_OPEN_PENDING_SUFFIX}", True)
         delivery, _ = _build(widget_state=ws)
 
-        delivery.compensate_evicted([_evicted("header_toggled", "h")])
+        delivery.compensate_evicted(_lost(_evicted("header_toggled", "h")))
 
         assert ws.get(f"h{WidgetState.HEADER_OPEN_PENDING_SUFFIX}") is None
 
@@ -193,7 +216,7 @@ class TestCompensateEvicted:
         ws.set(f"tb{WidgetState.HONOURED_SUFFIX}", "one")
         delivery, _ = _build(widget_state=ws)
 
-        delivery.compensate_evicted([_evicted("tab_changed", "tb")])
+        delivery.compensate_evicted(_lost(_evicted("tab_changed", "tb")))
 
         assert ws.get(f"tb{WidgetState.PENDING_SUFFIX}") is None
         assert ws.get(f"tb{WidgetState.HONOURED_SUFFIX}") is None
@@ -207,7 +230,7 @@ class TestCompensateEvicted:
         ws.set(f"i{WidgetState.CONTINUOUS_EDIT_COMMIT_HUB_SUFFIX}", "old")
         delivery, _ = _build(widget_state=ws)
 
-        delivery.compensate_evicted([_evicted("value_changed", "i")])
+        delivery.compensate_evicted(_lost(_evicted("value_changed", "i")))
 
         assert ws.get(f"i{WidgetState.CONTINUOUS_EDIT_COMMITTED_SUFFIX}") is None
         assert ws.get(f"i{WidgetState.CONTINUOUS_EDIT_COMMIT_HUB_SUFFIX}") is None
@@ -220,7 +243,7 @@ class TestCompensateEvicted:
         ws.set(f"i{WidgetState.CONTINUOUS_EDIT_EDITING_SUFFIX}", True)
         delivery, _ = _build(widget_state=ws)
 
-        delivery.compensate_evicted([_evicted("value_changed", "i")])
+        delivery.compensate_evicted(_lost(_evicted("value_changed", "i")))
 
         assert ws.get(f"i{WidgetState.CONTINUOUS_EDIT_BUFFER_SUFFIX}") == "still typing"
         assert ws.get(f"i{WidgetState.CONTINUOUS_EDIT_EDITING_SUFFIX}") is True
@@ -235,11 +258,84 @@ class TestCompensateEvicted:
             element_id="m", action="click", scene_id="s1", ts=1.0
         )
 
-        delivery.compensate_evicted([click])
+        delivery.compensate_evicted(_lost(click))
 
         assert ws.get(f"m{WidgetState.DISMISS_SUFFIX}") == 1
 
     def test_scene_less_event_is_ignored(self) -> None:
         delivery, _ = _build(widget_state=None)
         # No scene_id → no widget state to revert; must not raise.
-        delivery.compensate_evicted([_evicted("modal_closed", "m", scene_id=None)])
+        delivery.compensate_evicted(_lost(_evicted("modal_closed", "m", scene_id=None)))
+
+
+class TestSupersededEvictionRevertsNothing:
+    """A live gesture keeps its latch when an older one of its kind ages out.
+
+    The user interacts twice in quick succession and the first interaction ages
+    out while the second is still in flight. Compensating the older one would
+    snap the widget back to the Hub's value with a live interaction still
+    awaiting its answer -- the double-step, arriving by a second route. The
+    latch stands until the newer gesture is answered or is itself lost.
+    """
+
+    def test_a_superseded_header_toggle_leaves_the_pending_open_state(self) -> None:
+        ws = WidgetState()
+        ws.set(f"h{WidgetState.HEADER_OPEN_PENDING_SUFFIX}", True)
+        delivery, _ = _build(widget_state=ws)
+        evicted, _buf = _aged_out_while_newer_held("header_toggled", "h")
+
+        delivery.compensate_evicted(evicted)
+
+        assert ws.get(f"h{WidgetState.HEADER_OPEN_PENDING_SUFFIX}") is True
+
+    def test_a_superseded_tab_change_leaves_both_selection_slots(self) -> None:
+        ws = WidgetState()
+        ws.set(f"tb{WidgetState.PENDING_SUFFIX}", "three")
+        ws.set(f"tb{WidgetState.HONOURED_SUFFIX}", "two")
+        delivery, _ = _build(widget_state=ws)
+        evicted, _buf = _aged_out_while_newer_held("tab_changed", "tb")
+
+        delivery.compensate_evicted(evicted)
+
+        assert ws.get(f"tb{WidgetState.PENDING_SUFFIX}") == "three"
+        assert ws.get(f"tb{WidgetState.HONOURED_SUFFIX}") == "two"
+
+    def test_a_superseded_value_commit_leaves_the_committed_echo(self) -> None:
+        ws = WidgetState()
+        ws.set(f"i{WidgetState.CONTINUOUS_EDIT_COMMITTED_SUFFIX}", "second")
+        ws.set(f"i{WidgetState.CONTINUOUS_EDIT_COMMIT_HUB_SUFFIX}", "old")
+        delivery, _ = _build(widget_state=ws)
+        evicted, _buf = _aged_out_while_newer_held("value_changed", "i")
+
+        delivery.compensate_evicted(evicted)
+
+        assert ws.get(f"i{WidgetState.CONTINUOUS_EDIT_COMMITTED_SUFFIX}") == "second"
+        assert ws.get(f"i{WidgetState.CONTINUOUS_EDIT_COMMIT_HUB_SUFFIX}") == "old"
+
+    def test_the_newer_gesture_still_compensates_when_it_is_lost_in_turn(self) -> None:
+        # The latch is not stranded: once the surviving toggle ages out too,
+        # nothing is left speaking for the header and the slot is handed back.
+        ws = WidgetState()
+        ws.set(f"h{WidgetState.HEADER_OPEN_PENDING_SUFFIX}", True)
+        delivery, _ = _build(widget_state=ws)
+        first, buf = _aged_out_while_newer_held("header_toggled", "h")
+        delivery.compensate_evicted(first)
+
+        delivery.compensate_evicted(buf.expire(now=110.0))
+
+        assert ws.get(f"h{WidgetState.HEADER_OPEN_PENDING_SUFFIX}") is None
+
+    def test_the_newer_gesture_delivered_leaves_the_latch_for_its_answer(self) -> None:
+        # Delivery drains the buffer between the eviction and the compensation,
+        # so the split must already be taken: the sent toggle is no longer held
+        # while its answer is still outstanding, and the latch must survive.
+        ws = WidgetState()
+        ws.set(f"h{WidgetState.HEADER_OPEN_PENDING_SUFFIX}", True)
+        delivery, _ = _build(clients=[object()], widget_state=ws)
+        evicted, buf = _aged_out_while_newer_held("header_toggled", "h")
+        buf.discard_prefix(delivery.deliver(buf.pending_events()))
+        assert buf.is_empty  # the surviving toggle went to the Hub this frame
+
+        delivery.compensate_evicted(evicted)
+
+        assert ws.get(f"h{WidgetState.HEADER_OPEN_PENDING_SUFFIX}") is True
