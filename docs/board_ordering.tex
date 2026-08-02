@@ -1,0 +1,541 @@
+%
+% board_ordering.tex
+%
+% A Z specification of the beads applet's board ordering: which of two boards
+% the applet keeps, and which of two boards the display ends up showing.
+%
+% The slot half of this question is settled and shipped: BoardSlot keeps the
+% board whose load began last, under one lock, and that rule makes the slot
+% monotone in BoardOrder place.  The glass half is not settled.  A push is a
+% round trip to luxd taken outside every lock, and two pushers may take theirs
+% in either order, so the display can be left showing a board older than one it
+% has already shown -- and older than one the slot has already refused.
+%
+% This model states both halves as one order and checks them together.  The
+% committed design (Sections 5-6) makes each push read the slot and write the
+% glass as one serialised step.  Three fidelity variants, each in its own file,
+% remove one part of that and reach the exact bad state:
+%
+%   docs/board_ordering_current_buggy.tex     -- the code as it stands
+%   docs/board_ordering_gate_only_buggy.tex   -- a monotone push counter alone
+%   docs/board_ordering_reread_only_buggy.tex -- re-reading the slot alone
+%
+% Source of record:
+%   src/punt_lux/applets/board_order.py    -- BoardOrder: the place a load takes
+%   src/punt_lux/applets/board_slot.py     -- BoardSlot: store, newer_of, held
+%   src/punt_lux/applets/held_board.py     -- HeldBoard: answer, refreshed
+%   src/punt_lux/applets/no_board.py       -- NoBoard: answer, refreshed
+%   src/punt_lux/applets/board_channel.py  -- BoardChannel: raised, send
+%   src/punt_lux/applets/beads_service.py  -- BeadsService: prefetch,
+%                                             acknowledge, service
+%
+% Type-check:  fuzz -t docs/board_ordering.tex
+% Model-check: make prob SPEC=docs/board_ordering.tex
+%   The five safety properties are reachability goals, not state invariants, so
+%   that the fidelity variants can reach the bad states.  Each must report the
+%   goal NOT found; the exact predicates are in Section 7.
+%
+% Formatting follows the fuzz house rules: \quad~ for continuation indent,
+% schema lines under 80 columns, predicates broken at \land/\lor.
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{Board Ordering in the Beads Applet: a Z Specification}
+\author{Formal model of slot order and glass order}
+\date{August 2026}
+\maketitle
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+The applet holds one board and shows one board, and those are two different
+things. What it holds lives in \texttt{BoardSlot}; what it shows lives on the
+display, at the far end of a round trip to \texttt{luxd}. Two loads can be in
+flight at once --- the warm-up on one worker thread and a click on another ---
+so both the slot and the display can be written by either of them, in either
+order.
+
+The slot half is settled. A load takes a \texttt{BoardOrder} place when it
+\emph{begins}, the store keeps whichever of two boards holds the later place,
+and the whole read-compare-write runs under one lock. That rule makes the slot
+monotone in place: however the two threads interleave, the slot ends up holding
+the board built from the newest issues.
+
+The display half is not settled, and it is not settled in the same way. A push
+carries a board across a socket, which takes long enough that it cannot be done
+under the slot's lock, so the write to the display is ordered by nothing at all.
+Two facts follow, and both are defects:
+
+\begin{itemize}
+  \item A click's answer captures the board the slot holds and pushes it after
+    raising the frame. A refresh that stores \emph{and} pushes a newer board in
+    that window is overwritten on the glass by the older capture. If the click
+    then stands down --- because the refresh it would have run is the one
+    already in flight --- nothing repairs the display. The user is left reading
+    a board the applet has already replaced.
+  \item A refresh pushes the board it loaded \emph{before} the slot has had a
+    chance to refuse it. A load that began earlier but returned later therefore
+    puts its board on the glass, and only afterwards learns that the slot kept a
+    newer one. The screen shows a board the slot has discarded.
+\end{itemize}
+
+This is the fourth ordering defect found on this path in successive review
+rounds, which is the signal to stop patching and model the order. What follows
+is that model. It abstracts everything about a board except its place, because
+place is the whole of what these defects turn on.
+
+\paragraph{What is deliberately absent.}
+Two mechanisms in the code do not appear here, each for a stated reason.
+\texttt{SingleFlight} restricts refreshes to one at a time; the model omits it,
+which admits \emph{more} interleavings than the implementation can produce. That
+is the conservative direction: a design proved safe over the larger set is safe
+over the smaller one. Standing down is therefore not an operation but a path ---
+a worker that answers and never refreshes --- and it is the path that makes the
+first defect permanent rather than transient. The frame's own lifetime (whether
+a frame is up to be raised) is also absent: it decides whether a placeholder is
+worth pushing, not which of two boards wins.
+
+% ============================================================
+\section{Basic Types}
+% ============================================================
+
+\begin{zed}
+  [WORKER]
+\end{zed}
+
+\texttt{WORKER} is the set of threads that load boards and push them. Two
+suffice: every defect here is a race between two writers, and a third adds
+interleavings without adding shapes. \texttt{DEFAULT\_SETSIZE} bounds the
+carrier.
+
+\begin{zed}
+  PLACE == 0 \upto 3
+\end{zed}
+
+A board's place in the order loads began, as \texttt{BoardOrder} numbers them.
+Place $0$ is the state holding no board: \texttt{NoBoard}, and the content it
+renders --- the ``Loading issues\ldots'' placeholder, or the red message naming
+why \texttt{bd} could not be read. Places $1$ to $3$ are loads, numbered as they
+begin. Three loads are enough to exhibit every defect (two contending boards and
+one more to supersede them); the bound is a single token to change.
+
+Comparing places compares the order two loads \emph{began} in, which is the rule
+\texttt{BoardOrder.after} implements and the rule the model inherits: a board is
+as old as the query that read it, not as old as the moment it came back.
+
+% ============================================================
+\section{State}
+% ============================================================
+
+The state is flat: one schema, nine components. Four are real, four are ghosts
+that exist only so a property of the transition relation can be stated as a
+property of a state, and one --- \texttt{staged} --- is both.
+
+The state predicate carries only structural bounds, true of every design in this
+family. The five safety properties are deliberately \emph{absent} from it. Were
+they state invariants, ProB would treat an operation that broke one as
+\emph{disabled} rather than as a violation, and the fidelity variants could no
+longer reach the bad states they exist to reach. They are checked as
+reachability goals instead (Section~\ref{sec:verify}).
+
+\begin{schema}{Board}
+  began : PLACE \\
+  loading : WORKER \pfun PLACE \\
+  held : PLACE \\
+  shown : PLACE \\
+  staged : WORKER \pfun PLACE \\
+  everheld : PLACE \\
+  evershown : PLACE \\
+  offered : PLACE \\
+  overtaken : \power PLACE
+\where
+  held \leq began \\
+  shown \leq began \\
+  everheld \leq began \\
+  evershown \leq began \\
+  offered \leq began
+\end{schema}
+
+\texttt{began} is the counter \texttt{BoardOrder} draws places from: the highest
+place any load has taken. \texttt{loading} maps each worker running a load to
+the place that load took when it began, and a worker leaves the domain when its
+board is stored. \texttt{held} is the slot --- the place of the board
+\texttt{BoardSlot} is holding, $0$ for \texttt{NoBoard}. \texttt{shown} is the
+glass: the place of the board the display is rendering.
+
+\texttt{staged} is the push in progress. A push is not one act but two: a
+pusher settles what it is going to write, and some time later the write lands.
+A worker in $\dom staged$ has settled its content and not yet landed it, and
+$staged~w$ is the place of the board it is going to write. This split is the
+whole point of the model --- collapse it and every ordering defect on this path
+becomes unstateable.
+
+The four ghosts record history. \texttt{everheld} is the highest place the slot
+has ever held and \texttt{evershown} the highest the glass has ever shown, so
+that ``never goes backwards'' can be written as an equation. \texttt{offered} is
+the highest place any push has settled on, so that ``the glass ends up showing
+the newest board anybody tried to put there'' can be written as an inequality.
+\texttt{overtaken} collects the places the slot \emph{refused}: a board offered
+to the store that lost the comparison and was never authoritative. That is a
+narrower set than ``boards the slot no longer holds'' --- a board that was
+authoritative and has since been superseded is merely stale, whereas a board the
+slot refused was never the applet's answer at all, and the display showing one
+is a different and worse fact.
+
+% ============================================================
+\section{Initialization}
+% ============================================================
+
+\begin{schema}{Init}
+  Board'
+\where
+  began' = 0 \\
+  loading' = \emptyset \\
+  held' = 0 \\
+  shown' = 0 \\
+  staged' = \emptyset \\
+  everheld' = 0 \\
+  evershown' = 0 \\
+  offered' = 0 \\
+  overtaken' = \emptyset
+\end{schema}
+
+A single initial state: no load has begun, the slot holds no board, the glass
+shows none, and nothing is in flight. This is the session at the moment the
+applet registers, before the warm-up has run.
+
+% ============================================================
+\section{Loading and Storing}
+% ============================================================
+
+\texttt{TakePlace} is a load beginning: \texttt{BoardOrder.beginning()} taking
+the next place from the counter, before the query runs. It is one operation for
+both loaders --- the warm-up in \texttt{BeadsService.prefetch} and the refresh
+behind a click --- because the place is taken the same way by each, and which of
+them took it is not what decides the order.
+
+\begin{schema}{TakePlace}
+  \Delta Board \\
+  w? : WORKER
+\where
+  w? \notin \dom loading \\
+  began < 3 \\
+  began' = began + 1 \\
+  loading' = loading \cup \{ w? \mapsto began' \} \\
+  held' = held \\
+  shown' = shown \\
+  staged' = staged \\
+  everheld' = everheld \\
+  evershown' = evershown \\
+  offered' = offered \\
+  overtaken' = overtaken
+\end{schema}
+
+\texttt{StoreBoard} is \texttt{BoardSlot.store}: the load has returned and its
+board is offered to the slot, which keeps whichever of the two holds the later
+place. The whole read-compare-write is one step, because it runs under the
+slot's lock and contains nothing that can block --- a field read, a comparison
+of two integers, and a field write.
+
+The two disjuncts are \texttt{newer\_of}. If the incoming board began later it
+displaces the one held; otherwise it is refused, and \texttt{overtaken} records
+it. Equality cannot arise: each load takes its own place.
+
+\begin{schema}{StoreBoard}
+  \Delta Board \\
+  w? : WORKER
+\where
+  w? \in \dom loading \\
+  ( loading~w? > held \land held' = loading~w? \\
+  \quad~ \land overtaken' = overtaken ) \lor \\
+  \quad~ ( loading~w? \leq held \land held' = held \\
+  \quad~ \land overtaken' = overtaken \cup \{ loading~w? \} ) \\
+  ( held' > everheld \land everheld' = held' ) \lor \\
+  \quad~ ( held' \leq everheld \land everheld' = everheld ) \\
+  loading' = \{ w? \} \ndres loading \\
+  began' = began \\
+  shown' = shown \\
+  staged' = staged \\
+  evershown' = evershown \\
+  offered' = offered
+\end{schema}
+
+% ============================================================
+\section{Pushing}
+\label{sec:push}
+% ============================================================
+
+A push writes the glass. It is two steps, and the design is entirely a
+statement about what may happen between them.
+
+\texttt{PushTake} settles what this push will write. It reads the slot and takes
+the board the slot is holding \emph{now} --- not a board captured earlier, and
+not the board this worker happens to have just loaded. Its guard, $staged =
+\emptyset$, is the push gate: at most one push is settled-but-not-landed at any
+time, which is what it means for a lock to be held across the write. That is the
+whole of the fix, and it is two claims at once: the glass is written by one
+pusher at a time, and each pusher reads the slot inside the region it writes in.
+
+\begin{schema}{PushTake}
+  \Delta Board \\
+  w? : WORKER
+\where
+  staged = \emptyset \\
+  staged' = \{ w? \mapsto held \} \\
+  ( held > offered \land offered' = held ) \lor \\
+  \quad~ ( held \leq offered \land offered' = offered ) \\
+  began' = began \\
+  loading' = loading \\
+  held' = held \\
+  shown' = shown \\
+  everheld' = everheld \\
+  evershown' = evershown \\
+  overtaken' = overtaken
+\end{schema}
+
+There is one \texttt{PushTake} and not three, because under this design the
+three pushes in the code are one act. A click's answer pushes what the slot
+holds; a refresh pushes what the slot holds once its own board has been stored;
+and a click with no board pushes what \texttt{NoBoard} renders, which is the
+slot holding place $0$. Each is ``render what the slot is holding'', and the
+model has no reason to tell them apart. Section~\ref{sec:oblig} says what the
+implementation must do to make that true of the failure message as well.
+
+\texttt{PushCommit} is the write landing at the display.
+
+\begin{schema}{PushCommit}
+  \Delta Board \\
+  w? : WORKER
+\where
+  w? \in \dom staged \\
+  shown' = staged~w? \\
+  ( staged~w? > evershown \land evershown' = staged~w? ) \lor \\
+  \quad~ ( staged~w? \leq evershown \land evershown' = evershown ) \\
+  staged' = \{ w? \} \ndres staged \\
+  began' = began \\
+  loading' = loading \\
+  held' = held \\
+  everheld' = everheld \\
+  offered' = offered \\
+  overtaken' = overtaken
+\end{schema}
+
+% ============================================================
+\section{Verification}
+\label{sec:verify}
+% ============================================================
+
+Five safety properties. Each is checked by asking ProB whether its negation is
+\emph{reachable}; a goal reported not found over the whole reachable state space
+is the property proved.
+
+\begin{description}
+  \item[I1 --- the slot never goes backwards.] $held = everheld$. The board the
+    slot holds is always the newest it has ever held. This re-verifies the
+    shipped \texttt{BoardSlot} design and, more usefully, verifies that no
+    operation added here writes the slot behind its own back.
+  \item[I2 --- the glass never goes backwards.] $shown = evershown$. The display
+    never returns to a board older than one it has already rendered. This is the
+    property the answer's captured push violates.
+  \item[I3 --- at rest, the glass shows the newest board anybody offered.]
+    $staged = \emptyset \implies shown \geq offered$. Once no push is in flight,
+    every push has either landed its board or found the glass already showing
+    one at least as new. This is what rules out the degenerate reading of I2,
+    under which a design that never pushed anything at all would pass.
+
+    The antecedent is necessary and is not a weakening. Between settling on a
+    board and landing it, a push has raised \texttt{offered} and not yet moved
+    \texttt{shown}, so $shown < offered$ holds for the duration of every push
+    ever made --- that inequality \emph{is} the push, not a defect. ProB reports
+    the unconditioned form violated in four steps, and the trace is a
+    \texttt{PushTake} with no \texttt{PushCommit} after it.
+  \item[I4 --- the glass never runs ahead of the slot.] $shown \leq held$. The
+    display never shows a board the slot does not hold. This is the property the
+    refresh's push-before-store violates.
+  \item[I5 --- the glass never shows a refused board.]
+    $shown \notin overtaken$. The display never renders a board the slot
+    examined and rejected as older than the one it was keeping.
+\end{description}
+
+\begin{verbatim}
+  probcli docs/board_ordering.tex -model_check \
+    -p DEFAULT_SETSIZE 2 -p MAXINT 4 -p TIME_OUT 60000 \
+    -goal "held /= everheld"        # I1: must report goal NOT found
+  probcli ... -goal "shown /= evershown"                # I2
+  probcli ... -goal "staged = {} & shown < offered"     # I3
+  probcli ... -goal "shown > held"                      # I4
+  probcli ... -goal "shown : overtaken"                 # I5
+\end{verbatim}
+
+Against this model all five report the goal not found over 270 reachable states
+and 657 transitions, exhaustively --- ``all open states visited'', every
+operation covered.
+
+The bare \texttt{-model\_check} additionally confirms that every operation is
+covered and that the structural state predicate is preserved on every reachable
+state.
+
+\paragraph{Deadlock.}
+There is no reachable state with nothing enabled. \texttt{PushTake} is enabled
+whenever $staged = \emptyset$ and \texttt{PushCommit} whenever it is not, so one
+of the two is always available and the model cannot wedge.
+
+That is the state-machine result. The lock result is separate and is argued from
+the code, because two of the three locks on this path are not modelled here. The
+applet holds three:
+
+\begin{itemize}
+  \item \textbf{F}, \texttt{SingleFlight}'s. Every acquisition is
+    \texttt{acquire(blocking=False)}. A lock that is never waited on cannot be
+    the waiting edge of a cycle, so it cannot participate in a deadlock at all.
+  \item \textbf{S}, \texttt{BoardSlot}'s. Its critical section is a field read,
+    an integer comparison, and a field write. Nothing inside it blocks and
+    nothing inside it acquires another lock, so S cannot be the \emph{held} edge
+    of a cycle either.
+  \item \textbf{P}, the push gate this design adds. It is held across the socket
+    write, and --- because \texttt{PushTake} reads the slot inside it --- across
+    an acquisition of S.
+\end{itemize}
+
+So exactly one nesting exists, $P \rightarrow S$, and the reverse never occurs:
+no holder of S ever asks for P. One direction is not a cycle, so the design is
+deadlock-free by acquisition order, and the model confirms the state machine
+above it cannot stall.
+
+This does change a claim the code currently makes. \texttt{board\_slot.py}'s
+module docstring says of the slot's lock that ``there is no second lock to order
+it against, so no acquisition order exists to get wrong''. After this change
+there is a second lock and there is an order. The docstring must be corrected to
+state it: S is the inner lock, P the outer, and nothing taken while holding S.
+
+% ============================================================
+\section{What the fix is, and what it is not}
+\label{sec:oblig}
+% ============================================================
+
+Two candidate fixes were proposed for this defect. Neither closes it, and each
+fails for its own reason; the model reaches a violating trace for both
+(Section~\ref{sec:fidelity}).
+
+\paragraph{A monotone push counter does not order the writes.}
+The first candidate has the applet track the highest place it has pushed and
+skip any push at a place no newer. The counter is claimed under a lock; the
+socket write happens after the lock is released, because it must. So two pushers
+can claim in the order $1, 2$ and land in the order $2, 1$, and the glass ends
+at $1$. The counter records that a newer board was pushed while the display
+shows an older one --- it makes the defect harder to see, not absent. Claiming a
+place is not the same act as writing the glass, and only the second one matters.
+
+\paragraph{Re-reading the slot does not close the gap either.}
+The second candidate has the answer read the slot at push time instead of
+pushing a board captured earlier. That shortens the window between the read and
+the write but does not remove it, and the write is still unordered against other
+pushers. A push that reads place $1$, is overtaken by a push that reads and
+lands place $2$, and then lands its own $1$ regresses the glass exactly as
+before.
+
+\paragraph{What does close it.}
+Re-reading the slot \emph{inside a region that is held across the write}. The
+two candidates are the two halves of one fix, and each is inert without the
+other: serialising the writes without re-reading still lands captured boards in
+order but lands stale ones; re-reading without serialising reads the right board
+and races to write it.
+
+Given both, a third result follows, and it is the one worth acting on: \emph{the
+place comparison is dead code}. I4 says the glass never runs ahead of the slot,
+and I1 says the slot never goes back, so a board read from the slot inside the
+push region is never older than what the glass is showing. There is no state in
+which the comparison can refuse a push. A monotone \texttt{pushed} counter
+beside the slot would therefore be a field that is written, read, and never once
+acted on. Do not implement it.
+
+\paragraph{The obligation this places on the implementation.}
+The theorem holds for pushes whose content is read from the slot, which is why
+the model has one \texttt{PushTake}. Three obligations make that true of the
+code:
+
+\begin{enumerate}
+  \item \textbf{Every push reads the slot inside the push region.} The answer
+    must not push a \texttt{HeldBoard} captured before the raise; the refresh
+    must not push the board it loaded.
+  \item \textbf{A refresh stores before it pushes.} Store first, then push what
+    the slot holds. Push-first is what I4 forbids, and a refresh that pushed
+    before storing would also push the \emph{previous} board under this design
+    --- the user would wait out the query and never see its result.
+  \item \textbf{The failure message must come from the slot.} The red message
+    naming why \texttt{bd} could not be read is today the one push whose content
+    the slot does not hold, and content that does not come from the slot escapes
+    the theorem. The clean shape is for the state holding no board to carry the
+    reason it holds none, so that ``render what the slot holds'' covers the
+    failure as it covers the placeholder. If instead the message is pushed
+    directly, it must be pushed inside the push region and only when
+    $shown = 0$; I4 is what makes that guard sufficient.
+\end{enumerate}
+
+\paragraph{A boundary the fix does not close.}
+The slot's lock is not held across the push --- deliberately, since the push is a
+socket round trip. So a store may land between a push's read of the slot and its
+write to the glass, leaving the glass one generation behind the slot: the user
+clicked, and a warm-up that landed a millisecond later is held but not shown.
+This state is reachable in the committed model and violates none of I1--I5,
+because it is not a regression, not a refused board, and not a board the slot
+does not hold --- it is ordinary staleness, indistinguishable from a warm-up
+that landed a millisecond after the push instead of before it. Closing it would
+mean either holding the slot's lock across a socket write, or having the pusher
+re-check the slot after the write and push again when it moved. Neither is worth
+its cost, and the boundary is recorded here rather than left to be rediscovered.
+
+% ============================================================
+\section{Fidelity: each variant reaches its own bad state}
+\label{sec:fidelity}
+% ============================================================
+
+A model that cannot reproduce the defect it guards against is too abstract to
+trust. Three variants do so, each in its own file, each differing from this one
+only in Section~\ref{sec:push}.
+
+\paragraph{The code as it stands ---
+\texttt{docs/board\_ordering\_current\_buggy.tex}.}
+Three staging operations, none gated: \texttt{AnswerStage} captures the board
+the slot holds at the moment the click is acknowledged, \texttt{RefreshStage}
+stages the board this worker loaded before the slot has seen it, and
+\texttt{BlankStage} stages place $0$ whenever the slot holds no board. Over 3275
+reachable states it reaches I2, I3, I4 and I5, and not I1. The I2 witness is the
+one review found: a click captures place $1$; a refresh stores and lands place
+$2$; the click lands its captured $1$ over it, and stands down. I4 needs no race
+at all --- the refresh pushes before the store on every single refresh, so the
+display is ahead of the slot for the duration of each one. I5 is a load that
+began first, returned last, landed its board, and was then refused. That
+document checks each witness against \texttt{SingleFlight} by hand, since this
+family of models deliberately admits more interleavings than the code can
+produce.
+
+\paragraph{A monotone push counter alone ---
+\texttt{docs/board\_ordering\_gate\_only\_buggy.tex}.}
+Adds a \texttt{pushed} component and skips any staging at a place no newer,
+leaving the writes unserialised. It reaches \emph{all four}: I2, I3, I4 and I5.
+The counter closes nothing. Its I2 witness is the two-act argument in eight
+steps --- claims at $1$ then $3$, writes at $3$ then $1$, and a counter reading
+$3$ over a display showing $1$. ProB also reports \texttt{BlankStage} never
+covered, because a strict counter over places can never admit place $0$: the
+design would suppress the placeholder and the failure message outright,
+including the first placeholder of a session.
+
+\paragraph{Re-reading the slot alone ---
+\texttt{docs/board\_ordering\_reread\_only\_buggy.tex}.}
+The committed model with the single guard $staged = \emptyset$ deleted from
+\texttt{PushTake}, and nothing else changed. Over 945 states it reaches I2 and
+I3 --- the read is fresher, the write is still a race --- but not I4, I5 or I1.
+That split is the evidence for the shape of the fix: re-reading the slot is what
+keeps the glass from running ahead of the slot and from ever showing a refused
+board, and serialising the writes is what keeps it from going backwards. One
+guard separates a design that holds from one that does not.
+
+\end{document}

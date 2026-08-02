@@ -1,24 +1,23 @@
 """BoardSlot — the one board an applet holds, and whose board it keeps.
 
-Two threads store into this. The warm-up runs on its own worker thread when the
-applet registers and again after every reconnect; a click runs on another. They
-overlap by design: an early click during warm-up is the case the warm-up exists
-for, so the two are expected to be in flight at once.
+Two threads store into this: the warm-up, on its own worker thread at registration
+and after every reconnect, and a click on another. They overlap by design — an
+early click during warm-up is the case the warm-up exists for.
 
 Both end in a store, and the read-modify-write in between takes as long as ``bd``
 takes, so neither may simply assign. The rule instead is that the board from the
-load which began last is the one kept, and a state holding no board never
-displaces one that does. Under it a store is a maximum over a total order, so
-boards may be stored in any order and the slot still ends up holding the one with
-the newest issues. Without it, a click whose ``bd`` failed while the warm-up was
-landing would write its empty state over the board that had just arrived, and the
-next click would be cold again — the one cost the warm-up exists to prevent.
+load which began last is kept, and a state holding no board never displaces one
+that does — a maximum over a total order, so boards may be stored in any order
+and the slot ends up holding the newest issues. Without it, a click whose ``bd``
+failed while the warm-up was landing would write its empty state over the board
+that had just arrived: the one cost the warm-up prevents.
 
-The lock is the whole of the coordination. There is one, it is taken nowhere
-else, and it is never held across a load or a push: what runs inside it is a
-field read, a comparison of two integers, and a field write. Nothing inside it
-can block and there is no second lock to order it against, so no acquisition
-order exists to get wrong.
+The lock is never held across a load or a push: what runs inside it is a field
+read, a comparison of two integers, and a field write, none of which can block.
+The one other lock on this path — the push region's, in
+:class:`~punt_lux.applets.board_glass.BoardGlass` — is the outer one, held while
+a push reads this slot. Nothing here asks for it, so the nesting goes one way,
+and one direction is not a cycle.
 """
 
 from __future__ import annotations
@@ -26,6 +25,7 @@ from __future__ import annotations
 import threading
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.applets.loading_board import LoadingBoard
 from punt_lux.applets.no_board import NoBoard
 
 if TYPE_CHECKING:
@@ -44,7 +44,7 @@ class BoardSlot:
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
-        self._held = NoBoard()
+        self._held = NoBoard(LoadingBoard())
         self._lock = threading.Lock()
         return self
 

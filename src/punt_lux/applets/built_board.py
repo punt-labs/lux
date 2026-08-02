@@ -5,9 +5,9 @@ cannot say how old its issues are, and the place it was read at is exactly what
 decides between two boards built by overlapping loads — so nothing carries one
 without the other, and no later step has to remember to pair them up again.
 
-This is what a read becomes once its issues are a board: the thing a click pushes
-and the applet then holds. Holding it is a different job, with its own answers
-about what the next click does — see
+This is what a read becomes once its issues are a board: the thing the applet
+holds and, once it is holding it, shows. Holding it is a different job, with its
+own answers about what the next click does — see
 :class:`~punt_lux.applets.held_board.HeldBoard`.
 """
 
@@ -18,7 +18,6 @@ from typing import TYPE_CHECKING, Self, final
 if TYPE_CHECKING:
     from punt_lux.applets.board_load import BoardRequest
     from punt_lux.applets.board_order import BoardOrder
-    from punt_lux.applets.board_work import BoardWork
 
 __all__ = ["BuiltBoard"]
 
@@ -46,7 +45,3 @@ class BuiltBoard:
     def request(self) -> BoardRequest:
         """The board itself, for a click whose answer is this and not a stand-in."""
         return self._request
-
-    def push(self, work: BoardWork) -> None:
-        """Install this board through a click's work."""
-        work.push(self._request)

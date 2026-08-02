@@ -62,41 +62,42 @@ class HeldBoard:
         """
         return held if held.began_at.after(self.began_at) else self
 
-    def answer(self, work: BoardWork) -> None:
-        """Raise the frame, then push this board into it whatever the raise said.
+    def answered(self, work: BoardWork) -> bool:
+        """Raise the frame, and fill it whatever the raise said was in it.
 
-        The raise restores the frame from the dock and brings it forward, which
-        is the gesture behind asking for a board by name. What it cannot say is
-        what is *in* that frame: a refresh whose push did not land leaves it
-        standing over issues older than these, so a click that stopped at the
-        raise would show the older board and keep the newer one to itself.
-
-        The push therefore follows unconditionally — a few milliseconds against
-        a query that costs seconds, for the stronger fact that after a click the
-        screen holds this board rather than a claim that it already did. The
-        line says the answer was the board, because answering with the real
-        thing reads nothing like answering with "Loading issues…".
+        The raise brings the frame forward, which is the gesture behind asking
+        for a board by name. What it cannot say is what is *in* that frame: a
+        refresh whose push did not land leaves it standing over issues older
+        than these, so a click that stopped at the raise would show the older
+        board and keep the newer to itself — and so would every click after it.
+        Filling it costs milliseconds against a query that costs seconds.
         """
         work.raise_frame()
-        work.note(_FROM_CACHE)
-        work.push(self._built.request)
+        return True
 
     def refreshed(self, work: BoardWork) -> CachedBoard:
         """Replace the board in place, or leave the one on screen where it is.
 
-        The whole load is one figure here rather than three: the user is reading
-        a board while it runs and waits on no stage of it. A load that fails
-        leaves that board standing and says why in the log, because a board a
-        few minutes old is still very nearly what the user asked to see; a load
-        that succeeded is held whatever became of the push behind it, since a
-        Hub that went away has not made the issues any less read.
+        The whole load is one figure: the user is reading a board while it runs
+        and waits on no stage of it. A load that fails leaves that board
+        standing and says why in the log; one that succeeded is held whatever
+        became of the push behind it, since a Hub that went away has not made
+        the issues any less read.
         """
         try:
             with work.stage(_REFRESHED):
-                built = BoardRun(work).shown()
+                built = BoardRun(work).unwatched()
         except BoardUnavailableError as exc:
             logger.warning(
                 "the board was not refreshed; the one on screen stands: %s", exc
             )
             return self
         return HeldBoard(built)
+
+    def shows(self, work: BoardWork) -> None:
+        """Put this board up: the answer a click gives when it has a real one."""
+        work.push(self._built.request)
+
+    def said(self) -> str:
+        """Answering with the real thing reads nothing like "Loading issues…"."""
+        return _FROM_CACHE

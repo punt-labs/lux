@@ -1,46 +1,51 @@
-"""NoBoard — nothing has loaded, so the click opens a placeholder and waits.
+"""NoBoard — nothing has loaded, so the click opens on a blank and waits.
 
 The state a session starts in, and the one it returns to while ``bd`` cannot be
 read at all. A click from here is the cold one the warm-up exists to prevent: the
-user watches "Loading issues…" for however long the query takes, and every way it
+user watches "Loading issues…" for as long as the query takes, and every way it
 can fail becomes something they see, or the menu simply looks broken.
 
-It holds no board, so it never displaces one — see
+Holding no board is not the same as having nothing to show, so this state holds
+what goes up in place of one — the placeholder, or the reason the last read
+failed, both :class:`~punt_lux.applets.blank_board.BlankBoard`s. Holding no
+board, it never displaces one: see
 :class:`~punt_lux.applets.board_order.BoardOrder` for the order that decides.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, final
+from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.applets.beads_source import BoardUnavailableError
 from punt_lux.applets.board_order import BoardOrder
 from punt_lux.applets.board_run import BoardRun
 from punt_lux.applets.held_board import HeldBoard
+from punt_lux.applets.unreadable_board import UnreadableBoard
 
 if TYPE_CHECKING:
+    from punt_lux.applets.blank_board import BlankBoard
     from punt_lux.applets.board_cache import CachedBoard
-    from punt_lux.applets.board_load import BoardRequest
     from punt_lux.applets.board_work import BoardWork
 
 __all__ = ["NoBoard"]
 
-# The round trip that puts a board on screen, watched through a placeholder. The
-# waits before it are named in :mod:`punt_lux.applets.board_run`, which times them.
-_PUSHED = "pushed"
-
-# What the line says the answer was, for the two a state holding no board can
-# give: it put the placeholder up, or it left a frame already up alone. Both are
-# fast, so only the line tells them apart.
-_PLACEHOLDER = "loading placeholder"
+# What the line says when a frame was already up: this state had nothing better
+# to put in it, so the raise was the whole click. Its other answers are named by
+# the blank it holds.
 _RAISED = "frame already up"
 
 
 @final
 class NoBoard:
-    """Nothing has loaded yet: the click opens a placeholder and waits on one."""
+    """Nothing has loaded yet: the click opens on a blank and waits on a board."""
 
-    __slots__ = ()
+    _blank: BlankBoard
+    __slots__ = ("_blank",)
+
+    def __new__(cls, blank: BlankBoard) -> Self:
+        self = super().__new__(cls)
+        self._blank = blank
+        return self
 
     @property
     def began_at(self) -> BoardOrder:
@@ -50,48 +55,44 @@ class NoBoard:
     def newer_of(self, held: CachedBoard) -> CachedBoard:
         """Whatever is already held — a state with no board displaces nothing.
 
-        A click whose ``bd`` failed ends here, and it must not cost the applet a
+        A click whose ``bd`` failed ends here, and must not cost the applet a
         board that arrived while it was failing: the warm-up may have finished
         between this click reading the state and writing its result back.
         """
         return held
 
-    def answer(self, work: BoardWork) -> None:
-        """Raise the frame, and open the placeholder only if there was none up.
+    def answered(self, work: BoardWork) -> bool:
+        """Raise the frame, and fill it only if there was nothing in it.
 
-        Holding no board, this state has nothing to put in a frame that already
-        has one. Whatever is in it — from an earlier run of this applet, or from
-        ``lux show beads`` — beats the word "Loading", and a raise that could not
-        be answered collapses the same way: the board may well be up, and
-        blanking a good one on a failed round trip is the worse mistake. A frame
-        that is not up leaves the placeholder as the only thing to show.
+        Whatever is in a frame already up — from an earlier run of this applet,
+        or from ``lux show beads`` — beats the word "Loading", and a raise that
+        could not be answered collapses the same way: the board may well be up,
+        and blanking a good one on a failed round trip is the worse mistake.
         """
         if work.showing():
             work.note(_RAISED)
-            return
-        work.note(_PLACEHOLDER)
-        work.push(work.placeholder())
+            return False
+        return True
 
     def refreshed(self, work: BoardWork) -> CachedBoard:
         """Load the board the user is waiting on, timing each stage of the wait.
 
-        Every failure becomes something they can see, which is why the run hands
-        back one reason however it failed. A failed *load* is not held: the next
-        click starts cold rather than answering with a red message. A load that
-        succeeded is held whatever became of the push behind it, which has not
-        made the query any less paid.
+        The run hands back one reason however it failed, and that reason is
+        *held* rather than pushed from here: a message that comes from a state
+        goes up the way a board does, so it cannot land over a board that
+        arrived while this read was failing. It is not held as a *board*, so the
+        next click starts cold rather than answering with a red message.
         """
         try:
             built = BoardRun(work).staged()
         except BoardUnavailableError as exc:
-            self._show_reason(work, work.unavailable(str(exc)))
-            return self
-        with work.stage(_PUSHED):
-            built.push(work)
+            return NoBoard(UnreadableBoard(str(exc)))
         return HeldBoard(built)
 
-    @staticmethod
-    def _show_reason(work: BoardWork, request: BoardRequest) -> None:
-        """Put the red message where the user was waiting, timing the round trip."""
-        with work.stage(_PUSHED):
-            work.push(request)
+    def shows(self, work: BoardWork) -> None:
+        """Put up the blank this state holds, having no board to put up."""
+        work.push(self._blank.request(work))
+
+    def said(self) -> str:
+        """What the line calls that blank: the placeholder, or the last failure."""
+        return self._blank.said()

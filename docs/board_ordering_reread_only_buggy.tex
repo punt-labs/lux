@@ -1,0 +1,209 @@
+%
+% board_ordering_reread_only_buggy.tex
+%
+% FIDELITY CONTROL for docs/board_ordering.tex -- candidate fix (b) on its own.
+%
+% Every push reads the slot at push time rather than pushing a board captured
+% earlier -- exactly as the committed design does -- but the writes are not
+% serialised.  This variant isolates the gate: it is the committed model with
+% the one guard "staged = {}" deleted from PushTake, and nothing else changed.
+%
+% It answers the question directly: does re-reading the slot close the defect on
+% its own, or does the gap between the read and the write still race?  It races.
+%
+% Type-check:  fuzz -t docs/board_ordering_reread_only_buggy.tex
+% Model-check: probcli docs/board_ordering_reread_only_buggy.tex -model_check \
+%                -p DEFAULT_SETSIZE 2 -p MAXINT 4 -goal "shown /= evershown"
+%              (must report the goal FOUND)
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{Re-reading the Slot Alone: a Fidelity Control}
+\author{Why the gap between the read and the write still races}
+\date{August 2026}
+\maketitle
+
+% ============================================================
+\section{Purpose}
+% ============================================================
+
+The second candidate fix has the answer read the slot at push time instead of
+pushing a \texttt{HeldBoard} captured before the raise. The reasoning is sound
+as far as it goes: the board a click shows should be the board the applet holds
+when it shows it, not the one it held a round trip ago.
+
+But it treats a wide window as the problem, when the problem is that there is a
+window at all. Reading the slot and writing the glass are still two acts with
+nothing between them, and two pushers still write in whichever order their
+sockets happen to complete in. Narrowing a race does not settle it; it makes
+the losing interleaving rarer and therefore harder to reproduce, which is worse
+than leaving it obvious.
+
+This variant is \texttt{docs/board\_ordering.tex} with exactly one guard
+removed: \texttt{PushTake} no longer requires $staged = \emptyset$. Everything
+else --- the state, \texttt{Init}, \texttt{TakePlace}, \texttt{StoreBoard},
+\texttt{PushCommit} --- is character for character the committed model. The
+difference between a design that holds and a design that does not is that one
+guard.
+
+% ============================================================
+\section{Types and State}
+% ============================================================
+
+\begin{zed}
+  [WORKER]
+\end{zed}
+
+\begin{zed}
+  PLACE == 0 \upto 3
+\end{zed}
+
+\begin{schema}{Board}
+  began : PLACE \\
+  loading : WORKER \pfun PLACE \\
+  held : PLACE \\
+  shown : PLACE \\
+  staged : WORKER \pfun PLACE \\
+  everheld : PLACE \\
+  evershown : PLACE \\
+  offered : PLACE \\
+  overtaken : \power PLACE
+\where
+  held \leq began \\
+  shown \leq began \\
+  everheld \leq began \\
+  evershown \leq began \\
+  offered \leq began
+\end{schema}
+
+\begin{schema}{Init}
+  Board'
+\where
+  began' = 0 \\
+  loading' = \emptyset \\
+  held' = 0 \\
+  shown' = 0 \\
+  staged' = \emptyset \\
+  everheld' = 0 \\
+  evershown' = 0 \\
+  offered' = 0 \\
+  overtaken' = \emptyset
+\end{schema}
+
+\begin{schema}{TakePlace}
+  \Delta Board \\
+  w? : WORKER
+\where
+  w? \notin \dom loading \\
+  began < 3 \\
+  began' = began + 1 \\
+  loading' = loading \cup \{ w? \mapsto began' \} \\
+  held' = held \\
+  shown' = shown \\
+  staged' = staged \\
+  everheld' = everheld \\
+  evershown' = evershown \\
+  offered' = offered \\
+  overtaken' = overtaken
+\end{schema}
+
+\begin{schema}{StoreBoard}
+  \Delta Board \\
+  w? : WORKER
+\where
+  w? \in \dom loading \\
+  ( loading~w? > held \land held' = loading~w? \\
+  \quad~ \land overtaken' = overtaken ) \lor \\
+  \quad~ ( loading~w? \leq held \land held' = held \\
+  \quad~ \land overtaken' = overtaken \cup \{ loading~w? \} ) \\
+  ( held' > everheld \land everheld' = held' ) \lor \\
+  \quad~ ( held' \leq everheld \land everheld' = everheld ) \\
+  loading' = \{ w? \} \ndres loading \\
+  began' = began \\
+  shown' = shown \\
+  staged' = staged \\
+  evershown' = evershown \\
+  offered' = offered
+\end{schema}
+
+% ============================================================
+\section{The Push, Read Fresh but Unserialised}
+% ============================================================
+
+\texttt{PushTake} reads the slot exactly as the committed design does. The one
+missing conjunct is $staged = \emptyset$.
+
+\begin{schema}{PushTake}
+  \Delta Board \\
+  w? : WORKER
+\where
+  w? \notin \dom staged \\
+  staged' = staged \cup \{ w? \mapsto held \} \\
+  ( held > offered \land offered' = held ) \lor \\
+  \quad~ ( held \leq offered \land offered' = offered ) \\
+  began' = began \\
+  loading' = loading \\
+  held' = held \\
+  shown' = shown \\
+  everheld' = everheld \\
+  evershown' = evershown \\
+  overtaken' = overtaken
+\end{schema}
+
+\begin{schema}{PushCommit}
+  \Delta Board \\
+  w? : WORKER
+\where
+  w? \in \dom staged \\
+  shown' = staged~w? \\
+  ( staged~w? > evershown \land evershown' = staged~w? ) \lor \\
+  \quad~ ( staged~w? \leq evershown \land evershown' = evershown ) \\
+  staged' = \{ w? \} \ndres staged \\
+  began' = began \\
+  loading' = loading \\
+  held' = held \\
+  everheld' = everheld \\
+  offered' = offered \\
+  overtaken' = overtaken
+\end{schema}
+
+% ============================================================
+\section{What it reaches}
+% ============================================================
+
+\begin{verbatim}
+  probcli docs/board_ordering_reread_only_buggy.tex -model_check \
+    -p DEFAULT_SETSIZE 2 -p MAXINT 4 -p TIME_OUT 60000 \
+    -goal "shown /= evershown"                          # I2: FOUND
+  probcli ... -goal "staged = {} & shown < offered"     # I3: FOUND
+  probcli ... -goal "shown > held"                      # I4: not found
+  probcli ... -goal "shown : overtaken"                 # I5: not found
+  probcli ... -goal "held /= everheld"                  # I1: not found
+\end{verbatim}
+
+Two of five found, over 945 reachable states and 2871 transitions, exhaustively
+--- and which two is the useful part.
+
+I2 is found, in nine steps: two pushers read the slot, one lands its board, and
+the other lands an older one over the top. Re-reading gave the losing pusher a
+board that was current when it read it; by the time it wrote, it was not. So (b)
+alone does not close the defect --- the gap between the read and the write is
+the race, and shortening a race is not settling it.
+
+I4 and I5 are \emph{not} found, and that is what tells us (b) is the right half
+of the fix rather than a red herring. Reading the slot at push time is exactly
+what stops the glass running ahead of the slot, and exactly what stops a board
+the slot refused from ever reaching the screen: a board that comes from the slot
+is by definition one the slot holds. The current design violates both; this
+variant violates neither. What (b) cannot do on its own is order two writes
+against each other. That is what (a) was reaching for and missed, and what the
+committed design achieves --- not with a counter, but with the one guard this
+variant deletes.
+
+\end{document}

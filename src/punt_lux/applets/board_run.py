@@ -10,7 +10,11 @@ caught again in every state that runs a load.
 The two shapes of run are the two shapes of click. A user watching a placeholder
 waits through the query and the build as separate figures, because a slow query
 and a slow build are different problems. A user reading a board waits through
-none of it, so their reload is one figure with the push inside it.
+none of it, so their reload is one figure.
+
+Neither shape pushes. A board reaches the display only after it has been stored,
+and only through the push region — see
+:class:`~punt_lux.applets.board_glass.BoardGlass`.
 """
 
 from __future__ import annotations
@@ -61,14 +65,13 @@ class BoardRun:
         """
         return self._reasoned(self._staged)
 
-    def shown(self) -> BuiltBoard:
-        """Read, build and push, for a user waiting through none of the three.
+    def unwatched(self) -> BuiltBoard:
+        """Read and build under one figure, for a user waiting through neither.
 
-        The push is inside the run because it is inside the same figure: a
-        reload behind a board somebody is already reading is one wait nobody
-        has, not three they might.
+        A reload behind a board somebody is already reading is one wait nobody
+        has, not two they might, so its stages are not told apart.
         """
-        return self._reasoned(self._shown)
+        return self._reasoned(self._unwatched)
 
     def _staged(self) -> BuiltBoard:
         """The load a user watches, each of its waits under its own figure."""
@@ -77,11 +80,9 @@ class BoardRun:
         with self._work.stage(_BUILT):
             return self._work.board(read)
 
-    def _shown(self) -> BuiltBoard:
-        """The load nobody watches, ending in the board it put up."""
-        built = self._work.board(self._work.issues())
-        built.push(self._work)
-        return built
+    def _unwatched(self) -> BuiltBoard:
+        """The load nobody watches, timed as the one wait they do not have."""
+        return self._work.board(self._work.issues())
 
     @staticmethod
     def _reasoned(run: Callable[[], BuiltBoard]) -> BuiltBoard:

@@ -26,8 +26,10 @@ import threading
 from collections import deque
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.applets.applet_board import AppletBoard
 from punt_lux.applets.beads_service import BeadsService
 from punt_lux.applets.board_load import BoardLoad
+from punt_lux.applets.board_slot import BoardSlot
 from punt_lux.applets.leg import AppletLeg
 from punt_lux.apps.beads_board import BeadsBoard
 from punt_lux.apps.beads_result import BeadsRows
@@ -674,7 +676,8 @@ def test_a_click_does_not_hold_the_click_behind_it(
 
 def _beads(source: Gated) -> BeadsService:
     """The real Beads service, over a source a test can hold at the query."""
-    return BeadsService(BoardLoad(BeadsBoard.for_project("lux"), source))
+    load = BoardLoad(BeadsBoard.for_project("lux"), source)
+    return BeadsService(AppletBoard(load, BoardSlot()))
 
 
 def _held_query() -> Gated:

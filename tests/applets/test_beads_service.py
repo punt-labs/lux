@@ -17,11 +17,14 @@ from __future__ import annotations
 
 import logging
 import threading
+from typing import TYPE_CHECKING
 
 import pytest
 
+from punt_lux.applets.applet_board import AppletBoard
 from punt_lux.applets.beads_service import BeadsService
 from punt_lux.applets.board_load import BoardLoad
+from punt_lux.applets.board_slot import BoardSlot
 from punt_lux.applets.latency import ClickLatency
 from punt_lux.apps.beads_board import BeadsBoard
 from punt_lux.apps.beads_result import BeadsFailure, BeadsRows
@@ -37,6 +40,9 @@ from .board_doubles import (
     UnraisableClient,
 )
 
+if TYPE_CHECKING:
+    from punt_lux.operations import RenderTableRequest
+
 # Two boards a test can tell apart on sight, so that the id a later click
 # answers with says which of two overlapping loads the applet kept.
 _STALE = ISSUE | {"id": "lux-stale"}
@@ -44,7 +50,8 @@ _FRESH = ISSUE | {"id": "lux-fresh"}
 
 
 def _service(source: Source | ThenFails | Gated) -> BeadsService:
-    return BeadsService(BoardLoad(BeadsBoard.for_project("lux"), source))
+    load = BoardLoad(BeadsBoard.for_project("lux"), source)
+    return BeadsService(AppletBoard(load, BoardSlot()))
 
 
 def _click(service: BeadsService, client: object) -> ClickLatency:
@@ -81,6 +88,11 @@ def _whole_click(service: BeadsService, client: object) -> ClickLatency:
 def _reported(caplog: pytest.LogCaptureFixture) -> str:
     """The line the click's clock reported, whatever else was logged around it."""
     return caplog.records[-1].getMessage()
+
+
+def _ids(table: RenderTableRequest) -> list[str]:
+    """The issue ids a pushed board is showing."""
+    return [str(row[0]) for row in table.rows]
 
 
 def test_the_entry_is_named_for_what_it_shows() -> None:
@@ -400,7 +412,9 @@ def test_a_load_that_fails_leaves_the_board_on_screen_standing(
 
     The user asked to look at their issues. The ones from the last load are still
     very nearly the answer, so a ``bd`` that has stopped answering costs a log
-    line rather than the board.
+    line rather than the board. What the click ends on is the board the applet is
+    still holding — put up again rather than replaced, because what goes on the
+    display is read from the slot and the slot never let go of it.
     """
     journal = Journal()
     client = RecordingClient(journal=journal, frame_is_up=False)
@@ -411,7 +425,7 @@ def test_a_load_that_fails_leaves_the_board_on_screen_standing(
         _whole_click(service, client)
 
     assert client.scenes == []  # no red message replaced the board
-    assert len(client.tables) == 1  # only the answer was pushed; nothing after it
+    assert [_ids(table) for table in client.tables] == [["lux-1"], ["lux-1"]]
     assert "the one on screen stands" in caplog.text
     assert "bd: connection refused" in caplog.text
 
@@ -426,6 +440,11 @@ def test_a_board_that_arrives_mid_click_outlives_the_click_that_failed() -> None
     and its ``bd`` can fail while the warm-up's board is landing. What it holds
     afterwards is nothing, and writing that back over the arrived board would
     make the next click pay the whole query again.
+
+    Nor does the reason it failed reach the screen. By the time this click has
+    anything to show, the applet is holding a board, and a red message where
+    that board should be is the worse answer — so the click ends by putting up
+    what the slot holds instead.
     """
     source = Gated(BeadsRows.of([ISSUE]))
     service = _service(source)
@@ -441,7 +460,8 @@ def test_a_board_that_arrives_mid_click_outlives_the_click_that_failed() -> None
     click.join(timeout=GATE_SECONDS)
 
     assert not click.is_alive()
-    assert "connection refused" in str(failing.scenes[0].elements)  # the click failed
+    assert failing.scenes == []  # no red message landed over the board
+    assert [_ids(table) for table in failing.tables] == [["lux-1"]]
 
     # And the next click answers with the board that arrived, not a placeholder.
     answering = RecordingClient(frame_is_up=False)

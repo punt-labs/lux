@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.applets.board_load import BoardLoad
 from punt_lux.applets.board_slot import BoardSlot
 from punt_lux.applets.held_board import HeldBoard
+from punt_lux.applets.loading_board import LoadingBoard
 from punt_lux.applets.no_board import NoBoard
 from punt_lux.apps.beads_board import BeadsBoard
 from punt_lux.apps.beads_result import BeadsRows
@@ -78,11 +79,17 @@ class Crossing:
         self._resumed.wait(timeout=GATE_SECONDS)
         return self._held.newer_of(held)
 
-    def answer(self, work: BoardWork) -> None:
-        self._held.answer(work)
+    def answered(self, work: BoardWork) -> bool:
+        return self._held.answered(work)
 
     def refreshed(self, work: BoardWork) -> CachedBoard:
         return self._held.refreshed(work)
+
+    def shows(self, work: BoardWork) -> None:
+        self._held.shows(work)
+
+    def said(self) -> str:
+        return self._held.said()
 
     def entered(self) -> None:
         """Block until this board's store has read the slot and is comparing."""
@@ -115,7 +122,7 @@ def test_a_state_with_no_board_never_displaces_one_that_has_it() -> None:
     held = _held()
     slot.store(held)
 
-    slot.store(NoBoard())
+    slot.store(NoBoard(LoadingBoard()))
 
     assert slot.held is held
 
