@@ -4,6 +4,17 @@
 
 ### Added
 
+- **Every client's submenu carries a `Details` command.** It shows that
+  connection's state as a frame of its own: what kind of client it is, the name
+  it declared, its repository, how long it has been connected, its lease, the
+  topics it subscribed to, and the scenes it owns. The wire identity the labels
+  no longer carry lives here, where state belongs. The Hub answers this command
+  itself — it reports its own record of the connection and runs nothing outside
+  luxd — and it reports the same facts `list_clients` returns, so the menu and
+  the introspection read can never describe a client differently.
+- **`list_clients` reports each client's lease.** `lease_ttl_seconds` is the
+  effective length — the one its kind holds when it declared none, and endless
+  for luxd's own built-ins — not just what the client asked for.
 - **Applets — small session-bound programs that own a menu entry.** An applet
   runs for the life of one Claude Code session, in that session's repository
   and shell, holding its own connection to luxd. It exists because luxd cannot
@@ -112,6 +123,23 @@
 
 ### Changed
 
+- **The menu bar has one `Clients` menu — the live roster of what is connected
+  to the display.** Every client that registers a command now appears under it
+  as its own submenu, whatever kind of client it is: voxd's music player, a
+  session's Beads applet, an on-demand tool. Before, each one took a top-level
+  submenu of its own, and with several live the bar filled with near-identical
+  entries labeled `lux · lux · #4b97` — the label crammed kind, repository, and
+  process id together because a flat bar had nowhere else to carry the
+  difference. Now the hierarchy carries it and the labels stop trying to.
+- **Clients are named the way a person names them.** A client is called after
+  the repository it works in — `lux`, `quarry` — or after itself when it works
+  in none, as a machine-wide daemon like `voxd` does. Two clients that read the
+  same way are numbered: `lux`, `lux (2)`. A client keeps its number for as long
+  as its connection lasts, so a menu entry never renames itself under the
+  pointer when another client leaves.
+- **Command names are plain again.** A leaf under a client reads `Beads` or
+  `Music`, with nothing appended, because the client it belongs to is the menu
+  above it.
 - **A menu callback may only be registered by a connection that can be pushed
   to.** `register_callback` is refused — over MCP, REST, and the client library
   alike — unless the calling connection holds luxd's listen leg, with a named
@@ -139,6 +167,11 @@
 
 ### Fixed
 
+- **The display's `list_menus` query reports where each line sits.** Every menu
+  line now carries the menus above it (`["Clients", "lux"]`) instead of one
+  label, so two clients that both offer `Beads` can be told apart in the
+  display-side read, and the Hub's menu and the display's can be compared line
+  for line. The field replaces the old single `menu` name.
 - **One identity is one connection even when the client does not encode its
   headers.** Identity crosses as `X-Lux-Client-*` header values, and the two
   transports disagree about everything but ASCII: the WebSocket client sends
