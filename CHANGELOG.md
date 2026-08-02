@@ -125,6 +125,21 @@
 
 ### Fixed
 
+- **One identity is one connection even when the client does not encode its
+  headers.** Identity crosses as `X-Lux-Client-*` header values, and the two
+  transports disagree about everything but ASCII: the WebSocket client sends
+  UTF-8 bytes where the HTTP client sends latin-1, and luxd decodes both as
+  latin-1. A client that sends its name raw — every released `punt-lux`, and any
+  client that does not use `ClientHeaders` — therefore gave luxd two different
+  names for one identity as soon as that name held a non-ASCII character. The
+  name is what the connection id hashes, so the client's listen leg bound one
+  connection and its REST calls another: `register_callback` was refused for
+  holding no listen leg, permanently, and neither log said why. luxd now
+  recovers such a value on the read — bytes it decoded as latin-1 that spell
+  valid UTF-8 are re-read as UTF-8 — so both legs resolve to one connection
+  whichever way the client encoded them. Percent-encoding on the way out
+  (shipped earlier in this release) only ever governed the clients we ship;
+  this is the half that covers the ones we do not.
 - **The display log is readable again.** Every renderer's `render`, and the
   paint loop that called them, carried a call-tracing decorator that logged one
   DEBUG line per element per frame. Against a live window that is sixty lines

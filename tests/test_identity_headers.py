@@ -139,3 +139,29 @@ def test_a_percent_in_a_value_round_trips() -> None:
     assert ClientIdentity.model_validate(ClientHeaders.declaration_from(wire)) == (
         identity
     )
+
+
+def test_a_client_that_sends_raw_values_still_resolves_to_one_connection() -> None:
+    """The read must reconcile the transports for a client that does not encode.
+
+    Encoding only governs the clients we ship. A third-party client, or one on a
+    released punt-lux, sends its identity raw — and then the WebSocket leg's UTF-8
+    bytes and the HTTP leg's latin-1 bytes reach a server that decodes both as
+    latin-1, which reads two different names for one identity. Those hash to two
+    connection ids, so the callback such a client registers over REST is registered
+    on a connection its WebSocket never bound, and the Hub refuses it for holding
+    no listen leg. The read recovers the UTF-8 leg, so both legs land on one
+    connection whatever the client did.
+    """
+    name = "z-spec · lux · #2a"
+    over_websocket = {"X-Lux-Client-Kind": "app", "X-Lux-Client-Name": name}
+    over_http = dict(over_websocket)
+    # What each transport's encoding leaves the latin-1-decoding server holding.
+    over_websocket["X-Lux-Client-Name"] = name.encode().decode("latin-1")
+    over_http["X-Lux-Client-Name"] = name.encode("latin-1").decode("latin-1")
+
+    from_websocket = ClientHeaders.declaration_from(over_websocket) or {}
+    from_http = ClientHeaders.declaration_from(over_http) or {}
+
+    assert from_websocket["name"] == name
+    assert connection_for(from_websocket) == connection_for(from_http)

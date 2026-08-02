@@ -10,7 +10,13 @@ The order is the contract, not an accident of the test. Registering is refused
 unless the calling connection already holds the leg, because a click is delivered
 by push and a caller with no leg could never learn of it — which is why
 ``on_connect`` (the hook that fires after every handshake) is where an app
-registers. The second case pins that refusal on the production path.
+registers. The last case pins that refusal on the production path.
+
+The middle case is the same loop for a client that does not percent-encode its
+identity headers — every released punt-lux, and any third-party client. Its
+non-ASCII name reaches the Hub as different bytes on each transport, so it is the
+case that proves the Hub reconciles them rather than binding one identity to two
+connections.
 """
 
 from __future__ import annotations
@@ -31,6 +37,7 @@ from punt_lux.connection_identity import connection_for
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.replicator_instance import hub_callback_router
 from punt_lux.domain.hub.session_callback import CallbackInvocation
+from punt_lux.header_value import HeaderValue
 from punt_lux.hub_client import LuxHubClient
 from punt_lux.luxd import build_app
 from punt_lux.operations import Ok, OpError
@@ -111,6 +118,56 @@ def test_register_from_on_connect_then_receive_the_click_over_the_websocket() ->
             ),
         )
         asyncio.run(_drive(client, received, registered, conn))
+
+
+def test_a_raw_sending_client_with_a_non_ascii_name_registers_on_its_own_leg(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Both real transports, a non-ASCII name, a client that does not encode.
+
+    This is the third-party case, driven through the shipped clients and the real
+    header codecs rather than reasoned about: a client on a released punt-lux sends
+    its identity raw, so ``http.client`` puts the name on the wire as latin-1 and
+    ``websockets`` puts it there as UTF-8. Left unreconciled, the Hub reads two
+    names, binds the listen leg to one connection and the REST call to another, and
+    refuses the registration for holding no listen leg — the failure the z-spec
+    session hit, with nothing in either log naming the cause. Suppressing the
+    encoding here is what makes this client an older one.
+    """
+
+    def raw(value: HeaderValue) -> str:
+        return value.text
+
+    monkeypatch.setattr(HeaderValue, "to_wire", raw)
+    identity = ClientIdentity(
+        kind="app", name=f"z-spec · lux · #{os.getpid():x}", lease_ttl=30
+    )
+    with _running_luxd() as port:
+        rest = LuxRestClient(LoopbackTransport(port, 5.0), identity)
+        registered: list[object] = []
+        client = LuxHubClient(
+            f"ws://127.0.0.1:{port}/ws",
+            identity,
+            on_callback=lambda _callback_id: None,
+            on_event=_noop_event,
+            on_connect=lambda: registered.append(
+                rest.register_callback("zspec", "Z-Spec")
+            ),
+        )
+        asyncio.run(_registers(client, registered))
+    assert isinstance(registered[0], Ok)
+
+
+async def _registers(client: LuxHubClient, registered: list[object]) -> None:
+    """Hold the leg until ``on_connect`` has reported its registration."""
+    listen = asyncio.create_task(client.listen())
+    try:
+        await _until(lambda: bool(registered))
+    finally:
+        client.stop()
+        listen.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await listen
 
 
 def test_registering_without_the_leg_is_refused_on_the_production_path() -> None:
