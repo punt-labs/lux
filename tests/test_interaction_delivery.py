@@ -1,8 +1,9 @@
 """Unit tests for InteractionDelivery — the display's outbound interaction leg.
 
 Cover the three delivery routes (scene owner, broadcast, undeliverable) and the
-modal-dismiss compensation, driving the collaborator directly with lightweight
-stand-ins for the socket server and scene widget state.
+eviction compensation for every interaction kind that latches display-side state,
+driving the collaborator directly with lightweight stand-ins for the socket server
+and scene widget state.
 """
 
 from __future__ import annotations
@@ -47,13 +48,14 @@ def _build(
     return delivery, socket_server
 
 
-def _modal_closed(
-    scene_id: str | None, element_id: str
+def _evicted(
+    event_kind: str, element_id: str, scene_id: str | None = "s1"
 ) -> RemoteEventHandlerInvocation:
+    """Return an invocation of ``event_kind`` as the pending buffer held it."""
     return RemoteEventHandlerInvocation(
         element_id=element_id,
         action="changed",
-        event_kind="modal_closed",
+        event_kind=event_kind,
         scene_id=scene_id,
         ts=1.0,
         value=None,
@@ -133,13 +135,22 @@ class TestDeliver:
 
 
 class TestCompensateEvicted:
+    """Every kind that latches display-side state gives that latch up on eviction.
+
+    An evicted interaction never reaches the Hub, so no answer for it will ever
+    arrive: whatever the display latched when it fired would render forever
+    against an unchanged Hub. Eviction is a rejection that never got said, and
+    each kind below drops what it was holding so the next frame renders the Hub's
+    value.
+    """
+
     def test_evicted_modal_close_clears_latches(self) -> None:
         ws = WidgetState()
         ws.set(f"m{WidgetState.OPEN_SUFFIX}", 1)
         ws.set(f"m{WidgetState.DISMISS_SUFFIX}", 1)
         delivery, _ = _build(widget_state=ws)
 
-        delivery.compensate_evicted([_modal_closed("s1", "m")])
+        delivery.compensate_evicted([_evicted("modal_closed", "m")])
 
         assert ws.get(f"m{WidgetState.OPEN_SUFFIX}") is None
         assert ws.get(f"m{WidgetState.DISMISS_SUFFIX}") is None
@@ -152,20 +163,71 @@ class TestCompensateEvicted:
         ws.set(f"t{WidgetState.ROW_SELECTION_PENDING_SUFFIX}", frozenset({"A"}))
         ws.set(f"t{WidgetState.ROW_SELECTION_HONOURED_SUFFIX}", frozenset())
         delivery, _ = _build(widget_state=ws)
-        evicted = RemoteEventHandlerInvocation(
-            element_id="t",
-            action="changed",
-            event_kind="row_selection_changed",
-            scene_id="s1",
-            ts=1.0,
-        )
 
-        delivery.compensate_evicted([evicted])
+        delivery.compensate_evicted([_evicted("row_selection_changed", "t")])
 
         assert ws.get(f"t{WidgetState.ROW_SELECTION_PENDING_SUFFIX}") is None
         assert ws.get(f"t{WidgetState.ROW_SELECTION_HONOURED_SUFFIX}") is None
 
-    def test_non_compensated_event_is_ignored(self) -> None:
+    def test_evicted_header_toggle_clears_the_pending_open_state(self) -> None:
+        # The arbiter's pending slot outvotes the Hub flag for as long as it is
+        # held, and only a Hub-driven operation clears it — which an evicted
+        # toggle guarantees will never come. Without this the header renders the
+        # user's optimistic open state against a Hub that never agreed.
+        ws = WidgetState()
+        ws.set(f"h{WidgetState.HEADER_OPEN_PENDING_SUFFIX}", True)
+        delivery, _ = _build(widget_state=ws)
+
+        delivery.compensate_evicted([_evicted("header_toggled", "h")])
+
+        assert ws.get(f"h{WidgetState.HEADER_OPEN_PENDING_SUFFIX}") is None
+
+    def test_evicted_tab_change_clears_both_selection_slots(self) -> None:
+        # The pending slot suppresses a re-fire and the honoured slot suppresses
+        # the force-select that would pull the bar back, so an evicted TabChanged
+        # strands the display on a tab the Hub never selected. Clearing both lets
+        # the next frame force-select the Hub's active tab — without firing, since
+        # an unhonoured slot reads as no user switch.
+        ws = WidgetState()
+        ws.set(f"tb{WidgetState.PENDING_SUFFIX}", "two")
+        ws.set(f"tb{WidgetState.HONOURED_SUFFIX}", "one")
+        delivery, _ = _build(widget_state=ws)
+
+        delivery.compensate_evicted([_evicted("tab_changed", "tb")])
+
+        assert ws.get(f"tb{WidgetState.PENDING_SUFFIX}") is None
+        assert ws.get(f"tb{WidgetState.HONOURED_SUFFIX}") is None
+
+    def test_evicted_value_commit_clears_the_optimistic_echo(self) -> None:
+        # The continuous-edit arbiter honours a committed value until the Hub
+        # value moves off the one observed at commit time. An evicted commit means
+        # it never will, so the committed value would render forever.
+        ws = WidgetState()
+        ws.set(f"i{WidgetState.CONTINUOUS_EDIT_COMMITTED_SUFFIX}", "typed")
+        ws.set(f"i{WidgetState.CONTINUOUS_EDIT_COMMIT_HUB_SUFFIX}", "old")
+        delivery, _ = _build(widget_state=ws)
+
+        delivery.compensate_evicted([_evicted("value_changed", "i")])
+
+        assert ws.get(f"i{WidgetState.CONTINUOUS_EDIT_COMMITTED_SUFFIX}") is None
+        assert ws.get(f"i{WidgetState.CONTINUOUS_EDIT_COMMIT_HUB_SUFFIX}") is None
+
+    def test_a_lost_commit_leaves_a_live_edit_alone(self) -> None:
+        # The buffer is the user's keystrokes, not optimism about the Hub: a
+        # commit lost in flight must not wipe what is being typed now.
+        ws = WidgetState()
+        ws.set(f"i{WidgetState.CONTINUOUS_EDIT_BUFFER_SUFFIX}", "still typing")
+        ws.set(f"i{WidgetState.CONTINUOUS_EDIT_EDITING_SUFFIX}", True)
+        delivery, _ = _build(widget_state=ws)
+
+        delivery.compensate_evicted([_evicted("value_changed", "i")])
+
+        assert ws.get(f"i{WidgetState.CONTINUOUS_EDIT_BUFFER_SUFFIX}") == "still typing"
+        assert ws.get(f"i{WidgetState.CONTINUOUS_EDIT_EDITING_SUFFIX}") is True
+
+    def test_a_button_click_latches_nothing_and_clears_nothing(self) -> None:
+        # A click's whole effect is Hub-side, so its eviction owes the display
+        # nothing — and must not reach for a neighbouring widget's latch.
         ws = WidgetState()
         ws.set(f"m{WidgetState.DISMISS_SUFFIX}", 1)
         delivery, _ = _build(widget_state=ws)
@@ -180,4 +242,4 @@ class TestCompensateEvicted:
     def test_scene_less_event_is_ignored(self) -> None:
         delivery, _ = _build(widget_state=None)
         # No scene_id → no widget state to revert; must not raise.
-        delivery.compensate_evicted([_modal_closed(None, "m")])
+        delivery.compensate_evicted([_evicted("modal_closed", "m", scene_id=None)])

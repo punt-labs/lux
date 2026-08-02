@@ -10,9 +10,11 @@ a sequence of frames and no single-frame assertion can see it.
 
 from __future__ import annotations
 
+import dataclasses
 from itertools import pairwise
 from typing import TYPE_CHECKING, Any, Self, cast, final
 
+from punt_lux.display.interaction_delivery import InteractionDelivery
 from punt_lux.display.renderers.imgui import collapsing_header as header_module
 from punt_lux.display.renderers.imgui.collapsing_header import (
     ImGuiCollapsingHeaderRenderer,
@@ -163,6 +165,24 @@ class _FactoryDouble:
 
 
 @final
+class _SceneManagerDouble:
+    """The one lookup ``compensate_evicted`` makes of the scene manager."""
+
+    _widget_state: WidgetState
+    __slots__ = ("_widget_state",)
+
+    def __new__(cls, widget_state: WidgetState) -> Self:
+        self = super().__new__(cls)
+        self._widget_state = widget_state
+        return self
+
+    def widget_state_for(self, scene_id: str) -> WidgetState:
+        """Return the per-scene widget state the compensation clears."""
+        _ = scene_id
+        return self._widget_state
+
+
+@final
 class _HeaderRig:
     """One header on the Display tier, driven a frame at a time.
 
@@ -219,6 +239,21 @@ class _HeaderRig:
         shown = self._renderer.begin()
         self._journal.append(shown)
         return shown
+
+    def evict(self) -> None:
+        """Age the click's interaction out of the pending buffer, as the display does.
+
+        The buffer hands an interaction it could not deliver to
+        ``InteractionDelivery.compensate_evicted``, and this drives that real
+        method with the invocation the click really sent — so the wire
+        ``event_kind`` the renderer stamped is the one the compensation is looked
+        up by. The scene id is the one the display's ``_emit_event`` stamps on the
+        way out; the socket server is never reached on this path.
+        """
+        InteractionDelivery(
+            socket_server=cast("Any", None),
+            scene_manager=cast("Any", _SceneManagerDouble(self._state)),
+        ).compensate_evicted([dataclasses.replace(self._sent[-1], scene_id="scene")])
 
     def repush(self, *, open: bool) -> None:
         """Apply the Hub's answer, as a whole-scene re-push would.
@@ -320,6 +355,26 @@ def test_a_rejected_toggle_converges_back_to_the_hub(
 
     assert rig.journal == (True, False), "the Hub wins once it has spoken"
     assert rig.steps == 2, "the click's step, then the Hub's corrective one"
+    assert rig.fires == 1, "converging must not fire an interaction back"
+
+
+def test_an_evicted_toggle_hands_the_header_back_to_the_hub(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The interaction aged out of the pending buffer, so the Hub never heard the
+    # toggle and no re-push will ever ratify or reject it. Without compensation
+    # the pending slot outvotes the Hub flag for the life of the scene and the
+    # section stays open against a Hub that says closed. Eviction is a rejection
+    # that never got said, so it converges the same way one does — and by a
+    # different path from the re-push above, which the tests around this one pin.
+    rig = _HeaderRig(monkeypatch)
+
+    rig.frame(click=True)
+    rig.frame()
+    rig.evict()
+    rig.frame()
+
+    assert rig.journal == (True, True, False), "the Hub wins an answer never given"
     assert rig.fires == 1, "converging must not fire an interaction back"
 
 
