@@ -16,12 +16,21 @@ class WidgetState:
     OPEN_SUFFIX: ClassVar[str] = "__open"
     DISMISS_SUFFIX: ClassVar[str] = "__dismissed"
 
-    # Suffixes of the tab-bar suppression slots (per-render-session, reset on a
-    # re-push). Honoured = the active tab a frame last force-selected (echo);
-    # pending = the tab a ``TabChanged`` is outstanding for (fire suppression).
+    # Suffixes of the per-render-session slots, reset on a re-push because that
+    # push carries the Hub's answer and supersedes whatever the display was
+    # holding. Honoured = the active tab a frame last force-selected (echo);
+    # pending = the tab a ``TabChanged`` is outstanding for (fire suppression);
+    # header-open = the open state a ``HeaderToggled`` is outstanding for, so the
+    # frames before the Hub answers render the user's toggle instead of the
+    # not-yet-updated Hub value.
     HONOURED_SUFFIX: ClassVar[str] = ":active_honoured"
     PENDING_SUFFIX: ClassVar[str] = ":active_pending"
-    _SESSION_SUFFIXES: ClassVar[tuple[str, ...]] = (HONOURED_SUFFIX, PENDING_SUFFIX)
+    HEADER_OPEN_PENDING_SUFFIX: ClassVar[str] = ":header_open_pending"
+    _SESSION_SUFFIXES: ClassVar[tuple[str, ...]] = (
+        HONOURED_SUFFIX,
+        PENDING_SUFFIX,
+        HEADER_OPEN_PENDING_SUFFIX,
+    )
 
     # Suffixes of a continuous-edit widget's commit-echo slots, shared by every
     # non-atomic mutable kind (input_text, slider, color_picker) and kept across a
@@ -141,10 +150,12 @@ class WidgetState:
         Each key is built from the id, never a substring match, so a survivor
         like ``btn_ok`` is never wiped. Clearing the dialog latches lets a
         re-added same-id dialog reopen; clearing the tab-bar slots lets a
-        re-added tab bar re-honour the Hub active tab; clearing the shared
-        continuous-edit buffer and commit-echo quad lets a re-added input_text,
-        slider, or color_picker honour its fresh value instead of an earlier
-        commit's optimistic echo; clearing the table selection bridge lets a
+        re-added tab bar re-honour the Hub active tab; clearing the header's
+        optimistic open flag lets a re-added collapsing header show the Hub's
+        declared state instead of a departed header's in-flight toggle; clearing
+        the shared continuous-edit buffer and commit-echo quad lets a re-added
+        input_text, slider, or color_picker honour its fresh value instead of an
+        earlier commit's optimistic echo; clearing the table selection bridge lets a
         re-added table honour its fresh selection instead of a stale pending set;
         clearing the split ratio lets a re-added split pane honour its fresh
         default proportion instead of a departed scene's dragged divider.
@@ -156,6 +167,7 @@ class WidgetState:
         self.discard(f"{element_id}{self.DISMISS_SUFFIX}")
         self.discard(f"{element_id}{self.HONOURED_SUFFIX}")
         self.discard(f"{element_id}{self.PENDING_SUFFIX}")
+        self.discard(f"{element_id}{self.HEADER_OPEN_PENDING_SUFFIX}")
         self.discard(f"{element_id}{self.CONTINUOUS_EDIT_BUFFER_SUFFIX}")
         self.discard(f"{element_id}{self.CONTINUOUS_EDIT_EDITING_SUFFIX}")
         self.discard(f"{element_id}{self.CONTINUOUS_EDIT_COMMITTED_SUFFIX}")
@@ -166,13 +178,17 @@ class WidgetState:
         self.discard(f"{element_id}{self.FOCUS_REFOCUS_SUFFIX}")
         self.discard(f"{element_id}{self.SPLIT_RATIO_SUFFIX}")
 
-    def reset_honoured(self) -> None:
-        """Discard every tab-bar suppression slot, keeping durable user state.
+    def reset_session_slots(self) -> None:
+        """Discard every per-render-session slot, keeping durable user state.
 
-        A re-push restarts each tab bar's render session, so the tab it last
-        force-selected and the tab it last fired for must both be forgotten:
-        the next frame re-honours the Hub selection instead of firing a spurious
-        ``TabChanged`` off a stale value. Selection, scroll, and text survive.
+        A re-push carries the Hub's current answer, so it restarts the render
+        session of every widget that was arbitrating against a stale one. A tab
+        bar forgets the tab it last force-selected and the tab it last fired
+        for, so the next frame re-honours the Hub selection instead of firing a
+        spurious ``TabChanged``. A collapsing header forgets the open state it
+        was optimistically showing, so the next frame renders the Hub's value —
+        which is how a toggle the Hub rejects pulls the display back rather than
+        stranding it. Selection, scroll, and text survive.
         """
         self._state = {
             key: value

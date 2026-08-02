@@ -575,21 +575,35 @@ class TestWidgetStateDiscardFor:
 
         assert ws.get(f"tb{WidgetState.PENDING_SUFFIX}") is None
 
+    def test_clears_the_header_open_pending_key(self) -> None:
+        """Removing an id clears its ``:header_open_pending`` key.
 
-class TestWidgetStateResetHonoured:
+        The slot holds the open state a ``HeaderToggled`` is outstanding for. A
+        re-added same-id collapsing header must show the state the Hub declared
+        for it, not a departed header's in-flight toggle.
+        """
+        ws = WidgetState()
+        ws.set(f"h{WidgetState.HEADER_OPEN_PENDING_SUFFIX}", True)
+
+        ws.discard_for("h")
+
+        assert ws.get(f"h{WidgetState.HEADER_OPEN_PENDING_SUFFIX}") is None
+
+
+class TestWidgetStateResetSessionSlots:
     def test_discards_every_honoured_key(self) -> None:
-        """``reset_honoured`` forgets every tab bar's last force-selected tab."""
+        """``reset_session_slots`` forgets every tab bar's last force-selected tab."""
         ws = WidgetState()
         ws.set(f"tb1{WidgetState.HONOURED_SUFFIX}", "a")
         ws.set(f"tb2{WidgetState.HONOURED_SUFFIX}", "b")
 
-        ws.reset_honoured()
+        ws.reset_session_slots()
 
         assert ws.get(f"tb1{WidgetState.HONOURED_SUFFIX}") is None
         assert ws.get(f"tb2{WidgetState.HONOURED_SUFFIX}") is None
 
     def test_discards_every_pending_key(self) -> None:
-        """``reset_honoured`` forgets every tab bar's outstanding-fire tab too.
+        """``reset_session_slots`` forgets every tab bar's outstanding-fire tab too.
 
         On a re-push the Hub becomes authoritative again, so the pending slot
         that suppressed the click-to-re-push window must clear — otherwise it
@@ -599,23 +613,41 @@ class TestWidgetStateResetHonoured:
         ws.set(f"tb1{WidgetState.PENDING_SUFFIX}", "a")
         ws.set(f"tb2{WidgetState.PENDING_SUFFIX}", "b")
 
-        ws.reset_honoured()
+        ws.reset_session_slots()
 
         assert ws.get(f"tb1{WidgetState.PENDING_SUFFIX}") is None
         assert ws.get(f"tb2{WidgetState.PENDING_SUFFIX}") is None
+
+    def test_discards_every_header_open_key(self) -> None:
+        """``reset_session_slots`` forgets every header's optimistic open flag.
+
+        The re-push carries the Hub's answer, so the value a ``HeaderToggled``
+        was fired for must stop winning — that is what lets a toggle the Hub
+        rejects pull the display back instead of stranding it.
+        """
+        ws = WidgetState()
+        ws.set(f"h1{WidgetState.HEADER_OPEN_PENDING_SUFFIX}", True)
+        ws.set(f"h2{WidgetState.HEADER_OPEN_PENDING_SUFFIX}", False)
+
+        ws.reset_session_slots()
+
+        assert ws.get(f"h1{WidgetState.HEADER_OPEN_PENDING_SUFFIX}") is None
+        assert ws.get(f"h2{WidgetState.HEADER_OPEN_PENDING_SUFFIX}") is None
 
     def test_preserves_user_transient_state(self) -> None:
         """Only session slots reset — selection, scroll, and text survive."""
         ws = WidgetState()
         ws.set(f"tb{WidgetState.HONOURED_SUFFIX}", "tab-1")
         ws.set(f"tb{WidgetState.PENDING_SUFFIX}", "tab-2")
+        ws.set(f"h{WidgetState.HEADER_OPEN_PENDING_SUFFIX}", True)
         ws.set("__tbl_sel_tb", 4)
         ws.set("input_x", "half-typed")
 
-        ws.reset_honoured()
+        ws.reset_session_slots()
 
         assert ws.get(f"tb{WidgetState.HONOURED_SUFFIX}") is None
         assert ws.get(f"tb{WidgetState.PENDING_SUFFIX}") is None
+        assert ws.get(f"h{WidgetState.HEADER_OPEN_PENDING_SUFFIX}") is None
         assert ws.get("__tbl_sel_tb") == 4
         assert ws.get("input_x") == "half-typed"
 
