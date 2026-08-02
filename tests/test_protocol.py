@@ -398,7 +398,7 @@ class TestMessages:
     def test_callback_menu_roundtrip(self):
         submenus: list[dict[str, Any]] = [
             {"label": "voxd", "items": [{"label": "Music", "id": "voxd\x1fmusic"}]},
-            {"label": "lux — /w/lux", "items": [{"label": "Beads", "id": "lux\x1fb"}]},
+            {"label": "lux", "items": [{"label": "Beads", "id": "lux\x1fb"}]},
         ]
         original = CallbackMenuMessage(submenus=submenus)
         d = message_to_dict(original)

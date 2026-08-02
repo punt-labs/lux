@@ -2,19 +2,25 @@
 
 A daemon holds one WebSocket to luxd and receives, live, both the pub-sub events it
 subscribed to and the menu-callback clicks routed to its session.
-:class:`HubListenSession` is one such connection; :class:`HubListenTransport`
-mounts the ``/ws`` route and builds a session per connection.
+:class:`HubListenSession` is one such connection; the ``/ws`` route that builds
+one per client lives in :mod:`punt_lux.ws_transport`.
 
 The session is the bridge between two worlds. Hub-side, ``publish`` and a menu
 click run on arbitrary threads (an MCP tool thread, the click-dispatch thread);
 the WebSocket lives on the server's event loop. So the pub-sub writer and the
-:class:`~punt_lux.domain.hub.callback_hold.CallbackListener` wake both hop onto the
-loop with ``call_soon_threadsafe`` and enqueue a frame the write task drains — no
-Hub lock is ever taken from the loop except the router's own, and never nested with
-the client-registry lock, so the leg keeps PR-1's lock discipline. Connection-bound
-state (the writer, the listener, the subscriptions) is torn down on disconnect; the
-session, its lease, and its callback hold persist so a reconnect within the lease
-drains the buffered clicks.
+:class:`~punt_lux.domain.hub.callback_ports.CallbackListener` wake both hop onto
+the loop with ``call_soon_threadsafe`` and enqueue a frame the write task drains.
+The loop takes the client registry's lock to install and release the session's
+listener slot, and the router's to drain the hold, but never one inside the other,
+so no cross-lock path appears.
+
+The connection is keyed by an identity-derived id, so successive sessions of one
+identity share it, and the session occupying the listener slot is the connection's
+ownership token: state installed here is released only by the session that
+installed it, compared by object identity. Connection-bound state (the writer, the
+listener, its callbacks, the subscriptions) goes on disconnect; the session, its
+lease, and its callback hold persist so a reconnect within the lease drains the
+buffered clicks.
 """
 
 from __future__ import annotations
@@ -27,12 +33,8 @@ from typing import TYPE_CHECKING, Self, final
 from pydantic import ValidationError
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
-from punt_lux.connection_identity import connection_for
-from punt_lux.domain.hub import hub, hub_display
 from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.domain.hub.replicator_instance import hub_callback_router
 from punt_lux.domain.ids import Topic
-from punt_lux.identity_headers import ClientHeaders
 from punt_lux.protocol.messages.listen import (
     CallbackFrame,
     ClientFrames,
@@ -44,23 +46,17 @@ from punt_lux.protocol.messages.listen import (
 )
 
 if TYPE_CHECKING:
-    from fastapi import FastAPI
-
     from punt_lux.domain.hub.callback_hold import CallbackRouter
     from punt_lux.domain.hub.hub import Hub
     from punt_lux.domain.hub.hub_clients import HubClientRegistry
     from punt_lux.domain.ids import ConnectionId
+    from punt_lux.operations.ports import DirtyMarker
     from punt_lux.protocol.messages.observer import ObserverMessage
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["HubListenSession", "HubListenTransport"]
+__all__ = ["HubListenSession"]
 
-WS_PATH = "/ws"
-
-# A client that declares no identity in its handshake headers is refused: a listen
-# leg owns a session, and only a named client may. 1008 is the WebSocket policy code.
-_POLICY_VIOLATION = 1008
 # A client that sends a frame the wire does not define is closed as a protocol
 # violation (1002) rather than left to bubble into a 1011 server error.
 _PROTOCOL_ERROR = 1002
@@ -83,12 +79,14 @@ class HubListenSession:
     _router: CallbackRouter
     _outbound: asyncio.Queue[ServerFrame]
     _loop: asyncio.AbstractEventLoop
+    _menus: DirtyMarker
     __slots__ = (
         "_clients",
         "_conn",
         "_hub",
         "_identity",
         "_loop",
+        "_menus",
         "_outbound",
         "_router",
         "_ws",
@@ -102,6 +100,7 @@ class HubListenSession:
         hub: Hub,
         clients: HubClientRegistry,
         router: CallbackRouter,
+        menus: DirtyMarker,
     ) -> Self:
         self = super().__new__(cls)
         self._ws = ws
@@ -110,21 +109,50 @@ class HubListenSession:
         self._hub = hub
         self._clients = clients
         self._router = router
+        self._menus = menus
         self._outbound = asyncio.Queue()
         self._loop = asyncio.get_running_loop()
         return self
 
     async def run(self) -> None:
-        """Accept the connection, wire its bridges, and pump until it disconnects."""
+        """Accept the connection, wire its bridges, and pump until it disconnects.
+
+        Everything from the first piece of registered state onward is inside the
+        teardown's guard. A client that goes away between the accept and the
+        handshake write is the case that needs it: the listener is registered by
+        then, and if the failing write escaped un-torn-down the Hub would hold a
+        listener for a connection nothing can reach — and would then admit a
+        menu callback from that identity, because holding a listener is exactly
+        what the registration gate checks for.
+
+        The prologue runs as one uninterrupted stretch between the accept and the
+        handshake write, so no other loop-side step can land inside it. Recording
+        the identity and taking the connection's listener slot are one registry
+        call for the same reason at thread scope: nothing may observe this session
+        identified but unreachable, or holding the slot but anonymous.
+
+        Taking the slot clears the entries its previous occupant owned, and the bar
+        is re-pushed when it does. Nothing else would: this session may register
+        nothing of its own, and a user clicking a cleared entry discovers the fault
+        rather than repairing it.
+        """
         await self._ws.accept()
         self._loop = asyncio.get_running_loop()
-        self._clients.record(self._conn, self._identity)
-        self._hub.register_writer(self._conn, self.deliver_event)
-        self._router.add_listener(self._conn, self)
-        await self._ws.send_text(
-            ReadyFrame(connection_id=str(self._conn)).model_dump_json()
-        )
-        self._drain_callbacks()  # push clicks buffered before this (re)connect
+        try:
+            attachment = self._clients.attach_listener(self._conn, self._identity, self)
+            if attachment == "attached_over_callbacks":
+                self._menus.mark_menus()
+            self._hub.register_writer(self._conn, self.deliver_event)
+            await self._ws.send_text(
+                ReadyFrame(connection_id=str(self._conn)).model_dump_json()
+            )
+            self._drain_callbacks()  # push clicks buffered before this (re)connect
+            await self._pump()
+        finally:
+            self._teardown()
+
+    async def _pump(self) -> None:
+        """Read until the peer goes away, with the writer draining alongside."""
         writer = asyncio.create_task(self._write_loop())
         try:
             await self._read_loop()
@@ -132,7 +160,6 @@ class HubListenSession:
             writer.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await writer
-            self._teardown()
 
     def wake(self) -> None:
         """CallbackListener: a click was routed to this session — schedule a drain."""
@@ -203,76 +230,46 @@ class HubListenSession:
             self._outbound.put_nowait(CallbackFrame(callback_id=invocation.callback_id))
 
     def _teardown(self) -> None:
-        """Drop the connection-bound bridges; the session and its hold persist.
+        """Release what belongs to this session, by identity, and nothing else.
 
-        The writer and subscriptions cannot outlive the socket, and the listener
-        must stop waking a dead loop, so all three go. The session, its lease, and
-        its callback hold stay: a reconnect within the lease drains the buffered
-        clicks, matching the hold's "buffer for transient gaps" contract.
+        One connection is shared by successive sessions of one identity: an old
+        session dying and a new one reconnecting after its backoff address the same
+        slot, and the old one may still be suspended here, awaiting its cancelled
+        writer, long after its successor has completed an entire connect. So every
+        removal compares first, and each piece of state is compared against the
+        thing that owns it.
+
+        The listener slot and its callbacks belong to *whoever holds the slot*, so
+        they go only while ``self`` still does — the compare that keeps a
+        superseded session from taking its successor's leg and entries, damage that
+        would never heal because the successor keeps renewing its lease and goes on
+        believing it is push-reachable while owning nothing. The two are released
+        as one operation, because a callback whose listener has already gone is
+        observable from the threads that route clicks and register entries.
+
+        The writer and the subscriptions belong to *this session*: they are its own
+        ``deliver_event``, so they are released on every path — including the one
+        where a successor took the slot, and the one where the lease lapsed and the
+        sweep took the session out from under a socket that lingered. Skipping them
+        there left a dead session's ``deliver_event`` subscribed, and nothing could
+        withdraw it — ``unsubscribe`` resolves the connection's *current* writer,
+        which by then is the successor's — so every publish on the topic went on
+        filling an outbound queue no write task drains, pinning the session and its
+        socket for the life of the process.
+
+        The bar is re-pushed whenever entries stopped being deliverable, and left
+        alone only in the stale case, where a successor's entries are live. The
+        session, its identity, its lease, and its hold survive: a reconnect within
+        the lease drains the clicks buffered across the gap and re-registers from
+        ``on_connect``, so a transient drop heals itself while a process that is
+        gone stays gone.
+
+        This method must contain no ``await``. With no suspension point the detach,
+        the mark, and the release are one uninterrupted loop run, so no reconnect
+        can interleave among them. Adding an ``await`` here reopens that window and
+        invalidates the model this design was checked against.
         """
-        self._router.remove_listener(self._conn)
-        self._hub.on_disconnect(self._conn)
-
-
-@final
-class HubListenTransport:
-    """Mounts ``/ws`` and builds a :class:`HubListenSession` per connection."""
-
-    _hub: Hub
-    _clients: HubClientRegistry
-    _router: CallbackRouter
-    __slots__ = ("_clients", "_hub", "_router")
-
-    def __new__(
-        cls, hub: Hub, clients: HubClientRegistry, router: CallbackRouter
-    ) -> Self:
-        self = super().__new__(cls)
-        self._hub = hub
-        self._clients = clients
-        self._router = router
-        return self
-
-    @classmethod
-    def for_hub(cls) -> Self:
-        """Wire the transport over the Hub's process singletons."""
-        return cls(hub, hub_display.clients, hub_callback_router)
-
-    def mount(self, app: FastAPI) -> None:
-        """Add the ``/ws`` WebSocket route to the parent app."""
-        app.add_api_websocket_route(WS_PATH, self._endpoint, name="listen")
-
-    async def _endpoint(self, websocket: WebSocket) -> None:
-        """Resolve the client's identity from the handshake, then serve its session.
-
-        The identity rides the ``X-Lux-Client-*`` handshake headers exactly as it
-        does on REST, and the connection is derived from the same declaration dict
-        (:func:`connection_for`), so the two legs resolve to one shared id. An
-        unidentified or malformed handshake is refused with a policy-violation close
-        rather than served an anonymous session.
-        """
-        declaration = ClientHeaders.declaration_from(websocket.headers)
-        identity = self._identity_of(declaration)
-        if declaration is None or identity is None:
-            await websocket.close(code=_POLICY_VIOLATION)
-            return
-        conn = connection_for(declaration)
-        session = HubListenSession(
-            websocket, conn, identity, self._hub, self._clients, self._router
-        )
-        await session.run()
-
-    @staticmethod
-    def _identity_of(declaration: dict[str, object] | None) -> ClientIdentity | None:
-        """Validate a handshake declaration into an identity, or ``None`` if unusable.
-
-        A wire boundary: an unnamed handshake (``declaration`` is ``None``), or one
-        whose identity fields are garbled, is refused the leg — the absence is the
-        documented outcome, not a raised error that would crash the connection.
-        """
-        if declaration is None:
-            return None
-        try:
-            return ClientIdentity.model_validate(declaration)
-        except ValidationError:
-            logger.info("listen handshake declared a malformed identity; refusing")
-            return None
+        detachment = self._clients.detach_listener(self._conn, self)
+        if detachment in {"released_with_callbacks", "released_with_session"}:
+            self._menus.mark_menus()
+        self._hub.release_writer(self._conn, self.deliver_event)

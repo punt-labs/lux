@@ -9,8 +9,7 @@
   "mcpServers": {
     "lux": {
       "type": "http",
-      "url": "http://127.0.0.1:8430/mcp",
-      "timeout": 60000
+      "url": "http://127.0.0.1:8430/mcp"
     }
   }
 }

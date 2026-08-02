@@ -725,58 +725,6 @@ class TestEnsure:
                 display.stop()
 
 
-class TestPeerPid:
-    """The socket's OS peer credential resolves the true owner PID."""
-
-    def test_live_socket_returns_owner_pid(
-        self, short_socket: Callable[[], Path]
-    ) -> None:
-        """A live listener's peer credential names its owning process."""
-        path = short_socket()
-        display = _FakeDisplay(path)
-        try:
-            # The FakeDisplay binds in this process, so it owns the socket.
-            assert DisplayPaths(path)._peer_pid() == os.getpid()
-        finally:
-            display.stop()
-
-    def test_dead_socket_returns_none(self, short_socket: Callable[[], Path]) -> None:
-        """A stale socket with no listener yields no peer (connection refused)."""
-        path = short_socket()
-        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        s.bind(str(path))
-        s.close()  # file remains, nothing listens
-        assert DisplayPaths(path)._peer_pid() is None
-
-    def test_unsupported_platform_returns_none(
-        self, short_socket: Callable[[], Path], monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A platform without a peer-credential option yields None."""
-        path = short_socket()
-        display = _FakeDisplay(path)
-        monkeypatch.setattr("punt_lux.paths.sys.platform", "sunos5")
-        try:
-            assert DisplayPaths(path)._peer_pid() is None
-        finally:
-            display.stop()
-
-    def test_non_positive_credential_returns_none(
-        self, short_socket: Callable[[], Path]
-    ) -> None:
-        """A zeroed/partial credential (pid 0) resolves to None, never a target.
-
-        os.kill(0, ...) signals the whole process group; a non-positive
-        peer PID must never leave _peer_pid as a signallable value.
-        """
-        path = short_socket()
-        display = _FakeDisplay(path)
-        try:
-            with patch("socket.socket.getsockopt", return_value=b"\x00\x00\x00\x00"):
-                assert DisplayPaths(path)._peer_pid() is None
-        finally:
-            display.stop()
-
-
 class TestReap:
     def test_reap_dead_clears_files_without_kill(
         self, short_socket: Callable[[], Path]
@@ -888,6 +836,69 @@ class TestReap:
             with patch("punt_lux.paths.os.kill", side_effect=fake_kill):
                 dp.reap(timeout=2.0)
             assert terminated == [os.getpid()]  # peer-pid beats the stale file
+            assert not path.exists()
+        finally:
+            display.stop()
+
+    def test_reap_survives_a_transient_failure_resolving_the_owner(
+        self, short_socket: Callable[[], Path], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The named failure this reproduces: reap refusing to reap a live display.
+
+        Under full-suite load a single connect against the live socket would fail,
+        the owner read concluded "unresolvable", and reap raised "refusing to reap"
+        against a display that was plainly running. Failing that read's first
+        connect deterministically reproduces the condition; reap must now resolve
+        the owner on a later attempt and terminate it. The refusal itself is not
+        weakened — an owner that stays unresolvable still refuses, with no
+        PID-file fallback.
+
+        The injection targets the owner read by *phase*, not by counting connects:
+        reap resolves the owner only after its liveness check has returned True, so
+        the first connect after that is the one under test. Tripping on an ordinal
+        would silently move onto the liveness probe the day that probe connects
+        twice, and the test would pass for the wrong reason.
+        """
+        path = short_socket()
+        display = _FakeDisplay(path)
+        dp = DisplayPaths(path)
+        dp.pid_path.write_text(str(os.getpid()))
+        terminated: list[int] = []
+        real_connect = socket.socket.connect
+        real_is_running = DisplayPaths.is_running
+        resolving_owner = False
+        failed_once = False
+
+        def watching_is_running(self: DisplayPaths) -> bool:
+            nonlocal resolving_owner
+            alive = real_is_running(self)
+            # Its own probe has connected and returned by now, so every later
+            # connect belongs to the owner read reap is about to make.
+            resolving_owner = resolving_owner or alive
+            return alive
+
+        def flaky_connect(sock: socket.socket, address: object) -> None:
+            nonlocal failed_once
+            if resolving_owner and not failed_once:
+                failed_once = True
+                raise TimeoutError("timed out")
+            real_connect(sock, address)  # type: ignore[arg-type]  # the real address
+
+        def fake_kill(pid: int, sig: int) -> None:
+            if sig == 0:
+                if terminated:
+                    raise ProcessLookupError
+                return
+            terminated.append(pid)
+            display.stop()
+
+        try:
+            monkeypatch.setattr(DisplayPaths, "is_running", watching_is_running)
+            monkeypatch.setattr(socket.socket, "connect", flaky_connect)
+            with patch("punt_lux.paths.os.kill", side_effect=fake_kill):
+                dp.reap(timeout=2.0)
+            assert failed_once  # the owner read really did meet a failed connect
+            assert terminated == [os.getpid()]  # and the live owner was reaped
             assert not path.exists()
         finally:
             display.stop()

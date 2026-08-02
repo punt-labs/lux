@@ -11,7 +11,7 @@ from punt_lux.operations.models.common import OpError
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-__all__ = ["FrameStateAck", "FrameStatePatch"]
+__all__ = ["FrameRaise", "FrameStateAck", "FrameStatePatch"]
 
 
 class FrameStatePatch(BaseModel):
@@ -51,6 +51,29 @@ class FrameStateAck(BaseModel):
     @classmethod
     def from_reply(cls, payload: Mapping[str, object]) -> FrameStateAck | OpError:
         """Build from the display's ``set_frame_state`` reply, or reject it."""
+        try:
+            return cls.model_validate(payload)
+        except ValidationError as exc:
+            return OpError.from_reply(exc)
+
+
+class FrameRaise(BaseModel):
+    """Whether the display brought the named frame to the front.
+
+    ``raised`` false is the answer for a frame the display does not hold, and it
+    is a fact, not a failure: a caller asking for a frame by name is normally
+    finding out whether it has to push one. Reporting it as an error would make
+    the ordinary cold start an exception the caller has to catch.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    frame_id: str
+    raised: bool
+
+    @classmethod
+    def from_reply(cls, payload: Mapping[str, object]) -> FrameRaise | OpError:
+        """Build from the display's ``raise_frame`` reply, or reject it."""
         try:
             return cls.model_validate(payload)
         except ValidationError as exc:

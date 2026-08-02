@@ -26,36 +26,32 @@ _BD_CMD_RE = re.compile(
 )
 
 
-# The convention every lux-enabled session follows so its own Beads menu entry
-# appears and its clicks are serviced from this repo's shell. luxd cannot run
-# ``bd`` itself — its launchd environment has no PATH, credentials, or repo cwd —
-# so Beads belongs to the session that has a repo shell. A shell hook cannot call
-# an MCP tool, so the registration is injected here as an instruction the session
-# acts on when it connects.
-_BEADS_CALLBACK_CONTEXT = (
+# What a session is told at start when the display is on. The Beads entry it owns
+# is no longer anything the agent does: this session's applet registers it on
+# connect and services the click itself. Saying so is still worth the line,
+# because it tells the agent what NOT to do — a callback it registered over MCP
+# would be refused (an MCP connection holds no listen leg), and a poll for clicks
+# would find nothing and add latency to a path that has none.
+_DISPLAY_ON_CONTEXT = (
     "Lux display mode: on. Visual output will be rendered when appropriate. "
-    "This session owns a 'Beads' entry in the Lux menu bar. To make it appear, "
-    "first call the lux `identify` tool (kind='mcp-session', name your handle, "
-    "repo this repository's absolute path) — registration is refused for an "
-    "unidentified session — then call the lux `register_callback` tool with "
-    "callback_id='beads' and label='Beads' so the entry appears under this "
-    "session's submenu. When the user clicks it, lux holds the click for you — "
-    "poll the lux `pending_callbacks` tool on your own schedule and, when 'beads' "
-    "is returned, run `lux show beads` to refresh the board from this repo's shell."
+    "This session's own applets own their entries in the Lux menu bar and "
+    "service their clicks directly, in milliseconds and without a turn of "
+    "yours — so do not register menu callbacks and do not poll for clicks. "
+    "When the user asks for the beads board, build it with the /lux:beads skill."
 )
 
 
 def handle_session_start() -> dict[str, object]:
     """SessionStart — read display mode and return context.
 
-    When the display is on, the context also carries the Beads-callback
-    convention so the session registers its own repo-labeled menu entry and
-    services clicks from its shell.
+    When the display is on, the context also says who owns this session's menu
+    entries — its own server process, not the agent — so the agent does not
+    duplicate work that is already done and would now be refused.
     """
     cfg = ConfigManager().read()
 
     if cfg.display == "y":
-        msg = _BEADS_CALLBACK_CONTEXT
+        msg = _DISPLAY_ON_CONTEXT
     else:
         msg = "Lux display mode: off. Visual output disabled."
 

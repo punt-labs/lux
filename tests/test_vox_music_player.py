@@ -5,7 +5,7 @@ voxd is a persistent app client (kind=app, name=voxd, lease 30) that registers a
 two v1 loops the menu epic ships, end to end over the production WebSocket listen
 leg:
 
-1. voxd registers 'Music'; the Hub menu build shows one submenu "voxd — /w/vox"
+1. voxd registers 'Music'; the Hub menu build shows one submenu "voxd"
    with a "Music" leaf; a leaf click routes back to voxd's live WebSocket
    connection as a callback frame.
 2. an in-scene Play-row button carries the typed publish attribute; firing it
@@ -47,7 +47,7 @@ from punt_lux.operations.models.menu_results import Ok
 from punt_lux.protocol.element_factory import JsonElementFactory
 from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.renderers.raising import RaisingRendererFactory
-from punt_lux.ws_listen import HubListenTransport
+from punt_lux.ws_transport import HubListenTransport
 
 # voxd's identity and the connection id both legs share — the WebSocket handshake
 # declares the same X-Lux-Client-* headers REST uses, so the callback registered
@@ -101,12 +101,35 @@ class _HubSink:
         self._hub.publish(_CONN, Topic(topic), payload)
 
 
+@final
+class _MenuFlag:
+    """A DirtyMarker recording the menu re-pushes a teardown triggers."""
+
+    _menus: int
+    __slots__ = ("_menus",)
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._menus = 0
+        return self
+
+    def mark_dirty(self, scene_id: SceneId) -> None:
+        raise AssertionError("the listen leg must never mark a scene dirty")
+
+    def mark_menus(self) -> None:
+        self._menus += 1
+
+    @property
+    def pushes(self) -> int:
+        return self._menus
+
+
 def _wired() -> tuple[TestClient, Hub, HubClientRegistry, CallbackRouter]:
     """Mount the production listen transport over fresh domain objects."""
     hub, clients = Hub(), HubClientRegistry()
     router = CallbackRouter(clients)
     app = FastAPI()
-    HubListenTransport(hub, clients, router).mount(app)
+    HubListenTransport(hub, clients, router, _MenuFlag()).mount(app)
     return TestClient(app), hub, clients, router
 
 
@@ -144,16 +167,29 @@ def _play_button(hub: Hub, album_id: str) -> ButtonElement:
     return button
 
 
+@final
+class _SilentLeg:
+    """A listen leg stand-in for the cases that build a menu without a socket."""
+
+    def wake(self) -> None:
+        """Delivery is the websocket's job in the click test below."""
+
+
 def test_the_music_build_shows_one_voxd_submenu_with_a_music_leaf() -> None:
     _client, _hub, clients, _router = _wired()
-    clients.record(_CONN, _IDENTITY)  # voxd identifies (app kind → permanent-ish lease)
-    assert clients.register_callback(_CONN, SessionCallback(id="music", label="Music"))
+    # voxd connects: identity and listen leg in one write, as the /ws route does.
+    leg = _SilentLeg()
+    clients.attach_listener(_CONN, _IDENTITY, leg)
+    outcome = clients.register_callback(
+        _CONN, SessionCallback(id="music", label="Music"), leg
+    )
+    assert outcome == "registered"
 
     menus = CallbackMenu.from_sessions(clients.live_sessions())
 
     # Exactly one submenu, labelled by identity and repository, with the Music leaf
     # whose id round-trips a click back to voxd's connection.
-    assert [menu.label for menu in menus] == ["voxd — /w/vox"]
+    assert [menu.label for menu in menus] == ["voxd"]
     leaf = menus[0].items[0]
     assert isinstance(leaf, MenuAction)
     assert leaf.label == "Music"
@@ -162,13 +198,20 @@ def test_the_music_build_shows_one_voxd_submenu_with_a_music_leaf() -> None:
 
 def test_a_music_leaf_click_reaches_voxds_live_websocket() -> None:
     client, _hub, clients, router = _wired()
-    clients.record(_CONN, _IDENTITY)
-    assert clients.register_callback(_CONN, SessionCallback(id="music", label="Music"))
     callbacks = CallbackOperations(clients, router, _Replicator())
     leaf_id = CallbackInvocation(_CONN, "music").menu_id
 
     with client.websocket_connect("/ws", headers=_HEADERS) as ws:
-        ws.receive_json()  # ready — voxd's listener is registered by now
+        ws.receive_json()  # ready — voxd's leg is installed by now
+        # Registration happens from the live connection, which is what an app's
+        # on_connect hook does: a leg taking the slot clears what the last one
+        # owned, so entries registered before connecting would not survive it.
+        leg = clients.listener_of(_CONN)
+        assert leg is not None
+        registration = clients.register_callback(
+            _CONN, SessionCallback(id="music", label="Music"), leg
+        )
+        assert registration == "registered"
         # The display-less stand-in for a leaf click: the invoke a menu-leaf click
         # dispatches, driven with the exact id the built leaf carries.
         outcome = callbacks.invoke_callback(leaf_id)

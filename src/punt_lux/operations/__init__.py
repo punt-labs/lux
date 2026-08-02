@@ -26,10 +26,9 @@ from punt_lux.operations.models import (
     Unsubscribed,
     UpdateRequest,
 )
-from punt_lux.operations.models.callbacks import PendingCallbacks
 from punt_lux.operations.models.display_info import DisplayInfo
 from punt_lux.operations.models.display_probe import Pong, Screenshot
-from punt_lux.operations.models.display_write import FrameStatePatch
+from punt_lux.operations.models.display_write import FrameRaise, FrameStatePatch
 from punt_lux.operations.models.identity import Identified
 from punt_lux.operations.models.inspect_scope import InspectScope
 from punt_lux.operations.models.menu_results import MenuList, Ok, SetMenuRequest
@@ -54,6 +53,7 @@ __all__ = [
     "DisplayInfo",
     "DisplayModeRequest",
     "DisplayModeState",
+    "FrameRaise",
     "FrameStatePatch",
     "HubPorts",
     "Identified",
@@ -65,7 +65,6 @@ __all__ = [
     "Ok",
     "OpError",
     "Operations",
-    "PendingCallbacks",
     "Pong",
     "PublishRequest",
     "Published",

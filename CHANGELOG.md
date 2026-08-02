@@ -2,8 +2,235 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Applets — small session-bound programs that own a menu entry.** An applet
+  runs for the life of one Claude Code session, in that session's repository
+  and shell, holding its own connection to luxd. It exists because luxd cannot
+  do this work itself: launchd starts luxd with no `PATH`, no repository, and
+  no repository credentials, while the session has all three. Applets are for
+  software Punt Labs did not build; `lux-beads` is the first.
+- **A session gets one applet, however many times its hook fires.** `/resume`
+  and `/clear` both fire SessionStart again against the same process, and
+  every firing used to start another `lux-beads` under the same session
+  identity — one identity is one Hub connection, so each new applet took the
+  session's callbacks from the one before it and the menu entry flapped
+  between them. An applet now claims its session before it serves it, under a
+  lock on `$TMPDIR/lux-beads-<session pid>.pid`: the holder serves, and a
+  second one says the session is already served and exits without connecting
+  to anything. The lock arbitrates rather than the pid written inside it,
+  because the kernel drops a lock when its holder dies — no stale claim to
+  recognise, no recycled pid to mistake for a live applet, and two applets
+  starting at the same instant cannot both find the session free. The
+  session-start hook checks for a running applet before it spawns one, so the
+  ordinary re-fire costs no process at all.
+- **The Beads menu entry is automatic.** The plugin's session-start hook
+  launches `lux-beads`, which registers the entry on connect and refreshes the
+  board when it is clicked. Neither the hook nor the `/lux:beads` skill asks
+  the agent to register a callback or poll for clicks any more. Measured on
+  the author's machine: 0.43–0.56s from spawn to the entry being visible in
+  the menu.
+- **A click says where its time went.** The applet reports one line per click,
+  timing each stage separately and ending with the whole wait — for example
+  `click beads: answered 97 ms, fetched 2340 ms, built 12 ms, pushed 45 ms,
+  total 2494 ms`. A board that was slow to arrive now names which stage was
+  slow — the `bd` query, the board build, or the push to luxd — instead of
+  leaving them to be told apart by guesswork, and a user who reports it can
+  paste one line that carries the whole story. A click that failed reports the
+  stages it reached, which is how far it got. The applet logs at INFO, so the
+  line is written for every click, into the log the session-start hook gives it
+  — `$TMPDIR/lux-beads-<session pid>.log`. A click that broke the 100 ms answer
+  budget goes out at WARNING instead, so it is read even where the floor has
+  been raised above INFO.
+- **The read from `bd` is broken down, on lux's side of the boundary.** Reading
+  the issues is four things, and only one of them is `bd`'s: lux starts a
+  process, waits on it, reads what comes back, and turns it into rows. Each is
+  now measured separately and reported with the stage that did it — a real
+  click reads `fetched 4899 ms (spawn 4, bd 4894, parse 0, 66 kB, 50 rows)`, so
+  the 4894 ms is `bd`'s and everything lux does around it is 5 ms. `bd`'s own
+  wall time stays one figure, because what happens inside it is not lux's to
+  instrument, and the counts are there because a four-second wait for fifty rows
+  and a four-second wait for fifty thousand are different problems. The reload
+  behind a standing board carries the same breakdown. This changed how lux runs
+  `bd`: `Popen` instead of `subprocess.run`, so the spawn and the wait are two
+  numbers rather than one, with the same 60-second bound now applied to the wait
+  and an overrunning `bd` killed and reaped rather than left behind.
+- **A click shows the board the applet already has.** Reading the issues is a
+  query to a hosted database and it is the whole wait — one measured click spent
+  4873 ms of its 4915 ms there. So the click stops waiting on it: the applet
+  loads a board as soon as its entry is registered, and holds the board from
+  every click after that, so a click answers with real issues and reloads behind
+  them instead of opening "Loading issues…" and waiting. That board goes up on
+  every click, whatever the frame raise answered: a frame coming forward says a
+  board is up, not which board, so a refresh whose push never landed cannot
+  leave a stale board in front of a user while the applet holds newer issues.
+  The fresh board replaces the standing one in place and never takes focus. A load that fails
+  leaves that board standing and says why in the log, so a `bd` that has stopped
+  answering costs a log line rather than the board. When the warm-up and a click
+  overlap — the case the warm-up exists for — the board kept is the one whose
+  load *began* last, because a query's snapshot is fixed when it starts: a slow
+  warm-up that returns after a click read fresher issues cannot put the staler
+  ones back on screen. A session with no board yet
+  opens the placeholder and waits, exactly as before. The click's line says
+  which it was: `click beads: answered 28 ms (cached board), refreshed 4310 ms,
+  total 4341 ms` — one figure for the reload, because the user was reading their
+  issues throughout it and waiting on no stage of it.
+- **A click is answered while the click before it is still loading.** Servicing
+  ran on the connection's receive path, which reads the next frame only when the
+  handler for this one returns — so a second click could not be raised or
+  acknowledged until the first click's reload had finished, which is a menu
+  entry that does nothing for the length of a `bd` query. A click is now started
+  and the frame behind it read at once, so every click gets its own answer
+  inside the budget. The work behind them is one piece of work: a click arriving
+  while a query is running answers from the board the applet holds and stands
+  down rather than starting a second `bd`, and the running query's board goes
+  into the frame it just raised, so it serves both. Drumming on the entry costs
+  one answer per click and no extra queries. The click that stood down says so
+  rather than reporting figures for a query it never ran — `click beads:
+  answered 24 ms (cached board), stood down 0 ms (a load was already running),
+  total 25 ms`.
+- **An applet leaves when its session does.** It is handed the session's
+  process id at spawn and checks every five seconds whether that process still
+  exists, exiting when it does not — so an applet cannot outlive its session
+  even when the session is killed rather than closed, which is exactly when a
+  shutdown hook would not fire. Measured: 4.4–6.4s from the session ending to
+  the applet exiting. The Hub's lease sweeps the menu entry underneath this
+  regardless.
+- **Every process on the click path now times its own work.** The applet
+  already reported its stages; the two processes between it and the glass said
+  nothing. luxd logs one line per mutating operation — `op render
+  scene=beads-lux 14 ms` — covering the scene installs, the frame raise, the
+  menu push, and the clears, and the display logs the other half from the
+  message arriving to the buffer swap that first painted it: `paint
+  scene=beads-lux 41 ms`. A frame raise is logged where it actually takes
+  effect (`raise frame=beads-lux applied`), which is the visible half of a
+  click. No process vouches for another's clock: each figure is measured by
+  the process that did the work, so a slow click is attributed rather than
+  argued about. Read-only queries are not timed — they change nothing a user
+  sees, and a line each would bury the mutations. Both lines are at INFO,
+  which is at or above each process's default floor.
+
+### Changed
+
+- **A menu callback may only be registered by a connection that can be pushed
+  to.** `register_callback` is refused — over MCP, REST, and the client library
+  alike — unless the calling connection holds luxd's listen leg, with a named
+  reason saying what to hold and how. A caller that could never be told its
+  menu item was clicked must not own one, and no interval a client would
+  actually poll at can meet what a menu implies.
+- **One beads board per repository.** `lux show beads`, the post-`bd` refresh,
+  and a session's menu entry now all refresh the same `beads-<project>` scene,
+  so they land in the tab already on screen instead of opening a second
+  identical one.
+
+### Removed
+
+- **The per-session stdio MCP proxy (`lux mcp-serve`).** The plugin connects
+  straight to luxd's HTTP endpoint again, as it did in 0.21.0. The proxy was
+  reintroduced to give a session a connection its menu clicks could be pushed
+  down; applets provide that without putting a hop in front of every one of a
+  session's MCP calls.
+- **`pending_callbacks`, the polling pickup leg** — the MCP tool and the
+  `GET /menus/callbacks/pending` route. With push the only delivery, it could
+  no longer return anything: a registered session is pushed its clicks, and a
+  session that cannot be pushed to now owns no callback to have clicks for.
+  Apps receive clicks through `LuxRestClient.listener(...)`, registering from
+  its `on_connect` hook.
+
 ### Fixed
 
+- **One identity is one connection even when the client does not encode its
+  headers.** Identity crosses as `X-Lux-Client-*` header values, and the two
+  transports disagree about everything but ASCII: the WebSocket client sends
+  UTF-8 bytes where the HTTP client sends latin-1, and luxd decodes both as
+  latin-1. A client that sends its name raw — every released `punt-lux`, and any
+  client that does not use `ClientHeaders` — therefore gave luxd two different
+  names for one identity as soon as that name held a non-ASCII character. The
+  name is what the connection id hashes, so the client's listen leg bound one
+  connection and its REST calls another: `register_callback` was refused for
+  holding no listen leg, permanently, and neither log said why. luxd now
+  recovers such a value on the read — bytes it decoded as latin-1 that spell
+  valid UTF-8 are re-read as UTF-8 — so both legs resolve to one connection
+  whichever way the client encoded them. Percent-encoding on the way out
+  (shipped earlier in this release) only ever governed the clients we ship;
+  this is the half that covers the ones we do not.
+- **The display log is readable again.** Every renderer's `render`, and the
+  paint loop that called them, carried a call-tracing decorator that logged one
+  DEBUG line per element per frame. Against a live window that is sixty lines
+  per element per second: a log sampled while this was running held 31,464 DEBUG
+  lines, of which 31,254 — 99.3% — were the trace, and the 197 lines that said
+  something were buried among them. The trace is removed from the per-frame path
+  and kept on the event-driven paths, where one line still means one thing
+  happened.
+- **`make restart` no longer puts the display at DEBUG nobody asked for.** It
+  exported `LUX_LOG_LEVEL=DEBUG` as a default onto the display it spawns, which
+  overrode the display's own INFO floor on every restart. The variable is now
+  passed through rather than defaulted: an operator who exports it still reaches
+  both processes, and an operator who has asked for nothing gets luxd at DEBUG
+  for its timings and the display at INFO. An empty `LUX_LOG_LEVEL` is read as
+  unset rather than as a mistyped level, so clearing the variable no longer
+  warns on every start.
+- **A transient socket hiccup no longer makes a live display unreapable.**
+  Reading the socket owner's peer credential failed the whole read on one
+  refused connect, so `reap` could report that a display which was plainly
+  running could not be resolved and refuse to act. The read now retries across
+  a bounded window, matching how the liveness probe already treats an ambiguous
+  connect.
+- **One identity, one connection id.** A declaration read from request headers
+  omits an absent field while one dumped from a `ClientIdentity` carries an
+  explicit `None`; the two hashed to different connections. An app deriving its
+  own connection id from the identity it holds now gets the connection its own
+  socket will bind.
+- **Identity crosses both transports intact.** Identity header values are
+  percent-encoded on the wire, so the WebSocket leg (UTF-8) and the HTTP leg
+  (latin-1) read the same bytes as the same identity. Before, a repository
+  path with a non-ASCII character split one session into two connections and
+  its menu entry silently never appeared. Plain-ASCII values cross unchanged.
+- **Menu entries survive a reconnect and leave with their owner.** A
+  session's entries are withdrawn the moment its listening connection ends —
+  no more ghost entries whose clicks report success into a queue nobody
+  drains — while a transient drop heals automatically: the connect hook
+  re-registers on every handshake. A superseded or lease-swept connection's
+  teardown removes only what it owns, so it can never strip its successor's
+  entries, writer, or subscriptions. The succession rules are
+  ProB-model-checked (`docs/listen_lifecycle.tex`).
+- **A click on a menu entry launches instead of waiting on a database.** The
+  first thing a Beads click did was run `bd`, so nothing at all happened until
+  the query returned — and the board was usually already on screen, so the
+  common case was waiting on a database to be shown what was already there. A
+  click now raises the board's frame first, which is the whole answer in that
+  case; a click with no board up opens one with a "Loading issues…" placeholder;
+  and `bd` runs behind whichever happened. Measured on the author's machine:
+  median ~55 ms from click to visible response, with the one breach in each run
+  being the first click — the cold path, which has no frame to raise and pays a
+  second round trip to open one. The per-click line carries this number and
+  every stage behind it, and the applet writes it at INFO for every click; over
+  budget, it goes out at WARNING instead.
+- **A frame can be raised.** `POST /display/frames/{id}/raise` (and
+  `LuxRestClient.raise_frame`) brings a frame to the front, restoring it first
+  if it was minimized. A frame the display does not hold answers `raised: false`
+  rather than failing, so a caller learns to push one. This is the only focus
+  change a client may ask for, and only on the user's behalf: a menu click
+  naming a frame is the user reaching for it.
+- **The bar never shows an entry whose callback has gone.** A reconnect that
+  beats its predecessor's teardown clears the predecessor's entries as it takes
+  the connection, and the bar is now re-pushed at that moment. Before, the
+  clearing was silent and nothing was guaranteed to correct it: the arriving
+  session may register nothing of its own, and clicking a cleared entry found
+  the fault rather than repairing it.
+- **A dropped click says so.** A session's pending-click buffer is bounded, and
+  reaching that bound discards the oldest click — one that was already reported
+  as routed. luxd now logs which connection and which callback lost it, instead
+  of discarding it silently.
+- **A failed click no longer costs the session its menu entry.** A click
+  whose board build fails renders the error in the window; a click that
+  cannot reach the Hub (a `make restart` mid-click, a slow push) logs
+  visibly and leaves the listening connection intact. A slow `bd` no longer
+  starves the lease keepalive, so servicing a click can no longer expire the
+  session doing the servicing.
+- **`lux doctor` no longer hangs** when `claude plugin list` does not
+  answer: the probe is bounded at 10 seconds and reports "did not answer"
+  distinctly from "not installed".
 - **The World menu and the menu bar are one menu.** Both now render from a
   single menu model as two projections — identical entries (agent bars and
   the session-registered callbacks alike) with identical click routing from

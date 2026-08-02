@@ -136,6 +136,73 @@ def test_hub_subscribe_without_writer_raises() -> None:
         new_hub.subscribe(ConnectionId("never-registered"), Topic("x"))
 
 
+def test_drop_handler_removes_only_that_handlers_topics() -> None:
+    """One connection, two sessions: the departing one takes its own and no more."""
+    registry = SubscriptionRegistry()
+    leaving, _ = _recorder()
+    staying, _ = _recorder()
+    conn = ConnectionId("c1")
+    registry.subscribe(conn, Topic("a"), leaving)
+    registry.subscribe(conn, Topic("a"), staying)
+    registry.subscribe(conn, Topic("b"), leaving)
+
+    registry.drop_handler(conn, leaving)
+
+    assert registry.topics_for(conn) == frozenset({Topic("a")})
+    assert registry.snapshot_subscribers(conn, Topic("a")) == (staying,)
+
+
+def test_drop_handler_is_idempotent_and_survives_an_absent_scope() -> None:
+    registry = SubscriptionRegistry()
+    handler, _ = _recorder()
+    registry.drop_handler(ConnectionId("never-existed"), handler)  # no raise
+    registry.subscribe(ConnectionId("c1"), Topic("a"), handler)
+    registry.drop_handler(ConnectionId("c1"), handler)
+    registry.drop_handler(ConnectionId("c1"), handler)
+    assert registry.topics_for(ConnectionId("c1")) == frozenset()
+
+
+def test_release_writer_takes_the_departing_legs_subscriptions_only() -> None:
+    """The Hub half of the ownership rule, over one shared connection id.
+
+    A superseded session's writer must stop receiving publishes, and the
+    successor's must keep receiving them. Dropping the connection's scope
+    wholesale silences the survivor; leaving the dead handler in place feeds a
+    queue nothing drains.
+    """
+    new_hub = Hub()
+    conn = ConnectionId("c1")
+    predecessor, dead_mail = _recorder()
+    successor, live_mail = _recorder()
+    new_hub.register_writer(conn, predecessor)
+    new_hub.subscribe(conn, Topic("music.play"))
+    new_hub.register_writer(conn, successor)  # the reconnect takes the connection
+    new_hub.subscribe(conn, Topic("music.play"))
+
+    new_hub.release_writer(conn, predecessor)  # the predecessor finally resumes
+
+    assert new_hub.has_writer(conn)  # the successor's binding is untouched
+    assert new_hub.publish(conn, Topic("music.play"), {"album_id": "jazz-1"}) == 1
+    assert dead_mail == []
+    assert live_mail == [
+        ObserverMessage(topic="music.play", payload={"album_id": "jazz-1"})
+    ]
+
+
+def test_release_writer_unbinds_only_while_that_writer_is_the_connections() -> None:
+    new_hub = Hub()
+    conn = ConnectionId("c1")
+    owner, _ = _recorder()
+    new_hub.register_writer(conn, owner)
+    new_hub.release_writer(conn, owner)
+    assert not new_hub.has_writer(conn)
+
+    successor, _ = _recorder()
+    new_hub.register_writer(conn, successor)
+    new_hub.release_writer(conn, owner)  # the predecessor resumes after the handover
+    assert new_hub.has_writer(conn)
+
+
 def test_hub_on_disconnect_drops_subscriptions_and_writer() -> None:
     new_hub = Hub()
     handler, _ = _recorder()

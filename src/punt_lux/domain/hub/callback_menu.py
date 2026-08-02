@@ -1,12 +1,18 @@
 """Build the session-then-callback menu from the live Hub sessions.
 
 The menu nests one way and one way only: one submenu per live session that has
-registered a callback, labeled from that session's identity, with its callbacks as
-the leaves under it. This holds whatever the count — a session with one callback is
-a single-leaf submenu, a session with several is a submenu with several leaves —
-so there is no case logic and no count threshold that switches the shape (ruled by
-the operator, 2026-07-29). Two sessions are never merged: each is its own submenu,
-so the user reads which repository an action belongs to before opening it.
+registered a callback, labeled with that session's name, with its callbacks as the
+leaves under it. This holds whatever the count — a session with one callback is a
+single-leaf submenu, a session with several is a submenu with several leaves — so
+there is no case logic and no count threshold that switches the shape. Two sessions
+are never merged: each is its own submenu.
+
+The label is the identity's name and nothing else. A client is what it calls
+itself, not where it happens to sit, and a session that needs its repository read
+out loud puts the repository in its name — which is what an applet does
+(``lux · <repository> · #<process>``). Appending the path here as well would
+duplicate that for a session and hang location noise off an app that has one name
+and one meaning wherever it runs.
 
 A leaf's id is the owning session and the callback joined into one wire id
 (:class:`CallbackInvocation`), so a click on the leaf round-trips to exactly the
@@ -23,7 +29,7 @@ from punt_lux.domain.hub.session_callback import CallbackInvocation
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
 
-    from punt_lux.domain.hub.callback_hold import LiveSessions
+    from punt_lux.domain.hub.callback_ports import LiveSessions
     from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.domain.hub.client_session import ClientSession
     from punt_lux.domain.hub.session_callback import SessionCallback
@@ -75,23 +81,13 @@ class CallbackMenu:
         """Build one session's submenu: its identity label over its callback leaves."""
         leaves = [cls._leaf(connection_id, callback) for callback in callbacks]
         ordered: list[MenuAction] = sorted(leaves, key=lambda action: action.label)
-        return Menu(label=cls._label(identity), items=list(ordered))
+        return Menu(label=identity.name, items=list(ordered))
 
     @staticmethod
     def _leaf(connection_id: ConnectionId, callback: SessionCallback) -> MenuAction:
         """Build a callback leaf whose id round-trips a click back to the session."""
         menu_id = CallbackInvocation(connection_id, callback.id).menu_id
         return MenuAction(id=menu_id, label=callback.label)
-
-    @staticmethod
-    def _label(identity: ClientIdentity) -> str:
-        """Name the submenu from the identity, carrying the repository when declared.
-
-        The repository is what answers the user's "which repo?" — two sessions of
-        the same name in different repositories read as distinct submenus.
-        """
-        repo = identity.repo
-        return identity.name if repo is None else f"{identity.name} — {repo}"
 
 
 @final

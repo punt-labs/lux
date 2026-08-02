@@ -1,7 +1,11 @@
 # One Code Path — Typed Hub Operations, a REST Front Door, Thin Adapters
 
-**Status:** design for the front-of-house rewrite. Read
-[target.md](target/target.md) first; on any conflict that document wins.
+**Status:** delivered. This design shipped as epic `lux-7gcz` (PRs #264–#272,
+released in v0.20.0 and v0.21.0): the typed `Operations` facade, the REST front
+door, the CLI as a REST client, streamable-HTTP MCP, and the retirement of
+`mcp-proxy`. It remains the reference for how the engine's client surfaces are
+built. Read [target.md](target/target.md) first; on any conflict that document
+wins.
 
 ## What This Design Decides
 

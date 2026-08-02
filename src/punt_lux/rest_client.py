@@ -20,6 +20,7 @@ from punt_lux.hub_client import LuxHubClient
 from punt_lux.hub_paths import HubPaths
 from punt_lux.identity_headers import ClientHeaders
 from punt_lux.operations import (
+    FrameRaise,
     Ok,
     OpError,
     Pong,
@@ -152,6 +153,18 @@ class LuxRestClient:
             return request
         call = HttpCall.post("/menus/callbacks", request, self._headers)
         return RestReply(self._transport.request(call)).read(Ok)
+
+    def raise_frame(self, frame_id: str) -> FrameRaise | OpError:
+        """Bring a frame to the front through ``POST /display/frames/{id}/raise``.
+
+        The instant half of answering a click: a session whose board is already up
+        makes it visible with this one call, before it goes looking for fresh data.
+        A frame the display does not hold answers ``raised`` false — the caller's
+        cue to push one — rather than an error.
+        """
+        segment = quote(frame_id, safe="")
+        call = HttpCall.command(f"/display/frames/{segment}/raise", self._headers)
+        return RestReply(self._transport.request(call)).read(FrameRaise)
 
     def ping(self, wait: float | None = None) -> Pong | OpError:
         """Round-trip a display ping through ``GET /display/ping``.

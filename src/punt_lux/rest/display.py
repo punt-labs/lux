@@ -15,6 +15,7 @@ from fastapi import APIRouter, Query
 
 from punt_lux.operations import (
     DisplayInfo,
+    FrameRaise,
     FrameStatePatch,
     Ok,
     Pong,
@@ -73,6 +74,9 @@ class DisplayRoutes:
         router.add_api_route(
             "/display/frames/{frame_id}", self.set_frame_state, methods=["PATCH"]
         )
+        router.add_api_route(
+            "/display/frames/{frame_id}/raise", self.raise_frame, methods=["POST"]
+        )
         router.add_api_route("/display/screenshot", self.screenshot, methods=["GET"])
         router.add_api_route("/display/ping", self.ping, methods=["GET"])
         router.add_api_route("/events", self.list_recent_events, methods=["GET"])
@@ -108,6 +112,10 @@ class DisplayRoutes:
     def set_frame_state(self, frame_id: str, patch: FrameStatePatch) -> Ok:
         """Change a frame's transient minimize state."""
         return self._errors.respond(self._ops.set_frame_state(frame_id, patch))
+
+    def raise_frame(self, frame_id: str) -> FrameRaise:
+        """Bring a frame to the front, restoring it if it was minimized."""
+        return self._errors.respond(self._ops.raise_frame(frame_id))
 
     def screenshot(self) -> Screenshot:
         """Refuse the screenshot: framebuffer capture is unsupported (DES-028).

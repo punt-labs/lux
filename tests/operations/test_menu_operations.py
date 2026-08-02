@@ -173,14 +173,12 @@ def test_list_menus_appends_the_callback_submenus_after_the_agent_bar() -> None:
     # The read reports both parts side by side: the agent bar first, then the
     # session-then-callback submenus the callback model contributes.
     registry = HubMenuRegistry()
-    callback_submenu = Menu(
-        label="vox — /w/vox", items=[MenuAction(id="c", label="Beads")]
-    )
+    callback_submenu = Menu(label="vox", items=[MenuAction(id="c", label="Beads")])
     ops = MenuOperations(registry, _MenuMarkerSpy(), _CallbackMenus([callback_submenu]))
     ops.set_menu(SetMenuRequest.parse([{"label": "File", "items": []}]))
 
     labels = [menu.label for menu in ops.list_menus().menus]
-    assert labels == ["File", "vox — /w/vox"]
+    assert labels == ["File", "vox"]
 
 
 def test_list_menus_keeps_an_action_labelled_like_the_separator() -> None:

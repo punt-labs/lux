@@ -12,10 +12,10 @@ than the anonymous stand-in the reserved ``"rest"`` connection used to be.
 from __future__ import annotations
 
 import os
-from pathlib import Path
 from typing import final
 
 from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.repo_root import RepoRoot
 
 __all__ = ["CliIdentity"]
 
@@ -41,13 +41,11 @@ class CliIdentity:
         is always derived from the git root when present, so an overridden *name* in
         a repo still owns that repo; a command outside a repository owns no repo.
         """
-        repo = cls._git_root()
-        derived = repo.name if repo is not None else _HEADLESS_NAME
-        name = cls._override(override) or derived
+        repo = RepoRoot.of(_HEADLESS_NAME)
         return ClientIdentity(
             kind="cli",
-            name=name,
-            repo=str(repo) if repo is not None else None,
+            name=cls._override(override) or repo.name,
+            repo=repo.declared_path,
         )
 
     @staticmethod
@@ -55,20 +53,3 @@ class CliIdentity:
         """Return the explicit name to declare, from the flag or the environment."""
         flag = (override or "").strip()
         return flag or os.environ.get(_OVERRIDE_ENV, "").strip()
-
-    @staticmethod
-    def _git_root() -> Path | None:
-        """Return the git repository root above the cwd, or ``None`` outside one.
-
-        Walk from the working directory up through its parents for a ``.git``
-        entry — a directory in a normal clone, a file in a worktree or submodule,
-        so ``exists`` catches both. Not being in a repository is the documented
-        headless case, so the walk falling through returns ``None`` rather than
-        raising, and no subprocess is spawned to answer a question the filesystem
-        already holds.
-        """
-        cwd = Path.cwd()
-        for directory in (cwd, *cwd.parents):
-            if (directory / ".git").exists():
-                return directory
-        return None

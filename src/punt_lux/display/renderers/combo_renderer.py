@@ -10,7 +10,6 @@ from imgui_bundle import imgui
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
 from punt_lux.domain.interaction import ValueChanged
 from punt_lux.protocol.elements.combo import ComboElement
-from punt_lux.tracing import trace
 
 __all__ = ["ComboRenderer"]
 
@@ -35,7 +34,6 @@ class ComboRenderer:
     def __new__(cls) -> Self:
         return super().__new__(cls)
 
-    @trace
     def render(self, elem: ComboElement) -> None:
         label = elem.label
         items = elem.items

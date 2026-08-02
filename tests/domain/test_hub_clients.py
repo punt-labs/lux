@@ -219,52 +219,240 @@ def _beads() -> SessionCallback:
     return SessionCallback(id="beads", label="Beads")
 
 
+def _mcp() -> ClientIdentity:
+    return ClientIdentity(kind="mcp-session", name="claude", repo="/w/lux")
+
+
+@final
+class _Leg:
+    """A listen leg stand-in. Its object identity is the whole ownership test."""
+
+    def wake(self) -> None:
+        """Delivery is the router's; these tests are about who holds the slot."""
+
+
+def _attached(
+    reg: HubClientRegistry, conn: ConnectionId, identity: ClientIdentity
+) -> _Leg:
+    """Connect a leg for ``conn`` and return it — the token every write compares to."""
+    leg = _Leg()
+    reg.attach_listener(conn, identity, leg)
+    return leg
+
+
 def test_register_callback_stores_it_on_an_identified_session() -> None:
     reg = HubClientRegistry()
     conn = ConnectionId("mcp")
-    reg.record(conn, ClientIdentity(kind="mcp-session", name="claude", repo="/w/lux"))
-    assert reg.register_callback(conn, _beads()) is True
+    leg = _attached(reg, conn, _mcp())
+    assert reg.register_callback(conn, _beads(), leg) == "registered"
     assert reg.sessions()[conn].callbacks == (_beads(),)
-
-
-def test_register_callback_refuses_an_unidentified_session() -> None:
-    reg = HubClientRegistry()
-    conn = ConnectionId("bare")
-    reg.record(conn)  # bound but no identity declared
-    assert reg.register_callback(conn, _beads()) is False
-    assert reg.sessions()[conn].callbacks == ()
 
 
 def test_register_callback_refuses_an_unknown_session() -> None:
     reg = HubClientRegistry()
-    assert reg.register_callback(ConnectionId("never"), _beads()) is False
+    outcome = reg.register_callback(ConnectionId("never"), _beads(), _Leg())
+    assert outcome == "superseded"
 
 
 def test_register_callback_refuses_a_lapsed_session() -> None:
+    """A leg still installed does not make a session that stopped renewing eligible."""
     clock = _Clock()
     reg = HubClientRegistry(clock)
     conn = ConnectionId("cli")
-    reg.record(conn, _cli())
+    leg = _attached(reg, conn, _cli())
     clock.advance(91.0)  # past the 90s cli lease
-    assert reg.register_callback(conn, _beads()) is False
+    assert reg.register_callback(conn, _beads(), leg) == "declined"
+    assert reg.sessions()[conn].callbacks == ()
+
+
+def test_a_registration_gated_against_a_departed_leg_is_refused() -> None:
+    """The gate and the write are separate moments; the leg may go between them.
+
+    Committing anyway leaves a menu item with no listener — and, because the
+    withdrawal that would have removed it has already run, nothing that will ever
+    remove it. The user gets an entry that swallows every click.
+    """
+    reg = HubClientRegistry()
+    conn = ConnectionId("mcp")
+    leg = _attached(reg, conn, _mcp())
+    assert reg.detach_listener(conn, leg) == "released"  # the leg tore down meanwhile
+
+    assert reg.register_callback(conn, _beads(), leg) == "superseded"
+    assert reg.sessions()[conn].callbacks == ()
+
+
+def test_a_registration_gated_against_a_replaced_leg_is_refused() -> None:
+    """The same window, closed by a successor rather than by a teardown.
+
+    A reconnect of the same identity resolves to the same connection, so the leg
+    the caller was gated against can be replaced rather than removed. Its entry
+    would then belong to a session that never asked for it, and its clicks would
+    be pushed to the newcomer.
+    """
+    reg = HubClientRegistry()
+    conn = ConnectionId("mcp")
+    first = _attached(reg, conn, _mcp())
+    _attached(reg, conn, _mcp())  # the successor takes the connection
+
+    assert reg.register_callback(conn, _beads(), first) == "superseded"
+    assert reg.sessions()[conn].callbacks == ()
 
 
 def test_registering_the_same_id_replaces_the_earlier_callback() -> None:
     reg = HubClientRegistry()
     conn = ConnectionId("mcp")
-    reg.record(conn, ClientIdentity(kind="mcp-session", name="claude", repo="/w/lux"))
-    reg.register_callback(conn, SessionCallback(id="beads", label="Beads"))
-    reg.register_callback(conn, SessionCallback(id="beads", label="Beads Browser"))
+    leg = _attached(reg, conn, _mcp())
+    reg.register_callback(conn, SessionCallback(id="beads", label="Beads"), leg)
+    reg.register_callback(conn, SessionCallback(id="beads", label="Beads Browser"), leg)
     callbacks = reg.sessions()[conn].callbacks
     assert callbacks == (SessionCallback(id="beads", label="Beads Browser"),)
+
+
+def test_a_new_leg_starts_with_none_of_its_predecessors_callbacks() -> None:
+    """Two sessions of one identity may be live at once, and the id is shared.
+
+    Leaving the callbacks would keep the predecessor's entries in the bar with
+    every click routed to the newcomer — reachable with no interleaving at all,
+    just a connect. Nothing else would withdraw them, because the session that
+    could has lost the slot.
+    """
+    reg = HubClientRegistry()
+    conn = ConnectionId("mcp")
+    first = _attached(reg, conn, _mcp())
+    reg.register_callback(conn, _beads(), first)
+    assert reg.sessions()[conn].callbacks == (_beads(),)
+
+    second = _Leg()
+    # The arriving session is told it cleared entries, because that is what makes
+    # the bar wrong and nothing else is guaranteed to correct it.
+    assert reg.attach_listener(conn, _mcp(), second) == "attached_over_callbacks"
+
+    assert reg.sessions()[conn].callbacks == ()
+    assert reg.sessions()[conn].held_by(second)
+
+
+def test_a_first_leg_clears_nothing_and_says_so() -> None:
+    """An empty slot has no entries to lose, so the bar is already right."""
+    reg = HubClientRegistry()
+    conn = ConnectionId("mcp")
+    assert reg.attach_listener(conn, _mcp(), _Leg()) == "attached"
+
+
+def test_a_teardown_by_a_session_that_lost_the_slot_removes_nothing() -> None:
+    """The stale teardown: a suspended predecessor must not strip its successor.
+
+    The predecessor sits in its finally awaiting a cancelled writer while the
+    reconnect completes an entire connect. Unguarded, it then removes the
+    successor's leg and callbacks — and the successor keeps renewing its lease,
+    so no sweep ever repairs it. It stays live, believing it is push-reachable,
+    owning nothing.
+    """
+    reg = HubClientRegistry()
+    conn = ConnectionId("mcp")
+    stale = _attached(reg, conn, _mcp())
+    successor = _attached(reg, conn, _mcp())
+    reg.register_callback(conn, _beads(), successor)
+
+    assert reg.detach_listener(conn, stale) == "kept"
+
+    assert reg.sessions()[conn].held_by(successor)
+    assert reg.sessions()[conn].callbacks == (_beads(),)
+
+
+def test_a_teardown_releases_the_leg_and_its_callbacks_together() -> None:
+    """Never one without the other: the gap between two writes is observable.
+
+    Clicks route and registrations commit on other threads, so a moment in which
+    a callback is present and its leg is gone is a moment one of them can read.
+    """
+    reg = HubClientRegistry()
+    conn = ConnectionId("mcp")
+    leg = _attached(reg, conn, _mcp())
+    reg.register_callback(conn, _beads(), leg)
+
+    assert reg.detach_listener(conn, leg) == "released_with_callbacks"
+
+    session = reg.sessions()[conn]
+    assert session.callbacks == ()
+    assert session.is_push_reachable is False
+    assert session.identity is not None  # the session itself survives the leg
+
+
+def test_a_teardown_after_the_sweep_is_a_release_not_a_keep() -> None:
+    """The two ways to not hold the slot are not the same answer.
+
+    A lapsed lease takes the session, its slot, and its entries while its socket
+    is still winding down. When that socket's teardown finally runs there is
+    nothing of anyone's left in the registry to remove — but nobody holds the
+    connection either, and the bar is still showing entries whose owner was swept
+    away. Answering ``kept`` there says a successor's entries are live, which is
+    false, and leaves them on screen.
+    """
+    clock = _Clock()
+    reg = HubClientRegistry(clock)
+    conn = ConnectionId("cli")
+    leg = _attached(reg, conn, _cli())
+    reg.register_callback(conn, _beads(), leg)
+    clock.advance(91.0)  # past the 90s cli lease
+    assert reg.live_sessions() == {}  # the read sweeps it as it passes
+
+    assert reg.detach_listener(conn, leg) == "released_with_session"
+
+
+def test_a_teardown_that_removed_no_entries_asks_for_no_menu_push() -> None:
+    reg = HubClientRegistry()
+    conn = ConnectionId("mcp")
+    leg = _attached(reg, conn, _mcp())
+    assert reg.detach_listener(conn, leg) == "released"
+
+
+def test_the_leg_read_is_what_the_gate_asks() -> None:
+    reg = HubClientRegistry()
+    conn = ConnectionId("mcp")
+    reg.record(conn, _mcp())
+    assert reg.listener_of(conn) is None  # identified, but nothing to push to
+
+    leg = _attached(reg, conn, _mcp())
+    assert reg.listener_of(conn) is leg
+
+
+def test_the_leg_and_its_callbacks_are_written_under_one_lock() -> None:
+    """The property the whole fix rests on: nothing observes the write half-done.
+
+    Instrumented rather than inferred from an outcome, in the shape the router's
+    lock-order tests use. The clock is called inside the registry's critical
+    section, so a probe fired from it runs at the exact moment the comparison has
+    happened and the write has not. A non-reentrant lock that refuses a second
+    acquire there is the lock still being held — so the compare and the write are
+    one section, and the leg and the callbacks it governs are behind the same one.
+    """
+    held_during: list[bool] = []
+    registry: list[HubClientRegistry] = []
+
+    def _probing_clock() -> float:
+        if registry:
+            acquired = registry[0]._lock.acquire(blocking=False)
+            held_during.append(not acquired)
+            if acquired:
+                registry[0]._lock.release()
+        return 0.0
+
+    reg = HubClientRegistry(_probing_clock)
+    registry.append(reg)
+    conn = ConnectionId("mcp")
+    leg = _attached(reg, conn, _mcp())
+    assert reg.register_callback(conn, _beads(), leg) == "registered"
+
+    assert held_during  # the probe ran
+    assert all(held_during)  # and every write it caught was inside the lock
 
 
 def test_a_lapsed_lease_sweeps_the_session_and_its_callbacks_together() -> None:
     clock = _Clock()
     reg = HubClientRegistry(clock)
     conn = ConnectionId("cli")
-    reg.record(conn, _cli())
-    reg.register_callback(conn, _beads())
+    leg = _attached(reg, conn, _cli())
+    reg.register_callback(conn, _beads(), leg)
     clock.advance(91.0)  # past the cli lease
     # The live read sweeps the session; its callbacks leave in the same motion.
     assert reg.live_sessions() == {}
@@ -278,8 +466,9 @@ def test_a_declared_ttl_lapses_an_app_session_that_would_be_permanent() -> None:
     clock = _Clock()
     reg = HubClientRegistry(clock)
     conn = ConnectionId("voxd")
-    reg.record(conn, ClientIdentity(kind="app", name="voxd", lease_ttl=30.0))
-    reg.register_callback(conn, _beads())
+    identity = ClientIdentity(kind="app", name="voxd", lease_ttl=30.0)
+    leg = _attached(reg, conn, identity)
+    reg.register_callback(conn, _beads(), leg)
     assert conn in reg.live_sessions()
 
     clock.advance(31.0)  # past the declared 30s lease, no contact in between

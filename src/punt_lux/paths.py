@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Self
 
 from punt_lux.protocol import ReadyMessage, recv_message
+from punt_lux.socket_owner import SocketOwner
 
 logger = logging.getLogger(__name__)
 
@@ -30,15 +31,6 @@ _HANDSHAKE_TIMEOUT = 0.2
 
 # Seconds to confirm a process has exited after SIGKILL (asynchronous delivery).
 _SIGKILL_GRACE = 2.0
-
-# Peer-credential socket options by platform: (level, optname, buflen).
-# macOS LOCAL_PEERPID (SOL_LOCAL=0) and Linux SO_PEERCRED (SOL_SOCKET=1) both
-# carry the owning PID in the first 4 bytes. Raw values sidestep the socket
-# module's platform-guarded symbols, keeping the query reachable everywhere.
-_PEER_PID_OPT: dict[str, tuple[int, int, int]] = {
-    "darwin": (0, 0x002, 4),
-    "linux": (1, 17, 12),
-}
 
 # An undecodable reply from a connected peer still proves a live owner (ACCEPTING):
 # non-object payloads raise AttributeError; over-deep JSON raises RecursionError.
@@ -262,22 +254,12 @@ class DisplayPaths:
     def _peer_pid(self) -> int | None:
         """Return the socket owner's PID from its OS peer credential, or ``None``.
 
-        ``None`` is an unresolvable owner — unreadable peer, unsupported
-        platform, or a non-positive PID the signal path must never os.kill.
+        The socket wins on identity — a PID file can be stale or divergent — so
+        the reap path asks the kernel who is behind the socket rather than what a
+        file claims. ``None`` is an unresolvable owner, which the caller must never
+        turn into a signal.
         """
-        opt = _PEER_PID_OPT.get(sys.platform)
-        if opt is None:
-            return None
-        level, optname, size = opt
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
-            probe.settimeout(_PROBE_TIMEOUT)
-            try:
-                probe.connect(str(self._socket_path))
-                cred = probe.getsockopt(level, optname, size)
-            except OSError:
-                return None
-            pid = int.from_bytes(cred[:4], sys.byteorder)
-            return pid if pid > 0 else None
+        return SocketOwner(self._socket_path).pid()
 
     def _clear_dead_files(self) -> None:
         """Unlink the dead display's socket (or stale file/symlink) and PID file."""

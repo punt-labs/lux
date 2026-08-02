@@ -14,8 +14,8 @@ If cloned outside the workspace, these rules and configuration will not be prese
 Lux is a **visual output surface for Claude Code**. Vox gives agents a voice; Lux gives agents a screen. An ImGui window renders JSON element trees sent by agents over Unix socket IPC.
 
 - **Package**: `punt-lux`
-- **CLI**: `lux`, `luxd`
-- **MCP server**: via `mcp-proxy` → `luxd` WebSocket
+- **CLI**: `lux`, `luxd`; applet entry `lux-beads`
+- **MCP server**: `luxd` serves streamable HTTP at `/mcp`; the plugin connects directly (no per-session process)
 - **Python**: 3.13+, managed with `uv`
 
 ## Mandatory Reading
@@ -138,8 +138,8 @@ This separation means: protocol bugs break agents. Rendering bugs break the disp
 ### Three-tier distributed architecture
 
 - **`lux-display`** — ImGui renderer. Receives element objects from the Hub, wraps handlers with `remote_dispatch`, renders every frame. Native dependencies (`imgui-bundle`, `numpy`, `Pillow`) live here behind the `[display]` optional extra.
-- **`luxd`** — Session hub. Fronts everything through the typed `Operations` facade (`operations/`); stores authoritative state in HubDisplay (scenes, menus, sessions); serves MCP (WebSocket) and REST (FastAPI, same port) as thin adapter surfaces; pushes replicas to the display via the HubReplicator; receives and dispatches remote handler invocations from display clicks. The CLI is a third thin client over REST (`LuxRestClient`).
-- **`mcp-proxy`** — Transport bridge. Claude Code stdio ↔ luxd WebSocket. See `../mcp-proxy/`. (PR E of epic lux-7gcz replaces this leg with streamable HTTP.)
+- **`luxd`** — Session hub. Fronts everything through the typed `Operations` facade (`operations/`); stores authoritative state in HubDisplay (scenes, menus, sessions); serves MCP (streamable HTTP) and REST (FastAPI, same port) as thin adapter surfaces; pushes replicas to the display via the HubReplicator; receives and dispatches remote handler invocations from display clicks. The CLI is a third thin client over REST (`LuxRestClient`). The plugin's MCP config connects directly to `http://127.0.0.1:8430/mcp` — no per-session process in the tool path.
+- **Lux applets** — standalone programs on the library client (REST + the WebSocket listen leg) that own menu entries and service clicks (DES-063). Species: machine-global daemon (vox's music player, in the vox repo), session-bound applet (`lux-beads`, spawned by the plugin's session-start hook, parent-pid watch, dies with the session), on-demand renderer (z-spec). Bundled applets live in `applets/`; each Punt Labs tool ships its own applet in its own repo.
 
 This is the rewrite target, documented in
 `docs/architecture/target/target.md`,
@@ -169,7 +169,8 @@ path with remote handler wrapping and Hub-side re-dispatch.
 | `tools/server.py` | FastMCP instance and per-session lifecycle |
 | `tools/tools.py` | MCP tool definitions — zero-logic adapters over the `Operations` facade |
 | `display_client.py` | `DisplayClient` — the Hub's (luxd's) sole Unix-socket client to the display; constructed only in `domain/hub/clients.py`, guard-enforced |
-| `apps/beads.py` | `BeadsBrowser` — beads issue browser app |
+| `applets/` | Lux applets (DES-063): `AppletLeg` (listener + register-on-connect + click servicing), `SessionWatch` (parent-pid lifetime), `beads.py` (`lux-beads` — the first bundled applet) |
+| `apps/beads.py` | `BeadsBrowser` — beads issue browser app (the board the applet and CLI render) |
 
 25 element kinds covering ImGui's core primitives. Primary consumers: beads issue browser (`show_table()`), dashboards (`show_dashboard()`), custom rendering (`draw` element).
 
@@ -183,20 +184,22 @@ Start with `docs/architecture/target/target.md`. Use
 
 **v2 (future):** **Full ImGui element coverage** — every ImGui widget available as a Lux element — evolving toward a Pharo-inspired live environment where MCP is the message bus and Lux is the Morphic rendering layer (agent introspects and reshapes UI at runtime; system browser, inspector, workspace).
 
-**Guiding constraint:** v1 hones the data-display core and the ask-user/get-response interaction loop. Completeness of the ImGui element set is a **v2 goal** — new element-kind work is tracked with the `v2` bead label and does not block v1. Applications and applets (clock, calculator, dock, standalone viewers) are out of scope entirely.
+**Guiding constraint:** v1 hones the data-display core and the ask-user/get-response interaction loop. Completeness of the ImGui element set is a **v2 goal** — new element-kind work is tracked with the `v2` bead label and does not block v1. **Lux applets are in scope** (operator ruling 2026-08-01, DES-063): external programs on the library client owning menu entries — bundled ones in `applets/` for software that is not Punt Labs-built (beads; top/clock/irc-class candidates), tool-shipped ones in each tool's own repo (vox's music player). What stays out of scope: applications running inside the display process, and in-display code execution.
 
 ## Logging
 
 Two separate log files — luxd and the display are separate processes with separate log destinations:
 
-| Process | Log file | Level |
-|---------|----------|-------|
-| luxd (Hub) | `~/.punt-labs/lux/logs/luxd-stderr.log` | Configured by launchd |
-| lux-display | `/tmp/lux-jfreeman/display.sock.log` | INFO (set in `__main__.py`) |
+| Process | Log file | Default level |
+|---------|----------|---------------|
+| luxd (Hub) | `~/.punt-labs/lux/logs/luxd-stderr.log` | DEBUG — its per-operation timings are meant to be readable |
+| lux-display | `/tmp/lux-jfreeman/display.sock.log` | INFO |
 
 When debugging display-side behavior (rendering, click dispatch, handler wrapping), read the display log. When debugging Hub-side behavior (MCP tools, HubDisplay, publish), read the luxd log.
 
-DEBUG-level logs do not appear by default. To see them, change the level in `__main__.py:100` or add WARNING-level logs. Do not add ad-hoc debug prints — use the logger at the appropriate level.
+**One variable, two defaults.** `LUX_LOG_LEVEL` lowers the floor of whichever process reads it, and each entry point keeps its own default when the variable is unset. Nothing may set it on a child's behalf: the display is spawned by luxd and inherits its environment, so an exported `LUX_LOG_LEVEL=DEBUG` is only ever the operator asking for DEBUG everywhere. To read the display at DEBUG for one run: `LUX_LOG_LEVEL=DEBUG make restart`.
+
+Do not add ad-hoc debug prints — use the logger at the appropriate level. **Nothing on the per-frame render path may log.** ImGui repaints every element every frame, so one line there is sixty lines per element per second; the `@trace` decorator belongs on event-driven paths (a click, a decode, a send), never on a renderer's `render`. `tests/test_per_frame_tracing.py` enforces this.
 
 ## Code Quality
 

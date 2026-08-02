@@ -1,23 +1,25 @@
 {
   "total": 97,
   "by_category": {
-    "noqa": 23,
+    "noqa": 22,
     "type_ignore": 4,
     "pylint_disable": 2,
     "pyright_ignore": 5,
-    "per_file_ignores": 63
+    "per_file_ignores": 64
   },
   "by_file": {
     "src/punt_lux/__main__.py": {
-      "noqa": 6,
+      "noqa": 5,
       "pyright_ignore": 2
     },
     "src/punt_lux/_backends.py": {
       "pylint_disable": 2
     },
     "src/punt_lux/apps/_beads_payload.py": {
-      "noqa": 1,
       "type_ignore": 1
+    },
+    "src/punt_lux/apps/bd_command.py": {
+      "noqa": 1
     },
     "src/punt_lux/display/macos.py": {
       "type_ignore": 1,
@@ -37,6 +39,9 @@
       "type_ignore": 1,
       "pyright_ignore": 1
     },
+    "src/punt_lux/doctor_checks.py": {
+      "noqa": 1
+    },
     "src/punt_lux/domain/handlers/remote_dispatch.py": {
       "noqa": 1
     },
@@ -44,7 +49,7 @@
       "noqa": 1
     },
     "src/punt_lux/luxd.py": {
-      "noqa": 2,
+      "noqa": 1,
       "type_ignore": 1
     },
     "src/punt_lux/paths.py": {
@@ -66,5 +71,5 @@
       "noqa": 2
     }
   },
-  "updated_at": "2026-07-31T04:05:50Z"
+  "updated_at": "2026-08-01T22:21:24Z"
 }

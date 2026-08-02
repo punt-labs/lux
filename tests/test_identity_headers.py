@@ -7,6 +7,9 @@ header from reaching ``identify`` as a malformed field.
 
 from __future__ import annotations
 
+import pytest
+
+from punt_lux.connection_identity import connection_for
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.identity_headers import ClientHeaders
 
@@ -81,3 +84,97 @@ def test_an_absent_lease_ttl_sends_no_header() -> None:
     assert "X-Lux-Client-Lease-Ttl" not in ClientHeaders.to_wire(
         ClientIdentity(kind="app", name="luxd")
     )
+
+
+def test_a_non_ascii_identity_crosses_as_ascii_and_reads_back_whole() -> None:
+    """The wire carries ASCII, so a name or path with an accent survives it.
+
+    Left alone, the transports disagree: the WebSocket client sends UTF-8 bytes
+    where the HTTP client sends latin-1, and a server decoding one as the other
+    reads a different string. That splits one session's two legs onto two
+    connection ids, and the callbacks registered on one become invisible to the
+    other — the session's menu entry stops working with no error anywhere.
+    """
+    identity = ClientIdentity(
+        kind="mcp-session", name="lux · quarry · #2a", repo="/Users/josé/quarry"
+    )
+    wire = ClientHeaders.to_wire(identity)
+
+    assert all(value.isascii() for value in wire.values())
+    assert ClientIdentity.model_validate(ClientHeaders.declaration_from(wire)) == (
+        identity
+    )
+
+
+def test_both_legs_of_one_identity_resolve_to_one_connection() -> None:
+    """The property that matters: same identity, same connection, either transport.
+
+    Each transport hands its own header encoding to the server; both must land on
+    the id the other did, or a callback registered over REST is delivered to a
+    connection the WebSocket never bound.
+    """
+    identity = ClientIdentity(
+        kind="mcp-session", name="lux · lux · #6d18", repo="/w/lux"
+    )
+    wire = ClientHeaders.to_wire(identity)
+
+    as_utf8 = {k: v.encode().decode("latin-1") for k, v in wire.items()}
+    as_latin1 = {k: v.encode("latin-1").decode("latin-1") for k, v in wire.items()}
+
+    assert connection_for(
+        ClientHeaders.declaration_from(as_utf8) or {}
+    ) == connection_for(ClientHeaders.declaration_from(as_latin1) or {})
+
+
+def test_an_ascii_value_crosses_the_wire_unchanged() -> None:
+    """Existing callers are byte-identical on the wire; only non-ASCII is escaped."""
+    identity = ClientIdentity(kind="app", name="voxd", repo="/w/vox")
+    wire = ClientHeaders.to_wire(identity)
+    assert wire["X-Lux-Client-Name"] == "voxd"
+    assert wire["X-Lux-Client-Repo"] == "/w/vox"
+
+
+def test_a_percent_in_a_value_round_trips() -> None:
+    """Encoding the escape character itself is what keeps the decode faithful."""
+    identity = ClientIdentity(kind="cli", name="100%", repo="/w/a%b")
+    wire = ClientHeaders.to_wire(identity)
+    assert ClientIdentity.model_validate(ClientHeaders.declaration_from(wire)) == (
+        identity
+    )
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "ascii-only-90001",
+        "z-spec zspec 90001",  # ASCII and spaces
+        "z-spec·zspec·90001",  # U+00B7, no spaces
+        "z-spec · zspec · 90001",  # spaces and U+00B7 — the real session label
+    ],
+)
+def test_a_client_that_sends_raw_values_resolves_to_one_connection(name: str) -> None:
+    """The read must reconcile the transports for a client that does not encode.
+
+    Encoding only governs the clients we ship. A third-party client, or one on a
+    released punt-lux, sends its identity raw — and then the WebSocket leg's UTF-8
+    bytes and the HTTP leg's latin-1 bytes reach a server that decodes both as
+    latin-1, which reads two different names for one identity. Those hash to two
+    connection ids, so the callback such a client registers over REST is registered
+    on a connection its WebSocket never bound, and the Hub refuses it for holding
+    no listen leg. The read recovers the UTF-8 leg, so both legs land on one
+    connection whatever the client did.
+
+    The names are the bisect that found this: ASCII passes, ASCII with spaces
+    passes, and the U+00B7 the session label uses is where the two legs part.
+    """
+    over_websocket = {"X-Lux-Client-Kind": "app", "X-Lux-Client-Name": name}
+    over_http = dict(over_websocket)
+    # What each transport's encoding leaves the latin-1-decoding server holding.
+    over_websocket["X-Lux-Client-Name"] = name.encode().decode("latin-1")
+    over_http["X-Lux-Client-Name"] = name.encode("latin-1").decode("latin-1")
+
+    from_websocket = ClientHeaders.declaration_from(over_websocket) or {}
+    from_http = ClientHeaders.declaration_from(over_http) or {}
+
+    assert from_websocket["name"] == name
+    assert connection_for(from_websocket) == connection_for(from_http)

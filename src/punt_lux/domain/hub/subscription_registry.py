@@ -64,17 +64,24 @@ class SubscriptionRegistry:
     ) -> None:
         """Drop ``handler`` from ``(connection_id, topic)``. No-op if absent."""
         with self._lock:
+            self._discard(connection_id, topic, handler)
+
+    def drop_handler(self, connection_id: ConnectionId, handler: Handler) -> None:
+        """Drop ``handler`` from every topic in the connection's scope. Idempotent.
+
+        A departing session's own withdrawal. One connection is shared by
+        successive sessions of one identity, so a departing session may not
+        remove the connection's subscriptions wholesale — a successor's would go
+        with them. A handler identifies who registered it: it is the bound
+        outbound writer of one session, so removing by that identity takes
+        exactly what the departing session installed and nothing a successor did.
+        """
+        with self._lock:
             scope = self._by_connection.get(connection_id)
             if scope is None:
                 return
-            handlers = scope.get(topic)
-            if handlers is None:
-                return
-            handlers.discard(handler)
-            if not handlers:
-                del scope[topic]
-            if not scope:
-                del self._by_connection[connection_id]
+            for topic in tuple(scope):
+                self._discard(connection_id, topic, handler)
 
     def snapshot_subscribers(
         self,
@@ -103,3 +110,24 @@ class SubscriptionRegistry:
             if scope is None:
                 return frozenset()
             return frozenset(scope)
+
+    def _discard(
+        self, connection_id: ConnectionId, topic: Topic, handler: Handler
+    ) -> None:
+        """Remove one handler from one topic, pruning what empties; caller locks.
+
+        The one place the pruning rule lives: a topic with no subscribers and a
+        connection with no topics are both dropped, so an emptied scope is
+        indistinguishable from one that never existed.
+        """
+        scope = self._by_connection.get(connection_id)
+        if scope is None:
+            return
+        handlers = scope.get(topic)
+        if handlers is None:
+            return
+        handlers.discard(handler)
+        if not handlers:
+            del scope[topic]
+        if not scope:
+            del self._by_connection[connection_id]

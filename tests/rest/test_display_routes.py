@@ -116,6 +116,24 @@ def test_set_frame_state_id_mismatch_is_502() -> None:
     )
 
 
+def test_raise_frame() -> None:
+    reply = DisplayReplied({"frame_id": "f1", "raised": True})
+    client = make_client(display_port=StubPort(reply))
+    resp = client.post("/display/frames/f1/raise")
+    assert resp.status_code == 200
+    assert resp.json() == {"frame_id": "f1", "raised": True}
+
+
+def test_raise_frame_reports_an_absent_frame_as_a_200_not_an_error() -> None:
+    # A frame that is not up is the caller's cue to push one, not a failure: it
+    # must be readable from the body rather than caught from a status code.
+    reply = DisplayReplied({"frame_id": "f1", "raised": False})
+    client = make_client(display_port=StubPort(reply))
+    resp = client.post("/display/frames/f1/raise")
+    assert resp.status_code == 200
+    assert resp.json() == {"frame_id": "f1", "raised": False}
+
+
 def test_screenshot_unsupported_is_409() -> None:
     # DES-028: framebuffer capture is unsolved, so the operation refuses up front
     # with a rejection (409); the display is never reached (StubPort is inert).

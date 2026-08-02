@@ -1,0 +1,275 @@
+%
+% board_ordering_gate_only_buggy.tex
+%
+% FIDELITY CONTROL for docs/board_ordering.tex -- candidate fix (a) on its own.
+%
+% The applet tracks the highest BoardOrder place it has pushed and skips any
+% push at a place no newer.  The counter is claimed under a lock; the socket
+% write is not, because it cannot be.  This variant exists to show that
+% claiming a place and writing the glass are two acts, and that ordering the
+% first does not order the second.
+%
+% It differs from board_ordering_current_buggy.tex by one component (pushed)
+% and one guard per staging operation.
+%
+% Type-check:  fuzz -t docs/board_ordering_gate_only_buggy.tex
+% Model-check: probcli docs/board_ordering_gate_only_buggy.tex -model_check \
+%                -p DEFAULT_SETSIZE 2 -p MAXINT 4 -goal "shown /= evershown"
+%              (must report the goal FOUND)
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{A Monotone Push Counter Alone: a Fidelity Control}
+\author{Why claiming a place does not order the writes}
+\date{August 2026}
+\maketitle
+
+% ============================================================
+\section{Purpose}
+% ============================================================
+
+The first candidate fix has the applet remember the highest place it has
+pushed and skip any push at a place no newer than that. The counter would sit
+beside the slot and be claimed under a lock, in the same style as
+\texttt{BoardSlot.store}.
+
+It does not work, and the reason is structural rather than incidental. A push
+is two acts: settling on what to write, and writing it. The counter orders the
+first. The second is a socket round trip, which is exactly why it cannot be
+done under a lock, so it stays unordered --- and it is the second act that the
+user sees. Two pushers claim in the order $1, 2$ and land in the order $2, 1$,
+and the glass comes to rest showing $1$ while the counter records $2$.
+
+The state, \texttt{Init}, \texttt{TakePlace} and \texttt{StoreBoard} are those
+of \texttt{docs/board\_ordering.tex}, plus one component.
+
+% ============================================================
+\section{Types and State}
+% ============================================================
+
+\begin{zed}
+  [WORKER]
+\end{zed}
+
+\begin{zed}
+  PLACE == 0 \upto 3
+\end{zed}
+
+\begin{schema}{Board}
+  began : PLACE \\
+  loading : WORKER \pfun PLACE \\
+  held : PLACE \\
+  shown : PLACE \\
+  staged : WORKER \pfun PLACE \\
+  pushed : PLACE \\
+  everheld : PLACE \\
+  evershown : PLACE \\
+  offered : PLACE \\
+  overtaken : \power PLACE
+\where
+  held \leq began \\
+  shown \leq began \\
+  pushed \leq began \\
+  everheld \leq began \\
+  evershown \leq began \\
+  offered \leq began
+\end{schema}
+
+\texttt{pushed} is the candidate's counter: the highest place any push has
+claimed. Every other component is as in \texttt{docs/board\_ordering.tex}.
+
+\begin{schema}{Init}
+  Board'
+\where
+  began' = 0 \\
+  loading' = \emptyset \\
+  held' = 0 \\
+  shown' = 0 \\
+  staged' = \emptyset \\
+  pushed' = 0 \\
+  everheld' = 0 \\
+  evershown' = 0 \\
+  offered' = 0 \\
+  overtaken' = \emptyset
+\end{schema}
+
+\begin{schema}{TakePlace}
+  \Delta Board \\
+  w? : WORKER
+\where
+  w? \notin \dom loading \\
+  began < 3 \\
+  began' = began + 1 \\
+  loading' = loading \cup \{ w? \mapsto began' \} \\
+  held' = held \\
+  shown' = shown \\
+  staged' = staged \\
+  pushed' = pushed \\
+  everheld' = everheld \\
+  evershown' = evershown \\
+  offered' = offered \\
+  overtaken' = overtaken
+\end{schema}
+
+\begin{schema}{StoreBoard}
+  \Delta Board \\
+  w? : WORKER
+\where
+  w? \in \dom loading \\
+  ( loading~w? > held \land held' = loading~w? \\
+  \quad~ \land overtaken' = overtaken ) \lor \\
+  \quad~ ( loading~w? \leq held \land held' = held \\
+  \quad~ \land overtaken' = overtaken \cup \{ loading~w? \} ) \\
+  ( held' > everheld \land everheld' = held' ) \lor \\
+  \quad~ ( held' \leq everheld \land everheld' = everheld ) \\
+  loading' = \{ w? \} \ndres loading \\
+  began' = began \\
+  shown' = shown \\
+  staged' = staged \\
+  pushed' = pushed \\
+  evershown' = evershown \\
+  offered' = offered
+\end{schema}
+
+% ============================================================
+\section{The Counter}
+% ============================================================
+
+Each staging operation now claims its place first and proceeds only if the
+claim beats the counter. A claim that does not beat it disables the operation,
+which is the skip.
+
+\texttt{AnswerStage} claims the place of the board the slot holds.
+
+\begin{schema}{AnswerStage}
+  \Delta Board \\
+  w? : WORKER
+\where
+  w? \notin \dom staged \\
+  held > pushed \\
+  pushed' = held \\
+  staged' = staged \cup \{ w? \mapsto held \} \\
+  ( held > offered \land offered' = held ) \lor \\
+  \quad~ ( held \leq offered \land offered' = offered ) \\
+  began' = began \\
+  loading' = loading \\
+  held' = held \\
+  shown' = shown \\
+  everheld' = everheld \\
+  evershown' = evershown \\
+  overtaken' = overtaken
+\end{schema}
+
+\texttt{RefreshStage} claims the place of the board this worker loaded.
+
+\begin{schema}{RefreshStage}
+  \Delta Board \\
+  w? : WORKER
+\where
+  w? \in \dom loading \\
+  w? \notin \dom staged \\
+  loading~w? > pushed \\
+  pushed' = loading~w? \\
+  staged' = staged \cup \{ w? \mapsto loading~w? \} \\
+  ( loading~w? > offered \land offered' = loading~w? ) \lor \\
+  \quad~ ( loading~w? \leq offered \land offered' = offered ) \\
+  began' = began \\
+  loading' = loading \\
+  held' = held \\
+  shown' = shown \\
+  everheld' = everheld \\
+  evershown' = evershown \\
+  overtaken' = overtaken
+\end{schema}
+
+\texttt{BlankStage} claims place $0$ --- the placeholder, or the message naming
+why \texttt{bd} could not be read.
+
+\begin{schema}{BlankStage}
+  \Delta Board \\
+  w? : WORKER
+\where
+  w? \notin \dom staged \\
+  held = 0 \\
+  0 > pushed \\
+  pushed' = 0 \\
+  staged' = staged \cup \{ w? \mapsto 0 \} \\
+  began' = began \\
+  loading' = loading \\
+  held' = held \\
+  shown' = shown \\
+  everheld' = everheld \\
+  evershown' = evershown \\
+  offered' = offered \\
+  overtaken' = overtaken
+\end{schema}
+
+\begin{schema}{PushCommit}
+  \Delta Board \\
+  w? : WORKER
+\where
+  w? \in \dom staged \\
+  shown' = staged~w? \\
+  ( staged~w? > evershown \land evershown' = staged~w? ) \lor \\
+  \quad~ ( staged~w? \leq evershown \land evershown' = evershown ) \\
+  staged' = \{ w? \} \ndres staged \\
+  began' = began \\
+  loading' = loading \\
+  held' = held \\
+  pushed' = pushed \\
+  everheld' = everheld \\
+  offered' = offered \\
+  overtaken' = overtaken
+\end{schema}
+
+% ============================================================
+\section{What it reaches}
+% ============================================================
+
+\begin{verbatim}
+  probcli docs/board_ordering_gate_only_buggy.tex -model_check -nodead \
+    -p DEFAULT_SETSIZE 2 -p MAXINT 4 -p TIME_OUT 60000 \
+    -goal "shown /= evershown"                          # I2: FOUND
+  probcli ... -goal "staged = {} & shown < offered"     # I3: FOUND
+  probcli ... -goal "shown > held"                      # I4: FOUND
+  probcli ... -goal "shown : overtaken"                 # I5: FOUND
+  probcli ... -goal "held /= everheld"                  # I1: not found
+\end{verbatim}
+
+All four defects of the current design remain reachable. The counter closes
+none of them. That is the result: it is not a partial fix to be completed
+later, it is a field that costs a lock acquisition per push and changes nothing
+a user can see.
+
+The I2 witness is the two-act argument made concrete. Over 530 reachable states
+ProB reaches it in eight steps: a click claims place $1$; a later load stores
+place $3$ and a second click claims that; the second click's write lands, and
+then the first click's write lands over it. The counter reads $3$ while the
+display shows $1$. Claiming a place ordered the claims; the glass is written by
+the other act.
+
+\paragraph{The bounded-carrier deadlock.}
+The bare \texttt{-model\_check} reports a deadlock, and it is an artifact of
+the bound rather than a finding: once \texttt{pushed} reaches the top place, no
+claim can beat it and no staging operation is enabled. Real places come from an
+unbounded counter, so the state has no counterpart in the running system.
+\texttt{-nodead} suppresses it so the goal checks run to exhaustion; 9 of the
+531 states are its variants.
+
+\paragraph{A second reason not to implement it.}
+\texttt{BlankStage} is never covered. Its claim is $0 > pushed$, and
+\texttt{pushed} is a place, so it is never below $0$. A strict monotone counter
+over places would therefore suppress the placeholder and the failure message
+outright --- including the very first placeholder of a session, the one a cold
+click depends on. Any counter of this shape needs a value strictly below the
+bottom place to start from, which is one more piece of machinery justifying a
+mechanism that does not work anyway. ProB reports the operation not covered,
+which is the cheapest possible way to be told.
+
+\end{document}

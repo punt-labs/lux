@@ -375,7 +375,10 @@ architecture, or contribute a new element kind.
   all. The interaction loop lets an agent ask you a question through the UI: a
   dialog, a checkbox, or a button, with your answer routed back to the agent's
   handler. That ask-the-user loop shipped with the Hub/Display interaction model.
-  Completing coverage of every ImGui widget as a built-in element is the v2
+  Sessions and apps also own entries in the shared menu bar (and the matching
+  World menu): each entry belongs to the live session that registered it, and a
+  click is serviced instantly by that session's own running process. Completing
+  coverage of every ImGui widget as a built-in element is the v2
   direction (see~\faqref{faq:roadmap}).
 \end{faqpair}
 
@@ -406,7 +409,7 @@ architecture, or contribute a new element kind.
 \end{faqpair}
 
 \begin{faqpair}{What evidence do we have that customers want this?}\label{faq:evidence}
-  Lux is released (v0.19.1 on PyPI as \texttt{punt-lux} and on the plugin
+  Lux is released (v0.22 on PyPI as \texttt{punt-lux} and on the plugin
   marketplace) and used daily. The precise scope matters and we state it
   plainly: the daily user is \emph{one} primary human developer (Jim Freeman)
   plus the agent fleet he runs across the Punt Labs repositories. When we say the
@@ -418,7 +421,12 @@ architecture, or contribute a new element kind.
   and the live-refresh hook makes the surface feel current without the agent
   having to coordinate updates. The interaction loop, an agent asking a
   question and receiving the answer through a dialog, is exercised in real
-  sessions, not just tests.
+  sessions, not just tests. A second proof point now exists at the application
+  level: vox (the companion voice tool) ships a music player as a Lux Hub app --
+  its daemon registers a menu entry, receives the user's clicks over its
+  persistent connection, and drives playback -- accepted end-to-end in a live
+  demo (a pixel click producing audio). Still Punt Labs' own tool, so still
+  internal evidence, but it validates the app surface, not just the agent one.
 
   The honest gap: this evidence is \emph{internal}. The target customer (an
   external developer running several terminal agents at once, the profile in the
@@ -507,15 +515,22 @@ architecture, or contribute a new element kind.
   in {\small\texttt{docs/architecture/\allowbreak target/\allowbreak target.md}}.
 
   \begin{itemize}[nosep]
-    \item \textbf{\texttt{luxd}}: the session Hub. It decodes wire elements,
-      holds authoritative UI state, ownership, and handler dispatch in
-      \texttt{HubDisplay}, pushes element replicas to the display, and
-      re-dispatches interactions that come back from clicks.
+    \item \textbf{\texttt{luxd}}: the session Hub and the engine. It decodes
+      wire elements, holds authoritative UI state, ownership, and handler
+      dispatch in \texttt{HubDisplay}, pushes element replicas to the display,
+      re-dispatches interactions that come back from clicks, and serves every
+      client surface -- MCP (streamable HTTP), REST, and the CLI -- through one
+      typed operations facade, so a capability runs the same engine code
+      whichever surface it entered from.
     \item \textbf{\texttt{lux-display}}: the ImGui renderer. It stores a full
       copy of the UI, renders it every frame, and wraps handlers so that a click
       forwards back to the owning Hub instead of executing locally.
-    \item \textbf{\texttt{mcp-proxy}}: the transport bridge from Claude
-      Code's stdio to the \texttt{luxd} WebSocket.
+    \item \textbf{\texttt{lux mcp-serve}}: the per-session MCP server the
+      Claude Code plugin spawns. It forwards the session's MCP traffic to
+      \texttt{luxd} verbatim and holds a persistent listening connection on a
+      background thread, which is what lets the session own menu entries whose
+      clicks are answered instantly -- by a running process, never by a turn of
+      the model.
   \end{itemize}
 
   MCP is a first-class front door into the Hub, not a thin adapter. The
@@ -525,12 +540,10 @@ architecture, or contribute a new element kind.
   handler and the Display forwards the interaction back), so the Hub and
   Display can be separate processes, potentially on separate machines.
 
-  This lets the three tiers sit on different machines. The Display connects to
-  the Hub over a Unix socket; agents connect to the Hub over a WebSocket that
-  binds to localhost (127.0.0.1:8430) by default. A remote agent works today,
-  two ways: tunnel that localhost port over SSH, or start the Hub with
-  {\small\texttt{luxd --host}} pointed at a non-local interface for a direct TCP
-  connection (a session key authenticates either way). The practical payoff:
+  This lets the tiers sit on different machines. The Display connects to
+  the Hub over a Unix socket; agents and apps connect to the Hub over HTTP and
+  WebSocket on localhost (127.0.0.1:8430) by default. A remote agent works
+  today by tunneling that localhost port over SSH. The practical payoff:
   your most powerful agent can run on a remote box and still drive a GUI on your
   local screen, because only UI state crosses the wire.
 \end{faqpair}
@@ -550,18 +563,15 @@ architecture, or contribute a new element kind.
   \emph{not} agents authoring arbitrary extensions and not a plugin registry,
   because a bounded element set already composes without limit.
 
-  The honest risk is the migration itself. Lux is mid-rewrite from an older
-  single-process design onto a distributed Element-ABC path with two-tier remote
-  handler dispatch. Four of the 25 element kinds (text, button, checkbox, and
-  dialog) are on the new Element-ABC path today; the other 21 are legacy
-  dataclasses being migrated family by family into curated built-ins. The
-  sequencing, per-kind contract, and open design decisions are mapped in
-  {\small\texttt{docs/architecture/\allowbreak element-migration-audit.md}}. The scope is real work
-  (interactive inputs need a handler-wrapping seam, composites need typed
-  children, the table kind carries built-in view state), and it is the primary
-  feasibility risk (see the Risk Assessment). It is mitigated by incremental
-  crossing: each kind flips independently and mixed scenes keep working, with the
-  legacy path deleted only after the last kind crosses.
+  The element-migration risk this section used to carry is retired: all 25
+  element kinds are on the distributed Element-ABC path with two-tier remote
+  handler dispatch, and the legacy render path is deleted. The remaining
+  v2 feasibility exposure is the rendering layer's test gap -- the renderer is
+  verified by eyes and introspection tools, not by automated visual regression
+  -- and the interaction vocabulary itself: richer GUI-driven work needs more
+  input primitives and the composites that arrange them, each a
+  protocol-plus-renderer change with an evaluator gate (see the Risk
+  Assessment).
 \end{faqpair}
 
 \begin{faqpair}{If Lux succeeds, what breaks first?}\label{faq:scaling}
@@ -575,9 +585,9 @@ architecture, or contribute a new element kind.
       is a real limitation today, not a solved problem. It is the first thing
       that breaks under a long-running session that renders many distinct images.
     \item \textbf{Renderer maintainability debt.} \texttt{display/server.py} is
-      roughly 1,550 lines, well over the 300-line target, and
-      \texttt{element\_renderer.py} is also over. Decomposition is in progress
-      (the original monolith was already split once). This does not break at
+      roughly 1,500 lines, well over the 300-line target. Decomposition is in
+      progress (the original monolith was split once; the legacy renderer
+      modules died with the element migration). This does not break at
       runtime, but it slows every rendering change and is why the render layer is
       undertested. Status: actively being decomposed, incrementally.
     \item \textbf{Many-agent contention on one window.} The shared window is a
@@ -614,10 +624,12 @@ architecture, or contribute a new element kind.
     \item \textbf{Companion-tool pull}: share of Lux installers who adopt at
       least one other Punt Labs tool (biff, vox, quarry). This measures the
       ecosystem thesis directly.
-    \item \textbf{Element-coverage progress}: element kinds migrated onto the
-      Element-ABC path (4 of 25 today), tracking the v2 buildout.
-    \item \textbf{Interaction usage}: sessions that use the ask-the-user loop,
-      distinguishing Lux-as-display from Lux-as-interaction-surface.
+    \item \textbf{Hub-app adoption}: applications built on the Hub's client
+      surface beyond the agent tools (one today: vox's music player), tracking
+      whether the app surface pulls its own builders.
+    \item \textbf{Interaction usage}: sessions that use the ask-the-user loop
+      and the menu surface, distinguishing Lux-as-display from
+      Lux-as-interaction-surface.
   \end{enumerate}
 
   Decision threshold: if external one-week retention stays near zero after a
@@ -640,13 +652,16 @@ architecture, or contribute a new element kind.
   Lux is a curated visual surface, not a platform for arbitrary code. It will not
   become a self-extending display where agents author and register their own
   extensions; there is no extension registry, no community extension store, and
-  no in-display LLM authoring agent. It exposes no HTTP or Ollama-shaped service
-  API: MCP is the interface. It has one rendering mode (native ImGui), not
+  no in-display LLM authoring agent. Its client surfaces (MCP, REST, CLI,
+  library) bind to the developer's own machine: there is no hosted service, no
+  public web API, and no account. It has one rendering mode (native ImGui), not
   several. It does not host local model inference, does not render to the web or
-  Electron, and does not target mobile or tablet. Applications and applets
-  (clocks, calculators, standalone viewers) are out of scope. These exclusions
+  Electron, and does not target mobile or tablet. These exclusions
   are what keep the built-in vocabulary coherent and the trust model simple; the
-  full list is in the Feature Appendix.
+  full list is in the Feature Appendix. One earlier exclusion was reversed:
+  applets are now in scope as \emph{Lux applets} -- programs on the library
+  client that own menu entries and service clicks (the vox music player is the
+  first third-party one; \texttt{lux-beads} the first bundled one).
 \end{faqpair}
 
 % ══════════════════════════════════════════════════════════════════════════════
@@ -680,13 +695,15 @@ Usability  & \textcolor{RiskAmber}{Medium} &
   onboarding-completion; until then the Low-friction claim is a design intent,
   not a measured result. \\
 Feasibility & \textcolor{RiskAmber}{Medium} &
-  The core is shipped and works: Hub/Display, MCP front door, the data-display
-  core, the interaction loop, and a formally-verified singleton lifecycle. The
-  open work is the v1-to-v2 element migration: 21 of 25 kinds still on the
-  legacy path, with a handler-wrapping seam refactor and the table kind as the
-  hard cases. No single step is high-risk, but the aggregate is substantial and
-  is the primary feasibility exposure. Mitigated by incremental crossing with the
-  legacy path deleted last (see~\faqref{faq:roadmap}). \\
+  The core is shipped and works: Hub/Display, the MCP and REST front doors, the
+  data-display core, the interaction loop (dialogs, buttons, session menus with
+  instant click servicing), and formally-verified lifecycle and atomicity
+  models. The element migration that used to be the primary exposure is
+  complete: 25 of 25 kinds on the Element-ABC path, legacy path deleted. The
+  remaining exposure is the rendering layer's automated-test gap (correctness
+  there is verified by introspection tools and human demos, not visual
+  regression in CI) and the ordinary risk of growing the interaction
+  vocabulary (see~\faqref{faq:roadmap}). \\
 Viability  & \textcolor{RiskAmber}{Medium} &
   MIT-licensed with no direct revenue. Strategic value depends entirely on
   ecosystem pull for the companion Punt Labs tools. If Lux does not drive
@@ -733,8 +750,10 @@ The core that makes Lux what it is. These ship in v1.
     copy}\label{feat:d21}
   \featureitem{Multi-agent shared window}{multiple agents share one window, each
     in its own frame with clear attribution}\label{feat:multiagent}
-  \featureitem{MCP front door}{a first-class entry point where \texttt{mcp-proxy}
-    bridges Claude Code stdio to the \texttt{luxd} WebSocket}\label{feat:mcp}
+  \featureitem{MCP front door}{a first-class entry point: \texttt{luxd} serves
+    MCP over streamable HTTP, and each Claude Code session runs
+    \texttt{lux mcp-serve}, whose persistent connection lets the session own
+    menu entries with instantly-serviced clicks}\label{feat:mcp}
   \featureitem{Introspection and control surface}{\texttt{inspect\_scene},
     \texttt{list\_scenes}, \texttt{screenshot}, and related tools let an agent
     verify what actually rendered}\label{feat:introspect}
@@ -757,9 +776,6 @@ The v2 direction. Valuable, not v1-blocking.
     curated, built-in element; the point is not coverage for its own sake but the
     input primitives that enable rich GUI-driven interaction with the
     agent}\label{feat:coverage}
-  \featureitem{Element-ABC migration}{move the remaining 21 legacy element kinds
-    onto the distributed Element-ABC / Hub-Display path, retiring the legacy
-    render dispatch when the last kind crosses}\label{feat:migration}
   \featureitem{Texture-cache eviction policy}{bound the image texture cache,
     which today grows without eviction}\label{feat:texture}
   \featureitem{Companion-tool surfacing}{render biff presence panels, vox
@@ -782,12 +798,21 @@ Explicitly excluded to keep the vocabulary curated and the trust model simple.
     model Lux commits to}\label{feat:no-store}
   \featureitem{In-display LLM authoring agent}{Lux does not embed a model that
     writes new UI code inside the display}\label{feat:no-agent}
-  \featureitem{HTTP or Ollama-shaped service API}{MCP is the interface; Lux does
-    not expose a general HTTP service surface}\label{feat:no-http}
+  \featureitem{Hosted service API}{the MCP, REST, CLI, and library surfaces are
+    thin local clients of one engine on the developer's machine; Lux does not
+    become a hosted web service, expose a public API, or require an
+    account}\label{feat:no-http}
   \featureitem{Multiple rendering modes}{one native ImGui mode only, with no
     texture-buffer or separate-OS-window rendering modes}\label{feat:no-modes}
-  \featureitem{Applications and applets}{clocks, calculators, docks, and
-    standalone viewers are out of scope}\label{feat:no-apps}
+  \featureitem{Applets as arbitrary in-display applications}{what IS in scope
+    (reversing this row's earlier full exclusion, by operator ruling
+    2026-08-01): \emph{Lux applets} -- external programs on the library client
+    that own menu entries and render through the Hub, either shipped by their
+    own tool (vox's music player) or bundled with Lux for software that is not
+    Punt Labs-built (\texttt{lux-beads}; top/clock/irc-class candidates). What
+    stays out: applications running \emph{inside} the display process, and Lux
+    itself becoming an application platform with in-display code
+    execution}\label{feat:no-apps}
   \featureitem{Local model inference}{Lux renders; it does not host models}\label{feat:no-inference}
   \featureitem{Web or Electron rendering}{Lux renders natively via ImGui on the
     developer's GPU. HTML, Electron, and webviews are out of scope, since web

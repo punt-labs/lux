@@ -1,10 +1,12 @@
-"""CallbackOperations — register callbacks, route their clicks, read the menu.
+"""CallbackOperations — register menu callbacks, route their clicks, read the menu.
 
-Registration is a write only an identified session may make (the identify
-challenge otherwise), and a registration that took pushes the menu. A click's
-leaf id routes to the owning session's bounded hold; a click for a departed
-session or an unregistered callback is not_found, and a malformed leaf id is
-invalid_request. The menu build is the uniform session-then-callback tree.
+Registration has two preconditions: the connection holds a listen leg (a click is
+delivered by push, so a connection with none could never learn of it) and the
+session has identified. Either failure is a named refusal that registers nothing
+and pushes no menu. A click's leaf id routes to the owning session's bounded hold
+and wakes its listener; a click for a departed session or an unregistered callback
+is not_found, and a malformed leaf id is invalid_request. The menu build is the
+uniform session-then-callback tree.
 """
 
 from __future__ import annotations
@@ -59,161 +61,246 @@ class _MarkerSpy:
         return self._flags
 
 
+@final
+class _Listener:
+    """A persistent leg's wake, counting the pushes a routed click produced."""
+
+    _woken: int
+    __slots__ = ("_woken",)
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._woken = 0
+        return self
+
+    def wake(self) -> None:
+        self._woken += 1
+
+    @property
+    def woken(self) -> int:
+        return self._woken
+
+
+@final
+class _Wired:
+    """The operations under test with the collaborators a case needs to drive.
+
+    Sessions are made push-reachable through :meth:`connect`, which does what a
+    live WebSocket does on accept: record the session's identity and register its
+    listener. Nothing else in these tests may register a callback.
+    """
+
+    _clients: HubClientRegistry
+    _router: CallbackRouter
+    _marker: _MarkerSpy
+    _ops: CallbackOperations
+    __slots__ = ("_clients", "_marker", "_ops", "_router")
+
+    def __new__(cls, *, clock: _Clock | None = None, capacity: int = 32) -> Self:
+        self = super().__new__(cls)
+        self._clients = (
+            HubClientRegistry(clock) if clock is not None else HubClientRegistry()
+        )
+        self._router = CallbackRouter(self._clients, capacity)
+        self._marker = _MarkerSpy()
+        self._ops = CallbackOperations(self._clients, self._router, self._marker)
+        return self
+
+    @property
+    def ops(self) -> CallbackOperations:
+        return self._ops
+
+    @property
+    def router(self) -> CallbackRouter:
+        return self._router
+
+    @property
+    def pushed(self) -> int:
+        return self._marker.pushed
+
+    def identify(
+        self, conn: ConnectionId, identity: ClientIdentity | None = None
+    ) -> None:
+        """Bind the connection and its declared identity, with no listen leg."""
+        self._clients.record(conn, identity)
+
+    def connect(
+        self, conn: ConnectionId, identity: ClientIdentity | None = None
+    ) -> _Listener:
+        """Bring a session up as a live listen leg does: one call, identity and leg."""
+        listener = _Listener()
+        self._clients.attach_listener(conn, identity or _identity(), listener)
+        return listener
+
+    def drop_leg(self, conn: ConnectionId, listener: _Listener) -> None:
+        """Tear the session's leg down the way its own teardown does."""
+        self._clients.detach_listener(conn, listener)
+
+    def register(self, conn: ConnectionId, callback_id: str = "beads") -> Ok | OpError:
+        request = RegisterCallbackRequest.parse(callback_id=callback_id, label="Beads")
+        return self._ops.register_callback(request, scope=Scope(conn))
+
+    def click(self, conn: ConnectionId, callback_id: str = "beads") -> Ok | OpError:
+        return self._ops.invoke_callback(CallbackInvocation(conn, callback_id).menu_id)
+
+    def held(self, conn: ConnectionId) -> tuple[str, ...]:
+        return tuple(inv.callback_id for inv in self._router.pending(conn))
+
+
 def _identity(name: str = "claude", repo: str = "/w/lux") -> ClientIdentity:
     return ClientIdentity(kind="mcp-session", name=name, repo=repo)
 
 
-def _ops(
-    clients: HubClientRegistry, marker: _MarkerSpy, *, capacity: int = 32
-) -> CallbackOperations:
-    return CallbackOperations(clients, CallbackRouter(clients, capacity), marker)
+def test_registration_requires_a_push_reachable_connection() -> None:
+    """The gate that makes the menu contract keepable: no listen leg, no menu item."""
+    wired = _Wired()
+    conn = ConnectionId("mcp")
+    wired.identify(conn, _identity())  # identified, but no listener
+
+    result = wired.register(conn)
+    assert isinstance(result, OpError)
+    assert result.code == "push_required"
+    assert "listen leg" in result.reason
+    assert wired.pushed == 0  # nothing registered, nothing pushed
 
 
-def _register(
-    ops: CallbackOperations, conn: ConnectionId, callback_id: str
-) -> Ok | OpError:
-    request = RegisterCallbackRequest.parse(callback_id=callback_id, label="Beads")
-    return ops.register_callback(request, scope=Scope(conn))
+def test_push_reachability_is_answered_before_identity() -> None:
+    """A caller that could never be told of a click learns that, not to identify.
+
+    Identifying would not make an MCP or one-shot REST connection deliverable, so
+    reporting the identity challenge first would send the caller down a path that
+    ends in the same refusal.
+    """
+    wired = _Wired()
+    conn = ConnectionId("bare")  # neither identified nor listening
+    result = wired.register(conn)
+    assert isinstance(result, OpError)
+    assert result.code == "push_required"
 
 
-def test_registration_requires_an_identified_session() -> None:
-    clients = HubClientRegistry()
-    conn = ConnectionId("bare")
-    clients.record(conn)  # bound, but never declared an identity
-    marker = _MarkerSpy()
-    result = _register(_ops(clients, marker), conn, "beads")
+def test_a_session_whose_lease_lapsed_is_challenged_rather_than_registered() -> None:
+    """Holding a leg is not enough; the session must still be one the Hub knows.
+
+    This is now the only way a session with a leg can be refused on its own
+    account. Identity and the leg arrive in one registry write, so a connection
+    cannot hold a leg anonymously — the route that serves it refuses an unnamed
+    handshake, and attaching records the identity in the same step. What remains
+    is a session that stopped renewing, and re-identifying answers that, because
+    declaring an identity is itself a renewal.
+    """
+    clock = _Clock()
+    wired = _Wired(clock=clock)
+    conn = ConnectionId("mcp")
+    wired.connect(conn, _identity())
+    clock.advance(1801.0)  # past the 1800s mcp-session lease, no contact since
+
+    result = wired.register(conn)
     assert isinstance(result, OpError)
     assert result.code == "identification_required"
-    assert marker.pushed == 0  # nothing registered, nothing pushed
+    assert wired.pushed == 0
 
 
-def test_an_identified_session_registers_and_the_menu_is_pushed() -> None:
-    clients = HubClientRegistry()
+def test_an_identified_listening_session_registers_and_the_menu_is_pushed() -> None:
+    wired = _Wired()
     conn = ConnectionId("mcp")
-    clients.record(conn, _identity())
-    marker = _MarkerSpy()
-    ops = _ops(clients, marker)
+    wired.connect(conn, _identity())
 
-    assert isinstance(_register(ops, conn, "beads"), Ok)
-    assert marker.pushed == 1
-    menus = ops.callback_menus()
+    assert isinstance(wired.register(conn), Ok)
+    assert wired.pushed == 1
+    menus = wired.ops.callback_menus()
     assert len(menus) == 1
-    assert menus[0].label == "claude — /w/lux"
+    assert menus[0].label == "claude"
 
 
 def test_a_malformed_request_passes_through_without_pushing() -> None:
-    clients = HubClientRegistry()
+    wired = _Wired()
     conn = ConnectionId("mcp")
-    clients.record(conn, _identity())
-    marker = _MarkerSpy()
-    result = _register(_ops(clients, marker), conn, "")  # empty id
+    wired.connect(conn, _identity())
+
+    result = wired.register(conn, "")  # empty id
     assert isinstance(result, OpError)
     assert result.code == "invalid_request"
-    assert marker.pushed == 0
+    assert wired.pushed == 0
 
 
-def test_a_click_routes_to_the_owning_session_and_is_held() -> None:
-    clients = HubClientRegistry()
+def test_a_click_routes_to_the_owning_session_and_wakes_its_listener() -> None:
+    wired = _Wired()
     conn = ConnectionId("mcp")
-    clients.record(conn, _identity())
-    ops = _ops(clients, _MarkerSpy())
-    _register(ops, conn, "beads")
+    listener = wired.connect(conn, _identity())
+    wired.register(conn)
 
-    menu_id = CallbackInvocation(conn, "beads").menu_id
-    assert isinstance(ops.invoke_callback(menu_id), Ok)
-    assert ops.pending_callbacks(conn).callback_ids == ("beads",)
+    assert isinstance(wired.click(conn), Ok)
+    assert listener.woken == 1  # pushed, not left for a poll
+    assert wired.held(conn) == ("beads",)  # and buffered until the leg drains it
 
 
 def test_the_hold_is_bounded() -> None:
-    clients = HubClientRegistry()
+    wired = _Wired(capacity=2)
     conn = ConnectionId("mcp")
-    clients.record(conn, _identity())
-    ops = _ops(clients, _MarkerSpy(), capacity=2)
-    _register(ops, conn, "beads")
+    wired.connect(conn, _identity())
+    wired.register(conn)
 
-    menu_id = CallbackInvocation(conn, "beads").menu_id
     for _ in range(5):
-        ops.invoke_callback(menu_id)
-    assert ops.pending_callbacks(conn).callback_ids == ("beads", "beads")  # capped at 2
+        wired.click(conn)
+    assert wired.held(conn) == ("beads", "beads")  # capped at 2
 
 
 def test_a_click_for_a_departed_session_is_not_found() -> None:
     clock = _Clock()
-    clients = HubClientRegistry(clock)
+    wired = _Wired(clock=clock)
     conn = ConnectionId("cli")
-    clients.record(conn, ClientIdentity(kind="cli", name="lux", repo="/w/lux"))
-    ops = _ops(clients, _MarkerSpy())
-    _register(ops, conn, "beads")
+    wired.connect(conn, ClientIdentity(kind="cli", name="lux", repo="/w/lux"))
+    wired.register(conn)
 
     clock.advance(91.0)  # past the 90s cli lease — the session leaves the live set
-    result = ops.invoke_callback(CallbackInvocation(conn, "beads").menu_id)
+    result = wired.click(conn)
     assert isinstance(result, OpError)
     assert result.code == "not_found"
     assert "gone" in result.reason
 
 
 def test_a_click_for_an_unregistered_callback_is_not_found() -> None:
-    clients = HubClientRegistry()
+    wired = _Wired()
     conn = ConnectionId("mcp")
-    clients.record(conn, _identity())
-    ops = _ops(clients, _MarkerSpy())
-    _register(ops, conn, "beads")
+    wired.connect(conn, _identity())
+    wired.register(conn)
 
-    result = ops.invoke_callback(CallbackInvocation(conn, "other").menu_id)
+    result = wired.click(conn, "other")
     assert isinstance(result, OpError)
     assert result.code == "not_found"
 
 
 def test_a_malformed_leaf_id_is_invalid_request() -> None:
-    ops = _ops(HubClientRegistry(), _MarkerSpy())
-    result = ops.invoke_callback("no-separator")
+    result = _Wired().ops.invoke_callback("no-separator")
     assert isinstance(result, OpError)
     assert result.code == "invalid_request"
 
 
-def test_pending_is_empty_for_a_session_with_no_clicks() -> None:
-    ops = _ops(HubClientRegistry(), _MarkerSpy())
-    assert ops.pending_callbacks(ConnectionId("nobody")).callback_ids == ()
-
-
-def test_take_pending_drains_the_hold_so_a_second_poll_is_empty() -> None:
-    clients = HubClientRegistry()
-    conn = ConnectionId("mcp")
-    clients.record(conn, _identity())
-    ops = _ops(clients, _MarkerSpy())
-    _register(ops, conn, "beads")
-    ops.invoke_callback(CallbackInvocation(conn, "beads").menu_id)
-
-    # The poll legs' drain: the first take returns the click, the second is empty.
-    assert ops.take_pending(conn).callback_ids == ("beads",)
-    assert ops.take_pending(conn).callback_ids == ()
-
-
-def test_peek_does_not_drain_but_take_does() -> None:
-    clients = HubClientRegistry()
-    conn = ConnectionId("mcp")
-    clients.record(conn, _identity())
-    ops = _ops(clients, _MarkerSpy())
-    _register(ops, conn, "beads")
-    ops.invoke_callback(CallbackInvocation(conn, "beads").menu_id)
-
-    assert ops.pending_callbacks(conn).callback_ids == ("beads",)  # peek keeps it
-    assert ops.pending_callbacks(conn).callback_ids == ("beads",)  # still there
-    assert ops.take_pending(conn).callback_ids == ("beads",)  # drain
-    assert ops.pending_callbacks(conn).callback_ids == ()  # now gone
-
-
-def test_take_pending_drains_only_the_polling_session() -> None:
-    clients = HubClientRegistry()
+def test_a_click_is_held_for_only_its_own_session() -> None:
+    wired = _Wired()
     vox, lux = ConnectionId("vox"), ConnectionId("lux")
-    clients.record(vox, _identity("vox", "/w/vox"))
-    clients.record(lux, _identity("lux", "/w/lux"))
-    ops = _ops(clients, _MarkerSpy())
-    _register(ops, vox, "beads")
-    _register(ops, lux, "beads")
-    ops.invoke_callback(CallbackInvocation(vox, "beads").menu_id)
-    ops.invoke_callback(CallbackInvocation(lux, "beads").menu_id)
+    wired.connect(vox, _identity("vox", "/w/vox"))
+    wired.connect(lux, _identity("lux", "/w/lux"))
+    wired.register(vox)
+    wired.register(lux)
 
-    # A session drains only its own hold; the other's stays intact.
-    assert ops.take_pending(vox).callback_ids == ("beads",)
-    assert ops.pending_callbacks(lux).callback_ids == ("beads",)
+    wired.click(vox)
+    assert wired.held(vox) == ("beads",)
+    assert wired.held(lux) == ()  # the peer's hold is untouched
+
+
+def test_a_dropped_listener_closes_the_door_to_new_registrations() -> None:
+    """Losing the leg is losing the right to own menu items, not just the pushes.
+
+    A session whose listen leg went away can re-register when it reconnects — the
+    reconnect re-adds the listener — but until then it cannot take a new one.
+    """
+    wired = _Wired()
+    conn = ConnectionId("mcp")
+    listener = wired.connect(conn, _identity())
+    assert isinstance(wired.register(conn), Ok)
+
+    wired.drop_leg(conn, listener)
+    result = wired.register(conn, "second")
+    assert isinstance(result, OpError)
+    assert result.code == "push_required"

@@ -39,32 +39,30 @@ class TestHandleSessionStart:
             result = handle_session_start()
         assert "on" in _ctx(result)
 
-    def test_display_on_carries_the_beads_callback_convention(self) -> None:
-        # A lux-enabled session must be told to register its own Beads menu entry
-        # and service clicks from its shell — luxd cannot run bd itself.
+    def test_display_on_says_the_menu_is_not_the_agents_job(self) -> None:
+        # The session's own server registers and services its menu entries, so the
+        # context tells the agent what not to do: registering over MCP would be
+        # refused (no listen leg on that connection) and polling would only add
+        # latency to a path that has none.
         mock_cls = _mock_config_manager(_DISPLAY_ON)
         with patch("punt_lux.hooks.ConfigManager", mock_cls):
             ctx = _ctx(handle_session_start())
-        assert "register_callback" in ctx
-        assert "beads" in ctx
-        assert "pending_callbacks" in ctx
-        assert "lux show beads" in ctx
+        assert "applets" in ctx
+        assert "do not register menu callbacks" in ctx
+        assert "do not poll for clicks" in ctx
 
-    def test_display_on_instructs_identify_before_registration(self) -> None:
-        # Registration is refused for an unidentified session and nothing else
-        # auto-identifies, so the instruction must lead with identify — otherwise
-        # the Beads entry never appears from SessionStart alone.
+    def test_display_on_points_at_the_skill_for_the_board(self) -> None:
+        # The board itself is still the agent's to build when asked for it.
         mock_cls = _mock_config_manager(_DISPLAY_ON)
         with patch("punt_lux.hooks.ConfigManager", mock_cls):
             ctx = _ctx(handle_session_start())
-        assert "identify" in ctx
-        assert ctx.index("identify") < ctx.index("register_callback")
+        assert "/lux:beads" in ctx
 
-    def test_display_off_omits_the_beads_callback_convention(self) -> None:
+    def test_display_off_says_nothing_about_menus(self) -> None:
         mock_cls = _mock_config_manager(_DISPLAY_OFF)
         with patch("punt_lux.hooks.ConfigManager", mock_cls):
             ctx = _ctx(handle_session_start())
-        assert "register_callback" not in ctx
+        assert "menu" not in ctx
 
     def test_display_off(self) -> None:
         mock_cls = _mock_config_manager(_DISPLAY_OFF)

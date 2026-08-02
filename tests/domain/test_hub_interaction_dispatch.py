@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, final
 from unittest.mock import MagicMock
 
 from punt_lux.domain.hub.callback_hold import CallbackRouter
@@ -91,6 +91,14 @@ def _isolated_router(
     return registry, router, replicator
 
 
+@final
+class _SilentLeg:
+    """A listen leg stand-in — a session must hold one to own a menu callback."""
+
+    def wake(self) -> None:
+        """The push is not what this test drives; the routing is."""
+
+
 def test_menu_click_routes_the_callback_to_its_owning_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -100,8 +108,9 @@ def test_menu_click_routes_the_callback_to_its_owning_session(
 
     registry, router, replicator = _isolated_router(monkeypatch)
     conn = ConnectionId("vox-1")
-    registry.record(conn, ClientIdentity(kind="app", name="voxd"))
-    registry.register_callback(conn, SessionCallback(id="music", label="Music"))
+    leg = _SilentLeg()
+    registry.attach_listener(conn, ClientIdentity(kind="app", name="voxd"), leg)
+    registry.register_callback(conn, SessionCallback(id="music", label="Music"), leg)
 
     menu_id = CallbackInvocation(conn, "music").menu_id
     HubInteractionDispatch.dispatch(

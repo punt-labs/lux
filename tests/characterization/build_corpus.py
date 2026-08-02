@@ -574,24 +574,25 @@ IDENTITY_SCENARIOS: tuple[Scenario, ...] = (
 
 
 # ---------------------------------------------------------------------------
-# Callback scenarios — ``register_callback`` requires an identified session; an
-# unidentified session receives the identification_required challenge (the same
-# challenge REST's anonymous writes get, not MCP scene writes, which carry no
-# identity gate). An unidentified session (a fresh session_key never recorded in
-# the client registry) is refused, which is the security-relevant behavior the
-# corpus pins; the happy path needs a prior ``identify`` and is covered by the
-# operation and tool unit tests instead.
+# Callback scenarios — ``register_callback`` requires a connection that holds
+# luxd's listen leg, because a menu click is delivered by push and a connection
+# with no leg could never learn of it. A bare MCP session has none, so a tool call
+# with no applet behind it is refused with the push
+# requirement — the behavior the corpus pins, since it is what an agent calling
+# the tool directly will meet. The identity gate behind it, and the happy path
+# (which needs both a leg and a prior ``identify``), are covered by the operation
+# and tool unit tests instead.
 # ---------------------------------------------------------------------------
 
 
 CALLBACK_SCENARIOS: tuple[Scenario, ...] = (
     Scenario(
-        name="register-callback-unidentified",
+        name="register-callback-no-listen-leg",
         tool="register_callback",
         inputs={"callback_id": "beads", "label": "Beads"},
         setup={
             "display_running": False,
-            "session_key": "corpus-register-callback-unidentified",
+            "session_key": "corpus-register-callback-no-listen-leg",
         },
     ),
 )

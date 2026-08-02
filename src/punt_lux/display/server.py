@@ -24,7 +24,10 @@ from typing import TYPE_CHECKING, Any, ClassVar, Self, cast
 
 from PIL import Image
 
+from punt_lux.display.auto_click import AutoClicker
+from punt_lux.display.dock_bar import DockBar
 from punt_lux.display.domain_pump import DomainPump
+from punt_lux.display.frame_commands import FrameCommands
 from punt_lux.display.frame_tiling import FrameTiling
 from punt_lux.display.glfw_window import GlfwWindow
 from punt_lux.display.idle_screen import render_idle
@@ -32,6 +35,7 @@ from punt_lux.display.interaction_delivery import InteractionDelivery
 from punt_lux.display.macos import hide_from_dock_and_cmd_tab
 from punt_lux.display.markdown_font import MarkdownFont
 from punt_lux.display.menu_manager import MenuManager
+from punt_lux.display.paint_clock import PaintClock
 from punt_lux.display.pending_interactions import PendingInteractions
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.texture_cache import TextureCache
@@ -67,7 +71,6 @@ from punt_lux.protocol import (
     ThemeMessage,
     UnknownMessage,
 )
-from punt_lux.protocol.elements import Element
 from punt_lux.protocol.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
 from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.image import ImageElement
@@ -83,11 +86,9 @@ from punt_lux.scene_inspector import SceneInspector
 from punt_lux.socket_server import SocketServer
 from punt_lux.tracing import trace
 
-# Element kinds with a per-class renderer in ``display.renderers``.
-# Scenes containing only these kinds route through ``Display.apply``
-# alongside SceneManager.  Mixed scenes (containing any other kind)
-# still go exclusively through SceneManager until subsequent PRs
-# migrate the remaining families.
+# Element kinds with a per-class renderer in ``display.renderers``. Scenes
+# containing only these kinds route through ``Display.apply`` alongside
+# SceneManager; a scene holding any other kind goes through SceneManager alone.
 _BASICS_KINDS: tuple[type, ...] = (
     TextElement,
     ImageElement,
@@ -137,6 +138,7 @@ class DisplayServer:
     _interaction_delivery: InteractionDelivery
     _pending: PendingInteractions
     _textures: TextureCache
+    _paint_clock: PaintClock
     _widget_state: WidgetState
     _menu_manager: MenuManager
     _themes: list[Any]
@@ -168,12 +170,10 @@ class DisplayServer:
         self._scene_manager = SceneManager(
             on_scene_replaced=self._drain_stale_events,
         )
-        # Parallel domain Display (PR 1): basics-only scenes are also
-        # routed through Display.apply so the new infrastructure has a
-        # real production caller (PY-RF-2).  Renderer reads from
-        # SceneManager during PR 1+2; later PRs route rendering through
-        # Display.snapshot.  ``_domain_client_id`` is the synthetic
-        # client that owns every wire-decoded element on this hub.
+        # Parallel domain Display: basics-only scenes are also routed through
+        # Display.apply, while the renderer reads from SceneManager.
+        # ``_domain_client_id`` is the synthetic client that owns every
+        # wire-decoded element on this hub.
         self._domain_display = Display()
         self._domain_client_id = self._domain_display.connect_client(name="display-hub")
         self._domain_pump = DomainPump(
@@ -245,6 +245,7 @@ class DisplayServer:
         self._event_queue = []
         self._pending = PendingInteractions()
         self._textures = TextureCache()
+        self._paint_clock = PaintClock()
         self._widget_state = WidgetState()  # active scene's state (swapped)
         self._screenshot_pending = None
         self._test_auto_click = test_auto_click
@@ -270,7 +271,9 @@ class DisplayServer:
         qd.register_handler("get_window_settings", self._query_get_window_settings)
         qd.register_handler("get_theme", self._query_get_theme)
         qd.register_handler("set_window_settings", self._query_set_window_settings)
-        qd.register_handler("set_frame_state", self._query_set_frame_state)
+        frames = FrameCommands(self._scene_manager)
+        qd.register_handler("set_frame_state", frames.set_state)
+        qd.register_handler("raise_frame", frames.raise_it)
         qd.register_handler("set_theme", self._query_set_theme)
         return self
 
@@ -477,6 +480,7 @@ class DisplayServer:
 
     def _on_after_swap(self) -> None:
         """Called after GL buffer swap -- GL_FRONT has rendered content."""
+        self._paint_clock.swapped()
         if self._screenshot_pending is not None:
             sock = self._screenshot_pending
             self._screenshot_pending = None
@@ -777,28 +781,6 @@ class DisplayServer:
 
         return self._query_get_window_settings()
 
-    def _query_set_frame_state(
-        self, frame_id: str = "", **kwargs: Any
-    ) -> dict[str, Any]:
-        """Modify frame state."""
-        if not frame_id:
-            msg = "frame_id is required"
-            raise ValueError(msg)
-        frame = self._scene_manager.frames.get(frame_id)
-        if frame is None:
-            msg = f"frame '{frame_id}' not found"
-            raise LookupError(msg)
-        changed: dict[str, Any] = {}
-
-        if "minimized" in kwargs:
-            frame.minimized = bool(kwargs["minimized"])
-            changed["minimized"] = frame.minimized
-        elif "collapsed" in kwargs:
-            frame.minimized = bool(kwargs["collapsed"])
-            changed["minimized"] = frame.minimized
-
-        return {"frame_id": frame_id, "changed": changed}
-
     def _query_set_theme(self, theme: str = "", **_kwargs: Any) -> dict[str, Any]:
         """Apply the display theme and return the new theme state."""
         if not theme:
@@ -822,6 +804,7 @@ class DisplayServer:
             fd = sock.fileno()
         except OSError:
             return
+        self._paint_clock.received(msg.id)
         self._wrap_abc_elements(msg)
         self._scene_manager.handle_framed_scene(msg, fd)
         self._route_to_domain_display(msg)
@@ -841,7 +824,7 @@ class DisplayServer:
             elem.wrap_handlers_for_remote(self._emit_event)
 
     def _route_to_domain_display(self, msg: SceneMessage) -> None:
-        """Mirror basics-only scenes through Display.apply (PR 1 dual-write)."""
+        """Mirror basics-only scenes through Display.apply."""
         self._domain_pump.route(msg)
 
     def _auto_click_buttons(self, msg: SceneMessage) -> None:
@@ -857,99 +840,9 @@ class DisplayServer:
         prior_scene_id = self._current_scene_id
         self._current_scene_id = msg.id
         try:
-            self._auto_click_emit_loop(msg)
+            AutoClicker(self._emit_event).click_all(msg)
         finally:
             self._current_scene_id = prior_scene_id
-
-    def _auto_click_emit_loop(self, msg: SceneMessage) -> None:
-        """Per-element synthetic-interaction emit loop (see _auto_click_buttons)."""
-        for elem in msg.elements:
-            if elem.kind == "button" and not getattr(elem, "disabled", False):
-                eid: str = getattr(elem, "id", "")
-                action: str = getattr(elem, "action", None) or eid
-                self._emit_event(
-                    RemoteEventHandlerInvocation(
-                        element_id=eid,
-                        action=action,
-                        event_kind="button_clicked",
-                        ts=time.time(),
-                        value=True,
-                    )
-                )
-            elif isinstance(elem, SliderElement):
-                val: int | float = int(elem.value) if elem.integer else elem.value
-                self._emit_event(
-                    RemoteEventHandlerInvocation(
-                        element_id=elem.id,
-                        action="changed",
-                        event_kind="value_changed",
-                        ts=time.time(),
-                        value=val,
-                    )
-                )
-            elif isinstance(elem, CheckboxElement):
-                self._emit_event(
-                    RemoteEventHandlerInvocation(
-                        element_id=elem.id,
-                        action=elem.action,
-                        event_kind="value_changed",
-                        ts=time.time(),
-                        value=not elem.value,
-                    )
-                )
-            elif isinstance(elem, ComboElement):
-                # The ABC combo fires ValueChanged carrying the selected index
-                # (a scalar) — matching ComboRenderer, not the legacy index/item
-                # dict, which value_changed no longer accepts.
-                self._emit_event(
-                    RemoteEventHandlerInvocation(
-                        element_id=elem.id,
-                        action="changed",
-                        event_kind="value_changed",
-                        ts=time.time(),
-                        value=elem.selected,
-                    )
-                )
-            elif isinstance(elem, InputTextElement):
-                self._emit_event(
-                    RemoteEventHandlerInvocation(
-                        element_id=elem.id,
-                        action="changed",
-                        event_kind="value_changed",
-                        ts=time.time(),
-                        value=elem.value,
-                    )
-                )
-            elif isinstance(elem, RadioElement):
-                self._emit_event(
-                    RemoteEventHandlerInvocation(
-                        element_id=elem.id,
-                        action="changed",
-                        event_kind="value_changed",
-                        ts=time.time(),
-                        value=elem.selected,
-                    )
-                )
-            elif isinstance(elem, ColorPickerElement):
-                self._emit_event(
-                    RemoteEventHandlerInvocation(
-                        element_id=elem.id,
-                        action="changed",
-                        event_kind="value_changed",
-                        ts=time.time(),
-                        value=elem.value,
-                    )
-                )
-            elif isinstance(elem, SelectableElement):
-                self._emit_event(
-                    RemoteEventHandlerInvocation(
-                        element_id=elem.id,
-                        action="clicked",
-                        event_kind="value_changed",
-                        ts=time.time(),
-                        value=not elem.selected,
-                    )
-                )
 
     # -- rendering ---------------------------------------------------------
 
@@ -1012,8 +905,6 @@ class DisplayServer:
                 result |= flag.value
         return result
 
-    _DOCK_BAR_HEIGHT = 28.0
-
     def _apply_fit_all(self) -> bool:
         """If fit-all was requested, restore all frames and compute tile layout.
 
@@ -1055,6 +946,7 @@ class DisplayServer:
         imgui.set_next_window_size((fw, fh), cond)
         if self._scene_manager.consume_focus(frame.frame_id):
             imgui.set_next_window_focus()
+            logger.info("raise frame=%s applied", frame.frame_id)
         win_flags = self._resolve_frame_flags(frame, imgui)
         still_open = True
         expanded, still_open = imgui.begin(
@@ -1118,103 +1010,7 @@ class DisplayServer:
         for fid in minimized_frames:
             sm.minimize(fid)
         # Dock bar for minimized frames
-        self._render_dock_bar(imgui, any_frame_hovered=any_frame_hovered)
-
-    def _render_dock_bar(self, imgui: Any, *, any_frame_hovered: bool = False) -> None:
-        """Render a bottom dock bar showing minimized frames as pills.
-
-        *any_frame_hovered* is True when the mouse is over a visible frame
-        window.  When set, pill clicks are suppressed to prevent restoring
-        a frame when the user clicks on a frame that overlaps the dock bar.
-        """
-        minimized = [f for f in self._scene_manager.frames.values() if f.minimized]
-        if not minimized:
-            return
-
-        from imgui_bundle import ImVec2
-
-        viewport = imgui.get_main_viewport()
-        bar_h = self._DOCK_BAR_HEIGHT
-        bar_y = viewport.pos.y + viewport.size.y - bar_h
-        bar_x = viewport.pos.x
-        bar_w = viewport.size.x
-
-        # Draw bar background on the foreground draw list so it's
-        # always visible regardless of window stacking.
-        draw = imgui.get_foreground_draw_list()
-        style = imgui.get_style()
-
-        # Derive colors from the active theme.
-        bar_bg = imgui.get_color_u32(style.color_(imgui.Col_.title_bg))
-        border_col = imgui.get_color_u32(style.color_(imgui.Col_.border))
-        text_col = imgui.get_color_u32(style.color_(imgui.Col_.text))
-
-        draw.add_rect_filled(
-            ImVec2(bar_x, bar_y),
-            ImVec2(bar_x + bar_w, bar_y + bar_h),
-            bar_bg,
-        )
-        draw.add_line(
-            ImVec2(bar_x, bar_y),
-            ImVec2(bar_x + bar_w, bar_y),
-            border_col,
-            1.0,
-        )
-
-        # Pill layout -- use raw mouse hit-testing instead of an invisible
-        # ImGui window.  The dock bar renders on the foreground draw list
-        # which has no window in the z-order, so invisible_button widgets
-        # inside a helper window never receive clicks reliably.
-        pill_pad = 6.0
-        pill_h = bar_h - pill_pad * 2.0
-        pill_x = bar_x + pill_pad
-        pill_y = bar_y + pill_pad
-        pill_gap = 4.0
-        max_x = bar_x + bar_w - pill_pad
-
-        pill_normal = imgui.get_color_u32(style.color_(imgui.Col_.button))
-        pill_hovered = imgui.get_color_u32(style.color_(imgui.Col_.button_hovered))
-
-        mouse = imgui.get_mouse_pos()
-        # Accept clicks when no frame window or ImGui item is under the
-        # cursor.  The previous is_window_hovered(any_window) guard was
-        # always true because dock_space_over_viewport covers the entire
-        # viewport, blocking all pill clicks.  We now use the explicit
-        # any_frame_hovered flag computed during frame rendering.
-        clicked = (
-            imgui.is_mouse_clicked(imgui.MouseButton_.left)
-            and not imgui.is_any_item_hovered()
-            and not any_frame_hovered
-        )
-
-        for frame in minimized:
-            text_size = imgui.calc_text_size(frame.title)
-            pill_w = text_size.x + 16.0
-
-            # Truncate: if this pill would overflow, show ellipsis.
-            if pill_x + pill_w > max_x:
-                ellipsis_size = imgui.calc_text_size("...")
-                ey = pill_y + (pill_h - ellipsis_size.y) * 0.5
-                draw.add_text(ImVec2(pill_x, ey), text_col, "...")
-                break
-
-            p_min = ImVec2(pill_x, pill_y)
-            p_max = ImVec2(pill_x + pill_w, pill_y + pill_h)
-
-            # Raw hit-test: is the mouse inside this pill rect?
-            hovered = p_min.x <= mouse.x <= p_max.x and p_min.y <= mouse.y <= p_max.y
-
-            bg = pill_hovered if hovered else pill_normal
-            draw.add_rect_filled(p_min, p_max, bg, 4.0)
-
-            text_y = pill_y + (pill_h - text_size.y) * 0.5
-            draw.add_text(ImVec2(pill_x + 8.0, text_y), text_col, frame.title)
-
-            if hovered and clicked:
-                frame.minimized = False
-                self._scene_manager.request_focus(frame.frame_id)
-
-            pill_x += pill_w + pill_gap
+        DockBar(imgui, self._scene_manager).render(any_frame_hovered=any_frame_hovered)
 
     def _render_frame_contents(self, frame: Frame, imgui: Any) -> None:
         """Render scenes inside a frame.
@@ -1285,19 +1081,12 @@ class DisplayServer:
         # whatever a prior frame's render last set (stale or None), so
         # ``DomainPump.route_interaction`` silently dropped them.
         self._current_scene_id = scene_id
+        self._paint_clock.painted(scene_id)
         self._imgui_renderer_factory.geometry.enter_scene(scene_id)
         scene = frame.scenes[scene_id]
+        # Every kind is an Element-ABC subclass, so painting is one render() call.
         for elem in scene.elements:
-            self._paint_element(elem)
-
-    @trace
-    def _paint_element(self, elem: Element) -> None:
-        """Paint one element through its ABC ``render()`` template.
-
-        Every kind is an Element-ABC subclass, so painting is a single
-        ``render()`` call.
-        """
-        elem.render()
+            elem.render()
 
     def _close_frame(self, frame_id: str, *, notify: bool = True) -> None:
         """Remove a frame and all its scenes.

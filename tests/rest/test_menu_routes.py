@@ -37,8 +37,8 @@ def test_set_menu_rejects_a_malformed_entry_with_422() -> None:
     assert client.put("/menus", json=body).status_code == 422
 
 
-def test_register_callback_succeeds_for_an_identified_caller() -> None:
-    client = make_client()  # default identity headers are sent
+def test_register_callback_succeeds_for_an_identified_listening_caller() -> None:
+    client = make_client(listening=True)  # identity headers plus a live listen leg
     resp = client.post(
         "/menus/callbacks", json={"callback": {"id": "beads", "label": "Beads"}}
     )
@@ -47,17 +47,32 @@ def test_register_callback_succeeds_for_an_identified_caller() -> None:
 
 
 def test_register_callback_then_list_shows_the_session_submenu() -> None:
-    client = make_client()
+    client = make_client(listening=True)
     client.post(
         "/menus/callbacks", json={"callback": {"id": "beads", "label": "Beads"}}
     )
     listed = client.get("/menus").json()
-    # The caller identified as rest-test in /w/lux; its submenu names the repo.
-    assert [m["label"] for m in listed["menus"]] == ["rest-test — /w/lux"]
+    # The submenu is labeled with the caller's name and nothing else.
+    assert [m["label"] for m in listed["menus"]] == ["rest-test"]
+
+
+def test_register_callback_without_a_listen_leg_is_refused_with_403() -> None:
+    # A one-shot REST caller can never be told its menu item was clicked, so it may
+    # not own one. 403, not 401: the caller is perfectly well named, and no header
+    # it could add would make its connection deliverable.
+    client = make_client()  # identified, but holding no listen leg
+    resp = client.post(
+        "/menus/callbacks", json={"callback": {"id": "beads", "label": "Beads"}}
+    )
+    assert resp.status_code == 403
+    assert "listen leg" in resp.json()["detail"]
 
 
 def test_register_callback_without_identity_is_challenged() -> None:
-    client = make_client(identity={})  # no identity headers — a write is refused
+    # On REST the owning scope is resolved from the headers as a dependency, so an
+    # unidentified request is challenged before any operation — and therefore
+    # before the push gate — whether or not a leg is held.
+    client = make_client(identity={}, listening=True)
     resp = client.post(
         "/menus/callbacks", json={"callback": {"id": "beads", "label": "Beads"}}
     )
@@ -65,21 +80,8 @@ def test_register_callback_without_identity_is_challenged() -> None:
 
 
 def test_register_callback_rejects_an_empty_id_with_422() -> None:
-    client = make_client()
+    client = make_client(listening=True)
     resp = client.post(
         "/menus/callbacks", json={"callback": {"id": "", "label": "Beads"}}
     )
     assert resp.status_code == 422
-
-
-def test_pending_callbacks_is_empty_for_an_identified_caller_with_no_clicks() -> None:
-    client = make_client()
-    resp = client.get("/menus/callbacks/pending")
-    assert resp.status_code == 200
-    assert resp.json() == {"kind": "ok", "callback_ids": []}
-
-
-def test_pending_callbacks_without_identity_is_challenged() -> None:
-    # The drain is keyed by the caller, so it is identity-guarded like a write.
-    client = make_client(identity={})
-    assert client.get("/menus/callbacks/pending").status_code == 401

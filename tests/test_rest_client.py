@@ -17,6 +17,7 @@ from punt_lux.cli_identity import CliIdentity
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.hub_paths import HubPaths
 from punt_lux.operations import (
+    FrameRaise,
     OpError,
     Pong,
     RenderRequest,
@@ -149,6 +150,20 @@ def test_ping_returns_the_typed_pong() -> None:
     assert call.body is None
     # The display-leg budget rides through as the timeout query param.
     assert call.path == "/display/ping?timeout=2.5"
+
+
+def test_raise_frame_posts_to_the_frame_with_no_body() -> None:
+    # The target names everything the call needs, so nothing is sent; the frame id
+    # is a path segment and is percent-encoded like every other id in a target.
+    transport = CannedTransport(
+        HttpResponse(status=200, body=b'{"frame_id":"beads lux","raised":true}')
+    )
+    result = _client_over(transport).raise_frame("beads lux")
+    assert result == FrameRaise(frame_id="beads lux", raised=True)
+    call = _sent(transport)
+    assert call.method == "POST"
+    assert call.body is None
+    assert call.path == "/display/frames/beads%20lux/raise"
 
 
 def test_ping_without_a_wait_omits_the_timeout_param() -> None:

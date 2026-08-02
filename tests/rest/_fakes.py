@@ -14,7 +14,9 @@ from collections.abc import Mapping
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from punt_lux.connection_identity import connection_for
 from punt_lux.domain.hub.callback_hold import CallbackRouter
+from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.clients import ClientRegistry
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
@@ -34,6 +36,24 @@ DEFAULT_IDENTITY = {
     "X-Lux-Client-Name": "rest-test",
     "X-Lux-Client-Repo": "/w/lux",
 }
+
+# The same declaration as a value, for standing the caller up as a listen leg: the
+# leg and the identity are one registry write, so attaching needs both.
+DEFAULT_IDENTITY_MODEL = ClientIdentity(kind="cli", name="rest-test", repo="/w/lux")
+
+# The connection the default identity resolves to on every transport. A test that
+# needs the caller push-reachable — registering a menu callback requires a live
+# listen leg — registers a listener for this connection via ``listening=True``.
+DEFAULT_CONNECTION = connection_for(
+    {"kind": "cli", "name": "rest-test", "repo": "/w/lux"}
+)
+
+
+class SilentListener:
+    """A CallbackListener whose wake does nothing — presence is what is tested."""
+
+    def wake(self) -> None:
+        """Stand in for a live leg's drain; these tests assert the gate."""
 
 
 class Recorder:
@@ -93,11 +113,18 @@ class StubPort:
         return self._reply
 
 
-def make_facade(*, display_port: object, store: HubDisplay | None = None) -> Operations:
+def make_facade(
+    *,
+    display_port: object,
+    store: HubDisplay | None = None,
+    router: CallbackRouter | None = None,
+) -> Operations:
     """Build the real facade over fresh domain objects and the given port.
 
     ``store`` lets a caller hold the ``HubDisplay`` to inspect what an operation
-    installed; a fresh one is made when it is not supplied.
+    installed; a fresh one is made when it is not supplied. ``router`` lets a
+    caller pre-register a listener so the callback routes see a push-reachable
+    connection.
     """
     inbox = ForbiddenInbox()
     display = store if store is not None else HubDisplay()
@@ -107,7 +134,7 @@ def make_facade(*, display_port: object, store: HubDisplay | None = None) -> Ope
         hub=Hub(),
         client_registry=ClientRegistry(),
         menu_registry=HubMenuRegistry(),
-        callback_router=CallbackRouter(display.clients),
+        callback_router=router or CallbackRouter(display.clients),
         ports=HubPorts(
             element_factory=hub_element_factory,
             ensure_writer=inbox.ensure_writer,
@@ -122,16 +149,25 @@ def make_client(
     display_port: object | None = None,
     store: HubDisplay | None = None,
     identity: Mapping[str, str] | None = None,
+    listening: bool = False,
 ) -> TestClient:
     """Mount the real REST surface over a fake-backed facade on a bare app.
 
     Pass ``store`` to hold the ``HubDisplay`` the routes install into. The client
     declares :data:`DEFAULT_IDENTITY` on every request unless ``identity`` overrides
     it; pass ``identity={}`` to send no identity headers (a write is then rejected).
+    Pass ``listening=True`` to stand the caller up as a client that also holds a
+    listen leg, which registering a menu callback requires.
     """
     port = display_port if display_port is not None else ForbiddenPort()
     app = FastAPI()
-    facade = make_facade(display_port=port, store=store)
+    display = store if store is not None else HubDisplay()
+    router = CallbackRouter(display.clients)
+    if listening:
+        display.clients.attach_listener(
+            DEFAULT_CONNECTION, DEFAULT_IDENTITY_MODEL, SilentListener()
+        )
+    facade = make_facade(display_port=port, store=display, router=router)
     RestSurface(facade).mount(app)
     headers = dict(DEFAULT_IDENTITY if identity is None else identity)
     return TestClient(app, headers=headers)

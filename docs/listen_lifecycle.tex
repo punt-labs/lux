@@ -1,0 +1,988 @@
+%
+% listen_lifecycle.tex
+%
+% A Z specification of luxd's WebSocket listen-leg lifecycle: successive
+% sessions of one identity contending for a single connection's
+% listener slot, and the menu callbacks whose registration is gated on
+% that slot.  Formalises the design that closes the stale-teardown
+% clobber and the registration time-of-check/time-of-use gap.
+%
+% Source of record:
+%   src/punt_lux/ws_listen.py                  -- HubListenSession: run,
+%                                                 _pump, _teardown
+%   src/punt_lux/domain/hub/callback_hold.py   -- CallbackRouter:
+%                                                 add_listener,
+%                                                 remove_listener,
+%                                                 has_listener, route, take
+%   src/punt_lux/domain/hub/hub_clients.py     -- HubClientRegistry:
+%                                                 record, register_callback,
+%                                                 withdraw_callbacks,
+%                                                 live_sessions
+%   src/punt_lux/operations/callbacks.py       -- CallbackOperations:
+%                                                 register_callback (the
+%                                                 has_listener gate)
+%
+% Type-check:  fuzz -t docs/listen_lifecycle.tex
+% Model-check (see Section "Verification" for the exact goal predicates):
+%   probcli docs/listen_lifecycle.tex -model_check -p DEFAULT_SETSIZE 2
+%
+% Formatting follows the fuzz house rules: \quad~ for continuation
+% indent (never \t1..\t9), schema lines under 80 columns, predicates
+% broken at \land/\lor/\implies with the operator starting the
+% continuation line.
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{The luxd Listen-Leg Lifecycle: a Z Specification}
+\author{Formal model of listener ownership and callback registration}
+\date{July 2026}
+\maketitle
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+A client holds one persistent WebSocket to \texttt{luxd}.  Over that leg
+it receives the pub-sub events it subscribed to and the menu-callback
+clicks routed to its session.  The connection is keyed by an
+\emph{identity-derived} connection id, so two successive sessions of the
+same identity --- an old one dying and a new one reconnecting after a
+100ms backoff --- address one and the same slot in the Hub's registries.
+
+That sharing is the whole difficulty.  Each session installs itself as
+the connection's listener and writer on connect, and removes them again
+on teardown; but a session that has already lost its socket may still be
+\emph{suspended} inside its \texttt{finally} block, awaiting a cancelled
+writer task, while its successor completes an entire connect.  When the
+old session finally resumes, an unconditional teardown removes the
+\emph{successor's} state.  The successor keeps its lease alive with
+keepalives, so the damage does not heal: a session that is live, that
+believes it is push-reachable, and that owns no menu entries.
+
+A second, independent gap lies in registration.  A menu callback may be
+registered only by a connection that holds a listen leg, because a menu
+item that cannot be pushed to cannot launch at the speed a menu implies.
+That gate reads the router under the router's lock and then writes the
+registry under the registry's lock.  The two are not one critical
+section, so a teardown may pass between them and leave a callback
+registered with no listener --- and, since the withdrawal has already
+happened, with nothing that will ever withdraw it.
+
+This document models the leg as a finite state machine over a small
+fixed set of sessions and callbacks, so that ProB can enumerate every
+interleaving and either confirm the four safety invariants or produce
+the exact offending trace.
+
+\paragraph{Concurrency model.}
+Every session action runs on \texttt{luxd}'s single asyncio loop, so a
+run of code between two \texttt{await}s is atomic with respect to other
+session actions.  \texttt{run}'s prologue (\texttt{record},
+\texttt{register\_writer}, \texttt{add\_listener}) is one such run, and
+so is \texttt{\_teardown}, which contains no \texttt{await} at all.
+Registration and click routing arrive from \emph{other} threads --- an
+MCP tool thread, a REST worker, the click-dispatch thread --- and are
+therefore free to interleave anywhere, including between two of
+\texttt{\_teardown}'s writes.  The model encodes this asymmetry with a
+single component, \texttt{looprun}, which is non-empty exactly while a
+loop-side run is in progress and which guards the loop-side operations
+and only those.
+
+% ============================================================
+\section{Basic Types}
+% ============================================================
+
+\begin{zed}
+  [SESSION, CALLBACK]
+\end{zed}
+
+\texttt{SESSION} is the set of \texttt{HubListenSession} instances that
+may occupy the one connection over time.  A session object is
+constructed afresh by each run of the \texttt{/ws} route and installs
+itself exactly once, so its identity is a monotone stamp: no live
+incarnation ever reuses the identity of an earlier one.  That property
+is what lets ownership be decided by comparing a stored listener to
+\texttt{self}, with no generation counter.  Two sessions suffice to
+exhibit both defects; the carrier is bounded by ProB's
+\texttt{DEFAULT\_SETSIZE}.
+
+\texttt{CALLBACK} is the set of menu callbacks the connection's app may
+register.  Two are enough to let a stale registration and a fresh one
+coexist.
+
+% ============================================================
+\section{Free Types}
+% ============================================================
+
+\begin{zed}
+  SPHASE ::= \\
+  \quad~ sfresh | sattached | spumping | ssuspended | stearing | sdone
+\end{zed}
+
+One session's own progress.  \texttt{sfresh}: constructed, nothing
+installed.  \texttt{sattached}: the prologue has run --- the registry
+entry is recorded and the writer and listener are installed --- and the
+session is suspended on the handshake write.  \texttt{spumping}: the
+handshake landed and the read loop is running.  \texttt{ssuspended}: the
+read loop has ended (peer gone, protocol error, or a failed handshake
+write) and the coroutine is suspended in \texttt{\_pump}'s
+\texttt{finally}, awaiting the cancelled writer task --- the window this
+model exists to reason about.  \texttt{stearing}: the teardown's
+detaching step has fired and the disconnect cascade is still to run.
+\texttt{sdone}: finished.
+
+\begin{zed}
+  FLAG ::= leaseon | leaseoff
+\end{zed}
+
+Whether the connection's registry entry is still within its lease.  Any
+recorded contact renews it; it lapses only when no session is attached,
+and the sweep that follows takes the whole registry entry --- its
+callbacks, its hold, and its listener slot.  What the sweep cannot take
+is the writer, which is bound in the Hub rather than on the entry.
+
+% ============================================================
+\section{State}
+% ============================================================
+
+The state is flat: one schema, ten components.  Its predicate carries
+only \emph{structural} constraints --- cardinality bounds on the
+single-occupancy slots, and the disjointness of pending and committed
+registrations.  These hold in every design, correct or buggy, so they
+act as coherence constraints, not as the safety properties under test.
+The safety properties (Section~\ref{sec:inv}) are deliberately
+\emph{absent} here, so that a violating state remains reachable and ProB
+can find it.
+
+\begin{schema}{Leg}
+  phase : SESSION \fun SPHASE \\
+  listener : \power SESSION \\
+  writer : \power SESSION \\
+  incumbent : \power SESSION \\
+  owner : CALLBACK \pfun SESSION \\
+  gated : CALLBACK \pfun SESSION \\
+  held : \power CALLBACK \\
+  leased : FLAG \\
+  looprun : \power SESSION \\
+  clobbered : \power SESSION
+\where
+  \# listener \leq 1 \\
+  \# writer \leq 1 \\
+  \# incumbent \leq 1 \\
+  \# looprun \leq 1 \\
+  \dom gated \cap \dom owner = \emptyset
+\end{schema}
+
+\texttt{listener} is the router's registered
+\texttt{CallbackListener} for this connection, modelled as a set of size
+at most one so that the empty set stands for ``none'' without a
+sentinel; \texttt{writer} is the Hub's registered pub-sub writer, held
+the same way.  \texttt{owner} maps each \emph{registered} callback to
+the session that installed it, so $\dom owner$ is the registry
+entry's callback set and $\ran owner$ its provenance;
+\texttt{gated} is the same for registrations that have passed the
+push-reachability gate but have not yet been written.  \texttt{held} is
+the router's hold --- the clicks buffered for this connection.
+
+Two components are ghosts, present only to state properties of the
+transition relation as properties of a state.  \texttt{incumbent} names
+the session whose connect most recently completed and which has not
+itself detached: the session that a correct design keeps
+push-reachable.  \texttt{clobbered} accumulates any session that, while
+tearing down, removed state another session had installed.
+
+\texttt{looprun} is the loop's run-to-completion token, as described in
+the introduction.
+
+% ============================================================
+\section{Initialization}
+% ============================================================
+
+\begin{schema}{Init}
+  Leg'
+\where
+  phase' = (\lambda s : SESSION @ sfresh) \\
+  listener' = \emptyset \\
+  writer' = \emptyset \\
+  incumbent' = \emptyset \\
+  owner' = \emptyset \\
+  gated' = \emptyset \\
+  held' = \emptyset \\
+  leased' = leaseoff \\
+  looprun' = \emptyset \\
+  clobbered' = \emptyset
+\end{schema}
+
+A single initial state: nothing connected, nothing registered, no lease.
+
+% ============================================================
+\section{The Connect Path}
+% ============================================================
+
+\texttt{Connect} is \texttt{run}'s prologue, which the loop executes as
+one uninterrupted run between the \texttt{accept} await and the
+handshake write: the registry entry is recorded (renewing the lease),
+the pub-sub writer is bound, and the session installs itself as the
+connection's listener, displacing whatever listener was there.
+
+Installing a listener also clears the connection's callbacks.  This is
+the rule that makes the listener slot the single owner of the
+connection's callback set: a callback may exist only while the session
+that registered it holds the slot, so a new occupant starts empty and
+the app re-registers from its \texttt{on\_connect}.  Without this
+clause a superseded session's entries outlive it with no one left to
+withdraw them (Section~\ref{sec:fidelity}, variant~3).
+
+\begin{schema}{Connect}
+  \Delta Leg \\
+  s? : SESSION
+\where
+  looprun = \emptyset \\
+  phase~s? = sfresh \\
+  phase' = phase \oplus \{ s? \mapsto sattached \} \\
+  listener' = \{ s? \} \\
+  writer' = \{ s? \} \\
+  incumbent' = \{ s? \} \\
+  owner' = \emptyset \\
+  leased' = leaseon \\
+  gated' = gated \\
+  held' = held \\
+  looprun' = looprun \\
+  clobbered' = clobbered
+\end{schema}
+
+\texttt{Ready} is the handshake write landing and the read loop starting.
+
+\begin{schema}{Ready}
+  \Delta Leg \\
+  s? : SESSION
+\where
+  looprun = \emptyset \\
+  phase~s? = sattached \\
+  phase' = phase \oplus \{ s? \mapsto spumping \} \\
+  leased' = leaseon \\
+  listener' = listener \\
+  writer' = writer \\
+  incumbent' = incumbent \\
+  owner' = owner \\
+  gated' = gated \\
+  held' = held \\
+  looprun' = looprun \\
+  clobbered' = clobbered
+\end{schema}
+
+\texttt{Drop} is the loss of the socket --- a peer that went away, a
+protocol violation, or a handshake write that failed --- followed by the
+suspension this model turns on.  The session is no longer serving
+anything, but it has removed nothing: it sits in \texttt{\_pump}'s
+\texttt{finally}, awaiting the writer task it just cancelled, with all
+its installed state still in place.
+
+\begin{schema}{Drop}
+  \Delta Leg \\
+  s? : SESSION
+\where
+  looprun = \emptyset \\
+  phase~s? \in \{ sattached, spumping \} \\
+  phase' = phase \oplus \{ s? \mapsto ssuspended \} \\
+  listener' = listener \\
+  writer' = writer \\
+  incumbent' = incumbent \\
+  owner' = owner \\
+  gated' = gated \\
+  held' = held \\
+  leased' = leased \\
+  looprun' = looprun \\
+  clobbered' = clobbered
+\end{schema}
+
+% ============================================================
+\section{The Teardown Path}
+% ============================================================
+
+Teardown resumes after the suspension and asks one question first: am I
+still the connection's listener?  The answer decides everything, because
+the listener slot is the connection's ownership token.  The comparison
+and the removals it authorises are one critical section, so no
+registration can land between the two.
+
+\texttt{TeardownDetach} is the owned case.  It clears the listener and,
+in the same step, the callbacks that listener owned; the ghost
+\texttt{clobbered} records a removal of anything installed by another
+session, which the guard is there to prevent.  It also takes the loop's
+run token, so no reconnect can interleave before the disconnect cascade.
+
+\begin{schema}{TeardownDetach}
+  \Delta Leg \\
+  s? : SESSION
+\where
+  looprun = \emptyset \\
+  phase~s? = ssuspended \\
+  listener = \{ s? \} \\
+  phase' = phase \oplus \{ s? \mapsto stearing \} \\
+  listener' = \emptyset \\
+  owner' = \emptyset \\
+  incumbent' = incumbent \setminus \{ s? \} \\
+  looprun' = \{ s? \} \\
+  clobbered' = \\
+  \quad~ \IF listener \cup \ran owner \subseteq \{ s? \} \\
+  \quad~ \THEN clobbered \ELSE clobbered \cup \{ s? \} \\
+  writer' = writer \\
+  gated' = gated \\
+  held' = held \\
+  leased' = leased
+\end{schema}
+
+\texttt{TeardownStale} is the other case: the session is no longer the
+listener.  Two different situations reach it, and conflating them is a
+defect of its own.  Either a successor has taken the connection, and the
+slot and its callbacks now belong to that successor; or the lease
+lapsed and the sweep took the session out from under a socket that was
+still winding down, and nobody holds the connection at all.
+
+The slot and its callbacks are untouched either way --- there is nothing
+here this session may remove.  Its \emph{own writer} is another matter,
+and it is released on this path too, guarded by identity: $writer
+\setminus \{ s? \}$ removes the binding when it is still this session's
+and removes nothing when a successor has replaced it.  Without that
+clause a swept session leaves its writer bound with nothing left in the
+system that could ever withdraw it (Section~\ref{sec:fidelity},
+variant~5).
+
+\begin{schema}{TeardownStale}
+  \Delta Leg \\
+  s? : SESSION
+\where
+  looprun = \emptyset \\
+  phase~s? = ssuspended \\
+  listener \neq \{ s? \} \\
+  phase' = phase \oplus \{ s? \mapsto sdone \} \\
+  listener' = listener \\
+  writer' = writer \setminus \{ s? \} \\
+  incumbent' = incumbent \\
+  owner' = owner \\
+  gated' = gated \\
+  held' = held \\
+  leased' = leased \\
+  looprun' = looprun \\
+  clobbered' = clobbered
+\end{schema}
+
+\texttt{TeardownDisconnect} is the Hub's disconnect cascade --- the
+pub-sub writer and the subscriptions --- which runs after a successful
+detach, while the run token is still held.  The removal is by the
+writer's own identity, $writer \setminus \{ s? \}$, the same clause
+\texttt{TeardownStale} carries: the two paths differ in what they do to
+the slot, never in what they do to the session's own Hub-side state.
+The \texttt{clobbered} ghost is kept on this step even though the guard
+makes it unwritable, so that removing the guard is caught rather than
+merely allowed.
+
+\begin{schema}{TeardownDisconnect}
+  \Delta Leg \\
+  s? : SESSION
+\where
+  phase~s? = stearing \\
+  looprun = \{ s? \} \\
+  phase' = phase \oplus \{ s? \mapsto sdone \} \\
+  writer' = writer \setminus \{ s? \} \\
+  looprun' = \emptyset \\
+  clobbered' = \\
+  \quad~ \IF writer \subseteq \{ s? \} \THEN clobbered \\
+  \quad~ \ELSE clobbered \cup \{ s? \} \\
+  listener' = listener \\
+  incumbent' = incumbent \\
+  owner' = owner \\
+  gated' = gated \\
+  held' = held \\
+  leased' = leased
+\end{schema}
+
+A finished session's slot is later occupied by a fresh process.  In the
+implementation each reconnect constructs a new \texttt{HubListenSession},
+so the reused element must not still be referenced anywhere; the guards
+say exactly that.  \texttt{Reset} keeps the system live --- it never runs
+out of enabled operations at a benign terminal state --- so that the
+deadlock check reports only genuine wedges, never mere termination.
+
+\begin{schema}{Reset}
+  \Delta Leg \\
+  s? : SESSION
+\where
+  phase~s? = sdone \\
+  looprun = \emptyset \\
+  s? \notin listener \\
+  s? \notin writer \\
+  s? \notin incumbent \\
+  s? \notin \ran owner \\
+  s? \notin \ran gated \\
+  phase' = phase \oplus \{ s? \mapsto sfresh \} \\
+  listener' = listener \\
+  writer' = writer \\
+  incumbent' = incumbent \\
+  owner' = owner \\
+  gated' = gated \\
+  held' = held \\
+  leased' = leased \\
+  looprun' = looprun \\
+  clobbered' = clobbered
+\end{schema}
+
+% ============================================================
+\section{Registration}
+% ============================================================
+
+A registration arrives on another leg entirely --- an MCP tool call or a
+REST request from the same identity, resolving to the same connection id
+--- and therefore on another thread.  It is two steps because the code
+makes it two: the push-reachability gate reads the router, and the
+commit writes the client registry.
+
+\texttt{RegisterGate} is \texttt{has\_listener}.  It records which
+listener it saw, because that is the fact the commit must still be able
+to rely on.
+
+\begin{schema}{RegisterGate}
+  \Delta Leg \\
+  c? : CALLBACK
+\where
+  listener \neq \emptyset \\
+  leased = leaseon \\
+  c? \notin \dom owner \\
+  c? \notin \dom gated \\
+  gated' = gated \cup (\{ c? \} \cross listener) \\
+  phase' = phase \\
+  listener' = listener \\
+  writer' = writer \\
+  incumbent' = incumbent \\
+  owner' = owner \\
+  held' = held \\
+  leased' = leased \\
+  looprun' = looprun \\
+  clobbered' = clobbered
+\end{schema}
+
+\texttt{RegisterCommit} is the registry write.  Its guard is the
+compare-and-set that the current code lacks: commit only if the listener
+that passed the gate is \emph{still} the listener.  Because the listener
+slot and the callback set are under one lock, the comparison and the
+write are one critical section, and no teardown can pass between them.
+
+\begin{schema}{RegisterCommit}
+  \Delta Leg \\
+  c? : CALLBACK
+\where
+  c? \in \dom gated \\
+  listener = \{ gated~c? \} \\
+  owner' = owner \oplus \{ c? \mapsto gated~c? \} \\
+  gated' = \{ c? \} \ndres gated \\
+  phase' = phase \\
+  listener' = listener \\
+  writer' = writer \\
+  incumbent' = incumbent \\
+  held' = held \\
+  leased' = leased \\
+  looprun' = looprun \\
+  clobbered' = clobbered
+\end{schema}
+
+\texttt{RegisterRefuse} is the same call losing the compare: the leg it
+was gated against has gone, so the caller is told it is not
+push-reachable rather than given an entry nothing can deliver.
+
+\begin{schema}{RegisterRefuse}
+  \Delta Leg \\
+  c? : CALLBACK
+\where
+  c? \in \dom gated \\
+  listener \neq \{ gated~c? \} \\
+  gated' = \{ c? \} \ndres gated \\
+  phase' = phase \\
+  listener' = listener \\
+  writer' = writer \\
+  incumbent' = incumbent \\
+  owner' = owner \\
+  held' = held \\
+  leased' = leased \\
+  looprun' = looprun \\
+  clobbered' = clobbered
+\end{schema}
+
+% ============================================================
+\section{Clicks, Lease, and Sweep}
+% ============================================================
+
+\texttt{Route} is a click on a registered callback landing in the
+connection's hold.  It runs on the click-dispatch thread, so it is not
+subject to the run token.
+
+\begin{schema}{Route}
+  \Delta Leg \\
+  c? : CALLBACK
+\where
+  c? \in \dom owner \\
+  leased = leaseon \\
+  held' = held \cup \{ c? \} \\
+  phase' = phase \\
+  listener' = listener \\
+  writer' = writer \\
+  incumbent' = incumbent \\
+  owner' = owner \\
+  gated' = gated \\
+  leased' = leased \\
+  looprun' = looprun \\
+  clobbered' = clobbered
+\end{schema}
+
+\texttt{Drain} is the listener taking the hold and pushing its frames.
+
+\begin{schema}{Drain}
+  \Delta Leg \\
+  s? : SESSION
+\where
+  looprun = \emptyset \\
+  listener = \{ s? \} \\
+  phase~s? = spumping \\
+  held' = \emptyset \\
+  phase' = phase \\
+  listener' = listener \\
+  writer' = writer \\
+  incumbent' = incumbent \\
+  owner' = owner \\
+  gated' = gated \\
+  leased' = leased \\
+  looprun' = looprun \\
+  clobbered' = clobbered
+\end{schema}
+
+Any frame from a pumping session renews the lease.  This is the
+operation that makes a broken state permanent rather than self-healing:
+a session that is live and keeps renewing keeps the entry alive, so the
+sweep that would clear a wrongly-emptied entry never runs.
+
+\begin{schema}{LeaseRenew}
+  \Delta Leg \\
+  s? : SESSION
+\where
+  phase~s? = spumping \\
+  leased' = leaseon \\
+  phase' = phase \\
+  listener' = listener \\
+  writer' = writer \\
+  incumbent' = incumbent \\
+  owner' = owner \\
+  gated' = gated \\
+  held' = held \\
+  looprun' = looprun \\
+  clobbered' = clobbered
+\end{schema}
+
+\begin{schema}{LeaseLapse}
+  \Delta Leg \\
+\where
+  leased = leaseon \\
+  \lnot (\exists s : SESSION @ phase~s \in \{ sattached, spumping \}) \\
+  leased' = leaseoff \\
+  phase' = phase \\
+  listener' = listener \\
+  writer' = writer \\
+  incumbent' = incumbent \\
+  owner' = owner \\
+  gated' = gated \\
+  held' = held \\
+  looprun' = looprun \\
+  clobbered' = clobbered
+\end{schema}
+
+\texttt{Sweep} is the opportunistic reap on a lapsed lease.  Everything
+the registry holds for the session goes with the session record: its
+callbacks, its pending registrations, its hold, and its \emph{listener
+slot}, because the slot is a field of the session object the reap
+deletes.  A model that left the listener installed after a sweep would
+describe a state the implementation cannot occupy, and would then assert
+Invariant~1 over it.  The \texttt{incumbent} ghost goes for the same
+reason: a session the registry has reaped is no longer one the design
+promises to keep push-reachable.
+
+What does \emph{not} go is the writer.  It is bound in the Hub, a
+separate store the registry's reap cannot reach, so it outlives the
+sweep and only the session's own teardown can withdraw it.  That
+asymmetry is real, and Invariant~5 is what holds the teardown to it.
+
+\begin{schema}{Sweep}
+  \Delta Leg
+\where
+  leased = leaseoff \\
+  owner' = \emptyset \\
+  gated' = \emptyset \\
+  held' = \emptyset \\
+  listener' = \emptyset \\
+  incumbent' = \emptyset \\
+  phase' = phase \\
+  writer' = writer \\
+  leased' = leased \\
+  looprun' = looprun \\
+  clobbered' = clobbered
+\end{schema}
+
+% ============================================================
+\section{Invariants}
+\label{sec:inv}
+% ============================================================
+
+Five properties must hold across all reachable states.  None is placed
+in the \texttt{Leg} schema: a predicate placed there would be enforced
+as a guard on every successor, silently disabling any operation that
+would break it and thereby masking the very defect this model exists to
+catch.
+
+\paragraph{Invariant 1 --- the incumbent stays reachable.}
+The session whose connect most recently completed, and which has not
+itself detached, holds both the listener slot and the writer slot:
+\[
+  incumbent \neq \emptyset
+  \implies (listener = incumbent \land writer = incumbent).
+\]
+This is the safety core of ``a live session is never left
+push-unreachable''.  It is what the stale-teardown clobber breaks.
+
+\paragraph{Invariant 2 --- callbacks belong to the current listener.}
+Every registered callback was installed by the session that holds the
+listener slot now:
+\[
+  \ran owner \subseteq listener.
+\]
+Since \texttt{\# listener $\leq$ 1}, this says both that no callback is
+registered without a listener and that none outlives the leg it was
+registered against.  It is what the registration gap breaks.
+
+\paragraph{Invariant 3 --- no cross-session removal.}
+No session ever removes state another session installed:
+\[
+  clobbered = \emptyset.
+\]
+The ghost is written by exactly the two teardown steps that remove
+shared state, so its emptiness is a property of the transition relation
+expressed as a property of a state, and ProB reports the offending trace
+rather than merely the offending state.
+
+\paragraph{Invariant 5 --- a departed session leaves no writer behind.}
+No session that has finished still holds the connection's writer:
+\[
+  \forall s : SESSION @ phase~s = sdone \implies s \notin writer.
+\]
+This is the Hub-side counterpart of Invariant~1.  Invariant~1 says a
+live session stays reachable; Invariant~5 says a dead one stops being
+reachable, which is a different failure and needs its own statement.
+The writer is bound in the Hub, so no sweep of the registry can reclaim
+it: if a teardown declines to release it, it stays bound for the life of
+the process, and every publish on a topic it subscribed to goes on
+feeding a session that is gone.  It is what a teardown that skips its
+own Hub-side state breaks (Section~\ref{sec:fidelity}, variant~5).
+
+\paragraph{Invariant 4 --- deadlock freedom.}
+No reachable state leaves the system unable to progress.  The only
+mutual-exclusion device is \texttt{looprun}, taken by
+\texttt{TeardownDetach} and released by \texttt{TeardownDisconnect};
+since \texttt{TeardownDisconnect}'s guard is implied by the state
+\texttt{TeardownDetach} establishes, the token cannot be held forever
+and no cyclic wait can form.  ProB discharges this over the whole
+reachable state space.
+
+% ============================================================
+\section{Verification}
+\label{sec:verify}
+% ============================================================
+
+Type-checking is a \texttt{fuzz} pass:
+\begin{verbatim}
+  fuzz -t docs/listen_lifecycle.tex
+\end{verbatim}
+
+Invariants 1--3 and 5 are state properties, checked by asking ProB
+whether their negation is \emph{reachable}.  A goal that is not found
+means the invariant holds on every reachable state:
+\begin{verbatim}
+  # Invariant 1 (must report: goal NOT found)
+  probcli docs/listen_lifecycle.tex -model_check -nodead \
+    -goal "incumbent /= {} & (listener /= incumbent or writer /= incumbent)" \
+    -p DEFAULT_SETSIZE 2
+
+  # Invariant 2 (must report: goal NOT found)
+  probcli docs/listen_lifecycle.tex -model_check -nodead \
+    -goal "not(ran(owner) <: listener)" \
+    -p DEFAULT_SETSIZE 2
+
+  # Invariant 3 (must report: goal NOT found)
+  probcli docs/listen_lifecycle.tex -model_check -nodead \
+    -goal "clobbered /= {}" \
+    -p DEFAULT_SETSIZE 2
+
+  # Invariant 5 (must report: goal NOT found)
+  probcli docs/listen_lifecycle.tex -model_check -nodead \
+    -goal "#ss.(ss : SESSION & phase(ss) = sdone & ss : writer)" \
+    -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+Invariant 4 is the deadlock check over the full reachable state space:
+\begin{verbatim}
+  # Invariant 4 (must report: no deadlock, no invariant violation)
+  probcli docs/listen_lifecycle.tex -model_check \
+    -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+The last run also discharges the structural constraints of the
+\texttt{Leg} schema --- in particular that \texttt{owner} and
+\texttt{gated} remain functional and that the occupancy slots stay
+singletons --- since ProB carries a state schema's predicate as a
+machine invariant.
+
+\paragraph{Results.}
+At \texttt{DEFAULT\_SETSIZE 2} the reachable space is 3\,142 states over
+14\,563 transitions, every operation covered, no deadlock, and all four
+goals reported \emph{not found}.  At \texttt{DEFAULT\_SETSIZE 3} --- three
+sessions and three callbacks --- it is 277\,163 states over 1\,885\,221
+transitions, again exhaustive, again with no counter-example to any goal.
+Two sessions are enough to exhibit every defect of
+Section~\ref{sec:fidelity}; three confirm that nothing depends on the
+carrier being that small.
+
+% ============================================================
+\section{What the Model Asks of the Implementation}
+\label{sec:consequences}
+% ============================================================
+
+The verified design reduces to one idea: \emph{the listener slot is the
+connection's ownership token, and every write to connection-bound state
+is a compare-and-set against it}.  Three operations follow, and each
+must be a single critical section.
+
+\begin{enumerate}
+  \item \textbf{Attach} (\texttt{Connect}).  Install this session as the
+    connection's listener and writer, and clear the connection's
+    callbacks in the same step.  A new occupant of the slot starts with
+    no entries; the app re-registers from its \texttt{on\_connect}.
+  \item \textbf{Register} (\texttt{RegisterGate} $+$
+    \texttt{RegisterCommit}).  Commit the callback only if the listener
+    observed at the gate is still the listener.  The comparison and the
+    write must be one critical section --- a re-read that is not atomic
+    with the write reinstates the gap.
+  \item \textbf{Teardown} (\texttt{TeardownDetach} /
+    \texttt{TeardownStale}).  If this session is still the listener,
+    clear the listener and the callbacks together; otherwise leave both
+    alone.  Either way release this session's \emph{own} Hub-side state,
+    by its own identity: the slot decides what belongs to whoever holds
+    it, and the writer belongs to the session that bound it.
+\end{enumerate}
+
+Those two removals answer different questions and must not be collapsed
+into one.  ``Am I still the listener?'' decides the slot and its
+callbacks.  ``Is this writer still mine?'' decides the Hub-side state,
+and it has a different answer in the case the sweep has already taken
+the session: nobody holds the slot, so the first question says leave
+everything, while the second correctly says take the writer.  Reading
+the first answer as covering both is variant~5.
+
+Two structural consequences follow, and neither is optional.
+
+The listener slot and the callback set must live under \emph{one} lock.
+They are in separate registries today --- the slot in
+\texttt{CallbackRouter}, the callbacks on the session in
+\texttt{HubClientRegistry} --- and the two locks are deliberately never
+nested, so as things stand no single critical section can span them.
+Moving the slot onto the session, and leaving the router with the holds
+alone, brings all three operations under the registry's existing lock.
+It adds no lock, nests nothing, and leaves the router's live-read-then-lock
+discipline untouched.
+
+Ownership is decided by comparing the stored listener to \texttt{self},
+and a generation counter adds nothing: a \texttt{HubListenSession} is
+constructed once per run of the \texttt{/ws} route and installs itself
+once, so its identity is already a monotone stamp.  A counter would only
+restate that fact in a second place, where it could disagree.  What
+would be unsound is a token that \emph{can} recur --- the connection id,
+or a bare ``I installed something'' flag --- because a stale holder of
+such a token compares equal to the incumbent.
+
+The writer slot needs no separate guard.  It is removed by the
+disconnect cascade, which runs inside the same loop run as the detach
+that authorised it, so no reconnect can install a successor's writer in
+between; the model encodes this as the \texttt{looprun} token, and
+Invariant~1 holds with the writer removal unguarded.  That conclusion
+depends on \texttt{\_teardown} containing no \texttt{await}, which it
+must therefore continue not to.
+
+% ============================================================
+\section{Fidelity: reproducing the known defects}
+\label{sec:fidelity}
+% ============================================================
+
+A model that cannot reproduce the defects it guards against proves
+nothing.  Each variant below is the specification above with one named
+clause removed; each makes a different invariant reachable, and each
+trace below is ProB's, not a hand-written one.  Sessions are written $A$
+and $B$ for \texttt{SESSION1} and \texttt{SESSION2}, callbacks $c$ and
+$d$.
+
+\subsection*{Variant 1 --- the stale-teardown clobber}
+
+Delete the ownership guard \texttt{listener = \{s?\}} from
+\texttt{TeardownDetach}, and delete the \texttt{TeardownStale} schema
+(with no guard there is no stale case to divert).  This is the current
+\texttt{\_teardown}, which calls \texttt{remove\_listener},
+\texttt{withdraw\_callbacks}, and \texttt{on\_disconnect} on the
+connection id unconditionally.
+
+The shortest trace to a live, push-unreachable session:
+
+\begin{enumerate}
+  \item \texttt{Connect(A)}: $A$ is the listener, the writer, and the
+    incumbent.
+  \item \texttt{Drop(A)}: $A$'s socket goes; $A$ suspends in the
+    \texttt{finally}, awaiting its cancelled writer.  Nothing is
+    removed yet.
+  \item \texttt{Connect(B)}, \texttt{Ready(B)}: the client reconnects
+    after its backoff.  $B$ records, binds the writer, installs itself
+    as the listener, becomes the incumbent, and starts pumping.
+  \item \texttt{TeardownDetach(A)}: $A$ resumes and, unguarded, removes
+    $B$'s listener.
+  \item \texttt{TeardownDisconnect(A)}: $A$ drops $B$'s writer.
+\end{enumerate}
+
+The resulting state has \texttt{incumbent = \{B\}} with
+\texttt{listener} and \texttt{writer} both empty --- Invariant~1 ---
+and \texttt{clobbered = \{A\}} --- Invariant~3 --- while $B$ is
+\texttt{spumping} and \texttt{leased = leaseon}, so no sweep will ever
+repair it.  ProB reaches the same violation by a second route in which
+$A$ never drops at all, only is superseded; extending the goal to
+\texttt{owner = $\emptyset$} produces the thirteen-step trace in which
+$B$'s registered callbacks are withdrawn by $A$'s teardown as well.
+
+Under the ownership guard, step~4 cannot fire: at that point
+\texttt{listener = \{B\}}, so $A$ takes \texttt{TeardownStale} and
+removes nothing.
+
+\subsection*{Variant 2 --- the registration gap}
+
+Restore the guard of variant~1 and instead delete the compare-and-set
+\texttt{listener = \{gated\~{}c?\}} from \texttt{RegisterCommit} (and,
+with it, \texttt{RegisterRefuse}, whose guard is its complement).  This
+is the current \texttt{register\_callback}, whose \texttt{has\_listener}
+read and registry write are separate critical sections.  The trace:
+
+\begin{enumerate}
+  \item \texttt{Connect(A)}.
+  \item \texttt{Drop(A)}.
+  \item \texttt{RegisterGate(c)}: the gate reads \texttt{has\_listener}
+    as true --- $A$ has not torn down yet --- and returns.  The calling
+    thread is now between the two locks.
+  \item \texttt{TeardownDetach(A)}: the listener goes and the callbacks
+    are withdrawn.
+  \item \texttt{RegisterCommit(c)}: the write lands anyway.
+\end{enumerate}
+
+The resulting state has \texttt{owner = \{c $\mapsto$ A\}} with
+\texttt{listener = $\emptyset$} --- Invariant~2 --- and the lease still
+live.  The withdrawal that would have removed the entry has already
+run, so nothing will: a menu item that swallows clicks, which is
+exactly what the gate exists to prevent.
+
+That this trace survives the ownership guard is the model's sharpest
+result.  Guarding the teardown does not close the registration gap: with
+variant~1's guard restored and only this clause missing, ProB still
+reaches the violation in five steps, while reporting Invariant~1
+unreachable over all 23\,488 states.  The two fixes are independent and
+both are required.
+
+\subsection*{Variant 3 --- the superseded registration}
+
+Restore both guards and instead replace \texttt{owner' = $\emptyset$} in
+\texttt{Connect} with \texttt{owner' = owner} --- the current
+\texttt{add\_listener}, which replaces the listener and leaves the
+connection's callbacks alone.  Two sessions of one identity may be live
+at once, which the identity-derived connection id permits by design:
+
+\begin{enumerate}
+  \item \texttt{Connect(A)}, \texttt{RegisterGate(c)},
+    \texttt{RegisterCommit(c)}.
+  \item \texttt{Connect(B)}: $B$ replaces $A$ in the listener slot.
+\end{enumerate}
+
+Now \texttt{owner = \{c $\mapsto$ A\}} while \texttt{listener = \{B\}}
+--- Invariant~2.  $A$'s menu entry is still in the bar and its clicks
+are routed to $B$.  This is not a race: it is reachable with no
+interleaving at all, and it is why the fixed design makes installing a
+listener clear the connection's callbacks.
+
+\subsection*{Variant 4 --- the split detach}
+
+Restore everything and instead split \texttt{TeardownDetach} into its
+two writes --- \texttt{TeardownRemoveListener} then
+\texttt{TeardownWithdraw} --- as \texttt{\_teardown} has them today,
+keeping the ownership guard on the first and the run token across both.
+This asks whether the two calls may stay separate once the other three
+clauses are in place.  They may not:
+
+\begin{enumerate}
+  \item \texttt{Connect(A)}, \texttt{Connect(B)},
+    \texttt{RegisterGate(c)}, \texttt{RegisterCommit(c)}: $B$ holds the
+    slot and owns $c$.
+  \item \texttt{Drop(B)}.
+  \item \texttt{TeardownRemoveListener(B)}: the listener is gone; the
+    callbacks are not.
+\end{enumerate}
+
+That intermediate state has \texttt{owner = \{c $\mapsto$ B\}} with
+\texttt{listener = $\emptyset$} --- Invariant~2 --- and it is observable,
+because \texttt{route} and \texttt{register} run on other threads and
+may read the registry inside the window.  The window is transient, so
+this is a narrower fault than variant~2's permanent orphan; but it costs
+nothing to close, because the recommended fix already places the
+listener slot and the callback set under one lock, where clearing both
+is one operation.
+
+\subsection*{Variant 5 --- the teardown that skips its own Hub-side state}
+
+Restore everything and instead replace \texttt{writer' = writer
+$\setminus$ \{s?\}} in \texttt{TeardownStale} with \texttt{writer' =
+writer}.  This is the teardown that treats ``I am not the listener'' as
+``none of this is mine'', which reads correctly for the slot and is
+wrong for the writer.  The trace needs no successor at all:
+
+\begin{enumerate}
+  \item \texttt{Connect(A)}: $A$ is the listener, the writer, and the
+    incumbent.
+  \item \texttt{Drop(A)}: the socket goes; $A$ suspends in the
+    \texttt{finally}, still holding everything.
+  \item \texttt{LeaseLapse}, \texttt{Sweep}: the lease lapses while the
+    socket winds down and the reap takes the session record --- with it
+    the listener slot, the callbacks, and the incumbent ghost.  The
+    writer is in the Hub, so it stays.
+  \item \texttt{TeardownStale(A)}: $A$ resumes, finds it is not the
+    listener, and removes nothing.
+\end{enumerate}
+
+The resulting state has \texttt{phase A = sdone} with \texttt{writer =
+\{A\}} --- Invariant~5.  Nothing can repair it: the registry has already
+forgotten the session, so no later sweep reaches the Hub, and the entry
+that could have been overwritten by a reconnect never is if the process
+is gone for good.  In the implementation this is the dead session's
+\texttt{deliver\_event} left subscribed, filling an outbound queue whose
+write task was cancelled.
+
+The trace is short and needs no pathology: a client may declare a lease
+as short as five seconds while the keepalive cadence is fifteen, so the
+lapse in step~3 is ordinary operation, not a stall.  Invariants~1--3 stay
+unreachable throughout, which is the point --- the ownership guard on the
+slot does not imply the release of the writer, and each has to be stated.
+
+Each of the five variants is therefore necessary, and together they are
+sufficient: with all five clauses in place the model is exhaustively
+clean.
+
+\end{document}

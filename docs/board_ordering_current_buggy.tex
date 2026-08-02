@@ -1,0 +1,312 @@
+%
+% board_ordering_current_buggy.tex
+%
+% FIDELITY CONTROL for docs/board_ordering.tex.  This is the applet's board
+% path AS THE CODE STANDS -- the ungated push, the board captured before the
+% raise, and the refresh that pushes before the slot has seen its board.  It
+% exists to be violated: a model that cannot reproduce the defect it guards
+% against is too abstract to trust.
+%
+% It differs from board_ordering.tex in exactly one section: the push.  The
+% state, Init, TakePlace and StoreBoard are identical.
+%
+% Type-check:  fuzz -t docs/board_ordering_current_buggy.tex
+% Model-check (each goal must be FOUND -- see Section 3):
+%   probcli docs/board_ordering_current_buggy.tex -model_check \
+%     -p DEFAULT_SETSIZE 2 -p MAXINT 4 -goal "shown /= evershown"
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{Board Ordering as the Code Stands: a Fidelity Control}
+\author{The variant that reaches the bad states}
+\date{August 2026}
+\maketitle
+
+% ============================================================
+\section{Purpose}
+% ============================================================
+
+This document is not a design. It is the control for
+\texttt{docs/board\_ordering.tex}: the same state and the same slot, with the
+push written as the code writes it today. Its job is to reach the bad states,
+and it does.
+
+The three staging operations below are the three pushes in the code.
+\texttt{AnswerStage} is \texttt{HeldBoard.answer}, which is handed the board
+\texttt{BeadsService.acknowledge} read out of the slot and pushes it after the
+raise round trip has returned. \texttt{RefreshStage} is the push inside
+\texttt{BoardRun.\_shown} and \texttt{NoBoard.refreshed}, which sends the board
+this worker just loaded before \texttt{BoardSlot.store} has had the chance to
+refuse it. \texttt{BlankStage} is \texttt{NoBoard.answer}'s placeholder and
+\texttt{NoBoard.\_show\_reason}'s red message, which carry no board at all.
+
+None of the three is gated: nothing in the code stops two pushes being in flight
+at once, and nothing compares what a push is about to write against what the
+glass is already showing.
+
+% ============================================================
+\section{Types, State, and the Slot}
+% ============================================================
+
+Identical to \texttt{docs/board\_ordering.tex}, which documents them.
+
+\begin{zed}
+  [WORKER]
+\end{zed}
+
+\begin{zed}
+  PLACE == 0 \upto 3
+\end{zed}
+
+\begin{schema}{Board}
+  began : PLACE \\
+  loading : WORKER \pfun PLACE \\
+  held : PLACE \\
+  shown : PLACE \\
+  staged : WORKER \pfun PLACE \\
+  everheld : PLACE \\
+  evershown : PLACE \\
+  offered : PLACE \\
+  overtaken : \power PLACE
+\where
+  held \leq began \\
+  shown \leq began \\
+  everheld \leq began \\
+  evershown \leq began \\
+  offered \leq began
+\end{schema}
+
+\begin{schema}{Init}
+  Board'
+\where
+  began' = 0 \\
+  loading' = \emptyset \\
+  held' = 0 \\
+  shown' = 0 \\
+  staged' = \emptyset \\
+  everheld' = 0 \\
+  evershown' = 0 \\
+  offered' = 0 \\
+  overtaken' = \emptyset
+\end{schema}
+
+\begin{schema}{TakePlace}
+  \Delta Board \\
+  w? : WORKER
+\where
+  w? \notin \dom loading \\
+  began < 3 \\
+  began' = began + 1 \\
+  loading' = loading \cup \{ w? \mapsto began' \} \\
+  held' = held \\
+  shown' = shown \\
+  staged' = staged \\
+  everheld' = everheld \\
+  evershown' = evershown \\
+  offered' = offered \\
+  overtaken' = overtaken
+\end{schema}
+
+\begin{schema}{StoreBoard}
+  \Delta Board \\
+  w? : WORKER
+\where
+  w? \in \dom loading \\
+  ( loading~w? > held \land held' = loading~w? \\
+  \quad~ \land overtaken' = overtaken ) \lor \\
+  \quad~ ( loading~w? \leq held \land held' = held \\
+  \quad~ \land overtaken' = overtaken \cup \{ loading~w? \} ) \\
+  ( held' > everheld \land everheld' = held' ) \lor \\
+  \quad~ ( held' \leq everheld \land everheld' = everheld ) \\
+  loading' = \{ w? \} \ndres loading \\
+  began' = began \\
+  shown' = shown \\
+  staged' = staged \\
+  evershown' = evershown \\
+  offered' = offered
+\end{schema}
+
+% ============================================================
+\section{The Push as the Code Writes It}
+% ============================================================
+
+\texttt{AnswerStage} is the click's answer: it takes the board the slot holds
+and settles on pushing that one. In the code the read happens in
+\texttt{acknowledge} and the push happens after \texttt{work.raise\_frame()}
+has returned from a round trip to \texttt{luxd}, so the window between them is
+wide. Here it is a step, which is all a window needs to be.
+
+\begin{schema}{AnswerStage}
+  \Delta Board \\
+  w? : WORKER
+\where
+  w? \notin \dom staged \\
+  staged' = staged \cup \{ w? \mapsto held \} \\
+  ( held > offered \land offered' = held ) \lor \\
+  \quad~ ( held \leq offered \land offered' = offered ) \\
+  began' = began \\
+  loading' = loading \\
+  held' = held \\
+  shown' = shown \\
+  everheld' = everheld \\
+  evershown' = evershown \\
+  overtaken' = overtaken
+\end{schema}
+
+\texttt{RefreshStage} is the refresh's push, which sends the board this worker
+loaded. It is enabled while that worker is still in \texttt{loading} --- that is
+the defect: the push is settled before \texttt{StoreBoard} has compared this
+board against the one the slot is keeping.
+
+\begin{schema}{RefreshStage}
+  \Delta Board \\
+  w? : WORKER
+\where
+  w? \in \dom loading \\
+  w? \notin \dom staged \\
+  staged' = staged \cup \{ w? \mapsto loading~w? \} \\
+  ( loading~w? > offered \land offered' = loading~w? ) \lor \\
+  \quad~ ( loading~w? \leq offered \land offered' = offered ) \\
+  began' = began \\
+  loading' = loading \\
+  held' = held \\
+  shown' = shown \\
+  everheld' = everheld \\
+  evershown' = evershown \\
+  overtaken' = overtaken
+\end{schema}
+
+\texttt{BlankStage} is a push carrying no board: the placeholder a click opens
+when nothing has loaded, or the red message naming why \texttt{bd} could not be
+read. It is enabled whenever the slot holds no board, and it consults the glass
+about nothing.
+
+\begin{schema}{BlankStage}
+  \Delta Board \\
+  w? : WORKER
+\where
+  w? \notin \dom staged \\
+  held = 0 \\
+  staged' = staged \cup \{ w? \mapsto 0 \} \\
+  began' = began \\
+  loading' = loading \\
+  held' = held \\
+  shown' = shown \\
+  everheld' = everheld \\
+  evershown' = evershown \\
+  offered' = offered \\
+  overtaken' = overtaken
+\end{schema}
+
+\texttt{PushCommit} is the write landing, exactly as in the committed model.
+
+\begin{schema}{PushCommit}
+  \Delta Board \\
+  w? : WORKER
+\where
+  w? \in \dom staged \\
+  shown' = staged~w? \\
+  ( staged~w? > evershown \land evershown' = staged~w? ) \lor \\
+  \quad~ ( staged~w? \leq evershown \land evershown' = evershown ) \\
+  staged' = \{ w? \} \ndres staged \\
+  began' = began \\
+  loading' = loading \\
+  held' = held \\
+  everheld' = everheld \\
+  offered' = offered \\
+  overtaken' = overtaken
+\end{schema}
+
+% ============================================================
+\section{What it reaches}
+% ============================================================
+
+The same five goals as the committed model. Here four of them are
+\emph{found}, which is the point of the document.
+
+\begin{verbatim}
+  probcli docs/board_ordering_current_buggy.tex -model_check \
+    -p DEFAULT_SETSIZE 2 -p MAXINT 4 -p TIME_OUT 60000 \
+    -goal "held /= everheld"                 # I1: NOT found -- the slot is sound
+  probcli ... -goal "shown /= evershown"              # I2: FOUND
+  probcli ... -goal "staged = {} & shown < offered"   # I3: FOUND
+  probcli ... -goal "shown > held"                    # I4: FOUND
+  probcli ... -goal "shown : overtaken"               # I5: FOUND
+\end{verbatim}
+
+I1 not found is a result in its own right: the slot's own ordering rule was
+never the problem, and none of these defects is a defect in
+\texttt{BoardSlot}. The other four are the defect, in four shapes:
+
+\begin{description}
+  \item[I2, the glass goes backwards.] A click's answer settles on the board the
+    slot holds; a refresh stores and lands a newer one; the click lands its
+    older capture over it. If the click then stood down --- and it will have, if
+    the refresh that overtook it is the one holding single flight --- nothing
+    repairs the display.
+  \item[I3, the newest board offered never reaches the glass.] The same
+    interleaving seen from the other side: a board at place $2$ was settled on
+    and the display came to rest at place $1$.
+  \item[I4, the glass runs ahead of the slot.] \texttt{RefreshStage} followed by
+    \texttt{PushCommit} with no \texttt{StoreBoard} between: the display is
+    rendering a board the slot has not accepted and may yet refuse.
+  \item[I5, the glass shows a refused board.] Two loads begin, the later one
+    stores first, and the earlier one lands its board on the glass and is then
+    refused by the slot. The applet holds one board and displays another, and
+    the one it displays is the one it decided against.
+\end{description}
+
+Over 3275 reachable states, I1 is not found and the other four are found in
+seven to eleven steps.
+
+% ============================================================
+\section{Realisability}
+% ============================================================
+
+This model omits \texttt{SingleFlight}, so it admits interleavings the running
+applet cannot produce --- two refreshes at once, in particular. That direction
+is safe for the committed design, where the claim is that no trace violates
+anything. It is not safe here, where the claim is that a particular trace
+exists: a witness that needs two concurrent refreshes would be an artifact.
+So each is checked against the code by hand.
+
+\paragraph{I2, a placeholder over a board (seven steps).}
+Click A takes the single-flight token and starts a load. Click B arrives on
+another thread, reads the slot in \texttt{acknowledge}, finds \texttt{NoBoard},
+and settles on the placeholder; it then spends the raise round trip. A's load
+returns, pushes its board, and stores it. B's placeholder lands. B finds the
+token held and stands down, so nothing runs behind it to repair the display.
+The user clicked twice and is reading ``Loading issues\ldots'' over a board that
+loaded. One refresh, one answer --- realisable.
+
+\paragraph{I2, a board over an older board (nine steps).}
+The same shape with a warm slot. Click B's \texttt{acknowledge} captures the
+board at place $1$ and goes into its raise. Click C, on another thread, holds
+the token, loads place $2$, pushes it, and stores it. B's captured $1$ then
+lands. B stands down. The applet holds place $2$ and the display shows place
+$1$, permanently. One refresh, one answer --- realisable. This is the defect as
+reported.
+
+\paragraph{I4, the glass ahead of the slot (five steps).}
+No race at all is needed. \texttt{BoardRun.\_shown} pushes the board and
+\texttt{BeadsService.service} stores it afterwards, so between those two
+statements the display is showing a board the slot has not accepted. Every
+refresh passes through that state; the model finds it in one worker.
+
+\paragraph{I5, a refused board on the glass (six steps).}
+Needs a store the pusher does not control, which the warm-up provides: it
+stores and never pushes. A click starts its load; a reconnect fires the warm-up
+on another thread; the warm-up's load begins later, so it holds the newer
+issues, and it stores first. The click's load returns, pushes its own older
+board, and is then refused by the slot. The applet holds the newer board, the
+display shows the one it refused, and no further click is pending to correct it.
+One refresh and one warm-up --- realisable, and the warm-up-after-reconnect path
+is the one the warm-up exists for.
+
+\end{document}

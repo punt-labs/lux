@@ -28,10 +28,13 @@ __all__ = ["SessionLease"]
 # tool calls but its live connection means it is alive, so 30 minutes is a
 # backstop against a wedged connection rather than a liveness probe; a ``cli`` run
 # re-identifies each time, so 90 seconds sweeps its entry soon after it exits; an
-# ``app`` built-in is permanent.
+# ``applet`` lives and dies with a session and keeps a live connection renewed, so
+# a minute takes its menu entry away shortly after the session goes; an ``app``
+# built-in is permanent.
 _TTL_BY_KIND: dict[str, float] = {
     "mcp-session": 1800.0,
     "cli": 90.0,
+    "applet": 60.0,
     "app": math.inf,
 }
 

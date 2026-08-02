@@ -14,6 +14,7 @@ from punt_lux.rest.status import HttpErrorMap
 _EXPECTED = {
     "invalid_request": 422,
     "identification_required": 401,
+    "push_required": 403,
     "not_found": 404,
     "rejected": 409,
     "fault": 502,

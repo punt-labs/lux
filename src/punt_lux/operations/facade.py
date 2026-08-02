@@ -20,6 +20,7 @@ from punt_lux.operations.models.inspect_scope import HUB_ONLY, InspectScope
 from punt_lux.operations.pubsub import PubSubOperations
 from punt_lux.operations.queries import QueryOperations
 from punt_lux.operations.scenes import SceneOperations
+from punt_lux.operations.timing import Timed
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.callback_hold import CallbackRouter
@@ -44,12 +45,11 @@ if TYPE_CHECKING:
         UpdateRequest,
     )
     from punt_lux.operations.models.callbacks import (
-        PendingCallbacks,
         RegisterCallbackRequest,
     )
     from punt_lux.operations.models.display_info import DisplayInfo
     from punt_lux.operations.models.display_probe import Pong, Screenshot
-    from punt_lux.operations.models.display_write import FrameStatePatch
+    from punt_lux.operations.models.display_write import FrameRaise, FrameStatePatch
     from punt_lux.operations.models.identity import Identified
     from punt_lux.operations.models.menu_results import MenuList, Ok, SetMenuRequest
     from punt_lux.operations.models.query_clients import ClientList
@@ -147,32 +147,38 @@ class Operations:
             callbacks=callbacks,
         )
 
+    @Timed("render")
     def render(
         self, request: RenderRequest | OpError, *, scope: Scope
     ) -> SceneShown | OpError:
         """Install a whole scene."""
         return self._scenes.render(request, scope=scope)
 
+    @Timed("update")
     def update(
         self, scene_id: str, request: UpdateRequest | OpError, *, scope: Scope
     ) -> SceneShown | OpError:
         """Apply a patch batch to a scene."""
         return self._scenes.update(scene_id, request, scope=scope)
 
+    @Timed("clear")
     def clear(self, *, scope: Scope) -> Cleared | OpError:
         """Clear every scene the caller owns."""
         return self._scenes.clear(scope=scope)
 
+    @Timed("clear_scene")
     def clear_scene(self, *, scope: Scope, scene_id: str) -> Cleared | OpError:
         """Clear just ``scene_id``; unknown or unowned is an error, not a false pass."""
         return self._scenes.clear(scope=scope, scene_id=scene_id)
 
+    @Timed("render_table")
     def render_table(
         self, request: RenderTableRequest | OpError, *, scope: Scope
     ) -> SceneShown | OpError:
         """Render a filterable table scene."""
         return self._conveniences.render_table(request, scope=scope)
 
+    @Timed("render_dashboard")
     def render_dashboard(
         self, request: RenderDashboardRequest | OpError, *, scope: Scope
     ) -> SceneShown | OpError:
@@ -237,11 +243,17 @@ class Operations:
         """Change the provided window settings and return the new settings."""
         return self._display.set_window_settings(patch)
 
+    @Timed("set_frame_state")
     def set_frame_state(
         self, frame_id: str, patch: FrameStatePatch | OpError
     ) -> Ok | OpError:
         """Change a frame's minimize state."""
         return self._display.set_frame_state(frame_id, patch)
+
+    @Timed("raise_frame")
+    def raise_frame(self, frame_id: str) -> FrameRaise | OpError:
+        """Bring a frame to the front, restoring it if it was minimized."""
+        return self._display.raise_frame(frame_id)
 
     def inspect_scene(
         self, scene_id: str, scope: InspectScope = HUB_ONLY
@@ -265,6 +277,7 @@ class Operations:
         """Return the display's recent errors, proxied."""
         return self._queries.list_errors(count)
 
+    @Timed("set_menu")
     def set_menu(self, request: SetMenuRequest | OpError) -> Ok | OpError:
         """Replace the Hub-owned menu bar; the replicator pushes it."""
         return self._menus.set_menu(request)
@@ -273,27 +286,19 @@ class Operations:
         """Return the Hub-authoritative menu bar, including the callback submenus."""
         return self._menus.list_menus()
 
+    @Timed("register_callback")
     def register_callback(
         self, request: RegisterCallbackRequest | OpError, *, scope: Scope
     ) -> Ok | OpError:
         """Register a menu callback for the caller's session; the replicator pushes.
 
+        Registration is the whole client-facing surface of the callback model.
         Routing a click (``invoke_callback``) stays Hub-internal — the display
-        dispatches clicks, not a client — so it is off this facade, like the
-        element-click dispatch. Draining a session's owed invocations, by contrast,
-        is a client's own poll and is exposed as ``take_pending_callbacks``.
+        dispatches clicks, not a client — and delivering one is the listen leg's
+        job, so a registered session is pushed its clicks rather than offered a
+        read to poll.
         """
         return self._callbacks.register_callback(request, scope=scope)
-
-    def take_pending_callbacks(self, *, scope: Scope) -> PendingCallbacks:
-        """Drain the caller session's owed callback invocations — the poll legs' read.
-
-        The REST GET and the MCP tool both call this; each resolves its own session's
-        connection from its transport, so the drain is keyed by the caller and never
-        branches on client kind. A persistent client is pushed instead and does not
-        poll here; this is the pull path for the periodic and MCP legs.
-        """
-        return self._callbacks.take_pending(scope.connection_id)
 
     def identify(
         self, declaration: dict[str, object], *, scope: Scope
