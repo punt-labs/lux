@@ -120,27 +120,34 @@ def test_register_from_on_connect_then_receive_the_click_over_the_websocket() ->
         asyncio.run(_drive(client, received, registered, conn))
 
 
-def test_a_raw_sending_client_with_a_non_ascii_name_registers_on_its_own_leg(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize("encodes", [True, False])
+def test_a_non_ascii_name_registers_on_its_own_leg_from_either_client_generation(
+    monkeypatch: pytest.MonkeyPatch, *, encodes: bool
 ) -> None:
-    """Both real transports, a non-ASCII name, a client that does not encode.
+    """Both real transports, a non-ASCII name, both generations of client.
 
-    This is the third-party case, driven through the shipped clients and the real
-    header codecs rather than reasoned about: a client on a released punt-lux sends
-    its identity raw, so ``http.client`` puts the name on the wire as latin-1 and
-    ``websockets`` puts it there as UTF-8. Left unreconciled, the Hub reads two
-    names, binds the listen leg to one connection and the REST call to another, and
-    refuses the registration for holding no listen leg — the failure the z-spec
-    session hit, with nothing in either log naming the cause. Suppressing the
-    encoding here is what makes this client an older one.
+    Driven through the shipped clients and the real header codecs rather than
+    reasoned about. A current client percent-encodes its identity, so it crosses as
+    ASCII; a client on a released punt-lux sends it raw, and then ``http.client``
+    puts the name on the wire as latin-1 while ``websockets`` puts it there as
+    UTF-8. Left unreconciled, the second case makes the Hub read two names, bind the
+    listen leg to one connection and the REST call to another, and refuse the
+    registration for holding no listen leg — the failure the z-spec session hit,
+    with nothing in either log naming the cause. Suppressing the encoding is what
+    makes this client an older one; both generations must reach one connection.
     """
 
     def raw(value: HeaderValue) -> str:
         return value.text
 
-    monkeypatch.setattr(HeaderValue, "to_wire", raw)
+    if not encodes:
+        monkeypatch.setattr(HeaderValue, "to_wire", raw)
+    # The two generations run as two sessions, so they carry two names.
+    generation = "encoded" if encodes else "raw"
     identity = ClientIdentity(
-        kind="app", name=f"z-spec · lux · #{os.getpid():x}", lease_ttl=30
+        kind="app",
+        name=f"z-spec · lux · #{os.getpid():x} · {generation}",
+        lease_ttl=30,
     )
     with _running_luxd() as port:
         rest = LuxRestClient(LoopbackTransport(port, 5.0), identity)

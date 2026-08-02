@@ -7,6 +7,8 @@ header from reaching ``identify`` as a malformed field.
 
 from __future__ import annotations
 
+import pytest
+
 from punt_lux.connection_identity import connection_for
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.identity_headers import ClientHeaders
@@ -141,7 +143,16 @@ def test_a_percent_in_a_value_round_trips() -> None:
     )
 
 
-def test_a_client_that_sends_raw_values_still_resolves_to_one_connection() -> None:
+@pytest.mark.parametrize(
+    "name",
+    [
+        "ascii-only-90001",
+        "z-spec zspec 90001",  # ASCII and spaces
+        "z-spec·zspec·90001",  # U+00B7, no spaces
+        "z-spec · zspec · 90001",  # spaces and U+00B7 — the real session label
+    ],
+)
+def test_a_client_that_sends_raw_values_resolves_to_one_connection(name: str) -> None:
     """The read must reconcile the transports for a client that does not encode.
 
     Encoding only governs the clients we ship. A third-party client, or one on a
@@ -152,8 +163,10 @@ def test_a_client_that_sends_raw_values_still_resolves_to_one_connection() -> No
     on a connection its WebSocket never bound, and the Hub refuses it for holding
     no listen leg. The read recovers the UTF-8 leg, so both legs land on one
     connection whatever the client did.
+
+    The names are the bisect that found this: ASCII passes, ASCII with spaces
+    passes, and the U+00B7 the session label uses is where the two legs part.
     """
-    name = "z-spec · lux · #2a"
     over_websocket = {"X-Lux-Client-Kind": "app", "X-Lux-Client-Name": name}
     over_http = dict(over_websocket)
     # What each transport's encoding leaves the latin-1-decoding server holding.
