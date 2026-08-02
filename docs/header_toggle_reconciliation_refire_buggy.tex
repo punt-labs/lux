@@ -1,0 +1,565 @@
+%
+% header_toggle_reconciliation_refire_buggy.tex
+%
+% FIDELITY CONTROL for header_toggle_reconciliation.tex -- NOT the design.
+%
+% This is the specification with exactly one guard removed, so that the defect
+% the design closes becomes reachable.  It models a fix that renders the pending value but still decides to fire by
+% comparing what ImGui reports against the raw Hub value.
+%
+% The edit:
+% %   FrameQuiet fires when the rendered state differs from hub, instead of
+%   staying silent -- the one guard removed.  FrameClick is untouched.
+%
+% Must find:
+% %   probcli header_toggle_reconciliation_refire_buggy.tex -model_check \
+%     -nodead -goal "fires>1" -p DEFAULT_SETSIZE 2
+%
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{The lux Collapsing-Header Toggle Discipline: Fidelity Control (c), Firing Against the Hub Value}
+\author{Formal model of the render / fire / converge state machine}
+\date{August 2026}
+\maketitle
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+A \texttt{collapsing\_header} carries one Hub-authoritative flag --- whether the
+section is \emph{open} --- and is rendered every frame by an ImGui collapsing
+header that keeps its \emph{own} stored open state.  Unlike a checkbox, whose
+ImGui widget is handed the value as an argument and therefore renders exactly
+what it is given, a collapsing header remembers.  \texttt{set\_next\_item\_open}
+writes that memory; a click on the disclosure triangle flips it.  The renderer
+must decide, every frame, what to write --- and that decision is the whole
+subject of this document.
+
+Writing the Hub value unconditionally on every frame is the obvious choice and
+it is wrong.  It produces a \emph{double-step}: the click frame flips ImGui's
+memory and the section opens; the very next frame writes the Hub value back
+(the Hub has not yet heard about the click, so it still says closed) and the
+section snaps shut; some frames later the Hub's confirming re-push arrives and
+the section opens again.  Three rendered states, two of them transitions the
+user did not ask for, all from one click that ends on the correct value.  This
+is the defect the model exists to catch.
+
+The correction is a single piece of per-render-session bookkeeping held in
+\texttt{WidgetState}: the \emph{pending} value, the open state a
+\texttt{HeaderToggled} has been fired for and the Hub has not yet ratified.
+While a value is pending the renderer writes \emph{that} value rather than the
+Hub's, so the click's own transition stands until the Hub speaks.  Every
+Hub-driven operation clears the slot, which is what stops the optimism from
+outliving its window and leaving the Display permanently disagreeing with the
+Hub.
+
+The same slot also suppresses re-firing.  The renderer fires when the state
+ImGui reports differs from the state the renderer asked for, so once the click's
+value is pending the following frames ask for it, are given it, and stay silent.
+One slot serves both purposes, which is why this machine needs one where the
+tab bar needs two: a tab bar compares against the Hub value to force-select and
+against the Hub value again to fire, whereas a header compares against the
+\emph{effective} value in both places.
+
+This is a finite state machine over one header, so ProB can enumerate every
+interleaving of render frames, clicks, re-pushes, and removals, and either
+confirm the invariants or produce the exact offending trace.
+
+% ============================================================
+\section{Free Types and Constants}
+% ============================================================
+
+\begin{zed}
+  ZBOOL ::= ztrue | zfalse
+\end{zed}
+
+A two-valued flag written as a free type rather than the toolkit
+\texttt{bool}, so ProB animates it as a small enumerated set.  Every value in
+this machine --- the Hub flag, ImGui's stored flag, the pending value --- is
+one of these; a header's open state has exactly two possibilities, so unlike
+the tab bar this model needs no basic type of identities at all.
+
+\begin{zed}
+  PENDING ::= nopending | held \ldata ZBOOL \rdata
+\end{zed}
+
+The optimistic slot either holds a value or does not.  Writing that as its own
+free type rather than as a set of size at most one makes the empty and held
+cases distinct by construction: there is no two-element value to constrain
+away, and the state schema needs no structural predicate to rule one out.
+
+\begin{zed}
+  MAXFIRE == 2
+\end{zed}
+
+The fire counter saturates at \texttt{MAXFIRE}.  A single click may fire at
+most once; a count of two is already a witness to the repeated-fire defect, so
+counting no higher keeps the state space small without hiding the violation.
+
+\begin{zed}
+  MAXSTEP == 2
+\end{zed}
+
+The visible-transition counter saturates at \texttt{MAXSTEP}, for the same
+reason.  One click may move the rendered state once; a count of two is the
+double-step itself.
+
+\begin{axdef}
+  fresh : ZBOOL
+\end{axdef}
+
+\texttt{fresh} is the state ImGui gives a collapsing header it has never seen:
+closed.  A newly declared header starts there whatever the Hub says, so the
+first rendered frame must drive the declared value over this default --- the
+cold-push case.
+
+\begin{zed}
+  fresh = zfalse
+\end{zed}
+
+% ============================================================
+\section{State}
+% ============================================================
+
+The state is flat: one schema, eight components, and no predicate at all.  The
+types carry what a predicate would otherwise have to assert, and the safety
+properties (Section~\ref{sec:inv}) are deliberately \emph{absent} here, so that
+a violating state remains reachable and ProB can find it.
+
+\begin{schema}{Header}
+  hub : ZBOOL \\
+  shown : ZBOOL \\
+  pending : PENDING \\
+  clicked : ZBOOL \\
+  rendered : ZBOOL \\
+  fires : 0 \upto MAXFIRE \\
+  steps : 0 \upto MAXSTEP \\
+  spurious : ZBOOL
+\end{schema}
+
+\texttt{hub} is the Hub-authoritative open flag.  \texttt{shown} is ImGui's
+stored open state --- what the user actually sees, since the widget draws its
+arrow and gates its body from exactly this.  \texttt{pending} is the
+optimistic slot: \texttt{nopending} when no toggle is outstanding, or
+\texttt{held~v} for the value \texttt{v} a \texttt{HeaderToggled} has been
+fired for and the Hub has not yet ratified.
+
+The remaining four components are bookkeeping for the invariant checks, not
+part of the renderer's own state.  \texttt{clicked} records whether a user
+gesture is outstanding --- set by a click, cleared by any Hub-driven operation,
+so it delimits exactly the click-to-re-push window.  \texttt{rendered} records
+whether a frame has actually drawn the header since the last Hub-driven
+operation; it is what lets invariant~5 say ``after a frame'' without a notion
+of time.  \texttt{fires} counts fires within the current window, and
+\texttt{steps} counts transitions of \texttt{shown} within it.
+\texttt{spurious} latches \texttt{ztrue} the moment a fire occurs with no user
+gesture behind it.
+
+% ============================================================
+\section{The Effective Value}
+% ============================================================
+
+Every frame renders the \emph{effective} value: the pending value while one is
+outstanding, the Hub value otherwise.  It is a derived quantity, not state, so
+it is given as a function of the two components it reads.
+
+\begin{axdef}
+  effective : ZBOOL \cross PENDING \fun ZBOOL
+\where
+  \forall h : ZBOOL @ effective(h, nopending) = h \\
+  \forall h, v : ZBOOL @ effective(h, held~v) = v
+\end{axdef}
+
+The two cases exhaust \texttt{PENDING}, so the function is uniquely determined
+--- there is one way to satisfy the axiom, and ProB has one constant to set up
+rather than a family of them.
+
+This one definition is the fix.  Replacing it with $effective(h, p) = h$ ---
+the renderer writing the Hub value unconditionally --- is the buggy variant of
+Section~\ref{sec:fidelity}, defect~(a), and it is what the shipped code did.
+
+% ============================================================
+\section{Initialization}
+% ============================================================
+
+\begin{schema}{Init}
+  Header'
+\where
+  hub' = zfalse \\
+  shown' = fresh \\
+  pending' = nopending \\
+  clicked' = zfalse \\
+  rendered' = zfalse \\
+  fires' = 0 \\
+  steps' = 0 \\
+  spurious' = zfalse
+\end{schema}
+
+A single initial state: a closed header, nothing pending, no frame drawn, no
+fire seen.
+
+% ============================================================
+\section{Hub-Driven Operations}
+% ============================================================
+
+Three operations set the open flag from outside the renderer: the client
+declaring the header, a whole-scene re-push of a surviving header, and a
+removal followed by a re-added same-id header.  All three clear the pending
+slot, because the Hub has now spoken and its value supersedes any optimism;
+all three close the window (\texttt{clicked}, \texttt{fires}, \texttt{steps}
+reset) and mark the header as not yet rendered under the new value.  That
+clearing is the guard Section~\ref{sec:fidelity} removes to reproduce
+defect~(b).
+
+\texttt{Declare} models the client installing the header.  ImGui starts a fresh
+widget, so \texttt{shown} is its closed default whatever the declared value is
+--- the cold-push case invariant~5 covers.
+
+\begin{schema}{Declare}
+  \Delta Header \\
+  v? : ZBOOL
+\where
+  hub' = v? \\
+  shown' = fresh \\
+  pending' = nopending \\
+  clicked' = zfalse \\
+  rendered' = zfalse \\
+  fires' = 0 \\
+  steps' = 0 \\
+  spurious' = spurious
+\end{schema}
+
+\texttt{Repush} models a whole-scene re-push of a header that \emph{survives}
+it (\texttt{SceneManager.\_replace\_scene\_state} calling
+\texttt{reset\_honoured}).  The ImGui widget persists, so its stored
+\texttt{shown} is kept; only the Hub value and the bookkeeping change.  This is
+the operation the Hub performs to ratify a toggle --- and equally the one it
+performs to \emph{reject} it, by re-pushing the value the user tried to move
+away from.
+
+\begin{schema}{Repush}
+  \Delta Header \\
+  v? : ZBOOL
+\where
+  hub' = v? \\
+  shown' = shown \\
+  pending' = nopending \\
+  clicked' = zfalse \\
+  rendered' = zfalse \\
+  fires' = 0 \\
+  steps' = 0 \\
+  spurious' = spurious
+\end{schema}
+
+\texttt{RemoveReadd} models the header being removed and a same-id header
+re-added (\texttt{discard\_for} clearing the slot).  Its state effect matches
+\texttt{Repush} --- a stale ImGui memory kept under the same widget id, the
+slot cleared --- but it travels a different code path, and each guards the
+invariants on a path the other does not cover.
+
+\begin{schema}{RemoveReadd}
+  \Delta Header \\
+  v? : ZBOOL
+\where
+  hub' = v? \\
+  shown' = shown \\
+  pending' = nopending \\
+  clicked' = zfalse \\
+  rendered' = zfalse \\
+  fires' = 0 \\
+  steps' = 0 \\
+  spurious' = spurious
+\end{schema}
+
+% ============================================================
+\section{The Render Frame}
+% ============================================================
+
+A frame either draws the header or does not.  A frame that draws writes the
+effective value into ImGui's memory, lets the widget run, and reads back what
+ImGui reports; the user may have clicked the disclosure triangle during that
+run, in which case ImGui reports the opposite of what was written.  The two
+drawing cases are therefore distinguished by whether the click happened, and
+they share the write: in both, \texttt{shown} moves to the effective value
+first.  A frame that does not draw is \texttt{FrameHidden}.
+
+\texttt{FrameQuiet} is the no-click case.  ImGui is given the effective value
+and reports it back unchanged, so nothing fires.  This single case covers the
+first frame after a declare (driving the declared value over ImGui's closed
+default), the steady state, the ratifying echo, and the convergence step after
+a rejection --- in each, the frame simply shows what the renderer asked for.
+
+\begin{schema}{FrameQuiet}
+  \Delta Header
+\where
+  shown' = effective(hub, pending) \\
+  steps' = \IF shown' = shown \THEN steps \\
+\quad~  \ELSE (\IF steps < MAXSTEP \THEN steps + 1 \ELSE MAXSTEP) \\
+  rendered' = ztrue \\
+  hub' = hub \\
+  pending' = pending \\
+  clicked' = clicked \\
+  fires' = \IF shown' = hub \THEN fires \\
+\quad~  \ELSE (\IF fires < MAXFIRE \THEN fires + 1 \ELSE MAXFIRE) \\
+  spurious' = spurious
+\end{schema}
+
+\texttt{FrameClick} is the case where the user toggles the header during the
+frame.  ImGui is given the effective value and the click flips it, so the
+reported state is its opposite; that difference is what the renderer reads as a
+genuine user toggle, and it fires exactly there.  The fired value goes into
+\texttt{pending}, so the following frames ask ImGui for it and are given it ---
+no further fire, and no revert.  A fire raised with no gesture behind it would
+latch \texttt{spurious}; here the gesture is the operation itself, so
+\texttt{clicked} is set.
+
+\begin{schema}{FrameClick}
+  \Delta Header
+\where
+  shown' \neq effective(hub, pending) \\
+  pending' = held~shown' \\
+  clicked' = ztrue \\
+  rendered' = ztrue \\
+  steps' = \IF shown' = shown \THEN 0 \ELSE 1 \\
+  fires' = 1 \\
+  hub' = hub \\
+  spurious' = spurious
+\end{schema}
+
+The counters restart at the click: this frame opens a fresh window, in which
+one fire and one visible transition are exactly what is allowed.  Writing
+\texttt{steps' = 1} unconditionally would be wrong in one corner --- a click
+that lands back on the state already shown moves no pixels --- so the
+conditional keeps \texttt{steps} an honest count of transitions.
+
+\texttt{FrameHidden} is the frame that does not draw: the header is nested in a
+collapsed parent header or a hidden window, so its renderer never runs.
+Nothing is written to ImGui's memory and nothing is read back, so every
+component is untouched --- in particular \texttt{rendered}, which must not
+claim a frame drew when none did.  It is enabled in \emph{every} state,
+unguarded, modelling the fact that any frame may find the container collapsed.
+
+\begin{schema}{FrameHidden}
+  \Xi Header
+\end{schema}
+
+Because \texttt{FrameHidden} changes nothing it adds no reachable state; its
+role is to make the not-drawn frame an explicit, always-available step.  With
+\texttt{FrameQuiet} and \texttt{FrameClick} also unguarded, a render step is
+enabled in every state, which is why the machine cannot deadlock.
+
+% ============================================================
+\section{Invariants}
+\label{sec:inv}
+% ============================================================
+
+Five safety properties must hold across all reachable states, plus
+deadlock-freedom.  They are stated here as predicates over \texttt{Header};
+how each is discharged is given in Section~\ref{sec:verify}.  None is placed in
+the \texttt{Header} schema: a predicate placed there would be enforced as a
+guard on every successor, silently disabling any operation that would break it
+and thereby masking the very defect this model exists to catch.
+
+\paragraph{Invariant 1 --- one click, one visible step.}
+Within the window a click opens, the rendered state moves at most once.  This
+is the reported defect stated formally:
+\[
+  clicked = ztrue \implies steps \leq 1.
+\]
+The window is delimited by \texttt{clicked}, which the click sets and every
+Hub-driven operation clears, so the invariant constrains exactly the frames
+between the user's gesture and the Hub's answer.  Movement \emph{after} the Hub
+answers is the Hub's prerogative --- a rejection legitimately moves the display
+back --- and is governed by invariant~5 instead.
+
+\paragraph{Invariant 2 --- no repeated fire.}
+A single click yields at most one \texttt{HeaderToggled} across all frames
+until the re-push.  With the counter reset on every click and re-push:
+\[
+  fires \leq 1.
+\]
+
+\paragraph{Invariant 3 --- no spurious fire.}
+A \texttt{HeaderToggled} is fired only on a genuine user toggle, never off a
+Hub echo, or a \texttt{fire $\to$ Hub $\to$ re-push $\to$ fire} loop would run:
+\[
+  spurious = zfalse.
+\]
+
+\paragraph{Invariant 4 --- no orphan optimism.}
+The pending value is held only while a gesture is outstanding.  Every
+Hub-driven operation clears it, so it can never outlive its window:
+\[
+  pending \neq nopending \implies clicked = ztrue.
+\]
+This is the invariant that bounds the optimism.  Without it the Display could
+hold a value the Hub has contradicted for as long as the scene lives, which is
+a worse failure than the flicker the pending slot was introduced to remove.
+
+\paragraph{Invariant 5 --- the Hub wins once it has spoken.}
+After any frame that drew, with no gesture outstanding, the rendered state is
+the Hub's:
+\[
+  rendered = ztrue \land clicked = zfalse \implies shown = hub.
+\]
+This is Hub authority stated as a property of pixels.  It subsumes three cases
+the design must get right: a header declared \emph{open} is shown open after
+one frame even though ImGui's memory defaulted closed (the cold push); a
+toggle the Hub \emph{ratifies} leaves the display on the ratified value; and a
+toggle the Hub \emph{rejects} --- re-pushing the pre-click value --- pulls the
+display back to it rather than stranding the user's optimistic view.
+
+\paragraph{Invariant 6 --- deadlock freedom.}
+No reachable state leaves the machine unable to progress.  All three frame
+operations are unguarded, so a render step is enabled in every state.
+
+% ============================================================
+\section{Verification}
+\label{sec:verify}
+% ============================================================
+
+Type-checking is a \texttt{fuzz} pass:
+\begin{verbatim}
+  fuzz -t docs/header_toggle_reconciliation.tex
+\end{verbatim}
+
+Invariants 1--5 are state properties, checked by asking ProB whether their
+negation is \emph{reachable}.  A goal that is not found means the invariant
+holds on every reachable state:
+\begin{verbatim}
+  # Invariant 1 (must report: goal NOT found)
+  probcli docs/header_toggle_reconciliation.tex -model_check -nodead \
+    -goal "clicked=ztrue & steps>1" -p DEFAULT_SETSIZE 2
+
+  # Invariant 2 (must report: goal NOT found)
+  probcli docs/header_toggle_reconciliation.tex -model_check -nodead \
+    -goal "fires>1" -p DEFAULT_SETSIZE 2
+
+  # Invariant 3 (must report: goal NOT found)
+  probcli docs/header_toggle_reconciliation.tex -model_check -nodead \
+    -goal "spurious=ztrue" -p DEFAULT_SETSIZE 2
+
+  # Invariant 4 (must report: goal NOT found)
+  probcli docs/header_toggle_reconciliation.tex -model_check -nodead \
+    -goal "pending/=nopending & clicked=zfalse" -p DEFAULT_SETSIZE 2
+
+  # Invariant 5 (must report: goal NOT found)
+  probcli docs/header_toggle_reconciliation.tex -model_check -nodead \
+    -goal "rendered=ztrue & clicked=zfalse & shown/=hub" \
+    -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+Invariant 6 is the deadlock check over the full reachable state space:
+\begin{verbatim}
+  # Invariant 6 (must report: no deadlock, no invariant violation)
+  probcli docs/header_toggle_reconciliation.tex -model_check \
+    -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+% ============================================================
+\section{Fidelity: reproducing the three defects}
+\label{sec:fidelity}
+% ============================================================
+
+A model that cannot reproduce the known defect proves nothing.  Each defect
+below is this specification with one guard removed, and each then makes the
+corresponding invariant's negation reachable.  Defect~(a) is the shipped bug
+this work fixes; (b) and (c) are the two ways a careless fix would go wrong,
+included so the model constrains the design rather than merely describing it.
+The three variants are the companion files
+\texttt{header\_toggle\_reconciliation\_unconditional\_buggy.tex},
+\texttt{header\_toggle\_reconciliation\_stale\_pending\_buggy.tex}, and
+\texttt{header\_toggle\_reconciliation\_refire\_buggy.tex}.
+
+\paragraph{Defect (a) --- the Hub value written unconditionally (the reported
+double-step).}
+Edit: $effective~h~p = h$ for all $p$ --- the renderer calling
+\texttt{set\_next\_item\_open(elem.open)} every frame, which is what the code
+did.  Goal found: invariant~1 (\texttt{clicked=ztrue \& steps>1}).  Trace:
+\begin{enumerate}
+  \item \texttt{Init}: \texttt{hub = shown = zfalse}.
+  \item \texttt{FrameClick}: the effective value is \texttt{hub = zfalse}, the
+    click flips it, so \texttt{shown = ztrue} --- the section opens.
+    \texttt{steps = 1}, \texttt{clicked = ztrue}, \texttt{pending = held~ztrue}
+    (recorded, but the buggy \texttt{effective} ignores it).
+  \item \texttt{FrameQuiet}: the next frame writes \texttt{effective = hub =
+    zfalse}, so \texttt{shown = zfalse} --- the section snaps shut while the
+    user's toggle is still in flight.  \texttt{steps = 2} with
+    \texttt{clicked = ztrue}, violating invariant~1.
+\end{enumerate}
+A third step follows when \texttt{Repush(ztrue)} finally lands and the next
+frame opens the section again, but the invariant has already been broken at
+step~3: two transitions inside one window is the double-step the user sees.
+Under the intact definition, step~3 writes the pending \texttt{ztrue}, so \texttt{shown} does not move and \texttt{steps} stays 1.
+
+\paragraph{Defect (b) --- the pending value surviving the re-push.}
+Edit: \texttt{Repush} omits \texttt{pending' = nopending}, keeping
+\texttt{pending' = pending} --- the optimistic hold not cleared when the Hub
+speaks.  Goals found: invariant~4 (\texttt{pending/=nopending \&
+ clicked=zfalse})
+and invariant~5 (\texttt{rendered=ztrue \& clicked=zfalse \& shown/=hub}).
+Trace:
+\begin{enumerate}
+  \item \texttt{Init}; \texttt{FrameClick}: \texttt{shown = ztrue},
+    \texttt{pending = held~ztrue}, \texttt{clicked = ztrue}.
+  \item \texttt{Repush(zfalse)} in the buggy form --- the Hub \emph{rejects}
+    the toggle, or an unrelated push carries the pre-click value:
+    \texttt{hub = zfalse}, \texttt{clicked = zfalse}, but \texttt{pending}
+    survives as \texttt{held~ztrue}.  This state alone violates invariant~4.
+  \item \texttt{FrameQuiet}: the effective value is the stale
+    pending \texttt{ztrue}, so \texttt{shown = ztrue} while
+    \texttt{hub = zfalse} and no gesture is outstanding --- invariant~5
+    violated.  Every later frame repeats it: the Display shows a value the Hub
+    has contradicted, permanently.
+\end{enumerate}
+Under the intact reset, \texttt{Repush} empties \texttt{pending}, so the next
+frame writes \texttt{hub} and the Display converges --- one visible step back,
+which is a rejection correctly rendered.
+
+\paragraph{Defect (c) --- firing against the Hub value rather than the
+effective one.}
+Edit: \texttt{FrameClick}'s guard becomes \texttt{shown' $\neq$ hub} and its
+\texttt{fires'} increments rather than resetting, modelling a renderer that
+keeps the pending slot for rendering but compares the reported state against
+\texttt{elem.open} when deciding to fire.  Goal found: invariant~2
+(\texttt{fires>1}).  Trace: the click frame fires once with
+\texttt{shown = ztrue} against \texttt{hub = zfalse}; the next frame renders
+the pending \texttt{ztrue}, still finds it differs from \texttt{hub = zfalse},
+and fires again --- and so does every frame until the re-push, a fire storm
+across the latency window.  Under the intact guard the comparison is against
+the effective value, which the pending slot has moved to \texttt{ztrue}, so the
+following frames find no difference and stay silent.
+
+\paragraph{Summary.}
+Each defect's guard, removed, makes its invariant's negation reachable; with
+every guard intact, all five reachability goals return \emph{not found} and the
+deadlock check reports none.  That difference is the evidence that the model
+detects the defect the code was changed to prevent, and that the pending slot
+--- cleared by the Hub, compared against in both the render and the fire
+decision --- is the minimal state that achieves it.
+
+% ============================================================
+\section{From the Model to the Code}
+% ============================================================
+
+The model's \texttt{pending} slot is one key in \texttt{WidgetState}, held by
+\texttt{HeaderOpenArbiter}.  \texttt{effective} is the arbiter's
+\texttt{effective\_open}, which the renderer passes to
+\texttt{set\_next\_item\_open} in place of the raw \texttt{elem.open}; the
+frame's fire decision is \texttt{should\_fire}, comparing the state
+\texttt{collapsing\_header} reports against that same effective value and
+recording the fired value into the slot.
+
+The clearing of \texttt{pending} in \texttt{Repush} and \texttt{RemoveReadd} is
+not new code: the slot takes one of \texttt{WidgetState}'s existing
+per-render-session suffixes, which \texttt{reset\_honoured} wipes on every
+scene replace and \texttt{discard\_for} wipes on removal.  That is the same
+lifetime the tab bar's slots already have, and it is what invariant~4 depends
+on --- the Display's optimism lasts exactly until the Hub next speaks.
+
+\end{document}

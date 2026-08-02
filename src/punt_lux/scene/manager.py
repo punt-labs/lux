@@ -215,9 +215,9 @@ class SceneManager:
         scroll, in-progress text) — only the departed elements' state is discarded.
         The event drain is survivor-aware: an id this scene dropped is drained only
         when no other framed scene holds it, so replacing one scene never cancels
-        another's still-valid queued events. Echo-suppression resets every honoured
-        key so a surviving tab bar re-honours the Hub active tab rather than firing
-        a spurious ``TabChanged`` off a stale value.
+        another's still-valid queued events. Survivors' per-render-session slots
+        reset because this push carries the Hub's current answer, which
+        supersedes whatever each was arbitrating against.
         """
         if old_scene is None:
             return
@@ -228,7 +228,7 @@ class SceneManager:
         if widget_state is not None:
             for stale_id in stale_ids:
                 widget_state.discard_for(stale_id)
-            widget_state.reset_honoured()
+            widget_state.reset_session_slots()
 
     def _element_ids(self, elements: Sequence[object]) -> set[str]:
         """Return every element id in ``elements``, recursing containers."""

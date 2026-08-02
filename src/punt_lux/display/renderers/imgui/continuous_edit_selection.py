@@ -151,7 +151,7 @@ class ContinuousEditArbiter[T]:
     @property
     def _editing(self) -> bool:
         """Return whether the widget was being edited as of the last frame."""
-        return self._state.get(self._editing_key, default=False) is True
+        return self._state.get_bool(self._editing_key, default=False)
 
     def _forget_commit(self) -> None:
         """Drop the commit-echo record once the Hub value has moved past it."""
