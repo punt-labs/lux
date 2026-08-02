@@ -42,6 +42,20 @@ def test_focus_is_not_re_stolen_on_a_later_frame_or_re_push() -> None:
     assert not later.should_focus()
 
 
+def test_a_non_bool_in_either_slot_is_not_a_flag() -> None:
+    # Both slots live in an untyped per-scene store, and only a flag this
+    # arbiter wrote counts. A value of another type must neither suppress the
+    # first focus (a truthy "seen" the arbiter never recorded) nor arm a
+    # refocus the input never committed.
+    arbiter, ws = _arbiter()
+    ws.set(f"table-search{WidgetState.FOCUS_SEEN_SUFFIX}", "yes")
+    assert arbiter.should_focus()
+
+    arbiter.record_focused()
+    ws.set(f"table-search{WidgetState.FOCUS_REFOCUS_SUFFIX}", "armed")
+    assert not arbiter.should_focus()
+
+
 def test_discard_for_re_arms_focus_for_a_re_added_input() -> None:
     # A torn-down then re-added scene (discard_for on removal) focuses again on
     # its fresh arrival.

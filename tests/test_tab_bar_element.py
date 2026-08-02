@@ -632,14 +632,14 @@ class TestInteraction:
     def test_repush_reset_reopens_firing_after_the_window(self) -> None:
         # The pending slot must not gag a genuine switch once the window closes.
         # After a fire records tab-2 pending, the re-push reset clears the slot
-        # (reset_honoured / discard_for), so a later switch fires again.
+        # (reset_session_slots / discard_for), so a later switch fires again.
         ws = WidgetState()
         ws.set(_honoured_key(), "tab-1")
         arbiter = TabSelectionArbiter(ws, "tb")
         assert arbiter.should_fire(selected=True, tab_id="tab-2", active="tab-1")
         assert not arbiter.should_fire(selected=True, tab_id="tab-2", active="tab-1")
         # The re-push resets both session slots.
-        ws.reset_honoured()
+        ws.reset_session_slots()
         ws.set(_honoured_key(), "tab-1")
         # A genuine switch to tab-2 now fires again — the slot no longer gags it.
         assert arbiter.should_fire(selected=True, tab_id="tab-2", active="tab-1")
@@ -719,7 +719,7 @@ class TestEchoSuppressionLifecycle:
         # drops the tab bar clears its honoured value, so a re-added same-id bar
         # starts fresh. This does NOT isolate ``discard_for`` — the removal runs
         # through ``_replace_scene_state``, where both ``discard_for(stale)`` and
-        # ``reset_honoured()`` clear the honoured key, so either alone would pass
+        # ``reset_session_slots()`` clear the honoured key, so either alone would pass
         # it. ``discard_for``'s own honoured-clearing is isolated by the
         # WidgetState unit test in test_scene_manager.py.
         sm, factory = self._install(_server())

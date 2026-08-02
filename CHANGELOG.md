@@ -155,6 +155,22 @@
   name. A button's `publish` *mapping* form (`{"topic": ..., "payload": ...}`) is
   unchanged — that payload is the app's own message, sent verbatim.
 
+- **One click on a collapsing header moves it once.** The renderer wrote the
+  Hub's value into ImGui's own stored header state every frame, so a click
+  opened the section, the next frame snapped it shut (the Hub had not heard
+  yet), and the confirming re-push opened it again — three rendered states
+  for one click. The header now holds the click's own transition until the
+  Hub answers, fires once per click rather than once per frame, and a
+  rejected toggle converges back to the Hub's value. The reconciliation is
+  specified in Z (`docs/header_toggle_reconciliation.tex`) with three
+  fidelity controls that reproduce the shipped defect and both careless
+  half-fixes. An interaction evicted from the pending buffer — aged or
+  overflowed, so no Hub answer will ever come — now gives up the state it
+  latched: the header's optimistic open, a pending tab switch, and a
+  committed-but-unanswered input value all revert to the Hub's authority
+  instead of standing forever, and a stored flag slot is read as a flag or
+  not at all (a stray non-bool value can no longer hold a header open or arm
+  a refocus).
 - **One identity is one connection even when the client does not encode its
   headers.** Identity crosses as `X-Lux-Client-*` header values, and the two
   transports disagree about everything but ASCII: the WebSocket client sends

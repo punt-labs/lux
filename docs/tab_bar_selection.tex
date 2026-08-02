@@ -12,10 +12,10 @@
 %          begin_tab (the fire decision + force-select),
 %          end (the honoured write, which must be gated on opened)
 %   src/punt_lux/scene/widget_state.py
-%       -- WidgetState: reset_honoured (the re-push reset),
+%       -- WidgetState: reset_session_slots (the re-push reset),
 %          discard_for (the removal clear)
 %   src/punt_lux/scene/manager.py
-%       -- SceneManager._replace_scene_state: drives reset_honoured on re-push
+%       -- SceneManager._replace_scene_state: drives reset_session_slots on re-push
 %
 % Type-check:  fuzz -t docs/tab_bar_selection.tex
 % Model-check (see Section "Verification" for the exact goal predicates):

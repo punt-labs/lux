@@ -1,18 +1,19 @@
 # pyright: reportUnknownMemberType=false, reportMissingModuleSource=false
 """ImGuiCollapsingHeaderRenderer — the interactive ABC collapsing-header seam.
 
-``begin`` honours the Hub-authoritative ``open`` flag every frame via
-``set_next_item_open`` (not ``first_use_ever`` — the Hub owns the value, so it is
-authoritative on every frame, not just the first), then reads the bool ImGui
-returns. A ``False`` return makes the ABC render template skip the body, so a
-collapsed section draws nothing for free. On a genuine user toggle — the reported
-state differs from the Hub value — it fires ``HeaderToggled`` through the
-element's handler registry, which the Display has wrapped for remote dispatch.
+``begin`` writes the *effective* open state — the toggle the user has in flight
+if there is one, the Hub-authoritative flag otherwise — into ImGui's stored state
+via ``set_next_item_open``, then reads the bool ImGui returns. A ``False`` return
+makes the ABC render template skip the body, so a collapsed section draws nothing
+for free.
 
-Echo-suppression: because the Hub value is honoured every frame, ImGui reports
-that same value except on the frame the user clicks the disclosure triangle. So a
-Hub-driven change is never a re-fire — ``_toggle_event`` returns ``None`` when the
-reported state already equals the Hub ``open``, stopping a fire -> re-push loop.
+Writing the effective state rather than the raw Hub flag is what keeps one click
+to one visible step, and the same value gates the fire: ImGui returns what was
+written except on the frame the user clicks the disclosure triangle, so a
+difference is a genuine user toggle and never a Hub echo nor a later frame of the
+click's own window. The toggle fires ``HeaderToggled`` through the element's
+handler registry, which the Display has wrapped for remote dispatch.
+``HeaderOpenArbiter`` owns that decision and the slot behind it.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from typing import TYPE_CHECKING, Self, final
 
 from imgui_bundle import imgui
 
+from punt_lux.display.renderers.imgui.header_open_arbiter import HeaderOpenArbiter
 from punt_lux.domain.container_interaction import HeaderToggled
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
 
@@ -33,7 +35,7 @@ __all__ = ["ImGuiCollapsingHeaderRenderer"]
 
 @final
 class ImGuiCollapsingHeaderRenderer:
-    """Paint a CollapsingHeaderElement, honouring the Hub-owned ``open`` flag."""
+    """Paint a CollapsingHeaderElement, honouring the effective ``open`` flag."""
 
     _elem: CollapsingHeaderElement
     _factory: ImGuiRendererFactory
@@ -47,32 +49,28 @@ class ImGuiCollapsingHeaderRenderer:
         return self
 
     def begin(self) -> bool:
-        """Honour the Hub ``open`` flag; return whether the body renders.
+        """Render the effective open state; return whether the body renders.
 
         The tooltip attaches here, right after the header item: ``is_item_hovered``
         tracks the last item, so applying it in ``end`` would bind to the last child.
         """
-        imgui.set_next_item_open(self._elem.open)
+        arbiter = HeaderOpenArbiter.for_element(self._factory.widget_state, self._elem)
+        effective = arbiter.effective_open(authoritative=self._elem.open)
+        imgui.set_next_item_open(effective)
         reported = imgui.collapsing_header(f"{self._elem.label}##{self._elem.id}")
         self._factory.apply_tooltip(self._elem)
-        event = self._toggle_event(reported=reported)
-        if event is not None:
-            self._elem.fire(event)
+        if reported != effective:
+            arbiter.note_pending(fired=reported)
+            self._elem.fire(self._toggle_event(open_=reported))
         return reported
 
-    def _toggle_event(self, *, reported: bool) -> HeaderToggled | None:
-        """Return the event to fire on a user toggle, or ``None`` for a Hub echo.
-
-        A reported state equal to the honoured Hub ``open`` is either the
-        initial paint or the echo of a Hub-driven change — neither re-fires.
-        """
-        if reported == self._elem.open:
-            return None
+    def _toggle_event(self, *, open_: bool) -> HeaderToggled:
+        """Return the event announcing the user's toggle to the owning Hub."""
         return HeaderToggled(
             scene_id=SceneId("__display__"),
             element_id=ElementId(self._elem.id),
             owner_id=ClientId("__display__"),
-            open_=reported,
+            open_=open_,
         )
 
     def paint(self) -> None:

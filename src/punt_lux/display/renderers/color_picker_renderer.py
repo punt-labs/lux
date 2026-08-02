@@ -17,9 +17,6 @@ from typing import Self, final
 from imgui_bundle import imgui
 
 from punt_lux.display.renderers.imgui.color_channel_strip import ColorChannelStrip
-from punt_lux.display.renderers.imgui.continuous_edit_accessors import (
-    ColorValueAccessor,
-)
 from punt_lux.display.renderers.imgui.continuous_edit_selection import (
     ContinuousEditArbiter,
 )
@@ -29,11 +26,12 @@ from punt_lux.domain.interaction import ValueChanged
 from punt_lux.protocol.elements.color_picker import ColorPickerElement
 from punt_lux.protocol.elements.rgba_color import Rgba, RgbaColor
 from punt_lux.scene import WidgetState
+from punt_lux.scene.rgba_buffer import RgbaBuffer
 
 __all__ = ["ColorPickerRenderer"]
 
 # The accessor, channel strip, and full picker are stateless — one shared each.
-_ACCESSOR = ColorValueAccessor()
+_ACCESSOR = RgbaBuffer()
 _STRIP = ColorChannelStrip()
 _PICKER = FullColorPicker()
 
@@ -43,7 +41,7 @@ class ColorPickerRenderer:
     """Render a ColorPickerElement under the commit-on-idle rule.
 
     Holds the per-scene ``WidgetState`` and builds a fresh
-    ``ContinuousEditArbiter`` (with a ``ColorValueAccessor``) per frame; the
+    ``ContinuousEditArbiter`` (with an ``RgbaBuffer``) per frame; the
     arbiter owns the buffer/commit-echo slots, so this stays a thin ImGui seam.
     """
 

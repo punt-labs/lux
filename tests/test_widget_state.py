@@ -1,9 +1,10 @@
-"""WidgetState numeric/tuple accessors and the commit-echo slot clearing.
+"""WidgetState's typed accessors and the commit-echo slot clearing.
 
-The slider path reads its buffer through ``get_float`` (a numeric miss falls
-back to the caller's default, never a magic ``""``) and the color_picker path
-through ``get_tuple`` (an RGBA-tuple miss falls back the same way, always
-normalized to arity 4). Every non-atomic mutable kind stores its buffer and
+The store holds ``Any``, so every typed accessor rejects rather than coerces:
+the slider path reads its buffer through ``get_float`` and falls back to the
+caller's default on a miss, never a magic ``""``, and an arbiter reads its flag
+through ``get_bool`` so a slot holding something other than a ``bool`` cannot
+decide a widget's state. Every non-atomic mutable kind stores its buffer and
 commit-echo state under the one shared ``CONTINUOUS_EDIT_*`` quad, which
 ``discard_for`` clears on removal so a re-added same-id widget starts clean.
 """
@@ -11,8 +12,6 @@ commit-echo state under the one shared ``CONTINUOUS_EDIT_*`` quad, which
 from __future__ import annotations
 
 from punt_lux.scene.widget_state import WidgetState
-
-_HUB = (0.1, 0.2, 0.3, 1.0)
 
 
 class TestGetFloat:
@@ -37,48 +36,27 @@ class TestGetFloat:
         assert ws.get_float("s", default=3.0) == 3.0
 
 
-class TestGetTuple:
+class TestGetBool:
     def test_absent_key_returns_the_default(self) -> None:
-        assert WidgetState().get_tuple("missing", default=_HUB) == _HUB
+        assert WidgetState().get_bool("missing", default=True) is True
+        assert WidgetState().get_bool("missing", default=False) is False
 
-    def test_stored_four_tuple_reads_back(self) -> None:
+    def test_stored_flag_reads_back(self) -> None:
         ws = WidgetState()
-        ws.set("c", (0.5, 0.6, 0.7, 0.8))
-        assert ws.get_tuple("c", default=_HUB) == (0.5, 0.6, 0.7, 0.8)
+        ws.set("f", value=True)
+        assert ws.get_bool("f", default=False) is True
 
-    def test_stored_three_tuple_pads_to_arity_four(self) -> None:
-        # resolve's editing branch returns the buffer uncoerced, so get_tuple
-        # must guarantee arity 4 — a length-3 store pads its alpha to opaque.
+    def test_stored_string_reads_as_the_default(self) -> None:
+        # The store is untyped, so a truthy non-bool must not decide a flag:
+        # coercing here is how a header holds itself open on a foreign value.
         ws = WidgetState()
-        ws.set("c", (0.5, 0.6, 0.7))
-        assert ws.get_tuple("c", default=_HUB) == (0.5, 0.6, 0.7, 1.0)
+        ws.set("f", "yes")
+        assert ws.get_bool("f", default=False) is False
 
-    def test_int_components_coerce_to_float(self) -> None:
+    def test_stored_number_reads_as_the_default(self) -> None:
         ws = WidgetState()
-        ws.set("c", (1, 0, 0, 1))
-        assert ws.get_tuple("c", default=_HUB) == (1.0, 0.0, 0.0, 1.0)
-
-    def test_wrong_arity_reads_as_the_default(self) -> None:
-        ws = WidgetState()
-        ws.set("c", (0.1, 0.2))
-        assert ws.get_tuple("c", default=_HUB) == _HUB
-
-    def test_non_tuple_reads_as_the_default(self) -> None:
-        ws = WidgetState()
-        ws.set("c", "#FFFFFF")
-        assert ws.get_tuple("c", default=_HUB) == _HUB
-
-    def test_bool_component_reads_as_the_default(self) -> None:
-        # A bool is not a color channel — never coerce True to 1.0.
-        ws = WidgetState()
-        ws.set("c", (True, 0.0, 0.0, 1.0))
-        assert ws.get_tuple("c", default=_HUB) == _HUB
-
-    def test_non_finite_component_reads_as_the_default(self) -> None:
-        # A NaN would break tuple-equality reflexivity; reject the whole tuple.
-        ws = WidgetState()
-        ws.set("c", (float("nan"), 0.0, 0.0, 1.0))
-        assert ws.get_tuple("c", default=_HUB) == _HUB
+        ws.set("f", 1)
+        assert ws.get_bool("f", default=False) is False
 
 
 class TestContinuousEditSlotClearing:
