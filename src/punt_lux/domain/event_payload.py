@@ -78,8 +78,8 @@ class EventPayload:
     def to_mapping(self, **fields: object) -> dict[str, object]:
         """Return the payload: the identity keys, then the event's own ``fields``.
 
-        The three identity names belong to this class, so an event names its own
-        fields something else; ``test_event_payload`` holds every event to that.
+        The three identity names belong to this class: a field named ``kind``
+        would rename what a subscriber reads first, so no event uses one.
         """
         return {
             "kind": self._kind,
