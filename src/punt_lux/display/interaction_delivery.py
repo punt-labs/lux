@@ -5,27 +5,26 @@ The display renders a replica and forwards each interaction (a
 owns that outbound leg: it resolves each event's target client (scene owner, else
 broadcast) and sends it under one shared frame deadline, so a slow peer cannot
 freeze the render thread per event. Events past the first it cannot send stay the
-caller's to re-hold, in order; a held ``modal_closed`` that later ages out of the
-buffer is what reverts the optimistic dismiss to Hub truth.
+caller's to re-hold, in order; one that later ages out of the buffer takes its
+kind's ``Compensation``, giving up what the display held optimistically for it —
+unless a newer gesture of the same kind is still speaking for that element.
 """
 
 from __future__ import annotations
 
-import logging
 import time
 from typing import TYPE_CHECKING, Self
 
-from punt_lux.scene import WidgetState
+from punt_lux.display.evicted_compensation import CompensationTable
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from punt_lux.display.evictions import Evictions
     from punt_lux.protocol import RemoteEventHandlerInvocation
     from punt_lux.scene import SceneManager
     from punt_lux.socket_server import SocketServer
-
-logger = logging.getLogger(__name__)
 
 __all__ = ["InteractionDelivery"]
 
@@ -102,47 +101,32 @@ class InteractionDelivery:
         ]
         return any(sent)
 
-    def compensate_evicted(
-        self, evicted: Sequence[RemoteEventHandlerInvocation]
-    ) -> None:
+    def compensate_evicted(self, evicted: Evictions) -> None:
         """Revert optimistic display state whose interaction never reached the Hub.
 
         An interaction the buffer evicted (aged or overflowed) never reaches the
-        Hub, so the display-side latch it fired optimistically would render forever
-        against an unchanged Hub — a modal held shut, a table row held selected.
-        Reverting that latch returns the replica to Hub truth. Both cases are the
-        same move: drop the latch the lost interaction was speaking for.
+        Hub, so no answer for it will come and the display-side latch it fired
+        optimistically would render forever against an unchanged Hub — a modal
+        held shut, a table row held selected, a header held open. Eviction is a
+        rejection that never got said, so each kind's ``Compensation`` drops what
+        it was holding and the next frame renders the Hub's value.
+
+        Only the compensable evictions are reverted: one a newer gesture of the
+        same kind supersedes is left alone, its latch speaking for that gesture.
         """
-        for event in evicted:
-            if event.scene_id is None:
-                continue
-            ws = self._scene_manager.widget_state_for(event.scene_id)
-            if ws is None:
-                continue
-            if event.event_kind == "modal_closed":
-                self._revert_modal(ws, event.element_id)
-            elif event.event_kind == "row_selection_changed":
-                self._revert_row_selection(ws, event.element_id)
+        for event in evicted.compensable:
+            self._compensate_one(event)
 
-    @staticmethod
-    def _revert_modal(ws: WidgetState, element_id: str) -> None:
-        """Reopen a modal whose optimistic close never reached the Hub."""
-        ws.discard(f"{element_id}{WidgetState.OPEN_SUFFIX}")
-        ws.discard(f"{element_id}{WidgetState.DISMISS_SUFFIX}")
-        logger.warning(
-            "reverted modal '%s' dismiss — close was undeliverable", element_id
-        )
+    def _compensate_one(self, event: RemoteEventHandlerInvocation) -> None:
+        """Give up what one lost interaction's element was holding optimistically.
 
-    @staticmethod
-    def _revert_row_selection(ws: WidgetState, element_id: str) -> None:
-        """Drop a table's optimistic pending selection that never reached the Hub.
-
-        Without this the pending set renders forever -- the Hub, never told, holds
-        the pre-gesture set and a grow-from-empty pick ({} subset of {A}) never
-        converges, so no confirming re-push comes.
+        An event with no scene — a menu-bar click — and one whose scene has since
+        gone both leave nothing to unwind: the latch lives in per-scene widget
+        state, so no scene means no latch.
         """
-        ws.discard(f"{element_id}{WidgetState.ROW_SELECTION_PENDING_SUFFIX}")
-        ws.discard(f"{element_id}{WidgetState.ROW_SELECTION_HONOURED_SUFFIX}")
-        logger.warning(
-            "reverted table '%s' selection — change was undeliverable", element_id
-        )
+        if event.scene_id is None:
+            return
+        ws = self._scene_manager.widget_state_for(event.scene_id)
+        if ws is None:
+            return
+        CompensationTable.for_kind(event.event_kind).revert(ws, event.element_id)

@@ -362,17 +362,20 @@ class TestInteraction:
         assert sent[0].event_kind == "header_toggled"
         assert sent[0].value is False
 
-    def test_renderer_honours_hub_value_without_firing(self) -> None:
-        # The renderer's fire decision is the source of echo-suppression: when
-        # ImGui reports the same state the Hub owns (an honoured value), it
-        # returns no event; a divergent reported state is a user toggle.
+    def test_the_renderer_addresses_its_toggle_to_the_display_tier(self) -> None:
+        # The event the renderer builds carries the reported open state and the
+        # display's own ids, which is what lets the Hub resolve the element and
+        # run the real handler on its authoritative copy. WHEN it is built —
+        # the fire decision across the click-to-re-push window — is a property
+        # of a frame sequence, covered in tests/render/test_header_open_arbiter.
         header = _abc_header(open=False)
         factory = _server()._imgui_renderer_factory
         renderer = ImGuiCollapsingHeaderRenderer(header, factory)
-        assert renderer._toggle_event(reported=False) is None
-        toggled = renderer._toggle_event(reported=True)
-        assert toggled is not None
+
+        toggled = renderer._toggle_event(open_=True)
+
         assert toggled.open is True
+        assert toggled.element_id == ElementId("ch")
 
 
 # -- Level 5: introspection (render_path + reported view-state) --------------

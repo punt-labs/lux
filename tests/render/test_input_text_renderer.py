@@ -251,7 +251,11 @@ class _SeedOnceArbiter:
         return self
 
     def resolve(self, hub_value: str) -> str:
-        return str(self._state.ensure(self._key, hub_value))
+        stored = self._state.get(self._key)
+        if stored is None:
+            self._state.set(self._key, hub_value)
+            return hub_value
+        return str(stored)
 
 
 class _DeferOnFocusArbiter:
@@ -276,7 +280,7 @@ class _DeferOnFocusArbiter:
         return self
 
     def resolve(self, hub_value: str) -> str:
-        if self._state.get(self._editing_key, default=False) is True:
+        if self._state.get_bool(self._editing_key, default=False):
             return self._state.get_str(self._buffer_key)
         return hub_value
 
@@ -316,12 +320,12 @@ class _RawHonourArbiter:
         return self
 
     def resolve(self, hub_value: str) -> str:
-        if self._state.get(self._editing_key, default=False) is True:
+        if self._state.get_bool(self._editing_key, default=False):
             return self._state.get_str(self._buffer_key)
         return hub_value
 
     def observe(self, *, edited: bool, value: str) -> None:
-        if edited or self._state.get(self._editing_key, default=False) is True:
+        if edited or self._state.get_bool(self._editing_key, default=False):
             self._state.set(self._editing_key, value=True)
             self._state.set(self._buffer_key, value)
 
