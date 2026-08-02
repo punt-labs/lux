@@ -28,7 +28,6 @@ from .board_doubles import GATE_SECONDS, ISSUE, Source
 
 if TYPE_CHECKING:
     from punt_lux.applets.board_cache import CachedBoard
-    from punt_lux.applets.board_load import BoardRequest
     from punt_lux.applets.board_order import BoardOrder
     from punt_lux.applets.board_work import BoardWork
 
@@ -79,8 +78,8 @@ class Crossing:
         self._resumed.wait(timeout=GATE_SECONDS)
         return self._held.newer_of(held)
 
-    def opening(self, work: BoardWork) -> BoardRequest:
-        return self._held.opening(work)
+    def answer(self, work: BoardWork) -> None:
+        self._held.answer(work)
 
     def refreshed(self, work: BoardWork) -> CachedBoard:
         return self._held.refreshed(work)

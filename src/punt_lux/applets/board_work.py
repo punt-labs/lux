@@ -1,9 +1,8 @@
 """BoardWork — one click's work: what to load, where to push it, and the clock.
 
 The three travel together through every phase of a click — the answer, the load
-behind it, the push that ends it — so they travel as one object rather than three
-parameters threaded down each path. It is also what keeps the two states in
-:mod:`punt_lux.applets.board_cache` from reaching past a load to a client.
+behind it, the push that ends it — so they go as one object rather than three
+parameters, and no state in :mod:`punt_lux.applets.board_cache` holds a client.
 """
 
 from __future__ import annotations
@@ -48,8 +47,12 @@ class BoardWork:
         """Say what the stage now being timed did, beside its figure."""
         self._latency.note(said)
 
+    def raise_frame(self) -> None:
+        """Bring the board's frame forward, for a click that pushes either way."""
+        self._load.showing(self._client)
+
     def showing(self) -> bool:
-        """Raise the board's frame; say whether the user already has the board."""
+        """Raise the board's frame; say whether a board is up already."""
         return self._load.showing(self._client)
 
     def issues(self) -> BoardRead:
@@ -60,10 +63,6 @@ class BoardWork:
     def board(self, read: BoardRead) -> BuiltBoard:
         """Build the board those issues make, at the place their read began."""
         return self._load.board(read)
-
-    def fresh(self) -> BuiltBoard:
-        """Read the issues and build their board, for a click not timing the two."""
-        return self._load.board(self.issues())
 
     def placeholder(self) -> BoardRequest:
         """The scene to open with when there is no board to show yet."""

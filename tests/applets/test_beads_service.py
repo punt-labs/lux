@@ -17,7 +17,8 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import TYPE_CHECKING
+
+import pytest
 
 from punt_lux.applets.beads_service import BeadsService
 from punt_lux.applets.board_load import BoardLoad
@@ -35,9 +36,6 @@ from .board_doubles import (
     ThenFails,
     UnraisableClient,
 )
-
-if TYPE_CHECKING:
-    import pytest
 
 # Two boards a test can tell apart on sight, so that the id a later click
 # answers with says which of two overlapping loads the applet kept.
@@ -60,8 +58,8 @@ def _click(service: BeadsService, client: object) -> ClickLatency:
     return latency
 
 
-def _whole_click(service: BeadsService, client: object) -> ClickLatency:
-    """Drive both halves of a click exactly as the leg drives them.
+def _answer(service: BeadsService, client: object) -> ClickLatency:
+    """Drive only the half of a click the user sees, timed as the leg times it.
 
     The answer is timed by the leg rather than by the service, so the helper
     wraps it here too — a click whose answer went untimed would report a line no
@@ -70,6 +68,12 @@ def _whole_click(service: BeadsService, client: object) -> ClickLatency:
     latency = ClickLatency("beads")
     with latency.answering():
         service.acknowledge(client, latency)  # type: ignore[arg-type]  # structural stand-in
+    return latency
+
+
+def _whole_click(service: BeadsService, client: object) -> ClickLatency:
+    """Drive both halves of a click exactly as the leg drives them."""
+    latency = _answer(service, client)
     service.service(client, latency)  # type: ignore[arg-type]  # structural stand-in
     return latency
 
@@ -283,6 +287,86 @@ def test_a_prefetched_board_is_shown_before_the_fresh_load_begins() -> None:
     assert client.scenes == []  # and no placeholder was shown at any point
 
 
+def test_a_click_pushes_the_board_it_holds_onto_a_frame_already_up() -> None:
+    """A frame that is up is not a promise about what is in it.
+
+    The board is kept whatever became of the push behind it — the query has been
+    paid for either way — so a push the Hub refused leaves the applet holding
+    issues the screen never got, with the frame still standing over the older
+    ones. A click that stopped at the raise would bring that older board forward
+    and keep the newer one to itself, and so would every click after it: the
+    screen would never catch up. The held board therefore goes up whatever the
+    raise answered.
+    """
+    service = _service(Source(BeadsRows.of([ISSUE])))
+    _whole_click(service, RecordingClient(refuse=True, frame_is_up=False))
+
+    client = RecordingClient(frame_is_up=True)
+    _answer(service, client)
+
+    assert len(client.tables) == 1  # the answer was the board, not the raise alone
+    assert [row[0] for row in client.tables[0].rows] == ["lux-1"]
+    assert client.scenes == []
+
+
+def test_a_raise_that_cannot_be_answered_still_shows_the_board_held() -> None:
+    """A failed round trip must not cost the click the board it already had.
+
+    The raise can fail while the display is perfectly alive — a timed-out trip,
+    a display that came up after luxd. Reading that as "the board is up" and
+    stopping there hands the user a click that did nothing visible and then
+    makes them wait out the whole query anyway, which is the one wait the held
+    board exists to spare them.
+    """
+    journal = Journal()
+    client = UnraisableClient(journal)
+    service = _service(Source(BeadsRows.of([ISSUE]), journal=journal))
+
+    service.prefetch()
+    _whole_click(service, client)
+
+    # The cached push sits between the raise and the click's own load: it is the
+    # answer, not the result.
+    assert journal.steps == ("load", "raise", "render_table", "load", "render_table")
+
+
+@pytest.mark.parametrize(
+    ("prefetched", "frame_is_up", "said"),
+    [
+        (True, False, "cached board"),
+        (True, True, "cached board"),
+        (False, True, "frame already up"),
+        (False, False, "loading placeholder"),
+    ],
+)
+def test_the_line_says_which_of_its_answers_the_click_gave(
+    caplog: pytest.LogCaptureFixture,
+    *,
+    prefetched: bool,
+    frame_is_up: bool,
+    said: str,
+) -> None:
+    """Every answer a click can give is fast; only the line tells them apart.
+
+    Pushing a board the applet already had, pushing "Loading issues…", and
+    finding a frame up with nothing better to put in it are all a few
+    milliseconds, so the figure is the same and what the user got is not. The
+    line names what was pushed — and it has to keep naming it, because a click
+    that reported a cached board while pushing nothing would hide exactly the
+    case where the screen and the applet disagree.
+    """
+    client = RecordingClient(frame_is_up=frame_is_up)
+    service = _service(Source(BeadsRows.of([ISSUE])))
+    if prefetched:
+        service.prefetch()
+
+    latency = _answer(service, client)
+    with caplog.at_level(logging.INFO):
+        latency.report()
+
+    assert f"({said})" in _reported(caplog)
+
+
 def test_a_click_says_when_its_answer_was_a_board_it_already_had(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -361,7 +445,7 @@ def test_a_board_that_arrives_mid_click_outlives_the_click_that_failed() -> None
 
     # And the next click answers with the board that arrived, not a placeholder.
     answering = RecordingClient(frame_is_up=False)
-    service.acknowledge(answering, ClickLatency("beads"))  # type: ignore[arg-type]  # structural stand-in
+    _answer(service, answering)
     assert len(answering.tables) == 1
     assert answering.scenes == []
 
@@ -389,7 +473,7 @@ def test_the_board_from_the_load_that_began_last_is_the_one_kept() -> None:
 
     # The next click answers with the issues read last, not the board stored last.
     answering = RecordingClient(frame_is_up=False)
-    service.acknowledge(answering, ClickLatency("beads"))  # type: ignore[arg-type]  # structural stand-in
+    _answer(service, answering)
     assert [row[0] for row in answering.tables[0].rows] == ["lux-fresh"]
 
 

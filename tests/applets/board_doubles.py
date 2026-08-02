@@ -251,7 +251,16 @@ class RecordingClient:
         return self
 
     def raise_frame(self, frame_id: str) -> FrameRaise:
+        """Answer the raise — unless there is no Hub to answer it.
+
+        A Hub that cannot be reached cannot be reached for a raise either, so an
+        unreachable client fails this call the way it fails a push. The frame
+        flag is about a display holding the frame, which is a different question
+        and only reachable when there is a Hub to ask.
+        """
         self._journal.note("raise")
+        if self._unreachable:
+            raise HubUnavailableError("luxd is not running on port 8430")
         return FrameRaise(frame_id=frame_id, raised=self._raises_frame)
 
     def render_table(self, request: RenderTableRequest) -> SceneShown | OpError:

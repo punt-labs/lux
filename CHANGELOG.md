@@ -60,8 +60,11 @@
   4873 ms of its 4915 ms there. So the click stops waiting on it: the applet
   loads a board as soon as its entry is registered, and holds the board from
   every click after that, so a click answers with real issues and reloads behind
-  them instead of opening "Loading issues…" and waiting. The fresh board
-  replaces the standing one in place and never takes focus. A load that fails
+  them instead of opening "Loading issues…" and waiting. That board goes up on
+  every click, whatever the frame raise answered: a frame coming forward says a
+  board is up, not which board, so a refresh whose push never landed cannot
+  leave a stale board in front of a user while the applet holds newer issues.
+  The fresh board replaces the standing one in place and never takes focus. A load that fails
   leaves that board standing and says why in the log, so a `bd` that has stopped
   answering costs a log line rather than the board. When the warm-up and a click
   overlap — the case the warm-up exists for — the board kept is the one whose

@@ -99,19 +99,15 @@ class BeadsService:
 
         A click has to launch in the time a user reads as instant, and reading
         the issues cannot promise that. So the click's first act is not the
-        query: it is raising the board's frame, which is the whole answer in the
-        common case, where the board is already up and the user is asking to look
-        at it again.
+        query: it is raising the board's frame, which is the visible half of
+        every click on this entry.
 
-        A frame that is not up gets the board this service is holding, or the
-        placeholder when it is holding none. Both open the window immediately;
-        the difference is whether the user reads their issues while the fresh
-        ones load or the word "Loading".
+        What goes into that frame is the board this service is holding, or the
+        placeholder when it is holding none — and the difference between those
+        two answers is the whole of the difference between the two states, so
+        they answer rather than being asked about.
         """
-        work = BoardWork(self._load, client, latency)
-        if work.showing():
-            return
-        work.push(self._slot.held.opening(work))
+        self._slot.held.answer(BoardWork(self._load, client, latency))
 
     def service(self, client: LuxRestClient, latency: ClickLatency) -> None:
         """Answer a click: load the issues and push the board through ``client``.

@@ -76,9 +76,8 @@ def test_a_board_that_built_is_held_even_though_its_push_never_landed() -> None:
     # And what it holds is the board that was built, ready to be the next
     # click's answer rather than a placeholder.
     client = RecordingClient(frame_is_up=False)
-    opening = cache.opening(_work(Source(BeadsRows.of([ISSUE])), client))
-    assert isinstance(opening, RenderTableRequest)
-    assert _rows(opening) == ["lux-1"]
+    cache.answer(_work(Source(BeadsRows.of([ISSUE])), client))
+    assert _rows(client.tables[0]) == ["lux-1"]
 
 
 def test_a_push_that_never_landed_says_so_rather_than_vanishing(
@@ -114,16 +113,48 @@ def test_a_click_holding_a_board_answers_with_that_board() -> None:
     client = RecordingClient(frame_is_up=False)
     load = BoardLoad(BeadsBoard.for_project("lux"), Source(BeadsRows.of([ISSUE])))
 
-    opening = HeldBoard(load.fresh()).opening(_work(Source(), client))
+    HeldBoard(load.fresh()).answer(_work(Source(), client))
 
-    assert isinstance(opening, RenderTableRequest)
-    assert _rows(opening) == ["lux-1"]
+    assert _rows(client.tables[0]) == ["lux-1"]
+    assert client.scenes == []
+
+
+def test_a_board_held_is_pushed_even_when_the_frame_is_already_up() -> None:
+    """A raised frame says a board is up; it does not say which board.
+
+    The frame can be standing over issues older than the ones held here — a
+    refresh whose push did not land leaves exactly that, since the board is kept
+    whatever became of the round trip behind it. Answering such a click with the
+    raise alone would leave the older board in front of the user and the newer
+    one held but never seen, and the click after it would do the same.
+    """
+    client = RecordingClient(frame_is_up=True)
+    load = BoardLoad(BeadsBoard.for_project("lux"), Source(BeadsRows.of([ISSUE])))
+
+    HeldBoard(load.fresh()).answer(_work(Source(), client))
+
+    assert _rows(client.tables[0]) == ["lux-1"]
 
 
 def test_a_click_holding_nothing_opens_with_the_placeholder() -> None:
     """The cold click: there is no board yet, so the window says what it is doing."""
     client = RecordingClient(frame_is_up=False)
-    opening = NoBoard().opening(_work(Source(BeadsRows.of([ISSUE])), client))
 
-    assert not isinstance(opening, RenderTableRequest)
-    assert "Loading issues" in str(opening.elements)
+    NoBoard().answer(_work(Source(BeadsRows.of([ISSUE])), client))
+
+    assert client.tables == []
+    assert "Loading issues" in str(client.scenes[0].elements)
+
+
+def test_a_click_holding_nothing_leaves_a_frame_that_is_up_alone() -> None:
+    """Whatever is in a frame already up is older than nothing at all.
+
+    Holding no board, this state has nothing to put in that frame, and the word
+    "Loading" over a board somebody is reading is a loss rather than an answer.
+    """
+    client = RecordingClient(frame_is_up=True)
+
+    NoBoard().answer(_work(Source(BeadsRows.of([ISSUE])), client))
+
+    assert client.scenes == []
+    assert client.tables == []

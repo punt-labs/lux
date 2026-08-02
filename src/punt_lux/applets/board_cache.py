@@ -10,8 +10,9 @@ replaces it in place when the fresh one lands.
 That leaves two states, and they differ in three ways, which is why they are two
 classes rather than one class and a flag:
 
-- what the click answers with: a placeholder, or the board already held —
-  :class:`~punt_lux.applets.no_board.NoBoard` against
+- what the click answers with once its frame is raised: the board held, pushed
+  whatever that raise answered, or a placeholder put up only when no frame came
+  forward — :class:`~punt_lux.applets.no_board.NoBoard` against
   :class:`~punt_lux.applets.held_board.HeldBoard`;
 - how the load behind it is timed: stage by stage when the user is watching a
   placeholder, one figure when they are reading a board and waiting on nothing;
@@ -32,7 +33,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from punt_lux.applets.board_load import BoardRequest
     from punt_lux.applets.board_order import BoardOrder
     from punt_lux.applets.board_work import BoardWork
 
@@ -51,8 +51,8 @@ class CachedBoard(Protocol):
         """Whichever of this state and *held* holds the board whose load began last."""
         ...
 
-    def opening(self, work: BoardWork) -> BoardRequest:
-        """The request the click's answer puts up, before anything has loaded."""
+    def answer(self, work: BoardWork) -> None:
+        """Raise the board's frame and put this state's answer in it."""
         ...
 
     def refreshed(self, work: BoardWork) -> CachedBoard:

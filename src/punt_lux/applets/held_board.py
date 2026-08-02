@@ -17,10 +17,10 @@ import logging
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.applets.beads_source import BoardUnavailableError
+from punt_lux.applets.board_run import BoardRun
 
 if TYPE_CHECKING:
     from punt_lux.applets.board_cache import CachedBoard
-    from punt_lux.applets.board_load import BoardRequest
     from punt_lux.applets.board_order import BoardOrder
     from punt_lux.applets.board_work import BoardWork
     from punt_lux.applets.built_board import BuiltBoard
@@ -29,8 +29,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["HeldBoard"]
 
-# The load a user is not waiting on, under one figure: they have a board to read
-# while it runs, and no stage of it is their problem.
+# The load a user is not waiting on: they have a board to read while it runs.
 _REFRESHED = "refreshed"
 
 # What the click's line says its answer was, when the answer was the real board.
@@ -63,41 +62,41 @@ class HeldBoard:
         """
         return held if held.began_at.after(self.began_at) else self
 
-    def opening(self, work: BoardWork) -> BoardRequest:
-        """The board itself: the click's answer is the real thing, not a stand-in.
+    def answer(self, work: BoardWork) -> None:
+        """Raise the frame, then push this board into it whatever the raise said.
 
-        The line reporting the click says so, because an answer that was the
-        board reads very differently from one that was "Loading issues…" and the
-        figure alone cannot tell them apart.
+        The raise restores the frame from the dock and brings it forward, which
+        is the gesture behind asking for a board by name. What it cannot say is
+        what is *in* that frame: a refresh whose push did not land leaves it
+        standing over issues older than these, so a click that stopped at the
+        raise would show the older board and keep the newer one to itself.
+
+        The push therefore follows unconditionally — a few milliseconds against
+        a query that costs seconds, for the stronger fact that after a click the
+        screen holds this board rather than a claim that it already did. The
+        line says the answer was the board, because answering with the real
+        thing reads nothing like answering with "Loading issues…".
         """
+        work.raise_frame()
         work.note(_FROM_CACHE)
-        return self._built.request
+        work.push(self._built.request)
 
     def refreshed(self, work: BoardWork) -> CachedBoard:
         """Replace the board in place, or leave the one on screen where it is.
 
         The whole load is one figure here rather than three: the user is reading
-        a board while it runs and is not waiting on any stage of it.
-
-        A load that fails leaves that board standing and says why in the log. A
-        board a few minutes old is worth more than a red message where the board
-        was — the user asked to look at their issues, and the ones from the last
-        load are still very nearly the answer.
-
-        A load that succeeded is held whatever became of the push behind it: a
-        Hub that went away between the query and the round trip has not made the
-        issues any less read.
+        a board while it runs and waits on no stage of it. A load that fails
+        leaves that board standing and says why in the log, because a board a
+        few minutes old is still very nearly what the user asked to see; a load
+        that succeeded is held whatever became of the push behind it, since a
+        Hub that went away has not made the issues any less read.
         """
         try:
             with work.stage(_REFRESHED):
-                built = work.fresh()
-                built.push(work)
+                built = BoardRun(work).shown()
         except BoardUnavailableError as exc:
             logger.warning(
                 "the board was not refreshed; the one on screen stands: %s", exc
             )
-            return self
-        except Exception:
-            logger.exception("refreshing the board failed; the one on screen stands")
             return self
         return HeldBoard(built)

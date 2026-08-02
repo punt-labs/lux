@@ -1,10 +1,9 @@
 """NoBoard — nothing has loaded, so the click opens a placeholder and waits.
 
-The state a session starts in, and the one it returns to for as long as ``bd``
-cannot be read at all. A click from here is the cold one the warm-up exists to
-prevent: the user watches "Loading issues…" for however long the query takes, and
-every way it can fail becomes something they can see, because a click that
-produces nothing visible is indistinguishable from a broken menu.
+The state a session starts in, and the one it returns to while ``bd`` cannot be
+read at all. A click from here is the cold one the warm-up exists to prevent: the
+user watches "Loading issues…" for however long the query takes, and every way it
+can fail becomes something they see, or the menu simply looks broken.
 
 It holds no board, so it never displaces one — see
 :class:`~punt_lux.applets.board_order.BoardOrder` for the order that decides.
@@ -12,11 +11,11 @@ It holds no board, so it never displaces one — see
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, final
 
 from punt_lux.applets.beads_source import BoardUnavailableError
 from punt_lux.applets.board_order import BoardOrder
+from punt_lux.applets.board_run import BoardRun
 from punt_lux.applets.held_board import HeldBoard
 
 if TYPE_CHECKING:
@@ -24,20 +23,17 @@ if TYPE_CHECKING:
     from punt_lux.applets.board_load import BoardRequest
     from punt_lux.applets.board_work import BoardWork
 
-logger = logging.getLogger(__name__)
-
 __all__ = ["NoBoard"]
 
-# The stages of a load the user is waiting through, named for what they are
-# waiting on: the query to the hosted database, the board built from what it
-# returned, and the round trip that puts that board on screen.
-_FETCHED = "fetched"
-_BUILT = "built"
+# The round trip that puts a board on screen, watched through a placeholder. The
+# waits before it are named in :mod:`punt_lux.applets.board_run`, which times them.
 _PUSHED = "pushed"
 
-# What a click shows when the board could not be built for a reason nobody
-# modelled: the reason itself is a traceback, which belongs in the log.
-_UNBUILDABLE = "the beads board could not be built — see the session log"
+# What the line says the answer was, for the two a state holding no board can
+# give: it put the placeholder up, or it left a frame already up alone. Both are
+# fast, so only the line tells them apart.
+_PLACEHOLDER = "loading placeholder"
+_RAISED = "frame already up"
 
 
 @final
@@ -60,32 +56,35 @@ class NoBoard:
         """
         return held
 
-    def opening(self, work: BoardWork) -> BoardRequest:
-        """The placeholder — there is nothing better to show yet."""
-        return work.placeholder()
+    def answer(self, work: BoardWork) -> None:
+        """Raise the frame, and open the placeholder only if there was none up.
+
+        Holding no board, this state has nothing to put in a frame that already
+        has one. Whatever is in it — from an earlier run of this applet, or from
+        ``lux show beads`` — beats the word "Loading", and a raise that could not
+        be answered collapses the same way: the board may well be up, and
+        blanking a good one on a failed round trip is the worse mistake. A frame
+        that is not up leaves the placeholder as the only thing to show.
+        """
+        if work.showing():
+            work.note(_RAISED)
+            return
+        work.note(_PLACEHOLDER)
+        work.push(work.placeholder())
 
     def refreshed(self, work: BoardWork) -> CachedBoard:
         """Load the board the user is waiting on, timing each stage of the wait.
 
-        Every failure becomes something they can see: a ``bd`` that would not run
-        renders its own reason, and anything else renders a line pointing at the
-        session log, where its traceback is.
-
-        A failed *load* is not held: the next click starts cold rather than
-        answering with a red message. A load that succeeded is held whatever
-        became of the push behind it, which has not made the query any less paid.
+        Every failure becomes something they can see, which is why the run hands
+        back one reason however it failed. A failed *load* is not held: the next
+        click starts cold rather than answering with a red message. A load that
+        succeeded is held whatever became of the push behind it, which has not
+        made the query any less paid.
         """
         try:
-            with work.stage(_FETCHED):
-                read = work.issues()
-            with work.stage(_BUILT):
-                built = work.board(read)
+            built = BoardRun(work).staged()
         except BoardUnavailableError as exc:
             self._show_reason(work, work.unavailable(str(exc)))
-            return self
-        except Exception:
-            logger.exception("building the beads board failed")
-            self._show_reason(work, work.unavailable(_UNBUILDABLE))
             return self
         with work.stage(_PUSHED):
             built.push(work)
