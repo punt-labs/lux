@@ -28,7 +28,7 @@ from punt_lux.protocol.elements.element_wire import ElementWireContext
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from punt_lux.domain.handlers.decorators import PublishSink
+    from punt_lux.domain.handlers.publish_sink import PublishSink
     from punt_lux.protocol.elements.button import ButtonElement
     from punt_lux.protocol.handler_decoder import HandlerDecoder
     from punt_lux.protocol.renderer import Emit, RendererFactory

@@ -30,7 +30,7 @@ from punt_lux.protocol.elements.abc_registry import AbcElementRegistry
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from punt_lux.domain.handlers.decorators import PublishSink
+    from punt_lux.domain.handlers.publish_sink import PublishSink
     from punt_lux.protocol.elements.abc_kind_spec import AbcKindSpec
     from punt_lux.protocol.handler_decoder import HandlerDecoder
 

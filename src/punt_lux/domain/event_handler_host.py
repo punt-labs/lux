@@ -21,9 +21,10 @@ if TYPE_CHECKING:
 
     from punt_lux.domain.element_abc import Element
     from punt_lux.domain.event_kinds import EventKind
-    from punt_lux.domain.event_protocol import Event, Handler, WireEvent
+    from punt_lux.domain.event_protocol import Event, Handler
     from punt_lux.domain.ids import ClientId, SceneId
     from punt_lux.domain.remote_dispatch_spec import RemoteDispatchSpec
+    from punt_lux.domain.wire_event import WireEvent
     from punt_lux.protocol.messages.remote_invocation import (
         RemoteEventHandlerInvocation,
     )
@@ -55,19 +56,13 @@ class EventHandlerHost:
 
         def _children(self) -> tuple[Element, ...]: ...
 
-    def add_handler[E: Event](
-        self,
-        event_type: type[E],
-        handler: Handler[E],
-    ) -> None:
+    def add_handler[E: Event](self, event_type: type[E], handler: Handler[E]) -> None:
         """Register a handler for ``event_type`` on this Element."""
         bucket = self._handlers.setdefault(cast("type[Event]", event_type), [])
         bucket.append(cast("Handler[Event]", handler))
 
     def remove_handler[E: Event](
-        self,
-        event_type: type[E],
-        handler: Handler[E],
+        self, event_type: type[E], handler: Handler[E]
     ) -> None:
         """Deregister a handler for ``event_type``. No-op if not present."""
         bucket = self._handlers.get(cast("type[Event]", event_type))

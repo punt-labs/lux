@@ -63,7 +63,7 @@ from punt_lux.domain.update import AddElement, RemoveElement, SetProperty, Updat
 
 if TYPE_CHECKING:
     from punt_lux.domain.element import Element
-    from punt_lux.domain.event_protocol import WireEvent
+    from punt_lux.domain.wire_event import WireEvent
     from punt_lux.protocol.messages.remote_invocation import (
         RemoteEventHandlerInvocation,
     )

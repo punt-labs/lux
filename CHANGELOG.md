@@ -186,6 +186,22 @@
   label, so two clients that both offer `Beads` can be told apart in the
   display-side read, and the Hub's menu and the display's can be compared line
   for line. The field replaces the old single `menu` name.
+- **A published event now carries what happened.** An element that declares
+  `"publish": ["my.topic"]` fired its topic on every interaction and sent an
+  empty payload with it, so a subscriber learned that *something* happened on a
+  topic and nothing else — which row was clicked, what a slider was set to, and
+  which element it was all went to the sink and were dropped one call before it.
+  The publish now carries the event's own data: its kind, the scene and element
+  it landed on, and its fields — a table selection's `row_ids` and `anchor`, an
+  input's `value`, a tab bar's `tab_id`, a header's `open`. The event renders
+  that mapping itself, so a new interactive kind publishes correctly without the
+  decorator learning anything about it. The shape is documented in
+  [the library guide](docs/library.md#what-a-published-event-carries).
+  A subscriber that read nothing from the payload before is unaffected; one that
+  wants the clicked row reads `anchor`, which the unordered selection set cannot
+  name. A button's `publish` *mapping* form (`{"topic": ..., "payload": ...}`) is
+  unchanged — that payload is the app's own message, sent verbatim.
+
 - **One click on a collapsing header moves it once.** The renderer wrote the
   Hub's value into ImGui's own stored header state every frame, so a click
   opened the section, the next frame snapped it shut (the Hub had not heard

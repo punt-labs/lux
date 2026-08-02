@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
     from punt_lux.domain.element_abc import Element as AbcElement
-    from punt_lux.domain.handlers.decorators import PublishSink
+    from punt_lux.domain.handlers.publish_sink import PublishSink
     from punt_lux.protocol.elements.abc_capability import Capability
     from punt_lux.protocol.elements.container_dispatch import RecurseFromDict
     from punt_lux.protocol.handler_decoder import HandlerDecoder

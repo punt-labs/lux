@@ -105,7 +105,10 @@ class LoopInvariants:
         assert len(delivered) == 1
         message = delivered[0]
         assert message.topic == self._scenario.topic
-        assert message.payload == self._scenario.publish.payload
+        assert message.payload == self._scenario.publish.payload_for(
+            scene_id=self._scenario.scene_id,
+            element_id=self._scenario.target_element_id,
+        )
 
     def assert_handler_driven_repush(self) -> None:
         """D — the dispatch re-push reflected the handler's Hub-side mutation.

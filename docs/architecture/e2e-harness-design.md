@@ -339,8 +339,10 @@ Scenario:
   interaction:        InteractionExpectation(event_kind, value) — the boundary
                       shape I1 asserts (button_clicked/True, value_changed/bool)
   publish:            PublishSource — topic + payload + how the target announces
-                        WirePublish(topic)        → wire sugar/handlers, empty payload
-                        PayloadPublish(topic, payload) → agent-wired handler, non-empty
+                        WirePublish.<kind>(topic, ...)  → wire sugar/handlers; the
+                          payload is the interaction (kind, scene, element, fields)
+                        PayloadPublish(topic, payload) → agent-wired handler; the
+                          payload is the app's own (a ticket id, an album id)
   react:              tuple[ReactPatch, ...] — the agent's multi-patch update()
                       reaction (advance a bar AND relabel it), the return half
   display_only_id:    the non-interactive leaf whose re-pushed presence proves
@@ -367,7 +369,8 @@ interactive kind and every publish/re-push mechanism:
 
 - **`group-button-progress`** — the composition the operator named: a `group`
   holding a `button` and a display-only `progress`. The button publishes
-  `ticket_opened` via wire sugar (empty payload). Its noop+publish handler does
+  `ticket_opened` via wire sugar; the payload names the click and the button it
+  landed on. Its noop+publish handler does
   not touch scene state, so the dispatch re-push carries the button unchanged
   (`PropAfterDispatch`).
 - **`group-checkbox-progress`** — a `checkbox` crossing as `value_changed`; the

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from punt_lux.domain.handlers.decorators import PublishSink
+from punt_lux.domain.handlers.publish_sink import PublishSink
 from punt_lux.domain.hub import hub
 from punt_lux.domain.hub.hub_factory import HubPublishSink, hub_element_factory
 from punt_lux.domain.hub.inbox import drain_inbox, ensure_writer
