@@ -69,10 +69,10 @@ class HeaderOpenArbiter:
 
         The outstanding toggle while one is pending, the Hub's value otherwise.
         The fall-through is the ``default`` of the read rather than a branch on
-        absence: with nothing pending there is nothing to hold, and the Hub's
-        value is what the display owes the user.
+        absence: nothing pending — and a slot not holding a flag is nothing
+        pending — leaves the Hub's value, which is what the display owes.
         """
-        return bool(self._state.get(self._pending_key, authoritative))
+        return self._state.get_bool(self._pending_key, default=authoritative)
 
     def note_pending(self, *, fired: bool) -> None:
         """Record the open state just fired, so the window holds it and stays silent."""

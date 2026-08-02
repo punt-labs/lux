@@ -66,8 +66,8 @@ class ImGuiModalRenderer:
         visibility.
         """
         ws = self._factory.widget_state
-        was_open = ws.ensure(self._open_key, self._CLOSED) == self._OPEN
-        dismissed = ws.ensure(self._dismiss_key, self._CLOSED) == self._OPEN
+        was_open = ws.get(self._open_key, self._CLOSED) == self._OPEN
+        dismissed = ws.get(self._dismiss_key, self._CLOSED) == self._OPEN
 
         if not self._elem.open:
             if was_open or dismissed:

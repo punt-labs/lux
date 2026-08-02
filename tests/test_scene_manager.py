@@ -484,10 +484,9 @@ class TestWidgetStateDiscardFor:
     def test_clears_dialog_latches_so_re_add_reopens(self) -> None:
         """Removing a dialog id clears its latches so a re-added dialog reopens.
 
-        A dismissed dialog leaves ``{id}__dismissed`` set to open. ``ensure``
-        seeds only an absent key, so unless the latch is discarded a re-added
-        same-id dialog reads the stale open value and never opens. After
-        ``discard_for`` a fresh ``ensure`` returns the caller's closed default.
+        A dismissed dialog leaves ``{id}__dismissed`` set to open. The adapter
+        reads that latch with a closed default, so unless the discard happens a
+        re-added same-id dialog reads the stale open value and never opens.
         """
         ws = WidgetState()
         ws.set("confirm", "answered")
@@ -499,7 +498,7 @@ class TestWidgetStateDiscardFor:
         assert ws.get("confirm") is None
         assert ws.get("confirm__open") is None
         assert ws.get("confirm__dismissed") is None
-        assert ws.ensure("confirm__dismissed", 0) == 0
+        assert ws.get("confirm__dismissed", 0) == 0
 
     def test_discards_only_the_exact_id_key(self) -> None:
         """``discard_for`` drops the removed element's own bare-id key only."""

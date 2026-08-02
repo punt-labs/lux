@@ -1,8 +1,10 @@
-"""WidgetState's numeric accessor and the commit-echo slot clearing.
+"""WidgetState's typed accessors and the commit-echo slot clearing.
 
-The slider path reads its buffer through ``get_float``: a numeric miss falls
-back to the caller's default, never a magic ``""``. Every non-atomic mutable
-kind stores its buffer and
+The store holds ``Any``, so every typed accessor rejects rather than coerces:
+the slider path reads its buffer through ``get_float`` and falls back to the
+caller's default on a miss, never a magic ``""``, and an arbiter reads its flag
+through ``get_bool`` so a slot holding something other than a ``bool`` cannot
+decide a widget's state. Every non-atomic mutable kind stores its buffer and
 commit-echo state under the one shared ``CONTINUOUS_EDIT_*`` quad, which
 ``discard_for`` clears on removal so a re-added same-id widget starts clean.
 """
@@ -32,6 +34,29 @@ class TestGetFloat:
         ws = WidgetState()
         ws.set("s", "not a number")
         assert ws.get_float("s", default=3.0) == 3.0
+
+
+class TestGetBool:
+    def test_absent_key_returns_the_default(self) -> None:
+        assert WidgetState().get_bool("missing", default=True) is True
+        assert WidgetState().get_bool("missing", default=False) is False
+
+    def test_stored_flag_reads_back(self) -> None:
+        ws = WidgetState()
+        ws.set("f", value=True)
+        assert ws.get_bool("f", default=False) is True
+
+    def test_stored_string_reads_as_the_default(self) -> None:
+        # The store is untyped, so a truthy non-bool must not decide a flag:
+        # coercing here is how a header holds itself open on a foreign value.
+        ws = WidgetState()
+        ws.set("f", "yes")
+        assert ws.get_bool("f", default=False) is False
+
+    def test_stored_number_reads_as_the_default(self) -> None:
+        ws = WidgetState()
+        ws.set("f", 1)
+        assert ws.get_bool("f", default=False) is False
 
 
 class TestContinuousEditSlotClearing:

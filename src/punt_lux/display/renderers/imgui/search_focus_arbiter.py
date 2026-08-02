@@ -57,8 +57,8 @@ class SearchFocusArbiter:
 
     @property
     def _seen(self) -> bool:
-        return bool(self._state.get(self._seen_key, False))
+        return self._state.get_bool(self._seen_key, default=False)
 
     @property
     def _refocus_armed(self) -> bool:
-        return bool(self._state.get(self._refocus_key, False))
+        return self._state.get_bool(self._refocus_key, default=False)

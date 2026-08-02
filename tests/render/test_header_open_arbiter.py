@@ -87,6 +87,17 @@ def test_one_header_s_pending_does_not_leak_into_another() -> None:
     assert HeaderOpenArbiter(ws, "right").effective_open(authoritative=False) is False
 
 
+def test_a_non_bool_in_the_slot_leaves_the_hub_in_charge() -> None:
+    # The slot lives in an untyped per-scene store. Only a toggle this arbiter
+    # recorded may outvote the Hub — a value of any other type is not a pending
+    # toggle, however truthy, and must not hold the section open (nor, when the
+    # Hub says open, shut) until the next re-push clears it.
+    arbiter, ws = _arbiter()
+    ws.set(f"disclosure{WidgetState.HEADER_OPEN_PENDING_SUFFIX}", "open")
+    assert arbiter.effective_open(authoritative=False) is False
+    assert arbiter.effective_open(authoritative=True) is True
+
+
 # -- the render journal: the real renderer over a faithful ImGui store ------
 
 

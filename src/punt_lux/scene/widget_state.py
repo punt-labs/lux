@@ -78,29 +78,30 @@ class WidgetState:
     def get(self, element_id: str, default: Any = None) -> Any:
         return self._state.get(element_id, default)
 
+    # The typed reads reject rather than coerce: a slot whose value is not of
+    # the asked-for type is not this widget's value, and coercing would let
+    # something the widget never wrote decide its state — a header held open on
+    # a stray string's truthiness, a slider reading 1.0 off a flag. Text has an
+    # empty sentinel; a number and a flag take the caller's default instead.
     def get_str(self, element_id: str) -> str:
         """Return the stored string, or ``""`` when absent or non-str."""
         value = self._state.get(element_id)
         return value if isinstance(value, str) else ""
 
     def get_float(self, element_id: str, default: float) -> float:
-        """Return the stored number as ``float``, or ``default`` when absent.
-
-        The numeric analog of ``get_str``: a slider buffer has no empty
-        sentinel, so a miss falls back to the caller-supplied default (the
-        current Hub value or ``min``) rather than a magic ``""``. A stored
-        ``bool`` is not a slider value, so it reads as the default too.
-        """
+        """Return the stored number as ``float``, or ``default`` — a flag is a miss."""
         value = self._state.get(element_id)
         if isinstance(value, bool) or not isinstance(value, int | float):
             return default
         return float(value)
 
+    def get_bool(self, element_id: str, *, default: bool) -> bool:
+        """Return the stored flag, or ``default`` when absent or non-bool."""
+        value = self._state.get(element_id)
+        return value if isinstance(value, bool) else default
+
     def set(self, element_id: str, value: Any) -> None:
         self._state[element_id] = value
-
-    def ensure(self, element_id: str, default: Any) -> Any:
-        return self._state.setdefault(element_id, default)
 
     def discard(self, element_id: str) -> None:
         """Remove ``element_id`` from the cache; no-op if absent."""
@@ -112,11 +113,7 @@ class WidgetState:
         Each key is composed from the id, never a substring match, so a survivor
         like ``btn_ok`` is never wiped. Every slot goes, for one reason: a
         re-added same-id element must start from what the Hub declares for it,
-        never from what its predecessor left behind. So a dialog reopens, a tab
-        bar re-honours the Hub active tab, a header shows the declared open
-        state, a continuous edit honours its fresh value rather than an earlier
-        commit's echo, a table its fresh selection, and a split pane its default
-        proportion rather than a departed scene's dragged divider.
+        never from what its predecessor left behind.
         """
         if not element_id:
             return
