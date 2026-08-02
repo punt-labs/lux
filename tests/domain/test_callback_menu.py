@@ -219,6 +219,29 @@ class TestWhatANameIs:
 
         assert _labels_under(_clients_menu(menus)) == ["lux (2)"]
 
+    def test_a_client_keeps_its_name_across_a_leg_that_re_attaches(self) -> None:
+        """The window between an attach and its re-registration must not rename.
+
+        Taking the listen slot clears the callbacks the last occupant owned, so
+        for that moment the client holds none. Its name is not the menu's to
+        release — it belongs to the connection, which never went away.
+        """
+        roster = ClientRoster()
+        first = ("first", _session("claude", "/w/lux", _beads()))
+        second = ("second", _session("claude", "/w/lux", _beads()))
+        _menus(first, second, roster=roster)
+        assert roster.held()[ConnectionId("second")] == "lux (2)"
+
+        # The first client re-attaches its leg: identity and connection intact,
+        # callbacks cleared until it registers again.
+        reattached = ("first", _session("claude", "/w/lux"))
+        _menus(reattached, second, roster=roster)  # the menu read in that window
+        menus = _menus(first, second, roster=roster)  # and after re-registering
+
+        assert _labels_under(_clients_menu(menus)) == ["lux", "lux (2)"]
+        assert roster.held()[ConnectionId("first")] == "lux"
+        assert roster.held()[ConnectionId("second")] == "lux (2)"
+
     def test_the_name_the_departed_client_held_is_free_for_the_next(self) -> None:
         roster = ClientRoster()
         first = ("first", _session("claude", "/w/lux", _beads()))
@@ -286,9 +309,25 @@ class TestWhatContributesNothing:
 
         assert _menus(("lux", session)) == []
 
-    def test_a_client_that_takes_no_entry_takes_no_name(self) -> None:
+    def test_a_client_with_no_entry_is_still_named(self) -> None:
+        """Naming is presence; membership is registration. They are not the same.
+
+        A client that holds no command has no submenu, but it is on the roster,
+        so the moment it registers one it appears under the name it already had.
+        """
         roster = ClientRoster()
-        _menus(("lux", _session("claude", "/w/lux")), roster=roster)
+
+        menus = _menus(("lux", _session("claude", "/w/lux")), roster=roster)
+
+        assert menus == []
+        assert roster.held() == {ConnectionId("lux"): "lux"}
+
+    def test_an_unidentified_client_takes_no_name(self) -> None:
+        """Nothing anonymous is on the roster."""
+        roster = ClientRoster()
+        bare = ClientSession(0.0).attached(_SilentLeg()).with_callback(_beads())
+
+        CallbackMenu.from_sessions({ConnectionId("bare"): bare}, roster)
 
         assert roster.held() == {}
 

@@ -5378,10 +5378,12 @@ clients, each holding its directable actions.
 **Decision.**
 
 1. **One top-level menu, "Clients"** — the live roster of everything
-   connected to the display. The menu is `list_clients` made visible: an
-   entry exists exactly while its client holds a lease, so the menu is also
-   the presence list. One uniform rule for every registrant — voxd, session
-   applets, on-demand tools alike; no species split.
+   connected to the display. The menu is `list_clients` made visible: An
+   entry exists exactly while its registrant holds a lease — presence of
+   those who registered, not of every connection; a cli invocation's short
+   lease passes without touching the bar. One uniform rule for every
+   registrant — voxd, session applets, on-demand tools alike; no species
+   split.
 2. **Simple names with collision numbering.** A client's submenu is named
    for humans — `lux`, and on collision `lux (2)`, `lux (3)` — never a
    kind·repo·pid composite. A client keeps its number for its connection

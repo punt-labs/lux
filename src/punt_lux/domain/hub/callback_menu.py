@@ -9,8 +9,9 @@ there is no case logic, no count threshold, and no species split for a user to
 carry. Two clients are never merged: each is its own submenu.
 
 The menu is the live roster made visible. An entry exists exactly while its
-client holds a lease, so the same menu that launches a command also answers who
-is connected.
+registrant holds a lease — presence of those who registered, not of every
+connection; a cli invocation's short lease passes without touching the bar — so
+the same menu that launches a command also answers who is there to run one.
 
 The hierarchy is what tells clients apart, so the labels stop trying to. A client
 is named for the repository it works in (:attr:`ClientIdentity.menu_label`),
@@ -64,30 +65,35 @@ class CallbackMenu:
     ) -> list[Menu]:
         """Return the ``Clients`` menu the live sessions' callbacks contribute.
 
-        Sessions without an identity or without any callback contribute nothing —
-        the menu shows only commands a live, named client stands behind — and with
-        no such client there is no menu, because the menu is composed from clients
-        rather than kept as an empty fixture. Submenus are ordered by label so the
-        bar is stable across reads.
+        Naming and membership answer different questions, and the roster is asked
+        the first one. Every live *identified* client is named, whether or not it
+        holds a command right now; only those holding one get a submenu. A client
+        that re-attaches its leg loses its callbacks for the moment between the
+        attach and its re-registration, and keying the names on registration would
+        release its name in that window and renumber it on the next read — the
+        rename under the pointer the numbering exists to prevent.
 
-        The roster is asked for the names of exactly the qualifying clients, so a
-        client that has gone releases its name here and one that is merely
-        unidentified never takes one.
+        A session with no identity contributes nothing and takes no name: nothing
+        anonymous is on the roster. With no client holding a command there is no
+        menu at all, because the menu is composed from clients rather than kept as
+        an empty fixture. Submenus are ordered by label so the bar is stable
+        across reads.
         """
-        names = roster.names_for(dict(cls._qualifying(sessions)))
+        names = roster.names_for(dict(cls._identified(sessions)))
         return cls._clients_menu(
             ClientSubmenu(connection_id, name, sessions[connection_id].callbacks)
             for connection_id, name in names.items()
+            if sessions[connection_id].callbacks
         )
 
     @staticmethod
-    def _qualifying(
+    def _identified(
         sessions: Mapping[ConnectionId, ClientSession],
     ) -> Iterator[tuple[ConnectionId, ClientIdentity]]:
-        """Yield the identity of each session that is named and registered a command."""
+        """Yield the identity of every live session that has declared one."""
         for connection_id, session in sessions.items():
             identity = session.identity
-            if identity is not None and session.callbacks:
+            if identity is not None:
                 yield connection_id, identity
 
     @staticmethod
