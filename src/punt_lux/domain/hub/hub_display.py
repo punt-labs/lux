@@ -106,7 +106,7 @@ class HubDisplay:
     def __new__(cls, clock: Callable[[], float] = time.monotonic) -> Self:
         self = super().__new__(cls)
         self._index = ElementIndex()
-        self._clients = HubClientRegistry()
+        self._clients = HubClientRegistry(clock)
         self._owners = OwnerTracker()
         self._roots = RootRegistry()
         self._children = ChildIndex()
@@ -147,7 +147,7 @@ class HubDisplay:
     # -- clients registry --------------------------------------------------
 
     def register_client(self, connection_id: ConnectionId) -> None:
-        """Mark a connection as a known client. Idempotent."""
+        """Record a connection's own arrival as a client, renewing its lease."""
         self._clients.record(connection_id)
 
     def identify_client(
@@ -251,9 +251,9 @@ class HubDisplay:
         normal ``apply(AddElement(...))`` path, rebuilding ownership, observers, and
         child indexes in one place. The latest show defines the whole scene, so an
         orphan from a departed session is cleared, never stranded beside new roots.
+        A write registers nobody: a session comes only from its own arrival.
         """
         with self._lock.write():
-            self.register_client(connection_id)
             self._remover.drop_scene_roots(scene_id)
             for root in roots:
                 self.apply(

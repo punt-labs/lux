@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.client_session import ClientSession
     from punt_lux.domain.hub.hub import Hub
     from punt_lux.domain.hub.hub_display import HubDisplay
+    from punt_lux.domain.hub.named_sessions import NamedSession
     from punt_lux.domain.ids import ConnectionId
     from punt_lux.operations.display_port import DisplayPort
     from punt_lux.protocol import Element as WireElement
@@ -123,20 +124,16 @@ class QueryOperations:
             ]
         )
 
-    def client_of(self, connection_id: ConnectionId) -> HubClient | OpError:
-        """Return one session's facts, or ``not_found`` when the Hub holds none.
+    def client_facts(self, named: NamedSession) -> HubClient:
+        """Return one session's facts — the shape ``list_clients`` reports, for one.
 
-        The same read ``list_clients`` reports, narrowed to one connection — what
-        the Details command renders, so the menu and the introspection read can
-        never describe a client differently.
+        What the Details command renders, so the menu and the introspection read
+        can never describe a client differently. It takes the session the caller
+        already read rather than reading the registry again: a second read is a
+        second instant, and the registry sweeps lapsed sessions as it is read, so
+        it can retire the very client the caller is describing.
         """
-        session = self._display.client_sessions().get(connection_id)
-        if session is None:
-            return OpError(
-                code="not_found",
-                reason=f"no client is connected as {connection_id!s}",
-            )
-        return self._client(connection_id, session, time.monotonic())
+        return self._client(named.connection_id, named.session, time.monotonic())
 
     def _client(
         self, connection_id: ConnectionId, session: ClientSession, now: float

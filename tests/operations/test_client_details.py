@@ -23,7 +23,7 @@ from punt_lux.operations.client_details import ClientDetailsOperations
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.scene_results import SceneShown
 from punt_lux.operations.queries import QueryOperations
-from punt_lux.operations.scenes import SceneOperations
+from punt_lux.operations.scene_installer import SceneInstaller
 from punt_lux.protocol.elements.table import TableElement
 
 
@@ -48,6 +48,23 @@ class _Marks:
         return self._marked
 
 
+class _Clock:
+    """A monotonic clock the test advances by hand, so a lease lapses on cue."""
+
+    _now: float
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._now = 0.0
+        return self
+
+    def __call__(self) -> float:
+        return self._now
+
+    def advance(self, seconds: float) -> None:
+        self._now += seconds
+
+
 class _ForbiddenPort:
     """A DisplayPort that fails the test if the read reaches around to it."""
 
@@ -64,8 +81,8 @@ def _wired(store: HubDisplay, hub: Hub) -> tuple[ClientDetailsOperations, _Marks
     """Build the details operation over real stores, with no display in reach."""
     marks = _Marks()
     queries = QueryOperations(store, hub, cast("object", _ForbiddenPort()))  # type: ignore[arg-type]  # structural port
-    scenes = SceneOperations(store, marks, hub_element_factory)
-    return ClientDetailsOperations(queries, scenes, store.clients), marks
+    installer = SceneInstaller(store, marks)
+    return ClientDetailsOperations(queries, installer, store.clients), marks
 
 
 def _identity(name: str = "lux · lux · #4b97") -> ClientIdentity:
@@ -244,5 +261,50 @@ class TestAClickThatOutlivedItsClient:
 
         details.show_client_details(ConnectionId("gone"))
 
+        assert marks.marked == []
+        assert list(store.live_scene_ids()) == []
+
+    def test_a_client_that_departed_after_the_paint_is_refused_and_not_recreated(
+        self,
+    ) -> None:
+        """The entry is still on screen; the session behind it is gone.
+
+        The refusal is the visible half. The other half is that the click leaves
+        the Hub's roster exactly as the departure left it — a Details frame written
+        for a departed connection would otherwise register it again and put a
+        client back in ``list_clients`` that nothing is on the other end of.
+        """
+        store, hub = HubDisplay(), Hub()
+        _named(store, "c1", _identity())
+        store.drop_connection(ConnectionId("c1"))
+        details, marks = _wired(store, hub)
+
+        result = details.show_client_details(ConnectionId("c1"))
+
+        assert isinstance(result, OpError)
+        assert result.code == "not_found"
+        assert dict(store.client_sessions()) == {}
+        assert marks.marked == []
+        assert list(store.live_scene_ids()) == []
+
+    def test_a_lease_that_lapses_by_the_read_is_refused_and_not_recreated(self) -> None:
+        """The read that would name the client is the read that carries it off.
+
+        The registry sweeps lapsed sessions as it is read, so the operation's own
+        read can retire the client it was about to describe. One read is all it
+        takes: presence and name come from the same instant, and there is no
+        second read for the sweep to fall between.
+        """
+        clock = _Clock()
+        store, hub = HubDisplay(clock), Hub()
+        _named(store, "c1", ClientIdentity(kind="applet", name="beads", lease_ttl=60.0))
+        details, marks = _wired(store, hub)
+
+        clock.advance(61.0)  # the lease lapses while the entry sits on screen
+        result = details.show_client_details(ConnectionId("c1"))
+
+        assert isinstance(result, OpError)
+        assert result.code == "not_found"
+        assert dict(store.client_sessions()) == {}
         assert marks.marked == []
         assert list(store.live_scene_ids()) == []

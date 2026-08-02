@@ -34,7 +34,7 @@ from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.operations.client_details import ClientDetailsOperations
 from punt_lux.operations.client_details_port import ClientDetailsPort
 from punt_lux.operations.queries import QueryOperations
-from punt_lux.operations.scenes import SceneOperations
+from punt_lux.operations.scene_installer import SceneInstaller
 from punt_lux.protocol.elements.table import TableElement
 from tests.menu_doubles import FakeImGui
 
@@ -103,15 +103,13 @@ class _Wired:
     __slots__ = ("_details", "_legs", "_router", "_sent", "_store")
 
     def __new__(cls) -> Self:
-        from punt_lux.domain.hub.hub_factory import hub_element_factory
-
         self = super().__new__(cls)
         self._store = HubDisplay()
         marks = _Marks()
         self._details = ClientDetailsPort(
             ClientDetailsOperations(
                 QueryOperations(self._store, Hub(), _Port()),  # type: ignore[arg-type]  # structural port
-                SceneOperations(self._store, marks, hub_element_factory),
+                SceneInstaller(self._store, marks),
                 self._store.clients,
             )
         )

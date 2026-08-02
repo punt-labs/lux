@@ -3,43 +3,37 @@
 The Hub's own menu command. Every client's submenu carries ``Details``, and the
 Hub answers it itself rather than routing it to the client, because what it
 reports is the Hub's own record of that connection — the same record
-``list_clients`` returns, narrowed to one client and rendered.
+``list_clients`` returns, narrowed to one client and rendered by
+:class:`~punt_lux.operations.details_scene.DetailsScene`.
 
 The scene is owned by the client it describes, so it appears among that client's
-scenes and goes when that client's scenes are cleared; and it is shown into a
-frame of its own per client, so opening the details of two clients puts two
-frames side by side rather than one that keeps changing under the reader.
+scenes and goes when that client's scenes are cleared. That ownership is
+attribution, not contact: the client is not the one calling. So this operation
+holds the plain ``SceneInstaller`` rather than the caller-scoped
+``SceneOperations``, and cannot register anybody — a Details frame never brings
+back a session the Hub has let go of.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.scene_presentation import ScenePresentation
+from punt_lux.domain.hub.named_sessions import NamedSession
+from punt_lux.operations.details_scene import DetailsScene
 from punt_lux.operations.models.common import OpError
-from punt_lux.operations.scope import Scope
 from punt_lux.operations.timing import Timed
-from punt_lux.protocol.compositions.client_details import (
-    ClientDetails,
-    ClientDetailsComposition,
-)
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.hub_clients import HubClientRegistry
     from punt_lux.domain.ids import ConnectionId
-    from punt_lux.operations.models.query_clients import HubClient
     from punt_lux.operations.models.scene_results import SceneShown
     from punt_lux.operations.queries import QueryOperations
-    from punt_lux.operations.scenes import SceneOperations
+    from punt_lux.operations.scene_installer import SceneInstaller
 
 __all__ = ["ClientDetailsOperations"]
 
-# The scene and frame one client's details are shown in. Per client, so two can
-# be read at once; stable per client, so asking twice repaints in place.
-_SCENE_PREFIX = "lux.client-details"
-
-# What a client with no menu name yet is called — one the Hub holds a session
-# for but that registered nothing, so the roster never named it.
+# What the frame calls a client the menu never named — one the Hub holds a
+# session for but that declared no identity, so the roster passed it over.
 _UNNAMED = "client"
 
 
@@ -48,19 +42,19 @@ class ClientDetailsOperations:
     """Render the Hub's own record of one connection into that client's scene."""
 
     _queries: QueryOperations
-    _scenes: SceneOperations
+    _installer: SceneInstaller
     _clients: HubClientRegistry
-    __slots__ = ("_clients", "_queries", "_scenes")
+    __slots__ = ("_clients", "_installer", "_queries")
 
     def __new__(
         cls,
         queries: QueryOperations,
-        scenes: SceneOperations,
+        installer: SceneInstaller,
         clients: HubClientRegistry,
     ) -> Self:
         self = super().__new__(cls)
         self._queries = queries
-        self._scenes = scenes
+        self._installer = installer
         self._clients = clients
         return self
 
@@ -70,62 +64,35 @@ class ClientDetailsOperations:
 
         A click can outlive its client — the menu is a replica, and a lease may
         lapse between the paint and the pointer — so a connection the Hub no
-        longer holds is a ``not_found``, never a blank scene.
+        longer holds is a ``not_found``, never a blank scene. One read of the
+        roster settles which of the two happened; see :meth:`_named`.
         """
-        client = self._queries.client_of(connection_id)
-        if isinstance(client, OpError):
-            return client
-        details = self._details(connection_id, client)
-        table = ClientDetailsComposition.build(
-            details, element_id=f"{_SCENE_PREFIX}.table"
-        )
-        return self._scenes.install(
-            table,
-            scene_id=self._scene_id(connection_id),
-            presentation=self._presentation(connection_id, details.label),
-            ttl_seconds=None,  # a details frame stays until the user closes it
-            scope=Scope(connection_id),
+        named = self._named(connection_id)
+        return (
+            self._shown(named) if named is not None else self._no_client(connection_id)
         )
 
-    def _details(self, connection_id: ConnectionId, client: HubClient) -> ClientDetails:
-        """Turn one client's read shape into the facts the scene reports."""
-        identity = client.identity
-        return ClientDetails(
-            label=self._label(connection_id),
-            connection_id=client.connection_id,
-            kind=identity.kind if identity is not None else "unidentified",
-            name=identity.name if identity is not None else _UNNAMED,
-            repo=identity.repo if identity is not None else None,
-            agent=identity.agent if identity is not None else None,
-            connected_seconds=client.connected_seconds,
-            lease=client.lease,
-            subscribed_topics=tuple(client.subscribed_topics),
-            owned_scenes=tuple(client.owned_scenes),
-        )
+    def _named(self, connection_id: ConnectionId) -> NamedSession | None:
+        """Take one read of the roster and what it says about this connection.
 
-    def _label(self, connection_id: ConnectionId) -> str:
-        """The name the menu calls this client, so the frame agrees with the menu.
-
-        Read from the same registry read the menu is composed from. A client whose
-        entry the user just clicked is always in it; the fallback covers the click
-        that arrives after its client has gone.
+        The read the menu is composed from, so the frame and the bar agree, and it
+        yields both answers at once — whether the Hub still holds this client, and
+        what it calls it. ``None`` is the departed client: the connection held no
+        session at that instant, this read possibly being what swept it.
         """
-        return self._clients.named_sessions().name_of(connection_id, _UNNAMED)
+        live = self._clients.named_sessions()
+        session = live.sessions.get(connection_id)
+        name = live.name_of(connection_id, _UNNAMED)
+        return None if session is None else NamedSession(connection_id, name, session)
+
+    def _shown(self, named: NamedSession) -> SceneShown | OpError:
+        """Install this client's details as the scene that client owns."""
+        scene = DetailsScene(self._queries.client_facts(named), named.name)
+        return self._installer.install(scene.submission(), owner=named.connection_id)
 
     @staticmethod
-    def _scene_id(connection_id: ConnectionId) -> str:
-        """The scene one client's details are always shown in."""
-        return f"{_SCENE_PREFIX}.{connection_id}"
-
-    @classmethod
-    def _presentation(
-        cls, connection_id: ConnectionId, label: str
-    ) -> ScenePresentation:
-        """Show the details in their own frame, titled for the client they describe."""
-        scene_id = cls._scene_id(connection_id)
-        return ScenePresentation(
-            frame_id=scene_id,
-            title=f"{label} — client details",
-            frame_title=f"{label} — client details",
-            frame_size=(560, 340),
+    def _no_client(connection_id: ConnectionId) -> OpError:
+        """Say the Hub holds no session for that connection, so nothing was shown."""
+        return OpError(
+            code="not_found", reason=f"no client is connected as {connection_id!s}"
         )

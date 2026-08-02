@@ -1,12 +1,11 @@
 """NamedSessions — the live sessions and the menu name each one holds, read as one.
 
-Who is live and what each one is called are two halves of a single answer, and
-this is the value that keeps them together. The registry builds it inside its own
-critical section, from its own store, so the sessions and the names it carries
-were true at one instant. Anything that reads them separately — a menu composed
-from one read and labelled from another — can show a client the other read has
-already retired, which is how a menu entry and a details frame come to disagree
-about which client is ``lux (2)``.
+Who is live and what each is called are two halves of one answer, and this is the
+value that keeps them together. The registry builds it inside its own critical
+section, from its own store, so both were true at one instant. Reading them
+separately — a menu composed from one read and labelled from another — can show a
+client the other read has already retired, which is how a menu entry and a
+details frame come to disagree about which client is ``lux (2)``.
 
 Only identified sessions are named: an anonymous session contributes nothing to
 the bar and takes no place in the numbering.
@@ -60,6 +59,11 @@ class NamedSession:
         """The commands this client registered, in registration order."""
         return self._session.callbacks
 
+    @property
+    def session(self) -> ClientSession:
+        """The session as it stood at this read — what the Details facts come from."""
+        return self._session
+
 
 @final
 class NamedSessions:
@@ -89,9 +93,7 @@ class NamedSessions:
         rather than a copy of it that some other reader has already moved past.
         """
         identities = {
-            connection_id: session.identity
-            for connection_id, session in sessions.items()
-            if session.identity is not None
+            cid: s.identity for cid, s in sessions.items() if s.identity is not None
         }
         return cls(dict(sessions), roster.names_for(identities))
 
@@ -101,11 +103,7 @@ class NamedSessions:
         return self._sessions
 
     def name_of(self, connection_id: ConnectionId, fallback: str) -> str:
-        """What the menu calls *connection_id*, or *fallback* when it holds no name.
-
-        A connection is unnamed when it never declared an identity, or when it has
-        gone since — a click can outlive the client whose entry it came from.
-        """
+        """What the menu calls *connection_id*, or *fallback* if it holds no name."""
         return self._names.get(connection_id, fallback)
 
     def commanding(self) -> Iterator[NamedSession]:

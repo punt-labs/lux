@@ -22,7 +22,7 @@ from punt_lux.domain.hub.details_outcome import DetailsRefused, DetailsShown
 from punt_lux.operations.client_details import ClientDetailsOperations
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.queries import QueryOperations
-from punt_lux.operations.scenes import SceneOperations
+from punt_lux.operations.scene_installer import SceneInstaller
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.details_outcome import DetailsOutcome
@@ -60,7 +60,7 @@ class ClientDetailsPort:
         return cls(
             ClientDetailsOperations(
                 QueryOperations(display, hub, ports.display_port),
-                SceneOperations(display, replicator, ports.element_factory),
+                SceneInstaller(display, replicator),
                 display.clients,
             )
         )
