@@ -15,10 +15,23 @@ connection is gone.
 Nothing has to tell the roster a client left. Every read hands it the connections
 that are live, and assignments for connections not in that set are dropped, so a
 name is released by the same read that stops asking for it.
+
+Three threads reach this state: the replicator worker composing a send, an MCP or
+REST thread answering ``list_menus``, and the socket thread dispatching a click
+that asks what a client is called. Each read both assigns and releases, so an
+unguarded roster could hand one name to two connections, or drop a name a
+concurrent read had just assigned. The lock here is the roster's own and is a
+*leaf*: the only thing called under it is an identity's ``menu_label``, a pure
+read of a frozen value that takes no lock of its own — no registry, no store, no
+client — and nothing calls into the roster while holding the registry's lock,
+because the registry only hands the roster out. A lock that acquires no other
+lock under itself cannot take part in a cycle, so there is no deadlock to check
+for.
 """
 
 from __future__ import annotations
 
+import threading
 from itertools import count
 from typing import TYPE_CHECKING, Self, final
 
@@ -36,11 +49,13 @@ class ClientRoster:
     """The menu name each live connection holds, stable for its lifetime."""
 
     _names: dict[ConnectionId, str]
-    __slots__ = ("_names",)
+    _lock: threading.Lock
+    __slots__ = ("_lock", "_names")
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
         self._names = {}
+        self._lock = threading.Lock()
         return self
 
     def names_for(
@@ -52,25 +67,35 @@ class ClientRoster:
         its identity reads as, numbered past whatever is already held. Connections
         absent from *identities* have gone, and their names are released here.
 
+        Releasing, assigning, and reading back are one critical section. Two
+        threads composing a menu at once would otherwise interleave between the
+        release and the assignment — one dropping a name the other had just
+        given out, or both handing the same unheld name to different connections.
+
         The order of *identities* decides who gets the unnumbered name when two
         arrive together; the registry hands them over in connection order, so the
         client that connected first is the plain ``lux``.
         """
-        self._release_departed(identities)
-        for connection_id, identity in identities.items():
-            if connection_id not in self._names:
-                self._names[connection_id] = self._unheld(identity.menu_label)
-        return {
-            connection_id: self._names[connection_id] for connection_id in identities
-        }
+        with self._lock:
+            self._release_departed(identities)
+            for connection_id, identity in identities.items():
+                if connection_id not in self._names:
+                    self._names[connection_id] = self._unheld(identity.menu_label)
+            return {
+                connection_id: self._names[connection_id]
+                for connection_id in identities
+            }
 
     def held(self) -> dict[ConnectionId, str]:
         """The names held right now, as the last read assigned them.
 
         A read, never an assignment: what the menu last showed is what anything
         naming a client afterwards — a details frame, a log line — must call it.
+        Taken under the lock, so a click asking what a client is called never
+        reads the roster halfway through another thread's assignment.
         """
-        return dict(self._names)
+        with self._lock:
+            return dict(self._names)
 
     def _release_departed(
         self, identities: Mapping[ConnectionId, ClientIdentity]
