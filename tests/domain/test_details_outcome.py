@@ -1,8 +1,10 @@
 """What became of a Details click, and what each outcome says for itself.
 
-A frame on screen is its own report; a refusal paints nothing at all, so the log
-is the only place it can show. The two are two classes so the dispatch tells the
-outcome to report itself instead of asking which one it is.
+A frame on screen is its own report; the two outcomes that paint nothing have
+the log as the only place they can show, and they show different things — one
+knows the Hub holds no session, the other only that nothing was bound to ask.
+They are three classes so the dispatch tells the outcome to report itself
+instead of asking which one it is, and so one click can never leave two lines.
 """
 
 from __future__ import annotations
