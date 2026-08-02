@@ -8,12 +8,12 @@ handlers carry the two halves:
 - ``RecordingClickHandler`` — the view half. It counts fires so the
   harness can assert the UI-handler mechanism (D21) ran, and ran exactly
   once, independently of pub-sub.
-- ``PublishingHandler`` — the business half for scenarios that announce a
-  **non-empty payload**. The ``publish`` wire sugar only ever fires an
-  empty payload (the PR-4 default), so a scenario that needs I3's payload
-  assertion to have teeth wires this handler instead: a real Hub-side
-  handler that publishes ``payload`` to ``topic`` through the production
-  ``HubPublishSink`` → ``hub.publish``.
+- ``PublishingHandler`` — the business half for scenarios announcing a
+  payload of the app's own design. The wire ``publish`` declaration sends
+  the interaction (its kind, scene, element, and fields); an app that wants
+  to announce something else — a ticket id, a domain command — wires this
+  handler instead: a real Hub-side handler that publishes ``payload`` to
+  ``topic`` through the production ``HubPublishSink`` → ``hub.publish``.
 
 Both are serializable classes (not closures) because the Hub's
 authoritative element tree crosses the wire to build the Display replica;
@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Self
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from punt_lux.domain.handlers.decorators import PublishSink
+    from punt_lux.domain.handlers.publish_sink import PublishSink
 
 __all__ = ["PublishingHandler", "RecordingClickHandler"]
 
@@ -73,14 +73,15 @@ class RecordingClickHandler:
 
 
 class PublishingHandler:
-    """Publish a non-empty ``payload`` to ``topic`` when the Hub fires it.
+    """Publish an app-authored ``payload`` to ``topic`` when the Hub fires it.
 
     A real Hub-side handler: on each fire it calls the production
     ``PublishSink`` (a ``HubPublishSink`` bound to the owning connection),
     which reaches ``hub.publish`` and fans the payload out to that
     connection's subscribers. This is target.md's "a Hub-side handler may
-    publish an application event" — the mechanism the ``publish`` wire
-    sugar cannot cover because the sugar's payload is always empty.
+    publish an application event" — an announcement in the app's own terms,
+    which the wire ``publish`` declaration cannot make because what it sends
+    is the interaction.
     """
 
     _sink: PublishSink
