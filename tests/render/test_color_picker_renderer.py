@@ -1,7 +1,7 @@
 """ColorPickerRenderer + the shared ContinuousEditArbiter under the commit-echo rule.
 
 The pure honour-or-defer decision is tested here without imgui, driving the
-shared ``ContinuousEditArbiter`` with a ``ColorValueAccessor``; the renderer
+shared ``ContinuousEditArbiter`` with an ``RgbaBuffer``; the renderer
 paint-seam tests drive a scripted fake imgui. The picker
 carries an arity-4 RGBA ``tuple`` where ``slider`` carries a ``float`` and
 ``input_text`` a ``str``; the reconciliation logic is identical, so the
@@ -31,9 +31,6 @@ from imgui_bundle import ImVec2, imgui
 from punt_lux.display.renderers import color_picker_renderer
 from punt_lux.display.renderers.color_picker_renderer import ColorPickerRenderer
 from punt_lux.display.renderers.imgui import color_channel_strip, full_color_picker
-from punt_lux.display.renderers.imgui.continuous_edit_accessors import (
-    ColorValueAccessor,
-)
 from punt_lux.display.renderers.imgui.continuous_edit_selection import (
     ContinuousEditArbiter,
 )
@@ -51,7 +48,7 @@ _GREY: Rgba = (0.5, 0.5, 0.5, 1.0)
 
 def _arb(state: WidgetState, element_id: str) -> ContinuousEditArbiter[Rgba]:
     """Build the shared arbiter with the color picker's RGBA accessor."""
-    return ContinuousEditArbiter(state, element_id, ColorValueAccessor())
+    return ContinuousEditArbiter(state, element_id, RgbaBuffer())
 
 
 # -- the arbiter: the pure honour-or-defer decision ------------------------
@@ -203,7 +200,7 @@ class _SeedOnceArbiter:
     def resolve(self, hub_value: Rgba) -> Rgba:
         if self._state.get(self._key) is None:
             self._state.set(self._key, hub_value)
-        return RgbaBuffer.read(self._state, self._key, hub_value)
+        return RgbaBuffer().read(self._state, self._key, hub_value)
 
 
 class TestArbiterFidelity:

@@ -1,20 +1,19 @@
-"""The three carrier-typed value accessors for ContinuousEditArbiter.
+"""The scalar carrier-typed value accessors for ContinuousEditArbiter.
 
-Each ``@final`` leaf is the whole per-type difference between a text, float, and
-RGBA widget: the buffer ``read`` (with its miss policy) and committed ``coerce``
-the arbiter delegates. Each satisfies ``ValueAccessor`` structurally, no base
-class. The RGBA pair is a delegation — its shape rules live in ``RgbaBuffer``.
+Each ``@final`` leaf is the whole per-type difference between a text and a float
+widget: the buffer ``read`` (with its miss policy) and committed ``coerce`` the
+arbiter delegates. Each satisfies ``ValueAccessor`` structurally, no base class.
+The color_picker's accessor is ``RgbaBuffer`` — its buffer has a shape, which
+takes a module.
 """
 
 from __future__ import annotations
 
 from typing import SupportsFloat, cast, final
 
-from punt_lux.protocol.elements.rgba_color import Rgba
-from punt_lux.scene.rgba_buffer import RgbaBuffer
 from punt_lux.scene.widget_state import WidgetState
 
-__all__ = ["ColorValueAccessor", "FloatValueAccessor", "StrValueAccessor"]
+__all__ = ["FloatValueAccessor", "StrValueAccessor"]
 
 
 @final
@@ -49,18 +48,3 @@ class FloatValueAccessor:
     def coerce(self, stored: object) -> float:
         """Coerce a stored committed value to ``float``; the slot holds a float."""
         return float(cast("SupportsFloat", stored))
-
-
-@final
-class ColorValueAccessor:
-    """Value accessor for color_picker — arity-4 RGBA tuple; a miss reads hub_value."""
-
-    __slots__ = ()
-
-    def read(self, state: WidgetState, key: str, hub_value: Rgba) -> Rgba:
-        """Return the buffer tuple; a miss falls back to the current Hub color."""
-        return RgbaBuffer.read(state, key, hub_value)
-
-    def coerce(self, stored: object) -> Rgba:
-        """Coerce a stored committed value to an arity-4 RGBA tuple."""
-        return RgbaBuffer.coerce(stored)

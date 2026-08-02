@@ -1,10 +1,11 @@
-"""The color picker's buffer policy — reading a stored RGBA edit back out.
+"""RgbaBuffer — the color picker's value accessor for ContinuousEditArbiter.
 
-A color picker's in-progress edit lives in ``WidgetState`` like any other
-continuous edit, but unlike a text or float buffer its stored value has a shape:
-three or four finite channels. Reading it back means answering what a malformed
-or absent slot resolves to, and that question belongs here rather than on the
-generic store, which has no business knowing what an RGBA tuple looks like.
+The sibling accessors for text and float are a line each and live together in
+``continuous_edit_accessors``; this one is a module because its buffer has a
+*shape*. A color picker's in-progress edit lives in ``WidgetState`` like any
+other continuous edit, but reading it back means answering what three or four
+channels, a malformed slot, or an absent one resolve to — and that is not
+something the generic key-value store has any business knowing.
 
 The read is deliberately lenient where ``RgbaColor.coerce`` is strict. ``coerce``
 is the commit path, where a bad value is a bug worth raising on; ``read`` is the
@@ -30,25 +31,22 @@ __all__ = ["RgbaBuffer"]
 
 @final
 class RgbaBuffer:
-    """Read and coerce a color picker's stored RGBA edit."""
+    """Value accessor for color_picker — arity-4 RGBA; a miss reads hub_value."""
 
     __slots__ = ()
 
-    @classmethod
-    def read(cls, state: WidgetState, key: str, default: Rgba) -> Rgba:
-        """Return the stored buffer as arity-4 RGBA, or ``default``.
+    def read(self, state: WidgetState, key: str, hub_value: Rgba) -> Rgba:
+        """Return the buffer tuple; a miss falls back to the current Hub color.
 
-        A miss falls back to the caller's default (the current Hub color), and so
-        does a stored value that is not three or four finite non-bool numbers.
-        The return is always arity 4 — a length-3 tuple pads its alpha to opaque
-        — because tuple equality needs a fixed arity.
+        A stored value that is not three or four finite non-bool numbers is a
+        miss too. The return is always arity 4 — a length-3 tuple pads its alpha
+        to opaque — because tuple equality needs a fixed arity.
         """
-        stored = cls._as_rgba4(state.get(key))
-        return stored if stored is not None else default
+        stored = self._as_rgba4(state.get(key))
+        return stored if stored is not None else hub_value
 
-    @staticmethod
-    def coerce(stored: object) -> Rgba:
-        """Return a committed value as arity-4 RGBA — the ``resolve`` return cast."""
+    def coerce(self, stored: object) -> Rgba:
+        """Coerce a stored committed value to an arity-4 RGBA tuple."""
         return RgbaColor.coerce(stored)
 
     @staticmethod

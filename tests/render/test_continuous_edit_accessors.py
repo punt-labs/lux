@@ -10,11 +10,11 @@ state), while ``slider``/``color_picker`` fall back to the current Hub value.
 from __future__ import annotations
 
 from punt_lux.display.renderers.imgui.continuous_edit_accessors import (
-    ColorValueAccessor,
     FloatValueAccessor,
     StrValueAccessor,
 )
 from punt_lux.display.renderers.imgui.continuous_edit_selection import ValueAccessor
+from punt_lux.scene.rgba_buffer import RgbaBuffer
 from punt_lux.scene.widget_state import WidgetState
 
 _HUB: tuple[float, float, float, float] = (0.1, 0.2, 0.3, 1.0)
@@ -25,7 +25,7 @@ class TestValueAccessorProtocol:
         # PY-TS-6: the family contract is a runtime_checkable Protocol, not a base.
         assert isinstance(StrValueAccessor(), ValueAccessor)
         assert isinstance(FloatValueAccessor(), ValueAccessor)
-        assert isinstance(ColorValueAccessor(), ValueAccessor)
+        assert isinstance(RgbaBuffer(), ValueAccessor)
 
 
 class TestStrValueAccessor:
@@ -60,15 +60,15 @@ class TestFloatValueAccessor:
         assert isinstance(FloatValueAccessor().coerce(7), float)
 
 
-class TestColorValueAccessor:
+class TestRgbaBuffer:
     def test_read_returns_the_stored_buffer_normalized_to_arity_four(self) -> None:
         ws = WidgetState()
         ws.set("k", (0.5, 0.6, 0.7))
-        result = ColorValueAccessor().read(ws, "k", hub_value=_HUB)
+        result = RgbaBuffer().read(ws, "k", hub_value=_HUB)
         assert result == (0.5, 0.6, 0.7, 1.0)
 
     def test_read_miss_falls_back_to_hub_value(self) -> None:
-        assert ColorValueAccessor().read(WidgetState(), "k", hub_value=_HUB) == _HUB
+        assert RgbaBuffer().read(WidgetState(), "k", hub_value=_HUB) == _HUB
 
     def test_coerce_parses_a_stored_tuple(self) -> None:
-        assert ColorValueAccessor().coerce((1.0, 0.0, 0.0, 1.0)) == (1.0, 0.0, 0.0, 1.0)
+        assert RgbaBuffer().coerce((1.0, 0.0, 0.0, 1.0)) == (1.0, 0.0, 0.0, 1.0)
