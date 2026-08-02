@@ -215,12 +215,9 @@ class SceneManager:
         scroll, in-progress text) — only the departed elements' state is discarded.
         The event drain is survivor-aware: an id this scene dropped is drained only
         when no other framed scene holds it, so replacing one scene never cancels
-        another's still-valid queued events. The per-render-session slots reset
-        because this push carries the Hub's current answer: a surviving tab bar
-        re-honours the Hub active tab rather than firing a spurious
-        ``TabChanged`` off a stale value, and a surviving collapsing header drops
-        the open state it was optimistically showing and renders what the Hub
-        now says.
+        another's still-valid queued events. Survivors' per-render-session slots
+        reset because this push carries the Hub's current answer, which
+        supersedes whatever each was arbitrating against.
         """
         if old_scene is None:
             return

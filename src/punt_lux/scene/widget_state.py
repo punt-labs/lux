@@ -145,20 +145,16 @@ class WidgetState:
         self._state.pop(element_id, None)
 
     def discard_for(self, element_id: str) -> None:
-        """Discard a removed element's key, dialog latches, and interactive slots.
+        """Discard a removed element's key and every per-element slot beside it.
 
-        Each key is built from the id, never a substring match, so a survivor
-        like ``btn_ok`` is never wiped. Clearing the dialog latches lets a
-        re-added same-id dialog reopen; clearing the tab-bar slots lets a
-        re-added tab bar re-honour the Hub active tab; clearing the header's
-        optimistic open flag lets a re-added collapsing header show the Hub's
-        declared state instead of a departed header's in-flight toggle; clearing
-        the shared continuous-edit buffer and commit-echo quad lets a re-added
-        input_text, slider, or color_picker honour its fresh value instead of an
-        earlier commit's optimistic echo; clearing the table selection bridge lets a
-        re-added table honour its fresh selection instead of a stale pending set;
-        clearing the split ratio lets a re-added split pane honour its fresh
-        default proportion instead of a departed scene's dragged divider.
+        Each key is composed from the id, never a substring match, so a survivor
+        like ``btn_ok`` is never wiped. Every slot goes, for one reason: a
+        re-added same-id element must start from what the Hub declares for it,
+        never from what its predecessor left behind. So a dialog reopens, a tab
+        bar re-honours the Hub active tab, a header shows the declared open
+        state, a continuous edit honours its fresh value rather than an earlier
+        commit's echo, a table its fresh selection, and a split pane its default
+        proportion rather than a departed scene's dragged divider.
         """
         if not element_id:
             return
@@ -181,14 +177,12 @@ class WidgetState:
     def reset_session_slots(self) -> None:
         """Discard every per-render-session slot, keeping durable user state.
 
-        A re-push carries the Hub's current answer, so it restarts the render
-        session of every widget that was arbitrating against a stale one. A tab
-        bar forgets the tab it last force-selected and the tab it last fired
-        for, so the next frame re-honours the Hub selection instead of firing a
-        spurious ``TabChanged``. A collapsing header forgets the open state it
-        was optimistically showing, so the next frame renders the Hub's value —
-        which is how a toggle the Hub rejects pulls the display back rather than
-        stranding it. Selection, scroll, and text survive.
+        A re-push carries the Hub's answer, so every widget that was arbitrating
+        against a stale one restarts: a tab bar re-honours the Hub selection
+        instead of firing a spurious ``TabChanged``, and a collapsing header
+        renders the Hub's open state — which is how a toggle the Hub rejects
+        pulls the display back rather than stranding it. Selection, scroll, and
+        text survive.
         """
         self._state = {
             key: value
