@@ -1,7 +1,7 @@
 """The callback-menu wire message — the Hub-composed session-callback bar.
 
 Kept in its own module so the display-configuration ``menu`` module stays small:
-this is the one carrier for the session-then-callback tree the callback model
+this is the one carrier for the ``Clients`` tree the callback model
 introduces, owning its own codec, while ``menu`` imports it, re-exports it, and
 registers its codec alongside the agent-bar and theme messages.
 """
@@ -16,7 +16,7 @@ __all__ = ["CallbackMenuMessage"]
 
 @dataclass(frozen=True, slots=True)
 class CallbackMenuMessage:
-    """Replace the session-then-callback submenus the display renders.
+    """Replace the Clients menu the display renders.
 
     The Hub composes one submenu per live session (``{label, items: [{label,
     id}]}``) from the session registry — it owns the grouping because it owns the

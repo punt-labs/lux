@@ -32,7 +32,7 @@ __all__ = [
 
 @runtime_checkable
 class CallbackMenuReader(Protocol):
-    """The live session-then-callback submenus, read fresh at send time.
+    """The live ``Clients`` menu, read fresh at send time.
 
     Composed from the session registry, so whatever sessions are in lease when the
     send runs is what the display renders — the same read-at-send discipline the
@@ -40,7 +40,7 @@ class CallbackMenuReader(Protocol):
     """
 
     def callback_menu_wire(self) -> list[dict[str, object]]:
-        """Return the uniform session-then-callback submenus as wire payloads."""
+        """Return the uniform ``Clients`` menu as wire payloads."""
         ...
 
 
@@ -64,14 +64,14 @@ class DisplaySender(ScenePusher, Protocol):
 
     Extends ``ScenePusher`` (``show_async``) with the two menu writes so the
     replicator is the sole writer of the menu state: ``set_menu`` for the agent
-    menu bar and ``set_callback_menus`` for the session-then-callback submenus.
+    menu bar and ``set_callback_menus`` for the ``Clients`` menu.
     """
 
     def set_menu(self, menus: list[dict[str, object]]) -> None:
         """Replace the display's agent menu bar with the given wire menus."""
 
     def set_callback_menus(self, submenus: list[dict[str, object]]) -> None:
-        """Replace the display's session-then-callback submenus."""
+        """Replace the display's Clients menu."""
 
 
 @runtime_checkable

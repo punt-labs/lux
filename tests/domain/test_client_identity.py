@@ -24,11 +24,16 @@ def test_headless_identity_has_no_repo_or_agent() -> None:
     identity = ClientIdentity(kind="cli", name="lux-cli")
     assert identity.repo is None
     assert identity.agent is None
-    assert not identity.has_repo
 
 
-def test_repo_present_reports_has_repo() -> None:
-    assert ClientIdentity(kind="cli", name="lux", repo="/w/lux").has_repo
+def test_a_client_is_named_for_the_repository_it_works_in() -> None:
+    """The menu calls a client after where it works, not what it declared."""
+    identity = ClientIdentity(kind="applet", name="lux · lux · #4b97", repo="/w/lux")
+    assert identity.menu_label == "lux"
+
+
+def test_a_client_with_no_repository_is_named_for_itself() -> None:
+    assert ClientIdentity(kind="app", name="voxd").menu_label == "voxd"
 
 
 def test_bad_kind_is_rejected_by_name() -> None:

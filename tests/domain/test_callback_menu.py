@@ -1,9 +1,11 @@
-"""CallbackMenu — the uniform session-then-callback menu build.
+"""CallbackMenu — the uniform ``Clients ▸ <client> ▸ <command>`` menu build.
 
-One submenu per identified live session that has callbacks, labeled with the
-session's name, callbacks as leaves — the same shape whatever the count, and two
-sessions never merged. Unidentified sessions and sessions with no callbacks
-contribute nothing, and each leaf id round-trips a click back to its session.
+One ``Clients`` menu holds one submenu per identified live client that has
+callbacks, named by the roster, that client's commands as the leaves, and the
+Hub's own ``Details`` at the foot. The rule is the same for every kind of client
+and every count, and two clients are never merged. Unidentified clients and
+clients with no callbacks contribute nothing, and each leaf id round-trips a
+click to whoever owns it — the client, or the Hub for ``Details``.
 """
 
 from __future__ import annotations
@@ -11,22 +13,28 @@ from __future__ import annotations
 from typing import final
 
 from punt_lux.domain.hub.callback_menu import CallbackMenu
-from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.domain.hub.client_identity import ClientIdentity, ClientKind
+from punt_lux.domain.hub.client_roster import ClientRoster
 from punt_lux.domain.hub.client_session import ClientSession
-from punt_lux.domain.hub.menu_models import Menu, MenuAction
+from punt_lux.domain.hub.menu_models import Menu, MenuAction, MenuSeparator
 from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
 from punt_lux.domain.ids import ConnectionId
 
 
 @final
 class _SilentLeg:
-    """A listen leg stand-in: the menu needs a session to hold one, not to push."""
+    """A listen leg stand-in: the menu needs a client to hold one, not to push."""
 
     def wake(self) -> None:
         """No delivery here — these tests are about what the bar shows."""
 
 
-def _session(name: str, repo: str | None, *callbacks: SessionCallback) -> ClientSession:
+def _session(
+    name: str,
+    repo: str | None,
+    *callbacks: SessionCallback,
+    kind: ClientKind = "mcp-session",
+) -> ClientSession:
     """Build an identified session holding a leg and the callbacks it registered.
 
     The leg comes first because taking the slot clears what its last occupant
@@ -34,7 +42,7 @@ def _session(name: str, repo: str | None, *callbacks: SessionCallback) -> Client
     """
     session = (
         ClientSession(0.0)
-        .with_identity(ClientIdentity(kind="mcp-session", name=name, repo=repo))
+        .with_identity(ClientIdentity(kind=kind, name=name, repo=repo))
         .attached(_SilentLeg())
     )
     for callback in callbacks:
@@ -46,136 +54,316 @@ def _beads() -> SessionCallback:
     return SessionCallback(id="beads", label="Beads")
 
 
-def test_a_one_callback_session_is_a_single_leaf_submenu() -> None:
-    conn = ConnectionId("vox")
-    menus = CallbackMenu.from_sessions({conn: _session("vox", "/w/vox", _beads())})
-    assert len(menus) == 1
-    submenu = menus[0]
-    assert submenu.label == "vox"
-    assert submenu.items == [
-        MenuAction(id=CallbackInvocation(conn, "beads").menu_id, label="Beads")
+def _menus(*sessions: tuple[str, ClientSession], roster: ClientRoster | None = None):
+    """Compose the menu for the given connections, in the order they connected."""
+    live = {ConnectionId(name): session for name, session in sessions}
+    return CallbackMenu.from_sessions(live, roster or ClientRoster())
+
+
+def _clients_menu(menus: list[Menu]) -> Menu:
+    """Return the one ``Clients`` menu, failing loudly when there is not one."""
+    assert [menu.label for menu in menus] == ["Clients"]
+    return menus[0]
+
+
+def _labels_under(menu: Menu) -> list[str]:
+    """Return the labels directly under *menu*, skipping the rule."""
+    return [entry.label for entry in menu.items if not isinstance(entry, MenuSeparator)]
+
+
+def _submenu(menus: list[Menu], label: str) -> Menu:
+    """Return one client's submenu from under ``Clients``."""
+    found = [
+        entry
+        for entry in _clients_menu(menus).items
+        if isinstance(entry, Menu) and entry.label == label
     ]
+    assert len(found) == 1, f"expected one {label!r} submenu, got {len(found)}"
+    return found[0]
 
 
-def test_a_many_callback_session_has_the_same_shape() -> None:
-    conn = ConnectionId("vox")
-    session = _session(
-        "vox",
-        "/w/vox",
-        SessionCallback(id="beads", label="Beads"),
-        SessionCallback(id="build", label="Build"),
-    )
-    menus = CallbackMenu.from_sessions({conn: session})
-    # One submenu, several leaves — no flattening, no count-dependent shape.
-    assert len(menus) == 1
-    labels = [leaf.label for leaf in menus[0].items if isinstance(leaf, MenuAction)]
-    assert labels == ["Beads", "Build"]  # sorted
+class TestTheClientsMenu:
+    """Every client's commands sit under the one ``Clients`` menu."""
+
+    def test_a_one_command_client_is_a_submenu_under_clients(self) -> None:
+        conn = ConnectionId("lux")
+
+        menus = _menus(("lux", _session("claude", "/w/lux", _beads())))
+
+        client = _submenu(menus, "lux")
+        assert _labels_under(client) == ["Beads", "Details"]
+        assert client.items[0] == MenuAction(
+            id=CallbackInvocation(conn, "beads").menu_id, label="Beads"
+        )
+
+    def test_a_many_command_client_has_the_same_shape(self) -> None:
+        session = _session(
+            "claude",
+            "/w/lux",
+            SessionCallback(id="beads", label="Beads"),
+            SessionCallback(id="build", label="Build"),
+        )
+
+        menus = _menus(("lux", session))
+
+        # One Clients menu, one submenu in it, several leaves — no flattening
+        # and no count-dependent shape.
+        assert len(_clients_menu(menus).items) == 1
+        assert _labels_under(_submenu(menus, "lux")) == ["Beads", "Build", "Details"]
+
+    def test_a_leaf_is_named_for_the_command_alone(self) -> None:
+        """The hierarchy disambiguates, so the leaf label carries nothing else."""
+        menus = _menus(("s", _session("lux · lux · #4b97", "/w/lux", _beads())))
+
+        assert _labels_under(_submenu(menus, "lux")) == ["Beads", "Details"]
+
+    def test_two_clients_are_two_submenus_under_the_one_menu(self) -> None:
+        vox, lux = ConnectionId("vox"), ConnectionId("lux")
+
+        menus = _menus(
+            ("vox", _session("claude", "/w/vox", _beads())),
+            ("lux", _session("claude", "/w/lux", _beads())),
+        )
+
+        assert _labels_under(_clients_menu(menus)) == ["lux", "vox"]
+        # The leaf ids carry their own connection, so a click routes correctly.
+        assert _submenu(menus, "lux").items[0] == MenuAction(
+            id=CallbackInvocation(lux, "beads").menu_id, label="Beads"
+        )
+        assert _submenu(menus, "vox").items[0] == MenuAction(
+            id=CallbackInvocation(vox, "beads").menu_id, label="Beads"
+        )
+
+    def test_submenus_are_ordered_by_label(self) -> None:
+        menus = _menus(
+            ("q", _session("claude", "/w/quarry", _beads())),
+            ("l", _session("claude", "/w/lux", _beads())),
+        )
+
+        assert _labels_under(_clients_menu(menus)) == ["lux", "quarry"]
+
+    def test_no_client_means_no_clients_menu(self) -> None:
+        assert CallbackMenu.from_sessions({}, ClientRoster()) == []
 
 
-def test_two_sessions_with_the_same_callback_are_never_merged() -> None:
-    """Two sessions are two submenus even when they chose the same name.
+class TestEveryKindIsAClient:
+    """A daemon and a session are both clients and read the same way."""
 
-    The label is the name and nothing else, so a client that wants to be told
-    apart says so in its name — which is why a session server names itself
-    ``lux · <repository> · #<process>``. Two that do not are still two entries,
-    routing to their own sessions; they simply read alike.
-    """
-    vox, lux = ConnectionId("vox"), ConnectionId("lux")
-    menus = CallbackMenu.from_sessions(
-        {
-            vox: _session("claude", "/w/vox", _beads()),
-            lux: _session("claude", "/w/lux", _beads()),
-        }
-    )
-    assert len(menus) == 2
-    assert [menu.label for menu in menus] == ["claude", "claude"]
-    # The leaf ids carry their own session, so a click routes to the right one.
-    leaf_ids = {
-        menu.items[0].id for menu in menus if isinstance(menu.items[0], MenuAction)
-    }
-    assert leaf_ids == {
-        CallbackInvocation(vox, "beads").menu_id,
-        CallbackInvocation(lux, "beads").menu_id,
-    }
+    def test_a_machine_wide_daemon_sits_under_clients_like_any_other(self) -> None:
+        voxd = _session(
+            "voxd", None, SessionCallback(id="music", label="Music"), kind="app"
+        )
 
+        menus = _menus(("vox", voxd))
 
-def test_an_unidentified_session_contributes_no_submenu() -> None:
-    # Reachable by push and holding an entry, but it never said who it is.
-    bare = ClientSession(0.0).attached(_SilentLeg()).with_callback(_beads())
-    assert CallbackMenu.from_sessions({ConnectionId("bare"): bare}) == []
+        assert _labels_under(_clients_menu(menus)) == ["voxd"]
+        assert _labels_under(_submenu(menus, "voxd")) == ["Music", "Details"]
+
+    def test_a_daemon_and_a_session_are_two_submenus_of_one_menu(self) -> None:
+        """No species split: one menu, one rule, whatever kind a client is."""
+        voxd = _session(
+            "voxd", None, SessionCallback(id="music", label="Music"), kind="app"
+        )
+
+        menus = _menus(
+            ("vox", voxd),
+            ("lux", _session("lux · lux · #4b97", "/w/lux", _beads(), kind="applet")),
+        )
+
+        assert [menu.label for menu in menus] == ["Clients"]
+        assert _labels_under(_clients_menu(menus)) == ["lux", "voxd"]
 
 
-def test_an_identified_session_with_no_callbacks_contributes_nothing() -> None:
-    session = _session("vox", "/w/vox")  # identified, but registered no callback
-    assert CallbackMenu.from_sessions({ConnectionId("vox"): session}) == []
+class TestWhatANameIs:
+    """A client is called after the place it works, numbered when two collide."""
+
+    def test_a_client_is_named_for_its_repository(self) -> None:
+        """Not for its declared name, which carries a distinctness token."""
+        menus = _menus(
+            (
+                "s",
+                _session(
+                    "lux · lux · #4b97", "/Users/someone/lux", _beads(), kind="applet"
+                ),
+            )
+        )
+
+        assert _labels_under(_clients_menu(menus)) == ["lux"]
+
+    def test_a_client_with_no_repository_is_called_what_it_calls_itself(self) -> None:
+        session = _session("lux-cli", None, _beads(), kind="cli")
+
+        menus = _menus(("cli", session))
+
+        assert _labels_under(_clients_menu(menus)) == ["lux-cli"]
+
+    def test_two_clients_on_one_repository_are_numbered(self) -> None:
+        menus = _menus(
+            ("first", _session("claude", "/w/lux", _beads())),
+            ("second", _session("lux · lux · #4b97", "/w/lux", _beads())),
+        )
+
+        assert _labels_under(_clients_menu(menus)) == ["lux", "lux (2)"]
+
+    def test_a_client_keeps_its_number_when_the_first_one_leaves(self) -> None:
+        """A menu entry that renames itself under the pointer is worse than a gap."""
+        roster = ClientRoster()
+        first = ("first", _session("claude", "/w/lux", _beads()))
+        second = ("second", _session("claude", "/w/lux", _beads()))
+        assert _labels_under(_clients_menu(_menus(first, second, roster=roster))) == [
+            "lux",
+            "lux (2)",
+        ]
+
+        menus = _menus(second, roster=roster)  # the first client's lease lapsed
+
+        assert _labels_under(_clients_menu(menus)) == ["lux (2)"]
+
+    def test_the_name_the_departed_client_held_is_free_for_the_next(self) -> None:
+        roster = ClientRoster()
+        first = ("first", _session("claude", "/w/lux", _beads()))
+        second = ("second", _session("claude", "/w/lux", _beads()))
+        _menus(first, second, roster=roster)
+
+        # The first goes; a newcomer arrives on the repository it named.
+        third = ("third", _session("claude", "/w/lux", _beads()))
+        menus = _menus(second, third, roster=roster)
+
+        assert _labels_under(_clients_menu(menus)) == ["lux", "lux (2)"]
+        assert roster.held()[ConnectionId("second")] == "lux (2)"
+        assert roster.held()[ConnectionId("third")] == "lux"
 
 
-def test_a_headless_session_reads_the_same_as_any_other() -> None:
-    """One rule: the label is the name, whether or not a repository was declared."""
-    session = _session("lux-cli", None, _beads())  # a headless CLI declares no repo
-    menus = CallbackMenu.from_sessions({ConnectionId("cli"): session})
-    assert menus[0].label == "lux-cli"
+class TestTheDetailsCommand:
+    """Every client's submenu carries the Hub's own command, in the same place."""
+
+    def test_details_is_the_last_entry_under_a_rule(self) -> None:
+        menus = _menus(("lux", _session("claude", "/w/lux", _beads())))
+
+        items = _submenu(menus, "lux").items
+        assert isinstance(items[-2], MenuSeparator)
+        assert isinstance(items[-1], MenuAction)
+        assert items[-1].label == "Details"
+
+    def test_a_client_with_only_details_still_shows_the_same_shape(self) -> None:
+        """Details never stands alone: the client registered something to be here."""
+        menus = _menus(("lux", _session("claude", "/w/lux", _beads())))
+
+        assert _labels_under(_submenu(menus, "lux"))[-1] == "Details"
+
+    def test_the_details_id_names_the_hub_not_the_client(self) -> None:
+        conn = ConnectionId("lux")
+        menus = _menus(("lux", _session("claude", "/w/lux", _beads())))
+
+        details = _submenu(menus, "lux").items[-1]
+        assert isinstance(details, MenuAction)
+        invocation = CallbackInvocation.from_menu_id(details.id)
+        assert invocation.connection_id == conn
+        assert invocation.is_details
+
+    def test_a_clients_own_command_is_not_the_details_command(self) -> None:
+        menus = _menus(("lux", _session("claude", "/w/lux", _beads())))
+
+        beads = _submenu(menus, "lux").items[0]
+        assert isinstance(beads, MenuAction)
+        assert not CallbackInvocation.from_menu_id(beads.id).is_details
 
 
-def test_a_session_that_names_its_repository_reads_that_way() -> None:
-    """What a session server declares is what the user sees, with nothing appended."""
-    session = _session("lux · quarry · #2a", "/Users/someone/quarry", _beads())
-    menus = CallbackMenu.from_sessions({ConnectionId("s"): session})
-    assert menus[0].label == "lux · quarry · #2a"
+class TestWhatContributesNothing:
+    """Only a live, named client that registered something reaches the menu."""
+
+    def test_an_unidentified_client_contributes_no_submenu(self) -> None:
+        # Reachable by push and holding an entry, but it never said who it is.
+        bare = ClientSession(0.0).attached(_SilentLeg()).with_callback(_beads())
+
+        assert (
+            CallbackMenu.from_sessions({ConnectionId("bare"): bare}, ClientRoster())
+            == []
+        )
+
+    def test_an_identified_client_with_no_callbacks_contributes_nothing(self) -> None:
+        session = _session("claude", "/w/lux")  # identified, registered no command
+
+        assert _menus(("lux", session)) == []
+
+    def test_a_client_that_takes_no_entry_takes_no_name(self) -> None:
+        roster = ClientRoster()
+        _menus(("lux", _session("claude", "/w/lux")), roster=roster)
+
+        assert roster.held() == {}
 
 
-def test_the_leaf_id_round_trips_to_the_owning_session() -> None:
-    conn = ConnectionId("vox")
-    menus = CallbackMenu.from_sessions({conn: _session("vox", "/w/vox", _beads())})
-    leaf = menus[0].items[0]
-    assert isinstance(leaf, MenuAction)
-    assert CallbackInvocation.from_menu_id(leaf.id) == CallbackInvocation(conn, "beads")
+class TestTheReplica:
+    """What the replicator sends is the composed menu, as wire."""
 
+    def test_replica_nests_a_client_under_clients(self) -> None:
+        from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
+        from punt_lux.domain.hub.hub_clients import HubClientRegistry
 
-def test_submenus_are_ordered_by_label() -> None:
-    menus = CallbackMenu.from_sessions(
-        {
-            ConnectionId("q"): _session("quarry", "/w/quarry", _beads()),
-            ConnectionId("l"): _session("lux", "/w/lux", _beads()),
-        }
-    )
-    assert [menu.label for menu in menus] == ["lux", "quarry"]
+        registry = HubClientRegistry()
+        conn = ConnectionId("lux")
+        leg = _SilentLeg()
+        identity = ClientIdentity(
+            kind="applet", name="lux · lux · #4b97", repo="/w/lux"
+        )
+        registry.attach_listener(conn, identity, leg)
+        registry.register_callback(
+            conn, SessionCallback(id="beads", label="Beads"), leg
+        )
 
+        wire = CallbackMenuReplica(registry).callback_menu_wire()
 
-def test_every_submenu_is_a_menu() -> None:
-    menus = CallbackMenu.from_sessions(
-        {ConnectionId("vox"): _session("vox", "/w/vox", _beads())}
-    )
-    assert all(isinstance(menu, Menu) for menu in menus)
+        assert wire == [
+            {
+                "label": "Clients",
+                "items": [
+                    {
+                        "label": "lux",
+                        "items": [
+                            {
+                                "label": "Beads",
+                                "id": CallbackInvocation(conn, "beads").menu_id,
+                            },
+                            {"label": "---"},
+                            {
+                                "label": "Details",
+                                "id": CallbackInvocation.details(conn).menu_id,
+                            },
+                        ],
+                    }
+                ],
+            }
+        ]
 
+    def test_the_replica_and_the_hub_read_name_a_client_the_same(self) -> None:
+        """One roster: what the display shows and what list_menus reports agree."""
+        from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
+        from punt_lux.domain.hub.hub_clients import HubClientRegistry
 
-def test_replica_returns_the_live_submenus_as_wire() -> None:
-    """CallbackMenuReplica composes the live sessions into wire submenus."""
-    from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
-    from punt_lux.domain.hub.hub_clients import HubClientRegistry
+        registry = HubClientRegistry()
+        beads = SessionCallback(id="beads", label="Beads")
+        for name in ("first", "second"):
+            conn, leg = ConnectionId(name), _SilentLeg()
+            registry.attach_listener(
+                conn, ClientIdentity(kind="mcp-session", name=name, repo="/w/lux"), leg
+            )
+            registry.register_callback(conn, beads, leg)
 
-    registry = HubClientRegistry()
-    conn = ConnectionId("vox")
-    leg = _SilentLeg()
-    registry.attach_listener(conn, ClientIdentity(kind="app", name="voxd"), leg)
-    registry.register_callback(conn, SessionCallback(id="music", label="Music"), leg)
+        wire = CallbackMenuReplica(registry).callback_menu_wire()
+        read = CallbackMenu.from_sessions(registry.live_sessions(), registry.roster)
 
-    wire = CallbackMenuReplica(registry).callback_menu_wire()
+        clients = wire[0]["items"]
+        assert isinstance(clients, list)
+        assert [client["label"] for client in clients] == ["lux", "lux (2)"]
+        assert _labels_under(read[0]) == ["lux", "lux (2)"]
 
-    assert wire == [
-        {
-            "label": "voxd",
-            "items": [
-                {"label": "Music", "id": CallbackInvocation(conn, "music").menu_id}
-            ],
-        }
-    ]
+    def test_replica_is_empty_when_no_client_has_a_callback(self) -> None:
+        from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
+        from punt_lux.domain.hub.hub_clients import HubClientRegistry
 
+        registry = HubClientRegistry()
+        registry.record(
+            ConnectionId("lux"), ClientIdentity(kind="mcp-session", name="lux")
+        )
 
-def test_replica_is_empty_when_no_session_has_a_callback() -> None:
-    from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
-    from punt_lux.domain.hub.hub_clients import HubClientRegistry
-
-    registry = HubClientRegistry()
-    registry.record(ConnectionId("lux"), ClientIdentity(kind="mcp-session", name="lux"))
-    assert CallbackMenuReplica(registry).callback_menu_wire() == []
+        assert CallbackMenuReplica(registry).callback_menu_wire() == []

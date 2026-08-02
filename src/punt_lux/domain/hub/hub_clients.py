@@ -24,6 +24,7 @@ import time
 from operator import attrgetter
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.domain.hub.client_roster import ClientRoster
 from punt_lux.domain.hub.client_session import ClientSession
 from punt_lux.domain.hub.registry_outcomes import (
     CallbackRegistration,
@@ -47,16 +48,23 @@ class HubClientRegistry:
     """The registered Hub sessions, keyed by ``ConnectionId`` to their session."""
 
     _sessions: dict[ConnectionId, ClientSession]
+    _roster: ClientRoster
     _lock: threading.Lock
     _clock: Callable[[], float]
-    __slots__ = ("_clock", "_lock", "_sessions")
+    __slots__ = ("_clock", "_lock", "_roster", "_sessions")
 
     def __new__(cls, clock: Callable[[], float] = time.monotonic) -> Self:
         self = super().__new__(cls)
         self._sessions = {}
+        self._roster = ClientRoster()
         self._lock = threading.Lock()
         self._clock = clock
         return self
+
+    @property
+    def roster(self) -> ClientRoster:
+        """The menu names the live connections hold, one roster for every reader."""
+        return self._roster
 
     def record(
         self, connection_id: ConnectionId, identity: ClientIdentity | None = None

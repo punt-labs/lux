@@ -1,6 +1,6 @@
 """MenuManager — the menu state the Hub replicates and the model it composes.
 
-The manager holds the agent bars and the session-then-callback submenus, and
+The manager holds the agent bars and the Hub-composed Clients menu, and
 composes them with the display's own menus into the one model both surfaces
 render. Clicking an item here drives the real entry the bar would draw, so what
 these tests exercise is what the user gets.

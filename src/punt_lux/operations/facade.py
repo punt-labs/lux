@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.operations.callbacks import CallbackOperations
+from punt_lux.operations.client_details import ClientDetailsOperations
 from punt_lux.operations.config import DisplayModeOperations
 from punt_lux.operations.conveniences import ConvenienceOperations
 from punt_lux.operations.display_control import DisplayControlOperations
@@ -28,6 +29,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.hub import Hub
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.hub.menu_registry import HubMenuRegistry
+    from punt_lux.domain.ids import ConnectionId
     from punt_lux.operations.models import (
         Cleared,
         DisplayModeRequest,
@@ -78,8 +80,10 @@ class Operations:
     _menus: MenuOperations
     _identity: IdentityOperations
     _callbacks: CallbackOperations
+    _client_details: ClientDetailsOperations
     __slots__ = (
         "_callbacks",
+        "_client_details",
         "_config",
         "_conveniences",
         "_display",
@@ -102,6 +106,7 @@ class Operations:
         menus: MenuOperations,
         identity: IdentityOperations,
         callbacks: CallbackOperations,
+        client_details: ClientDetailsOperations,
     ) -> Self:
         self = super().__new__(cls)
         self._scenes = scenes
@@ -113,6 +118,7 @@ class Operations:
         self._menus = menus
         self._identity = identity
         self._callbacks = callbacks
+        self._client_details = client_details
         return self
 
     @classmethod
@@ -135,16 +141,18 @@ class Operations:
         """
         scenes = SceneOperations(display, replicator, ports.element_factory)
         callbacks = CallbackOperations(display.clients, callback_router, replicator)
+        queries = QueryOperations(display, hub, ports.display_port)
         return cls(
             scenes=scenes,
             conveniences=ConvenienceOperations(scenes),
             pubsub=PubSubOperations(hub, ports.ensure_writer, ports.next_event),
             config=DisplayModeOperations(client_registry),
             display=DisplayControlOperations(ports.display_port),
-            queries=QueryOperations(display, hub, ports.display_port),
+            queries=queries,
             menus=MenuOperations(menu_registry, replicator, callbacks),
             identity=IdentityOperations(display),
             callbacks=callbacks,
+            client_details=ClientDetailsOperations(queries, scenes, display.clients),
         )
 
     @Timed("render")
@@ -305,6 +313,11 @@ class Operations:
     ) -> Identified | OpError:
         """Record the caller's declared identity, or reject a malformed one."""
         return self._identity.identify(declaration, scope=scope)
+
+    @Timed("show_client_details")
+    def show_client_details(self, connection_id: ConnectionId) -> SceneShown | OpError:
+        """Show one client's connection state — the Hub's own Details command."""
+        return self._client_details.show_client_details(connection_id)
 
     def drop_session(self) -> None:
         """Re-push the menu after a session departs so its submenu vanishes."""

@@ -22,7 +22,7 @@ from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.inbox import ensure_writer, next_event
-from punt_lux.domain.hub.menu_models import MenuAction
+from punt_lux.domain.hub.menu_models import Menu, MenuAction
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.hub.session_callback import CallbackInvocation
 from punt_lux.domain.ids import ConnectionId
@@ -178,13 +178,15 @@ def test_an_identified_session_registers_and_the_menu_shows_its_entry() -> None:
         )
         assert subscribe_tools.register_callback("beads", "Beads") == "registered:beads"
 
-        # The Hub-authoritative bar the display renders: the session's submenu is
-        # appended after any agent menus, labeled from its identity and repo.
+        # The Hub-authoritative bar the display renders: the one Clients menu is
+        # appended after any agent menus, with this session under it named for
+        # the repository it works in.
         menus = ops.list_menus().menus
-    assert len(menus) == 1
-    assert menus[0].label == "claude"
-    assert len(menus[0].items) == 1
-    leaf = menus[0].items[0]
+    assert [menu.label for menu in menus] == ["Clients"]
+    client = menus[0].items[0]
+    assert isinstance(client, Menu)
+    assert client.label == "lux"
+    leaf = client.items[0]
     assert isinstance(leaf, MenuAction)
     assert leaf.label == "Beads"
     # The leaf carries the routable id a click sends back — registration and the

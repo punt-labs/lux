@@ -15,6 +15,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from punt_lux.domain.hub import client_registry, hub, hub_display
+from punt_lux.domain.hub.details_instance import hub_client_details
 from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.inbox import ensure_writer, next_event
 from punt_lux.domain.hub.replicator_instance import (
@@ -85,6 +86,11 @@ def _build_operations() -> Operations:
 
 # The process-wide operations facade, built once at the composition root.
 OPERATIONS = _build_operations()
+
+# The Hub's own Details command runs on this facade. The click arrives in the
+# domain-layer interaction dispatch, which may not call operations, so the
+# binding is made here where the process is wired.
+hub_client_details.bind(OPERATIONS)
 
 
 def _connection_id() -> ConnectionId:

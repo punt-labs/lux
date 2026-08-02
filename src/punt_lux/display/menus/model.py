@@ -1,9 +1,14 @@
 """The menu model — the one description of the menu the display renders.
 
 A :class:`MenuModel` is the whole menu: the display's own menus, the bars an
-agent submitted with ``set_menu``, and the session-then-callback submenus the
-Hub composes, in that order. Every surface that shows menus renders this one
-object, so no surface can hold a menu another surface does not.
+agent submitted with ``set_menu``, and the ``Clients`` menu the Hub
+composes — one submenu per live client, holding that client's commands — in
+that order. Every surface that shows menus renders
+this one object, so no surface can hold a menu another surface does not.
+
+A menu is a menu at any depth: :class:`Submenu` holds entries, and an entry may
+itself be a :class:`Submenu`, so the Hub's nesting arrives without a second
+type.
 
 ``imgui`` is typed ``Any``: imgui_bundle ships no type stubs.
 """
@@ -32,6 +37,9 @@ type EmitEvent = Callable[[RemoteEventHandlerInvocation], None]
 _SEPARATOR_LABEL = "---"
 _DEFAULT_MENU_LABEL = "Custom"
 
+# The key that makes a wire item a submenu rather than a line.
+_ITEMS_KEY = "items"
+
 
 @final
 class Submenu:
@@ -51,9 +59,9 @@ class Submenu:
     def from_wire(cls, menu: WireMenu, emit: EmitEvent) -> Self:
         """Return the menu a replicated wire payload describes.
 
-        An agent bar and a session-then-callback submenu arrive in the same
-        shape, so both become menus here and a click on either emits the same
-        ``action="menu"`` invocation back to the Hub that owns the item.
+        An agent bar, the ``Clients`` menu, and a client's submenu inside it all
+        arrive in the same shape, so all become menus here and a click on any
+        leaf emits the same ``action="menu"`` invocation back to the Hub.
         """
         label = menu.get("label", _DEFAULT_MENU_LABEL)
         title = label if isinstance(label, str) else _DEFAULT_MENU_LABEL
@@ -93,26 +101,43 @@ class Submenu:
     def _wire_entries(
         cls, menu_label: str, menu: WireMenu, emit: EmitEvent
     ) -> Iterator[MenuEntry]:
-        """Yield one entry per usable wire item, skipping the unlabeled ones."""
+        """Yield one entry per usable wire item, skipping the unlabeled ones.
+
+        An item carrying ``items`` of its own is a submenu and is decoded as one,
+        so a menu the Hub nested — the clients under ``Clients`` — renders as a
+        nested menu here rather than as a line of its parent.
+        """
         for item in menu.get("items", []):
             label = item.get("label")
             if not isinstance(label, str):
                 continue
-            if label == _SEPARATOR_LABEL:
+            if _ITEMS_KEY in item:
+                yield cls.from_wire(item, emit)
+            elif label == _SEPARATOR_LABEL:
                 yield MenuSeparator()
-                continue
-            shortcut = str(item.get("shortcut", ""))
-            enabled = bool(item.get("enabled", True))
-            item_id = item.get("id")
-            if isinstance(item_id, str):
-                yield MenuItem(
-                    label,
-                    cls._invoke(menu_label, label, item_id, emit),
-                    shortcut=shortcut,
-                    enabled=enabled,
-                )
             else:
-                yield MenuItem.inert(label, shortcut=shortcut, enabled=enabled)
+                yield cls._wire_item(menu_label, label, item, emit)
+
+    @classmethod
+    def _wire_item(
+        cls, menu_label: str, label: str, item: WireMenu, emit: EmitEvent
+    ) -> MenuItem:
+        """Return the line a wire item describes, routable only if it carries an id.
+
+        An item the Hub sent no id for still reads as part of the menu; the
+        display never invents an id to send back for it.
+        """
+        shortcut = str(item.get("shortcut", ""))
+        enabled = bool(item.get("enabled", True))
+        item_id = item.get("id")
+        if not isinstance(item_id, str):
+            return MenuItem.inert(label, shortcut=shortcut, enabled=enabled)
+        return MenuItem(
+            label,
+            cls._invoke(menu_label, label, item_id, emit),
+            shortcut=shortcut,
+            enabled=enabled,
+        )
 
     @staticmethod
     def _invoke(

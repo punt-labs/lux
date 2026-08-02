@@ -2,7 +2,7 @@
 
 The menu bar and the World panel are two projections of one :class:`MenuModel`.
 This class holds the menu state the Hub replicates — the agent bars and the
-session-then-callback submenus — composes the model from it alongside the
+Hub-composed ``Clients`` menu — composes the model from it alongside the
 display's own menus, and hands that one model to each surface. An entry can
 therefore never appear on one surface and not the other.
 
@@ -119,7 +119,7 @@ class MenuManager:
 
     @property
     def callback_menus(self) -> list[dict[str, Any]]:
-        """Return the Hub-composed session-then-callback submenus."""
+        """Return the Hub-composed callback menus — the ``Clients`` menu."""
         return self._callback_menus
 
     @callback_menus.setter
@@ -129,7 +129,7 @@ class MenuManager:
     # -- the one model ------------------------------------------------------
 
     def menu_model(self) -> MenuModel:
-        """Compose the menu: the display's own menus, agent bars, then sessions.
+        """Compose the menu: the display's own menus, agent bars, then clients.
 
         Rebuilt each frame, so every item reads live state — the theme in use,
         which frames are minimized, which sessions still hold a callback lease.

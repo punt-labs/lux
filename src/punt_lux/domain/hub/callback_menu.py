@@ -1,113 +1,127 @@
-"""Build the session-then-callback menu from the live Hub sessions.
+"""Build the Clients menu from the live Hub sessions.
 
-The menu nests one way and one way only: one submenu per live session that has
-registered a callback, labeled with that session's name, with its callbacks as the
-leaves under it. This holds whatever the count — a session with one callback is a
-single-leaf submenu, a session with several is a submenu with several leaves — so
-there is no case logic and no count threshold that switches the shape. Two sessions
-are never merged: each is its own submenu.
+The menu nests one way and one way only: ``Clients ▸ <client> ▸ <command>``. One
+``Clients`` menu holds one submenu per live client that registered a callback,
+named for the client, with that client's commands as the leaves under it. The
+rule is uniform — voxd, a session's applet, and an on-demand tool are all clients
+and all read the same way, whatever their kind and however many there are — so
+there is no case logic, no count threshold, and no species split for a user to
+carry. Two clients are never merged: each is its own submenu.
 
-The label is the identity's name and nothing else. A client is what it calls
-itself, not where it happens to sit, and a session that needs its repository read
-out loud puts the repository in its name — which is what an applet does
-(``lux · <repository> · #<process>``). Appending the path here as well would
-duplicate that for a session and hang location noise off an app that has one name
-and one meaning wherever it runs.
+The menu is the live roster made visible. An entry exists exactly while its
+client holds a lease, so the same menu that launches a command also answers who
+is connected.
 
-A leaf's id is the owning session and the callback joined into one wire id
+The hierarchy is what tells clients apart, so the labels stop trying to. A client
+is named for the repository it works in (:attr:`ClientIdentity.menu_label`),
+numbered by the roster when two read the same way, rather than for the
+connection-distinctness token an applet's declared name carries; and a leaf is
+named for the command alone — ``Beads``, not ``lux · lux · #4b97 Beads``.
+
+Every client's submenu carries the Hub's own ``Details`` command below its own
+commands, which reports the state of that connection. The wire identity a label
+no longer shows is not lost — it moves there, where state belongs.
+
+A leaf's id is the owning connection and the callback joined into one wire id
 (:class:`CallbackInvocation`), so a click on the leaf round-trips to exactly the
-session that registered it.
+client that registered it — or, for ``Details``, to the Hub itself.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.menu_models import Menu, MenuAction
-from punt_lux.domain.hub.session_callback import CallbackInvocation
+from punt_lux.domain.hub.client_submenu import ClientSubmenu
+from punt_lux.domain.hub.menu_models import Menu
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Mapping
+    from collections.abc import Iterable, Iterator, Mapping
 
-    from punt_lux.domain.hub.callback_ports import LiveSessions
     from punt_lux.domain.hub.client_identity import ClientIdentity
+    from punt_lux.domain.hub.client_roster import ClientRoster
     from punt_lux.domain.hub.client_session import ClientSession
-    from punt_lux.domain.hub.session_callback import SessionCallback
+    from punt_lux.domain.hub.hub_clients import HubClientRegistry
+    from punt_lux.domain.hub.menu_models import MenuEntry
     from punt_lux.domain.ids import ConnectionId
 
 __all__ = ["CallbackMenu", "CallbackMenuReplica"]
 
-# One qualifying session's parts for a submenu: its connection, its declared
-# identity, and the callbacks it registered — narrowed past the None-identity case.
-_Qualifying = tuple["ConnectionId", "ClientIdentity", "tuple[SessionCallback, ...]"]
+# The one menu every client's commands live under.
+_CLIENTS_LABEL = "Clients"
 
 
 @final
 class CallbackMenu:
-    """Compose the uniform session-then-callback menu from the live sessions."""
+    """Compose ``Clients ▸ <client> ▸ <command>`` from the live sessions."""
 
     __slots__ = ()
 
     @classmethod
     def from_sessions(
-        cls, sessions: Mapping[ConnectionId, ClientSession]
+        cls,
+        sessions: Mapping[ConnectionId, ClientSession],
+        roster: ClientRoster,
     ) -> list[Menu]:
-        """Return one submenu per identified live session that has callbacks.
+        """Return the ``Clients`` menu the live sessions' callbacks contribute.
 
         Sessions without an identity or without any callback contribute nothing —
-        the menu shows only callbacks a live, named session stands behind. Submenus
-        are ordered by label so the bar is stable across reads.
+        the menu shows only commands a live, named client stands behind — and with
+        no such client there is no menu, because the menu is composed from clients
+        rather than kept as an empty fixture. Submenus are ordered by label so the
+        bar is stable across reads.
+
+        The roster is asked for the names of exactly the qualifying clients, so a
+        client that has gone releases its name here and one that is merely
+        unidentified never takes one.
         """
-        submenus = [cls._submenu(*parts) for parts in cls._qualifying(sessions)]
-        return sorted(submenus, key=lambda menu: menu.label)
+        names = roster.names_for(dict(cls._qualifying(sessions)))
+        return cls._clients_menu(
+            ClientSubmenu(connection_id, name, sessions[connection_id].callbacks)
+            for connection_id, name in names.items()
+        )
 
     @staticmethod
     def _qualifying(
         sessions: Mapping[ConnectionId, ClientSession],
-    ) -> Iterator[_Qualifying]:
-        """Yield the parts of each identified session that registered a callback."""
+    ) -> Iterator[tuple[ConnectionId, ClientIdentity]]:
+        """Yield the identity of each session that is named and registered a command."""
         for connection_id, session in sessions.items():
             identity = session.identity
             if identity is not None and session.callbacks:
-                yield connection_id, identity, session.callbacks
-
-    @classmethod
-    def _submenu(
-        cls,
-        connection_id: ConnectionId,
-        identity: ClientIdentity,
-        callbacks: tuple[SessionCallback, ...],
-    ) -> Menu:
-        """Build one session's submenu: its identity label over its callback leaves."""
-        leaves = [cls._leaf(connection_id, callback) for callback in callbacks]
-        ordered: list[MenuAction] = sorted(leaves, key=lambda action: action.label)
-        return Menu(label=identity.name, items=list(ordered))
+                yield connection_id, identity
 
     @staticmethod
-    def _leaf(connection_id: ConnectionId, callback: SessionCallback) -> MenuAction:
-        """Build a callback leaf whose id round-trips a click back to the session."""
-        menu_id = CallbackInvocation(connection_id, callback.id).menu_id
-        return MenuAction(id=menu_id, label=callback.label)
+    def _clients_menu(submenus: Iterable[ClientSubmenu]) -> list[Menu]:
+        """Return the one ``Clients`` menu over *submenus*, or nothing when empty."""
+        ordered = sorted(submenus, key=lambda submenu: submenu.label)
+        if not ordered:
+            return []
+        clients: list[MenuEntry] = [submenu.menu() for submenu in ordered]
+        return [Menu(label=_CLIENTS_LABEL, items=clients)]
 
 
 @final
 class CallbackMenuReplica:
-    """The replicator's read of the live session-then-callback submenus, as wire.
+    """The replicator's read of the live Clients menu, as wire.
 
     Reads the live sessions fresh on each send and composes them through
-    :class:`CallbackMenu`, so the display always receives the sessions in lease at
-    send time — the read-at-send discipline the agent bar uses.
+    :class:`CallbackMenu`, so the display always receives the clients in lease at
+    send time — the read-at-send discipline the agent bar uses. The roster comes
+    from the same registry the Hub's own ``list_menus`` reads, so the two can
+    never disagree about which client is ``lux (2)``.
     """
 
-    _sessions: LiveSessions
-    __slots__ = ("_sessions",)
+    _clients: HubClientRegistry
+    __slots__ = ("_clients",)
 
-    def __new__(cls, sessions: LiveSessions) -> Self:
+    def __new__(cls, clients: HubClientRegistry) -> Self:
         self = super().__new__(cls)
-        self._sessions = sessions
+        self._clients = clients
         return self
 
     def callback_menu_wire(self) -> list[dict[str, object]]:
-        """Return the uniform session-then-callback submenus as wire payloads."""
-        menus = CallbackMenu.from_sessions(self._sessions.live_sessions())
+        """Return the ``Clients`` menu as wire payloads."""
+        menus = CallbackMenu.from_sessions(
+            self._clients.live_sessions(), self._clients.roster
+        )
         return [menu.to_wire() for menu in menus]

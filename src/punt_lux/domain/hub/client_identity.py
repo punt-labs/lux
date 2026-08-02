@@ -106,6 +106,19 @@ class ClientIdentity(BaseModel):
         return value
 
     @property
-    def has_repo(self) -> bool:
-        """Whether this client declared a repository to own its UI under."""
-        return self.repo is not None
+    def menu_label(self) -> str:
+        """The name a human calls this client where a menu has to name it.
+
+        A person names a client after the place it works: *the lux session*,
+        *the quarry session*. So a client that declared a repository is called
+        by that repository's directory, and one that declared none — a headless
+        command, a machine-wide daemon like voxd — is called what it calls
+        itself. One rule for every kind; the roster settles a collision between
+        two clients that read the same way.
+
+        This is deliberately not the declared ``name``: an applet's name carries
+        the process id that keeps two sessions on the same repository from
+        collapsing onto one connection, which is a distinctness token and not
+        something to read aloud.
+        """
+        return PurePath(self.repo).name if self.repo is not None else self.name

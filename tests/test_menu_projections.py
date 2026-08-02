@@ -34,14 +34,50 @@ if TYPE_CHECKING:
 
     from .menu_doubles import MenuLine
 
-# One session that registered one callback, as the Hub replicates it.
-_VOXD_MENU = wire_menu("voxd — vox", [{"label": "Music", "id": "conn-7\x1fmusic"}])
+# One client — voxd, the machine-wide daemon — under the Clients menu, as the
+# Hub replicates it: its own command, a rule, and the Hub's Details command.
+_VOXD_MENU = wire_menu(
+    "Clients",
+    [
+        wire_menu(
+            "voxd",
+            [
+                {"label": "Music", "id": "conn-7\x1fmusic"},
+                {"label": SEPARATOR},
+                {"label": "Details", "id": "conn-7\x1f\x1fdetails"},
+            ],
+        )
+    ],
+)
+# Two clients under the one Clients menu, as the Hub composes them: each with
+# its own command, a rule, and the Hub's Details command at the foot.
+_CLIENTS_MENU = wire_menu(
+    "Clients",
+    [
+        wire_menu(
+            "lux",
+            [
+                {"label": "Beads", "id": "conn-1\x1fbeads"},
+                {"label": SEPARATOR},
+                {"label": "Details", "id": "conn-1\x1f\x1fdetails"},
+            ],
+        ),
+        wire_menu(
+            "quarry",
+            [
+                {"label": "Beads", "id": "conn-2\x1fbeads"},
+                {"label": SEPARATOR},
+                {"label": "Details", "id": "conn-2\x1f\x1fdetails"},
+            ],
+        ),
+    ],
+)
 # One agent bar, as ``set_menu`` replicates it.
 _AGENT_MENU = wire_menu(
     "File", [{"label": "Open", "id": "file.open"}, {"label": SEPARATOR}]
 )
 # A menu no surface can decode: ``items`` is not something to iterate over.
-_UNDECODABLE_MENU: dict[str, Any] = {"label": "voxd — vox", "items": 7}
+_UNDECODABLE_MENU: dict[str, Any] = {"label": "voxd", "items": 7}
 
 
 def _gone_away(_invocation: RemoteEventHandlerInvocation) -> None:
@@ -106,13 +142,13 @@ class TestOneMenuTwoSurfaces:
 
         assert _menus_drawn(_draw_bar(manager)) == _menus_drawn(_draw_panel(manager))
 
-    def test_a_session_callback_reaches_the_world_panel(self) -> None:
+    def test_a_client_callback_reaches_the_world_panel(self) -> None:
         manager = make_menu_manager()
         manager.callback_menus = [_VOXD_MENU]
 
         for imgui in (_draw_bar(manager), _draw_panel(manager)):
-            assert "voxd — vox" in imgui.labels_under()
-            assert imgui.labels_under("voxd — vox") == ("Music",)
+            assert "Clients" in imgui.labels_under()
+            assert imgui.labels_under("Clients", "voxd")[0] == "Music"
 
     def test_an_agent_bar_reaches_both_surfaces(self) -> None:
         manager = make_menu_manager()
@@ -122,15 +158,15 @@ class TestOneMenuTwoSurfaces:
             assert "File" in imgui.labels_under()
             assert imgui.labels_under("File") == ("Open", SEPARATOR)
 
-    def test_a_swept_session_leaves_both_surfaces(self) -> None:
+    def test_a_swept_client_leaves_both_surfaces(self) -> None:
         manager = make_menu_manager()
         manager.callback_menus = [_VOXD_MENU]
-        assert "voxd — vox" in _draw_bar(manager).labels_under()
+        assert "voxd" in _draw_bar(manager).labels_under("Clients")
 
         manager.callback_menus = []  # the lease lapsed; the Hub re-sent without it
 
         for imgui in (_draw_bar(manager), _draw_panel(manager)):
-            assert "voxd — vox" not in imgui.labels_under()
+            assert "Clients" not in imgui.labels_under()
 
     def test_both_surfaces_draw_every_section_of_the_model(self) -> None:
         manager = make_menu_manager()
@@ -138,7 +174,7 @@ class TestOneMenuTwoSurfaces:
         manager.callback_menus = [_VOXD_MENU]
         expected = tuple(s.label for s in manager.menu_model().sections)
 
-        assert expected == ("Lux", "Windows", "Help", "File", "voxd — vox")
+        assert expected == ("Lux", "Windows", "Help", "File", "Clients")
         for imgui in (_draw_bar(manager), _draw_panel(manager)):
             assert _sections_drawn(imgui) == expected
 
@@ -158,6 +194,85 @@ class TestOneMenuTwoSurfaces:
             assert imgui.line("Quit").shortcut == "Cmd+Q"
 
 
+class TestTheClientsMenu:
+    """Clients ▸ client ▸ command reaches both surfaces, nesting and all."""
+
+    def test_both_surfaces_nest_the_clients_the_hub_composed(self) -> None:
+        manager = make_menu_manager()
+        manager.callback_menus = [_CLIENTS_MENU]
+
+        for imgui in (_draw_bar(manager), _draw_panel(manager)):
+            assert "Clients" in imgui.labels_under()
+            assert imgui.labels_under("Clients") == ("lux", "quarry")
+            assert imgui.labels_under("Clients", "lux") == (
+                "Beads",
+                SEPARATOR,
+                "Details",
+            )
+            assert imgui.labels_under("Clients", "quarry") == (
+                "Beads",
+                SEPARATOR,
+                "Details",
+            )
+
+    def test_the_two_surfaces_draw_the_nested_menu_identically(self) -> None:
+        manager = make_menu_manager()
+        manager.callback_menus = [_CLIENTS_MENU]
+
+        assert _menus_drawn(_draw_bar(manager)) == _menus_drawn(_draw_panel(manager))
+
+    def test_the_clients_menu_is_one_section_beside_the_displays_own(self) -> None:
+        manager = make_menu_manager()
+        manager.callback_menus = [_CLIENTS_MENU]
+
+        for imgui in (_draw_bar(manager), _draw_panel(manager)):
+            assert _sections_drawn(imgui) == ("Lux", "Windows", "Help", "Clients")
+
+    def test_a_nested_leaf_click_routes_the_same_from_either_surface(self) -> None:
+        sent: list[RemoteEventHandlerInvocation] = []
+        manager = make_menu_manager(emit_event=sent.append)
+        manager.callback_menus = [
+            wire_menu(
+                "Clients", [wire_menu("lux", [{"label": "Beads", "id": "c\x1fb"}])]
+            )
+        ]
+
+        _draw_bar(manager, clicks=("Beads",))
+        _draw_panel(manager, clicks=("Beads",))
+
+        assert len(sent) == 2
+        from_bar, from_panel = sent
+        assert from_bar.element_id == from_panel.element_id == "c\x1fb"
+        assert from_bar.value == from_panel.value
+        # The click is attributed to the client that owns the entry, not to the
+        # menu the clients are gathered under.
+        assert from_bar.value == {"menu": "lux", "item": "Beads"}
+
+    def test_a_client_that_left_takes_its_submenu_off_both_surfaces(self) -> None:
+        manager = make_menu_manager()
+        manager.callback_menus = [_CLIENTS_MENU]
+        assert "quarry" in _draw_bar(manager).labels_under("Clients")
+
+        # One lease lapsed; the Hub re-sent the menu without that client.
+        manager.callback_menus = [
+            wire_menu(
+                "Clients", [wire_menu("lux", [{"label": "Beads", "id": "c\x1fb"}])]
+            )
+        ]
+
+        for imgui in (_draw_bar(manager), _draw_panel(manager)):
+            assert imgui.labels_under("Clients") == ("lux",)
+
+    def test_the_last_client_leaving_takes_the_clients_menu_with_it(self) -> None:
+        manager = make_menu_manager()
+        manager.callback_menus = [_CLIENTS_MENU]
+
+        manager.callback_menus = []  # every lease lapsed
+
+        for imgui in (_draw_bar(manager), _draw_panel(manager)):
+            assert "Clients" not in imgui.labels_under()
+
+
 class TestClickRouting:
     """A leaf sends the same invocation whichever surface was clicked."""
 
@@ -174,7 +289,7 @@ class TestClickRouting:
         assert from_bar.element_id == from_panel.element_id == "conn-7\x1fmusic"
         assert from_bar.action == from_panel.action == "menu"
         assert from_bar.value == from_panel.value
-        assert from_bar.value == {"menu": "voxd — vox", "item": "Music"}
+        assert from_bar.value == {"menu": "voxd", "item": "Music"}
 
     def test_an_untouched_menu_sends_nothing(self) -> None:
         sent: list[RemoteEventHandlerInvocation] = []

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from math import inf
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -19,6 +20,9 @@ class HubClient(BaseModel):
     connection_id: str
     identity: ClientIdentity | None = None
     connected_seconds: float
+    # The effective lease, not the declared one — a session that named no TTL
+    # holds its kind's, and luxd's own built-ins hold ``inf``.
+    lease_ttl_seconds: float = inf
     subscribed_topics: list[str]
     owned_scenes: list[str]
 

@@ -107,6 +107,15 @@ class ClientSession:
         """Whether this session registered a callback with ``callback_id``."""
         return self._slot.owns(callback_id)
 
+    @property
+    def lease_ttl_seconds(self) -> float:
+        """How long this session may idle between contacts before it is swept.
+
+        The effective length, not the declared one: a session that named no TTL
+        holds its kind's, and luxd's own built-ins hold ``inf``.
+        """
+        return self._lease.ttl_seconds
+
     def age(self, now: float) -> float:
         """Seconds since the session connected, clamped so it never goes negative."""
         return max(0.0, now - self._connected_at)

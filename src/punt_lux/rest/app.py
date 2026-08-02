@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Literal, Self, final
 from pydantic import BaseModel, ConfigDict
 
 from punt_lux.domain.hub import client_registry, hub, hub_display
+from punt_lux.domain.hub.details_instance import hub_client_details
 from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.inbox import ensure_writer, next_event
 from punt_lux.domain.hub.replicator_instance import (
@@ -92,7 +93,7 @@ class RestSurface:
                 clients=client_registry,
             ),
         )
-        return Operations.for_store(
+        operations = Operations.for_store(
             hub_display,
             hub_replicator,
             hub=hub,
@@ -101,6 +102,11 @@ class RestSurface:
             callback_router=hub_callback_router,
             ports=ports,
         )
+        # A Details click lands in the domain-layer interaction dispatch, which
+        # may not call operations; this is where the process binds the renderer
+        # it runs. Either surface's facade can answer, so the last one wins.
+        hub_client_details.bind(operations)
+        return operations
 
     @property
     def routers(self) -> tuple[APIRouter, ...]:

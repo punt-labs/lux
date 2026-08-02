@@ -4,7 +4,7 @@ A menu item is a session's callback. This concern owns the three Hub-side moves 
 the callback model: a push-reachable, identified session *registers* a callback (a
 menu write the replicator pushes); a click *invokes* a callback, which the router
 routes to the owning session's live listener; and the *menu build* reads the live
-sessions into the uniform session-then-callback tree.
+sessions into the uniform ``Clients`` tree.
 
 Registration has two preconditions and refuses rather than half-granting either.
 The connection must hold a listen leg, because a menu item that cannot be
@@ -51,10 +51,10 @@ _PUSH_REQUIRED = OpError(
 
 @runtime_checkable
 class CallbackMenuSource(Protocol):
-    """The read the menu surface composes into its bar — the callback submenus."""
+    """The read the menu surface composes into its bar — the Clients menu."""
 
     def callback_menus(self) -> list[Menu]:
-        """Return the uniform session-then-callback submenus for the live sessions."""
+        """Return the uniform ``Clients`` menu built from the live sessions."""
         ...
 
 
@@ -135,8 +135,10 @@ class CallbackOperations:
         return self._result_for(self._router.route(invocation))
 
     def callback_menus(self) -> list[Menu]:
-        """Build the uniform session-then-callback submenus from the live sessions."""
-        return CallbackMenu.from_sessions(self._clients.live_sessions())
+        """Build the uniform ``Clients`` menu from the live sessions and roster."""
+        return CallbackMenu.from_sessions(
+            self._clients.live_sessions(), self._clients.roster
+        )
 
     def drop_session(self) -> None:
         """Re-push the menu after a session departs so its submenu vanishes.

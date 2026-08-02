@@ -8,6 +8,7 @@ from collections import deque
 from collections.abc import Callable
 from typing import Any, Self
 
+from punt_lux.display.menus.inventory import MenuInventory
 from punt_lux.protocol import QueryResponse
 from punt_lux.scene import SceneManager
 
@@ -140,28 +141,19 @@ class QueryDispatcher:
         return {"clients": clients}
 
     def _query_list_menus(self, **_kwargs: Any) -> dict[str, Any]:
-        """Return the display's rendered menu bars: agent menus and session menus.
+        """Return every menu line the display holds, with the menus it sits under.
 
-        The authoritative menu is the Hub's; this reports what the display holds —
-        each agent bar and each session-then-callback submenu, with their leaf
-        items, so an agent can see the bar the display is actually rendering.
+        The authoritative menu is the Hub's; this reports what the display
+        received, so an agent can compare the two tiers instead of taking the
+        Hub's word for what is on screen. Each line carries its full path, which
+        is what tells one session's ``Beads`` from another's.
         """
-        menus: list[dict[str, Any]] = []
-        for source, bars in (
-            ("agent", self._get_agent_menus()),
-            ("session", self._get_callback_menus()),
-        ):
-            menus.extend(
-                {
-                    "id": item.get("id", ""),
-                    "label": item.get("label", ""),
-                    "menu": bar.get("label", ""),
-                    "source": source,
-                }
-                for bar in bars
-                for item in bar.get("items", [])
-            )
-        return {"menu_items": menus, "total": len(menus)}
+        return MenuInventory.of(
+            [
+                ("agent", self._get_agent_menus()),
+                ("session", self._get_callback_menus()),
+            ]
+        ).to_report()
 
     def _query_list_recent_events(
         self, count: int = 50, **_kwargs: Any
