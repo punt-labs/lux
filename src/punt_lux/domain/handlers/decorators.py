@@ -18,7 +18,7 @@ The sink the decorator publishes through is the ``PublishSink`` beside it.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Self, cast
+from typing import Self
 
 from punt_lux.domain.event_protocol import Event, Handler
 from punt_lux.domain.handlers.publish_sink import PublishSink
@@ -62,12 +62,13 @@ class PublishDecorator:
         """Return the topics this decorator fires on each invocation."""
         return self._topics
 
-    def wrap[E: Event](self, inner: Handler[E]) -> Handler[E]:
-        """Return a handler that runs ``inner`` then publishes the topics."""
-        return cast(
-            "Handler[E]",
-            _PublishWrappedHandler(inner=cast("Handler[Event]", inner), decorator=self),
-        )
+    def wrap[E: WireEvent](self, inner: Handler[E]) -> Handler[E]:
+        """Return a handler that runs ``inner`` then publishes the topics.
+
+        The ``WireEvent`` bound is the invariant: an event that renders no
+        payload is rejected here, not as an ``AttributeError`` at fire time.
+        """
+        return _PublishWrappedHandler(inner=inner, decorator=self)
 
     def publish(self, event: WireEvent) -> None:
         """Send what ``event`` renders to every topic through the sink.
@@ -89,19 +90,19 @@ class PublishDecorator:
         )
 
 
-class _PublishWrappedHandler:
+class _PublishWrappedHandler[E: WireEvent]:
     """Serializable handler wrapper that runs ``inner`` then asks for the publish.
 
     Replaces the closure returned by ``PublishDecorator.wrap`` so the
     handler chain survives native serialization across the Hub-to-Display
-    wire. Every event on the remote-dispatch path is a ``WireEvent``; the
-    ``publish`` decorator is only ever wired onto those buckets.
+    wire. The event type is carried through, so the wrapper is exactly as
+    typed as the handler it wraps.
     """
 
-    _inner: Handler[Event]
+    _inner: Handler[E]
     _decorator: PublishDecorator
 
-    def __new__(cls, *, inner: Handler[Event], decorator: PublishDecorator) -> Self:
+    def __new__(cls, *, inner: Handler[E], decorator: PublishDecorator) -> Self:
         self = super().__new__(cls)
         self._inner = inner
         self._decorator = decorator
@@ -120,7 +121,7 @@ class _PublishWrappedHandler:
         for key, value in state.items():
             object.__setattr__(self, key, value)
 
-    def __call__(self, event: WireEvent) -> None:
+    def __call__(self, event: E) -> None:
         """Run the inner handler, then let the decorator publish the event."""
         self._inner(event)
         self._decorator.publish(event)

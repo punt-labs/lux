@@ -17,14 +17,14 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import Self, cast, final
 
-from punt_lux.domain.event_protocol import Event
 from punt_lux.domain.handlers.decorators import DecoratorFactory, PublishDecorator
 from punt_lux.domain.handlers.publish_sink import PublishSink
+from punt_lux.domain.wire_event import WireEvent
 
 __all__ = ["DecoratorRegistry", "PublishSpec"]
 
-# A builder consumes one wire decorator spec and returns the typed factory.
-type DecoratorBuilder = Callable[[Mapping[str, object]], DecoratorFactory[Event]]
+# A builder consumes one wire decorator spec and returns its ``WireEvent`` factory.
+type DecoratorBuilder = Callable[[Mapping[str, object]], DecoratorFactory[WireEvent]]
 
 
 @final
@@ -64,7 +64,7 @@ class PublishSpec:
         """Return the topics this spec publishes to."""
         return self._topics
 
-    def factory_for(self, sink: PublishSink) -> DecoratorFactory[Event]:
+    def factory_for(self, sink: PublishSink) -> DecoratorFactory[WireEvent]:
         """Return the typed decorator factory bound to ``sink``."""
         return PublishDecorator(sink=sink, topics=self._topics).wrap
 
@@ -86,11 +86,11 @@ class DecoratorRegistry:
         self._builders = {"publish": self._build_publish}
         return self
 
-    def _build_publish(self, spec: Mapping[str, object]) -> DecoratorFactory[Event]:
+    def _build_publish(self, spec: Mapping[str, object]) -> DecoratorFactory[WireEvent]:
         """Build the ``publish`` factory, bound to this registry's sink."""
         return PublishSpec.from_wire(spec).factory_for(self._sink)
 
-    def resolve(self, spec: Mapping[str, object]) -> DecoratorFactory[Event]:
+    def resolve(self, spec: Mapping[str, object]) -> DecoratorFactory[WireEvent]:
         """Look up ``spec['decorator']`` and build the typed factory."""
         name = spec.get("decorator")
         if not isinstance(name, str) or not name:
