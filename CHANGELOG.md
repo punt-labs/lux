@@ -170,6 +170,17 @@
 
 ### Fixed
 
+- **A malformed menu costs its own menu and nothing else.** The display now
+  checks a replicated menu where it arrives from the Hub rather than trusting
+  the payload downstream: a menu whose `items` is not a list, whose label is
+  missing, or whose entry carries neither an id nor the `---` separator is
+  refused there and logged by field name (`callback_menus.0.items: expected a
+  list, got 7`). Before, such a payload raised while the model was composed —
+  blanking the *whole* menu bar for the frame — and raised again inside
+  `list_menus`, so the introspection query answered nothing at all instead of
+  answering about the menus that were fine. The display now accepts exactly
+  what the Hub accepts from an agent, so neither tier quietly repairs the
+  other's payload.
 - **The display's `list_menus` query reports where each line sits.** Every menu
   line now carries the menus above it (`["Clients", "lux"]`) instead of one
   label, so two clients that both offer `Beads` can be told apart in the

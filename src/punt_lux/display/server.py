@@ -607,9 +607,9 @@ class DisplayServer:
         if isinstance(msg, SceneMessage):
             self._handle_scene(sock, msg)
         elif isinstance(msg, MenuMessage):
-            self._menu_manager.agent_menus = msg.menus
+            self._menu_manager.replace_agent_menus(msg.menus)
         elif isinstance(msg, CallbackMenuMessage):
-            self._menu_manager.callback_menus = msg.submenus
+            self._menu_manager.replace_callback_menus(msg.submenus)
         elif isinstance(msg, ThemeMessage):
             self._apply_theme(msg.theme)
         elif isinstance(msg, ConnectMessage):

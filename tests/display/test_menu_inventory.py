@@ -3,6 +3,9 @@
 The Hub reports the menu it composed; this reports the menu the display
 received. With the menu nested, a leaf's label no longer says which menu it
 belongs to, so every leaf carries the menus it sits under.
+
+The payloads here go through the same check the display runs when they arrive,
+so what the inventory walks is what the display actually holds.
 """
 
 from __future__ import annotations
@@ -10,6 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 from punt_lux.display.menus.inventory import MenuInventory
+from punt_lux.display.menus.wire import WireMenu
 
 # One flat menu and the nested Clients menu, as the Hub replicates them.
 _VOXD: dict[str, Any] = {
@@ -33,7 +37,12 @@ def _inventory(
     *, agent: list[dict[str, Any]], session: list[dict[str, Any]]
 ) -> MenuInventory:
     """Return the inventory of what the display holds from both sources."""
-    return MenuInventory.of([("agent", agent), ("session", session)])
+    return MenuInventory.of(
+        [
+            ("agent", WireMenu.accepted(agent, origin="agent_menus")),
+            ("session", WireMenu.accepted(session, origin="callback_menus")),
+        ]
+    )
 
 
 class TestWhatIsHeld:
@@ -99,12 +108,22 @@ class TestTheReport:
 
         assert report["total"] == len(report["menu_items"]) == 5
 
-    def test_an_item_the_hub_sent_no_id_for_reports_an_empty_id(self) -> None:
+    def test_a_separator_reports_an_empty_id(self) -> None:
         """The display has nothing to click with, and says so rather than guessing."""
-        bar = {"label": "File", "items": [{"label": "Open"}]}
+        report = _inventory(agent=[_AGENT_BAR], session=[]).to_report()
 
-        report = _inventory(agent=[bar], session=[]).to_report()
+        assert report["menu_items"][1] == {
+            "id": "",
+            "label": "---",
+            "path": ["File"],
+            "source": "agent",
+        }
 
-        assert report["menu_items"] == [
-            {"id": "", "label": "Open", "path": ["File"], "source": "agent"}
-        ]
+    def test_a_malformed_menu_is_absent_rather_than_failing_the_report(self) -> None:
+        """A payload that is not a menu costs its own rows and no others."""
+        broken: dict[str, Any] = {"label": "Broken", "items": 7}
+        held = _inventory(agent=[broken, _AGENT_BAR], session=[])
+
+        report = held.to_report()
+
+        assert [row["label"] for row in report["menu_items"]] == ["Open", "---"]

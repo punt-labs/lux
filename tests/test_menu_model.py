@@ -5,7 +5,7 @@ from __future__ import annotations
 from punt_lux.display.menus import MenuItem, MenuModel, MenuSeparator, Submenu
 from punt_lux.protocol import RemoteEventHandlerInvocation
 
-from .menu_doubles import SEPARATOR, FakeImGui, ignore, wire_menu
+from .menu_doubles import SEPARATOR, FakeImGui, checked_menu, ignore, wire_menu
 
 
 def _nothing() -> None:
@@ -98,18 +98,20 @@ class TestSubmenu:
 
 
 class TestSubmenuFromWire:
-    """A replicated menu payload becomes a menu that routes clicks to the Hub."""
+    """A checked replicated menu becomes a menu that routes clicks to the Hub."""
 
     def test_items_become_entries_in_order(self) -> None:
         imgui = FakeImGui()
         menu = Submenu.from_wire(
-            wire_menu(
-                "File",
-                [
-                    {"label": "Open", "id": "file.open", "shortcut": "Cmd+O"},
-                    {"label": SEPARATOR},
-                    {"label": "Close", "id": "file.close", "enabled": False},
-                ],
+            checked_menu(
+                wire_menu(
+                    "File",
+                    [
+                        {"label": "Open", "id": "file.open", "shortcut": "Cmd+O"},
+                        {"label": SEPARATOR},
+                        {"label": "Close", "id": "file.close", "enabled": False},
+                    ],
+                )
             ),
             ignore,
         )
@@ -123,7 +125,10 @@ class TestSubmenuFromWire:
     def test_a_click_emits_the_menu_invocation(self) -> None:
         sent: list[RemoteEventHandlerInvocation] = []
         menu = Submenu.from_wire(
-            wire_menu("voxd", [{"label": "Music", "id": "conn\x1fmusic"}]), sent.append
+            checked_menu(
+                wire_menu("voxd", [{"label": "Music", "id": "conn\x1fmusic"}])
+            ),
+            sent.append,
         )
 
         menu.render(FakeImGui(("Music",)))
@@ -133,11 +138,30 @@ class TestSubmenuFromWire:
         assert sent[0].action == "menu"
         assert sent[0].value == {"menu": "voxd", "item": "Music"}
 
+    def test_a_nested_menu_becomes_a_nested_menu(self) -> None:
+        imgui = FakeImGui()
+        menu = Submenu.from_wire(
+            checked_menu(
+                wire_menu(
+                    "Clients",
+                    [wire_menu("lux", [{"label": "Beads", "id": "c\x1fb"}])],
+                )
+            ),
+            ignore,
+        )
+
+        menu.render(imgui)
+
+        assert imgui.labels_under("Clients") == ("lux",)
+        assert imgui.labels_under("Clients", "lux") == ("Beads",)
+
     def test_a_disabled_item_routes_nothing_when_clicked(self) -> None:
         sent: list[RemoteEventHandlerInvocation] = []
         menu = Submenu.from_wire(
-            wire_menu(
-                "File", [{"label": "Close", "id": "file.close", "enabled": False}]
+            checked_menu(
+                wire_menu(
+                    "File", [{"label": "Close", "id": "file.close", "enabled": False}]
+                )
             ),
             sent.append,
         )
@@ -148,35 +172,10 @@ class TestSubmenuFromWire:
         assert imgui.line("Close").enabled is False
         assert sent == []
 
-    def test_an_item_without_a_string_id_renders_but_routes_nothing(self) -> None:
-        sent: list[RemoteEventHandlerInvocation] = []
-        menu = Submenu.from_wire(wire_menu("File", [{"label": "Open"}]), sent.append)
-
-        imgui = FakeImGui(("Open",))
-        menu.render(imgui)
-
-        assert imgui.labels_under("File") == ("Open",)
-        assert sent == []
-
-    def test_an_item_without_a_string_label_is_skipped(self) -> None:
-        imgui = FakeImGui()
-        menu = Submenu.from_wire(
-            wire_menu("File", [{"id": "file.open"}, {"label": 7}, {"label": "Open"}]),
-            ignore,
-        )
-
-        menu.render(imgui)
-
-        assert imgui.labels_under("File") == ("Open",)
-
-    def test_a_menu_without_a_label_falls_back_to_a_name(self) -> None:
-        assert Submenu.from_wire({}, ignore).label == "Custom"
-        assert Submenu.from_wire({"label": 7}, ignore).label == "Custom"
-
     def test_a_menu_without_items_renders_as_an_empty_menu(self) -> None:
         imgui = FakeImGui()
 
-        Submenu.from_wire({"label": "File"}, ignore).render(imgui)
+        Submenu.from_wire(checked_menu({"label": "File"}), ignore).render(imgui)
 
         assert imgui.labels_under() == ("File",)
         assert imgui.labels_under("File") == ()

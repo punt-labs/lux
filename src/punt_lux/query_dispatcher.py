@@ -5,10 +5,11 @@ from __future__ import annotations
 import logging
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any, Self
 
 from punt_lux.display.menus.inventory import MenuInventory
+from punt_lux.display.menus.wire import WireMenu
 from punt_lux.protocol import QueryResponse
 from punt_lux.scene import SceneManager
 
@@ -25,8 +26,8 @@ class QueryDispatcher:
     _scene_manager: SceneManager
     _get_client_names: Callable[[], dict[int, str]]
     _get_client_connect_times: Callable[[], dict[int, float]]
-    _get_agent_menus: Callable[[], list[dict[str, Any]]]
-    _get_callback_menus: Callable[[], list[dict[str, Any]]]
+    _get_agent_menus: Callable[[], Sequence[WireMenu]]
+    _get_callback_menus: Callable[[], Sequence[WireMenu]]
     _query_handlers: dict[str, Callable[..., dict[str, Any]]]
     _recent_events: deque[dict[str, Any]]
     _recent_errors: deque[dict[str, Any]]
@@ -36,8 +37,8 @@ class QueryDispatcher:
         scene_manager: SceneManager,
         get_client_names: Callable[[], dict[int, str]],
         get_client_connect_times: Callable[[], dict[int, float]],
-        get_agent_menus: Callable[[], list[dict[str, Any]]],
-        get_callback_menus: Callable[[], list[dict[str, Any]]],
+        get_agent_menus: Callable[[], Sequence[WireMenu]],
+        get_callback_menus: Callable[[], Sequence[WireMenu]],
     ) -> Self:
         self = super().__new__(cls)
         self._scene_manager = scene_manager
@@ -148,12 +149,8 @@ class QueryDispatcher:
         Hub's word for what is on screen. Each line carries its full path, which
         is what tells one session's ``Beads`` from another's.
         """
-        return MenuInventory.of(
-            [
-                ("agent", self._get_agent_menus()),
-                ("session", self._get_callback_menus()),
-            ]
-        ).to_report()
+        agent, session = self._get_agent_menus(), self._get_callback_menus()
+        return MenuInventory.of([("agent", agent), ("session", session)]).to_report()
 
     def _query_list_recent_events(
         self, count: int = 50, **_kwargs: Any

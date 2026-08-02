@@ -20,6 +20,8 @@ from typing import TYPE_CHECKING, Self, final
 import pytest
 
 from punt_lux.display.menus import Submenu
+from punt_lux.display.menus.wire import WireMenu
+from punt_lux.display.menus.wire_field import WireField
 from punt_lux.domain.hub.callback_hold import CallbackRouter
 from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
 from punt_lux.domain.hub.client_identity import ClientIdentity
@@ -131,10 +133,17 @@ class _Wired:
         self._store.clients.register_callback(connection_id, command, leg)
 
     def draw(self, *clicks: str) -> FakeImGui:
-        """Decode the wire the Hub would send and draw it, clicking what is named."""
+        """Decode the wire the Hub would send and draw it, clicking what is named.
+
+        The wire goes through the display's own boundary check, so a menu the
+        Hub composes but the display would refuse fails here rather than going
+        missing from the bar in front of the user.
+        """
         imgui = FakeImGui(clicks)
+        field = WireField("callback_menus")
         for wire in CallbackMenuReplica(self._store.clients).callback_menu_wire():
-            Submenu.from_wire(wire, self._sent.append).render(imgui)
+            menu = WireMenu.of_payload(wire, field=field)
+            Submenu.from_wire(menu, self._sent.append).render(imgui)
         return imgui
 
     def dispatch_sent(self, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import errno
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
 
 from punt_lux.display import DisplayServer
@@ -299,17 +299,29 @@ class TestEventQueueOnSceneChange:
 
         server._handle_message(sock, MenuMessage(menus=menus))
 
-        assert server._menu_manager.agent_menus == menus
+        held = server._menu_manager.agent_menus
+        assert [menu.label for menu in held] == ["Tools"]
+        assert [line.label for _path, line in held[0].lines()] == ["Run"]
 
     def test_menu_message_replaces_previous_menus(self) -> None:
         server = _make_server()
         sock = _mock_sock()
-        server._menu_manager.agent_menus = [{"label": "Old", "items": []}]
+        server._menu_manager.replace_agent_menus([{"label": "Old", "items": []}])
 
         new_menus = [{"label": "New", "items": [{"label": "Go", "id": "go"}]}]
         server._handle_message(sock, MenuMessage(menus=new_menus))
 
-        assert server._menu_manager.agent_menus == new_menus
+        assert [menu.label for menu in server._menu_manager.agent_menus] == ["New"]
+
+    def test_a_malformed_menu_message_leaves_the_display_holding_nothing(self) -> None:
+        server = _make_server()
+        sock = _mock_sock()
+
+        malformed: list[dict[str, Any]] = [{"label": "Tools", "items": 7}]
+
+        server._handle_message(sock, MenuMessage(menus=malformed))
+
+        assert server._menu_manager.agent_menus == ()
 
 
 # -----------------------------------------------------------------------

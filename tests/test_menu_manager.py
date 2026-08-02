@@ -8,6 +8,8 @@ these tests exercise is what the user gets.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from punt_lux.display.menus import MenuModel
 
 from .menu_doubles import (
@@ -20,29 +22,48 @@ from .menu_doubles import (
     wire_menu,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from punt_lux.display.menus.wire import WireMenu
+
+
+def _labels(menus: Sequence[WireMenu]) -> tuple[str, ...]:
+    """Return the label of every menu held, in order."""
+    return tuple(menu.label for menu in menus)
+
 
 class TestReplicatedMenuState:
     """The Hub-sent menus the display holds until the next send replaces them."""
 
     def test_callback_menus_default_empty(self) -> None:
-        assert _manager().callback_menus == []
+        assert _manager().callback_menus == ()
 
-    def test_callback_menus_setter_replaces_the_whole_set(self) -> None:
+    def test_callback_menus_replace_the_whole_set(self) -> None:
         manager = _manager()
-        submenus = [wire_menu("voxd", [{"label": "Music", "id": "v\x1fm"}])]
-        manager.callback_menus = submenus
-        assert manager.callback_menus == submenus
-        manager.callback_menus = []
-        assert manager.callback_menus == []
+
+        manager.replace_callback_menus(
+            [wire_menu("voxd", [{"label": "Music", "id": "v\x1fm"}])]
+        )
+        assert _labels(manager.callback_menus) == ("voxd",)
+
+        manager.replace_callback_menus([])
+        assert manager.callback_menus == ()
 
     def test_agent_menus_default_empty(self) -> None:
-        assert _manager().agent_menus == []
+        assert _manager().agent_menus == ()
 
-    def test_agent_menus_setter_replaces_the_whole_bar(self) -> None:
+    def test_agent_menus_replace_the_whole_bar(self) -> None:
         manager = _manager()
-        menus = [wire_menu("File", [{"label": "Open", "id": "file.open"}])]
-        manager.agent_menus = menus
-        assert manager.agent_menus == menus
+
+        manager.replace_agent_menus(
+            [wire_menu("File", [{"label": "Open", "id": "file.open"}])]
+        )
+
+        assert _labels(manager.agent_menus) == ("File",)
+        assert [line.item_id for _path, line in manager.agent_menus[0].lines()] == [
+            "file.open"
+        ]
 
 
 class TestMenuModelComposition:
@@ -56,8 +77,8 @@ class TestMenuModelComposition:
 
     def test_replicated_menus_follow_the_display_own_menus(self) -> None:
         manager = _manager()
-        manager.agent_menus = [wire_menu("File", [])]
-        manager.callback_menus = [wire_menu("voxd", [])]
+        manager.replace_agent_menus([wire_menu("File", [])])
+        manager.replace_callback_menus([wire_menu("voxd", [])])
 
         labels = tuple(s.label for s in manager.menu_model().sections)
 
