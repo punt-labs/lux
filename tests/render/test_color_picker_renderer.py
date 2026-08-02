@@ -40,6 +40,7 @@ from punt_lux.display.renderers.imgui.continuous_edit_selection import (
 from punt_lux.domain.interaction import ValueChanged
 from punt_lux.protocol.elements.color_picker import ColorPickerElement
 from punt_lux.protocol.elements.rgba_color import Rgba, RgbaColor
+from punt_lux.scene.rgba_buffer import RgbaBuffer
 from punt_lux.scene.widget_state import WidgetState
 
 _RED: Rgba = (1.0, 0.0, 0.0, 1.0)
@@ -97,7 +98,7 @@ class TestArbiterResolve:
         assert _arb(ws, "b").resolve(_BLUE) == _BLUE
 
     def test_editing_branch_returns_arity_four_from_a_three_tuple_store(self) -> None:
-        # resolve's editing branch returns the buffer uncoerced via get_tuple,
+        # resolve's editing branch returns the buffer uncoerced via RgbaBuffer,
         # which normalizes a length-3 store to arity 4 — so tuple == stays sound.
         ws = WidgetState()
         arb = _arb(ws, "c")
@@ -202,7 +203,7 @@ class _SeedOnceArbiter:
     def resolve(self, hub_value: Rgba) -> Rgba:
         if self._state.get(self._key) is None:
             self._state.set(self._key, hub_value)
-        return self._state.get_tuple(self._key, default=hub_value)
+        return RgbaBuffer.read(self._state, self._key, hub_value)
 
 
 class TestArbiterFidelity:

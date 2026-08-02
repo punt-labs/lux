@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import math
-from typing import Any, ClassVar, Self, cast
+from typing import Any, ClassVar, Self
 
 
 class WidgetState:
@@ -96,43 +95,6 @@ class WidgetState:
         if isinstance(value, bool) or not isinstance(value, int | float):
             return default
         return float(value)
-
-    def get_tuple(
-        self,
-        element_id: str,
-        default: tuple[float, float, float, float],
-    ) -> tuple[float, float, float, float]:
-        """Return the stored RGBA tuple normalized to arity 4, or ``default``.
-
-        The color analog of ``get_float``: the buffer holds an RGBA tuple, so a
-        miss falls back to the caller-supplied default (the current Hub color).
-        A stored value that is not a length-3/4 tuple of finite ``float`` reads
-        as the default too. The return is always arity 4 — a length-3 stored
-        tuple pads its alpha to opaque — because ``resolve``'s editing branch
-        returns this buffer uncoerced and tuple equality needs a fixed arity.
-        """
-        coerced = self._as_rgba4(self._state.get(element_id))
-        return coerced if coerced is not None else default
-
-    @staticmethod
-    def _as_rgba4(value: object) -> tuple[float, float, float, float] | None:
-        # PY-TS-14 OK: ``None`` is the internal "not a valid RGBA tuple" signal
-        # get_tuple maps to its default — it never escapes to a caller.
-        if not isinstance(value, tuple):
-            return None
-        comps = cast("tuple[object, ...]", value)
-        if len(comps) not in (3, 4):
-            return None
-        floats: list[float] = []
-        for c in comps:
-            if isinstance(c, bool) or not isinstance(c, int | float):
-                return None
-            if not math.isfinite(c):
-                return None
-            floats.append(float(c))
-        if len(floats) == 3:
-            floats.append(1.0)
-        return (floats[0], floats[1], floats[2], floats[3])
 
     def set(self, element_id: str, value: Any) -> None:
         self._state[element_id] = value

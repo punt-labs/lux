@@ -2,14 +2,16 @@
 
 Each ``@final`` leaf is the whole per-type difference between a text, float, and
 RGBA widget: the buffer ``read`` (with its miss policy) and committed ``coerce``
-the arbiter delegates. Each satisfies ``ValueAccessor`` structurally, no base class.
+the arbiter delegates. Each satisfies ``ValueAccessor`` structurally, no base
+class. The RGBA pair is a delegation — its shape rules live in ``RgbaBuffer``.
 """
 
 from __future__ import annotations
 
 from typing import SupportsFloat, cast, final
 
-from punt_lux.protocol.elements.rgba_color import Rgba, RgbaColor
+from punt_lux.protocol.elements.rgba_color import Rgba
+from punt_lux.scene.rgba_buffer import RgbaBuffer
 from punt_lux.scene.widget_state import WidgetState
 
 __all__ = ["ColorValueAccessor", "FloatValueAccessor", "StrValueAccessor"]
@@ -57,8 +59,8 @@ class ColorValueAccessor:
 
     def read(self, state: WidgetState, key: str, hub_value: Rgba) -> Rgba:
         """Return the buffer tuple; a miss falls back to the current Hub color."""
-        return state.get_tuple(key, default=hub_value)
+        return RgbaBuffer.read(state, key, hub_value)
 
     def coerce(self, stored: object) -> Rgba:
         """Coerce a stored committed value to an arity-4 RGBA tuple."""
-        return RgbaColor.coerce(stored)
+        return RgbaBuffer.coerce(stored)
