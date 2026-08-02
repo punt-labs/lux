@@ -28,6 +28,7 @@ import urllib.request
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 import anyio
 import pytest
@@ -120,13 +121,31 @@ def _until(predicate: Callable[[], bool], *, timeout: float = 20.0) -> None:
 
 
 def _leaf_id(port: int, label: str) -> str:
-    """Return the menu leaf a display would carry back from a click on ``label``."""
+    """Return the menu leaf a display would carry back from a click on ``label``.
+
+    The menu nests — a client sits under ``Clients`` — so the search descends
+    the way the display's own decode does rather than reading one level.
+    """
     menus = json.loads(_get(port, "/menus"))["menus"]
-    for menu in menus:
-        for item in menu["items"]:
-            if item["label"] == label:
-                return str(item["id"])
-    raise AssertionError(f"no {label!r} leaf in {menus}")
+    found = _find_leaf(menus, label)
+    if found is None:
+        raise AssertionError(f"no {label!r} leaf in {menus}")
+    return found
+
+
+def _find_leaf(entries: list[dict[str, Any]], label: str) -> str | None:
+    """Return the id of the first leaf reading *label*, or None if there is none.
+
+    ``None`` is the documented absence — the caller turns it into the assertion
+    that names what it was looking for and where it looked.
+    """
+    for entry in entries:
+        if entry.get("label") == label and "id" in entry:
+            return str(entry["id"])
+        nested = entry.get("items")
+        if isinstance(nested, list) and (found := _find_leaf(nested, label)):
+            return found
+    return None
 
 
 def _beads_scenes(port: int) -> list[str]:

@@ -23,12 +23,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.domain.hub.lease_term import LeaseTerms
 from punt_lux.domain.hub.listener_slot import ListenerSlot
 from punt_lux.domain.hub.session_lease import SessionLease
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.callback_ports import CallbackListener
     from punt_lux.domain.hub.client_identity import ClientIdentity
+    from punt_lux.domain.hub.lease_term import LeaseTerm
     from punt_lux.domain.hub.session_callback import SessionCallback
 
 __all__ = ["ClientSession"]
@@ -106,6 +108,11 @@ class ClientSession:
     def owns_callback(self, callback_id: str) -> bool:
         """Whether this session registered a callback with ``callback_id``."""
         return self._slot.owns(callback_id)
+
+    @property
+    def lease_term(self) -> LeaseTerm:
+        """The term this session idles for — its kind's when it declared none."""
+        return LeaseTerms.of(self._lease.ttl_seconds)
 
     def age(self, now: float) -> float:
         """Seconds since the session connected, clamped so it never goes negative."""

@@ -6,7 +6,7 @@ session has identified. Either failure is a named refusal that registers nothing
 and pushes no menu. A click's leaf id routes to the owning session's bounded hold
 and wakes its listener; a click for a departed session or an unregistered callback
 is not_found, and a malformed leaf id is invalid_request. The menu build is the
-uniform session-then-callback tree.
+uniform ``Clients`` tree.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from typing import Self, final
 from punt_lux.domain.hub.callback_hold import CallbackRouter
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
+from punt_lux.domain.hub.menu_models import Menu
 from punt_lux.domain.hub.session_callback import CallbackInvocation
 from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.operations.callbacks import CallbackOperations
@@ -208,8 +209,11 @@ def test_an_identified_listening_session_registers_and_the_menu_is_pushed() -> N
     assert isinstance(wired.register(conn), Ok)
     assert wired.pushed == 1
     menus = wired.ops.callback_menus()
-    assert len(menus) == 1
-    assert menus[0].label == "claude"
+    assert [menu.label for menu in menus] == ["Clients"]
+    # The client is named for the repository it works in, not for its wire name.
+    client = menus[0].items[0]
+    assert isinstance(client, Menu)
+    assert client.label == "lux"
 
 
 def test_a_malformed_request_passes_through_without_pushing() -> None:

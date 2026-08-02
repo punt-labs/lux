@@ -5348,3 +5348,67 @@ kill (absent in the orphan case); a machine-global beads daemon (the
 luxd-as-bd-client failure, again); embedding the beads applet in the beads
 fork (deepens upstream divergence, and the applet is display-side
 presentation, not issue tracking).
+
+## DES-064: The Clients Menu — the Live Roster of the Display's Clients, With Built-In Details
+
+**Status:** SETTLED (operator-discussed and ruled 2026-08-02); implementing
+as bead lux-2m32
+
+**Problem.** The menu epic gave every registrant its own top-level submenu,
+labeled by its wire identity — `lux · lux · #4b97`. With one session that
+was tolerable; with six clients live it was neither: the bar filled with
+near-identical submenus whose labels crammed client-kind, repository, and
+pid into a string, because a flat structure has nowhere else to carry
+distinctness. The operator rejected the labels as unusable and asked what
+the first level of the menu is *for*.
+
+**The discussion, kept because the reasoning is the decision.** Three
+candidate mental models were weighed. *Owner-first as "Sessions"* (Sessions
+→ session → tool) fails for voxd, which is a machine-global daemon and has
+no session name — the split into session-bound and machine-global kinds
+would put a species distinction in the user's face. *Tool-first* (Beads →
+which one) reads well at the moment of use but inverts what the operator
+actually asked of the first level. An earlier *"Applications" menu* was
+rejected as off, because an application is something you *could* run — and
+the operator's framing was: the first level relates to **which things are
+connected to my display and what I can execute or direct them to do.** That
+is the X11 reading, which is lux's stated lineage: the roster of live
+clients, each holding its directable actions.
+
+**Decision.**
+
+1. **One top-level menu, "Clients"** — the live roster of everything
+   connected to the display. The menu is `list_clients` made visible: An
+   entry exists exactly while its registrant holds a lease — presence of
+   those who registered, not of every connection; a cli invocation's short
+   lease passes without touching the bar. One uniform rule for every
+   registrant — voxd, session applets, on-demand tools alike; no species
+   split.
+2. **Simple names with collision numbering.** A client's submenu is named
+   for humans — `lux`, and on collision `lux (2)`, `lux (3)` — never a
+   kind·repo·pid composite. A client keeps its number for its connection
+   lifetime. The pid and other wire identity move into Details, where state
+   belongs, out of the label, where it was noise.
+3. **Plain tool labels as leaves.** The hierarchy carries the
+   disambiguation, so the entries stop trying to: `Beads`, `Browse`,
+   `Music`.
+4. **Every client's submenu carries a built-in "Details" command** showing
+   the state of that client's connection — identity kind, name, repository,
+   connected duration, lease TTL, subscribed topics, owned scenes — as a
+   Hub-rendered scene. Details is Hub-side built-in UI behavior over the
+   Hub's *own* connection state, sanctioned by target.md ("lightweight
+   built-in UI behavior"); it executes nothing external, so it is not the
+   luxd-as-bd-client class of mistake.
+5. **The wire contract does not change.** Registrants keep
+   `register_callback(callback_id, label)` and their identities; this is
+   MenuModel composition plus one Hub-side handler, and both projections
+   (menu bar and World menu) inherit it from the one model (DES-059).
+
+**Alternatives rejected.** "Sessions" as the grouping word (false for
+machine-global daemons); a session-bound vs machine-global two-kind menu
+(species distinction the user should not carry); tool-first grouping
+(answers a different question than the operator asked of the first level);
+"Applications" (describes potential, not presence); keeping wire identity
+in labels (state pretending to be a name); lazy registration to thin the
+menu (contradicts DES-061 — an entry must exist before the user wants it;
+the per-repo enablement standard is the thinning mechanism).

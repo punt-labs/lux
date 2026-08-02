@@ -1,9 +1,20 @@
 """The menu model — the one description of the menu the display renders.
 
 A :class:`MenuModel` is the whole menu: the display's own menus, the bars an
-agent submitted with ``set_menu``, and the session-then-callback submenus the
-Hub composes, in that order. Every surface that shows menus renders this one
-object, so no surface can hold a menu another surface does not.
+agent submitted with ``set_menu``, and the ``Clients`` menu the Hub
+composes — one submenu per live client, holding that client's commands — in
+that order. Every surface that shows menus renders
+this one object, so no surface can hold a menu another surface does not.
+
+A menu is a menu at any depth: :class:`Submenu` holds entries, and an entry may
+itself be a :class:`Submenu`, so the Hub's nesting arrives without a second
+type.
+
+A replicated menu becomes a :class:`Submenu` through
+:meth:`Submenu.from_wire`, which takes the checked :class:`WireMenu` rather than
+the payload it came from: the fields were narrowed at the boundary
+(:mod:`punt_lux.display.menus.wire`), so nothing here re-checks a type or
+invents a value for a field that was not sent.
 
 ``imgui`` is typed ``Any``: imgui_bundle ships no type stubs.
 """
@@ -14,23 +25,18 @@ import time
 from typing import TYPE_CHECKING, Any, Self, final
 
 from punt_lux.display.menus.entries import MenuItem, MenuSeparator
+from punt_lux.display.menus.wire import WireMenu, WireSeparator
 from punt_lux.protocol import RemoteEventHandlerInvocation
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator, Mapping, Sequence
+    from collections.abc import Callable, Iterator, Sequence
 
     from punt_lux.display.menus.entries import MenuEntry
+    from punt_lux.display.menus.wire import WireAction
 
 __all__ = ["MenuModel", "Submenu"]
 
-# A menu as the Hub replicates it: {"label": str, "items": [{"label", "id", ...}]}.
-# The values are ``Any`` because this is the wire boundary — the payload is
-# whatever JSON carried, and each field is narrowed before it is used.
-type WireMenu = Mapping[str, Any]
 type EmitEvent = Callable[[RemoteEventHandlerInvocation], None]
-
-_SEPARATOR_LABEL = "---"
-_DEFAULT_MENU_LABEL = "Custom"
 
 
 @final
@@ -49,15 +55,13 @@ class Submenu:
 
     @classmethod
     def from_wire(cls, menu: WireMenu, emit: EmitEvent) -> Self:
-        """Return the menu a replicated wire payload describes.
+        """Return the menu a checked replicated menu describes.
 
-        An agent bar and a session-then-callback submenu arrive in the same
-        shape, so both become menus here and a click on either emits the same
-        ``action="menu"`` invocation back to the Hub that owns the item.
+        An agent bar, the ``Clients`` menu, and a client's submenu inside it all
+        arrive in the same shape, so all become menus here and a click on any
+        leaf emits the same ``action="menu"`` invocation back to the Hub.
         """
-        label = menu.get("label", _DEFAULT_MENU_LABEL)
-        title = label if isinstance(label, str) else _DEFAULT_MENU_LABEL
-        return cls(title, list(cls._wire_entries(title, menu, emit)))
+        return cls(menu.label, list(cls._wire_entries(menu, emit)))
 
     @property
     def label(self) -> str:
@@ -90,29 +94,33 @@ class Submenu:
         return activated
 
     @classmethod
-    def _wire_entries(
-        cls, menu_label: str, menu: WireMenu, emit: EmitEvent
-    ) -> Iterator[MenuEntry]:
-        """Yield one entry per usable wire item, skipping the unlabeled ones."""
-        for item in menu.get("items", []):
-            label = item.get("label")
-            if not isinstance(label, str):
-                continue
-            if label == _SEPARATOR_LABEL:
+    def _wire_entries(cls, menu: WireMenu, emit: EmitEvent) -> Iterator[MenuEntry]:
+        """Yield one entry per entry of the checked menu, in order.
+
+        A nested menu is decoded as a menu, so a menu the Hub nested — the
+        clients under ``Clients`` — renders as a nested menu here rather than as
+        a line of its parent. The fork is on the type the boundary produced, not
+        on a key of an untyped payload.
+        """
+        for entry in menu.entries:
+            if isinstance(entry, WireMenu):
+                yield cls.from_wire(entry, emit)
+            elif isinstance(entry, WireSeparator):
                 yield MenuSeparator()
-                continue
-            shortcut = str(item.get("shortcut", ""))
-            enabled = bool(item.get("enabled", True))
-            item_id = item.get("id")
-            if isinstance(item_id, str):
-                yield MenuItem(
-                    label,
-                    cls._invoke(menu_label, label, item_id, emit),
-                    shortcut=shortcut,
-                    enabled=enabled,
-                )
             else:
-                yield MenuItem.inert(label, shortcut=shortcut, enabled=enabled)
+                yield cls._wire_item(menu.label, entry, emit)
+
+    @classmethod
+    def _wire_item(
+        cls, menu_label: str, action: WireAction, emit: EmitEvent
+    ) -> MenuItem:
+        """Return the clickable line one checked action describes."""
+        return MenuItem(
+            action.label,
+            cls._invoke(menu_label, action.label, action.item_id, emit),
+            shortcut=action.shortcut,
+            enabled=action.enabled,
+        )
 
     @staticmethod
     def _invoke(

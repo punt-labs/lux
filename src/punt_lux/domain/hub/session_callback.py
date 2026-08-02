@@ -29,6 +29,13 @@ __all__ = ["CallbackInvocation", "SessionCallback"]
 # connection id contains, so the join is reversible by a single split.
 _ID_SEPARATOR = "\x1f"
 
+# The callback id luxd's own Details command carries. It opens with the
+# separator, which ``SessionCallback`` refuses, so no client can register a
+# callback that collides with the Hub's own — and the leaf still round-trips
+# through the one leaf-id encoding, because the join splits on the first
+# separator and this id is the remainder.
+_DETAILS_CALLBACK_ID = f"{_ID_SEPARATOR}details"
+
 
 class SessionCallback(BaseModel):
     """A named action a session registers so a click fires back to that session."""
@@ -65,6 +72,21 @@ class CallbackInvocation:
 
     connection_id: ConnectionId
     callback_id: str
+
+    @classmethod
+    def details(cls, connection_id: ConnectionId) -> Self:
+        """The invocation the Hub's own Details command on *connection_id* fires.
+
+        Every client's submenu carries this command, and the Hub answers it
+        itself rather than routing it: it renders the state of that connection,
+        which is the Hub's own to report.
+        """
+        return cls(connection_id, _DETAILS_CALLBACK_ID)
+
+    @property
+    def is_details(self) -> bool:
+        """Whether this invocation is the Hub's own Details command."""
+        return self.callback_id == _DETAILS_CALLBACK_ID
 
     @property
     def menu_id(self) -> str:

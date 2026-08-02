@@ -1,45 +1,53 @@
-"""SceneOperations — render, update, and clear against the authoritative store.
+"""SceneOperations — render, update, and clear a caller's own scenes.
 
-These are the Hub-owned scene mutations. Each takes a typed request and returns
-a discriminated result. The store and the replicator are given at construction,
-and element decode is a connection-scoped factory the presentation layer wires
-in, so the class runs against real collaborators in a test without the process.
+These are the Hub-owned scene mutations as a *caller* makes them. Each takes a
+typed request and returns a discriminated result. The store and the replicator
+are given at construction, and element decode is a connection-scoped factory the
+presentation layer wires in, so the class runs against real collaborators in a
+test without the process.
+
+Every operation here is scoped: the caller owns what it writes, and reaching the
+Hub at all is that connection's contact, so a show registers the caller's session
+and renews its lease. Installing itself belongs to ``SceneInstaller``, which the
+Hub also uses to write scenes *for* clients that are not calling — that path
+registers nobody, and holding the installer rather than this class is what makes
+it unable to.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self, cast, final
+from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.scene_writer import HubSceneWriter, SceneScope
 from punt_lux.domain.hub.write_result import WriteRejected
 from punt_lux.domain.ids import SceneId
-from punt_lux.domain.submission_gate import SubmissionGate
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.scene_results import Cleared, SceneShown
+from punt_lux.operations.scene_clearing import SceneClearer
+from punt_lux.operations.scene_installer import SceneInstaller
+from punt_lux.operations.scene_submission import SceneSubmission
+from punt_lux.operations.wire_tree import WireTreeDecoder
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-
-    from punt_lux.domain.element import Element as DomainElement
     from punt_lux.domain.hub.hub_display import HubDisplay
-    from punt_lux.domain.hub.scene_presentation import ScenePresentation
     from punt_lux.operations.models.patches import UpdateRequest
     from punt_lux.operations.models.render import RenderRequest
     from punt_lux.operations.ports import DirtyMarker, ElementFactoryFor
     from punt_lux.operations.scope import Scope
-    from punt_lux.protocol import Element as WireElement
 
 __all__ = ["SceneOperations"]
 
 
 @final
 class SceneOperations:
-    """Install, patch, and clear scenes in ``HubDisplay``."""
+    """Install, patch, and clear the calling connection's scenes in ``HubDisplay``."""
 
     _display: HubDisplay
     _replicator: DirtyMarker
-    _element_factory: ElementFactoryFor
-    __slots__ = ("_display", "_element_factory", "_replicator")
+    _decoder: WireTreeDecoder
+    _installer: SceneInstaller
+    _clearer: SceneClearer
+    __slots__ = ("_clearer", "_decoder", "_display", "_installer", "_replicator")
 
     def __new__(
         cls,
@@ -50,7 +58,9 @@ class SceneOperations:
         self = super().__new__(cls)
         self._display = display
         self._replicator = replicator
-        self._element_factory = element_factory
+        self._decoder = WireTreeDecoder(element_factory)
+        self._installer = SceneInstaller(display, replicator)
+        self._clearer = SceneClearer(display, replicator)
         return self
 
     def render(
@@ -59,53 +69,32 @@ class SceneOperations:
         """Decode the wire tree in the caller's scope, install it, or reject it."""
         if isinstance(request, OpError):
             return request
-        factory = self._element_factory(scope.connection_id)
-        # Wire-decode boundary: a malformed element raises ``ValueError``/``TypeError``,
-        # each a rejection; the catch wraps only the decode, not ``install`` below,
-        # so a store-miss ``KeyError`` still surfaces as the engine bug it is.
-        try:
-            elements: list[WireElement] = [
-                factory.element_from_dict(e) for e in request.elements
-            ]
-        except (ValueError, TypeError) as exc:
-            return OpError(code="rejected", reason=str(exc))
-        # WireElement is structurally the domain Element; the cast bridges list
-        # invariance across that crossing (PY-TS-12).
+        elements = self._decoder.decode(request.elements, scope.connection_id)
+        if isinstance(elements, OpError):
+            return elements
         return self.install(
-            cast("Sequence[DomainElement]", elements),
-            scene_id=request.scene_id,
-            presentation=request.presentation(),
-            ttl_seconds=request.frame_ttl(),
+            SceneSubmission.of(
+                elements,
+                request.scene_id,
+                request.presentation(),
+                request.frame_ttl(),
+            ),
             scope=scope,
         )
 
     def install(
-        self,
-        elements: Sequence[DomainElement],
-        *,
-        scene_id: str,
-        presentation: ScenePresentation,
-        ttl_seconds: float | None,
-        scope: Scope,
+        self, submission: SceneSubmission, *, scope: Scope
     ) -> SceneShown | OpError:
-        """Validate a built element tree and install it, or return why it was refused.
+        """Install a tree the caller submitted, recording its contact first.
 
         The shared path for the wire-decode surface (``render``) and the Hub-side
-        conveniences that *construct* their tree: same validation walk, same
-        ``show_scene`` (target.md — the Hub decodes *or constructs* UI).
+        conveniences that *construct* their tree. Showing a scene is the caller
+        reaching the Hub, so the call registers the caller's session and renews its
+        lease: a client that only ever shows is still a client, and stays one for
+        as long as it keeps showing.
         """
-        rejection = SubmissionGate().first_rejection(SceneId(scene_id), elements)
-        if rejection is not None:
-            return OpError(code="rejected", reason=rejection)
-        self._display.show_scene(
-            scope.connection_id,
-            SceneId(scene_id),
-            elements,
-            presentation,
-            ttl_seconds=ttl_seconds,
-        )
-        self._replicator.mark_dirty(SceneId(scene_id))
-        return SceneShown(scene_id=scene_id)
+        self._display.register_client(scope.connection_id)
+        return self._installer.install(submission, owner=scope.connection_id)
 
     def update(
         self, scene_id: str, request: UpdateRequest | OpError, *, scope: Scope
@@ -126,32 +115,10 @@ class SceneOperations:
         return SceneShown(scene_id=scene_id)
 
     def clear(self, *, scope: Scope, scene_id: str | None = None) -> Cleared | OpError:
-        """Blank the caller's scenes — all, or just ``scene_id`` — one scene at a time.
+        """Blank the caller's scenes — all, or just ``scene_id``.
 
-        The writer removes only the caller's roots and marks each emptied scene dirty,
-        so nothing else is touched. A scene-scoped clear that removes nothing must not
-        lie ``cleared``; it reports ``not_found`` or a rejection instead. The no-arg
-        clear removing nothing stays a settled no-op.
+        Scoped like every operation here: the clearer removes only roots this
+        connection owns and reports a scene-scoped miss rather than a false
+        ``cleared``.
         """
-        target = SceneId(scene_id) if scene_id is not None else None
-        touched = HubSceneWriter(self._display).clear(scope.connection_id, target)
-        if target is not None and not touched:
-            return self._scoped_clear_miss(target)
-        self._mark_dirty_all(touched)
-        return Cleared()
-
-    def _scoped_clear_miss(self, scene_id: SceneId) -> OpError:
-        """Say why a scene-scoped clear removed nothing: unknown scene, or unowned.
-
-        No non-removed root means the scene is unknown (the ``not_found`` inspect_scene
-        returns); roots present but none the caller owns is an ownership rejection.
-        """
-        name = str(scene_id)
-        if not self._display.scene_roots(scene_id):
-            return OpError(code="not_found", reason=f"scene {name!r} not found")
-        return OpError(code="rejected", reason=f"scene {name!r} holds nothing you own")
-
-    def _mark_dirty_all(self, scenes: frozenset[SceneId]) -> None:
-        """Mark every scene in ``scenes`` for resend."""
-        for scene_id in scenes:
-            self._replicator.mark_dirty(scene_id)
+        return self._clearer.clear(scope.connection_id, scene_id)

@@ -104,14 +104,17 @@ class HubInteractionDispatch:
 
     @staticmethod
     def _dispatch_menu_callback(menu_id: str) -> None:
-        """Route a clicked menu leaf back to the session that owns its callback.
+        """Answer a clicked menu leaf: the Hub's own command, or the client's.
 
         A menu launch carries no scene id and must never be resolved against the
         element index (the drop that made launching fail). The leaf id names the
-        owning session and callback; the router holds the invocation for that
-        session's delivery leg. A malformed or non-callback id, or a click for a
-        departed session, is logged, never crashes, and the menu re-pushes.
+        owning connection and the command within it. ``Details`` is the Hub's own
+        and is answered here; every other command belongs to the client that
+        registered it, and the router holds the invocation for that client's
+        delivery leg. A malformed or non-callback id, or a click for a departed
+        client, is logged, never crashes, and the menu re-pushes.
         """
+        from punt_lux.domain.hub.details_instance import hub_client_details
         from punt_lux.domain.hub.replicator_instance import (
             hub_callback_router,
             hub_replicator,
@@ -122,6 +125,9 @@ class HubInteractionDispatch:
             invocation = CallbackInvocation.from_menu_id(menu_id)
         except ValueError:
             logger.info("menu click for a non-callback leaf id=%r; ignoring", menu_id)
+            return
+        if invocation.is_details:
+            hub_client_details.run(invocation.connection_id)
             return
         if hub_callback_router.route(invocation) == "routed":
             return

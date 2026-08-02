@@ -21,6 +21,7 @@ import pytest
 
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.client_session import ClientSession
+from punt_lux.domain.hub.lease_term import ExpiringLease, PermanentLease
 from punt_lux.domain.hub.session_callback import SessionCallback
 from punt_lux.domain.hub.session_lease import SessionLease
 
@@ -70,6 +71,15 @@ def test_renewed_keeps_identity_and_connect_time_but_extends_the_lease() -> None
     assert renewed.identity == _cli()
     assert renewed.connected_at == 0.0
     assert renewed.is_live(100.0)  # renewed at 80s, still inside the 90s window
+
+
+def test_the_lease_term_reported_is_the_effective_one_not_the_declared() -> None:
+    """A session that named no TTL holds its kind's, and reports that."""
+    assert ClientSession(0.0).with_identity(_cli()).lease_term == ExpiringLease(
+        seconds=90.0
+    )
+    app = ClientIdentity(kind="app", name="voxd")
+    assert ClientSession(0.0).with_identity(app).lease_term == PermanentLease()
 
 
 def test_declared_repo_is_the_identity_repo_or_none() -> None:

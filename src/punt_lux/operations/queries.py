@@ -28,8 +28,11 @@ from punt_lux.operations.models.query_ownership import SceneOwner
 from punt_lux.operations.models.query_scenes import SceneList, SceneSummary
 
 if TYPE_CHECKING:
+    from punt_lux.domain.hub.client_session import ClientSession
     from punt_lux.domain.hub.hub import Hub
     from punt_lux.domain.hub.hub_display import HubDisplay
+    from punt_lux.domain.hub.named_sessions import NamedSession
+    from punt_lux.domain.ids import ConnectionId
     from punt_lux.operations.display_port import DisplayPort
     from punt_lux.protocol import Element as WireElement
 
@@ -114,21 +117,40 @@ class QueryOperations:
         ``connected_seconds`` never goes negative under a wall-clock step.
         """
         now = time.monotonic()
-        clients = [
-            HubClient(
-                connection_id=str(connection_id),
-                identity=session.identity,
-                connected_seconds=round(session.age(now), 1),
-                subscribed_topics=sorted(
-                    str(topic) for topic in self._hub.topics_for(connection_id)
-                ),
-                owned_scenes=sorted(
-                    {str(s) for s, _ in self._display.elements_owned_by(connection_id)}
-                ),
-            )
-            for connection_id, session in self._display.client_sessions().items()
-        ]
-        return ClientList(clients=clients)
+        return ClientList(
+            clients=[
+                self._client(connection_id, session, now)
+                for connection_id, session in self._display.client_sessions().items()
+            ]
+        )
+
+    def client_facts(self, named: NamedSession) -> HubClient:
+        """Return one session's facts — the shape ``list_clients`` reports, for one.
+
+        What the Details command renders, so the menu and the introspection read
+        can never describe a client differently. It takes the session the caller
+        already read rather than reading the registry again: a second read is a
+        second instant, and the registry sweeps lapsed sessions as it is read, so
+        it can retire the very client the caller is describing.
+        """
+        return self._client(named.connection_id, named.session, time.monotonic())
+
+    def _client(
+        self, connection_id: ConnectionId, session: ClientSession, now: float
+    ) -> HubClient:
+        """Build one session's read shape from the authoritative Hub state."""
+        return HubClient(
+            connection_id=str(connection_id),
+            identity=session.identity,
+            connected_seconds=round(session.age(now), 1),
+            lease=session.lease_term,
+            subscribed_topics=sorted(
+                str(topic) for topic in self._hub.topics_for(connection_id)
+            ),
+            owned_scenes=sorted(
+                {str(s) for s, _ in self._display.elements_owned_by(connection_id)}
+            ),
+        )
 
     def _owners_of(self, scene_id: SceneId) -> list[SceneOwner]:
         """Return the scene's distinct owners as introspection read shapes."""

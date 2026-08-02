@@ -4,7 +4,7 @@ set_menu writes the Hub menu registry and hands the composed bar to the
 replicator (the sole writer), never reaching the display directly. A spy
 replicator records the marks, proving there is no second writer. list_menus
 reads the registry and round-trips the separator sentinel through the typed
-model, then appends the session-then-callback submenus.
+model, then appends the Clients menu.
 """
 
 from __future__ import annotations
@@ -171,7 +171,7 @@ def test_list_menus_round_trips_the_separator_sentinel() -> None:
 
 def test_list_menus_appends_the_callback_submenus_after_the_agent_bar() -> None:
     # The read reports both parts side by side: the agent bar first, then the
-    # session-then-callback submenus the callback model contributes.
+    # Clients menu the callback model contributes.
     registry = HubMenuRegistry()
     callback_submenu = Menu(label="vox", items=[MenuAction(id="c", label="Beads")])
     ops = MenuOperations(registry, _MenuMarkerSpy(), _CallbackMenus([callback_submenu]))

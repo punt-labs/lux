@@ -92,7 +92,13 @@ class _CountingPort:
 
 
 def _seed_scene(store: HubDisplay, *, scene: str, connection: str) -> None:
-    """Install a group root with a text child under one connection."""
+    """Install a group root with a text child under one connection.
+
+    The connection registers itself first, as a client showing a scene does: a
+    store write is attribution, never an arrival, so writing alone would leave
+    the scene owned by a connection the Hub holds no session for.
+    """
+    store.register_client(ConnectionId(connection))
     group = agent_element_factory().element_from_dict(
         {
             "kind": "group",

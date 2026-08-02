@@ -4,7 +4,7 @@ Menus are UI the agent submits, so the Hub owns them. ``set_menu`` writes the Hu
 menu registry and hands the whole composed bar to the replicator, which is the
 sole writer to the display — the same mark-and-replicate path a scene change
 takes, with no second writer. ``list_menus`` reads the registry with no
-reach-around, then appends the session-then-callback submenus.
+reach-around, then appends the Clients menu.
 """
 
 from __future__ import annotations
@@ -55,9 +55,9 @@ class MenuOperations:
     def list_menus(self) -> MenuList:
         """Return the whole Hub-authoritative menu state with no reach-around.
 
-        Reports the agent menu bar, then the session-then-callback submenus for the
+        Reports the agent menu bar, then the ``Clients`` menu composed from the
         live sessions. One read inventories every menu the Hub owns: the agent bar
-        the agent set and the callback model built from the live sessions.
+        the agent set and the callback model built from the live clients.
         """
         menus = list(self._registry.menu_bar())
         menus.extend(self._callback_menus.callback_menus())

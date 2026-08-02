@@ -14,25 +14,14 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from punt_lux.domain.hub import client_registry, hub, hub_display
-from punt_lux.domain.hub.hub_factory import hub_element_factory
-from punt_lux.domain.hub.inbox import ensure_writer, next_event
-from punt_lux.domain.hub.replicator_instance import (
-    hub_callback_router,
-    hub_menu_registry,
-    hub_replicator,
-)
 from punt_lux.domain.ids import ConnectionId
+from punt_lux.hub_composition import HubComposition
 from punt_lux.operations import (
     DisplayModeState,
-    Operations,
     OpError,
     SceneShown,
     Scope,
 )
-from punt_lux.operations.display_connection import HubDisplayConnection
-from punt_lux.operations.ports import HubPorts
-from punt_lux.paths import DisplayPaths
 from punt_lux.tools.server import _session_key
 
 # The package-internal interface the sibling tool modules reach through ``_core``:
@@ -48,43 +37,11 @@ __all__ = [
 ]
 
 
-def _hub_ports() -> HubPorts:
-    """Bundle the Hub collaborators (element decode, inbox, display) for operations."""
-    return HubPorts(
-        element_factory=hub_element_factory,
-        ensure_writer=ensure_writer,
-        next_event=next_event,
-        display_port=_display_connection(),
-    )
+# The process-wide operations facade, built once from the one wiring recipe.
+OPERATIONS = HubComposition.operations()
 
-
-def _display_connection() -> HubDisplayConnection:
-    """Build luxd's one bounded connection to the display for proxied ops."""
-    return HubDisplayConnection(
-        is_running=lambda: DisplayPaths().is_running(),
-        clients=client_registry,
-    )
-
-
-def _build_operations() -> Operations:
-    """Compose the operations facade — the presentation-layer composition root.
-
-    Every collaborator is injected here; nothing under ``operations/`` binds a
-    process singleton or reaches back into ``tools/`` at import time.
-    """
-    return Operations.for_store(
-        hub_display,
-        hub_replicator,
-        hub=hub,
-        client_registry=client_registry,
-        menu_registry=hub_menu_registry,
-        callback_router=hub_callback_router,
-        ports=_hub_ports(),
-    )
-
-
-# The process-wide operations facade, built once at the composition root.
-OPERATIONS = _build_operations()
+# The Hub answers its own Details clicks; the recipe binds the renderer they run.
+HubComposition.bind_client_details()
 
 
 def _connection_id() -> ConnectionId:

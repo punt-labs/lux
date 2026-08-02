@@ -46,14 +46,15 @@ def test_register_callback_succeeds_for_an_identified_listening_caller() -> None
     assert resp.json() == {"kind": "ok"}
 
 
-def test_register_callback_then_list_shows_the_session_submenu() -> None:
+def test_register_callback_then_list_shows_the_client_under_clients() -> None:
     client = make_client(listening=True)
     client.post(
         "/menus/callbacks", json={"callback": {"id": "beads", "label": "Beads"}}
     )
     listed = client.get("/menus").json()
-    # The submenu is labeled with the caller's name and nothing else.
-    assert [m["label"] for m in listed["menus"]] == ["rest-test"]
+    # One Clients menu, with the caller under it named for its repository.
+    assert [m["label"] for m in listed["menus"]] == ["Clients"]
+    assert [m["label"] for m in listed["menus"][0]["items"]] == ["lux"]
 
 
 def test_register_callback_without_a_listen_leg_is_refused_with_403() -> None:

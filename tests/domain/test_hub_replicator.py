@@ -283,7 +283,7 @@ def test_menu_state_is_pushed_from_a_fresh_registry_read() -> None:
 
 
 def test_callback_submenus_are_pushed_on_a_menu_change() -> None:
-    # A menu change also re-sends the live session-then-callback submenus, read
+    # A menu change also re-sends the live Clients menu, read
     # fresh from the session registry beside the agent bar.
     store = HubDisplay()
     submenu: dict[str, object] = {

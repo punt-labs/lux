@@ -551,7 +551,7 @@ class DisplayClient:
         self._send(ThemeMessage(theme=theme))
 
     def set_callback_menus(self, submenus: list[dict[str, Any]]) -> None:
-        """Replace the display's session-then-callback submenus (Hub-composed)."""
+        """Replace the display's Clients menu (Hub-composed)."""
         self._send(CallbackMenuMessage(submenus=submenus))
 
     def ping(self, timeout: float | None = None) -> PongMessage | None:

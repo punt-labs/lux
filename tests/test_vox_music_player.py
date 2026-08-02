@@ -37,7 +37,7 @@ from punt_lux.domain.hub.callback_menu import CallbackMenu
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
-from punt_lux.domain.hub.menu_models import MenuAction
+from punt_lux.domain.hub.menu_models import Menu, MenuAction
 from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
 from punt_lux.domain.ids import ClientId, ElementId, SceneId, Topic
 from punt_lux.domain.interaction import ButtonClicked
@@ -55,10 +55,12 @@ from punt_lux.ws_transport import HubListenTransport
 _HEADERS = {
     "X-Lux-Client-Kind": "app",
     "X-Lux-Client-Name": "voxd",
-    "X-Lux-Client-Repo": "/w/vox",
 }
-_IDENTITY = ClientIdentity(kind="app", name="voxd", repo="/w/vox")
-_CONN = connection_for({"kind": "app", "name": "voxd", "repo": "/w/vox"})
+# What voxd actually declares (punt_vox/voxd/music_player/lux_clients.py): an
+# app, named for itself, working in no repository — a daemon belongs to the
+# machine, not to a checkout, which is also why the menu calls it ``voxd``.
+_IDENTITY = ClientIdentity(kind="app", name="voxd")
+_CONN = connection_for({"kind": "app", "name": "voxd"})
 
 
 @final
@@ -185,12 +187,16 @@ def test_the_music_build_shows_one_voxd_submenu_with_a_music_leaf() -> None:
     )
     assert outcome == "registered"
 
-    menus = CallbackMenu.from_sessions(clients.live_sessions())
+    menus = CallbackMenu.from_named(clients.named_sessions())
 
-    # Exactly one submenu, labelled by identity and repository, with the Music leaf
-    # whose id round-trips a click back to voxd's connection.
-    assert [menu.label for menu in menus] == ["voxd"]
-    leaf = menus[0].items[0]
+    # voxd is a client like any other: one submenu under Clients, named for
+    # itself because a daemon works in no repository, with the Music leaf whose
+    # id round-trips a click back to voxd's connection.
+    assert [menu.label for menu in menus] == ["Clients"]
+    voxd = menus[0].items[0]
+    assert isinstance(voxd, Menu)
+    assert voxd.label == "voxd"
+    leaf = voxd.items[0]
     assert isinstance(leaf, MenuAction)
     assert leaf.label == "Music"
     assert leaf.id == CallbackInvocation(_CONN, "music").menu_id

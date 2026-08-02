@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, cast, final
 
 from punt_lux.operations.models.common import OpError
+from punt_lux.operations.scene_submission import SceneSubmission
 from punt_lux.protocol.compositions import TableComposition
 
 if TYPE_CHECKING:
@@ -51,21 +52,20 @@ class ConvenienceOperations:
             return request
         # Construction boundary: the composition raises ``ValueError`` on a
         # malformed filter/detail shape (the fail-loud guards) and, like the
-        # codecs, may raise ``TypeError`` on a wrong-typed wire shape. The
-        # operation never raises through its signature, so — like the wire-decode
-        # path in ``SceneOperations.render`` — either becomes a rejection the
-        # adapter renders, not a traceback out of the tool.
+        # codecs, ``TypeError`` on a wrong-typed wire shape. This never raises
+        # through its signature, so — as in ``SceneOperations.render`` — either
+        # becomes a rejection the adapter renders, not a traceback out of a tool.
         try:
             roots = TableComposition.build(request.to_spec())
         except (ValueError, TypeError) as exc:
             return OpError(code="rejected", reason=str(exc))
-        return self._scenes.install(
+        submission = SceneSubmission.of(
             cast("Sequence[DomainElement]", roots),
-            scene_id=request.scene_id,
-            presentation=request.presentation(),
-            ttl_seconds=request.frame_ttl(),
-            scope=scope,
+            request.scene_id,
+            request.presentation(),
+            request.frame_ttl(),
         )
+        return self._scenes.install(submission, scope=scope)
 
     def render_dashboard(
         self, request: RenderDashboardRequest | OpError, *, scope: Scope

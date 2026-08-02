@@ -7,6 +7,13 @@ withdrawn. A menu item is now a session's callback, and nothing more. Read
 The file keeps its old name for history; the model it records is the
 session-and-callback model below.
 
+**Presentation superseded by [DES-064](../../DESIGN.md) (2026-08-02).** What a
+menu item *is* — a client's callback, delivered to the client that registered it
+— is unchanged. How the menu is *presented* is not: the flat one-submenu-per-
+client bar this document describes became one top-level `Clients` menu holding
+one submenu per live client, named for humans and numbered on collision, each
+carrying the Hub's own `Details` command. Read DES-064 for the presentation.
+
 This document describes what a Lux menu item is, what happens when the user
 clicks one, and how the menu knows which repository the user means. It is
 interaction design first and plumbing second. The thing that is broken is the

@@ -12,6 +12,7 @@ coherent and no thread raises.
 from __future__ import annotations
 
 import threading
+import time
 from typing import final
 
 from punt_lux.domain.hub.client_identity import ClientIdentity
@@ -539,3 +540,125 @@ def test_concurrent_record_and_discard_against_iterating_sessions() -> None:
 
     # No thread raised — the reads stayed coherent under concurrent mutation.
     assert caught == [], [args.exc_value for args in caught]
+
+
+@final
+class _SlowIdentity(ClientIdentity):
+    """An identity whose menu name takes a moment to read.
+
+    Naming happens inside the registry's lock, and on a real identity that step is
+    a few instructions wide. Widening it does not change what the registry does —
+    it only makes the window a second thread would have to hit observable.
+    """
+
+    @property
+    def menu_label(self) -> str:
+        time.sleep(0.001)
+        return super().menu_label
+
+
+def _slow_mcp() -> ClientIdentity:
+    """An mcp session in ``/w/lux`` whose menu name takes a moment to read."""
+    return _SlowIdentity(kind="mcp-session", name="claude", repo="/w/lux")
+
+
+def test_a_named_client_keeps_its_name_across_reads() -> None:
+    reg = HubClientRegistry()
+    conn = ConnectionId("mcp")
+    reg.record(conn, _mcp())
+
+    assert reg.named_sessions().name_of(conn, "client") == "lux"
+    assert reg.named_sessions().name_of(conn, "client") == "lux"
+
+
+def test_an_unidentified_session_is_live_but_unnamed() -> None:
+    reg = HubClientRegistry()
+    conn = ConnectionId("bare")
+    reg.record(conn)
+
+    named = reg.named_sessions()
+
+    assert conn in named.sessions
+    assert named.name_of(conn, "client") == "client"
+
+
+def test_the_sweep_releases_the_name_it_reaps() -> None:
+    """A lapsed session is removed in one place, so its name goes in that place."""
+    clock = _Clock()
+    reg = HubClientRegistry(clock)
+    lapsing, arrival = ConnectionId("cli"), ConnectionId("later")
+    reg.record(lapsing, _cli())
+    assert reg.named_sessions().name_of(lapsing, "client") == "lux"
+
+    clock.advance(91.0)  # past the 90s cli lease
+    reg.record(arrival, _cli())
+
+    assert reg.named_sessions().name_of(arrival, "client") == "lux"  # the freed name
+
+
+def test_discard_releases_the_name_with_the_session() -> None:
+    reg = HubClientRegistry()
+    departing, arrival = ConnectionId("first"), ConnectionId("second")
+    reg.record(departing, _mcp())
+    reg.named_sessions()
+
+    reg.discard(departing)
+    reg.record(arrival, _mcp())
+
+    assert reg.named_sessions().name_of(arrival, "client") == "lux"
+
+
+def test_a_numbered_client_is_not_promoted_when_the_first_is_swept() -> None:
+    """A menu entry that renames itself under the pointer is worse than a gap."""
+    clock = _Clock()
+    reg = HubClientRegistry(clock)
+    lapsing, staying = ConnectionId("cli"), ConnectionId("mcp")
+    reg.record(lapsing, _cli())
+    reg.record(staying, _mcp())
+    assert reg.named_sessions().name_of(staying, "client") == "lux (2)"
+
+    clock.advance(91.0)  # the cli lease lapses; the mcp session's has 1800s
+
+    assert reg.named_sessions().name_of(staying, "client") == "lux (2)"
+
+
+def test_a_name_survives_a_read_taken_while_another_client_arrives() -> None:
+    """No reader can retire a name, so a slower one cannot undo a faster one's work.
+
+    Each caller used to take its own picture of the live sessions and release
+    whatever that picture did not show, so a reader holding the older picture
+    dropped the name a newer read had just assigned — the menu and the details
+    frame then disagreed about which client was ``lux (2)``. A caller now hands the
+    registry nothing: the only picture is the registry's own store, read under its
+    lock, and departures are stated by the step that removes a session.
+    """
+    reg = HubClientRegistry()
+    conns = [ConnectionId(f"c{n}") for n in range(6)]
+    for conn in conns:
+        reg.record(conn, _slow_mcp())
+    reads: list[list[str]] = []
+    failures: list[BaseException] = []
+    stop = threading.Event()
+
+    def keep_reading() -> None:
+        try:
+            while not stop.is_set():
+                named = reg.named_sessions()
+                reads.append([named.name_of(conn, "MISSING") for conn in conns])
+        except BaseException as exc:  # noqa: BLE001 — the thread's own boundary
+            failures.append(exc)
+
+    readers = [threading.Thread(target=keep_reading) for _ in range(4)]
+    for reader in readers:
+        reader.start()
+    for late in range(6, 12):  # more clients arrive while the readers are inside
+        reg.record(ConnectionId(f"c{late}"), _slow_mcp())
+    stop.set()
+    for reader in readers:
+        reader.join(timeout=5.0)
+
+    assert failures == [], f"a read raised: {failures[0]!r}"
+    assert reads, "no read completed"
+    for names in reads:
+        assert "MISSING" not in names, f"a live client lost its name: {names}"
+        assert len(set(names)) == len(names), f"a name was shared: {names}"

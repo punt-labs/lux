@@ -132,16 +132,23 @@ class Operations:
         ``callback_router`` is the one process-wide router: both the MCP and REST
         composition roots pass the same instance, so a click routed on one surface
         and drained on another share one set of per-session holds.
+
+        The Hub's own Details command is not composed here. It is not a surface
+        capability — it is keyed by a ``ConnectionId``, a wire key no surface
+        addresses by, and it writes a scene owned by a connection other than the
+        caller's — so it lives on its own concern class, which each composition
+        root builds and binds to the interaction dispatch.
         """
         scenes = SceneOperations(display, replicator, ports.element_factory)
         callbacks = CallbackOperations(display.clients, callback_router, replicator)
+        queries = QueryOperations(display, hub, ports.display_port)
         return cls(
             scenes=scenes,
             conveniences=ConvenienceOperations(scenes),
             pubsub=PubSubOperations(hub, ports.ensure_writer, ports.next_event),
             config=DisplayModeOperations(client_registry),
             display=DisplayControlOperations(ports.display_port),
-            queries=QueryOperations(display, hub, ports.display_port),
+            queries=queries,
             menus=MenuOperations(menu_registry, replicator, callbacks),
             identity=IdentityOperations(display),
             callbacks=callbacks,

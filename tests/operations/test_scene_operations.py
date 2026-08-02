@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
+from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.operations import (
     Cleared,
@@ -12,6 +13,8 @@ from punt_lux.operations import (
     SceneShown,
     UpdateRequest,
 )
+from punt_lux.operations.scene_installer import SceneInstaller
+from punt_lux.operations.scene_submission import SceneSubmission
 from punt_lux.operations.scenes import SceneOperations
 from punt_lux.operations.scope import Scope
 from punt_lux.protocol import CollapsingHeaderElement
@@ -34,6 +37,16 @@ class _Recorder:
 
 def _ops(store: HubDisplay, recorder: _Recorder) -> SceneOperations:
     return SceneOperations(store, recorder, hub_element_factory)
+
+
+def _submitted(scene_id: str) -> SceneSubmission:
+    """One header root offered as a permanent scene framed by its own id."""
+    return SceneSubmission.of(
+        [CollapsingHeaderElement(id="hdr", label="Details", open=False)],
+        scene_id,
+        ScenePresentation(frame_id=scene_id),
+        None,
+    )
 
 
 def _seed_header(store: HubDisplay, *, is_open: bool = False) -> None:
@@ -257,12 +270,53 @@ def test_scene_scoped_clear_of_an_unowned_scene_is_rejected() -> None:
     assert recorder.dirtied == []
 
 
+class TestWhoAnInstallRegisters:
+    """A caller showing a scene is a client; a client written *for* is not."""
+
+    def test_the_callers_own_install_registers_it(self) -> None:
+        # A client that only ever shows still appears among the Hub's clients:
+        # its show is its contact, and there may never be another kind.
+        store, recorder = HubDisplay(), _Recorder()
+        request = RenderRequest.parse(
+            {
+                "scene_id": "s1",
+                "elements": [{"kind": "text", "id": "t1", "content": "Hi"}],
+            }
+        )
+        result = _ops(store, recorder).render(request, scope=_LOCAL)
+        assert isinstance(result, SceneShown)
+        assert [str(c) for c in store.client_sessions()] == ["local"]
+
+    def test_a_scene_written_for_a_departed_client_does_not_recreate_it(self) -> None:
+        # The ghost: the Hub writes a per-client scene for a connection that has
+        # gone since the read that named it. Attribution is not contact — the
+        # install must leave the registry as the departure left it.
+        store, recorder = HubDisplay(), _Recorder()
+        departed = ConnectionId("gone")
+        store.register_client(departed)
+        store.drop_connection(departed)
+
+        result = SceneInstaller(store, recorder).install(
+            _submitted("lux.client-details.gone"), owner=departed
+        )
+
+        assert isinstance(result, SceneShown)
+        assert dict(store.client_sessions()) == {}
+
+    def test_a_scene_written_for_an_unknown_client_registers_nobody(self) -> None:
+        # The same rule where no session ever existed: nothing the Hub writes on a
+        # connection's behalf may invent one.
+        store, recorder = HubDisplay(), _Recorder()
+        SceneInstaller(store, recorder).install(
+            _submitted("lux.client-details.never"), owner=ConnectionId("never")
+        )
+        assert dict(store.client_sessions()) == {}
+
+
 def test_scene_scoped_clear_preserves_a_custom_frame_binding() -> None:
     # A scene shown in a custom frame keeps its presentation through clear: the
     # writer no longer forgets the frame, so the replicator's empty-push blanks the
     # frame the scene was actually shown in, not one guessed from the scene id.
-    from punt_lux.domain.hub.scene_presentation import ScenePresentation
-
     store, recorder = HubDisplay(), _Recorder()
     store.show_scene(
         ConnectionId("local"),

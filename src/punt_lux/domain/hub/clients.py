@@ -14,13 +14,15 @@ import threading
 from collections.abc import Callable
 from typing import Self
 
-from punt_lux.client_label import ClientLabel
 from punt_lux.display_client import DisplayClient
 from punt_lux.domain.hub.hub_interaction_dispatch import HubInteractionDispatch
 
 logger = logging.getLogger(__name__)
 
 __all__ = ["ClientRegistry", "client_registry"]
+
+# What luxd calls itself on the one socket connection it holds to the display.
+_DISPLAY_CLIENT_NAME = "lux-mcp"
 
 
 class ClientRegistry:
@@ -54,7 +56,7 @@ class ClientRegistry:
         called concurrently from the lifespan thread and MCP tool threads."""
         with self._lock:
             if self._client is None:
-                self._client = DisplayClient(name=ClientLabel.LUX)
+                self._client = DisplayClient(name=_DISPLAY_CLIENT_NAME)
             self._setup_apps()
             if not self._client.is_connected:
                 self._client.connect()

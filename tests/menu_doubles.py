@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Self, final
 
 from punt_lux.display.menu_manager import MenuManager
+from punt_lux.display.menus.wire import WireMenu
+from punt_lux.display.menus.wire_field import WireField
 from punt_lux.scene.frame import Frame
 
 if TYPE_CHECKING:
@@ -27,6 +29,7 @@ __all__ = [
     "FakeTheme",
     "MenuLine",
     "Vec2",
+    "checked_menu",
     "ignore",
     "make_frame",
     "make_menu_manager",
@@ -370,6 +373,16 @@ def make_menu_manager(**overrides: Any) -> MenuManager:
 def wire_menu(label: str, items: Iterable[dict[str, Any]]) -> dict[str, Any]:
     """Return a replicated menu payload in the shape the Hub sends."""
     return {"label": label, "items": list(items)}
+
+
+def checked_menu(payload: dict[str, Any]) -> WireMenu:
+    """Return the menu a payload describes, checked as the display checks it.
+
+    Raises if the payload is malformed, which is what the display's boundary
+    does before it logs the rejection — a test that wants a menu gets a menu or
+    a failure, never a half-formed one.
+    """
+    return WireMenu.of_payload(payload, field=WireField("test"))
 
 
 def make_frame(frame_id: str, *, minimized: bool = False) -> Frame:
