@@ -12,18 +12,15 @@ know, and the outcome it gets back reports itself.
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Protocol, final, runtime_checkable
 
-from punt_lux.domain.hub.details_outcome import DetailsRefused
+from punt_lux.domain.hub.details_outcome import DetailsUnbound
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.details_outcome import DetailsOutcome
     from punt_lux.domain.ids import ConnectionId
 
 __all__ = ["ClientDetailsRenderer", "NoDetailsRenderer"]
-
-logger = logging.getLogger(__name__)
 
 
 @runtime_checkable
@@ -42,8 +39,9 @@ class NoDetailsRenderer:
     __slots__ = ()
 
     def render_details(self, connection_id: ConnectionId) -> DetailsOutcome:
-        """Report the click that arrived with nothing to answer it."""
-        logger.warning(
-            "Details clicked for %s before luxd bound its renderer", connection_id
-        )
-        return DetailsRefused(connection_id)
+        """Answer with the outcome that says nothing was bound, and log nothing.
+
+        The outcome carries its own line, so the click leaves exactly one — and
+        one that names the reason that was actually checked.
+        """
+        return DetailsUnbound(connection_id)

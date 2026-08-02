@@ -10,7 +10,11 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from punt_lux.domain.hub.details_outcome import DetailsRefused, DetailsShown
+from punt_lux.domain.hub.details_outcome import (
+    DetailsRefused,
+    DetailsShown,
+    DetailsUnbound,
+)
 from punt_lux.domain.ids import ConnectionId
 
 if TYPE_CHECKING:
@@ -34,6 +38,30 @@ def test_a_shown_frame_reports_nothing_because_it_is_on_the_screen(
         DetailsShown().reported()
 
     assert caplog.text == ""
+
+
+def test_an_unbound_click_says_nothing_was_bound_and_nothing_about_the_session(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Two reasons a click paints nothing; only the one that was checked is said."""
+    with caplog.at_level(logging.DEBUG):
+        DetailsUnbound(ConnectionId("c1")).reported()
+
+    assert len(caplog.records) == 1
+    assert "before luxd bound its renderer" in caplog.text
+    assert "no longer holds a session for" not in caplog.text
+
+
+def test_each_outcome_that_paints_nothing_leaves_exactly_one_line(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    conn = ConnectionId("c1")
+
+    with caplog.at_level(logging.DEBUG):
+        DetailsRefused(conn).reported()
+        DetailsUnbound(conn).reported()
+
+    assert len(caplog.records) == 2  # one apiece, never two for one click
 
 
 def test_two_refusals_of_one_connection_are_equal() -> None:

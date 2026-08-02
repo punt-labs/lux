@@ -1,13 +1,16 @@
 """What became of a Details click, and what each outcome has to say for itself.
 
-A click either opened a frame or came to nothing. The second is the normal case
-of a click that outlived its client — the menu is a replica, and a lease can
-lapse between the paint and the pointer — not a failure of the command.
+A click opened a frame, or came to nothing for one of two reasons: the Hub holds
+no session for that connection — the normal case of a click that outlived its
+client, since the menu is a replica and a lease can lapse between the paint and
+the pointer — or nothing had bound a renderer yet, which is a display clicked
+before luxd finished composing itself.
 
-The two are two classes rather than one flag, because the difference between
-them is behavior: a frame on screen is its own report, while a refusal paints
-nothing at all and the log is the only place it can show. The dispatch asks the
-outcome to report itself and does not ask which one it is.
+They are classes rather than one flag because the difference between them is
+behavior: a frame on screen is its own report, while the other two paint nothing
+and the log is the only place they can show. Each owns its own line, so one click
+leaves exactly one, and no outcome can be described by a reason that was never
+checked.
 """
 
 from __future__ import annotations
@@ -19,7 +22,7 @@ from typing import TYPE_CHECKING, final
 if TYPE_CHECKING:
     from punt_lux.domain.ids import ConnectionId
 
-__all__ = ["DetailsOutcome", "DetailsRefused", "DetailsShown"]
+__all__ = ["DetailsOutcome", "DetailsRefused", "DetailsShown", "DetailsUnbound"]
 
 logger = logging.getLogger(__name__)
 
@@ -52,5 +55,25 @@ class DetailsRefused:
         )
 
 
-# One or the other; the dispatch tells it to report and never asks which.
-type DetailsOutcome = DetailsShown | DetailsRefused
+@final
+@dataclass(frozen=True, slots=True)
+class DetailsUnbound:
+    """Nothing had bound a renderer, so no one was there to answer the click."""
+
+    connection_id: ConnectionId
+
+    def reported(self) -> None:
+        """Say what actually happened, which is not that the session is gone.
+
+        The Hub may well hold a session for this connection; nothing asked it.
+        A reader chasing a click that opened no frame needs the reason that was
+        checked, not the one that sounds like it.
+        """
+        logger.warning(
+            "Details clicked for %s before luxd bound its renderer",
+            self.connection_id,
+        )
+
+
+# One of the three; the dispatch tells it to report and never asks which.
+type DetailsOutcome = DetailsShown | DetailsRefused | DetailsUnbound

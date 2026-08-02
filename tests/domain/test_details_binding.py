@@ -106,6 +106,21 @@ def test_an_unbound_binding_says_so_and_does_not_raise(
     assert "before luxd bound its renderer" in caplog.text
 
 
+def test_an_unbound_click_leaves_one_line_and_does_not_blame_the_session(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Nothing asked whether the Hub holds that session, so nothing may say it did.
+
+    Two lines for one click is two explanations, and the second one here would
+    be a reason that was never checked.
+    """
+    with caplog.at_level(logging.DEBUG):
+        DetailsBinding().run(ConnectionId("c1"))
+
+    assert len(caplog.records) == 1
+    assert "no longer holds a session for" not in caplog.text
+
+
 def test_the_null_object_satisfies_the_renderer_contract() -> None:
     assert isinstance(NoDetailsRenderer(), ClientDetailsRenderer)
 
