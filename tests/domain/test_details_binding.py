@@ -10,9 +10,10 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.details_binding import (
+from punt_lux.domain.hub.details_binding import DetailsBinding
+from punt_lux.domain.hub.details_outcome import DetailsRefused, DetailsShown
+from punt_lux.domain.hub.details_renderer import (
     ClientDetailsRenderer,
-    DetailsBinding,
     NoDetailsRenderer,
 )
 from punt_lux.domain.ids import ConnectionId
@@ -20,22 +21,28 @@ from punt_lux.domain.ids import ConnectionId
 if TYPE_CHECKING:
     import pytest
 
+    from punt_lux.domain.hub.details_outcome import DetailsOutcome
+
 
 @final
 class _Renderer:
     """A renderer recording the connections it was asked about."""
 
     _asked: list[ConnectionId]
-    __slots__ = ("_asked",)
+    _refuses: bool
+    __slots__ = ("_asked", "_refuses")
 
-    def __new__(cls) -> Self:
+    def __new__(cls, *, refuses: bool = False) -> Self:
         self = super().__new__(cls)
         self._asked = []
+        self._refuses = refuses
         return self
 
-    def show_client_details(self, connection_id: ConnectionId) -> object:
+    def render_details(self, connection_id: ConnectionId) -> DetailsOutcome:
         self._asked.append(connection_id)
-        return None
+        if self._refuses:
+            return DetailsRefused(connection_id)
+        return DetailsShown()
 
     @property
     def asked(self) -> tuple[ConnectionId, ...]:
@@ -52,7 +59,7 @@ def test_a_bound_renderer_answers_the_command() -> None:
 
 
 def test_the_last_binding_wins() -> None:
-    """luxd composes a facade for MCP and another for REST; either may answer."""
+    """luxd builds a renderer at the MCP root and another at REST; either answers."""
     binding, first, second = DetailsBinding(), _Renderer(), _Renderer()
     binding.bind(first)
     binding.bind(second)
@@ -61,6 +68,32 @@ def test_the_last_binding_wins() -> None:
 
     assert first.asked == ()
     assert second.asked == (ConnectionId("c1"),)
+
+
+def test_a_refused_click_leaves_a_line_naming_the_connection(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A click that outlived its client did nothing; it must not do so silently."""
+    binding = DetailsBinding()
+    binding.bind(_Renderer(refuses=True))
+
+    with caplog.at_level(logging.INFO):
+        binding.run(ConnectionId("gone"))
+
+    assert "gone" in caplog.text
+    assert "no longer holds a session for" in caplog.text
+
+
+def test_a_shown_click_leaves_no_refusal_line(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    binding = DetailsBinding()
+    binding.bind(_Renderer())
+
+    with caplog.at_level(logging.INFO):
+        binding.run(ConnectionId("c1"))
+
+    assert "no longer holds a session for" not in caplog.text
 
 
 def test_an_unbound_binding_says_so_and_does_not_raise(

@@ -12,9 +12,12 @@
   itself — it reports its own record of the connection and runs nothing outside
   luxd — and it reports the same facts `list_clients` returns, so the menu and
   the introspection read can never describe a client differently.
-- **`list_clients` reports each client's lease.** `lease_ttl_seconds` is the
-  effective length — the one its kind holds when it declared none, and endless
-  for luxd's own built-ins — not just what the client asked for.
+- **`list_clients` reports each client's lease.** The `lease` field carries the
+  effective term — the one its kind holds when it declared none — not just what
+  the client asked for. It is one of two states, `{"kind": "expiring",
+  "seconds": N}` or `{"kind": "permanent"}`, rather than a number with a magic
+  value in it: luxd's own built-ins never lapse, and written as a float that
+  reads as `Infinity`, which no JSON can carry.
 - **Applets — small session-bound programs that own a menu entry.** An applet
   runs for the life of one Claude Code session, in that session's repository
   and shell, holding its own connection to luxd. It exists because luxd cannot

@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from math import inf
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
 from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.domain.hub.lease_term import LeaseTerm
 
 __all__ = ["ClientList", "HubClient"]
 
@@ -20,9 +20,9 @@ class HubClient(BaseModel):
     connection_id: str
     identity: ClientIdentity | None = None
     connected_seconds: float
-    # The effective lease, not the declared one — a session that named no TTL
-    # holds its kind's, and luxd's own built-ins hold ``inf``.
-    lease_ttl_seconds: float = inf
+    # The effective lease, not the declared one: a session that named no TTL
+    # holds its kind's. Two states, so the permanent case survives JSON.
+    lease: LeaseTerm
     subscribed_topics: list[str]
     owned_scenes: list[str]
 

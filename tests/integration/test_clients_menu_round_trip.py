@@ -14,6 +14,7 @@ instead of being answered.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Self, final
 
 import pytest
@@ -29,6 +30,7 @@ from punt_lux.domain.hub.hub_interaction_dispatch import HubInteractionDispatch
 from punt_lux.domain.hub.session_callback import SessionCallback
 from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.operations.client_details import ClientDetailsOperations
+from punt_lux.operations.client_details_port import ClientDetailsPort
 from punt_lux.operations.queries import QueryOperations
 from punt_lux.operations.scenes import SceneOperations
 from punt_lux.protocol.elements.table import TableElement
@@ -92,7 +94,7 @@ class _Wired:
     """A Hub with two live clients, and the display model of the menu it composes."""
 
     _store: HubDisplay
-    _details: ClientDetailsOperations
+    _details: ClientDetailsPort
     _router: CallbackRouter
     _legs: dict[ConnectionId, _Leg]
     _sent: list[RemoteEventHandlerInvocation]
@@ -104,10 +106,12 @@ class _Wired:
         self = super().__new__(cls)
         self._store = HubDisplay()
         marks = _Marks()
-        self._details = ClientDetailsOperations(
-            QueryOperations(self._store, Hub(), _Port()),  # type: ignore[arg-type]  # structural port
-            SceneOperations(self._store, marks, hub_element_factory),
-            self._store.clients,
+        self._details = ClientDetailsPort(
+            ClientDetailsOperations(
+                QueryOperations(self._store, Hub(), _Port()),  # type: ignore[arg-type]  # structural port
+                SceneOperations(self._store, marks, hub_element_factory),
+                self._store.clients,
+            )
         )
         self._router = CallbackRouter(self._store.clients)
         self._legs = {}
@@ -242,13 +246,22 @@ def test_two_clients_on_one_repository_are_numbered_all_the_way_to_the_screen(
 
 def test_a_details_scene_installs_no_scene_for_a_client_that_left(
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A click can outlive its client; the Hub refuses rather than paint a blank."""
+    """A click can outlive its client; the Hub refuses rather than paint a blank.
+
+    A refusal paints nothing, so the log is the only place it shows. The line
+    names the connection, because that is what tells a reader which entry the
+    user clicked when the frame they expected never opened.
+    """
     wired = _wired_with_two_clients()
     wired.draw("Details")
     wired.sweep(_VOXD)  # its lease lapsed between the paint and the pointer
 
-    wired.dispatch_sent(monkeypatch)
+    with caplog.at_level(logging.INFO):
+        wired.dispatch_sent(monkeypatch)
 
     assert not wired.has_details(_VOXD)
     assert wired.scene_rows(_BEADS)["Client"] == "lux"
+    assert f"Details clicked for {_VOXD}" in caplog.text
+    assert "no longer holds a session for" in caplog.text

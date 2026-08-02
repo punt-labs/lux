@@ -26,6 +26,7 @@ from punt_lux.domain.hub.replicator_instance import (
     hub_replicator,
 )
 from punt_lux.operations import HubPorts, Operations
+from punt_lux.operations.client_details_port import ClientDetailsPort
 from punt_lux.operations.display_connection import HubDisplayConnection
 from punt_lux.paths import DisplayPaths
 from punt_lux.rest.config import DisplayModeRoutes
@@ -93,7 +94,14 @@ class RestSurface:
                 clients=client_registry,
             ),
         )
-        operations = Operations.for_store(
+        # A Details click lands in the domain-layer dispatch, which may not call
+        # operations; the process binds its renderer here. Last root wins.
+        hub_client_details.bind(
+            ClientDetailsPort.for_store(
+                hub_display, hub_replicator, hub=hub, ports=ports
+            )
+        )
+        return Operations.for_store(
             hub_display,
             hub_replicator,
             hub=hub,
@@ -102,11 +110,6 @@ class RestSurface:
             callback_router=hub_callback_router,
             ports=ports,
         )
-        # A Details click lands in the domain-layer interaction dispatch, which
-        # may not call operations; this is where the process binds the renderer
-        # it runs. Either surface's facade can answer, so the last one wins.
-        hub_client_details.bind(operations)
-        return operations
 
     @property
     def routers(self) -> tuple[APIRouter, ...]:

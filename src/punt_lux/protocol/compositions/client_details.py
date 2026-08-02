@@ -10,18 +10,20 @@ The wire identity a menu label no longer carries lands here: the declared name
 with its distinctness token, the kind, the repository, the connection id.
 
 The scene is a two-column grid of field and value. Every value is rendered for a
-person to read — a duration as minutes and seconds, a lease that never lapses as
-``permanent``, an empty list as ``none`` — because a client's details are looked
-at, not parsed.
+person to read — a duration as minutes and seconds, an empty list as ``none`` —
+because a client's details are looked at, not parsed. The facts render
+themselves: a lease knows whether it ever lapses, and a duration knows how a
+person says it, so neither is a case for this module to open.
 """
 
 from __future__ import annotations
 
-from math import isinf
 from typing import TYPE_CHECKING, final
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from punt_lux.domain.hub.lease_term import LeaseTerm
+from punt_lux.domain.span import Span
 from punt_lux.protocol.elements.table import TableElement
 
 if TYPE_CHECKING:
@@ -34,19 +36,13 @@ __all__ = ["ClientDetails", "ClientDetailsComposition"]
 # What a field with nothing in it reads as, so a row never renders blank.
 _NOTHING = "none"
 
-# What a lease that never lapses reads as.
-_PERMANENT = "permanent"
-
-_SECONDS_PER_MINUTE = 60
-_SECONDS_PER_HOUR = 3600
-
 
 class ClientDetails(BaseModel):
-    """One client's connection state, as the Details scene reports it.
+    """One client's connection state, and the lines a person reads it as.
 
-    The raw facts, not their rendering: the composition below turns each into
-    the line a person reads. ``repo`` and ``agent`` are genuine absences — a
-    headless command owns no repository, and only an agent carries a handle.
+    ``repo`` and ``agent`` are genuine absences — a headless command owns no
+    repository, and only an agent carries a handle — so each reads as ``none``
+    rather than rendering blank.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -58,9 +54,29 @@ class ClientDetails(BaseModel):
     repo: str | None = None  # absent for a headless command and for a daemon
     agent: str | None = None  # absent unless the client is an agent
     connected_seconds: float
-    lease_ttl_seconds: float
+    lease: LeaseTerm
     subscribed_topics: tuple[str, ...] = ()
     owned_scenes: tuple[str, ...] = ()
+
+    def rows(self) -> tuple[tuple[str, str], ...]:
+        """Return the field/value pairs, in the order a reader wants them."""
+        return (
+            ("Client", self.label),
+            ("Kind", self.kind),
+            ("Declared name", self.name),
+            ("Repository", self.repo or _NOTHING),
+            ("Agent", self.agent or _NOTHING),
+            ("Connection", self.connection_id),
+            ("Connected", Span.of(self.connected_seconds).rendered()),
+            ("Lease", self.lease.rendered()),
+            ("Topics", self._listed(self.subscribed_topics)),
+            ("Scenes", self._listed(self.owned_scenes)),
+        )
+
+    @staticmethod
+    def _listed(values: Sequence[str]) -> str:
+        """Render a list of names as one line, or say there are none."""
+        return ", ".join(values) if values else _NOTHING
 
 
 @final
@@ -69,52 +85,9 @@ class ClientDetailsComposition:
 
     __slots__ = ()
 
-    @classmethod
-    def build(
-        cls, details: ClientDetails, *, element_id: str
-    ) -> Sequence[DomainElement]:
+    @staticmethod
+    def build(details: ClientDetails, *, element_id: str) -> Sequence[DomainElement]:
         """Return the roots of the Details scene for ``details``."""
         return [
-            TableElement(
-                id=element_id,
-                columns=("Field", "Value"),
-                rows=cls._rows(details),
-            )
+            TableElement(id=element_id, columns=("Field", "Value"), rows=details.rows())
         ]
-
-    @classmethod
-    def _rows(cls, details: ClientDetails) -> tuple[tuple[str, str], ...]:
-        """Return the field/value pairs, in the order a reader wants them."""
-        return (
-            ("Client", details.label),
-            ("Kind", details.kind),
-            ("Declared name", details.name),
-            ("Repository", details.repo or _NOTHING),
-            ("Agent", details.agent or _NOTHING),
-            ("Connection", details.connection_id),
-            ("Connected", cls._duration(details.connected_seconds)),
-            ("Lease", cls._lease(details.lease_ttl_seconds)),
-            ("Topics", cls._listed(details.subscribed_topics)),
-            ("Scenes", cls._listed(details.owned_scenes)),
-        )
-
-    @staticmethod
-    def _listed(values: Sequence[str]) -> str:
-        """Render a list of names as one line, or say there are none."""
-        return ", ".join(values) if values else _NOTHING
-
-    @classmethod
-    def _lease(cls, seconds: float) -> str:
-        """Render a lease length; an endless one is permanent, not ``inf``."""
-        return _PERMANENT if isinf(seconds) else cls._duration(seconds)
-
-    @staticmethod
-    def _duration(seconds: float) -> str:
-        """Render a span of seconds the way a person says it."""
-        whole = int(seconds)
-        if whole < _SECONDS_PER_MINUTE:
-            return f"{whole}s"
-        if whole < _SECONDS_PER_HOUR:
-            return f"{whole // _SECONDS_PER_MINUTE}m {whole % _SECONDS_PER_MINUTE:02d}s"
-        minutes = whole % _SECONDS_PER_HOUR // _SECONDS_PER_MINUTE
-        return f"{whole // _SECONDS_PER_HOUR}h {minutes:02d}m"

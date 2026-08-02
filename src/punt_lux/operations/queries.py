@@ -146,7 +146,7 @@ class QueryOperations:
             connection_id=str(connection_id),
             identity=session.identity,
             connected_seconds=round(session.age(now), 1),
-            lease_ttl_seconds=session.lease_ttl_seconds,
+            lease=session.lease_term,
             subscribed_topics=sorted(
                 str(topic) for topic in self._hub.topics_for(connection_id)
             ),

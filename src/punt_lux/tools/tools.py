@@ -31,6 +31,7 @@ from punt_lux.operations import (
     SceneShown,
     Scope,
 )
+from punt_lux.operations.client_details_port import ClientDetailsPort
 from punt_lux.operations.display_connection import HubDisplayConnection
 from punt_lux.operations.ports import HubPorts
 from punt_lux.paths import DisplayPaths
@@ -87,10 +88,14 @@ def _build_operations() -> Operations:
 # The process-wide operations facade, built once at the composition root.
 OPERATIONS = _build_operations()
 
-# The Hub's own Details command runs on this facade. The click arrives in the
-# domain-layer interaction dispatch, which may not call operations, so the
-# binding is made here where the process is wired.
-hub_client_details.bind(OPERATIONS)
+# The Hub's own Details command is not a facade capability, so it is built from
+# the same store and ports. The click arrives in the domain layer, which may not
+# call operations, so the binding is made here where the process is wired.
+hub_client_details.bind(
+    ClientDetailsPort.for_store(
+        hub_display, hub_replicator, hub=hub, ports=_hub_ports()
+    )
+)
 
 
 def _connection_id() -> ConnectionId:

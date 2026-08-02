@@ -6,11 +6,13 @@ from typing import TYPE_CHECKING, cast
 
 from punt_lux.domain.element import Element as WireElement
 from punt_lux.domain.element_abc import Element as AbcElement
+from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.hub_display import HubDisplay
-from punt_lux.domain.ids import ElementId, SceneId
+from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.domain.interaction import ValueChanged
 from punt_lux.operations import RenderTableRequest
 from punt_lux.operations.display_reply import DisplayReplied
+from punt_lux.operations.models.query_clients import ClientList
 from punt_lux.protocol.compositions import TableComposition, TableCompositionSpec
 
 from ._fakes import StubPort, make_client
@@ -298,6 +300,41 @@ def test_list_clients_is_empty_without_sessions() -> None:
     resp = client.get("/clients")
     assert resp.status_code == 200
     assert resp.json() == {"kind": "ok", "clients": []}
+
+
+def test_a_permanent_lease_survives_the_json_round_trip() -> None:
+    """A daemon's lease never lapses, and the roster must still be readable.
+
+    Written as a float, "never" is ``inf``: pydantic serialises it to ``null``
+    and then refuses to read it back, so one permanent client cost every
+    structured caller the whole response. The two states are two types now, and
+    this drives the real route to prove it — serialise, and parse back.
+    """
+    store = HubDisplay()
+    store.identify_client(ConnectionId("voxd"), ClientIdentity(kind="app", name="voxd"))
+    client = make_client(store=store)
+
+    resp = client.get("/clients")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["clients"][0]["lease"] == {"kind": "permanent"}
+    # The response a structured client reads: it must parse back into the model.
+    assert ClientList.model_validate(body).clients[0].lease.rendered() == "permanent"
+
+
+def test_an_expiring_lease_round_trips_with_its_length() -> None:
+    store = HubDisplay()
+    store.identify_client(
+        ConnectionId("applet"),
+        ClientIdentity(kind="applet", name="lux · lux · #4b97", repo="/w/lux"),
+    )
+    client = make_client(store=store)
+
+    body = client.get("/clients").json()
+
+    assert body["clients"][0]["lease"] == {"kind": "expiring", "seconds": 60.0}
+    assert ClientList.model_validate(body).clients[0].lease.rendered() == "1m 00s"
 
 
 def test_a_non_owning_rest_call_creates_no_phantom_client() -> None:

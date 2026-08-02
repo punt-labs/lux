@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.scope import Scope
+from punt_lux.operations.timing import Timed
 from punt_lux.protocol.compositions.client_details import (
     ClientDetails,
     ClientDetailsComposition,
@@ -33,13 +34,12 @@ if TYPE_CHECKING:
 
 __all__ = ["ClientDetailsOperations"]
 
-# The scene and frame one client's details are shown in. Per client, so two
-# clients' details can be read at once; stable per client, so asking twice
-# repaints in place instead of stacking frames (DES-060).
+# The scene and frame one client's details are shown in. Per client, so two can
+# be read at once; stable per client, so asking twice repaints in place.
 _SCENE_PREFIX = "lux.client-details"
 
-# What a client with no menu name yet is called — a client the Hub holds a
-# session for but that has registered nothing, so the roster never named it.
+# What a client with no menu name yet is called — one the Hub holds a session
+# for but that registered nothing, so the roster never named it.
 _UNNAMED = "client"
 
 
@@ -64,6 +64,7 @@ class ClientDetailsOperations:
         self._clients = clients
         return self
 
+    @Timed("show_client_details")
     def show_client_details(self, connection_id: ConnectionId) -> SceneShown | OpError:
         """Show one client's connection state, or say why there is nothing to show.
 
@@ -96,7 +97,7 @@ class ClientDetailsOperations:
             repo=identity.repo if identity is not None else None,
             agent=identity.agent if identity is not None else None,
             connected_seconds=client.connected_seconds,
-            lease_ttl_seconds=client.lease_ttl_seconds,
+            lease=client.lease,
             subscribed_topics=tuple(client.subscribed_topics),
             owned_scenes=tuple(client.owned_scenes),
         )

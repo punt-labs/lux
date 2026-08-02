@@ -146,6 +146,7 @@ def test_a_details_click_is_answered_by_the_hub_not_routed_to_the_client(
     """The Details command is the Hub's own: it runs here, and nothing is held."""
     from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.domain.hub.details_binding import DetailsBinding
+    from punt_lux.domain.hub.details_outcome import DetailsShown
     from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
 
     registry, router, replicator = _isolated_router(monkeypatch)
@@ -154,6 +155,7 @@ def test_a_details_click_is_answered_by_the_hub_not_routed_to_the_client(
     registry.attach_listener(conn, ClientIdentity(kind="app", name="voxd"), leg)
     registry.register_callback(conn, SessionCallback(id="music", label="Music"), leg)
     renderer = MagicMock()
+    renderer.render_details.return_value = DetailsShown()
     binding = DetailsBinding()
     binding.bind(renderer)
     monkeypatch.setattr(
@@ -170,7 +172,7 @@ def test_a_details_click_is_answered_by_the_hub_not_routed_to_the_client(
         )
     )
 
-    renderer.show_client_details.assert_called_once_with(conn)
+    renderer.render_details.assert_called_once_with(conn)
     assert router.pending(conn) == ()  # nothing was held for the client
     replicator.mark_menus.assert_not_called()
 
@@ -180,16 +182,18 @@ def test_a_details_click_for_a_client_that_never_registered_still_reaches_the_hu
 ) -> None:
     """The Hub owns the command, so it answers whether or not the client is there."""
     from punt_lux.domain.hub.details_binding import DetailsBinding
+    from punt_lux.domain.hub.details_outcome import DetailsRefused
     from punt_lux.domain.hub.session_callback import CallbackInvocation
 
     _registry, _router, replicator = _isolated_router(monkeypatch)
+    conn = ConnectionId("gone")
     renderer = MagicMock()
+    renderer.render_details.return_value = DetailsRefused(conn)  # not there
     binding = DetailsBinding()
     binding.bind(renderer)
     monkeypatch.setattr(
         "punt_lux.domain.hub.details_instance.hub_client_details", binding
     )
-    conn = ConnectionId("gone")
 
     HubInteractionDispatch.dispatch(
         RemoteEventHandlerInvocation(
@@ -203,7 +207,7 @@ def test_a_details_click_for_a_client_that_never_registered_still_reaches_the_hu
 
     # The operation decides there is nothing to show; the dispatch does not
     # second-guess it, and never re-pushes the menu for a Hub-owned command.
-    renderer.show_client_details.assert_called_once_with(conn)
+    renderer.render_details.assert_called_once_with(conn)
     replicator.mark_menus.assert_not_called()
 
 

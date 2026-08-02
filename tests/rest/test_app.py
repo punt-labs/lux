@@ -26,12 +26,7 @@ from ._fakes import ForbiddenPort, make_facade
 # render_table/render_dashboard ARE routed: a composed table must be CONSTRUCTED
 # server-side (its handlers + model are not wire-expressible), so a REST caller
 # pushing composed JSON through the generic render gets dead chrome.
-# show_client_details is neither: it is the Hub answering its own menu command.
-# It is keyed by a ConnectionId — a wire key, not part of REST's addressing — and
-# it writes a scene owned by a connection other than the caller's, which no
-# routed operation may do, so it has no route rather than a scoped one.
 _MCP_ONLY = {
-    "show_client_details",
     "publish",
     "subscribe",
     "unsubscribe",
