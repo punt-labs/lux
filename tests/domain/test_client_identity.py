@@ -36,6 +36,31 @@ def test_a_client_with_no_repository_is_named_for_itself() -> None:
     assert ClientIdentity(kind="app", name="voxd").menu_label == "voxd"
 
 
+def test_a_trailing_slash_still_reads_as_the_directory() -> None:
+    identity = ClientIdentity(kind="cli", name="lux-cli", repo="/w/lux/")
+    assert identity.menu_label == "lux"
+
+
+@pytest.mark.parametrize("repo", ["/", "//", "/.", "/./", "/ "])
+def test_a_repository_that_names_no_directory_falls_back_to_the_name(repo: str) -> None:
+    """A root path is absolute, so it is accepted — and it has no basename.
+
+    The label it once produced was blank, which the Menu model rejects, so one
+    client running from ``/`` threw where the Clients menu was composed and took
+    every other client's entry down with it.
+    """
+    assert ClientIdentity(kind="cli", name="lux-cli", repo=repo).menu_label == "lux-cli"
+
+
+@pytest.mark.parametrize(
+    "repo", [None, "/w/lux", "/w/lux/", "/", "//", "/.", "/./", "/ ", "/w/ lux "]
+)
+def test_no_identity_the_registry_can_hold_has_a_blank_label(repo: str | None) -> None:
+    """The label is total: every accepted identity has one a menu can carry."""
+    label = ClientIdentity(kind="cli", name="lux-cli", repo=repo).menu_label
+    assert label == label.strip() != ""
+
+
 def test_bad_kind_is_rejected_by_name() -> None:
     with pytest.raises(ValidationError) as exc:
         ClientIdentity(kind="daemon", name="x")  # type: ignore[arg-type]
@@ -57,6 +82,13 @@ def test_whitespace_only_name_is_rejected() -> None:
 def test_relative_repo_is_rejected() -> None:
     with pytest.raises(ValidationError) as exc:
         ClientIdentity(kind="cli", name="lux", repo="relative/path")
+    assert "repo" in str(exc.value)
+
+
+def test_a_windows_style_path_is_relative_here_and_is_rejected() -> None:
+    """POSIX is the flavour luxd resolves paths in, so ``C:\\w`` is not absolute."""
+    with pytest.raises(ValidationError) as exc:
+        ClientIdentity(kind="cli", name="lux", repo="C:\\w\\lux")
     assert "repo" in str(exc.value)
 
 

@@ -43,6 +43,14 @@ _Label = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 _LEASE_TTL_FLOOR_SECONDS = 5.0
 _LEASE_TTL_CAP_SECONDS = 3600.0
 
+# A cadence a session originator declared. One outside the bounds is rejected
+# rather than clamped, so a caller learns its declaration was unusable instead of
+# getting a length it did not ask for — stated declaratively, like ``_Label``, so
+# the bound it violated names itself in the error.
+_LeaseTtl = Annotated[
+    float, Field(ge=_LEASE_TTL_FLOOR_SECONDS, le=_LEASE_TTL_CAP_SECONDS)
+]
+
 
 class ClientIdentity(BaseModel):
     """What a client declares itself to be — the owner the Hub attributes UI to.
@@ -68,28 +76,8 @@ class ClientIdentity(BaseModel):
     # A non-blank handle when present; absent unless the caller is an agent.
     agent: str | None = Field(default=None, min_length=1)
     # Absent is not a give-up: it is the documented "use my kind's default" state,
-    # which keeps luxd's built-ins permanent. A present value is bounded below.
-    lease_ttl: float | None = None
-
-    @field_validator("lease_ttl")
-    @classmethod
-    def _bound_lease_ttl(cls, value: float | None) -> float | None:
-        """Accept an absent TTL, or a present one within the bounds; reject outside.
-
-        Absence means the kind default. A present TTL is rejected at the boundary
-        when it falls outside ``[floor, cap]`` rather than silently clamped, so a
-        caller learns its cadence declaration was unusable instead of getting a
-        length it did not ask for.
-        """
-        if value is not None and not (
-            _LEASE_TTL_FLOOR_SECONDS <= value <= _LEASE_TTL_CAP_SECONDS
-        ):
-            msg = (
-                f"lease_ttl must be between {_LEASE_TTL_FLOOR_SECONDS}s and "
-                f"{_LEASE_TTL_CAP_SECONDS}s when declared; got {value}"
-            )
-            raise ValueError(msg)
-        return value
+    # which keeps luxd's built-ins permanent. A present value is bounded.
+    lease_ttl: _LeaseTtl | None = None
 
     @field_validator("repo")
     @classmethod
@@ -121,4 +109,16 @@ class ClientIdentity(BaseModel):
         collapsing onto one connection, which is a distinctness token and not
         something to read aloud.
         """
-        return PurePath(self.repo).name if self.repo is not None else self.name
+        return self._repo_name or self.name
+
+    @property
+    def _repo_name(self) -> str:
+        """The directory the declared repository ends in, blank when it ends in none.
+
+        A path can be absolute and still name no directory — ``/``, and the
+        ``/.`` and ``//`` that resolve to it. Such a repository contributes no
+        name, as an absent one does not, so both fall back to the declared
+        ``name``: stripped and non-empty on every accepted identity, which is
+        what makes the label total. A root cwd is labelled, never refused.
+        """
+        return PurePath(self.repo).name.strip() if self.repo is not None else ""

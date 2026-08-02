@@ -197,6 +197,25 @@ class TestWhatANameIs:
 
         assert _labels_under(_clients_menu(menus)) == ["lux-cli"]
 
+    def test_a_client_working_at_the_root_is_called_what_it_calls_itself(self) -> None:
+        """``/`` is absolute, so it is an accepted repo — and it has no basename.
+
+        A blank label is one the Menu model refuses, so composing this client's
+        submenu raised where the bar is built.
+        """
+        menus = _menus(("root", _session("lux-cli", "/", _beads(), kind="cli")))
+
+        assert _labels_under(_submenu(menus, "lux-cli")) == ["Beads", "Details"]
+
+    def test_a_client_at_the_root_does_not_take_the_bar_down_with_it(self) -> None:
+        """The whole menu is composed at once, so one bad label cost everyone."""
+        menus = _menus(
+            ("root", _session("lux-cli", "/", _beads(), kind="cli")),
+            ("lux", _session("claude", "/w/lux", _beads())),
+        )
+
+        assert _labels_under(_clients_menu(menus)) == ["lux", "lux-cli"]
+
     def test_two_clients_on_one_repository_are_numbered(self) -> None:
         menus = _menus(
             ("first", _session("claude", "/w/lux", _beads())),
