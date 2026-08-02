@@ -76,10 +76,11 @@ class ClientDetailsOperations:
         if isinstance(client, OpError):
             return client
         details = self._details(connection_id, client)
+        table = ClientDetailsComposition.build(
+            details, element_id=f"{_SCENE_PREFIX}.table"
+        )
         return self._scenes.install(
-            ClientDetailsComposition.build(
-                details, element_id=f"{_SCENE_PREFIX}.table"
-            ),
+            table,
             scene_id=self._scene_id(connection_id),
             presentation=self._presentation(connection_id, details.label),
             ttl_seconds=None,  # a details frame stays until the user closes it

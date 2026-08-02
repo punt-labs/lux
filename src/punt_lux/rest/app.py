@@ -16,19 +16,7 @@ from typing import TYPE_CHECKING, Literal, Self, final
 
 from pydantic import BaseModel, ConfigDict
 
-from punt_lux.domain.hub import client_registry, hub, hub_display
-from punt_lux.domain.hub.details_instance import hub_client_details
-from punt_lux.domain.hub.hub_factory import hub_element_factory
-from punt_lux.domain.hub.inbox import ensure_writer, next_event
-from punt_lux.domain.hub.replicator_instance import (
-    hub_callback_router,
-    hub_menu_registry,
-    hub_replicator,
-)
-from punt_lux.operations import HubPorts, Operations
-from punt_lux.operations.client_details_port import ClientDetailsPort
-from punt_lux.operations.display_connection import HubDisplayConnection
-from punt_lux.paths import DisplayPaths
+from punt_lux.hub_composition import HubComposition
 from punt_lux.rest.config import DisplayModeRoutes
 from punt_lux.rest.display import DisplayRoutes
 from punt_lux.rest.identity import RestCaller
@@ -38,6 +26,8 @@ from punt_lux.rest.status import HttpErrorMap
 
 if TYPE_CHECKING:
     from fastapi import APIRouter, FastAPI
+
+    from punt_lux.operations import Operations
 
 __all__ = ["HubHealth", "RestSurface"]
 
@@ -79,37 +69,13 @@ class RestSurface:
 
     @classmethod
     def for_hub(cls) -> Self:
-        """Wire the surface over the facade the Hub singletons compose."""
-        return cls(cls._hub_operations())
+        """Wire the surface over the facade the Hub singletons compose.
 
-    @staticmethod
-    def _hub_operations() -> Operations:
-        """Compose the operations facade from the Hub's process singletons."""
-        ports = HubPorts(
-            element_factory=hub_element_factory,
-            ensure_writer=ensure_writer,
-            next_event=next_event,
-            display_port=HubDisplayConnection(
-                is_running=lambda: DisplayPaths().is_running(),
-                clients=client_registry,
-            ),
-        )
-        # A Details click lands in the domain-layer dispatch, which may not call
-        # operations; the process binds its renderer here. Last root wins.
-        hub_client_details.bind(
-            ClientDetailsPort.for_store(
-                hub_display, hub_replicator, hub=hub, ports=ports
-            )
-        )
-        return Operations.for_store(
-            hub_display,
-            hub_replicator,
-            hub=hub,
-            client_registry=client_registry,
-            menu_registry=hub_menu_registry,
-            callback_router=hub_callback_router,
-            ports=ports,
-        )
+        Binding the Details renderer belongs to whichever root starts; either
+        may, so the last one wins and both bind the same wiring.
+        """
+        HubComposition.bind_client_details()
+        return cls(HubComposition.operations())
 
     @property
     def routers(self) -> tuple[APIRouter, ...]:

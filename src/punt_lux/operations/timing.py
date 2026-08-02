@@ -6,13 +6,12 @@ operation's name, what it acted on, and how long it took::
 
     op render scene=beads-lux 14 ms
 
-The wrapper sits at the facade boundary, so every surface that enters through
-the facade — an MCP tool, a REST route, a library call — is attested without
-repeating itself; a mutation no surface enters through, such as the Hub's own
-Details command, carries the wrapper on the concern that performs it. Read-only
-queries are deliberately not timed: they are frequent, they change nothing a
-user sees, and a line per query would bury the mutations that a slow click has
-to be explained by.
+The wrapper sits at the facade boundary, so every surface entering through the
+facade — an MCP tool, a REST route, a library call — is attested without
+repeating itself, and a mutation no surface enters through carries it on the
+concern that performs it. Read-only queries are deliberately not timed: they
+are frequent, change nothing a user sees, and would bury the mutations that a
+slow click has to be explained by.
 """
 
 from __future__ import annotations

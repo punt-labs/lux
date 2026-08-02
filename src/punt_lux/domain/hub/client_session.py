@@ -111,11 +111,7 @@ class ClientSession:
 
     @property
     def lease_term(self) -> LeaseTerm:
-        """How long this session may idle between contacts before it is swept.
-
-        The effective term, not the declared one: a session that named no TTL
-        holds its kind's, and luxd's own built-ins hold one that never lapses.
-        """
+        """The term this session idles for — its kind's when it declared none."""
         return LeaseTerms.of(self._lease.ttl_seconds)
 
     def age(self, now: float) -> float:
