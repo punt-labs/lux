@@ -18,8 +18,8 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from punt_lux.domain.event_kinds import EventKind
-    from punt_lux.domain.event_protocol import WireEvent
     from punt_lux.domain.ids import ClientId, ElementId, SceneId
+    from punt_lux.domain.wire_event import WireEvent
 
 __all__ = ["RemoteDispatchSpec"]
 

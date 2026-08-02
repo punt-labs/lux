@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Self, cast, final
 
 if TYPE_CHECKING:
     from punt_lux.domain.event_protocol import Event, Handler
-    from punt_lux.domain.handlers.decorators import PublishSink
+    from punt_lux.domain.handlers.publish_sink import PublishSink
     from punt_lux.domain.interaction import ButtonClicked
 
 __all__ = ["ButtonPublish", "PublishOnClick"]

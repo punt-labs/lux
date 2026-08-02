@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, Self, cast
 from punt_lux.domain.display import Display
 from punt_lux.domain.element import Element as WireElement
 from punt_lux.domain.element_abc import Element as AbcElement
-from punt_lux.domain.handlers.decorators import PublishSink
+from punt_lux.domain.handlers.publish_sink import PublishSink
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay, UnknownElementError
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId, Topic
@@ -354,11 +354,16 @@ def test_confirm_click_traces_end_to_end_through_every_tier() -> None:
     # 6. The decorator chain's publish call reached Hub.publish, which
     #    queued one ObserverMessage to the subscribing connection's
     #    writer — the subscriber-side analogue of poll_event returning
-    #    the payload.
+    #    the payload. The payload names the click and the button it
+    #    landed on, so the subscriber need not infer either.
     assert len(received) == 1
     delivered = received[0]
     assert delivered.topic == str(_TOPIC)
-    assert delivered.payload == {}
+    assert delivered.payload == {
+        "kind": "button_clicked",
+        "scene_id": str(_SCENE),
+        "element_id": str(_OK_BUTTON_ID),
+    }
 
 
 def _assert_dialog_dropped_from_hub_index(hub_display: HubDisplay) -> None:
@@ -463,4 +468,8 @@ def test_confirm_click_traces_through_module_level_element_from_dict(
     _assert_dialog_dropped_from_hub_index(hub_display)
     assert len(received) == 1
     assert received[0].topic == str(_TOPIC)
-    assert received[0].payload == {}
+    assert received[0].payload == {
+        "kind": "button_clicked",
+        "scene_id": str(_SCENE),
+        "element_id": str(_OK_BUTTON_ID),
+    }

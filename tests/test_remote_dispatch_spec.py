@@ -7,11 +7,11 @@ from typing import ClassVar, Protocol, cast
 
 import pytest
 
-from punt_lux.domain.event_protocol import WireEvent
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
 from punt_lux.domain.interaction import ButtonClicked, ValueChanged
 from punt_lux.domain.interaction_errors import WrongKindError
 from punt_lux.domain.remote_dispatch_spec import RemoteDispatchSpec
+from punt_lux.domain.wire_event import WireEvent
 from punt_lux.protocol.elements import (
     ButtonElement,
     CheckboxElement,
@@ -137,6 +137,23 @@ class TestSingleRegistrationPoint:
                     value=_sample_value(spec.event_kind),
                 )
                 assert isinstance(event, WireEvent)
+
+    def test_every_spec_event_publishes_a_payload_naming_its_element(self) -> None:
+        # A publish-decorated handler sends what the event renders, so a new
+        # interactive kind whose event forgets ``to_payload`` publishes nothing
+        # a subscriber can act on. This is where that is caught.
+        for elem in _INTERACTIVE_ELEMENTS:
+            for spec in elem._remote_dispatch_specs():
+                event = spec.build_event(
+                    scene_id=SceneId("s"),
+                    element_id=ElementId(elem.id),
+                    owner_id=ClientId("o"),
+                    value=_sample_value(spec.event_kind),
+                )
+                payload = event.to_payload()
+                assert payload["kind"] == spec.event_kind
+                assert payload["scene_id"] == "s"
+                assert payload["element_id"] == elem.id
 
 
 def _sample_value(event_kind: str) -> object:

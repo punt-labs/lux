@@ -14,11 +14,13 @@ hands to the per-Element handler registry.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import ClassVar, Literal, Self
 
+from punt_lux.domain.event_payload import EventPayload
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
-from punt_lux.domain.interaction_errors import WrongKindError
+from punt_lux.domain.wire_value import WireValue
 
 __all__ = ["ButtonClicked", "ValueChanged"]
 
@@ -47,10 +49,9 @@ class ButtonClicked:
         owner_id: ClientId,
     ) -> Self:
         # ``object.__new__`` (not ``super().__new__``) avoids the
-        # dataclass(slots=True) re-class quirk: the synthesized slots
-        # class is a distinct object from the one the __class__ cell
-        # captured at method-definition time, so super() resolves with
-        # the old type and rejects the new cls argument.
+        # dataclass(slots=True) re-class quirk: the synthesized slots class is
+        # a distinct object from the one the __class__ cell captured, so super()
+        # resolves with the old type and rejects the new cls argument.
         self = object.__new__(cls)
         object.__setattr__(self, "scene_id", scene_id)
         object.__setattr__(self, "element_id", element_id)
@@ -75,14 +76,17 @@ class ButtonClicked:
         _ = value  # payload-less event; the shared WireEvent signature carries it
         return cls(scene_id=scene_id, element_id=element_id, owner_id=owner_id)
 
+    def to_payload(self) -> Mapping[str, object]:
+        """Return the published payload: identity alone — a click carries no data."""
+        return EventPayload.of(self, self.kind).to_mapping()
+
 
 @dataclass(frozen=True, slots=True, init=False)
 class ValueChanged:
     """A typed value-change event for inputs (checkbox, slider, etc.).
 
-    Same construction pattern as ``ButtonClicked`` — ``init=False`` with
-    ``__new__`` as the sole construction path. Carries a ``value`` payload
-    representing the new state of the input element.
+    Same construction pattern as ``ButtonClicked`` — ``init=False``, ``__new__``
+    the sole path — and carries the input's new ``value``.
     """
 
     scene_id: SceneId
@@ -118,25 +122,23 @@ class ValueChanged:
         owner_id: ClientId,
         value: object,
     ) -> Self:
-        """Build the value-change event, validating the payload is a scalar.
+        """Build the value-change event; the payload must be a JSON scalar.
 
-        The value-input family (checkbox, input_text, slider, input_number,
-        color_picker, combo, radio, selectable) all fire ``ValueChanged``, so the
-        boundary check lives here once: the payload must be a JSON scalar. The
-        precise per-kind shape (a checkbox's ``bool``, a combo's index ``int``)
-        is the firing element's own invariant, enforced when its setter applies
-        the patch (DES-039) — not re-encoded per element here.
+        The whole value-input family (checkbox, input_text, slider, combo, …)
+        fires ``ValueChanged``, so the shape it insists on is stated here once.
+        The precise per-kind shape — a checkbox's ``bool``, a combo's index
+        ``int`` — is the firing element's own invariant, enforced when its setter
+        applies the patch, not re-encoded per element here.
         """
-        if not isinstance(value, bool | int | float | str):
-            raise WrongKindError(
-                scene_id=scene_id,
-                element_id=element_id,
-                expected="a scalar value_changed payload (bool, int, float, or str)",
-                got=type(value).__name__,
-            )
         return cls(
             scene_id=scene_id,
             element_id=element_id,
             owner_id=owner_id,
-            value=value,
+            value=WireValue(value, scene_id=scene_id, element_id=element_id).as_scalar(
+                "a scalar value_changed payload (bool, int, float, or str)"
+            ),
         )
+
+    def to_payload(self) -> Mapping[str, object]:
+        """Return the published payload: identity plus the input's new ``value``."""
+        return EventPayload.of(self, self.kind).to_mapping(value=self.value)

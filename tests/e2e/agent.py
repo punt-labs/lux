@@ -341,7 +341,7 @@ class SimulatedAgent:
                 tab_id=self._other_tab(element),
             )
         if isinstance(element, TableElement):
-            row_ids, anchor = self._table_range(element)
+            row_ids, anchor = self._table_selection(element)
             return RowSelectionChanged(
                 scene_id=SceneId("__display__"),
                 element_id=ElementId(element.id),
@@ -369,17 +369,23 @@ class SimulatedAgent:
         raise ValueError(msg)
 
     @staticmethod
-    def _table_range(element: TableElement) -> tuple[tuple[str, ...], str]:
-        """Return the (row_ids, anchor) a range gesture over the grid selects.
+    def _table_selection(element: TableElement) -> tuple[tuple[str, ...], str]:
+        """Return the (row_ids, anchor) the user's gesture over the grid selects.
 
-        Models a shift/box gesture: the first and last rows, anchored on the
-        last-touched (last) row — deterministic so the scenario's expected
-        payload agrees with the crossed invocation.
+        A multi-select grid gets a shift/box gesture: the first and last rows,
+        anchored on the last-touched (last) row. A single-select grid can hold
+        one row at a time, so it gets a plain click on a middle row, anchored on
+        that row — the gesture an app that acts on one row actually receives.
+        Both are deterministic so the scenario's expected payload agrees with the
+        crossed invocation.
         """
         ids = [element.row_id(row) for row in element.rows]
         if not ids:
             msg = f"table {element.id!r} has no rows to select"
             raise ValueError(msg)
+        if element.selection_mode == "single":
+            clicked = ids[len(ids) // 2]
+            return (clicked,), clicked
         return (ids[0], ids[-1]), ids[-1]
 
     def _event_type_for(self, element: AbcElement) -> type[Event]:

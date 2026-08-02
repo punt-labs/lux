@@ -22,7 +22,7 @@ from punt_lux.domain.interaction import ButtonClicked
 from punt_lux.protocol.handler_decoder import FactoryRegistry, HandlerDecoder
 
 if TYPE_CHECKING:
-    from punt_lux.domain.handlers.decorators import PublishSink
+    from punt_lux.domain.handlers.publish_sink import PublishSink
 
 __all__ = ["build_standalone_button_handler_decoder"]
 

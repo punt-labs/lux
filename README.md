@@ -176,7 +176,11 @@ button click fires its handler on the Hub (the agent does not poll for it). To o
 ```
 
 A Hub-side handler can `publish` an app event that the agent then reads with
-`recv` (see the Pub/Sub tools above).
+`recv` (see the Pub/Sub tools above). An element that declares
+`"publish": ["my.topic"]` publishes what the user did — the event's kind, the
+scene and element it landed on, and its own fields, such as a table selection's
+`row_ids` and `anchor`. The full shape is in
+[the library guide](docs/library.md#what-a-published-event-carries).
 
 ### Multi-window dashboard
 

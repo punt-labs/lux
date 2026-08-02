@@ -21,6 +21,7 @@ from punt_lux.domain.handlers import (
 from punt_lux.domain.handlers.verb_vocabulary import VerbVocabulary
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
 from punt_lux.domain.interaction import ButtonClicked
+from punt_lux.domain.selection_interaction import RowSelectionChanged
 
 
 def _make_click() -> ButtonClicked:
@@ -30,6 +31,10 @@ def _make_click() -> ButtonClicked:
         element_id=ElementId("btn"),
         owner_id=ClientId("test"),
     )
+
+
+def _noop_selection(_event: RowSelectionChanged) -> None:
+    """Inner handler for the selection-publish test — the decorator is the subject."""
 
 
 class _RecordingModel:
@@ -155,6 +160,48 @@ def test_publish_decorator_runs_inner_then_publishes_each_topic_in_order() -> No
     wrapped(event)
     assert inner_calls == [event]
     assert [topic for topic, _ in sink.events] == ["a", "b"]
+
+
+def test_publish_decorator_carries_the_events_data_to_every_topic() -> None:
+    # The publish leg's whole point: a subscriber learns what the user did.
+    # The same event reached both topics, so both carry the same payload.
+    sink = _RecordingSink()
+    decorator = PublishDecorator(sink=sink, topics=("a", "b"))
+    wrapped = decorator.wrap(ButtonHandlers.noop())
+    event = _make_click()
+    wrapped(event)
+    assert [payload for _, payload in sink.events] == [
+        event.to_payload(),
+        event.to_payload(),
+    ]
+
+
+def test_publish_decorator_carries_a_selections_rows_and_anchor() -> None:
+    # The set-valued event: an app acting on the clicked row reads ``anchor``.
+    sink = _RecordingSink()
+    decorator = PublishDecorator(sink=sink, topics=("album_chosen",))
+    wrapped = decorator.wrap(_noop_selection)
+    wrapped(
+        RowSelectionChanged(
+            scene_id=SceneId("s1"),
+            element_id=ElementId("albums"),
+            owner_id=ClientId("test"),
+            row_ids=("dusk",),
+            anchor="dusk",
+        )
+    )
+    assert sink.events == (
+        (
+            "album_chosen",
+            {
+                "kind": "row_selection_changed",
+                "scene_id": "s1",
+                "element_id": "albums",
+                "row_ids": ["dusk"],
+                "anchor": "dusk",
+            },
+        ),
+    )
 
 
 def test_publish_decorator_rejects_empty_topics_list() -> None:

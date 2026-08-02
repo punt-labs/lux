@@ -13,10 +13,11 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import ClassVar, Literal, Self, cast
+from typing import ClassVar, Literal, Self
 
+from punt_lux.domain.event_payload import EventPayload
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
-from punt_lux.domain.interaction_errors import WrongKindError
+from punt_lux.domain.wire_value import WireValue
 
 __all__ = ["RowSelectionChanged"]
 
@@ -73,49 +74,27 @@ class RowSelectionChanged:
         than one id, so unlike the scalar ``ValueChanged`` payload it cannot ride
         as a bare value — the anchor would have nowhere to go.
         """
-        if not isinstance(value, Mapping):
-            raise WrongKindError(
-                scene_id=scene_id,
-                element_id=element_id,
-                expected="a row_selection_changed payload (mapping)",
-                got=type(value).__name__,
-            )
-        payload = cast("Mapping[str, object]", value)
-        row_ids = cls._require_id_tuple(scene_id, element_id, payload.get("row_ids"))
-        anchor = cls._require_anchor(scene_id, element_id, payload.get("anchor", ""))
+        payload = WireValue(value, scene_id=scene_id, element_id=element_id).as_mapping(
+            "a row_selection_changed payload (mapping)"
+        )
         return cls(
             scene_id=scene_id,
             element_id=element_id,
             owner_id=owner_id,
-            row_ids=row_ids,
-            anchor=anchor,
+            row_ids=payload.field("row_ids").as_string_tuple(
+                "row_ids as a list of strings"
+            ),
+            anchor=payload.field("anchor", "").as_str("anchor as a string"),
         )
 
-    @staticmethod
-    def _require_id_tuple(
-        scene_id: SceneId, element_id: ElementId, raw: object
-    ) -> tuple[str, ...]:
-        """Return ``raw`` as a tuple of row-id strings or raise ``WrongKindError``."""
-        got = type(raw).__name__
-        if isinstance(raw, list) and all(
-            isinstance(item, str) for item in cast("list[object]", raw)
-        ):
-            return tuple(cast("list[str]", raw))
-        raise WrongKindError(
-            scene_id=scene_id,
-            element_id=element_id,
-            expected="row_ids as a list of strings",
-            got=got,
-        )
+    def to_payload(self) -> Mapping[str, object]:
+        """Return the published payload: identity, the selection, and the anchor.
 
-    @staticmethod
-    def _require_anchor(scene_id: SceneId, element_id: ElementId, raw: object) -> str:
-        """Return ``raw`` as the anchor string or raise ``WrongKindError``."""
-        if not isinstance(raw, str):
-            raise WrongKindError(
-                scene_id=scene_id,
-                element_id=element_id,
-                expected="anchor as a string",
-                got=type(raw).__name__,
-            )
-        return raw
+        ``row_ids`` becomes a list because the payload crosses to the agent as
+        JSON, which has no tuple. The anchor is what a subscriber acting on one
+        row reads — the row the user just touched, which the unordered set cannot
+        name.
+        """
+        return EventPayload.of(self, self.kind).to_mapping(
+            row_ids=list(self.row_ids), anchor=self.anchor
+        )

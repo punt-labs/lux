@@ -34,7 +34,7 @@ from collections.abc import Callable, Mapping
 from typing import Self, cast
 
 from punt_lux.domain.event_protocol import Event, Handler
-from punt_lux.domain.handlers.decorators import DecoratorRegistry
+from punt_lux.domain.handlers.decorator_registry import DecoratorRegistry
 
 __all__ = [
     "FactoryBuilder",

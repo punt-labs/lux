@@ -5,7 +5,7 @@ wire decoder picks an entry by name, supplies the declarative parameters
 the entry takes, and wraps the result through the decorator chain
 before installing it on the constructed Element via ``add_handler``.
 
-Two factories ship in PR 4:
+Two factories:
 
 - ``noop`` — a do-nothing inner handler. Used when the only side effect
   is the decorator chain (e.g., a button that just publishes a topic).

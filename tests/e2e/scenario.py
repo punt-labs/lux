@@ -119,10 +119,11 @@ class Scenario:
     def group_button_progress(cls) -> Self:
         """A group holding a publishing button and a display-only progress.
 
-        The button publishes ``ticket_opened`` (wire sugar, empty payload)
-        on click; its noop+publish handler does not touch scene state, so
-        the dispatch re-push carries the button unchanged. The agent reacts
-        by advancing and relabelling the progress bar.
+        The button publishes ``ticket_opened`` on click (wire sugar), and the
+        payload names the click and the button it landed on. Its noop+publish
+        handler does not touch scene state, so the dispatch re-push carries the
+        button unchanged. The agent reacts by advancing and relabelling the
+        progress bar.
         """
         return cls(
             name="group-button-progress",
@@ -150,7 +151,7 @@ class Scenario:
             ),
             target_element_id="open-ticket",
             interaction=InteractionExpectation(event_kind="button_clicked", value=True),
-            publish=WirePublish("ticket_opened"),
+            publish=WirePublish.click("ticket_opened"),
             react=(
                 ReactPatch(element_id="ticket-progress", field="fraction", value=1.0),
                 ReactPatch(element_id="ticket-progress", field="label", value="done"),
@@ -208,7 +209,7 @@ class Scenario:
             ),
             target_element_id="toggle-box",
             interaction=InteractionExpectation(event_kind="value_changed", value=True),
-            publish=WirePublish("box_toggled"),
+            publish=WirePublish.value("box_toggled", value=True),
             react=(
                 ReactPatch(element_id="chk-progress", field="fraction", value=1.0),
                 ReactPatch(element_id="chk-progress", field="label", value="checked"),
@@ -267,7 +268,7 @@ class Scenario:
             ),
             target_element_id="row-field",
             interaction=InteractionExpectation(event_kind="value_changed", value=True),
-            publish=WirePublish("row_selected"),
+            publish=WirePublish.value("row_selected", value=True),
             react=(
                 ReactPatch(element_id="sel-progress", field="fraction", value=1.0),
                 ReactPatch(element_id="sel-progress", field="label", value="selected"),
@@ -328,7 +329,7 @@ class Scenario:
             interaction=InteractionExpectation(
                 event_kind="value_changed", value=INPUT_COMMIT_TEXT
             ),
-            publish=WirePublish("name_entered"),
+            publish=WirePublish.value("name_entered", value=INPUT_COMMIT_TEXT),
             react=(
                 ReactPatch(element_id="it-progress", field="fraction", value=1.0),
                 ReactPatch(element_id="it-progress", field="label", value="entered"),
@@ -394,7 +395,7 @@ class Scenario:
             interaction=InteractionExpectation(
                 event_kind="value_changed", value=SLIDER_COMMIT_VALUE
             ),
-            publish=WirePublish("level_changed"),
+            publish=WirePublish.value("level_changed", value=SLIDER_COMMIT_VALUE),
             react=(
                 ReactPatch(element_id="sl-progress", field="fraction", value=1.0),
                 ReactPatch(element_id="sl-progress", field="label", value="set"),
@@ -461,7 +462,7 @@ class Scenario:
             interaction=InteractionExpectation(
                 event_kind="value_changed", value=NUMBER_COMMIT_VALUE
             ),
-            publish=WirePublish("qty_changed"),
+            publish=WirePublish.value("qty_changed", value=NUMBER_COMMIT_VALUE),
             react=(
                 ReactPatch(element_id="in-progress", field="fraction", value=1.0),
                 ReactPatch(element_id="in-progress", field="label", value="entered"),
@@ -526,7 +527,7 @@ class Scenario:
             interaction=InteractionExpectation(
                 event_kind="value_changed", value=COLOR_COMMIT_VALUE
             ),
-            publish=WirePublish("color_changed"),
+            publish=WirePublish.value("color_changed", value=COLOR_COMMIT_VALUE),
             react=(
                 ReactPatch(element_id="cp-progress", field="fraction", value=1.0),
                 ReactPatch(element_id="cp-progress", field="label", value="picked"),
@@ -592,7 +593,7 @@ class Scenario:
             interaction=InteractionExpectation(
                 event_kind="value_changed", value=COMBO_COMMIT_INDEX
             ),
-            publish=WirePublish("option_selected"),
+            publish=WirePublish.value("option_selected", value=COMBO_COMMIT_INDEX),
             react=(
                 ReactPatch(element_id="co-progress", field="fraction", value=1.0),
                 ReactPatch(element_id="co-progress", field="label", value="selected"),
@@ -658,7 +659,7 @@ class Scenario:
             interaction=InteractionExpectation(
                 event_kind="value_changed", value=RADIO_COMMIT_INDEX
             ),
-            publish=WirePublish("choice_selected"),
+            publish=WirePublish.value("choice_selected", value=RADIO_COMMIT_INDEX),
             react=(
                 ReactPatch(element_id="ra-progress", field="fraction", value=1.0),
                 ReactPatch(element_id="ra-progress", field="label", value="selected"),
@@ -724,7 +725,7 @@ class Scenario:
             ),
             target_element_id="disclosure",
             interaction=InteractionExpectation(event_kind="header_toggled", value=True),
-            publish=WirePublish("header_expanded"),
+            publish=WirePublish.header("header_expanded", open_=True),
             react=(
                 ReactPatch(element_id="hdr-progress", field="fraction", value=1.0),
                 ReactPatch(element_id="hdr-progress", field="label", value="expanded"),
@@ -772,7 +773,7 @@ class Scenario:
             ),
             target_element_id="open-ticket",
             interaction=InteractionExpectation(event_kind="button_clicked", value=True),
-            publish=WirePublish("ticket_opened"),
+            publish=WirePublish.click("ticket_opened"),
             react=(
                 ReactPatch(
                     element_id="hdr-child-progress", field="fraction", value=1.0
@@ -860,7 +861,7 @@ class Scenario:
             interaction=InteractionExpectation(
                 event_kind="tab_changed", value="details"
             ),
-            publish=WirePublish("tab_selected"),
+            publish=WirePublish.tab("tab_selected", tab_id="details"),
             react=(
                 ReactPatch(element_id="tab-progress", field="fraction", value=1.0),
                 ReactPatch(element_id="tab-progress", field="label", value="switched"),
@@ -915,7 +916,7 @@ class Scenario:
             ),
             target_element_id="open-ticket",
             interaction=InteractionExpectation(event_kind="button_clicked", value=True),
-            publish=WirePublish("ticket_opened"),
+            publish=WirePublish.click("ticket_opened"),
             react=(
                 ReactPatch(
                     element_id="tab-child-progress", field="fraction", value=1.0
@@ -969,7 +970,7 @@ class Scenario:
             ),
             target_element_id="confirm-btn",
             interaction=InteractionExpectation(event_kind="button_clicked", value=True),
-            publish=WirePublish("ticket_confirmed"),
+            publish=WirePublish.click("ticket_confirmed"),
             react=(
                 ReactPatch(element_id="dlg-progress", field="fraction", value=1.0),
                 ReactPatch(element_id="dlg-progress", field="label", value="confirmed"),
@@ -1026,7 +1027,7 @@ class Scenario:
             ),
             target_element_id="dismiss-modal",
             interaction=InteractionExpectation(event_kind="modal_closed", value=None),
-            publish=WirePublish("modal_dismissed"),
+            publish=WirePublish.modal_close("modal_dismissed"),
             react=(
                 ReactPatch(element_id="mdl-progress", field="fraction", value=1.0),
                 ReactPatch(element_id="mdl-progress", field="label", value="dismissed"),
@@ -1037,13 +1038,14 @@ class Scenario:
 
     @classmethod
     def payload_button_progress(cls) -> Self:
-        """A button whose Hub handler publishes a non-empty payload.
+        """A button whose Hub handler publishes a payload of the app's own design.
 
         The button carries no ``publish`` sugar; instead the agent wires a
-        ``PublishingHandler`` that announces ``ticket_created`` with a
-        non-empty payload through the real ``HubPublishSink`` — giving I3's
-        payload assertion teeth. Scene state is untouched, so the dispatch
-        re-push carries the button unchanged.
+        ``PublishingHandler`` that announces ``ticket_created`` with a ticket
+        id through the real ``HubPublishSink``. The other half of the publish
+        story from the wire declaration, which sends the interaction: here the
+        subscriber is told what the click *meant*, not what it was. Scene state
+        is untouched, so the dispatch re-push carries the button unchanged.
         """
         return cls(
             name="payload-button-progress",
@@ -1091,10 +1093,10 @@ class Scenario:
         with two ``row_ids`` plus an anchor — the only remote event whose payload is
         a mapping, so its ``from_wire`` parse is exercised for real. The built-in
         state-sync sets the Hub ``selected_row_ids`` ``{}``→``{a, c}``, so the
-        dispatch re-push carries the mutated selection. An agent-wired handler
-        publishes ``rows_opened`` with the full selection (for a plain table
-        ``full_selection`` equals ``selected_row_ids``, §6.1), and the agent reacts
-        by advancing the bar.
+        dispatch re-push carries the mutated selection. A wire ``handlers`` entry
+        publishes ``rows_opened``, and I3 reads the whole selection plus the anchor
+        out of the delivered payload — the range gesture's proof that a set-valued
+        event reaches a subscriber intact.
         """
         return cls(
             name="table-multi-select-progress",
@@ -1111,6 +1113,18 @@ class Scenario:
                             "columns": ("ID",),
                             "rows": (("a",), ("b",), ("c",)),
                             "selection_mode": "multi",
+                            "handlers": [
+                                {
+                                    "event": "row_selection_changed",
+                                    "factory": "noop",
+                                    "wrap": [
+                                        {
+                                            "decorator": "publish",
+                                            "topics": ["rows_opened"],
+                                        }
+                                    ],
+                                }
+                            ],
                         },
                         {
                             "kind": "progress",
@@ -1126,9 +1140,7 @@ class Scenario:
                 event_kind="row_selection_changed",
                 value={"row_ids": ["a", "c"], "anchor": "c"},
             ),
-            publish=PayloadPublish(
-                topic="rows_opened", payload={"full_selection": ["a", "c"]}
-            ),
+            publish=WirePublish.rows("rows_opened", row_ids=["a", "c"], anchor="c"),
             react=(
                 ReactPatch(element_id="tbl-progress", field="fraction", value=1.0),
                 ReactPatch(element_id="tbl-progress", field="label", value="opened"),
@@ -1138,6 +1150,72 @@ class Scenario:
                 element_id="grid",
                 field="selected_row_ids",
                 value=["a", "c"],
+                flipped=True,
+            ),
+        )
+
+    @classmethod
+    def table_single_select_progress(cls) -> Self:
+        """One row clicked in a single-select grid — the row-picks-an-action loop.
+
+        This is the shape an app acts on a *row* with: the user clicks one row of
+        a list and something happens to that row's subject. The published payload
+        names it in ``anchor`` — the row the user just touched — which is why the
+        anchor rides beside the selection set instead of being inferred from it.
+        (vox's music player reads exactly this: the clicked album row's id.)
+        """
+        return cls(
+            name="table-single-select-progress",
+            scene_id="e2e-table-single-scene",
+            elements=(
+                {
+                    "kind": "group",
+                    "id": "one-surface",
+                    "layout": "rows",
+                    "children": (
+                        {
+                            "kind": "table",
+                            "id": "albums",
+                            "columns": ("Album",),
+                            "rows": (("dawn",), ("dusk",), ("noon",)),
+                            "selection_mode": "single",
+                            "handlers": [
+                                {
+                                    "event": "row_selection_changed",
+                                    "factory": "noop",
+                                    "wrap": [
+                                        {
+                                            "decorator": "publish",
+                                            "topics": ["album_chosen"],
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                        {
+                            "kind": "progress",
+                            "id": "one-progress",
+                            "fraction": 0.0,
+                            "label": "idle",
+                        },
+                    ),
+                },
+            ),
+            target_element_id="albums",
+            interaction=InteractionExpectation(
+                event_kind="row_selection_changed",
+                value={"row_ids": ["dusk"], "anchor": "dusk"},
+            ),
+            publish=WirePublish.rows("album_chosen", row_ids=["dusk"], anchor="dusk"),
+            react=(
+                ReactPatch(element_id="one-progress", field="fraction", value=1.0),
+                ReactPatch(element_id="one-progress", field="label", value="playing"),
+            ),
+            display_only_id="one-progress",
+            repush=PropAfterDispatch(
+                element_id="albums",
+                field="selected_row_ids",
+                value=["dusk"],
                 flipped=True,
             ),
         )
@@ -1179,6 +1257,7 @@ SCENARIOS: tuple[Scenario, ...] = (
     Scenario.tab_bar_change_progress(),
     Scenario.tab_bar_button_progress(),
     Scenario.table_multi_select_progress(),
+    Scenario.table_single_select_progress(),
     Scenario.dialog_confirm_progress(),
     Scenario.modal_dismiss_progress(),
     Scenario.payload_button_progress(),

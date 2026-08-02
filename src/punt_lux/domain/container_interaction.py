@@ -5,16 +5,18 @@ as ``ButtonClicked``: a ``collapsing_header``'s open state (``HeaderToggled``), 
 ``tab_bar``'s active tab (``TabChanged``), or a ``modal``'s user dismissal
 (``ModalClosed``). The Hub runs the container's authoritative reaction — mirror
 the selection, or dismiss the modal — and re-pushes. Kept apart from the
-``interaction`` leaf events so no module exceeds three classes.
+``interaction`` leaf events so no module holds more than three classes.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import ClassVar, Literal, Self
 
+from punt_lux.domain.event_payload import EventPayload
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
-from punt_lux.domain.interaction_errors import WrongKindError
+from punt_lux.domain.wire_value import WireValue
 
 __all__ = ["HeaderToggled", "ModalClosed", "TabChanged"]
 
@@ -60,19 +62,18 @@ class TabChanged:
         value: object,
     ) -> Self:
         """Build the tab-change event; the payload must be the new tab's id."""
-        if not isinstance(value, str):
-            raise WrongKindError(
-                scene_id=scene_id,
-                element_id=element_id,
-                expected="a tab_changed payload (str tab_id)",
-                got=type(value).__name__,
-            )
         return cls(
             scene_id=scene_id,
             element_id=element_id,
             owner_id=owner_id,
-            tab_id=value,
+            tab_id=WireValue(value, scene_id=scene_id, element_id=element_id).as_str(
+                "a tab_changed payload (str tab_id)"
+            ),
         )
+
+    def to_payload(self) -> Mapping[str, object]:
+        """Return the published payload: identity plus the newly-active ``tab_id``."""
+        return EventPayload.of(self, self.kind).to_mapping(tab_id=self.tab_id)
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -119,19 +120,18 @@ class HeaderToggled:
         value: object,
     ) -> Self:
         """Build the header-toggle event; the payload must be the new open state."""
-        if not isinstance(value, bool):
-            raise WrongKindError(
-                scene_id=scene_id,
-                element_id=element_id,
-                expected="a header_toggled payload (bool open state)",
-                got=type(value).__name__,
-            )
         return cls(
             scene_id=scene_id,
             element_id=element_id,
             owner_id=owner_id,
-            open_=value,
+            open_=WireValue(value, scene_id=scene_id, element_id=element_id).as_bool(
+                "a header_toggled payload (bool open state)"
+            ),
         )
+
+    def to_payload(self) -> Mapping[str, object]:
+        """Return the published payload: identity plus the new ``open`` state."""
+        return EventPayload.of(self, self.kind).to_mapping(open=self.open)
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -139,10 +139,9 @@ class ModalClosed:
     """A typed dismissal event for a ``modal`` — the user closed it.
 
     Unlike the other container events it carries no selection payload: a close
-    has no value beyond "it happened". Routed down the same remote-dispatch path
-    as ``ButtonClicked``, the Hub fires the modal's built-in dismiss handler
-    (``model.close`` -> ``mark_removed``) so the removal cascade drops the modal
-    from both tiers. Same ``init=False`` + ``__new__`` construction as the
+    has no value beyond "it happened". The Hub fires the modal's built-in dismiss
+    handler (``model.close`` -> ``mark_removed``) so the removal cascade drops the
+    modal from both tiers. Same ``init=False`` + ``__new__`` construction as the
     leaf events.
     """
 
@@ -176,3 +175,7 @@ class ModalClosed:
         """Build the dismissal event; a close carries no payload, so ignore value."""
         _ = value  # payload-less event; the shared WireEvent signature carries it
         return cls(scene_id=scene_id, element_id=element_id, owner_id=owner_id)
+
+    def to_payload(self) -> Mapping[str, object]:
+        """Return the published payload: identity alone — a close carries no data."""
+        return EventPayload.of(self, self.kind).to_mapping()

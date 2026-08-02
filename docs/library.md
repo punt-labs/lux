@@ -94,6 +94,60 @@ The reference third-party app built on this pattern is vox's music player:
 `voxd` registers a Music menu entry, receives clicks and transport events over
 its listener, and pushes the player scene over REST.
 
+## What a published event carries
+
+An element publishes in one of two ways, and they carry different things.
+
+**A `publish` list on a handler sends the interaction.** Declare it as the
+button sugar `"publish": ["music.play"]`, or as a `wrap` entry on any element's
+`handlers` list, and every interaction on that element publishes what the user
+did:
+
+```json
+{"kind": "table", "id": "albums", "columns": ["Album"],
+ "rows": [["dawn"], ["dusk"], ["noon"]], "selection_mode": "single",
+ "handlers": [{"event": "row_selection_changed", "factory": "noop",
+               "wrap": [{"decorator": "publish", "topics": ["music.play"]}]}]}
+```
+
+A click on the second row delivers:
+
+```python
+("music.play", {"kind": "row_selection_changed",
+                "scene_id": "player", "element_id": "albums",
+                "row_ids": ["dusk"], "anchor": "dusk"})
+```
+
+Every payload opens with the same three keys — what happened, and the scene and
+element it happened on — so a subscriber never has to infer either. After those
+come the event's own fields:
+
+| `kind` | Fields it adds |
+|---|---|
+| `button_clicked` | *(none — the click is the whole event)* |
+| `modal_closed` | *(none)* |
+| `value_changed` | `value` — the input's committed value |
+| `tab_changed` | `tab_id` — the newly-active tab |
+| `header_toggled` | `open` — the header's new state |
+| `row_selection_changed` | `row_ids` (the full selection) and `anchor` (the row the user just touched) |
+
+`anchor` is the one to read when acting on a single row: the selection is a set
+and cannot say which row the click landed on. The owning client's id is not in
+the payload — publish fan-out is scoped to the publishing connection, so a
+subscriber only ever receives its own scope's events.
+
+**A button's `publish` mapping sends a message you wrote.** Where the interaction
+is not what the subscriber cares about, give the button a topic and a payload of
+your own:
+
+```json
+{"kind": "button", "id": "play-jazz-1", "label": "Play",
+ "publish": {"topic": "music.play", "payload": {"album_id": "jazz-1"}}}
+```
+
+That delivers `("music.play", {"album_id": "jazz-1"})` — the payload verbatim,
+with nothing added.
+
 ## Connecting to `luxd`'s MCP endpoint directly
 
 This is how the plugin connects, and a session configured by hand connects the
