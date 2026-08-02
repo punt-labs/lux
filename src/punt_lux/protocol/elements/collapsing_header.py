@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Literal, Self, cast
 
 from punt_lux.domain.container_interaction import HeaderToggled
 from punt_lux.domain.element_abc import Element
-from punt_lux.domain.handlers.decorators import PublishSink
+from punt_lux.domain.handlers.publish_sink import PublishSink
 from punt_lux.domain.remote_dispatch_spec import RemoteDispatchSpec
 from punt_lux.domain.validation import ValidationError
 from punt_lux.protocol.elements.abc_di_defaults import NO_EMIT, RAISING_FACTORY

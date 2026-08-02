@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Self, cast
 
 from punt_lux.domain.event_protocol import Handler
 from punt_lux.domain.handlers import ButtonHandlers, DecoratorRegistry
-from punt_lux.domain.handlers.decorators import PublishSink
+from punt_lux.domain.handlers.publish_sink import PublishSink
 from punt_lux.domain.handlers.verb_vocabulary import BoundVerb
 from punt_lux.domain.interaction import ButtonClicked
 from punt_lux.protocol.elements._util import strip_none

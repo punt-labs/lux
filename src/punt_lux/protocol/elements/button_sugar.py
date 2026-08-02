@@ -35,10 +35,10 @@ class ButtonWireSugar:
           ``{"click": "cancel"}``     (no publish → no decorator)
 
         The list form of ``publish`` is the decorator shorthand — a topic list the
-        decorator fans empty payloads to. A *mapping* ``publish`` (``{"topic":
-        ..., "payload": ...}``) is the typed publish-on-click attribute the Button
-        codec reads directly; it is deliberately left in place here, never promoted
-        to a decorator, so the two forms never collide.
+        decorator fans the click event to. A *mapping* ``publish`` (``{"topic":
+        ..., "payload": ...}``) sends the payload the agent wrote; it is the typed
+        publish-on-click attribute the Button codec reads directly, left in place
+        here and never promoted to a decorator, so the two forms never collide.
 
         If the raw dict already has a ``handlers`` key, returns unchanged.
         Idempotent — a second pass finds ``handlers`` present and no-ops.

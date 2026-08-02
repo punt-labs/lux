@@ -29,7 +29,7 @@ from punt_lux.tracing import trace
 if TYPE_CHECKING:
     from punt_lux.domain.element_abc import Element
     from punt_lux.domain.event_protocol import Handler
-    from punt_lux.domain.handlers.decorators import PublishSink
+    from punt_lux.domain.handlers.publish_sink import PublishSink
     from punt_lux.domain.interaction import ValueChanged
 
 __all__ = [

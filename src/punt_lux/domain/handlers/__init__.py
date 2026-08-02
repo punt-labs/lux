@@ -20,13 +20,10 @@ nothing about wire dicts.
 from __future__ import annotations
 
 from punt_lux.domain.handlers.button_catalog import ButtonHandlers
-from punt_lux.domain.handlers.decorators import (
-    DecoratorFactory,
-    DecoratorRegistry,
-    PublishDecorator,
-    PublishSink,
-)
+from punt_lux.domain.handlers.decorator_registry import DecoratorRegistry
+from punt_lux.domain.handlers.decorators import DecoratorFactory, PublishDecorator
 from punt_lux.domain.handlers.dialog_catalog import DialogHandlers
+from punt_lux.domain.handlers.publish_sink import PublishSink
 from punt_lux.domain.handlers.verb_vocabulary import BoundVerb, VerbVocabulary
 
 __all__ = [

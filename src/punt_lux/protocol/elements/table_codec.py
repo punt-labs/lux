@@ -18,7 +18,7 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING, Self, cast
 
-from punt_lux.domain.handlers.decorators import PublishSink
+from punt_lux.domain.handlers.publish_sink import PublishSink
 from punt_lux.domain.selection_interaction import RowSelectionChanged
 from punt_lux.protocol.elements.abc_di_defaults import NO_EMIT, RAISING_FACTORY
 from punt_lux.protocol.elements.element_wire import ElementWireContext
