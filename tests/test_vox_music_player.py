@@ -187,7 +187,7 @@ def test_the_music_build_shows_one_voxd_submenu_with_a_music_leaf() -> None:
     )
     assert outcome == "registered"
 
-    menus = CallbackMenu.from_sessions(clients.live_sessions(), clients.roster)
+    menus = CallbackMenu.from_named(clients.named_sessions())
 
     # voxd is a client like any other: one submenu under Clients, named for
     # itself because a daemon works in no repository, with the Music leaf whose

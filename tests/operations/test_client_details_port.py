@@ -76,11 +76,11 @@ def _wired(store: HubDisplay, hub: Hub) -> tuple[ClientDetailsPort, _Marks]:
 
 
 def _named(store: HubDisplay, connection: str) -> ConnectionId:
-    """Record a client and give it the menu name the roster would."""
+    """Record a client and take the read that names it, as the menu build does."""
     conn = ConnectionId(connection)
     identity = ClientIdentity(kind="applet", name="lux · lux · #4b97", repo="/w/lux")
     store.identify_client(conn, identity)
-    store.clients.roster.names_for({conn: identity})
+    store.clients.named_sessions()
     return conn
 
 

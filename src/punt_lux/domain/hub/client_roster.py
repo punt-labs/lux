@@ -12,31 +12,30 @@ entry that renames itself under the pointer is worse than a gap in the numbering
 That is state, so it lives here — one assignment per connection, held until the
 connection is gone.
 
-Nothing has to tell the roster a client left. Every read hands it the connections
-that are live, and assignments for connections not in that set are dropped, so a
-name is released by the same read that stops asking for it.
+Nothing here decides that a connection has gone, and nothing here can. The roster
+is never handed a picture of who is live, so it has no way to conclude from one
+that a connection it cannot see has departed: :meth:`names_for` only ever adds.
+A name is dropped by :meth:`release`, called by
+:class:`~punt_lux.domain.hub.hub_clients.HubClientRegistry` from the two places a
+session is actually removed — the lease sweep and an explicit discard — naming
+the connections that went. A reader whose picture of the world is a moment old
+therefore cannot destroy a name a fresher reader has just handed out, because
+releasing is not something a reader does at all.
 
-Three threads reach this state: the replicator worker composing a send, an MCP or
-REST thread answering ``list_menus``, and the socket thread dispatching a click
-that asks what a client is called. Each read both assigns and releases, so an
-unguarded roster could hand one name to two connections, or drop a name a
-concurrent read had just assigned. The lock here is the roster's own and is a
-*leaf*: the only thing called under it is an identity's ``menu_label``, a pure
-read of a frozen value that takes no lock of its own — no registry, no store, no
-client — and nothing calls into the roster while holding the registry's lock,
-because the registry only hands the roster out. A lock that acquires no other
-lock under itself cannot take part in a cycle, so there is no deadlock to check
-for.
+The roster holds no lock and needs none. The registry owns it, is its only
+caller, and makes every one of those calls under its own lock, beside the
+sessions the names belong to. One lock over the names and the sessions together
+is what keeps the two from ever disagreeing, and it is the registry's — not a
+second lock to order against the first.
 """
 
 from __future__ import annotations
 
-import threading
 from itertools import count
 from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Iterable, Mapping
 
     from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.domain.ids import ConnectionId
@@ -49,13 +48,11 @@ class ClientRoster:
     """The menu name each live connection holds, stable for its lifetime."""
 
     _names: dict[ConnectionId, str]
-    _lock: threading.Lock
-    __slots__ = ("_lock", "_names")
+    __slots__ = ("_names",)
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
         self._names = {}
-        self._lock = threading.Lock()
         return self
 
     def names_for(
@@ -65,45 +62,37 @@ class ClientRoster:
 
         A connection that already holds a name keeps it. A new one takes the name
         its identity reads as, numbered past whatever is already held. Connections
-        absent from *identities* have gone, and their names are released here.
-
-        Releasing, assigning, and reading back are one critical section. Two
-        threads composing a menu at once would otherwise interleave between the
-        release and the assignment — one dropping a name the other had just
-        given out, or both handing the same unheld name to different connections.
+        absent from *identities* mean nothing here: this call adds names and reads
+        names back, and nothing it is given can take a name away.
 
         The order of *identities* decides who gets the unnumbered name when two
         arrive together; the registry hands them over in connection order, so the
         client that connected first is the plain ``lux``.
         """
-        with self._lock:
-            self._release_departed(identities)
-            for connection_id, identity in identities.items():
-                if connection_id not in self._names:
-                    self._names[connection_id] = self._unheld(identity.menu_label)
-            return {
-                connection_id: self._names[connection_id]
-                for connection_id in identities
-            }
+        for connection_id, identity in identities.items():
+            if connection_id not in self._names:
+                self._names[connection_id] = self._unheld(identity.menu_label)
+        return {
+            connection_id: self._names[connection_id] for connection_id in identities
+        }
+
+    def release(self, departed: Iterable[ConnectionId]) -> None:
+        """Drop the names *departed* held, freeing their numbers for the next arrival.
+
+        The registry calls this as it removes the sessions, naming them; a
+        connection that held no name is no error, because a session may be swept
+        having never been identified and so never named.
+        """
+        for connection_id in departed:
+            self._names.pop(connection_id, None)
 
     def held(self) -> dict[ConnectionId, str]:
-        """The names held right now, as the last read assigned them.
+        """The names held right now, as the last assignment left them.
 
         A read, never an assignment: what the menu last showed is what anything
         naming a client afterwards — a details frame, a log line — must call it.
-        Taken under the lock, so a click asking what a client is called never
-        reads the roster halfway through another thread's assignment.
         """
-        with self._lock:
-            return dict(self._names)
-
-    def _release_departed(
-        self, identities: Mapping[ConnectionId, ClientIdentity]
-    ) -> None:
-        """Drop the names of connections that are no longer live."""
-        for connection_id in tuple(self._names):
-            if connection_id not in identities:
-                del self._names[connection_id]
+        return dict(self._names)
 
     def _unheld(self, base: str) -> str:
         """Return *base*, or the lowest ``base (n)`` no live connection holds."""

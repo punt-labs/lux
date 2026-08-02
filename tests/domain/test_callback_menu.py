@@ -17,6 +17,7 @@ from punt_lux.domain.hub.client_identity import ClientIdentity, ClientKind
 from punt_lux.domain.hub.client_roster import ClientRoster
 from punt_lux.domain.hub.client_session import ClientSession
 from punt_lux.domain.hub.menu_models import Menu, MenuAction, MenuSeparator
+from punt_lux.domain.hub.named_sessions import NamedSessions
 from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
 from punt_lux.domain.ids import ConnectionId
 
@@ -55,9 +56,13 @@ def _beads() -> SessionCallback:
 
 
 def _menus(*sessions: tuple[str, ClientSession], roster: ClientRoster | None = None):
-    """Compose the menu for the given connections, in the order they connected."""
+    """Compose the menu for the given connections, in the order they connected.
+
+    One read of the live clients, named — what the registry hands over from inside
+    its lock. Passing a roster across calls makes several reads of one Hub.
+    """
     live = {ConnectionId(name): session for name, session in sessions}
-    return CallbackMenu.from_sessions(live, roster or ClientRoster())
+    return CallbackMenu.from_named(NamedSessions.over(live, roster or ClientRoster()))
 
 
 def _clients_menu(menus: list[Menu]) -> Menu:
@@ -143,7 +148,7 @@ class TestTheClientsMenu:
         assert _labels_under(_clients_menu(menus)) == ["lux", "quarry"]
 
     def test_no_client_means_no_clients_menu(self) -> None:
-        assert CallbackMenu.from_sessions({}, ClientRoster()) == []
+        assert _menus() == []
 
 
 class TestEveryKindIsAClient:
@@ -267,7 +272,9 @@ class TestWhatANameIs:
         second = ("second", _session("claude", "/w/lux", _beads()))
         _menus(first, second, roster=roster)
 
-        # The first goes; a newcomer arrives on the repository it named.
+        # The first goes — the registry says so as it removes the session — and a
+        # newcomer arrives on the repository it named.
+        roster.release([ConnectionId("first")])
         third = ("third", _session("claude", "/w/lux", _beads()))
         menus = _menus(second, third, roster=roster)
 
@@ -318,10 +325,7 @@ class TestWhatContributesNothing:
         # Reachable by push and holding an entry, but it never said who it is.
         bare = ClientSession(0.0).attached(_SilentLeg()).with_callback(_beads())
 
-        assert (
-            CallbackMenu.from_sessions({ConnectionId("bare"): bare}, ClientRoster())
-            == []
-        )
+        assert _menus(("bare", bare)) == []
 
     def test_an_identified_client_with_no_callbacks_contributes_nothing(self) -> None:
         session = _session("claude", "/w/lux")  # identified, registered no command
@@ -346,7 +350,7 @@ class TestWhatContributesNothing:
         roster = ClientRoster()
         bare = ClientSession(0.0).attached(_SilentLeg()).with_callback(_beads())
 
-        CallbackMenu.from_sessions({ConnectionId("bare"): bare}, roster)
+        _menus(("bare", bare), roster=roster)
 
         assert roster.held() == {}
 
@@ -408,7 +412,7 @@ class TestTheReplica:
             registry.register_callback(conn, beads, leg)
 
         wire = CallbackMenuReplica(registry).callback_menu_wire()
-        read = CallbackMenu.from_sessions(registry.live_sessions(), registry.roster)
+        read = CallbackMenu.from_named(registry.named_sessions())
 
         clients = wire[0]["items"]
         assert isinstance(clients, list)

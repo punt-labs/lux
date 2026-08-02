@@ -73,10 +73,9 @@ def _identity(name: str = "lux · lux · #4b97") -> ClientIdentity:
 
 
 def _named(store: HubDisplay, connection: str, identity: ClientIdentity) -> None:
-    """Record a client and give it the menu name the roster would."""
-    conn = ConnectionId(connection)
-    store.identify_client(conn, identity)
-    store.clients.roster.names_for({conn: identity})
+    """Record a client and take the read that names it, as the menu build does."""
+    store.identify_client(ConnectionId(connection), identity)
+    store.clients.named_sessions()
 
 
 def _rows(store: HubDisplay, scene_id: str) -> dict[str, str]:

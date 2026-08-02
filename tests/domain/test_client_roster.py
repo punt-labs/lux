@@ -3,13 +3,13 @@
 A client is named for where it works, numbered when two read the same way, and
 keeps its number until its connection goes. The stability is the point: a menu
 entry that renames itself under the pointer is worse than a gap in the numbering.
+
+Departure is told to the roster, never inferred by it. The registry names the
+connections it removed as it removes them, so nothing a reader hands over — a
+picture of who was live a moment ago — can take a name away.
 """
 
 from __future__ import annotations
-
-import threading
-import time
-from typing import final
 
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.client_roster import ClientRoster
@@ -96,6 +96,7 @@ class TestStability:
         roster = ClientRoster()
         roster.names_for({ConnectionId("a"): _lux(), ConnectionId("b"): _lux()})
 
+        roster.release([ConnectionId("a")])
         names = roster.names_for({ConnectionId("b"): _lux()})
 
         assert names == {ConnectionId("b"): "lux (2)"}
@@ -104,6 +105,7 @@ class TestStability:
         roster = ClientRoster()
         roster.names_for({ConnectionId("a"): _lux(), ConnectionId("b"): _lux()})
 
+        roster.release([ConnectionId("a")])
         names = roster.names_for({ConnectionId("b"): _lux(), ConnectionId("c"): _lux()})
 
         assert names[ConnectionId("b")] == "lux (2)"
@@ -114,6 +116,7 @@ class TestStability:
         roster = ClientRoster()
         roster.names_for({ConnectionId("old"): _lux()})
 
+        roster.release([ConnectionId("old")])
         names = roster.names_for({ConnectionId("new"): _lux()})
 
         assert names == {ConnectionId("new"): "lux"}
@@ -122,95 +125,56 @@ class TestStability:
         roster = ClientRoster()
         roster.names_for({ConnectionId("a"): _lux(), ConnectionId("b"): _lux()})
 
-        roster.names_for({ConnectionId("b"): _lux()})
+        roster.release([ConnectionId("a")])
 
         assert roster.held() == {ConnectionId("b"): "lux (2)"}
 
 
-@final
-class _SlowIdentity(ClientIdentity):
-    """An identity whose name takes a moment to read.
+class TestWhoMayTakeANameAway:
+    """Only the removal of a session frees its name — never the shape of a read."""
 
-    The roster computes a new name between releasing the departed and storing
-    the assignment, and that gap is where two threads collide. On a real
-    identity the gap is a few instructions wide and a test would have to be
-    lucky to land in it; widening it here does not change what the roster does,
-    it only makes the existing window observable.
-    """
+    def test_a_read_that_omits_a_named_client_leaves_its_name_alone(self) -> None:
+        """The interleaving that made the menu and Details disagree.
 
-    @property
-    def menu_label(self) -> str:
-        time.sleep(0.001)
-        return super().menu_label
-
-
-def _slow_lux() -> ClientIdentity:
-    """An identity in the lux repository whose name takes a moment to read."""
-    return _SlowIdentity(kind="mcp-session", name="claude", repo="/Users/someone/lux")
-
-
-class TestUnderConcurrentReads:
-    """Three threads read this roster, and every read both assigns and releases."""
-
-    def test_a_read_is_never_corrupted_by_another_read(self) -> None:
-        """Two live snapshots taken moments apart, named at the same time.
-
-        The replicator and an introspection read each take their own snapshot of
-        the live sessions, so one can be naming a set the other has already seen
-        a client leave. Unguarded, one thread's release lands inside the other's
-        assignment loop: the name it just stored is deleted before it reads it
-        back, which is a KeyError in the menu compose, or it hands one name to
-        two connections. Either way the menu and Details stop agreeing.
+        Two readers each took their own picture of the live sessions and each
+        released whatever their picture did not show, so a reader holding the older
+        picture dropped a name the newer one had just assigned. There is no such
+        path now: a set handed to :meth:`names_for` only ever adds.
         """
         roster = ClientRoster()
-        gone, stays = ConnectionId("gone"), ConnectionId("stays")
-        both = {gone: _slow_lux(), stays: _slow_lux()}
-        one = {stays: _slow_lux()}
-        failures: list[BaseException] = []
-        returned: list[dict[ConnectionId, str]] = []
+        first, second = ConnectionId("first"), ConnectionId("second")
+        stale = {first: _lux()}
+        roster.names_for({first: _lux(), second: _lux()})
 
-        def keep_naming(live: dict[ConnectionId, ClientIdentity]) -> None:
-            try:
-                returned.extend(roster.names_for(live) for _ in range(40))
-            except BaseException as exc:  # noqa: BLE001 — the thread's own boundary
-                failures.append(exc)
+        roster.names_for(stale)
 
-        threads = [
-            threading.Thread(target=keep_naming, args=(live,))
-            for live in (both, one, both, one)
-        ]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join()
+        assert roster.held() == {first: "lux", second: "lux (2)"}
 
-        assert failures == [], f"a read raised: {failures[0]!r}"
-        for names in returned:
-            assert len(set(names.values())) == len(names), f"a name was shared: {names}"
-
-    def test_every_read_returns_a_whole_consistent_set_of_names(self) -> None:
-        """A read is one critical section, so no caller sees a partial roster."""
+    def test_a_read_that_omits_every_named_client_releases_nothing(self) -> None:
         roster = ClientRoster()
-        live = {ConnectionId(f"c{n}"): _lux() for n in range(12)}
-        roster.names_for(live)
-        seen: list[dict[ConnectionId, str]] = []
-        stop = threading.Event()
+        roster.names_for({ConnectionId("a"): _lux()})
 
-        def keep_naming() -> None:
-            while not stop.is_set():
-                roster.names_for(live)
+        roster.names_for({})
 
-        namer = threading.Thread(target=keep_naming)
-        namer.start()
-        try:
-            seen.extend(roster.held() for _ in range(200))
-        finally:
-            stop.set()
-            namer.join()
+        assert roster.held() == {ConnectionId("a"): "lux"}
 
-        for held in seen:
-            assert len(held) == len(live)
-            assert len(set(held.values())) == len(live)
+    def test_a_name_released_twice_is_no_error(self) -> None:
+        """A session may be discarded after the sweep already took it."""
+        roster = ClientRoster()
+        roster.names_for({ConnectionId("a"): _lux()})
+
+        roster.release([ConnectionId("a")])
+        roster.release([ConnectionId("a")])
+
+        assert roster.held() == {}
+
+    def test_releasing_a_connection_that_was_never_named_is_no_error(self) -> None:
+        """An anonymous session is swept having never taken a name."""
+        roster = ClientRoster()
+
+        roster.release([ConnectionId("never-identified")])
+
+        assert roster.held() == {}
 
 
 class TestWhatIsHeld:

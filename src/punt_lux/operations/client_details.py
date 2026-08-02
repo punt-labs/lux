@@ -106,11 +106,11 @@ class ClientDetailsOperations:
     def _label(self, connection_id: ConnectionId) -> str:
         """The name the menu calls this client, so the frame agrees with the menu.
 
-        Read from the one roster the menu assigns from. A client whose entry the
-        user just clicked is always in it; the fallback covers the click that
-        arrives after its client has gone.
+        Read from the same registry read the menu is composed from. A client whose
+        entry the user just clicked is always in it; the fallback covers the click
+        that arrives after its client has gone.
         """
-        return self._clients.roster.held().get(connection_id, _UNNAMED)
+        return self._clients.named_sessions().name_of(connection_id, _UNNAMED)
 
     @staticmethod
     def _scene_id(connection_id: ConnectionId) -> str:

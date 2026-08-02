@@ -135,10 +135,8 @@ class CallbackOperations:
         return self._result_for(self._router.route(invocation))
 
     def callback_menus(self) -> list[Menu]:
-        """Build the uniform ``Clients`` menu from the live sessions and roster."""
-        return CallbackMenu.from_sessions(
-            self._clients.live_sessions(), self._clients.roster
-        )
+        """Build the uniform ``Clients`` menu from one read of the named clients."""
+        return CallbackMenu.from_named(self._clients.named_sessions())
 
     def drop_session(self) -> None:
         """Re-push the menu after a session departs so its submenu vanishes.
