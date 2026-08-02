@@ -198,6 +198,11 @@ class Gated:
         self._released.wait(timeout=GATE_SECONDS)
         return loaded(self._gated)
 
+    @property
+    def loads(self) -> int:
+        """How many runs this source was asked for — one ``bd`` apiece, in life."""
+        return self._loads
+
     def reached(self) -> None:
         """Block until the gated run is in flight, so the next one crosses it."""
         assert self._reached.wait(timeout=GATE_SECONDS), "the gated load never ran"

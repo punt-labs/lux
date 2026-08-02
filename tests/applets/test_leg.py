@@ -6,6 +6,12 @@ board push is HTTP — so it must not run on that loop. If it did, a slow click
 would stall the renewal until the lease lapsed, and the session's menu entry
 would disappear mid-service.
 
+Nor may the loop wait for that work: the receive loop reads the frame behind a
+click only when the click's handler returns, so a click awaited there holds the
+next click behind a ``bd`` query. The work behind two clicks is one piece of
+work, though, so the second click is answered and stands down rather than
+starting a query of its own.
+
 The load that runs ahead of the first click blocks for the same reason and is
 held to the same rule, plus one of its own: the handshake it is started from must
 not wait for it either, or the entry would take as long to appear as ``bd`` takes
@@ -17,12 +23,21 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+from collections import deque
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.applets.beads_service import BeadsService
+from punt_lux.applets.board_load import BoardLoad
 from punt_lux.applets.leg import AppletLeg
+from punt_lux.apps.beads_board import BeadsBoard
+from punt_lux.apps.beads_result import BeadsRows
 from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.hub_client import LuxHubClient
 from punt_lux.operations import Ok, OpError
+from punt_lux.protocol.messages.listen import CallbackFrame, ReadyFrame
 from punt_lux.rest_transport import HubUnavailableError
+
+from .board_doubles import GATE_SECONDS, ISSUE, Gated, RecordingClient
 
 if TYPE_CHECKING:
     import pytest
@@ -31,6 +46,36 @@ if TYPE_CHECKING:
     from punt_lux.rest_client import LuxRestClient
 
 _IDENTITY = ClientIdentity(kind="mcp-session", name="lux · lux · #1", repo="/w/lux")
+
+# How long a test waits for something another thread has to do before calling it
+# a failure, and how often it looks. Long enough that a loaded machine cannot
+# trip it; short enough that a genuine hang fails the run rather than holding it.
+_POLL_SECONDS = 0.01
+
+
+async def _clicked(leg: AppletLeg, callback_id: str = "beads") -> None:
+    """Deliver one click and wait out the work it started — a whole click.
+
+    The leg starts a click and returns, so a test that only delivered one would
+    assert against work that had not run yet — or, under ``asyncio.run``, work
+    that was cancelled on the way out.
+    """
+    await leg._on_callback(callback_id)
+    await leg._underway.drained()
+
+
+async def _said(caplog: pytest.LogCaptureFixture, phrase: str) -> None:
+    """Wait until some click's line reports *phrase*, or fail.
+
+    A click that has finished says so on its own line, and that line is the only
+    thing a finished click leaves behind — which makes it what a test waits for
+    when it needs one click to be over while another is still running.
+    """
+    for _ in range(int(GATE_SECONDS / _POLL_SECONDS)):
+        if phrase in caplog.text:
+            return
+        await asyncio.sleep(_POLL_SECONDS)
+    raise AssertionError(f"no click said {phrase!r} within {GATE_SECONDS}s")
 
 
 @final
@@ -184,7 +229,7 @@ def test_a_slow_click_does_not_stall_the_loop_that_holds_the_lease(
 
     async def _drive() -> int:
         ticks = 0
-        click = asyncio.create_task(leg._on_callback("beads"))
+        await leg._on_callback("beads")
         await asyncio.to_thread(started.wait, 5)  # the work has begun and blocked
         for _ in range(5):  # the loop keeps running while the work blocks
             await asyncio.sleep(0)
@@ -194,7 +239,7 @@ def test_a_slow_click_does_not_stall_the_loop_that_holds_the_lease(
         # ran on the loop would simply finish first and let them run afterwards.
         assert service.serviced == 0
         release.set()
-        await click
+        await leg._underway.drained()
         return ticks
 
     assert asyncio.run(_drive()) == 5
@@ -211,7 +256,7 @@ def test_an_unknown_callback_is_reported_and_not_serviced(
     leg = AppletLeg(_IDENTITY, service)
 
     with caplog.at_level(logging.WARNING):
-        asyncio.run(leg._on_callback("something-else"))
+        asyncio.run(_clicked(leg, "something-else"))
 
     assert service.serviced == 0
     assert "no service for callback" in caplog.text
@@ -252,7 +297,7 @@ def test_registration_does_not_wait_for_the_warm_up_behind_it(
         await asyncio.to_thread(started.wait, 5)
         assert service.prefetched == 0
         release.set()
-        await asyncio.gather(*leg._prefetching)
+        await leg._underway.drained()
 
     asyncio.run(_drive())
     assert service.prefetched == 1  # and it still ran to completion
@@ -282,7 +327,7 @@ def test_a_warm_up_that_raises_leaves_the_leg_up(
 
     async def _drive() -> None:
         await leg._register()
-        await asyncio.gather(*leg._prefetching)
+        await leg._underway.drained()
 
     with caplog.at_level(logging.ERROR):
         asyncio.run(_drive())  # must not raise
@@ -366,7 +411,7 @@ def test_a_push_that_cannot_reach_the_hub_is_reported_and_the_leg_survives(
     leg = AppletLeg(_IDENTITY, _PushingService())
 
     with caplog.at_level(logging.WARNING):
-        asyncio.run(leg._on_callback("beads"))  # must not raise
+        asyncio.run(_clicked(leg))  # must not raise
 
     assert "rendered nothing" in caplog.text
     assert "the read timed out" in caplog.text  # not "luxd is not running yet"
@@ -386,7 +431,7 @@ def test_a_hub_that_vanishes_before_the_client_is_built_leaves_the_leg_up(
     leg = AppletLeg(_IDENTITY, _SlowService(started, release))
 
     with caplog.at_level(logging.WARNING):
-        asyncio.run(leg._on_callback("beads"))  # must not raise
+        asyncio.run(_clicked(leg))  # must not raise
 
     assert "unreachable" in caplog.text
     assert "rendered nothing" in caplog.text
@@ -400,7 +445,7 @@ def test_an_unforeseen_servicing_failure_does_not_tear_the_socket(
     leg = AppletLeg(_IDENTITY, _ExplodingService())
 
     with caplog.at_level(logging.ERROR):
-        asyncio.run(leg._on_callback("beads"))  # must not raise
+        asyncio.run(_clicked(leg))  # must not raise
 
     assert "servicing a click failed" in caplog.text
     assert "the leg stays up" in caplog.text
@@ -453,7 +498,7 @@ def test_the_click_is_answered_before_its_work_runs(
     _patch_rest(monkeypatch, _RefusingClient())
     leg = AppletLeg(_IDENTITY, service)
 
-    asyncio.run(leg._on_callback("beads"))
+    asyncio.run(_clicked(leg))
 
     assert service.steps == ("acknowledge", "service")
 
@@ -471,7 +516,7 @@ def test_the_leg_times_the_answer_it_is_the_one_holding_the_clock_for(
     leg = AppletLeg(_IDENTITY, _OrderedService())
 
     with caplog.at_level(logging.INFO):
-        asyncio.run(leg._on_callback("beads"))
+        asyncio.run(_clicked(leg))
 
     assert "click beads: answered" in caplog.text
 
@@ -488,7 +533,245 @@ def test_a_click_that_failed_still_says_where_its_time_went(
     leg = AppletLeg(_IDENTITY, _ExplodingService())
 
     with caplog.at_level(logging.INFO):
-        asyncio.run(leg._on_callback("beads"))
+        asyncio.run(_clicked(leg))
 
     assert "click beads: answered" in caplog.text
     assert "total" in caplog.text
+
+
+@final
+class _ParkedService:
+    """A service that answers every click and parks the first click's work.
+
+    Two clicks are two answers and — with the work behind them held open — one
+    piece of work, so both counts are kept apart here.
+    """
+
+    _answers: list[str]
+    _both: threading.Event
+    _release: threading.Event
+    _serviced: int
+    __slots__ = ("_answers", "_both", "_release", "_serviced")
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._answers = []
+        self._both = threading.Event()
+        self._release = threading.Event()
+        self._serviced = 0
+        return self
+
+    @property
+    def callback_id(self) -> str:
+        return "beads"
+
+    @property
+    def label(self) -> str:
+        return "Beads"
+
+    def prefetch(self) -> None:
+        """Nothing to warm: this service exists to exercise two clicks at once."""
+
+    def acknowledge(self, client: LuxRestClient, latency: ClickLatency) -> None:
+        self._answers.append("answered")
+        if len(self._answers) == 2:
+            self._both.set()
+
+    def service(self, client: LuxRestClient, latency: ClickLatency) -> None:
+        self._release.wait(timeout=GATE_SECONDS)
+        self._serviced += 1
+
+    def answered_both(self, timeout: float) -> bool:
+        """Block until two clicks have been answered; say whether they were."""
+        return self._both.wait(timeout=timeout)
+
+    def release(self) -> None:
+        """Let the parked work finish."""
+        self._release.set()
+
+    @property
+    def answers(self) -> int:
+        return len(self._answers)
+
+    @property
+    def serviced(self) -> int:
+        return self._serviced
+
+
+@final
+class _Frames:
+    """A connection handing the receive loop a handshake and then some clicks.
+
+    The loop reads the frame behind a click only when that click's handler
+    returns, which is the property under test — so the clicks are delivered
+    through the real loop rather than by calling its handler twice.
+    """
+
+    _clicks: deque[str]
+    __slots__ = ("_clicks",)
+
+    def __new__(cls, *callback_ids: str) -> Self:
+        self = super().__new__(cls)
+        self._clicks = deque(callback_ids)
+        return self
+
+    async def recv(self) -> str:
+        """The handshake the session opens on."""
+        return ReadyFrame(connection_id="c").model_dump_json()
+
+    async def send(self, frame: str) -> None:
+        """Whatever the loop sends back — a subscribe, a keepalive — goes nowhere."""
+
+    def __aiter__(self) -> Self:
+        return self
+
+    async def __anext__(self) -> str:
+        if not self._clicks:
+            raise StopAsyncIteration
+        return CallbackFrame(callback_id=self._clicks.popleft()).model_dump_json()
+
+
+def _listening(leg: AppletLeg) -> LuxHubClient:
+    """The leg's handlers behind a real client, so its receive loop drives them."""
+    return LuxHubClient(
+        "ws://127.0.0.1:0/ws",
+        _IDENTITY,
+        on_callback=leg._on_callback,
+        on_event=leg._on_event,
+    )
+
+
+def test_a_click_does_not_hold_the_click_behind_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The receive loop reads its next frame only when this click's handler returns.
+
+    So a click awaited on that path holds the click behind it for the length of a
+    ``bd`` query: the second click goes unraised and unacknowledged, which is a
+    menu entry that does nothing for several seconds. Both clicks are delivered
+    by the real receive loop here, and the second must be answered while the
+    first one's work is still parked.
+    """
+    service = _ParkedService()
+    _patch_rest(monkeypatch, _RefusingClient())
+    leg = AppletLeg(_IDENTITY, service)
+
+    async def _drive() -> None:
+        await asyncio.wait_for(
+            _listening(leg)._run_session(_Frames("beads", "beads")),  # type: ignore[arg-type]  # the connection is structural; this one carries frames, not a socket
+            GATE_SECONDS,
+        )
+        assert await asyncio.to_thread(service.answered_both, GATE_SECONDS)
+        assert service.serviced == 0  # the first click's work is still parked
+        service.release()
+        await leg._underway.drained()
+
+    asyncio.run(_drive())
+
+    assert service.answers == 2
+    assert service.serviced == 1  # and one of the two did the work for both
+
+
+def _beads(source: Gated) -> BeadsService:
+    """The real Beads service, over a source a test can hold at the query."""
+    return BeadsService(BoardLoad(BeadsBoard.for_project("lux"), source))
+
+
+def _held_query() -> Gated:
+    """A source whose first query hangs until released, and then returns issues.
+
+    Both runs answer with the same rows: what is under test is how many runs
+    there were, so a query that failed would answer the question with a red
+    message instead of a board.
+    """
+    rows = BeadsRows.of([ISSUE])
+    return Gated(rows, gated=rows)
+
+
+async def _clicked_twice(
+    leg: AppletLeg, source: Gated, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Click, hold that click's query open across a second click, then release it.
+
+    The second click is over before the first one's query returns — its line
+    says so — which is what makes the count of queries afterwards mean what it
+    says: one is the applet declining to start a second, not two that happened
+    not to overlap.
+    """
+    await leg._on_callback("beads")
+    await asyncio.to_thread(source.reached)
+    await leg._on_callback("beads")
+    await _said(caplog, "stood down")
+    source.release()
+    await leg._underway.drained()
+
+
+def test_a_click_arriving_mid_query_does_not_start_a_second_one(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Two clicks a second apart are two answers and one ``bd``.
+
+    The query already running reads the same issues the second click would ask
+    for, and the board it produces lands in the frame that click just raised —
+    so it serves both. Starting a second would fetch rows the first is already
+    fetching, and a user drumming on the entry would start one per click.
+    """
+    source = _held_query()
+    client = RecordingClient(frame_is_up=False)
+    _patch_rest(monkeypatch, client)
+    leg = AppletLeg(_IDENTITY, _beads(source))
+
+    with caplog.at_level(logging.INFO):
+        asyncio.run(_clicked_twice(leg, source, caplog))
+
+    assert source.loads == 1  # one query across both clicks
+    assert len(client.scenes) == 2  # each click answered with its own placeholder
+    assert len(client.tables) == 1  # and the one query's board went up behind them
+
+
+def test_a_click_that_stood_down_reports_no_figures_for_a_query_it_never_ran(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A line naming stages this click did not spend would blame the wrong click.
+
+    The click that stood down waited on nothing, so it reports its own answer and
+    says why there is nothing after it. The query's figures belong to the click
+    that started it.
+    """
+    source = _held_query()
+    _patch_rest(monkeypatch, RecordingClient(frame_is_up=False))
+    leg = AppletLeg(_IDENTITY, _beads(source))
+
+    with caplog.at_level(logging.INFO):
+        asyncio.run(_clicked_twice(leg, source, caplog))
+
+    lines = [r.getMessage() for r in caplog.records if "click beads:" in r.getMessage()]
+    stood_down = next(line for line in lines if "stood down" in line)
+    assert "a load was already running" in stood_down
+    assert "answered" in stood_down  # its own answer, timed as every click's is
+    assert "fetched" not in stood_down  # and no figure for the query it skipped
+    assert any("fetched" in line for line in lines)  # which the other click reports
+
+
+def test_a_click_that_could_not_be_started_is_reported_rather_than_lost(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A click is a task nobody waits on, so nothing else can report its failure.
+
+    An exception escaping the coroutine would sit unread in a task, and go out —
+    if it went anywhere at all — as an unretrieved-exception warning from the
+    loop, after the click it belonged to had been forgotten.
+    """
+    _patch_rest(monkeypatch, _RefusingClient())
+    leg = AppletLeg(_IDENTITY, _OrderedService())
+
+    def _no_worker(func: object, /, *args: object, **kwargs: object) -> None:
+        raise RuntimeError("no worker thread could be started")
+
+    monkeypatch.setattr("punt_lux.applets.runner.asyncio.to_thread", _no_worker)
+
+    with caplog.at_level(logging.ERROR):
+        asyncio.run(_clicked(leg))  # draining re-raises anything the task let out
+
+    assert "a click could not be serviced at all" in caplog.text
+    assert "no worker thread could be started" in caplog.text

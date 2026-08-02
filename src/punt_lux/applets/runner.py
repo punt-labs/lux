@@ -9,8 +9,10 @@ would land from a session the Hub had already swept.
 
 Nor may any of it reach the receive loop as an exception. An escaping error ends
 ``listen`` and tears down a socket that is perfectly healthy, so a single bad
-click would cost the session its leg and its menu entry. Both jobs here therefore
-end in a log line rather than a raise.
+click would cost the session its leg and its menu entry. Nothing awaits these
+jobs either — the leg starts them and reads its next frame — so a failure that
+got past them would end in a task nobody reads. Both therefore end in a log line
+rather than a raise.
 """
 
 from __future__ import annotations
@@ -19,8 +21,9 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.applets.serviced_click import ServicedClick
+from punt_lux.applets.single_flight import SingleFlight
 from punt_lux.rest_client import LuxRestClient
-from punt_lux.rest_transport import HubUnavailableError
 
 if TYPE_CHECKING:
     from punt_lux.applets.latency import ClickLatency
@@ -37,13 +40,16 @@ class ServiceRunner:
     """The service's work, off the loop and inside a boundary it cannot escape."""
 
     _identity: ClientIdentity
+    _running: SingleFlight
     _service: AppletService
-    __slots__ = ("_identity", "_service")
+    __slots__ = ("_identity", "_running", "_service")
 
     def __new__(cls, identity: ClientIdentity, service: AppletService) -> Self:
         self = super().__new__(cls)
         self._identity = identity
         self._service = service
+        # One query at a time, across every click this session's entry gets.
+        self._running = SingleFlight()
         return self
 
     async def clicked(self, latency: ClickLatency) -> None:
@@ -51,9 +57,13 @@ class ServiceRunner:
 
         The click has already started: its clock was begun where it arrived, so
         the hop to the thread is inside the number rather than hidden beside it.
-        Only the waiting happens here.
+        Only the waiting happens here — and a hop that could not be made is
+        caught, because nobody is waiting on this coroutine to hear about it.
         """
-        await asyncio.to_thread(self._serviced, latency)
+        try:
+            await asyncio.to_thread(self._serviced, latency)
+        except Exception:
+            logger.exception("a click could not be serviced at all; the leg stays up")
 
     async def warmed(self) -> None:
         """Run the service's warm-up on a worker thread, absorbing its failures.
@@ -68,35 +78,8 @@ class ServiceRunner:
             logger.exception("the applet's prefetch failed; the first click waits")
 
     def _serviced(self, latency: ClickLatency) -> None:
-        """Answer the click, then do its work, absorbing failure either way.
-
-        The order is the point. The visible answer goes first and is measured
-        against its budget; only then does the slow half run, however long it
-        takes. Running them the other way round is what put a database query
-        between a user's click and any sign it had registered.
-
-        A Hub that cannot be reached is the ordinary failure: a restart between
-        the click and the push. It is reported at WARNING because a click that
-        produced nothing is something the user is waiting on, and this process
-        logs at WARNING and above. The transport's own sentence goes with it,
-        because a push that timed out and a luxd that is not running are
-        different problems and only that sentence tells them apart.
-
-        The line saying where the click's time went is reported last and
-        unconditionally, so a click that failed still says which stage it failed
-        in and how long it had been running by then.
-        """
-        try:
-            client = self._rest()
-            with latency.answering():
-                self._service.acknowledge(client, latency)
-            self._service.service(client, latency)
-        except HubUnavailableError as exc:
-            logger.warning("this click rendered nothing — luxd unreachable: %s", exc)
-        except Exception:
-            logger.exception("servicing a click failed; the leg stays up")
-        finally:
-            latency.report()
+        """Run one click's servicing, on the worker thread this was handed to."""
+        ServicedClick(self._service, self._running, self._rest, latency).served()
 
     def _rest(self) -> LuxRestClient:
         """Build a REST client for the current luxd, under the session's identity.

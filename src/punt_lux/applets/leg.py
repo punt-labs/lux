@@ -15,6 +15,11 @@ menu item was clicked, so the entry would vanish mid-service and the push would
 land from a session the Hub had already swept. Blocking work therefore goes to a
 worker thread, and the loop stays free to keep the lease alive while it runs.
 
+Nor does the leg *wait* for that thread: its receive loop reads the next frame
+only when the handler for this one returns, so a click awaited here would hold
+the click behind it — a user clicking again — for the length of a query. Work is
+started and returned from, in :class:`~punt_lux.applets.underway.Underway`.
+
 The leg has no stop of its own: it runs until whoever started it cancels it,
 which is the applet, when its session goes. The socket drops with the process and
 the Hub sweeps the menu entry with the lease, so there is no shutdown to get
@@ -29,6 +34,7 @@ from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.applets.latency import ClickLatency
 from punt_lux.applets.runner import ServiceRunner
+from punt_lux.applets.underway import Underway
 from punt_lux.hub_client import LuxHubClient
 from punt_lux.operations import Ok, OpError
 from punt_lux.rest_client import LuxRestClient
@@ -56,19 +62,17 @@ class AppletLeg:
     """A session's live connection to luxd: register on connect, service on click."""
 
     _identity: ClientIdentity
-    _prefetching: set[asyncio.Task[None]]
     _runner: ServiceRunner
     _service: AppletService
-    __slots__ = ("_identity", "_prefetching", "_runner", "_service")
+    _underway: Underway
+    __slots__ = ("_identity", "_runner", "_service", "_underway")
 
     def __new__(cls, identity: ClientIdentity, service: AppletService) -> Self:
         self = super().__new__(cls)
         self._identity = identity
         self._service = service
         self._runner = ServiceRunner(identity, service)
-        # A running prefetch is held here for as long as it runs: a task with no
-        # reference to it may be collected mid-flight.
-        self._prefetching = set()
+        self._underway = Underway()
         return self
 
     async def serve(self) -> None:
@@ -138,26 +142,23 @@ class AppletLeg:
 
         This runs from ``on_connect``, which the client awaits before it starts
         its receive loop and before the keepalive that holds this session's lease
-        — so a prefetch awaited here would hold both for as long as it took, and
-        it takes as long as ``bd`` takes. It is a task, and the handshake goes on
-        without it.
+        — so a prefetch awaited here would hold both for as long as ``bd`` takes.
+        It is started, and the handshake goes on without it.
         """
-        task = asyncio.create_task(self._runner.warmed())
-        self._prefetching.add(task)
-        task.add_done_callback(self._prefetching.discard)
+        self._underway.start(self._runner.warmed())
 
     async def _on_callback(self, callback_id: str) -> None:
         """Route a click the Hub pushed, with no poll and no turn in between.
 
         The clock starts here, where the click arrives, because the contract it
-        measures is the user's: from their click to something visible. Only the
-        routing happens on this loop; the work the click asks for is the runner's,
-        and it runs off the loop that renews this session's lease.
+        measures is the user's: from their click to something visible. The click
+        is started rather than awaited, so the frame behind it — the next click —
+        is read while this one is served, off the loop that renews the lease.
         """
         if callback_id != self._service.callback_id:
             logger.warning("no service for callback %r in this session", callback_id)
             return
-        await self._runner.clicked(ClickLatency(callback_id))
+        self._underway.start(self._runner.clicked(ClickLatency(callback_id)))
 
     @staticmethod
     def _on_event(topic: str, payload: Mapping[str, object]) -> None:

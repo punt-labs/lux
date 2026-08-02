@@ -75,6 +75,20 @@
   which it was: `click beads: answered 28 ms (cached board), refreshed 4310 ms,
   total 4341 ms` — one figure for the reload, because the user was reading their
   issues throughout it and waiting on no stage of it.
+- **A click is answered while the click before it is still loading.** Servicing
+  ran on the connection's receive path, which reads the next frame only when the
+  handler for this one returns — so a second click could not be raised or
+  acknowledged until the first click's reload had finished, which is a menu
+  entry that does nothing for the length of a `bd` query. A click is now started
+  and the frame behind it read at once, so every click gets its own answer
+  inside the budget. The work behind them is one piece of work: a click arriving
+  while a query is running answers from the board the applet holds and stands
+  down rather than starting a second `bd`, and the running query's board goes
+  into the frame it just raised, so it serves both. Drumming on the entry costs
+  one answer per click and no extra queries. The click that stood down says so
+  rather than reporting figures for a query it never ran — `click beads:
+  answered 24 ms (cached board), stood down 0 ms (a load was already running),
+  total 25 ms`.
 - **An applet leaves when its session does.** It is handed the session's
   process id at spawn and checks every five seconds whether that process still
   exists, exiting when it does not — so an applet cannot outlive its session
