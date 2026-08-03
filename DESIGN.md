@@ -5402,7 +5402,6 @@ clients, each holding its directable actions.
    > that are here together: only a removal moves a name, so while two of one
    > name are both connected neither label changes and the two never swap.
 
-
 3. **Plain tool labels as leaves.** The hierarchy carries the
    disambiguation, so the entries stop trying to: `Beads`, `Browse`,
    `Music`.
