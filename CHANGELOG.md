@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-08-03
+
 ### Added
 
 - **Every client's submenu carries a `Details` command.** It shows that
