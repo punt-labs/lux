@@ -14,11 +14,6 @@ number back out of a label it once wrote to know what ``lux (2)`` is a second
 *of*; here the base was never thrown away, so falling back to it is
 :attr:`~MenuName.plain`, not a parse.
 
-The ordinal starts at one, and one prints as the bare base: the first client of a
-name is not ``lux (1)``. That makes the plain name and the numbered names one
-kind of value rather than two, so nothing has to case-split on whether a client
-happens to be the first of its name.
-
 Nothing here knows what a holder is beyond something to key names by. Who is
 still connected, and when a holder has gone, belong to
 :class:`~punt_lux.domain.hub.client_roster.ClientRoster` and the registry above
@@ -118,8 +113,7 @@ class MenuNames:
         A holder's name is its own for as long as it keeps it, so this never
         renames anybody: taking is the one operation that adds.
         """
-        if holder not in self._names:
-            self._names[holder] = MenuName.unheld(base, self._labels())
+        self._names.setdefault(holder, MenuName.unheld(base, self._labels()))
 
     def drop(self, holders: Iterable[ConnectionId]) -> None:
         """Take back what *holders* held, and hand any freed base on.
@@ -136,20 +130,27 @@ class MenuNames:
         return {holder: name.label for holder, name in self._names.items()}
 
     def _reclaim_freed_bases(self) -> None:
-        """Give each base nobody holds plainly to its senior numbered holder.
+        """Hand each freed base on until every promotion has happened.
 
-        The running set of held labels is what keeps the second holder of a base
-        from following the first, and what makes a holder already holding its
-        plain name stay put — so there is no case here for whether a name is
-        numbered.
+        One pass promotes one name, and the vacated label may itself be another
+        base's plain form — so the pass repeats until nothing moves.
+        """
+        while self._promote_senior():
+            pass
+
+    def _promote_senior(self) -> bool:
+        """Promote the senior holder whose plain label is free, and say so.
+
+        Seniority is the dict's insertion order — the earliest holder of a
+        freed base moves. A holder already plain blocks itself: its own label
+        is among those held.
         """
         held = self._labels()
-        promoted: dict[ConnectionId, MenuName] = {}
         for holder, name in self._names.items():
             if name.plain.label not in held:
-                held.add(name.plain.label)
-                promoted[holder] = name.plain
-        self._names.update(promoted)
+                self._names[holder] = name.plain
+                return True
+        return False
 
     def _labels(self) -> set[str]:
         """Every label held right now — what a new or falling-back name must miss."""

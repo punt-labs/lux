@@ -2667,9 +2667,9 @@
   "src/punt_lux/domain/hub/menu_name.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
-    "avg_params": 0.64,
+    "avg_params": 0.58,
     "max_complexity": 3.0,
-    "avg_complexity": 1.82,
+    "avg_complexity": 1.75,
     "module_size": 122.0,
     "classes_per_module": 2.0,
     "class_to_func_ratio": 1.0,

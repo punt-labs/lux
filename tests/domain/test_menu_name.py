@@ -141,6 +141,28 @@ class TestNobodyIsNumberedAgainstAFreeBase:
             ConnectionId("c"): "lux (3)",
         }
 
+    def test_a_vacated_label_frees_a_base_that_reads_the_same_way(self) -> None:
+        """A base may look like a numbered label; a promotion frees it too.
+
+        With ``lux`` and ``lux (2)`` held under the base ``lux``, a client whose
+        base is literally ``lux (2)`` is numbered against the label — and when
+        the ``lux`` holder departs, the promotion to ``lux`` vacates ``lux (2)``,
+        which must then fall to the base that reads that way. Left in the held
+        set, the vacated label would strand that client numbered against nobody.
+        """
+        names = MenuNames()
+        names.take(ConnectionId("a"), "lux")
+        names.take(ConnectionId("b"), "lux")
+        names.take(ConnectionId("c"), "lux (2)")
+        assert names.labels()[ConnectionId("c")] == "lux (2) (2)"
+
+        names.drop([ConnectionId("a")])
+
+        assert names.labels() == {
+            ConnectionId("b"): "lux",
+            ConnectionId("c"): "lux (2)",
+        }
+
     def test_the_freed_number_goes_to_the_next_holder_to_take_one(self) -> None:
         names = _held("a", "b", "c")
 
