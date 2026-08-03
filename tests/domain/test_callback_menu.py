@@ -229,8 +229,14 @@ class TestWhatANameIs:
 
         assert _labels_under(_clients_menu(menus)) == ["lux", "lux (2)"]
 
-    def test_a_client_keeps_its_number_when_the_first_one_leaves(self) -> None:
-        """A menu entry that renames itself under the pointer is worse than a gap."""
+    def test_a_menu_read_that_omits_a_client_does_not_rename_the_rest(self) -> None:
+        """A departure is stated by the registry, never inferred from a read.
+
+        This read shows only the second client, but nobody told the roster the
+        first had gone, so its name is still held and the second is still the
+        second. A name moves when a session is removed — see
+        :meth:`test_the_client_left_alone_by_a_departure_loses_its_number`.
+        """
         roster = ClientRoster()
         first = ("first", _session("claude", "/w/lux", _beads()))
         second = ("second", _session("claude", "/w/lux", _beads()))
@@ -239,9 +245,21 @@ class TestWhatANameIs:
             "lux (2)",
         ]
 
-        menus = _menus(second, roster=roster)  # the first client's lease lapsed
+        menus = _menus(second, roster=roster)
 
         assert _labels_under(_clients_menu(menus)) == ["lux (2)"]
+
+    def test_the_client_left_alone_by_a_departure_loses_its_number(self) -> None:
+        """A number is for telling two clients apart; alone, there is nobody to tell."""
+        roster = ClientRoster()
+        first = ("first", _session("claude", "/w/lux", _beads()))
+        second = ("second", _session("claude", "/w/lux", _beads()))
+        _menus(first, second, roster=roster)
+
+        roster.release([ConnectionId("first")])
+        menus = _menus(second, roster=roster)
+
+        assert _labels_under(_clients_menu(menus)) == ["lux"]
 
     def test_a_client_keeps_its_name_across_a_leg_that_re_attaches(self) -> None:
         """The window between an attach and its re-registration must not rename.
@@ -273,14 +291,15 @@ class TestWhatANameIs:
         _menus(first, second, roster=roster)
 
         # The first goes — the registry says so as it removes the session — and a
-        # newcomer arrives on the repository it named.
+        # newcomer arrives on the repository it named. The survivor has the base
+        # by then, so the newcomer is the one that is numbered.
         roster.release([ConnectionId("first")])
         third = ("third", _session("claude", "/w/lux", _beads()))
         menus = _menus(second, third, roster=roster)
 
         assert _labels_under(_clients_menu(menus)) == ["lux", "lux (2)"]
-        assert roster.held()[ConnectionId("second")] == "lux (2)"
-        assert roster.held()[ConnectionId("third")] == "lux"
+        assert roster.held()[ConnectionId("second")] == "lux"
+        assert roster.held()[ConnectionId("third")] == "lux (2)"
 
 
 class TestTheDetailsCommand:
@@ -418,6 +437,45 @@ class TestTheReplica:
         assert isinstance(clients, list)
         assert [client["label"] for client in clients] == ["lux", "lux (2)"]
         assert _labels_under(read[0]) == ["lux", "lux (2)"]
+
+    def test_the_bar_stops_naming_a_lone_client_after_a_ghost_when_it_goes(
+        self,
+    ) -> None:
+        """The live defect, end to end: what the display is sent after a restart.
+
+        The outgoing session's applet still holds ``lux`` while owning no menu
+        entry, so the only submenu on the bar is the newcomer's, labelled
+        ``lux (2)`` — a number with nothing in sight to be a second of. The moment
+        the ghost is let go the newcomer holds the base, and the next send says so.
+        """
+        from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
+        from punt_lux.domain.hub.hub_clients import HubClientRegistry
+
+        registry = HubClientRegistry()
+        ghost, arriving = ConnectionId("outgoing"), ConnectionId("incoming")
+        registry.record(
+            ghost,
+            ClientIdentity(kind="applet", name="lux · lux · #4b97", repo="/w/lux"),
+        )
+        leg = _SilentLeg()
+        registry.attach_listener(
+            arriving,
+            ClientIdentity(kind="applet", name="lux · lux · #f00d", repo="/w/lux"),
+            leg,
+        )
+        registry.register_callback(
+            arriving, SessionCallback(id="beads", label="Beads"), leg
+        )
+        replica = CallbackMenuReplica(registry)
+        assert _labels_under(
+            _clients_menu(CallbackMenu.from_named(registry.named_sessions()))
+        ) == ["lux (2)"]
+
+        registry.discard(ghost)
+
+        clients = replica.callback_menu_wire()[0]["items"]
+        assert isinstance(clients, list)
+        assert [client["label"] for client in clients] == ["lux"]
 
     def test_replica_is_empty_when_no_client_has_a_callback(self) -> None:
         from punt_lux.domain.hub.callback_menu import CallbackMenuReplica

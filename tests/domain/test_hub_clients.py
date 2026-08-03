@@ -608,8 +608,14 @@ def test_discard_releases_the_name_with_the_session() -> None:
     assert reg.named_sessions().name_of(arrival, "client") == "lux"
 
 
-def test_a_numbered_client_is_not_promoted_when_the_first_is_swept() -> None:
-    """A menu entry that renames itself under the pointer is worse than a gap."""
+def test_the_survivor_takes_the_plain_name_when_the_first_is_swept() -> None:
+    """The sweep frees a base, and the release that frees it hands it on.
+
+    The reap, the release, and the survivors' naming are one critical section, so
+    the very read that discovers the lapse already reports the new name — the menu
+    and a details frame composed from it can never disagree about which client is
+    ``lux``.
+    """
     clock = _Clock()
     reg = HubClientRegistry(clock)
     lapsing, staying = ConnectionId("cli"), ConnectionId("mcp")
@@ -619,7 +625,40 @@ def test_a_numbered_client_is_not_promoted_when_the_first_is_swept() -> None:
 
     clock.advance(91.0)  # the cli lease lapses; the mcp session's has 1800s
 
-    assert reg.named_sessions().name_of(staying, "client") == "lux (2)"
+    assert reg.named_sessions().name_of(staying, "client") == "lux"
+
+
+def test_the_survivor_takes_the_plain_name_when_the_first_is_discarded() -> None:
+    """The live defect: a session restart overlaps the outgoing session's lease.
+
+    The outgoing session still holds ``lux`` while owning no menu entry, so the
+    arriving one is numbered against a ghost. When the ghost's disconnect cascade
+    discards it the newcomer is alone, and a client alone wears no number.
+    """
+    reg = HubClientRegistry()
+    outgoing, arriving = ConnectionId("old-session"), ConnectionId("new-session")
+    reg.record(outgoing, _mcp())
+    reg.record(arriving, _mcp())
+    assert reg.named_sessions().name_of(arriving, "client") == "lux (2)"
+
+    reg.discard(outgoing)
+
+    assert reg.named_sessions().name_of(arriving, "client") == "lux"
+
+
+def test_two_clients_that_are_both_here_keep_the_names_they_were_given() -> None:
+    """Only a removal moves a name: reads and arrivals leave the bar as it is."""
+    reg = HubClientRegistry()
+    first, second = ConnectionId("first"), ConnectionId("second")
+    reg.record(first, _mcp())
+    reg.record(second, _mcp())
+    assert reg.named_sessions().name_of(second, "client") == "lux (2)"
+
+    reg.record(ConnectionId("third"), _mcp())  # a third arrives on the same repo
+
+    named = reg.named_sessions()
+    assert named.name_of(first, "client") == "lux"
+    assert named.name_of(second, "client") == "lux (2)"
 
 
 def test_a_name_survives_a_read_taken_while_another_client_arrives() -> None:

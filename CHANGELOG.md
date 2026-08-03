@@ -137,9 +137,12 @@
 - **Clients are named the way a person names them.** A client is called after
   the repository it works in — `lux`, `quarry` — or after itself when it works
   in none, as a machine-wide daemon like `voxd` does. Two clients that read the
-  same way are numbered: `lux`, `lux (2)`. A client keeps its number for as long
-  as its connection lasts, so a menu entry never renames itself under the
-  pointer when another client leaves.
+  same way are numbered: `lux`, `lux (2)`. A number lasts only while there is
+  another client to be told apart from: when one leaves, the name it frees goes
+  back to a client still numbered against it, so nobody is left wearing `(2)`
+  alone. Nothing else moves a name — while two clients of one name are both
+  connected neither label changes and the two never swap, so a menu entry never
+  renames itself under the pointer.
 - **Command names are plain again.** A leaf under a client reads `Beads` or
   `Music`, with nothing appended, because the client it belongs to is the menu
   above it.

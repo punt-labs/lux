@@ -5389,6 +5389,20 @@ clients, each holding its directable actions.
    kind·repo·pid composite. A client keeps its number for its connection
    lifetime. The pid and other wire identity move into Details, where state
    belongs, out of the label, where it was noise.
+
+   > **Narrowed before release (operator-ruled 2026-08-02).** A number now
+   > lasts only while there is another client to be told apart from, not for
+   > the whole of a connection. Keeping it for the connection's lifetime made
+   > nearly every session wear a stale one: a session restart overlaps the
+   > outgoing session's lease, so the arriving client was numbered against a
+   > client that was already dying and owned no menu entry, and it kept
+   > `lux (2)` after that client swept — a numbered singleton, with no `lux`
+   > in sight. When a name is released the base it frees goes to the senior
+   > client still numbered against it. Stability is unchanged for the clients
+   > that are here together: only a removal moves a name, so while two of one
+   > name are both connected neither label changes and the two never swap.
+
+
 3. **Plain tool labels as leaves.** The hierarchy carries the
    disambiguation, so the entries stop trying to: `Beads`, `Browse`,
    `Music`.
