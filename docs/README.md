@@ -73,6 +73,11 @@ the reference for how their subsystem is built.
 - [architecture/e2e-harness-design.md](./architecture/e2e-harness-design.md)
   — the in-process end-to-end business-event loop harness (ships in
   `tests/e2e/`).
+- [architecture/client-identity.md](./architecture/client-identity.md) — the
+  diagnosis and ratified policy behind DES-057 (operator-ruled 2026-07-28:
+  durable session-scene lifetime, `identify` + challenge, anonymous REST
+  rejected); the shipped shape (PRs #290-#292) evolved past several of this
+  document's specifics — DES-057 in `DESIGN.md` is authoritative for those.
 
 ## Deferred Designs
 
