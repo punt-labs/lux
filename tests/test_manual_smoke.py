@@ -125,6 +125,41 @@ def test_collect_kinds_recurses_into_tree_nodes(manual_smoke: ModuleType) -> Non
     assert kinds == frozenset({"tree"})
 
 
+def test_dialog_frame_wire_override_carries_working_handlers(
+    manual_smoke: ModuleType,
+) -> None:
+    """The dialog frame is sent as hand-authored wire dicts, not element.to_dict().
+
+    ``DialogElement.to_dict()`` never emits a child button's handler spec — a
+    Python-built dialog cannot round-trip into a working one through the
+    generic encode path. Pin the frame's ``wire_override`` directly, since
+    that is what actually reaches the Hub.
+    """
+    image_path = manual_smoke._write_sample_png()
+    runner = manual_smoke.SmokeRunner(image_path)
+    dialog_frame = next(f for f in runner.frames if f.frame_id == "smoke-dialog")
+    assert dialog_frame.wire_override is not None
+    dialog_wire = next(
+        e for e in dialog_frame.wire_override if e.get("kind") == "dialog"
+    )
+    verbs = {
+        handler["verb"]
+        for child in dialog_wire["children"]
+        for handler in child["handlers"]
+    }
+    assert verbs == {"confirm", "cancel"}
+
+
+def test_frames_without_a_wire_override_encode_via_to_dict(
+    manual_smoke: ModuleType,
+) -> None:
+    """A frame with no override still derives its payload from element.to_dict()."""
+    image_path = manual_smoke._write_sample_png()
+    runner = manual_smoke.SmokeRunner(image_path)
+    basics = next(f for f in runner.frames if f.frame_id == "smoke-basics")
+    assert basics.wire_override is None
+
+
 def test_expected_kinds_matches_built_frames(manual_smoke: ModuleType) -> None:
     """The 25-kind expected set must equal the union of every frame's kinds."""
     image_path = manual_smoke._write_sample_png()

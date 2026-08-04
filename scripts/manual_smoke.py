@@ -106,11 +106,19 @@ from punt_lux.rest_transport import HubUnavailableError
 class SmokeFrame:
     """One frame in the smoke test — the scene plus its manifest entry.
 
-    ``elements`` is the source of truth for what's on screen.  ``kinds``
-    is *not* stored — :class:`SmokeRunner` derives it by walking the
-    elements via :func:`_collect_kinds` so a stale hardcoded tuple can't
-    lie about what the frame actually contains.  ``look_for`` is
-    narrative for the operator and stays hardcoded.
+    ``elements`` is the source of truth for what's on screen and drives
+    :func:`_collect_kinds` for the coverage manifest.  ``kinds`` is *not*
+    stored, so a stale hardcoded tuple can't lie about what the frame
+    actually contains.  ``look_for`` is narrative for the operator and
+    stays hardcoded.
+
+    ``wire_override``, when set, is what actually gets sent instead of
+    ``[e.to_dict() for e in elements]``. A structural encoder writes only
+    an element's shape, not the handler bindings that make its children
+    do anything — ``DialogElement.to_dict()`` documents this outright —
+    so a frame whose interactivity depends on those bindings supplies the
+    real wire dict here, the same shape an agent would author by hand.
+    ``elements`` still carries a decoded twin for the coverage walk.
     """
 
     frame_id: str
@@ -118,6 +126,7 @@ class SmokeFrame:
     elements: list[Element]
     look_for: str
     warn_before_send: str | None = None  # PY-TS-14: absent = no operator warning
+    wire_override: list[dict[str, object]] | None = None  # PY-TS-14: see docstring
 
 
 @dataclass(frozen=True, slots=True)
@@ -409,9 +418,12 @@ class SmokeRunner:
             if spec.warn_before_send is not None:
                 print(spec.warn_before_send, file=sys.stderr)
             try:
+                payload = spec.wire_override or [
+                    elem.to_dict() for elem in spec.elements
+                ]
                 request = RenderRequest(
                     scene_id=spec.frame_id,
-                    elements=[elem.to_dict() for elem in spec.elements],
+                    elements=payload,
                     title=spec.title,
                     frame=FrameSpec(frame_id=spec.frame_id, frame_title=spec.title),
                 )
@@ -811,6 +823,11 @@ class SmokeRunner:
         behind a popup while frames 1-6 are still being inspected. Its
         containment is exposed via two child elements rendered inside
         the modal body.
+
+        The OK button carries no handler — no ``ButtonHandlers`` factory
+        closes a modal from a child click today, only the display's own
+        Escape/X path fires ``ModalClosed``. The button demonstrates a
+        plain child inside the modal body; it does not claim to dismiss.
         """
         modal_dialog = ModalElement(id="modal-dialog", title="Modal dialog", open=True)
         # The ABC modal receives its body through the decoder seam, not the
@@ -819,11 +836,9 @@ class SmokeRunner:
             (
                 TextElement(
                     id="modal-text",
-                    content=(
-                        "This modal is open by default — dismiss with Escape or OK."
-                    ),
+                    content="This modal is open by default — dismiss with Escape.",
                 ),
-                ButtonElement(id="modal-btn", label="OK", action="dismiss"),
+                ButtonElement(id="modal-btn", label="OK"),
             )
         )
         elements: list[Element] = [
@@ -843,12 +858,13 @@ class SmokeRunner:
             elements=elements,
             look_for=(
                 "popup labelled 'Modal dialog' over the frame, containing text "
-                "and an OK button; dismissing with Escape or OK returns "
-                "interaction to the underlying display"
+                "and an OK button (unwired — a plain child, not a dismiss "
+                "control); dismissing with Escape returns interaction to the "
+                "underlying display"
             ),
             warn_before_send=(
-                "Frame 7 opens a modal — dismiss with Escape or click OK "
-                "before inspecting other frames."
+                "Frame 7 opens a modal — dismiss with Escape before "
+                "inspecting other frames."
             ),
         )
 
@@ -857,39 +873,57 @@ class SmokeRunner:
 
         Lives last, after the modal, for the same reason the modal isn't
         first: an open overlay must not trap the operator away from
-        frames 1-6. A dialog is its own kind, distinct from a modal — the
-        Hub's decoder binds each child Button's ``action`` (``confirm``,
-        ``cancel``) to the dialog's model, so the wire shape built here is
-        exactly what an agent would submit, not a Python-only shortcut.
+        frames 1-6. A dialog is its own kind, distinct from a modal.
+
+        ``DialogElement.to_dict()`` writes only the structural surface —
+        id, title, child kinds — never the handler specs that bind a
+        child Button to the dialog's ``confirm``/``cancel`` verbs (its
+        own encoder docstring says so). A Python-built dialog therefore
+        cannot round-trip into a working one through the generic encode
+        path; the wire dict below is hand-authored the way an agent
+        would write it, matching the shape the Hub's ``call_model``
+        button decoder actually requires (``handlers: [{"event": "click",
+        "factory": "call_model", "verb": ...}]``). ``elements`` still
+        carries a *decoded* twin (``DialogElement.from_dict`` on the same
+        dict) purely so the coverage walk can report kinds; the frame is
+        sent via ``wire_override``, not ``elements``.
         """
-        dialog = DialogElement(id="dialog-confirm", title="Confirm action")
-        # Mirrors the modal above: install_children() is the decoder seam,
-        # not the constructor. The Hub re-decodes this frame's wire dict
-        # independently, so the real binding happens Hub-side regardless
-        # of what this local DialogModel does.
-        dialog.install_children(
-            (
-                ButtonElement(id="dialog-cancel", label="Cancel", action="cancel"),
-                ButtonElement(
-                    id="dialog-confirm-btn", label="Confirm", action="confirm"
-                ),
-            )
-        )
-        elements: list[Element] = [
-            TextElement(id="dialog-heading", content="Dialog", style="heading"),
-            TextElement(
-                id="dialog-intro",
-                content=(
-                    "The dialog popup appears over this frame, with Cancel and "
-                    "Confirm buttons bound to the dialog's model."
-                ),
+        dialog_wire: dict[str, object] = {
+            "kind": "dialog",
+            "id": "dialog-confirm",
+            "title": "Confirm action",
+            "children": [
+                {
+                    "kind": "button",
+                    "id": "dialog-cancel",
+                    "label": "Cancel",
+                    "handlers": [
+                        {"event": "click", "factory": "call_model", "verb": "cancel"},
+                    ],
+                },
+                {
+                    "kind": "button",
+                    "id": "dialog-confirm-btn",
+                    "label": "Confirm",
+                    "handlers": [
+                        {"event": "click", "factory": "call_model", "verb": "confirm"},
+                    ],
+                },
+            ],
+        }
+        heading = TextElement(id="dialog-heading", content="Dialog", style="heading")
+        intro = TextElement(
+            id="dialog-intro",
+            content=(
+                "The dialog popup appears over this frame, with Cancel and "
+                "Confirm buttons bound to the dialog's model."
             ),
-            dialog,
-        ]
+        )
+        dialog = DialogElement.from_dict(dialog_wire)
         return SmokeFrame(
             frame_id="smoke-dialog",
             title="Smoke 8 — Dialog",
-            elements=elements,
+            elements=[heading, intro, dialog],
             look_for=(
                 "popup labelled 'Confirm action' over the frame, with Cancel "
                 "and Confirm buttons; dismissing either returns interaction "
@@ -899,6 +933,7 @@ class SmokeRunner:
                 "Frame 8 opens a dialog — dismiss with Cancel or Confirm "
                 "before inspecting other frames."
             ),
+            wire_override=[heading.to_dict(), intro.to_dict(), dialog_wire],
         )
 
 
@@ -932,11 +967,15 @@ def main() -> int:
         return 5
     try:
         client = LuxRestClient.connect()
+        ping_result = client.ping()
     except HubUnavailableError as exc:
+        # connect() only checks that the port file exists; ping() is the
+        # first real HTTP round-trip, and a stale port file or a dead luxd
+        # raises here just as readily as at connect() — same bucket, same
+        # exit code.
         print(f"connect failed: {exc}", file=sys.stderr)
         runner.print_manifest(attempted=False)
         return 2
-    ping_result = client.ping()
     if isinstance(ping_result, OpError):
         print(
             f"display not reachable: {ping_result.reason} (is lux-display running?)",
