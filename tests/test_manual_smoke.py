@@ -17,6 +17,7 @@ import pytest
 from punt_lux.protocol.elements import (
     ButtonElement,
     CollapsingHeaderElement,
+    DialogElement,
     GroupElement,
     ModalElement,
     SeparatorElement,
@@ -55,7 +56,7 @@ def manual_smoke() -> ModuleType:
 
 
 def test_collect_kinds_recurses_into_containers(manual_smoke: ModuleType) -> None:
-    """Group/CollapsingHeader/Window/Modal children must be walked."""
+    """Group/CollapsingHeader/Window/Modal/Dialog children must be walked."""
     inner = (
         TextElement(id="inner-text", content="x"),
         SeparatorElement(id="inner-sep"),
@@ -63,7 +64,7 @@ def test_collect_kinds_recurses_into_containers(manual_smoke: ModuleType) -> Non
     group = GroupElement(id="g", layout="rows", children=inner)
     header = CollapsingHeaderElement(id="h", label="H", children=inner)
     window = WindowElement(id="w", children=inner)
-    # A modal installs its body via the decoder seam, not the constructor.
+    # A modal/dialog installs its body via the decoder seam, not the constructor.
     modal = ModalElement.from_dict(
         {
             "kind": "modal",
@@ -74,9 +75,28 @@ def test_collect_kinds_recurses_into_containers(manual_smoke: ModuleType) -> Non
             ],
         }
     )
-    kinds = manual_smoke._collect_kinds([group, header, window, modal])
+    dialog = DialogElement.from_dict(
+        {
+            "kind": "dialog",
+            "id": "d",
+            "title": "Confirm",
+            "children": [
+                {"kind": "button", "id": "d-btn", "label": "OK", "action": "confirm"},
+            ],
+        }
+    )
+    kinds = manual_smoke._collect_kinds([group, header, window, modal, dialog])
     assert kinds == frozenset(
-        {"group", "collapsing_header", "window", "modal", "text", "separator"}
+        {
+            "group",
+            "collapsing_header",
+            "window",
+            "modal",
+            "dialog",
+            "text",
+            "separator",
+            "button",
+        }
     )
 
 
@@ -106,7 +126,7 @@ def test_collect_kinds_recurses_into_tree_nodes(manual_smoke: ModuleType) -> Non
 
 
 def test_expected_kinds_matches_built_frames(manual_smoke: ModuleType) -> None:
-    """The 24-kind expected set must equal the union of every frame's kinds."""
+    """The 25-kind expected set must equal the union of every frame's kinds."""
     image_path = manual_smoke._write_sample_png()
     runner = manual_smoke.SmokeRunner(image_path)
     actual = frozenset().union(
@@ -116,13 +136,15 @@ def test_expected_kinds_matches_built_frames(manual_smoke: ModuleType) -> None:
 
 
 def test_runresult_exit_code_or_semantics(manual_smoke: ModuleType) -> None:
-    """exit_code is a 2-bit OR: 1 for ack-None, 2 for transport-error."""
+    """exit_code is a 2-bit OR: 1 for a Hub rejection, 2 for a transport error."""
     empty = manual_smoke.RunResult()
-    timeouts_only = manual_smoke.RunResult(missed_acks=["a"])
+    rejected_only = manual_smoke.RunResult(rejected=[("a", "reason")])
     transport_only = manual_smoke.RunResult(transport_errors=[("b", "msg")])
-    both = manual_smoke.RunResult(missed_acks=["a"], transport_errors=[("b", "msg")])
+    both = manual_smoke.RunResult(
+        rejected=[("a", "reason")], transport_errors=[("b", "msg")]
+    )
     assert empty.exit_code == 0
-    assert timeouts_only.exit_code == 1
+    assert rejected_only.exit_code == 1
     assert transport_only.exit_code == 2
     assert both.exit_code == 3
 
@@ -133,4 +155,4 @@ def test_runresult_is_frozen(manual_smoke: ModuleType) -> None:
 
     r = manual_smoke.RunResult()
     with pytest.raises(FrozenInstanceError):
-        r.missed_acks = ["x"]
+        r.rejected = ["x"]

@@ -1,4 +1,4 @@
-"""Manual smoke test — render every supported element kind across 7 frames.
+"""Manual smoke test — render every supported element kind across 8 frames.
 
 Invoked as:
 
@@ -9,21 +9,32 @@ the script fails loudly (exit 2) when the prerequisite isn't met
 because silent auto-spawn would hide the operator setup mistake the
 script is meant to surface.
 
-Sends 7 themed scenes — basics, inputs, layout, graphics, table, plot,
-modal — and prints a cross-reference manifest to stdout that names
-each frame's contents and what the operator should look for.  Does
-NOT call ``clear()`` — items stay on screen for visual inspection.
+Submits through the front door — :class:`LuxRestClient` builds a
+:class:`RenderRequest` per frame, exactly as the CLI and the beads
+board do (``lux show beads``, ``BeadsBoardCommand``). Every frame
+therefore exercises the real Hub path (decode, self-validate, install,
+replicate) and not just the display's renderer; a malformed element
+is caught by Hub-side validation instead of skirting it over a raw
+socket.
+
+Sends 8 themed scenes — basics, inputs, layout, graphics, table, plot,
+modal, dialog — and prints a cross-reference manifest to stdout that
+names each frame's contents and what the operator should look for.
+Does NOT clear any scene — items stay on screen for visual inspection.
 
 Exit codes:
 
-* ``0`` — every frame acked
-* ``1`` — at least one frame's ack timed out (no transport error)
-* ``2`` — at least one frame raised a transport error (broken socket,
-  dead listener, etc.)
-* ``3`` — both timeouts AND transport errors
+* ``0`` — every frame's render request was accepted
+* ``1`` — at least one frame was rejected by the Hub (``OpError`` —
+  e.g. a validation failure), with no transport failure
+* ``2`` — luxd or the display was unreachable for at least one frame:
+  the initial connect/ping precondition failed, a request raised
+  ``HubUnavailableError``, or a frame's elements failed to encode to
+  their wire dict before the request could be sent
+* ``3`` — both a Hub rejection AND a transport failure occurred
 * ``4`` — PNG asset preparation failed before the display was contacted
 * ``5`` — element-kind coverage mismatch — the union of every frame's
-  kinds did not match the 24-kind expected set; a frame builder dropped
+  kinds did not match the 25-kind expected set; a frame builder dropped
   or duplicated an element kind
 
 The manifest prints in every exit path except ``4`` (PNG asset failed
@@ -45,8 +56,9 @@ from typing import Final, Self, cast
 
 from PIL import Image, UnidentifiedImageError
 
-from punt_lux.display_client import DisplayClient
 from punt_lux.domain.validation_walk import HasChildElements
+from punt_lux.operations import OpError, RenderRequest
+from punt_lux.operations.models.render import FrameSpec
 from punt_lux.protocol import Element
 from punt_lux.protocol.elements import (
     ButtonElement,
@@ -54,6 +66,7 @@ from punt_lux.protocol.elements import (
     CollapsingHeaderElement,
     ColorPickerElement,
     ComboElement,
+    DialogElement,
     DrawElement,
     GroupElement,
     ImageElement,
@@ -85,10 +98,12 @@ from punt_lux.protocol.elements.plot_series import PlotSeries
 from punt_lux.protocol.elements.table_flags import TableFlags
 from punt_lux.protocol.elements.tree_node import TreeNode
 from punt_lux.protocol.elements.window_chrome import WindowPlacement
+from punt_lux.rest_client import LuxRestClient
+from punt_lux.rest_transport import HubUnavailableError
 
 
 @dataclass(frozen=True, slots=True)
-class FrameSpec:
+class SmokeFrame:
     """One frame in the smoke test — the scene plus its manifest entry.
 
     ``elements`` is the source of truth for what's on screen.  ``kinds``
@@ -109,27 +124,29 @@ class FrameSpec:
 class RunResult:
     """Result of a :meth:`SmokeRunner.run` call.
 
-    ``missed_acks`` are frame ids whose ``client.show()`` returned
-    ``None`` (ack timeout).  ``transport_errors`` are frame ids paired
-    with the exception message that broke the send (broken socket,
-    dead listener, etc.).
+    ``rejected`` are frame ids paired with the reason the Hub gave for
+    refusing the request (an ``OpError`` — e.g. a validation failure).
+    ``transport_errors`` are frame ids paired with the message from a
+    failure that meant the request never reached the Hub at all — a
+    ``HubUnavailableError`` (luxd unreachable or stalled) or a local
+    encode failure building the wire dict.
     """
 
-    missed_acks: list[str] = field(default_factory=list)
+    rejected: list[tuple[str, str]] = field(default_factory=list)
     transport_errors: list[tuple[str, str]] = field(default_factory=list)
 
     @property
     def exit_code(self) -> int:
-        """Return the 2-bit OR of missed-acks (1) and transport-errors (2)."""
+        """Return the 2-bit OR of rejections (1) and transport-errors (2)."""
         code = 0
-        if self.missed_acks:
+        if self.rejected:
             code |= 1
         if self.transport_errors:
             code |= 2
         return code
 
 
-# The 24 known element kinds covered by this smoke test.  Used for the
+# The 25 known element kinds covered by this smoke test.  Used for the
 # top-of-main sanity assertion — if a frame builder loses an element kind,
 # the assertion fires before the display is contacted.
 _EXPECTED_KINDS: Final = frozenset(
@@ -139,6 +156,7 @@ _EXPECTED_KINDS: Final = frozenset(
         "collapsing_header",
         "color_picker",
         "combo",
+        "dialog",
         "draw",
         "group",
         "image",
@@ -164,7 +182,7 @@ _EXPECTED_KINDS: Final = frozenset(
 
 # ---------------------------------------------------------------------------
 # Element-tree walkers — primitives toolkit, PY-OO-7 exception:
-# stateless, no FrameSpec/SmokeRunner vocabulary.
+# stateless, no SmokeFrame/SmokeRunner vocabulary.
 # ---------------------------------------------------------------------------
 
 
@@ -172,10 +190,10 @@ def _collect_kinds(elements: Iterable[Element]) -> frozenset[str]:
     """Walk every element and its container children, returning the set of kinds.
 
     A container exposes its children through the ``HasChildElements`` protocol
-    (``child_elements()``): a group/header/window/modal returns its children, a
-    tab_bar flattens every tab's children. A tree's nodes are a typed value
-    family carrying no element kinds, so it contributes only ``"tree"``.
-    ``DrawElement.commands`` likewise contribute only ``"draw"``.
+    (``child_elements()``): a group/header/window/modal/dialog returns its
+    children, a tab_bar flattens every tab's children. A tree's nodes are a
+    typed value family carrying no element kinds, so it contributes only
+    ``"tree"``. ``DrawElement.commands`` likewise contribute only ``"draw"``.
     """
     kinds: set[str] = set()
     for elem in elements:
@@ -187,7 +205,7 @@ def _collect_kinds(elements: Iterable[Element]) -> frozenset[str]:
 
 # ---------------------------------------------------------------------------
 # PNG asset generation — primitives toolkit, PY-OO-7 exception:
-# stateless, no FrameSpec/SmokeRunner vocabulary.  We hand-roll a tiny PNG
+# stateless, no SmokeFrame/SmokeRunner vocabulary.  We hand-roll a tiny PNG
 # so the script doesn't pull Pillow just to write an asset (Pillow is in
 # the [display] extra and used only for round-trip validation).
 # ---------------------------------------------------------------------------
@@ -275,10 +293,10 @@ def _write_sample_png() -> Path:
 
 
 class SmokeRunner:
-    """Build the seven smoke-test frames, verify coverage, drive the send loop.
+    """Build the eight smoke-test frames, verify coverage, drive the send loop.
 
     Frame builders are methods that share the runner's vocabulary
-    (every one returns a :class:`FrameSpec`).  The previous module-level
+    (every one returns a :class:`SmokeFrame`).  The previous module-level
     helpers were a PY-OO-7 smell: a class plus a cluster of free
     functions all producing instances of the class.  Now each is a
     method; the runner is the single seam between the test data and
@@ -286,7 +304,7 @@ class SmokeRunner:
     """
 
     _image_path: Path
-    _frames: list[FrameSpec]
+    _frames: list[SmokeFrame]
 
     def __new__(cls, image_path: Path) -> Self:
         self = super().__new__(cls)
@@ -299,14 +317,15 @@ class SmokeRunner:
             self._build_table(),
             self._build_plot(),
             self._build_modal(),
+            self._build_dialog(),
         ]
         return self
 
     # -- public surface ----------------------------------------------------
 
     @property
-    def frames(self) -> list[FrameSpec]:
-        """Return the seven FrameSpecs in send order (modal last)."""
+    def frames(self) -> list[SmokeFrame]:
+        """Return the eight SmokeFrames in send order (modal, then dialog, last)."""
         return list(self._frames)
 
     def verify_coverage(self) -> str | None:
@@ -333,7 +352,7 @@ class SmokeRunner:
         Kinds are derived from each frame's elements via
         :func:`_collect_kinds` — the manifest is always in sync with what
         was sent.  The closing line is conditional on ``attempted``: when
-        no frame ever reached ``client.show()`` (connect failed, coverage
+        no frame ever reached ``client.render()`` (connect failed, coverage
         mismatch) the "Items remain on screen for inspection" claim
         would be a lie.
         """
@@ -365,13 +384,18 @@ class SmokeRunner:
             print("No frame was sent — manifest describes intended contents only.")
         print("=" * 72)
 
-    def run(self, client: DisplayClient) -> RunResult:
-        """Send every frame, return a :class:`RunResult` summary.
+    def run(self, client: LuxRestClient) -> RunResult:
+        """Send every frame through the front door, return a :class:`RunResult`.
 
         Tries every frame even if earlier ones fail — partial coverage
         on screen is more useful than a clean abort.  ``warn_before_send``
         prints to stderr before the corresponding frame is dispatched so
         the operator knows e.g. a modal is about to take over.
+
+        Each frame becomes its own :class:`RenderRequest`, exactly as an
+        agent or the CLI would build one — the Hub decodes and self-validates
+        the elements on receipt, so this exercises the real install path,
+        not just the wire encode.
 
         Accumulates failures into local lists and constructs the
         ``RunResult`` once at the end.  Mutating ``frozen=True``
@@ -379,52 +403,47 @@ class SmokeRunner:
         contract — callers see a dataclass whose lists are still being
         populated under the rug.
         """
-        missed_acks: list[str] = []
+        rejected: list[tuple[str, str]] = []
         transport_errors: list[tuple[str, str]] = []
         for spec in self._frames:
             if spec.warn_before_send is not None:
                 print(spec.warn_before_send, file=sys.stderr)
             try:
-                ack = client.show(
+                request = RenderRequest(
                     scene_id=spec.frame_id,
-                    elements=spec.elements,
-                    frame_id=spec.frame_id,
-                    frame_title=spec.title,
+                    elements=[elem.to_dict() for elem in spec.elements],
+                    title=spec.title,
+                    frame=FrameSpec(frame_id=spec.frame_id, frame_title=spec.title),
                 )
-            except (RuntimeError, OSError, TypeError, ValueError) as exc:
-                # Three failure modes routed to the same bucket:
-                # - RuntimeError / OSError: socket/transport problems
-                #   (broken socket, dead listener) from DisplayClient._send
-                # - TypeError / ValueError: encode-side problems from
-                #   protocol.encode_message when an element fails to
-                #   serialise (e.g. malformed wire shape)
-                # All three mean "this frame did not reach the renderer"
-                # from the operator's perspective — keep trying later
-                # frames so partial coverage on screen is still useful.
+                result = client.render(request)
+            except (HubUnavailableError, TypeError, ValueError) as exc:
+                # Three failure modes routed to the same bucket, all meaning
+                # "this frame did not reach the renderer" from the operator's
+                # perspective:
+                # - HubUnavailableError: luxd is unreachable or stalled
+                #   (LuxRestClient._send / the loopback transport)
+                # - TypeError / ValueError: a local encode-side failure
+                #   building the wire dict (element.to_dict()) before any
+                #   request was sent
                 transport_errors.append((spec.frame_id, str(exc)))
                 print(
                     f"transport error for frame {spec.frame_id}: {exc}",
                     file=sys.stderr,
                 )
                 continue
-            if ack is None:
-                # The display accepted the scene message but no ack returned
-                # within the client's recv_timeout (default 5s).
-                missed_acks.append(spec.frame_id)
+            if isinstance(result, OpError):
+                # The request reached the Hub, which decoded and rejected it
+                # — a real validation failure, not a transport problem.
+                rejected.append((spec.frame_id, result.reason))
                 print(
-                    f"Frame {spec.frame_id}: no ack received within 5s "
-                    "(display may be stalled, disconnected, or still "
-                    "processing the previous scene)",
+                    f"Frame {spec.frame_id} rejected: {result.reason}",
                     file=sys.stderr,
                 )
-        return RunResult(
-            missed_acks=missed_acks,
-            transport_errors=transport_errors,
-        )
+        return RunResult(rejected=rejected, transport_errors=transport_errors)
 
     # -- frame builders ----------------------------------------------------
 
-    def _build_basics(self) -> FrameSpec:
+    def _build_basics(self) -> SmokeFrame:
         """Frame 1 — every static display primitive."""
         elements: list[Element] = [
             TextElement(id="basics-heading", content="Basics", style="heading"),
@@ -453,7 +472,7 @@ class SmokeRunner:
                 ),
             ),
         ]
-        return FrameSpec(
+        return SmokeFrame(
             frame_id="smoke-basics",
             title="Smoke 1 — Basics",
             elements=elements,
@@ -464,7 +483,7 @@ class SmokeRunner:
             ),
         )
 
-    def _build_inputs(self) -> FrameSpec:
+    def _build_inputs(self) -> SmokeFrame:
         """Frame 2 — every interactive control."""
         elements: list[Element] = [
             TextElement(id="inputs-heading", content="Inputs", style="heading"),
@@ -515,7 +534,7 @@ class SmokeRunner:
                 selected=True,
             ),
         ]
-        return FrameSpec(
+        return SmokeFrame(
             frame_id="smoke-inputs",
             title="Smoke 2 — Inputs",
             elements=elements,
@@ -528,7 +547,7 @@ class SmokeRunner:
             ),
         )
 
-    def _build_layout(self) -> FrameSpec:
+    def _build_layout(self) -> SmokeFrame:
         """Frame 3 — containers, with nested children to expose containment."""
         group_children: list[Element] = [
             TextElement(id="layout-group-text", content="Children of a rows group"),
@@ -604,7 +623,7 @@ class SmokeRunner:
                 children=window_children,
             ),
         ]
-        return FrameSpec(
+        return SmokeFrame(
             frame_id="smoke-layout",
             title="Smoke 3 — Layout & Containers",
             elements=elements,
@@ -616,7 +635,7 @@ class SmokeRunner:
             ),
         )
 
-    def _build_graphics(self) -> FrameSpec:
+    def _build_graphics(self) -> SmokeFrame:
         """Frame 4 — DrawElement exercising every draw-command kind."""
         red = Color("#FF5555")
         green = Color("#55FF55")
@@ -707,7 +726,7 @@ class SmokeRunner:
                 commands=commands,
             ),
         ]
-        return FrameSpec(
+        return SmokeFrame(
             frame_id="smoke-graphics",
             title="Smoke 4 — Graphics",
             elements=elements,
@@ -719,7 +738,7 @@ class SmokeRunner:
             ),
         )
 
-    def _build_table(self) -> FrameSpec:
+    def _build_table(self) -> SmokeFrame:
         """Frame 5 — the basic data grid (single-select, real column sort)."""
         rows: tuple[tuple[object, ...], ...] = (
             ("lux-001", "open", "P0", "Render every element kind"),
@@ -742,7 +761,7 @@ class SmokeRunner:
             TextElement(id="table-heading", content="Table", style="heading"),
             table,
         ]
-        return FrameSpec(
+        return SmokeFrame(
             frame_id="smoke-table",
             title="Smoke 5 — Table",
             elements=elements,
@@ -752,7 +771,7 @@ class SmokeRunner:
             ),
         )
 
-    def _build_plot(self) -> FrameSpec:
+    def _build_plot(self) -> SmokeFrame:
         """Frame 6 — PlotElement with a line and a bar series, labeled axes."""
         line_x = tuple(float(i) for i in range(11))
         line_y = tuple(float(i * i) / 10.0 for i in range(11))
@@ -774,7 +793,7 @@ class SmokeRunner:
             TextElement(id="plot-heading", content="Plot", style="heading"),
             plot,
         ]
-        return FrameSpec(
+        return SmokeFrame(
             frame_id="smoke-plot",
             title="Smoke 6 — Plot",
             elements=elements,
@@ -785,12 +804,13 @@ class SmokeRunner:
             ),
         )
 
-    def _build_modal(self) -> FrameSpec:
+    def _build_modal(self) -> SmokeFrame:
         """Frame 7 — ModalElement opened by default.
 
-        Lives last so it doesn't trap the operator behind a popup while
-        frames 1-6 are still being inspected.  Its containment is exposed
-        via two child elements rendered inside the modal body.
+        Lives after the primary frames so it doesn't trap the operator
+        behind a popup while frames 1-6 are still being inspected. Its
+        containment is exposed via two child elements rendered inside
+        the modal body.
         """
         modal_dialog = ModalElement(id="modal-dialog", title="Modal dialog", open=True)
         # The ABC modal receives its body through the decoder seam, not the
@@ -817,7 +837,7 @@ class SmokeRunner:
             ),
             modal_dialog,
         ]
-        return FrameSpec(
+        return SmokeFrame(
             frame_id="smoke-modal",
             title="Smoke 7 — Modal",
             elements=elements,
@@ -832,6 +852,55 @@ class SmokeRunner:
             ),
         )
 
+    def _build_dialog(self) -> SmokeFrame:
+        """Frame 8 — DialogElement, the MVC composite with model-bound buttons.
+
+        Lives last, after the modal, for the same reason the modal isn't
+        first: an open overlay must not trap the operator away from
+        frames 1-6. A dialog is its own kind, distinct from a modal — the
+        Hub's decoder binds each child Button's ``action`` (``confirm``,
+        ``cancel``) to the dialog's model, so the wire shape built here is
+        exactly what an agent would submit, not a Python-only shortcut.
+        """
+        dialog = DialogElement(id="dialog-confirm", title="Confirm action")
+        # Mirrors the modal above: install_children() is the decoder seam,
+        # not the constructor. The Hub re-decodes this frame's wire dict
+        # independently, so the real binding happens Hub-side regardless
+        # of what this local DialogModel does.
+        dialog.install_children(
+            (
+                ButtonElement(id="dialog-cancel", label="Cancel", action="cancel"),
+                ButtonElement(
+                    id="dialog-confirm-btn", label="Confirm", action="confirm"
+                ),
+            )
+        )
+        elements: list[Element] = [
+            TextElement(id="dialog-heading", content="Dialog", style="heading"),
+            TextElement(
+                id="dialog-intro",
+                content=(
+                    "The dialog popup appears over this frame, with Cancel and "
+                    "Confirm buttons bound to the dialog's model."
+                ),
+            ),
+            dialog,
+        ]
+        return SmokeFrame(
+            frame_id="smoke-dialog",
+            title="Smoke 8 — Dialog",
+            elements=elements,
+            look_for=(
+                "popup labelled 'Confirm action' over the frame, with Cancel "
+                "and Confirm buttons; dismissing either returns interaction "
+                "to the underlying display"
+            ),
+            warn_before_send=(
+                "Frame 8 opens a dialog — dismiss with Cancel or Confirm "
+                "before inspecting other frames."
+            ),
+        )
+
 
 # ---------------------------------------------------------------------------
 # Main driver.
@@ -842,14 +911,14 @@ def main() -> int:
     """Send every frame, print the manifest, exit per the docstring table.
 
     Sanity-checks that the union of every frame's kinds matches the
-    24-kind expected set before contacting the display — a missing kind
+    25-kind expected set before contacting the display — a missing kind
     fails loud with a diff before any I/O happens.
 
-    Connect failures (display not running, socket refused) are surfaced
-    as the documented exit-2 transport failure with a clear stderr
-    message, never as an unframed traceback.  ``auto_spawn`` is left
-    off so the script fails the prerequisite check loudly rather than
-    silently spawning a display the operator didn't ask for.
+    Connects and pings through the same front door an agent or the CLI
+    uses (:class:`LuxRestClient`) — ``ping()`` proves the Hub actually
+    holds a live Display connection, not just that luxd's port file
+    exists. Prerequisite failures are surfaced as the documented exit-2
+    failure with a clear stderr message, never as an unframed traceback.
     """
     image_path = _write_sample_png()
     runner = SmokeRunner(image_path)
@@ -862,29 +931,26 @@ def main() -> int:
         runner.print_manifest(attempted=False)
         return 5
     try:
-        client = DisplayClient(name="manual-smoke", auto_spawn=False)
-        client.connect()
-    except (RuntimeError, OSError) as exc:
-        # DisplayClient.connect() raises RuntimeError when the display
-        # isn't accepting connections (no socket, refused handshake,
-        # protocol mismatch).  Document it as a transport failure so the
-        # operator sees exit 2 with a clear reason instead of a traceback.
+        client = LuxRestClient.connect()
+    except HubUnavailableError as exc:
+        print(f"connect failed: {exc}", file=sys.stderr)
+        runner.print_manifest(attempted=False)
+        return 2
+    ping_result = client.ping()
+    if isinstance(ping_result, OpError):
         print(
-            f"connect failed: {exc} (is luxd + lux-display running?)",
+            f"display not reachable: {ping_result.reason} (is lux-display running?)",
             file=sys.stderr,
         )
         runner.print_manifest(attempted=False)
         return 2
-    try:
-        result = runner.run(client)
-    finally:
-        client.close()
-        runner.print_manifest(attempted=True)
-    if result.missed_acks:
+    result = runner.run(client)
+    runner.print_manifest(attempted=True)
+    if result.rejected:
         print(
-            f"smoke ack-timeout: {len(result.missed_acks)} of "
-            f"{len(runner.frames)} frames had no ack "
-            f"({', '.join(result.missed_acks)})",
+            f"smoke rejected: {len(result.rejected)} of "
+            f"{len(runner.frames)} frames were rejected by the Hub "
+            f"({', '.join(fid for fid, _ in result.rejected)})",
             file=sys.stderr,
         )
     if result.transport_errors:
