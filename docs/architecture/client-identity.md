@@ -6,9 +6,11 @@ identity work it drove shipped as **DES-057** in `DESIGN.md` (the identity
 train, PRs #290-#292) — not DES-056 as the closing section below
 anticipated; DES-056 was claimed first by the scene-frame lifecycle ADR.
 DES-057 is the authoritative record of the shipped shape and has since
-evolved past several specifics named here: the `kind` discriminator reads
-`"repo"` (not `"cli"`) and later gained `"applet"` (DES-063); a
-caller-declared lease TTL was added, which this document does not mention.
+evolved past one specific named here: the `kind` discriminator gained
+`"applet"` (DES-063), read `"mcp-session" | "cli" | "applet" | "app"` in
+current source (`domain/hub/client_identity.py`) — `"cli"` itself never
+renamed, despite DES-057's own prose citing `"repo"`. A caller-declared
+lease TTL was added, which this document does not mention.
 What remains accurate and load-bearing is the *diagnosis* and the
 *ratified policy* — durable session-scene lifetime, the `identify` +
 challenge mechanism, anonymous REST rejected — the reasoning DES-057's
