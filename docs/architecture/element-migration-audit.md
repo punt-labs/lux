@@ -1,7 +1,8 @@
 # Element Migration Audit — Distributed Element-ABC / Hub-Display
 
-> **COMPLETED — historical record.** The migration this audit planned is done:
-> all **25 of 25** element kinds are on the distributed Element-ABC / Hub-Display
+> **CLASS-LEVEL MIGRATION COMPLETE — historical record, with one qualification.**
+> The migration this audit planned is done at the class level: all **25 of 25**
+> element kinds are `Element` ABC subclasses on the `HubDisplay`/`apply` install
 > path, and the legacy `SceneManager` + dual-write render path (the `Legacy*`
 > dataclasses, the `ElementCodec` table, the all-ABC fork gate, and the legacy
 > renderers) was **deleted in B7** (bead `lux-r18j`), the final batch of epic
@@ -12,11 +13,24 @@
 > by testability**); read those, and every "migrated vs legacy" state below, as
 > history. The per-element map (what "migrated" means per class, the display-only
 > vs interactive vs composite split) still describes the shipped kinds.
+>
+> **What is still true, not yet fixed:** `src/punt_lux/display/server.py` still
+> carries a second, non-authoritative write path — `DomainPump`, `_NATIVE_KINDS`,
+> and the `_domain_display` mirror — a leftover from before the Hub/Display
+> process split, predating this migration. It is not the legacy `SceneManager`
+> path this audit tracked, and it does not gate Hub authority: `HubDisplay`
+> already installs, self-validates, and dispatches all 25 kinds uniformly with no
+> per-kind allow-list. But its production wiring is dead weight that a later PR
+> in this epic removes. Until that PR lands, "legacy path deleted" should be read
+> as "the `SceneManager` legacy render path is deleted; the separate Display-tier
+> mirror wiring is not yet."
 
-**Status:** completed migration — historical audit and design record.
+**Status:** class-level migration complete — historical audit and design record.
 **Scope:** the 25 element kinds in `src/punt_lux/protocol/elements/`, all now on
 the Element ABC (`src/punt_lux/domain/element_abc.py`) and the `HubDisplay`/`apply`
-path; the legacy `SceneManager` + dual-write path they moved off is deleted.
+path; the legacy `SceneManager` + dual-write path they moved off is deleted. A
+separate, non-authoritative Display-tier mirror (`DomainPump`) still exists in
+`display/server.py` and is scheduled for removal later in this epic.
 **Ground truth:** `docs/architecture/target/{target,ui-model,topology,element-contract,introspection-api}.md`
 and the code cited inline. Where a document disagrees with `target.md`, the
 target is authoritative.

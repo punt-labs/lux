@@ -1,11 +1,21 @@
 # Element migration: legacy kinds → distributed Element-ABC / Hub-Display
 
-> **COMPLETED — historical record.** The migration this directory planned is
-> done: all **25 of 25** element kinds are on the distributed Element-ABC /
-> Hub-Display path and the legacy render path is deleted (epic `lux-xs7r`,
-> closed 2026-07-27; B7 was the deletion PR). The per-element design documents
-> here are the record of how each kind crossed. Progress numbers in the body
-> below are snapshots from mid-migration and are superseded by this banner.
+> **CLASS-LEVEL MIGRATION COMPLETE — historical record, with one qualification.**
+> The migration this directory planned is done at the class level: all
+> **25 of 25** element kinds are `Element` ABC subclasses on the `HubDisplay`
+> install path, and the legacy `SceneManager` render path is deleted (epic
+> `lux-xs7r`, closed 2026-07-27; B7 was the deletion PR). The per-element design
+> documents here are the record of how each kind crossed. Progress numbers in
+> the body below are snapshots from mid-migration and are superseded by this
+> banner.
+>
+> **What is still true, not yet fixed:** a separate, non-authoritative
+> Display-tier mirror — `DomainPump`, `_NATIVE_KINDS`, and `_domain_display`
+> in `src/punt_lux/display/server.py` — predates this migration and is not
+> what it tracked. `HubDisplay` is already the real authority for all 25
+> kinds with no per-kind gate. This mirror's production wiring is dead weight
+> that a later PR in this epic removes; until then, "legacy path deleted"
+> means the `SceneManager` path, not this separate mirror.
 
 This directory holds the plan that migrated Lux's element kinds off the legacy
 `SceneManager` path and onto the distributed Element-ABC / Hub-Display
