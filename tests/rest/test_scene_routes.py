@@ -15,7 +15,7 @@ from punt_lux.operations.display_reply import DisplayReplied
 from punt_lux.operations.models.query_clients import ClientList
 from punt_lux.protocol.compositions import TableComposition, TableCompositionSpec
 
-from ._fakes import ForbiddenPort, StubPort, make_client
+from ._fakes import StubPort, make_client
 
 if TYPE_CHECKING:
     from fastapi.testclient import TestClient
@@ -222,16 +222,6 @@ def test_inspect_scene_returns_the_tree() -> None:
     body = client.get("/scenes/s1").json()
     assert body["scene_id"] == "s1"
     assert body["elements"][0]["id"] == "t1"
-
-
-def test_inspect_scene_want_mirror_binds_with_no_round_trip() -> None:
-    # The want_mirror query param binds at the REST tier; the display no longer
-    # maintains a domain mirror, so the answer is unavailable with no proxied
-    # round-trip — the forbidden port proves the display is never touched.
-    client = make_client(display_port=ForbiddenPort())
-    _render(client)
-    body = client.get("/scenes/s1", params={"want_mirror": "true"}).json()
-    assert body["mirror"]["kind"] == "unavailable"
 
 
 def test_inspect_scene_want_geometry_binds_and_carries_the_painted_rects() -> None:

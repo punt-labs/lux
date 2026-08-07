@@ -7,11 +7,6 @@ discriminated state — ``unavailable`` with a reason when the round-trip
 faults or the reply is malformed, the answer otherwise, and ``not_requested``
 when the scope did not ask. This fact is read, never installed as Hub state
 (introspection-api.md).
-
-The display no longer maintains a domain mirror separate from the Hub's
-authoritative store, so the mirror check always answers ``unavailable`` — kept
-as a discriminated state, not deleted, because ``InspectScope.want_mirror`` and
-``MirrorState`` remain part of the wider ``inspect_scene`` contract.
 """
 
 from __future__ import annotations
@@ -26,24 +21,17 @@ from punt_lux.operations.models.query_geometry import (
     GeometryUnavailable,
     SceneGeometry,
 )
-from punt_lux.operations.models.query_mirror import (
-    MirrorNotRequested,
-    MirrorUnavailable,
-)
 
 if TYPE_CHECKING:
     from punt_lux.operations.display_port import DisplayPort
     from punt_lux.operations.models.inspect_scope import InspectScope
-    from punt_lux.operations.models.query_mirror import MirrorState
 
 __all__ = ["DisplayFactProxy"]
-
-_MIRROR_RETIRED_REASON = "the display no longer maintains a domain mirror"
 
 
 @final
 class DisplayFactProxy:
-    """Answer the display's mirror and geometry facts as discriminated states."""
+    """Answer the display's own facts as discriminated states."""
 
     _port: DisplayPort
     __slots__ = ("_port",)
@@ -53,20 +41,11 @@ class DisplayFactProxy:
         self._port = port
         return self
 
-    def facts(
-        self, scene_id: str, scope: InspectScope
-    ) -> tuple[MirrorState, SceneGeometry]:
+    def facts(self, scene_id: str, scope: InspectScope) -> SceneGeometry:
         """Return the scope's display facts."""
-        mirror = self.mirror(scene_id) if scope.want_mirror else MirrorNotRequested()
-        geometry = (
-            self.geometry(scene_id) if scope.want_geometry else GeometryNotRequested()
-        )
-        return mirror, geometry
-
-    def mirror(self, scene_id: str) -> MirrorState:
-        """Return the retired mirror check as ``unavailable``, no round-trip needed."""
-        del scene_id
-        return MirrorUnavailable(reason=_MIRROR_RETIRED_REASON)
+        if not scope.want_geometry:
+            return GeometryNotRequested()
+        return self.geometry(scene_id)
 
     def geometry(self, scene_id: str) -> SceneGeometry:
         """Proxy the display's painted geometry as a discriminated state."""

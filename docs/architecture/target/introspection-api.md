@@ -41,15 +41,8 @@ Together these let an agent confirm things like:
 
 Beyond scene structure, `inspect_scene` reports per element:
 
-- `render_path` — `"abc"` for an element on the Element-ABC path. Now that every
-  kind has migrated, this field is constant `"abc"`; it is retained (its emitted
-  value never changes, so no reader breaks) but carries no information. Removing
-  it belongs to a future introspection-API revision, not this one.
 - `resolved_props` — the element's full resolved state including defaults, so
   an agent can read back both what it sent and what Lux filled in.
-- `domain_mirror_present` — named for exactly what it reports: whether the
-  *display-side* mirror of the element is present. It is not a claim about the Hub's authoritative
-  `HubDisplay`; do not read Hub authority from a display-side query.
 
 ## Pre-Render Validation
 

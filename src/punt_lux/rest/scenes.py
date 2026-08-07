@@ -158,7 +158,7 @@ class SceneRoutes:
     def inspect_scene(
         self, scene_id: str, scope: Annotated[InspectScope, Query()]
     ) -> SceneInspection:
-        """Return one scene's tree; ``want_mirror``/``want_geometry`` add facts."""
+        """Return one scene's tree; ``want_geometry`` adds the painted rects."""
         return self._errors.respond(self._ops.inspect_scene(scene_id, scope))
 
     def list_clients(self) -> ClientList:

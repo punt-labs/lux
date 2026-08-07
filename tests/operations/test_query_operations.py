@@ -28,10 +28,6 @@ from punt_lux.operations.models.query_errors import RecentErrors
 from punt_lux.operations.models.query_events import RecentEvents
 from punt_lux.operations.models.query_geometry import GeometryPresent
 from punt_lux.operations.models.query_inspection import SceneInspection
-from punt_lux.operations.models.query_mirror import (
-    MirrorNotRequested,
-    MirrorUnavailable,
-)
 from punt_lux.operations.models.query_scenes import SceneList
 from punt_lux.operations.queries import QueryOperations
 
@@ -125,29 +121,9 @@ def test_inspect_scene_reads_the_hub_without_touching_the_display() -> None:
     root = result.elements[0]
     assert root.id == "g1"
     assert root.children[0].id == "t1"
-    # The mirror check was not requested, so it is not proxied — a distinct state
-    # from "requested but unavailable".
-    assert isinstance(result.mirror, MirrorNotRequested)
 
 
-def test_inspect_scene_mirror_is_unavailable_with_no_round_trip() -> None:
-    # The display no longer maintains a domain mirror, so a requested mirror
-    # check always answers unavailable and never reaches around to the display
-    # — the forbidden port proves no round-trip is issued for it.
-    store = HubDisplay()
-    _seed_scene(store, scene="s1", connection="c1")
-    ops = QueryOperations(store, Hub(), _ForbiddenPort())
-
-    result = ops.inspect_scene("s1", InspectScope(want_mirror=True))
-
-    assert isinstance(result, SceneInspection)
-    assert isinstance(result.mirror, MirrorUnavailable)
-    assert result.mirror.reason
-
-
-def test_inspect_scene_both_facts_geometry_still_round_trips() -> None:
-    # Mirror is answered locally (unavailable, no round-trip); geometry still
-    # proxies the display exactly once when requested alongside it.
+def test_inspect_scene_geometry_round_trips_when_requested() -> None:
     store = HubDisplay()
     _seed_scene(store, scene="s1", connection="c1")  # g1 + t1 = two elements
     reply = DisplayReplied(
@@ -172,28 +148,24 @@ def test_inspect_scene_both_facts_geometry_still_round_trips() -> None:
     port = _CountingPort(reply)
     ops = QueryOperations(store, Hub(), port)
 
-    result = ops.inspect_scene("s1", InspectScope(want_mirror=True, want_geometry=True))
+    result = ops.inspect_scene("s1", InspectScope(want_geometry=True))
 
     assert isinstance(result, SceneInspection)
-    # ONE round-trip serves geometry; mirror answers locally, no query needed.
     assert len(port.calls) == 1
     assert port.calls[0][1].get("want_geometry") is True
-    assert isinstance(result.mirror, MirrorUnavailable)
     assert isinstance(result.geometry, GeometryPresent)
     assert result.geometry.elements["t1"].rect.width == 120.0
 
 
-def test_inspect_scene_mirror_only_issues_zero_queries() -> None:
-    # A scope wanting only the mirror check issues no round-trip at all — the
-    # answer is a constant, so the forbidden port must not be touched.
+def test_inspect_scene_geometry_not_requested_issues_zero_queries() -> None:
+    # A bare scope wanting neither fact issues no round-trip at all.
     store = HubDisplay()
     _seed_scene(store, scene="s1", connection="c1")
     ops = QueryOperations(store, Hub(), _ForbiddenPort())
 
-    result = ops.inspect_scene("s1", InspectScope(want_mirror=True))
+    result = ops.inspect_scene("s1")
 
     assert isinstance(result, SceneInspection)
-    assert isinstance(result.mirror, MirrorUnavailable)
 
 
 def test_inspect_scene_unknown_scene_is_not_found() -> None:

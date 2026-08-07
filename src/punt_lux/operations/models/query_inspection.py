@@ -2,9 +2,8 @@
 
 Read from ``HubDisplay`` — the authority — not the display replica. Each
 element reports its resolved state including defaults, so behavior is
-verified without inspecting pixels. Two proxied display facts hang off the
-inspection when asked: the element mirror check (:mod:`.query_mirror`) and the
-painted geometry (:mod:`.query_geometry`).
+verified without inspecting pixels. One proxied display fact hangs off the
+inspection when asked: the painted geometry (:mod:`.query_geometry`).
 """
 
 from __future__ import annotations
@@ -17,7 +16,6 @@ from punt_lux.operations.models.query_geometry import (
     GeometryNotRequested,
     SceneGeometry,
 )
-from punt_lux.operations.models.query_mirror import MirrorNotRequested, MirrorState
 
 __all__ = ["InspectedElement", "SceneInspection"]
 
@@ -46,5 +44,4 @@ class SceneInspection(BaseModel):
     kind: Literal["ok"] = "ok"
     scene_id: str
     elements: list[InspectedElement]
-    mirror: MirrorState = MirrorNotRequested()
     geometry: SceneGeometry = GeometryNotRequested()
