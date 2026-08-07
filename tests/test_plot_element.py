@@ -277,9 +277,9 @@ class TestForkGate:
 
 
 class TestLevel5Introspection:
-    def test_plot_reports_abc_render_path(self) -> None:
+    def test_plot_is_recorded(self) -> None:
         resp = _inspect(_server(), _plot())
-        assert _record(resp, "pl1")["render_path"] == "abc"
+        assert _record(resp, "pl1")["kind"] == "plot"
 
     def test_plot_resolved_props_read_back_including_defaults(self) -> None:
         resp = _inspect(_server(), PlotElement(id="pl1", title="T"))

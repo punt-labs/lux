@@ -123,7 +123,6 @@ class InProcessLoop:
         for elem in replica.elements:
             elem.bind_renderer_factory(RaisingRendererFactory())
         self._server._scene_manager.handle_framed_scene(replica, _RIG_OWNER_FD)
-        self._server._route_to_domain_display(replica)
         # Render would set this before any click; the rig sets it so a
         # subsequently-fired interaction stamps the right scene_id.
         self._server._current_scene_id = scene_id

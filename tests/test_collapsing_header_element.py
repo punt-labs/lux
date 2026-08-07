@@ -378,7 +378,7 @@ class TestInteraction:
         assert toggled.element_id == ElementId("ch")
 
 
-# -- Level 5: introspection (render_path + reported view-state) --------------
+# -- Level 5: introspection (element_paths + reported view-state) -----------
 
 
 def _mock_sock() -> MagicMock:
@@ -404,13 +404,13 @@ def _record(resp: QueryResponse, element_id: str) -> dict[str, object]:
 
 
 class TestLevel5Introspection:
-    def test_header_and_children_report_abc_render_path(self) -> None:
+    def test_header_and_children_are_recorded(self) -> None:
         header = _decode(_abc_header().to_dict())
         assert isinstance(header, CollapsingHeaderElement)
         resp = _inspect(_server(), header)
-        assert _record(resp, "ch")["render_path"] == "abc"
-        assert _record(resp, "t1")["render_path"] == "abc"
-        assert _record(resp, "b1")["render_path"] == "abc"
+        assert _record(resp, "ch")["kind"] == "collapsing_header"
+        assert _record(resp, "t1")["kind"] == "text"
+        assert _record(resp, "b1")["kind"] == "button"
 
     def test_resolved_props_reports_the_open_view_state(self) -> None:
         header = _decode(_abc_header(open=True).to_dict())

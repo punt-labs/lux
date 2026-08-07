@@ -777,7 +777,7 @@ class TestEchoSuppressionLifecycle:
         assert arbiter._is_user_switch(selected=True, tab_id="tab-2", active="tab-1")
 
 
-# -- Level 5: introspection (render_path + reported view-state) --------------
+# -- Level 5: introspection (element_paths + reported view-state) -----------
 
 
 def _mock_sock() -> MagicMock:
@@ -803,13 +803,13 @@ def _record(resp: QueryResponse, element_id: str) -> dict[str, object]:
 
 
 class TestLevel5Introspection:
-    def test_tab_bar_and_children_report_abc_render_path(self) -> None:
+    def test_tab_bar_and_children_are_recorded(self) -> None:
         bar = _decode(_abc_tab_bar().to_dict())
         assert isinstance(bar, TabBarElement)
         resp = _inspect(_server(), bar)
-        assert _record(resp, "tb")["render_path"] == "abc"
-        assert _record(resp, "t1")["render_path"] == "abc"
-        assert _record(resp, "b1")["render_path"] == "abc"
+        assert _record(resp, "tb")["kind"] == "tab_bar"
+        assert _record(resp, "t1")["kind"] == "text"
+        assert _record(resp, "b1")["kind"] == "button"
 
     def test_resolved_props_reports_active_tab_and_tabs(self) -> None:
         bar = _decode(_abc_tab_bar(active_tab="tab-2").to_dict())

@@ -26,7 +26,6 @@ from PIL import Image
 
 from punt_lux.display.auto_click import AutoClicker
 from punt_lux.display.dock_bar import DockBar
-from punt_lux.display.domain_pump import DomainPump
 from punt_lux.display.frame_commands import FrameCommands
 from punt_lux.display.frame_tiling import FrameTiling
 from punt_lux.display.glfw_window import GlfwWindow
@@ -40,19 +39,11 @@ from punt_lux.display.pending_interactions import PendingInteractions
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.texture_cache import TextureCache
 from punt_lux.display.window_chrome import WindowChrome
-from punt_lux.domain.display import Display
-from punt_lux.domain.ids import ClientId
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
     AckMessage,
-    ButtonElement,
     CallbackMenuMessage,
-    CheckboxElement,
-    ColorPickerElement,
-    ComboElement,
     ConnectMessage,
-    InputNumberElement,
-    InputTextElement,
     IntrospectRequest,
     IntrospectResponse,
     ListScenesRequest,
@@ -61,58 +52,20 @@ from punt_lux.protocol import (
     PingMessage,
     PongMessage,
     QueryRequest,
-    RadioElement,
     RemoteEventHandlerInvocation,
     SceneMessage,
     ScreenshotRequest,
     ScreenshotResponse,
-    SelectableElement,
-    SliderElement,
     ThemeMessage,
     UnknownMessage,
 )
 from punt_lux.protocol.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
-from punt_lux.protocol.elements.dialog import DialogElement
-from punt_lux.protocol.elements.image import ImageElement
-from punt_lux.protocol.elements.markdown import MarkdownElement
-from punt_lux.protocol.elements.progress import ProgressElement
-from punt_lux.protocol.elements.separator import SeparatorElement
-from punt_lux.protocol.elements.spinner import SpinnerElement
-from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 from punt_lux.query_dispatcher import QueryDispatcher
 from punt_lux.scene import Frame, SceneManager, WidgetState
 from punt_lux.scene_inspector import SceneInspector
 from punt_lux.socket_server import SocketServer
 from punt_lux.tracing import trace
-
-# Element kinds with a per-class renderer in ``display.renderers``. Scenes
-# containing only these kinds route through ``Display.apply`` alongside
-# SceneManager; a scene holding any other kind goes through SceneManager alone.
-_BASICS_KINDS: tuple[type, ...] = (
-    TextElement,
-    ImageElement,
-    SeparatorElement,
-    ProgressElement,
-    SpinnerElement,
-    MarkdownElement,
-)
-_INPUTS_KINDS: tuple[type, ...] = (
-    ButtonElement,
-    SliderElement,
-    CheckboxElement,
-    ComboElement,
-    InputTextElement,
-    InputNumberElement,
-    RadioElement,
-    ColorPickerElement,
-    SelectableElement,
-)
-# Composite kinds. The pump's _install_subtree recursively installs each
-# child; the top-level composite must appear in _NATIVE_KINDS so route()'s
-# mixed-scene gate admits the scene.
-_COMPOSITE_KINDS: tuple[type, ...] = (DialogElement,)
-_NATIVE_KINDS: tuple[type, ...] = _BASICS_KINDS + _INPUTS_KINDS + _COMPOSITE_KINDS
 
 if TYPE_CHECKING:
     from punt_lux.protocol import Message
@@ -131,9 +84,6 @@ class DisplayServer:
     _socket_path: Path
     _socket_server: SocketServer
     _scene_manager: SceneManager
-    _domain_display: Display
-    _domain_client_id: ClientId
-    _domain_pump: DomainPump
     _event_queue: list[RemoteEventHandlerInvocation]
     _interaction_delivery: InteractionDelivery
     _pending: PendingInteractions
@@ -169,17 +119,6 @@ class DisplayServer:
         self._display_paths = paths
         self._scene_manager = SceneManager(
             on_scene_replaced=self._drain_stale_events,
-        )
-        # Parallel domain Display: basics-only scenes are also routed through
-        # Display.apply, while the renderer reads from SceneManager.
-        # ``_domain_client_id`` is the synthetic client that owns every
-        # wire-decoded element on this hub.
-        self._domain_display = Display()
-        self._domain_client_id = self._domain_display.connect_client(name="display-hub")
-        self._domain_pump = DomainPump(
-            self._domain_display,
-            self._domain_client_id,
-            _NATIVE_KINDS,
         )
         self._themes = []
         self._decorated = True
@@ -261,7 +200,6 @@ class DisplayServer:
         # Register display-specific query handlers that need ImGui state.
         self._scene_inspector = SceneInspector(
             scene_manager=self._scene_manager,
-            domain_display=self._domain_display,
             geometry=self._imgui_renderer_factory.geometry.recorder,
         )
         qd = self._query_dispatcher
@@ -741,11 +679,11 @@ class DisplayServer:
     def _emit_event(self, event: RemoteEventHandlerInvocation) -> None:
         """Stamp scene_id and queue for delivery to the Hub.
 
-        D21: the display no longer dispatches interactions locally via
-        ``DomainPump.route_interaction``. The ``remote_dispatch``
-        handler on each element sends the ``RemoteEventHandlerInvocation`` to
-        the Hub, where the real handler fires. This method is the
-        socket-send path the ``remote_dispatch`` closure captures.
+        D21: the display dispatches no interactions locally. The
+        ``remote_dispatch`` handler on each element sends the
+        ``RemoteEventHandlerInvocation`` to the Hub, where the real handler
+        fires. This method is the socket-send path the ``remote_dispatch``
+        closure captures.
         """
         if event.scene_id is None:
             event = dataclasses.replace(event, scene_id=self._current_scene_id)
@@ -807,7 +745,6 @@ class DisplayServer:
         self._paint_clock.received(msg.id)
         self._wrap_abc_elements(msg)
         self._scene_manager.handle_framed_scene(msg, fd)
-        self._route_to_domain_display(msg)
         ack = AckMessage(scene_id=msg.id, ts=time.time())
         self._socket_server.send_to_client(sock, ack)
         if self._test_auto_click:
@@ -823,19 +760,15 @@ class DisplayServer:
             elem.bind_renderer_factory(self._imgui_renderer_factory)
             elem.wrap_handlers_for_remote(self._emit_event)
 
-    def _route_to_domain_display(self, msg: SceneMessage) -> None:
-        """Mirror basics-only scenes through Display.apply."""
-        self._domain_pump.route(msg)
-
     def _auto_click_buttons(self, msg: SceneMessage) -> None:
         """Enqueue synthetic interactions for testable elements (test mode).
 
         Synthetic events run BEFORE the first render loop assigns
         ``self._current_scene_id`` from ``_render_framed_scene``.
-        Without stamping the scene id here, ``_emit_event`` would set
-        ``scene_id=None`` and ``DomainPump.route_interaction`` would
-        silently drop every synthetic button click.  Save / restore the
-        prior value so the render loop's later assignment is undisturbed.
+        Without stamping the scene id here, ``_emit_event`` would queue the
+        event with ``scene_id=None`` and the Hub could never resolve which
+        scene the synthetic click belongs to. Save / restore the prior value
+        so the render loop's later assignment is undisturbed.
         """
         prior_scene_id = self._current_scene_id
         self._current_scene_id = msg.id
@@ -1077,9 +1010,9 @@ class DisplayServer:
             self._imgui_renderer_factory.widget_state = ws
         # ``_emit_event`` stamps scene_id from ``self._current_scene_id``
         # for any RemoteEventHandlerInvocation whose scene_id is None —
-        # without this assignment, clicks inside framed scenes carried
-        # whatever a prior frame's render last set (stale or None), so
-        # ``DomainPump.route_interaction`` silently dropped them.
+        # without this assignment, clicks inside framed scenes would carry
+        # whatever a prior frame's render last set (stale or None), and the
+        # Hub could never resolve which scene the click belongs to.
         self._current_scene_id = scene_id
         self._paint_clock.painted(scene_id)
         self._imgui_renderer_factory.geometry.enter_scene(scene_id)

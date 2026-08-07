@@ -259,20 +259,20 @@ class TestForkGate:
         assert isinstance(group, GroupElement)
         assert isinstance(group.children[0], TreeElement)
 
-    def test_group_and_tree_child_report_abc_render_path(self) -> None:
+    def test_group_and_tree_child_are_recorded(self) -> None:
         group = GroupElement(id="g1", children=(_tree(),))
         resp = _inspect(_server(), group)
-        assert _record(resp, "g1")["render_path"] == "abc"
-        assert _record(resp, "tr")["render_path"] == "abc"
+        assert _record(resp, "g1")["kind"] == "group"
+        assert _record(resp, "tr")["kind"] == "tree"
 
 
 # -- Level 5: introspection -------------------------------------------------
 
 
 class TestLevel5Introspection:
-    def test_tree_reports_abc_render_path(self) -> None:
+    def test_tree_is_recorded(self) -> None:
         resp = _inspect(_server(), _tree())
-        assert _record(resp, "tr")["render_path"] == "abc"
+        assert _record(resp, "tr")["kind"] == "tree"
 
     def test_tree_resolved_props_read_back_including_defaults(self) -> None:
         resp = _inspect(_server(), TreeElement(id="tr", label="Files"))

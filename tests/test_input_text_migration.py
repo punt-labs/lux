@@ -243,7 +243,7 @@ class TestDisplayInteract:
             )
 
 
-# -- Level 5: introspection (render_path + resolved props) ------------------
+# -- Level 5: introspection (element_paths + resolved props) ----------------
 
 
 def _inspect(server: DisplayServer, elem: object) -> QueryResponse:
@@ -267,13 +267,13 @@ def _record(resp: QueryResponse, element_id: str) -> dict[str, object]:
 
 
 class TestLevel5Introspection:
-    def test_reports_abc_render_path_and_props(self) -> None:
+    def test_is_recorded_with_props(self) -> None:
         elem = _decode(
             InputTextElement(id="it", label="Name", value="Ada", hint="who?").to_dict()
         )
         assert isinstance(elem, InputTextElement)
         record = _record(_inspect(_server(), elem), "it")
-        assert record["render_path"] == "abc"
+        assert record["kind"] == "input_text"
         props = record["props"]
         assert isinstance(props, dict)
         assert props["value"] == "Ada"

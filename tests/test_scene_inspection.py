@@ -1,4 +1,4 @@
-"""Introspection-primitive tests — render_path + resolved_props.
+"""Introspection-primitive tests — resolved_props.
 
 Two layers:
 
@@ -6,8 +6,8 @@ Two layers:
   element and serialize the ``element_paths`` record.
 - Integration: the enriched ``inspect_scene`` handler registered on a real
   ``DisplayServer`` is driven through ``QueryDispatcher.handle_query`` after a
-  scene is fed through the real ``_handle_message`` path, so render_path and
-  resolved_props are read from live display state — not a stub.
+  scene is fed through the real ``_handle_message`` path, so resolved_props is
+  read from live display state — not a stub.
 """
 
 from __future__ import annotations
@@ -70,12 +70,10 @@ def _record(resp: QueryResponse, element_id: str) -> dict[str, object]:
 # -- unit: the typed records ------------------------------------------------
 
 
-def test_element_inspection_reports_abc_render_path() -> None:
-    rec = ElementInspection.from_element(
-        TextElement(id="t1", content="hi"), domain_mirror_present=True
-    ).to_dict()
-    assert rec["render_path"] == "abc"
-    assert rec["domain_mirror_present"] is True
+def test_element_inspection_reports_resolved_props() -> None:
+    rec = ElementInspection.from_element(TextElement(id="t1", content="hi")).to_dict()
+    assert rec["id"] == "t1"
+    assert rec["kind"] == "text"
     assert rec["props"] == {
         "content": "hi",
         "style": None,
@@ -86,7 +84,7 @@ def test_element_inspection_reports_abc_render_path() -> None:
 
 def test_scene_inspection_keeps_elements_array_and_adds_paths() -> None:
     inspection = SceneInspection.from_scene(
-        "s1", [TextElement(id="t1", content="hi")], mirror_ids=frozenset({"t1"})
+        "s1", [TextElement(id="t1", content="hi")]
     ).to_dict()
     assert inspection["scene_id"] == "s1"
     assert inspection["elements"] == [{"kind": "text", "id": "t1", "content": "hi"}]
@@ -151,8 +149,8 @@ def test_resolved_props_covers_the_settable_surface(element: Inspectable) -> Non
 # -- integration: the live enriched handler ---------------------------------
 
 
-def test_inspect_scene_reports_abc_render_path_for_every_kind() -> None:
-    """render_path is ``abc`` for every kind — all are on the Element-ABC path."""
+def test_inspect_scene_records_every_kind() -> None:
+    """Every kind produces an ``element_paths`` record keyed by id and kind."""
     server = _server()
     resp = _feed(
         server,
@@ -166,13 +164,13 @@ def test_inspect_scene_reports_abc_render_path_for_every_kind() -> None:
             TableElement(id="tbl1", columns=["A"], rows=[["x"]]),
         ],
     )
-    assert _record(resp, "t1")["render_path"] == "abc"
-    assert _record(resp, "b1")["render_path"] == "abc"
-    assert _record(resp, "c1")["render_path"] == "abc"
-    assert _record(resp, "d1")["render_path"] == "abc"
-    assert _record(resp, "p1")["render_path"] == "abc"
-    assert _record(resp, "pl1")["render_path"] == "abc"
-    assert _record(resp, "tbl1")["render_path"] == "abc"
+    assert _record(resp, "t1")["kind"] == "text"
+    assert _record(resp, "b1")["kind"] == "button"
+    assert _record(resp, "c1")["kind"] == "checkbox"
+    assert _record(resp, "d1")["kind"] == "dialog"
+    assert _record(resp, "p1")["kind"] == "progress"
+    assert _record(resp, "pl1")["kind"] == "plot"
+    assert _record(resp, "tbl1")["kind"] == "table"
 
 
 def test_inspect_scene_resolved_props_read_back_including_defaults() -> None:
@@ -192,20 +190,6 @@ def test_inspect_scene_resolved_props_read_back_including_defaults() -> None:
     # wire dict; resolved_props must still report them.
     box_props = _record(resp, "c1")["props"]
     assert box_props == {"label": "", "value": False, "tooltip": None}
-
-
-def test_inspect_scene_reports_domain_mirror_presence_for_native_scene() -> None:
-    """An all-native scene routes into the display mirror — present is True."""
-    server = _server()
-    resp = _feed(
-        server,
-        [
-            TextElement(id="t1", content="hi"),
-            CheckboxElement(id="c1", label="Bold", value=True),
-        ],
-    )
-    assert _record(resp, "t1")["domain_mirror_present"] is True
-    assert _record(resp, "c1")["domain_mirror_present"] is True
 
 
 def test_inspect_scene_preserves_the_elements_array() -> None:

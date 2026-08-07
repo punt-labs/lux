@@ -334,7 +334,7 @@ class TestEncoderFactoryGuard:
         assert [child["id"] for child in children] == ["t1", "b1"]
 
 
-# -- Level 5: introspection (render_path recurses into children) ------------
+# -- Level 5: introspection (element_paths recurses into children) ----------
 
 
 def _mock_sock() -> MagicMock:
@@ -360,12 +360,12 @@ def _record(resp: QueryResponse, element_id: str) -> dict[str, object]:
 
 
 class TestLevel5Introspection:
-    def test_group_and_children_report_abc_render_path(self) -> None:
+    def test_group_and_children_are_recorded(self) -> None:
         resp = _inspect(_server(), _stack_group("rows"))
-        assert _record(resp, "g1")["render_path"] == "abc"
-        # the recursion extension: the children flipped too.
-        assert _record(resp, "t1")["render_path"] == "abc"
-        assert _record(resp, "b1")["render_path"] == "abc"
+        assert _record(resp, "g1")["kind"] == "group"
+        # the recursion extension: the children are recorded too.
+        assert _record(resp, "t1")["kind"] == "text"
+        assert _record(resp, "b1")["kind"] == "button"
 
     def test_group_resolved_props_read_back(self) -> None:
         resp = _inspect(_server(), _stack_group("columns"))
@@ -382,9 +382,7 @@ class TestSceneInspectionRecursion:
     def test_element_paths_include_nested_children(self) -> None:
         from punt_lux.scene_inspection import SceneInspection
 
-        inspection = SceneInspection.from_scene(
-            "s1", [_stack_group("rows")], mirror_ids=frozenset()
-        ).to_dict()
+        inspection = SceneInspection.from_scene("s1", [_stack_group("rows")]).to_dict()
         paths = inspection["element_paths"]
         assert isinstance(paths, list)
         ids = {r["id"] for r in paths}

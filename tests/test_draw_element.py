@@ -274,9 +274,9 @@ class TestForkGate:
 
 
 class TestLevel5Introspection:
-    def test_draw_reports_abc_render_path(self) -> None:
+    def test_draw_is_recorded(self) -> None:
         resp = _inspect(_server(), _draw())
-        assert _record(resp, "dr1")["render_path"] == "abc"
+        assert _record(resp, "dr1")["kind"] == "draw"
 
     def test_draw_resolved_props_read_back_including_defaults(self) -> None:
         resp = _inspect(_server(), DrawElement(id="dr1", width=200))

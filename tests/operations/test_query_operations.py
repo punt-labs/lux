@@ -30,7 +30,6 @@ from punt_lux.operations.models.query_geometry import GeometryPresent
 from punt_lux.operations.models.query_inspection import SceneInspection
 from punt_lux.operations.models.query_mirror import (
     MirrorNotRequested,
-    MirrorPresent,
     MirrorUnavailable,
 )
 from punt_lux.operations.models.query_scenes import SceneList
@@ -125,123 +124,19 @@ def test_inspect_scene_reads_the_hub_without_touching_the_display() -> None:
     assert result.scene_id == "s1"
     root = result.elements[0]
     assert root.id == "g1"
-    assert root.render_path in ("abc", "legacy")
     assert root.children[0].id == "t1"
     # The mirror check was not requested, so it is not proxied — a distinct state
     # from "requested but unavailable".
     assert isinstance(result.mirror, MirrorNotRequested)
 
 
-def test_inspect_scene_mirror_present_when_every_element_is_mirrored() -> None:
-    # want_mirror=True proxies the display's per-element reply; the scene-level
-    # answer is present only when every element carries the mirror flag.
+def test_inspect_scene_mirror_is_unavailable_with_no_round_trip() -> None:
+    # The display no longer maintains a domain mirror, so a requested mirror
+    # check always answers unavailable and never reaches around to the display
+    # — the forbidden port proves no round-trip is issued for it.
     store = HubDisplay()
     _seed_scene(store, scene="s1", connection="c1")
-    reply = DisplayReplied(
-        {
-            "scene_id": "s1",
-            "element_paths": [
-                {"id": "g1", "domain_mirror_present": True},
-                {"id": "t1", "domain_mirror_present": True},
-            ],
-        }
-    )
-    ops = QueryOperations(store, Hub(), _StubPort(reply))
-
-    result = ops.inspect_scene("s1", InspectScope(want_mirror=True))
-
-    assert isinstance(result, SceneInspection)
-    assert result.mirror == MirrorPresent(present=True)
-
-
-def test_inspect_scene_mirror_not_present_when_one_element_is_missing() -> None:
-    store = HubDisplay()
-    _seed_scene(store, scene="s1", connection="c1")
-    reply = DisplayReplied(
-        {
-            "element_paths": [
-                {"id": "g1", "domain_mirror_present": True},
-                {"id": "t1", "domain_mirror_present": False},
-            ]
-        }
-    )
-    ops = QueryOperations(store, Hub(), _StubPort(reply))
-
-    result = ops.inspect_scene("s1", InspectScope(want_mirror=True))
-
-    assert isinstance(result, SceneInspection)
-    assert result.mirror == MirrorPresent(present=False)
-
-
-def test_inspect_scene_mirror_not_present_when_hub_has_elements_but_paths_empty() -> (
-    None
-):
-    # The vacuous-True bug: an empty element_paths list is a well-formed reply
-    # meaning "nothing mirrored". With the Hub holding two elements, the paths do
-    # not account for them, so the truthful scene-level answer is present=False,
-    # not a vacuous present=True from ``all([])``.
-    store = HubDisplay()
-    _seed_scene(store, scene="s1", connection="c1")
-    reply = DisplayReplied({"scene_id": "s1", "element_paths": []})
-    ops = QueryOperations(store, Hub(), _StubPort(reply))
-
-    result = ops.inspect_scene("s1", InspectScope(want_mirror=True))
-
-    assert isinstance(result, SceneInspection)
-    assert result.mirror == MirrorPresent(present=False)
-
-
-def test_inspect_scene_mirror_not_present_when_paths_are_shorter_than_the_hub() -> None:
-    # The display reports one mirrored element while the Hub holds two; the paths
-    # do not account for every Hub element, so present=False.
-    store = HubDisplay()
-    _seed_scene(store, scene="s1", connection="c1")
-    reply = DisplayReplied(
-        {
-            "scene_id": "s1",
-            "element_paths": [{"id": "g1", "domain_mirror_present": True}],
-        }
-    )
-    ops = QueryOperations(store, Hub(), _StubPort(reply))
-
-    result = ops.inspect_scene("s1", InspectScope(want_mirror=True))
-
-    assert isinstance(result, SceneInspection)
-    assert result.mirror == MirrorPresent(present=False)
-
-
-def test_inspect_scene_mirror_not_present_when_paths_carry_an_extra_entry() -> None:
-    # Both Hub elements mirrored, but the display reports a third, unmirrored
-    # entry: a bare truthy-count would pass (mirrored == hub_count == 2), so the
-    # extras guard (len(entries) == hub_count) is what makes this present=False.
-    store = HubDisplay()
-    _seed_scene(store, scene="s1", connection="c1")  # g1 + t1 = two elements
-    reply = DisplayReplied(
-        {
-            "scene_id": "s1",
-            "element_paths": [
-                {"id": "g1", "domain_mirror_present": True},
-                {"id": "t1", "domain_mirror_present": True},
-                {"id": "ghost", "domain_mirror_present": False},
-            ],
-        }
-    )
-    ops = QueryOperations(store, Hub(), _StubPort(reply))
-
-    result = ops.inspect_scene("s1", InspectScope(want_mirror=True))
-
-    assert isinstance(result, SceneInspection)
-    assert result.mirror == MirrorPresent(present=False)
-
-
-def test_inspect_scene_mirror_unavailable_when_the_display_is_down() -> None:
-    # A requested check the display cannot answer is unavailable-with-reason,
-    # never silently conflated with "not requested".
-    store = HubDisplay()
-    _seed_scene(store, scene="s1", connection="c1")
-    ops = QueryOperations(
-        store, Hub(), _StubPort(DisplayFault(code="display_unavailable"))
-    )
+    ops = QueryOperations(store, Hub(), _ForbiddenPort())
 
     result = ops.inspect_scene("s1", InspectScope(want_mirror=True))
 
@@ -250,19 +145,14 @@ def test_inspect_scene_mirror_unavailable_when_the_display_is_down() -> None:
     assert result.mirror.reason
 
 
-def test_inspect_scene_both_facts_come_from_one_round_trip() -> None:
-    # Both the mirror check and geometry wanted: a single inspect_scene carries
-    # both flags and both facts derive from that one reply, so they are
-    # frame-coherent and the display is queried exactly once, not twice.
+def test_inspect_scene_both_facts_geometry_still_round_trips() -> None:
+    # Mirror is answered locally (unavailable, no round-trip); geometry still
+    # proxies the display exactly once when requested alongside it.
     store = HubDisplay()
     _seed_scene(store, scene="s1", connection="c1")  # g1 + t1 = two elements
     reply = DisplayReplied(
         {
             "scene_id": "s1",
-            "element_paths": [
-                {"id": "g1", "domain_mirror_present": True},
-                {"id": "t1", "domain_mirror_present": True},
-            ],
             "geometry": {
                 "elements": {
                     "t1": {
@@ -285,34 +175,25 @@ def test_inspect_scene_both_facts_come_from_one_round_trip() -> None:
     result = ops.inspect_scene("s1", InspectScope(want_mirror=True, want_geometry=True))
 
     assert isinstance(result, SceneInspection)
-    assert len(port.calls) == 1  # ONE round-trip serves both facts
+    # ONE round-trip serves geometry; mirror answers locally, no query needed.
+    assert len(port.calls) == 1
     assert port.calls[0][1].get("want_geometry") is True
-    assert result.mirror == MirrorPresent(present=True)
+    assert isinstance(result.mirror, MirrorUnavailable)
     assert isinstance(result.geometry, GeometryPresent)
     assert result.geometry.elements["t1"].rect.width == 120.0
 
 
-def test_inspect_scene_single_flag_issues_exactly_one_query() -> None:
-    # A scope wanting only the mirror check still issues its one single-flag query
-    # — the combined path does not change single-fact behavior.
+def test_inspect_scene_mirror_only_issues_zero_queries() -> None:
+    # A scope wanting only the mirror check issues no round-trip at all — the
+    # answer is a constant, so the forbidden port must not be touched.
     store = HubDisplay()
     _seed_scene(store, scene="s1", connection="c1")
-    reply = DisplayReplied(
-        {
-            "element_paths": [
-                {"id": "g1", "domain_mirror_present": True},
-                {"id": "t1", "domain_mirror_present": True},
-            ]
-        }
-    )
-    port = _CountingPort(reply)
-    ops = QueryOperations(store, Hub(), port)
+    ops = QueryOperations(store, Hub(), _ForbiddenPort())
 
     result = ops.inspect_scene("s1", InspectScope(want_mirror=True))
 
     assert isinstance(result, SceneInspection)
-    assert len(port.calls) == 1
-    assert result.mirror == MirrorPresent(present=True)
+    assert isinstance(result.mirror, MirrorUnavailable)
 
 
 def test_inspect_scene_unknown_scene_is_not_found() -> None:

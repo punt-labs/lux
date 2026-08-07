@@ -54,7 +54,7 @@ class QueryOperations:
         self._display = display
         self._hub = hub
         self._port = port
-        self._facts = DisplayFactProxy(display, port)
+        self._facts = DisplayFactProxy(port)
         return self
 
     # -- Hub-authoritative reads -------------------------------------------
@@ -175,12 +175,7 @@ class QueryOperations:
     # -- inspection tree ----------------------------------------------------
 
     def _inspect(self, element: WireElement) -> InspectedElement:
-        """Return an element's resolved state and recurse into its children.
-
-        Every kind is on the Element-ABC path, so ``render_path`` is always
-        ``"abc"`` and every element resolves its own props and exposes its
-        children.
-        """
+        """Return an element's resolved state and recurse into its children."""
         children = [
             self._inspect(cast("WireElement", child))
             for child in element.child_elements()
@@ -188,7 +183,6 @@ class QueryOperations:
         return InspectedElement(
             id=element.id,
             kind=element.kind,
-            render_path="abc",
             resolved_props=dict(element.resolved_props()),
             children=children,
         )

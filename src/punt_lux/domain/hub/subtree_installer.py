@@ -72,10 +72,9 @@ class SubtreeInstaller:
     ) -> None:
         """Install ``element`` and recurse into composite children.
 
-        Single entry point shared by the root and child branches — the display-side
-        ``DomainPump._install_subtree`` follows the same Composite-Protocol recursion,
-        so the two stores stay in lockstep. Without recursion, a Dialog whose Buttons
-        live in ``children`` would land in the index alone and later clicks misroute.
+        Single entry point shared by the root and child branches. Without
+        recursion, a Dialog whose Buttons live in ``children`` would land in
+        the index alone and later clicks misroute.
         """
         if parent_id is None:
             key = self._install_scene(scene_id, element, owner=owner)

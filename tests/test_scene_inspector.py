@@ -2,9 +2,8 @@
 
 The integration path (through a real ``DisplayServer``) lives in
 ``test_scene_inspection.py``. These isolate the collaborator: a real
-``SceneManager`` supplies the element objects, a real (empty) domain
-``Display`` supplies mirror presence, and a ``GeometryRecorder`` supplies the
-painted rects the ``want_geometry`` reply carries.
+``SceneManager`` supplies the element objects and a ``GeometryRecorder``
+supplies the painted rects the ``want_geometry`` reply carries.
 """
 
 from __future__ import annotations
@@ -14,7 +13,6 @@ from typing import TYPE_CHECKING, Self, cast
 import pytest
 
 from punt_lux.display.geometry import ElementRef, GeometryRecorder
-from punt_lux.domain.display import Display
 from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.elements import TextElement
 from punt_lux.protocol.geometry import Rect
@@ -36,12 +34,11 @@ def _inspector(
 ) -> SceneInspector:
     return SceneInspector(
         scene_manager=sm,
-        domain_display=Display(),
         geometry=geometry if geometry is not None else GeometryRecorder(),
     )
 
 
-def test_inspect_reads_element_types_and_empty_mirror() -> None:
+def test_inspect_reads_element_kind() -> None:
     sm = _scene_manager_with(
         SceneMessage(
             id="s1", elements=[TextElement(id="t1", content="hi")], frame_id="s1"
@@ -49,9 +46,8 @@ def test_inspect_reads_element_types_and_empty_mirror() -> None:
     )
     result = _inspector(sm).inspect("s1")
     rec = result["element_paths"][0]
-    assert rec["render_path"] == "abc"
-    # an empty domain Display mirror means the element is not (yet) present
-    assert rec["domain_mirror_present"] is False
+    assert rec["id"] == "t1"
+    assert rec["kind"] == "text"
 
 
 def test_inspect_missing_scene_raises_lookup_error() -> None:
@@ -142,7 +138,6 @@ def test_geometry_raises_when_a_resolved_scene_has_no_frame() -> None:
     )
     inspector = SceneInspector(
         scene_manager=cast("SceneManager", _UnmappedScenes(scene)),
-        domain_display=Display(),
         geometry=GeometryRecorder(),
     )
     # The missing mapping surfaces as KeyError, which the dispatcher reports as
