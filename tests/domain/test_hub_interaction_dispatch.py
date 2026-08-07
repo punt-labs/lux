@@ -16,6 +16,7 @@ from punt_lux.domain.interaction import ButtonClicked, ValueChanged
 from punt_lux.domain.update import AddElement
 from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.checkbox import CheckboxElement
+from punt_lux.protocol.elements.group import GroupElement
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
 
 if TYPE_CHECKING:
@@ -566,6 +567,60 @@ def test_hub_interaction_dispatch_kindless_invocation_denied(
             scene_id=str(scene_id),
             element_id=str(element_id),
             action="click",
+            ts=1.0,
+            value=True,
+        )
+    )
+
+    assert fired == []
+    mock_replicator.mark_dirty.assert_not_called()
+
+
+def test_hub_interaction_dispatch_drops_click_on_dismissed_ancestors_child(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A click on a child whose ancestor was marked removed is dropped, not fired.
+
+    Only scene-root Elements carry the Hub-owned observer that routes
+    ``mark_removed`` back through ``apply`` (``SubtreeInstaller``); a non-root
+    ancestor (a Dialog nested inside a Group, standing in here for any
+    composite that dismisses part of its own tree without going through
+    ``RemoveElement``) can flip ``_removed`` with nothing removing it from the
+    index. The dispatch must still refuse to fire the child's handler.
+    """
+    import punt_lux.domain.hub as hub_module
+
+    isolated_display = HubDisplay()
+    scene_id = SceneId("scene")
+    owner = ConnectionId("agent-1")
+    isolated_display.register_client(owner)
+
+    button = ButtonElement(id="confirm", label="Confirm")
+    fired: list[str] = []
+    button.add_handler(ButtonClicked, lambda _e: fired.append("fired"))
+    dialog = GroupElement(id="dialog", children=[button])
+    root = GroupElement(id="root", children=[dialog])
+    isolated_display.apply(
+        owner,
+        AddElement(scene_id=scene_id, element=root, parent_id=None),
+    )
+
+    # The dialog is a non-root ancestor: marking it removed does not cascade
+    # through SubtreeInstaller's root-only observer, so it stays indexed.
+    dialog.mark_removed()
+
+    mock_replicator = MagicMock()
+    monkeypatch.setattr(hub_module, "hub_display", isolated_display)
+    monkeypatch.setattr(
+        "punt_lux.domain.hub.replicator_instance.hub_replicator", mock_replicator
+    )
+
+    HubInteractionDispatch.dispatch(
+        RemoteEventHandlerInvocation(
+            scene_id=str(scene_id),
+            element_id="confirm",
+            action="confirm",
+            event_kind="button_clicked",
             ts=1.0,
             value=True,
         )
