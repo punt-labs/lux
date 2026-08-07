@@ -27,6 +27,7 @@ from PIL import Image
 from punt_lux.display.auto_click import AutoClicker
 from punt_lux.display.dock_bar import DockBar
 from punt_lux.display.frame_commands import FrameCommands
+from punt_lux.display.frame_placement import FramePlacement
 from punt_lux.display.frame_tiling import FrameTiling
 from punt_lux.display.glfw_window import GlfwWindow
 from punt_lux.display.idle_screen import render_idle
@@ -852,29 +853,34 @@ class DisplayServer:
             f.minimized = False
         return True
 
+    def _cascaded_frame_size(
+        self, frame: Frame, default_size: tuple[float, float]
+    ) -> tuple[float, float]:
+        """Return the frame's own initial size, or ``default_size`` if unset."""
+        if not frame.initial_size:
+            return default_size
+        return float(frame.initial_size[0]), float(frame.initial_size[1])
+
     def _render_single_frame(
-        self,
-        frame: Frame,
-        imgui: Any,
-        *,
-        fitting: bool,
-        tile_layout: dict[str, tuple[float, float, float, float]],
-        default_size: tuple[float, float],
+        self, frame: Frame, imgui: Any, placement: FramePlacement
     ) -> tuple[str | None, bool]:
         """Render one frame window.
 
         Returns (result, hovered) where result is 'closed', 'minimized',
         or None, and hovered indicates the mouse is over this frame.
         """
-        if fitting and frame.frame_id in tile_layout:
+        # A fit-all pass places this frame at its computed tile rect, if one
+        # was assigned; falling through covers both "not fitting" and "fitting
+        # but this frame has no tile yet" in one branch.
+        tiled = placement.tile_layout.get(frame.frame_id) if placement.fitting else None
+        if tiled is not None:
             cond = imgui.Cond_.always.value
-            x, y, fw, fh = tile_layout[frame.frame_id]
+            x, y, fw, fh = tiled
         else:
             cond = imgui.Cond_.first_use_ever.value
             x = self._CASCADE_BASE_X + frame.cascade_index * self._CASCADE_DX
             y = self._CASCADE_BASE_Y + frame.cascade_index * self._CASCADE_DY
-            fw = float(frame.initial_size[0]) if frame.initial_size else default_size[0]
-            fh = float(frame.initial_size[1]) if frame.initial_size else default_size[1]
+            fw, fh = self._cascaded_frame_size(frame, placement.default_size)
         imgui.set_next_window_pos((x, y), cond)
         imgui.set_next_window_size((fw, fh), cond)
         if self._scene_manager.consume_focus(frame.frame_id):
@@ -919,6 +925,9 @@ class DisplayServer:
         tile_layout: dict[str, tuple[float, float, float, float]] = {}
         if fitting:
             tile_layout = FrameTiling(list(sm.frames.values())).cells(imgui, region)
+        placement = FramePlacement(
+            fitting=fitting, tile_layout=tile_layout, default_size=(frame_w, frame_h)
+        )
 
         closed_frames: list[str] = []
         minimized_frames: list[str] = []
@@ -926,13 +935,7 @@ class DisplayServer:
         for frame in list(sm.frames.values()):
             if frame.minimized:
                 continue
-            result, hovered = self._render_single_frame(
-                frame,
-                imgui,
-                fitting=fitting,
-                tile_layout=tile_layout,
-                default_size=(frame_w, frame_h),
-            )
+            result, hovered = self._render_single_frame(frame, imgui, placement)
             any_frame_hovered = any_frame_hovered or hovered
             if result == "closed":
                 closed_frames.append(frame.frame_id)
