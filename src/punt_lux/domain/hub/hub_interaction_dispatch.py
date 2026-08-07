@@ -87,6 +87,17 @@ class HubInteractionDispatch:
                 type(element).__name__,
             )
             return
+        dismissed = hub_display.dismissed_ancestor(
+            SceneId(scene_id), ElementId(element_id)
+        )
+        if dismissed is not None:
+            logger.warning(
+                "hub dispatch dropped for dismissed ancestor element_id=%s "
+                "dismissed_id=%s",
+                element_id,
+                dismissed,
+            )
+            return
         try:
             event = element.build_remote_event(
                 event_kind=msg.event_kind,

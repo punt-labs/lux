@@ -34,6 +34,7 @@ import time
 from typing import TYPE_CHECKING, Self
 
 from punt_lux.domain.element import Element as WireElement
+from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.domain.hub.child_index import ChildIndex
 from punt_lux.domain.hub.element_index import (
     ElementIndex,
@@ -207,6 +208,32 @@ class HubDisplay:
         if owner is None:
             raise UnknownElementError(scene_id=scene_id, element_id=element_id)
         return owner.connection_id
+
+    def dismissed_ancestor(
+        self, scene_id: SceneId, element_id: ElementId
+    ) -> ElementId | None:
+        """Return the closest self-or-ancestor whose ``removed`` flag is set.
+
+        Only a scene-root Element's ``mark_removed`` routes back through
+        ``apply`` and drops the subtree from the index (``SubtreeInstaller``
+        registers the observer on roots only). A non-root ancestor marked
+        removed by its own parent composite stays indexed, so a click on a
+        surviving descendant would otherwise still resolve and fire; this
+        walk is what a caller checks first to refuse it. Only ABC Elements
+        carry ``removed``; a wire dataclass ancestor is never marked
+        individually and is skipped. The walk includes ``element_id`` itself
+        and stops at a root or an element unknown to the index.
+        """
+        current_id: ElementId | None = element_id
+        while current_id is not None:
+            try:
+                elem = self._index.lookup(scene_id, current_id)
+            except (UnknownElementError, UnknownSceneError):
+                return None
+            if isinstance(elem, AbcElement) and elem.removed:
+                return current_id
+            current_id = self._children.parent_of(scene_id, current_id)
+        return None
 
     def elements_owned_by(
         self,

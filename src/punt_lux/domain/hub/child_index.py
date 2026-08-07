@@ -54,6 +54,10 @@ class ChildIndex:
         """Return True if ``element_id`` has no recorded parent in ``scene_id``."""
         return (scene_id, element_id) not in self._parent
 
+    def parent_of(self, scene_id: SceneId, element_id: ElementId) -> ElementId | None:
+        """Return ``element_id``'s recorded parent, or ``None`` if it is a root."""
+        return self._parent.get((scene_id, element_id))
+
     def descendants(
         self, scene_id: SceneId, element_id: ElementId
     ) -> tuple[ElementId, ...]:
