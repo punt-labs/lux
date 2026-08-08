@@ -628,3 +628,50 @@ def test_hub_interaction_dispatch_drops_click_on_dismissed_ancestors_child(
 
     assert fired == []
     mock_replicator.mark_dirty.assert_not_called()
+
+
+def test_hub_interaction_dispatch_drops_click_on_the_dismissed_element_itself(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A click on an element marked removed is dropped, distinct from the ancestor case.
+
+    ``DismissalWalk.nearest_dismissed`` includes the target element itself, not
+    only its ancestors — this exercises that branch directly so the two cases
+    (self dismissed vs. ancestor dismissed) both have coverage.
+    """
+    import punt_lux.domain.hub as hub_module
+
+    isolated_display = HubDisplay()
+    scene_id = SceneId("scene")
+    owner = ConnectionId("agent-1")
+    isolated_display.register_client(owner)
+
+    button = ButtonElement(id="confirm", label="Confirm")
+    fired: list[str] = []
+    button.add_handler(ButtonClicked, lambda _e: fired.append("fired"))
+    isolated_display.apply(
+        owner,
+        AddElement(scene_id=scene_id, element=button, parent_id=None),
+    )
+
+    button.mark_removed()
+
+    mock_replicator = MagicMock()
+    monkeypatch.setattr(hub_module, "hub_display", isolated_display)
+    monkeypatch.setattr(
+        "punt_lux.domain.hub.replicator_instance.hub_replicator", mock_replicator
+    )
+
+    HubInteractionDispatch.dispatch(
+        RemoteEventHandlerInvocation(
+            scene_id=str(scene_id),
+            element_id="confirm",
+            action="confirm",
+            event_kind="button_clicked",
+            ts=1.0,
+            value=True,
+        )
+    )
+
+    assert fired == []
+    mock_replicator.mark_dirty.assert_not_called()

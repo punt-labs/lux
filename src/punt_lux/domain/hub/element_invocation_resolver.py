@@ -85,8 +85,8 @@ class ElementInvocationResolver:
         dismissed = self._hub_display.dismissal.nearest_dismissed(sid, eid)
         if dismissed is not None:
             logger.warning(
-                "hub dispatch dropped for dismissed ancestor element_id=%s "
-                "dismissed_id=%s",
+                "hub dispatch dropped for %s: element_id=%s dismissed_id=%s",
+                "itself dismissed" if dismissed == eid else "dismissed ancestor",
                 element_id,
                 dismissed,
             )
