@@ -3,6 +3,15 @@
 **Status:** design, no code changes. Grounded in `target.md`,
 `element-contract.md`, `ui-model.md`, and the code cited inline.
 
+**Point-in-time note:** §1's code citations to `_BASICS_KINDS`,
+`_INPUTS_KINDS`, `_COMPOSITE_KINDS`, `_NATIVE_KINDS`, and
+`src/punt_lux/display/domain_pump.py` describe the tree as it stood when
+this investigation ran. This document's own §5 Q1 recommended deleting that
+wiring outright; a later PR in the same epic executed that recommendation,
+so those symbols and that file no longer exist on `main`. Read §1 as the
+diagnosis that justified the deletion, not as a description of the current
+tree.
+
 ## 1. Restated problem, and what investigation found
 
 The assignment describes a gap: only 16 of 25 element kinds
