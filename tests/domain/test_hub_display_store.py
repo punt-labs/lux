@@ -30,7 +30,7 @@ from punt_lux.domain.hub.hub_display import (
     UnknownElementError,
 )
 from punt_lux.domain.hub.scene_snapshot import SceneSnapshot
-from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
+from punt_lux.domain.ids import ClientId, ConnectionId, ElementId, SceneId
 from punt_lux.domain.interaction import ButtonClicked, ValueChanged
 from punt_lux.domain.update import AddElement, RemoveElement, SetProperty
 from punt_lux.protocol.elements import (
@@ -521,7 +521,7 @@ def test_a_button_click_fires_button_clicked_carrying_its_owner(
     event = observed[0]
     assert event.element_id == ElementId("b1")
     assert event.scene_id == _SCENE
-    assert str(event.owner_id) == str(alice)
+    assert event.owner_id == ClientId(str(alice))
     assert hub.dirtied() == [_SCENE]
 
 

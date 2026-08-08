@@ -28,7 +28,7 @@ from punt_lux.domain import ElementId, SceneId
 from punt_lux.domain.element import Element
 from punt_lux.domain.event_protocol import Event as DomainEvent
 from punt_lux.domain.hub.hub_display import HubDisplay
-from punt_lux.domain.ids import ConnectionId
+from punt_lux.domain.ids import ClientId, ConnectionId
 from punt_lux.domain.interaction import ButtonClicked
 from punt_lux.domain.update import AddElement
 from punt_lux.protocol import (
@@ -272,7 +272,7 @@ def test_button_click_routes_through_the_hub_to_element_handlers(
     click_event = observed_a[0]
     assert isinstance(click_event, ButtonClicked)
     assert click_event.element_id == ElementId("b1")
-    assert str(click_event.owner_id) == str(alice)
+    assert click_event.owner_id == ClientId(str(alice))
     assert observed_b == [click_event]
 
     stored = hub.display.resolve(SceneId("s1"), ElementId("b1"))
