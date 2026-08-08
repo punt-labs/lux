@@ -1,4 +1,4 @@
-"""Wire-path tests: inputs elements flow through Display.apply unchanged.
+"""Wire-path tests: inputs elements flow through HubDisplay.apply unchanged.
 
 The inputs migration adds each class to the matrix below. Every
 migrated kind must satisfy:
@@ -6,8 +6,8 @@ migrated kind must satisfy:
 1. ``isinstance(elem, Element)`` is True against the domain Protocol.
 2. ``factory.element_from_dict({...})`` returns the typed class via the per-kind
    ``from_dict`` classmethod — no module-level helpers.
-3. ``Display.apply(client, AddElement(scene, elem))`` returns ElementAdded
-   and the snapshot reflects the element.
+3. ``HubDisplay.apply(connection, AddElement(scene, elem))`` installs the
+   element, so it stands among the scene's roots.
 4. Wire round-trip: ``element_to_dict(elem)`` produces byte-identical output
    to the pre-migration codec (asserted at the corpus level by
    ``make snapshot-parity``).
@@ -25,10 +25,10 @@ import pytest
 
 from punt_lux.display_client import agent_element_factory
 from punt_lux.domain import ElementId, SceneId
-from punt_lux.domain.display import Display
 from punt_lux.domain.element import Element
-from punt_lux.domain.event import ElementAdded
 from punt_lux.domain.event_protocol import Event as DomainEvent
+from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.ids import ClientId, ConnectionId
 from punt_lux.domain.interaction import ButtonClicked
 from punt_lux.domain.update import AddElement
 from punt_lux.protocol import (
@@ -43,7 +43,7 @@ from punt_lux.protocol import (
     SliderElement,
     element_to_dict,
 )
-from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
+from tests.hub_harness import IsolatedHub
 
 # -- Element Protocol conformance ------------------------------------------
 
@@ -216,14 +216,14 @@ def test_color_picker_round_trip_alpha_and_picker() -> None:
     assert restored.value == "#FF8080AA"
 
 
-# -- end-to-end through Display.apply ---------------------------------------
+# -- end-to-end through HubDisplay.apply ------------------------------------
 
 
-def test_every_inputs_kind_flows_through_display_apply() -> None:
+def test_every_inputs_kind_flows_through_hub_apply() -> None:
     """PY-RF-2: every domain-routed wire kind has a production caller from day one."""
-    display = Display()
-    client = display.connect_client(name="alice")
-    display.add_scene(SceneId("s1"))
+    display = HubDisplay()
+    client = ConnectionId("alice")
+    display.register_client(client)
 
     elements: list[Element] = [
         ButtonElement(id="b1", label="OK"),
@@ -237,55 +237,45 @@ def test_every_inputs_kind_flows_through_display_apply() -> None:
         SelectableElement(id="sel1", label="Item"),
     ]
     for elem in elements:
-        result = display.apply(client, AddElement(scene_id=SceneId("s1"), element=elem))
-        assert isinstance(result, ElementAdded), elem
+        display.apply(client, AddElement(scene_id=SceneId("s1"), element=elem))
 
-    snap = display.snapshot(SceneId("s1"))
-    assert snap.element_ids == frozenset({ElementId(e.id) for e in elements})
+    roots = display.scene_roots(SceneId("s1"))
+    assert [e.id for e in roots] == [e.id for e in elements]
 
 
 # -- Button-interaction-routing (contract acceptance from PR 1) -----------
 
 
-def test_button_click_routes_through_display_to_element_handlers() -> None:
-    """Contract: construct Display, AddElement Button, simulate click, observe event.
+def test_button_click_routes_through_the_hub_to_element_handlers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Install a Button on the Hub, click it from the display, observe the event.
 
-    A wire ``RemoteEventHandlerInvocation`` passed to ``Display.interact`` lands on
-    the resolved Element's handler registry — every registered handler
-    fires exactly once, snapshot remains unchanged.
+    A wire ``RemoteEventHandlerInvocation`` dispatched by the Hub lands on the
+    resolved Element's handler registry — every registered handler fires exactly
+    once and the stored element is untouched.
     """
-    display = Display()
-    alice = display.connect_client(name="alice")
-    display.add_scene(SceneId("s1"))
+    hub = IsolatedHub(monkeypatch)
+    alice = hub.connect("alice")
 
     button = ButtonElement(id="b1", label="OK")
-    add_result = display.apply(
-        alice, AddElement(scene_id=SceneId("s1"), element=button)
-    )
-    assert isinstance(add_result, ElementAdded)
+    hub.install(alice, SceneId("s1"), button)
 
     observed_a: list[DomainEvent] = []
     observed_b: list[DomainEvent] = []
     button.add_handler(ButtonClicked, observed_a.append)
     button.add_handler(ButtonClicked, observed_b.append)
 
-    msg = RemoteEventHandlerInvocation(
-        element_id="b1",
-        action="b1",
-        event_kind="button_clicked",
-        value=True,
-        scene_id="s1",
-    )
-    click_event = display.interact(alice, msg)
+    hub.click(SceneId("s1"), ElementId("b1"))
 
+    assert len(observed_a) == 1
+    click_event = observed_a[0]
     assert isinstance(click_event, ButtonClicked)
     assert click_event.element_id == ElementId("b1")
-    assert click_event.owner_id == alice
-    assert observed_a == [click_event]
+    assert click_event.owner_id == ClientId(str(alice))
     assert observed_b == [click_event]
 
-    snap = display.snapshot(SceneId("s1"))
-    stored = snap.element(ElementId("b1"))
+    stored = hub.display.resolve(SceneId("s1"), ElementId("b1"))
     assert isinstance(stored, ButtonElement)
     assert stored.label == "OK"
 

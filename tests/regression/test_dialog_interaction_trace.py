@@ -2,7 +2,7 @@
 
 This test pins the full causal chain: a wire ``RemoteEventHandlerInvocation``
 for the Confirm child of a ``DialogElement`` flows through
-``Display.interact`` into a typed ``ButtonClicked``, into the catalog
+``HubInteractionDispatch`` into a typed ``ButtonClicked``, into the catalog
 handler the wire decoder installed, into ``DialogModel.confirm`` which
 flips ``_confirmed = True`` and invokes the bound ``on_dismiss``
 callback that calls ``Element.mark_removed`` on the owning
@@ -21,23 +21,22 @@ them visible together.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import TYPE_CHECKING, Self, cast
+from collections.abc import Callable, Mapping
+from typing import TYPE_CHECKING, Self, cast, final
 
-from punt_lux.domain.display import Display
 from punt_lux.domain.element import Element as WireElement
 from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.domain.handlers.publish_sink import PublishSink
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay, UnknownElementError
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId, Topic
-from punt_lux.domain.update import AddElement, RemoveElement
+from punt_lux.domain.update import RemoveElement
 from punt_lux.protocol.element_factory import JsonElementFactory
 from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.dialog_codec import JsonDialogDecoder
 from punt_lux.protocol.messages.observer import ObserverMessage
-from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
 from punt_lux.protocol.renderers import RaisingRendererFactory
+from tests.hub_harness import IsolatedHub
 
 if TYPE_CHECKING:
     import pytest
@@ -48,6 +47,8 @@ _DIALOG_ID = ElementId("save_confirm")
 _OK_BUTTON_ID = ElementId("ok")
 _CANCEL_BUTTON_ID = ElementId("cancel")
 _TOPIC = Topic("dialog_confirmed")
+
+type PublishCallable = Callable[[str, Mapping[str, object]], None]
 
 
 def _noop_emit(_msg: object) -> None:
@@ -217,7 +218,7 @@ def _dialog_wire_spec() -> Mapping[str, object]:
 
 
 def _build_dialog_with_publish_sink(
-    sink_callable: object,
+    sink_callable: PublishCallable,
 ) -> DialogElement:
     """Decode the dialog wire spec with ``sink_callable`` bound as PublishSink."""
     decoder = JsonDialogDecoder(
@@ -229,76 +230,87 @@ def _build_dialog_with_publish_sink(
     return decoder.decode(_dialog_wire_spec())
 
 
-def test_confirm_click_traces_end_to_end_through_every_tier() -> None:
+@final
+class _ConfirmTrace:
+    """One decoded dialog, installed on an isolated Hub and ready to be clicked.
+
+    Owns the whole arrangement the trace needs — the Hub store, the pub-sub Hub
+    and its subscribing writer, the panel that parents the dialog — so a test
+    reads as build-click-assert and the two parity gates differ only in how the
+    dialog was decoded.
+    """
+
+    hub: IsolatedHub
+    panel: _Panel
+    dialog: DialogElement
+    received: list[ObserverMessage]
+    __slots__ = ("dialog", "hub", "panel", "received")
+
+    def __new__(
+        cls,
+        monkeypatch: pytest.MonkeyPatch,
+        build: Callable[[PublishCallable], DialogElement],
+        *,
+        agent: str,
+    ) -> Self:
+        self = super().__new__(cls)
+        self.hub = IsolatedHub(monkeypatch)
+        connection_id = self.hub.connect(agent)
+        pubsub = Hub()
+        self.received = []
+        pubsub.register_writer(connection_id, self.received.append)
+        pubsub.subscribe(connection_id, _TOPIC)
+
+        def _publish_sink(topic: str, payload: Mapping[str, object]) -> None:
+            pubsub.publish(connection_id, Topic(topic), payload)
+
+        self.dialog = build(_publish_sink)
+        # The panel is the scene root and the dialog its child; installing the
+        # root recurses through the Composite Protocol, so the dialog and both
+        # of its buttons land in the index and the wire click resolves.
+        self.panel = _Panel(
+            id=str(_PANEL_ID),
+            hub_display=self.hub.display,
+            scene_id=_SCENE,
+            owner_connection_id=connection_id,
+        )
+        self.panel.install_children((self.dialog,))
+        self.hub.install(connection_id, _SCENE, _as_wire(self.panel))
+        return self
+
+    def confirm(self) -> None:
+        """Click the dialog's Confirm button through the real Hub dispatch."""
+        self.hub.click(_SCENE, _OK_BUTTON_ID)
+
+    def assert_dialog_dropped_from_hub_index(self) -> None:
+        """Assert the dialog is no longer resolvable in the Hub store."""
+        try:
+            self.hub.display.resolve(_SCENE, _DIALOG_ID)
+        except UnknownElementError:
+            return
+        msg = "expected dialog to be dropped from HubDisplay index after dismiss"
+        raise AssertionError(msg)
+
+    def assert_one_publish_delivered(self) -> None:
+        """Assert exactly one ObserverMessage naming the click reached the writer."""
+        assert len(self.received) == 1
+        delivered = self.received[0]
+        assert delivered.topic == str(_TOPIC)
+        assert delivered.payload == {
+            "kind": "button_clicked",
+            "scene_id": str(_SCENE),
+            "element_id": str(_OK_BUTTON_ID),
+        }
+
+
+def test_confirm_click_traces_end_to_end_through_every_tier(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Pin the full causal chain for one Confirm click."""
-    # --- Tier setup: Hub + HubDisplay + Display + connection wiring ----------
-    hub = Hub()
-    hub_display = HubDisplay()
-    display = Display()
-
-    client_id = display.connect_client(name="parity-agent")
-    connection_id = ConnectionId(str(client_id))
-    hub_display.register_client(connection_id)
-
-    received: list[ObserverMessage] = []
-
-    def _writer(message: ObserverMessage) -> None:
-        received.append(message)
-
-    hub.register_writer(connection_id, _writer)
-    hub.subscribe(connection_id, _TOPIC)
-
-    def _publish_sink(topic: str, payload: Mapping[str, object]) -> None:
-        hub.publish(connection_id, Topic(topic), payload)
-
-    dialog = _build_dialog_with_publish_sink(_publish_sink)
-
-    # --- Scene install: panel as root, dialog as a child of the panel ------
-    panel = _Panel(
-        id=str(_PANEL_ID),
-        hub_display=hub_display,
-        scene_id=_SCENE,
-        owner_connection_id=connection_id,
+    trace = _ConfirmTrace(
+        monkeypatch, _build_dialog_with_publish_sink, agent="parity-agent"
     )
-    panel.install_children((dialog,))
-
-    display.add_scene(_SCENE)
-    # The agent installs the panel as the scene root and the dialog as
-    # its child. The Display layer tracks element ownership for the
-    # ``Display.interact`` gate; child buttons are installed alongside
-    # so the wire ``RemoteEventHandlerInvocation`` resolves to a known element.
-    # AbcElement subclasses satisfy the wire ``Element`` Protocol
-    # structurally (id, kind, tooltip, to_dict, from_dict); the cast
-    # tells mypy what the runtime check already knows.
-    display.apply(
-        client_id,
-        AddElement(scene_id=_SCENE, element=_as_wire(panel), parent_id=None),
-    )
-    display.apply(
-        client_id,
-        AddElement(scene_id=_SCENE, element=_as_wire(dialog), parent_id=_PANEL_ID),
-    )
-    ok_button = dialog.children[0]
-    cancel_button = dialog.children[1]
-    display.apply(
-        client_id,
-        AddElement(scene_id=_SCENE, element=_as_wire(ok_button), parent_id=_DIALOG_ID),
-    )
-    display.apply(
-        client_id,
-        AddElement(
-            scene_id=_SCENE, element=_as_wire(cancel_button), parent_id=_DIALOG_ID
-        ),
-    )
-
-    # Hub-side index install: the dialog is the root the HubDisplay
-    # observer watches for self-dismissal. When ``mark_removed`` fires,
-    # the root-observer's "removed" branch routes a RemoveElement back
-    # through ``apply`` and the index drops the entry.
-    hub_display.apply(
-        connection_id,
-        AddElement(scene_id=_SCENE, element=_as_wire(dialog), parent_id=None),
-    )
+    dialog = trace.dialog
 
     # --- Preconditions: model fresh, indexes populated ----------------------
     # Bind property reads to locals so mypy doesn't carry the narrowing
@@ -307,73 +319,62 @@ def test_confirm_click_traces_end_to_end_through_every_tier() -> None:
     pre_confirmed: bool = dialog.confirmed
     pre_removed: bool = dialog.removed
     pre_visible: bool = dialog.visible
-    pre_children: tuple[AbcElement, ...] = panel.children
+    pre_children: tuple[AbcElement, ...] = trace.panel.children
     assert pre_confirmed is False
     assert pre_removed is False
     assert pre_visible is True
     assert len(pre_children) == 1
     assert pre_children[0] is dialog
-    assert hub_display.resolve(_SCENE, _DIALOG_ID) is dialog
+    assert trace.hub.display.resolve(_SCENE, _DIALOG_ID) is dialog
 
-    # --- The act: a wire RemoteEventHandlerInvocation for the Confirm click ----------
-    click = RemoteEventHandlerInvocation(
-        element_id=str(_OK_BUTTON_ID),
-        action="click",
-        event_kind="button_clicked",
-        scene_id=str(_SCENE),
-        value=True,
-    )
-    event = display.interact(client_id, click)
+    # --- The act: a wire RemoteEventHandlerInvocation for the Confirm click ---
+    trace.confirm()
 
     # --- The trace: every downstream effect, asserted in causal order ------
 
-    # 1. Display.interact constructed and returned the typed event.
-    assert event.scene_id == _SCENE
-    assert event.element_id == _OK_BUTTON_ID
-    assert event.owner_id == client_id
-
-    # 2. The catalog handler ran call_model("confirm") against DialogModel —
+    # 1. The catalog handler ran call_model("confirm") against DialogModel —
     #    the model recorded confirmation.
     assert dialog.model.confirmed is True
     assert dialog.confirmed is True
 
-    # 3. The model's _dismiss callback flipped Element-level _removed via
+    # 2. The model's _dismiss callback flipped Element-level _removed via
     #    Element.mark_removed.
     assert dialog.model.visible is False
     assert dialog.visible is False
     assert dialog.removed is True
 
-    # 4. The Observer cascade reached the parent: the panel's children
+    # 3. The Observer cascade reached the parent: the panel's children
     #    tuple no longer contains the dialog.
-    assert panel.children == ()
+    assert trace.panel.children == ()
 
-    # 5. The HubDisplay index dropped the dialog — the root observer's
-    #    "removed" branch routed RemoveElement through apply.
-    _assert_dialog_dropped_from_hub_index(hub_display)
+    # 4. The HubDisplay index dropped the dialog — the parent's prune routed
+    #    RemoveElement back through apply.
+    trace.assert_dialog_dropped_from_hub_index()
 
-    # 6. The decorator chain's publish call reached Hub.publish, which
+    # 5. The decorator chain's publish call reached Hub.publish, which
     #    queued one ObserverMessage to the subscribing connection's
     #    writer — the subscriber-side analogue of poll_event returning
     #    the payload. The payload names the click and the button it
     #    landed on, so the subscriber need not infer either.
-    assert len(received) == 1
-    delivered = received[0]
-    assert delivered.topic == str(_TOPIC)
-    assert delivered.payload == {
-        "kind": "button_clicked",
-        "scene_id": str(_SCENE),
-        "element_id": str(_OK_BUTTON_ID),
-    }
+    trace.assert_one_publish_delivered()
+
+    # 6. The handler mutated the scene, so the Hub marked it for the
+    #    replicator to resend — the display never repaints from the click.
+    assert trace.hub.dirtied() == [_SCENE]
 
 
-def _assert_dialog_dropped_from_hub_index(hub_display: HubDisplay) -> None:
-    """Assert the dialog is no longer resolvable in ``hub_display``."""
-    try:
-        hub_display.resolve(_SCENE, _DIALOG_ID)
-    except UnknownElementError:
-        return
-    msg = "expected dialog to be dropped from HubDisplay index after dismiss"
-    raise AssertionError(msg)
+def _build_dialog_through_module_factory(
+    sink_callable: PublishCallable,
+) -> DialogElement:
+    """Decode the wire spec through ``JsonElementFactory``, the production path."""
+    test_factory = JsonElementFactory(
+        renderer_factory=RaisingRendererFactory(),
+        emit=_noop_emit,
+        publish_sink=cast("PublishSink", _PublishSinkAdapter(sink_callable)),
+    )
+    decoded = test_factory.element_from_dict(dict(_dialog_wire_spec()))
+    assert isinstance(decoded, DialogElement)
+    return decoded
 
 
 def test_confirm_click_traces_through_module_level_element_from_dict(
@@ -389,87 +390,14 @@ def test_confirm_click_traces_through_module_level_element_from_dict(
     future production-vs-test divergence (renderer factory wiring,
     publish-sink contract, kind dispatch) surfaces here.
     """
-    hub = Hub()
-    hub_display = HubDisplay()
-    display = Display()
-
-    client_id = display.connect_client(name="parity-agent-module")
-    connection_id = ConnectionId(str(client_id))
-    hub_display.register_client(connection_id)
-
-    received: list[ObserverMessage] = []
-
-    def _writer(message: ObserverMessage) -> None:
-        received.append(message)
-
-    hub.register_writer(connection_id, _writer)
-    hub.subscribe(connection_id, _TOPIC)
-
-    def _publish_sink(topic: str, payload: Mapping[str, object]) -> None:
-        hub.publish(connection_id, Topic(topic), payload)
-
-    test_factory = JsonElementFactory(
-        renderer_factory=RaisingRendererFactory(),
-        emit=_noop_emit,
-        publish_sink=cast("PublishSink", _PublishSinkAdapter(_publish_sink)),
-    )
-    decoded = test_factory.element_from_dict(dict(_dialog_wire_spec()))
-    assert isinstance(decoded, DialogElement)
-    dialog = decoded
-
-    panel = _Panel(
-        id=str(_PANEL_ID),
-        hub_display=hub_display,
-        scene_id=_SCENE,
-        owner_connection_id=connection_id,
-    )
-    panel.install_children((dialog,))
-
-    display.add_scene(_SCENE)
-    display.apply(
-        client_id,
-        AddElement(scene_id=_SCENE, element=_as_wire(panel), parent_id=None),
-    )
-    display.apply(
-        client_id,
-        AddElement(scene_id=_SCENE, element=_as_wire(dialog), parent_id=_PANEL_ID),
-    )
-    ok_button = dialog.children[0]
-    cancel_button = dialog.children[1]
-    display.apply(
-        client_id,
-        AddElement(scene_id=_SCENE, element=_as_wire(ok_button), parent_id=_DIALOG_ID),
-    )
-    display.apply(
-        client_id,
-        AddElement(
-            scene_id=_SCENE, element=_as_wire(cancel_button), parent_id=_DIALOG_ID
-        ),
-    )
-    hub_display.apply(
-        connection_id,
-        AddElement(scene_id=_SCENE, element=_as_wire(dialog), parent_id=None),
+    trace = _ConfirmTrace(
+        monkeypatch, _build_dialog_through_module_factory, agent="parity-agent-module"
     )
 
-    click = RemoteEventHandlerInvocation(
-        element_id=str(_OK_BUTTON_ID),
-        action="click",
-        event_kind="button_clicked",
-        scene_id=str(_SCENE),
-        value=True,
-    )
-    event = display.interact(client_id, click)
+    trace.confirm()
 
-    assert event.scene_id == _SCENE
-    assert event.element_id == _OK_BUTTON_ID
-    assert dialog.confirmed is True
-    assert dialog.removed is True
-    assert panel.children == ()
-    _assert_dialog_dropped_from_hub_index(hub_display)
-    assert len(received) == 1
-    assert received[0].topic == str(_TOPIC)
-    assert received[0].payload == {
-        "kind": "button_clicked",
-        "scene_id": str(_SCENE),
-        "element_id": str(_OK_BUTTON_ID),
-    }
+    assert trace.dialog.confirmed is True
+    assert trace.dialog.removed is True
+    assert trace.panel.children == ()
+    trace.assert_dialog_dropped_from_hub_index()
+    trace.assert_one_publish_delivered()

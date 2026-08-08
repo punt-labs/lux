@@ -7,46 +7,25 @@ Two invariants verified here:
   and returns zero. The independence of the per-Element handler
   registry and the per-connection subscription registry is what makes
   this trivial.
-- ``Display.interact`` rejects a wire ``RemoteEventHandlerInvocation`` whose
-  ``client_id`` has been dropped from the clients registry with
-  ``UnknownClientError`` — the disconnect path's call to
-  ``HubDisplay.drop_connection`` (and the parallel
-  ``Display.disconnect_client``) closes the gate.
+- ``HubDisplay.drop_connection`` forgets the departing session without
+  disturbing the UI it installed: the elements stay indexed and owned, and
+  a display click on them still reaches its handler, because a
+  ``RemoteEventHandlerInvocation`` names no caller for the Hub to gate on.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import dataclass
-from typing import Literal, Self
+from typing import TYPE_CHECKING
 
-import pytest
-
-from punt_lux.domain.display import Display
 from punt_lux.domain.hub.hub import Hub
-from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId, Topic
-from punt_lux.domain.interaction_errors import UnknownClientError
-from punt_lux.domain.update import AddElement
+from punt_lux.domain.interaction import ButtonClicked
+from punt_lux.protocol.elements import ButtonElement
 from punt_lux.protocol.messages.observer import ObserverMessage
-from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
+from tests.hub_harness import IsolatedHub
 
-
-@dataclass(frozen=True, slots=True)
-class _Button:
-    """Stand-in element for the interact-rejects test."""
-
-    id: ElementId
-    label: str = ""
-    kind: Literal["button"] = "button"
-    tooltip: str | None = None
-
-    def to_dict(self) -> dict[str, object]:
-        return {"id": str(self.id), "kind": self.kind, "label": self.label}
-
-    @classmethod
-    def from_dict(cls, d: Mapping[str, object]) -> Self:
-        return cls(id=ElementId(str(d["id"])), label=str(d.get("label", "")))
+if TYPE_CHECKING:
+    import pytest
 
 
 def test_orphan_handler_publish_after_disconnect_is_safe_noop() -> None:
@@ -72,48 +51,36 @@ def test_orphan_handler_publish_after_disconnect_is_safe_noop() -> None:
     assert received == []
 
 
-def test_display_interact_rejects_disconnected_client_with_unknown_client_error() -> (
-    None
-):
-    """After ``drop_connection`` the client gate refuses
-    ``Display.interact`` calls with ``UnknownClientError``."""
-    display = Display()
-    hub_display = HubDisplay()
+def test_dropped_connection_keeps_its_elements_and_their_clicks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A session's UI outlives the session, clicks included.
 
-    client_id = display.connect_client(name="lifecycle-agent")
-    connection_id = ConnectionId(str(client_id))
-    hub_display.register_client(connection_id)
-
+    ``drop_connection`` deregisters the client and nothing else: the elements it
+    installed stay indexed and still owned by its id, so a later frame close,
+    clear, or TTL can remove them. A click that arrives afterwards still fires,
+    because the invocation carries no caller identity — the Hub has no caller to
+    compare against the owner. That is the documented state of the dispatch
+    path, recorded here so a future identity gate has a test to change rather
+    than a silent gap to discover.
+    """
+    hub = IsolatedHub(monkeypatch)
+    connection_id = hub.connect("lifecycle-agent")
     scene_id = SceneId("lifecycle-scene")
     element_id = ElementId("btn-1")
-    display.add_scene(scene_id)
-    button = _Button(id=element_id, label="go")
-    display.apply(
-        client_id, AddElement(scene_id=scene_id, element=button, parent_id=None)
-    )
-    hub_display.apply(
-        connection_id,
-        AddElement(scene_id=scene_id, element=button, parent_id=None),
-    )
 
-    assert hub_display.is_client(connection_id)
-    assert display.is_client(client_id)
+    button = ButtonElement(id=str(element_id), label="go")
+    fired: list[ButtonClicked] = []
+    button.add_handler(ButtonClicked, fired.append)
+    hub.install(connection_id, scene_id, button)
+    assert hub.display.is_client(connection_id)
 
-    hub_display.drop_connection(connection_id)
-    display.disconnect_client(client_id)
+    hub.display.drop_connection(connection_id)
 
-    assert not hub_display.is_client(connection_id)
-    assert not display.is_client(client_id)
-    # Scenes survive session death: the connection's elements stay installed and
-    # owned by its id (so a later frame close, clear, or TTL can still remove
-    # them), even though it is no longer a live client.
-    assert hub_display.elements_owned_by(connection_id) != ()
+    assert not hub.display.is_client(connection_id)
+    assert hub.display.elements_owned_by(connection_id) != ()
+    assert hub.display.resolve(scene_id, element_id) is button
 
-    msg = RemoteEventHandlerInvocation(
-        element_id=str(element_id),
-        action="click",
-        scene_id=str(scene_id),
-        value=True,
-    )
-    with pytest.raises(UnknownClientError):
-        display.interact(client_id, msg)
+    hub.click(scene_id, element_id)
+
+    assert len(fired) == 1

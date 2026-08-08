@@ -1,9 +1,11 @@
 """OwnershipError — refused mutation due to client/element ownership mismatch.
 
 Per PY-EH-1, ownership is validated at the boundary before any state
-mutation. Per PY-EH-8, ``Display.apply`` returns this typed Error
-instead of raising or returning ``None`` when a client attempts to
-mutate an element it does not own.
+mutation. This is a typed Error value describing an ownership refusal
+as data (per PY-EH-8's discriminated-union-of-outcomes shape), distinct
+from ``HubOwnershipError`` (``domain.hub.ownership_error``), the
+exception ``HubDisplay.apply`` actually raises on the same refusal
+today.
 """
 
 from __future__ import annotations
