@@ -6,12 +6,9 @@ root id reused by a buried child. A per-element ``validate()`` cannot see
 the collision — it examines one element in isolation — so the check lives
 in a stateful walk that remembers every id it has already seen.
 
-The Display enforces the same invariant element-by-element at install time,
-returning :class:`~punt_lux.domain.error.DuplicateIdError` from
-``Display.apply``. The Hub enforces it here, before any install, so a
-colliding tree is rejected whole and never partially installed. Both tiers
-speak the same ``DuplicateIdError`` so a duplicate reads identically on
-either side.
+The Hub enforces it here, before any install, so a colliding tree is
+rejected whole and never partially installed rather than left
+half-applied by a mid-walk failure.
 """
 
 from __future__ import annotations

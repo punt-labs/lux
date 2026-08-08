@@ -7,12 +7,13 @@ exception to). ``WrongKindError`` is the one domain-validation failure that
 still raises, at the element-mutation call site (``wire_value.py``,
 ``event_handler_host.py``) rather than the dispatch itself.
 
-Distinct from ``domain.error`` and ``domain.ownership``, which house the
-dataclass response types ``HubDisplay.apply`` *returns* (the success-or-error
-union). The two error families are deliberately separate: ``apply`` returns
-errors as values because every Update's outcome is one of a discriminated
-union; a wire-kind mismatch raises because it signals a caller sending a
-value shape its own declared kind cannot accept.
+Distinct from ``domain.error`` and ``domain.ownership``, which house
+lookup/validation failures modeled as data (per PY-EH-8) rather than as
+exceptions -- ``HubDisplay.apply`` itself enforces those same failures
+by raising today, so the two families no longer split cleanly along
+"apply returns this / interact raises that"; they remain separate
+modules because they model the failure differently (value vs.
+exception), not because of which call site produces each.
 """
 
 from __future__ import annotations

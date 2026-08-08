@@ -1,9 +1,10 @@
-"""Typed lookup / validation failure responses from Display.apply.
+"""Typed lookup / validation failure values, described as data per PY-EH-8.
 
-Sibling classes of Events, not exceptions. ``Display.apply`` returns one
-of these (or an OwnershipError from ``domain.ownership``) when the
-Update is refused before mutation per PY-EH-1.  ``Display.apply`` never
-returns ``None`` — PY-EH-8.
+Sibling classes of Events, not exceptions. ``HubDisplay.apply`` today
+enforces these same failures by raising rather than returning one of
+these values; ``DuplicateIdError`` is the one member of this family
+still live in production, returned by ``DuplicateIdScanner``
+(``domain.id_uniqueness``) rather than by ``apply`` itself.
 
 Three lookup/validation kinds live here:
 
@@ -87,6 +88,6 @@ class UnknownElementError:
         }
 
 
-# Discriminated union of failure responses, including OwnershipError from
-# the sibling module. This is what Display.apply returns alongside Event.
+# Discriminated union of failure values, including OwnershipError from
+# the sibling module.
 type Error = OwnershipError | DuplicateIdError | PropertyTypeError | UnknownElementError
