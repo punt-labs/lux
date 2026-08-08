@@ -9,13 +9,12 @@
 > the body below are snapshots from mid-migration and are superseded by this
 > banner.
 >
-> **What is still true, not yet fixed:** a separate, non-authoritative
-> Display-tier mirror — `DomainPump`, `_NATIVE_KINDS`, and `_domain_display`
-> in `src/punt_lux/display/server.py` — predates this migration and is not
-> what it tracked. `HubDisplay` is already the real authority for all 25
-> kinds with no per-kind gate. This mirror's production wiring is dead weight
-> that a later PR in this epic removes; until then, "legacy path deleted"
-> means the `SceneManager` path, not this separate mirror.
+> **Update:** a separate, non-authoritative Display-tier mirror —
+> `DomainPump`, `_NATIVE_KINDS`, and `_domain_display` in
+> `src/punt_lux/display/server.py` — predated this migration and was never
+> what it tracked. `HubDisplay` was already the real authority for all 25
+> kinds with no per-kind gate; that mirror's production wiring has since been
+> deleted as dead weight, in a separate cleanup epic.
 
 This directory holds the plan that migrated Lux's element kinds off the legacy
 `SceneManager` path and onto the distributed Element-ABC / Hub-Display
