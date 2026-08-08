@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Mapping
 
 __all__ = ["FramePlacement"]
 
@@ -12,5 +13,5 @@ class FramePlacement:
     """The fit-all state shared by every frame in one render pass."""
 
     fitting: bool
-    tile_layout: dict[str, tuple[float, float, float, float]]
+    tile_layout: Mapping[str, tuple[float, float, float, float]]
     default_size: tuple[float, float]

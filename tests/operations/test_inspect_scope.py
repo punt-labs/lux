@@ -1,4 +1,4 @@
-"""``InspectScope`` — the proxied-fact request flag an inspection carries."""
+"""``InspectScope`` — the proxied-fact request flag that an inspection carries."""
 
 from __future__ import annotations
 
