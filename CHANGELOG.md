@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Removed
+
+- **`punt_lux.domain.display.Display`.** The display-tier scene mirror had no
+  production caller left once `DomainPump` went, and it carried a second
+  implementation of ownership, dismissed-ancestor, and click validation beside
+  the Hub's. `HubDisplay` is the one store and `HubInteractionDispatch` the one
+  dispatch surface; the tests that drove the mirror now drive them.
+
 ## [0.23.0] - 2026-08-03
 
 ### Added
