@@ -191,9 +191,9 @@ class TestForkGate:
 
 
 class TestLevel5Introspection:
-    def test_separator_reports_abc_render_path(self) -> None:
+    def test_separator_is_recorded(self) -> None:
         resp = _inspect(_server(), SeparatorElement(id="s1"))
-        assert _record(resp, "s1")["render_path"] == "abc"
+        assert _record(resp, "s1")["kind"] == "separator"
 
     def test_separator_resolved_props_read_back_including_defaults(self) -> None:
         resp = _inspect(_server(), SeparatorElement(id="s1"))

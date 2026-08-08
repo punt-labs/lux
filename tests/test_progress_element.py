@@ -247,22 +247,22 @@ class TestForkGate:
         assert isinstance(group, GroupElement)
         assert isinstance(group.children[0], ProgressElement)
 
-    def test_group_and_progress_child_report_abc_render_path(self) -> None:
+    def test_group_and_progress_child_are_recorded(self) -> None:
         group = GroupElement(
             id="g1", children=(ProgressElement(id="p1", fraction=0.5),)
         )
         resp = _inspect(_server(), group)
-        assert _record(resp, "g1")["render_path"] == "abc"
-        assert _record(resp, "p1")["render_path"] == "abc"
+        assert _record(resp, "g1")["kind"] == "group"
+        assert _record(resp, "p1")["kind"] == "progress"
 
 
 # -- Level 5: introspection -------------------------------------------------
 
 
 class TestLevel5Introspection:
-    def test_progress_reports_abc_render_path(self) -> None:
+    def test_progress_is_recorded(self) -> None:
         resp = _inspect(_server(), ProgressElement(id="p1", fraction=0.42))
-        assert _record(resp, "p1")["render_path"] == "abc"
+        assert _record(resp, "p1")["kind"] == "progress"
 
     def test_progress_resolved_props_read_back_including_defaults(self) -> None:
         resp = _inspect(_server(), ProgressElement(id="p1", fraction=0.42))

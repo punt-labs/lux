@@ -54,7 +54,7 @@ class QueryOperations:
         self._display = display
         self._hub = hub
         self._port = port
-        self._facts = DisplayFactProxy(display, port)
+        self._facts = DisplayFactProxy(port)
         return self
 
     # -- Hub-authoritative reads -------------------------------------------
@@ -65,8 +65,8 @@ class QueryOperations:
         """Return a scene's element tree read from the authoritative store.
 
         Reads ``HubDisplay`` — never the display replica. An unknown scene is a
-        ``not_found``. The display-side mirror check and painted geometry are
-        proxied only when ``scope`` asks and are never treated as Hub authority.
+        ``not_found``. The display-side painted geometry is proxied only when
+        ``scope`` asks and is never treated as Hub authority.
         """
         sid = SceneId(scene_id)
         if sid not in self._display.live_scene_ids():
@@ -77,10 +77,8 @@ class QueryOperations:
             self._inspect(cast("WireElement", root))
             for root in self._display.scene_roots(sid)
         ]
-        mirror, geometry = self._facts.facts(scene_id, scope)
-        return SceneInspection(
-            scene_id=scene_id, elements=elements, mirror=mirror, geometry=geometry
-        )
+        geometry = self._facts.facts(scene_id, scope)
+        return SceneInspection(scene_id=scene_id, elements=elements, geometry=geometry)
 
     def list_scenes(self) -> SceneList:
         """List every live scene and frame from the authoritative store."""
@@ -175,12 +173,7 @@ class QueryOperations:
     # -- inspection tree ----------------------------------------------------
 
     def _inspect(self, element: WireElement) -> InspectedElement:
-        """Return an element's resolved state and recurse into its children.
-
-        Every kind is on the Element-ABC path, so ``render_path`` is always
-        ``"abc"`` and every element resolves its own props and exposes its
-        children.
-        """
+        """Return an element's resolved state and recurse into its children."""
         children = [
             self._inspect(cast("WireElement", child))
             for child in element.child_elements()
@@ -188,7 +181,6 @@ class QueryOperations:
         return InspectedElement(
             id=element.id,
             kind=element.kind,
-            render_path="abc",
             resolved_props=dict(element.resolved_props()),
             children=children,
         )

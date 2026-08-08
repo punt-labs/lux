@@ -5,9 +5,8 @@ geometry is display-local truth — the dragged position, ImGui's auto-sizing
 outcome, and the Z-order — so it crosses back as this read, never as Hub state.
 The three cases keep "you didn't ask" (``not_requested``), "you asked and I
 couldn't tell" (``unavailable``), and "here it is" (``present``) from ever being
-confused, the same shape ``MirrorState`` uses. An element in the tree but absent
-from ``present.elements`` was not painted last frame; absence reports that
-directly.
+confused. An element in the tree but absent from ``present.elements`` was not
+painted last frame; absence reports that directly.
 """
 
 from __future__ import annotations

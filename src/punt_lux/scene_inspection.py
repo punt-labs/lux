@@ -2,17 +2,14 @@
 
 The built-in ``inspect_scene`` returns each element's wire dict, which omits
 defaulted fields. These records add the fully-resolved state so a test can
-assert "this element's value reads back" without inspecting pixels.
-
-Honesty of scope (this runs on the DISPLAY process): ``domain_mirror_present``
-reads the display-side domain ``Display`` mirror, not the Hub's authoritative
-``HubDisplay`` (which lives in luxd). ``render_path`` is constant ``"abc"`` now
-that every kind is on the Element-ABC path.
+assert "this element's value reads back" without inspecting pixels. This runs
+on the DISPLAY process, so it reads the display's own render state, not the
+Hub's authoritative ``HubDisplay`` (which lives in luxd).
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, Self, cast
+from typing import TYPE_CHECKING, Self, cast
 
 from punt_lux.protocol.elements import element_to_dict
 
@@ -21,23 +18,11 @@ if TYPE_CHECKING:
 
     from punt_lux.protocol.elements import Element
 
-__all__ = ["ElementInspection", "RenderPath", "SceneInspection"]
-
-# Constant post-migration: every element is on the Element-ABC path. The field
-# is kept (its emitted value never changes, so no reader breaks); the type no
-# longer advertises a ``"legacy"`` value that can never occur.
-type RenderPath = Literal["abc"]
+__all__ = ["ElementInspection", "SceneInspection"]
 
 
 class ElementInspection:
-    """One element's render path, mirror presence, and resolved state.
-
-    ``render_path`` is always ``"abc"`` — every kind is on the Element-ABC path.
-
-    ``domain_mirror_present`` is an HONEST display-side signal: whether the
-    display-side dual-write pump routed this element into the display's domain
-    ``Display`` mirror. It is NOT Hub authority; the display process cannot
-    read the Hub's ``HubDisplay``.
+    """One element's resolved state.
 
     ``props`` is the fully-resolved state, including defaulted fields the wire
     dict omits.
@@ -45,8 +30,6 @@ class ElementInspection:
 
     _id: str
     _kind: str
-    _render_path: RenderPath
-    _domain_mirror_present: bool
     _props: Mapping[str, object]
 
     def __new__(
@@ -54,33 +37,21 @@ class ElementInspection:
         *,
         element_id: str,
         kind: str,
-        render_path: RenderPath,
-        domain_mirror_present: bool,
         props: Mapping[str, object],
     ) -> Self:
         self = super().__new__(cls)
         self._id = element_id
         self._kind = kind
-        self._render_path = render_path
-        self._domain_mirror_present = domain_mirror_present
         self._props = props
         return self
 
     @classmethod
-    def from_element(cls, element: Element, *, domain_mirror_present: bool) -> Self:
-        """Capture ``element``'s resolved state.
-
-        Every kind is on the Element-ABC path, so ``render_path`` is always
-        ``"abc"`` and the element resolves its own props.
-        """
-        render_path: RenderPath = "abc"
-        props: Mapping[str, object] = element.resolved_props()
+    def from_element(cls, element: Element) -> Self:
+        """Capture ``element``'s resolved state."""
         return cls(
             element_id=element.id,
             kind=element.kind,
-            render_path=render_path,
-            domain_mirror_present=domain_mirror_present,
-            props=props,
+            props=element.resolved_props(),
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -88,8 +59,6 @@ class ElementInspection:
         return {
             "id": self._id,
             "kind": self._kind,
-            "render_path": self._render_path,
-            "domain_mirror_present": self._domain_mirror_present,
             "props": dict(self._props),
         }
 
@@ -104,42 +73,29 @@ class SceneInspection:
 
     _scene_id: str
     _elements: tuple[Element, ...]
-    _mirror_ids: frozenset[str]
 
     def __new__(
         cls,
         *,
         scene_id: str,
         elements: tuple[Element, ...],
-        mirror_ids: frozenset[str],
     ) -> Self:
         self = super().__new__(cls)
         self._scene_id = scene_id
         self._elements = elements
-        self._mirror_ids = mirror_ids
         return self
 
     @classmethod
-    def from_scene(
-        cls,
-        scene_id: str,
-        elements: Sequence[Element],
-        *,
-        mirror_ids: frozenset[str],
-    ) -> Self:
+    def from_scene(cls, scene_id: str, elements: Sequence[Element]) -> Self:
         """Build the inspection for ``scene_id`` and its elements."""
-        return cls(
-            scene_id=scene_id,
-            elements=tuple(elements),
-            mirror_ids=mirror_ids,
-        )
+        return cls(scene_id=scene_id, elements=tuple(elements))
 
     def to_dict(self) -> dict[str, object]:
         """Return the enriched ``inspect_scene`` response.
 
         ``element_paths`` recurses every container's children so a nested
-        child's ``render_path`` is emitted too — a top-level ``"abc"`` group
-        says nothing about whether its children also flipped.
+        child's props are emitted too — a top-level element's resolution says
+        nothing about whether its children were also resolved.
         """
         records: list[dict[str, object]] = []
         for element in self._elements:
@@ -152,10 +108,6 @@ class SceneInspection:
 
     def _append_records(self, element: Element, sink: list[dict[str, object]]) -> None:
         """Append ``element``'s record, then recurse into its children."""
-        sink.append(
-            ElementInspection.from_element(
-                element, domain_mirror_present=element.id in self._mirror_ids
-            ).to_dict()
-        )
+        sink.append(ElementInspection.from_element(element).to_dict())
         for child in element.child_elements():
             self._append_records(cast("Element", child), sink)

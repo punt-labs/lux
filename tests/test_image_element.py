@@ -237,9 +237,9 @@ class TestForkGate:
 
 
 class TestLevel5Introspection:
-    def test_image_reports_abc_render_path(self) -> None:
+    def test_image_is_recorded(self) -> None:
         resp = _inspect(_server(), ImageElement(id="i1", path="/a.png"))
-        assert _record(resp, "i1")["render_path"] == "abc"
+        assert _record(resp, "i1")["kind"] == "image"
 
     def test_image_resolved_props_read_back_including_defaults(self) -> None:
         resp = _inspect(_server(), ImageElement(id="i1", path="/a.png"))

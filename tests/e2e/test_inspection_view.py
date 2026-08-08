@@ -15,9 +15,7 @@ from .inspection_view import InspectionView
 
 def _view(*ids: object) -> InspectionView:
     """Build an InspectionView whose element_paths carry ``ids`` in order."""
-    records = [
-        {"id": eid, "kind": "sep", "render_path": "", "props": {}} for eid in ids
-    ]
+    records = [{"id": eid, "kind": "sep", "props": {}} for eid in ids]
     return InspectionView({"element_paths": records, "elements": []})
 
 

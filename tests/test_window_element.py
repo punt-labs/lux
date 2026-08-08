@@ -328,7 +328,7 @@ class TestLevel3Crossing:
         assert child._renderer_factory is factory
 
 
-# -- Level 5: introspection (render_path + resolved props) ------------------
+# -- Level 5: introspection (element_paths + resolved props) ----------------
 
 
 def _mock_sock() -> MagicMock:
@@ -354,13 +354,13 @@ def _record(resp: QueryResponse, element_id: str) -> dict[str, object]:
 
 
 class TestLevel5Introspection:
-    def test_window_and_children_report_abc_render_path(self) -> None:
+    def test_window_and_children_are_recorded(self) -> None:
         window = _decode(_abc_window().to_dict())
         assert isinstance(window, WindowElement)
         resp = _inspect(_server(), window)
-        assert _record(resp, "w")["render_path"] == "abc"
-        assert _record(resp, "t1")["render_path"] == "abc"
-        assert _record(resp, "b1")["render_path"] == "abc"
+        assert _record(resp, "w")["kind"] == "window"
+        assert _record(resp, "t1")["kind"] == "text"
+        assert _record(resp, "b1")["kind"] == "button"
 
     def test_resolved_props_reports_chrome_and_children(self) -> None:
         window = _decode(_abc_window(flags=WindowFlags(no_move=True)).to_dict())

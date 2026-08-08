@@ -246,12 +246,10 @@ buffers — is proxied.
 core correction. Today these tools ask the *display* what it is rendering. But
 the Hub is the authority, and asking the replica instead of the authority is
 exactly the reach-around the design removes. After this change both read from
-`HubDisplay`. `inspect_scene` reports the element structure, each element's
-`render_path` (`"abc"` or `"legacy"`), and its `resolved_props`. The
-`domain_mirror_present` field described in the introspection API — whether the
-display-side mirror exists — is a display fact, so it is an optional
-add-on the operation proxies only when asked, and it is never read as Hub
-authority.
+`HubDisplay`. `inspect_scene` reports the element structure and each element's
+`resolved_props`. The painted geometry described in the introspection API is a
+display fact, so it is an optional add-on the operation proxies only when
+asked, and it is never read as Hub authority.
 
 **`list_clients` reads the Hub session registry.** Today it asks the display
 which clients are connected to the display socket. After the Hub took over,
@@ -359,7 +357,6 @@ class SceneList(BaseModel):
 class InspectedElement(BaseModel):
     id: str
     kind: str
-    render_path: Literal["abc", "legacy"]
     # Resolved element state including defaults. A wire-shaped map because the
     # element kinds are open and each fills its own props; narrowed per kind by
     # the element codec, not here (PY-TS-14 wire boundary).
@@ -370,9 +367,6 @@ class SceneInspection(BaseModel):
     kind: Literal["ok"] = "ok"
     scene_id: str
     elements: list[InspectedElement]
-    # A display-side mirror check; None when not requested. Never read as Hub
-    # authority (introspection-api.md).
-    domain_mirror_present: bool | None = None
 
 class HubClient(BaseModel):
     connection_id: str

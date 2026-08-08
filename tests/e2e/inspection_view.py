@@ -2,9 +2,9 @@
 
 The Display replica answers ``inspect_scene`` with an ``element_paths``
 array — one record per element (recursed through containers) carrying
-``id``, ``kind``, ``render_path``, and ``props``. Both the loop invariants
-and the re-push effects read that array by element id; this value class
-owns the lookup so neither reaches into the raw dict shape.
+``id``, ``kind``, and ``props``. Both the loop invariants and the re-push
+effects read that array by element id; this value class owns the lookup so
+neither reaches into the raw dict shape.
 """
 
 from __future__ import annotations

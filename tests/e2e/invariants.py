@@ -149,8 +149,8 @@ class LoopInvariants:
         leaf = self._scenario.display_only_id
         pre = InspectionView(self._obs.post_dispatch_inspection)
         post = InspectionView(self._obs.post_react_inspection)
-        assert pre.record(leaf)["render_path"] == "abc"
-        assert post.record(leaf)["render_path"] == "abc"
+        assert pre.has(leaf), f"{leaf!r} must survive the pre-react round trip"
+        assert post.has(leaf), f"{leaf!r} must survive the post-react round trip"
         for patch in self._scenario.react:
             pre_props = pre.props(patch.element_id)
             post_props = post.props(patch.element_id)

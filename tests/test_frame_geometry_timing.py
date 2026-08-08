@@ -16,6 +16,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Self
 
 from punt_lux.display import DisplayServer
+from punt_lux.display.frame_placement import FramePlacement
 from punt_lux.display.geometry_capture import GeometryCapture
 from punt_lux.scene.frame import Frame
 
@@ -23,6 +24,7 @@ if TYPE_CHECKING:
     import pytest
 
 _DEFAULT_SIZE = (800.0, 600.0)
+_PLACEMENT = FramePlacement(fitting=False, tile_layout={}, default_size=_DEFAULT_SIZE)
 
 
 def _make_server() -> DisplayServer:
@@ -99,9 +101,7 @@ def test_expanded_frame_records_after_contents_before_end(
     _spy(monkeypatch, server, order)
     fake = _FakeImgui(expanded=True, docked=False, order=order)
 
-    result, _hovered = server._render_single_frame(
-        _frame(), fake, fitting=False, tile_layout={}, default_size=_DEFAULT_SIZE
-    )
+    result, _hovered = server._render_single_frame(_frame(), fake, _PLACEMENT)
 
     assert result is None
     # The contents lay out first, then the final rect is recorded, then the
@@ -117,9 +117,7 @@ def test_docked_collapsed_frame_records_before_end(
     _spy(monkeypatch, server, order)
     fake = _FakeImgui(expanded=False, docked=True, order=order)
 
-    result, _hovered = server._render_single_frame(
-        _frame(), fake, fitting=False, tile_layout={}, default_size=_DEFAULT_SIZE
-    )
+    result, _hovered = server._render_single_frame(_frame(), fake, _PLACEMENT)
 
     assert result is None
     # A docked-but-collapsed frame paints no contents but still records its tab

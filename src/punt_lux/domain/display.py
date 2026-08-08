@@ -8,10 +8,8 @@ no JSON. The single-runtime testability requirement from
 Role, and how it differs from ``HubDisplay``. There are two authoritative
 stores, one per tier:
 
-- ``Display`` (this class) is the **display-process mirror**. It is the
-  live store the display-side dual-write pump writes into: ``DisplayServer``
-  constructs one (``server._domain_display``) and ``DomainPump.route`` mirrors
-  every native-kind scene into it. It is not vestigial.
+- ``Display`` (this class) is the **display-process mirror**. ``DisplayServer``
+  no longer constructs or writes into an instance of it in production.
 - ``HubDisplay`` (``domain/hub/hub_display.py``) is the **luxd-process**
   authoritative store; the live D21 click dispatch resolves and fires against
   it (``domain/hub/clients.py``), not against this class.

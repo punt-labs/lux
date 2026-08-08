@@ -280,8 +280,8 @@ never through an internal stub of the dispatch, handler, publish, or inbox.
   `update` **only when** the subscribed business event was delivered; if nothing
   arrives it does not react. So I5 proves the agent reacted *because* the event
   arrived — the closed chain interaction→dispatch→publish→**react**→re-push, not
-  merely "an update landed". Asserted via `inspect_scene` (`render_path`,
-  `resolved_props`): every react patch is present in the re-pushed replica and
+  merely "an update landed". Asserted via `inspect_scene` (`resolved_props`):
+  every react patch is present in the re-pushed replica and
   only via the re-push, and the display-only leaf survived the round trip. The
   negative — no delivery ⇒ no react — is pinned by
   `test_undelivered_event_does_not_react`.
