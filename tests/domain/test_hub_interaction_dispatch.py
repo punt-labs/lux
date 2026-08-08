@@ -638,6 +638,14 @@ def test_hub_interaction_dispatch_drops_click_on_the_dismissed_element_itself(
     ``DismissalWalk.nearest_dismissed`` includes the target element itself, not
     only its ancestors — this exercises that branch directly so the two cases
     (self dismissed vs. ancestor dismissed) both have coverage.
+
+    The button must be a NON-ROOT element, same as the ancestor-dismissed test
+    above: only a scene root carries the Hub-owned observer that routes
+    ``mark_removed`` through ``apply`` and drops the element from the index
+    (``SubtreeInstaller``). Marking a root removed makes resolve() itself fail
+    (LookupError), which drops the invocation for the wrong reason and never
+    reaches ``DismissalWalk`` at all — exactly the bug Bugbot caught in an
+    earlier version of this test.
     """
     import punt_lux.domain.hub as hub_module
 
@@ -649,11 +657,16 @@ def test_hub_interaction_dispatch_drops_click_on_the_dismissed_element_itself(
     button = ButtonElement(id="confirm", label="Confirm")
     fired: list[str] = []
     button.add_handler(ButtonClicked, lambda _e: fired.append("fired"))
+    root = GroupElement(id="root", children=[button])
     isolated_display.apply(
         owner,
-        AddElement(scene_id=scene_id, element=button, parent_id=None),
+        AddElement(scene_id=scene_id, element=root, parent_id=None),
     )
 
+    # button is a non-root child: marking it removed does not cascade through
+    # SubtreeInstaller's root-only observer, so it stays indexed and resolve()
+    # succeeds — the click must be dropped by DismissalWalk, not by a failed
+    # lookup.
     button.mark_removed()
 
     mock_replicator = MagicMock()
