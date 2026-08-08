@@ -21,10 +21,8 @@ from dataclasses import replace
 
 import pytest
 
-from punt_lux.domain.display import Display
-from punt_lux.domain.ids import ElementId, SceneId
+from punt_lux.domain.ids import ClientId, ElementId, SceneId
 from punt_lux.domain.interaction import ValueChanged
-from punt_lux.domain.update import AddElement
 from punt_lux.protocol import SceneMessage, recv_message, send_message
 from punt_lux.protocol.elements import (
     ButtonElement,
@@ -35,6 +33,7 @@ from punt_lux.protocol.elements import (
 )
 from punt_lux.protocol.messages import message_from_dict, message_to_dict
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
+from tests.hub_harness import IsolatedHub
 
 # -- native-pickle scene roundtrip for all four exemplars -------------------
 
@@ -112,7 +111,9 @@ def test_dialog_native_wire_roundtrip_preserves_children() -> None:
 # -- full Display-wrap -> real socket -> Hub dispatch leg -------------------
 
 
-def test_full_wrap_socket_hub_leg_fires_once_on_authoritative_copy() -> None:
+def test_full_wrap_socket_hub_leg_fires_once_on_authoritative_copy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Prove the D21 property across a real wire, not in-process.
 
     The Display-side wrapper (``wrap_handlers_for_remote``) produces the
@@ -123,11 +124,10 @@ def test_full_wrap_socket_hub_leg_fires_once_on_authoritative_copy() -> None:
     runs locally.
     """
     # -- Hub side: authoritative store holding the real handler ---------------
-    hub = Display()
-    alice = hub.connect_client(name="alice")
-    hub.add_scene(SceneId("s1"))
+    hub = IsolatedHub(monkeypatch)
+    alice = hub.connect("alice")
     hub_checkbox = CheckboxElement(id="c1", label="Bold", value=False)
-    hub.apply(alice, AddElement(scene_id=SceneId("s1"), element=hub_checkbox))
+    hub.install(alice, SceneId("s1"), hub_checkbox)
     fired: list[ValueChanged] = []
     hub_checkbox.add_handler(ValueChanged, fired.append)
 
@@ -151,7 +151,7 @@ def test_full_wrap_socket_hub_leg_fires_once_on_authoritative_copy() -> None:
         ValueChanged(
             scene_id=SceneId("s1"),
             element_id=ElementId("c1"),
-            owner_id=alice,
+            owner_id=ClientId(str(alice)),
             value=True,
         )
     )
@@ -161,11 +161,13 @@ def test_full_wrap_socket_hub_leg_fires_once_on_authoritative_copy() -> None:
     assert isinstance(invocation, RemoteEventHandlerInvocation)
     assert invocation.event_kind == "value_changed"
 
-    event = hub.interact(alice, invocation)
+    hub.dispatch(invocation)
 
-    assert isinstance(event, ValueChanged)
-    assert event.value is True
-    assert fired == [event]  # fired once, on the Hub's authoritative copy
+    # Fired once, on the Hub's authoritative copy, with the Hub's own owner.
+    assert len(fired) == 1
+    assert fired[0].value is True
+    assert str(fired[0].owner_id) == str(alice)
+    assert hub.dirtied() == [SceneId("s1")]
 
     display_end.close()
     hub_end.close()
