@@ -76,7 +76,7 @@ def test_remove_subtree_clears_root_and_descendant_from_every_store() -> None:
     assert store.owners.get(_SCENE, _ROOT) is None
     assert store.owners.get(_SCENE, _CHILD) is None
     # The child edge is gone, so the child would now read as a root.
-    assert store.children.is_root(_SCENE, _CHILD)
+    assert store.children.parent_of(_SCENE, _CHILD) is None
 
 
 def test_drop_root_of_wire_root_tears_down_through_the_walk() -> None:

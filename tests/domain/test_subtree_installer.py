@@ -67,7 +67,7 @@ def test_install_root_lands_in_index_and_owners() -> None:
 
     assert store.index.contains(_SCENE, ElementId("root"))
     assert store.owners.get(_SCENE, ElementId("root")) == _OWNER
-    assert store.children.is_root(_SCENE, ElementId("root"))
+    assert store.children.parent_of(_SCENE, ElementId("root")) is None
 
 
 def test_install_stamps_the_same_owner_onto_every_element() -> None:
@@ -92,7 +92,7 @@ def test_install_composite_recurses_into_children() -> None:
     assert store.index.contains(_SCENE, ElementId("grp"))
     assert store.index.contains(_SCENE, ElementId("c1"))
     # The child lands under the parent edge, never hoisted to a root.
-    assert not store.children.is_root(_SCENE, ElementId("c1"))
+    assert store.children.parent_of(_SCENE, ElementId("c1")) is not None
 
 
 def test_abc_root_removal_routes_through_the_callback() -> None:

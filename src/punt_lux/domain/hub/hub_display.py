@@ -34,8 +34,8 @@ import time
 from typing import TYPE_CHECKING, Self
 
 from punt_lux.domain.element import Element as WireElement
-from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.domain.hub.child_index import ChildIndex
+from punt_lux.domain.hub.dismissal_walk import DismissalWalk
 from punt_lux.domain.hub.element_index import (
     ElementIndex,
     UnknownElementError,
@@ -49,6 +49,7 @@ from punt_lux.domain.hub.owner import Owner
 from punt_lux.domain.hub.owner_tracker import OwnerTracker
 from punt_lux.domain.hub.ownership_error import HubOwnershipError
 from punt_lux.domain.hub.root_registry import RootRegistry
+from punt_lux.domain.hub.root_removal_router import RootRemovalRouter
 from punt_lux.domain.hub.scene_presentation import (
     ScenePresentation,
     ScenePresentationRegistry,
@@ -94,6 +95,7 @@ class HubDisplay:
     _owners: OwnerTracker
     _roots: RootRegistry
     _children: ChildIndex
+    _dismissal: DismissalWalk
     _clients: HubClientRegistry
     _frames: ScenePresentationRegistry
     _seam: WriteSeam
@@ -111,17 +113,19 @@ class HubDisplay:
         self._owners = OwnerTracker()
         self._roots = RootRegistry()
         self._children = ChildIndex()
+        self._dismissal = DismissalWalk(self._index, self._children)
         self._frames = ScenePresentationRegistry()
         self._seam = WriteSeam(self._index)
         self._remover = SubtreeRemover(
             self._index, self._owners, self._roots, self._children
         )
+        root_removal = RootRemovalRouter(self._owners, self.apply)
         self._installer = SubtreeInstaller(
             self._index,
             self._owners,
             self._roots,
             self._children,
-            self._remove_root,
+            root_removal.route,
         )
         self._lock = StoreLock()
         self._frame_lifecycle = FrameLifecycle(
@@ -209,31 +213,14 @@ class HubDisplay:
             raise UnknownElementError(scene_id=scene_id, element_id=element_id)
         return owner.connection_id
 
-    def dismissed_ancestor(
-        self, scene_id: SceneId, element_id: ElementId
-    ) -> ElementId | None:
-        """Return the closest self-or-ancestor whose ``removed`` flag is set.
+    @property
+    def dismissal(self) -> DismissalWalk:
+        """Return the ancestor-dismissal walk over the index and child edges.
 
-        Only a scene-root Element's ``mark_removed`` routes back through
-        ``apply`` and drops the subtree from the index (``SubtreeInstaller``
-        registers the observer on roots only). A non-root ancestor marked
-        removed by its own parent composite stays indexed, so a click on a
-        surviving descendant would otherwise still resolve and fire; this
-        walk is what a caller checks first to refuse it. Only ABC Elements
-        carry ``removed``; a wire dataclass ancestor is never marked
-        individually and is skipped. The walk includes ``element_id`` itself
-        and stops at a root or an element unknown to the index.
+        Exposed like ``frames``, ``reader``, and ``clients`` — a sub-object
+        callers reach through the facade rather than a method per query.
         """
-        current_id: ElementId | None = element_id
-        while current_id is not None:
-            try:
-                elem = self._index.lookup(scene_id, current_id)
-            except (UnknownElementError, UnknownSceneError):
-                return None
-            if isinstance(elem, AbcElement) and elem.removed:
-                return current_id
-            current_id = self._children.parent_of(scene_id, current_id)
-        return None
+        return self._dismissal
 
     def elements_owned_by(
         self,
@@ -350,22 +337,6 @@ class HubDisplay:
         session no longer appears among the live Hub clients.
         """
         self._clients.discard(connection_id)
-
-    # -- private helpers ---------------------------------------------------
-
-    def _remove_root(self, scene_id: SceneId, element_id: ElementId) -> None:
-        """Route an ABC root's self-removal back through the authoritative path.
-
-        The installer registers this as the scene-root observer callback; when a
-        root flips ``_removed`` it lands here. The store owns the owner tracker,
-        so it resolves the owner and runs the removal through ``apply``, sharing
-        ownership enforcement and storage teardown with every other remove. An
-        already-forgotten root has no owner and needs no teardown.
-        """
-        owner = self._owners.get(scene_id, element_id)
-        if owner is not None:
-            removal = RemoveElement(scene_id=scene_id, element_id=element_id)
-            self.apply(owner.connection_id, removal)
 
 
 hub_display = HubDisplay()

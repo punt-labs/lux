@@ -25,7 +25,7 @@ class ChildIndex:
     """``(scene_id, parent_id) → tuple[ElementId, ...]`` mapping.
 
     Maintains both directions: parent → ordered children list (for
-    subtree walks) and child → parent (for "is root" queries). The
+    subtree walks) and child → parent (for ``parent_of`` lookups). The
     parent → child list preserves insertion order so cascade removal
     visits children in the order they were installed.
     """
@@ -49,10 +49,6 @@ class ChildIndex:
         """Record ``child_id`` as a child of ``parent_id`` in ``scene_id``."""
         self._children.setdefault((scene_id, parent_id), []).append(child_id)
         self._parent[(scene_id, child_id)] = parent_id
-
-    def is_root(self, scene_id: SceneId, element_id: ElementId) -> bool:
-        """Return True if ``element_id`` has no recorded parent in ``scene_id``."""
-        return (scene_id, element_id) not in self._parent
 
     def parent_of(self, scene_id: SceneId, element_id: ElementId) -> ElementId | None:
         """Return ``element_id``'s recorded parent, or ``None`` if it is a root."""

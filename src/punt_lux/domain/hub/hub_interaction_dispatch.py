@@ -50,68 +50,39 @@ class HubInteractionDispatch:
     def _fire_scene_element(msg: RemoteEventHandlerInvocation) -> None:
         """Resolve the invocation's element and fire its typed event Hub-side.
 
-        The element builds its own typed event from the wire payload (polymorphic
-        dispatch on its ``RemoteDispatchSpec``s); a missing scene id, an unresolved
-        or non-ABC element, or a kind the element does not fire is logged and
-        dropped, never fired. The handler runs on the Hub's authoritative copy, and
-        the scene is marked dirty so the replicator re-sends any mutation it made.
+        Resolution and its several drop reasons live in
+        ``ElementInvocationResolver``; this method is the fire-or-drop decision
+        for whatever it hands back. The element builds its own typed event from
+        the wire payload (polymorphic dispatch on its ``RemoteDispatchSpec``s); a
+        kind the element does not fire is logged and dropped, never fired. The
+        handler runs on the Hub's authoritative copy, and the scene is marked
+        dirty so the replicator re-sends any mutation it made.
         """
-        from punt_lux.domain.element_abc import Element as ElementABC
         from punt_lux.domain.hub import hub_display
+        from punt_lux.domain.hub.element_invocation_resolver import (
+            ElementInvocationResolver,
+        )
         from punt_lux.domain.hub.replicator_instance import hub_replicator
-        from punt_lux.domain.ids import ClientId, ElementId, SceneId
+        from punt_lux.domain.ids import ClientId
         from punt_lux.domain.interaction_errors import WrongKindError
 
-        scene_id = msg.scene_id
-        element_id = msg.element_id
-        if scene_id is None:
-            logger.warning(
-                "hub dispatch missing scene_id for element_id=%s", element_id
-            )
+        resolved = ElementInvocationResolver(hub_display).resolve(msg)
+        if resolved is None:
             return
         try:
-            element = hub_display.resolve(SceneId(scene_id), ElementId(element_id))
-            owner = hub_display.owner_of(SceneId(scene_id), ElementId(element_id))
-        except (KeyError, LookupError) as exc:
-            logger.warning(
-                "hub dispatch resolve failed scene_id=%s element_id=%s: %s",
-                scene_id,
-                element_id,
-                exc,
-            )
-            return
-        if not isinstance(element, ElementABC):
-            logger.warning(
-                "hub dispatch type mismatch element_id=%s type=%s",
-                element_id,
-                type(element).__name__,
-            )
-            return
-        dismissed = hub_display.dismissed_ancestor(
-            SceneId(scene_id), ElementId(element_id)
-        )
-        if dismissed is not None:
-            logger.warning(
-                "hub dispatch dropped for dismissed ancestor element_id=%s "
-                "dismissed_id=%s",
-                element_id,
-                dismissed,
-            )
-            return
-        try:
-            event = element.build_remote_event(
+            event = resolved.element.build_remote_event(
                 event_kind=msg.event_kind,
-                scene_id=SceneId(scene_id),
-                owner_id=ClientId(str(owner)),
+                scene_id=resolved.scene_id,
+                owner_id=ClientId(str(resolved.owner)),
                 value=msg.value,
             )
         except WrongKindError as exc:
-            logger.warning("hub dispatch denied element_id=%s: %s", element_id, exc)
+            logger.warning("hub dispatch denied element_id=%s: %s", msg.element_id, exc)
             return
-        element.fire(event)
+        resolved.element.fire(event)
         # A handler may have mutated the scene; the replicator (the sole display
         # writer) resends it. mark_dirty is queue-only, so a click never blocks.
-        hub_replicator.mark_dirty(SceneId(scene_id))
+        hub_replicator.mark_dirty(resolved.scene_id)
 
     @staticmethod
     def _dispatch_menu_callback(menu_id: str) -> None:
