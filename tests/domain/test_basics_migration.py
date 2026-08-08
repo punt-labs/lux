@@ -1,12 +1,12 @@
-"""Wire-path tests: basics elements flow through Display.apply unchanged.
+"""Wire-path tests: basics elements flow through HubDisplay.apply unchanged.
 
 Each commit in the basics migration adds one class to the matrix below.
 Per the migration plan, every kind must satisfy:
 
 1. ``isinstance(elem, Element)`` is True against the domain Protocol.
 2. ``factory.element_from_dict({...})`` returns the typed class with no helpers.
-3. ``Display.apply(client, AddElement(scene, elem))`` returns ElementAdded
-   and the snapshot reflects the element.
+3. ``HubDisplay.apply(connection, AddElement(scene, elem))`` installs the
+   element, so ``resolve`` returns it and it stands among the scene roots.
 4. Wire round-trip: ``element_to_dict(elem)`` produces byte-identical
    output to the pre-migration codec (asserted by make snapshot-parity).
 
@@ -18,9 +18,9 @@ from __future__ import annotations
 
 from punt_lux.display_client import agent_element_factory
 from punt_lux.domain import ElementId, SceneId
-from punt_lux.domain.display import Display
 from punt_lux.domain.element import Element
-from punt_lux.domain.event import ElementAdded
+from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.ids import ConnectionId
 from punt_lux.domain.update import AddElement
 from punt_lux.protocol import (
     ImageElement,
@@ -93,22 +93,20 @@ def test_text_element_from_dict_accepts_arbitrary_style_string() -> None:
     assert elem.style == "fancy"
 
 
-def test_text_element_wire_path_through_display_apply() -> None:
-    """Wire-decoded TextElement reaches Display.apply and emits ElementAdded."""
-    display = Display()
-    client = display.connect_client(name="alice")
-    display.add_scene(SceneId("s1"))
+def test_text_element_wire_path_through_hub_apply() -> None:
+    """Wire-decoded TextElement reaches HubDisplay.apply and is installed."""
+    display = HubDisplay()
+    client = ConnectionId("alice")
+    display.register_client(client)
 
     wire = {"kind": "text", "id": "t1", "content": "hello"}
     elem = agent_element_factory().element_from_dict(wire)
     assert isinstance(elem, TextElement)
 
-    result = display.apply(client, AddElement(scene_id=SceneId("s1"), element=elem))
-    assert isinstance(result, ElementAdded)
-    assert result.element_id == ElementId("t1")
+    display.apply(client, AddElement(scene_id=SceneId("s1"), element=elem))
 
-    snap = display.snapshot(SceneId("s1"))
-    stored = snap.element(ElementId("t1"))
+    assert display.owner_of(SceneId("s1"), ElementId("t1")) == client
+    stored = display.resolve(SceneId("s1"), ElementId("t1"))
     assert isinstance(stored, TextElement)
     assert stored.content == "hello"
 
@@ -185,11 +183,11 @@ def test_markdown_element_round_trip() -> None:
     assert restored.content == "# Hi"
 
 
-def test_every_basics_kind_flows_through_display_apply() -> None:
+def test_every_basics_kind_flows_through_hub_apply() -> None:
     """PY-RF-2: every new domain type has a production caller from day one."""
-    display = Display()
-    client = display.connect_client(name="alice")
-    display.add_scene(SceneId("s1"))
+    display = HubDisplay()
+    client = ConnectionId("alice")
+    display.register_client(client)
 
     elements: list[Element] = [
         TextElement(id="t1", content="hi"),
@@ -200,11 +198,10 @@ def test_every_basics_kind_flows_through_display_apply() -> None:
         MarkdownElement(id="md1", content="# Hi"),
     ]
     for elem in elements:
-        result = display.apply(client, AddElement(scene_id=SceneId("s1"), element=elem))
-        assert isinstance(result, ElementAdded), elem
+        display.apply(client, AddElement(scene_id=SceneId("s1"), element=elem))
 
-    snap = display.snapshot(SceneId("s1"))
-    assert snap.element_ids == frozenset({ElementId(e.id) for e in elements})
+    roots = display.scene_roots(SceneId("s1"))
+    assert [e.id for e in roots] == [e.id for e in elements]
 
 
 def test_scene_manager_has_no_basics_branches() -> None:

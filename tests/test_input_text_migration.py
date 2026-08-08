@@ -16,19 +16,16 @@ import pytest
 
 from punt_lux.display.server import DisplayServer
 from punt_lux.display_client import agent_element_factory
-from punt_lux.domain.display import Display
 from punt_lux.domain.element_abc import Element as AbcElement
-from punt_lux.domain.event import ElementAdded
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
 from punt_lux.domain.interaction import ValueChanged
-from punt_lux.domain.interaction_errors import WrongKindError
-from punt_lux.domain.update import AddElement
 from punt_lux.domain.validation_walk import ElementTreeValidator
 from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.elements import InputTextElement
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
 from punt_lux.protocol.messages import message_from_dict, message_to_dict
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
+from tests.hub_harness import IsolatedHub
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -195,52 +192,46 @@ class TestInteraction:
         assert sent[0].value == "typed"
 
 
-# -- Display.interact typed-event construction ------------------------------
+# -- Hub dispatch typed-event construction ----------------------------------
 
 
-class TestDisplayInteract:
-    def test_str_value_builds_value_changed(self) -> None:
-        display = Display()
-        alice = display.connect_client(name="alice")
-        display.add_scene(SceneId("s1"))
+class TestHubDispatch:
+    def test_str_value_builds_value_changed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        hub = IsolatedHub(monkeypatch)
+        alice = hub.connect("alice")
         elem = InputTextElement(id="it", label="N")
-        assert isinstance(
-            display.apply(alice, AddElement(scene_id=SceneId("s1"), element=elem)),
-            ElementAdded,
-        )
-        event = display.interact(
-            alice,
-            RemoteEventHandlerInvocation(
-                element_id="it",
-                action="changed",
-                event_kind="value_changed",
-                value="hello",
-                scene_id="s1",
-            ),
-        )
-        assert isinstance(event, ValueChanged)
-        assert event.value == "hello"
+        hub.install(alice, SceneId("s1"), elem)
+        observed: list[ValueChanged] = []
+        elem.add_handler(ValueChanged, observed.append)
 
-    def test_non_scalar_value_is_rejected(self) -> None:
+        hub.click(
+            SceneId("s1"), ElementId("it"), event_kind="value_changed", value="hello"
+        )
+
+        assert [event.value for event in observed] == ["hello"]
+
+    def test_non_scalar_value_is_rejected(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         # ``value_changed`` accepts any scalar at the boundary; the precise
         # per-kind shape (input_text's ``str``) is the element's DES-039
-        # invariant. A non-scalar payload is denied here with WrongKindError.
-        display = Display()
-        alice = display.connect_client(name="alice")
-        display.add_scene(SceneId("s1"))
+        # invariant. A non-scalar payload builds no event, so the Hub drops the
+        # invocation: the handler never runs and the scene is never marked dirty.
+        hub = IsolatedHub(monkeypatch)
+        alice = hub.connect("alice")
         elem = InputTextElement(id="it", label="N")
-        display.apply(alice, AddElement(scene_id=SceneId("s1"), element=elem))
-        with pytest.raises(WrongKindError):
-            display.interact(
-                alice,
-                RemoteEventHandlerInvocation(
-                    element_id="it",
-                    action="changed",
-                    event_kind="value_changed",
-                    value=[1, 2],
-                    scene_id="s1",
-                ),
-            )
+        hub.install(alice, SceneId("s1"), elem)
+        observed: list[ValueChanged] = []
+        elem.add_handler(ValueChanged, observed.append)
+
+        hub.click(
+            SceneId("s1"), ElementId("it"), event_kind="value_changed", value=[1, 2]
+        )
+
+        assert observed == []
+        assert hub.dirtied() == []
 
 
 # -- Level 5: introspection (element_paths + resolved props) ----------------
