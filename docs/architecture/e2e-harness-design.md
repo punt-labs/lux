@@ -33,9 +33,11 @@ whole loop through the production Hub dispatch**:
 - [`tests/regression/test_dialog_interaction_trace.py`](../../tests/regression/test_dialog_interaction_trace.py)
   pins the full causal chain for a Confirm click — fire → `DialogModel.confirm`
   → `mark_removed` → observer cascade → publish to a subscriber
-  (`test_dialog_interaction_trace.py:233-361`) — **but entirely through the
-  test-only `Display.interact`** (`domain/display.py:19-25`) with a test
-  `_publish_sink` (`line 252`), not through the production Hub dispatch.
+  — **but, when this design was written, entirely through the test-only
+  `Display.interact`** with a test `_publish_sink`, not through the production
+  Hub dispatch. That class has since been deleted and the trace now clicks
+  through `HubInteractionDispatch`; what it still does not do is cross the
+  Hub/Display boundary, which is what the harness below adds.
 
 No standing gate asserts that a UI interaction produces the **exact wire event a
 real click produces**, crosses the Hub/Display boundary through the same
@@ -81,13 +83,11 @@ The real loop (all citations to shipped code):
    `client.show_async(...)` (`clients.py:199-208`). The Display replaces its
    replica.
 
-The test-only `Display.interact` (`domain/display.py:19-25`) is a **different**
-in-process dispatch surface — its own docstring says so: "Under D21 the display
-forwards interactions to the Hub … production interaction dispatch runs on the
-Hub side; `interact` here stays the in-process dispatch contract." **The harness
-dispatches through `_hub_interaction_dispatch`, never `Display.interact`.** Using
-the latter would re-create the exact in-process illusion this harness exists to
-kill.
+This design was written while a second, test-only dispatch surface still
+existed: `Display.interact` on the display-tier mirror. The harness deliberately
+never used it, because dispatching there would have re-created the exact
+in-process illusion the harness exists to kill. The class is now deleted, so
+`_hub_interaction_dispatch` is the only dispatch surface there is.
 
 ## In-process, no socket, no subprocess, no GPU
 
