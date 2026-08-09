@@ -227,7 +227,7 @@ class DisplayServer:
 
     @property
     def scenes(self) -> SceneReplica:
-        """Return the scene manager for external inspection."""
+        """Return the scene replica for external inspection."""
         return self._scenes
 
     @property
