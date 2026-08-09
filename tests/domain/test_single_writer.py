@@ -23,13 +23,13 @@ _SRC = Path(__file__).resolve().parents[2] / "src" / "punt_lux"
 # slip in through a module an enumerated list would have forgotten.
 _SENDER_MODULES = frozenset(
     {
-        "display_client.py",
+        "domain/hub/display_link.py",
         "domain/hub/scene_presentation.py",
         "domain/hub/replicator.py",
     }
 )
 
-# The DisplayClient send surface — a call to any of these is "writing to the
+# The DisplayLink send surface — a call to any of these is "writing to the
 # display", on any receiver name, so a Hub-side module cannot dodge the guard by
 # binding the client to a name other than ``client``. The blocking ``show`` is
 # matched with its ``(`` argument list; there is deliberately no ``.clear(`` term —

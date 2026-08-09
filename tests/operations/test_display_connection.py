@@ -146,7 +146,7 @@ def test_query_maps_a_send_failure_to_timeout_and_drops() -> None:
 
 
 def test_query_maps_a_failed_reconnect_to_unavailable_and_drops() -> None:
-    # ClientRegistry.get -> DisplayClient.connect raises RuntimeError when the
+    # ClientRegistry.get -> DisplayLink.connect raises RuntimeError when the
     # display dies between the liveness check and the get; it must fold into a
     # typed display_unavailable, not escape as an untyped tool exception.
     registry = _Registry(_Client(), connect_error=RuntimeError("Cannot connect"))

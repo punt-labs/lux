@@ -826,7 +826,7 @@ class TestMultiScene:
 
         assert _scene_count(server) == 0
         assert len(server._scenes.frames) == 0
-        assert len(server._scenes._widget_state) == 0
+        assert server._scenes.widget_state_count == 0
 
     def test_widget_state_isolated_per_scene(self) -> None:
         """Each scene gets its own WidgetState instance."""

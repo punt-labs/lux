@@ -25,9 +25,9 @@ from punt_lux.display import geometry_capture
 from punt_lux.display.render_loop import RenderLoop
 from punt_lux.display.renderers.imgui.draw import ImGuiDrawRenderer
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
-from punt_lux.display_client import agent_element_factory
 from punt_lux.domain.validation_walk import ElementTreeValidator
 from punt_lux.protocol import SceneMessage
+from punt_lux.protocol.agent_factory import agent_element_factory
 from punt_lux.protocol.elements import DrawElement, GroupElement
 from punt_lux.protocol.elements.draw_commands_line import Line
 from punt_lux.protocol.elements.draw_commands_shape import Rect

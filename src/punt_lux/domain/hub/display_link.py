@@ -1,7 +1,7 @@
-"""Lux client library — connect to the display server and send scenes.
+"""The Hub's connection to the display process.
 
-Provides :class:`DisplayClient`, a context-manager that connects to the Lux
-display server over a Unix domain socket, waits for the ``ReadyMessage``
+Provides :class:`DisplayLink`, a context-manager that connects to the Lux
+display over a Unix domain socket, waits for the ``ReadyMessage``
 handshake, and exposes typed methods for sending scenes, updates, clears,
 and pings.  Receives ack, pong, and observer events.
 
@@ -24,9 +24,9 @@ import select
 import socket
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Self, cast
+from typing import TYPE_CHECKING, Any, Literal, Self
 
 from punt_lux.paths import DisplayPaths
 from punt_lux.polled_event import PolledEvent
@@ -49,9 +49,6 @@ from punt_lux.protocol import (
     recv_message,
     send_message,
 )
-from punt_lux.protocol.element_factory import JsonElementFactory
-from punt_lux.protocol.elements import container_dispatch
-from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 from punt_lux.send_timeout import set_send_timeout
 from punt_lux.tracing import trace
 
@@ -65,63 +62,6 @@ logger = logging.getLogger(__name__)
 DEFAULT_RECV_TIMEOUT = 5.0
 
 
-class NoOpAgentSideSink:
-    """Explicit no-op publish sink for agent-side wire decode.
-
-    Agent-side decoders never receive publish-bearing wire elements —
-    publish decorators only fire inside the luxd Hub. This sink is
-    constructed by the agent-side tier boundary (DisplayClient,
-    tools.show, beads app) and threaded into a per-tier
-    :class:`JsonElementFactory` so any decode-time publish (which would
-    indicate a misrouted Hub element) silently no-ops rather than
-    raising — agent-side validation focuses on schema integrity, not
-    on Hub-only side effects.
-    """
-
-    __slots__ = ()
-
-    def __new__(cls) -> Self:
-        return super().__new__(cls)
-
-    def __call__(self, _topic: str, _payload: Mapping[str, object]) -> None:
-        """Drop the publish — agent-side has no Hub to deliver it to."""
-
-
-def no_op_emit(_msg: object) -> None:
-    """Sentinel emit channel for agent-side / display-tier decode — Null Object."""
-
-
-def _build_agent_side_factory() -> JsonElementFactory:
-    """Build the agent-side :class:`JsonElementFactory` for wire decode.
-
-    Constructed lazily at module load so any code path that decodes a
-    wire dict on the agent side (DisplayClient.recv, tools.show
-    validation) routes through one shared factory.
-    ``RaisingRendererFactory`` makes any accidental
-    ``elem.render()`` from the agent tier loud; ``_NoOpAgentSideSink``
-    drops publishes that the agent has no Hub to deliver to.
-    """
-    return JsonElementFactory(
-        renderer_factory=RaisingRendererFactory(),
-        emit=no_op_emit,
-        publish_sink=cast("Any", NoOpAgentSideSink()),
-    )
-
-
-# Agent-side tier-boundary factory. The decode-side container recursion
-# is installed once at import time so every agent-side decode path
-# (DisplayClient inbound, tools.show validation, beads app, scene
-# message decode in ``recv_message`` / ``FrameReader.drain_typed``)
-# routes through this factory's bound method.
-_AGENT_FACTORY: JsonElementFactory = _build_agent_side_factory()
-container_dispatch.dispatch.install_from_dict(_AGENT_FACTORY.element_from_dict)
-
-
-def agent_element_factory() -> JsonElementFactory:
-    """Return the shared agent-side :class:`JsonElementFactory`."""
-    return _AGENT_FACTORY
-
-
 def _drain_queue(q: queue.SimpleQueue[Any]) -> None:
     """Discard all items from a :class:`queue.SimpleQueue`."""
     while True:
@@ -131,7 +71,7 @@ def _drain_queue(q: queue.SimpleQueue[Any]) -> None:
             break
 
 
-class DisplayClient:
+class DisplayLink:
     """Client for the Lux display server.
 
     Parameters
@@ -195,7 +135,7 @@ class DisplayClient:
 
     # -- context manager ---------------------------------------------------
 
-    def __enter__(self) -> DisplayClient:
+    def __enter__(self) -> DisplayLink:
         self.connect()
         return self
 

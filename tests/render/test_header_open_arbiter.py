@@ -22,7 +22,7 @@ from punt_lux.display.renderers.imgui.collapsing_header import (
 )
 from punt_lux.display.renderers.imgui.header_open_arbiter import HeaderOpenArbiter
 from punt_lux.display.replica.widget_state import WidgetState
-from punt_lux.display_client import agent_element_factory
+from punt_lux.protocol.agent_factory import agent_element_factory
 from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement
 from punt_lux.protocol.elements.text import TextElement
 

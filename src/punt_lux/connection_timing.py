@@ -34,7 +34,7 @@ class ConnectionTiming:
 
     keepalive_interval: float = 2.0
     ping_timeout: float = 1.0
-    # Extra hold beyond the reconnect worst case, covering the DisplayClient
+    # Extra hold beyond the reconnect worst case, covering the DisplayLink
     # send-lock stack that can serialize a ping behind an in-flight send and push
     # a real reconnect past the nominal worst case.
     hold_margin: float = 2.5

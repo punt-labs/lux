@@ -37,7 +37,7 @@ hub_menu_registry = HubMenuRegistry()
 # routes against the session registry that lives in the shared HubDisplay.
 hub_callback_router = CallbackRouter(hub_display.clients)
 
-# DisplayClient satisfies the port at runtime — its show_async takes the concrete
+# DisplayLink satisfies the port at runtime — its show_async takes the concrete
 # protocol.Element union every WireElement root is; the cast bridges list invariance.
 hub_replicator = HubReplicator(
     hub_display.reader,

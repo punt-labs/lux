@@ -5,7 +5,7 @@ same single connection the replicator already owns. The port hides the socket,
 the bounded send, and the reconnect policy behind two calls that each return a
 :class:`DisplayReply`. The concrete implementation lives in the Hub layer and is
 injected at the composition root, so nothing under ``operations/`` names the
-``DisplayClient``.
+``DisplayLink``.
 """
 
 from __future__ import annotations

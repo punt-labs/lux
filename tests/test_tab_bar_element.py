@@ -24,12 +24,12 @@ from punt_lux.display.renderers.imgui.tab_selection import (
     TabSelectionArbiter,
 )
 from punt_lux.display.replica import SceneReplica, WidgetState
-from punt_lux.display_client import agent_element_factory
 from punt_lux.domain.container_interaction import TabChanged
 from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
 from punt_lux.domain.validation_walk import ElementTreeValidator, HasChildElements
 from punt_lux.protocol import SceneMessage
+from punt_lux.protocol.agent_factory import agent_element_factory
 from punt_lux.protocol.elements import (
     ButtonElement,
     ProgressElement,

@@ -160,7 +160,7 @@ def ping(
     ``--timeout`` (0.1-30s) is the real display-leg budget over luxd's REST API;
     the HTTP round-trip sits a margin above it, so a slow display reports "timeout".
     """
-    from punt_lux.display_client import DEFAULT_RECV_TIMEOUT
+    from punt_lux.domain.hub.display_link import DEFAULT_RECV_TIMEOUT
     from punt_lux.operations import OpError
     from punt_lux.rest_client import LuxRestClient
     from punt_lux.rest_transport import HubUnavailableError

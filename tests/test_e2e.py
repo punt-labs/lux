@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from punt_lux.display_client import DisplayClient
+from punt_lux.domain.hub.display_link import DisplayLink
 from punt_lux.protocol import ButtonElement, RemoteEventHandlerInvocation, TextElement
 
 
@@ -85,7 +85,7 @@ class TestWalkingSkeleton:
         try:
             _wait_for_socket(sock_path, proc)
 
-            with DisplayClient(
+            with DisplayLink(
                 sock_path, auto_spawn=False, connect_timeout=5.0
             ) as client:
                 assert client.is_connected
@@ -140,7 +140,7 @@ class TestWalkingSkeleton:
         try:
             _wait_for_socket(sock_path, proc)
 
-            client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=5.0)
+            client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=5.0)
             events: list[RemoteEventHandlerInvocation] = []
             done = threading.Event()
 

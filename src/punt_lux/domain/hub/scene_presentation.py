@@ -39,7 +39,7 @@ class ScenePusher(Protocol):
     """The one operation the replicator needs from the display connection.
 
     Structural, so the presentation owns how it is sent without the domain
-    layer naming the concrete ``DisplayClient``.
+    layer naming the concrete ``DisplayLink``.
     """
 
     def show_async(

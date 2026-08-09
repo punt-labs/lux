@@ -212,7 +212,7 @@ class _HubRepushClient:
 
     Satisfies the one call ``HubInteractionDispatch.dispatch`` makes,
     ``show_async``, by re-installing the mutated scene into the rig's
-    Display replica. Keeps the harness hermetic (no ``DisplayClient``
+    Display replica. Keeps the harness hermetic (no ``DisplayLink``
     socket connect) while still exercising the handler-driven re-push leg.
     """
 

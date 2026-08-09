@@ -139,7 +139,7 @@ class TestPing:
         # route omits the param and luxd uses its standing budget — yet the HTTP
         # bound still sits a fixed margin above that budget so it never trips first.
         from punt_lux.__main__ import _PING_HTTP_MARGIN_SECONDS
-        from punt_lux.display_client import DEFAULT_RECV_TIMEOUT
+        from punt_lux.domain.hub.display_link import DEFAULT_RECV_TIMEOUT
         from punt_lux.operations import Pong
 
         captured: dict[str, object] = {}

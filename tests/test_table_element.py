@@ -11,10 +11,10 @@ from typing import Any, cast
 
 import pytest
 
-from punt_lux.display_client import agent_element_factory
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
 from punt_lux.domain.selection_interaction import RowSelectionChanged
 from punt_lux.domain.validation_walk import ElementTreeValidator
+from punt_lux.protocol.agent_factory import agent_element_factory
 from punt_lux.protocol.elements.table import TableElement
 from punt_lux.protocol.elements.table_flags import TableFlags
 from punt_lux.protocol.messages import message_from_dict, message_to_dict

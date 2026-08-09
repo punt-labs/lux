@@ -79,7 +79,7 @@ class HubDisplayConnection:
         """Round-trip a ping bounded by ``wait`` seconds; return the rtt.
 
         ``wait`` of ``None`` uses the client's standing recv budget (the
-        documented absence contract, threaded to ``DisplayClient.ping``).
+        documented absence contract, threaded to ``DisplayLink.ping``).
 
         The connection owns the whole measurement: one monotonic clock, read
         immediately before the send and immediately after the pong arrives, so

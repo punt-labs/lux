@@ -166,7 +166,7 @@ class RenderLoop:
         # sentinel for any JSON element decode here. The Display may not own
         # business publish, so a container decoded through it fails loud
         # (RaisingRendererFactory + RaisingPublishSink), never running locally.
-        from punt_lux.display_client import no_op_emit
+        from punt_lux.display.replica.emit import NoOpEmit
         from punt_lux.protocol.element_factory import JsonElementFactory
         from punt_lux.protocol.elements.container_dispatch import (
             dispatch as _container_dispatch,
@@ -175,7 +175,7 @@ class RenderLoop:
 
         self._luxd_factory = JsonElementFactory(
             renderer_factory=RaisingRendererFactory(),
-            emit=no_op_emit,
+            emit=NoOpEmit(),
             publish_sink=cast(
                 "Any",
                 RaisingPublishSink("RenderLoop._luxd_factory"),
