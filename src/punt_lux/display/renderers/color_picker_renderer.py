@@ -21,12 +21,12 @@ from punt_lux.display.renderers.imgui.continuous_edit_selection import (
     ContinuousEditArbiter,
 )
 from punt_lux.display.renderers.imgui.full_color_picker import FullColorPicker
+from punt_lux.display.renderers.rgba_buffer import RgbaBuffer
+from punt_lux.display.replica import WidgetState
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
 from punt_lux.domain.interaction import ValueChanged
 from punt_lux.protocol.elements.color_picker import ColorPickerElement
 from punt_lux.protocol.elements.rgba_color import Rgba, RgbaColor
-from punt_lux.scene import WidgetState
-from punt_lux.scene.rgba_buffer import RgbaBuffer
 
 __all__ = ["ColorPickerRenderer"]
 

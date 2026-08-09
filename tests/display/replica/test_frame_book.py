@@ -1,11 +1,11 @@
-"""Unit tests for FrameBook — the frame collection split out of SceneManager."""
+"""Unit tests for FrameBook — the frame collection split out of SceneReplica."""
 
 from __future__ import annotations
 
 import pytest
 
+from punt_lux.display.replica.frame_book import FrameBook
 from punt_lux.protocol import SceneMessage, TextElement
-from punt_lux.scene.frame_book import FrameBook
 
 
 def _scene(

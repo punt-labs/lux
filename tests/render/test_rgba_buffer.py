@@ -6,8 +6,8 @@ rather than raising: an unreadable slot must not take the display down.
 
 from __future__ import annotations
 
-from punt_lux.scene.rgba_buffer import RgbaBuffer
-from punt_lux.scene.widget_state import WidgetState
+from punt_lux.display.renderers.rgba_buffer import RgbaBuffer
+from punt_lux.display.replica.widget_state import WidgetState
 
 _HUB = (0.1, 0.2, 0.3, 1.0)
 

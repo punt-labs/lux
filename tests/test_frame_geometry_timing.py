@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Self
 from punt_lux.display import DisplayServer
 from punt_lux.display.frame_placement import FramePlacement
 from punt_lux.display.geometry_capture import GeometryCapture
-from punt_lux.scene.frame import Frame
+from punt_lux.display.replica.frame import Frame
 
 if TYPE_CHECKING:
     import pytest

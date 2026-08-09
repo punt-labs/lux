@@ -11,7 +11,7 @@ commit-echo state under the one shared ``CONTINUOUS_EDIT_*`` quad, which
 
 from __future__ import annotations
 
-from punt_lux.scene.widget_state import WidgetState
+from punt_lux.display.replica.widget_state import WidgetState
 
 
 class TestGetFloat:

@@ -14,8 +14,8 @@ from unittest.mock import ANY, MagicMock
 from punt_lux.display.evictions import Evictions
 from punt_lux.display.interaction_delivery import InteractionDelivery
 from punt_lux.display.pending_interactions import PendingInteractions
+from punt_lux.display.replica import WidgetState
 from punt_lux.protocol import RemoteEventHandlerInvocation
-from punt_lux.scene import WidgetState
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -40,12 +40,12 @@ def _build(
         return results.get(sock, True)
 
     socket_server.send_to_client.side_effect = _send
-    scene_manager = MagicMock()
-    scene_manager.scene_to_owner = scene_to_owner or {}
-    scene_manager.widget_state_for.return_value = widget_state
+    scenes = MagicMock()
+    scenes.scene_to_owner = scene_to_owner or {}
+    scenes.widget_state_for.return_value = widget_state
     delivery = InteractionDelivery(
         socket_server=socket_server,
-        scene_manager=scene_manager,
+        scenes=scenes,
     )
     return delivery, socket_server
 

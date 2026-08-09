@@ -122,7 +122,7 @@ class InProcessLoop:
         # a proven property — an accidental render() raises rather than passes.
         for elem in replica.elements:
             elem.bind_renderer_factory(RaisingRendererFactory())
-        self._server._scene_manager.handle_framed_scene(replica, _RIG_OWNER_FD)
+        self._server._scenes.handle_framed_scene(replica, _RIG_OWNER_FD)
         # Render would set this before any click; the rig sets it so a
         # subsequently-fired interaction stamps the right scene_id.
         self._server._current_scene_id = scene_id
@@ -133,7 +133,7 @@ class InProcessLoop:
         The element returned is the wrapped Display copy, so firing it
         drives the same ``RemoteDispatchGroup`` a real click drives.
         """
-        scene = self._server._scene_manager.resolve_scene(self._scene_id)
+        scene = self._server._scenes.resolve_scene(self._scene_id)
         if scene is None:
             msg = (
                 f"scene {self._scene_id!r} absent from display replica "

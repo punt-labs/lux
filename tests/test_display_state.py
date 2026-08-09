@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
 
 from punt_lux.display import DisplayServer
+from punt_lux.display.replica import WidgetState
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
 from punt_lux.domain.interaction import ButtonClicked, ValueChanged
 from punt_lux.protocol import (
@@ -25,7 +26,6 @@ from punt_lux.protocol import (
     SeparatorElement,
     TextElement,
 )
-from punt_lux.scene import WidgetState
 
 if TYPE_CHECKING:
     import pytest
@@ -107,7 +107,7 @@ class TestEmitEvent:
         track the scene actually being rendered, regardless of whether it
         lives in a frame or a top-level tab.
         """
-        from punt_lux.scene.frame import Frame
+        from punt_lux.display.replica.frame import Frame
 
         server = _make_server()
         # Empty element list — the scene_id assignment lives at the top of
@@ -122,7 +122,7 @@ class TestEmitEvent:
             scene_order=["framed-1"],
             active_tab="framed-1",
         )
-        server._scene_manager._scene_widget_state["framed-1"] = WidgetState()
+        server._scenes._widget_state.open("framed-1")
 
         # Pretend an earlier tab render set _current_scene_id to a stale value.
         server._current_scene_id = "stale-tab"
@@ -225,7 +225,7 @@ class TestEventQueueOnSceneChange:
         server._handle_message(sock, new_scene)
 
         assert len(server._event_queue) == 1
-        assert server._scene_manager.resolve_scene("s2") is not None
+        assert server._scenes.resolve_scene("s2") is not None
 
     def test_same_scene_id_drains_stale_events(self) -> None:
         server = _make_server()
@@ -299,19 +299,19 @@ class TestEventQueueOnSceneChange:
 
         server._handle_message(sock, MenuMessage(menus=menus))
 
-        held = server._menu_manager.agent_menus
+        held = server._menus.agent_menus
         assert [menu.label for menu in held] == ["Tools"]
         assert [line.label for _path, line in held[0].lines()] == ["Run"]
 
     def test_menu_message_replaces_previous_menus(self) -> None:
         server = _make_server()
         sock = _mock_sock()
-        server._menu_manager.replace_agent_menus([{"label": "Old", "items": []}])
+        server._menus.replace_agent_menus([{"label": "Old", "items": []}])
 
         new_menus = [{"label": "New", "items": [{"label": "Go", "id": "go"}]}]
         server._handle_message(sock, MenuMessage(menus=new_menus))
 
-        assert [menu.label for menu in server._menu_manager.agent_menus] == ["New"]
+        assert [menu.label for menu in server._menus.agent_menus] == ["New"]
 
     def test_a_malformed_menu_message_leaves_the_display_holding_nothing(self) -> None:
         server = _make_server()
@@ -321,7 +321,7 @@ class TestEventQueueOnSceneChange:
 
         server._handle_message(sock, MenuMessage(menus=malformed))
 
-        assert server._menu_manager.agent_menus == ()
+        assert server._menus.agent_menus == ()
 
 
 # -----------------------------------------------------------------------
@@ -540,8 +540,7 @@ class TestModalDismissRevertOnUndeliverable:
     def _latch_modal(
         server: DisplayServer, scene_id: str, element_id: str
     ) -> WidgetState:
-        ws = WidgetState()
-        server._scene_manager._scene_widget_state[scene_id] = ws
+        ws = server._scenes._widget_state.open(scene_id)
         ws.set(f"{element_id}{WidgetState.OPEN_SUFFIX}", 1)
         ws.set(f"{element_id}{WidgetState.DISMISS_SUFFIX}", 1)
         return ws
@@ -777,7 +776,7 @@ class TestPendingSurvivesRemoval:
 
 def _scene_count(server: DisplayServer) -> int:
     """Total scenes the display holds, across every frame."""
-    return server._scene_manager.scene_count
+    return server._scenes.scene_count
 
 
 class TestMultiScene:
@@ -789,9 +788,9 @@ class TestMultiScene:
         server._handle_message(sock, _make_scene(scene_id="s1"))
         server._handle_message(sock, _make_scene(scene_id="s2"))
 
-        assert server._scene_manager.resolve_scene("s1") is not None
-        assert server._scene_manager.resolve_scene("s2") is not None
-        assert set(server._scene_manager.frames) == {"s1", "s2"}
+        assert server._scenes.resolve_scene("s1") is not None
+        assert server._scenes.resolve_scene("s2") is not None
+        assert set(server._scenes.frames) == {"s1", "s2"}
 
     def test_same_scene_id_replaces_content(self) -> None:
         """Re-sending the same scene_id replaces content in its frame."""
@@ -814,7 +813,7 @@ class TestMultiScene:
         )
 
         assert _scene_count(server) == 1
-        scene = server._scene_manager.resolve_scene("s1")
+        scene = server._scenes.resolve_scene("s1")
         assert scene is not None
         elem = scene.elements[0]
         assert isinstance(elem, TextElement)
@@ -830,8 +829,8 @@ class TestMultiScene:
         server._handle_clear()
 
         assert _scene_count(server) == 0
-        assert len(server._scene_manager.frames) == 0
-        assert len(server._scene_manager._scene_widget_state) == 0
+        assert len(server._scenes.frames) == 0
+        assert len(server._scenes._widget_state) == 0
 
     def test_widget_state_isolated_per_scene(self) -> None:
         """Each scene gets its own WidgetState instance."""
@@ -841,8 +840,11 @@ class TestMultiScene:
         server._handle_message(sock, _make_scene(scene_id="s1"))
         server._handle_message(sock, _make_scene(scene_id="s2"))
 
-        ws1 = server._scene_manager._scene_widget_state["s1"]
-        ws2 = server._scene_manager._scene_widget_state["s2"]
+        ws1 = server._scenes.widget_state_for("s1")
+
+        assert ws1 is not None
+        ws2 = server._scenes.widget_state_for("s2")
+        assert ws2 is not None
 
         ws1.set("slider1", 42)
         assert ws2.get("slider1") is None
@@ -857,10 +859,10 @@ class TestMultiScene:
 
         server._handle_message(sock, _make_scene(scene_id="s1", elements=[]))
 
-        assert server._scene_manager.resolve_scene("s1") is None
-        assert "s1" not in server._scene_manager.frames
-        assert "s1" not in server._scene_manager._scene_widget_state
-        assert server._scene_manager.resolve_scene("s2") is not None
+        assert server._scenes.resolve_scene("s1") is None
+        assert "s1" not in server._scenes.frames
+        assert server._scenes.widget_state_for("s1") is None
+        assert server._scenes.resolve_scene("s2") is not None
 
     def test_each_scene_is_its_frames_active_tab(self) -> None:
         """A self-framed scene is the active tab of the frame it creates."""
@@ -868,10 +870,10 @@ class TestMultiScene:
         sock = _mock_sock()
 
         server._handle_message(sock, _make_scene(scene_id="s1"))
-        assert server._scene_manager.frames["s1"].active_tab == "s1"
+        assert server._scenes.frames["s1"].active_tab == "s1"
 
         server._handle_message(sock, _make_scene(scene_id="s2"))
-        assert server._scene_manager.frames["s2"].active_tab == "s2"
+        assert server._scenes.frames["s2"].active_tab == "s2"
 
     def test_dismiss_drains_events_for_dismissed_scene(self) -> None:
         """Dismissing a scene removes its unique events from the queue."""
@@ -911,7 +913,7 @@ class TestMultiScene:
         assert len(server._event_queue) == 2
 
         # Dismiss s1 — its events should be drained
-        _sm = server._scene_manager
+        _sm = server._scenes
         _sm.dismiss_framed_scene(_sm.frames["s1"], "s1")
 
         assert len(server._event_queue) == 0
@@ -949,7 +951,7 @@ class TestMultiScene:
         )
 
         # Dismiss s1 — only s1's events drained
-        _sm = server._scene_manager
+        _sm = server._scenes
         _sm.dismiss_framed_scene(_sm.frames["s1"], "s1")
 
         assert len(server._event_queue) == 1
@@ -992,7 +994,7 @@ class TestMultiScene:
         )
 
         # Dismiss s1 — shared_btn survives in s2, s1_only does not
-        _sm = server._scene_manager
+        _sm = server._scenes
         _sm.dismiss_framed_scene(_sm.frames["s1"], "s1")
 
         assert len(server._event_queue) == 1

@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Self, final
 
 if TYPE_CHECKING:
-    from punt_lux.scene.manager import SceneManager
+    from punt_lux.display.replica import SceneReplica
 
 __all__ = ["FrameCommands"]
 
@@ -26,10 +26,10 @@ __all__ = ["FrameCommands"]
 class FrameCommands:
     """The query handlers for one display's frames, over its scene manager."""
 
-    _scenes: SceneManager
+    _scenes: SceneReplica
     __slots__ = ("_scenes",)
 
-    def __new__(cls, scenes: SceneManager) -> Self:
+    def __new__(cls, scenes: SceneReplica) -> Self:
         self = super().__new__(cls)
         self._scenes = scenes
         return self

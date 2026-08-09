@@ -4,16 +4,16 @@ from __future__ import annotations
 
 from typing import Any
 
+from punt_lux.display.replica import SceneReplica
 from punt_lux.protocol import QueryResponse
 from punt_lux.query_dispatcher import QueryDispatcher
-from punt_lux.scene import SceneManager
 
 
 def _make_dispatcher() -> QueryDispatcher:
     """Build a QueryDispatcher with stub callables for testing."""
-    sm = SceneManager(on_scene_replaced=lambda _ids: None)
+    sm = SceneReplica(on_scene_replaced=lambda _ids: None)
     return QueryDispatcher(
-        scene_manager=sm,
+        scenes=sm,
         get_client_names=dict,
         get_client_connect_times=dict,
         get_agent_menus=list,

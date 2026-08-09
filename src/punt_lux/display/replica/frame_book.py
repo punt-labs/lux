@@ -1,11 +1,11 @@
 """FrameBook — the display's frame collection and its scene placement maps.
 
-The frame-management half of the scene graph, split out of ``SceneManager`` so
+The frame-management half of the scene graph, split out of ``SceneReplica`` so
 that class keeps to per-scene widget state and stale-id notification.
 ``FrameBook`` owns the frames themselves, which frame each scene
 lives in, and which client owns each framed scene, plus the frame's cascade
 placement. It knows nothing about widget state or stale-id notification — those
-are cross-cutting concerns the ``SceneManager`` layers on top, reacting to the
+are cross-cutting concerns the ``SceneReplica`` layers on top, reacting to the
 frames this book reports as created, placed, or removed.
 """
 
@@ -15,7 +15,7 @@ from itertools import chain, count
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.scene.frame import Frame
+from punt_lux.display.replica.frame import Frame
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping

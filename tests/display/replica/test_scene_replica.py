@@ -1,12 +1,13 @@
-"""Characterization tests for SceneManager extraction from DisplayServer.
+"""Characterization tests for SceneReplica extraction from DisplayServer.
 
 These tests verify scene management behavior: adding scenes, replacing them,
-framing, dismissing, updating, and clearing.  They test SceneManager directly
+framing, dismissing, updating, and clearing.  They test SceneReplica directly
 as a pure state machine — no ImGui, no sockets, no DisplayServer.
 """
 
 from __future__ import annotations
 
+from punt_lux.display.replica import SceneReplica, WidgetState
 from punt_lux.protocol import (
     ButtonElement,
     SceneMessage,
@@ -14,7 +15,6 @@ from punt_lux.protocol import (
     TableElement,
     TextElement,
 )
-from punt_lux.scene import SceneManager, WidgetState
 
 
 def _make_scene(
@@ -51,8 +51,8 @@ def _make_scene(
     )
 
 
-def _make_manager() -> tuple[SceneManager, list[list[str]]]:
-    """Create a SceneManager with captured stale-id callbacks.
+def _make_manager() -> tuple[SceneReplica, list[list[str]]]:
+    """Create a SceneReplica with captured stale-id callbacks.
 
     Returns (manager, stale_calls) where stale_calls collects every
     call to the on_scene_replaced callback.
@@ -62,7 +62,7 @@ def _make_manager() -> tuple[SceneManager, list[list[str]]]:
     def on_replaced(stale_ids: list[str]) -> None:
         stale_calls.append(stale_ids)
 
-    mgr = SceneManager(on_scene_replaced=on_replaced)
+    mgr = SceneReplica(on_scene_replaced=on_replaced)
     return mgr, stale_calls
 
 
@@ -107,7 +107,7 @@ class TestHandleSceneNew:
         assert "s1" in frame.scenes
         assert frame.scene_order == ["s1"]
         assert frame.active_tab == "s1"
-        assert isinstance(mgr._scene_widget_state.get("s1"), WidgetState)
+        assert isinstance(mgr.widget_state_for("s1"), WidgetState)
 
 
 # -------------------------------------------------------------------
@@ -145,7 +145,8 @@ class TestHandleSceneReplace:
         """
         mgr, _ = _make_manager()
         mgr.handle_framed_scene(_make_scene(), owner_fd=10)
-        ws = mgr._scene_widget_state["s1"]
+        ws = mgr.widget_state_for("s1")
+        assert ws is not None
         ws.set("t1", "survivor")
         ws.set("__tbl_sel_t1", 3)
         ws.set("b1", "stale")
@@ -218,7 +219,8 @@ class TestHandleSceneReplace:
         """
         mgr, _ = _make_manager()
         mgr.handle_framed_scene(_make_scene(), owner_fd=10)
-        ws = mgr._scene_widget_state["s1"]
+        ws = mgr.widget_state_for("s1")
+        assert ws is not None
         ws.set(f"t1{WidgetState.HONOURED_SUFFIX}", "tab-2")
         ws.set("__tbl_sel_t1", 3)
 
@@ -288,7 +290,7 @@ class TestDismissScene:
         assert empty is False
         assert "s2" not in frame.scenes
         assert "s2" not in frame.scene_order
-        assert "s2" not in mgr._scene_widget_state
+        assert mgr.widget_state_for("s2") is None
         # The dismissed active tab yields to the frame's first remaining scene.
         assert frame.active_tab == "s1"
 
@@ -346,8 +348,8 @@ class TestCloseFrame:
         assert "f1" not in mgr.frames
         assert "s1" not in mgr.scene_to_frame
         assert "s2" not in mgr.scene_to_frame
-        assert "s1" not in mgr._scene_widget_state
-        assert "s2" not in mgr._scene_widget_state
+        assert mgr.widget_state_for("s1") is None
+        assert mgr.widget_state_for("s2") is None
         assert "s1" not in mgr.scene_to_owner
         assert "s2" not in mgr.scene_to_owner
         # stale_ids should include element ids from the dismissed scenes
@@ -471,7 +473,7 @@ class TestClearAll:
         assert mgr.scene_count == 0
         assert len(mgr.scene_to_frame) == 0
         assert len(mgr.scene_to_owner) == 0
-        assert len(mgr._scene_widget_state) == 0
+        assert len(mgr._widget_state) == 0
 
     def test_clear_all_idempotent(self) -> None:
         """Calling clear_all on empty state does not fail."""
@@ -722,7 +724,7 @@ class TestFramesOnlyInvariant:
     def test_no_unframed_scene_api_remains(self) -> None:
         # Fork-completion: the unframed branch was removed, not shimmed. The
         # storage and its handlers must be absent, not merely unused.
-        surface = set(dir(SceneManager))
+        surface = set(dir(SceneReplica))
         removed = {"handle_scene", "dismiss_scene", "scenes", "scene_order"}
         assert removed.isdisjoint(surface), surface & removed
 

@@ -1,14 +1,14 @@
 """TTL expiry x display tier: a Hub-armed TTL removes the frame from the display.
 
 The link-by-link pieces are unit-tested (the Hub arms and sweeps deadlines; the
-display SceneManager drops a frame on an empty push). This fills the cross-tier
+display SceneReplica drops a frame on an empty push). This fills the cross-tier
 cell: a frame shown through the real Hub with a TTL, once the Hub's sweep retires
 it, is gone from the display tier's own scene/frame state.
 
 The Hub side is the production ``hub_display`` on its real monotonic clock, so the
 TTL is short and the sweep is polled until it fires (the harness's poll-until
 pattern). The empty push the sweep's blank would deliver is applied to a real
-``SceneManager`` — the display tier's authoritative frame owner — and the frame
+``SceneReplica`` — the display tier's authoritative frame owner — and the frame
 must then be gone.
 """
 
@@ -18,11 +18,11 @@ import time
 
 import pytest
 
+from punt_lux.display.replica import SceneReplica
 from punt_lux.domain.hub import hub, hub_display
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.protocol import SceneMessage, TextElement
-from punt_lux.scene import SceneManager
 
 _OWNER_FD = 1
 _FRAME = "ttl-e2e-frame"
@@ -39,13 +39,13 @@ def test_ttl_expiry_removes_the_frame_from_the_display_tier() -> None:
     conn = ConnectionId("ttl-e2e-conn")
     scene = SceneId(_SCENE)
     leaf = TextElement(id="t", content="hi")
-    display = SceneManager(on_scene_replaced=lambda _stale: None)
+    display = SceneReplica(on_scene_replaced=lambda _stale: None)
     try:
         # Hub tier: show the framed scene with a short TTL — real install + arm.
         hub_display.show_scene(
             conn, scene, [leaf], ScenePresentation(frame_id=_FRAME), ttl_seconds=0.05
         )
-        # Display tier: the frame arrives and the SceneManager holds it.
+        # Display tier: the frame arrives and the SceneReplica holds it.
         display.handle_framed_scene(_framed([leaf]), owner_fd=_OWNER_FD)
         assert _FRAME in display.frames
 

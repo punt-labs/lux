@@ -204,22 +204,22 @@ def test_every_basics_kind_flows_through_hub_apply() -> None:
     assert [e.id for e in roots] == [e.id for e in elements]
 
 
-def test_scene_manager_has_no_basics_branches() -> None:
-    """Step 8 verification: scene/manager.py never references basics kinds.
+def test_scene_replica_has_no_basics_branches() -> None:
+    """Step 8 verification: scene_replica.py never references basics kinds.
 
-    SceneManager operates on the SceneMessage / Element union without
+    SceneReplica operates on the SceneMessage / Element union without
     per-kind branches for basics.  The guard checks three AST shapes:
     Name / Attribute references to the wire classes themselves AND
     Constant string nodes carrying the wire ``kind`` discriminators
     (e.g. ``elem.kind == "text"``).  All three forms would reintroduce
-    a basics-specific branch in the SceneManager path.
+    a basics-specific branch in the SceneReplica path.
     """
     import ast
     from pathlib import Path
 
-    from punt_lux import scene
+    from punt_lux.display.replica import scene_replica
 
-    source = (Path(scene.__file__).parent / "manager.py").read_text()
+    source = Path(scene_replica.__file__).read_text()
     tree = ast.parse(source)
     forbidden_classes = {
         "TextElement",

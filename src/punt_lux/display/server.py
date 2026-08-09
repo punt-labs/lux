@@ -34,10 +34,11 @@ from punt_lux.display.idle_screen import render_idle
 from punt_lux.display.interaction_delivery import InteractionDelivery
 from punt_lux.display.macos import hide_from_dock_and_cmd_tab
 from punt_lux.display.markdown_font import MarkdownFont
-from punt_lux.display.menu_manager import MenuManager
 from punt_lux.display.paint_clock import PaintClock
 from punt_lux.display.pending_interactions import PendingInteractions
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
+from punt_lux.display.replica import Frame, SceneReplica, WidgetState
+from punt_lux.display.replica.menu_replica import MenuReplica
 from punt_lux.display.texture_cache import TextureCache
 from punt_lux.display.window_chrome import WindowChrome
 from punt_lux.paths import DisplayPaths
@@ -63,7 +64,6 @@ from punt_lux.protocol import (
 from punt_lux.protocol.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
 from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 from punt_lux.query_dispatcher import QueryDispatcher
-from punt_lux.scene import Frame, SceneManager, WidgetState
 from punt_lux.scene_inspector import SceneInspector
 from punt_lux.socket_server import SocketServer
 from punt_lux.tracing import trace
@@ -84,14 +84,14 @@ class DisplayServer:
 
     _socket_path: Path
     _socket_server: SocketServer
-    _scene_manager: SceneManager
+    _scenes: SceneReplica
     _event_queue: list[RemoteEventHandlerInvocation]
     _interaction_delivery: InteractionDelivery
     _pending: PendingInteractions
     _textures: TextureCache
     _paint_clock: PaintClock
     _widget_state: WidgetState
-    _menu_manager: MenuManager
+    _menus: MenuReplica
     _themes: list[Any]
     _decorated: bool
     _opacity: float
@@ -118,7 +118,7 @@ class DisplayServer:
         paths = DisplayPaths(Path(socket_path) if socket_path else None)
         self._socket_path = paths.socket_path
         self._display_paths = paths
-        self._scene_manager = SceneManager(
+        self._scenes = SceneReplica(
             on_scene_replaced=self._drain_stale_events,
         )
         self._themes = []
@@ -127,7 +127,7 @@ class DisplayServer:
         self._font_scale = 1.1
         self._fit_all_frames = False
         self._current_theme = "imgui_colors_dark"
-        self._menu_manager = MenuManager(
+        self._menus = MenuReplica(
             emit_event=self._emit_event,
             on_theme_selected=self._apply_theme,
             on_decorated_toggled=self._on_decorated_toggled,
@@ -137,7 +137,7 @@ class DisplayServer:
             get_decorated=lambda: self._decorated,
             get_opacity=lambda: self._opacity,
             get_font_scale=lambda: self._font_scale,
-            get_frames=lambda: self._scene_manager.frames,
+            get_frames=lambda: self._scenes.frames,
             on_clear_all=self._clear_all,
             on_fit_all=self._request_fit_all,
             chrome=WindowChrome(),
@@ -145,11 +145,11 @@ class DisplayServer:
         # QueryDispatcher must be created before SocketServer so that
         # the on_error callback is available.
         self._query_dispatcher = QueryDispatcher(
-            scene_manager=self._scene_manager,
+            scenes=self._scenes,
             get_client_names=lambda: self._socket_server.client_names,
             get_client_connect_times=lambda: self._socket_server.client_connect_times,
-            get_agent_menus=lambda: self._menu_manager.agent_menus,
-            get_callback_menus=lambda: self._menu_manager.callback_menus,
+            get_agent_menus=lambda: self._menus.agent_menus,
+            get_callback_menus=lambda: self._menus.callback_menus,
         )
         self._socket_server = SocketServer(
             on_message=self._handle_message,
@@ -158,7 +158,7 @@ class DisplayServer:
         )
         self._interaction_delivery = InteractionDelivery(
             socket_server=self._socket_server,
-            scene_manager=self._scene_manager,
+            scenes=self._scenes,
         )
         # Bind a fail-loud decode factory to the shared container-dispatch
         # target. Inbound scenes cross as pickles (SceneCodec), so the display
@@ -200,7 +200,7 @@ class DisplayServer:
 
         # Register display-specific query handlers that need ImGui state.
         self._scene_inspector = SceneInspector(
-            scene_manager=self._scene_manager,
+            scenes=self._scenes,
             geometry=self._imgui_renderer_factory.geometry.recorder,
         )
         qd = self._query_dispatcher
@@ -210,7 +210,7 @@ class DisplayServer:
         qd.register_handler("get_window_settings", self._query_get_window_settings)
         qd.register_handler("get_theme", self._query_get_theme)
         qd.register_handler("set_window_settings", self._query_set_window_settings)
-        frames = FrameCommands(self._scene_manager)
+        frames = FrameCommands(self._scenes)
         qd.register_handler("set_frame_state", frames.set_state)
         qd.register_handler("raise_frame", frames.raise_it)
         qd.register_handler("set_theme", self._query_set_theme)
@@ -226,9 +226,9 @@ class DisplayServer:
         return self._query_dispatcher
 
     @property
-    def scene_manager(self) -> SceneManager:
-        """Return the scene manager for external inspection."""
-        return self._scene_manager
+    def scenes(self) -> SceneReplica:
+        """Return the scene replica for external inspection."""
+        return self._scenes
 
     @property
     def socket_server(self) -> SocketServer:
@@ -467,27 +467,27 @@ class DisplayServer:
         self._socket_server.send_to_client(sock, resp)
 
     def _on_decorated_toggled(self, decorated: bool) -> None:  # noqa: FBT001
-        """Callback for MenuManager: toggle window decoration."""
+        """Callback for MenuReplica: toggle window decoration."""
         self._decorated = decorated
         self._glfw_window().set_decorated(decorated=decorated)
 
     def _on_opacity_changed(self, opacity: float) -> None:
-        """Callback for MenuManager: change window opacity."""
+        """Callback for MenuReplica: change window opacity."""
         self._opacity = opacity
         self._glfw_window().set_opacity(opacity=opacity)
 
     def _on_font_scale_changed(self, scale: float) -> None:
-        """Callback for MenuManager: change font scale."""
+        """Callback for MenuReplica: change font scale."""
         self._font_scale = scale
 
     def _clear_all(self) -> None:
-        """Callback for MenuManager: close every frame, then clear scenes and state."""
-        for fid in list(self._scene_manager.frames):
+        """Callback for MenuReplica: close every frame, then clear scenes and state."""
+        for fid in list(self._scenes.frames):
             self._close_frame(fid)
         self._handle_clear()
 
     def _request_fit_all(self) -> None:
-        """Callback for MenuManager: request fit-all layout."""
+        """Callback for MenuReplica: request fit-all layout."""
         self._fit_all_frames = True
 
     def _handle_sigterm(self, _signum: int, _frame: object) -> None:
@@ -506,7 +506,7 @@ class DisplayServer:
     # -- menu bar ----------------------------------------------------------
 
     def _show_menus(self) -> None:
-        self._menu_manager.show_menus()
+        self._menus.show_menus()
 
     def _apply_theme(self, theme_name: str) -> None:
         """Apply a theme by snake_case name (e.g. 'imgui_colors_light')."""
@@ -537,7 +537,7 @@ class DisplayServer:
         frame, or marks them as orphans if no other client remains. Scenes
         persist — they are never dismissed on disconnect.
         """
-        self._scene_manager.reassign_scenes_of(fd, _ORPHAN_FD)
+        self._scenes.reassign_scenes_of(fd, _ORPHAN_FD)
 
     # -- message handling --------------------------------------------------
 
@@ -546,9 +546,9 @@ class DisplayServer:
         if isinstance(msg, SceneMessage):
             self._handle_scene(sock, msg)
         elif isinstance(msg, MenuMessage):
-            self._menu_manager.replace_agent_menus(msg.menus)
+            self._menus.replace_agent_menus(msg.menus)
         elif isinstance(msg, CallbackMenuMessage):
-            self._menu_manager.replace_callback_menus(msg.submenus)
+            self._menus.replace_callback_menus(msg.submenus)
         elif isinstance(msg, ThemeMessage):
             self._apply_theme(msg.theme)
         elif isinstance(msg, ConnectMessage):
@@ -559,7 +559,7 @@ class DisplayServer:
     def _handle_clear(self) -> None:
         """Drop all scenes and reset per-frame state — the World-menu 'clear all'."""
         self._interaction_delivery.compensate_evicted(self._pending.evict_all())
-        self._scene_manager.clear_all()
+        self._scenes.clear_all()
         self._event_queue.clear()
         self._widget_state = WidgetState()
 
@@ -745,7 +745,7 @@ class DisplayServer:
             return
         self._paint_clock.received(msg.id)
         self._wrap_abc_elements(msg)
-        self._scene_manager.handle_framed_scene(msg, fd)
+        self._scenes.handle_framed_scene(msg, fd)
         ack = AckMessage(scene_id=msg.id, ts=time.time())
         self._socket_server.send_to_client(sock, ack)
         if self._test_auto_click:
@@ -796,8 +796,8 @@ class DisplayServer:
         render_idle(imgui)
 
         # World menu: background click to toggle, floating panel.
-        self._menu_manager.check_world_menu_background_click(imgui)
-        self._menu_manager.render_world_panel(imgui)
+        self._menus.check_world_menu_background_click(imgui)
+        self._menus.render_world_panel(imgui)
 
         # Every scene renders inside a frame (workspace model); there is no
         # unframed scene surface — the Hub frames every scene at the boundary.
@@ -848,7 +848,7 @@ class DisplayServer:
         if not self._fit_all_frames:
             return False
         self._fit_all_frames = False
-        frames = list(self._scene_manager.frames.values())
+        frames = list(self._scenes.frames.values())
         for f in frames:
             f.minimized = False
         return True
@@ -883,7 +883,7 @@ class DisplayServer:
             fw, fh = self._cascaded_frame_size(frame, placement.default_size)
         imgui.set_next_window_pos((x, y), cond)
         imgui.set_next_window_size((fw, fh), cond)
-        if self._scene_manager.consume_focus(frame.frame_id):
+        if self._scenes.consume_focus(frame.frame_id):
             imgui.set_next_window_focus()
             logger.info("raise frame=%s applied", frame.frame_id)
         win_flags = self._resolve_frame_flags(frame, imgui)
@@ -920,7 +920,7 @@ class DisplayServer:
         frame_w = max(400.0, region.x * self._FRAME_FILL)
         frame_h = max(300.0, region.y * self._FRAME_FILL)
 
-        sm = self._scene_manager
+        sm = self._scenes
         fitting = self._apply_fit_all()
         tile_layout: dict[str, tuple[float, float, float, float]] = {}
         if fitting:
@@ -946,7 +946,7 @@ class DisplayServer:
         for fid in minimized_frames:
             sm.minimize(fid)
         # Dock bar for minimized frames
-        DockBar(imgui, self._scene_manager).render(any_frame_hovered=any_frame_hovered)
+        DockBar(imgui, self._scenes).render(any_frame_hovered=any_frame_hovered)
 
     def _render_frame_contents(self, frame: Frame, imgui: Any) -> None:
         """Render scenes inside a frame.
@@ -985,7 +985,7 @@ class DisplayServer:
                     closed_tabs.append(scene_id)
             imgui.end_tab_bar()
             for sid in closed_tabs:
-                frame_empty = self._scene_manager.dismiss_framed_scene(frame, sid)
+                frame_empty = self._scenes.dismiss_framed_scene(frame, sid)
                 if frame_empty:
                     self._close_frame(frame.frame_id)
 
@@ -1007,7 +1007,7 @@ class DisplayServer:
 
     def _render_framed_scene(self, frame: Frame, scene_id: str) -> None:
         """Render a scene's elements inside a frame."""
-        ws = self._scene_manager.widget_state_for(scene_id)
+        ws = self._scenes.widget_state_for(scene_id)
         if ws is not None:
             self._widget_state = ws
             self._imgui_renderer_factory.widget_state = ws
@@ -1033,10 +1033,10 @@ class DisplayServer:
         during disconnect cleanup where the departing client's fd is
         already removed and surviving clients should not be notified.
         """
-        # Capture owner_fds before SceneManager removes the frame.
-        frame = self._scene_manager.frames.get(frame_id)
+        # Capture owner_fds before SceneReplica removes the frame.
+        frame = self._scenes.frames.get(frame_id)
         owner_fds = set(frame.owner_fds) if frame is not None else set()
-        self._scene_manager.close_frame(frame_id)
+        self._scenes.close_frame(frame_id)
         if notify and owner_fds:
             close_event = RemoteEventHandlerInvocation(
                 element_id=frame_id,

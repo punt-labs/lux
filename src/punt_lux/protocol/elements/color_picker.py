@@ -206,7 +206,7 @@ class ColorPickerElement(Element):
         return decoder.decode(d)
 
     def widget_value(self) -> str:
-        """Return the hex value SceneManager mirrors into WidgetState after a patch."""
+        """Return the hex value SceneReplica mirrors into WidgetState after a patch."""
         return self._value
 
     # -- introspection (Inspectable) ---------------------------------------

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import SupportsFloat, cast, final
 
-from punt_lux.scene.widget_state import WidgetState
+from punt_lux.display.replica.widget_state import WidgetState
 
 __all__ = ["FloatValueAccessor", "StrValueAccessor"]
 

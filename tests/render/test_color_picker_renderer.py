@@ -34,11 +34,11 @@ from punt_lux.display.renderers.imgui import color_channel_strip, full_color_pic
 from punt_lux.display.renderers.imgui.continuous_edit_selection import (
     ContinuousEditArbiter,
 )
+from punt_lux.display.renderers.rgba_buffer import RgbaBuffer
+from punt_lux.display.replica.widget_state import WidgetState
 from punt_lux.domain.interaction import ValueChanged
 from punt_lux.protocol.elements.color_picker import ColorPickerElement
 from punt_lux.protocol.elements.rgba_color import Rgba, RgbaColor
-from punt_lux.scene.rgba_buffer import RgbaBuffer
-from punt_lux.scene.widget_state import WidgetState
 
 _RED: Rgba = (1.0, 0.0, 0.0, 1.0)
 _BLUE: Rgba = (0.0, 0.0, 1.0, 1.0)

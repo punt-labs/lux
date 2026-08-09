@@ -26,8 +26,8 @@ from punt_lux.domain.selection_interaction import RowSelectionChanged
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+    from punt_lux.display.replica.widget_state import WidgetState
     from punt_lux.protocol.elements.table import TableElement
-    from punt_lux.scene.widget_state import WidgetState
 
 __all__ = ["Pair", "TableRowPainter"]
 

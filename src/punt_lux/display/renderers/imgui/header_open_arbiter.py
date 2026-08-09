@@ -37,7 +37,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.scene.widget_state import WidgetState
+from punt_lux.display.replica.widget_state import WidgetState
 
 if TYPE_CHECKING:
     from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement

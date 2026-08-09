@@ -14,10 +14,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Self, final
 
-from punt_lux.display.menu_manager import MenuManager
 from punt_lux.display.menus.wire import WireMenu
 from punt_lux.display.menus.wire_field import WireField
-from punt_lux.scene.frame import Frame
+from punt_lux.display.replica.frame import Frame
+from punt_lux.display.replica.menu_replica import MenuReplica
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Iterable
@@ -32,7 +32,7 @@ __all__ = [
     "checked_menu",
     "ignore",
     "make_frame",
-    "make_menu_manager",
+    "make_menu_replica",
     "wire_menu",
 ]
 
@@ -349,8 +349,8 @@ def ignore(*_args: object) -> None:
     """Accept whatever the display reports and do nothing with it."""
 
 
-def make_menu_manager(**overrides: Any) -> MenuManager:
-    """Build a MenuManager whose collaborators are all doubles."""
+def make_menu_replica(**overrides: Any) -> MenuReplica:
+    """Build a MenuReplica whose collaborators are all doubles."""
     defaults: dict[str, Any] = {
         "emit_event": ignore,
         "on_theme_selected": ignore,
@@ -367,7 +367,7 @@ def make_menu_manager(**overrides: Any) -> MenuManager:
         "chrome": FakeChrome(),
     }
     defaults.update(overrides)
-    return MenuManager(**defaults)
+    return MenuReplica(**defaults)
 
 
 def wire_menu(label: str, items: Iterable[dict[str, Any]]) -> dict[str, Any]:

@@ -22,8 +22,8 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from punt_lux.display.evictions import Evictions
+    from punt_lux.display.replica import SceneReplica
     from punt_lux.protocol import RemoteEventHandlerInvocation
-    from punt_lux.scene import SceneManager
     from punt_lux.socket_server import SocketServer
 
 __all__ = ["InteractionDelivery"]
@@ -43,17 +43,17 @@ class InteractionDelivery:
     """
 
     _socket_server: SocketServer
-    _scene_manager: SceneManager
+    _scenes: SceneReplica
 
     def __new__(
         cls,
         *,
         socket_server: SocketServer,
-        scene_manager: SceneManager,
+        scenes: SceneReplica,
     ) -> Self:
         self = super().__new__(cls)
         self._socket_server = socket_server
-        self._scene_manager = scene_manager
+        self._scenes = scenes
         return self
 
     @trace
@@ -83,9 +83,7 @@ class InteractionDelivery:
         callback leaf back to the owning session.
         """
         owner_fd = (
-            self._scene_manager.scene_to_owner.get(event.scene_id)
-            if event.scene_id
-            else None
+            self._scenes.scene_to_owner.get(event.scene_id) if event.scene_id else None
         )
         if owner_fd is not None:
             target = self._socket_server.fd_to_client.get(owner_fd)
@@ -126,7 +124,7 @@ class InteractionDelivery:
         """
         if event.scene_id is None:
             return
-        ws = self._scene_manager.widget_state_for(event.scene_id)
+        ws = self._scenes.widget_state_for(event.scene_id)
         if ws is None:
             return
         CompensationTable.for_kind(event.event_kind).revert(ws, event.element_id)

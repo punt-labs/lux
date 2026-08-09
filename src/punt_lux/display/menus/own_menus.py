@@ -24,8 +24,8 @@ from punt_lux.display.menus.model import Submenu
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
+    from punt_lux.display.replica.frame import Frame
     from punt_lux.display.window_chrome import WindowChromeCommands
-    from punt_lux.scene.frame import Frame
 
 __all__ = ["OwnMenus"]
 

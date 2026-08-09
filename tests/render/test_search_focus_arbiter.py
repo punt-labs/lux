@@ -8,7 +8,7 @@ set_keyboard_focus_here call and the feel are the operator's visual check.
 from __future__ import annotations
 
 from punt_lux.display.renderers.imgui.search_focus_arbiter import SearchFocusArbiter
-from punt_lux.scene.widget_state import WidgetState
+from punt_lux.display.replica.widget_state import WidgetState
 
 
 def _arbiter() -> tuple[SearchFocusArbiter, WidgetState]:

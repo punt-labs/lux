@@ -211,8 +211,9 @@ pytest's `tmp_path` (which produces long paths that exceed the limit).
 `@pytest.mark.xfail` must include a `reason=` and a bead ID for the fix.
 Permanent skips are bugs.
 
-**Mirror source structure.** `src/punt_lux/scene/manager.py` →
-`tests/test_scene_manager.py`. Every source module has a counterpart.
+**Mirror source structure.** `src/punt_lux/display/replica/scene_replica.py` →
+`tests/display/replica/test_scene_replica.py`. Every source module has a
+counterpart.
 
 ## Characterization tests
 

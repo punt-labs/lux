@@ -68,10 +68,10 @@ from punt_lux.protocol.elements.window import WindowElement
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from punt_lux.display.replica.widget_state import WidgetState
     from punt_lux.display.texture_cache import TextureCache
     from punt_lux.protocol import Element
     from punt_lux.protocol.renderer import Emit, Renderer
-    from punt_lux.scene.widget_state import WidgetState
 
 __all__ = ["ImGuiRendererFactory"]
 

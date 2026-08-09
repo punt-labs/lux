@@ -13,12 +13,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Self, cast, final
 
 from punt_lux.display.dock_bar import DOCK_BAR_HEIGHT, DockBar
-from punt_lux.scene.frame import Frame
+from punt_lux.display.replica.frame import Frame
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from punt_lux.scene import SceneManager
+    from punt_lux.display.replica import SceneReplica
 
 _VIEWPORT_W = 800.0
 _VIEWPORT_H = 600.0
@@ -153,7 +153,7 @@ class _FakeImGui:
 
 @final
 class _FakeScenes:
-    """The two members of SceneManager the dock bar uses."""
+    """The two members of SceneReplica the dock bar uses."""
 
     frames: dict[str, Frame]
     focused: list[str]
@@ -181,7 +181,7 @@ def _frame(frame_id: str, title: str, *, minimized: bool) -> Frame:
 
 
 def _bar(scenes: _FakeScenes, imgui: _FakeImGui) -> DockBar:
-    return DockBar(imgui, cast("SceneManager", scenes))
+    return DockBar(imgui, cast("SceneReplica", scenes))
 
 
 def test_nothing_is_painted_when_no_frame_is_minimized() -> None:

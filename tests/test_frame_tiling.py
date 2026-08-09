@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, cast
 from punt_lux.display.frame_tiling import FrameTiling
 
 if TYPE_CHECKING:
-    from punt_lux.scene import Frame
+    from punt_lux.display.replica import Frame
 
 
 @dataclass(frozen=True)

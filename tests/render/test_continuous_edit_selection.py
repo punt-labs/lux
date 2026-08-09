@@ -16,7 +16,7 @@ from punt_lux.display.renderers.imgui.continuous_edit_accessors import StrValueA
 from punt_lux.display.renderers.imgui.continuous_edit_selection import (
     ContinuousEditArbiter,
 )
-from punt_lux.scene.widget_state import WidgetState
+from punt_lux.display.replica.widget_state import WidgetState
 
 
 @final

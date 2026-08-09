@@ -143,7 +143,7 @@ class CheckboxElement(Element):
         return cast("Self", decoder.decode(d))
 
     def widget_value(self) -> bool:
-        """Return the value SceneManager mirrors into WidgetState after a patch."""
+        """Return the value SceneReplica mirrors into WidgetState after a patch."""
         return self._value
 
     # -- introspection (Inspectable) ---------------------------------------

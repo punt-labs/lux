@@ -10,8 +10,8 @@ from typing import Any, Self
 
 from punt_lux.display.menus.inventory import MenuInventory
 from punt_lux.display.menus.wire import WireMenu
+from punt_lux.display.replica import SceneReplica
 from punt_lux.protocol import QueryResponse
-from punt_lux.scene import SceneManager
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ class QueryDispatcher:
     dependency -- this is pure state management and routing.
     """
 
-    _scene_manager: SceneManager
+    _scenes: SceneReplica
     _get_client_names: Callable[[], dict[int, str]]
     _get_client_connect_times: Callable[[], dict[int, float]]
     _get_agent_menus: Callable[[], Sequence[WireMenu]]
@@ -34,14 +34,14 @@ class QueryDispatcher:
 
     def __new__(
         cls,
-        scene_manager: SceneManager,
+        scenes: SceneReplica,
         get_client_names: Callable[[], dict[int, str]],
         get_client_connect_times: Callable[[], dict[int, float]],
         get_agent_menus: Callable[[], Sequence[WireMenu]],
         get_callback_menus: Callable[[], Sequence[WireMenu]],
     ) -> Self:
         self = super().__new__(cls)
-        self._scene_manager = scene_manager
+        self._scenes = scenes
         self._get_client_names = get_client_names
         self._get_client_connect_times = get_client_connect_times
         self._get_agent_menus = get_agent_menus
@@ -98,7 +98,7 @@ class QueryDispatcher:
 
     def _query_list_scenes(self, **_kwargs: Any) -> dict[str, Any]:
         """Query handler for list_scenes."""
-        sm = self._scene_manager
+        sm = self._scenes
         scenes: list[dict[str, Any]] = []
         for fid, frame in sm.frames.items():
             for sid, scene in frame.scenes.items():
