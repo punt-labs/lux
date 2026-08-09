@@ -131,7 +131,7 @@ When a handler mutates Hub-side state (e.g., dialog dismissed via `mark_removed`
 
 ### Key architectural boundary: protocol vs. rendering
 
-The **JSON protocol** (the `protocol/` package — `elements/`, `messages/`) is the API surface. Agents describe what they want as a tree of typed elements — tables, text, plots, groups, buttons, sliders, etc. The **rendering layer** (the `display/` package — `server.py`, the per-kind adapters in `display/renderers/imgui/`, `menu_manager.py`, `texture_cache.py`, `idle_screen.py`) consumes the protocol and paints ImGui widgets. Changes to the protocol are contract changes — every consumer (agents, tests, the display) depends on them. Changes to rendering are implementation — they affect only the display process.
+The **JSON protocol** (the `protocol/` package — `elements/`, `messages/`) is the API surface. Agents describe what they want as a tree of typed elements — tables, text, plots, groups, buttons, sliders, etc. The **rendering layer** (the `display/` package — `server.py`, the per-kind adapters in `display/renderers/imgui/`, `replica/menu_replica.py`, `texture_cache.py`, `idle_screen.py`) consumes the protocol and paints ImGui widgets. Changes to the protocol are contract changes — every consumer (agents, tests, the display) depends on them. Changes to rendering are implementation — they affect only the display process.
 
 This separation means: protocol bugs break agents. Rendering bugs break the display. They overlap only when a new element kind is added (protocol + rendering in a single coordinated change).
 
@@ -157,12 +157,11 @@ path with remote handler wrapping and Hub-side re-dispatch.
 |--------|---------------|
 | `display/server.py` | ImGui render loop and coordinator — **~1,550 lines, still over the 300-line target; remaining debt from the original `display.py`** |
 | `display/renderers/imgui/` | Per-element-kind ImGui adapters (one module per kind; every leaf inherits `LeafRenderer`) |
-| `display/menu_manager.py` | Application menu bar |
+| `display/replica/` | The Display's replica of what the Hub sent: `SceneReplica` (scene state, frame composition), `FrameBook`, `WidgetStateStore`, `MenuReplica` (the replicated menu state both menu surfaces render) |
 | `display/texture_cache.py` | Image texture upload (unbounded dict — no eviction policy yet; see `system.tex` §7 "No texture eviction") |
 | `display/idle_screen.py` | Idle splash when no scene is active |
 | `protocol/elements/*.py` | JSON element types (25 kinds, all on the Element-ABC path — one module per kind with a sibling codec; the legacy family modules were deleted in B7) |
 | `protocol/messages/*.py` | Wire message types across modules: lifecycle, scene, menu, introspect, `observer` (Agent Subscribe), `remote_invocation` (D21 `RemoteEventHandlerInvocation`), registry |
-| `scene/manager.py` | `SceneManager` — scene state, frame composition |
 | `operations/` | The engine core: the `Operations` facade and its concern classes (scenes, queries, menus, display control, config, pub-sub) with typed request/result models — every surface calls these |
 | `rest/` | Typed FastAPI surface on luxd (`RestSurface`, five concern routers, one `OpError`→HTTP table) |
 | `rest_client.py` | `LuxRestClient` — the CLI's typed HTTP client of luxd |

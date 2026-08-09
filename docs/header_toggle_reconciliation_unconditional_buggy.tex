@@ -233,7 +233,7 @@ widget, so \texttt{shown} is its closed default whatever the declared value is
 \end{schema}
 
 \texttt{Repush} models a whole-scene re-push of a header that \emph{survives}
-it (\texttt{SceneManager.\_replace\_scene\_state} calling
+it (\texttt{SceneReplica.\_replace\_scene\_state} calling
 \texttt{reset\_honoured}).  The ImGui widget persists, so its stored
 \texttt{shown} is kept; only the Hub value and the bookkeeping change.  This is
 the operation the Hub performs to ratify a toggle --- and equally the one it

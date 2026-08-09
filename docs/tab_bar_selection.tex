@@ -11,11 +11,11 @@
 %       -- ImGuiTabBarRenderer: begin (begin_tab_bar -> opened?),
 %          begin_tab (the fire decision + force-select),
 %          end (the honoured write, which must be gated on opened)
-%   src/punt_lux/scene/widget_state.py
+%   src/punt_lux/display/replica/widget_state.py
 %       -- WidgetState: reset_session_slots (the re-push reset),
 %          discard_for (the removal clear)
-%   src/punt_lux/scene/manager.py
-%       -- SceneManager._replace_scene_state: drives reset_session_slots on re-push
+%   src/punt_lux/display/replica/scene_replica.py
+%       -- SceneReplica._replace_scene_state: drives reset_session_slots on re-push
 %
 % Type-check:  fuzz -t docs/tab_bar_selection.tex
 % Model-check (see Section "Verification" for the exact goal predicates):
@@ -231,7 +231,7 @@ tab.  ImGui starts a fresh widget, so \texttt{selected} is its tab-0 default,
 \end{schema}
 
 \texttt{Repush} models a whole-scene re-push of a bar that \emph{survives} the
-re-push (\texttt{SceneManager.\_replace\_scene\_state} calling
+re-push (\texttt{SceneReplica.\_replace\_scene\_state} calling
 \texttt{reset\_honoured}).  The ImGui widget persists, so its \texttt{selected}
 is kept; only the Hub value and the suppression slots change.
 

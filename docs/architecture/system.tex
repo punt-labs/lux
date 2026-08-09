@@ -198,11 +198,12 @@ Domain (pure) & \modpath{domain/}                & The renderer-free and
                 \texttt{interaction.py} and \texttt{container\_interaction.py}
                 are the typed events; \texttt{handlers/remote\_dispatch.py}
                 wraps handlers for the two-tier path. \\
-Scene         & \modpath{scene/}                 & The Display's scene
-                graph.  \texttt{SceneManager} owns the per-scene widget
+Replica       & \modpath{display/replica/}       & The Display's scene
+                graph.  \texttt{SceneReplica} owns the per-scene widget
                 state; \texttt{FrameBook} owns the frames
                 and the scene-to-frame and scene-to-owner maps;
-                \texttt{frame.py} is the \texttt{Frame} window. \\
+                \texttt{frame.py} is the \texttt{Frame} window;
+                \texttt{MenuReplica} owns the replicated menu state. \\
 Protocol      & \modpath{protocol/}              & The wire contract:
                 length-prefixed JSON framing, the \texttt{FrameReader}
                 streaming buffer, the twenty-five element kinds in
@@ -836,10 +837,11 @@ frame that did tear down is still repainted.
 
 \subsection{The Frame Window}
 
-The \texttt{Frame} class (\modpath{scene/frame.py}) is the Display's window
-for a set of scenes.  \texttt{FrameBook} (\modpath{scene/frame\_book.py})
+The \texttt{Frame} class (\modpath{display/replica/frame.py}) is the Display's
+window for a set of scenes.  \texttt{FrameBook}
+(\modpath{display/replica/frame\_book.py})
 owns the frame collection and the scene-to-frame and scene-to-owner maps,
-split out of \texttt{SceneManager} so each has one job.
+split out of \texttt{SceneReplica} so each has one job.
 
 \begin{center}
 \begin{tabular}{lp{8cm}}
@@ -868,7 +870,7 @@ split out of \texttt{SceneManager} so each has one job.
 
 Left-clicking the docking background opens the World menu, which is the menu
 bar brought to where the user clicked.  Both surfaces render one menu model
-(\modpath{display/menus/model.py}) that \texttt{MenuManager} composes each
+(\modpath{display/menus/model.py}) that \texttt{MenuReplica} composes each
 frame: the display's own Lux, Windows, and Help menus, then the bars agents
 submit through \texttt{set\_menu}, then one submenu per live session that
 registered a callback.  Neither surface builds entries of its own
