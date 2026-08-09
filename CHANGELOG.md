@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.23.1] - 2026-08-08
+
 ### Changed
 
 - **`scene/` is gone; its state lives under `display/replica/`.** The package
