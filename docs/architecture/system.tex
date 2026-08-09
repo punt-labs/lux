@@ -966,7 +966,7 @@ client so the next send reconnects.
 \subsection{The Display Render Loop}
 
 The Display runs an ImGui render loop via \texttt{hello\_imgui.run()}.  Each
-frame, the \texttt{DisplayServer.\_on\_frame()} callback runs four
+frame, the \texttt{RenderLoop.\_on\_frame()} callback runs four
 non-blocking phases: accept new socket connections, poll the connection for
 messages and dispatch each by type, render the active scenes and frames,
 and flush any queued interaction messages back to the Hub.  A frame

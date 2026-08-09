@@ -15,8 +15,8 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
+from punt_lux.display.render_loop import RenderLoop
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
-from punt_lux.display.server import DisplayServer
 from punt_lux.display_client import agent_element_factory
 from punt_lux.domain.validation_walk import ElementTreeValidator
 from punt_lux.protocol import SceneMessage
@@ -38,9 +38,9 @@ def _decode(wire: Mapping[str, object]) -> object:
     return agent_element_factory().element_from_dict(cast("dict[str, Any]", dict(wire)))
 
 
-def _server() -> DisplayServer:
+def _server() -> RenderLoop:
     raw_dir = tempfile.mkdtemp(prefix="lux-")
-    return DisplayServer(socket_path=str(Path(raw_dir) / "display.sock"))
+    return RenderLoop(socket_path=str(Path(raw_dir) / "display.sock"))
 
 
 def _mock_sock() -> Any:
@@ -52,7 +52,7 @@ def _mock_sock() -> Any:
     return sock
 
 
-def _inspect(server: DisplayServer, *elements: Element) -> QueryResponse:
+def _inspect(server: RenderLoop, *elements: Element) -> QueryResponse:
     server._handle_message(
         _mock_sock(), SceneMessage(id="s1", elements=list(elements), frame_id="s1")
     )

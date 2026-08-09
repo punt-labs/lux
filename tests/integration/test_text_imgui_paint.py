@@ -20,7 +20,7 @@ from punt_lux.protocol.elements.text import TextElement
 
 
 def _emit(_msg: object) -> None:
-    """Display-tier no-op emit (matches DisplayServer wiring)."""
+    """Display-tier no-op emit (matches RenderLoop wiring)."""
 
 
 @pytest.mark.integration

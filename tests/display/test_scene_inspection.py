@@ -5,7 +5,7 @@ Two layers:
 - Unit: ``ElementInspection`` / ``SceneInspection`` classify a hand-built
   element and serialize the ``element_paths`` record.
 - Integration: the enriched ``inspect_scene`` handler registered on a real
-  ``DisplayServer`` is driven through ``QueryRouter.handle_query`` after a
+  ``RenderLoop`` is driven through ``QueryRouter.handle_query`` after a
   scene is fed through the real ``_handle_message`` path, so resolved_props is
   read from live display state — not a stub.
 """
@@ -18,7 +18,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from punt_lux.display import DisplayServer
+from punt_lux.display import RenderLoop
 from punt_lux.display.scene_inspection import ElementInspection, SceneInspection
 from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.elements import (
@@ -39,9 +39,9 @@ if TYPE_CHECKING:
     from punt_lux.protocol.elements import Element
 
 
-def _server() -> DisplayServer:
-    """Construct a headless DisplayServer (no socket bind, no ImGui)."""
-    return DisplayServer("/tmp/test-lux-inspect.sock")
+def _server() -> RenderLoop:
+    """Construct a headless RenderLoop (no socket bind, no ImGui)."""
+    return RenderLoop("/tmp/test-lux-inspect.sock")
 
 
 def _mock_sock() -> MagicMock:
@@ -51,7 +51,7 @@ def _mock_sock() -> MagicMock:
     return sock
 
 
-def _feed(server: DisplayServer, elements: list[Element]) -> QueryResponse:
+def _feed(server: RenderLoop, elements: list[Element]) -> QueryResponse:
     """Push an all-native scene, then run the enriched inspect_scene query."""
     server._handle_message(
         _mock_sock(), SceneMessage(id="s1", elements=elements, frame_id="s1")

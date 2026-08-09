@@ -14,7 +14,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from punt_lux.display import renderers
-from punt_lux.display.server import DisplayServer
+from punt_lux.display.render_loop import RenderLoop
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
@@ -51,7 +51,7 @@ def test_the_paint_loop_calls_render_without_a_traced_wrapper() -> None:
     the trace gone there is nothing for it to do, and reinstating it would put
     a per-element-per-frame call site back where the flood started.
     """
-    assert not hasattr(DisplayServer, "_paint_element")
+    assert not hasattr(RenderLoop, "_paint_element")
 
 
 def test_trace_still_reports_an_event_driven_call(

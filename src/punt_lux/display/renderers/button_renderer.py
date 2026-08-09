@@ -23,7 +23,7 @@ class ButtonRenderer:
 
     On click, fires ``ButtonClicked`` through the element's handler
     registry. On the display side, handlers are wrapped for
-    ``remote_dispatch`` by ``DisplayServer._wrap_abc_elements`` (calling
+    ``remote_dispatch`` by ``RenderLoop._wrap_abc_elements`` (calling
     ``elem.wrap_handlers_for_remote``), which sends a
     ``RemoteEventHandlerInvocation`` to the Hub over the socket instead of
     executing the real handler body. On the Hub side they run unwrapped.

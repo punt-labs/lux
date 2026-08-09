@@ -1,8 +1,8 @@
-"""Characterization tests for SceneReplica extraction from DisplayServer.
+"""Characterization tests for SceneReplica extraction from RenderLoop.
 
 These tests verify scene management behavior: adding scenes, replacing them,
 framing, dismissing, updating, and clearing.  They test SceneReplica directly
-as a pure state machine — no ImGui, no sockets, no DisplayServer.
+as a pure state machine — no ImGui, no sockets, no RenderLoop.
 """
 
 from __future__ import annotations

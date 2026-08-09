@@ -14,9 +14,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
+from punt_lux.display.render_loop import RenderLoop
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.renderers.imgui.window import ImGuiWindowRenderer
-from punt_lux.display.server import DisplayServer
 from punt_lux.protocol.elements.window import WindowElement
 from punt_lux.protocol.elements.window_chrome import WindowFlags, WindowPlacement
 
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 def _factory() -> ImGuiRendererFactory:
     raw_dir = tempfile.mkdtemp(prefix="lux-")
-    server = DisplayServer(socket_path=str(Path(raw_dir) / "display.sock"))
+    server = RenderLoop(socket_path=str(Path(raw_dir) / "display.sock"))
     factory = server._imgui_renderer_factory
     assert isinstance(factory, ImGuiRendererFactory)
     return factory

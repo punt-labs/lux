@@ -1,4 +1,4 @@
-"""TTF partition tests for DisplayServer Z specification.
+"""TTF partition tests for RenderLoop Z specification.
 
 Derived from docs/display-server.tex using Test Template Framework tactics.
 Each test corresponds to a distinct behavioral partition — a unique combination
@@ -17,8 +17,8 @@ from __future__ import annotations
 from typing import Literal
 from unittest.mock import MagicMock
 
-from punt_lux.display import DisplayServer
-from punt_lux.display.server import _ORPHAN_FD
+from punt_lux.display import RenderLoop
+from punt_lux.display.render_loop import _ORPHAN_FD
 from punt_lux.protocol import (
     ButtonElement,
     ConnectMessage,
@@ -36,21 +36,21 @@ from punt_lux.protocol import (
 # ---------------------------------------------------------------------------
 
 
-def _server() -> DisplayServer:
-    return DisplayServer("/tmp/test-lux-partition.sock")
+def _server() -> RenderLoop:
+    return RenderLoop("/tmp/test-lux-partition.sock")
 
 
-def _scene_count(server: DisplayServer) -> int:
+def _scene_count(server: RenderLoop) -> int:
     """Total scenes the display holds, across every frame."""
     return server._scenes.scene_count
 
 
-def _active_scene_id(server: DisplayServer) -> str | None:
+def _active_scene_id(server: RenderLoop) -> str | None:
     """The abstract active scene: the first frame's active tab, or None."""
     return server._scenes.active_scene_id
 
 
-def _scene(server: DisplayServer, scene_id: str) -> SceneMessage:
+def _scene(server: RenderLoop, scene_id: str) -> SceneMessage:
     """Return the framed scene with ``scene_id`` (asserting it is present)."""
     resolved = server._scenes.resolve_scene(scene_id)
     assert resolved is not None, f"scene {scene_id!r} absent from the display"
@@ -65,7 +65,7 @@ def _sock(fd: int = 42) -> MagicMock:
     return s
 
 
-def _register(server: DisplayServer, sock: MagicMock) -> None:
+def _register(server: RenderLoop, sock: MagicMock) -> None:
     server._socket_listener.clients.append(sock)
     server._socket_listener._readers[sock.fileno()] = FrameReader()
 
@@ -76,13 +76,13 @@ def _scene_with(
     return SceneMessage(id=scene_id, elements=list(elems), frame_id=scene_id)
 
 
-def _inject_scene(server: DisplayServer, scene: SceneMessage) -> None:
+def _inject_scene(server: RenderLoop, scene: SceneMessage) -> None:
     # Every scene is framed; install it through the frame book like the display's
     # own scene handler does (the scene self-frames by its id via _scene_with).
     server._scenes.handle_framed_scene(scene, owner_fd=0)
 
 
-def _clear_all_scenes(server: DisplayServer) -> None:
+def _clear_all_scenes(server: RenderLoop) -> None:
     server._scenes.clear_all()
 
 

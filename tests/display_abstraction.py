@@ -1,10 +1,10 @@
-"""Abstraction function and abstract operations for DisplayServer refinement.
+"""Abstraction function and abstract operations for RenderLoop refinement.
 
-Maps concrete DisplayServer state to abstract Z specification state,
+Maps concrete RenderLoop state to abstract Z specification state,
 and provides pure-function implementations of each Z operation schema.
 
 Z Specification: docs/display-server.tex
-Implementation: src/punt_lux/display/server.py
+Implementation: src/punt_lux/display/render_loop.py
 
 Abstract state (from Z spec):
     clients      : P FD
@@ -36,7 +36,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from punt_lux.display import DisplayServer
+    from punt_lux.display import RenderLoop
     from punt_lux.protocol import FrameReader
 
 
@@ -49,7 +49,7 @@ ELEMENT_KINDS = frozenset({"text", "button", "separator", "image"})
 
 @dataclass(frozen=True)
 class AbstractState:
-    """Abstract DisplayServer state mirroring the Z specification schema."""
+    """Abstract RenderLoop state mirroring the Z specification schema."""
 
     clients: frozenset[int] = frozenset()
     readers: frozenset[int] = frozenset()
@@ -95,8 +95,8 @@ class AbstractState:
 # ---------------------------------------------------------------------------
 
 
-def abstract(server: DisplayServer) -> AbstractState:
-    """Map concrete DisplayServer to abstract Z specification state.
+def abstract(server: RenderLoop) -> AbstractState:
+    """Map concrete RenderLoop to abstract Z specification state.
 
     This is the critical correctness bridge. Every field mapping must
     be verified manually against the Z spec.
@@ -159,7 +159,7 @@ def abstract(server: DisplayServer) -> AbstractState:
 def abstract_reader(reader: FrameReader) -> tuple[int, int]:
     """Map concrete FrameReader to abstract (bufSize, pendingMsgs).
 
-    The Z spec flattens FrameReader into the DisplayServer schema,
+    The Z spec flattens FrameReader into the RenderLoop schema,
     but the concrete code has one FrameReader per client. We test
     FrameReader commutativity separately.
     """

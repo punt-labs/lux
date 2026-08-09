@@ -7,7 +7,7 @@ import tempfile
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
-from punt_lux.display import DisplayServer
+from punt_lux.display import RenderLoop
 from punt_lux.display.paint_clock import PaintClock
 from punt_lux.protocol import FrameReader, SceneMessage, TextElement
 
@@ -34,8 +34,8 @@ class _StepClock:
         self._now += seconds
 
 
-def _server() -> DisplayServer:
-    return DisplayServer(f"{tempfile.mkdtemp(prefix='lux-')}/display.sock")
+def _server() -> RenderLoop:
+    return RenderLoop(f"{tempfile.mkdtemp(prefix='lux-')}/display.sock")
 
 
 def _sock(fd: int = 42) -> MagicMock:
@@ -45,7 +45,7 @@ def _sock(fd: int = 42) -> MagicMock:
     return sock
 
 
-def _register(server: DisplayServer, sock: MagicMock) -> None:
+def _register(server: RenderLoop, sock: MagicMock) -> None:
     server._socket_listener.clients.append(sock)
     server._socket_listener._readers[sock.fileno()] = FrameReader()
     server._socket_listener._fd_to_client[sock.fileno()] = sock

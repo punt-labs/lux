@@ -1,4 +1,4 @@
-"""Characterization tests for QueryRouter extraction from DisplayServer."""
+"""Characterization tests for QueryRouter extraction from RenderLoop."""
 
 from __future__ import annotations
 

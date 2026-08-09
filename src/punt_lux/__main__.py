@@ -67,7 +67,7 @@ def display(
     from punt_lux.paths import DisplayPaths
 
     try:
-        from punt_lux.display import DisplayServer
+        from punt_lux.display import RenderLoop
     except ModuleNotFoundError as exc:
         _display_modules = {"imgui_bundle", "numpy", "PIL", "OpenGL"}
         if exc.name and exc.name.split(".")[0] in _display_modules:
@@ -89,7 +89,7 @@ def display(
         datefmt="%H:%M:%S",
     )
 
-    server = DisplayServer(socket, test_auto_click=test_auto_click)
+    server = RenderLoop(socket, test_auto_click=test_auto_click)
     server.run()
 
 

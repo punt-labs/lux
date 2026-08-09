@@ -1,6 +1,6 @@
-"""Data refinement commutativity tests for DisplayServer.
+"""Data refinement commutativity tests for RenderLoop.
 
-Verifies that the concrete DisplayServer implementation correctly refines
+Verifies that the concrete RenderLoop implementation correctly refines
 the abstract Z specification (docs/display-server.tex) by checking:
 
     abstract(concreteOp(concreteState)) = abstractOp(abstract(concreteState))
@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from punt_lux.display import DisplayServer
+from punt_lux.display import RenderLoop
 from punt_lux.protocol import (
     ButtonElement,
     FrameReader,
@@ -44,9 +44,9 @@ from .display_abstraction import (
 # ---------------------------------------------------------------------------
 
 
-def _make_server() -> DisplayServer:
-    """Create a DisplayServer without starting socket or ImGui."""
-    return DisplayServer("/tmp/test-lux-refine.sock")
+def _make_server() -> RenderLoop:
+    """Create a RenderLoop without starting socket or ImGui."""
+    return RenderLoop("/tmp/test-lux-refine.sock")
 
 
 def _mock_sock(fd: int = 42) -> MagicMock:
@@ -57,18 +57,18 @@ def _mock_sock(fd: int = 42) -> MagicMock:
     return sock
 
 
-def _register_client(server: DisplayServer, sock: MagicMock) -> None:
+def _register_client(server: RenderLoop, sock: MagicMock) -> None:
     """Manually register a mock client (bypasses socket accept)."""
     server._socket_listener.clients.append(sock)
     server._socket_listener._readers[sock.fileno()] = FrameReader()
 
 
-def _inject_scene(server: DisplayServer, scene: SceneMessage) -> None:
+def _inject_scene(server: RenderLoop, scene: SceneMessage) -> None:
     """Install a scene into its frame (every scene is framed)."""
     server._scenes.handle_framed_scene(scene, owner_fd=0)
 
 
-def _set_scene(server: DisplayServer, scene_id: str = "s1") -> None:
+def _set_scene(server: RenderLoop, scene_id: str = "s1") -> None:
     """Set a scene with text + button + separator elements."""
     scene = SceneMessage(
         id=scene_id,

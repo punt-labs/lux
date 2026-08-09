@@ -1,6 +1,6 @@
 """Unit tests for ``SceneInspector`` — the enriched inspect_scene handler.
 
-The integration path (through a real ``DisplayServer``) lives in
+The integration path (through a real ``RenderLoop``) lives in
 ``test_scene_inspection.py``. These isolate the collaborator: a real
 ``SceneReplica`` supplies the element objects and a ``GeometryRecorder``
 supplies the painted rects the ``want_geometry`` reply carries.

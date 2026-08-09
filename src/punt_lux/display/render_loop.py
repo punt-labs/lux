@@ -1,6 +1,6 @@
 # pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
 # pyright: reportUnknownArgumentType=false, reportMissingModuleSource=false
-"""Lux display server — ImGui render loop with non-blocking Unix socket IPC.
+"""The ImGui render loop, with non-blocking Unix socket IPC.
 
 Listens on a Unix domain socket for protocol messages and renders scenes
 using imgui-bundle. Socket I/O is polled every frame via ``select()`` with
@@ -79,8 +79,8 @@ logger = logging.getLogger(__name__)
 _ORPHAN_FD = -1
 
 
-class DisplayServer:
-    """ImGui display server with non-blocking Unix socket IPC."""
+class RenderLoop:
+    """The ImGui render loop, with non-blocking Unix socket IPC."""
 
     _socket_path: Path
     _socket_listener: SocketListener
@@ -178,7 +178,7 @@ class DisplayServer:
             emit=no_op_emit,
             publish_sink=cast(
                 "Any",
-                RaisingPublishSink("DisplayServer._luxd_factory"),
+                RaisingPublishSink("RenderLoop._luxd_factory"),
             ),
         )
         _container_dispatch.install_from_dict(self._luxd_factory.element_from_dict)

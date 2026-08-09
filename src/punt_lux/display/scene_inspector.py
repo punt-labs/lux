@@ -18,7 +18,7 @@ class SceneInspector:
 
     Composes the display's ``SceneReplica`` (the rendered element objects) and
     the render loop's ``GeometryRecorder`` (painted rects). Registered on the
-    ``QueryRouter`` by ``DisplayServer``, overriding the built-in that
+    ``QueryRouter`` by ``RenderLoop``, overriding the built-in that
     reads ``SceneReplica`` alone — the extra store is why this lives here and
     not on the dispatcher.
     """

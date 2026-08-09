@@ -1,4 +1,4 @@
-"""Unit tests for DisplayServer state machine logic.
+"""Unit tests for RenderLoop state machine logic.
 
 These tests exercise protocol handling, event queue management, and update
 patching — all pure logic that doesn't touch ImGui or OpenGL.
@@ -11,7 +11,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
 
-from punt_lux.display import DisplayServer
+from punt_lux.display import RenderLoop
 from punt_lux.display.replica import WidgetState
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
 from punt_lux.domain.interaction import ButtonClicked, ValueChanged
@@ -31,9 +31,9 @@ if TYPE_CHECKING:
     import pytest
 
 
-def _make_server() -> DisplayServer:
-    """Create a DisplayServer without starting the socket or ImGui."""
-    return DisplayServer("/tmp/test-lux-unit.sock")
+def _make_server() -> RenderLoop:
+    """Create a RenderLoop without starting the socket or ImGui."""
+    return RenderLoop("/tmp/test-lux-unit.sock")
 
 
 def _make_scene(
@@ -103,7 +103,7 @@ class TestEmitEvent:
         """Button clicks inside framed scenes were being stamped with
         stale or None scene_id because
         ``_render_framed_scene`` updated only the element renderer's view,
-        not ``DisplayServer._current_scene_id``.  The stamp source must
+        not ``RenderLoop._current_scene_id``.  The stamp source must
         track the scene actually being rendered, regardless of whether it
         lives in a frame or a top-level tab.
         """
@@ -537,18 +537,14 @@ class TestModalDismissRevertOnUndeliverable:
     """
 
     @staticmethod
-    def _latch_modal(
-        server: DisplayServer, scene_id: str, element_id: str
-    ) -> WidgetState:
+    def _latch_modal(server: RenderLoop, scene_id: str, element_id: str) -> WidgetState:
         ws = server._scenes._widget_state.open(scene_id)
         ws.set(f"{element_id}{WidgetState.OPEN_SUFFIX}", 1)
         ws.set(f"{element_id}{WidgetState.DISMISS_SUFFIX}", 1)
         return ws
 
     @staticmethod
-    def _queue_modal_closed(
-        server: DisplayServer, scene_id: str, element_id: str
-    ) -> None:
+    def _queue_modal_closed(server: RenderLoop, scene_id: str, element_id: str) -> None:
         server._event_queue.append(
             RemoteEventHandlerInvocation(
                 element_id=element_id,
@@ -774,7 +770,7 @@ class TestPendingSurvivesRemoval:
 # -----------------------------------------------------------------------
 
 
-def _scene_count(server: DisplayServer) -> int:
+def _scene_count(server: RenderLoop) -> int:
     """Total scenes the display holds, across every frame."""
     return server._scenes.scene_count
 
