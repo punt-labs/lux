@@ -1,4 +1,4 @@
-"""MenuManager — the display's menu state and the model both surfaces render.
+"""MenuReplica — the display's menu state and the model both surfaces render.
 
 The menu bar and the World panel are two projections of one :class:`MenuModel`.
 This class holds the menu state the Hub replicates — the agent bars and the
@@ -28,11 +28,11 @@ if TYPE_CHECKING:
     from punt_lux.display.window_chrome import WindowChromeCommands
     from punt_lux.protocol import RemoteEventHandlerInvocation
 
-__all__ = ["MenuManager"]
+__all__ = ["MenuReplica"]
 
 
 @final
-class MenuManager:
+class MenuReplica:
     """Own the replicated menu state and compose the menu every surface renders."""
 
     _emit_event: Callable[[RemoteEventHandlerInvocation], None]

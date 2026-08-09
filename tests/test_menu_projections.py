@@ -21,7 +21,7 @@ from .menu_doubles import (
     FakeTheme,
     Vec2,
     make_frame,
-    make_menu_manager,
+    make_menu_replica,
     wire_menu,
 )
 
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
     import pytest
 
-    from punt_lux.display.menu_manager import MenuManager
+    from punt_lux.display.replica.menu_replica import MenuReplica
 
     from .menu_doubles import MenuLine
 
@@ -102,14 +102,14 @@ def _sections_drawn(fake: FakeImGui) -> tuple[str, ...]:
     return tuple(line.label for line in _menus_drawn(fake) if line.path == ())
 
 
-def _draw_bar(manager: MenuManager, clicks: tuple[str, ...] = ()) -> FakeImGui:
+def _draw_bar(manager: MenuReplica, clicks: tuple[str, ...] = ()) -> FakeImGui:
     """Draw the menu bar and return what it drew."""
     imgui = FakeImGui(clicks)
     manager.render_bar(imgui)
     return imgui
 
 
-def _draw_panel(manager: MenuManager, clicks: tuple[str, ...] = ()) -> FakeImGui:
+def _draw_panel(manager: MenuReplica, clicks: tuple[str, ...] = ()) -> FakeImGui:
     """Open the World panel with a background click and return what it drew."""
     imgui = FakeImGui(clicks)
     imgui.click_background()
@@ -136,14 +136,14 @@ class TestOneMenuTwoSurfaces:
     """Whatever the model holds, both surfaces show."""
 
     def test_the_two_surfaces_draw_the_same_menu(self) -> None:
-        manager = make_menu_manager(get_themes=lambda: [FakeTheme("imgui_colors_dark")])
+        manager = make_menu_replica(get_themes=lambda: [FakeTheme("imgui_colors_dark")])
         manager.replace_agent_menus([_AGENT_MENU])
         manager.replace_callback_menus([_VOXD_MENU])
 
         assert _menus_drawn(_draw_bar(manager)) == _menus_drawn(_draw_panel(manager))
 
     def test_a_client_callback_reaches_the_world_panel(self) -> None:
-        manager = make_menu_manager()
+        manager = make_menu_replica()
         manager.replace_callback_menus([_VOXD_MENU])
 
         for imgui in (_draw_bar(manager), _draw_panel(manager)):
@@ -151,7 +151,7 @@ class TestOneMenuTwoSurfaces:
             assert imgui.labels_under("Clients", "voxd")[0] == "Music"
 
     def test_an_agent_bar_reaches_both_surfaces(self) -> None:
-        manager = make_menu_manager()
+        manager = make_menu_replica()
         manager.replace_agent_menus([_AGENT_MENU])
 
         for imgui in (_draw_bar(manager), _draw_panel(manager)):
@@ -159,7 +159,7 @@ class TestOneMenuTwoSurfaces:
             assert imgui.labels_under("File") == ("Open", SEPARATOR)
 
     def test_a_swept_client_leaves_both_surfaces(self) -> None:
-        manager = make_menu_manager()
+        manager = make_menu_replica()
         manager.replace_callback_menus([_VOXD_MENU])
         assert "voxd" in _draw_bar(manager).labels_under("Clients")
 
@@ -170,7 +170,7 @@ class TestOneMenuTwoSurfaces:
             assert "Clients" not in imgui.labels_under()
 
     def test_both_surfaces_draw_every_section_of_the_model(self) -> None:
-        manager = make_menu_manager()
+        manager = make_menu_replica()
         manager.replace_agent_menus([_AGENT_MENU])
         manager.replace_callback_menus([_VOXD_MENU])
         expected = tuple(s.label for s in manager.menu_model().sections)
@@ -180,7 +180,7 @@ class TestOneMenuTwoSurfaces:
             assert _sections_drawn(imgui) == expected
 
     def test_the_display_owns_menus_of_its_own_on_both_surfaces(self) -> None:
-        manager = make_menu_manager(get_frames=lambda: {"f1": make_frame("f1")})
+        manager = make_menu_replica(get_frames=lambda: {"f1": make_frame("f1")})
 
         for imgui in (_draw_bar(manager), _draw_panel(manager)):
             assert imgui.labels_under("Lux", "Settings") == (
@@ -199,7 +199,7 @@ class TestTheClientsMenu:
     """Clients ▸ client ▸ command reaches both surfaces, nesting and all."""
 
     def test_both_surfaces_nest_the_clients_the_hub_composed(self) -> None:
-        manager = make_menu_manager()
+        manager = make_menu_replica()
         manager.replace_callback_menus([_CLIENTS_MENU])
 
         for imgui in (_draw_bar(manager), _draw_panel(manager)):
@@ -217,13 +217,13 @@ class TestTheClientsMenu:
             )
 
     def test_the_two_surfaces_draw_the_nested_menu_identically(self) -> None:
-        manager = make_menu_manager()
+        manager = make_menu_replica()
         manager.replace_callback_menus([_CLIENTS_MENU])
 
         assert _menus_drawn(_draw_bar(manager)) == _menus_drawn(_draw_panel(manager))
 
     def test_the_clients_menu_is_one_section_beside_the_displays_own(self) -> None:
-        manager = make_menu_manager()
+        manager = make_menu_replica()
         manager.replace_callback_menus([_CLIENTS_MENU])
 
         for imgui in (_draw_bar(manager), _draw_panel(manager)):
@@ -231,7 +231,7 @@ class TestTheClientsMenu:
 
     def test_a_nested_leaf_click_routes_the_same_from_either_surface(self) -> None:
         sent: list[RemoteEventHandlerInvocation] = []
-        manager = make_menu_manager(emit_event=sent.append)
+        manager = make_menu_replica(emit_event=sent.append)
         manager.replace_callback_menus(
             [
                 wire_menu(
@@ -252,7 +252,7 @@ class TestTheClientsMenu:
         assert from_bar.value == {"menu": "lux", "item": "Beads"}
 
     def test_a_client_that_left_takes_its_submenu_off_both_surfaces(self) -> None:
-        manager = make_menu_manager()
+        manager = make_menu_replica()
         manager.replace_callback_menus([_CLIENTS_MENU])
         assert "quarry" in _draw_bar(manager).labels_under("Clients")
 
@@ -269,7 +269,7 @@ class TestTheClientsMenu:
             assert imgui.labels_under("Clients") == ("lux",)
 
     def test_the_last_client_leaving_takes_the_clients_menu_with_it(self) -> None:
-        manager = make_menu_manager()
+        manager = make_menu_replica()
         manager.replace_callback_menus([_CLIENTS_MENU])
 
         manager.replace_callback_menus([])  # every lease lapsed
@@ -283,7 +283,7 @@ class TestClickRouting:
 
     def test_a_leaf_click_routes_the_same_from_either_surface(self) -> None:
         sent: list[RemoteEventHandlerInvocation] = []
-        manager = make_menu_manager(emit_event=sent.append)
+        manager = make_menu_replica(emit_event=sent.append)
         manager.replace_callback_menus([_VOXD_MENU])
 
         _draw_bar(manager, clicks=("Music",))
@@ -298,7 +298,7 @@ class TestClickRouting:
 
     def test_an_untouched_menu_sends_nothing(self) -> None:
         sent: list[RemoteEventHandlerInvocation] = []
-        manager = make_menu_manager(emit_event=sent.append)
+        manager = make_menu_replica(emit_event=sent.append)
         manager.replace_callback_menus([_VOXD_MENU])
 
         _draw_bar(manager)
@@ -310,7 +310,7 @@ class TestClickRouting:
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
         sent: list[RemoteEventHandlerInvocation] = []
-        manager = make_menu_manager(emit_event=sent.append)
+        manager = make_menu_replica(emit_event=sent.append)
 
         with caplog.at_level(logging.ERROR):
             manager.replace_agent_menus(
@@ -332,7 +332,7 @@ class TestAMenuThatCannotBeDrawn:
     def test_a_malformed_menu_reaches_neither_surface(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        manager = make_menu_manager()
+        manager = make_menu_replica()
 
         with caplog.at_level(logging.ERROR):
             manager.replace_callback_menus([_UNDECODABLE_MENU])
@@ -348,7 +348,7 @@ class TestAMenuThatCannotBeDrawn:
     def test_a_malformed_menu_costs_only_itself(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        manager = make_menu_manager()
+        manager = make_menu_replica()
 
         with caplog.at_level(logging.ERROR):
             manager.replace_callback_menus([_UNDECODABLE_MENU, _VOXD_MENU])
@@ -362,7 +362,7 @@ class TestAMenuThatCannotBeDrawn:
     def test_a_failing_action_still_closes_the_panels_window(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        manager = make_menu_manager(emit_event=_gone_away)
+        manager = make_menu_replica(emit_event=_gone_away)
         manager.replace_callback_menus([_VOXD_MENU])
 
         with caplog.at_level(logging.ERROR):
@@ -381,7 +381,7 @@ class TestProjectionStructure:
         assert isinstance(WorldPanel(dict), MenuSurface)
 
     def test_a_projection_renders_the_model_it_is_given(self) -> None:
-        manager = make_menu_manager()
+        manager = make_menu_replica()
         manager.replace_callback_menus([_VOXD_MENU])
         model = manager.menu_model()
         bar_imgui, panel_imgui = FakeImGui(), FakeImGui()
@@ -410,7 +410,7 @@ class TestWorldPanelOpening:
     """The panel answers a click on the background and nothing else."""
 
     def test_the_panel_stays_shut_until_a_background_click(self) -> None:
-        manager = make_menu_manager()
+        manager = make_menu_replica()
         imgui = FakeImGui()
 
         manager.render_world_panel(imgui)
@@ -423,7 +423,7 @@ class TestWorldPanelOpening:
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
         composed: list[str] = []
-        manager = make_menu_manager(get_themes=_counting_themes(composed))
+        manager = make_menu_replica(get_themes=_counting_themes(composed))
         manager.replace_callback_menus([_VOXD_MENU])
         imgui = FakeImGui()  # no background click: the panel stays shut
 
@@ -435,7 +435,7 @@ class TestWorldPanelOpening:
 
     def test_an_open_panel_composes_the_menu_once(self) -> None:
         composed: list[str] = []
-        manager = make_menu_manager(get_themes=_counting_themes(composed))
+        manager = make_menu_replica(get_themes=_counting_themes(composed))
         imgui = FakeImGui()
         imgui.click_background()
         manager.check_world_menu_background_click(imgui)
@@ -445,7 +445,7 @@ class TestWorldPanelOpening:
         assert composed == ["composed"]
 
     def test_a_background_click_opens_the_panel(self) -> None:
-        manager = make_menu_manager()
+        manager = make_menu_replica()
         imgui = FakeImGui()
         imgui.click_background()
 
@@ -456,7 +456,7 @@ class TestWorldPanelOpening:
         assert imgui.windows == ("World",)
 
     def test_a_click_on_a_widget_leaves_the_panel_shut(self) -> None:
-        manager = make_menu_manager()
+        manager = make_menu_replica()
         imgui = FakeImGui()
         imgui.click_widget()
 
@@ -465,7 +465,7 @@ class TestWorldPanelOpening:
         assert not manager.world_menu_open
 
     def test_a_second_background_click_closes_the_panel(self) -> None:
-        manager = make_menu_manager()
+        manager = make_menu_replica()
         imgui = FakeImGui()
         imgui.click_background()
         manager.check_world_menu_background_click(imgui)
@@ -476,7 +476,7 @@ class TestWorldPanelOpening:
         assert not manager.world_menu_open
 
     def test_a_click_over_the_dock_bar_leaves_the_panel_shut(self) -> None:
-        manager = make_menu_manager(
+        manager = make_menu_replica(
             get_frames=lambda: {"f1": make_frame("f1", minimized=True)}
         )
         imgui = FakeImGui()
@@ -487,7 +487,7 @@ class TestWorldPanelOpening:
         assert not manager.world_menu_open
 
     def test_the_close_button_shuts_the_panel_and_ends_its_window(self) -> None:
-        manager = make_menu_manager()
+        manager = make_menu_replica()
         opened = FakeImGui()
         opened.click_background()
         manager.check_world_menu_background_click(opened)
@@ -502,7 +502,7 @@ class TestWorldPanelOpening:
         assert dismissed.lines == ()  # a dismissed panel draws no menus
 
     def test_clicking_a_menu_item_closes_the_unpinned_panel(self) -> None:
-        manager = make_menu_manager()
+        manager = make_menu_replica()
         manager.replace_callback_menus([_VOXD_MENU])
 
         _draw_panel(manager, clicks=("Music",))

@@ -299,19 +299,19 @@ class TestEventQueueOnSceneChange:
 
         server._handle_message(sock, MenuMessage(menus=menus))
 
-        held = server._menu_manager.agent_menus
+        held = server._menus.agent_menus
         assert [menu.label for menu in held] == ["Tools"]
         assert [line.label for _path, line in held[0].lines()] == ["Run"]
 
     def test_menu_message_replaces_previous_menus(self) -> None:
         server = _make_server()
         sock = _mock_sock()
-        server._menu_manager.replace_agent_menus([{"label": "Old", "items": []}])
+        server._menus.replace_agent_menus([{"label": "Old", "items": []}])
 
         new_menus = [{"label": "New", "items": [{"label": "Go", "id": "go"}]}]
         server._handle_message(sock, MenuMessage(menus=new_menus))
 
-        assert [menu.label for menu in server._menu_manager.agent_menus] == ["New"]
+        assert [menu.label for menu in server._menus.agent_menus] == ["New"]
 
     def test_a_malformed_menu_message_leaves_the_display_holding_nothing(self) -> None:
         server = _make_server()
@@ -321,7 +321,7 @@ class TestEventQueueOnSceneChange:
 
         server._handle_message(sock, MenuMessage(menus=malformed))
 
-        assert server._menu_manager.agent_menus == ()
+        assert server._menus.agent_menus == ()
 
 
 # -----------------------------------------------------------------------

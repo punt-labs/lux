@@ -1,4 +1,4 @@
-"""MenuManager — the menu state the Hub replicates and the model it composes.
+"""MenuReplica — the menu state the Hub replicates and the model it composes.
 
 The manager holds the agent bars and the Hub-composed Clients menu, and
 composes them with the display's own menus into the one model both surfaces
@@ -11,14 +11,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from punt_lux.display.menus import MenuModel
-
-from .menu_doubles import (
+from tests.menu_doubles import (
     SEPARATOR,
     FakeChrome,
     FakeImGui,
     FakeTheme,
     make_frame,
-    make_menu_manager as _manager,
+    make_menu_replica as _manager,
     wire_menu,
 )
 

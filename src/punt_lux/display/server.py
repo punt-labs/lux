@@ -34,11 +34,11 @@ from punt_lux.display.idle_screen import render_idle
 from punt_lux.display.interaction_delivery import InteractionDelivery
 from punt_lux.display.macos import hide_from_dock_and_cmd_tab
 from punt_lux.display.markdown_font import MarkdownFont
-from punt_lux.display.menu_manager import MenuManager
 from punt_lux.display.paint_clock import PaintClock
 from punt_lux.display.pending_interactions import PendingInteractions
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.replica import Frame, SceneReplica, WidgetState
+from punt_lux.display.replica.menu_replica import MenuReplica
 from punt_lux.display.texture_cache import TextureCache
 from punt_lux.display.window_chrome import WindowChrome
 from punt_lux.paths import DisplayPaths
@@ -91,7 +91,7 @@ class DisplayServer:
     _textures: TextureCache
     _paint_clock: PaintClock
     _widget_state: WidgetState
-    _menu_manager: MenuManager
+    _menus: MenuReplica
     _themes: list[Any]
     _decorated: bool
     _opacity: float
@@ -127,7 +127,7 @@ class DisplayServer:
         self._font_scale = 1.1
         self._fit_all_frames = False
         self._current_theme = "imgui_colors_dark"
-        self._menu_manager = MenuManager(
+        self._menus = MenuReplica(
             emit_event=self._emit_event,
             on_theme_selected=self._apply_theme,
             on_decorated_toggled=self._on_decorated_toggled,
@@ -148,8 +148,8 @@ class DisplayServer:
             scenes=self._scenes,
             get_client_names=lambda: self._socket_server.client_names,
             get_client_connect_times=lambda: self._socket_server.client_connect_times,
-            get_agent_menus=lambda: self._menu_manager.agent_menus,
-            get_callback_menus=lambda: self._menu_manager.callback_menus,
+            get_agent_menus=lambda: self._menus.agent_menus,
+            get_callback_menus=lambda: self._menus.callback_menus,
         )
         self._socket_server = SocketServer(
             on_message=self._handle_message,
@@ -467,27 +467,27 @@ class DisplayServer:
         self._socket_server.send_to_client(sock, resp)
 
     def _on_decorated_toggled(self, decorated: bool) -> None:  # noqa: FBT001
-        """Callback for MenuManager: toggle window decoration."""
+        """Callback for MenuReplica: toggle window decoration."""
         self._decorated = decorated
         self._glfw_window().set_decorated(decorated=decorated)
 
     def _on_opacity_changed(self, opacity: float) -> None:
-        """Callback for MenuManager: change window opacity."""
+        """Callback for MenuReplica: change window opacity."""
         self._opacity = opacity
         self._glfw_window().set_opacity(opacity=opacity)
 
     def _on_font_scale_changed(self, scale: float) -> None:
-        """Callback for MenuManager: change font scale."""
+        """Callback for MenuReplica: change font scale."""
         self._font_scale = scale
 
     def _clear_all(self) -> None:
-        """Callback for MenuManager: close every frame, then clear scenes and state."""
+        """Callback for MenuReplica: close every frame, then clear scenes and state."""
         for fid in list(self._scenes.frames):
             self._close_frame(fid)
         self._handle_clear()
 
     def _request_fit_all(self) -> None:
-        """Callback for MenuManager: request fit-all layout."""
+        """Callback for MenuReplica: request fit-all layout."""
         self._fit_all_frames = True
 
     def _handle_sigterm(self, _signum: int, _frame: object) -> None:
@@ -506,7 +506,7 @@ class DisplayServer:
     # -- menu bar ----------------------------------------------------------
 
     def _show_menus(self) -> None:
-        self._menu_manager.show_menus()
+        self._menus.show_menus()
 
     def _apply_theme(self, theme_name: str) -> None:
         """Apply a theme by snake_case name (e.g. 'imgui_colors_light')."""
@@ -546,9 +546,9 @@ class DisplayServer:
         if isinstance(msg, SceneMessage):
             self._handle_scene(sock, msg)
         elif isinstance(msg, MenuMessage):
-            self._menu_manager.replace_agent_menus(msg.menus)
+            self._menus.replace_agent_menus(msg.menus)
         elif isinstance(msg, CallbackMenuMessage):
-            self._menu_manager.replace_callback_menus(msg.submenus)
+            self._menus.replace_callback_menus(msg.submenus)
         elif isinstance(msg, ThemeMessage):
             self._apply_theme(msg.theme)
         elif isinstance(msg, ConnectMessage):
@@ -796,8 +796,8 @@ class DisplayServer:
         render_idle(imgui)
 
         # World menu: background click to toggle, floating panel.
-        self._menu_manager.check_world_menu_background_click(imgui)
-        self._menu_manager.render_world_panel(imgui)
+        self._menus.check_world_menu_background_click(imgui)
+        self._menus.render_world_panel(imgui)
 
         # Every scene renders inside a frame (workspace model); there is no
         # unframed scene surface — the Hub frames every scene at the boundary.
