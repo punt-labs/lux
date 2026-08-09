@@ -6,25 +6,10 @@ Each handler takes structured input and returns structured output.
 
 from __future__ import annotations
 
-import contextlib
 import json
-import logging
-import os
-import re
-import select
-import subprocess
 import sys
-from pathlib import Path
-from typing import Any, cast
 
 from punt_lux.config import ConfigManager
-
-# Any bd subcommand should trigger a beads board refresh — the board
-# should be visible whenever you're interacting with beads.
-_BD_CMD_RE = re.compile(
-    r"(?:^|[;&|\s])bd\s+\S",
-)
-
 
 # What a session is told at start when the display is on. The Beads entry it owns
 # is no longer anything the agent does: this session's applet registers it on
@@ -61,85 +46,6 @@ def handle_session_start() -> dict[str, object]:
             "additionalContext": msg,
         }
     }
-
-
-def read_hook_input() -> dict[str, object]:
-    """Read JSON hook payload from stdin (non-blocking).
-
-    Uses select + os.read to avoid blocking forever when
-    Claude Code does not close the stdin pipe.
-    """
-    try:
-        fd = sys.stdin.fileno()
-        if not select.select([fd], [], [], 0.1)[0]:
-            return {}
-        chunks: list[bytes] = []
-        while True:
-            chunk = os.read(fd, 65536)
-            if not chunk:
-                break
-            chunks.append(chunk)
-            if not select.select([fd], [], [], 0.05)[0]:
-                break
-        raw = b"".join(chunks).decode()
-        if not raw.strip():
-            return {}
-        parsed: object = json.loads(raw)
-        if isinstance(parsed, dict):
-            return cast("dict[str, object]", parsed)
-        return {}
-    except (json.JSONDecodeError, OSError, UnicodeDecodeError, ValueError) as exc:
-        logging.getLogger(__name__).debug("Failed to read hook input: %s", exc)
-        return {}
-
-
-def handle_post_bash(data: dict[str, object]) -> None:
-    """PostToolUse Bash — refresh beads board after any bd command.
-
-    Side-effect only handler — fires ``lux show beads`` in a subprocess
-    and returns immediately.  No context injection.
-    """
-    command = ""
-    tool_input = data.get("tool_input")
-    if isinstance(tool_input, dict):
-        inner = cast("dict[str, Any]", tool_input)
-        cmd_val = inner.get("command")
-        if isinstance(cmd_val, str):
-            command = cmd_val
-
-    if not _BD_CMD_RE.search(command):
-        return
-
-    # Gate: display must be enabled
-    cfg = ConfigManager().read()
-    if cfg.display != "y":
-        return
-
-    # Gate: .beads/ must exist in the repo
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode != 0:
-            return
-        repo_root = Path(result.stdout.strip())
-    except OSError:
-        return
-
-    if not (repo_root / ".beads").is_dir():
-        return
-
-    # Fire-and-forget: refresh the display
-    with contextlib.suppress(FileNotFoundError):
-        subprocess.Popen(
-            ["lux", "show", "beads"],
-            cwd=str(repo_root),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
 
 
 def emit(output: dict[str, object]) -> None:

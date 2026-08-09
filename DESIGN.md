@@ -770,8 +770,6 @@ Lux has MCP tools (`show`, `update`, `clear`, `ping`, `recv`, `set_menu`, `set_t
 
 | Command | What it does |
 |---------|-------------|
-| `lux hook stop` | Decision-block: generate visual summary before session ends |
-| `lux hook post-bash` | Classify Bash output into visual signals |
 | `lux hook session-start` | First-run setup (deploy commands, auto-allow tools) |
 
 Shell scripts are thin gates. Business logic lives in `src/punt_lux/hooks.py` as testable pure functions.
@@ -790,7 +788,7 @@ Slash commands call MCP tools, not Bash → CLI. This follows the MCP-first comm
 
 | Path | Latency | Used by |
 |------|---------|---------|
-| Hook → CLI | ~110ms | Stop hook, PostToolUse Bash, SessionStart |
+| Hook → CLI | ~110ms | SessionStart |
 | LLM → MCP tool | ~3.2s | Slash commands (`/lux on`, `/lux off`) |
 | ~~LLM → Bash → CLI~~ | ~4.6s | **Avoided.** No slash command uses this path. |
 
@@ -807,8 +805,15 @@ The display server runs independently — `lux on` implies starting/stopping the
 ## DES-015: Stop Hook — Decision-Block for Visual Summary
 
 **Date:** 2026-03-08
-**Status:** ACCEPTED
+**Status:** SUPERSEDED
 **Topic:** How the Stop hook forces a visual summary before session end
+
+> **Superseded:** No `stop` hook is present in the shipped code. `hooks/`
+> contains only `session-start.sh` and `suppress-output.sh`; `hooks.py` has no
+> `handle_stop`; `hook_app` in `__main__.py` registers only `session-start`.
+> This ADR's subsystem — the decision-block, the re-entry guard, the
+> `handle_stop()` call path below — never shipped as described or was removed
+> without an amendment here. Retained for history.
 
 ### Context
 
@@ -5180,6 +5185,13 @@ luxd is never a `bd` client, PR #299).
 (DES-021 — superseded); luxd-side built-in executors (`BuiltinBeadsCallbacks`
 ran `bd` from launchd with no PATH/credentials/cwd — deleted); count-dependent
 menu rendering (a special case for one session — ruled out).
+
+**Retired scaffolding.** The `signal-beads.sh` PostToolUse hook — a
+`Bash`-matcher that fired `lux hook post-bash` after every shell command to
+grep for `bd` and push a `lux show beads` refresh — predated this design and
+is now redundant: the session's own applet owns and services its Beads menu
+entry directly. Removed along with `handle_post_bash`/`read_hook_input` in
+`hooks.py` and the `lux hook post-bash` CLI dispatcher.
 
 ## DES-059: One Menu, Two Projections — the Menu Bar and the World Menu Are Identical
 
