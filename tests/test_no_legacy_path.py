@@ -1,9 +1,12 @@
-"""Structural guard: the legacy element path stays deleted.
+"""Structural guard: deleted legacy machinery stays deleted.
 
 B7 retired the legacy render path — the frozen-dataclass ``Legacy*`` element
 classes, the ``ElementCodec`` dispatch table, the all-ABC fork gate, and the
-legacy renderers. This test fails loud if any of that machinery reappears, so a
-future change cannot silently reintroduce a second, non-ABC element model.
+legacy renderers. lux-ttey.2 deleted ``DomainPump``, the dual-write mirror
+that duplicated ``HubDisplay``'s authority. lux-i7y3 dissolved the old
+``scene/`` package. This test fails loud if any of that machinery reappears,
+so a future change cannot silently reintroduce a second write path or a
+second, non-ABC element model.
 
 It replaces the old fork-gate tests, which policed the boundary *between* the
 two models; with one model there is no boundary to police, only its absence to
@@ -21,6 +24,13 @@ import punt_lux.protocol as protocol
 import punt_lux.protocol.elements as elements
 
 # The modules B7 deleted. A reappearance means the legacy model came back.
+#
+# lux-ttey.2 deleted DomainPump, a dual-write mirror that duplicated
+# HubDisplay's authority one process over. lux-i7y3 dissolved the scene/
+# package into display/replica/; punt_lux.scene.manager (SceneManager) is
+# now display/replica/scene_replica.py (SceneReplica) -- a real, documented
+# collaborator (see target.md), not a deletion, so only the OLD module path
+# is guarded here, not the class's continued existence.
 _DELETED_MODULES = (
     "punt_lux.protocol.elements.layout",
     "punt_lux.protocol.elements.legacy_table",
@@ -30,6 +40,9 @@ _DELETED_MODULES = (
     "punt_lux.display.table_renderer",
     "punt_lux.display.renderers.container_renderer",
     "punt_lux.display.renderers.modal_renderer",
+    "punt_lux.display.domain_pump",
+    "punt_lux.scene",
+    "punt_lux.scene.manager",
 )
 
 # Source patterns that only the legacy path produces. A grep over ``src`` for
@@ -42,6 +55,8 @@ _FORBIDDEN_SOURCE_PATTERNS = (
     "_decode_legacy",  # the factory's legacy decode arm
     "NestedLegacyWriteError",  # the legacy nested-write deferral
     "LegacyFieldRealization",  # the legacy replace-and-rebind write
+    "class DomainPump",  # the deleted dual-write mirror
+    "class SceneManager",  # the pre-rename name; SceneReplica is current
 )
 
 _SRC_ROOT = Path(__file__).resolve().parent.parent / "src" / "punt_lux"
