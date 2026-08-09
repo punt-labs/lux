@@ -130,6 +130,22 @@ locally. When invoked, they call back to the Hub that sent the UI. The Display
 only needs to know which Hub owns that UI and how to communicate with it over
 an already-established connection.
 
+`SceneReplica` is the concrete class holding that copy — framed scenes via a
+composed `FrameBook`, tree navigation via a composed `SceneTreeWalk`, and the
+one responsibility that belongs to neither: when the Hub resends a scene,
+diffing which element ids no longer survive and notifying the render loop so
+queued or held interactions for elements that are gone get dropped instead of
+firing on nothing. Its scene and frame data satisfy the Replication Policy
+below by construction — exactly what the Hub's last resend put there, nothing
+more.
+
+`SceneReplica` also composes a `WidgetStateStore`, which is a different kind
+of state entirely: selection, scroll position, and in-progress text the
+Display accumulates locally across ImGui frames, opened and discarded with
+its scene rather than carried in any Hub resend. It lives beside the
+replicated scene data because both are scoped to the same scene's lifetime,
+not because the Hub sent it.
+
 ## Event Models
 
 Lux has two different event mechanisms and they must not be conflated.
