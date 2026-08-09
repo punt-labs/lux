@@ -8,7 +8,7 @@
   wore a domain-noun name for state that only ever existed on the Display
   tier — `SceneManager` is now `SceneReplica`, `MenuManager` is `MenuReplica`,
   both in `display/replica/` beside `Frame`, `FrameBook`, `WidgetState`, and
-  the new `WidgetStateStore`. `display/rgba_buffer.py` moved to
+  the new `WidgetStateStore`. `scene/rgba_buffer.py` moved to
   `display/renderers/rgba_buffer.py` beside its text and float siblings.
 - **`display/server.py` is `display/render_loop.py`; `DisplayServer` is
   `RenderLoop`.** A class in `display/` no longer needs `Display` in its name
