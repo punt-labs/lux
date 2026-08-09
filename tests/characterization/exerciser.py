@@ -3,7 +3,7 @@
 The characterization corpus pins each tool's response by stubbing the
 display-side dependencies the tool reaches through: ``DisplayPaths.is_running``
 to decide whether to short-circuit, ``_get_client`` to substitute a fake
-``DisplayClient`` whose methods return fixed values, and (for tools that
+``DisplayLink`` whose methods return fixed values, and (for tools that
 depend on the wall clock) ``time.time``.
 
 The exerciser raises ``ToolCallError`` for any failure the corpus can detect
@@ -21,7 +21,7 @@ A ``setup`` dict has this shape::
         "display_running": bool,                # patches DisplayPaths.is_running
         "time": float,                          # patches time.time when set
         "session_key": str,                     # ContextVar override (optional)
-        "client": {                             # stub DisplayClient method specs
+        "client": {                             # stub DisplayLink method specs
             "show":   {"return": {...}},        # AckMessage payload or None
             "update": {"return": {...}},
             "ping":   {"return": {...}},
@@ -92,7 +92,7 @@ class _StubReplicator:
 
 
 class _StubClient:
-    """Stand-in for ``DisplayClient`` configured from a snapshot setup.
+    """Stand-in for ``DisplayLink`` configured from a snapshot setup.
 
     Methods consult the scenario's ``client`` spec for their return value.
     A method invoked without a matching spec key raises
@@ -311,7 +311,7 @@ class ToolExerciser:
             callback_router=CallbackRouter(display.clients),
             ports=cls._hub_ports(setup),
         )
-        # All tools resolve the DisplayClient through the Hub-side
+        # All tools resolve the DisplayLink through the Hub-side
         # ClientRegistry singleton in ``punt_lux.domain.hub``. Patching
         # ``client_registry.get`` substitutes the stub for every tool —
         # both hand-written @mcp.tool ones and the @_query_tool decorator

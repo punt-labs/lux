@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, cast
 
-from punt_lux.display_client import agent_element_factory
 from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.hub import client_registry, hub
 from punt_lux.domain.hub.callback_hold import CallbackRouter
@@ -25,6 +24,7 @@ from punt_lux.operations.display_connection import HubDisplayConnection
 from punt_lux.operations.models.query_geometry import GeometryPresent
 from punt_lux.operations.models.query_inspection import SceneInspection
 from punt_lux.operations.ports import HubPorts
+from punt_lux.protocol.agent_factory import agent_element_factory
 from punt_lux.protocol.geometry import Rect
 from punt_lux.protocol.painted_geometry import ElementGeometry, FrameGeometry
 from punt_lux.tools import read_tools

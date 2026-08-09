@@ -5,7 +5,7 @@ trip. A user close routes to the Hub as a ``ModalClosed``
 interaction whose built-in handler drives ``model.close`` -> ``mark_removed``, so
 the removal cascade drops the modal from both tiers — the D21 path a dialog
 dismiss uses. Levels 2, 3, and 5 drive the real Hub/Display boundary — the pickle
-scene wire and the ``DisplayServer`` receive/rebind path — never a stub.
+scene wire and the ``RenderLoop`` receive/rebind path — never a stub.
 """
 
 from __future__ import annotations
@@ -17,14 +17,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from punt_lux.display.render_loop import RenderLoop
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
-from punt_lux.display.server import DisplayServer
-from punt_lux.display_client import agent_element_factory
 from punt_lux.domain.container_interaction import ModalClosed
 from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
 from punt_lux.domain.validation_walk import ElementTreeValidator, HasChildElements
 from punt_lux.protocol import SceneMessage
+from punt_lux.protocol.agent_factory import agent_element_factory
 from punt_lux.protocol.elements import (
     ButtonElement,
     CollapsingHeaderElement,
@@ -80,9 +80,9 @@ def _decode(wire: Mapping[str, object]) -> object:
     return agent_element_factory().element_from_dict(cast("dict[str, Any]", dict(wire)))
 
 
-def _server() -> DisplayServer:
+def _server() -> RenderLoop:
     raw_dir = tempfile.mkdtemp(prefix="lux-")
-    return DisplayServer(socket_path=str(Path(raw_dir) / "display.sock"))
+    return RenderLoop(socket_path=str(Path(raw_dir) / "display.sock"))
 
 
 # -- Level 1: serialization roundtrip ---------------------------------------
@@ -415,11 +415,11 @@ def _mock_sock() -> MagicMock:
     return sock
 
 
-def _inspect(server: DisplayServer, *elements: Element) -> QueryResponse:
+def _inspect(server: RenderLoop, *elements: Element) -> QueryResponse:
     server._handle_message(
         _mock_sock(), SceneMessage(id="s1", elements=list(elements), frame_id="s1")
     )
-    return server.query_dispatcher.handle_query("inspect_scene", {"scene_id": "s1"})
+    return server.query_router.handle_query("inspect_scene", {"scene_id": "s1"})
 
 
 def _record(resp: QueryResponse, element_id: str) -> dict[str, object]:

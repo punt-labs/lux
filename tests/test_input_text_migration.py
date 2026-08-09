@@ -14,13 +14,13 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
-from punt_lux.display.server import DisplayServer
-from punt_lux.display_client import agent_element_factory
+from punt_lux.display.render_loop import RenderLoop
 from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
 from punt_lux.domain.interaction import ValueChanged
 from punt_lux.domain.validation_walk import ElementTreeValidator
 from punt_lux.protocol import SceneMessage
+from punt_lux.protocol.agent_factory import agent_element_factory
 from punt_lux.protocol.elements import InputTextElement
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
 from punt_lux.protocol.messages import message_from_dict, message_to_dict
@@ -37,9 +37,9 @@ def _decode(wire: Mapping[str, object]) -> object:
     return agent_element_factory().element_from_dict(cast("dict[str, Any]", dict(wire)))
 
 
-def _server() -> DisplayServer:
+def _server() -> RenderLoop:
     raw_dir = tempfile.mkdtemp(prefix="lux-")
-    return DisplayServer(socket_path=str(Path(raw_dir) / "display.sock"))
+    return RenderLoop(socket_path=str(Path(raw_dir) / "display.sock"))
 
 
 # -- Level 1: serialization roundtrip ---------------------------------------
@@ -237,7 +237,7 @@ class TestHubDispatch:
 # -- Level 5: introspection (element_paths + resolved props) ----------------
 
 
-def _inspect(server: DisplayServer, elem: object) -> QueryResponse:
+def _inspect(server: RenderLoop, elem: object) -> QueryResponse:
     from unittest.mock import MagicMock
 
     sock = MagicMock()
@@ -246,7 +246,7 @@ def _inspect(server: DisplayServer, elem: object) -> QueryResponse:
     server._handle_message(
         sock, SceneMessage(id="s1", elements=[cast("Any", elem)], frame_id="s1")
     )
-    return server.query_dispatcher.handle_query("inspect_scene", {"scene_id": "s1"})
+    return server.query_router.handle_query("inspect_scene", {"scene_id": "s1"})
 
 
 def _record(resp: QueryResponse, element_id: str) -> dict[str, object]:

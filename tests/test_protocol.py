@@ -8,7 +8,6 @@ from typing import Any
 
 import pytest
 
-from punt_lux.display_client import agent_element_factory
 from punt_lux.protocol import (
     AckMessage,
     ButtonElement,
@@ -56,6 +55,7 @@ from punt_lux.protocol import (
     message_from_dict,
     message_to_dict,
 )
+from punt_lux.protocol.agent_factory import agent_element_factory
 from punt_lux.protocol.elements.plot_series import PlotSeries
 from punt_lux.protocol.elements.tree_node import TreeNode
 

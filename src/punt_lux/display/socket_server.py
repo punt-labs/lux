@@ -40,7 +40,7 @@ _BIND_RACE_ERRNOS = frozenset({errno.EADDRINUSE, errno.EEXIST})
 _LISTEN_BACKLOG = 128
 
 
-class SocketServer:
+class SocketListener:
     """Accept, poll, read from, send to, and remove Unix socket clients.
 
     Pure networking -- no ImGui dependency.  Domain-specific reactions

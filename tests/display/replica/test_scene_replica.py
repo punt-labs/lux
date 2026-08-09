@@ -1,8 +1,8 @@
-"""Characterization tests for SceneReplica extraction from DisplayServer.
+"""Characterization tests for SceneReplica extraction from RenderLoop.
 
 These tests verify scene management behavior: adding scenes, replacing them,
 framing, dismissing, updating, and clearing.  They test SceneReplica directly
-as a pure state machine — no ImGui, no sockets, no DisplayServer.
+as a pure state machine — no ImGui, no sockets, no RenderLoop.
 """
 
 from __future__ import annotations
@@ -473,7 +473,7 @@ class TestClearAll:
         assert mgr.scene_count == 0
         assert len(mgr.scene_to_frame) == 0
         assert len(mgr.scene_to_owner) == 0
-        assert len(mgr._widget_state) == 0
+        assert mgr.widget_state_count == 0
 
     def test_clear_all_idempotent(self) -> None:
         """Calling clear_all on empty state does not fail."""

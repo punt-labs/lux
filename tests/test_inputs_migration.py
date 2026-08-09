@@ -23,7 +23,6 @@ from pathlib import Path
 
 import pytest
 
-from punt_lux.display_client import agent_element_factory
 from punt_lux.domain import ElementId, SceneId
 from punt_lux.domain.element import Element
 from punt_lux.domain.event_protocol import Event as DomainEvent
@@ -43,6 +42,7 @@ from punt_lux.protocol import (
     SliderElement,
     element_to_dict,
 )
+from punt_lux.protocol.agent_factory import agent_element_factory
 from tests.hub_harness import IsolatedHub
 
 # -- Element Protocol conformance ------------------------------------------

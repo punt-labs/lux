@@ -155,7 +155,7 @@ path with remote handler wrapping and Hub-side re-dispatch.
 
 | Module | Responsibility |
 |--------|---------------|
-| `display/server.py` | ImGui render loop and coordinator — **~1,550 lines, still over the 300-line target; remaining debt from the original `display.py`** |
+| `display/render_loop.py` | `RenderLoop` — ImGui render loop and coordinator — **~1,550 lines, still over the 300-line target; remaining debt from the original `display.py`** |
 | `display/renderers/imgui/` | Per-element-kind ImGui adapters (one module per kind; every leaf inherits `LeafRenderer`) |
 | `display/replica/` | The Display's replica of what the Hub sent: `SceneReplica` (scene state, frame composition), `FrameBook`, `WidgetStateStore`, `MenuReplica` (the replicated menu state both menu surfaces render) |
 | `display/texture_cache.py` | Image texture upload (unbounded dict — no eviction policy yet; see `system.tex` §7 "No texture eviction") |
@@ -167,7 +167,7 @@ path with remote handler wrapping and Hub-side re-dispatch.
 | `rest_client.py` | `LuxRestClient` — the CLI's typed HTTP client of luxd |
 | `tools/server.py` | FastMCP instance and per-session lifecycle |
 | `tools/tools.py` | MCP tool definitions — zero-logic adapters over the `Operations` facade |
-| `display_client.py` | `DisplayClient` — the Hub's (luxd's) sole Unix-socket client to the display; constructed only in `domain/hub/clients.py`, guard-enforced |
+| `domain/hub/display_link.py` | `DisplayLink` — the Hub's (luxd's) sole Unix-socket client to the display; constructed only in `domain/hub/clients.py`, guard-enforced |
 | `applets/` | Lux applets (DES-063): `AppletLeg` (listener + register-on-connect + click servicing), `SessionWatch` (parent-pid lifetime), `beads.py` (`lux-beads` — the first bundled applet) |
 | `apps/beads.py` | `BeadsBrowser` — beads issue browser app (the board the applet and CLI render) |
 
@@ -222,7 +222,7 @@ Default Python — procedural functions operating on dataclasses, `| None` every
 
 ### Module-size constraints
 
-**`display/server.py` (~1,500 lines) must be decomposed further** — it is over the 300-line target. Any PR that adds rendering logic to it without extracting existing code will be rejected. The original `display.py` was 4,208 lines; PR #158 split it into the `display/` package; `server.py` still carries the bulk of the original mass. (`element_renderer.py` and the other legacy renderers were deleted with the legacy render path in B7.)
+**`display/render_loop.py` (~1,500 lines, `RenderLoop`, formerly `display/server.py`/`DisplayServer`) must be decomposed further** — it is over the 300-line target. Any PR that adds rendering logic to it without extracting existing code will be rejected. The original `display.py` was 4,208 lines; PR #158 split it into the `display/` package; `render_loop.py` still carries the bulk of the original mass. (`element_renderer.py` and the other legacy renderers were deleted with the legacy render path in B7.)
 
 **Protocol codec debt — resolved by the element migration.** Every element kind now has a class-based codec beside its element module (`JsonXEncoder`/`JsonXDecoder`); the legacy family modules with module-level `_<kind>_to_dict` functions were deleted in B7. The remaining procedural corners live in `protocol/messages/*.py` — fix a message codec onto its class when you touch the file.
 
@@ -271,11 +271,11 @@ Bootstrap (first time only): run `make update-oo` to create the initial baseline
 
 ### What good testing means in this project
 
-Lux's biggest testing gap is the rendering layer. `display/server.py` is large and has no automated visual regression tests — correctness is verified manually by looking at the display. This means:
+Lux's biggest testing gap is the rendering layer. `display/render_loop.py` is large and has no automated visual regression tests — correctness is verified manually by looking at the display. This means:
 
 - **Protocol tests are the primary safety net.** Every element kind must have tests that verify serialization roundtrips (build → serialize → deserialize → compare). Protocol changes without tests are unshippable.
 - **Scene tests verify composition.** Multiple elements in a scene, tab switching, window management, detail panels — these must be tested at the scene level even though visual rendering is manual.
-- **Further decomposing `display/server.py` is prerequisite for meaningful render tests.** Until it is split into testable units, the rendering layer remains undertested. Every change that includes extraction improves the testability of the codebase.
+- **Further decomposing `display/render_loop.py` is prerequisite for meaningful render tests.** Until it is split into testable units, the rendering layer remains undertested. Every change that includes extraction improves the testability of the codebase.
 
 ### Key relationships
 
@@ -342,7 +342,7 @@ probcli.
 
 Identity: `agent: claude` per `.punt-labs/ethos.yaml`. All code delegation uses ethos missions. Every non-trivial delegation has two phases: (1) **design mission** — describes problem, constraints, and invariants but does NOT prescribe a write set; (2) **implementation mission** — uses the write set produced by the design phase. The design mission's output IS the write set — the specialist decides what to create, split, or extract.
 
-The COO must not read implementation files before writing the design spec. "Add a handler to `display/server.py` at line 923" is a predetermined write set that prevents the specialist from making design decisions. "Add a query operation that returns display metadata — the codebase has a generic query infrastructure, the implementation must follow code quality standards" gives the specialist latitude to decompose and restructure. This is how the original `display.py` grew to 4,208 lines and `display/server.py` is still ~1,400 — write sets were predetermined to existing files instead of letting the specialist extract.
+The COO must not read implementation files before writing the design spec. "Add a handler to `display/render_loop.py` at line 923" is a predetermined write set that prevents the specialist from making design decisions. "Add a query operation that returns display metadata — the codebase has a generic query infrastructure, the implementation must follow code quality standards" gives the specialist latitude to decompose and restructure. This is how the original `display.py` grew to 4,208 lines and `display/render_loop.py` is still ~1,400 — write sets were predetermined to existing files instead of letting the specialist extract.
 
 ### Why these pairings
 

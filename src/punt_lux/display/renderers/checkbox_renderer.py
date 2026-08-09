@@ -29,7 +29,7 @@ class CheckboxRenderer:
     fires, so the fire -> Hub -> re-push -> fire loop cannot form. On a real
     toggle it fires ``ValueChanged`` through the element's handler registry,
     which the Display has wrapped for remote dispatch by
-    ``DisplayServer._wrap_abc_elements`` (via ``elem.wrap_handlers_for_remote``):
+    ``RenderLoop._wrap_abc_elements`` (via ``elem.wrap_handlers_for_remote``):
     the wrapper sends the invocation to the Hub instead of running the real
     handler body locally.
     """

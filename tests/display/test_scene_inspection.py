@@ -5,7 +5,7 @@ Two layers:
 - Unit: ``ElementInspection`` / ``SceneInspection`` classify a hand-built
   element and serialize the ``element_paths`` record.
 - Integration: the enriched ``inspect_scene`` handler registered on a real
-  ``DisplayServer`` is driven through ``QueryDispatcher.handle_query`` after a
+  ``RenderLoop`` is driven through ``QueryRouter.handle_query`` after a
   scene is fed through the real ``_handle_message`` path, so resolved_props is
   read from live display state — not a stub.
 """
@@ -18,7 +18,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from punt_lux.display import DisplayServer
+from punt_lux.display import RenderLoop
+from punt_lux.display.scene_inspection import ElementInspection, SceneInspection
 from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.elements import (
     ButtonElement,
@@ -31,7 +32,6 @@ from punt_lux.protocol.elements import (
 )
 from punt_lux.protocol.elements.plot_series import PlotSeries
 from punt_lux.protocol.elements.tree import TreeElement
-from punt_lux.scene_inspection import ElementInspection, SceneInspection
 
 if TYPE_CHECKING:
     from punt_lux.domain.inspectable import Inspectable
@@ -39,9 +39,9 @@ if TYPE_CHECKING:
     from punt_lux.protocol.elements import Element
 
 
-def _server() -> DisplayServer:
-    """Construct a headless DisplayServer (no socket bind, no ImGui)."""
-    return DisplayServer("/tmp/test-lux-inspect.sock")
+def _server() -> RenderLoop:
+    """Construct a headless RenderLoop (no socket bind, no ImGui)."""
+    return RenderLoop("/tmp/test-lux-inspect.sock")
 
 
 def _mock_sock() -> MagicMock:
@@ -51,12 +51,12 @@ def _mock_sock() -> MagicMock:
     return sock
 
 
-def _feed(server: DisplayServer, elements: list[Element]) -> QueryResponse:
+def _feed(server: RenderLoop, elements: list[Element]) -> QueryResponse:
     """Push an all-native scene, then run the enriched inspect_scene query."""
     server._handle_message(
         _mock_sock(), SceneMessage(id="s1", elements=elements, frame_id="s1")
     )
-    return server.query_dispatcher.handle_query("inspect_scene", {"scene_id": "s1"})
+    return server.query_router.handle_query("inspect_scene", {"scene_id": "s1"})
 
 
 def _record(resp: QueryResponse, element_id: str) -> dict[str, object]:
@@ -204,7 +204,7 @@ def test_inspect_scene_preserves_the_elements_array() -> None:
 def test_inspect_scene_unknown_scene_surfaces_error_not_empty() -> None:
     """A missing scene raises LookupError → QueryResponse.error, not a blank."""
     server = _server()
-    resp = server.query_dispatcher.handle_query("inspect_scene", {"scene_id": "ghost"})
+    resp = server.query_router.handle_query("inspect_scene", {"scene_id": "ghost"})
     assert resp.error is not None
     assert "ghost" in resp.error
     assert not resp.result

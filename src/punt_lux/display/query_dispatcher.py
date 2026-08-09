@@ -16,7 +16,7 @@ from punt_lux.protocol import QueryResponse
 logger = logging.getLogger(__name__)
 
 
-class QueryDispatcher:
+class QueryRouter:
     """Dispatch query requests to registered handlers.
 
     Owns the ring buffers for recent events and errors.  No ImGui

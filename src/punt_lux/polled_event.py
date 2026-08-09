@@ -1,4 +1,4 @@
-"""Typed envelope surfaced by :meth:`DisplayClient.poll_event`."""
+"""Typed envelope surfaced by :meth:`DisplayLink.poll_event`."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ __all__ = ["PolledEvent"]
 
 @dataclass(frozen=True, slots=True)
 class PolledEvent:
-    """One observer fan-out surfaced to :meth:`DisplayClient.poll_event`.
+    """One observer fan-out surfaced to :meth:`DisplayLink.poll_event`.
 
     Carries both the publisher's ``topic`` and the ``payload`` body so
     subscribers can disambiguate fan-outs from multiple topics on the

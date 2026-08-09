@@ -16,7 +16,6 @@ Markdown follow.
 
 from __future__ import annotations
 
-from punt_lux.display_client import agent_element_factory
 from punt_lux.domain import ElementId, SceneId
 from punt_lux.domain.element import Element
 from punt_lux.domain.hub.hub_display import HubDisplay
@@ -31,6 +30,7 @@ from punt_lux.protocol import (
     TextElement,
     element_to_dict,
 )
+from punt_lux.protocol.agent_factory import agent_element_factory
 
 
 def test_text_element_satisfies_element_protocol() -> None:

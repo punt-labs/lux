@@ -15,7 +15,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Self
 
-from punt_lux.display import DisplayServer
+from punt_lux.display import RenderLoop
 from punt_lux.display.frame_placement import FramePlacement
 from punt_lux.display.geometry_capture import GeometryCapture
 from punt_lux.display.replica.frame import Frame
@@ -27,8 +27,8 @@ _DEFAULT_SIZE = (800.0, 600.0)
 _PLACEMENT = FramePlacement(fitting=False, tile_layout={}, default_size=_DEFAULT_SIZE)
 
 
-def _make_server() -> DisplayServer:
-    return DisplayServer("/tmp/test-lux-frame-timing.sock")
+def _make_server() -> RenderLoop:
+    return RenderLoop("/tmp/test-lux-frame-timing.sock")
 
 
 def _frame() -> Frame:
@@ -74,9 +74,7 @@ class _FakeImgui:
         self._order.append("end")
 
 
-def _spy(
-    monkeypatch: pytest.MonkeyPatch, server: DisplayServer, order: list[str]
-) -> None:
+def _spy(monkeypatch: pytest.MonkeyPatch, server: RenderLoop, order: list[str]) -> None:
     """Record when contents render and when the frame rect is captured."""
 
     def render_contents(*_args: object) -> None:

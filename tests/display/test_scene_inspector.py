@@ -1,6 +1,6 @@
 """Unit tests for ``SceneInspector`` — the enriched inspect_scene handler.
 
-The integration path (through a real ``DisplayServer``) lives in
+The integration path (through a real ``RenderLoop``) lives in
 ``test_scene_inspection.py``. These isolate the collaborator: a real
 ``SceneReplica`` supplies the element objects and a ``GeometryRecorder``
 supplies the painted rects the ``want_geometry`` reply carries.
@@ -14,10 +14,10 @@ import pytest
 
 from punt_lux.display.geometry import ElementRef, GeometryRecorder
 from punt_lux.display.replica import SceneReplica
+from punt_lux.display.scene_inspector import SceneInspector
 from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.elements import TextElement
 from punt_lux.protocol.geometry import Rect
-from punt_lux.scene_inspector import SceneInspector
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

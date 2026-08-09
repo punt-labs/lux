@@ -142,11 +142,7 @@ class SceneReplica:
         frame = self._book.frame_of_scene(scene_id)
         return frame.scenes.get(scene_id) if frame is not None else None
 
-    def dismiss_framed_scene(
-        self,
-        frame: Frame,
-        scene_id: str,
-    ) -> bool:
+    def dismiss_framed_scene(self, frame: Frame, scene_id: str) -> bool:
         """Remove a single scene from a frame.
 
         Return True if the frame is now empty (caller should close it
@@ -188,6 +184,11 @@ class SceneReplica:
         """Return the WidgetState for a scene, or None."""
         return self._widget_state.get(scene_id)
 
+    @property
+    def widget_state_count(self) -> int:
+        """Return the number of scenes holding widget state."""
+        return len(self._widget_state)
+
     # -- scene-replacement helpers -----------------------------------------
 
     def _notify_stale(self, candidate_ids: set[str]) -> list[str]:
@@ -205,9 +206,7 @@ class SceneReplica:
         return ids
 
     def _replace_scene_state(
-        self,
-        msg: SceneMessage,
-        old_scene: SceneMessage | None = None,
+        self, msg: SceneMessage, old_scene: SceneMessage | None = None
     ) -> None:
         """Drain stale IDs no other scene holds and discard their widget state.
 

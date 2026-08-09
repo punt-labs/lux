@@ -31,23 +31,23 @@ def _build(
     send_results: dict[object, bool] | None = None,
     widget_state: WidgetState | None = None,
 ) -> tuple[InteractionDelivery, MagicMock]:
-    socket_server = MagicMock()
-    socket_server.clients = list(clients)
-    socket_server.fd_to_client = fd_to_client or {}
+    socket_listener = MagicMock()
+    socket_listener.clients = list(clients)
+    socket_listener.fd_to_client = fd_to_client or {}
     results = send_results or {}
 
     def _send(sock: object, _msg: object, _deadline: float) -> bool:
         return results.get(sock, True)
 
-    socket_server.send_to_client.side_effect = _send
+    socket_listener.send_to_client.side_effect = _send
     scenes = MagicMock()
     scenes.scene_to_owner = scene_to_owner or {}
     scenes.widget_state_for.return_value = widget_state
     delivery = InteractionDelivery(
-        socket_server=socket_server,
+        socket_listener=socket_listener,
         scenes=scenes,
     )
-    return delivery, socket_server
+    return delivery, socket_listener
 
 
 def _evicted(
@@ -88,7 +88,7 @@ def _aged_out_while_newer_held(
 class TestDeliver:
     def test_routes_to_scene_owner(self) -> None:
         owner_sock = object()
-        delivery, socket_server = _build(
+        delivery, socket_listener = _build(
             fd_to_client={7: owner_sock}, scene_to_owner={"s1": 7}
         )
         event = RemoteEventHandlerInvocation(
@@ -96,15 +96,15 @@ class TestDeliver:
         )
 
         assert delivery.deliver([event]) == 1  # one delivered
-        socket_server.send_to_client.assert_called_once_with(owner_sock, event, ANY)
+        socket_listener.send_to_client.assert_called_once_with(owner_sock, event, ANY)
 
     def test_broadcast_sends_to_every_client_without_short_circuit(self) -> None:
         a, b = object(), object()
-        delivery, socket_server = _build(clients=[a, b])
+        delivery, socket_listener = _build(clients=[a, b])
         event = RemoteEventHandlerInvocation(element_id="b", action="click", ts=1.0)
 
         assert delivery.deliver([event]) == 1
-        assert socket_server.send_to_client.call_count == 2
+        assert socket_listener.send_to_client.call_count == 2
 
     def test_delivery_stops_at_first_unsent_event(self) -> None:
         # A failed send ends the frame: that event and every one after it stay
@@ -133,13 +133,13 @@ class TestDeliver:
         assert delivery.deliver([first, second]) == 1  # only the prefix
 
     def test_missing_owner_socket_stops_delivery(self) -> None:
-        delivery, socket_server = _build(scene_to_owner={"s1": 7})  # fd 7 not mapped
+        delivery, socket_listener = _build(scene_to_owner={"s1": 7})  # fd 7 not mapped
         event = RemoteEventHandlerInvocation(
             element_id="b", action="click", scene_id="s1", ts=1.0
         )
 
         assert delivery.deliver([event]) == 0
-        socket_server.send_to_client.assert_not_called()
+        socket_listener.send_to_client.assert_not_called()
 
     def test_spent_budget_delivers_nothing(
         self, monkeypatch: pytest.MonkeyPatch
@@ -150,11 +150,11 @@ class TestDeliver:
             "punt_lux.display.interaction_delivery._FRAME_SEND_BUDGET", -1.0
         )
         sock = object()
-        delivery, socket_server = _build(clients=[sock])
+        delivery, socket_listener = _build(clients=[sock])
         event = RemoteEventHandlerInvocation(element_id="b", action="click", ts=1.0)
 
         assert delivery.deliver([event]) == 0
-        socket_server.send_to_client.assert_not_called()
+        socket_listener.send_to_client.assert_not_called()
 
 
 class TestCompensateEvicted:

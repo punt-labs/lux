@@ -756,7 +756,7 @@ class SmokeRunner:
             ("lux-001", "open", "P0", "Render every element kind"),
             ("lux-002", "in_progress", "P1", "Add manual smoke test"),
             ("lux-003", "closed", "P2", "Document architecture"),
-            ("lux-004", "open", "P1", "Decompose display/server.py"),
+            ("lux-004", "open", "P1", "Decompose display/render_loop.py"),
             ("lux-005", "blocked", "P3", "Texture cache eviction"),
         )
         table = TableElement(

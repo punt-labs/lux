@@ -15,12 +15,12 @@ from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.renderers.imgui.text import ImGuiTextRenderer
 from punt_lux.display.replica.widget_state import WidgetState
 from punt_lux.display.texture_cache import TextureCache
-from punt_lux.display_client import agent_element_factory
+from punt_lux.protocol.agent_factory import agent_element_factory
 from punt_lux.protocol.elements.text import TextElement
 
 
 def _emit(_msg: object) -> None:
-    """Display-tier no-op emit (matches DisplayServer wiring)."""
+    """Display-tier no-op emit (matches RenderLoop wiring)."""
 
 
 @pytest.mark.integration

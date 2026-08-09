@@ -16,6 +16,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from punt_lux.display.render_loop import RenderLoop
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.renderers.imgui.tab_bar import ImGuiTabBarRenderer
 from punt_lux.display.renderers.imgui.tab_selection import (
@@ -23,13 +24,12 @@ from punt_lux.display.renderers.imgui.tab_selection import (
     TabSelectionArbiter,
 )
 from punt_lux.display.replica import SceneReplica, WidgetState
-from punt_lux.display.server import DisplayServer
-from punt_lux.display_client import agent_element_factory
 from punt_lux.domain.container_interaction import TabChanged
 from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
 from punt_lux.domain.validation_walk import ElementTreeValidator, HasChildElements
 from punt_lux.protocol import SceneMessage
+from punt_lux.protocol.agent_factory import agent_element_factory
 from punt_lux.protocol.elements import (
     ButtonElement,
     ProgressElement,
@@ -86,9 +86,9 @@ def _paged_group_wire() -> dict[str, object]:
     return {"kind": "group", "id": "lg", "layout": "paged", "children": []}
 
 
-def _server() -> DisplayServer:
+def _server() -> RenderLoop:
     raw_dir = tempfile.mkdtemp(prefix="lux-")
-    return DisplayServer(socket_path=str(Path(raw_dir) / "display.sock"))
+    return RenderLoop(socket_path=str(Path(raw_dir) / "display.sock"))
 
 
 def _mock_client() -> MagicMock:
@@ -677,7 +677,7 @@ class TestEchoSuppressionLifecycle:
     """
 
     def _install(
-        self, server: DisplayServer, *, active_tab: str = "tab-1"
+        self, server: RenderLoop, *, active_tab: str = "tab-1"
     ) -> tuple[SceneReplica, ImGuiRendererFactory]:
         """Install a tab bar and re-thread the factory as the display would."""
         bar = _abc_tab_bar(active_tab=active_tab)
@@ -787,11 +787,11 @@ def _mock_sock() -> MagicMock:
     return sock
 
 
-def _inspect(server: DisplayServer, *elements: Element) -> QueryResponse:
+def _inspect(server: RenderLoop, *elements: Element) -> QueryResponse:
     server._handle_message(
         _mock_sock(), SceneMessage(id="s1", elements=list(elements), frame_id="s1")
     )
-    return server.query_dispatcher.handle_query("inspect_scene", {"scene_id": "s1"})
+    return server.query_router.handle_query("inspect_scene", {"scene_id": "s1"})
 
 
 def _record(resp: QueryResponse, element_id: str) -> dict[str, object]:

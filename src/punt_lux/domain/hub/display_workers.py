@@ -53,7 +53,7 @@ class DisplayWorkers:
         self._replicator.stop()
 
 
-# DisplayClient satisfies KeepaliveConnection at runtime (it has ``ping``); the
+# DisplayLink satisfies KeepaliveConnection at runtime (it has ``ping``); the
 # cast bridges the registry's concrete return type to the keepalive's port.
 display_workers = DisplayWorkers(
     hub_replicator,

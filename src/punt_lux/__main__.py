@@ -67,7 +67,7 @@ def display(
     from punt_lux.paths import DisplayPaths
 
     try:
-        from punt_lux.display import DisplayServer
+        from punt_lux.display import RenderLoop
     except ModuleNotFoundError as exc:
         _display_modules = {"imgui_bundle", "numpy", "PIL", "OpenGL"}
         if exc.name and exc.name.split(".")[0] in _display_modules:
@@ -89,7 +89,7 @@ def display(
         datefmt="%H:%M:%S",
     )
 
-    server = DisplayServer(socket, test_auto_click=test_auto_click)
+    server = RenderLoop(socket, test_auto_click=test_auto_click)
     server.run()
 
 
@@ -160,7 +160,7 @@ def ping(
     ``--timeout`` (0.1-30s) is the real display-leg budget over luxd's REST API;
     the HTTP round-trip sits a margin above it, so a slow display reports "timeout".
     """
-    from punt_lux.display_client import DEFAULT_RECV_TIMEOUT
+    from punt_lux.domain.hub.display_link import DEFAULT_RECV_TIMEOUT
     from punt_lux.operations import OpError
     from punt_lux.rest_client import LuxRestClient
     from punt_lux.rest_transport import HubUnavailableError

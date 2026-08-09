@@ -4,7 +4,7 @@ The replicator is the sole writer to the display, but it does not own the socket
 or the process. It reaches them through three structural ports so the concurrency
 logic is tested against fakes, not a live socket:
 
-- ``DisplaySender`` — the fire-and-forget send surface (a ``DisplayClient``).
+- ``DisplaySender`` — the fire-and-forget send surface (a ``DisplayLink``).
 - ``ClientProvider`` — hands out the current sender and drops a dead one so the
   next hand-out reconnects (the Hub's ``ClientRegistry``).
 - ``DisplayLifecycle`` — kills a wedged display and starts a fresh one

@@ -2,7 +2,7 @@
 
 Levels 1-5 per ``tests/CLAUDE.md`` plus self-validation and the all-ABC
 fork gate. Levels 3 and 5 drive the real Hub/Display boundary — the pickle
-scene wire and the ``DisplayServer`` receive/rebind path — never a stub.
+scene wire and the ``RenderLoop`` receive/rebind path — never a stub.
 """
 
 from __future__ import annotations
@@ -14,13 +14,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from punt_lux.display.render_loop import RenderLoop
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.renderers.imgui.group import ImGuiGroupRenderer
-from punt_lux.display.server import DisplayServer
-from punt_lux.display_client import agent_element_factory
 from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.domain.validation_walk import ElementTreeValidator, HasChildElements
 from punt_lux.protocol import SceneMessage
+from punt_lux.protocol.agent_factory import agent_element_factory
 from punt_lux.protocol.elements import (
     ButtonElement,
     GroupElement,
@@ -251,9 +251,9 @@ def _received_scene(msg: SceneMessage) -> SceneMessage:
     return restored
 
 
-def _server() -> DisplayServer:
+def _server() -> RenderLoop:
     raw_dir = tempfile.mkdtemp(prefix="lux-")
-    return DisplayServer(socket_path=str(Path(raw_dir) / "display.sock"))
+    return RenderLoop(socket_path=str(Path(raw_dir) / "display.sock"))
 
 
 class TestLevel3Crossing:
@@ -344,11 +344,11 @@ def _mock_sock() -> MagicMock:
     return sock
 
 
-def _inspect(server: DisplayServer, *elements: Element) -> QueryResponse:
+def _inspect(server: RenderLoop, *elements: Element) -> QueryResponse:
     server._handle_message(
         _mock_sock(), SceneMessage(id="s1", elements=list(elements), frame_id="s1")
     )
-    return server.query_dispatcher.handle_query("inspect_scene", {"scene_id": "s1"})
+    return server.query_router.handle_query("inspect_scene", {"scene_id": "s1"})
 
 
 def _record(resp: QueryResponse, element_id: str) -> dict[str, object]:
@@ -380,7 +380,7 @@ class TestLevel5Introspection:
 
 class TestSceneInspectionRecursion:
     def test_element_paths_include_nested_children(self) -> None:
-        from punt_lux.scene_inspection import SceneInspection
+        from punt_lux.display.scene_inspection import SceneInspection
 
         inspection = SceneInspection.from_scene("s1", [_stack_group("rows")]).to_dict()
         paths = inspection["element_paths"]

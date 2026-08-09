@@ -1,7 +1,7 @@
 """InProcessLoop — the in-process Hub<->Display boundary rig.
 
 Wires the production Display receive/wrap/emit logic (a windowless
-``DisplayServer``) to the production Hub dispatch across the shipped
+``RenderLoop``) to the production Hub dispatch across the shipped
 ``InMemoryConnection`` duplex — the same ``Connection`` interface
 ``LineSocket`` implements, so the boundary is crossed through the real
 abstraction, not around it. No socket, no subprocess, no GPU.
@@ -9,7 +9,7 @@ abstraction, not around it. No socket, no subprocess, no GPU.
 The rig owns exactly one genuinely new piece of wiring the design flags:
 the queued interaction the Display's ``_emit_event`` produces is drained
 and shipped over the ``InMemoryConnection`` (instead of the
-``SocketServer`` client fds), then read back on the Hub end and handed to
+``SocketListener`` client fds), then read back on the Hub end and handed to
 the production ``HubInteractionDispatch.dispatch``. Everything
 else — the wrap, the emit point, the Hub dispatch, the real handler,
 ``hub.publish``, the inbox — runs for real.
@@ -28,7 +28,7 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Self, cast
 
-from punt_lux.display.server import DisplayServer
+from punt_lux.display.render_loop import RenderLoop
 from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.domain.hub.hub_interaction_dispatch import HubInteractionDispatch
 from punt_lux.protocol import SceneMessage
@@ -60,7 +60,7 @@ class InProcessLoop:
     dispatch, handlers, pub-sub, and inbox to the production singletons.
     """
 
-    _server: DisplayServer
+    _server: RenderLoop
     _display_conn: InMemoryConnection
     _hub_conn: InMemoryConnection
     _hub_reader: Iterator[dict[str, object]]
@@ -72,7 +72,7 @@ class InProcessLoop:
         # Owned for the rig's lifetime; close() removes it so repeated runs
         # leave no /tmp/lux-* behind.
         self._tmpdir = tempfile.TemporaryDirectory(prefix="lux-")
-        self._server = DisplayServer(
+        self._server = RenderLoop(
             socket_path=str(Path(self._tmpdir.name) / "display.sock")
         )
         # Display end sends interactions; Hub end reads and dispatches them.
@@ -100,7 +100,7 @@ class InProcessLoop:
     def push_scene(self, scene_id: str, roots: Sequence[DomainElement]) -> None:
         """Install a full scene replica into the windowless Display.
 
-        Mirrors ``DisplayServer._handle_scene`` minus the socket ack: the
+        Mirrors ``RenderLoop._handle_scene`` minus the socket ack: the
         authoritative roots cross the real ``SceneMessage`` wire codec
         (each ABC element as a pickled entry) to produce a separate replica
         graph, whose handlers are re-wrapped for remote dispatch through the
@@ -212,7 +212,7 @@ class _HubRepushClient:
 
     Satisfies the one call ``HubInteractionDispatch.dispatch`` makes,
     ``show_async``, by re-installing the mutated scene into the rig's
-    Display replica. Keeps the harness hermetic (no ``DisplayClient``
+    Display replica. Keeps the harness hermetic (no ``DisplayLink``
     socket connect) while still exercising the handler-driven re-push leg.
     """
 

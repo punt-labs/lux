@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from punt_lux.display_client import agent_element_factory
+from punt_lux.protocol.agent_factory import agent_element_factory
 from punt_lux.protocol.elements import SeparatorElement
 
 # One representative from each family that requires a real id: display leaves,

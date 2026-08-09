@@ -1,4 +1,4 @@
-"""Unit tests for punt_lux.socket_server — SocketServer lifecycle and I/O."""
+"""Unit tests for punt_lux.display.socket_server — SocketListener lifecycle and I/O."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
+from punt_lux.display.socket_server import SocketListener
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
     ReadyMessage,
@@ -21,7 +22,6 @@ from punt_lux.protocol import (
     recv_message,
     send_message,
 )
-from punt_lux.socket_server import SocketServer
 
 if TYPE_CHECKING:
     from punt_lux.protocol.messages import Message
@@ -49,9 +49,9 @@ def _noop_error(_sev: str, _msg: str, _ctx: str) -> None:
     """No-op error callback."""
 
 
-def _make_server() -> SocketServer:
-    """Create a SocketServer with no-op callbacks."""
-    return SocketServer(
+def _make_server() -> SocketListener:
+    """Create a SocketListener with no-op callbacks."""
+    return SocketListener(
         on_message=_noop_message,
         on_client_disconnected=_noop_disconnect,
         on_error=_noop_error,
@@ -71,7 +71,7 @@ def _connect_client(sock_path: Path) -> socket.socket:
 
 
 class TestSetup:
-    """SocketServer.setup creates and binds the listening socket."""
+    """SocketListener.setup creates and binds the listening socket."""
 
     def test_setup_creates_socket(self) -> None:
         tmpdir = _make_tmpdir()
@@ -87,7 +87,7 @@ class TestSetup:
 
 
 class TestAcceptAndPoll:
-    """SocketServer accepts clients and dispatches messages."""
+    """SocketListener accepts clients and dispatches messages."""
 
     def test_accept_and_poll(self) -> None:
         tmpdir = _make_tmpdir()
@@ -97,7 +97,7 @@ class TestAcceptAndPoll:
         def on_message(sock: socket.socket, msg: Message) -> None:
             received.append((sock.fileno(), msg))
 
-        server = SocketServer(
+        server = SocketListener(
             on_message=on_message,
             on_client_disconnected=_noop_disconnect,
             on_error=_noop_error,
@@ -138,7 +138,7 @@ class TestAcceptAndPoll:
 
 
 class TestRemoveClient:
-    """SocketServer.remove_client cleans up all per-client state."""
+    """SocketListener.remove_client cleans up all per-client state."""
 
     def test_remove_client_cleanup(self) -> None:
         tmpdir = _make_tmpdir()
@@ -148,7 +148,7 @@ class TestRemoveClient:
         def on_disconnect(fd: int) -> None:
             disconnected_fds.append(fd)
 
-        server = SocketServer(
+        server = SocketListener(
             on_message=_noop_message,
             on_client_disconnected=on_disconnect,
             on_error=_noop_error,
@@ -183,7 +183,7 @@ class TestRemoveClient:
 
 
 class TestSendToClient:
-    """SocketServer.send_to_client delivers messages over the wire."""
+    """SocketListener.send_to_client delivers messages over the wire."""
 
     def test_send_to_client(self) -> None:
         tmpdir = _make_tmpdir()
@@ -279,7 +279,7 @@ class _FakeClient:
         self.closed = True
 
 
-def _inject_client(server: SocketServer, client: _FakeClient) -> socket.socket:
+def _inject_client(server: SocketListener, client: _FakeClient) -> socket.socket:
     """Register ``client`` as if just accepted; return it typed as a socket.
 
     The returned socket-typed handle is what socket-typed APIs and membership
@@ -548,7 +548,7 @@ class TestSetupArbitration:
         start = threading.Barrier(thread_count)
         stop = threading.Event()
 
-        def attempt(srv: SocketServer) -> None:
+        def attempt(srv: SocketListener) -> None:
             start.wait()  # release all threads at once to maximize contention
             won = srv.setup(sock_path)
             with lock:

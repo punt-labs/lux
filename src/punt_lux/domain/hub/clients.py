@@ -1,8 +1,8 @@
-"""Connection registry: owns the lazy DisplayClient and reconnect policy.
+"""Connection registry: owns the lazy DisplayLink and reconnect policy.
 
 Single process-wide ``ClientRegistry`` instance — the connection registry
 the Hub maintains for talking to the display server. Holds the
-``DisplayClient`` reference, the lock that serializes connect /
+``DisplayLink`` reference, the lock that serializes connect /
 reconnect across MCP tool threads and the lifespan task, and the
 per-process menu-app registration guard.
 """
@@ -14,7 +14,7 @@ import threading
 from collections.abc import Callable
 from typing import Self
 
-from punt_lux.display_client import DisplayClient
+from punt_lux.domain.hub.display_link import DisplayLink
 from punt_lux.domain.hub.hub_interaction_dispatch import HubInteractionDispatch
 
 logger = logging.getLogger(__name__)
@@ -26,14 +26,14 @@ _DISPLAY_CLIENT_NAME = "lux-mcp"
 
 
 class ClientRegistry:
-    """Owns the lazy ``DisplayClient`` and per-process menu registrations.
+    """Owns the lazy ``DisplayLink`` and per-process menu registrations.
 
     Thread-safe: ``_lock`` serializes connect / reconnect across the
     MCP lifespan task and tool threads. ``get()`` is the public entry
     point — callers never touch ``_client`` directly.
     """
 
-    _client: DisplayClient | None
+    _client: DisplayLink | None
     _lock: threading.RLock
     _apps_registered_for: int | None
 
@@ -50,13 +50,13 @@ class ClientRegistry:
         per-session bookkeeping against connect / reconnect."""
         return self._lock
 
-    def get(self) -> DisplayClient:
-        """Return a connected ``DisplayClient``, creating or reconnecting
+    def get(self) -> DisplayLink:
+        """Return a connected ``DisplayLink``, creating or reconnecting
         as needed. Holds ``_lock`` to prevent duplicate creation when
         called concurrently from the lifespan thread and MCP tool threads."""
         with self._lock:
             if self._client is None:
-                self._client = DisplayClient(name=_DISPLAY_CLIENT_NAME)
+                self._client = DisplayLink(name=_DISPLAY_CLIENT_NAME)
             self._setup_apps()
             if not self._client.is_connected:
                 self._client.connect()

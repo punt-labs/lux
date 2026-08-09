@@ -2,7 +2,7 @@
 
 Companion to `docs/display_lifecycle.tex`. Derives the test partitions
 (Test Template Framework style) from the Z operation schemas, then maps them
-against the existing tests in `tests/test_socket_server.py` and
+against the existing tests in `tests/display/test_socket_server.py` and
 `tests/test_paths.py`. The bar is that the spec's partitions are covered by a
 test, not merely that the model-check passed.
 
@@ -12,7 +12,7 @@ Spec-operation → code mapping:
 |---|---|
 | `Probe` | `DisplayPaths._probe` / `is_running` |
 | `CleanupStale` | `DisplayPaths.cleanup_stale` / `_clear_dead_files` |
-| `Bind` / `BindFail` / `Listen` | `SocketServer.setup` |
+| `Bind` / `BindFail` / `Listen` | `SocketListener.setup` |
 | `LoseRaceLive` | `setup` early-return on `is_running` |
 | `Reap` / `ReapDead` | `DisplayPaths.reap` |
 | `AcquireBindLock` / `ReleaseBindLock` | `DisplayPaths.bind_lock` |
@@ -178,11 +178,11 @@ holder binds nothing, so it never asserts that a **freshly bound (not
 listening) socket survives** a concurrent cleanup/setup. This is the exact
 interleaving the model reproduces in the buggy variant.
 
-- Module: `tests/test_socket_server.py`, class `TestSetupArbitration`.
+- Module: `tests/display/test_socket_server.py`, class `TestSetupArbitration`.
 - Test: `test_fresh_bind_survives_concurrent_setup_in_window`.
 - Asserts: thread A takes `DisplayPaths(path).bind_lock()`, binds a socket to
   the path **without** `listen()`, and holds the lock; thread B calls
-  `SocketServer.setup(path)` and blocks; while B is blocked, assert A's bound
+  `SocketListener.setup(path)` and blocks; while B is blocked, assert A's bound
   socket file is intact (same inode — capture `os.stat(path).st_ino` before and
   after) and `server_sock is None` for B; release the lock and join. This
   deterministically encodes "cleanup must never unlink a fresh bind."

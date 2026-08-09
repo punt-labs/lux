@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 
 __all__ = ["DisplayRoutes"]
 
-# Caps mirror query_dispatcher.py's ring buffers (deque maxlen 200 / 100): a
+# Caps mirror display/query_dispatcher.py's ring buffers (deque maxlen 200 / 100): a
 # negative count would slice a surprising subset and a larger one can never
 # return more, so both are a bind-time 422.
 _EventCount = Annotated[int, Query(ge=0, le=200)]
@@ -42,7 +42,7 @@ _ErrorCount = Annotated[int, Query(ge=0, le=100)]
 
 # The display-ping wait: bounded so a caller cannot ask for a sub-100ms probe
 # (unmeasurable) or a 30s+ hang. None (omitted) uses the standing display
-# budget — the documented absence contract, threaded to DisplayClient.ping.
+# budget — the documented absence contract, threaded to DisplayLink.ping.
 _PingTimeout = Annotated[float | None, Query(ge=0.1, le=30.0)]
 
 

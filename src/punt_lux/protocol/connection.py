@@ -7,7 +7,7 @@ internal lock so multiple producers can share one connection. The
 in-memory paired-queue variant lives in ``in_memory_connection.py``
 (PY-OO-2: one concept per module); both expose the same ``send_line``
 / ``iter_lines`` / ``close`` shape so consumers don't branch on backend.
-Consumed by tests only; ``DisplayClient`` keeps its existing
+Consumed by tests only; ``DisplayLink`` keeps its existing
 length-prefixed wire path until a coordinated cross-tier flip.
 """
 

@@ -3,7 +3,7 @@
 Companion to `docs/hub_replicator.tex`. Derives the test partitions (Test
 Template Framework style) from the Z operation schemas, then maps them against
 the tests that cover them, exactly as `docs/display_lifecycle_coverage.md` maps
-its spec to `tests/test_socket_server.py` and `tests/test_paths.py`. The worker,
+its spec to `tests/display/test_socket_server.py` and `tests/test_paths.py`. The worker,
 its dirty signal, and the store lock are covered by
 `tests/domain/test_hub_replicator.py`, `tests/domain/test_dirty_signal.py`, and
 `tests/domain/test_store_lock.py`; the two store-empty clear partitions (CL1,

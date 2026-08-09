@@ -140,7 +140,7 @@ def test_full_wrap_socket_hub_leg_fires_once_on_authoritative_copy(
     display_end, hub_end = socket.socketpair()
 
     def send_fn(invocation: RemoteEventHandlerInvocation) -> None:
-        # The display stamps the active scene_id (as DisplayServer._emit_event
+        # The display stamps the active scene_id (as RenderLoop._emit_event
         # does) then writes the invocation over the real socket.
         send_message(display_end, replace(invocation, scene_id="s1"))
 

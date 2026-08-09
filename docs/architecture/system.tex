@@ -238,7 +238,7 @@ CLI transport & \modpath{rest\_client.py}        & \texttt{LuxRestClient}
 Gateway       & \modpath{luxd.py}                & Builds the one FastAPI
                 app on uvicorn, mounts the MCP leg and the REST surface,
                 and starts the frame-expiry sweep on the event loop. \\
-Display client & \modpath{display\_client.py}    & \texttt{DisplayClient}
+Display client & \modpath{domain/hub/display\_link.py}    & \texttt{DisplayLink}
                 --- the Unix-socket client of the Display.  Constructed in
                 exactly one place, \modpath{domain/hub/clients.py}, and an
                 AST guard enforces that (Section \S\ref{sec:ipc}). \\
@@ -927,8 +927,8 @@ bind-derived origin policy.
 \subsection{The Display Socket Is Hub-Internal}
 
 The Display listens on a Unix domain socket, and luxd is its only client.
-Nothing else in the package opens that socket.  \texttt{DisplayClient}
-(\modpath{display\_client.py}) is the class that opens it, and it is
+Nothing else in the package opens that socket.  \texttt{DisplayLink}
+(\modpath{domain/hub/display\_link.py}) is the class that opens it, and it is
 constructed in exactly one place: \texttt{ClientRegistry} in
 \modpath{domain/hub/clients.py}, which holds luxd's one lazy connection and
 its reconnect policy.
@@ -936,8 +936,8 @@ its reconnect policy.
 An AST guard enforces this
 (\path{tests/domain/test_display_socket_internal.py}).  The guard parses
 every module in the package and fails if any module outside the allowed set
---- \modpath{display\_client.py} and \modpath{domain/hub/clients.py} ---
-imports or references \texttt{DisplayClient}.  Detection is by parse tree,
+--- \modpath{domain/hub/display\_link.py} and \modpath{domain/hub/clients.py} ---
+imports or references \texttt{DisplayLink}.  Detection is by parse tree,
 not by regex, so every spelling (an aliased import, a multi-line
 parenthesized import, a whole-module import, a bare or attribute reference)
 is caught at once, while a mention in a docstring or comment is never
@@ -966,7 +966,7 @@ client so the next send reconnects.
 \subsection{The Display Render Loop}
 
 The Display runs an ImGui render loop via \texttt{hello\_imgui.run()}.  Each
-frame, the \texttt{DisplayServer.\_on\_frame()} callback runs four
+frame, the \texttt{RenderLoop.\_on\_frame()} callback runs four
 non-blocking phases: accept new socket connections, poll the connection for
 messages and dispatch each by type, render the active scenes and frames,
 and flush any queued interaction messages back to the Hub.  A frame

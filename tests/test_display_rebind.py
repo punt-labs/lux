@@ -2,11 +2,11 @@
 
 Drives the real production wiring: build ABC elements, ship them through the
 native-pickle scene wire (``protocol/messages/scene.py``), and feed the
-received copies through ``DisplayServer._wrap_abc_elements``. Off the wire
+received copies through ``RenderLoop._wrap_abc_elements``. Off the wire
 every element carries the fail-loud ``RaisingRendererFactory`` sentinel;
 after the rebind every element — and every child of a composite — carries the
 Display's real ``ImGuiRendererFactory`` so ``render()`` resolves a real
-renderer instead of raising. No stub factory: the DisplayServer constructs its
+renderer instead of raising. No stub factory: the RenderLoop constructs its
 own production ``ImGuiRendererFactory``.
 """
 
@@ -15,8 +15,8 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
+from punt_lux.display.render_loop import RenderLoop
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
-from punt_lux.display.server import DisplayServer
 from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.elements import (
@@ -47,10 +47,10 @@ def _abc_elements(msg: SceneMessage) -> list[AbcElement]:
     return narrowed
 
 
-def _server() -> DisplayServer:
-    """Construct an in-process DisplayServer (no socket bound) on a temp path."""
+def _server() -> RenderLoop:
+    """Construct an in-process RenderLoop (no socket bound) on a temp path."""
     raw_dir = tempfile.mkdtemp(prefix="lux-")
-    return DisplayServer(socket_path=str(Path(raw_dir) / "display.sock"))
+    return RenderLoop(socket_path=str(Path(raw_dir) / "display.sock"))
 
 
 def test_received_elements_carry_raising_sentinel_before_rebind() -> None:

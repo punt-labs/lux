@@ -2,6 +2,6 @@
 
 from __future__ import annotations
 
-from punt_lux.display.server import DisplayServer
+from punt_lux.display.render_loop import RenderLoop
 
-__all__ = ["DisplayServer"]
+__all__ = ["RenderLoop"]
