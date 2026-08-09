@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Removed
+
+- **The `signal-beads.sh` PostToolUse hook.** It fired `lux hook post-bash`
+  on every `Bash` tool call to grep for a `bd` subcommand and push an
+  unprompted `lux show beads` refresh — a stand-in from before the beads
+  menu had its own applet. The session-owned Beads menu entry (DES-058,
+  `lux-beads`) now owns that refresh instead: clicking the entry re-fetches
+  and re-pushes the board, so an already-open board goes stale after a `bd`
+  command until the next click rather than updating automatically. Removed
+  the hook, its `hooks.json` wiring, `handle_post_bash`/`read_hook_input`/
+  `_BD_CMD_RE` from `hooks.py`, and the `lux hook post-bash` CLI dispatcher.
+
 ## [0.23.1] - 2026-08-08
 
 ### Changed
