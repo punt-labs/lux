@@ -28,6 +28,16 @@ full design and rationale is
 `docs/architecture/scene-display-packaging-design.md`. Any code importing the
 old paths or class names directly (outside this package) needs updating.
 
+### Fixed
+
+- **A click on an already-dismissed dialog's descendant could still fire.**
+  `HubInteractionDispatch` resolved a clicked element by id without checking
+  whether it, or an ancestor, had been marked removed — a dialog dismissed out
+  from under a race, or a click delivered after dismissal, could still run a
+  confirm/delete handler on the Hub's authoritative copy. A new `DismissalWalk`
+  drops the click instead, restoring behavior the earlier `Display.interact()`
+  had and the D21 migration lost.
+
 ### Removed
 
 - **`punt_lux.domain.display.Display`.** The display-tier scene mirror had no
