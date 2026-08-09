@@ -158,7 +158,7 @@ reflects the mutation.
 **The standing gate for this level is the business-event-loop harness**
 (`tests/e2e/`, `@pytest.mark.integration`, design of record
 `docs/architecture/e2e-harness-design.md`). It wires a windowless production
-`DisplayServer` to the production Hub dispatch across the shipped
+`RenderLoop` to the production Hub dispatch across the shipped
 `InMemoryConnection` — the same `Connection` interface `LineSocket` implements —
 and proves the full bidirectional loop for a **composed** surface: an injected
 interaction crosses the faithful boundary, the real handler runs once on the
@@ -280,7 +280,7 @@ audited by checking that every name in `punt_lux.tools.__all__` (minus
 
 ## Visual testing
 
-`display/server.py` and the rendering layer have no pixel-level automated
+`display/render_loop.py` and the rendering layer have no pixel-level automated
 tests. Correctness is verified two ways:
 
 **Introspection (partial, automatable).** The MCP tools `inspect_scene`,
@@ -298,5 +298,5 @@ enables screenshot-based regression tests as part of the e2e tier.
 **Manual verification (required for rendering fidelity).** When changing
 rendering code, run `make install` and exercise the affected element
 visually. The introspection API confirms the scene was received; a human
-eye confirms it looks right. Until `display/server.py` is decomposed into
+eye confirms it looks right. Until `display/render_loop.py` is decomposed into
 smaller testable units, there is no substitute for this step.
