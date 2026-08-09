@@ -36,9 +36,12 @@ from punt_lux.display.macos import hide_from_dock_and_cmd_tab
 from punt_lux.display.markdown_font import MarkdownFont
 from punt_lux.display.paint_clock import PaintClock
 from punt_lux.display.pending_interactions import PendingInteractions
+from punt_lux.display.query_dispatcher import QueryRouter
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.replica import Frame, SceneReplica, WidgetState
 from punt_lux.display.replica.menu_replica import MenuReplica
+from punt_lux.display.scene_inspector import SceneInspector
+from punt_lux.display.socket_server import SocketListener
 from punt_lux.display.texture_cache import TextureCache
 from punt_lux.display.window_chrome import WindowChrome
 from punt_lux.paths import DisplayPaths
@@ -63,9 +66,6 @@ from punt_lux.protocol import (
 )
 from punt_lux.protocol.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
 from punt_lux.protocol.renderers.raising import RaisingRendererFactory
-from punt_lux.query_dispatcher import QueryDispatcher
-from punt_lux.scene_inspector import SceneInspector
-from punt_lux.socket_server import SocketServer
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
@@ -83,7 +83,7 @@ class DisplayServer:
     """ImGui display server with non-blocking Unix socket IPC."""
 
     _socket_path: Path
-    _socket_server: SocketServer
+    _socket_listener: SocketListener
     _scenes: SceneReplica
     _event_queue: list[RemoteEventHandlerInvocation]
     _interaction_delivery: InteractionDelivery
@@ -102,7 +102,7 @@ class DisplayServer:
     _start_time: float
     _current_theme: str
     _current_scene_id: str | None
-    _query_dispatcher: QueryDispatcher
+    _query_router: QueryRouter
     _scene_inspector: SceneInspector
     _display_paths: DisplayPaths
     _imgui_renderer_factory: ImGuiRendererFactory
@@ -142,22 +142,22 @@ class DisplayServer:
             on_fit_all=self._request_fit_all,
             chrome=WindowChrome(),
         )
-        # QueryDispatcher must be created before SocketServer so that
+        # QueryRouter must be created before SocketListener so that
         # the on_error callback is available.
-        self._query_dispatcher = QueryDispatcher(
+        self._query_router = QueryRouter(
             scenes=self._scenes,
-            get_client_names=lambda: self._socket_server.client_names,
-            get_client_connect_times=lambda: self._socket_server.client_connect_times,
+            get_client_names=lambda: self._socket_listener.client_names,
+            get_client_connect_times=lambda: self._socket_listener.client_connect_times,
             get_agent_menus=lambda: self._menus.agent_menus,
             get_callback_menus=lambda: self._menus.callback_menus,
         )
-        self._socket_server = SocketServer(
+        self._socket_listener = SocketListener(
             on_message=self._handle_message,
             on_client_disconnected=self._on_client_disconnected,
-            on_error=self._query_dispatcher.record_error,
+            on_error=self._query_router.record_error,
         )
         self._interaction_delivery = InteractionDelivery(
-            socket_server=self._socket_server,
+            socket_listener=self._socket_listener,
             scenes=self._scenes,
         )
         # Bind a fail-loud decode factory to the shared container-dispatch
@@ -203,17 +203,17 @@ class DisplayServer:
             scenes=self._scenes,
             geometry=self._imgui_renderer_factory.geometry.recorder,
         )
-        qd = self._query_dispatcher
-        qd.register_handler("inspect_scene", self._scene_inspector.inspect)
-        qd.register_handler("screenshot", self._query_screenshot)
-        qd.register_handler("get_display_info", self._query_get_display_info)
-        qd.register_handler("get_window_settings", self._query_get_window_settings)
-        qd.register_handler("get_theme", self._query_get_theme)
-        qd.register_handler("set_window_settings", self._query_set_window_settings)
+        router = self._query_router
+        router.register_handler("inspect_scene", self._scene_inspector.inspect)
+        router.register_handler("screenshot", self._query_screenshot)
+        router.register_handler("get_display_info", self._query_get_display_info)
+        router.register_handler("get_window_settings", self._query_get_window_settings)
+        router.register_handler("get_theme", self._query_get_theme)
+        router.register_handler("set_window_settings", self._query_set_window_settings)
         frames = FrameCommands(self._scenes)
-        qd.register_handler("set_frame_state", frames.set_state)
-        qd.register_handler("raise_frame", frames.raise_it)
-        qd.register_handler("set_theme", self._query_set_theme)
+        router.register_handler("set_frame_state", frames.set_state)
+        router.register_handler("raise_frame", frames.raise_it)
+        router.register_handler("set_theme", self._query_set_theme)
         return self
 
     @property
@@ -221,9 +221,9 @@ class DisplayServer:
         return self._socket_path
 
     @property
-    def query_dispatcher(self) -> QueryDispatcher:
+    def query_router(self) -> QueryRouter:
         """Return the query dispatcher for external handler registration."""
-        return self._query_dispatcher
+        return self._query_router
 
     @property
     def scenes(self) -> SceneReplica:
@@ -231,9 +231,9 @@ class DisplayServer:
         return self._scenes
 
     @property
-    def socket_server(self) -> SocketServer:
+    def socket_listener(self) -> SocketListener:
         """Return the socket server for external inspection."""
-        return self._socket_server
+        return self._socket_listener
 
     def _drain_stale_events(self, stale_ids: list[str]) -> None:
         """Drop queued and held interactions for removed elements -- both queues."""
@@ -346,7 +346,7 @@ class DisplayServer:
         owns it, this returns immediately so a redundant or racing spawn exits
         cleanly instead of flashing a second window.
         """
-        if not self._socket_server.setup(self._socket_path):
+        if not self._socket_listener.setup(self._socket_path):
             return
         signal.signal(signal.SIGTERM, self._handle_sigterm)  # arm before ImGui init
         self._display_paths.write_pid()
@@ -412,8 +412,8 @@ class DisplayServer:
 
     def _on_frame(self) -> None:
         """Called every frame by ImGui."""
-        self._socket_server.accept_connections()
-        self._socket_server.poll_clients()
+        self._socket_listener.accept_connections()
+        self._socket_listener.poll_clients()
         self._render_scene()
         self._flush_events()
 
@@ -462,9 +462,9 @@ class DisplayServer:
             resp = ScreenshotResponse(path=path)
         except Exception as exc:
             logger.exception("Screenshot capture failed")
-            self._query_dispatcher.record_error("error", str(exc), "screenshot")
+            self._query_router.record_error("error", str(exc), "screenshot")
             resp = ScreenshotResponse(error=str(exc))
-        self._socket_server.send_to_client(sock, resp)
+        self._socket_listener.send_to_client(sock, resp)
 
     def _on_decorated_toggled(self, decorated: bool) -> None:  # noqa: FBT001
         """Callback for MenuReplica: toggle window decoration."""
@@ -498,7 +498,7 @@ class DisplayServer:
     def _on_exit(self) -> None:
         """Called before the window closes."""
         self._textures.cleanup()
-        self._socket_server.shutdown()
+        self._socket_listener.shutdown()
         self._socket_path.unlink(missing_ok=True)
         self._display_paths.remove_pid()
         logger.info("Display server stopped")
@@ -532,7 +532,7 @@ class DisplayServer:
     def _on_client_disconnected(self, fd: int) -> None:
         """Handle domain-specific cleanup when a client disconnects.
 
-        Called by SocketServer after socket-level state is already cleaned up.
+        Called by SocketListener after socket-level state is already cleaned up.
         Transfers ownership of this client's scenes to another client in the same
         frame, or marks them as orphans if no other client remains. Scenes
         persist — they are never dismissed on disconnect.
@@ -567,7 +567,7 @@ class DisplayServer:
         """Dispatch a read-only introspect/query/ping message; unknown kinds ignored."""
         if isinstance(msg, PingMessage):
             pong = PongMessage(ts=msg.ts, display_ts=time.time())
-            self._socket_server.send_to_client(sock, pong)
+            self._socket_listener.send_to_client(sock, pong)
         elif isinstance(msg, IntrospectRequest):
             self._handle_introspect(sock, msg)
         elif isinstance(msg, ListScenesRequest):
@@ -589,12 +589,12 @@ class DisplayServer:
             fd = sock.fileno()
         except OSError:
             return
-        self._socket_server.register_client_name(fd, name, time.time())
+        self._socket_listener.register_client_name(fd, name, time.time())
         logger.info("Client fd=%d identified as %r", fd, name)
 
     def _handle_introspect(self, sock: socket.socket, msg: IntrospectRequest) -> None:
         """Return the element tree for a scene to the requesting client."""
-        qr = self._query_dispatcher.handle_query(
+        qr = self._query_router.handle_query(
             "inspect_scene", {"scene_id": msg.scene_id}
         )
         if qr.error is not None:
@@ -607,25 +607,25 @@ class DisplayServer:
                 scene_id=msg.scene_id,
                 elements=qr.result["elements"],
             )
-        self._socket_server.send_to_client(sock, resp)
+        self._socket_listener.send_to_client(sock, resp)
 
     def _handle_list_scenes(self, sock: socket.socket, _msg: ListScenesRequest) -> None:
         """Return the list of active scenes and frames."""
-        qr = self._query_dispatcher.handle_query("list_scenes", None)
+        qr = self._query_router.handle_query("list_scenes", None)
         if qr.error is not None:
             resp = ListScenesResponse(scenes=[], frames=[])
         else:
             resp = ListScenesResponse(
                 scenes=qr.result["scenes"], frames=qr.result["frames"]
             )
-        self._socket_server.send_to_client(sock, resp)
+        self._socket_listener.send_to_client(sock, resp)
 
     # -- generic query dispatcher ------------------------------------------
 
     def _handle_query(self, sock: socket.socket, msg: QueryRequest) -> None:
         """Dispatch a generic QueryRequest to the registered handler."""
-        resp = self._query_dispatcher.handle_query(msg.method, msg.params)
-        self._socket_server.send_to_client(sock, resp)
+        resp = self._query_router.handle_query(msg.method, msg.params)
+        self._socket_listener.send_to_client(sock, resp)
 
     def _query_screenshot(self, **_kwargs: Any) -> dict[str, Any]:
         """Query handler for screenshot.
@@ -730,7 +730,7 @@ class DisplayServer:
 
     def client_name(self, fd: int) -> str | None:
         """Return the display name for a connected client, or ``None``."""
-        return self._socket_server.client_names.get(fd)
+        return self._socket_listener.client_names.get(fd)
 
     def _handle_scene(self, sock: socket.socket, msg: SceneMessage) -> None:
         """Route a scene into its frame, creating the frame if needed.
@@ -747,7 +747,7 @@ class DisplayServer:
         self._wrap_abc_elements(msg)
         self._scenes.handle_framed_scene(msg, fd)
         ack = AckMessage(scene_id=msg.id, ts=time.time())
-        self._socket_server.send_to_client(sock, ack)
+        self._socket_listener.send_to_client(sock, ack)
         if self._test_auto_click:
             self._auto_click_buttons(msg)
 
@@ -1044,16 +1044,16 @@ class DisplayServer:
                 ts=time.time(),
             )
             for ofd in owner_fds:
-                owner_sock = self._socket_server.fd_to_client.get(ofd)
+                owner_sock = self._socket_listener.fd_to_client.get(ofd)
                 if owner_sock is not None:
-                    self._socket_server.send_to_client(owner_sock, close_event)
+                    self._socket_listener.send_to_client(owner_sock, close_event)
 
     # -- event flushing ----------------------------------------------------
 
     def _record_queued_events(self) -> None:
         """Copy queued events into the introspection ring buffer."""
         for event in self._event_queue:
-            self._query_dispatcher.record_event(
+            self._query_router.record_event(
                 {
                     "element_id": event.element_id,
                     "action": event.action,
@@ -1075,7 +1075,7 @@ class DisplayServer:
         self._pending.admit(self._event_queue, now)
         self._event_queue.clear()
         expired = self._pending.expire(now)
-        if self._socket_server.clients:
+        if self._socket_listener.clients:
             self._pending.discard_prefix(
                 self._interaction_delivery.deliver(self._pending.pending_events())
             )

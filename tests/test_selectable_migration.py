@@ -61,7 +61,7 @@ def _inspect(server: DisplayServer, elem: object) -> QueryResponse:
     server._handle_message(
         sock, SceneMessage(id="s1", elements=[cast("Any", elem)], frame_id="s1")
     )
-    return server.query_dispatcher.handle_query("inspect_scene", {"scene_id": "s1"})
+    return server.query_router.handle_query("inspect_scene", {"scene_id": "s1"})
 
 
 def _record(resp: QueryResponse, element_id: str) -> dict[str, object]:

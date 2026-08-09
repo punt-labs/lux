@@ -19,9 +19,9 @@ from pathlib import Path
 
 import pytest
 
+from punt_lux.display.socket_server import SocketListener
 from punt_lux.protocol import ReadyMessage, encode_frame, recv_message
 from punt_lux.protocol.messages.scene_codec import SceneCodec
-from punt_lux.socket_server import SocketServer
 
 # A pickle whose GLOBAL opcode names a module that does not exist — exactly what
 # a renamed or deleted element class produces at the receiving tier. Raw
@@ -83,7 +83,7 @@ def test_display_survives_an_undecodable_pickle_frame(bad_pickle: str) -> None:
     tmpdir = tempfile.mkdtemp(prefix="lux-")
     sock_path = Path(tmpdir) / "d.sock"
     errors: list[tuple[str, str, str]] = []
-    server = SocketServer(
+    server = SocketListener(
         on_message=lambda _sock, _msg: None,
         on_client_disconnected=lambda _fd: None,
         on_error=lambda sev, msg, ctx: errors.append((sev, msg, ctx)),

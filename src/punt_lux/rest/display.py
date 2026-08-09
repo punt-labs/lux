@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 
 __all__ = ["DisplayRoutes"]
 
-# Caps mirror query_dispatcher.py's ring buffers (deque maxlen 200 / 100): a
+# Caps mirror display/query_dispatcher.py's ring buffers (deque maxlen 200 / 100): a
 # negative count would slice a surprising subset and a larger one can never
 # return more, so both are a bind-time 422.
 _EventCount = Annotated[int, Query(ge=0, le=200)]

@@ -1,18 +1,18 @@
-"""Characterization tests for QueryDispatcher extraction from DisplayServer."""
+"""Characterization tests for QueryRouter extraction from DisplayServer."""
 
 from __future__ import annotations
 
 from typing import Any
 
+from punt_lux.display.query_dispatcher import QueryRouter
 from punt_lux.display.replica import SceneReplica
 from punt_lux.protocol import QueryResponse
-from punt_lux.query_dispatcher import QueryDispatcher
 
 
-def _make_dispatcher() -> QueryDispatcher:
-    """Build a QueryDispatcher with stub callables for testing."""
+def _make_dispatcher() -> QueryRouter:
+    """Build a QueryRouter with stub callables for testing."""
     sm = SceneReplica(on_scene_replaced=lambda _ids: None)
-    return QueryDispatcher(
+    return QueryRouter(
         scenes=sm,
         get_client_names=dict,
         get_client_connect_times=dict,

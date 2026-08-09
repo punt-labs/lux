@@ -253,7 +253,7 @@ class _HeaderRig:
         """
         lost = dataclasses.replace(self._sent[-1], scene_id="scene")
         InteractionDelivery(
-            socket_server=cast("Any", None),
+            socket_listener=cast("Any", None),
             scenes=cast("Any", _SceneReplicaDouble(self._state)),
         ).compensate_evicted(Evictions.of([lost], ()))
 

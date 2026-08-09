@@ -348,7 +348,7 @@ def _inspect(server: DisplayServer, *elements: Element) -> QueryResponse:
     server._handle_message(
         _mock_sock(), SceneMessage(id="s1", elements=list(elements), frame_id="s1")
     )
-    return server.query_dispatcher.handle_query("inspect_scene", {"scene_id": "s1"})
+    return server.query_router.handle_query("inspect_scene", {"scene_id": "s1"})
 
 
 def _record(resp: QueryResponse, element_id: str) -> dict[str, object]:
@@ -380,7 +380,7 @@ class TestLevel5Introspection:
 
 class TestSceneInspectionRecursion:
     def test_element_paths_include_nested_children(self) -> None:
-        from punt_lux.scene_inspection import SceneInspection
+        from punt_lux.display.scene_inspection import SceneInspection
 
         inspection = SceneInspection.from_scene("s1", [_stack_group("rows")]).to_dict()
         paths = inspection["element_paths"]

@@ -337,36 +337,36 @@ class TestPollClientsSkipsRemoved:
         sock = _mock_sock()
 
         # Manually register the client
-        server._socket_server.clients.append(sock)
+        server._socket_listener.clients.append(sock)
         from punt_lux.protocol import FrameReader
 
-        server._socket_server._readers[sock.fileno()] = FrameReader()
+        server._socket_listener._readers[sock.fileno()] = FrameReader()
 
         # After _remove_client, sock should not be in _clients
-        server._socket_server.remove_client(sock)
-        assert sock not in server._socket_server.clients
-        assert sock.fileno() not in server._socket_server._readers
+        server._socket_listener.remove_client(sock)
+        assert sock not in server._socket_listener.clients
+        assert sock.fileno() not in server._socket_listener._readers
 
         # _read_from_client on a removed socket should be a no-op
         # (reader lookup returns None)
-        server._socket_server._read_from_client(sock)
+        server._socket_listener._read_from_client(sock)
         sock.recv.assert_not_called()
 
     def test_double_remove_is_idempotent(self) -> None:
         """Calling _remove_client twice must not crash."""
         server = _make_server()
         sock = _mock_sock()
-        server._socket_server.clients.append(sock)
+        server._socket_listener.clients.append(sock)
         from punt_lux.protocol import FrameReader
 
-        server._socket_server._readers[sock.fileno()] = FrameReader()
+        server._socket_listener._readers[sock.fileno()] = FrameReader()
 
-        server._socket_server.remove_client(sock)
-        assert sock not in server._socket_server.clients
+        server._socket_listener.remove_client(sock)
+        assert sock not in server._socket_listener.clients
 
         # Second call is a no-op, not a crash
-        server._socket_server.remove_client(sock)
-        assert sock not in server._socket_server.clients
+        server._socket_listener.remove_client(sock)
+        assert sock not in server._socket_listener.clients
 
 
 # -----------------------------------------------------------------------
@@ -379,11 +379,11 @@ class TestMalformedMessageDisconnects:
         """A client sending invalid JSON should be disconnected, not crash."""
         server = _make_server()
         sock = _mock_sock()
-        server._socket_server.clients.append(sock)
+        server._socket_listener.clients.append(sock)
         from punt_lux.protocol import FrameReader
 
         reader = FrameReader()
-        server._socket_server._readers[sock.fileno()] = reader
+        server._socket_listener._readers[sock.fileno()] = reader
 
         # Feed a frame with invalid JSON (valid length prefix, bad payload)
         import struct
@@ -392,10 +392,10 @@ class TestMalformedMessageDisconnects:
         frame = struct.pack("!I", len(bad_payload)) + bad_payload
         sock.recv.return_value = frame
 
-        server._socket_server._read_from_client(sock)
+        server._socket_listener._read_from_client(sock)
 
         # Client should be disconnected, not crash
-        assert sock not in server._socket_server.clients
+        assert sock not in server._socket_listener.clients
 
     def test_unknown_message_type_keeps_client_connected(self) -> None:
         """A client sending an unknown message type should NOT be disconnected.
@@ -409,19 +409,19 @@ class TestMalformedMessageDisconnects:
 
         server = _make_server()
         sock = _mock_sock()
-        server._socket_server.clients.append(sock)
+        server._socket_listener.clients.append(sock)
         from punt_lux.protocol import FrameReader
 
         reader = FrameReader()
-        server._socket_server._readers[sock.fileno()] = reader
+        server._socket_listener._readers[sock.fileno()] = reader
 
         payload = json.dumps({"type": "bogus"}).encode("utf-8")
         frame = struct.pack("!I", len(payload)) + payload
         sock.recv.return_value = frame
 
-        server._socket_server._read_from_client(sock)
+        server._socket_listener._read_from_client(sock)
 
-        assert sock in server._socket_server.clients
+        assert sock in server._socket_listener.clients
 
     def test_known_type_missing_fields_disconnects_client(self) -> None:
         """A known message type missing required fields raises KeyError.
@@ -434,27 +434,27 @@ class TestMalformedMessageDisconnects:
 
         server = _make_server()
         sock = _mock_sock()
-        server._socket_server.clients.append(sock)
+        server._socket_listener.clients.append(sock)
         from punt_lux.protocol import FrameReader
 
         reader = FrameReader()
-        server._socket_server._readers[sock.fileno()] = reader
+        server._socket_listener._readers[sock.fileno()] = reader
 
         # "scene" is a known type, but missing required "id" and "elements"
         payload = json.dumps({"type": "scene"}).encode("utf-8")
         frame = struct.pack("!I", len(payload)) + payload
         sock.recv.return_value = frame
 
-        server._socket_server._read_from_client(sock)
+        server._socket_listener._read_from_client(sock)
 
-        assert sock not in server._socket_server.clients
+        assert sock not in server._socket_listener.clients
 
 
 class TestFlushEvents:
     def test_flush_clears_queue(self) -> None:
         server = _make_server()
         sock = _mock_sock()
-        server._socket_server.clients.append(sock)
+        server._socket_listener.clients.append(sock)
         server._event_queue.append(
             RemoteEventHandlerInvocation(element_id="b1", action="click", ts=1.0)
         )
@@ -477,7 +477,7 @@ class TestFlushEvents:
     def test_flush_noop_when_no_events(self) -> None:
         server = _make_server()
         sock = _mock_sock()
-        server._socket_server.clients.append(sock)
+        server._socket_listener.clients.append(sock)
 
         server._flush_events()
 
@@ -488,9 +488,9 @@ class TestFlushEvents:
         server = _make_server()
         sock1 = _mock_sock_fd(10)
         sock2 = _mock_sock_fd(20)
-        server._socket_server.clients.extend([sock1, sock2])
-        server._socket_server._fd_to_client[10] = sock1
-        server._socket_server._fd_to_client[20] = sock2
+        server._socket_listener.clients.extend([sock1, sock2])
+        server._socket_listener._fd_to_client[10] = sock1
+        server._socket_listener._fd_to_client[20] = sock2
         server._event_queue.append(
             RemoteEventHandlerInvocation(element_id="button_x", action="click", ts=1.0)
         )
@@ -509,9 +509,9 @@ class TestFlushEvents:
         server = _make_server()
         sock1 = _mock_sock_fd(10)
         sock2 = _mock_sock_fd(20)
-        server._socket_server.clients.extend([sock1, sock2])
-        server._socket_server._fd_to_client[10] = sock1
-        server._socket_server._fd_to_client[20] = sock2
+        server._socket_listener.clients.extend([sock1, sock2])
+        server._socket_listener._fd_to_client[10] = sock1
+        server._socket_listener._fd_to_client[20] = sock2
         server._event_queue.append(
             RemoteEventHandlerInvocation(
                 element_id="voxd\x1fmusic",
@@ -600,8 +600,8 @@ class TestModalDismissRevertOnUndeliverable:
         server._flush_events()  # no client: the close is held
 
         sock = _mock_sock_fd(10)
-        server._socket_server.clients.append(sock)
-        server._socket_server._fd_to_client[10] = sock
+        server._socket_listener.clients.append(sock)
+        server._socket_listener._fd_to_client[10] = sock
         server._flush_events()  # client back: the held close is delivered
 
         sock.send.assert_called_once()
@@ -616,24 +616,24 @@ class TestModalDismissRevertOnUndeliverable:
         server = _make_server()
         sock = _mock_sock()
         sock.send.side_effect = OSError("boom")
-        server._socket_server.clients.append(sock)
+        server._socket_listener.clients.append(sock)
         from punt_lux.protocol import FrameReader
 
-        server._socket_server._readers[sock.fileno()] = FrameReader()
+        server._socket_listener._readers[sock.fileno()] = FrameReader()
         ws = self._latch_modal(server, "s1", "m1")
         self._queue_modal_closed(server, "s1", "m1")
 
         server._flush_events()
 
-        assert sock not in server._socket_server.clients  # dead peer removed
+        assert sock not in server._socket_listener.clients  # dead peer removed
         assert ws.get(f"m1{WidgetState.DISMISS_SUFFIX}") == 1  # held, not reverted
         assert not server._pending.is_empty
 
     def test_delivered_modal_dismiss_is_not_reverted(self) -> None:
         server = _make_server()
         sock = _mock_sock_fd(10)
-        server._socket_server.clients.append(sock)
-        server._socket_server._fd_to_client[10] = sock
+        server._socket_listener.clients.append(sock)
+        server._socket_listener._fd_to_client[10] = sock
         ws = self._latch_modal(server, "s1", "m1")
         self._queue_modal_closed(server, "s1", "m1")
 
@@ -681,8 +681,8 @@ class TestFrameSendBudget:
         server = _make_server()
         slow = _mock_sock_fd(10)
         slow.send.side_effect = BlockingIOError(errno.EAGAIN, "would block")
-        server._socket_server.clients.append(slow)
-        server._socket_server._fd_to_client[10] = slow
+        server._socket_listener.clients.append(slow)
+        server._socket_listener._fd_to_client[10] = slow
         for i in range(8):  # eight broadcast clicks queued this frame
             server._event_queue.append(
                 RemoteEventHandlerInvocation(element_id=f"b{i}", action="click", ts=1.0)
@@ -695,7 +695,7 @@ class TestFrameSendBudget:
         # Every click stays held, in order, for the next frame -- none lost.
         held = [ev.element_id for ev in server._pending.pending_events()]
         assert held == [f"b{i}" for i in range(8)]
-        assert slow in server._socket_server.clients  # the slow peer is kept
+        assert slow in server._socket_listener.clients  # the slow peer is kept
 
     def test_connection_dying_mid_flush_reholds_the_undelivered(self) -> None:
         """A client dying at the first send holds the rest for a reconnect, not lost.
@@ -709,9 +709,9 @@ class TestFrameSendBudget:
         server = _make_server()
         dead = _mock_sock_fd(10)
         dead.send.side_effect = OSError("boom")
-        server._socket_server.clients.append(dead)
-        server._socket_server._fd_to_client[10] = dead
-        server._socket_server._readers[10] = FrameReader()
+        server._socket_listener.clients.append(dead)
+        server._socket_listener._fd_to_client[10] = dead
+        server._socket_listener._readers[10] = FrameReader()
         for i in range(4):
             server._event_queue.append(
                 RemoteEventHandlerInvocation(element_id=f"c{i}", action="click", ts=1.0)
@@ -719,7 +719,7 @@ class TestFrameSendBudget:
 
         server._flush_events()
 
-        assert dead not in server._socket_server.clients  # dead peer removed
+        assert dead not in server._socket_listener.clients  # dead peer removed
         held = [ev.element_id for ev in server._pending.pending_events()]
         assert held == [f"c{i}" for i in range(4)]  # every click re-held, none lost
 

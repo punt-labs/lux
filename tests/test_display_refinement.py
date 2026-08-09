@@ -59,8 +59,8 @@ def _mock_sock(fd: int = 42) -> MagicMock:
 
 def _register_client(server: DisplayServer, sock: MagicMock) -> None:
     """Manually register a mock client (bypasses socket accept)."""
-    server._socket_server.clients.append(sock)
-    server._socket_server._readers[sock.fileno()] = FrameReader()
+    server._socket_listener.clients.append(sock)
+    server._socket_listener._readers[sock.fileno()] = FrameReader()
 
 
 def _inject_scene(server: DisplayServer, scene: SceneMessage) -> None:
@@ -298,7 +298,7 @@ class TestRefinementDisconnectClient:
         _register_client(server, sock)
         abs_before = abstract(server)
 
-        server._socket_server.remove_client(sock)
+        server._socket_listener.remove_client(sock)
 
         abs_after = abstract_disconnect_client(abs_before, 10)
         assert abstract(server) == abs_after
@@ -311,7 +311,7 @@ class TestRefinementDisconnectClient:
         _register_client(server, sock2)
         abs_before = abstract(server)
 
-        server._socket_server.remove_client(sock1)
+        server._socket_listener.remove_client(sock1)
 
         abs_after = abstract_disconnect_client(abs_before, 10)
         assert abstract(server) == abs_after
@@ -323,7 +323,7 @@ class TestRefinementDisconnectClient:
         _set_scene(server)
         abs_before = abstract(server)
 
-        server._socket_server.remove_client(sock)
+        server._socket_listener.remove_client(sock)
 
         abs_after = abstract_disconnect_client(abs_before, 10)
         assert abstract(server) == abs_after
@@ -403,13 +403,13 @@ class TestRefinementShutdown:
         abs_before = abstract(server)
 
         # Concrete shutdown (partial — socket/file cleanup skipped)
-        for client in list(server._socket_server.clients):
+        for client in list(server._socket_listener.clients):
             client.close()
-        server._socket_server.clients.clear()
-        server._socket_server._readers.clear()
+        server._socket_listener.clients.clear()
+        server._socket_listener._readers.clear()
         server._scenes.clear_all()
         server._event_queue.clear()
-        server._socket_server._server_sock = None
+        server._socket_listener._server_sock = None
 
         abs_after = abstract_shutdown(abs_before)
         assert abstract(server) == abs_after
@@ -418,11 +418,11 @@ class TestRefinementShutdown:
         server = _make_server()
         abs_before = abstract(server)
 
-        server._socket_server.clients.clear()
-        server._socket_server._readers.clear()
+        server._socket_listener.clients.clear()
+        server._socket_listener._readers.clear()
         server._scenes.clear_all()
         server._event_queue.clear()
-        server._socket_server._server_sock = None
+        server._socket_listener._server_sock = None
 
         abs_after = abstract_shutdown(abs_before)
         assert abstract(server) == abs_after
@@ -550,6 +550,6 @@ class TestRefinementComposed:
 
         sock = _mock_sock(fd=99)
         _register_client(server, sock)
-        server._socket_server.remove_client(sock)
+        server._socket_listener.remove_client(sock)
 
         assert abstract(server) == abs_state

@@ -30,9 +30,9 @@ from unittest.mock import patch
 
 import pytest
 
+from punt_lux.display.socket_server import SocketListener
 from punt_lux.paths import DisplayPaths, SocketLiveness
 from punt_lux.protocol import HEADER_FORMAT, ReadyMessage, encode_frame, send_message
-from punt_lux.socket_server import SocketServer
 
 _Reply = Literal["ready", "silent", "garbage", "nonobject"]
 
@@ -1345,7 +1345,7 @@ class TestLockOrdering:
 
         # setup(): only ever the bind lock — never the spawn lock.
         events.clear()
-        server = SocketServer(
+        server = SocketListener(
             on_message=noop_message,
             on_client_disconnected=noop_disconnect,
             on_error=noop_error,

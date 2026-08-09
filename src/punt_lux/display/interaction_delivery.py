@@ -23,8 +23,8 @@ if TYPE_CHECKING:
 
     from punt_lux.display.evictions import Evictions
     from punt_lux.display.replica import SceneReplica
+    from punt_lux.display.socket_server import SocketListener
     from punt_lux.protocol import RemoteEventHandlerInvocation
-    from punt_lux.socket_server import SocketServer
 
 __all__ = ["InteractionDelivery"]
 
@@ -42,17 +42,17 @@ class InteractionDelivery:
     each flush.
     """
 
-    _socket_server: SocketServer
+    _socket_listener: SocketListener
     _scenes: SceneReplica
 
     def __new__(
         cls,
         *,
-        socket_server: SocketServer,
+        socket_listener: SocketListener,
         scenes: SceneReplica,
     ) -> Self:
         self = super().__new__(cls)
-        self._socket_server = socket_server
+        self._socket_listener = socket_listener
         self._scenes = scenes
         return self
 
@@ -86,16 +86,16 @@ class InteractionDelivery:
             self._scenes.scene_to_owner.get(event.scene_id) if event.scene_id else None
         )
         if owner_fd is not None:
-            target = self._socket_server.fd_to_client.get(owner_fd)
+            target = self._socket_listener.fd_to_client.get(owner_fd)
             if target is None:
                 return False
-            return self._socket_server.send_to_client(target, event, deadline)
+            return self._socket_listener.send_to_client(target, event, deadline)
         # Broadcast to every client — the list comprehension sends to all before
         # reducing, so one success never short-circuits the rest (a generator in
         # ``any`` would stop at the first delivered send and skip the others).
         sent = [
-            self._socket_server.send_to_client(client, event, deadline)
-            for client in list(self._socket_server.clients)
+            self._socket_listener.send_to_client(client, event, deadline)
+            for client in list(self._socket_listener.clients)
         ]
         return any(sent)
 

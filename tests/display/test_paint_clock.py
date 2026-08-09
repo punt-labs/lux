@@ -46,9 +46,9 @@ def _sock(fd: int = 42) -> MagicMock:
 
 
 def _register(server: DisplayServer, sock: MagicMock) -> None:
-    server._socket_server.clients.append(sock)
-    server._socket_server._readers[sock.fileno()] = FrameReader()
-    server._socket_server._fd_to_client[sock.fileno()] = sock
+    server._socket_listener.clients.append(sock)
+    server._socket_listener._readers[sock.fileno()] = FrameReader()
+    server._socket_listener._fd_to_client[sock.fileno()] = sock
 
 
 def test_a_received_scene_is_attested_at_the_swap_that_painted_it(

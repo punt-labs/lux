@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Self
 
-from punt_lux.scene_inspection import SceneInspection
+from punt_lux.display.scene_inspection import SceneInspection
 
 if TYPE_CHECKING:
     from punt_lux.display.geometry import GeometryRecorder
@@ -18,7 +18,7 @@ class SceneInspector:
 
     Composes the display's ``SceneReplica`` (the rendered element objects) and
     the render loop's ``GeometryRecorder`` (painted rects). Registered on the
-    ``QueryDispatcher`` by ``DisplayServer``, overriding the built-in that
+    ``QueryRouter`` by ``DisplayServer``, overriding the built-in that
     reads ``SceneReplica`` alone — the extra store is why this lives here and
     not on the dispatcher.
     """

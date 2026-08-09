@@ -9,7 +9,7 @@ abstraction, not around it. No socket, no subprocess, no GPU.
 The rig owns exactly one genuinely new piece of wiring the design flags:
 the queued interaction the Display's ``_emit_event`` produces is drained
 and shipped over the ``InMemoryConnection`` (instead of the
-``SocketServer`` client fds), then read back on the Hub end and handed to
+``SocketListener`` client fds), then read back on the Hub end and handed to
 the production ``HubInteractionDispatch.dispatch``. Everything
 else — the wrap, the emit point, the Hub dispatch, the real handler,
 ``hub.publish``, the inbox — runs for real.

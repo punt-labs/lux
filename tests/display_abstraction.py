@@ -102,7 +102,7 @@ def abstract(server: DisplayServer) -> AbstractState:
     be verified manually against the Z spec.
     """
     # clients -> set of file descriptors
-    ss = server._socket_server
+    ss = server._socket_listener
     client_fds = frozenset(s.fileno() for s in ss.clients)
 
     # readers -> keys of the readers dict (should equal client_fds)
