@@ -78,6 +78,9 @@ the reference for how their subsystem is built.
   durable session-scene lifetime, `identify` + challenge, anonymous REST
   rejected); the shipped shape (PRs #290-#292) evolved past several of this
   document's specifics — DES-057 in `DESIGN.md` is authoritative for those.
+- [architecture/scene-display-packaging-design.md](./architecture/scene-display-packaging-design.md)
+  — the `scene/` → `display/replica/` dissolution and the N1/N2/N3 naming
+  convention (operator-ratified 2026-08-08; PRs #318-#319).
 
 ## Deferred Designs
 

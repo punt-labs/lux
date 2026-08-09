@@ -2,6 +2,42 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **`scene/` is gone; its state lives under `display/replica/`.** The package
+  wore a domain-noun name for state that only ever existed on the Display
+  tier — `SceneManager` is now `SceneReplica`, `MenuManager` is `MenuReplica`,
+  both in `display/replica/` beside `Frame`, `FrameBook`, `WidgetState`, and
+  the new `WidgetStateStore`. `scene/rgba_buffer.py` moved to
+  `display/renderers/rgba_buffer.py` beside its text and float siblings.
+- **`display/server.py` is `display/render_loop.py`; `DisplayServer` is
+  `RenderLoop`.** A class in `display/` no longer needs `Display` in its name
+  to say what tier it is on. Move and rename only — the module's own
+  1,082-line decomposition is still owed, separately.
+- **`display_client.py` is `domain/hub/display_link.py`; `DisplayClient` is
+  `DisplayLink`.** It is the Hub's socket client of the display, not
+  Display-tier code, despite the old name and location — moving it closes the
+  one Display→Hub import in the tree. The unrelated agent-side wire-decode
+  factory the same file held moved to `protocol/agent_factory.py`.
+- **`QueryDispatcher` is `QueryRouter`; `SocketServer` is `SocketListener`.**
+  Both now live under `display/` with their callers. No bare `*Dispatcher` or
+  `*Server` names a job.
+
+Every module above is a pure move and rename with no behavior change; the
+full design and rationale is
+`docs/architecture/scene-display-packaging-design.md`. Any code importing the
+old paths or class names directly (outside this package) needs updating.
+
+### Fixed
+
+- **A click on an already-dismissed dialog's descendant could still fire.**
+  `HubInteractionDispatch` resolved a clicked element by id without checking
+  whether it, or an ancestor, had been marked removed — a dialog dismissed out
+  from under a race, or a click delivered after dismissal, could still run a
+  confirm/delete handler on the Hub's authoritative copy. A new `DismissalWalk`
+  drops the click instead, restoring behavior the earlier `Display.interact()`
+  had and the D21 migration lost.
+
 ### Removed
 
 - **`punt_lux.domain.display.Display`.** The display-tier scene mirror had no
