@@ -38,6 +38,13 @@ old paths or class names directly (outside this package) needs updating.
   drops the click instead, restoring behavior the earlier `Display.interact()`
   had and the D21 migration lost.
 
+### Security
+
+- **`cryptography` 49.0.0 → 50.0.0.** Fixes a PKCS#7 EnvelopedData decryption
+  Bleichenbacher oracle ([GHSA advisory, vulnerable range `>=44.0.0,
+  <50.0.0`](https://github.com/punt-labs/lux/security/dependabot/52)),
+  reached in production via `fastmcp` → `authlib` → `cryptography`.
+
 ### Removed
 
 - **`punt_lux.domain.display.Display`.** The display-tier scene mirror had no
