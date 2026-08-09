@@ -1,6 +1,6 @@
 """FrameCommands — the display-side answers to "minimize that" and "raise that".
 
-Driven over a real ``SceneManager`` with a real frame installed, so the handlers
+Driven over a real ``SceneReplica`` with a real frame installed, so the handlers
 are exercised against the structure the render loop reads, not a stand-in for it.
 """
 
@@ -9,16 +9,16 @@ from __future__ import annotations
 import pytest
 
 from punt_lux.display.frame_commands import FrameCommands
+from punt_lux.display.replica import SceneReplica
 from punt_lux.protocol import TextElement
 from punt_lux.protocol.messages.scene import SceneMessage
-from punt_lux.scene.manager import SceneManager
 
 _FRAME = "beads-lux"
 
 
-def _manager_with_a_frame() -> SceneManager:
+def _manager_with_a_frame() -> SceneReplica:
     """A scene manager holding one frame, the way a pushed scene leaves it."""
-    scenes = SceneManager(on_scene_replaced=lambda _ids: None)
+    scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
     scenes.handle_framed_scene(
         SceneMessage(
             id="beads-lux",

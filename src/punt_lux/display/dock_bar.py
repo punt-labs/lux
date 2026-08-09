@@ -15,7 +15,7 @@ from imgui_bundle import ImVec2
 from punt_lux.display.dock_pill import DockPill
 
 if TYPE_CHECKING:
-    from punt_lux.scene import Frame, SceneManager
+    from punt_lux.display.replica import Frame, SceneReplica
 
 __all__ = ["DOCK_BAR_HEIGHT", "DockBar"]
 
@@ -38,13 +38,13 @@ class DockBar:
     """
 
     _imgui: Any  # the caller's imgui module; imgui_bundle ships no type stubs
-    _scene_manager: SceneManager
-    __slots__ = ("_imgui", "_scene_manager")
+    _scenes: SceneReplica
+    __slots__ = ("_imgui", "_scenes")
 
-    def __new__(cls, imgui: Any, scene_manager: SceneManager) -> Self:
+    def __new__(cls, imgui: Any, scenes: SceneReplica) -> Self:
         self = super().__new__(cls)
         self._imgui = imgui
-        self._scene_manager = scene_manager
+        self._scenes = scenes
         return self
 
     def render(self, *, any_frame_hovered: bool) -> None:
@@ -54,7 +54,7 @@ class DockBar:
         window, which suppresses pill clicks: a frame overlapping the bar would
         otherwise restore a different frame out from under the click.
         """
-        minimized = [f for f in self._scene_manager.frames.values() if f.minimized]
+        minimized = [f for f in self._scenes.frames.values() if f.minimized]
         if not minimized:
             return
         viewport = self._imgui.get_main_viewport()
@@ -115,7 +115,7 @@ class DockBar:
             hovered = pill.hovered()
             pill.paint(draw, hovered=hovered)
             if hovered and clickable:
-                pill.restore(self._scene_manager)
+                pill.restore(self._scenes)
             pill_x = pill.right + _PILL_GAP
 
     def _paint_ellipsis(self, draw: Any, anchor: ImVec2, height: float) -> None:

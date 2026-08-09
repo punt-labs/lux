@@ -24,9 +24,9 @@ from punt_lux.display.menus.wire import WireMenu
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
+    from punt_lux.display.replica.frame import Frame
     from punt_lux.display.window_chrome import WindowChromeCommands
     from punt_lux.protocol import RemoteEventHandlerInvocation
-    from punt_lux.scene.frame import Frame
 
 __all__ = ["MenuManager"]
 

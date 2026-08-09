@@ -8,7 +8,7 @@ from punt_lux.scene_inspection import SceneInspection
 
 if TYPE_CHECKING:
     from punt_lux.display.geometry import GeometryRecorder
-    from punt_lux.scene import SceneManager
+    from punt_lux.display.replica import SceneReplica
 
 __all__ = ["SceneInspector"]
 
@@ -16,24 +16,24 @@ __all__ = ["SceneInspector"]
 class SceneInspector:
     """Answer ``inspect_scene`` with resolved_props per element.
 
-    Composes the display's ``SceneManager`` (the rendered element objects) and
+    Composes the display's ``SceneReplica`` (the rendered element objects) and
     the render loop's ``GeometryRecorder`` (painted rects). Registered on the
     ``QueryDispatcher`` by ``DisplayServer``, overriding the built-in that
-    reads ``SceneManager`` alone — the extra store is why this lives here and
+    reads ``SceneReplica`` alone — the extra store is why this lives here and
     not on the dispatcher.
     """
 
-    _scenes: SceneManager
+    _scenes: SceneReplica
     _geometry: GeometryRecorder
 
     def __new__(
         cls,
         *,
-        scene_manager: SceneManager,
+        scenes: SceneReplica,
         geometry: GeometryRecorder,
     ) -> Self:
         self = super().__new__(cls)
-        self._scenes = scene_manager
+        self._scenes = scenes
         self._geometry = geometry
         return self
 

@@ -28,9 +28,9 @@ from punt_lux.display.renderers.imgui.continuous_edit_selection import (
     ContinuousEditArbiter,
 )
 from punt_lux.display.renderers.input_number_renderer import InputNumberRenderer
+from punt_lux.display.replica.widget_state import WidgetState
 from punt_lux.domain.interaction import ValueChanged
 from punt_lux.protocol.elements.input_number import InputNumberElement
-from punt_lux.scene.widget_state import WidgetState
 
 
 def _arb(state: WidgetState, element_id: str) -> ContinuousEditArbiter[float]:

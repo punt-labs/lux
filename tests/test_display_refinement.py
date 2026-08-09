@@ -65,7 +65,7 @@ def _register_client(server: DisplayServer, sock: MagicMock) -> None:
 
 def _inject_scene(server: DisplayServer, scene: SceneMessage) -> None:
     """Install a scene into its frame (every scene is framed)."""
-    server._scene_manager.handle_framed_scene(scene, owner_fd=0)
+    server._scenes.handle_framed_scene(scene, owner_fd=0)
 
 
 def _set_scene(server: DisplayServer, scene_id: str = "s1") -> None:
@@ -407,7 +407,7 @@ class TestRefinementShutdown:
             client.close()
         server._socket_server.clients.clear()
         server._socket_server._readers.clear()
-        server._scene_manager.clear_all()
+        server._scenes.clear_all()
         server._event_queue.clear()
         server._socket_server._server_sock = None
 
@@ -420,7 +420,7 @@ class TestRefinementShutdown:
 
         server._socket_server.clients.clear()
         server._socket_server._readers.clear()
-        server._scene_manager.clear_all()
+        server._scenes.clear_all()
         server._event_queue.clear()
         server._socket_server._server_sock = None
 

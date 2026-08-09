@@ -133,7 +133,7 @@ def test_the_display_marks_a_scene_painted_as_it_renders_it(
             id="s1", elements=[TextElement(id="t1", content="hi")], frame_id="f1"
         ),
     )
-    frame = server._scene_manager.frames["f1"]
+    frame = server._scenes.frames["f1"]
     # Render an emptied scene: the paint hook runs, the ImGui element paint does not.
     frame.scenes["s1"].elements.clear()
     with caplog.at_level(logging.INFO, logger=_PAINT_LOGGER):

@@ -20,9 +20,9 @@ from unittest.mock import MagicMock
 from punt_lux.display.renderers.imgui import text as text_module
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.renderers.imgui.text import ImGuiTextRenderer
+from punt_lux.display.replica.widget_state import WidgetState
 from punt_lux.display.texture_cache import TextureCache
 from punt_lux.protocol.elements.text import TextElement
-from punt_lux.scene.widget_state import WidgetState
 
 if TYPE_CHECKING:
     import pytest

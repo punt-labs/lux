@@ -17,10 +17,10 @@ from imgui_bundle import imgui
 from punt_lux.display.renderers.imgui.table import ImGuiTableRenderer
 from punt_lux.display.renderers.imgui.table_row_arbiter import TableSelectionArbiter
 from punt_lux.display.renderers.imgui.table_row_painter import TableRowPainter
+from punt_lux.display.replica.widget_state import WidgetState
 from punt_lux.domain.selection_interaction import RowSelectionChanged
 from punt_lux.protocol.elements.table import TableElement
 from punt_lux.protocol.elements.table_flags import TableFlags
-from punt_lux.scene.widget_state import WidgetState
 
 _PAINTER_IMGUI = "punt_lux.display.renderers.imgui.table_row_painter.imgui"
 

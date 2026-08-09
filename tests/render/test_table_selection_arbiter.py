@@ -10,7 +10,7 @@ Hub value wins once it moves.
 from __future__ import annotations
 
 from punt_lux.display.renderers.imgui.table_row_arbiter import TableSelectionArbiter
-from punt_lux.scene.widget_state import WidgetState
+from punt_lux.display.replica.widget_state import WidgetState
 
 
 def _arbiter() -> tuple[TableSelectionArbiter, WidgetState]:

@@ -1,34 +1,34 @@
-"""Scene graph state machine — the SceneManager class."""
+"""The Display's replica of the scene graph the Hub sent it."""
 
 from __future__ import annotations
 
-import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Self
 
+from punt_lux.display.replica.element_walk import SceneTreeWalk
+from punt_lux.display.replica.frame import Frame
+from punt_lux.display.replica.frame_book import FrameBook
+from punt_lux.display.replica.widget_state import WidgetState
+from punt_lux.display.replica.widget_state_store import WidgetStateStore
 from punt_lux.protocol import SceneMessage
-from punt_lux.scene.element_walk import SceneTreeWalk
-from punt_lux.scene.frame import Frame
-from punt_lux.scene.frame_book import FrameBook
-from punt_lux.scene.widget_state import WidgetState
-from punt_lux.types import OnSceneReplacedFn
 
-_log = logging.getLogger(__name__)
+type OnSceneReplacedFn = Callable[[list[str]], None]
 
 
-class SceneManager:
+class SceneReplica:
     """Own the scene graph — framed scenes, widget state, stale-id notification.
 
     Every scene lives in a frame: the Hub synthesizes one at the render boundary
     when the caller names none, so there is no unframed scene storage. Frames and
-    the scene→frame/owner maps belong to a composed :class:`FrameBook`; this class
-    keeps the per-scene widget state and the stale-id notification the frames
-    share. Pure state machine: no ImGui, socket, or OpenGL. Tree navigation is
-    delegated to :class:`SceneTreeWalk`.
+    the scene→frame/owner maps belong to a composed :class:`FrameBook`, and the
+    per-scene widget state to a composed :class:`WidgetStateStore`; this class
+    keeps the stale-id notification the frames share. Pure state machine: no
+    ImGui, socket, or OpenGL. Tree navigation is delegated to
+    :class:`SceneTreeWalk`.
     """
 
     _book: FrameBook
-    _scene_widget_state: dict[str, WidgetState]
+    _widget_state: WidgetStateStore
     _on_scene_replaced: OnSceneReplacedFn
     _walk: SceneTreeWalk
 
@@ -39,7 +39,7 @@ class SceneManager:
     ) -> Self:
         self = super().__new__(cls)
         self._book = FrameBook()
-        self._scene_widget_state = {}
+        self._widget_state = WidgetStateStore()
         self._on_scene_replaced = on_scene_replaced
         self._walk = SceneTreeWalk()
         return self
@@ -129,7 +129,7 @@ class SceneManager:
         frame.scenes[msg.id] = msg
         if is_new:
             frame.scene_order.append(msg.id)
-            self._scene_widget_state[msg.id] = WidgetState()
+            self._widget_state.open(msg.id)
             frame.active_tab = msg.id
             frame.minimized = False
             self._book.set_frame(msg.id, frame.frame_id)
@@ -156,7 +156,7 @@ class SceneManager:
         if dismissed is not None:
             self._notify_stale(self._element_ids(dismissed.elements))
         frame.scene_order = [s for s in frame.scene_order if s != scene_id]
-        self._scene_widget_state.pop(scene_id, None)
+        self._widget_state.discard(scene_id)
         self._book.forget_scene(scene_id)
         if frame.active_tab == scene_id:
             frame.active_tab = frame.scene_order[0] if frame.scene_order else None
@@ -175,18 +175,18 @@ class SceneManager:
             scene = frame.scenes.get(scene_id)
             if scene is not None:
                 removed_ids |= self._element_ids(scene.elements)
-            self._scene_widget_state.pop(scene_id, None)
+            self._widget_state.discard(scene_id)
             self._book.forget_scene(scene_id)
         return self._notify_stale(removed_ids)
 
     def clear_all(self) -> None:
         """Remove all scenes, frames, and associated state."""
         self._book.clear()
-        self._scene_widget_state.clear()
+        self._widget_state.clear()
 
     def widget_state_for(self, scene_id: str) -> WidgetState | None:
         """Return the WidgetState for a scene, or None."""
-        return self._scene_widget_state.get(scene_id)
+        return self._widget_state.get(scene_id)
 
     # -- scene-replacement helpers -----------------------------------------
 
@@ -211,24 +211,16 @@ class SceneManager:
     ) -> None:
         """Drain stale IDs no other scene holds and discard their widget state.
 
-        A whole-root re-push must not wipe survivors' id-keyed state (selection,
-        scroll, in-progress text) — only the departed elements' state is discarded.
         The event drain is survivor-aware: an id this scene dropped is drained only
         when no other framed scene holds it, so replacing one scene never cancels
-        another's still-valid queued events. Survivors' per-render-session slots
-        reset because this push carries the Hub's current answer, which
-        supersedes whatever each was arbitrating against.
+        another's still-valid queued events.
         """
         if old_scene is None:
             return
         old_ids = self._element_ids(old_scene.elements)
         stale_ids = old_ids - self._element_ids(msg.elements)
         self._notify_stale(stale_ids)
-        widget_state = self._scene_widget_state.get(msg.id)
-        if widget_state is not None:
-            for stale_id in stale_ids:
-                widget_state.discard_for(stale_id)
-            widget_state.reset_session_slots()
+        self._widget_state.retire_elements(msg.id, stale_ids)
 
     def _element_ids(self, elements: Sequence[object]) -> set[str]:
         """Return every element id in ``elements``, recursing containers."""

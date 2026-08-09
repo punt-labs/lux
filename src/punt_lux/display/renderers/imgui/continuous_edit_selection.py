@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from typing import Protocol, Self, final, runtime_checkable
 
-from punt_lux.scene.widget_state import WidgetState
+from punt_lux.display.replica.widget_state import WidgetState
 
 __all__ = ["ContinuousEditArbiter", "ValueAccessor"]
 

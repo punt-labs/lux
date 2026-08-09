@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any, Self, final
 from imgui_bundle import ImVec2
 
 if TYPE_CHECKING:
-    from punt_lux.scene import Frame, SceneManager
+    from punt_lux.display.replica import Frame, SceneReplica
 
 __all__ = ["DockPill"]
 
@@ -83,10 +83,10 @@ class DockPill:
             self._frame.title,
         )
 
-    def restore(self, scene_manager: SceneManager) -> None:
+    def restore(self, scenes: SceneReplica) -> None:
         """Take the frame out of the bar and bring it back to the front."""
         self._frame.minimized = False
-        scene_manager.request_focus(self._frame.frame_id)
+        scenes.request_focus(self._frame.frame_id)
 
     def _middle(self, height: float) -> float:
         """The y that centres something *height* tall inside the pill."""

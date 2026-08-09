@@ -30,6 +30,7 @@ from punt_lux.display.renderers.imgui.modal import ImGuiModalRenderer
 from punt_lux.display.renderers.imgui.tab_bar import ImGuiTabBarRenderer
 from punt_lux.display.renderers.imgui.text import ImGuiTextRenderer
 from punt_lux.display.renderers.imgui.window import ImGuiWindowRenderer
+from punt_lux.display.replica.widget_state import WidgetState
 from punt_lux.display.texture_cache import TextureCache
 from punt_lux.protocol.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
 from punt_lux.protocol.elements.button import ButtonElement
@@ -41,7 +42,6 @@ from punt_lux.protocol.elements.modal import ModalElement
 from punt_lux.protocol.elements.tab_bar import TabBarElement
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.elements.window import WindowElement
-from punt_lux.scene.widget_state import WidgetState
 
 if TYPE_CHECKING:
     import pytest

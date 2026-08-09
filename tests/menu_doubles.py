@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any, Self, final
 from punt_lux.display.menu_manager import MenuManager
 from punt_lux.display.menus.wire import WireMenu
 from punt_lux.display.menus.wire_field import WireField
-from punt_lux.scene.frame import Frame
+from punt_lux.display.replica.frame import Frame
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Iterable

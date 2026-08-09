@@ -22,6 +22,7 @@ from punt_lux.display.renderers.imgui.tab_selection import (
     _UNHONOURED,
     TabSelectionArbiter,
 )
+from punt_lux.display.replica import SceneReplica, WidgetState
 from punt_lux.display.server import DisplayServer
 from punt_lux.display_client import agent_element_factory
 from punt_lux.domain.container_interaction import TabChanged
@@ -41,7 +42,6 @@ from punt_lux.protocol.messages import message_from_dict, message_to_dict
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
 from punt_lux.protocol.renderer import Renderer, TabContainerRenderer
 from punt_lux.protocol.renderers.raising import RaisingRendererFactory
-from punt_lux.scene import SceneManager, WidgetState
 from punt_lux.tools import show
 
 if TYPE_CHECKING:
@@ -671,17 +671,17 @@ class TestInteraction:
 class TestEchoSuppressionLifecycle:
     """The honoured key resets on re-push and removal — no spurious TabChanged.
 
-    These drive the real ``SceneManager`` re-push path and the display's
+    These drive the real ``SceneReplica`` re-push path and the display's
     per-scene factory re-thread, so a stale honoured value cannot survive into a
     frame where a leftover ImGui selection would masquerade as a user switch.
     """
 
     def _install(
         self, server: DisplayServer, *, active_tab: str = "tab-1"
-    ) -> tuple[SceneManager, ImGuiRendererFactory]:
+    ) -> tuple[SceneReplica, ImGuiRendererFactory]:
         """Install a tab bar and re-thread the factory as the display would."""
         bar = _abc_tab_bar(active_tab=active_tab)
-        sm = server._scene_manager
+        sm = server._scenes
         sm.handle_framed_scene(
             SceneMessage(id="s1", elements=[bar], frame_id="s1"), owner_fd=0
         )
@@ -721,7 +721,7 @@ class TestEchoSuppressionLifecycle:
         # through ``_replace_scene_state``, where both ``discard_for(stale)`` and
         # ``reset_session_slots()`` clear the honoured key, so either alone would pass
         # it. ``discard_for``'s own honoured-clearing is isolated by the
-        # WidgetState unit test in test_scene_manager.py.
+        # WidgetState unit test in test_scene_replica.py.
         sm, factory = self._install(_server())
         factory.widget_state.set(_honoured_key(), "tab-1")
         # Re-push without the tab bar → it is removed.

@@ -23,7 +23,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, ClassVar, Protocol, Self, final, runtime_checkable
 
-from punt_lux.scene import WidgetState
+from punt_lux.display.replica import WidgetState
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

@@ -21,10 +21,10 @@ from punt_lux.display.renderers.imgui.collapsing_header import (
     ImGuiCollapsingHeaderRenderer,
 )
 from punt_lux.display.renderers.imgui.header_open_arbiter import HeaderOpenArbiter
+from punt_lux.display.replica.widget_state import WidgetState
 from punt_lux.display_client import agent_element_factory
 from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement
 from punt_lux.protocol.elements.text import TextElement
-from punt_lux.scene.widget_state import WidgetState
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -67,7 +67,7 @@ def test_a_pending_close_is_rendered_over_a_stale_open_hub_value() -> None:
 
 
 def test_the_re_push_reset_hands_authority_back_to_the_hub() -> None:
-    # The slot is per-render-session: SceneManager resets it on every scene
+    # The slot is per-render-session: SceneReplica resets it on every scene
     # replace, which is what stops the optimism outliving the Hub's answer.
     arbiter, ws = _arbiter()
     arbiter.note_pending(fired=True)
@@ -166,7 +166,7 @@ class _FactoryDouble:
 
 
 @final
-class _SceneManagerDouble:
+class _SceneReplicaDouble:
     """The one lookup ``compensate_evicted`` makes of the scene manager."""
 
     _widget_state: WidgetState
@@ -254,13 +254,13 @@ class _HeaderRig:
         lost = dataclasses.replace(self._sent[-1], scene_id="scene")
         InteractionDelivery(
             socket_server=cast("Any", None),
-            scene_manager=cast("Any", _SceneManagerDouble(self._state)),
+            scenes=cast("Any", _SceneReplicaDouble(self._state)),
         ).compensate_evicted(Evictions.of([lost], ()))
 
     def repush(self, *, open: bool) -> None:
         """Apply the Hub's answer, as a whole-scene re-push would.
 
-        The replica takes the Hub's value and ``SceneManager`` resets the
+        The replica takes the Hub's value and ``SceneReplica`` resets the
         per-render-session slots — the two halves of a scene replace that this
         arbiter's correctness rests on.
         """

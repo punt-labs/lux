@@ -213,7 +213,7 @@ class ComboElement(Element):
         return decoder.decode(d)
 
     def widget_value(self) -> int:
-        """Return the selected index SceneManager mirrors into WidgetState."""
+        """Return the selected index SceneReplica mirrors into WidgetState."""
         return self._selected
 
     # -- introspection (Inspectable) ---------------------------------------

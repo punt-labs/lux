@@ -29,12 +29,12 @@ from imgui_bundle import imgui
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.renderers.imgui.split_pane import ImGuiSplitPaneRenderer
 from punt_lux.display.renderers.imgui.split_ratio_store import SplitRatioStore
+from punt_lux.display.replica.widget_state import WidgetState
 from punt_lux.protocol.element_factory import JsonElementFactory
 from punt_lux.protocol.elements.group import GroupElement
 from punt_lux.protocol.elements.split_pane import SplitPaneElement, SplitPaneRenderer
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.renderer import Renderer
-from punt_lux.scene.widget_state import WidgetState
 
 if TYPE_CHECKING:
     from punt_lux.display.texture_cache import TextureCache

@@ -1,6 +1,6 @@
 """Scene element-tree traversal — locate, collect ids, detach.
 
-Splits the recursive tree helpers out of :class:`SceneManager` so the
+Splits the recursive tree helpers out of :class:`SceneReplica` so the
 state machine owns scene lifecycle and this module owns tree navigation.
 
 Removal is physical: a scene-root element is popped from the scene's root

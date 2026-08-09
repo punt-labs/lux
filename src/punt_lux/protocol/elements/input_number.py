@@ -240,7 +240,7 @@ class InputNumberElement(Element):
         return decoder.decode(d)
 
     def widget_value(self) -> float:
-        """Return the value SceneManager mirrors into WidgetState after a patch."""
+        """Return the value SceneReplica mirrors into WidgetState after a patch."""
         return self._value
 
     # -- rendering support -------------------------------------------------

@@ -76,8 +76,8 @@ def real_imgui_factory() -> ImGuiRendererFactory:
     local so importing this conftest never requires the display extra.
     """
     from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
+    from punt_lux.display.replica.widget_state import WidgetState
     from punt_lux.display.texture_cache import TextureCache
-    from punt_lux.scene.widget_state import WidgetState
 
     def _no_emit(_msg: object) -> None:
         """Display-tier no-op emit (matches production wiring)."""

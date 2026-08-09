@@ -14,8 +14,8 @@ from punt_lux.display.renderers.imgui.continuous_edit_accessors import (
     StrValueAccessor,
 )
 from punt_lux.display.renderers.imgui.continuous_edit_selection import ValueAccessor
-from punt_lux.scene.rgba_buffer import RgbaBuffer
-from punt_lux.scene.widget_state import WidgetState
+from punt_lux.display.renderers.rgba_buffer import RgbaBuffer
+from punt_lux.display.replica.widget_state import WidgetState
 
 _HUB: tuple[float, float, float, float] = (0.1, 0.2, 0.3, 1.0)
 

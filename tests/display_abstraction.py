@@ -112,7 +112,7 @@ def abstract(server: DisplayServer) -> AbstractState:
     # "active scene" is a frame's active tab. The refinement suite installs one
     # scene at a time, so the first frame with an active tab is that scene.
     scene = None
-    for frame in server._scene_manager.frames.values():
+    for frame in server._scenes.frames.values():
         active_id = frame.active_tab
         if active_id is not None:
             scene = frame.scenes.get(active_id)

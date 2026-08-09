@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, ClassVar, Self, final
 
 from imgui_bundle import imgui
 
-from punt_lux.scene.widget_state import WidgetState
+from punt_lux.display.replica.widget_state import WidgetState
 
 if TYPE_CHECKING:
     from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory

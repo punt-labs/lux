@@ -13,10 +13,10 @@ import pytest
 
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.renderers.imgui.text import ImGuiTextRenderer
+from punt_lux.display.replica.widget_state import WidgetState
 from punt_lux.display.texture_cache import TextureCache
 from punt_lux.display_client import agent_element_factory
 from punt_lux.protocol.elements.text import TextElement
-from punt_lux.scene.widget_state import WidgetState
 
 
 def _emit(_msg: object) -> None:

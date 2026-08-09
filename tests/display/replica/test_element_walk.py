@@ -14,9 +14,9 @@ Two invariants guard the walk:
 
 from __future__ import annotations
 
+from punt_lux.display.replica.element_walk import AbcNode, SceneTreeWalk
 from punt_lux.domain.element_abc import Element as ABCElement
 from punt_lux.protocol import GroupElement, TextElement
-from punt_lux.scene.element_walk import AbcNode, SceneTreeWalk
 
 
 def test_find_reaches_nested_child_in_abc_container() -> None:

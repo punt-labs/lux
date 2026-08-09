@@ -23,8 +23,8 @@ from typing import TYPE_CHECKING, cast, final
 from punt_lux.protocol.elements.rgba_color import RgbaColor
 
 if TYPE_CHECKING:
+    from punt_lux.display.replica.widget_state import WidgetState
     from punt_lux.protocol.elements.rgba_color import Rgba
-    from punt_lux.scene.widget_state import WidgetState
 
 __all__ = ["RgbaBuffer"]
 
