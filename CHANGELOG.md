@@ -41,8 +41,8 @@ old paths or class names directly (outside this package) needs updating.
 ### Security
 
 - **`cryptography` 49.0.0 → 50.0.0.** Fixes a PKCS#7 EnvelopedData decryption
-  Bleichenbacher oracle ([GHSA advisory, vulnerable range `>=44.0.0,
-  <50.0.0`](https://github.com/punt-labs/lux/security/dependabot/52)),
+  Bleichenbacher oracle, vulnerable range `>=44.0.0, <50.0.0`
+  ([Dependabot alert #52](https://github.com/punt-labs/lux/security/dependabot/52)),
   reached in production via `fastmcp` → `authlib` → `cryptography`.
 
 ### Removed
