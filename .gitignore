@@ -59,8 +59,13 @@ spikes/*
 !spikes/io_model_v1/
 demos/
 
-# bd create lock (transient)
-.create.lock
+# Sibling lock files. Two sources: bd's transient .create.lock, and the lock
+# every punt CLI takes before mutating a shared host file (tool-enable-disable.md
+# 2.4), which persists by design because unlinking it races the next writer. The
+# pattern is broad because a punt lock is named after its host file and tools
+# differ on the suffix — .CLAUDE.md.lock and .settings.json.punt-import.lock
+# both occur.
+.*.lock
 
 # Per-user plugin local config (vox/biff/etc.) — never tracked
 *.local.md
