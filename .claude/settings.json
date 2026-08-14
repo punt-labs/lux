@@ -146,7 +146,6 @@
       "Bash(socat:*)",
       "Edit(.env)",
       "Edit(.envrc)",
-      "Write(.envrc)",
       "Bash(direnv allow:*)"
     ]
   }
