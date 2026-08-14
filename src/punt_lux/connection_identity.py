@@ -31,8 +31,8 @@ if TYPE_CHECKING:
 
 __all__ = ["connection_for"]
 
-# The identity fields the connection id is derived from, joined on a NUL that no
-# field value contains, so distinct identities cannot collide by concatenation.
+# The identity fields the connection id is derived from, joined on a NUL. name
+# is validated NUL-free at its one caller-supplied source, AppletIdentity.for_session.
 _FIELDS = ("kind", "name", "repo", "agent")
 
 
