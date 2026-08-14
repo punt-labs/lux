@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-08-14
+
 ### Fixed
 
 - **Two applets in one session no longer collapse onto one Hub connection.**
