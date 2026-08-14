@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Two applets in one session no longer collapse onto one Hub connection.**
+  `AppletIdentity.for_session(session_pid)` derived identity from `(repo,
+  session_pid)` alone, so lux-beads and a tool's own applet — vox-panel is
+  the first case in the wild — both produced the same identity, landed on
+  the same Hub connection, and the later `register_callback` clobbered the
+  earlier one. The signature is now `AppletIdentity.for_session(program,
+  session_pid)`; the caller names its own program (`"lux-beads"`,
+  `"vox-panel"`), which becomes a fourth distinctness token in the wire
+  `name`. `menu_label` is untouched — the OS menu still reads the repo name,
+  the composite is a wire-level distinctness token, not something to read
+  aloud. Callers of `AppletIdentity.for_session` must update to the new
+  signature; there is no shim.
+
 ### Removed
 
 - **The `signal-beads.sh` PostToolUse hook.** It fired `lux hook post-bash`
