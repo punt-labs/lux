@@ -5437,3 +5437,152 @@ machine-global daemons); a session-bound vs machine-global two-kind menu
 in labels (state pretending to be a name); lazy registration to thin the
 menu (contradicts DES-061 — an entry must exist before the user wants it;
 the per-repo enablement standard is the thinning mechanism).
+
+## DES-065: User-Controlled Window Visibility — `show()` Is a Notification, Not a Window-Raise
+
+**Status:** SETTLED (operator conversation 2026-08-14); implementation
+tracked as bead `lux-mxvy` and children (R1 = `lux-mxvy.1`, R8 =
+`lux-mxvy.8`)
+
+**Problem.** The Lux window today is on screen whenever any agent has ever
+called `show()`, and every agent scene push may raise it, focus it, or
+un-minimize it (DES-025 auto-focus; DES-060's "announce on arrival for new
+scenes"). The operator, comparing Lux to Orbstack — a daemon that runs
+continuously with its window absent until the user picks "Open" from the
+menubar — named this as broken: an agent's `show()` should not be able to
+put the window in the user's face against the user's wish. The current
+model conflates "the scene state changed" with "you should look at it
+now," and the user has no first-class control that overrides the agent.
+
+**Decision.** The user owns window visibility. The Display window has an
+explicit state — `hidden` or `shown` — and the default at Display start is
+`hidden`. Only user-initiated actions (menubar Open Window, dock pill
+click, Fit All, an applet menu entry click per DES-063) transition
+`hidden → shown`. No agent action, scene push, or auto-spawn does. When
+the user opens the window, they see whatever the current scene state is.
+
+`show()` continues to install the authoritative scene in `HubDisplay`,
+unchanged. What it *also* does changes: instead of raising and focusing
+the display window, it delivers a notification down the Hub → Display leg
+alongside the scene replica. Notifications accumulate in a Display-local
+queue and surface where the user is looking — a badge on the menubar
+entry (DES-066), and, if the window is already open, the existing
+in-window signal. `imgui.set_next_window_focus()` on agent-driven pushes
+and `RestoreFrame` on new content are retired.
+
+**Alternatives rejected.** *Keep DES-025/DES-060 and let the menubar
+alone give the user a way to close the window* — leaves the "agent pushes
+me a scene, my window jumps" case unchanged, which is exactly what the
+operator named as broken. *Route the notification through app pub-sub
+instead of a new Hub → Display channel* — pub-sub topics are named by the
+app; the "there is unread content" signal is a system-level fact about
+the Display, not a business event any app defines. *Notify only on
+genuinely new scenes (a stricter DES-060)* — still couples "the scene
+changed" to "the user should be told now," when the user's control is the
+whole point; the notification is passive by design.
+
+**Supersedes.** DES-025 (Frame Auto-Focus) — agent-driven auto-focus is
+retired; the "continuous updates keep stealing focus" trade-off
+disappears because the case cannot arise. DES-060 (Announce on Arrival
+Only) — announcement is replaced by notification. The stricter
+`workspace-model.tex` reading (`AddSceneToFrame` keeps `frameVis`)
+becomes the shipped behavior and is pushed one level higher: the
+*window* itself does not become visible on new content either.
+
+**Open questions to settle in the design mission.** Notification
+granularity (every `update()` or only `show()`); queue persistence across
+Display or Hub restart; menubar badge as unread-count vs Boolean;
+applet-push interaction (an applet's own reload — does it notify, or is
+the applet's menu entry the notification affordance?).
+
+## DES-066: The Menubar App — One User-Facing Surface Consolidating Control Over `luxd-hub` and `luxd-display`
+
+**Status:** SETTLED (operator conversation 2026-08-14); implementation
+tracked as bead `lux-mxvy` and children (R2 = `lux-mxvy.2`, R3 =
+`lux-mxvy.3`, R5 = `lux-mxvy.5`, R6 = `lux-mxvy.6`)
+
+**Problem.** Lux's two-process design (`luxd` Hub + `lux-display`
+renderer) is honest engineering but leaks through the user interface: on
+macOS the display shows up in the Dock and Cmd-Tab as a separate app
+(the DES-023 follow-on reversed the hiding for debugging convenience);
+on Linux it appears in the taskbar. The user sees a "python3.13" or a
+"Lux" window they did not summon, cannot easily control the two
+processes together, and has no first-class surface for open/hide/quit or
+for diagnostics. DES-065 makes this worse rather than better: with the
+window hidden by default, the user has no way to reach it *at all* if
+the platform surface remains what it is today.
+
+**Decision.** A third program — a menubar app on both macOS and Linux —
+becomes the sole user-facing surface. Distribution is a Homebrew tap on
+both platforms (Linux Homebrew is less common but acceptable as a start,
+per the operator's ruling, with room to add native packaging later). The
+menubar app owns Open/Hide Window, Restart Hub, Restart Display, Quit,
+status indicator, launch-at-login, and a diagnostics catalog:
+introspection of Hub state (scenes, clients, menu entries), of Display
+state (recent events, errors), Screenshot, and a copy-to-clipboard
+diagnostic blob.
+
+The menubar app is another client of the Hub, not a fourth process
+type. It reaches luxd through the existing REST surface (DES-055) —
+same routes the CLI uses, plus a small handful of new operations for
+show/hide/notifications/screenshot. Process lifecycle (start/stop/restart
+luxd) shells to the existing `lux hub-*` CLI so there is one authority
+for launchd/systemd, not two. Applets (DES-063) remain in-window Clients
+menu entries on their own connections; the menubar app is a distinct
+species — it renders into the OS menu bar rather than into a Display
+window.
+
+With the menubar app in place, the DES-023 follow-on Dock reversal is
+itself reversed: `luxd-display` runs with `LSUIElement=1` unconditionally
+on macOS, and with `_NET_WM_STATE_SKIP_TASKBAR` and
+`_NET_WM_STATE_SKIP_PAGER` on Linux.
+The `setproctitle("Lux")` display rename is retired because the OS
+process name is now honest: the entry points become `luxd-hub` and
+`luxd-display`, self-documenting (the `d` suffix means "always
+running"), with no bridging binaries. No user ever sees these names, so
+the process names are free to be diagnostic-truthful.
+
+The menubar app is a hard dependency for end users on both platforms.
+Developers may opt out with `LUX_HEADLESS_DEV=1` (or a `--no-menubar`
+flag on `luxd-display`), which restores a visible Dock/taskbar
+activation policy so the developer can still reach the window without
+the menubar. `lux doctor` reports the mode.
+
+**Alternatives rejected.** *Add menubar behavior to `luxd-display`
+itself, no third program* — complicates the display's job (rendering)
+with activation-policy juggling and turns "one visible face" into "the
+same process wearing two faces," which is the current problem repainted.
+*Keep the display Dock-visible and rely on the menubar for
+consolidation* — leaves the two-process split leaking through the
+switcher, which is R2's whole point. *Menubar app optional, with a
+soft-fallback visible Dock icon when it is absent* — two activation-policy
+modes to maintain and a hidden fallback that confuses installation
+states; the explicit developer opt-out is honest about being a developer
+setting. *Menubar app talks launchd/systemd directly rather than through
+`lux hub-*`* — duplicates lifecycle logic the CLI already owns. *Bundle
+the applets' work into the menubar app* — a session-bound applet needs
+the session's repo shell (`PATH`, `.envrc`, cwd); a machine-global
+menubar app has none of that. Applets and menubar are separate species
+by construction (DES-063 still stands).
+
+**Impacts on other ADRs.** DES-023 follow-on (2026-05-21) — reversed;
+`pyobjc-framework-Cocoa` returns to the `[display]` extra (or is
+supplanted by an `Info.plist LSUIElement=1` if the display ships as a
+bundled `.app`). DES-055 (one-code-path) — confirmed and extended: the
+menubar app is another thin client over the same engine. DES-063 (Lux
+Applets) — boundary clarified: applets own in-window Clients menu
+entries; the menubar app owns OS-level menu bar entries; both are Hub
+clients, differentiated by the menu surface they render into.
+`system.tex` §Platform Integration — rewritten for both macOS and Linux
+(the `setproctitle` bullet is retired; the visible-Dock claim is
+retired). `target.md` event model — a third mechanism ("user-visible
+notifications") is added alongside UI event/observer mechanics and
+application pub-sub (see DES-065).
+
+**Precondition — resolved.** `lux-e6i4` (the applet identity collision
+in which two applets in one session collapsed onto one Hub connection
+because `AppletIdentity.for_session(session_pid)` omitted the program
+name) was fixed in punt-lux 0.24.0 (PR #345). `AppletIdentity.for_session`
+now takes the program name as its first argument; the vox mirror
+change (vox-iyny) rides that release. The applet identity model this
+ADR builds on is coherent from 0.24.0 forward.
