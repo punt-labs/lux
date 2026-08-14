@@ -31,8 +31,8 @@ if TYPE_CHECKING:
 
 __all__ = ["connection_for"]
 
-# The identity fields the connection id is derived from, joined on a NUL that no
-# field value contains, so distinct identities cannot collide by concatenation.
+# The identity fields the connection id is derived from, joined on a NUL;
+# ClientIdentity's own field validators keep every field NUL-free.
 _FIELDS = ("kind", "name", "repo", "agent")
 
 

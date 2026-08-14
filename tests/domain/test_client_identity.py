@@ -102,6 +102,25 @@ def test_blank_agent_is_rejected() -> None:
         ClientIdentity(kind="mcp-session", name="claude", repo="/w/lux", agent="")
 
 
+def test_a_nul_in_name_is_rejected() -> None:
+    """name is the field most exposed to caller-supplied content, e.g. via headers."""
+    with pytest.raises(ValidationError) as exc:
+        ClientIdentity(kind="app", name="foo\x00bar")
+    assert "NUL" in str(exc.value)
+
+
+def test_a_nul_in_repo_is_rejected() -> None:
+    with pytest.raises(ValidationError) as exc:
+        ClientIdentity(kind="cli", name="lux", repo="/tmp\x00/x")
+    assert "NUL" in str(exc.value)
+
+
+def test_a_nul_in_agent_is_rejected() -> None:
+    with pytest.raises(ValidationError) as exc:
+        ClientIdentity(kind="mcp-session", name="claude", agent="me\x00you")
+    assert "NUL" in str(exc.value)
+
+
 def test_unknown_field_is_rejected() -> None:
     with pytest.raises(ValidationError):
         ClientIdentity(kind="cli", name="lux", role="admin")  # type: ignore[call-arg]

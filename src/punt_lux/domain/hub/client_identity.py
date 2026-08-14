@@ -93,6 +93,26 @@ class ClientIdentity(BaseModel):
             raise ValueError(msg)
         return value
 
+    @field_validator("name", "repo", "agent")
+    @classmethod
+    def _reject_nul(cls, value: str | None) -> str | None:
+        """Reject a NUL in any field, wherever the declaration came from.
+
+        :func:`~punt_lux.connection_identity.connection_for` joins these fields
+        on a NUL to derive a connection id; a field that carries one breaks that
+        join's distinctness guarantee. ``name`` is the field most exposed to
+        this, since it can carry caller-supplied content such as an applet's
+        program, but the guarantee holds only if every source is caught here,
+        not just the ones an author remembered to check upstream.
+        """
+        if value is not None and "\x00" in value:
+            msg = (
+                "identity fields must not contain NUL (breaks the "
+                "connection_for concatenation invariant)"
+            )
+            raise ValueError(msg)
+        return value
+
     @property
     def menu_label(self) -> str:
         """The name a human calls this client where a menu has to name it.

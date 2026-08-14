@@ -6,12 +6,13 @@ must resolve to one Hub connection, so both declare this identity;
 :func:`~punt_lux.connection_identity.connection_for` derives the shared
 connection id from its fields.
 
-The name is what a user reads in the menu bar, so it says three things in one
-uniform shape — ``lux · <repository> · #<session>``: which tool the entries
-belong to, which repository this session works in, and which of possibly several
-sessions on that repository it is.
+The name is what a user reads in the menu bar, so it says four things in one
+uniform shape — ``lux · <repository> · #<session> · <program>``: which tool the
+entries belong to, which repository this session works in, which of possibly
+several sessions on that repository it is, and which program within that
+session declared it.
 
-The last part is not cosmetic. Two Claude Code sessions open on the same
+The session id is not cosmetic. Two Claude Code sessions open on the same
 repository are two separate services with separate menu entries, and identities
 that compared equal would collapse them onto one connection — the second
 session's WebSocket would silently take over the first's clicks. The session's
@@ -19,6 +20,20 @@ process id distinguishes them, and it is the *session's* rather than the applet'
 for the same reason the applet watches it: the entry belongs to the session. An
 applet restarted against a live session comes back as the same identity and takes
 its own entry over, which is what the succession rules are for.
+
+The program name is not cosmetic either, and for the sibling reason: one
+session can run more than one applet at once — ``lux-beads`` and a tool's own
+applet both alive under the same Claude Code process — and without a program
+token they derive the same identity from the same ``(repo, session_pid)`` pair.
+Whichever registered its callback later would silently clobber the earlier one's
+connection, the same collapse the session id already guards against one level
+up. The caller names its own program; there is no default, because a shared
+default would recreate the exact collision this field exists to prevent — which
+is why an empty or all-whitespace program is rejected, stripped before either
+check or embedding so leading or trailing whitespace never distinguishes two
+identities naming the same program. A NUL is rejected too, belt-and-suspenders:
+:class:`~punt_lux.domain.hub.client_identity.ClientIdentity` validates every
+field NUL-free independently, applet or not.
 
 The declared lease is short on purpose: a session's menu entry should leave the
 bar shortly after the session does. The Hub sweeps a session whose lease lapses,
@@ -60,13 +75,22 @@ class AppletIdentity:
         return self
 
     @classmethod
-    def for_session(cls, session_pid: int) -> Self:
-        """Derive this applet's identity from its session and its repository."""
+    def for_session(cls, program: str, session_pid: int) -> Self:
+        """Derive this applet's identity from its program, session, and repository."""
+        if not (program := program.strip()):
+            msg = (
+                "program must be a non-empty, non-whitespace label; an empty "
+                "program would recreate the collision this field exists to prevent"
+            )
+            raise ValueError(msg)
+        if "\x00" in program:
+            msg = "program must not contain a NUL character"
+            raise ValueError(msg)
         repo = RepoRoot.of(_HEADLESS_NAME)
         return cls(
             ClientIdentity(
                 kind="applet",
-                name=f"lux · {repo.name} · #{session_pid:x}",
+                name=f"lux · {repo.name} · #{session_pid:x} · {program}",
                 repo=repo.declared_path,
                 lease_ttl=_LEASE_TTL_SECONDS,
             )
