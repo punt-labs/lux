@@ -10,13 +10,11 @@ pin both separations and the short declared lease.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+
+import pytest
 
 from punt_lux.applets.identity import AppletIdentity
 from punt_lux.connection_identity import connection_for
-
-if TYPE_CHECKING:
-    import pytest
 
 # A path with no ``.git`` in its ancestry — the repo's TMPDIR is inside this git
 # repo, so the headless cases patch ``cwd`` rather than using a temp directory.
@@ -115,3 +113,22 @@ def test_headless_outside_a_repository(monkeypatch: pytest.MonkeyPatch) -> None:
     identity = AppletIdentity.for_session("lux-beads", 0x1F)
     assert identity.client.repo is None
     assert identity.client.name == "lux · lux-session · #1f · lux-beads"
+
+
+def test_empty_program_is_rejected() -> None:
+    """An empty program would recreate the collision the field exists to prevent."""
+    with pytest.raises(ValueError, match="non-empty"):
+        AppletIdentity.for_session("", 12345)
+
+
+@pytest.mark.parametrize("program", ["   ", "\t"])
+def test_whitespace_only_program_is_rejected(program: str) -> None:
+    """Whitespace strips to empty, so it is the same collision as an empty string."""
+    with pytest.raises(ValueError, match="non-empty"):
+        AppletIdentity.for_session(program, 12345)
+
+
+def test_nul_in_program_is_rejected() -> None:
+    """A NUL would break connection_for's field-joining invariant."""
+    with pytest.raises(ValueError, match="NUL"):
+        AppletIdentity.for_session("lux\x00beads", 12345)
