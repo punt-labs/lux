@@ -29,11 +29,11 @@ Whichever registered its callback later would silently clobber the earlier one's
 connection, the same collapse the session id already guards against one level
 up. The caller names its own program; there is no default, because a shared
 default would recreate the exact collision this field exists to prevent — which
-is why an empty or all-whitespace program is rejected rather than silently
-accepted as one. It is also rejected if it carries a NUL, the character
-:func:`~punt_lux.connection_identity.connection_for` joins fields on: this
-field is the one carrying caller-supplied content, so it is the one that must
-keep that character out.
+is why an empty or all-whitespace program is rejected, stripped before either
+check or embedding so leading or trailing whitespace never distinguishes two
+identities naming the same program. A NUL is rejected too, belt-and-suspenders:
+:class:`~punt_lux.domain.hub.client_identity.ClientIdentity` validates every
+field NUL-free independently, applet or not.
 
 The declared lease is short on purpose: a session's menu entry should leave the
 bar shortly after the session does. The Hub sweeps a session whose lease lapses,
@@ -77,7 +77,7 @@ class AppletIdentity:
     @classmethod
     def for_session(cls, program: str, session_pid: int) -> Self:
         """Derive this applet's identity from its program, session, and repository."""
-        if not program.strip():
+        if not (program := program.strip()):
             msg = (
                 "program must be a non-empty, non-whitespace label; an empty "
                 "program would recreate the collision this field exists to prevent"

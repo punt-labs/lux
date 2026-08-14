@@ -132,3 +132,17 @@ def test_nul_in_program_is_rejected() -> None:
     """A NUL would break connection_for's field-joining invariant."""
     with pytest.raises(ValueError, match="NUL"):
         AppletIdentity.for_session("lux\x00beads", 12345)
+
+
+def test_program_leading_trailing_whitespace_is_stripped(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Accidental whitespace around a program label must not fork its identity."""
+    monkeypatch.chdir(_make_repo(tmp_path, "lux"))
+    padded = AppletIdentity.for_session("  beads  ", 42)
+    bare = AppletIdentity.for_session("beads", 42)
+
+    assert padded.client.name == bare.client.name
+    assert connection_for(padded.client.model_dump()) == connection_for(
+        bare.client.model_dump()
+    )
