@@ -5534,7 +5534,8 @@ window.
 
 With the menubar app in place, the DES-023 follow-on Dock reversal is
 itself reversed: `luxd-display` runs with `LSUIElement=1` unconditionally
-on macOS, and with `_NET_WM_STATE_SKIP_TASKBAR`/`SKIP_PAGER` on Linux.
+on macOS, and with `_NET_WM_STATE_SKIP_TASKBAR` and
+`_NET_WM_STATE_SKIP_PAGER` on Linux.
 The `setproctitle("Lux")` display rename is retired because the OS
 process name is now honest: the entry points become `luxd-hub` and
 `luxd-display`, self-documenting (the `d` suffix means "always
