@@ -81,7 +81,7 @@ class BeadsApplet:
     @staticmethod
     def _leg_for(session_pid: int) -> AppletLeg:
         """The leg this applet serves on, identified to the Hub by its session."""
-        identity = AppletIdentity.for_session(session_pid)
+        identity = AppletIdentity.for_session(_PROGRAM, session_pid)
         return AppletLeg(identity.client, BeadsService.for_repo())
 
     async def run(self) -> None:
