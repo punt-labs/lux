@@ -17,6 +17,7 @@ and ``lux (2)``, when the user reads them as one session.
 
 from __future__ import annotations
 
+import logging
 from typing import Self, final
 
 from punt_lux.domain.hub import applet_name_format
@@ -24,6 +25,8 @@ from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.ids import ConnectionId
 
 __all__ = ["MenuGroupKey"]
+
+logger = logging.getLogger(__name__)
 
 # The discriminator tags: one bucket for grouped applet siblings, one for
 # every other kind (which always gets its own submenu).
@@ -48,14 +51,21 @@ class MenuGroupKey:
         """Return the submenu *connection_id* contributes to under *identity*.
 
         Applet connections in one session share a key; every other kind is
-        its own. The applet branch reads the session pid off the declared
-        name via :func:`applet_name_format.session_pid_of`, so the parser
-        and the constructor stay coupled to one format module.
+        its own. An applet whose name does not parse — construction bypassed
+        the ClientIdentity model validator, or a legacy wire payload — falls
+        back to per-connection grouping and logs a warning so the failure
+        surfaces in luxd's log instead of a silent misgrouping.
         """
         if identity.kind == "applet":
             pid = applet_name_format.session_pid_from_name(identity.name)
             if pid is not None:
                 return cls((_APPLET_TAG, identity.menu_label, format(pid, "x")))
+            logger.warning(
+                "applet identity %r has an unparseable name %r; "
+                "grouping falls back to per-connection",
+                connection_id,
+                identity.name,
+            )
         return cls((_CLIENT_TAG, str(connection_id)))
 
     def __eq__(self, other: object) -> bool:

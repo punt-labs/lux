@@ -8,10 +8,16 @@ identical labels across different kinds are not one submenu either.
 
 from __future__ import annotations
 
+import logging
+from typing import TYPE_CHECKING
+
 from punt_lux.domain.hub.applet_name_format import format_name
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.menu_group_key import MenuGroupKey
 from punt_lux.domain.ids import ConnectionId
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def _applet(pid: int, program: str, *, repo: str = "/w/lux") -> ClientIdentity:
@@ -84,4 +90,39 @@ class TestDes064StillFiresForDifferentSessions:
 
         assert MenuGroupKey.of(ConnectionId("a"), session_a) != MenuGroupKey.of(
             ConnectionId("b"), session_b
+        )
+
+
+class TestFallbackWarning:
+    """A malformed applet name that bypasses model validation surfaces in the log.
+
+    The ClientIdentity model validator rejects a malformed applet name at
+    construction, so in production this path only fires when a caller bypassed
+    pydantic (test fixture via ``model_construct``, a legacy wire payload
+    decoded outside the model). It falls back to per-connection grouping and
+    logs a warning so the failure shows up in luxd's log instead of a silent
+    misgrouping.
+    """
+
+    def test_a_malformed_applet_name_logs_a_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        malformed = ClientIdentity.model_construct(
+            kind="applet", name="not-four-parts", repo="/w/lux"
+        )
+        logger_name = "punt_lux.domain.hub.menu_group_key"
+        with caplog.at_level(logging.WARNING, logger=logger_name):
+            MenuGroupKey.of(ConnectionId("a"), malformed)
+
+        assert any(
+            "unparseable name" in record.message and record.levelno == logging.WARNING
+            for record in caplog.records
+        )
+
+    def test_a_malformed_applet_falls_back_to_per_connection_grouping(self) -> None:
+        malformed = ClientIdentity.model_construct(
+            kind="applet", name="not-four-parts", repo="/w/lux"
+        )
+        assert MenuGroupKey.of(ConnectionId("a"), malformed) != MenuGroupKey.of(
+            ConnectionId("b"), malformed
         )
