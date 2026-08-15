@@ -1,5 +1,18 @@
 # Hub Replicator: Test-Partition Coverage Audit
 
+**DES-068 note (2026-08-15).** `ClientRegistry` gained its own
+connect-success hook (`_connect_and_reconcile`, `domain/hub/clients.py`)
+that declares the Hub's manifest and marks the same `live_scene_ids()` (plus
+the menu) dirty on every fresh socket connect — the same content-refresh
+`SendRecovery._remark` (K2/K4/MN12 below) already performs for its own
+recovery path. The two are deliberately *not* merged: `SendRecovery` is
+written and tested against the protocol-generic `ClientProvider`/
+`DisplayLifecycle` ports (see `recovery.py`'s module docstring for the full
+reasoning), so its own re-mark stays exactly as this audit already covers
+it, and the overlap on paths that route through `ClientRegistry` is a
+harmless, idempotent double-mark reading the same source of truth. No
+invariant or partition below changed; this spec was not re-verified.
+
 Companion to `docs/hub_replicator.tex`. Derives the test partitions (Test
 Template Framework style) from the Z operation schemas, then maps them against
 the tests that cover them, exactly as `docs/display_lifecycle_coverage.md` maps

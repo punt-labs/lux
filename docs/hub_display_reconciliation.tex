@@ -1,0 +1,606 @@
+%
+% hub_display_reconciliation.tex
+%
+% A Z specification of the DES-068 reconciliation policy: single-owner
+% preemption of the Hub's declared identity on the Hub-Display socket leg,
+% and the manifest-driven purge that follows every fresh identify.
+%
+% Models the DECISION in
+% docs/architecture/hub-display-reconciliation-design.md, section "Decision:
+% manifest-on-identify with single-owner preemption", as implemented by
+% HubReconciliation (display/hub_reconciliation.py) and SceneReplica
+% .scenes_to_purge (display/replica/scene_replica.py).
+%
+% Type-check:  fuzz docs/hub_display_reconciliation.tex
+% Model-check (see the Verification section for the exact goal predicates):
+%   probcli docs/hub_display_reconciliation.tex -model_check \
+%       -p DEFAULT_SETSIZE 3
+%
+% Formatting follows the fuzz house rules: \quad~ for continuation indent,
+% schema lines under 80 columns, predicates broken at \land/\lor/\implies.
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{Hub/Display Scene Reconciliation: a Z Specification}
+\author{Formal model of DES-068's single-owner preemption and manifest purge}
+\date{August 2026}
+\maketitle
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+Killing and restarting \texttt{luxd} drops its in-memory scene store
+entirely; the Display was never told to forget anything, so it keeps
+rendering the dead process's scenes forever --- a click on one dispatches
+into an owner file descriptor that maps to nothing and silently does
+nothing.  DES-068 closes this with two mechanisms working together: a
+\texttt{kind="hub"} connection's identify forcibly evicts any predecessor
+declaring the same identity (\emph{single-owner preemption}), and every
+such connection sends a manifest of its complete live-scene set
+immediately after identifying, which the Display uses to purge every
+scene it cannot attribute to that manifest (\emph{manifest-driven purge}).
+
+The two mechanisms exist for the same reason: a manifest alone does not
+close the interleaving where a straggling \texttt{SceneMessage}, still
+buffered in the OS receive queue from the \emph{old}, about-to-be-superseded
+connection, is processed \emph{after} the new connection's manifest has
+already purged the scene it names --- silently re-materializing exactly the
+ghost the manifest just told the Display to forget.  Preemption closes
+that hole at the socket layer: \texttt{SocketListener.remove\_client}
+closes the predecessor's socket and drops it from the poll set, so
+\texttt{poll\_clients} can never again read a frame from it, and whatever
+bytes were still buffered on it are discarded by the OS.  That is a fact
+about which \emph{sockets are still open}, not about which connection is
+currently declared the Hub's identity --- the two are usually the same
+connection, but the whole hazard this design closes is the interleaving
+where they briefly are not.  This document therefore tracks both:
+\texttt{hubOwner}, the declared identity a manifest is trusted against, and
+\texttt{liveConns}, which sockets can still deliver a message at all.
+
+Four properties must hold across every interleaving:
+
+\begin{description}
+  \item[I1 --- no stale owner.] Every scene the Display holds is either
+    attributed to the live \texttt{hubOwner}, or is orphaned and still
+    named in the most recent manifest (legitimately awaiting reclaim, not
+    a ghost).
+  \item[I2 --- only-live-hub-installs.] A scene install is accepted only
+    from a connection whose socket is still open.  An install from a
+    connection preemption has already evicted is dropped, not applied ---
+    this is the ordering property single-owner preemption exists to close.
+  \item[I3 --- no two hub winners.] At every state, at most one connection
+    holds the Hub's declared identity.
+  \item[I4 --- deadlock freedom.] No interleaving traps the model in a
+    state where an old and new claimant are both partially processed.
+\end{description}
+
+% ============================================================
+\section{Basic Types}
+% ============================================================
+
+\begin{zed}
+  [CONNECTION\_ID, SCENE\_ID]
+\end{zed}
+
+\texttt{CONNECTION\_ID} is the set of Hub-Display socket connections the
+Display can hold open; three suffice to model the old Hub fd, the new Hub
+fd, and one unrelated \texttt{kind="direct"} connection that must be
+unaffected by preemption.  \texttt{SCENE\_ID} is the set of scenes the
+Display can hold; two suffice to exhibit a mixed frame where one scene
+survives a manifest and its sibling does not.  Both carriers are bounded
+by ProB's \texttt{DEFAULT\_SETSIZE}.
+
+% ============================================================
+\section{Free Types}
+% ============================================================
+
+\begin{zed}
+  OWNER ::= orphan | conn \ldata CONNECTION\_ID \rdata
+\end{zed}
+
+The attribution of one scene on the Display.  \texttt{orphan} is the
+sentinel \texttt{scene\_to\_owner} carries after its owning connection
+disconnects (\texttt{reassign\_scenes\_of}'s real behaviour: reassigned,
+never removed).  \texttt{conn(c)} is a scene currently attributed to a
+connection \texttt{c}, live or not --- \texttt{scene\_to\_owner} itself
+carries no liveness check, which is exactly the gap I2 exists to close one
+layer up, at the point a \emph{new} install is accepted.
+
+\begin{zed}
+  FLAG ::= set | clear
+\end{zed}
+
+A two-valued marker, used for \texttt{manifestDeclared} below.  A
+dedicated free type is used rather than a built-in boolean so the spec is
+self-contained for \texttt{fuzz}, matching \texttt{hub\_replicator.tex}'s
+own \texttt{FLAG}.
+
+% ============================================================
+\section{State}
+% ============================================================
+
+The state is flat: one schema.  Neither \texttt{hubOwner} nor
+\texttt{liveConns} carries a cardinality bound here --- ``at most one Hub
+owner'' is I3, and ``a preempted connection cannot still deliver'' is I2,
+the very properties single-owner preemption exists to establish.  Bounding
+either in the schema would enforce it as a guard on every successor,
+silently disabling any operation that could break it and masking the
+defect the fidelity variant (Section~\ref{sec:fidelity}) must be able to
+reach.
+
+\begin{schema}{Recon}
+  hubOwner : \power CONNECTION\_ID \\
+  liveConns : \power CONNECTION\_ID \\
+  sceneOwner : SCENE\_ID \pfun OWNER \\
+  manifested : \power SCENE\_ID \\
+  manifestDeclared : FLAG
+\end{schema}
+
+\texttt{hubOwner} is the connection currently declaring the Hub's
+identity --- empty or a single connection in every correct trace, and the
+set ProB may grow past one only if the model itself is broken (no
+operation below can grow it past one; I3's check confirms this holds).
+\texttt{liveConns} is which connections' sockets are still open enough to
+deliver a message --- the \texttt{SocketListener.\_clients} membership
+test \texttt{poll\_clients} runs before it ever reaches
+\texttt{\_handle\_message}.  \texttt{sceneOwner} is the Display's
+\texttt{scene\_to\_owner} map: a partial function whose domain is exactly
+the scenes currently on the Display, so purging a scene removes it from
+the domain outright, matching \texttt{dismiss\_framed\_scene} discarding
+the scene from its frame.  \texttt{manifested} is the most recent
+\texttt{HubManifestMessage}'s scene-id set, kept across identifies so the
+invariants can still see what the current \texttt{hubOwner} last declared.
+\texttt{manifestDeclared} scopes I1 the same way \texttt{hub\_replicator
+.tex}'s \texttt{Quiescent} scopes its I4: a freshly identified owner has
+not purged anything yet, and a connection dropping can mint a fresh orphan
+the last manifest never promised to cover, so either is a legitimate,
+transient ``awaiting reclaim'' window, not yet a ghost ---
+\texttt{HubIdentify} and \texttt{ConnectionDrop} clear the flag,
+\texttt{HubManifest} sets it, \texttt{SceneInstall} leaves it alone (an
+owned scene always satisfies I1's first disjunct once its installer is
+also the live \texttt{hubOwner}), and I1 is required only once the flag is
+set.
+
+% ============================================================
+\section{Initialization}
+% ============================================================
+
+\begin{schema}{Init}
+  Recon'
+\where
+  hubOwner' = \emptyset \\
+  liveConns' = \emptyset \\
+  sceneOwner' = \emptyset \\
+  manifested' = \emptyset \\
+  manifestDeclared' = clear
+\end{schema}
+
+A single initial state: no connection holds the Hub's identity or an open
+socket, the Display holds no scenes, and no manifest has ever been
+declared --- the cold-start condition before any \texttt{luxd} has ever
+connected.
+
+% ============================================================
+\section{Operations}
+% ============================================================
+
+\subsection{HubIdentify --- single-owner preemption}
+
+A connection \texttt{c?} declares \texttt{kind="hub"}.  Any connection
+previously in \texttt{hubOwner} is evicted from \emph{both}
+\texttt{hubOwner} and \texttt{liveConns} --- \texttt{SocketListener
+.remove\_client} closing the predecessor's socket and
+\texttt{RenderLoop.\_on\_client\_disconnected} reassigning its scenes in
+one call --- and every scene it owned is orphaned, never removed
+(\texttt{reassign\_scenes\_of}'s reassign-not-remove behaviour).  \texttt{c?}
+itself joins \texttt{liveConns} here too: the model treats ``connect'' and
+``identify'' as one atomic step, since no interleaving between a bare TCP
+accept and the \texttt{ConnectMessage} that follows it matters to this
+design.  \texttt{manifested} is untouched: a fresh identify carries no
+manifest of its own until the following \texttt{HubManifest} declares
+one, mirroring the wire order (\texttt{ConnectMessage} then
+\texttt{HubManifestMessage}, never combined).
+
+\begin{schema}{HubIdentify}
+  \Delta Recon \\
+  c? : CONNECTION\_ID
+\where
+  liveConns' = (liveConns \setminus hubOwner) \cup \{ c? \} \\
+  sceneOwner' = sceneOwner \oplus \\
+  \quad~ (\{ s : \dom sceneOwner | \\
+  \quad~ \quad~ (\exists cid : hubOwner @ sceneOwner~s = conn(cid)) \} \cross \{ orphan \}) \\
+  hubOwner' = \{ c? \} \\
+  manifested' = manifested \\
+  manifestDeclared' = clear
+\end{schema}
+
+\subsection{HubManifest --- the purge}
+
+Only the current \texttt{hubOwner} may declare a manifest.  The purge is
+domain restriction: every scene kept is either named in the new manifest
+or still owned by \texttt{c?} itself (rule item 4 of the design ---
+ownership self-corrects on the Hub's own next resend, so a scene the
+manifest names but \texttt{c?} does not yet own is left exactly as it
+was, orphan or otherwise).  Every other scene --- including an orphan the
+manifest does not reclaim --- leaves the domain outright.
+
+\begin{schema}{HubManifest}
+  \Delta Recon \\
+  c? : CONNECTION\_ID \\
+  m? : \power SCENE\_ID
+\where
+  c? \in hubOwner \\
+  manifested' = m? \\
+  sceneOwner' = \{ s : \dom sceneOwner | \\
+  \quad~ s \in m? \lor sceneOwner~s = conn(c?) \} \dres sceneOwner \\
+  hubOwner' = hubOwner \\
+  liveConns' = liveConns \\
+  manifestDeclared' = set
+\end{schema}
+
+\subsection{SceneInstall --- only from a live connection}
+
+A scene push is attributed to \texttt{c?} and accepted only when its
+socket is still open.  This guard \emph{is} I2: \texttt{HubIdentify}
+removes a preempted predecessor from \texttt{liveConns} in the same
+atomic step that installs the new owner, so a straggling install already
+buffered on the old socket can never fire again once that step has run
+--- exactly matching \texttt{remove\_client} closing the fd before
+\texttt{poll\_clients} could ever read another frame from it.  This
+guard is deliberately \emph{not} \texttt{c? \in hubOwner}: the real
+\texttt{\_handle\_scene} performs no ownership check at all, Hub-kind or
+otherwise --- any connection whose socket is still open may push a
+scene, matching \texttt{scene\_to\_owner} being keyed by raw fd with no
+kind distinction.
+
+\begin{schema}{SceneInstall}
+  \Delta Recon \\
+  c? : CONNECTION\_ID \\
+  s? : SCENE\_ID
+\where
+  c? \in liveConns \\
+  sceneOwner' = sceneOwner \oplus \{ s? \mapsto conn(c?) \} \\
+  hubOwner' = hubOwner \\
+  liveConns' = liveConns \\
+  manifested' = manifested \\
+  manifestDeclared' = manifestDeclared
+\end{schema}
+
+\subsection{ConnectionDrop --- ordinary disconnect}
+
+Models an unprompted disconnect: the old \texttt{luxd} process, or any
+other connection, dies on its own, closing its socket before any new
+connection ever identifies --- the ordinary case of a restart, where by
+the time anyone reconnects the old connection is already gone and
+\texttt{HubIdentify}'s own eviction step (Section~\ref{sec:fidelity}
+traces the case where a competing identify races it instead) has nothing
+left to preempt.  \texttt{c?} leaves both \texttt{hubOwner} (if it was
+there) and \texttt{liveConns}, and every scene it owned is orphaned,
+never removed --- the same reassign-not-remove rule
+\texttt{HubIdentify}'s preemption step uses.
+
+\begin{schema}{ConnectionDrop}
+  \Delta Recon \\
+  c? : CONNECTION\_ID
+\where
+  hubOwner' = hubOwner \setminus \{ c? \} \\
+  liveConns' = liveConns \setminus \{ c? \} \\
+  sceneOwner' = sceneOwner \oplus \\
+  \quad~ (\{ s : \dom sceneOwner | sceneOwner~s = conn(c?) \} \cross \{ orphan \}) \\
+  manifested' = manifested \\
+  manifestDeclared' = clear
+\end{schema}
+
+% ============================================================
+\section{Invariants}
+\label{sec:inv}
+% ============================================================
+
+Four properties must hold across all reachable states.  None is placed in
+the \texttt{Recon} schema: a predicate placed there would be enforced as a
+guard on every successor, silently disabling any operation that would
+break it and thereby masking the very defect this model exists to catch.
+
+\paragraph{Invariant 1 --- no stale owner.}
+Once the current owner has declared a manifest, and nothing has happened
+since to invalidate that declaration, every scene the Display holds is
+either owned by the live \texttt{hubOwner}, or is orphaned and still named
+in that manifest:
+\[
+  manifestDeclared = set \implies \\
+  \quad~ \forall s : \dom sceneOwner @ \\
+  \quad~ \quad~ (\exists cid : hubOwner @ sceneOwner~s = conn(cid)) \\
+  \quad~ \quad~ \lor (sceneOwner~s = orphan \land s \in manifested).
+\]
+\texttt{HubManifest}'s domain restriction is exactly this predicate's
+positive case, applied at every manifest: a scene surviving the purge is
+either owned by \texttt{c?} (the first disjunct, since
+\texttt{c? \in hubOwner} at that point) or named in \texttt{m?} (the
+second, once \texttt{manifested' = m?}) --- and \texttt{HubManifest} is the
+only operation that sets \texttt{manifestDeclared}.  Unlike a model whose
+\texttt{SceneInstall} is gated on \texttt{hubOwner} membership, gating it
+on \texttt{liveConns} instead means a genuinely stale install --- one from
+a connection \texttt{HubIdentify} has already evicted from
+\texttt{liveConns} but that a buggy variant left in \texttt{hubOwner} or
+never evicted at all --- surfaces exactly here: its scene is owned by a
+connection outside the live \texttt{hubOwner} and is not an orphan, so
+neither disjunct holds.  \texttt{HubIdentify} and \texttt{ConnectionDrop}
+are the only operations that can introduce an orphan the standing
+manifest never promised to cover, and both clear \texttt{manifestDeclared}
+when they run, so the guard is never true at a state their own action
+just destabilized.
+
+\paragraph{Invariant 2 --- only-live-hub-installs.}
+Stated directly as \texttt{SceneInstall}'s guard: no successor state can
+be reached by installing a scene under a connection whose socket has
+already been closed.  \texttt{HubIdentify}'s preemption step is the only
+place a connection's socket closes as a \emph{side effect} of another
+connection's action (\texttt{ConnectionDrop} closes only its own
+argument's socket), and it does so atomically with recording the new
+\texttt{hubOwner} --- there is no intermediate state in which the old
+connection is preempted from \texttt{hubOwner} but still live in
+\texttt{liveConns}, or the reverse.  A direct reachability check on
+``\texttt{sceneOwner} names a connection outside \texttt{liveConns}'' is
+structurally tautological in \emph{both} the correct spec and the buggy
+variant of Section~\ref{sec:fidelity}: \texttt{ConnectionDrop} orphans
+exactly the scenes it drops liveness for, in the same atomic step, so
+\texttt{sceneOwner}'s range can never point at a departed connection in
+either model --- that relationship was never what the bug breaks.  What
+I2's guard actually protects against, and what does distinguish the two
+models, is a stale \emph{install still landing} once its source was
+supposed to have been evicted; that failure surfaces as an I1 violation
+(a scene owned by a connection \texttt{hubOwner} no longer recognizes,
+and not an orphan either), which is why the fidelity section verifies I2
+through I1's own check rather than a separate one.
+
+\paragraph{Invariant 3 --- no two hub winners.}
+\[
+  \# hubOwner \leq 1.
+\]
+\texttt{HubIdentify} always sets \texttt{hubOwner'} to the singleton
+\texttt{\{c?\}}, replacing whatever was there rather than adding to it; no
+other operation adds to \texttt{hubOwner}.  So \texttt{hubOwner} can never
+hold more than the most recent identify's connection.
+
+\paragraph{Invariant 4 --- deadlock freedom.}
+Every operation is enabled for some argument in every reachable state:
+\texttt{HubIdentify} and \texttt{ConnectionDrop} carry no precondition
+beyond their connection argument's type, so at least one is always
+enabled.  No interleaving can trap the model partway through processing a
+preemption --- eviction from \texttt{hubOwner} and \texttt{liveConns} and
+the new owner's registration happen in the same atomic
+\texttt{HubIdentify} step, so there is no intermediate state in which an
+old and new claimant are both live.
+
+% ============================================================
+\section{Verification}
+\label{sec:verify}
+% ============================================================
+
+Type-checking is a \texttt{fuzz} pass:
+\begin{verbatim}
+  fuzz docs/hub_display_reconciliation.tex
+\end{verbatim}
+
+I1, I2, and I3 are state properties, checked by asking ProB whether their
+negation is \emph{reachable}.  A goal reported \emph{not found} means the
+invariant holds on every reachable state.  All three were run and returned
+\emph{goal not found} against \texttt{DEFAULT\_SETSIZE 3}:
+\begin{verbatim}
+  # Invariant 1 (goal NOT found)
+  probcli docs/hub_display_reconciliation.tex -model_check -nodead \
+    -goal "manifestDeclared = set &
+           (card({s | s : SCENE_ID & s : dom(sceneOwner) &
+                 not(sceneOwner(s) = orphan) &
+                 not(card(hubOwner /\ {c | c : CONNECTION_ID &
+                       sceneOwner(s) = conn(c)}) > 0) }) > 0
+           or
+           card({s | s : SCENE_ID & s : dom(sceneOwner) &
+                 sceneOwner(s) = orphan & not(s : manifested)}) > 0)" \
+    -p DEFAULT_SETSIZE 3
+
+  # Invariant 2's own direct check (goal NOT found -- see the note under
+  # Invariant 2 in Section 6: this is structurally tautological in both
+  # models, since ConnectionDrop orphans exactly what it drops liveness
+  # for; it is run here as a sanity check on the algebra, not as the
+  # falsifiable test -- Invariant 1's check above is what actually
+  # distinguishes a correct HubIdentify from the fidelity variant)
+  probcli docs/hub_display_reconciliation.tex -model_check -nodead \
+    -goal "card({s | s : SCENE_ID & s : dom(sceneOwner) &
+                 card({c | c : CONNECTION_ID & sceneOwner(s) = conn(c) &
+                       not(c : liveConns)}) > 0}) > 0" \
+    -p DEFAULT_SETSIZE 3
+
+  # Invariant 3 (goal NOT found)
+  probcli docs/hub_display_reconciliation.tex -model_check -nodead \
+    -goal "card(hubOwner) > 1" \
+    -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+I4 is the full-state-space deadlock check.  Every state has at least one
+enabled operation (Section~\ref{sec:inv}), so any deadlock reported would
+be a genuine defect in the model, not a deliberate terminal state.  Run
+against \texttt{DEFAULT\_SETSIZE 3}, ProB visits every reachable state and
+reports no deadlock:
+\begin{verbatim}
+  # Invariant 4 / deadlock freedom (no deadlock, all states visited)
+  probcli docs/hub_display_reconciliation.tex -model_check \
+    -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+The reachable-behaviour witnesses --- preemption actually orphaning a
+predecessor's scenes, a manifest actually changing which scenes the
+Display holds, and an orphan actually surviving a manifest that still
+names it --- must each be \emph{found}, or the invariants above would
+hold only because the mechanism they protect is unreachable.  All three
+were run and returned \emph{goal found}:
+\begin{verbatim}
+  # Preemption orphans a predecessor's scene (goal FOUND)
+  probcli docs/hub_display_reconciliation.tex -model_check -nodead \
+    -goal "card(hubOwner) = 1 &
+           card({s | s : SCENE_ID & s : dom(sceneOwner) &
+                 sceneOwner(s) = orphan & not(s : manifested)}) = 0 &
+           card({s | s : SCENE_ID & s : dom(sceneOwner) &
+                 sceneOwner(s) = orphan}) > 0 &
+           manifestDeclared = clear" \
+    -p DEFAULT_SETSIZE 3
+
+  # A manifest establishes a single orphaned, still-manifested survivor
+  probcli docs/hub_display_reconciliation.tex -model_check -nodead \
+    -goal "card(dom(sceneOwner)) = 1 &
+           card({s | s : SCENE_ID & s : dom(sceneOwner) &
+                 sceneOwner(s) = orphan}) = 1 &
+           manifestDeclared = set & card(manifested) = 1" \
+    -p DEFAULT_SETSIZE 3
+
+  # An orphan survives because the manifest still names it
+  probcli docs/hub_display_reconciliation.tex -model_check -nodead \
+    -goal "card({s | s : SCENE_ID & s : dom(sceneOwner) &
+                 sceneOwner(s) = orphan & s : manifested}) > 0" \
+    -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+% ============================================================
+\section{Fidelity: reproducing the shipped defect}
+\label{sec:fidelity}
+% ============================================================
+
+A model that cannot reproduce the known defect proves nothing.  The buggy
+variant, kept as
+\texttt{docs/hub\_display\_reconciliation\_no\_preemption\_buggy.tex},
+removes only the socket-eviction half of preemption from
+\texttt{HubIdentify}: \texttt{hubOwner} still correctly replaces (so I3
+stays intact --- this variant isolates I1/I2 from I3, rather than
+reproducing all three failures at once), but the predecessor's socket is
+never closed and its scenes are never orphaned:
+
+\begin{verbatim}
+  % correct (HubIdentify in hub_display_reconciliation.tex):
+  liveConns' = (liveConns \ hubOwner) \cup {c?}
+  sceneOwner' = sceneOwner \oplus (staleScenes \cross {orphan})
+
+  % buggy (this variant):
+  liveConns' = liveConns \cup {c?}   % old socket never closes
+  sceneOwner' = sceneOwner           % no orphaning at all
+\end{verbatim}
+
+This is precisely the interleaving hazard Ground~1 of the design's z-spec
+section names: the old connection's socket --- and hence its ability to
+still deliver a buffered message --- outlives the identify that was
+supposed to have superseded it.
+
+\paragraph{The trace.}
+\begin{enumerate}
+  \item \texttt{HubIdentify}(old): \texttt{liveConns = \{old\}},
+    \texttt{hubOwner = \{old\}}.
+  \item \texttt{SceneInstall}(old, s1): guarded on \texttt{old \in
+    liveConns}, which holds --- \texttt{sceneOwner(s1) = conn(old)}.
+  \item \texttt{HubIdentify}(new) --- buggy: \texttt{hubOwner = \{new\}}
+    (still correctly replaced), but \texttt{liveConns = \{old, new\}} ---
+    \texttt{old} is never evicted --- and \texttt{s1} is left untouched
+    (no orphaning ran).
+  \item \texttt{HubManifest}(new, \{\}) --- \texttt{new} declares nothing
+    live.  Correctly guarded (\texttt{new \in hubOwner}), so it fires.
+    The purge keeps \texttt{s1} only if \texttt{sceneOwner(s1) =
+    conn(new)}, which it is not, and \texttt{s1} is not in the empty
+    manifest --- so \texttt{s1} is purged.  \texttt{sceneOwner}'s domain
+    no longer contains \texttt{s1}.  \texttt{manifestDeclared = set}.
+  \item \texttt{SceneInstall}(old, s1) --- the straggler, buffered from
+    before step 4, is processed now.  Its guard is \texttt{old \in
+    liveConns}: under the buggy variant \texttt{old} is still there, so
+    the guard does not disable it --- \texttt{sceneOwner(s1) = conn(old)}
+    once more.  The ghost the manifest just purged is back.
+\end{enumerate}
+
+At the end of this trace, \texttt{hubOwner = \{new\}},
+\texttt{manifestDeclared = set}, and \texttt{sceneOwner(s1) = conn(old)}:
+neither owned by the live \texttt{hubOwner} (\texttt{old \neq new}) nor an
+orphan, so I1's negation is satisfied.  Step 5 is also the I2 violation
+directly --- an install accepted from a connection a correct preemption
+would already have evicted --- but I2's own direct reachability check
+(``\texttt{sceneOwner} names a connection outside \texttt{liveConns}'')
+does \emph{not} distinguish the two models (Section~\ref{sec:inv}'s note
+on Invariant~2): \texttt{old} is still in \texttt{liveConns} in the buggy
+variant precisely \emph{because} it was never evicted, so that check
+finds nothing to report in either spec.  I1's check is what carries the
+falsifiable teeth for this defect; running it is how both invariants are
+verified against this variant:
+\begin{verbatim}
+  # must be NOT found for the correct spec, FOUND for the buggy variant
+  probcli <spec>.tex -model_check -nodead \
+    -goal "manifestDeclared = set &
+           (card({s | s : SCENE_ID & s : dom(sceneOwner) &
+                 not(sceneOwner(s) = orphan) &
+                 not(card(hubOwner /\ {c | c : CONNECTION_ID &
+                       sceneOwner(s) = conn(c)}) > 0) }) > 0
+           or
+           card({s | s : SCENE_ID & s : dom(sceneOwner) &
+                 sceneOwner(s) = orphan & not(s : manifested)}) > 0)" \
+    -p DEFAULT_SETSIZE 3
+\end{verbatim}
+With single-owner preemption intact, step 3 evicts \texttt{old} from
+\texttt{liveConns} in the same step it replaces \texttt{hubOwner}; by step
+5 \texttt{old} can never fire \texttt{SceneInstall} again (I2's own
+guard), so the straggler cannot land, and I1's goal returns \emph{not
+found} against the correct spec.  Against the buggy variant it returns
+\emph{found} --- the trace above.  That difference is the evidence that
+the model detects exactly the bug single-owner preemption exists to
+close: not merely that two connections can never both claim the identity
+(I3, which this variant leaves untouched, isolating the finding), but
+that a preempted connection's straggling message can silently
+re-materialize a ghost the manifest just told the Display to forget.
+
+% ============================================================
+\section{Test Partitions}
+\label{sec:partitions}
+% ============================================================
+
+Derived from the operations and invariants above, audited against
+\texttt{tests/display/test\_hub\_reconciliation.py},
+\texttt{tests/display/test\_render\_loop.py},
+\texttt{tests/display/replica/test\_scene\_replica.py}, and
+\texttt{tests/integration/test\_hub\_display\_reconciliation.py}:
+
+\begin{description}
+  \item[P1 --- preemption evicts a live predecessor.] A second
+    \texttt{kind="hub"} identify forcibly disconnects the first before
+    recording itself.  Covered:
+    \texttt{test\_a\_second\_hub\_identify\_forcibly\_disconnects\_the\_first}.
+  \item[P2 --- preemption is a no-op with no predecessor.] The ordinary
+    restart case --- the old connection's socket is already gone.
+    Covered: \texttt{test\_a\_hub\_identify\_with\_no\_predecessor\_preempts\_nothing}.
+  \item[P3 --- a \texttt{kind="direct"} identify never preempts.] Covered:
+    \texttt{test\_a\_direct\_identify\_never\_preempts\_or\_marks\_hub},
+    \texttt{test\_a\_different\_named\_hub\_identify\_is\_not\_preempted}.
+  \item[P4 --- a scene outside the manifest and not fd-owned is purged.]
+    Covered: \texttt{test\_a\_scene\_outside\_the\_manifest\_is\_purged},
+    \texttt{TestScenesToPurge.test\_a\_scene\_outside\_the\_manifest\_and\_owner\_is\_a\_candidate}.
+  \item[P5 --- a manifested scene survives.] Covered:
+    \texttt{test\_a\_scene\_in\_the\_manifest\_survives}.
+  \item[P6 --- an fd-owned scene survives regardless of the manifest.]
+    Covered: \texttt{test\_a\_scene\_owned\_by\_the\_identifying\_fd\_survives}.
+  \item[P7 --- a mixed frame loses only its ghost scene, per scene not
+    per frame.] Covered:
+    \texttt{test\_a\_mixed\_frame\_only\_loses\_its\_ghost\_scene},
+    \texttt{TestScenesToPurge.test\_a\_mixed\_frame\_loses\_only\_its\_ghost\_scene}.
+  \item[P8 --- an orphan is swept by the same rule as any other ghost, no
+    special case.] Covered:
+    \texttt{TestScenesToPurge.test\_an\_orphaned\_scene\_is\_swept\_by\_the\_same\_rule}.
+  \item[P9 --- a purge closes an emptied frame, silently.] Covered:
+    \texttt{test\_a\_manifest\_driven\_purge\_sends\_no\_frame\_close\_event}.
+  \item[P10 --- a user-initiated close still notifies (regression guard).]
+    Covered: \texttt{test\_a\_user\_initiated\_close\_still\_notifies\_the\_owner}.
+  \item[P11 --- end-to-end restart: a second Hub-identified client with an
+    empty manifest purges the first connection's scene over the real
+    socket.] Covered:
+    \texttt{tests/integration/test\_hub\_display\_reconciliation.py}.
+\end{description}
+
+\end{document}
