@@ -417,8 +417,9 @@ rejected precisely because they sound like a supported connection
 mode — they aren't.
 
 **Every `"test"` connect logs to the display log at WARNING**, with
-the peer's pid where available (`SO_PEERCRED` on Linux; `getpeereid`
-on macOS/BSD; unavailable on other platforms). The message is a
+the peer's pid where available (via the repo's existing
+`socket_owner` helper — `LOCAL_PEERPID` on macOS, `SO_PEERCRED` on
+Linux; unavailable on other platforms). The message is a
 single line naming the fd, the pid, and the `ConnectMessage.name`:
 `"test-kind connect: fd=N pid=P name=… — read-only path; not a
 supported production mode"`. Making it WARNING rather than DEBUG or
