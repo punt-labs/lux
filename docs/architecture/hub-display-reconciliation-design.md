@@ -1,10 +1,9 @@
 # Hub/Display Scene Reconciliation on Identify
 
-**Status:** proposed — awaiting operator ratification (this document is the
-design half of `lux-e9vy`; implementation is a separate, later mission).
-**Proposed ADR number:** DES-068 (next after DES-067).
-**Author:** gvr, design mission `m-2026-08-15-004`.
-**Evaluator:** rmh.
+- **Status:** proposed for DES-068; the three ratification-required decisions listed at the end received operator ruling on 2026-08-15 (all three recommendations accepted). Implementation is a separate, later mission tracked under `lux-e9vy`.
+- **Proposed ADR number:** DES-068 (next after DES-067).
+- **Author:** gvr, design mission `m-2026-08-15-004`.
+- **Evaluator:** rmh.
 
 ## Abstract
 
@@ -27,10 +26,12 @@ scenes.
 ## The invariant
 
 > After a connection carrying the Hub's declared identity completes a
-> connect, the Display's set of live scenes is a subset of the scene ids
-> that connection's most recent manifest named, for every id the Display
-> attributes to a Hub-kind connection — no scene attributed to a Hub-kind
-> connection survives past a manifest that does not name it.
+> connect and its manifest has been processed, every scene the Display
+> still holds is either (a) named in that manifest or (b) owned by the
+> identifying fd itself. No other scene survives — including scenes the
+> Display cannot attribute to any live connection (orphans, reassigned to
+> `_ORPHAN_FD` by `reassign_scenes_of` after their prior owner
+> disconnected), because those are exactly the ghosts this design closes.
 
 This refines the bead's target ("the Display's set of scenes converges to
 the Hub's authoritative set after a Hub client identifies") in one way worth
@@ -164,19 +165,25 @@ This reframes the three candidates from the mission's success criteria:
    a cold or post-restart connect, the full live set on an ordinary
    reconnect where the Hub process itself never died.
 
-3. **On receipt of a manifest, the Display purges every frame whose scenes
-   are entirely (a) not owned by the identifying connection's own fd, and
-   (b) not named in the manifest.** A frame with at least one scene the
-   manifest *does* name, or at least one scene already owned by the
-   identifying fd, is left alone. Purging reuses the existing
+3. **On receipt of a manifest, the Display purges every scene not owned
+   by the identifying fd AND not named in the manifest — one scene at a
+   time, not one frame at a time.** A mixed frame (some scenes manifested
+   or fd-owned, some not) keeps its qualifying scenes and loses only the
+   ghosts; a frame emptied by this pass is closed by the same code path
+   that already closes an emptied frame today. Per-scene removal uses
+   `SceneReplica.dismiss_framed_scene` (already the shape for
+   "one-scene-goes-away, frame may or may not survive"); the frame-level
    `_close_frame(frame_id, notify=False)` path
-   (`render_loop.py:1027`) — the `notify=False` branch already documents
-   exactly this use ("disconnect cleanup where the departing client's fd
-   is already removed and surviving clients should not be notified") but
-   has no caller today; this wires up its first real one. `close_frame`
-   already drains stale element ids through `_notify_stale` →
-   `_drain_stale_events`, so queued interactions for purged elements are
-   dropped rather than retried forever, with no new plumbing needed.
+   (`render_loop.py:1027`) is used only when the pass empties a frame,
+   and its `notify=False` branch — documented for exactly this shape
+   ("disconnect cleanup where the departing client's fd is already
+   removed and surviving clients should not be notified") but with no
+   caller today — gets its first real caller here. Widget state discards
+   for each purged scene as a side effect of `dismiss_framed_scene`
+   (which already calls `self._widget_state.discard(scene_id)` per the
+   existing per-scene close path); queued interactions for purged
+   elements are dropped through the same `_notify_stale` →
+   `_drain_stale_events` fan-out, no new plumbing.
 
 4. **A scene the manifest names but does not yet own on the Display is left
    as-is, still attributed to whatever fd (possibly an orphan) it had.**
@@ -293,8 +300,10 @@ class HubManifestMessage:
 
     Sent by a kind="hub" connection immediately after ConnectMessage and
     before any SceneMessage. Empty on a fresh Hub-process restart; the full
-    live set on an ordinary reconnect. The Display purges every scene it
-    attributes to a Hub-kind connection that this manifest does not name.
+    live set on an ordinary reconnect. On receipt, the Display purges every
+    scene not named here AND not owned by the identifying fd — orphaned
+    scenes from a prior Hub die (owner reassigned to _ORPHAN_FD) are
+    swept by the same rule.
     """
     scene_ids: tuple[str, ...]
     type: Literal["hub_manifest"] = "hub_manifest"
@@ -310,13 +319,16 @@ to reason about scene-id lists it does not care about.
 **3. `SceneReplica` (`display/replica/scene_replica.py`) gains one new
 read-only query**, in the same style as its existing `resolve_scene`,
 `frame_of_scene`: given the identifying fd and the manifest's scene-id
-set, return the frame ids that qualify for purge (every scene in the frame
-fails both "owned by this fd" and "named in the manifest"). It performs no
-writes itself — the caller (`RenderLoop`) drives the actual `_close_frame`
-loop, exactly mirroring the existing `_clear_all` shape
-(`render_loop.py:483`: `for fid in list(self._scenes.frames):
-self._close_frame(fid)`), just over the filtered id list instead of every
-frame.
+set, return every `(frame_id, scene_id)` pair that qualifies for purge —
+a scene qualifies when it is neither owned by the identifying fd nor
+named in the manifest. The query performs no writes; the caller
+(`RenderLoop`) drives the removal loop through
+`SceneReplica.dismiss_framed_scene(frame_id, scene_id)` for each pair,
+and `_close_frame(frame_id, notify=False)` fires (already the existing
+behavior of the per-scene close path) exactly when a frame runs out of
+scenes. Per-scene granularity means a mixed frame (some scenes ghosts,
+some scenes legitimately manifested or fd-owned) loses only its ghosts,
+not the whole frame.
 
 **4. `SocketListener` (`display/socket_server.py`) needs to track
 `(kind, name)` per fd, not just `name`.** `register_client_name` becomes
@@ -525,10 +537,18 @@ existing `hub_replicator.tex` / `hub_replicator_coverage.md` pair):**
   - **I1 (no-stale-owner):** every entry in `sceneOwner` is either owned by
     the live `hubOwner`, or is `ORPHAN` and present in the most recent
     `manifested` set (i.e., legitimately awaiting reclaim, not a ghost).
-  - **I2 (purge-precedes-install):** in every trace, a `SceneInstall`
-    attributed to connection `c` never appears for a scene the most recent
-    `HubManifest` from `c` did not name and `c` did not already own — i.e.,
-    no interleaving lets a stale `SceneInstall` slip in as if it were fresh.
+  - **I2 (only-live-hub-installs):** in every trace, a `SceneInstall` is
+    accepted only when its source connection is the current `hubOwner`. A
+    `SceneInstall` attributed to a preempted connection — one whose
+    `HubIdentify` has since been superseded — is dropped, not applied. This
+    is the ordering property single-owner preemption exists to close: a
+    straggling `SceneInstall` still buffered from an old Hub connection
+    cannot re-materialize a scene the new Hub's manifest just purged,
+    because by the time it would be processed, its source is no longer the
+    `hubOwner`. Normal post-restart traffic — a `show()` from the *current*
+    `hubOwner` for a scene not in that Hub's original manifest — is
+    accepted; the invariant scopes to the source connection's live-Hub
+    status, not to the manifest's contents.
   - **I3 (no-two-hub-winners):** at every state, `hubOwner` is undefined or
     a single connection id — never two.
   - **I4 (deadlock-freedom):** `HubIdentify` always eventually reaches a
@@ -538,9 +558,10 @@ existing `hub_replicator.tex` / `hub_replicator_coverage.md` pair):**
 - **Fidelity control (mandatory):** the same model with the single-owner
   preemption step in `HubIdentify` removed (i.e., a second `HubIdentify`
   can coexist with the first) must exhibit a trace that violates I1 or I2
-  — reproducing the exact shipped bug, a stale `sceneOwner` entry
-  surviving a manifest that did not name it. With preemption in place,
-  ProB must find no such trace. This mirrors exactly how
+  — either a stale `sceneOwner` entry surviving a manifest that did not
+  name it (I1), or a `SceneInstall` from an old, superseded connection
+  landing after the new manifest processed (I2). With preemption in
+  place, ProB must find no such trace. This mirrors exactly how
   `display_lifecycle.tex` validates itself against the singleton-bind race
   it protects.
 - **Test partitions:** derived from the spec via `/z-spec:partition` once
@@ -684,10 +705,12 @@ existing DES-NNN format.
 > **Decision.** Every connection identifying as the Hub (`ConnectMessage
 > .kind="hub"`) sends a `HubManifestMessage` naming every scene id its
 > `HubDisplay` currently holds, immediately after identifying and before any
-> scene content. The Display purges every scene it attributes to a Hub-kind
-> connection that the manifest does not name and that connection does not
-> already own; everything the manifest names is left untouched, pending the
-> Hub's own repaint. At most one connection may hold a given Hub identity
+> scene content. On receipt, the Display purges every scene not named in the
+> manifest AND not owned by the identifying fd — orphaned scenes (owner
+> reassigned to `_ORPHAN_FD` after a prior Hub died) are swept by the same
+> rule; scenes the manifest names or the identifying fd owns are left
+> untouched, pending the Hub's own repaint. At most one connection may hold
+> a given Hub identity
 > live at a time — a new identify forcibly disconnects any predecessor,
 > closing the interleaving where a straggling message from the old
 > connection could re-materialize a scene the manifest just purged.
@@ -705,6 +728,14 @@ existing DES-NNN format.
 ---
 
 ## Decisions requiring operator ratification
+
+**Ratification note (2026-08-15):** the operator ruled on all three
+decisions below this session; each recommendation was accepted. The
+alternatives are preserved for design provenance. When the sections
+above (notably the z-spec section, which frames its requirement as a
+"Decision") speak of a settled outcome, they now describe the ratified
+position; the framing below is preserved as the record of the
+recommendation-and-ruling exchange, not a still-open question.
 
 Everything above is a decision I am making and defending — the mission
 asked for the design a specialist would stand behind, not a menu. The three
