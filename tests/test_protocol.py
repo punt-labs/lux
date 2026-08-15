@@ -1507,6 +1507,7 @@ class TestMessageRegistry:
             "callback_menu",
             "theme",
             "connect",
+            "hub_manifest",
             "query_request",
             "query_response",
             "ready",

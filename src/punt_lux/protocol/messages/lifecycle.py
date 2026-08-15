@@ -1,15 +1,18 @@
-"""Connection-lifecycle messages — ready, connect, ack, ping/pong, unknown."""
+"""Connection-lifecycle messages — ready, connect, hub manifest, ack, ping/pong."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal, Self
+
+from punt_lux.protocol.messages.unknown_message import UnknownMessage
 
 __all__ = [
     "PROTOCOL_VERSION",
     "AckMessage",
     "ConnectMessage",
+    "HubManifestMessage",
     "PingMessage",
     "PongMessage",
     "ReadyMessage",
@@ -20,13 +23,30 @@ __all__ = [
 
 PROTOCOL_VERSION = "0.1"
 
+_Register = Callable[
+    [str, type, Callable[..., dict[str, Any]], Callable[[dict[str, Any]], Any]],
+    None,
+]
+
 
 @dataclass(frozen=True, slots=True)
 class PingMessage:
     """Heartbeat / latency probe."""
 
     type: Literal["ping"] = "ping"
-    ts: float | None = None
+    ts: float | None = None  # absent when the sender omits a timestamp
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to the wire dict, omitting an absent timestamp."""
+        d: dict[str, Any] = {"type": self.type}
+        if self.ts is not None:
+            d["ts"] = self.ts
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> Self:
+        """Rebuild from a wire dict."""
+        return cls(ts=d.get("ts"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,10 +56,70 @@ class ConnectMessage:
     Sent after receiving ``ReadyMessage``.  The *name* field is used for
     display attribution (e.g. frame titles, menu namespaces).  Sending
     again updates the name (idempotent).
+
+    ``kind`` distinguishes the Hub's own declared identity (``"hub"``) from
+    every other identify (``"direct"`` — CLI probes, tests, and any future
+    non-Hub caller).  A ``kind="hub"`` identify triggers single-owner
+    preemption and expects a ``HubManifestMessage`` immediately after, so the
+    default of ``"direct"`` preserves every existing caller's behavior
+    exactly (DES-068).
     """
 
     name: str
     type: Literal["connect"] = "connect"
+    kind: Literal["hub", "direct"] = "direct"
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to the wire dict."""
+        return {"type": self.type, "name": self.name, "kind": self.kind}
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> Self:
+        """Rebuild from a wire dict; raise on a missing/blank name or bad kind."""
+        return cls(name=cls._require_name(d), kind=cls._require_kind(d))
+
+    @staticmethod
+    def _require_name(d: dict[str, Any]) -> str:
+        name = d.get("name")
+        if not isinstance(name, str) or not name.strip():
+            err = "ConnectMessage missing or invalid 'name' field"
+            raise ValueError(err)
+        return name
+
+    @staticmethod
+    def _require_kind(d: dict[str, Any]) -> Literal["hub", "direct"]:
+        kind = d.get("kind", "direct")
+        if kind == "hub":
+            return "hub"
+        if kind == "direct":
+            return "direct"
+        err = f"ConnectMessage invalid 'kind' field: {kind!r}"
+        raise ValueError(err)
+
+
+@dataclass(frozen=True, slots=True)
+class HubManifestMessage:
+    """The declaring Hub's complete, authoritative set of live scene ids.
+
+    Sent by a ``kind="hub"`` connection immediately after ``ConnectMessage``
+    and before any ``SceneMessage``.  Empty on a fresh Hub-process restart;
+    the full live set on an ordinary reconnect.  On receipt, the display
+    purges every scene not named here AND not owned by the identifying fd —
+    orphaned scenes from a prior Hub die (owner reassigned to the orphan
+    sentinel) are swept by the same rule (DES-068).
+    """
+
+    scene_ids: tuple[str, ...]
+    type: Literal["hub_manifest"] = "hub_manifest"
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to the wire dict."""
+        return {"type": self.type, "scene_ids": list(self.scene_ids)}
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> Self:
+        """Rebuild from a wire dict; an absent ``scene_ids`` decodes to empty."""
+        return cls(scene_ids=tuple(d.get("scene_ids", [])))
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +130,21 @@ class ReadyMessage:
     type: Literal["ready"] = "ready"
     capabilities: list[str] = field(default_factory=lambda: list[str]())
 
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to the wire dict, omitting empty capabilities."""
+        d: dict[str, Any] = {"type": self.type, "version": self.version}
+        if self.capabilities:
+            d["capabilities"] = self.capabilities
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> Self:
+        """Rebuild from a wire dict."""
+        return cls(
+            version=d.get("version", PROTOCOL_VERSION),
+            capabilities=d.get("capabilities", []),
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class AckMessage:
@@ -57,8 +152,22 @@ class AckMessage:
 
     scene_id: str
     type: Literal["ack"] = "ack"
-    ts: float | None = None
-    error: str | None = None
+    ts: float | None = None  # absent when the sender omits a timestamp
+    error: str | None = None  # absent on success; the failure reason otherwise
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to the wire dict, omitting absent optional fields."""
+        d: dict[str, Any] = {"type": self.type, "scene_id": self.scene_id}
+        if self.ts is not None:
+            d["ts"] = self.ts
+        if self.error is not None:
+            d["error"] = self.error
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> Self:
+        """Rebuild from a wire dict."""
+        return cls(scene_id=d["scene_id"], ts=d.get("ts"), error=d.get("error"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,110 +175,39 @@ class PongMessage:
     """Response to a ping."""
 
     type: Literal["pong"] = "pong"
-    ts: float | None = None
-    display_ts: float | None = None
+    ts: float | None = None  # echoes the ping's timestamp, absent if it had none
+    display_ts: float | None = None  # absent when the display omits its own clock
 
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to the wire dict, omitting absent optional fields."""
+        d: dict[str, Any] = {"type": self.type}
+        if self.ts is not None:
+            d["ts"] = self.ts
+        if self.display_ts is not None:
+            d["display_ts"] = self.display_ts
+        return d
 
-@dataclass(frozen=True, slots=True)
-class UnknownMessage:
-    """Passthrough for unrecognized message types.
-
-    Allows forward compatibility: a client sending a message type that
-    this version of the display doesn't understand won't be disconnected.
-    The display can log and skip unknown messages instead of raising.
-    """
-
-    raw_type: str
-    data: dict[str, Any] = field(default_factory=lambda: {})  # noqa: PIE807
-    type: Literal["unknown"] = "unknown"
-
-
-def _ts_dict(msg_type: str, ts: float | None) -> dict[str, Any]:
-    d: dict[str, Any] = {"type": msg_type}
-    if ts is not None:
-        d["ts"] = ts
-    return d
-
-
-def _ping_to_dict(m: PingMessage) -> dict[str, Any]:
-    return _ts_dict(m.type, m.ts)
-
-
-def _connect_to_dict(m: ConnectMessage) -> dict[str, Any]:
-    return {"type": m.type, "name": m.name}
-
-
-def _ready_to_dict(m: ReadyMessage) -> dict[str, Any]:
-    d: dict[str, Any] = {"type": m.type, "version": m.version}
-    if m.capabilities:
-        d["capabilities"] = m.capabilities
-    return d
-
-
-def _ack_to_dict(m: AckMessage) -> dict[str, Any]:
-    d: dict[str, Any] = {"type": m.type, "scene_id": m.scene_id}
-    if m.ts is not None:
-        d["ts"] = m.ts
-    if m.error is not None:
-        d["error"] = m.error
-    return d
-
-
-def _pong_to_dict(m: PongMessage) -> dict[str, Any]:
-    d = _ts_dict(m.type, m.ts)
-    if m.display_ts is not None:
-        d["display_ts"] = m.display_ts
-    return d
-
-
-def _unknown_to_dict(m: UnknownMessage) -> dict[str, Any]:
-    d = dict(m.data)
-    d["type"] = m.raw_type
-    return d
-
-
-def _ping_from_dict(d: dict[str, Any]) -> PingMessage:
-    return PingMessage(ts=d.get("ts"))
-
-
-def _connect_from_dict(d: dict[str, Any]) -> ConnectMessage:
-    name = d.get("name")
-    if not isinstance(name, str) or not name.strip():
-        err = "ConnectMessage missing or invalid 'name' field"
-        raise ValueError(err)
-    return ConnectMessage(name=name)
-
-
-def _ready_from_dict(d: dict[str, Any]) -> ReadyMessage:
-    return ReadyMessage(
-        version=d.get("version", PROTOCOL_VERSION),
-        capabilities=d.get("capabilities", []),
-    )
-
-
-def _ack_from_dict(d: dict[str, Any]) -> AckMessage:
-    return AckMessage(scene_id=d["scene_id"], ts=d.get("ts"), error=d.get("error"))
-
-
-def _pong_from_dict(d: dict[str, Any]) -> PongMessage:
-    return PongMessage(ts=d.get("ts"), display_ts=d.get("display_ts"))
-
-
-def _unknown_from_dict(d: dict[str, Any]) -> UnknownMessage:
-    return UnknownMessage(raw_type=d.get("type", "unknown"), data=d)
-
-
-_Register = Callable[
-    [str, type, Callable[..., dict[str, Any]], Callable[[dict[str, Any]], Any]],
-    None,
-]
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> Self:
+        """Rebuild from a wire dict."""
+        return cls(ts=d.get("ts"), display_ts=d.get("display_ts"))
 
 
 def register_codecs(register: _Register) -> None:
     """Register this module's message codecs into a MessageRegistry."""
-    register("ready", ReadyMessage, _ready_to_dict, _ready_from_dict)
-    register("ack", AckMessage, _ack_to_dict, _ack_from_dict)
-    register("pong", PongMessage, _pong_to_dict, _pong_from_dict)
-    register("ping", PingMessage, _ping_to_dict, _ping_from_dict)
-    register("connect", ConnectMessage, _connect_to_dict, _connect_from_dict)
-    register("unknown", UnknownMessage, _unknown_to_dict, _unknown_from_dict)
+    register("ready", ReadyMessage, ReadyMessage.to_dict, ReadyMessage.from_dict)
+    register("ack", AckMessage, AckMessage.to_dict, AckMessage.from_dict)
+    register("pong", PongMessage, PongMessage.to_dict, PongMessage.from_dict)
+    register("ping", PingMessage, PingMessage.to_dict, PingMessage.from_dict)
+    register(
+        "connect", ConnectMessage, ConnectMessage.to_dict, ConnectMessage.from_dict
+    )
+    register(
+        "hub_manifest",
+        HubManifestMessage,
+        HubManifestMessage.to_dict,
+        HubManifestMessage.from_dict,
+    )
+    register(
+        "unknown", UnknownMessage, UnknownMessage.to_dict, UnknownMessage.from_dict
+    )
