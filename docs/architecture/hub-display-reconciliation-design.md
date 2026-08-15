@@ -431,9 +431,10 @@ test-kind connect: fd=N pid=P name=… — read-only path; not a supported produ
 Making it WARNING rather than DEBUG or INFO ensures the exercise of
 this path is visible at the display log's default level (INFO), so an
 accidental production caller declaring `kind="test"` is visible in
-`~/.punt-labs/lux/logs/...` and `/tmp/lux-$USER/display.sock.log`
-without needing to enable DEBUG. Tests running against a real Display
-leave an audit trail; anything in production leaves a loud one.
+`/tmp/lux-$USER/display.sock.log` (the display's log file, per this
+repo's Logging convention) without needing to enable DEBUG. Tests
+running against a real Display leave an audit trail; anything in
+production leaves a loud one.
 
 Any `SceneMessage` from a `"test"` fd logs a second WARNING before
 the rejection lands:
