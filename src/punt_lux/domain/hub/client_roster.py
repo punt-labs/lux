@@ -67,7 +67,8 @@ class ClientRoster:
         """
         for connection_id, identity in identities.items():
             self._enrol(connection_id, identity)
-        return {cid: self._label_of(cid) for cid in identities}
+        labels = self._names.labels()
+        return {cid: labels[self._key_of[cid]] for cid in identities}
 
     def release(self, departed: Iterable[ConnectionId]) -> None:
         """Drop *departed* connections and free any group whose last member left.
@@ -91,7 +92,3 @@ class ClientRoster:
         key = MenuGroupKey.of(cid, identity)
         self._key_of.setdefault(cid, key)
         self._names.take(key, identity.menu_label)
-
-    def _label_of(self, cid: ConnectionId) -> str:
-        """The label the roster has assigned to the group *cid* belongs to."""
-        return self._names.labels()[self._key_of[cid]]
