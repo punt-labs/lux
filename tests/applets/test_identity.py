@@ -15,6 +15,7 @@ import pytest
 
 from punt_lux.applets.identity import AppletIdentity
 from punt_lux.connection_identity import connection_for
+from punt_lux.domain.hub.client_identity import ClientIdentity
 
 # A path with no ``.git`` in its ancestry — the repo's TMPDIR is inside this git
 # repo, so the headless cases patch ``cwd`` rather than using a temp directory.
@@ -146,3 +147,52 @@ def test_program_leading_trailing_whitespace_is_stripped(
     assert connection_for(padded.client.model_dump()) == connection_for(
         bare.client.model_dump()
     )
+
+
+class TestSessionPidRoundTrip:
+    """The pid the constructor embeds is the pid the parser recovers.
+
+    The parser is coupled to the ``name`` format the constructor writes: a
+    change to either half must land with the matching change to the other,
+    or these tests fail. They pin the coupling the grouping composer relies
+    on to say two applets belong to one session.
+    """
+
+    def test_recovers_the_pid_the_constructor_embedded(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.chdir(_make_repo(tmp_path, "lux"))
+        identity = AppletIdentity.for_session("lux-beads", 12345)
+
+        assert AppletIdentity.session_pid_of(identity.client) == 12345
+
+    def test_recovers_the_pid_across_the_full_hex_range(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The pid embeds as hex, so a large value must round-trip too."""
+        monkeypatch.chdir(_make_repo(tmp_path, "lux"))
+        identity = AppletIdentity.for_session("lux-beads", 0xDEADBEEF)
+
+        assert AppletIdentity.session_pid_of(identity.client) == 0xDEADBEEF
+
+    def test_a_non_applet_has_no_session_pid(self) -> None:
+        """Only an applet is named ``lux · <repo> · #<pid> · <program>``."""
+        for kind in ("mcp-session", "cli", "app"):
+            client = ClientIdentity(kind=kind, name="not-an-applet")
+            assert AppletIdentity.session_pid_of(client) is None
+
+    def test_a_malformed_applet_name_is_rejected(self) -> None:
+        """A broken constructor invariant surfaces at the parse, not silently."""
+        malformed = ClientIdentity(kind="applet", name="not-four-parts", repo="/w/lux")
+        with pytest.raises(ValueError, match="malformed applet name"):
+            AppletIdentity.session_pid_of(malformed)
+
+    def test_a_non_hex_pid_is_rejected(self) -> None:
+        """The pid is embedded as hex; a non-hex value is malformed at the source."""
+        malformed = ClientIdentity(
+            kind="applet",
+            name="lux · lux · #xyz · lux-beads",
+            repo="/w/lux",
+        )
+        with pytest.raises(ValueError, match="malformed applet name"):
+            AppletIdentity.session_pid_of(malformed)

@@ -1,45 +1,21 @@
 """AppletIdentity — what one applet declares itself to be.
 
-An applet owns two legs into the Hub: the WebSocket it holds open to receive its
-menu clicks, and the REST calls it makes to push what those clicks produce. Both
-must resolve to one Hub connection, so both declare this identity;
+An applet owns two legs into the Hub: the WebSocket it holds open for its menu
+clicks, and the REST calls it makes to push what those clicks produce. Both
+must resolve to one Hub connection, so both declare this identity, and
 :func:`~punt_lux.connection_identity.connection_for` derives the shared
 connection id from its fields.
 
-The name is what a user reads in the menu bar, so it says four things in one
-uniform shape — ``lux · <repository> · #<session> · <program>``: which tool the
-entries belong to, which repository this session works in, which of possibly
-several sessions on that repository it is, and which program within that
-session declared it.
+The name reads as one uniform shape — ``lux · <repository> · #<session> ·
+<program>`` — with each part carrying a distinct guarantee. The session id
+keeps two Claude Code sessions on one repository from collapsing onto one
+connection (the second's WebSocket would silently take over the first's
+clicks). The program name keeps two applets in one session from doing the
+same. Empty, whitespace-only, and NUL-carrying programs are rejected.
 
-The session id is not cosmetic. Two Claude Code sessions open on the same
-repository are two separate services with separate menu entries, and identities
-that compared equal would collapse them onto one connection — the second
-session's WebSocket would silently take over the first's clicks. The session's
-process id distinguishes them, and it is the *session's* rather than the applet's
-for the same reason the applet watches it: the entry belongs to the session. An
-applet restarted against a live session comes back as the same identity and takes
-its own entry over, which is what the succession rules are for.
-
-The program name is not cosmetic either, and for the sibling reason: one
-session can run more than one applet at once — ``lux-beads`` and a tool's own
-applet both alive under the same Claude Code process — and without a program
-token they derive the same identity from the same ``(repo, session_pid)`` pair.
-Whichever registered its callback later would silently clobber the earlier one's
-connection, the same collapse the session id already guards against one level
-up. The caller names its own program; there is no default, because a shared
-default would recreate the exact collision this field exists to prevent — which
-is why an empty or all-whitespace program is rejected, stripped before either
-check or embedding so leading or trailing whitespace never distinguishes two
-identities naming the same program. A NUL is rejected too, belt-and-suspenders:
-:class:`~punt_lux.domain.hub.client_identity.ClientIdentity` validates every
-field NUL-free independently, applet or not.
-
-The declared lease is short on purpose: a session's menu entry should leave the
-bar shortly after the session does. The Hub sweeps a session whose lease lapses,
-and the listen client's keepalive renews well inside that window, so a live
-session never lapses and a dead one is gone within the minute — even if the
-applet's own exit went wrong.
+The declared lease is short: the Hub sweeps a session whose lease lapses, and
+the listen client renews well inside that window, so a live session never
+lapses and a dead one is gone within the minute.
 """
 
 from __future__ import annotations
@@ -51,15 +27,21 @@ from punt_lux.repo_root import RepoRoot
 
 __all__ = ["AppletIdentity"]
 
-# What an applet outside any repository calls itself — real and named, the
-# headless counterpart of the repository directory name.
+# What an applet outside any repository calls itself.
 _HEADLESS_NAME = "lux-session"
 
-# How long the Hub may go without hearing from this applet before sweeping it.
-# The listen client renews every 15s, so four beats may be lost before the menu
-# entry goes — long enough to ride out a Hub restart, short enough that a killed
-# session's entry does not linger.
+# Sweep-cadence bounds: longer than several 15s keepalives, short enough that
+# a killed session's menu entry leaves the bar within the minute.
 _LEASE_TTL_SECONDS = 60.0
+
+# The ``name`` format ``for_session`` writes and ``session_pid_of`` reads back:
+# ``lux · <repo> · #<pid> · <program>``. A format change lands both halves at
+# once; the round-trip test in ``tests/applets/test_identity.py`` fails loud
+# if either half moves alone.
+_NAME_SEPARATOR = " · "
+_PID_PART_INDEX = 2
+_PID_PART_PREFIX = "#"
+_NAME_PART_COUNT = 4
 
 
 @final
@@ -78,25 +60,45 @@ class AppletIdentity:
     def for_session(cls, program: str, session_pid: int) -> Self:
         """Derive this applet's identity from its program, session, and repository."""
         if not (program := program.strip()):
-            msg = (
-                "program must be a non-empty, non-whitespace label; an empty "
-                "program would recreate the collision this field exists to prevent"
-            )
+            msg = "program must be a non-empty, non-whitespace label"
             raise ValueError(msg)
         if "\x00" in program:
             msg = "program must not contain a NUL character"
             raise ValueError(msg)
         repo = RepoRoot.of(_HEADLESS_NAME)
+        parts = ("lux", repo.name, f"{_PID_PART_PREFIX}{session_pid:x}", program)
         return cls(
             ClientIdentity(
                 kind="applet",
-                name=f"lux · {repo.name} · #{session_pid:x} · {program}",
+                name=_NAME_SEPARATOR.join(parts),
                 repo=repo.declared_path,
                 lease_ttl=_LEASE_TTL_SECONDS,
             )
         )
 
+    @classmethod
+    def session_pid_of(cls, client: ClientIdentity) -> int | None:
+        """Return the applet's session pid, or ``None`` for a non-applet.
+
+        Only an applet is named ``lux · <repo> · #<pid> · <program>``, so a
+        non-applet returns ``None`` — the documented absence the menu-grouping
+        composer skips on. An applet whose name does not parse raises
+        :class:`ValueError` rather than silently mis-group.
+        """
+        return cls._parse_pid(client.name) if client.kind == "applet" else None
+
+    @classmethod
+    def _parse_pid(cls, name: str) -> int:
+        """Return the pid the four-part applet name embeds, or reject the name."""
+        parts = name.split(_NAME_SEPARATOR)
+        pid_part = parts[_PID_PART_INDEX] if len(parts) == _NAME_PART_COUNT else ""
+        try:
+            return int(pid_part.removeprefix(_PID_PART_PREFIX), 16)
+        except ValueError as exc:
+            msg = f"malformed applet name: {name!r}"
+            raise ValueError(msg) from exc
+
     @property
     def client(self) -> ClientIdentity:
-        """The identity both Hub legs declare, and the menu label this applet."""
+        """The identity both Hub legs declare."""
         return self._client
