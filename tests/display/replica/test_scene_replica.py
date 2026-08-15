@@ -718,6 +718,72 @@ class TestEmptySceneRemovesFrame:
         assert "f1" not in mgr.frames
 
 
+class TestScenesToPurge:
+    """DES-068's manifest-driven purge query — every ghost scene, not frame."""
+
+    def test_a_scene_outside_the_manifest_and_owner_is_a_candidate(self) -> None:
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), owner_fd=10)
+
+        candidates = mgr.scenes_to_purge(identifying_fd=20, manifest=frozenset())
+
+        assert candidates == [("f1", "s1")]
+
+    def test_a_scene_named_in_the_manifest_is_not_a_candidate(self) -> None:
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), owner_fd=10)
+
+        candidates = mgr.scenes_to_purge(identifying_fd=20, manifest=frozenset({"s1"}))
+
+        assert candidates == []
+
+    def test_a_scene_owned_by_the_identifying_fd_is_not_a_candidate(self) -> None:
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), owner_fd=10)
+
+        candidates = mgr.scenes_to_purge(identifying_fd=10, manifest=frozenset())
+
+        assert candidates == []
+
+    def test_a_mixed_frame_loses_only_its_ghost_scene(self) -> None:
+        """Per-scene: a manifested scene shields its frame, not its ghost sibling."""
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), owner_fd=10)
+        mgr.handle_framed_scene(_make_scene(scene_id="s2", frame_id="f1"), owner_fd=10)
+
+        candidates = mgr.scenes_to_purge(identifying_fd=20, manifest=frozenset({"s1"}))
+
+        assert candidates == [("f1", "s2")]
+
+    def test_an_orphaned_scene_is_swept_by_the_same_rule(self) -> None:
+        """A scene reassigned to the orphan sentinel is a candidate like any other.
+
+        No special-casing needed: an orphan's owner is never the identifying
+        fd, so it falls out of the same not-owned-and-not-manifested test.
+        """
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), owner_fd=10)
+        mgr.reassign_scenes_of(departed_fd=10, orphan_fd=-1)
+
+        candidates = mgr.scenes_to_purge(identifying_fd=20, manifest=frozenset())
+
+        assert candidates == [("f1", "s1")]
+
+    def test_widget_state_is_discarded_only_for_the_purged_scene(self) -> None:
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), owner_fd=10)
+        mgr.handle_framed_scene(_make_scene(scene_id="s2", frame_id="f1"), owner_fd=10)
+
+        for frame_id, scene_id in mgr.scenes_to_purge(
+            identifying_fd=20, manifest=frozenset({"s1"})
+        ):
+            frame = mgr.frames[frame_id]
+            mgr.dismiss_framed_scene(frame, scene_id)
+
+        assert mgr.widget_state_for("s2") is None  # purged
+        assert mgr.widget_state_for("s1") is not None  # retained, untouched
+
+
 class TestFramesOnlyInvariant:
     """The unframed scene path is gone: every scene lives in a frame or nowhere."""
 

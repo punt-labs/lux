@@ -10,7 +10,7 @@ import socket
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Self
+from typing import Literal, Self
 
 from punt_lux.bounded_send import BoundedSend
 from punt_lux.paths import DisplayPaths
@@ -52,6 +52,7 @@ class SocketListener:
     _readers: dict[int, FrameReader]
     _fd_to_client: dict[int, socket.socket]
     _client_names: dict[int, str]
+    _client_kinds: dict[int, Literal["hub", "direct"]]
     _client_connect_times: dict[int, float]
     _on_message: Callable[[socket.socket, Message], None]
     _on_client_disconnected: Callable[[int], None]
@@ -69,6 +70,7 @@ class SocketListener:
         self._readers = {}
         self._fd_to_client = {}
         self._client_names = {}
+        self._client_kinds = {}
         self._client_connect_times = {}
         self._on_message = on_message
         self._on_client_disconnected = on_client_disconnected
@@ -197,6 +199,7 @@ class SocketListener:
             self._readers.pop(fd, None)
             self._fd_to_client.pop(fd, None)
             self._client_names.pop(fd, None)
+            self._client_kinds.pop(fd, None)
             self._client_connect_times.pop(fd, None)
             # Let the owner handle domain-specific cleanup
             self._on_client_disconnected(fd)
@@ -230,10 +233,31 @@ class SocketListener:
             return False
         return True
 
-    def register_client_name(self, fd: int, name: str, connect_time: float) -> None:
-        """Record a client's display name and connect timestamp."""
+    def register_client_identity(
+        self,
+        fd: int,
+        *,
+        kind: Literal["hub", "direct"],
+        name: str,
+        connect_time: float,
+    ) -> None:
+        """Record a client's declared kind, display name, and connect timestamp."""
         self._client_names[fd] = name
+        self._client_kinds[fd] = kind
         self._client_connect_times[fd] = connect_time
+
+    def hub_fd_for(self, name: str) -> int | None:
+        """Return the live fd currently declaring ``kind="hub"`` with this name.
+
+        ``None`` when no such connection exists — the ordinary case once a
+        superseded Hub's socket has already closed on its own. Single-owner
+        preemption (DES-068) uses this to find (and evict) a predecessor
+        before recording a new claimant, so at most one ever holds the name.
+        """
+        for candidate_fd, kind in self._client_kinds.items():
+            if kind == "hub" and self._client_names.get(candidate_fd) == name:
+                return candidate_fd
+        return None
 
     # -- internal -----------------------------------------------------------
 
