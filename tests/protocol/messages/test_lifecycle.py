@@ -36,10 +36,6 @@ class TestPingMessage:
 
 
 class TestConnectMessage:
-    def test_default_kind_is_direct(self) -> None:
-        msg = ConnectMessage(name="quarry")
-        assert msg.kind == "direct"
-
     def test_roundtrip_preserves_kind(self) -> None:
         original = ConnectMessage(name="lux-mcp", kind="hub")
         d = original.to_dict()
@@ -47,21 +43,28 @@ class TestConnectMessage:
         restored = ConnectMessage.from_dict(d)
         assert restored == original
 
-    def test_decode_defaults_missing_kind_to_direct(self) -> None:
-        """A wire dict from a sender that never carried ``kind`` decodes safely."""
-        restored = ConnectMessage.from_dict({"type": "connect", "name": "quarry"})
-        assert restored.kind == "direct"
+    def test_roundtrip_preserves_test_kind(self) -> None:
+        original = ConnectMessage(name="probe", kind="test")
+        d = original.to_dict()
+        assert d["kind"] == "test"
+        restored = ConnectMessage.from_dict(d)
+        assert restored == original
+
+    def test_decode_rejects_missing_kind(self) -> None:
+        """No default -- every caller must declare 'hub' or 'test' explicitly."""
+        with pytest.raises(ValueError, match="missing or invalid 'kind'"):
+            ConnectMessage.from_dict({"type": "connect", "name": "quarry"})
 
     def test_decode_rejects_missing_name(self) -> None:
         with pytest.raises(ValueError, match="missing or invalid 'name'"):
-            ConnectMessage.from_dict({"type": "connect"})
+            ConnectMessage.from_dict({"type": "connect", "kind": "test"})
 
     def test_decode_rejects_blank_name(self) -> None:
         with pytest.raises(ValueError, match="missing or invalid 'name'"):
-            ConnectMessage.from_dict({"type": "connect", "name": "   "})
+            ConnectMessage.from_dict({"type": "connect", "name": "   ", "kind": "test"})
 
     def test_decode_rejects_invalid_kind(self) -> None:
-        with pytest.raises(ValueError, match="invalid 'kind'"):
+        with pytest.raises(ValueError, match="missing or invalid 'kind'"):
             ConnectMessage.from_dict({"type": "connect", "name": "x", "kind": "bogus"})
 
     def test_registry_roundtrip(self) -> None:

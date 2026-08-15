@@ -165,7 +165,7 @@ class TestRemoveClient:
 
                 # Register an identity so we can verify cleanup
                 server.register_client_identity(
-                    fd, kind="direct", name="test-client", connect_time=1000.0
+                    fd, kind="test", name="test-client", connect_time=1000.0
                 )
                 assert fd in server.client_names
                 assert fd in server.client_connect_times
@@ -195,10 +195,10 @@ class TestHubIdentity:
 
         assert server.hub_fd_for("lux-mcp") == 10
 
-    def test_hub_fd_for_ignores_a_direct_connection_of_the_same_name(self) -> None:
+    def test_hub_fd_for_ignores_a_test_connection_of_the_same_name(self) -> None:
         server = _make_server()
         server.register_client_identity(
-            10, kind="direct", name="lux-mcp", connect_time=1.0
+            10, kind="test", name="lux-mcp", connect_time=1.0
         )
 
         assert server.hub_fd_for("lux-mcp") is None
@@ -215,6 +215,17 @@ class TestHubIdentity:
         server = _make_server()
 
         assert server.hub_fd_for("lux-mcp") is None
+
+    def test_kind_of_returns_the_declared_kind(self) -> None:
+        server = _make_server()
+        server.register_client_identity(10, kind="test", name="probe", connect_time=1.0)
+
+        assert server.kind_of(10) == "test"
+
+    def test_kind_of_returns_none_before_identifying(self) -> None:
+        server = _make_server()
+
+        assert server.kind_of(10) is None
 
     def test_remove_client_clears_the_kind_too(self) -> None:
         tmpdir = _make_tmpdir()

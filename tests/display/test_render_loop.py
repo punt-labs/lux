@@ -60,11 +60,11 @@ class TestHandleConnectDispatch:
         assert old_sock not in server._socket_listener.clients
         assert server._socket_listener.hub_fd_for("lux-mcp") == 20
 
-    def test_a_direct_identify_is_recorded_without_preemption(self) -> None:
+    def test_a_test_identify_is_recorded_without_preemption(self) -> None:
         server = _make_server()
         sock = _mock_sock(10)
 
-        server._handle_message(sock, ConnectMessage(name="quarry", kind="direct"))
+        server._handle_message(sock, ConnectMessage(name="quarry", kind="test"))
 
         assert server._socket_listener.client_names[10] == "quarry"
         assert server._socket_listener.hub_fd_for("quarry") is None
@@ -125,7 +125,7 @@ class TestConnectMessageStillDispatchesThroughHandleMessage:
         server = _make_server()
         sock = _mock_sock(10)
 
-        server._handle_message(sock, ConnectMessage(name="quarry"))
+        server._handle_message(sock, ConnectMessage(name="quarry", kind="test"))
 
         assert server._socket_listener.client_names[10] == "quarry"
 
@@ -136,6 +136,58 @@ class TestConnectMessageStillDispatchesThroughHandleMessage:
             RemoteEventHandlerInvocation(element_id="b1", action="click", ts=1.0)
         )
 
-        server._handle_message(sock, ConnectMessage(name="quarry"))
+        server._handle_message(sock, ConnectMessage(name="quarry", kind="test"))
 
         assert len(server._event_queue) == 1  # untouched by the identify
+
+
+class TestSceneRejectionFromTestKind:
+    """A ``kind="test"`` connection may observe, not install (DES-068 ruling)."""
+
+    def test_a_scene_from_a_test_kind_fd_is_rejected_and_the_fd_closed(self) -> None:
+        server = _make_server()
+        sock = _mock_sock(10)
+        server._socket_listener.clients.append(sock)
+        server._socket_listener.fd_to_client[10] = sock
+
+        server._handle_message(sock, ConnectMessage(name="probe", kind="test"))
+        server._handle_message(sock, _make_scene("s1"))
+
+        assert server._scenes.resolve_scene("s1") is None
+        sock.close.assert_called_once()
+        assert sock not in server._socket_listener.clients
+
+    def test_the_rejection_surfaces_via_list_errors(self) -> None:
+        server = _make_server()
+        sock = _mock_sock(10)
+        server._socket_listener.clients.append(sock)
+        server._socket_listener.fd_to_client[10] = sock
+
+        server._handle_message(sock, ConnectMessage(name="probe", kind="test"))
+        server._handle_message(sock, _make_scene("s1"))
+
+        errors = server._query_router.handle_query("list_errors", None)
+        assert errors.result is not None
+        messages = [e["message"] for e in errors.result["errors"]]
+        assert any("test-kind connection" in m for m in messages)
+
+    def test_a_scene_from_a_hub_kind_fd_still_installs_normally(self) -> None:
+        server = _make_server()
+        sock = _mock_sock(10)
+        server._socket_listener.clients.append(sock)
+        server._socket_listener.fd_to_client[10] = sock
+
+        server._handle_message(sock, ConnectMessage(name="lux-mcp", kind="hub"))
+        server._handle_message(sock, _make_scene("s1"))
+
+        assert server._scenes.resolve_scene("s1") is not None
+        assert sock in server._socket_listener.clients
+
+    def test_a_scene_from_an_unidentified_fd_still_installs_normally(self) -> None:
+        """No ConnectMessage at all is unaffected -- only a declared 'test' rejects."""
+        server = _make_server()
+        sock = _mock_sock(10)
+
+        server._handle_message(sock, _make_scene("s1"))
+
+        assert server._scenes.resolve_scene("s1") is not None

@@ -91,7 +91,7 @@ Four properties must hold across every interleaving:
 
 \texttt{CONNECTION\_ID} is the set of Hub-Display socket connections the
 Display can hold open; three suffice to model the old Hub fd, the new Hub
-fd, and one unrelated \texttt{kind="direct"} connection that must be
+fd, and one unrelated \texttt{kind="test"} connection that must be
 unaffected by preemption.  \texttt{SCENE\_ID} is the set of scenes the
 Display can hold; two suffice to exhibit a mixed frame where one scene
 survives a manifest and its sibling does not.  Both carriers are bounded
@@ -576,8 +576,8 @@ Derived from the operations and invariants above, audited against
   \item[P2 --- preemption is a no-op with no predecessor.] The ordinary
     restart case --- the old connection's socket is already gone.
     Covered: \texttt{test\_a\_hub\_identify\_with\_no\_predecessor\_preempts\_nothing}.
-  \item[P3 --- a \texttt{kind="direct"} identify never preempts.] Covered:
-    \texttt{test\_a\_direct\_identify\_never\_preempts\_or\_marks\_hub},
+  \item[P3 --- a \texttt{kind="test"} identify never preempts.] Covered:
+    \texttt{test\_a\_test\_identify\_never\_preempts\_or\_marks\_hub},
     \texttt{test\_a\_different\_named\_hub\_identify\_is\_not\_preempted}.
   \item[P4 --- a scene outside the manifest and not fd-owned is purged.]
     Covered: \texttt{test\_a\_scene\_outside\_the\_manifest\_is\_purged},

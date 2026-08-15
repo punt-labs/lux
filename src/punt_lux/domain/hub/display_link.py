@@ -84,8 +84,12 @@ class DisplayLink:
     kind:
         ``"hub"`` for the Hub's own declared identity — triggers the
         display's single-owner preemption and expects a manifest right
-        after (DES-068) — or ``"direct"`` (default) for every other
-        caller (CLI probes, tests).
+        after (DES-068). ``"test"`` (default) is the read-only backdoor
+        for every other caller (CLI probes, introspection, tests) — a
+        deliberately wrong-looking name so a production call site that
+        forgets to pass ``kind="hub"`` is loud, not silent: the display
+        logs a WARNING on every ``"test"`` identify and rejects any
+        ``SceneMessage`` it sends.
     auto_spawn:
         If ``True`` (default), spawn the display server when not running.
     connect_timeout:
@@ -96,7 +100,7 @@ class DisplayLink:
 
     _socket_path: Path | None
     _name: str | None
-    _kind: Literal["hub", "direct"]
+    _kind: Literal["hub", "test"]
     _auto_spawn: bool
     _connect_timeout: float
     _recv_timeout: float
@@ -117,7 +121,7 @@ class DisplayLink:
         socket_path: str | Path | None = None,
         *,
         name: str | None = None,
-        kind: Literal["hub", "direct"] = "direct",
+        kind: Literal["hub", "test"] = "test",
         auto_spawn: bool = True,
         connect_timeout: float = 5.0,
         recv_timeout: float = DEFAULT_RECV_TIMEOUT,

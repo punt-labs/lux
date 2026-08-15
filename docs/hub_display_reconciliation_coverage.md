@@ -26,7 +26,7 @@ are named where the design fixes them):
 |---|---|---|
 | HI1 | a `kind="hub"` identify with no predecessor holding the identity | recorded; nothing preempted (the ordinary restart case — the old socket is already gone) |
 | HI2 | **a `kind="hub"` identify with a live predecessor holding the identity** | **the predecessor is forcibly disconnected before the new one is recorded — at most one ever holds the identity (I3)** |
-| HI3 | a `kind="direct"` identify | never preempts anything and is never itself preempted by a later hub identify |
+| HI3 | a `kind="test"` identify | never preempts anything and is never itself preempted by a later hub identify |
 | HI4 | two `kind="hub"` identifies for two *different* declared names | neither preempts the other — preemption scopes to the shared name |
 | HI5 | preemption's scene reassignment | every scene the evicted predecessor owned becomes orphan, never removed |
 
@@ -71,7 +71,7 @@ are named where the design fixes them):
 |---|---|---|
 | HI1 | `test_hub_reconciliation::TestHandleConnect::test_a_hub_identify_with_no_predecessor_preempts_nothing` | COVERED |
 | HI2 | `test_hub_reconciliation::TestHandleConnect::test_a_second_hub_identify_forcibly_disconnects_the_first`; `test_render_loop::TestHandleConnectDispatch::test_a_second_hub_identify_preempts_the_first_via_the_real_socket_listener` | COVERED |
-| HI3 | `test_hub_reconciliation::TestHandleConnect::test_a_direct_identify_never_preempts_or_marks_hub`; `test_render_loop::TestHandleConnectDispatch::test_a_direct_identify_is_recorded_without_preemption` | COVERED |
+| HI3 | `test_hub_reconciliation::TestHandleConnect::test_a_test_identify_never_preempts_or_marks_hub`; `test_render_loop::TestHandleConnectDispatch::test_a_test_identify_is_recorded_without_preemption` | COVERED |
 | HI4 | `test_hub_reconciliation::TestHandleConnect::test_a_different_named_hub_identify_is_not_preempted` | COVERED |
 | HI5 | `test_hub_reconciliation::TestHandleManifest::test_a_scene_outside_the_manifest_is_purged` (exercises the reassign-to-orphan indirectly via a purge after eviction) | COVERED |
 | HM1 | `test_hub_reconciliation::TestHandleManifest::test_a_scene_outside_the_manifest_is_purged`; `test_scene_replica::TestScenesToPurge::test_a_scene_outside_the_manifest_and_owner_is_a_candidate`; `test_render_loop::TestHandleManifestDispatch::test_a_manifest_purges_a_ghost_scene_through_the_real_dispatch` | COVERED |

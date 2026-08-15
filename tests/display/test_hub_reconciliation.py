@@ -8,6 +8,7 @@ that exercises the real wire protocol end to end lives in
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 from punt_lux.display.hub_reconciliation import HubReconciliation
@@ -19,6 +20,9 @@ from punt_lux.protocol import (
     SceneMessage,
     TextElement,
 )
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def _mock_sock(fd: int) -> MagicMock:
@@ -57,17 +61,18 @@ class TestHandleConnect:
 
         assert listener.hub_fd_for("lux-mcp") == 10
 
-    def test_a_direct_identify_never_preempts_or_marks_hub(self) -> None:
+    def test_a_test_identify_never_preempts_or_marks_hub(self) -> None:
         listener = _make_listener()
         scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
         reconciliation = HubReconciliation(listener, scenes, lambda _fid: None)
         sock = _mock_sock(10)
 
-        direct = ConnectMessage(name="quarry", kind="direct")
-        reconciliation.handle_connect(sock, direct)
+        probe = ConnectMessage(name="quarry", kind="test")
+        reconciliation.handle_connect(sock, probe)
 
         assert listener.hub_fd_for("quarry") is None
         assert listener.client_names[10] == "quarry"
+        assert listener.kind_of(10) == "test"
 
     def test_a_second_hub_identify_forcibly_disconnects_the_first(self) -> None:
         listener = _make_listener()
@@ -128,6 +133,38 @@ class TestHandleConnect:
         reconciliation.handle_connect(sock, ConnectMessage(name="   ", kind="hub"))
 
         assert 10 not in listener.client_names
+
+    def test_a_test_kind_identify_logs_a_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Every use of the backdoor leaves a durable, grep-able trace."""
+        listener = _make_listener()
+        scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
+        reconciliation = HubReconciliation(listener, scenes, lambda _fid: None)
+        sock = _mock_sock(10)
+
+        msg = ConnectMessage(name="probe", kind="test")
+        with caplog.at_level("WARNING"):
+            reconciliation.handle_connect(sock, msg)
+
+        assert any(
+            "test-kind connect" in r.message and "fd=10" in r.message
+            for r in caplog.records
+        )
+
+    def test_a_hub_kind_identify_logs_no_test_kind_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        listener = _make_listener()
+        scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
+        reconciliation = HubReconciliation(listener, scenes, lambda _fid: None)
+        sock = _mock_sock(10)
+
+        msg = ConnectMessage(name="lux-mcp", kind="hub")
+        with caplog.at_level("WARNING"):
+            reconciliation.handle_connect(sock, msg)
+
+        assert not any("test-kind connect" in r.message for r in caplog.records)
 
 
 class TestHandleManifest:

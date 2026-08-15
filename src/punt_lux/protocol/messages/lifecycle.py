@@ -57,17 +57,20 @@ class ConnectMessage:
     display attribution (e.g. frame titles, menu namespaces).  Sending
     again updates the name (idempotent).
 
-    ``kind`` distinguishes the Hub's own declared identity (``"hub"``) from
-    every other identify (``"direct"`` — CLI probes, tests, and any future
-    non-Hub caller).  A ``kind="hub"`` identify triggers single-owner
-    preemption and expects a ``HubManifestMessage`` immediately after, so the
-    default of ``"direct"`` preserves every existing caller's behavior
-    exactly (DES-068).
+    ``kind`` is required, with no default — every caller must declare it
+    explicitly.  ``"hub"`` is the one legitimate production writer: luxd's
+    ``ClientRegistry``, whose identify triggers single-owner preemption and
+    expects a ``HubManifestMessage`` immediately after (DES-068). ``"test"``
+    is a deliberately-named test-only backdoor for inspecting a running
+    Display without a Hub in the loop — the name reads as wrong at a
+    production call site on purpose. A ``"test"`` connection may query and
+    observe; a ``SceneMessage`` from one is rejected, not installed (a lux
+    client never talks to the Display directly, per target.md).
     """
 
     name: str
+    kind: Literal["hub", "test"]
     type: Literal["connect"] = "connect"
-    kind: Literal["hub", "direct"] = "direct"
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to the wire dict."""
@@ -87,13 +90,13 @@ class ConnectMessage:
         return name
 
     @staticmethod
-    def _require_kind(d: dict[str, Any]) -> Literal["hub", "direct"]:
-        kind = d.get("kind", "direct")
+    def _require_kind(d: dict[str, Any]) -> Literal["hub", "test"]:
+        kind = d.get("kind")
         if kind == "hub":
             return "hub"
-        if kind == "direct":
-            return "direct"
-        err = f"ConnectMessage invalid 'kind' field: {kind!r}"
+        if kind == "test":
+            return "test"
+        err = f"ConnectMessage missing or invalid 'kind' field: {kind!r}"
         raise ValueError(err)
 
 

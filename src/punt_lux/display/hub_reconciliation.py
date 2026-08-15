@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import socket
+import struct
 import time
 from typing import TYPE_CHECKING, Self
 
@@ -26,6 +27,25 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 __all__ = ["HubReconciliation"]
+
+
+def _peer_pid(sock: socket.socket) -> int | None:
+    """Return the connecting process's pid via ``SO_PEERCRED``, or ``None``.
+
+    Linux-only (``SO_PEERCRED`` is absent on macOS/BSD, whose equivalent
+    ``LOCAL_PEEREPID`` Python does not expose as a named constant). ``None``
+    on any platform or error where the pid cannot be read — callers log
+    ``pid=?`` rather than fail the connection over a diagnostic.
+    """
+    so_peercred = getattr(socket, "SO_PEERCRED", None)
+    if so_peercred is None:
+        return None
+    try:
+        raw = sock.getsockopt(socket.SOL_SOCKET, so_peercred, struct.calcsize("3i"))
+    except OSError:
+        return None
+    pid, _uid, _gid = struct.unpack("3i", raw)
+    return int(pid)
 
 
 class HubReconciliation:
@@ -67,6 +87,15 @@ class HubReconciliation:
             return
         if msg.kind == "hub":
             self._preempt_stale_hub(fd, name)
+        else:
+            pid = _peer_pid(sock)
+            logger.warning(
+                "test-kind connect: fd=%d pid=%s name=%r "
+                "-- read-only path; not a supported production mode",
+                fd,
+                pid if pid is not None else "?",
+                name,
+            )
         self._socket_listener.register_client_identity(
             fd, kind=msg.kind, name=name, connect_time=time.time()
         )

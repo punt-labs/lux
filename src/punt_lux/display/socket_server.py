@@ -52,7 +52,7 @@ class SocketListener:
     _readers: dict[int, FrameReader]
     _fd_to_client: dict[int, socket.socket]
     _client_names: dict[int, str]
-    _client_kinds: dict[int, Literal["hub", "direct"]]
+    _client_kinds: dict[int, Literal["hub", "test"]]
     _client_connect_times: dict[int, float]
     _on_message: Callable[[socket.socket, Message], None]
     _on_client_disconnected: Callable[[int], None]
@@ -237,7 +237,7 @@ class SocketListener:
         self,
         fd: int,
         *,
-        kind: Literal["hub", "direct"],
+        kind: Literal["hub", "test"],
         name: str,
         connect_time: float,
     ) -> None:
@@ -245,6 +245,10 @@ class SocketListener:
         self._client_names[fd] = name
         self._client_kinds[fd] = kind
         self._client_connect_times[fd] = connect_time
+
+    def kind_of(self, fd: int) -> Literal["hub", "test"] | None:
+        """Return the declared kind for ``fd``, or ``None`` before it identifies."""
+        return self._client_kinds.get(fd)
 
     def hub_fd_for(self, name: str) -> int | None:
         """Return the live fd currently declaring ``kind="hub"`` with this name.

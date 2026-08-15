@@ -750,6 +750,17 @@ class RenderLoop:
             fd = sock.fileno()
         except OSError:
             return
+        if self._socket_listener.kind_of(fd) == "test":
+            logger.warning(
+                "test-kind fd=%d attempted SceneMessage; rejecting and closing", fd
+            )
+            self._query_router.record_error(
+                "error",
+                f"test-kind connection (fd={fd}) attempted a SceneMessage",
+                "scene_reject",
+            )
+            self._socket_listener.remove_client(sock)
+            return
         self._paint_clock.received(msg.id)
         self._wrap_abc_elements(msg)
         self._scenes.handle_framed_scene(msg, fd)
