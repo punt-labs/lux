@@ -291,7 +291,7 @@ declares its intent at identify time. `"hub"` is the writer identity
 `SceneMessage` accepted) — the only caller is `luxd`'s
 `ClientRegistry` (`domain/hub/clients.py`). `"test"` is the
 read-only observer identity — query messages accepted (`list_scenes`,
-`screenshot`, etc.), any `SceneMessage` from an test fd is
+`screenshot`, etc.), any `SceneMessage` from a test fd is
 rejected with a named error surfaced to `list_errors` and the fd
 closed. A connection that omits `ConnectMessage` entirely, or attempts
 any other pre-scene traffic before it, is closed — no implicit default,
