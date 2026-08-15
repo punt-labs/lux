@@ -298,8 +298,10 @@ any other pre-scene traffic before it, is closed — no implicit default,
 no ambiguous kind.
 
 The absence of a `"direct"` writer variant is deliberate and reflects
-the target architecture: per `target.md`, "a lux client never talks to
-the Display." The only legitimate writer to the Display socket is
+the target architecture. `target.md` describes exactly one path in:
+"Clients submit UI to the Hub." Nothing in that document contemplates
+a client talking to the Display directly. The only legitimate writer
+to the Display socket is
 `luxd`; the only legitimate non-writer is a read-only inspector.
 Anything else (an old-style `LuxClient` connecting straight to the
 socket and pushing scenes the Hub never sees — the bug named in
