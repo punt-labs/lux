@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import final
 
+from punt_lux.domain.hub.applet_name_format import format_name
 from punt_lux.domain.hub.callback_menu import CallbackMenu
 from punt_lux.domain.hub.client_identity import ClientIdentity, ClientKind
 from punt_lux.domain.hub.client_roster import ClientRoster
@@ -372,6 +373,105 @@ class TestWhatContributesNothing:
         _menus(("bare", bare), roster=roster)
 
         assert roster.held() == {}
+
+
+def _applet_identity(pid: int, program: str, *, repo: str = "/w/lux") -> ClientIdentity:
+    return ClientIdentity(
+        kind="applet", name=format_name("lux", pid, program), repo=repo
+    )
+
+
+def _applet_session(
+    pid: int, program: str, *callbacks: SessionCallback, repo: str = "/w/lux"
+) -> ClientSession:
+    session = (
+        ClientSession(0.0)
+        .with_identity(_applet_identity(pid, program, repo=repo))
+        .attached(_SilentLeg())
+    )
+    for callback in callbacks:
+        session = session.with_callback(callback)
+    return session
+
+
+class TestAppletGrouping:
+    """DES-067: two applets in one session render as one submenu.
+
+    The user reads them as one entity; the composed menu says so, with each
+    applet's callbacks under the shared label and one Details entry.
+    """
+
+    def test_two_applets_in_one_session_share_one_submenu(self) -> None:
+        pid = 12345
+        beads = SessionCallback(id="beads", label="Beads")
+        vox = SessionCallback(id="music", label="Music")
+
+        menus = _menus(
+            ("beads", _applet_session(pid, "lux-beads", beads)),
+            ("vox", _applet_session(pid, "vox-panel", vox)),
+        )
+
+        # One submenu, both applets' callbacks together, one Details.
+        assert _labels_under(_clients_menu(menus)) == ["lux"]
+        assert _labels_under(_submenu(menus, "lux")) == ["Beads", "Music", "Details"]
+
+    def test_two_applets_in_one_session_route_clicks_to_their_own_connection(
+        self,
+    ) -> None:
+        """A leaf carries the connection of the applet that registered it."""
+        pid = 12345
+        beads_conn, vox_conn = ConnectionId("beads"), ConnectionId("vox")
+
+        menus = _menus(
+            (
+                "beads",
+                _applet_session(
+                    pid, "lux-beads", SessionCallback(id="beads", label="Beads")
+                ),
+            ),
+            (
+                "vox",
+                _applet_session(
+                    pid, "vox-panel", SessionCallback(id="music", label="Music")
+                ),
+            ),
+        )
+
+        items = _submenu(menus, "lux").items
+        by_label = {item.label: item for item in items if isinstance(item, MenuAction)}
+        assert by_label["Beads"].id == CallbackInvocation(beads_conn, "beads").menu_id
+        assert by_label["Music"].id == CallbackInvocation(vox_conn, "music").menu_id
+
+    def test_details_aims_at_the_senior_member(self) -> None:
+        """The Details entry points at the first-registered applet's connection."""
+        pid = 12345
+        beads_conn = ConnectionId("beads")
+
+        menus = _menus(
+            (
+                "beads",
+                _applet_session(pid, "lux-beads", SessionCallback(id="b", label="B")),
+            ),
+            (
+                "vox",
+                _applet_session(pid, "vox-panel", SessionCallback(id="m", label="M")),
+            ),
+        )
+
+        details = _submenu(menus, "lux").items[-1]
+        assert isinstance(details, MenuAction)
+        assert details.id == CallbackInvocation.details(beads_conn).menu_id
+
+    def test_two_different_sessions_are_still_two_submenus(self) -> None:
+        """DES-064's collision-numbering stays for its designed case."""
+        beads = SessionCallback(id="b", label="B")
+
+        menus = _menus(
+            ("a", _applet_session(0xAAAA, "lux-beads", beads)),
+            ("b", _applet_session(0xBBBB, "lux-beads", beads)),
+        )
+
+        assert _labels_under(_clients_menu(menus)) == ["lux", "lux (2)"]
 
 
 class TestTheReplica:

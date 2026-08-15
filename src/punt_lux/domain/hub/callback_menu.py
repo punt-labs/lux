@@ -1,31 +1,29 @@
 """Build the Clients menu from the live Hub sessions.
 
-The menu nests one way and one way only: ``Clients ▸ <client> ▸ <command>``. One
-``Clients`` menu holds one submenu per live client that registered a callback,
-named for the client, with that client's commands as the leaves under it. The
-rule is uniform — voxd, a session's applet, and an on-demand tool are all clients
-and all read the same way, whatever their kind and however many there are — so
-there is no case logic, no count threshold, and no species split for a user to
-carry. Two clients are never merged: each is its own submenu.
+The menu nests one way and one way only: ``Clients ▸ <submenu> ▸ <command>``.
+One ``Clients`` menu holds one submenu per group of live clients that
+registered a callback: usually one session, but two applets in one Claude
+Code session share a submenu (DES-067) so a user reads the session as one
+entity. Otherwise the rule is uniform — voxd, an on-demand tool, an MCP
+session are all clients and all read the same way — with the DES-064
+collision-numbering telling two different submenus of the same name apart.
 
-The menu is the live roster made visible. An entry exists exactly while its
-registrant holds a lease — presence of those who registered, not of every
-connection; a cli invocation's short lease passes without touching the bar — so
-the same menu that launches a command also answers who is there to run one.
+The menu is the live roster made visible. A submenu exists exactly while at
+least one of its members holds a lease — presence of those who registered,
+not of every connection; a cli invocation's short lease passes without
+touching the bar.
 
-The hierarchy is what tells clients apart, so the labels stop trying to. A client
-is named for the repository it works in (:attr:`ClientIdentity.menu_label`),
-numbered by the roster when two read the same way, rather than for the
-connection-distinctness token an applet's declared name carries; and a leaf is
-named for the command alone — ``Beads``, not ``lux · lux · #4b97 Beads``.
+The hierarchy is what tells clients apart, so the labels stop trying to. A
+submenu is named for the repository its clients work in
+(:attr:`ClientIdentity.menu_label`); a leaf is named for the command alone
+— ``Beads``, not ``lux · lux · #4b97 Beads``.
 
-Every client's submenu carries the Hub's own ``Details`` command below its own
-commands, which reports the state of that connection. The wire identity a label
-no longer shows is not lost — it moves there, where state belongs.
-
-A leaf's id is the owning connection and the callback joined into one wire id
-(:class:`CallbackInvocation`), so a click on the leaf round-trips to exactly the
-client that registered it — or, for ``Details``, to the Hub itself.
+Every submenu carries the Hub's own ``Details`` command below its own
+entries; it points at the senior member of the group, whose connection
+state stands in for the whole session. A leaf's id is the owning connection
+and the callback joined into one wire id (:class:`CallbackInvocation`), so
+a click on a leaf round-trips to exactly the applet that registered it —
+even when its sibling registered the entry next to it.
 """
 
 from __future__ import annotations
@@ -60,20 +58,16 @@ class CallbackMenu:
 
         Naming and membership answer different questions, and the read this is
         given has already answered the first. Every live *identified* client is
-        named, whether or not it holds a command right now; only those holding one
-        get a submenu. A client that re-attaches its leg loses its callbacks for
-        the moment between the attach and its re-registration, and keying the names
-        on registration would release its name in that window and renumber it on
-        the next read — the rename under the pointer the numbering exists to
-        prevent.
+        named, whether or not it holds a command right now; only those holding
+        one get a submenu, and sibling applets in one session get one submenu
+        together (DES-067).
 
-        With no client holding a command there is no menu at all, because the menu
-        is composed from clients rather than kept as an empty fixture. Submenus are
-        ordered by label so the bar is stable across reads.
+        With no client holding a command there is no menu at all, because the
+        menu is composed from clients rather than kept as an empty fixture.
+        Submenus are ordered by label so the bar is stable across reads.
         """
         return cls._clients_menu(
-            ClientSubmenu(client.connection_id, client.name, client.callbacks)
-            for client in clients.commanding()
+            ClientSubmenu.of(group) for group in clients.commanding_groups()
         )
 
     @staticmethod
