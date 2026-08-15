@@ -5641,17 +5641,23 @@ identity — the `name` field is `f"lux · {repo} · #{session_pid:x} ·
 {program}"` per the `lux-e6i4` fix, so the pid is the third
 `·`-separated token. Two paths:
 
-1. **Parse it out of `name` at grouping time.** No wire change; one
-   small string-parse local to `MenuManager` or an `AppletIdentity`
-   helper. Robust against a future rename of the field.
+1. **Parse it out of `name` at grouping time.** No wire change; the
+   parser is a `@classmethod` on `AppletIdentity` itself, colocated
+   with the constructor that builds the string. The parser is coupled
+   to the `name` format — that coupling is real, not evaded — but the
+   format and the parser live on the same class, so a format change
+   lands its parser change in the same commit. A round-trip test
+   (`from_program_and_pid(...) → name → parse → assert equal`) pins
+   the coupling and fails loud if either half moves alone. Callers
+   (`MenuManager`) call the classmethod and never touch the string.
 2. **Add `session_pid: int | None` as a first-class field on
    `ClientIdentity`.** Declarative, one place to validate, no
    parsing. Cost: a wire-format change every client observes, and a
    second cross-repo coordination window with vox and z-spec.
 
-Prefer (1) as the shipping shape and add the parser as a private
-`@classmethod` on `AppletIdentity` (`AppletIdentity.session_pid_of(client)`
-or similar) so `MenuManager` never touches the string directly. (2) is
+Prefer (1) as the shipping shape — the coupling is contained on one
+class and pinned by a round-trip test, and no other repo has to
+coordinate a wire bump for a purely internal grouping change. (2) is
 the right long-term shape when the next reason to bump the wire
 contract shows up — carry it then, not for this alone. The
 `no-shims-no-migration` standard applies either way; both alternatives
