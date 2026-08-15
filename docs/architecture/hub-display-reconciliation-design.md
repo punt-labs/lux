@@ -282,14 +282,36 @@ cohesive rather than starting a same-purpose sibling module.
 **1. `ConnectMessage` gains a `kind` field.**
 
 ```python
-kind: Literal["hub", "direct"] = "direct"
+kind: Literal["hub", "test"]  # no default — every caller declares explicitly
 ```
 
-Default `"direct"` preserves every existing caller's behavior exactly —
-tests, CLI probes, and any future non-Hub identify never trigger
-preemption or reconciliation. `ClientRegistry` (`domain/hub/clients.py`)
-is the one production call site that constructs the identity `luxd` sends;
-it changes to declare `kind="hub"`.
+**Two variants, no default.** Every connection to the Display socket
+declares its intent at identify time. `"hub"` is the writer identity
+(singleton per name, preemption applies, manifest processed,
+`SceneMessage` accepted) — the only caller is `luxd`'s
+`ClientRegistry` (`domain/hub/clients.py`). `"test"` is the
+read-only observer identity — the introspection request types
+(`IntrospectRequest`, `ListScenesRequest`, `ScreenshotRequest`,
+`QueryRequest`, and any future sibling in
+`protocol/messages/introspect.py`) are accepted; any `SceneMessage` from
+a test fd is rejected with a named error surfaced to `list_errors`
+and the fd closed. The whitelist is "everything in the introspect
+module," not the specific class name `QueryRequest` — future
+introspect requests should not have to be re-whitelisted. A
+connection that omits `ConnectMessage` entirely, or attempts any
+other pre-scene traffic before it, is closed — no implicit default,
+no ambiguous kind.
+
+The absence of a `"direct"` writer variant is deliberate and reflects
+the target architecture. `target.md` describes exactly one path in:
+"Clients submit UI to the Hub." Nothing in that document contemplates
+a client talking to the Display directly. The only legitimate writer
+to the Display socket is
+`luxd`; the only legitimate non-writer is a read-only inspector.
+Anything else (an old-style `LuxClient` connecting straight to the
+socket and pushing scenes the Hub never sees — the bug named in
+`lux-s4wg`) was silently accepted before this design and is loudly
+rejected after it. **This design closes `lux-s4wg` as a side effect.**
 
 **2. A new `HubManifestMessage`, in the same module.**
 
@@ -381,19 +403,73 @@ procedural shape and leave the corner exactly as procedural as before.
 
 ## The client-identity dimension
 
-**Scoped in, deliberately narrow.** The `kind`/`name` pair on
-`ConnectMessage` is a *new*, minimal identity dimension that exists purely
-on the Hub↔Display socket leg. It is not the same thing as DES-057's
-`ClientIdentity` (`kind: "mcp-session" | "cli" | "applet" | "app"`), and I
-am not merging them. DES-057 identifies *who is talking to the Hub* — many
+**Two variants, no default, and no writer beyond `"hub"`.** The
+`kind`/`name` pair on `ConnectMessage` is a *new*, minimal identity
+dimension that exists purely on the Hub↔Display socket leg. It has
+exactly two values: `"hub"` (the writer, singleton per name, only
+legitimate producer of `SceneMessage`) and `"test"` (a read-only
+observer, needed today only so tests can inspect a running Display
+without spinning up a whole Hub around it). There is no third writer
+variant. Per `target.md`, the Display serves exactly one producer —
+`luxd` — and nothing else has any legitimate reason to push scenes
+directly. Anything that tried before this design was silently accepted
+(bug: `lux-s4wg`); after it, any `SceneMessage` from a non-`"hub"` fd
+is rejected loudly.
+
+The `"test"` name is deliberate: it announces what the mode IS,
+namely a test-only backdoor. A production caller declaring
+`kind="test"` reads as wrong at the call site instead of blending in
+as an ambiguous "option." Alternative names like `"direct"` were
+rejected precisely because they sound like a supported connection
+mode — they aren't.
+
+**Every `"test"` connect logs to the display log at WARNING**, with
+the peer's pid where available (via the repo's existing
+`SocketOwner` class in `src/punt_lux/socket_owner.py`, which uses
+`LOCAL_PEERPID` on macOS and `SO_PEERCRED` on Linux; unavailable on
+other platforms). The message is a
+single line naming the fd, the pid, and the `ConnectMessage.name`:
+
+```text
+test-kind connect: fd=N pid=P name=… — read-only path; not a supported production mode
+```
+
+WARNING is the right level for two reasons: it stands out among the
+INFO chatter that dominates the display log at default settings, and
+it survives a raised log threshold (an operator who quiets the log to
+WARNING+ still sees these) that INFO would not. An accidental
+production caller declaring `kind="test"` is therefore visible in
+`/tmp/lux-$USER/display.sock.log` (the display's log file, per this
+repo's Logging convention) without needing to enable DEBUG and
+without being drowned out by normal INFO traffic. Tests
+running against a real Display leave an audit trail; anything in
+production leaves a loud one.
+
+Any `SceneMessage` from a `"test"` fd logs a second WARNING before
+the rejection lands:
+
+```text
+test-kind fd=N attempted SceneMessage; rejecting and closing
+```
+
+...and surfaces to `list_errors` (already the introspection contract
+for a rejected wire message). Two independent records — display log
+and list_errors — because the two surfaces serve different readers:
+the log is durable and grep-able for post-hoc audit; `list_errors` is
+an agent-queryable ring for live introspection.
+
+This identity is not the same thing as DES-057's `ClientIdentity`
+(`kind: "mcp-session" | "cli" | "applet" | "app"`), and I am not
+merging them. DES-057 identifies *who is talking to the Hub* — many
 distinct agents, sessions, and applets, aggregated by the one Hub. The
 identity this design adds identifies *who is talking to the Display* —
-which, in the current architecture, is always exactly one thing: `luxd`
-itself, representing the aggregate of everyone DES-057 already
-distinguishes. Conflating the two would require every scene crossing the
-Hub→Display leg to carry its original DES-057 owner's identity all the way
-through, so the Display could do per-DES-057-identity purge scoping — a
-materially bigger change, useful only once a second, independent Hub
+which, in the current architecture, is always exactly one writer
+(`luxd`, representing the aggregate of everyone DES-057 already
+distinguishes) plus a bounded set of read-only test observers.
+Conflating the two would require every scene crossing the Hub→Display
+leg to carry its original DES-057 owner's identity all the way
+through, so the Display could do per-DES-057-identity purge scoping —
+a materially bigger change, useful only once a second, independent Hub
 process exists to purge separately from the first. That is explicitly
 **future** scope (target.md's "maximum scope: many users with many
 agent/app UIs aggregated by one Hub"), not `lux-e9vy`'s scope.
@@ -517,8 +593,8 @@ rather than as another round of empirical testing.
 existing `hub_replicator.tex` / `hub_replicator_coverage.md` pair):**
 
 - **Carrier:** a small bounded set of connection ids (2–3, enough to model
-  "old Hub fd," "new Hub fd," and one unrelated `kind="direct"` connection)
-  and a small bounded set of scene ids (2–3).
+  "old Hub fd," "new Hub fd," and one unrelated `kind="test"` read-only
+  connection) and a small bounded set of scene ids (2–3).
 - **State schema:** `hubOwner : CONNECTION_ID` (partial — the connection
   currently holding `kind="hub"`, or undefined), `sceneOwner : SCENE_ID
   ⇸ CONNECTION_ID` (partial function; an orphan is simply absent from the
