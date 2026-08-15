@@ -221,3 +221,16 @@ class TestConnectAndReconcile:
         registry.get()  # must not raise despite no attach_replicator call
 
         assert fake.manifests_sent == [()]
+
+
+def test_the_composition_root_wires_client_registry_to_the_real_replicator() -> None:
+    """``replicator_instance`` attaches itself at import time, not left null.
+
+    The production ``client_registry`` singleton is built before
+    ``hub_replicator`` exists; this proves the bootstrap gap actually closes,
+    not just that ``attach_replicator`` works when called directly.
+    """
+    from punt_lux.domain.hub.clients import client_registry
+    from punt_lux.domain.hub.replicator_instance import hub_replicator
+
+    assert client_registry._marker is hub_replicator  # test-only introspection

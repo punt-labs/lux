@@ -46,3 +46,9 @@ hub_replicator = HubReplicator(
     cast("ClientProvider", client_registry),
     DisplayPaths(),
 )
+
+# Closes the bootstrap ordering gap: client_registry (clients.py) is built
+# before this replicator exists, so its connect-success hook (DES-068)
+# starts with a no-op marker until this wiring runs, right here at import
+# time, before any surface starts serving.
+client_registry.attach_replicator(hub_replicator)

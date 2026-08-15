@@ -9,6 +9,17 @@ back blank is fully repainted — scenes, the old clear, and the agent bar alike
 If the heal itself cannot complete — an unspawnable display, a refused reconnect
 — the worker instead restores the exact batch and backs off. ``restore`` is that
 path: it puts the drained work back so nothing is lost.
+
+Deliberately not folded into ``ClientRegistry._connect_and_reconcile``
+(DES-068), which also declares a manifest and marks the same scenes dirty on
+every fresh Hub-kind connect: that hook is a concrete production detail,
+invisible to the ``ClientProvider``/``DisplayLifecycle`` ports this class is
+written against and tested here with fakes for. Folding ``_remark`` into it
+would make this class's own repaint guarantee depend on which concrete
+provider happens to be wired in. The two marks read the same
+``live_scene_ids()`` source of truth and can never disagree, so the overlap
+for the paths that route through ``ClientRegistry`` is a harmless, idempotent
+double-mark, not a second copy of policy that could drift.
 """
 
 from __future__ import annotations
