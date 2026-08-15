@@ -1,9 +1,11 @@
 """MenuGroupKey — the submenu one connection contributes to (DES-067).
 
-An applet connection groups by ``(menu_label, session_pid)``; every other kind
-is its own group keyed by connection id. Two applet connections in one session
+An applet connection groups by ``(repo, session_pid)``; every other kind is
+its own group keyed by connection id. Two applet connections in one session
 compare equal; two applet connections in different sessions do not; two
-identical labels across different kinds are not one submenu either.
+identical labels across different kinds are not one submenu either. Headless
+applets (``repo=None``) group across siblings in one session and stay
+distinct across sessions.
 """
 
 from __future__ import annotations
@@ -20,9 +22,18 @@ if TYPE_CHECKING:
     import pytest
 
 
-def _applet(pid: int, program: str, *, repo: str = "/w/lux") -> ClientIdentity:
+def _applet(
+    pid: int,
+    program: str,
+    *,
+    # None models the headless applet path: ClientIdentity allows the absence,
+    # and MenuGroupKey.of substitutes "" so siblings in one headless session
+    # still share a key.
+    repo: str | None = "/w/lux",
+) -> ClientIdentity:
+    repo_name = repo.rsplit("/", 1)[-1] if repo else "lux"
     return ClientIdentity(
-        kind="applet", name=format_name("lux", pid, program), repo=repo
+        kind="applet", name=format_name(repo_name, pid, program), repo=repo
     )
 
 
@@ -72,6 +83,41 @@ class TestNonApplet:
 
         assert MenuGroupKey.of(ConnectionId("a"), voxd) != MenuGroupKey.of(
             ConnectionId("b"), voxd
+        )
+
+
+class TestHeadlessApplet:
+    """A headless applet (``repo=None``) still groups by session across siblings.
+
+    ``menu_label`` falls back to the four-part ``name`` when ``repo`` is
+    absent, and the name carries the program token — so two siblings would
+    read as two different labels and split. Keying on ``repo`` directly
+    (empty string for absent) keeps them under one submenu.
+    """
+
+    def test_two_headless_applets_in_one_session_share_a_key(self) -> None:
+        beads = _applet(12345, "lux-beads", repo=None)
+        vox = _applet(12345, "vox-panel", repo=None)
+
+        assert MenuGroupKey.of(ConnectionId("a"), beads) == MenuGroupKey.of(
+            ConnectionId("b"), vox
+        )
+
+    def test_two_headless_applets_in_different_sessions_do_not_share(self) -> None:
+        first = _applet(111, "lux-beads", repo=None)
+        second = _applet(222, "lux-beads", repo=None)
+
+        assert MenuGroupKey.of(ConnectionId("a"), first) != MenuGroupKey.of(
+            ConnectionId("b"), second
+        )
+
+    def test_a_headless_and_a_repo_applet_do_not_share(self) -> None:
+        """A headless session and a repo session don't accidentally merge."""
+        headless = _applet(12345, "lux-beads", repo=None)
+        repoed = _applet(12345, "lux-beads", repo="/w/lux")
+
+        assert MenuGroupKey.of(ConnectionId("a"), headless) != MenuGroupKey.of(
+            ConnectionId("b"), repoed
         )
 
 

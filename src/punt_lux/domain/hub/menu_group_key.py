@@ -5,8 +5,15 @@ applets and one for everything else. An applet is bound to a Claude Code
 session, and one session may run more than one applet — ``lux-beads`` and
 a tool's own applet both alive under the same process — that a person
 reads as one session in the bar. Two applet connections sharing
-``(menu_label, session_pid)`` share a submenu, so their key compares
-equal. Every other kind is its own submenu, keyed by connection id.
+``(repo, session_pid)`` share a submenu, so their key compares equal.
+Every other kind is its own submenu, keyed by connection id.
+
+Repo is the declared path — the same field ``menu_label`` derives its
+label from — rather than ``menu_label`` itself, so a headless applet
+(``repo=None``) with two siblings under one session still groups: its
+``menu_label`` falls back to the four-part ``name`` (which carries the
+program token and so differs between siblings), and keying on that
+would split what belongs together.
 
 The key is what the roster names and what the composition iterates
 (DES-067). The prior rule — group by ``menu_label`` alone — over-fired
@@ -59,7 +66,7 @@ class MenuGroupKey:
         if identity.kind == "applet":
             pid = applet_name_format.session_pid_from_name(identity.name)
             if pid is not None:
-                return cls((_APPLET_TAG, identity.menu_label, format(pid, "x")))
+                return cls((_APPLET_TAG, identity.repo or "", format(pid, "x")))
             logger.warning(
                 "connection %s (identity %r) has an unparseable applet name %r; "
                 "grouping falls back to per-connection",
