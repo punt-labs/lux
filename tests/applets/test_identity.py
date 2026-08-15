@@ -15,6 +15,7 @@ import pytest
 
 from punt_lux.applets.identity import AppletIdentity
 from punt_lux.connection_identity import connection_for
+from punt_lux.domain.hub.applet_name_format import session_pid_from_name
 
 # A path with no ``.git`` in its ancestry — the repo's TMPDIR is inside this git
 # repo, so the headless cases patch ``cwd`` rather than using a temp directory.
@@ -146,3 +147,29 @@ def test_program_leading_trailing_whitespace_is_stripped(
     assert connection_for(padded.client.model_dump()) == connection_for(
         bare.client.model_dump()
     )
+
+
+class TestSessionPidRoundTrip:
+    """The pid the constructor embeds is the pid the parser recovers.
+
+    The parser is coupled to the ``name`` format the constructor writes: a
+    change to either half must land with the matching change to the other,
+    or these tests fail.
+    """
+
+    def test_recovers_the_pid_the_constructor_embedded(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.chdir(_make_repo(tmp_path, "lux"))
+        identity = AppletIdentity.for_session("lux-beads", 12345)
+
+        assert session_pid_from_name(identity.client.name) == 12345
+
+    def test_recovers_the_pid_across_the_full_hex_range(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The pid embeds as hex, so a large value must round-trip too."""
+        monkeypatch.chdir(_make_repo(tmp_path, "lux"))
+        identity = AppletIdentity.for_session("lux-beads", 0xDEADBEEF)
+
+        assert session_pid_from_name(identity.client.name) == 0xDEADBEEF

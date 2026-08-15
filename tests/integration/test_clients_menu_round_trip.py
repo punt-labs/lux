@@ -183,7 +183,9 @@ def _wired_with_two_clients() -> _Wired:
     wired = _Wired()
     wired.connect(
         _BEADS,
-        ClientIdentity(kind="applet", name="lux · lux · #4b97", repo="/w/lux"),
+        ClientIdentity(
+            kind="applet", name="lux · lux · #4b97 · lux-beads", repo="/w/lux"
+        ),
     )
     wired.connect(_VOXD, ClientIdentity(kind="app", name="voxd"))
     return wired
@@ -223,7 +225,7 @@ def test_a_details_click_is_answered_by_the_hub_with_that_clients_state(
     assert wired.woken(_BEADS) == 0
     beads = wired.scene_rows(_BEADS)
     assert beads["Client"] == "lux"
-    assert beads["Declared name"] == "lux · lux · #4b97"
+    assert beads["Declared name"] == "lux · lux · #4b97 · lux-beads"
     assert beads["Kind"] == "applet"
     assert beads["Repository"] == "/w/lux"
     voxd = wired.scene_rows(_VOXD)

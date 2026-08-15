@@ -72,9 +72,9 @@ class TestReadingANameInADiagnostic:
         assert repr(MenuName("lux", 2)) == "MenuName('lux', 2)"
 
 
-def _held(*holders: str) -> MenuNames:
+def _held(*holders: str) -> MenuNames[ConnectionId]:
     """Names for each of *holders*, all of one base, taken in the order given."""
-    names = MenuNames()
+    names: MenuNames[ConnectionId] = MenuNames()
     for holder in holders:
         names.take(ConnectionId(holder), "lux")
     return names
@@ -102,7 +102,7 @@ class TestTakingANameForAHolder:
         assert names.labels()[ConnectionId("b")] == "lux (2)"
 
     def test_holders_of_different_bases_never_number_each_other(self) -> None:
-        names = MenuNames()
+        names: MenuNames[ConnectionId] = MenuNames()
         names.take(ConnectionId("a"), "lux")
         names.take(ConnectionId("b"), "voxd")
 
@@ -150,7 +150,7 @@ class TestNobodyIsNumberedAgainstAFreeBase:
         which must then fall to the base that reads that way. Left in the held
         set, the vacated label would strand that client numbered against nobody.
         """
-        names = MenuNames()
+        names: MenuNames[ConnectionId] = MenuNames()
         names.take(ConnectionId("a"), "lux")
         names.take(ConnectionId("b"), "lux")
         names.take(ConnectionId("c"), "lux (2)")

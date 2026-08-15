@@ -9,6 +9,10 @@ details frame come to disagree about which client is ``lux (2)``.
 
 Only identified sessions are named: an anonymous session contributes nothing to
 the bar and takes no place in the numbering.
+
+Two sessions the roster gave the same name belong to one submenu (the DES-067
+grouping); :meth:`~NamedSessions.commanding_groups` yields them together so
+the composer builds one submenu with everybody's entries.
 """
 
 from __future__ import annotations
@@ -23,7 +27,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.session_callback import SessionCallback
     from punt_lux.domain.ids import ConnectionId
 
-__all__ = ["NamedSession", "NamedSessions"]
+__all__ = ["NamedGroup", "NamedSession", "NamedSessions"]
 
 
 @final
@@ -116,3 +120,43 @@ class NamedSessions:
             session = self._sessions[connection_id]
             if session.callbacks:
                 yield NamedSession(connection_id, name, session)
+
+    def commanding_groups(self) -> Iterator[NamedGroup]:
+        """Yield each submenu's members together, in the order they registered.
+
+        Sibling sessions the roster gave one name land in one group (DES-067):
+        two applets under one Claude Code session render as one submenu with
+        the callbacks of both. A non-applet appears as a one-member group. The
+        first-registered member of a group is its senior — the connection the
+        Hub's own commands (Details) point at.
+        """
+        groups: dict[str, list[NamedSession]] = {}
+        for named in self.commanding():
+            groups.setdefault(named.name, []).append(named)
+        for name, members in groups.items():
+            yield NamedGroup(name, tuple(members))
+
+
+@final
+class NamedGroup:
+    """One submenu's members: everyone the roster called by the same name."""
+
+    _name: str
+    _members: tuple[NamedSession, ...]
+    __slots__ = ("_members", "_name")
+
+    def __new__(cls, name: str, members: tuple[NamedSession, ...]) -> Self:
+        self = super().__new__(cls)
+        self._name = name
+        self._members = members
+        return self
+
+    @property
+    def name(self) -> str:
+        """What the menu calls this submenu."""
+        return self._name
+
+    @property
+    def members(self) -> tuple[NamedSession, ...]:
+        """Every named session in this submenu, in the order they registered."""
+        return self._members
