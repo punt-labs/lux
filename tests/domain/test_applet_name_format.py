@@ -8,8 +8,6 @@ to the format lands both halves at once, and the round-trip test in
 
 from __future__ import annotations
 
-import pytest
-
 from punt_lux.domain.hub.applet_name_format import format_name, session_pid_of
 from punt_lux.domain.hub.client_identity import ClientIdentity
 
@@ -40,16 +38,14 @@ class TestSessionPidOf:
             client = ClientIdentity(kind=kind, name="not-an-applet")
             assert session_pid_of(client) is None
 
-    def test_a_malformed_applet_name_is_rejected(self) -> None:
+    def test_a_malformed_applet_name_has_no_pid(self) -> None:
         malformed = ClientIdentity(kind="applet", name="not-four-parts", repo="/w/lux")
-        with pytest.raises(ValueError, match="malformed applet name"):
-            session_pid_of(malformed)
+        assert session_pid_of(malformed) is None
 
-    def test_a_non_hex_pid_is_rejected(self) -> None:
+    def test_a_non_hex_pid_has_no_pid(self) -> None:
         malformed = ClientIdentity(
             kind="applet",
             name="lux · lux · #xyz · lux-beads",
             repo="/w/lux",
         )
-        with pytest.raises(ValueError, match="malformed applet name"):
-            session_pid_of(malformed)
+        assert session_pid_of(malformed) is None

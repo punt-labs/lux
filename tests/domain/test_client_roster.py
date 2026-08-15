@@ -18,6 +18,7 @@ picture of who was live a moment ago — can take a name away or promote anybody
 
 from __future__ import annotations
 
+from punt_lux.domain.hub.applet_name_format import format_name
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.client_roster import ClientRoster
 from punt_lux.domain.ids import ConnectionId
@@ -29,6 +30,15 @@ def _identity(name: str, repo: str | None = None) -> ClientIdentity:
 
 def _lux() -> ClientIdentity:
     return _identity("claude", "/Users/someone/lux")
+
+
+_LUX_REPO = "/Users/someone/lux"
+
+
+def _applet(pid: int, program: str, *, repo: str = _LUX_REPO) -> ClientIdentity:
+    return ClientIdentity(
+        kind="applet", name=format_name("lux", pid, program), repo=repo
+    )
 
 
 class TestNaming:
@@ -349,3 +359,98 @@ class TestWhatIsHeld:
 
     def test_nothing_named_yet_holds_nothing(self) -> None:
         assert ClientRoster().held() == {}
+
+
+class TestAppletGrouping:
+    """DES-067: two applets in one session share one name, one submenu.
+
+    The DES-064 numbering keeps firing between different submenus that read
+    the same way; it stops firing between two applets of one session, which
+    the user reads as one entity.
+    """
+
+    def test_two_applets_in_one_session_share_a_name(self) -> None:
+        roster = ClientRoster()
+        pid = 12345
+
+        names = roster.names_for(
+            {
+                ConnectionId("beads"): _applet(pid, "lux-beads"),
+                ConnectionId("vox"): _applet(pid, "vox-panel"),
+            }
+        )
+
+        assert names[ConnectionId("beads")] == "lux"
+        assert names[ConnectionId("vox")] == "lux"
+
+    def test_two_applets_in_different_sessions_are_still_numbered(self) -> None:
+        """DES-064's rule stays for its designed case."""
+        roster = ClientRoster()
+
+        names = roster.names_for(
+            {
+                ConnectionId("a"): _applet(111, "lux-beads"),
+                ConnectionId("b"): _applet(222, "lux-beads"),
+            }
+        )
+
+        assert sorted(names.values()) == ["lux", "lux (2)"]
+
+    def test_a_group_and_a_lone_session_are_numbered_together(self) -> None:
+        """Session-A's two applets + session-B's applet = lux and lux (2)."""
+        roster = ClientRoster()
+
+        names = roster.names_for(
+            {
+                ConnectionId("a-beads"): _applet(0xAAAA, "lux-beads"),
+                ConnectionId("a-vox"): _applet(0xAAAA, "vox-panel"),
+                ConnectionId("b-beads"): _applet(0xBBBB, "lux-beads"),
+            }
+        )
+
+        assert names[ConnectionId("a-beads")] == "lux"
+        assert names[ConnectionId("a-vox")] == "lux"
+        assert names[ConnectionId("b-beads")] == "lux (2)"
+
+    def test_releasing_one_sibling_leaves_the_group_named(self) -> None:
+        """A group's name lives as long as any of its connections is here."""
+        roster = ClientRoster()
+        pid = 12345
+        roster.names_for(
+            {
+                ConnectionId("beads"): _applet(pid, "lux-beads"),
+                ConnectionId("vox"): _applet(pid, "vox-panel"),
+            }
+        )
+
+        roster.release([ConnectionId("beads")])
+
+        assert roster.held() == {ConnectionId("vox"): "lux"}
+
+    def test_releasing_the_last_sibling_frees_the_group_base(self) -> None:
+        """A different session numbered against the group falls back once empty."""
+        roster = ClientRoster()
+        roster.names_for(
+            {
+                ConnectionId("a-beads"): _applet(0xAAAA, "lux-beads"),
+                ConnectionId("a-vox"): _applet(0xAAAA, "vox-panel"),
+                ConnectionId("b-beads"): _applet(0xBBBB, "lux-beads"),
+            }
+        )
+
+        roster.release([ConnectionId("a-beads"), ConnectionId("a-vox")])
+
+        assert roster.held() == {ConnectionId("b-beads"): "lux"}
+
+    def test_a_non_applet_never_joins_an_applet_group(self) -> None:
+        """A kind that is not ``applet`` is its own submenu, whatever it reads as."""
+        roster = ClientRoster()
+
+        names = roster.names_for(
+            {
+                ConnectionId("applet"): _applet(12345, "lux-beads"),
+                ConnectionId("mcp"): _lux(),
+            }
+        )
+
+        assert sorted(names.values()) == ["lux", "lux (2)"]

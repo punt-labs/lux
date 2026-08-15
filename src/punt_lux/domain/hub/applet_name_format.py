@@ -13,36 +13,35 @@ alone.
 
 from __future__ import annotations
 
+import re
+
 from punt_lux.domain.hub.client_identity import ClientIdentity
 
 __all__ = ["format_name", "session_pid_of"]
 
+# The write and read patterns of one format. Both fail together if the format
+# changes without updating each constant here.
 _SEPARATOR = " · "
-_PID_PART_INDEX = 2
-_PID_PART_PREFIX = "#"
-_PART_COUNT = 4
+_PID_PREFIX = "#"
+_APPLET_NAME_RE = re.compile(r"^lux · [^·]+ · #(?P<pid>[0-9a-fA-F]+) · [^·]+$")
 
 
 def format_name(repo_name: str, session_pid: int, program: str) -> str:
     """Return the applet name for *repo_name*, *session_pid*, and *program*."""
-    parts = ("lux", repo_name, f"{_PID_PART_PREFIX}{session_pid:x}", program)
+    parts = ("lux", repo_name, f"{_PID_PREFIX}{session_pid:x}", program)
     return _SEPARATOR.join(parts)
 
 
 def session_pid_of(client: ClientIdentity) -> int | None:
-    """Return the applet's session pid, or ``None`` for a non-applet.
+    """Return the applet's session pid, or ``None`` when it carries none.
 
-    Only an applet is named ``lux · <repo> · #<pid> · <program>``, so a
-    non-applet returns ``None`` — the documented absence the menu-grouping
-    composer skips on. An applet whose name does not parse raises
-    :class:`ValueError` rather than silently mis-group.
+    ``None`` covers the two absences that both mean "no session grouping":
+    a non-applet kind (which is never named ``lux · <repo> · #<pid> ·
+    <program>``), and an applet whose declared name does not parse. The
+    grouping composer treats both the same way — the connection is its own
+    submenu — so a pre-format applet identity does not crash the menu.
     """
     if client.kind != "applet":
         return None
-    parts = client.name.split(_SEPARATOR)
-    pid_part = parts[_PID_PART_INDEX] if len(parts) == _PART_COUNT else ""
-    try:
-        return int(pid_part.removeprefix(_PID_PART_PREFIX), 16)
-    except ValueError as exc:
-        msg = f"malformed applet name: {client.name!r}"
-        raise ValueError(msg) from exc
+    match = _APPLET_NAME_RE.match(client.name)
+    return int(match.group("pid"), 16) if match is not None else None

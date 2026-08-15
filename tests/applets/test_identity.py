@@ -181,18 +181,16 @@ class TestSessionPidRoundTrip:
             client = ClientIdentity(kind=kind, name="not-an-applet")
             assert AppletIdentity.session_pid_of(client) is None
 
-    def test_a_malformed_applet_name_is_rejected(self) -> None:
-        """A broken constructor invariant surfaces at the parse, not silently."""
+    def test_a_malformed_applet_name_has_no_session_pid(self) -> None:
+        """An unparseable applet name falls back to per-connection grouping."""
         malformed = ClientIdentity(kind="applet", name="not-four-parts", repo="/w/lux")
-        with pytest.raises(ValueError, match="malformed applet name"):
-            AppletIdentity.session_pid_of(malformed)
+        assert AppletIdentity.session_pid_of(malformed) is None
 
-    def test_a_non_hex_pid_is_rejected(self) -> None:
-        """The pid is embedded as hex; a non-hex value is malformed at the source."""
+    def test_a_non_hex_pid_has_no_session_pid(self) -> None:
+        """The pid must be hex; a non-hex value contributes no grouping."""
         malformed = ClientIdentity(
             kind="applet",
             name="lux · lux · #xyz · lux-beads",
             repo="/w/lux",
         )
-        with pytest.raises(ValueError, match="malformed applet name"):
-            AppletIdentity.session_pid_of(malformed)
+        assert AppletIdentity.session_pid_of(malformed) is None

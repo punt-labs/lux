@@ -1,42 +1,34 @@
 """ClientRoster — the names the menu calls the display's clients.
 
 A client's menu name is what a person would call it: the repository it works in,
-or what it calls itself when it works in none. Two clients often answer to the
-same name — two Claude Code sessions on one repository — so the second is
-``lux (2)``, the third ``lux (3)``. Which name that is at any moment is
-:class:`~punt_lux.domain.hub.menu_name.MenuNames`; who is entitled to one, and
-when it is given up, is here.
+or what it calls itself when it works in none. Two submenus that read the same
+way are told apart with a number, so the second is ``lux (2)`` and the third
+``lux (3)``.
 
-A number lasts only while there is another client to be told apart from, so
-releasing a name hands the base it frees back to a client still numbered against
-it: ``lux (2)`` left alone is simply ``lux`` again. Nothing else moves a label —
-while two clients of one name are both here neither is renamed and the two never
-swap — because a removal is the only thing that re-derives anything, and a menu
-entry that renames itself under the pointer is worse than the gap a fallback
-leaves in the numbering.
+Naming is per submenu, not per connection. Two applet connections in one Claude
+Code session — ``lux-beads`` and a tool's own applet under the same process —
+share a :class:`MenuGroupKey`, so they share one name and contribute one
+submenu (DES-067). Every other kind is its own submenu, keyed by connection
+id. The DES-064 collision-numbering still fires between two DIFFERENT sessions
+in the same repo, which are still ``lux`` and ``lux (2)``.
 
-Nothing here decides that a connection has gone, and nothing here can. The roster
-is never handed a picture of who is live, so it has no way to conclude from one
-that a connection it cannot see has departed: :meth:`names_for` only ever adds.
-A name is dropped by :meth:`release`, called by
-:class:`~punt_lux.domain.hub.hub_clients.HubClientRegistry` from the two places a
-session is actually removed — the lease sweep and an explicit discard — naming
-the connections that went. A reader whose picture of the world is a moment old
-therefore cannot destroy a name a fresher reader has just handed out, nor promote
-anybody, because releasing is not something a reader does at all.
+A number lasts only while there is another submenu to be told apart from, so
+releasing the last connection of a group hands its base back to a survivor
+still numbered against it. Nothing else moves a label; a menu entry that
+renamed itself under the pointer would be worse than the gap a fallback
+leaves.
 
-The roster holds no lock and needs none. The registry owns it, is its only
-caller, and makes every one of those calls under its own lock, beside the
-sessions the names belong to. One lock over the names and the sessions together
-keeps the two from ever disagreeing, and it is what makes falling back safe here:
-a release and the re-derivation it triggers are one critical section, so the next
-read — the menu's, or a details frame's — sees the whole of it.
+Departure is told to the roster, never inferred by it. The registry names the
+connections it removed as it removes them, so nothing a reader hands over can
+take a name away or promote anybody. The roster holds no lock and needs none;
+the registry owns it and calls it under its own lock.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.domain.hub.menu_group_key import MenuGroupKey
 from punt_lux.domain.hub.menu_name import MenuNames
 
 if TYPE_CHECKING:
@@ -50,14 +42,16 @@ __all__ = ["ClientRoster"]
 
 @final
 class ClientRoster:
-    """The menu name each live connection holds, numbered only while twins are here."""
+    """The menu name each live connection holds, numbered only across submenus."""
 
-    _names: MenuNames
-    __slots__ = ("_names",)
+    _names: MenuNames[MenuGroupKey]
+    _key_of: dict[ConnectionId, MenuGroupKey]
+    __slots__ = ("_key_of", "_names")
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
         self._names = MenuNames()
+        self._key_of = {}
         return self
 
     def names_for(
@@ -65,30 +59,39 @@ class ClientRoster:
     ) -> dict[ConnectionId, str]:
         """Return the menu name of every given connection, assigning the new ones.
 
-        A connection that already holds a name keeps it; a new one takes the name
-        its identity reads as, numbered past whatever is already held. Connections
-        absent from *identities* mean nothing here: this call adds names and reads
-        names back, and nothing it is given takes a name away or moves one.
-
-        The order of *identities* decides who gets the unnumbered name when
-        several arrive together — the registry hands them over in connection
-        order, so the client that connected first is the plain ``lux``.
+        A connection already known keeps its group's name; a new one is placed
+        in its :class:`MenuGroupKey`, and a new group takes the lowest free
+        name for its label. Applet siblings in one session share a group, so
+        they return the same name (DES-067). Iteration order decides who gets
+        the unnumbered name when several arrive together.
         """
         for connection_id, identity in identities.items():
-            self._names.take(connection_id, identity.menu_label)
-        held = self._names.labels()
-        return {connection_id: held[connection_id] for connection_id in identities}
+            self._enrol(connection_id, identity)
+        return {cid: self._label_of(cid) for cid in identities}
 
     def release(self, departed: Iterable[ConnectionId]) -> None:
-        """Drop the names *departed* held and hand any freed base back to a survivor.
+        """Drop *departed* connections and free any group whose last member left.
 
-        The registry calls this as it removes the sessions, naming them; a
-        connection that held no name is no error, because a session may be swept
-        having never been identified and so never named. Removal is the one moment
-        a name may move, so the fallback happens here, in the same breath.
+        A group whose last connection departs frees its base, which is handed
+        on to a survivor still numbered against it. Releasing a connection the
+        roster never named is no error.
         """
-        self._names.drop(departed)
+        freed = {
+            k for cid in departed if (k := self._key_of.pop(cid, None)) is not None
+        }
+        self._names.drop(freed - set(self._key_of.values()))
 
     def held(self) -> dict[ConnectionId, str]:
         """The names held right now, as the last assignment or fallback left them."""
-        return self._names.labels()
+        labels = self._names.labels()
+        return {cid: labels[key] for cid, key in self._key_of.items()}
+
+    def _enrol(self, cid: ConnectionId, identity: ClientIdentity) -> None:
+        """Place *cid* in its group and take a name for that group if it is new."""
+        key = MenuGroupKey.of(cid, identity)
+        self._key_of.setdefault(cid, key)
+        self._names.take(key, identity.menu_label)
+
+    def _label_of(self, cid: ConnectionId) -> str:
+        """The label the roster has assigned to the group *cid* belongs to."""
+        return self._names.labels()[self._key_of[cid]]
