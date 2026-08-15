@@ -483,6 +483,34 @@ class TestAppletGrouping:
 
         assert _labels_under(_clients_menu(menus)) == ["lux", "lux (2)"]
 
+    def test_details_migrates_to_the_junior_when_the_senior_departs(self) -> None:
+        """When the senior is released, Details re-aims at the surviving junior.
+
+        Composition reads the group's members from a fresh roster each time,
+        so a release plus a fresh compose is atomic at the composition boundary
+        — no ghost Details entry surviving into the next paint. This proves the
+        rebuild path, not the display-side cached-menu window (that class is
+        deferred to a follow-up as its own concern).
+        """
+        pid = 12345
+        vox_conn = ConnectionId("vox")
+        roster = ClientRoster()
+        beads = ("beads", _applet_session(pid, "lux-beads", _beads()))
+        vox = (
+            "vox",
+            _applet_session(pid, "vox-panel", SessionCallback(id="m", label="M")),
+        )
+        # Compose once with both members so the group is named.
+        _menus(beads, vox, roster=roster)
+
+        # Senior departs; recompose with just the junior.
+        roster.release([ConnectionId("beads")])
+        menus = _menus(vox, roster=roster)
+
+        details = _submenu(menus, "lux").items[-1]
+        assert isinstance(details, MenuAction)
+        assert details.id == CallbackInvocation.details(vox_conn).menu_id
+
 
 class TestTheReplica:
     """What the replicator sends is the composed menu, as wire."""
