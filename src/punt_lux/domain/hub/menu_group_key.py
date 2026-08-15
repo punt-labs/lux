@@ -61,9 +61,10 @@ class MenuGroupKey:
             if pid is not None:
                 return cls((_APPLET_TAG, identity.menu_label, format(pid, "x")))
             logger.warning(
-                "applet identity %r has an unparseable name %r; "
+                "connection %s (identity %r) has an unparseable applet name %r; "
                 "grouping falls back to per-connection",
                 connection_id,
+                identity,
                 identity.name,
             )
         return cls((_CLIENT_TAG, str(connection_id)))

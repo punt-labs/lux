@@ -115,7 +115,8 @@ class TestFallbackWarning:
             MenuGroupKey.of(ConnectionId("a"), malformed)
 
         assert any(
-            "unparseable name" in record.message and record.levelno == logging.WARNING
+            "unparseable applet name" in record.message
+            and record.levelno == logging.WARNING
             for record in caplog.records
         )
 
