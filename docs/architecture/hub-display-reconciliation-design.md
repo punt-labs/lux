@@ -416,6 +416,28 @@ as an ambiguous "option." Alternative names like `"direct"` were
 rejected precisely because they sound like a supported connection
 mode — they aren't.
 
+**Every `"test"` connect logs to the display log at WARNING**, with
+the peer's pid where available (`SO_PEERCRED` on Linux; `getpeereid`
+on macOS/BSD; unavailable on other platforms). The message is a
+single line naming the fd, the pid, and the `ConnectMessage.name`:
+`"test-kind connect: fd=N pid=P name=… — read-only path; not a
+supported production mode"`. Making it WARNING rather than DEBUG or
+INFO ensures the exercise of this path is visible at the display
+log's default level (INFO), so an accidental production caller
+declaring `kind="test"` is visible in `~/.punt-labs/lux/logs/...` and
+`/tmp/lux-$USER/display.sock.log` without needing to enable DEBUG.
+Tests running against a real Display leave an audit trail; anything
+in production leaves a loud one.
+
+Any `SceneMessage` from a `"test"` fd logs a second WARNING before
+the rejection lands — `"test-kind fd=N attempted SceneMessage;
+rejecting and closing"` — and surfaces to `list_errors` (already the
+introspection contract for a rejected wire message). Two independent
+records — display log and list_errors — because the two surfaces
+serve different readers: the log is durable and grep-able for
+post-hoc audit; `list_errors` is an agent-queryable ring for live
+introspection.
+
 This identity is not the same thing as DES-057's `ClientIdentity`
 (`kind: "mcp-session" | "cli" | "applet" | "app"`), and I am not
 merging them. DES-057 identifies *who is talking to the Hub* — many
