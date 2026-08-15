@@ -12,10 +12,14 @@ from __future__ import annotations
 import logging
 import threading
 from collections.abc import Callable
-from typing import Self
+from typing import TYPE_CHECKING, Self
 
 from punt_lux.domain.hub.display_link import DisplayLink
+from punt_lux.domain.hub.hub_display import hub_display
 from punt_lux.domain.hub.hub_interaction_dispatch import HubInteractionDispatch
+
+if TYPE_CHECKING:
+    from punt_lux.domain.hub.replicator_ports import DirtyMarker
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +27,27 @@ __all__ = ["ClientRegistry", "client_registry"]
 
 # What luxd calls itself on the one socket connection it holds to the display.
 _DISPLAY_CLIENT_NAME = "lux-mcp"
+
+
+class _NullDirtyMarker:
+    """No-op marker held before the composition root wires the real replicator in.
+
+    ``ClientRegistry`` is a module-level singleton constructed before
+    ``HubReplicator`` exists (``replicator_instance.py`` builds the replicator
+    from this registry, not the reverse), so there is a real bootstrap window
+    with nothing to mark. Nothing connects during that window — the first
+    ``get()`` call happens only once a surface starts serving — so this never
+    actually fires in production; it exists so the registry always has a
+    collaborator to call rather than a ``None`` to check.
+    """
+
+    __slots__ = ()
+
+    def mark_dirty(self, scene_id: str) -> None:
+        """Do nothing — no replicator is wired in yet."""
+
+    def mark_menus(self) -> None:
+        """Do nothing — no replicator is wired in yet."""
 
 
 class ClientRegistry:
@@ -36,12 +61,14 @@ class ClientRegistry:
     _client: DisplayLink | None
     _lock: threading.RLock
     _apps_registered_for: int | None
+    _marker: DirtyMarker
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
         self._client = None
         self._lock = threading.RLock()
         self._apps_registered_for = None
+        self._marker = _NullDirtyMarker()
         return self
 
     @property
@@ -50,16 +77,25 @@ class ClientRegistry:
         per-session bookkeeping against connect / reconnect."""
         return self._lock
 
+    def attach_replicator(self, marker: DirtyMarker) -> None:
+        """Wire the replicator this registry marks dirty after a fresh connect.
+
+        Called once by the composition root right after the process-wide
+        replicator is built, so every subsequent connect declares the Hub's
+        current manifest and repaints it (DES-068).
+        """
+        self._marker = marker
+
     def get(self) -> DisplayLink:
         """Return a connected ``DisplayLink``, creating or reconnecting
         as needed. Holds ``_lock`` to prevent duplicate creation when
         called concurrently from the lifespan thread and MCP tool threads."""
         with self._lock:
             if self._client is None:
-                self._client = DisplayLink(name=_DISPLAY_CLIENT_NAME)
+                self._client = DisplayLink(name=_DISPLAY_CLIENT_NAME, kind="hub")
             self._setup_apps()
             if not self._client.is_connected:
-                self._client.connect()
+                self._connect_and_reconcile(self._client)
             if not self._client.listener_active:
                 self._client.start_listener()
             return self._client
@@ -87,12 +123,30 @@ class ClientRegistry:
                 if self._client is not None:
                     self._client.close()
                     try:
-                        self._client.connect()
+                        self._connect_and_reconcile(self._client)
                         self._client.start_listener()
                     except (OSError, RuntimeError) as reconnect_exc:
                         msg = f"Reconnect failed after connection loss: {reconnect_exc}"
                         raise RuntimeError(msg) from exc
                 return fn()
+
+    def _connect_and_reconcile(self, client: DisplayLink) -> None:
+        """Connect a fresh socket, then declare and repaint the Hub's holdings.
+
+        The one choke point every path that establishes a fresh low-level
+        connect runs through (DES-068's ``get()`` lazy connect and
+        ``with_reconnect``'s retry connect), so ``ConnectMessage`` and
+        ``HubManifestMessage`` are always sent together, in order, with no
+        call site able to forget the manifest. Also marks every manifested
+        scene (plus the menu) dirty so the fresh display gets its content
+        repainted, not just told what it should hold.
+        """
+        client.connect()
+        scene_ids = hub_display.live_scene_ids()
+        client.send_manifest(scene_ids)
+        for scene_id in scene_ids:
+            self._marker.mark_dirty(scene_id)
+        self._marker.mark_menus()
 
     def _setup_apps(self) -> None:
         """Wire the Hub-side dispatch for display clicks. Idempotent per client.
