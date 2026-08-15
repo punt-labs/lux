@@ -290,10 +290,14 @@ declares its intent at identify time. `"hub"` is the writer identity
 (singleton per name, preemption applies, manifest processed,
 `SceneMessage` accepted) — the only caller is `luxd`'s
 `ClientRegistry` (`domain/hub/clients.py`). `"test"` is the
-read-only observer identity — query messages accepted (`list_scenes`,
-`screenshot`, etc.), any `SceneMessage` from a test fd is
-rejected with a named error surfaced to `list_errors` and the fd
-closed. A connection that omits `ConnectMessage` entirely, or attempts
+read-only observer identity — the introspection request types
+(`IntrospectRequest`, `ListScenesRequest`, `ScreenshotRequest`,
+`QueryRequest`, and any future sibling in
+`protocol/messages/introspect.py`) accepted; any `SceneMessage` from
+a test fd is rejected with a named error surfaced to `list_errors`
+and the fd closed. The whitelist is "everything in the introspect
+module," not the specific class name `QueryRequest` — future
+introspect requests should not have to be re-whitelisted. A connection that omits `ConnectMessage` entirely, or attempts
 any other pre-scene traffic before it, is closed — no implicit default,
 no ambiguous kind.
 
