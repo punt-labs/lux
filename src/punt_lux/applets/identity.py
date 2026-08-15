@@ -16,12 +16,17 @@ same. Empty, whitespace-only, and NUL-carrying programs are rejected.
 The declared lease is short: the Hub sweeps a session whose lease lapses, and
 the listen client renews well inside that window, so a live session never
 lapses and a dead one is gone within the minute.
+
+The name-format's writer sits here and its reader in
+:mod:`~punt_lux.domain.hub.applet_name_format`, both driven by the same
+module of constants and functions so a format change lands both halves.
 """
 
 from __future__ import annotations
 
 from typing import Self, final
 
+from punt_lux.domain.hub import applet_name_format
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.repo_root import RepoRoot
 
@@ -33,15 +38,6 @@ _HEADLESS_NAME = "lux-session"
 # Sweep-cadence bounds: longer than several 15s keepalives, short enough that
 # a killed session's menu entry leaves the bar within the minute.
 _LEASE_TTL_SECONDS = 60.0
-
-# The ``name`` format ``for_session`` writes and ``session_pid_of`` reads back:
-# ``lux · <repo> · #<pid> · <program>``. A format change lands both halves at
-# once; the round-trip test in ``tests/applets/test_identity.py`` fails loud
-# if either half moves alone.
-_NAME_SEPARATOR = " · "
-_PID_PART_INDEX = 2
-_PID_PART_PREFIX = "#"
-_NAME_PART_COUNT = 4
 
 
 @final
@@ -66,11 +62,10 @@ class AppletIdentity:
             msg = "program must not contain a NUL character"
             raise ValueError(msg)
         repo = RepoRoot.of(_HEADLESS_NAME)
-        parts = ("lux", repo.name, f"{_PID_PART_PREFIX}{session_pid:x}", program)
         return cls(
             ClientIdentity(
                 kind="applet",
-                name=_NAME_SEPARATOR.join(parts),
+                name=applet_name_format.format_name(repo.name, session_pid, program),
                 repo=repo.declared_path,
                 lease_ttl=_LEASE_TTL_SECONDS,
             )
@@ -78,25 +73,8 @@ class AppletIdentity:
 
     @classmethod
     def session_pid_of(cls, client: ClientIdentity) -> int | None:
-        """Return the applet's session pid, or ``None`` for a non-applet.
-
-        Only an applet is named ``lux · <repo> · #<pid> · <program>``, so a
-        non-applet returns ``None`` — the documented absence the menu-grouping
-        composer skips on. An applet whose name does not parse raises
-        :class:`ValueError` rather than silently mis-group.
-        """
-        return cls._parse_pid(client.name) if client.kind == "applet" else None
-
-    @classmethod
-    def _parse_pid(cls, name: str) -> int:
-        """Return the pid the four-part applet name embeds, or reject the name."""
-        parts = name.split(_NAME_SEPARATOR)
-        pid_part = parts[_PID_PART_INDEX] if len(parts) == _NAME_PART_COUNT else ""
-        try:
-            return int(pid_part.removeprefix(_PID_PART_PREFIX), 16)
-        except ValueError as exc:
-            msg = f"malformed applet name: {name!r}"
-            raise ValueError(msg) from exc
+        """Return the applet's session pid, or ``None`` for a non-applet."""
+        return applet_name_format.session_pid_of(client)
 
     @property
     def client(self) -> ClientIdentity:

@@ -1,0 +1,68 @@
+"""The key that says which submenu a connection contributes to.
+
+The Clients menu groups connections into submenus by two rules, one for
+applets and one for everything else. An applet is bound to a Claude Code
+session, and one session may run more than one applet — ``lux-beads`` and
+a tool's own applet both alive under the same process — that a person
+reads as one session in the bar. Two applet connections sharing
+``(menu_label, session_pid)`` share a submenu, so their key compares
+equal. Every other kind is its own submenu, keyed by connection id.
+
+The key is what the roster names and what the composition iterates
+(DES-067). The prior rule — group by ``menu_label`` alone — over-fired
+once two applets in one session became two distinct connections whose
+repo names matched: DES-064's collision-numbering split them into ``lux``
+and ``lux (2)``, when the user reads them as one session.
+"""
+
+from __future__ import annotations
+
+from typing import Self, final
+
+from punt_lux.domain.hub import applet_name_format
+from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.domain.ids import ConnectionId
+
+__all__ = ["MenuGroupKey"]
+
+# The discriminator tags: one bucket for grouped applet siblings, one for
+# every other kind (which always gets its own submenu).
+_APPLET_TAG = "applet"
+_CLIENT_TAG = "client"
+
+
+@final
+class MenuGroupKey:
+    """The submenu one connection contributes to, hashable and comparable."""
+
+    _payload: tuple[str, ...]
+    __slots__ = ("_payload",)
+
+    def __new__(cls, payload: tuple[str, ...]) -> Self:
+        self = super().__new__(cls)
+        self._payload = payload
+        return self
+
+    @classmethod
+    def of(cls, connection_id: ConnectionId, identity: ClientIdentity) -> Self:
+        """Return the submenu *connection_id* contributes to under *identity*.
+
+        Applet connections in one session share a key; every other kind is
+        its own. The applet branch reads the session pid off the declared
+        name via :func:`applet_name_format.session_pid_of`, so the parser
+        and the constructor stay coupled to one format module.
+        """
+        if identity.kind == "applet":
+            pid = applet_name_format.session_pid_of(identity)
+            if pid is not None:
+                return cls((_APPLET_TAG, identity.menu_label, format(pid, "x")))
+        return cls((_CLIENT_TAG, str(connection_id)))
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, MenuGroupKey) and self._payload == other._payload
+
+    def __hash__(self) -> int:
+        return hash((MenuGroupKey, self._payload))
+
+    def __repr__(self) -> str:
+        return f"MenuGroupKey({self._payload!r})"
