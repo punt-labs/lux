@@ -167,6 +167,7 @@ class RenderLoop:
             socket_listener=self._socket_listener,
             scenes=self._scenes,
             close_frame=lambda fid: self._close_frame(fid, notify=False),
+            record_error=self._query_router.record_error,
         )
         # Bind a fail-loud decode factory to the shared container-dispatch
         # target. Inbound scenes cross as pickles (SceneCodec), so the display
@@ -750,16 +751,7 @@ class RenderLoop:
             fd = sock.fileno()
         except OSError:
             return
-        if self._socket_listener.kind_of(fd) == "test":
-            logger.warning(
-                "test-kind fd=%d attempted SceneMessage; rejecting and closing", fd
-            )
-            self._query_router.record_error(
-                "error",
-                f"test-kind connection (fd={fd}) attempted a SceneMessage",
-                "scene_reject",
-            )
-            self._socket_listener.remove_client(sock)
+        if self._hub_reconciliation.reject_scene_if_test_kind(sock, fd):
             return
         self._paint_clock.received(msg.id)
         self._wrap_abc_elements(msg)

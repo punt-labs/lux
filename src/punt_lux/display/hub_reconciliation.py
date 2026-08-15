@@ -24,28 +24,11 @@ if TYPE_CHECKING:
     from punt_lux.display.socket_server import SocketListener
     from punt_lux.protocol import ConnectMessage, HubManifestMessage
 
+    _RecordError = Callable[[str, str, str], None]
+
 logger = logging.getLogger(__name__)
 
 __all__ = ["HubReconciliation"]
-
-
-def _peer_pid(sock: socket.socket) -> int | None:
-    """Return the connecting process's pid via ``SO_PEERCRED``, or ``None``.
-
-    Linux-only (``SO_PEERCRED`` is absent on macOS/BSD, whose equivalent
-    ``LOCAL_PEEREPID`` Python does not expose as a named constant). ``None``
-    on any platform or error where the pid cannot be read — callers log
-    ``pid=?`` rather than fail the connection over a diagnostic.
-    """
-    so_peercred = getattr(socket, "SO_PEERCRED", None)
-    if so_peercred is None:
-        return None
-    try:
-        raw = sock.getsockopt(socket.SOL_SOCKET, so_peercred, struct.calcsize("3i"))
-    except OSError:
-        return None
-    pid, _uid, _gid = struct.unpack("3i", raw)
-    return int(pid)
 
 
 class HubReconciliation:
@@ -62,17 +45,20 @@ class HubReconciliation:
     _socket_listener: SocketListener
     _scenes: SceneReplica
     _close_frame: Callable[[str], None]
+    _record_error: _RecordError
 
     def __new__(
         cls,
         socket_listener: SocketListener,
         scenes: SceneReplica,
         close_frame: Callable[[str], None],
+        record_error: _RecordError,
     ) -> Self:
         self = super().__new__(cls)
         self._socket_listener = socket_listener
         self._scenes = scenes
         self._close_frame = close_frame
+        self._record_error = record_error
         return self
 
     def handle_connect(self, sock: socket.socket, msg: ConnectMessage) -> None:
@@ -88,7 +74,7 @@ class HubReconciliation:
         if msg.kind == "hub":
             self._preempt_stale_hub(fd, name)
         else:
-            pid = _peer_pid(sock)
+            pid = self._peer_pid(sock)
             logger.warning(
                 "test-kind connect: fd=%d pid=%s name=%r "
                 "-- read-only path; not a supported production mode",
@@ -119,6 +105,44 @@ class HubReconciliation:
                 continue
             if self._scenes.dismiss_framed_scene(frame, scene_id):
                 self._close_frame(frame_id)
+
+    def reject_scene_if_test_kind(self, sock: socket.socket, fd: int) -> bool:
+        """Reject a ``SceneMessage`` from a ``kind="test"`` fd; close it.
+
+        A ``"test"`` connection may observe, never install. Returns ``True``
+        when the caller must stop processing this message (rejected and the
+        fd is gone); ``False`` for every ordinary fd, identified or not.
+        """
+        if self._socket_listener.kind_of(fd) != "test":
+            return False
+        logger.warning(
+            "test-kind fd=%d attempted SceneMessage; rejecting and closing", fd
+        )
+        self._record_error(
+            "error", f"test-kind connection (fd={fd}) attempted a SceneMessage", ""
+        )
+        self._socket_listener.remove_client(sock)
+        return True
+
+    @staticmethod
+    def _peer_pid(sock: socket.socket) -> int | None:
+        """Return the connecting process's pid via ``SO_PEERCRED``, or ``None``.
+
+        Linux-only (``SO_PEERCRED`` is absent on macOS/BSD, whose equivalent
+        ``LOCAL_PEEREPID`` Python does not expose as a named constant).
+        ``None`` on any platform or error where the pid cannot be read --
+        callers log ``pid=?`` rather than fail the connection over a
+        diagnostic.
+        """
+        so_peercred = getattr(socket, "SO_PEERCRED", None)
+        if so_peercred is None:
+            return None
+        try:
+            raw = sock.getsockopt(socket.SOL_SOCKET, so_peercred, struct.calcsize("3i"))
+        except OSError:
+            return None
+        pid, _uid, _gid = struct.unpack("3i", raw)
+        return int(pid)
 
     def _preempt_stale_hub(self, fd: int, name: str) -> None:
         """Force-disconnect any other live connection already declaring this identity.

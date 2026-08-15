@@ -82,14 +82,10 @@ class DisplayLink:
     name:
         The identity this connection declares in its ``ConnectMessage``.
     kind:
-        ``"hub"`` for the Hub's own declared identity — triggers the
-        display's single-owner preemption and expects a manifest right
-        after (DES-068). ``"test"`` (default) is the read-only backdoor
-        for every other caller (CLI probes, introspection, tests) — a
-        deliberately wrong-looking name so a production call site that
-        forgets to pass ``kind="hub"`` is loud, not silent: the display
-        logs a WARNING on every ``"test"`` identify and rejects any
-        ``SceneMessage`` it sends.
+        ``"hub"`` triggers single-owner preemption plus a manifest
+        (DES-068); ``"test"`` (default) is the read-only backdoor for
+        every other caller — a deliberately wrong-looking name, since
+        the display logs and rejects a ``SceneMessage`` sent under it.
     auto_spawn:
         If ``True`` (default), spawn the display server when not running.
     connect_timeout:

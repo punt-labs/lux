@@ -22,6 +22,8 @@ from punt_lux.protocol import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     import pytest
 
 
@@ -36,6 +38,19 @@ def _make_listener() -> SocketListener:
         on_message=lambda _sock, _msg: None,
         on_client_disconnected=lambda _fd: None,
         on_error=lambda _sev, _msg, _ctx: None,
+    )
+
+
+def _make_reconciliation(
+    listener: SocketListener,
+    scenes: SceneReplica,
+    close_frame: Callable[[str], None] | None = None,
+) -> HubReconciliation:
+    return HubReconciliation(
+        listener,
+        scenes,
+        close_frame or (lambda _fid: None),
+        lambda _sev, _msg, _ctx: None,
     )
 
 
@@ -54,7 +69,7 @@ class TestHandleConnect:
     def test_a_kind_hub_identify_is_recorded(self) -> None:
         listener = _make_listener()
         scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
-        reconciliation = HubReconciliation(listener, scenes, lambda _fid: None)
+        reconciliation = _make_reconciliation(listener, scenes)
         sock = _mock_sock(10)
 
         reconciliation.handle_connect(sock, ConnectMessage(name="lux-mcp", kind="hub"))
@@ -64,7 +79,7 @@ class TestHandleConnect:
     def test_a_test_identify_never_preempts_or_marks_hub(self) -> None:
         listener = _make_listener()
         scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
-        reconciliation = HubReconciliation(listener, scenes, lambda _fid: None)
+        reconciliation = _make_reconciliation(listener, scenes)
         sock = _mock_sock(10)
 
         probe = ConnectMessage(name="quarry", kind="test")
@@ -77,7 +92,7 @@ class TestHandleConnect:
     def test_a_second_hub_identify_forcibly_disconnects_the_first(self) -> None:
         listener = _make_listener()
         scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
-        reconciliation = HubReconciliation(listener, scenes, lambda _fid: None)
+        reconciliation = _make_reconciliation(listener, scenes)
         old_sock, new_sock = _mock_sock(10), _mock_sock(20)
         listener.clients.append(old_sock)
         listener.fd_to_client[10] = old_sock
@@ -101,7 +116,7 @@ class TestHandleConnect:
         """The ordinary restart case: the old process's socket is already gone."""
         listener = _make_listener()
         scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
-        reconciliation = HubReconciliation(listener, scenes, lambda _fid: None)
+        reconciliation = _make_reconciliation(listener, scenes)
         sock = _mock_sock(10)
 
         reconciliation.handle_connect(sock, ConnectMessage(name="lux-mcp", kind="hub"))
@@ -111,7 +126,7 @@ class TestHandleConnect:
     def test_a_different_named_hub_identify_is_not_preempted(self) -> None:
         listener = _make_listener()
         scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
-        reconciliation = HubReconciliation(listener, scenes, lambda _fid: None)
+        reconciliation = _make_reconciliation(listener, scenes)
         first, second = _mock_sock(10), _mock_sock(20)
         listener.clients.extend([first, second])
         listener.fd_to_client[10] = first
@@ -127,7 +142,7 @@ class TestHandleConnect:
     def test_a_blank_name_is_ignored(self) -> None:
         listener = _make_listener()
         scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
-        reconciliation = HubReconciliation(listener, scenes, lambda _fid: None)
+        reconciliation = _make_reconciliation(listener, scenes)
         sock = _mock_sock(10)
 
         reconciliation.handle_connect(sock, ConnectMessage(name="   ", kind="hub"))
@@ -140,7 +155,7 @@ class TestHandleConnect:
         """Every use of the backdoor leaves a durable, grep-able trace."""
         listener = _make_listener()
         scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
-        reconciliation = HubReconciliation(listener, scenes, lambda _fid: None)
+        reconciliation = _make_reconciliation(listener, scenes)
         sock = _mock_sock(10)
 
         msg = ConnectMessage(name="probe", kind="test")
@@ -157,7 +172,7 @@ class TestHandleConnect:
     ) -> None:
         listener = _make_listener()
         scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
-        reconciliation = HubReconciliation(listener, scenes, lambda _fid: None)
+        reconciliation = _make_reconciliation(listener, scenes)
         sock = _mock_sock(10)
 
         msg = ConnectMessage(name="lux-mcp", kind="hub")
@@ -175,7 +190,7 @@ class TestHandleManifest:
         scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
         scenes.handle_framed_scene(_make_scene("s1", "f1"), owner_fd=10)
         closed: list[str] = []
-        reconciliation = HubReconciliation(listener, scenes, closed.append)
+        reconciliation = _make_reconciliation(listener, scenes, closed.append)
         sock = _mock_sock(20)
 
         reconciliation.handle_manifest(sock, HubManifestMessage(scene_ids=()))
@@ -188,7 +203,7 @@ class TestHandleManifest:
         scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
         scenes.handle_framed_scene(_make_scene("s1", "f1"), owner_fd=10)
         closed: list[str] = []
-        reconciliation = HubReconciliation(listener, scenes, closed.append)
+        reconciliation = _make_reconciliation(listener, scenes, closed.append)
         sock = _mock_sock(20)
 
         reconciliation.handle_manifest(sock, HubManifestMessage(scene_ids=("s1",)))
@@ -201,7 +216,7 @@ class TestHandleManifest:
         scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
         scenes.handle_framed_scene(_make_scene("s1", "f1"), owner_fd=20)
         closed: list[str] = []
-        reconciliation = HubReconciliation(listener, scenes, closed.append)
+        reconciliation = _make_reconciliation(listener, scenes, closed.append)
         sock = _mock_sock(20)
 
         reconciliation.handle_manifest(sock, HubManifestMessage(scene_ids=()))
@@ -215,7 +230,7 @@ class TestHandleManifest:
         scenes.handle_framed_scene(_make_scene("s1", "f1"), owner_fd=10)
         scenes.handle_framed_scene(_make_scene("s2", "f1"), owner_fd=10)
         closed: list[str] = []
-        reconciliation = HubReconciliation(listener, scenes, closed.append)
+        reconciliation = _make_reconciliation(listener, scenes, closed.append)
         sock = _mock_sock(20)
 
         reconciliation.handle_manifest(sock, HubManifestMessage(scene_ids=("s1",)))
