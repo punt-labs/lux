@@ -18,7 +18,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from punt_lux import socket_owner as socket_owner_module
-from punt_lux.socket_owner import SocketOwner, peer_pid
+from punt_lux.socket_owner import SocketOwner
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -150,19 +150,19 @@ def test_peer_pid_of_a_real_connected_socket() -> None:
 
     DES-068's connect-time audit log reads the *client's* pid off the
     Display's own accepted socket -- the reverse of ``SocketOwner``, which
-    probes a path to find who is listening. Both share this one function.
+    probes a path to find who is listening. Both share this one static method.
     """
     a, b = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
-        assert peer_pid(a) == os.getpid()
-        assert peer_pid(b) == os.getpid()
+        assert SocketOwner.peer_pid_of(a) == os.getpid()
+        assert SocketOwner.peer_pid_of(b) == os.getpid()
     finally:
         a.close()
         b.close()
 
 
-def test_peer_pid_returns_none_on_a_mock_socket() -> None:
+def test_peer_pid_of_returns_none_on_a_mock_socket() -> None:
     """A mocked ``getsockopt`` returns a ``MagicMock``, not real credential
     bytes -- ``int.from_bytes`` raises ``TypeError``, which must not escape."""
     mock_sock = MagicMock()
-    assert peer_pid(mock_sock) is None
+    assert SocketOwner.peer_pid_of(mock_sock) is None

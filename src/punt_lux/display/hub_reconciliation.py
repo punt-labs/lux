@@ -16,7 +16,7 @@ import socket
 import time
 from typing import TYPE_CHECKING, Self
 
-from punt_lux.socket_owner import peer_pid
+from punt_lux.socket_owner import SocketOwner
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -75,7 +75,7 @@ class HubReconciliation:
         if msg.kind == "hub":
             self._preempt_stale_hub(fd, name)
         else:
-            pid = peer_pid(sock)
+            pid = SocketOwner.peer_pid_of(sock)
             logger.warning(
                 "test-kind connect: fd=%d pid=%s name=%r "
                 "-- read-only path; not a supported production mode",
