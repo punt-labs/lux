@@ -18,9 +18,7 @@ the listen client renews well inside that window, so a live session never
 lapses and a dead one is gone within the minute.
 
 The name is composed here and parsed by
-:mod:`~punt_lux.domain.hub.applet_name_format` — the read side lives with
-the reader, in the domain layer. Both use the same format module, so a
-change to the shape lands both halves; the round-trip test pins the pair.
+:mod:`~punt_lux.domain.hub.applet_name_format`; the round-trip test pins both.
 """
 
 from __future__ import annotations
@@ -56,12 +54,7 @@ class AppletIdentity:
     @classmethod
     def for_session(cls, program: str, session_pid: int) -> Self:
         """Derive this applet's identity from its program, session, and repository."""
-        if not (program := program.strip()):
-            msg = "program must be a non-empty, non-whitespace label"
-            raise ValueError(msg)
-        if "\x00" in program:
-            msg = "program must not contain a NUL character"
-            raise ValueError(msg)
+        program = cls._validate_program(program)
         repo = RepoRoot.of(_HEADLESS_NAME)
         return cls(
             ClientIdentity(
@@ -71,6 +64,17 @@ class AppletIdentity:
                 lease_ttl=_LEASE_TTL_SECONDS,
             )
         )
+
+    @staticmethod
+    def _validate_program(program: str) -> str:
+        """Return *program* stripped, or raise if empty or NUL-carrying."""
+        if not (program := program.strip()):
+            msg = "program must be a non-empty, non-whitespace label"
+            raise ValueError(msg)
+        if "\x00" in program:
+            msg = "program must not contain a NUL character"
+            raise ValueError(msg)
+        return program
 
     @property
     def client(self) -> ClientIdentity:

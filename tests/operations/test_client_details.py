@@ -85,7 +85,7 @@ def _wired(store: HubDisplay, hub: Hub) -> tuple[ClientDetailsOperations, _Marks
     return ClientDetailsOperations(queries, installer, store.clients), marks
 
 
-def _identity(name: str = "lux · lux · #4b97") -> ClientIdentity:
+def _identity(name: str = "lux · lux · #4b97 · lux-beads") -> ClientIdentity:
     return ClientIdentity(kind="applet", name=name, repo="/Users/someone/lux")
 
 
@@ -115,7 +115,7 @@ class TestWhatDetailsReports:
         assert isinstance(result, SceneShown)
         rows = _rows(store, result.scene_id)
         assert rows["Client"] == "lux"  # what the menu calls it
-        assert rows["Declared name"] == "lux · lux · #4b97"  # what it calls itself
+        assert rows["Declared name"] == "lux · lux · #4b97 · lux-beads"
         assert rows["Kind"] == "applet"
         assert rows["Repository"] == "/Users/someone/lux"
         assert rows["Connection"] == "c1"
@@ -169,7 +169,16 @@ class TestWhatDetailsReports:
 
     def test_a_declared_lease_reads_as_a_span_a_person_says(self) -> None:
         store, hub = HubDisplay(), Hub()
-        _named(store, "c1", ClientIdentity(kind="applet", name="beads", lease_ttl=60.0))
+        _named(
+            store,
+            "c1",
+            ClientIdentity(
+                kind="applet",
+                name="lux · lux · #4b97 · beads",
+                repo="/w/lux",
+                lease_ttl=60.0,
+            ),
+        )
         details, _marks = _wired(store, hub)
 
         result = details.show_client_details(ConnectionId("c1"))
@@ -297,7 +306,16 @@ class TestAClickThatOutlivedItsClient:
         """
         clock = _Clock()
         store, hub = HubDisplay(clock), Hub()
-        _named(store, "c1", ClientIdentity(kind="applet", name="beads", lease_ttl=60.0))
+        _named(
+            store,
+            "c1",
+            ClientIdentity(
+                kind="applet",
+                name="lux · lux · #4b97 · beads",
+                repo="/w/lux",
+                lease_ttl=60.0,
+            ),
+        )
         details, marks = _wired(store, hub)
 
         clock.advance(61.0)  # the lease lapses while the entry sits on screen

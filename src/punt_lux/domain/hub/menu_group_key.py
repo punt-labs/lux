@@ -53,7 +53,7 @@ class MenuGroupKey:
         and the constructor stay coupled to one format module.
         """
         if identity.kind == "applet":
-            pid = applet_name_format.session_pid_of(identity)
+            pid = applet_name_format.session_pid_from_name(identity.name)
             if pid is not None:
                 return cls((_APPLET_TAG, identity.menu_label, format(pid, "x")))
         return cls((_CLIENT_TAG, str(connection_id)))

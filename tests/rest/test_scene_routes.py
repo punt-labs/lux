@@ -311,7 +311,9 @@ def test_an_expiring_lease_round_trips_with_its_length() -> None:
     store = HubDisplay()
     store.identify_client(
         ConnectionId("applet"),
-        ClientIdentity(kind="applet", name="lux · lux · #4b97", repo="/w/lux"),
+        ClientIdentity(
+            kind="applet", name="lux · lux · #4b97 · lux-beads", repo="/w/lux"
+        ),
     )
     client = make_client(store=store)
 

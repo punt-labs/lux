@@ -119,7 +119,9 @@ class TestTheClientsMenu:
 
     def test_a_leaf_is_named_for_the_command_alone(self) -> None:
         """The hierarchy disambiguates, so the leaf label carries nothing else."""
-        menus = _menus(("s", _session("lux · lux · #4b97", "/w/lux", _beads())))
+        menus = _menus(
+            ("s", _session("lux · lux · #4b97 · lux-beads", "/w/lux", _beads()))
+        )
 
         assert _labels_under(_submenu(menus, "lux")) == ["Beads", "Details"]
 
@@ -173,7 +175,12 @@ class TestEveryKindIsAClient:
 
         menus = _menus(
             ("vox", voxd),
-            ("lux", _session("lux · lux · #4b97", "/w/lux", _beads(), kind="applet")),
+            (
+                "lux",
+                _session(
+                    "lux · lux · #4b97 · lux-beads", "/w/lux", _beads(), kind="applet"
+                ),
+            ),
         )
 
         assert [menu.label for menu in menus] == ["Clients"]
@@ -189,7 +196,10 @@ class TestWhatANameIs:
             (
                 "s",
                 _session(
-                    "lux · lux · #4b97", "/Users/someone/lux", _beads(), kind="applet"
+                    "lux · lux · #4b97 · lux-beads",
+                    "/Users/someone/lux",
+                    _beads(),
+                    kind="applet",
                 ),
             )
         )
@@ -225,7 +235,7 @@ class TestWhatANameIs:
     def test_two_clients_on_one_repository_are_numbered(self) -> None:
         menus = _menus(
             ("first", _session("claude", "/w/lux", _beads())),
-            ("second", _session("lux · lux · #4b97", "/w/lux", _beads())),
+            ("second", _session("lux · lux · #4b97 · lux-beads", "/w/lux", _beads())),
         )
 
         assert _labels_under(_clients_menu(menus)) == ["lux", "lux (2)"]
@@ -485,7 +495,7 @@ class TestTheReplica:
         conn = ConnectionId("lux")
         leg = _SilentLeg()
         identity = ClientIdentity(
-            kind="applet", name="lux · lux · #4b97", repo="/w/lux"
+            kind="applet", name="lux · lux · #4b97 · lux-beads", repo="/w/lux"
         )
         registry.attach_listener(conn, identity, leg)
         registry.register_callback(
@@ -555,12 +565,16 @@ class TestTheReplica:
         ghost, arriving = ConnectionId("outgoing"), ConnectionId("incoming")
         registry.record(
             ghost,
-            ClientIdentity(kind="applet", name="lux · lux · #4b97", repo="/w/lux"),
+            ClientIdentity(
+                kind="applet", name="lux · lux · #4b97 · lux-beads", repo="/w/lux"
+            ),
         )
         leg = _SilentLeg()
         registry.attach_listener(
             arriving,
-            ClientIdentity(kind="applet", name="lux · lux · #f00d", repo="/w/lux"),
+            ClientIdentity(
+                kind="applet", name="lux · lux · #f00d · lux-beads", repo="/w/lux"
+            ),
             leg,
         )
         registry.register_callback(
