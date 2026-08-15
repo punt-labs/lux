@@ -645,7 +645,7 @@ existing `hub_replicator.tex` / `hub_replicator_coverage.md` pair):**
   spin up a real Display process, connect a first Hub-identified client,
   push a scene, kill that connection (simulating `luxd` death without
   killing the Display), connect a *second* Hub-identified client with an
-  empty manifest, and assert — via the testion surface
+  empty manifest, and assert — via the introspection surface
   (`list_scenes` equivalent on the Display's own query path, not a
   Hub-mediated read, since the point is to observe the Display's own state
   directly) — that the first scene is gone. Then push a new scene under
