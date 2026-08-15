@@ -421,23 +421,30 @@ the peer's pid where available (via the repo's existing
 `socket_owner` helper — `LOCAL_PEERPID` on macOS, `SO_PEERCRED` on
 Linux; unavailable on other platforms). The message is a
 single line naming the fd, the pid, and the `ConnectMessage.name`:
-`"test-kind connect: fd=N pid=P name=… — read-only path; not a
-supported production mode"`. Making it WARNING rather than DEBUG or
-INFO ensures the exercise of this path is visible at the display
-log's default level (INFO), so an accidental production caller
-declaring `kind="test"` is visible in `~/.punt-labs/lux/logs/...` and
-`/tmp/lux-$USER/display.sock.log` without needing to enable DEBUG.
-Tests running against a real Display leave an audit trail; anything
-in production leaves a loud one.
+
+```text
+test-kind connect: fd=N pid=P name=… — read-only path; not a supported production mode
+```
+
+Making it WARNING rather than DEBUG or INFO ensures the exercise of
+this path is visible at the display log's default level (INFO), so an
+accidental production caller declaring `kind="test"` is visible in
+`~/.punt-labs/lux/logs/...` and `/tmp/lux-$USER/display.sock.log`
+without needing to enable DEBUG. Tests running against a real Display
+leave an audit trail; anything in production leaves a loud one.
 
 Any `SceneMessage` from a `"test"` fd logs a second WARNING before
-the rejection lands — `"test-kind fd=N attempted SceneMessage;
-rejecting and closing"` — and surfaces to `list_errors` (already the
-introspection contract for a rejected wire message). Two independent
-records — display log and list_errors — because the two surfaces
-serve different readers: the log is durable and grep-able for
-post-hoc audit; `list_errors` is an agent-queryable ring for live
-introspection.
+the rejection lands:
+
+```text
+test-kind fd=N attempted SceneMessage; rejecting and closing
+```
+
+...and surfaces to `list_errors` (already the introspection contract
+for a rejected wire message). Two independent records — display log
+and list_errors — because the two surfaces serve different readers:
+the log is durable and grep-able for post-hoc audit; `list_errors` is
+an agent-queryable ring for live introspection.
 
 This identity is not the same thing as DES-057's `ClientIdentity`
 (`kind: "mcp-session" | "cli" | "applet" | "app"`), and I am not
