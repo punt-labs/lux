@@ -17,9 +17,10 @@ The declared lease is short: the Hub sweeps a session whose lease lapses, and
 the listen client renews well inside that window, so a live session never
 lapses and a dead one is gone within the minute.
 
-The name-format's writer sits here and its reader in
-:mod:`~punt_lux.domain.hub.applet_name_format`, both driven by the same
-module of constants and functions so a format change lands both halves.
+The name is composed here and parsed by
+:mod:`~punt_lux.domain.hub.applet_name_format` — the read side lives with
+the reader, in the domain layer. Both use the same format module, so a
+change to the shape lands both halves; the round-trip test pins the pair.
 """
 
 from __future__ import annotations
@@ -70,11 +71,6 @@ class AppletIdentity:
                 lease_ttl=_LEASE_TTL_SECONDS,
             )
         )
-
-    @classmethod
-    def session_pid_of(cls, client: ClientIdentity) -> int | None:
-        """Return the applet's session pid, or ``None`` for a non-applet."""
-        return applet_name_format.session_pid_of(client)
 
     @property
     def client(self) -> ClientIdentity:

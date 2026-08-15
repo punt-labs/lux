@@ -15,6 +15,7 @@ import pytest
 
 from punt_lux.applets.identity import AppletIdentity
 from punt_lux.connection_identity import connection_for
+from punt_lux.domain.hub.applet_name_format import session_pid_of
 from punt_lux.domain.hub.client_identity import ClientIdentity
 
 # A path with no ``.git`` in its ancestry — the repo's TMPDIR is inside this git
@@ -164,7 +165,7 @@ class TestSessionPidRoundTrip:
         monkeypatch.chdir(_make_repo(tmp_path, "lux"))
         identity = AppletIdentity.for_session("lux-beads", 12345)
 
-        assert AppletIdentity.session_pid_of(identity.client) == 12345
+        assert session_pid_of(identity.client) == 12345
 
     def test_recovers_the_pid_across_the_full_hex_range(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -173,18 +174,18 @@ class TestSessionPidRoundTrip:
         monkeypatch.chdir(_make_repo(tmp_path, "lux"))
         identity = AppletIdentity.for_session("lux-beads", 0xDEADBEEF)
 
-        assert AppletIdentity.session_pid_of(identity.client) == 0xDEADBEEF
+        assert session_pid_of(identity.client) == 0xDEADBEEF
 
     def test_a_non_applet_has_no_session_pid(self) -> None:
         """Only an applet is named ``lux · <repo> · #<pid> · <program>``."""
         for kind in ("mcp-session", "cli", "app"):
             client = ClientIdentity(kind=kind, name="not-an-applet")
-            assert AppletIdentity.session_pid_of(client) is None
+            assert session_pid_of(client) is None
 
     def test_a_malformed_applet_name_has_no_session_pid(self) -> None:
         """An unparseable applet name falls back to per-connection grouping."""
         malformed = ClientIdentity(kind="applet", name="not-four-parts", repo="/w/lux")
-        assert AppletIdentity.session_pid_of(malformed) is None
+        assert session_pid_of(malformed) is None
 
     def test_a_non_hex_pid_has_no_session_pid(self) -> None:
         """The pid must be hex; a non-hex value contributes no grouping."""
@@ -193,4 +194,4 @@ class TestSessionPidRoundTrip:
             name="lux · lux · #xyz · lux-beads",
             repo="/w/lux",
         )
-        assert AppletIdentity.session_pid_of(malformed) is None
+        assert session_pid_of(malformed) is None
