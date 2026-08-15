@@ -111,7 +111,7 @@ class HubReplicator:
         self._callback_reader = callback_reader
         self._clients = clients
         self._signal = DirtySignal()
-        self._recovery = SendRecovery(clients, lifecycle, self._signal, reader)
+        self._recovery = SendRecovery(clients, lifecycle, self._signal)
         self._thread = None
         self._backoff = _BASE_BACKOFF_SECONDS
         return self

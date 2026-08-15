@@ -31,5 +31,10 @@ class UnknownMessage:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Self:
-        """Rebuild from a wire dict whose ``type`` matched no registered codec."""
-        return cls(raw_type=d.get("type", "unknown"), data=d)
+        """Rebuild from a wire dict whose ``type`` matched no registered codec.
+
+        Copies ``d`` rather than storing it by reference: the dataclass is
+        frozen, but a dict is mutable regardless of who holds it, so a caller
+        mutating the dict it passed in must not reach through to ``data``.
+        """
+        return cls(raw_type=d.get("type", "unknown"), data=dict(d))

@@ -10,16 +10,15 @@ If the heal itself cannot complete — an unspawnable display, a refused reconne
 — the worker instead restores the exact batch and backs off. ``restore`` is that
 path: it puts the drained work back so nothing is lost.
 
-Deliberately not folded into ``ClientRegistry._connect_and_reconcile``
-(DES-068), which also declares a manifest and marks the same scenes dirty on
-every fresh Hub-kind connect: that hook is a concrete production detail,
-invisible to the ``ClientProvider``/``DisplayLifecycle`` ports this class is
-written against and tested here with fakes for. Folding ``_remark`` into it
-would make this class's own repaint guarantee depend on which concrete
-provider happens to be wired in. The two marks read the same
-``live_scene_ids()`` source of truth and can never disagree, so the overlap
-for the paths that route through ``ClientRegistry`` is a harmless, idempotent
-double-mark, not a second copy of policy that could drift.
+Consolidated onto ``ClientRegistry._connect_and_reconcile`` (DES-068):
+``recover`` calls ``self._clients.get()`` right after ``drop()``, which is
+the one code path that declares the fresh connection's manifest and marks
+every live scene plus the menu dirty. This class no longer reads
+``live_scene_ids()`` or marks live scenes itself — it only re-marks the
+menu unconditionally and re-queues the failed batch's own scenes, since a
+scene the batch emptied has no roots and so is absent from
+``live_scene_ids()``; that is a guarantee specific to *this* failed batch,
+not a duplicate of the connect-success hook's policy.
 """
 
 from __future__ import annotations
@@ -30,7 +29,6 @@ from typing import TYPE_CHECKING, Self, final
 if TYPE_CHECKING:
     from punt_lux.domain.hub.dirty_signal import DirtySignal, DrainedBatch
     from punt_lux.domain.hub.replicator_ports import ClientProvider, DisplayLifecycle
-    from punt_lux.domain.hub.scene_snapshot import SceneReader
     from punt_lux.domain.ids import SceneId
 
 logger = logging.getLogger(__name__)
@@ -48,30 +46,35 @@ class SendRecovery:
     _clients: ClientProvider
     _lifecycle: DisplayLifecycle
     _signal: DirtySignal
-    _reader: SceneReader
-    __slots__ = ("_clients", "_lifecycle", "_reader", "_signal")
+    __slots__ = ("_clients", "_lifecycle", "_signal")
 
     def __new__(
         cls,
         clients: ClientProvider,
         lifecycle: DisplayLifecycle,
         signal: DirtySignal,
-        reader: SceneReader,
     ) -> Self:
         self = super().__new__(cls)
         self._clients = clients
         self._lifecycle = lifecycle
         self._signal = signal
-        self._reader = reader
         return self
 
     def recover(self, batch: DrainedBatch, *, wedged: bool) -> None:
-        """Heal the display and re-mark the work so nothing is lost.
+        """Heal the display, then re-mark this batch so nothing it carried is lost.
 
         A shutdown flush — the batch's shutting flag — is best-effort: it logs and
         leaves the display as-is rather than reaping or reconnecting, since the
         process is going away. Reading the flag from the batch here makes that
         policy unbypassable by the caller.
+
+        ``get()`` right after ``drop()`` is the one DES-068 connect-success hook
+        (``ClientRegistry._connect_and_reconcile``): it declares the fresh
+        connection's manifest and marks every live scene plus the menu dirty, so
+        this class does not enumerate live scenes itself. It only re-queues the
+        batch's own scenes on top — a scene the batch emptied has no roots, so
+        it is absent from that hook's live-scene set, and its lost blank would
+        never resend without this.
         """
         if batch.shutting:
             logger.warning("replicator shutdown flush failed; display left as-is")
@@ -80,24 +83,12 @@ class SendRecovery:
             self._lifecycle.reap(_REAP_TIMEOUT)
             self._lifecycle.ensure()
         self._clients.drop()
-        self._remark(batch)
+        self._clients.get()
+        self._requeue(batch.scenes, menus_dirty=True)
 
     def restore(self, batch: DrainedBatch) -> None:
         """Put a failed batch back on the queue so the next cycle retries it."""
         self._requeue(batch.scenes, menus_dirty=batch.menus_dirty)
-
-    def _remark(self, batch: DrainedBatch) -> None:
-        """Re-mark the live scenes, the batch's own scenes, and the menu.
-
-        An emptied scene the batch drained has no roots, so it is absent from
-        ``live_scene_ids``; re-marking the batch's scenes keeps its lost blank
-        queued. The menu is re-marked unconditionally because a respawn or a
-        reconnect onto a new process comes back with no agent bar, and the
-        handshake replays only the World-menu items, never ``set_menu``; the fresh
-        registry read at send time supplies the current bar, or a harmless blank.
-        """
-        scenes = frozenset(self._reader.live_scene_ids()) | batch.scenes
-        self._requeue(scenes, menus_dirty=True)
 
     def _requeue(self, scenes: frozenset[SceneId], *, menus_dirty: bool) -> None:
         """Re-mark scenes and the menu flag onto the signal.

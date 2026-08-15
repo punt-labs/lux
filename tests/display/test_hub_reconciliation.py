@@ -182,6 +182,11 @@ class TestHandleConnect:
         assert not any("test-kind connect" in r.message for r in caplog.records)
 
 
+def _identify_as_hub(listener: SocketListener, fd: int) -> None:
+    """Register ``fd`` as the hub identity a manifest must come from."""
+    listener.register_client_identity(fd, kind="hub", name="lux-mcp", connect_time=0.0)
+
+
 class TestHandleManifest:
     """Manifest receipt purges every scene not owned by fd and not manifested."""
 
@@ -192,6 +197,7 @@ class TestHandleManifest:
         closed: list[str] = []
         reconciliation = _make_reconciliation(listener, scenes, closed.append)
         sock = _mock_sock(20)
+        _identify_as_hub(listener, 20)
 
         reconciliation.handle_manifest(sock, HubManifestMessage(scene_ids=()))
 
@@ -205,6 +211,7 @@ class TestHandleManifest:
         closed: list[str] = []
         reconciliation = _make_reconciliation(listener, scenes, closed.append)
         sock = _mock_sock(20)
+        _identify_as_hub(listener, 20)
 
         reconciliation.handle_manifest(sock, HubManifestMessage(scene_ids=("s1",)))
 
@@ -218,6 +225,7 @@ class TestHandleManifest:
         closed: list[str] = []
         reconciliation = _make_reconciliation(listener, scenes, closed.append)
         sock = _mock_sock(20)
+        _identify_as_hub(listener, 20)
 
         reconciliation.handle_manifest(sock, HubManifestMessage(scene_ids=()))
 
@@ -232,9 +240,56 @@ class TestHandleManifest:
         closed: list[str] = []
         reconciliation = _make_reconciliation(listener, scenes, closed.append)
         sock = _mock_sock(20)
+        _identify_as_hub(listener, 20)
 
         reconciliation.handle_manifest(sock, HubManifestMessage(scene_ids=("s1",)))
 
         assert scenes.resolve_scene("s1") is not None
         assert scenes.resolve_scene("s2") is None
-        assert closed == []  # the frame survives — s1 still holds it
+
+    def test_a_manifest_from_a_test_kind_fd_is_rejected_and_nothing_is_purged(
+        self,
+    ) -> None:
+        listener = _make_listener()
+        scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
+        scenes.handle_framed_scene(_make_scene("s1", "f1"), owner_fd=10)
+        closed: list[str] = []
+        reconciliation = _make_reconciliation(listener, scenes, closed.append)
+        sock = _mock_sock(20)
+        listener.register_client_identity(
+            20, kind="test", name="probe", connect_time=0.0
+        )
+
+        reconciliation.handle_manifest(sock, HubManifestMessage(scene_ids=()))
+
+        assert scenes.resolve_scene("s1") is not None  # untouched
+        assert closed == []
+
+    def test_a_manifest_from_an_unidentified_fd_is_rejected(self) -> None:
+        listener = _make_listener()
+        scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
+        scenes.handle_framed_scene(_make_scene("s1", "f1"), owner_fd=10)
+        closed: list[str] = []
+        reconciliation = _make_reconciliation(listener, scenes, closed.append)
+        sock = _mock_sock(20)  # never sent a ConnectMessage at all
+
+        reconciliation.handle_manifest(sock, HubManifestMessage(scene_ids=()))
+
+        assert scenes.resolve_scene("s1") is not None
+        assert closed == []
+
+    def test_a_rejected_manifest_surfaces_via_the_injected_record_error(self) -> None:
+        listener = _make_listener()
+        scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
+        errors: list[str] = []
+        reconciliation = HubReconciliation(
+            listener,
+            scenes,
+            lambda _fid: None,
+            lambda _sev, msg, _ctx: errors.append(msg),
+        )
+        sock = _mock_sock(20)
+
+        reconciliation.handle_manifest(sock, HubManifestMessage(scene_ids=()))
+
+        assert any("HubManifestMessage" in m for m in errors)

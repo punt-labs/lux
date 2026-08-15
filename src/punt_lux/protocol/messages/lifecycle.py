@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Literal, Self
+from typing import Any, Literal, Self, cast
 
 from punt_lux.protocol.messages.unknown_message import UnknownMessage
 
@@ -121,8 +121,26 @@ class HubManifestMessage:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Self:
-        """Rebuild from a wire dict; an absent ``scene_ids`` decodes to empty."""
-        return cls(scene_ids=tuple(d.get("scene_ids", [])))
+        """Rebuild from a wire dict; an absent ``scene_ids`` decodes to empty.
+
+        Rejects anything but a list or tuple of strings rather than silently
+        coercing it: ``tuple("s1")`` would iterate the characters of a bare
+        string into single-character "ids" that can never match a real scene,
+        purging every scene the manifest was supposed to protect.
+        """
+        raw = d.get("scene_ids", [])
+        if not isinstance(raw, (list, tuple)):
+            kind = type(raw).__name__
+            err = f"HubManifestMessage.scene_ids must be a list, got {kind}"
+            raise ValueError(err)
+        seq = cast("list[object] | tuple[object, ...]", raw)
+        scene_ids: list[str] = []
+        for i, item in enumerate(seq):
+            if not isinstance(item, str):
+                err = f"HubManifestMessage.scene_ids[{i}] must be a string: {item!r}"
+                raise ValueError(err)
+            scene_ids.append(item)
+        return cls(scene_ids=tuple(scene_ids))
 
 
 @dataclass(frozen=True, slots=True)

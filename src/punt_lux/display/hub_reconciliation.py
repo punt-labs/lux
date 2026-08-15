@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import logging
 import socket
-import struct
 import time
 from typing import TYPE_CHECKING, Self
+
+from punt_lux.socket_owner import peer_pid
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -74,13 +75,16 @@ class HubReconciliation:
         if msg.kind == "hub":
             self._preempt_stale_hub(fd, name)
         else:
-            pid = self._peer_pid(sock)
+            pid = peer_pid(sock)
             logger.warning(
                 "test-kind connect: fd=%d pid=%s name=%r "
                 "-- read-only path; not a supported production mode",
                 fd,
                 pid if pid is not None else "?",
                 name,
+            )
+            self._record_error(
+                "warning", f"test-kind connect fd={fd} name={name!r}", "connect"
             )
         self._socket_listener.register_client_identity(
             fd, kind=msg.kind, name=name, connect_time=time.time()
@@ -90,6 +94,11 @@ class HubReconciliation:
     def handle_manifest(self, sock: socket.socket, msg: HubManifestMessage) -> None:
         """Purge every scene the manifest disowns, closing any frame it empties.
 
+        Only a ``kind="hub"`` fd may declare a manifest — a ``"test"`` fd or one
+        that never identified is rejected and nothing is purged, since the whole
+        point of a manifest is that its sender is the one process the Display
+        trusts to say what the Hub currently holds.
+
         A scene qualifies for purge when it is neither owned by the identifying
         fd nor named in the manifest — orphaned scenes from a prior Hub die are
         swept by the same rule, since their owner is never this fd.
@@ -97,6 +106,12 @@ class HubReconciliation:
         try:
             fd = sock.fileno()
         except OSError:
+            return
+        if self._socket_listener.kind_of(fd) != "hub":
+            logger.warning("non-hub fd=%d sent HubManifestMessage; ignoring", fd)
+            self._record_error(
+                "error", f"non-hub connection (fd={fd}) sent HubManifestMessage", ""
+            )
             return
         manifest = frozenset(msg.scene_ids)
         for frame_id, scene_id in self._scenes.scenes_to_purge(fd, manifest):
@@ -123,26 +138,6 @@ class HubReconciliation:
         )
         self._socket_listener.remove_client(sock)
         return True
-
-    @staticmethod
-    def _peer_pid(sock: socket.socket) -> int | None:
-        """Return the connecting process's pid via ``SO_PEERCRED``, or ``None``.
-
-        Linux-only (``SO_PEERCRED`` is absent on macOS/BSD, whose equivalent
-        ``LOCAL_PEEREPID`` Python does not expose as a named constant).
-        ``None`` on any platform or error where the pid cannot be read --
-        callers log ``pid=?`` rather than fail the connection over a
-        diagnostic.
-        """
-        so_peercred = getattr(socket, "SO_PEERCRED", None)
-        if so_peercred is None:
-            return None
-        try:
-            raw = sock.getsockopt(socket.SOL_SOCKET, so_peercred, struct.calcsize("3i"))
-        except OSError:
-            return None
-        pid, _uid, _gid = struct.unpack("3i", raw)
-        return int(pid)
 
     def _preempt_stale_hub(self, fd: int, name: str) -> None:
         """Force-disconnect any other live connection already declaring this identity.

@@ -96,6 +96,18 @@ class TestHubManifestMessage:
         assert restored == original
         assert message_to_dict(original)["type"] == "hub_manifest"
 
+    def test_decode_rejects_a_bare_string_scene_ids(self) -> None:
+        """A string is iterable, so a naive ``tuple(raw)`` would silently
+        purge every real scene against its individual characters."""
+        with pytest.raises(ValueError, match="must be a list"):
+            HubManifestMessage.from_dict({"type": "hub_manifest", "scene_ids": "s1"})
+
+    def test_decode_rejects_non_string_elements(self) -> None:
+        with pytest.raises(ValueError, match=r"scene_ids\[1\] must be a string"):
+            HubManifestMessage.from_dict(
+                {"type": "hub_manifest", "scene_ids": ["s1", 2, "s3"]}
+            )
+
 
 class TestReadyMessage:
     def test_roundtrip_with_capabilities(self) -> None:
@@ -145,3 +157,14 @@ class TestUnknownMessage:
         restored = UnknownMessage.from_dict(d)
         assert restored.raw_type == "future_kind"
         assert restored.data == d
+
+    def test_from_dict_copies_the_input_dict(self) -> None:
+        """The dataclass is frozen, but a dict stored by reference is not.
+
+        A caller mutating the dict it handed to ``from_dict`` must not reach
+        through to the message's own ``data``.
+        """
+        source = {"type": "future_kind", "foo": "bar"}
+        restored = UnknownMessage.from_dict(source)
+        source["foo"] = "mutated"
+        assert restored.data["foo"] == "bar"

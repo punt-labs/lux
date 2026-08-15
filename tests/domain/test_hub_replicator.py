@@ -29,6 +29,8 @@ from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.protocol.elements.text import TextElement
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from punt_lux.domain.element import Element as WireElement
 
 _CONN = ConnectionId("repl-conn")
@@ -181,23 +183,44 @@ class _FakeCallbackReader:
 
 
 class _FakeProvider:
-    """Hands out one sender; ``drop`` heals it, modelling a reconnect."""
+    """Hands out one sender; ``drop`` heals it, modelling a reconnect.
+
+    ``get()`` right after a ``drop()`` mirrors ``ClientRegistry
+    ._connect_and_reconcile``'s DES-068 connect-success hook: it is the only
+    real collaborator that re-marks every live scene and the menu dirty on a
+    fresh connect, and ``SendRecovery`` no longer does this itself (it
+    delegates through ``get()``), so the fake must model the side effect or
+    the recovery partitions it once proved -- like a mutation landing mid-
+    recovery still getting repainted -- would silently stop being exercised.
+    An ordinary ``get()`` while already connected has no such effect, so
+    ``reconcile`` only fires once per ``drop()``.
+    """
 
     _sender: _FakeSender
+    _reconcile: Callable[[], None] | None
+    _needs_reconcile: bool
     drops: int
-    __slots__ = ("_sender", "drops")
+    __slots__ = ("_needs_reconcile", "_reconcile", "_sender", "drops")
 
-    def __new__(cls, sender: _FakeSender) -> Self:
+    def __new__(
+        cls, sender: _FakeSender, reconcile: Callable[[], None] | None = None
+    ) -> Self:
         self = super().__new__(cls)
         self._sender = sender
+        self._reconcile = reconcile
+        self._needs_reconcile = False
         self.drops = 0
         return self
 
     def get(self) -> _FakeSender:
+        if self._needs_reconcile and self._reconcile is not None:
+            self._reconcile()
+            self._needs_reconcile = False
         return self._sender
 
     def drop(self) -> None:
         self.drops += 1
+        self._needs_reconcile = True
 
 
 class _FakeLifecycle:
@@ -247,6 +270,13 @@ def _replicator(
         provider,
         lifecycle,
     )
+
+    def _reconcile() -> None:
+        for scene_id in store.reader.live_scene_ids():
+            repl.mark_dirty(scene_id)
+        repl.mark_menus()
+
+    provider._reconcile = _reconcile  # test-only wiring, see _FakeProvider's docstring
     return repl, sender, provider, lifecycle
 
 

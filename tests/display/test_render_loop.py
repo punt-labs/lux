@@ -78,6 +78,8 @@ class TestHandleManifestDispatch:
         assert server._scenes.resolve_scene("s1") is not None
 
         identify_sock = _mock_sock(20)
+        hub_identify = ConnectMessage(name="lux-mcp", kind="hub")
+        server._handle_message(identify_sock, hub_identify)
         server._handle_message(identify_sock, HubManifestMessage(scene_ids=()))
 
         assert server._scenes.resolve_scene("s1") is None
@@ -95,6 +97,8 @@ class TestNotifyRegressionGuard:
         owner_sock.send.reset_mock()  # drop the scene-install ack, not under test
 
         identify_sock = _mock_sock(20)
+        hub_identify = ConnectMessage(name="lux-mcp", kind="hub")
+        server._handle_message(identify_sock, hub_identify)
         server._handle_message(identify_sock, HubManifestMessage(scene_ids=()))
 
         # The purge silently drops the frame -- no frame_close reaches the
