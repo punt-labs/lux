@@ -293,7 +293,7 @@ declares its intent at identify time. `"hub"` is the writer identity
 read-only observer identity — the introspection request types
 (`IntrospectRequest`, `ListScenesRequest`, `ScreenshotRequest`,
 `QueryRequest`, and any future sibling in
-`protocol/messages/introspect.py`) accepted; any `SceneMessage` from
+`protocol/messages/introspect.py`) are accepted; any `SceneMessage` from
 a test fd is rejected with a named error surfaced to `list_errors`
 and the fd closed. The whitelist is "everything in the introspect
 module," not the specific class name `QueryRequest` — future
