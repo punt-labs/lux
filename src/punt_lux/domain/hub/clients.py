@@ -140,10 +140,20 @@ class ClientRegistry:
         call site able to forget the manifest. Also marks every manifested
         scene (plus the menu) dirty so the fresh display gets its content
         repainted, not just told what it should hold.
+
+        A ``send_manifest`` failure after a successful ``connect`` force-closes
+        the link before propagating: a handshake that completed but never
+        landed its manifest must not look connected to the next ``get()``'s
+        fresh-connect gate, or every live scene and the menu silently stop
+        getting re-marked until something else happens to drop the socket.
         """
         client.connect()
         scene_ids = hub_display.live_scene_ids()
-        client.send_manifest(scene_ids)
+        try:
+            client.send_manifest(scene_ids)
+        except OSError:
+            client.close()
+            raise
         for scene_id in scene_ids:
             self._marker.mark_dirty(scene_id)
         self._marker.mark_menus()

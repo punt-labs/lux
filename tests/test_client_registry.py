@@ -25,33 +25,50 @@ from punt_lux.domain.ids import SceneId
 
 
 class _FakeClient:
-    """Records connect / close / start_listener / send_manifest calls."""
+    """Records connect / close / start_listener / send_manifest calls.
+
+    ``is_connected`` tracks real connect/close state, not just a cumulative
+    call count: ``close()`` must flip it back to ``False`` the way the real
+    ``DisplayLink`` does, so a test can prove a forced close after a partial
+    connect makes the *next* ``get()`` reconnect rather than treat a
+    half-connected link (handshake done, manifest never landed) as healthy.
+    ``connect_calls``/``close_calls`` stay separate cumulative counters for
+    assertions on how many attempts actually happened.
+    """
 
     connect_calls: int
     close_calls: int
     start_listener_calls: int
     manifests_sent: list[tuple[str, ...]]
-    _fail_first_call: bool
+    _connected: bool
+    _fail_send_manifest_once: bool
 
-    def __new__(cls, *, fail_first_call: bool = False) -> Self:
+    def __new__(cls, *, fail_send_manifest_once: bool = False) -> Self:
         self = super().__new__(cls)
         self.connect_calls = 0
         self.close_calls = 0
         self.start_listener_calls = 0
         self.manifests_sent = []
-        self._fail_first_call = fail_first_call
+        self._connected = False
+        self._fail_send_manifest_once = fail_send_manifest_once
         return self
 
     def connect(self) -> None:
         self.connect_calls += 1
+        self._connected = True
 
     def close(self) -> None:
         self.close_calls += 1
+        self._connected = False
 
     def start_listener(self) -> None:
         self.start_listener_calls += 1
 
     def send_manifest(self, scene_ids: tuple[str, ...]) -> None:
+        if self._fail_send_manifest_once:
+            self._fail_send_manifest_once = False
+            err = "simulated manifest send failure"
+            raise BrokenPipeError(err)
         self.manifests_sent.append(tuple(scene_ids))
 
     def set_fallback_handler(self, handler: object) -> None:
@@ -59,13 +76,7 @@ class _FakeClient:
 
     @property
     def is_connected(self) -> bool:
-        """Report connected the instant ``connect`` has been called once.
-
-        ``get()`` only calls the reconcile path while disconnected; this
-        keeps the fake's shape close enough to the real ``DisplayLink`` for
-        that guard to behave the same way across repeated ``get()`` calls.
-        """
-        return self.connect_calls > 0
+        return self._connected
 
     @property
     def listener_active(self) -> bool:
@@ -180,7 +191,6 @@ class TestConnectAndReconcile:
         registry = ClientRegistry()
         fake = _FakeClient()
         _install_client(registry, fake)
-        fake.connect_calls = 0  # force get() to see "not yet connected"
 
         registry.get()
 
@@ -193,7 +203,6 @@ class TestConnectAndReconcile:
         registry.attach_replicator(marker)
         fake = _FakeClient()
         _install_client(registry, fake)
-        fake.connect_calls = 0
 
         registry.get()
 
@@ -204,7 +213,7 @@ class TestConnectAndReconcile:
         registry = ClientRegistry()
         fake = _FakeClient()
         _install_client(registry, fake)
-        fake.connect_calls = 1  # already connected
+        fake.connect()  # already connected, and cleanly so
 
         registry.get()
 
@@ -216,11 +225,42 @@ class TestConnectAndReconcile:
         registry = ClientRegistry()
         fake = _FakeClient()
         _install_client(registry, fake)
-        fake.connect_calls = 0
 
         registry.get()  # must not raise despite no attach_replicator call
 
         assert fake.manifests_sent == [()]
+
+    def test_a_manifest_send_failure_after_connect_force_closes_the_link(self) -> None:
+        """A half-connected link must not look healthy to the fresh-connect gate.
+
+        ``connect()`` can succeed while ``send_manifest()`` then fails -- without
+        forcing a close, ``is_connected`` would stay ``True`` and every later
+        ``get()`` would skip reconciliation entirely, silently dropping every
+        live scene's re-mark along with the manifest itself.
+        """
+        registry = ClientRegistry()
+        fake = _FakeClient(fail_send_manifest_once=True)
+        _install_client(registry, fake)
+
+        with pytest.raises(BrokenPipeError):
+            registry.get()
+
+        assert fake.is_connected is False  # forced closed, not half-connected
+        assert fake.close_calls == 1
+
+    def test_a_manifest_send_failure_is_retried_by_the_next_get(self) -> None:
+        """The next ``get()`` must see a disconnected link and reconcile again."""
+        registry = ClientRegistry()
+        fake = _FakeClient(fail_send_manifest_once=True)
+        _install_client(registry, fake)
+
+        with pytest.raises(BrokenPipeError):
+            registry.get()  # connect succeeds, send_manifest fails, link closed
+
+        registry.get()  # must reconnect from scratch, not skip reconciliation
+
+        assert fake.connect_calls == 2  # the failed attempt, then the retry
+        assert fake.manifests_sent == [()]  # the retry's manifest actually landed
 
 
 def test_the_composition_root_wires_client_registry_to_the_real_replicator() -> None:
