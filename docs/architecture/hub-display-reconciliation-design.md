@@ -297,8 +297,9 @@ read-only observer identity — the introspection request types
 a test fd is rejected with a named error surfaced to `list_errors`
 and the fd closed. The whitelist is "everything in the introspect
 module," not the specific class name `QueryRequest` — future
-introspect requests should not have to be re-whitelisted. A connection that omits `ConnectMessage` entirely, or attempts
-any other pre-scene traffic before it, is closed — no implicit default,
+introspect requests should not have to be re-whitelisted. A
+connection that omits `ConnectMessage` entirely, or attempts any
+other pre-scene traffic before it, is closed — no implicit default,
 no ambiguous kind.
 
 The absence of a `"direct"` writer variant is deliberate and reflects
@@ -432,11 +433,14 @@ single line naming the fd, the pid, and the `ConnectMessage.name`:
 test-kind connect: fd=N pid=P name=… — read-only path; not a supported production mode
 ```
 
-Making it WARNING rather than DEBUG or INFO ensures the exercise of
-this path is visible at the display log's default level (INFO), so an
-accidental production caller declaring `kind="test"` is visible in
+WARNING is the right level for two reasons: it stands out among the
+INFO chatter that dominates the display log at default settings, and
+it survives a raised log threshold (an operator who quiets the log to
+WARNING+ still sees these) that INFO would not. An accidental
+production caller declaring `kind="test"` is therefore visible in
 `/tmp/lux-$USER/display.sock.log` (the display's log file, per this
-repo's Logging convention) without needing to enable DEBUG. Tests
+repo's Logging convention) without needing to enable DEBUG and
+without being drowned out by normal INFO traffic. Tests
 running against a real Display leave an audit trail; anything in
 production leaves a loud one.
 
