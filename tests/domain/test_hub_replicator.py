@@ -961,7 +961,12 @@ def test_a_deterministic_crasher_is_quarantined_and_never_sent() -> None:
 def test_an_innocent_scene_co_batched_with_a_crasher_is_never_quarantined() -> None:
     # The false-positive guard: "good" shares the first batched death with
     # "bad" (one increment each), isolation then narrows every further death
-    # to "bad" alone, so "good" never reaches the threshold.
+    # to "bad" alone, so "good" never reaches the threshold. Isolation-mode
+    # probe order is unspecified (a frozenset), so "bad" may reach the
+    # threshold in as few as two cycles without "good" ever being probed in
+    # between — the property under test is only that "good" stays clean, not
+    # when it happens to be sent, so the "good in shows" check polls
+    # separately, after quarantine has excluded "bad" from later batches.
     store = HubDisplay()
     good = _seed(store, "good")
     bad = _seed(store, "bad")
@@ -973,7 +978,7 @@ def test_an_innocent_scene_co_batched_with_a_crasher_is_never_quarantined() -> N
         repl.mark_dirty(bad)
         assert _wait_until(lambda: store.is_quarantined(bad))
         assert not store.is_quarantined(good)
-        assert "good" in sender.shows
+        assert _wait_until(lambda: "good" in sender.shows)
     finally:
         repl.stop()
 
