@@ -67,6 +67,16 @@ _STOP_JOIN_TIMEOUT = 5.0
 # clean cycle, so a permanently absent display logs at a sane rate, not a firehose.
 _BASE_BACKOFF_SECONDS = 0.1
 _MAX_BACKOFF_SECONDS = 2.0
+# The isolation-mode roundtrip budget: after each singleton scene send, wait
+# this long for the display to ack a ping. Long enough for the display to
+# process one scene under load; short enough that a wedged display trips the
+# recovery quickly and blames the actual crasher, not the next scene in line.
+_PROBE_TIMEOUT_SECONDS = 1.0
+# The idle-tick period between wakeups when no scene or menu write arrives.
+# Bounds the wait so stability checks (isolation-exit and respawn-backoff
+# reset) fire even in a quiet system where no future write would otherwise
+# wake the worker.
+_STABILITY_TICK_SECONDS = 1.0
 
 
 @final
@@ -132,6 +142,12 @@ class HubReplicator:
         self._clients = clients
         self._signal = DirtySignal()
         self._attribution = CrashAttribution(quarantine)
+        # Wire the tally reset to the store's quarantine-clear cascade so a
+        # scene an owner fixes needs the full ATTRIBUTION_THRESHOLD again
+        # rather than re-quarantining off one fresh death (a lingering
+        # in-window tally would otherwise reach the threshold on the next
+        # crash alone).
+        quarantine.add_quarantine_cleared_observer(self._attribution.clear_tally)
         self._recovery = SendRecovery(
             clients, lifecycle, self._signal, self._attribution, RespawnBackoff()
         )
@@ -200,13 +216,29 @@ class HubReplicator:
     # -- worker loop --------------------------------------------------------
 
     def _run(self) -> None:
-        """Drain-and-push until asked to stop, surviving any single-cycle error."""
+        """Drain-and-push until asked to stop, surviving any single-cycle error.
+
+        Stability checks (isolation-exit and respawn-backoff reset) fire once
+        per iteration, work or no work, so a quiet system where the last
+        crasher was quarantined and no further write arrives still exits
+        isolation once ``STABLE_INTERVAL`` has elapsed — the design's
+        autonomous time-driven resumption, not gated on the next write. The
+        idle-tick wake bounds the wait so the check actually runs on schedule.
+        """
         while True:
-            batch = self._signal.wait_and_drain(_COALESCE_SECONDS)
+            batch = self._signal.wait_and_drain(
+                _COALESCE_SECONDS, idle_tick_seconds=_STABILITY_TICK_SECONDS
+            )
             if batch.has_work:
                 self._run_cycle(batch)
+            self._tick_stability()
             if batch.shutting:
                 return
+
+    def _tick_stability(self) -> None:
+        """Run the two death-free-interval checks that decay per-episode state."""
+        self._attribution.exit_isolation_if_stable()
+        self._recovery.reset_backoff_if_stable()
 
     def _run_cycle(self, batch: DrainedBatch) -> None:
         """Push the batch; reclaim only on a genuinely clean cycle, else back off.
@@ -220,7 +252,8 @@ class HubReplicator:
         design and only logged. A genuinely clean cycle resets the delay and only
         then reclaims the scenes it emptied — the reclaim is deferred to here so a
         later scene's failure in the same cycle cannot strand an already-reclaimed
-        scene's frame.
+        scene's frame. The stability-tick calls live in ``_run`` so they run per
+        iteration whether or not a cycle ran.
         """
         try:
             outcome = self._push_cycle(batch)
@@ -237,8 +270,6 @@ class HubReplicator:
                 self._back_off()
             return
         self._backoff = _BASE_BACKOFF_SECONDS
-        self._attribution.exit_isolation_if_stable()
-        self._recovery.reset_backoff_if_stable()
         self._reclaim_emptied(outcome.emptied)
 
     def _push_cycle(self, batch: DrainedBatch) -> _CycleOutcome:
@@ -275,14 +306,19 @@ class HubReplicator:
         load-bearing exclusion against the crash loop (Invariant 1: a quarantined
         scene is never replicated), enforced here regardless of what the dirty
         signal or a recovery re-mark queued. The menu send, when present, is
-        attributed to the whole live batch: it names no scene, so the safest
-        suspect set is everything that was in flight, in either mode.
+        deliberately attributed to the *empty* suspect set: a menu-caused crash
+        is not a scene-caused crash, and the false-positive class isolation was
+        written to prevent (an innocent scene coalesced with a crasher) reappears
+        for every innocent live scene if a menu-poisoned send blames the whole
+        batch. Menu-poison detection is a separate concern (attribution's design
+        assumes scene-caused crashes); the empty suspect still trips isolation
+        (any death does) so subsequent scene sends are singletons.
         """
         scenes = frozenset(
             s for s in batch.scenes if not self._attribution.is_quarantined(s)
         )
         if batch.menus_dirty:
-            self._current_suspect = scenes
+            self._current_suspect = frozenset()
             # Read the agent bar and the live sessions fresh, so the newest menu
             # state wins even if a change landed after this batch was drained.
             bar = self._menu_reader.wire_snapshot()
@@ -309,17 +345,28 @@ class HubReplicator:
         return tuple(scene for scene in scenes if self._send_scene(scene))
 
     def _attempt_isolating(self, scenes: frozenset[SceneId]) -> tuple[SceneId, ...]:
-        """Send every scene alone, so a death has exactly one suspect.
+        """Send every scene alone, with a liveness probe between sends.
 
-        ``_current_suspect`` is narrowed to the singleton before each send, so a
-        failure on scene N attributes only scene N — the scenes already sent
-        cleanly in this same cycle are never smeared into its suspect set.
+        ``_current_suspect`` is narrowed to the singleton before each send, and
+        a synchronous ``probe_alive`` runs *after* each send *before* the next
+        one — the missing step under fire-and-forget alone. Without it, a scene
+        N whose render crashes the display surfaces only as a broken pipe on
+        the *next* write, and ``_current_suspect`` has already advanced to
+        N+1: the death attributes to innocent N+1. The probe forces the crash
+        to surface while ``_current_suspect`` is still {N}.
+
+        A failed probe raises OSError (either its underlying send did, or the
+        None pong is turned into one here), which ``_push_cycle`` catches and
+        hands to recovery with the correct suspect.
         """
         emptied: list[SceneId] = []
         for scene_id in scenes:
             self._current_suspect = frozenset({scene_id})
             if self._send_scene(scene_id):
                 emptied.append(scene_id)
+            if not self._clients.get().probe_alive(_PROBE_TIMEOUT_SECONDS):
+                msg = f"display did not ack probe after sending {scene_id!r}"
+                raise OSError(msg)
         return tuple(emptied)
 
     def _send_scene(self, scene_id: SceneId) -> bool:
