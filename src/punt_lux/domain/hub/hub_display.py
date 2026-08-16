@@ -48,6 +48,7 @@ from punt_lux.domain.hub.hub_reads import HubReads
 from punt_lux.domain.hub.owner import Owner
 from punt_lux.domain.hub.owner_tracker import OwnerTracker
 from punt_lux.domain.hub.ownership_error import HubOwnershipError
+from punt_lux.domain.hub.quarantine_registry import QuarantineRegistry
 from punt_lux.domain.hub.root_registry import RootRegistry
 from punt_lux.domain.hub.root_removal_router import RootRemovalRouter
 from punt_lux.domain.hub.scene_presentation import (
@@ -69,6 +70,7 @@ if TYPE_CHECKING:
 
     from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.domain.hub.client_session import ClientSession
+    from punt_lux.domain.hub.quarantine_record import QuarantineRecord
 
 __all__ = [
     "HubDisplay",
@@ -105,6 +107,7 @@ class HubDisplay:
     _reader: SceneReader
     _reads: HubReads
     _frame_lifecycle: FrameLifecycle
+    _quarantine: QuarantineRegistry
 
     def __new__(cls, clock: Callable[[], float] = time.monotonic) -> Self:
         self = super().__new__(cls)
@@ -115,6 +118,7 @@ class HubDisplay:
         self._children = ChildIndex()
         self._dismissal = DismissalWalk(self._index, self._children)
         self._frames = ScenePresentationRegistry()
+        self._quarantine = QuarantineRegistry()
         self._seam = WriteSeam(self._index)
         self._remover = SubtreeRemover(
             self._index, self._owners, self._roots, self._children
@@ -232,7 +236,26 @@ class HubDisplay:
     # -- authoritative reads (introspection) -------------------------------
 
     def live_scene_ids(self) -> tuple[SceneId, ...]:
-        """Return every scene still holding a non-removed root, read under lock."""
+        """Return every non-quarantined scene still holding a non-removed root.
+
+        The replication-facing read: quarantined scenes are excluded here at
+        the source, so every caller of this method — the reconnect
+        reconciliation hook (``ClientRegistry._connect_and_reconcile``)
+        included — never re-marks a quarantined scene for a fresh Display to
+        crash on again. Introspection, which must still see a quarantined
+        scene, uses :meth:`all_scene_ids` instead.
+        """
+        quarantined = self._quarantine.quarantined_ids()
+        return tuple(s for s in self._reader.live_scene_ids() if s not in quarantined)
+
+    def all_scene_ids(self) -> tuple[SceneId, ...]:
+        """Return every scene still holding a non-removed root, quarantined or not.
+
+        The introspection-facing read: ``list_scenes`` and ``inspect_scene``
+        keep a quarantined scene visible — quarantine is a replication
+        decision, not a deletion — while :meth:`live_scene_ids` is the
+        replication-facing read that excludes it.
+        """
         return self._reader.live_scene_ids()
 
     def element_count(self, scene_id: SceneId) -> int:
@@ -251,6 +274,26 @@ class HubDisplay:
         """Return the distinct repositories the identified sessions declared."""
         return self._clients.repos()
 
+    # -- quarantine ----------------------------------------------------------
+
+    def quarantine(self, scene_id: SceneId, record: QuarantineRecord) -> None:
+        """Quarantine ``scene_id``: stop replicating it, keep it for inspection.
+
+        Called by :class:`~punt_lux.domain.hub.crash_attribution.CrashAttribution`
+        through the ``QuarantinePort`` this class satisfies structurally. The
+        scene stays installed — quarantine is a replication decision, not a
+        deletion — so an agent can still ``inspect_scene`` it to see what it built.
+        """
+        self._quarantine.quarantine(scene_id, record)
+
+    def is_quarantined(self, scene_id: SceneId) -> bool:
+        """Return whether ``scene_id`` currently carries a quarantine record."""
+        return self._quarantine.is_quarantined(scene_id)
+
+    def quarantine_record(self, scene_id: SceneId) -> QuarantineRecord | None:
+        """Return the scene's quarantine record, or None if it is not quarantined."""
+        return self._quarantine.record_for(scene_id)
+
     @trace
     def replace_scene(
         self,
@@ -266,9 +309,14 @@ class HubDisplay:
         child indexes in one place. The latest show defines the whole scene, so an
         orphan from a departed session is cleared, never stranded beside new roots.
         A write registers nobody: a session comes only from its own arrival.
+
+        A wholesale replace is a *different tree*, presumed fixed, so it lifts
+        any quarantine the scene carried — the normal recovery path an owner
+        takes after reading a quarantine record and fixing the offending element.
         """
         with self._lock.write():
             self._remover.drop_scene_roots(scene_id)
+            self._quarantine.clear(scene_id)
             for root in roots:
                 self.apply(
                     connection_id,
@@ -325,6 +373,12 @@ class HubDisplay:
                 case RemoveElement(scene_id=sid, element_id=eid):
                     self._owners.require_ownership(sid, eid, connection_id)
                     self._remover.remove_subtree(sid, eid)
+                    if not self._index.scene_roots(sid):
+                        # An explicit clear (or any removal) that empties the
+                        # scene removes its quarantine along with it — a scene
+                        # with nothing to render has nothing left to be
+                        # quarantined from.
+                        self._quarantine.clear(sid)
 
     # -- cleanup trigger ---------------------------------------------------
 
