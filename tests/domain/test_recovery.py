@@ -105,7 +105,12 @@ class _FakeSignal:
 
 
 class _FakePort:
-    """Records every quarantine call, for asserting attribution ran."""
+    """Records every quarantine call, for asserting attribution ran.
+
+    The observer registrar is a no-op — recovery tests do not exercise the
+    quarantine-cleared cascade — but the method is present so ``_FakePort``
+    still satisfies the ``QuarantinePort`` protocol structurally.
+    """
 
     records: dict[SceneId, QuarantineRecord]
     __slots__ = ("records",)
@@ -120,6 +125,9 @@ class _FakePort:
 
     def is_quarantined(self, scene_id: SceneId) -> bool:
         return scene_id in self.records
+
+    def add_quarantine_cleared_observer(self, observer: object) -> None:
+        """No-op: recovery tests do not drive the quarantine-cleared cascade."""
 
 
 def _recovery() -> tuple[
