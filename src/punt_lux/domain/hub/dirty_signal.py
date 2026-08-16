@@ -127,11 +127,17 @@ class DirtySignal:
         preserves the original wait-forever behavior.
         """
         with self._cond:
-            if not self._dirty and not self._menus_dirty and not self._shutting:
-                self._cond.wait(idle_tick_seconds)
-            if not self._dirty and not self._menus_dirty and not self._shutting:
-                # Timed out with no work and no stop — an idle tick.
-                return DrainedBatch(frozenset(), shutting=False)
+            # Spurious wakeups from ``Condition.wait`` are a Python fact of
+            # life; the ``while`` guard is what keeps a wake with no work from
+            # returning an idle tick when the caller asked to wait forever
+            # (``idle_tick_seconds`` None). With a bounded wait, the
+            # ``wait`` timeout is the exit path; without one, ``wait``
+            # returns only on notify or spurious wake, and the guard sends
+            # us back around.
+            while not self._dirty and not self._menus_dirty and not self._shutting:
+                if not self._cond.wait(idle_tick_seconds):
+                    # Timed out with no work and no stop — an idle tick.
+                    return DrainedBatch(frozenset(), shutting=False)
             if self._shutting and not self._dirty and not self._menus_dirty:
                 return DrainedBatch(frozenset(), shutting=True)
             self._cond.wait(coalesce_seconds)
