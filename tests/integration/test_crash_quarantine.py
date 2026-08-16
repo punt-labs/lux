@@ -82,6 +82,11 @@ class _FaultInjectingSender:
     def set_callback_menus(self, submenus: list[dict[str, object]]) -> None:
         pass
 
+    def probe_alive(self, timeout: float) -> bool:
+        """Report alive unless a crash-armed scene would fail a subsequent write."""
+        del timeout
+        return not self._crashers
+
 
 class _Provider:
     """Hands out one sender; every ``get()`` after a ``drop()`` reconciles.

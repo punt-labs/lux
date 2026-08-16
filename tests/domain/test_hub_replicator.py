@@ -66,12 +66,16 @@ class _FakeSender:
     _fail: Exception | None
     _fail_scene: tuple[str, OSError] | None
     _crasher: str | None
+    _deferred_dead: bool
+    _defer_after: str | None
     _gate: threading.Event | None
     _lock: threading.Lock
     _sent: threading.Event
     _entered: threading.Event
     __slots__ = (
         "_crasher",
+        "_defer_after",
+        "_deferred_dead",
         "_entered",
         "_fail",
         "_fail_scene",
@@ -97,6 +101,8 @@ class _FakeSender:
         self._fail = None
         self._fail_scene = None
         self._crasher = None
+        self._deferred_dead = False
+        self._defer_after = None
         self._gate = None
         self._lock = threading.Lock()
         self._sent = threading.Event()
@@ -123,6 +129,18 @@ class _FakeSender:
         replicator excluding the scene from every future send.
         """
         self._crasher = scene_id
+
+    def crash_after_render(self, scene_id: str) -> None:
+        """Model a scene whose SEND succeeds but whose RENDER kills the display.
+
+        The right model for Finding 3: the send returns cleanly (fire-and-forget
+        writes to a socket buffer), but the display crashes while processing
+        the scene, so the *next* write or probe surfaces the death. Under this
+        arming ``show_async(scene_id, ...)`` records the send and then flips
+        ``_deferred_dead`` on; any subsequent send raises OSError and any
+        subsequent ``probe_alive`` returns False.
+        """
+        self._defer_after = scene_id
 
     def block_next(self, gate: threading.Event) -> None:
         self._gate = gate
@@ -157,6 +175,10 @@ class _FakeSender:
         **_kwargs: object,
     ) -> None:
         self._guard()
+        if self._deferred_dead:
+            # A previous send left the display dead; every subsequent write
+            # sees the broken pipe (Finding 3's deferred-crash model).
+            raise OSError(f"display dead; {scene_id!r} write raises EPIPE")
         if self._fail_scene is not None and self._fail_scene[0] == scene_id:
             _, exc = self._fail_scene
             self._fail_scene = None
@@ -168,6 +190,12 @@ class _FakeSender:
             self.frames.append(frame_id)
             self.roots.append(list(elements))
             self.timeline.append(f"show:{scene_id}")
+        if self._defer_after == scene_id:
+            # The send succeeded, but the display crashes on render — the
+            # crash will surface on the next write or probe. Once armed,
+            # ``crash_after_render`` fires once.
+            self._deferred_dead = True
+            self._defer_after = None
         self._sent.set()
 
     def set_menu(self, menus: list[dict[str, object]]) -> None:
@@ -180,6 +208,21 @@ class _FakeSender:
     def set_callback_menus(self, submenus: list[dict[str, object]]) -> None:
         with self._lock:
             self.callback_submenus.append(list(submenus))
+
+    def probe_alive(self, timeout: float) -> bool:
+        """Report the display alive so long as no send has yet blown up.
+
+        Mirrors ``DisplayLink.probe_alive``'s roundtrip semantics: crashes
+        surface synchronously through ``show_async`` in this fake (a crasher
+        send raises immediately), so a probe *between* sends sees a healthy
+        display right up to the send that actually raises. Nothing to detect
+        here that ``show_async`` hasn't already surfaced. Tests that need to
+        exercise the deferred-crash path (the crash of scene N surfacing on
+        N+1's write) set ``_deferred_dead`` via ``crash_after_render`` — the
+        one path where the probe genuinely earns its keep.
+        """
+        del timeout  # the fake answers instantly; the real link honours it
+        return not self._deferred_dead
 
 
 class _FakeCallbackReader:
