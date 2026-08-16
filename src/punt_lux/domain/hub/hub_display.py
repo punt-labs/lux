@@ -51,6 +51,7 @@ from punt_lux.domain.hub.ownership_error import HubOwnershipError
 from punt_lux.domain.hub.quarantine_registry import QuarantineRegistry
 from punt_lux.domain.hub.root_registry import RootRegistry
 from punt_lux.domain.hub.root_removal_router import RootRemovalRouter
+from punt_lux.domain.hub.scene_eviction import SceneEviction
 from punt_lux.domain.hub.scene_presentation import (
     ScenePresentation,
     ScenePresentationRegistry,
@@ -71,6 +72,8 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.domain.hub.client_session import ClientSession
     from punt_lux.domain.hub.quarantine_record import QuarantineRecord
+
+    QuarantineClearedObserver = Callable[[SceneId], None]
 
 __all__ = [
     "HubDisplay",
@@ -108,6 +111,8 @@ class HubDisplay:
     _reads: HubReads
     _frame_lifecycle: FrameLifecycle
     _quarantine: QuarantineRegistry
+    _quarantine_cleared_observers: list[QuarantineClearedObserver]
+    _eviction: SceneEviction
 
     def __new__(cls, clock: Callable[[], float] = time.monotonic) -> Self:
         self = super().__new__(cls)
@@ -119,10 +124,17 @@ class HubDisplay:
         self._dismissal = DismissalWalk(self._index, self._children)
         self._frames = ScenePresentationRegistry()
         self._quarantine = QuarantineRegistry()
+        self._quarantine_cleared_observers = []
         self._seam = WriteSeam(self._index)
         self._remover = SubtreeRemover(
             self._index, self._owners, self._roots, self._children
         )
+        # The one path every scene-teardown flows through — replace_scene,
+        # frame close, and TTL expiry — so quarantine never outlives the
+        # scene it was attached to. Uses the same _lift_quarantine helper
+        # the owner-driven paths do, so the observer cascade (tally reset,
+        # etc.) fires uniformly on every clear.
+        self._eviction = SceneEviction(self._remover, self._lift_quarantine)
         root_removal = RootRemovalRouter(self._owners, self.apply)
         self._installer = SubtreeInstaller(
             self._index,
@@ -133,7 +145,7 @@ class HubDisplay:
         )
         self._lock = StoreLock()
         self._frame_lifecycle = FrameLifecycle(
-            self._frames, self._remover, FrameExpiry(clock), self._lock
+            self._frames, self._eviction, FrameExpiry(clock), self._lock
         )
         self._reader = SceneReader(self._index, self._frame_lifecycle, self._lock)
         self._reads = HubReads(self._index, self._owners, self._clients, self._lock)
@@ -244,9 +256,16 @@ class HubDisplay:
         included — never re-marks a quarantined scene for a fresh Display to
         crash on again. Introspection, which must still see a quarantined
         scene, uses :meth:`all_scene_ids` instead.
+
+        Read under the store lock, paired with the ``quarantine`` writers
+        below: a scene toggled quarantined between the reader's
+        ``live_scene_ids`` and this filter can never leak past the guard.
         """
-        quarantined = self._quarantine.quarantined_ids()
-        return tuple(s for s in self._reader.live_scene_ids() if s not in quarantined)
+        with self._lock.read():
+            quarantined = self._quarantine.quarantined_ids()
+            return tuple(
+                s for s in self._reader.live_scene_ids() if s not in quarantined
+            )
 
     def all_scene_ids(self) -> tuple[SceneId, ...]:
         """Return every scene still holding a non-removed root, quarantined or not.
@@ -283,16 +302,53 @@ class HubDisplay:
         through the ``QuarantinePort`` this class satisfies structurally. The
         scene stays installed — quarantine is a replication decision, not a
         deletion — so an agent can still ``inspect_scene`` it to see what it built.
+
+        Runs under the store write lock, paired with the readers below and
+        with the check-then-write sequence in
+        :meth:`~punt_lux.operations.scenes.SceneOperations.update`: an update
+        that saw "not quarantined" cannot then race with this write and land a
+        patch on a now-quarantined scene, because both hold the same
+        reentrant lock across the compound decision.
         """
-        self._quarantine.quarantine(scene_id, record)
+        with self._lock.write():
+            self._quarantine.quarantine(scene_id, record)
 
     def is_quarantined(self, scene_id: SceneId) -> bool:
         """Return whether ``scene_id`` currently carries a quarantine record."""
-        return self._quarantine.is_quarantined(scene_id)
+        with self._lock.read():
+            return self._quarantine.is_quarantined(scene_id)
 
     def quarantine_record(self, scene_id: SceneId) -> QuarantineRecord | None:
-        """Return the scene's quarantine record, or None if it is not quarantined."""
-        return self._quarantine.record_for(scene_id)
+        """Return the scene's quarantine record, or None if not quarantined."""
+        with self._lock.read():
+            return self._quarantine.record_for(scene_id)
+
+    def add_quarantine_cleared_observer(
+        self, observer: QuarantineClearedObserver
+    ) -> None:
+        """Register a callback fired whenever a scene's quarantine is lifted.
+
+        The observer runs synchronously under the store lock, so it must not
+        block on I/O. :meth:`CrashAttribution.clear_tally` is the intended
+        subscriber — a lifted quarantine also resets the scene's tally, so a
+        re-crashed scene needs the full threshold again rather than falling
+        off one fresh death straight back into quarantine.
+        """
+        with self._lock.write():
+            self._quarantine_cleared_observers.append(observer)
+
+    def _lift_quarantine(self, scene_id: SceneId) -> None:
+        """Clear ``scene_id``'s quarantine and notify observers, if it had one.
+
+        The one place every quarantine-clear path (owner re-show, empty-scene
+        removal, frame close, TTL expiry) funnels through, so the observer
+        cascade never misses a lift. Caller holds the store write lock.
+        """
+        if not self._quarantine.is_quarantined(scene_id):
+            return
+        self._quarantine.clear(scene_id)
+        for observer in self._quarantine_cleared_observers:
+            observer(scene_id)
 
     @trace
     def replace_scene(
@@ -312,11 +368,14 @@ class HubDisplay:
 
         A wholesale replace is a *different tree*, presumed fixed, so it lifts
         any quarantine the scene carried — the normal recovery path an owner
-        takes after reading a quarantine record and fixing the offending element.
+        takes after reading a quarantine record and fixing the offending
+        element. Routes through the eviction adapter so the observer cascade
+        (in particular, resetting the attribution tally so a re-crash needs
+        the full threshold again) fires here exactly as it does for a frame
+        close or a TTL expiry.
         """
         with self._lock.write():
-            self._remover.drop_scene_roots(scene_id)
-            self._quarantine.clear(scene_id)
+            self._eviction.drop_scene_roots(scene_id)
             for root in roots:
                 self.apply(
                     connection_id,
@@ -377,8 +436,10 @@ class HubDisplay:
                         # An explicit clear (or any removal) that empties the
                         # scene removes its quarantine along with it — a scene
                         # with nothing to render has nothing left to be
-                        # quarantined from.
-                        self._quarantine.clear(sid)
+                        # quarantined from. Routes through the shared helper
+                        # so the observer cascade (tally reset, etc.) fires
+                        # exactly as on any other quarantine-clear path.
+                        self._lift_quarantine(sid)
 
     # -- cleanup trigger ---------------------------------------------------
 

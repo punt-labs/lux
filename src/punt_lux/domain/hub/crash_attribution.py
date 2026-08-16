@@ -11,10 +11,19 @@ deaths within the rolling ``ATTRIBUTION_WINDOW`` is quarantined through the
 death-free ``STABLE_INTERVAL`` — never on one clean pass — so an intermittently
 poisonous scene is pursued across its clean renders instead of escaping the
 moment it happens to render cleanly.
+
+Internally thread-safe: the tally, mode, and last-death timestamp all live under
+one lock. The replicator thread calls ``attribute_death``/``mode``/
+``exit_isolation_if_stable``; MCP tool threads (via ``HubDisplay``'s
+quarantine-cleared observer wiring) call ``clear_tally`` when an owner's
+re-show or removal lifts a quarantine. Serializing every mutation on one lock
+keeps the "must not re-quarantine off one fresh death" invariant crossable by
+either thread.
 """
 
 from __future__ import annotations
 
+import threading
 import time
 from collections import deque
 from typing import TYPE_CHECKING, Literal, Protocol, Self, final, runtime_checkable
@@ -61,6 +70,18 @@ class QuarantinePort(Protocol):
         """Return whether the store currently holds ``scene_id`` quarantined."""
         ...
 
+    def add_quarantine_cleared_observer(
+        self, observer: Callable[[SceneId], None]
+    ) -> None:
+        """Register a callback fired whenever a scene's quarantine is lifted.
+
+        The observer runs synchronously under the store lock, so it must not
+        block; ``CrashAttribution.clear_tally`` is designed for exactly that
+        use so a lifted quarantine also resets the scene's tally, and a scene
+        that crashes again after being fixed needs the full threshold before
+        being re-quarantined (never off one fresh death).
+        """
+
 
 @final
 class CrashAttribution:
@@ -68,10 +89,11 @@ class CrashAttribution:
 
     _port: QuarantinePort
     _clock: Callable[[], float]
+    _lock: threading.Lock
     _mode: Literal["batching", "isolating"]
     _tallies: dict[SceneId, deque[float]]
     _last_death_at: float | None
-    __slots__ = ("_clock", "_last_death_at", "_mode", "_port", "_tallies")
+    __slots__ = ("_clock", "_last_death_at", "_lock", "_mode", "_port", "_tallies")
 
     def __new__(
         cls, port: QuarantinePort, clock: Callable[[], float] = time.monotonic
@@ -79,6 +101,7 @@ class CrashAttribution:
         self = super().__new__(cls)
         self._port = port
         self._clock = clock
+        self._lock = threading.Lock()
         self._mode = "batching"
         self._tallies = {}
         self._last_death_at = None
@@ -86,8 +109,9 @@ class CrashAttribution:
 
     @property
     def mode(self) -> Literal["batching", "isolating"]:
-        """The replicator's current send mode."""
-        return self._mode
+        """The replicator's current send mode, read under the lock."""
+        with self._lock:
+            return self._mode
 
     def is_quarantined(self, scene_id: SceneId) -> bool:
         """Return whether the store currently holds ``scene_id`` quarantined.
@@ -104,17 +128,47 @@ class CrashAttribution:
         Switches the mode to isolating (idempotent if already there) and
         quarantines any scene that reaches ``ATTRIBUTION_THRESHOLD`` inside the
         rolling window. Returns the scenes newly quarantined by this death.
+
+        The empty suspect set is a valid input — a menu-attributed death lands
+        here with no scene in flight (see ``HubReplicator._attempt``), which
+        still trips isolation but blames no scene.
+
+        Tally updates happen under this class's lock; the ``port.quarantine``
+        callback fires only after the lock is released, so this class never
+        holds two locks at once. Necessary because ``clear_tally`` runs from
+        the store's quarantine-cleared observer under the store lock — the
+        reverse order (store lock while port.quarantine is holding this lock)
+        would deadlock a replicator-thread attribute against a caller-thread
+        ``replace_scene``.
         """
         now = self._clock()
-        self._last_death_at = now
-        self._mode = "isolating"
-        newly_quarantined: set[SceneId] = set()
-        for scene_id in suspect_set:
-            tally = self._tallies.setdefault(scene_id, deque())
-            tally.append(now)
-            if self.quarantine_if_threshold(scene_id):
-                newly_quarantined.add(scene_id)
-        return frozenset(newly_quarantined)
+        to_quarantine = self._record_death(suspect_set, now)
+        for scene_id, record in to_quarantine:
+            self._port.quarantine(scene_id, record)
+        return frozenset(scene_id for scene_id, _ in to_quarantine)
+
+    def _record_death(
+        self, suspect_set: frozenset[SceneId], now: float
+    ) -> list[tuple[SceneId, QuarantineRecord]]:
+        """Update tallies and mode under the lock; return records to quarantine."""
+        to_quarantine: list[tuple[SceneId, QuarantineRecord]] = []
+        with self._lock:
+            self._last_death_at = now
+            self._mode = "isolating"
+            for scene_id in suspect_set:
+                tally = self._tallies.setdefault(scene_id, deque())
+                tally.append(now)
+                self._prune(tally, now)
+                if len(tally) >= ATTRIBUTION_THRESHOLD:
+                    to_quarantine.append(
+                        (
+                            scene_id,
+                            QuarantineRecord(
+                                death_count=len(tally), last_death_at=now
+                            ),
+                        )
+                    )
+        return to_quarantine
 
     def quarantine_if_threshold(self, scene_id: SceneId) -> bool:
         """Quarantine ``scene_id`` if its windowed tally reached the threshold.
@@ -122,18 +176,33 @@ class CrashAttribution:
         Returns whether this call quarantined it. Idempotent-safe against a
         scene the port already holds quarantined — the guard is on the tally,
         not on the port's own state, since the port is the one place quarantine
-        can also be lifted from.
+        can also be lifted from. The ``port.quarantine`` call fires outside
+        this class's lock, matching :meth:`attribute_death`'s discipline.
         """
-        tally = self._tallies.get(scene_id)
-        if tally is None:
-            return False
         now = self._clock()
-        self._prune(tally, now)
-        if len(tally) < ATTRIBUTION_THRESHOLD:
-            return False
-        record = QuarantineRecord(death_count=len(tally), last_death_at=now)
+        record: QuarantineRecord | None
+        with self._lock:
+            tally = self._tallies.get(scene_id)
+            if tally is None:
+                return False
+            self._prune(tally, now)
+            if len(tally) < ATTRIBUTION_THRESHOLD:
+                return False
+            record = QuarantineRecord(death_count=len(tally), last_death_at=now)
         self._port.quarantine(scene_id, record)
         return True
+
+    def clear_tally(self, scene_id: SceneId) -> None:
+        """Forget every attributed death for ``scene_id``.
+
+        Called from :class:`~punt_lux.domain.hub.hub_display.HubDisplay`'s
+        quarantine-cleared observer wiring so an owner's re-show (which lifts
+        quarantine) also resets the tally — otherwise a scene that just
+        recovered would re-quarantine off a *single* fresh death, since its
+        old in-window tally would still be at the threshold minus one.
+        """
+        with self._lock:
+            self._tallies.pop(scene_id, None)
 
     def exit_isolation_if_stable(self) -> bool:
         """Return to batching once the Display served ``STABLE_INTERVAL`` death-free.
@@ -143,16 +212,17 @@ class CrashAttribution:
         be pursued across its clean renders instead of escaping isolation the
         moment it happens to render cleanly. Returns whether the exit fired.
         """
-        if self._mode == "batching":
-            return False
         now = self._clock()
-        if (
-            self._last_death_at is not None
-            and now - self._last_death_at < STABLE_INTERVAL
-        ):
-            return False
-        self._mode = "batching"
-        return True
+        with self._lock:
+            if self._mode == "batching":
+                return False
+            if (
+                self._last_death_at is not None
+                and now - self._last_death_at < STABLE_INTERVAL
+            ):
+                return False
+            self._mode = "batching"
+            return True
 
     @staticmethod
     def _prune(tally: deque[float], now: float) -> None:
