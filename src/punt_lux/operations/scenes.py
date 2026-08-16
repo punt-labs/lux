@@ -128,21 +128,32 @@ class SceneOperations:
         path — fanned out on the caller's own topic scope, see
         :meth:`_notify_quarantine`). Otherwise the writer keeps its ownership and
         field-legality rejections; a rejected batch leaves the store untouched.
+
+        The quarantine check and the writer's ``apply`` share one write-lock
+        hold, so the sequence "quarantine-record was None, then apply the
+        patch" is atomic against a replicator-thread quarantine landing in
+        between: without the shared hold, a check-then-act race silently
+        converts "reject" into "accepted-but-never-rendered" the moment
+        attribution quarantines the scene between the two calls.
+        Publication happens after the lock is released to keep subscriber
+        fan-out off the store lock.
         """
         if isinstance(request, OpError):
             return request
         sid = SceneId(scene_id)
-        record = self._display.quarantine_record(sid)
-        if record is not None:
-            self._notify_quarantine(sid, record, scope)
-            return OpError(code="rejected", reason=record.describe(scene_id))
-        writer = HubSceneWriter(self._display)
-        target = SceneScope(scope.connection_id, sid)
-        result = writer.apply(target, request.to_wire())
-        if isinstance(result, WriteRejected):
-            return OpError(code="rejected", reason=result.reason)
-        self._replicator.mark_dirty(sid)
-        return SceneShown(scene_id=scene_id)
+        record: QuarantineRecord | None
+        with self._display.write_lock():
+            record = self._display.quarantine_record(sid)
+            if record is None:
+                writer = HubSceneWriter(self._display)
+                target = SceneScope(scope.connection_id, sid)
+                result = writer.apply(target, request.to_wire())
+                if isinstance(result, WriteRejected):
+                    return OpError(code="rejected", reason=result.reason)
+                self._replicator.mark_dirty(sid)
+                return SceneShown(scene_id=scene_id)
+        self._notify_quarantine(sid, record, scope)
+        return OpError(code="rejected", reason=record.describe(scene_id))
 
     def _notify_quarantine(
         self, scene_id: SceneId, record: QuarantineRecord, scope: Scope
