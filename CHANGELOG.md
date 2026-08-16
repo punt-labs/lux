@@ -7,7 +7,7 @@
 - **The `.punt-labs/ethos` git submodule — installing the lux plugin no longer
   copies the Punt Labs identity registry onto your disk.** A Claude Code
   marketplace install clones with submodules, so every consumer of the lux
-  plugin received `punt-labs/team` in full: 245 files, ~1 MB of internal
+  plugin received `punt-labs/team` in full: 247 files, ~1 MB of internal
   identities, personalities, writing styles, and roles, none of which lux reads
   at runtime. The submodule and `.gitmodules` are gone and the path is
   gitignored. The two-line `.punt-labs/ethos.yaml` that names this repo's agent

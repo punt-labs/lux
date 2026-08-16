@@ -340,9 +340,23 @@ probcli.
 
 ## Ethos & Delegation
 
-**Lux is exempt from the org-wide `.punt-labs/ethos` submodule rule. Do not restore it.** The workspace `CLAUDE.md` tells every project to add `punt-labs/team` as a git submodule at `.punt-labs/ethos/`. That rule assumes a repo only Punt Labs clones. Lux is not one: it ships as a Claude Code plugin through the `punt-labs/claude-plugins` marketplace, and a marketplace install clones **with submodules**, so the submodule put the org identity registry — 245 files, ~1 MB of identities, personalities, writing styles, and roles — onto the disk of every consumer who installed lux. It was removed for that reason. Agents resolve identity from the global `~/.punt-labs/ethos/identities/` instead, which is where it resolves from anyway at runtime; nothing needs to be vendored here.
+**Lux is exempt from the org-wide `.punt-labs/ethos` submodule rule. Do not
+restore it.** The workspace `CLAUDE.md` tells every project to add
+`punt-labs/team` as a git submodule at `.punt-labs/ethos/`. That rule assumes a
+repo only Punt Labs clones. Lux is not one: it ships as a Claude Code plugin
+through the `punt-labs/claude-plugins` marketplace, and a marketplace install
+clones **with submodules**, so the submodule put the org identity registry —
+247 files, ~1 MB of identities, personalities, writing styles, and roles — onto
+the disk of every consumer who installed lux. It was removed for that reason.
+Agents resolve identity from the global `~/.punt-labs/ethos/identities/`
+instead, which is where it resolves from anyway at runtime; nothing needs to be
+vendored here.
 
-What stays is `.punt-labs/ethos.yaml` — two lines naming this repo's agent and team, referenced just below. It is tracked on purpose and the `/.punt-labs/ethos/` ignore rule is anchored and directory-scoped so it cannot shadow that file. If a tool clones the registry to `.punt-labs/ethos/` locally, leave it untracked.
+What stays is `.punt-labs/ethos.yaml` — two lines naming this repo's agent and
+team, referenced just below. It is tracked on purpose and the
+`/.punt-labs/ethos/` ignore rule is anchored and directory-scoped so it cannot
+shadow that file. If a tool clones the registry to `.punt-labs/ethos/` locally,
+leave it untracked.
 
 Identity: `agent: claude` per `.punt-labs/ethos.yaml`. All code delegation uses ethos missions. Every non-trivial delegation has two phases: (1) **design mission** — describes problem, constraints, and invariants but does NOT prescribe a write set; (2) **implementation mission** — uses the write set produced by the design phase. The design mission's output IS the write set — the specialist decides what to create, split, or extract.
 
