@@ -78,14 +78,7 @@ class ScenePresentation:
     frame_layout: Literal["tab", "stack"] | None = None
 
     def scoped(self, owner: ConnectionId) -> Self:
-        """Return this presentation with its frame id namespaced to `owner`.
-
-        Composed the identical way :meth:`~punt_lux.operations.scene_submission.
-        SceneSubmission.scoped` composes ``scene_id`` — an unnamed frame's
-        default (``frame_id == scene_id``) survives composition because both
-        started from the identical raw value and are composed against the
-        identical owner (DES-086).
-        """
+        """Return this presentation with its frame id namespaced to `owner`."""
         return replace(self, frame_id=ConnectionScopedId.compose(owner, self.frame_id))
 
     def push(

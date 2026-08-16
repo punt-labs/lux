@@ -59,16 +59,10 @@ class SceneSubmission:
     def scoped(self, owner: ConnectionId) -> Self:
         """Return this submission with its scene and frame ids namespaced to `owner`.
 
-        Composing each id independently from its own raw value, with the same
-        owner, naturally preserves an unnamed frame's default: a scene shown
-        with no explicit ``frame_id`` still ends up with ``frame_id ==
-        scene_id`` after composition, because composing the identical raw
-        string with the identical owner twice yields the identical string
-        (DES-086). Raises ``ValueError`` — via
-        :meth:`~punt_lux.domain.hub.connection_scoped_id.ConnectionScopedId.compose`
-        — for a raw id that cannot be composed (blank, or carrying the unit
-        separator); the caller is responsible for turning that into an
-        ``OpError`` at the operation boundary.
+        Composing each id independently from the same raw value, against the
+        same owner, preserves the default ``frame_id == scene_id`` invariant
+        for free (DES-086). Raises ``ValueError`` for an id that cannot be
+        composed; the caller turns that into an ``OpError`` at the boundary.
         """
         return replace(
             self,
