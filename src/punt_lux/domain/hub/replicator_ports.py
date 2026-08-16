@@ -78,6 +78,20 @@ class DisplaySender(ScenePusher, Protocol):
     def set_callback_menus(self, submenus: list[dict[str, object]]) -> None:
         """Replace the display's Clients menu."""
 
+    def probe_alive(self, timeout: float) -> bool:
+        """Return whether the display responded to a ping within ``timeout``.
+
+        Used by ``HubReplicator``'s isolation-mode loop as a synchronous
+        liveness check between consecutive singleton probes: a scene N whose
+        render crashed the display surfaces as a broken pipe on the *next*
+        write, so without a roundtrip in between, the death would attribute
+        to scene N+1 (which was in flight when the write raised) rather than
+        to scene N (the real culprit). Raising OSError/BlockingIOError is
+        also a "no" — the caller propagates either as a failure of the last
+        scene sent.
+        """
+        ...
+
 
 @runtime_checkable
 class ClientProvider(Protocol):

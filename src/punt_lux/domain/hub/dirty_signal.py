@@ -106,15 +106,38 @@ class DirtySignal:
         with self._cond:
             return self._shutting
 
-    def wait_and_drain(self, coalesce_seconds: float) -> DrainedBatch:
+    def wait_and_drain(
+        self,
+        coalesce_seconds: float,
+        *,
+        idle_tick_seconds: float | None = None,
+    ) -> DrainedBatch:
         """Block until there is work or a stop, coalesce a burst, then drain.
 
-        Returns the whole changed set and the menu flag together, resetting both,
-        so a mark that lands after the drain is carried to the next cycle.
+        Returns the whole changed set and the menu flag together, resetting
+        both, so a mark that lands after the drain is carried to the next
+        cycle.
+
+        ``idle_tick_seconds`` bounds the initial wait when the queue is empty
+        and no stop has been requested: on such a timeout, an empty
+        ``DrainedBatch`` (``has_work`` false, ``shutting`` false) is returned
+        so the caller can run periodic maintenance — the replicator's
+        isolation-exit and respawn-backoff resets in particular — that would
+        otherwise never fire in a quiet system with no future write. None
+        preserves the original wait-forever behavior.
         """
         with self._cond:
+            # Spurious wakeups from ``Condition.wait`` are a Python fact of
+            # life; the ``while`` guard is what keeps a wake with no work from
+            # returning an idle tick when the caller asked to wait forever
+            # (``idle_tick_seconds`` None). With a bounded wait, the
+            # ``wait`` timeout is the exit path; without one, ``wait``
+            # returns only on notify or spurious wake, and the guard sends
+            # us back around.
             while not self._dirty and not self._menus_dirty and not self._shutting:
-                self._cond.wait()
+                if not self._cond.wait(idle_tick_seconds):
+                    # Timed out with no work and no stop — an idle tick.
+                    return DrainedBatch(frozenset(), shutting=False)
             if self._shutting and not self._dirty and not self._menus_dirty:
                 return DrainedBatch(frozenset(), shutting=True)
             self._cond.wait(coalesce_seconds)

@@ -25,6 +25,7 @@ from punt_lux.operations.models.query_inspection import (
     SceneInspection,
 )
 from punt_lux.operations.models.query_ownership import SceneOwner
+from punt_lux.operations.models.query_quarantine import QuarantineInfo
 from punt_lux.operations.models.query_scenes import SceneList, SceneSummary
 
 if TYPE_CHECKING:
@@ -32,6 +33,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.hub import Hub
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.hub.named_sessions import NamedSession
+    from punt_lux.domain.hub.quarantine_record import QuarantineRecord
     from punt_lux.domain.ids import ConnectionId
     from punt_lux.operations.display_port import DisplayPort
     from punt_lux.protocol import Element as WireElement
@@ -69,7 +71,7 @@ class QueryOperations:
         ``scope`` asks and is never treated as Hub authority.
         """
         sid = SceneId(scene_id)
-        if sid not in self._display.live_scene_ids():
+        if sid not in self._display.all_scene_ids():
             return OpError(code="not_found", reason=f"scene {scene_id!r} not found")
         # The store hands back domain elements; they are structurally the wire
         # Element the codec and the ABC checks read (PY-TS-12 domain/wire bridge).
@@ -78,20 +80,37 @@ class QueryOperations:
             for root in self._display.scene_roots(sid)
         ]
         geometry = self._facts.facts(scene_id, scope)
-        return SceneInspection(scene_id=scene_id, elements=elements, geometry=geometry)
+        return SceneInspection(
+            scene_id=scene_id,
+            elements=elements,
+            geometry=geometry,
+            quarantine=self._quarantine_info(sid),
+        )
 
     def list_scenes(self) -> SceneList:
-        """List every live scene and frame from the authoritative store."""
+        """List every scene and frame from the authoritative store.
+
+        Includes quarantined scenes alongside live ones — quarantine is a
+        replication decision, not a deletion, so introspection stays honest
+        about the scenes the store still holds. Each summary carries a
+        ``status`` discriminator (``"live"`` or ``"quarantined"``) and, when
+        quarantined, the :class:`QuarantineInfo` record explaining why.
+        Replication reads through :meth:`HubDisplay.live_scene_ids` instead,
+        which excludes quarantined scenes at the source.
+        """
         scenes: list[SceneSummary] = []
         frames: dict[str, FrameAccumulator] = {}
-        for sid in self._display.live_scene_ids():
+        for sid in self._display.all_scene_ids():
             presentation = self._display.frames.presentation_for(sid)
+            quarantine = self._quarantine_info(sid)
             scenes.append(
                 SceneSummary(
                     scene_id=str(sid),
                     element_count=self._display.element_count(sid),
                     frame_id=presentation.frame_id,
                     owners=self._owners_of(sid),
+                    status="quarantined" if quarantine is not None else "live",
+                    quarantine=quarantine,
                 )
             )
             layout = presentation.frame_layout or "tab"
@@ -153,6 +172,13 @@ class QueryOperations:
     def _owners_of(self, scene_id: SceneId) -> list[SceneOwner]:
         """Return the scene's distinct owners as introspection read shapes."""
         return [SceneOwner.of(owner) for owner in self._display.scene_owners(scene_id)]
+
+    def _quarantine_info(self, scene_id: SceneId) -> QuarantineInfo | None:
+        """Return the scene's quarantine read shape, or None if not quarantined."""
+        record: QuarantineRecord | None = self._display.quarantine_record(scene_id)
+        if record is None:
+            return None
+        return QuarantineInfo.of(record)
 
     # -- proxied display facts ---------------------------------------------
 

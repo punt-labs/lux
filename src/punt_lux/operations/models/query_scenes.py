@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 from punt_lux.operations.models.query_ownership import SceneOwner
+from punt_lux.operations.models.query_quarantine import QuarantineInfo
 
 __all__ = ["FrameSummary", "SceneList", "SceneSummary"]
 
@@ -22,6 +23,10 @@ class SceneSummary(BaseModel):
     # Every distinct owner of a root in the scene, first-appearance order; empty
     # when unowned, plural because a scene can hold roots from several sessions.
     owners: list[SceneOwner]
+    status: Literal["live", "quarantined"] = "live"
+    # Present only when status is "quarantined" — a discriminated companion
+    # field, not a value the type system gave up on (PY-TS-14).
+    quarantine: QuarantineInfo | None = None
 
 
 class FrameSummary(BaseModel):
@@ -37,7 +42,13 @@ class FrameSummary(BaseModel):
 
 
 class SceneList(BaseModel):
-    """Every live scene and frame, read from the authoritative store."""
+    """Every scene and frame from the authoritative store, live or quarantined.
+
+    Each :class:`SceneSummary` carries a ``status`` discriminator and, when
+    quarantined, a :class:`QuarantineInfo` — quarantine is a replication
+    decision, not a deletion, so this introspection view keeps quarantined
+    scenes visible for the agents that own them.
+    """
 
     model_config = ConfigDict(frozen=True)
 

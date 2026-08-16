@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
@@ -30,7 +31,7 @@ class _Recorder:
 
 
 def _conveniences(store: HubDisplay) -> ConvenienceOperations:
-    scenes = SceneOperations(store, _Recorder(), hub_element_factory)
+    scenes = SceneOperations(store, _Recorder(), hub_element_factory, Hub())
     return ConvenienceOperations(scenes)
 
 

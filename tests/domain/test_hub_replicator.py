@@ -11,6 +11,7 @@ sending (P6).
 from __future__ import annotations
 
 import threading
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Self
 
@@ -64,11 +65,17 @@ class _FakeSender:
     timeline: list[str]
     _fail: Exception | None
     _fail_scene: tuple[str, OSError] | None
+    _crasher: str | None
+    _deferred_dead: bool
+    _defer_after: str | None
     _gate: threading.Event | None
     _lock: threading.Lock
     _sent: threading.Event
     _entered: threading.Event
     __slots__ = (
+        "_crasher",
+        "_defer_after",
+        "_deferred_dead",
         "_entered",
         "_fail",
         "_fail_scene",
@@ -93,6 +100,9 @@ class _FakeSender:
         self.timeline = []
         self._fail = None
         self._fail_scene = None
+        self._crasher = None
+        self._deferred_dead = False
+        self._defer_after = None
         self._gate = None
         self._lock = threading.Lock()
         self._sent = threading.Event()
@@ -110,6 +120,27 @@ class _FakeSender:
     def fail_on_scene(self, scene_id: str, exc: OSError) -> None:
         """Raise once when a specific scene is sent, leaving other sends clean."""
         self._fail_scene = (scene_id, exc)
+
+    def crash_forever_on(self, scene_id: str) -> None:
+        """Raise ``OSError`` every time ``scene_id`` is sent, until quarantined.
+
+        Models a genuinely poison scene: unlike ``fail_on_scene`` (one-shot),
+        this never disarms itself — the only way it stops firing is the
+        replicator excluding the scene from every future send.
+        """
+        self._crasher = scene_id
+
+    def crash_after_render(self, scene_id: str) -> None:
+        """Model a scene whose SEND succeeds but whose RENDER kills the display.
+
+        The right model for Finding 3: the send returns cleanly (fire-and-forget
+        writes to a socket buffer), but the display crashes while processing
+        the scene, so the *next* write or probe surfaces the death. Under this
+        arming ``show_async(scene_id, ...)`` records the send and then flips
+        ``_deferred_dead`` on; any subsequent send raises OSError and any
+        subsequent ``probe_alive`` returns False.
+        """
+        self._defer_after = scene_id
 
     def block_next(self, gate: threading.Event) -> None:
         self._gate = gate
@@ -144,15 +175,27 @@ class _FakeSender:
         **_kwargs: object,
     ) -> None:
         self._guard()
+        if self._deferred_dead:
+            # A previous send left the display dead; every subsequent write
+            # sees the broken pipe (Finding 3's deferred-crash model).
+            raise OSError(f"display dead; {scene_id!r} write raises EPIPE")
         if self._fail_scene is not None and self._fail_scene[0] == scene_id:
             _, exc = self._fail_scene
             self._fail_scene = None
             raise exc
+        if self._crasher == scene_id:
+            raise OSError(f"{scene_id} crashed the display (again)")
         with self._lock:
             self.shows.append(scene_id)
             self.frames.append(frame_id)
             self.roots.append(list(elements))
             self.timeline.append(f"show:{scene_id}")
+        if self._defer_after == scene_id:
+            # The send succeeded, but the display crashes on render — the
+            # crash will surface on the next write or probe. Once armed,
+            # ``crash_after_render`` fires once.
+            self._deferred_dead = True
+            self._defer_after = None
         self._sent.set()
 
     def set_menu(self, menus: list[dict[str, object]]) -> None:
@@ -165,6 +208,21 @@ class _FakeSender:
     def set_callback_menus(self, submenus: list[dict[str, object]]) -> None:
         with self._lock:
             self.callback_submenus.append(list(submenus))
+
+    def probe_alive(self, timeout: float) -> bool:
+        """Report the display alive so long as no send has yet blown up.
+
+        Mirrors ``DisplayLink.probe_alive``'s roundtrip semantics: crashes
+        surface synchronously through ``show_async`` in this fake (a crasher
+        send raises immediately), so a probe *between* sends sees a healthy
+        display right up to the send that actually raises. Nothing to detect
+        here that ``show_async`` hasn't already surfaced. Tests that need to
+        exercise the deferred-crash path (the crash of scene N surfacing on
+        N+1's write) set ``_deferred_dead`` via ``crash_after_render`` — the
+        one path where the probe genuinely earns its keep.
+        """
+        del timeout  # the fake answers instantly; the real link honours it
+        return not self._deferred_dead
 
 
 class _FakeCallbackReader:
@@ -269,6 +327,7 @@ def _replicator(
         _FakeCallbackReader(callback_wire),
         provider,
         lifecycle,
+        store,  # HubDisplay satisfies QuarantinePort structurally
     )
 
     def _reconcile() -> None:
@@ -896,3 +955,177 @@ def test_restarting_a_stopped_replicator_raises() -> None:
     repl.stop()
     with pytest.raises(RuntimeError, match="was stopped"):
         repl.start()
+
+
+# -- crash-loop quarantine (display-crash-quarantine.md) --------------------
+
+
+def _wait_until(predicate: Callable[[], bool], timeout: float = 3.0) -> bool:
+    """Poll ``predicate`` until true or ``timeout`` elapses; return the last read."""
+    deadline = time.monotonic() + timeout
+    result = predicate()
+    while not result and time.monotonic() < deadline:
+        threading.Event().wait(0.01)
+        result = predicate()
+    return result
+
+
+def test_a_death_switches_the_replicator_to_isolating_mode() -> None:
+    store = HubDisplay()
+    scene = _seed(store, "s1")
+    repl, sender, _provider, _lifecycle = _replicator(store)
+    sender.crash_forever_on("s1")
+    repl.start()
+    try:
+        repl.mark_dirty(scene)
+        assert _wait_until(lambda: repl._attribution.mode == "isolating")
+    finally:
+        repl.stop()
+
+
+def test_a_deterministic_crasher_is_quarantined_and_never_sent() -> None:
+    # The B5 defect this design fixes: a scene that crashes the Display on every
+    # render must reach the attribution threshold and stop being replicated —
+    # it is never seen in sender.shows at all, since every genuine send attempt
+    # raised before recording it.
+    store = HubDisplay()
+    scene = _seed(store, "crasher")
+    repl, sender, _provider, _lifecycle = _replicator(store)
+    sender.crash_forever_on("crasher")
+    repl.start()
+    try:
+        repl.mark_dirty(scene)
+        assert _wait_until(lambda: store.is_quarantined(scene))
+        assert "crasher" not in sender.shows
+    finally:
+        repl.stop()
+
+
+def test_an_innocent_scene_co_batched_with_a_crasher_is_never_quarantined() -> None:
+    # The false-positive guard: "good" shares the first batched death with
+    # "bad" (one increment each), isolation then narrows every further death
+    # to "bad" alone, so "good" never reaches the threshold. Isolation-mode
+    # probe order is unspecified (a frozenset), so "bad" may reach the
+    # threshold in as few as two cycles without "good" ever being probed in
+    # between — the property under test is only that "good" stays clean, not
+    # when it happens to be sent, so the "good in shows" check polls
+    # separately, after quarantine has excluded "bad" from later batches.
+    store = HubDisplay()
+    good = _seed(store, "good")
+    bad = _seed(store, "bad")
+    repl, sender, _provider, _lifecycle = _replicator(store)
+    sender.crash_forever_on("bad")
+    repl.start()
+    try:
+        repl.mark_dirty(good)
+        repl.mark_dirty(bad)
+        assert _wait_until(lambda: store.is_quarantined(bad))
+        assert not store.is_quarantined(good)
+        assert _wait_until(lambda: "good" in sender.shows)
+    finally:
+        repl.stop()
+
+
+def test_a_quarantined_scene_is_dropped_from_a_batch_that_still_carries_it() -> None:
+    # Invariant 1, enforced at send time regardless of what got re-marked
+    # dirty: once quarantined, the scene is filtered out of every subsequent
+    # batch before either send path runs.
+    store = HubDisplay()
+    scene = _seed(store, "crasher")
+    repl, sender, _provider, _lifecycle = _replicator(store)
+    sender.crash_forever_on("crasher")
+    repl.start()
+    try:
+        repl.mark_dirty(scene)
+        assert _wait_until(lambda: store.is_quarantined(scene))
+        shows_at_quarantine = len(sender.shows)
+        repl.mark_dirty(scene)  # re-mark it directly, bypassing the reconcile hook
+        for _ in range(20):
+            threading.Event().wait(0.01)
+        assert len(sender.shows) == shows_at_quarantine  # never attempted again
+    finally:
+        repl.stop()
+
+
+# -- review-round fixes ------------------------------------------------------
+
+
+def test_isolation_probe_blames_the_scene_whose_render_crashed_not_the_next() -> None:
+    # Finding 3: a scene whose SEND succeeds but whose RENDER kills the display
+    # surfaces on the next write/probe. Without the intervening probe the death
+    # attributes to the next scene sent (innocent). With the probe, isolation
+    # blames the scene just sent — the actual culprit.
+    #
+    # Prime isolation by attributing a batched death first (both scenes advance
+    # to tally 1), then in the isolation cycle scene "left" is a deferred
+    # crasher: its send succeeds, its probe returns False, and recovery
+    # attributes to {"left"} (not {"right"}). Only "left" reaches THRESHOLD=2.
+    store = HubDisplay()
+    left = _seed(store, "left")
+    right = _seed(store, "right")
+    repl, sender, _provider, _lifecycle = _replicator(store)
+    sender.crash_forever_on("both-batched")  # a synthetic first death to prime
+    repl._attribution.attribute_death(frozenset({left, right}))  # both tally=1
+
+    sender.crash_after_render("left")  # its send succeeds; probe will detect
+    repl.start()
+    try:
+        repl.mark_dirty(left)
+        repl.mark_dirty(right)
+        assert _wait_until(lambda: store.is_quarantined(left))
+        assert not store.is_quarantined(right)
+    finally:
+        repl.stop()
+
+
+def test_menu_send_failure_does_not_smear_deaths_across_live_scenes() -> None:
+    # Finding 5: a menu-caused crash must not blame every live scene. The menu
+    # send now runs with an empty suspect set, so even if it raises, no scene
+    # accrues a death from that crash — the false-positive class isolation was
+    # written to prevent stays closed on the menu path.
+    store = HubDisplay()
+    a = _seed(store, "a")
+    b = _seed(store, "b")
+    registry = HubMenuRegistry()
+    registry.set_menus([Menu(label="poison", items=[])])
+    repl, sender, _provider, _lifecycle = _replicator(store, registry)
+    sender.arm_failure(BlockingIOError())  # set_menu is the first guarded send
+    repl.start()
+    try:
+        repl.mark_menus()
+        # Wait until the menu send has run and its death has been attributed.
+        assert _wait_until(lambda: repl._attribution.mode == "isolating")
+        # Neither live scene received a tally from the menu-caused crash,
+        # so a single crash of either could not lift it to the threshold now.
+        assert not store.is_quarantined(a)
+        assert not store.is_quarantined(b)
+    finally:
+        repl.stop()
+
+
+def test_isolation_exits_after_stable_interval_without_new_writes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Finding 6: the stability check must fire on the idle tick, not only on
+    # the clean-outcome branch of a cycle triggered by a new write. Patch
+    # exit_isolation_if_stable on the class (instance attributes are __slots__
+    # read-only) with a spy and prove the worker calls it even when no scene
+    # or menu ever changes.
+    from punt_lux.domain.hub.crash_attribution import CrashAttribution
+
+    called = threading.Event()
+    original = CrashAttribution.exit_isolation_if_stable
+
+    def spy(self: CrashAttribution) -> bool:
+        called.set()
+        return original(self)
+
+    monkeypatch.setattr(CrashAttribution, "exit_isolation_if_stable", spy)
+    store = HubDisplay()
+    repl, _sender, _provider, _lifecycle = _replicator(store)
+    repl.start()
+    try:
+        # Do not touch any signal — no dirty scene, no menu change.
+        assert called.wait(timeout=3.0), "idle tick never fired stability check"
+    finally:
+        repl.stop()

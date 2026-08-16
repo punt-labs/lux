@@ -515,6 +515,18 @@ class DisplayLink:
         """
         self._send(HubManifestMessage(scene_ids=tuple(scene_ids)))
 
+    def probe_alive(self, timeout: float) -> bool:
+        """Return whether the display responded to a ping within ``timeout``.
+
+        The :class:`DisplaySender` liveness probe the replicator's isolation
+        loop calls between successive singleton sends, so a crash caused by
+        scene N attributes to N (not N+1). A None pong (timed out) or any
+        socket error the underlying send raises means the display did not
+        respond in time; the caller treats that as a failure of the scene
+        just sent.
+        """
+        return self.ping(timeout=timeout) is not None
+
     def ping(self, timeout: float | None = None) -> PongMessage | None:
         """Send a ping and wait for the pong within ``timeout`` (else recv budget)."""
         self._send(PingMessage(ts=time.time()))

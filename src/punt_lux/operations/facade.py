@@ -139,7 +139,7 @@ class Operations:
         caller's — so it lives on its own concern class, which each composition
         root builds and binds to the interaction dispatch.
         """
-        scenes = SceneOperations(display, replicator, ports.element_factory)
+        scenes = SceneOperations(display, replicator, ports.element_factory, hub)
         callbacks = CallbackOperations(display.clients, callback_router, replicator)
         queries = QueryOperations(display, hub, ports.display_port)
         return cls(

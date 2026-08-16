@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
+from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
+from punt_lux.domain.hub.quarantine_record import QuarantineRecord
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
-from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
+from punt_lux.domain.ids import ConnectionId, ElementId, SceneId, Topic
 from punt_lux.operations import (
     Cleared,
     OpError,
@@ -35,8 +39,10 @@ class _Recorder:
         """Unused here — scene operations never mark the menu bar."""
 
 
-def _ops(store: HubDisplay, recorder: _Recorder) -> SceneOperations:
-    return SceneOperations(store, recorder, hub_element_factory)
+def _ops(
+    store: HubDisplay, recorder: _Recorder, hub: Hub | None = None
+) -> SceneOperations:
+    return SceneOperations(store, recorder, hub_element_factory, hub or Hub())
 
 
 def _submitted(scene_id: str) -> SceneSubmission:
@@ -328,3 +334,113 @@ def test_scene_scoped_clear_preserves_a_custom_frame_binding() -> None:
     _ops(store, recorder).clear(scope=_LOCAL, scene_id="board")
     assert store.scene_roots(SceneId("board")) == []
     assert store.frames.presentation_for(SceneId("board")).frame_id == "beads-lux"
+
+
+class TestQuarantinedScenes:
+    """A patch-style update against a quarantined scene is refused, not applied."""
+
+    def test_update_against_a_quarantined_scene_is_rejected(self) -> None:
+        store, recorder = HubDisplay(), _Recorder()
+        _seed_header(store)
+        store.quarantine(
+            SceneId("s1"),
+            QuarantineRecord(death_count=2, last_death_at=123.0),
+        )
+        request = UpdateRequest.parse([{"id": "hdr", "set": {"open": True}}])
+        result = _ops(store, recorder).update("s1", request, scope=_LOCAL)
+        assert isinstance(result, OpError)
+        assert result.code == "rejected"
+        assert "quarantined" in result.reason
+        assert recorder.dirtied == []
+
+    def test_update_against_a_quarantined_scene_leaves_the_store_untouched(
+        self,
+    ) -> None:
+        store, recorder = HubDisplay(), _Recorder()
+        _seed_header(store, is_open=False)
+        store.quarantine(
+            SceneId("s1"),
+            QuarantineRecord(death_count=2, last_death_at=123.0),
+        )
+        request = UpdateRequest.parse([{"id": "hdr", "set": {"open": True}}])
+        _ops(store, recorder).update("s1", request, scope=_LOCAL)
+        header = store.resolve(SceneId("s1"), ElementId("hdr"))
+        assert isinstance(header, CollapsingHeaderElement)
+        assert header.open is False  # the patch never applied
+
+    def test_update_against_a_quarantined_scene_publishes_to_the_callers_topic(
+        self,
+    ) -> None:
+        # The push half of the two reach paths: an agent subscribed to its own
+        # scene's topic learns even though it is the one whose write triggered
+        # the discovery, proving the publish fired at all.
+        store, recorder = HubDisplay(), _Recorder()
+        _seed_header(store)
+        store.quarantine(
+            SceneId("s1"),
+            QuarantineRecord(death_count=2, last_death_at=123.0, render_error="boom"),
+        )
+        hub = Hub()
+        received: list[Mapping[str, object]] = []
+        hub.register_writer(
+            _LOCAL.connection_id, lambda msg: received.append(msg.payload)
+        )
+        hub.subscribe(_LOCAL.connection_id, Topic("scene:s1:quarantined"))
+        request = UpdateRequest.parse([{"id": "hdr", "set": {"open": True}}])
+        _ops(store, recorder, hub).update("s1", request, scope=_LOCAL)
+        assert received == [
+            {
+                "status": "quarantined",
+                "death_count": 2,
+                "last_death_at": 123.0,
+                "render_error": "boom",
+            }
+        ]
+
+    def test_a_wholesale_render_lifts_the_quarantine(self) -> None:
+        # The recovery path: a full replace is a different tree, presumed
+        # fixed, and it is not gated the way a patch is.
+        store, recorder = HubDisplay(), _Recorder()
+        _seed_header(store)
+        store.quarantine(
+            SceneId("s1"),
+            QuarantineRecord(death_count=2, last_death_at=123.0),
+        )
+        request = RenderRequest.parse(
+            {
+                "scene_id": "s1",
+                "elements": [{"kind": "text", "id": "t1", "content": "fixed"}],
+            }
+        )
+        result = _ops(store, recorder).render(request, scope=_LOCAL)
+        assert isinstance(result, SceneShown)
+        assert not store.is_quarantined(SceneId("s1"))
+        assert recorder.dirtied == [SceneId("s1")]
+
+    def test_scene_scoped_clear_of_a_quarantined_scene_lifts_the_quarantine(
+        self,
+    ) -> None:
+        # Test-gap 9: clear() on a quarantined scene must leave the store with
+        # neither roots nor a quarantine record — a scene with nothing to render
+        # is not "quarantined-and-empty," it is just gone. Otherwise the caller
+        # could not re-show later without first hitting a spurious rejection.
+        store, recorder = HubDisplay(), _Recorder()
+        _seed_header(store)
+        store.quarantine(
+            SceneId("s1"), QuarantineRecord(death_count=2, last_death_at=1.0)
+        )
+        result = _ops(store, recorder).clear(scope=_LOCAL, scene_id="s1")
+        assert isinstance(result, Cleared)
+        assert store.scene_roots(SceneId("s1")) == []
+        assert not store.is_quarantined(SceneId("s1"))
+        # And re-showing under the same id must succeed, not hit a spurious
+        # quarantine rejection.
+        request = RenderRequest.parse(
+            {
+                "scene_id": "s1",
+                "elements": [{"kind": "text", "id": "t2", "content": "fresh"}],
+            }
+        )
+        assert isinstance(
+            _ops(store, recorder).render(request, scope=_LOCAL), SceneShown
+        )

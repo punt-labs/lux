@@ -417,6 +417,13 @@ class RenderLoop:
 
         hide_from_dock_and_cmd_tab()
 
+        # Suppress focus-stealing on every *reshow* after this one (a
+        # respawned display's later windows) — GLFW/HelloImGui cannot suppress
+        # the one focus grab macOS gives a freshly-created process's first
+        # show, a documented limit (display-crash-quarantine.md Question 3),
+        # not a defect this call is meant to close.
+        self._glfw_window().set_focus_on_show(focus=False)
+
         self._themes = list(hello_imgui.ImGuiTheme_)
 
     def _on_frame(self) -> None:

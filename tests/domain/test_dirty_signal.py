@@ -173,3 +173,48 @@ def test_an_idle_signal_blocks_until_a_mark_arrives() -> None:
     signal.mark_dirty(_S1)
     t.join(timeout=2.0)
     assert drained == [frozenset({_S1})]
+
+
+def test_idle_tick_returns_an_empty_non_shutting_batch_on_timeout() -> None:
+    # Finding 6's wake-up channel: a caller that passes an idle_tick_seconds
+    # bound gets an empty, non-shutting batch back when nothing landed in that
+    # window — the replicator uses this to run stability checks per iteration
+    # whether or not a write arrived.
+    signal = DirtySignal()
+
+    batch = signal.wait_and_drain(_NO_COALESCE, idle_tick_seconds=0.05)
+
+    assert batch.scenes == frozenset()
+    assert not batch.shutting
+    assert not batch.has_work
+
+
+def test_a_spurious_wake_with_no_idle_tick_does_not_return_an_idle_batch() -> None:
+    # Finding A regression: without the ``while`` guard, a spurious wakeup
+    # (or, easier to arrange in a test, a bare notify with no state change)
+    # would return an idle DrainedBatch under ``idle_tick_seconds=None``,
+    # breaking the "wait forever until real work" contract. The while-guard
+    # keeps the worker parked until an actual mark or stop lands.
+    signal = DirtySignal()
+    drained: list[DrainedBatch] = []
+
+    def worker() -> None:
+        # No idle-tick bound: must wait forever, ignoring notifies without state.
+        drained.append(signal.wait_and_drain(_NO_COALESCE, idle_tick_seconds=None))
+
+    t = threading.Thread(target=worker)
+    t.start()
+    t.join(timeout=0.1)
+    assert t.is_alive()
+
+    # Spurious-wake stand-in: notify_all with no state change. The while
+    # guard should send the worker straight back to wait.
+    with signal._cond:  # test-only reach for the condition
+        signal._cond.notify_all()
+    t.join(timeout=0.2)
+    assert t.is_alive()  # still parked, exactly as required
+    assert drained == []
+
+    signal.mark_dirty(_S1)  # a real mark ends the wait
+    t.join(timeout=2.0)
+    assert drained == [DrainedBatch(frozenset({_S1}), shutting=False)]
