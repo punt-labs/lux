@@ -122,12 +122,24 @@ class CrashAttribution:
         """
         return self._port.is_quarantined(scene_id)
 
-    def attribute_death(self, suspect_set: frozenset[SceneId]) -> frozenset[SceneId]:
+    def attribute_death(
+        self,
+        suspect_set: frozenset[SceneId],
+        *,
+        render_error: str | None = None,
+    ) -> frozenset[SceneId]:
         """Attribute one Display death, now, to every scene in ``suspect_set``.
 
         Switches the mode to isolating (idempotent if already there) and
         quarantines any scene that reaches ``ATTRIBUTION_THRESHOLD`` inside the
         rolling window. Returns the scenes newly quarantined by this death.
+
+        ``render_error`` is the message of the exception that surfaced the
+        death — the ``OSError``/``BlockingIOError`` the replicator caught from
+        the failed send or probe. Any scene the death quarantines carries it
+        on its :class:`QuarantineRecord` so an agent whose scene later goes
+        dark sees WHY, not just that. None is honest for callers that have no
+        exception to attribute (a synthetic priming attribute in tests, etc.).
 
         The empty suspect set is a valid input — a menu-attributed death lands
         here with no scene in flight (see ``HubReplicator._attempt``), which
@@ -142,13 +154,16 @@ class CrashAttribution:
         ``replace_scene``.
         """
         now = self._clock()
-        to_quarantine = self._record_death(suspect_set, now)
+        to_quarantine = self._record_death(suspect_set, now, render_error)
         for scene_id, record in to_quarantine:
             self._port.quarantine(scene_id, record)
         return frozenset(scene_id for scene_id, _ in to_quarantine)
 
     def _record_death(
-        self, suspect_set: frozenset[SceneId], now: float
+        self,
+        suspect_set: frozenset[SceneId],
+        now: float,
+        render_error: str | None,
     ) -> list[tuple[SceneId, QuarantineRecord]]:
         """Update tallies and mode under the lock; return records to quarantine."""
         to_quarantine: list[tuple[SceneId, QuarantineRecord]] = []
@@ -163,7 +178,11 @@ class CrashAttribution:
                     to_quarantine.append(
                         (
                             scene_id,
-                            QuarantineRecord(death_count=len(tally), last_death_at=now),
+                            QuarantineRecord(
+                                death_count=len(tally),
+                                last_death_at=now,
+                                render_error=render_error,
+                            ),
                         )
                     )
         return to_quarantine

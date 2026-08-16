@@ -78,7 +78,12 @@ class SendRecovery:
         return self
 
     def recover(
-        self, batch: DrainedBatch, *, wedged: bool, suspect: frozenset[SceneId]
+        self,
+        batch: DrainedBatch,
+        *,
+        wedged: bool,
+        suspect: frozenset[SceneId],
+        render_error: str | None = None,
     ) -> None:
         """Attribute the death, heal the display, then re-mark the failed batch.
 
@@ -90,9 +95,14 @@ class SendRecovery:
 
         ``suspect`` is whatever the caller determined was in flight when the send
         failed: the whole batch in batching mode, or the one scene being probed in
-        isolation mode (display-crash-quarantine.md Question 1). Attributing runs
-        before healing so a scene that just reached the threshold is quarantined,
-        and therefore excluded from replication, before the re-mark below.
+        isolation mode (display-crash-quarantine.md Question 1). ``render_error``
+        is the message of the exception that surfaced the death (an OSError /
+        BlockingIOError from the failed send or probe); the attribution passes
+        it into the ``QuarantineRecord`` so an agent whose scene later crosses
+        the threshold sees WHY it was quarantined, not just that it was.
+        Attributing runs before healing so a scene that just reached the
+        threshold is quarantined, and therefore excluded from replication,
+        before the re-mark below.
 
         ``get()`` right after ``drop()`` is the one DES-068 connect-success hook
         (``ClientRegistry._connect_and_reconcile``): it declares the fresh
@@ -105,7 +115,7 @@ class SendRecovery:
         if batch.shutting:
             logger.warning("replicator shutdown flush failed; display left as-is")
             return
-        self._attribution.attribute_death(suspect)
+        self._attribution.attribute_death(suspect, render_error=render_error)
         if wedged:
             time.sleep(self._respawn.note_respawn())
             self._lifecycle.reap(_REAP_TIMEOUT)

@@ -286,11 +286,21 @@ class HubReplicator:
         """
         try:
             emptied = self._attempt(batch)
-        except BlockingIOError:
-            self._recovery.recover(batch, wedged=True, suspect=self._current_suspect)
+        except BlockingIOError as exc:
+            self._recovery.recover(
+                batch,
+                wedged=True,
+                suspect=self._current_suspect,
+                render_error=str(exc),
+            )
             return _CycleOutcome(recovered=True, emptied=())
-        except OSError:
-            self._recovery.recover(batch, wedged=False, suspect=self._current_suspect)
+        except OSError as exc:
+            self._recovery.recover(
+                batch,
+                wedged=False,
+                suspect=self._current_suspect,
+                render_error=str(exc),
+            )
             return _CycleOutcome(recovered=True, emptied=())
         return _CycleOutcome(recovered=False, emptied=emptied)
 

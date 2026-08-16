@@ -222,3 +222,28 @@ def test_clear_tally_is_a_noop_on_a_scene_that_never_crashed() -> None:
     attribution = CrashAttribution(_FakePort(), _FakeClock())
     attribution.clear_tally(_A)  # no exception, no state change
     assert attribution.mode == "batching"
+
+
+def test_attribute_death_plumbs_the_render_error_onto_the_quarantine_record() -> None:
+    # An agent whose scene later goes dark must see WHY, not just that. The
+    # exception message the replicator caught at the failed send lands on the
+    # record via attribute_death's render_error kwarg.
+    port = _FakePort()
+    clock = _FakeClock()
+    attribution = CrashAttribution(port, clock)
+    attribution.attribute_death(frozenset({_A}), render_error="EPIPE from probe")
+    clock.advance(1.0)
+    attribution.attribute_death(frozenset({_A}), render_error="EPIPE from send")
+    assert port.records[_A].render_error == "EPIPE from send"
+
+
+def test_attribute_death_render_error_defaults_to_none() -> None:
+    # Callers with no exception to attribute (a synthetic priming attribute in
+    # tests, etc.) leave the field None — the honest default.
+    port = _FakePort()
+    clock = _FakeClock()
+    attribution = CrashAttribution(port, clock)
+    attribution.attribute_death(frozenset({_A}))
+    clock.advance(1.0)
+    attribution.attribute_death(frozenset({_A}))
+    assert port.records[_A].render_error is None
