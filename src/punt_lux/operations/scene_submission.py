@@ -13,9 +13,10 @@ while a submission is the whole offering.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Self
 
+from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.ids import SceneId
 
 if TYPE_CHECKING:
@@ -23,6 +24,7 @@ if TYPE_CHECKING:
 
     from punt_lux.domain.element import Element as DomainElement
     from punt_lux.domain.hub.scene_presentation import ScenePresentation
+    from punt_lux.domain.ids import ConnectionId
 
 __all__ = ["SceneSubmission"]
 
@@ -53,3 +55,23 @@ class SceneSubmission:
     def name(self) -> str:
         """The scene id as the surfaces spell it, for a result a caller reads."""
         return str(self.scene_id)
+
+    def scoped(self, owner: ConnectionId) -> Self:
+        """Return this submission with its scene and frame ids namespaced to `owner`.
+
+        Composing each id independently from its own raw value, with the same
+        owner, naturally preserves an unnamed frame's default: a scene shown
+        with no explicit ``frame_id`` still ends up with ``frame_id ==
+        scene_id`` after composition, because composing the identical raw
+        string with the identical owner twice yields the identical string
+        (DES-086). Raises ``ValueError`` — via
+        :meth:`~punt_lux.domain.hub.connection_scoped_id.ConnectionScopedId.compose`
+        — for a raw id that cannot be composed (blank, or carrying the unit
+        separator); the caller is responsible for turning that into an
+        ``OpError`` at the operation boundary.
+        """
+        return replace(
+            self,
+            scene_id=SceneId(ConnectionScopedId.compose(owner, str(self.scene_id))),
+            presentation=self.presentation.scoped(owner),
+        )
