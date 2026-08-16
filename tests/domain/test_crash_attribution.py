@@ -247,3 +247,20 @@ def test_attribute_death_render_error_defaults_to_none() -> None:
     clock.advance(1.0)
     attribution.attribute_death(frozenset({_A}))
     assert port.records[_A].render_error is None
+
+
+def test_exit_isolation_if_stable_clears_stale_tallies() -> None:
+    # Finding E: on exit-to-batching every tally is already past
+    # ATTRIBUTION_WINDOW (STABLE_INTERVAL >= ATTRIBUTION_WINDOW), so clearing
+    # them is safe and keeps memory from growing without bound after a batched
+    # death touched many scenes. White-box because this is a memory-hygiene
+    # invariant, not a behavioural one.
+    port = _FakePort()
+    clock = _FakeClock()
+    attribution = CrashAttribution(port, clock)
+    attribution.attribute_death(frozenset({_A, _B}))  # both tally 1
+    assert attribution._tallies  # test-only: proves state exists to clear
+    clock.advance(STABLE_INTERVAL)
+    assert attribution.exit_isolation_if_stable() is True
+    assert attribution._tallies == {}
+    assert attribution._last_death_at is None

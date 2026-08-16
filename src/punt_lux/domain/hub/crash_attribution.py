@@ -239,6 +239,13 @@ class CrashAttribution:
             ):
                 return False
             self._mode = "batching"
+            # Free the per-scene tallies: STABLE_INTERVAL >= ATTRIBUTION_WINDOW
+            # means every entry left in every tally is already stale (past the
+            # window), so a fresh episode's attribution decisions are
+            # unaffected. Clearing them here keeps memory from growing without
+            # bound after batched deaths that touched many scenes.
+            self._tallies.clear()
+            self._last_death_at = None
             return True
 
     @staticmethod
