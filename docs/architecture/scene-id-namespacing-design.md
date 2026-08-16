@@ -1,9 +1,13 @@
 # Connection-Scoped Store Keys — Scenes and Frames Cannot Alias Across Connections
 
-- **Status:** proposed for DES-086; five decisions below need operator
-  ratification before an implementation mission dispatches. (Round 2, after
-  djb's security review: Decision 5 is new; Decisions 1–4 keep their round-1
-  recommendations, sharpened in wording where djb's review asked for it.)
+- **Status:** ratified for DES-086. The operator ruled on all five decisions
+  below on 2026-08-16: Decision 1 EXTRACT, Decision 2 UNCONDITIONALLY (NOW),
+  Decision 3 ACCEPT AS DOCUMENTED (no follow-on bead), Decision 4 Z-SPEC
+  REQUIRED (operator override of both gvr's and djb's "not required"
+  recommendation), Decision 5 COMPOSE ON CALLER'S CONNECTION ONLY (no
+  `owner=` override — narrower than gvr's recommendation (a) below;
+  `inspect_scene` has no admin path). Implementation mission
+  `m-2026-08-16-007`, worker `rmh`.
 - **Proposed ADR number:** DES-086 (next after DES-085, the crash-respawn
   quarantine design, PR #354 — DESIGN.md's own numbered headings currently end
   at DES-067; DES-068 and DES-085 are shipped but not yet pasted into
@@ -834,11 +838,19 @@ existing DES-NNN format.
 
 ---
 
-## Decisions requiring operator ratification
+## Decisions — operator-ratified 2026-08-16
 
-**Decision 1: whether to promote `ID_SEPARATOR` out of `session_callback.py`
-into its own shared module, touching a file DES-058/DES-067 already
-shipped.** I recommend the extraction — one constant, one import-line change
+The five decisions below were put to the operator after djb's round-2
+security review. All five are ruled; none is open. The original
+recommendation-and-trade-off text is kept for the record — it is what the
+operator ruled on — with the ruling stated first for each.
+
+**Decision 1 — RULING: EXTRACT.** The operator ratified gvr's recommendation
+as written: promote `ID_SEPARATOR` out of `session_callback.py` into its own
+shared module, touching a file DES-058/DES-067 already shipped. Original
+framing: whether to promote `ID_SEPARATOR` out of `session_callback.py` into
+its own shared module. I recommend the extraction — one constant, one
+import-line change
 in `session_callback.py`, and the two composite-id classes (`
 CallbackInvocation`, the new `ConnectionScopedId`) provably share one
 separator instead of two independently-declared literals that could drift
@@ -852,9 +864,13 @@ follow-on is a scope call, not a design-correctness call — the collision
 risk from two literal `\x1f`s is real but small (neither literal is likely
 to change without someone noticing the other).
 
-**Decision 2: whether cross-connection frame sharing is a feature this
+**Decision 2 — RULING: UNCONDITIONALLY (NOW).** The operator ratified
+namespacing `frame_id` unconditionally, in this implementation, not as a
+follow-on bead — closing the frame-level hijack surface at the same time as
+the scene-level one rather than leaving a gap between them. Original
+framing: whether cross-connection frame sharing is a feature this
 design would silently remove, or a theoretical possibility nothing
-currently exercises.** I traced every scene-showing entry point I could
+currently exercises. I traced every scene-showing entry point I could
 find (`show`, `show_table`, `show_dashboard`, `details_scene`) and found
 none that deliberately shares a `frame_id` across two different
 `ConnectionId`s — but I did not exhaustively audit the menu/menubar
@@ -871,13 +887,19 @@ but "nothing breaks in the menu paths" is a claim about code I did not read
 end-to-end, and only the operator (or an implementation-phase audit) can
 close that gap with certainty before this ships.
 
-**Decision 3: whether to leave the `connection_for` CLI-identity residual —
-accurately stated, not "two bare `lux show <id>` invocations colliding by
-coincidence" but "any same-user-localhost process can deliberately become a
-target `cli`-kind connection's identity for the price of one honest
-`identify()` call, and thereby collide that connection's scene-id namespace
-with the target's" — as an accepted, documented risk, or fold a fix into
-this design's implementation.** I recommend accepting it as documented —
+**Decision 3 — RULING: ACCEPT AS DOCUMENTED (no follow-on bead).** The
+operator ratified accepting the `connection_for` CLI-identity residual
+exactly as gvr documented it, with no bead opened to close it later —
+the residual is a scope call about the CLI's existing, shipped
+"re-run to update the same scene" contract, not a gap this design leaves
+half-closed. Original framing: whether to leave the `connection_for`
+CLI-identity residual — accurately stated, not "two bare `lux show <id>`
+invocations colliding by coincidence" but "any same-user-localhost process
+can deliberately become a target `cli`-kind connection's identity for the
+price of one honest `identify()` call, and thereby collide that
+connection's scene-id namespace with the target's" — as an accepted,
+documented risk, or fold a fix into this design's implementation. I
+recommend accepting it as documented —
 the CLI's "re-run to update the same scene" ergonomic already depends on
 repeated bare invocations sharing an identity, and the escape hatch
 (`--as`/`LUX_CLIENT`) already exists for a caller that wants its own
@@ -899,9 +921,17 @@ alone: this is a product-ergonomics call about the CLI's existing,
 shipped behavior, not a call this design's security mandate authorizes me
 to make unilaterally.
 
-**Decision 4: whether "not required" is the right z-spec call, or whether
-this should get a formal model out of caution given the project's history
-on DES-037/038.** I have made and defended the "not required" case above —
+**Decision 4 — RULING: Z-SPEC REQUIRED (operator override).** The operator
+overruled both gvr's and djb's "not required" recommendation and required a
+formal model. This is the merge gate for the implementation: model-check
+the composition state machine (collision-impossibility across two distinct
+`ConnectionId`s, idempotency for the same `ConnectionId` + `local_id`,
+rejection of a `local_id` carrying the separator before composition), with
+a fidelity control that reproduces the collision when composition is
+omitted. Original framing: whether "not required" is the right z-spec
+call, or whether this should get a formal model out of caution given the
+project's history on DES-037/038. I have made and defended the "not
+required" case above —
 no new lock, no new interleaving, no recurrence — and I stand behind it.
 But I am the design's author, not its security reviewer, and I want the
 operator's ruling to rest on djb's independent check of that reasoning,
@@ -917,11 +947,27 @@ Trade-off I cannot resolve alone: the cost of a z-spec track the reasoning
 above says is unnecessary, against the cost of shipping a security-framed
 fix without one and being wrong.
 
-**Decision 5 (new in round 2): whether `inspect_scene` composes the
-caller's own connection into its `scene_id` argument by default, or
-requires the full composed key, now that raw and composed keys diverge.**
-djb's round-2 review found a gap this design's write-set never accounted
-for: `inspect_scene` (`operations/queries.py:73`, exposed at
+**Decision 5 (new in round 2) — RULING: COMPOSE ON CALLER'S CONNECTION
+ONLY (no `owner=` override).** The operator's exact words: "you can only
+inspect what you put into the hub/display." `inspect_scene` composes its
+`scene_id` argument against `scope.connection_id` by default, exactly as
+`update`/`clear` do — and that is the *only* form. There is no `owner=`
+parameter, no override, no cross-connection audit path. gvr's recommendation
+below proposed a broader shape — an optional `owner=` parameter for a
+caller to inspect another connection's scene — and the operator struck it:
+a caller can only ever inspect scenes it owns, full stop. The narrower
+ruling is also the more defensible one against djb's own threat model
+above, which already names "a same-user-localhost process reading another
+connection's scene content via introspection" as out of scope for this
+design to newly enable — an `owner=` parameter would have been exactly
+that: a new, explicit cross-connection read this design did not need to
+add to close the reported bug.
+
+Original framing djb's round-2 review raised: whether `inspect_scene`
+composes the caller's own connection into its `scene_id` argument by
+default, or requires the full composed key, now that raw and composed keys
+diverge. djb's round-2 review found a gap this design's write-set never
+accounted for: `inspect_scene` (`operations/queries.py:73`, exposed at
 `GET /scenes/{scene_id}`) does a raw, uncomposed `SceneId(scene_id)` lookup
 against what becomes, after this design ships, a composed store. Today an
 agent can `show(scene_id="x")` then immediately `inspect_scene("x")` to
@@ -931,22 +977,23 @@ call returns `not_found`, because the actual store key is
 `"<connection_id>\x1fx"` and `inspect_scene` never composes against the
 caller's own connection the way `update`/`clear` will.
 
-I recommend **(a): `inspect_scene` composes its `scene_id` argument against
-the caller's own connection by default, exactly as `update`/`clear` will —
-"check the thing I own" is the common case, matching the ergonomic
-invariant this design already gives writes — with a second, optional
-`owner=` parameter accepting the already-composed string `list_scenes`
-returns, for the cross-connection audit case.** Alternative: **(b)**
+gvr's original recommendation, superseded by the ruling above: **(a)**
+`inspect_scene` composes its `scene_id` argument against the caller's own
+connection by default, exactly as `update`/`clear` will, with a second,
+optional `owner=` parameter accepting the already-composed string
+`list_scenes` returns, for the cross-connection audit case. The operator
+ratified only the first half of (a) — compose by default — and struck the
+`owner=` half. Alternative gvr considered: **(b)**
 `inspect_scene` stays a raw-composed-key lookup only, and this design says
 plainly that self-verification now requires `list_scenes` first — a real,
 disclosed regression instead of a silent one, cheaper to implement but a
-worse day-to-day agent experience. I reject a third option outright, named
-by djb and worth stating so it is not re-proposed later: a permissive
+worse day-to-day agent experience. gvr rejected a third option outright,
+named by djb and worth stating so it is not re-proposed later: a permissive
 dual-lookup (try the raw string, fall back to the composed form) that
 reopens, on the read side, the exact ambiguity this design exists to close
 on the write side — a `scene_id` that happens to look like another
 connection's fully composed key could resolve to that connection's scene
-under such a lookup. Trade-off I cannot resolve alone: (a) is a small,
+under such a lookup. Superseded trade-off note: (a) is a small,
 well-precedented addition consistent with the shape `update`/`clear`
 already take, but it is still a change to `inspect_scene`'s signature that
 this design's original write-set never scoped, and the operator should
