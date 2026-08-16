@@ -43,14 +43,20 @@ class _FakeClock:
 
 
 class _FakePort:
-    """Records every quarantine call and answers is_quarantined from them."""
+    """Records every quarantine call and answers is_quarantined from them.
+
+    Also records observer registrations so tests can assert that
+    :class:`CrashAttribution` wires up ``clear_tally`` on construction.
+    """
 
     records: dict[SceneId, QuarantineRecord]
-    __slots__ = ("records",)
+    observers: list[object]
+    __slots__ = ("observers", "records")
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
         self.records = {}
+        self.observers = []
         return self
 
     def quarantine(self, scene_id: SceneId, record: QuarantineRecord) -> None:
@@ -58,6 +64,9 @@ class _FakePort:
 
     def is_quarantined(self, scene_id: SceneId) -> bool:
         return scene_id in self.records
+
+    def add_quarantine_cleared_observer(self, observer: object) -> None:
+        self.observers.append(observer)
 
 
 def test_constants_match_the_design() -> None:
@@ -177,3 +186,39 @@ def test_is_quarantined_reflects_the_port_not_a_local_cache() -> None:
     assert attribution.is_quarantined(_A)
     port.records.clear()
     assert not attribution.is_quarantined(_A)
+
+
+def test_clear_tally_drops_every_attributed_death_for_a_scene() -> None:
+    # Finding 2's core: once quarantine is lifted, the tally must be gone too,
+    # so a re-crashed scene needs the full threshold again — never re-quarantine
+    # off a single fresh death while a stale in-window tally still sits at
+    # THRESHOLD - 1.
+    port = _FakePort()
+    clock = _FakeClock()
+    attribution = CrashAttribution(port, clock)
+    attribution.attribute_death(frozenset({_A}))  # tally: [t=0]
+    attribution.clear_tally(_A)
+    clock.advance(1.0)
+    newly = attribution.attribute_death(frozenset({_A}))  # fresh tally: [t=1]
+    assert newly == frozenset()  # would be {A} without the clear
+    assert not attribution.is_quarantined(_A)
+
+
+def test_clear_tally_leaves_other_scenes_intact() -> None:
+    # The clear is scoped to one scene: another scene mid-way to the threshold
+    # keeps its accrued deaths, so an unrelated recovery does not reset the
+    # attribution across the whole store.
+    port = _FakePort()
+    clock = _FakeClock()
+    attribution = CrashAttribution(port, clock)
+    attribution.attribute_death(frozenset({_A, _B}))  # both tallies: 1
+    attribution.clear_tally(_A)
+    clock.advance(1.0)
+    newly = attribution.attribute_death(frozenset({_B}))  # B: 2 -> quarantined
+    assert newly == frozenset({_B})
+
+
+def test_clear_tally_is_a_noop_on_a_scene_that_never_crashed() -> None:
+    attribution = CrashAttribution(_FakePort(), _FakeClock())
+    attribution.clear_tally(_A)  # no exception, no state change
+    assert attribution.mode == "batching"

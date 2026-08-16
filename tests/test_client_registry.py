@@ -274,3 +274,55 @@ def test_the_composition_root_wires_client_registry_to_the_real_replicator() -> 
     from punt_lux.domain.hub.replicator_instance import hub_replicator
 
     assert client_registry._marker is hub_replicator  # test-only introspection
+
+
+def test_reconcile_reads_live_scene_ids_so_quarantined_scenes_never_leak(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The reconcile boundary must use the FILTERED read, not the introspection one.
+
+    Test-gap 7: production has two independent quarantine filters — one at the
+    reconcile boundary (``hub_display.live_scene_ids()``) and one at the
+    send-time boundary (``HubReplicator._attempt``). A bug in the first is
+    masked by the second, so no scene-level test catches it. This test
+    monkeypatches ``hub_display.all_scene_ids`` to *raise* — asserting the
+    reconcile never touches the introspection-only read — and checks that the
+    quarantined scene does not appear in the marks the reconcile fired.
+    """
+    from punt_lux.domain.hub.clients import ClientRegistry
+    from punt_lux.domain.hub.hub_display import hub_display
+    from punt_lux.domain.hub.quarantine_record import QuarantineRecord
+    from punt_lux.domain.ids import ConnectionId
+    from punt_lux.protocol.elements.text import TextElement
+
+    conn = ConnectionId("reconcile-boundary-conn")
+    kept = SceneId("reconcile-kept")
+    poison = SceneId("reconcile-poison")
+    original_all = hub_display.all_scene_ids
+
+    def raise_if_called() -> tuple[SceneId, ...]:
+        msg = "reconcile must not read all_scene_ids — it must read live_scene_ids"
+        raise AssertionError(msg)
+
+    monkeypatch.setattr(hub_display, "all_scene_ids", raise_if_called)
+    hub_display.register_client(conn)
+    hub_display.replace_scene(conn, kept, [TextElement(id="k", content="ok")])
+    hub_display.replace_scene(conn, poison, [TextElement(id="p", content="ok")])
+    hub_display.quarantine(poison, QuarantineRecord(death_count=2, last_death_at=1.0))
+
+    registry = ClientRegistry()
+    marker = _FakeMarker()
+    registry.attach_replicator(marker)
+    fake = _FakeClient()
+    _install_client(registry, fake)
+
+    try:
+        registry.get()  # runs _connect_and_reconcile
+        assert kept in marker.scenes_marked
+        assert poison not in marker.scenes_marked
+        assert poison not in fake.manifests_sent[0]
+    finally:
+        monkeypatch.setattr(hub_display, "all_scene_ids", original_all)
+        hub_display.replace_scene(conn, kept, ())  # cleanup
+        hub_display.replace_scene(conn, poison, ())
+        hub_display.drop_connection(conn)

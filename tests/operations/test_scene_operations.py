@@ -416,3 +416,31 @@ class TestQuarantinedScenes:
         assert isinstance(result, SceneShown)
         assert not store.is_quarantined(SceneId("s1"))
         assert recorder.dirtied == [SceneId("s1")]
+
+    def test_scene_scoped_clear_of_a_quarantined_scene_lifts_the_quarantine(
+        self,
+    ) -> None:
+        # Test-gap 9: clear() on a quarantined scene must leave the store with
+        # neither roots nor a quarantine record — a scene with nothing to render
+        # is not "quarantined-and-empty," it is just gone. Otherwise the caller
+        # could not re-show later without first hitting a spurious rejection.
+        store, recorder = HubDisplay(), _Recorder()
+        _seed_header(store)
+        store.quarantine(
+            SceneId("s1"), QuarantineRecord(death_count=2, last_death_at=1.0)
+        )
+        result = _ops(store, recorder).clear(scope=_LOCAL, scene_id="s1")
+        assert isinstance(result, Cleared)
+        assert store.scene_roots(SceneId("s1")) == []
+        assert not store.is_quarantined(SceneId("s1"))
+        # And re-showing under the same id must succeed, not hit a spurious
+        # quarantine rejection.
+        request = RenderRequest.parse(
+            {
+                "scene_id": "s1",
+                "elements": [{"kind": "text", "id": "t2", "content": "fresh"}],
+            }
+        )
+        assert isinstance(
+            _ops(store, recorder).render(request, scope=_LOCAL), SceneShown
+        )

@@ -1045,3 +1045,87 @@ def test_a_quarantined_scene_is_dropped_from_a_batch_that_still_carries_it() -> 
         assert len(sender.shows) == shows_at_quarantine  # never attempted again
     finally:
         repl.stop()
+
+
+# -- review-round fixes ------------------------------------------------------
+
+
+def test_isolation_probe_blames_the_scene_whose_render_crashed_not_the_next() -> None:
+    # Finding 3: a scene whose SEND succeeds but whose RENDER kills the display
+    # surfaces on the next write/probe. Without the intervening probe the death
+    # attributes to the next scene sent (innocent). With the probe, isolation
+    # blames the scene just sent — the actual culprit.
+    #
+    # Prime isolation by attributing a batched death first (both scenes advance
+    # to tally 1), then in the isolation cycle scene "left" is a deferred
+    # crasher: its send succeeds, its probe returns False, and recovery
+    # attributes to {"left"} (not {"right"}). Only "left" reaches THRESHOLD=2.
+    store = HubDisplay()
+    left = _seed(store, "left")
+    right = _seed(store, "right")
+    repl, sender, _provider, _lifecycle = _replicator(store)
+    sender.crash_forever_on("both-batched")  # a synthetic first death to prime
+    repl._attribution.attribute_death(frozenset({left, right}))  # both tally=1
+
+    sender.crash_after_render("left")  # its send succeeds; probe will detect
+    repl.start()
+    try:
+        repl.mark_dirty(left)
+        repl.mark_dirty(right)
+        assert _wait_until(lambda: store.is_quarantined(left))
+        assert not store.is_quarantined(right)
+    finally:
+        repl.stop()
+
+
+def test_menu_send_failure_does_not_smear_deaths_across_live_scenes() -> None:
+    # Finding 5: a menu-caused crash must not blame every live scene. The menu
+    # send now runs with an empty suspect set, so even if it raises, no scene
+    # accrues a death from that crash — the false-positive class isolation was
+    # written to prevent stays closed on the menu path.
+    store = HubDisplay()
+    a = _seed(store, "a")
+    b = _seed(store, "b")
+    registry = HubMenuRegistry()
+    registry.set_menus([Menu(label="poison", items=[])])
+    repl, sender, _provider, _lifecycle = _replicator(store, registry)
+    sender.arm_failure(BlockingIOError())  # set_menu is the first guarded send
+    repl.start()
+    try:
+        repl.mark_menus()
+        # Wait until the menu send has run and its death has been attributed.
+        assert _wait_until(lambda: repl._attribution.mode == "isolating")
+        # Neither live scene received a tally from the menu-caused crash,
+        # so a single crash of either could not lift it to the threshold now.
+        assert not store.is_quarantined(a)
+        assert not store.is_quarantined(b)
+    finally:
+        repl.stop()
+
+
+def test_isolation_exits_after_stable_interval_without_new_writes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Finding 6: the stability check must fire on the idle tick, not only on
+    # the clean-outcome branch of a cycle triggered by a new write. Patch
+    # exit_isolation_if_stable on the class (instance attributes are __slots__
+    # read-only) with a spy and prove the worker calls it even when no scene
+    # or menu ever changes.
+    from punt_lux.domain.hub.crash_attribution import CrashAttribution
+
+    called = threading.Event()
+    original = CrashAttribution.exit_isolation_if_stable
+
+    def spy(self: CrashAttribution) -> bool:
+        called.set()
+        return original(self)
+
+    monkeypatch.setattr(CrashAttribution, "exit_isolation_if_stable", spy)
+    store = HubDisplay()
+    repl, _sender, _provider, _lifecycle = _replicator(store)
+    repl.start()
+    try:
+        # Do not touch any signal — no dirty scene, no menu change.
+        assert called.wait(timeout=3.0), "idle tick never fired stability check"
+    finally:
+        repl.stop()

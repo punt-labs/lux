@@ -163,9 +163,7 @@ class CrashAttribution:
                     to_quarantine.append(
                         (
                             scene_id,
-                            QuarantineRecord(
-                                death_count=len(tally), last_death_at=now
-                            ),
+                            QuarantineRecord(death_count=len(tally), last_death_at=now),
                         )
                     )
         return to_quarantine
