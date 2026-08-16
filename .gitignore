@@ -59,6 +59,13 @@ docs/*.synctex.gz
 *.ini
 uv.toml
 
+# The org identity registry (punt-labs/team) is NOT a submodule here — see
+# CLAUDE.md "Ethos & Delegation". Ethos may clone or deposit it at this path
+# locally; it must never be tracked, because lux ships as a Claude Code plugin
+# and every tracked file lands on a consumer's disk. Anchored and
+# directory-scoped so it cannot shadow the tracked .punt-labs/ethos.yaml.
+/.punt-labs/ethos/
+
 # Spike/scratch/demo trees — release tooling requires a clean working tree
 # (CLAUDE.md gotcha from v0.5.0: punt release fails if demos/ is dirty)
 spikes/*
