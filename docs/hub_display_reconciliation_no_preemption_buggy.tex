@@ -1,0 +1,210 @@
+%
+% hub_display_reconciliation_no_preemption_buggy.tex
+%
+% FIDELITY CONTROL, not the design. Removes the socket-eviction half of
+% single-owner preemption from HubIdentify: hubOwner still correctly
+% replaces (I3 stays intact -- this variant isolates I1/I2 from I3), but a
+% preempted predecessor's socket is never closed and its scenes are never
+% orphaned. See docs/hub_display_reconciliation.tex, Section "Fidelity:
+% reproducing the shipped defect", for the full trace and the invariant
+% checks that must return FOUND against this variant (and NOT found
+% against the correct spec).
+%
+% Type-check:  fuzz docs/hub_display_reconciliation_no_preemption_buggy.tex
+% Model-check:
+%   probcli docs/hub_display_reconciliation_no_preemption_buggy.tex \
+%       -model_check -nodead -goal "..." -p DEFAULT_SETSIZE 3
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{Hub/Display Scene Reconciliation --- Fidelity Control (No Preemption)}
+\author{Buggy variant: HubIdentify never evicts a predecessor's socket}
+\date{August 2026}
+\maketitle
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+This is the fidelity control for \texttt{docs/hub\_display\_reconciliation
+.tex}, not the design.  It removes only the socket-eviction half of
+single-owner preemption from \texttt{HubIdentify}: \texttt{hubOwner} still
+correctly replaces (I3 stays intact, isolating this finding from a
+multi-owner one), but a preempted predecessor's socket is never closed
+and its scenes are never orphaned --- \texttt{SocketListener
+.remove\_client} never runs.  Read the main specification first; this
+document states only what differs, in Section~\ref{sec:identify}.
+
+% ============================================================
+\section{Basic Types}
+% ============================================================
+
+\begin{zed}
+  [CONNECTION\_ID, SCENE\_ID]
+\end{zed}
+
+Unchanged from the main specification: three connections and two scenes,
+bounded by ProB's \texttt{DEFAULT\_SETSIZE}.
+
+% ============================================================
+\section{Free Types}
+% ============================================================
+
+\begin{zed}
+  OWNER ::= orphan | conn \ldata CONNECTION\_ID \rdata
+\end{zed}
+
+\begin{zed}
+  FLAG ::= set | clear
+\end{zed}
+
+Unchanged from the main specification.
+
+% ============================================================
+\section{State}
+% ============================================================
+
+\begin{schema}{Recon}
+  hubOwner : \power CONNECTION\_ID \\
+  liveConns : \power CONNECTION\_ID \\
+  sceneOwner : SCENE\_ID \pfun OWNER \\
+  manifested : \power SCENE\_ID \\
+  manifestDeclared : FLAG
+\end{schema}
+
+Unchanged from the main specification --- see there for the full
+description of each field.
+
+% ============================================================
+\section{Initialization}
+% ============================================================
+
+\begin{schema}{Init}
+  Recon'
+\where
+  hubOwner' = \emptyset \\
+  liveConns' = \emptyset \\
+  sceneOwner' = \emptyset \\
+  manifested' = \emptyset \\
+  manifestDeclared' = clear
+\end{schema}
+
+Unchanged from the main specification.
+
+% ============================================================
+\section{Operations}
+% ============================================================
+
+\subsection{HubIdentify --- BUGGY: no socket eviction}
+\label{sec:identify}
+
+\textbf{This is the one operation that differs from the design.}  A
+connection \texttt{c?} declares \texttt{kind="hub"} and \texttt{hubOwner}
+still correctly replaces --- I3 is deliberately left intact by this
+variant, isolating the I1/I2 finding from a multi-owner finding.  But the
+predecessor is never evicted from \texttt{liveConns}, and no scene is
+orphaned: this models \texttt{SocketListener.remove\_client} never being
+called, so the old socket stays open and \texttt{RenderLoop
+.\_on\_client\_disconnected} never runs for it.  Compare against the
+correct \texttt{HubIdentify} in \texttt{hub\_display\_reconciliation.tex}:
+the correct version evicts \texttt{hubOwner}'s prior members from
+\texttt{liveConns} and orphans their scenes in the same step; this one
+does neither.
+
+\begin{schema}{HubIdentify}
+  \Delta Recon \\
+  c? : CONNECTION\_ID
+\where
+  liveConns' = liveConns \cup \{ c? \} \\
+  sceneOwner' = sceneOwner \\
+  hubOwner' = \{ c? \} \\
+  manifested' = manifested \\
+  manifestDeclared' = clear
+\end{schema}
+
+\subsection{HubManifest, SceneInstall, ConnectionDrop --- unchanged}
+
+Identical to the main specification: only \texttt{HubIdentify}'s
+preemption step is removed.
+
+\begin{schema}{HubManifest}
+  \Delta Recon \\
+  c? : CONNECTION\_ID \\
+  m? : \power SCENE\_ID
+\where
+  c? \in hubOwner \\
+  manifested' = m? \\
+  sceneOwner' = \{ s : \dom sceneOwner | \\
+  \quad~ s \in m? \lor sceneOwner~s = conn(c?) \} \dres sceneOwner \\
+  hubOwner' = hubOwner \\
+  liveConns' = liveConns \\
+  manifestDeclared' = set
+\end{schema}
+
+\begin{schema}{SceneInstall}
+  \Delta Recon \\
+  c? : CONNECTION\_ID \\
+  s? : SCENE\_ID
+\where
+  c? \in liveConns \\
+  sceneOwner' = sceneOwner \oplus \{ s? \mapsto conn(c?) \} \\
+  hubOwner' = hubOwner \\
+  liveConns' = liveConns \\
+  manifested' = manifested \\
+  manifestDeclared' = manifestDeclared
+\end{schema}
+
+\begin{schema}{ConnectionDrop}
+  \Delta Recon \\
+  c? : CONNECTION\_ID
+\where
+  hubOwner' = hubOwner \setminus \{ c? \} \\
+  liveConns' = liveConns \setminus \{ c? \} \\
+  sceneOwner' = sceneOwner \oplus \\
+  \quad~ (\{ s : \dom sceneOwner | sceneOwner~s = conn(c?) \} \cross \{ orphan \}) \\
+  manifested' = manifested \\
+  manifestDeclared' = clear
+\end{schema}
+
+% ============================================================
+\section{Verification: the goals that must flip}
+% ============================================================
+
+Against this variant, I1's negation must be \emph{found} --- the trace in
+\texttt{hub\_display\_reconciliation.tex}, Section ``Fidelity: reproducing
+the shipped defect,'' reaches it directly:
+\texttt{HubIdentify}(old); \texttt{SceneInstall}(old, s1);
+\texttt{HubIdentify}(new); \texttt{HubManifest}(new, \{\});
+\texttt{SceneInstall}(old, s1).
+\begin{verbatim}
+  # must be FOUND against this variant (NOT found against the correct spec)
+  probcli docs/hub_display_reconciliation_no_preemption_buggy.tex \
+    -model_check -nodead \
+    -goal "manifestDeclared = set &
+           (card({s | s : SCENE_ID & s : dom(sceneOwner) &
+                 not(sceneOwner(s) = orphan) &
+                 not(card(hubOwner /\ {c | c : CONNECTION_ID &
+                       sceneOwner(s) = conn(c)}) > 0) }) > 0
+           or
+           card({s | s : SCENE_ID & s : dom(sceneOwner) &
+                 sceneOwner(s) = orphan & not(s : manifested)}) > 0)" \
+    -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+I3 must stay \emph{not found} --- this variant deliberately leaves
+\texttt{hubOwner} correctly replacing, so it proves nothing about I3 on
+its own and must not be mistaken for a multi-owner counterexample:
+\begin{verbatim}
+  # must remain NOT found -- this variant does not touch hubOwner's
+  # replace-not-union behaviour, so I3 is not the finding here
+  probcli docs/hub_display_reconciliation_no_preemption_buggy.tex \
+    -model_check -nodead -goal "card(hubOwner) > 1" -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+\end{document}

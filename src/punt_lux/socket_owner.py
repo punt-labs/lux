@@ -63,29 +63,47 @@ class SocketOwner:
         ``None`` is a genuine absence with three causes, all of which the caller
         must handle the same way — by not signalling anything: nothing listens, the
         platform exposes no peer credential, or every attempt to read it failed.
-        A non-positive PID is folded into it too, since the signal path must never
-        os.kill a process group.
         """
-        opt = _PEER_PID_OPT.get(sys.platform)
-        if opt is None:
+        if sys.platform not in _PEER_PID_OPT:
             return None
         for attempt in range(_ATTEMPTS):
-            pid = self._read(opt)
+            pid = self._read()
             if pid is not None:
                 return pid
             if attempt + 1 < _ATTEMPTS:
                 time.sleep(_RETRY_SECONDS)
         return None
 
-    def _read(self, opt: tuple[int, int, int]) -> int | None:
+    def _read(self) -> int | None:
         """One attempt at the peer credential; ``None`` when this attempt failed."""
-        level, optname, size = opt
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
             probe.settimeout(_CONNECT_TIMEOUT)
             try:
                 probe.connect(str(self._path))
-                cred = probe.getsockopt(level, optname, size)
             except OSError:
                 return None
+            return self.peer_pid_of(probe)
+
+    @staticmethod
+    def peer_pid_of(sock: socket.socket) -> int | None:
+        """Read an already-connected socket's peer PID from its OS credential.
+
+        The one place ``_PEER_PID_OPT`` is decoded, so a socket the caller
+        already holds — a display's accepted client fd — and ``pid()``'s own
+        probe connection never carry two implementations that could drift.
+        ``None`` on an unsupported platform, a closed or misbehaving peer
+        (``OSError``), or a socket whose ``getsockopt`` does not return real
+        credential bytes (``TypeError`` — a test double, most often). A
+        non-positive PID folds into ``None`` too, since the signal path must
+        never ``os.kill`` a process group.
+        """
+        opt = _PEER_PID_OPT.get(sys.platform)
+        if opt is None:
+            return None
+        level, optname, size = opt
+        try:
+            cred = sock.getsockopt(level, optname, size)
             pid = int.from_bytes(cred[:4], sys.byteorder)
-            return pid if pid > 0 else None
+        except (OSError, TypeError):
+            return None
+        return pid if pid > 0 else None

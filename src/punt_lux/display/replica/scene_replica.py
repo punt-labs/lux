@@ -92,6 +92,26 @@ class SceneReplica:
         """Transfer a departed client's framed scenes to a surviving co-owner."""
         self._book.reassign_scenes_of(departed_fd, orphan_fd)
 
+    def scenes_to_purge(
+        self, identifying_fd: int, manifest: frozenset[str]
+    ) -> list[tuple[str, str]]:
+        """Return every ``(frame_id, scene_id)`` pair a Hub manifest disowns.
+
+        A scene qualifies when it is neither owned by ``identifying_fd`` nor
+        named in ``manifest`` — an orphan from a prior Hub connection's death
+        is swept by the same rule, since its owner is never the identifying
+        fd. Read-only (DES-068): the caller drives the removal through
+        :meth:`dismiss_framed_scene` per pair, closing a frame only when the
+        pass empties it entirely.
+        """
+        owner = self._book.scene_to_owner
+        return [
+            (frame_id, scene_id)
+            for frame_id, frame in self._book.frames.items()
+            for scene_id in frame.scenes
+            if owner.get(scene_id) != identifying_fd and scene_id not in manifest
+        ]
+
     # -- public API --------------------------------------------------------
 
     def handle_framed_scene(self, msg: SceneMessage, owner_fd: int) -> None:

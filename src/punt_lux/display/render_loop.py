@@ -30,6 +30,7 @@ from punt_lux.display.frame_commands import FrameCommands
 from punt_lux.display.frame_placement import FramePlacement
 from punt_lux.display.frame_tiling import FrameTiling
 from punt_lux.display.glfw_window import GlfwWindow
+from punt_lux.display.hub_reconciliation import HubReconciliation
 from punt_lux.display.idle_screen import render_idle
 from punt_lux.display.interaction_delivery import InteractionDelivery
 from punt_lux.display.macos import hide_from_dock_and_cmd_tab
@@ -49,6 +50,7 @@ from punt_lux.protocol import (
     AckMessage,
     CallbackMenuMessage,
     ConnectMessage,
+    HubManifestMessage,
     IntrospectRequest,
     IntrospectResponse,
     ListScenesRequest,
@@ -107,6 +109,7 @@ class RenderLoop:
     _display_paths: DisplayPaths
     _imgui_renderer_factory: ImGuiRendererFactory
     _luxd_factory: Any  # JsonElementFactory, declared Any to avoid an import cycle
+    _hub_reconciliation: HubReconciliation
 
     def __new__(
         cls,
@@ -159,6 +162,12 @@ class RenderLoop:
         self._interaction_delivery = InteractionDelivery(
             socket_listener=self._socket_listener,
             scenes=self._scenes,
+        )
+        self._hub_reconciliation = HubReconciliation(
+            socket_listener=self._socket_listener,
+            scenes=self._scenes,
+            close_frame=lambda fid: self._close_frame(fid, notify=False),
+            record_error=self._query_router.record_error,
         )
         # Bind a fail-loud decode factory to the shared container-dispatch
         # target. Inbound scenes cross as pickles (SceneCodec), so the display
@@ -553,6 +562,8 @@ class RenderLoop:
             self._apply_theme(msg.theme)
         elif isinstance(msg, ConnectMessage):
             self._handle_connect(sock, msg)
+        elif isinstance(msg, HubManifestMessage):
+            self._handle_hub_manifest(sock, msg)
         else:
             self._handle_readonly_message(sock, msg)
 
@@ -580,17 +591,14 @@ class RenderLoop:
             logger.debug("Ignoring unknown message type %r", msg.raw_type)
 
     def _handle_connect(self, sock: socket.socket, msg: ConnectMessage) -> None:
-        """Record a client's display name (idempotent)."""
-        name = msg.name.strip()
-        if not name:
-            logger.warning("ConnectMessage with empty name -- ignored")
-            return
-        try:
-            fd = sock.fileno()
-        except OSError:
-            return
-        self._socket_listener.register_client_name(fd, name, time.time())
-        logger.info("Client fd=%d identified as %r", fd, name)
+        """Record a client's declared identity; preempt a stale Hub (DES-068)."""
+        self._hub_reconciliation.handle_connect(sock, msg)
+
+    def _handle_hub_manifest(
+        self, sock: socket.socket, msg: HubManifestMessage
+    ) -> None:
+        """Purge every scene a Hub manifest disowns (DES-068)."""
+        self._hub_reconciliation.handle_manifest(sock, msg)
 
     def _handle_introspect(self, sock: socket.socket, msg: IntrospectRequest) -> None:
         """Return the element tree for a scene to the requesting client."""
@@ -742,6 +750,8 @@ class RenderLoop:
         try:
             fd = sock.fileno()
         except OSError:
+            return
+        if self._hub_reconciliation.reject_scene_if_test_kind(sock, fd):
             return
         self._paint_clock.received(msg.id)
         self._wrap_abc_elements(msg)
