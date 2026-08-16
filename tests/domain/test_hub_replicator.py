@@ -11,6 +11,7 @@ sending (P6).
 from __future__ import annotations
 
 import threading
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Self
 
@@ -64,11 +65,13 @@ class _FakeSender:
     timeline: list[str]
     _fail: Exception | None
     _fail_scene: tuple[str, OSError] | None
+    _crasher: str | None
     _gate: threading.Event | None
     _lock: threading.Lock
     _sent: threading.Event
     _entered: threading.Event
     __slots__ = (
+        "_crasher",
         "_entered",
         "_fail",
         "_fail_scene",
@@ -93,6 +96,7 @@ class _FakeSender:
         self.timeline = []
         self._fail = None
         self._fail_scene = None
+        self._crasher = None
         self._gate = None
         self._lock = threading.Lock()
         self._sent = threading.Event()
@@ -110,6 +114,15 @@ class _FakeSender:
     def fail_on_scene(self, scene_id: str, exc: OSError) -> None:
         """Raise once when a specific scene is sent, leaving other sends clean."""
         self._fail_scene = (scene_id, exc)
+
+    def crash_forever_on(self, scene_id: str) -> None:
+        """Raise ``OSError`` every time ``scene_id`` is sent, until quarantined.
+
+        Models a genuinely poison scene: unlike ``fail_on_scene`` (one-shot),
+        this never disarms itself — the only way it stops firing is the
+        replicator excluding the scene from every future send.
+        """
+        self._crasher = scene_id
 
     def block_next(self, gate: threading.Event) -> None:
         self._gate = gate
@@ -148,6 +161,8 @@ class _FakeSender:
             _, exc = self._fail_scene
             self._fail_scene = None
             raise exc
+        if self._crasher == scene_id:
+            raise OSError(f"{scene_id} crashed the display (again)")
         with self._lock:
             self.shows.append(scene_id)
             self.frames.append(frame_id)
@@ -269,6 +284,7 @@ def _replicator(
         _FakeCallbackReader(callback_wire),
         provider,
         lifecycle,
+        store,  # HubDisplay satisfies QuarantinePort structurally
     )
 
     def _reconcile() -> None:
@@ -896,3 +912,88 @@ def test_restarting_a_stopped_replicator_raises() -> None:
     repl.stop()
     with pytest.raises(RuntimeError, match="was stopped"):
         repl.start()
+
+
+# -- crash-loop quarantine (display-crash-quarantine.md) --------------------
+
+
+def _wait_until(predicate: Callable[[], bool], timeout: float = 3.0) -> bool:
+    """Poll ``predicate`` until true or ``timeout`` elapses; return the last read."""
+    deadline = time.monotonic() + timeout
+    result = predicate()
+    while not result and time.monotonic() < deadline:
+        threading.Event().wait(0.01)
+        result = predicate()
+    return result
+
+
+def test_a_death_switches_the_replicator_to_isolating_mode() -> None:
+    store = HubDisplay()
+    scene = _seed(store, "s1")
+    repl, sender, _provider, _lifecycle = _replicator(store)
+    sender.crash_forever_on("s1")
+    repl.start()
+    try:
+        repl.mark_dirty(scene)
+        assert _wait_until(lambda: repl._attribution.mode == "isolating")
+    finally:
+        repl.stop()
+
+
+def test_a_deterministic_crasher_is_quarantined_and_never_sent() -> None:
+    # The B5 defect this design fixes: a scene that crashes the Display on every
+    # render must reach the attribution threshold and stop being replicated —
+    # it is never seen in sender.shows at all, since every genuine send attempt
+    # raised before recording it.
+    store = HubDisplay()
+    scene = _seed(store, "crasher")
+    repl, sender, _provider, _lifecycle = _replicator(store)
+    sender.crash_forever_on("crasher")
+    repl.start()
+    try:
+        repl.mark_dirty(scene)
+        assert _wait_until(lambda: store.is_quarantined(scene))
+        assert "crasher" not in sender.shows
+    finally:
+        repl.stop()
+
+
+def test_an_innocent_scene_co_batched_with_a_crasher_is_never_quarantined() -> None:
+    # The false-positive guard: "good" shares the first batched death with
+    # "bad" (one increment each), isolation then narrows every further death
+    # to "bad" alone, so "good" never reaches the threshold.
+    store = HubDisplay()
+    good = _seed(store, "good")
+    bad = _seed(store, "bad")
+    repl, sender, _provider, _lifecycle = _replicator(store)
+    sender.crash_forever_on("bad")
+    repl.start()
+    try:
+        repl.mark_dirty(good)
+        repl.mark_dirty(bad)
+        assert _wait_until(lambda: store.is_quarantined(bad))
+        assert not store.is_quarantined(good)
+        assert "good" in sender.shows
+    finally:
+        repl.stop()
+
+
+def test_a_quarantined_scene_is_dropped_from_a_batch_that_still_carries_it() -> None:
+    # Invariant 1, enforced at send time regardless of what got re-marked
+    # dirty: once quarantined, the scene is filtered out of every subsequent
+    # batch before either send path runs.
+    store = HubDisplay()
+    scene = _seed(store, "crasher")
+    repl, sender, _provider, _lifecycle = _replicator(store)
+    sender.crash_forever_on("crasher")
+    repl.start()
+    try:
+        repl.mark_dirty(scene)
+        assert _wait_until(lambda: store.is_quarantined(scene))
+        shows_at_quarantine = len(sender.shows)
+        repl.mark_dirty(scene)  # re-mark it directly, bypassing the reconcile hook
+        for _ in range(20):
+            threading.Event().wait(0.01)
+        assert len(sender.shows) == shows_at_quarantine  # never attempted again
+    finally:
+        repl.stop()

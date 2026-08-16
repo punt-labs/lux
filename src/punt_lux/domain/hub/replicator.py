@@ -15,6 +15,18 @@ wedged display raises ``BlockingIOError`` and a dead peer raises ``OSError``, an
 either failure is handed to ``SendRecovery``, which heals the display and re-marks
 the work. A recovery that cannot heal the display restores the batch and backs
 off, so nothing drained is ever lost.
+
+The send loop is also where the crash-loop quarantine lives
+(display-crash-quarantine.md): normal replication is *batching* — every scene the
+signal drained is sent, and a death anywhere is attributed to the whole batch,
+since a socket-level send failure cannot tell which scene actually crashed the
+renderer. The first attributed death switches the worker to *isolation*: it stops
+coalescing and sends each live, non-quarantined scene alone, so a death has a
+single suspect. Isolation is left only once
+:class:`~punt_lux.domain.hub.crash_attribution.CrashAttribution` has seen a
+death-free ``STABLE_INTERVAL`` — never on one clean pass — and a scene that
+reaches the attribution threshold is quarantined and excluded from every future
+send, which is what breaks the respawn loop.
 """
 
 from __future__ import annotations
@@ -25,10 +37,13 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.domain.hub.crash_attribution import CrashAttribution
 from punt_lux.domain.hub.dirty_signal import DirtySignal
 from punt_lux.domain.hub.recovery import SendRecovery
+from punt_lux.domain.hub.respawn_backoff import RespawnBackoff
 
 if TYPE_CHECKING:
+    from punt_lux.domain.hub.crash_attribution import QuarantinePort
     from punt_lux.domain.hub.dirty_signal import DrainedBatch
     from punt_lux.domain.hub.replicator_ports import (
         CallbackMenuReader,
@@ -84,12 +99,16 @@ class HubReplicator:
     _clients: ClientProvider
     _signal: DirtySignal
     _recovery: SendRecovery
+    _attribution: CrashAttribution
     _thread: threading.Thread | None
     _backoff: float
+    _current_suspect: frozenset[SceneId]
     __slots__ = (
+        "_attribution",
         "_backoff",
         "_callback_reader",
         "_clients",
+        "_current_suspect",
         "_menu_reader",
         "_reader",
         "_recovery",
@@ -104,6 +123,7 @@ class HubReplicator:
         callback_reader: CallbackMenuReader,
         clients: ClientProvider,
         lifecycle: DisplayLifecycle,
+        quarantine: QuarantinePort,
     ) -> Self:
         self = super().__new__(cls)
         self._reader = reader
@@ -111,9 +131,13 @@ class HubReplicator:
         self._callback_reader = callback_reader
         self._clients = clients
         self._signal = DirtySignal()
-        self._recovery = SendRecovery(clients, lifecycle, self._signal)
+        self._attribution = CrashAttribution(quarantine)
+        self._recovery = SendRecovery(
+            clients, lifecycle, self._signal, self._attribution, RespawnBackoff()
+        )
         self._thread = None
         self._backoff = _BASE_BACKOFF_SECONDS
+        self._current_suspect = frozenset()
         return self
 
     # -- surface API: queue-only, called by tools and click dispatch --------
@@ -213,23 +237,29 @@ class HubReplicator:
                 self._back_off()
             return
         self._backoff = _BASE_BACKOFF_SECONDS
+        self._attribution.exit_isolation_if_stable()
+        self._recovery.reset_backoff_if_stable()
         self._reclaim_emptied(outcome.emptied)
 
     def _push_cycle(self, batch: DrainedBatch) -> _CycleOutcome:
         """Send the cycle; heal a bounded send failure, else report the clean result.
 
         ``BlockingIOError`` (send timeout) is a wedged display, reaped and
-        respawned; ``OSError`` (dead peer) only reconnects. A recovery step that
-        itself fails — reap/ensure raising, a refused reconnect — propagates to the
-        caller's outer guard rather than being swallowed here.
+        respawned; ``OSError`` (dead peer) only reconnects. Either way the death is
+        attributed to ``_current_suspect`` — the whole batch in batching mode, or
+        the one scene ``_attempt_isolating`` was probing — which ``_attempt`` sets
+        immediately before each send that can raise, so it always reflects what was
+        genuinely in flight at the failure. A recovery step that itself fails —
+        reap/ensure raising, a refused reconnect — propagates to the caller's outer
+        guard rather than being swallowed here.
         """
         try:
             emptied = self._attempt(batch)
         except BlockingIOError:
-            self._recovery.recover(batch, wedged=True)
+            self._recovery.recover(batch, wedged=True, suspect=self._current_suspect)
             return _CycleOutcome(recovered=True, emptied=())
         except OSError:
-            self._recovery.recover(batch, wedged=False)
+            self._recovery.recover(batch, wedged=False, suspect=self._current_suspect)
             return _CycleOutcome(recovered=True, emptied=())
         return _CycleOutcome(recovered=False, emptied=emptied)
 
@@ -241,10 +271,18 @@ class HubReplicator:
     def _attempt(self, batch: DrainedBatch) -> tuple[SceneId, ...]:
         """Send the cycle and return the scenes it found empty, for later reclaim.
 
-        An empty scene is pushed to blank its own frame, and is a reclaim candidate
-        — its frame is dead once the display blanks it — so it is collected here.
+        Quarantined scenes are filtered out before either send path runs — the
+        load-bearing exclusion against the crash loop (Invariant 1: a quarantined
+        scene is never replicated), enforced here regardless of what the dirty
+        signal or a recovery re-mark queued. The menu send, when present, is
+        attributed to the whole live batch: it names no scene, so the safest
+        suspect set is everything that was in flight, in either mode.
         """
+        scenes = frozenset(
+            s for s in batch.scenes if not self._attribution.is_quarantined(s)
+        )
         if batch.menus_dirty:
+            self._current_suspect = scenes
             # Read the agent bar and the live sessions fresh, so the newest menu
             # state wins even if a change landed after this batch was drained.
             bar = self._menu_reader.wire_snapshot()
@@ -252,9 +290,37 @@ class HubReplicator:
             sender = self._clients.get()
             sender.set_menu([dict(menu) for menu in bar])
             sender.set_callback_menus(callback_menus)
+        if self._attribution.mode == "isolating":
+            return self._attempt_isolating(scenes)
+        return self._attempt_batching(scenes)
+
+    def _attempt_batching(self, scenes: frozenset[SceneId]) -> tuple[SceneId, ...]:
+        """Send every scene as one coalesced batch — the suspect set on a death.
+
+        A send failure anywhere in the loop aborts the whole method (an
+        unhandled ``BlockingIOError``/``OSError`` propagates to ``_push_cycle``),
+        so ``_current_suspect`` is set once, to the whole batch: a socket-level
+        failure cannot tell which of several already-accepted sends is the one
+        whose render actually crashed the Display.
+        """
+        self._current_suspect = scenes
         # Each ``_send_scene`` sends and reports whether the scene was empty; the
         # comprehension keeps the empties as reclaim candidates.
-        return tuple(scene for scene in batch.scenes if self._send_scene(scene))
+        return tuple(scene for scene in scenes if self._send_scene(scene))
+
+    def _attempt_isolating(self, scenes: frozenset[SceneId]) -> tuple[SceneId, ...]:
+        """Send every scene alone, so a death has exactly one suspect.
+
+        ``_current_suspect`` is narrowed to the singleton before each send, so a
+        failure on scene N attributes only scene N — the scenes already sent
+        cleanly in this same cycle are never smeared into its suspect set.
+        """
+        emptied: list[SceneId] = []
+        for scene_id in scenes:
+            self._current_suspect = frozenset({scene_id})
+            if self._send_scene(scene_id):
+                emptied.append(scene_id)
+        return tuple(emptied)
 
     def _send_scene(self, scene_id: SceneId) -> bool:
         """Send a copy of the scene; return whether it was empty (a reclaim candidate).
