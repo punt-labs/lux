@@ -44,3 +44,29 @@ def test_set_opacity_delegates_to_library(monkeypatch: pytest.MonkeyPatch) -> No
     GlfwWindow(0x1234).set_opacity(opacity=0.5)
 
     lib.set_window_opacity.assert_called_once_with(0x1234, 0.5)
+
+
+def test_set_focus_on_show_false_delegates_to_library(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """set_focus_on_show(False) forwards the address, attribute id, and 0."""
+    lib = MagicMock()
+    monkeypatch.setattr(glfw_window, "GlfwLibrary", MagicMock(return_value=lib))
+
+    GlfwWindow(0x1234).set_focus_on_show(focus=False)
+
+    lib.set_window_attrib.assert_called_once_with(
+        0x1234, GlfwWindow._GLFW_FOCUS_ON_SHOW, 0
+    )
+
+
+def test_set_focus_on_show_true_forwards_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    """set_focus_on_show(True) forwards 1, not just a truthy value."""
+    lib = MagicMock()
+    monkeypatch.setattr(glfw_window, "GlfwLibrary", MagicMock(return_value=lib))
+
+    GlfwWindow(0x1234).set_focus_on_show(focus=True)
+
+    lib.set_window_attrib.assert_called_once_with(
+        0x1234, GlfwWindow._GLFW_FOCUS_ON_SHOW, 1
+    )
