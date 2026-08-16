@@ -16,6 +16,7 @@ from typing import Self, cast
 from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.quarantine_record import QuarantineRecord
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.ids import ConnectionId, SceneId, Topic
 from punt_lux.domain.update import AddElement
@@ -175,6 +176,38 @@ def test_inspect_scene_unknown_scene_is_not_found() -> None:
     assert result.code == "not_found"
 
 
+def test_inspect_scene_a_live_scene_carries_no_quarantine_info() -> None:
+    store = HubDisplay()
+    _seed_scene(store, scene="s1", connection="c1")
+    ops = QueryOperations(store, Hub(), _ForbiddenPort())
+
+    result = ops.inspect_scene("s1")
+
+    assert isinstance(result, SceneInspection)
+    assert result.quarantine is None
+
+
+def test_inspect_scene_a_quarantined_scene_stays_inspectable() -> None:
+    # The store keeps a quarantined scene for inspection — quarantine is a
+    # replication decision, not a deletion.
+    store = HubDisplay()
+    _seed_scene(store, scene="s1", connection="c1")
+    store.quarantine(
+        SceneId("s1"),
+        QuarantineRecord(death_count=2, last_death_at=42.0, render_error="boom"),
+    )
+    ops = QueryOperations(store, Hub(), _ForbiddenPort())
+
+    result = ops.inspect_scene("s1")
+
+    assert isinstance(result, SceneInspection)
+    assert result.elements  # the tree is still there
+    assert result.quarantine is not None
+    assert result.quarantine.death_count == 2
+    assert result.quarantine.last_death_at == 42.0
+    assert result.quarantine.render_error == "boom"
+
+
 def test_list_scenes_reads_the_hub_without_touching_the_display() -> None:
     store = HubDisplay()
     _seed_scene(store, scene="s1", connection="c1")
@@ -232,6 +265,29 @@ def test_list_scenes_surfaces_the_owner_declared_identity() -> None:
     summary = next(s for s in ops.list_scenes().scenes if s.scene_id == "s1")
     assert summary.owners[0].connection_id == "c1"
     assert summary.owners[0].identity == identity  # structured attribution
+
+
+def test_list_scenes_reports_live_status_by_default() -> None:
+    store = HubDisplay()
+    _seed_scene(store, scene="s1", connection="c1")
+    ops = QueryOperations(store, Hub(), _ForbiddenPort())
+
+    summary = next(s for s in ops.list_scenes().scenes if s.scene_id == "s1")
+    assert summary.status == "live"
+    assert summary.quarantine is None
+
+
+def test_list_scenes_reports_a_quarantined_scene() -> None:
+    store = HubDisplay()
+    _seed_scene(store, scene="s1", connection="c1")
+    store.quarantine(SceneId("s1"), QuarantineRecord(death_count=2, last_death_at=99.0))
+    ops = QueryOperations(store, Hub(), _ForbiddenPort())
+
+    summary = next(s for s in ops.list_scenes().scenes if s.scene_id == "s1")
+    assert summary.status == "quarantined"
+    assert summary.quarantine is not None
+    assert summary.quarantine.death_count == 2
+    assert summary.quarantine.last_death_at == 99.0
 
 
 def test_list_clients_reads_the_hub_session_registry() -> None:

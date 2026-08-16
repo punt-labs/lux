@@ -16,6 +16,7 @@ from punt_lux.operations.models.query_geometry import (
     GeometryNotRequested,
     SceneGeometry,
 )
+from punt_lux.operations.models.query_quarantine import QuarantineInfo
 
 __all__ = ["InspectedElement", "SceneInspection"]
 
@@ -45,3 +46,7 @@ class SceneInspection(BaseModel):
     scene_id: str
     elements: list[InspectedElement]
     geometry: SceneGeometry = GeometryNotRequested()
+    # Present only when the scene is quarantined — the store keeps a quarantined
+    # scene's tree inspectable, so absence here is "not quarantined," not "the
+    # type system gave up" (PY-TS-14).
+    quarantine: QuarantineInfo | None = None
