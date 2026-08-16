@@ -1,7 +1,9 @@
 # Connection-Scoped Store Keys — Scenes and Frames Cannot Alias Across Connections
 
-- **Status:** proposed for DES-086; three decisions below need operator
-  ratification before an implementation mission dispatches.
+- **Status:** proposed for DES-086; five decisions below need operator
+  ratification before an implementation mission dispatches. (Round 2, after
+  djb's security review: Decision 5 is new; Decisions 1–4 keep their round-1
+  recommendations, sharpened in wording where djb's review asked for it.)
 - **Proposed ADR number:** DES-086 (next after DES-085, the crash-respawn
   quarantine design, PR #354 — DESIGN.md's own numbered headings currently end
   at DES-067; DES-068 and DES-085 are shipped but not yet pasted into
@@ -55,6 +57,23 @@ from the trusted computing base entirely. `oo.md`'s stance on illegal states
 applies one layer up from a type: the illegal *state* here is "two
 connections' scenes share a key," and this design makes that state
 impossible to construct rather than making it detectable.
+
+**This invariant is conditional on transport, and the condition matters.**
+"Which the writer does not choose" is true without qualification for
+`mcp-session`-kind connections — the transport itself assigns `ConnectionId`
+from a per-session `ContextVar` (`tools/server.py:45`), outside anything the
+caller declares. It is not true in the same unconditional sense for `cli`-
+and `applet`-kind connections, whose `ConnectionId` is `connection_for`'s
+deterministic hash of fields the caller *does* declare over REST
+(`connection_identity.py:39`). A process willing to declare the same fields
+a target connection would declare gets that target's exact `ConnectionId`,
+honestly, through the same `identify()` call every legitimate client uses.
+This is not a defect in `ConnectionScopedId` — the class still composes
+correctly from whatever `ConnectionId` it is given — it is a scope boundary
+on what "the writer does not choose" can promise for those two transports.
+See the `connection_for` residual and Decision 3 below for the full
+accounting; djb's security review (round 2) confirmed this reading against
+the code.
 
 ## The ergonomic invariant
 
@@ -252,11 +271,36 @@ A malformed `local_id` (blank, or carrying the separator — which a client
 could never have produced honestly, since the separator is a control
 character no UI ever asks a user to type) raises `ValueError` at composition
 time, per PY-EH-8: this is a value-producing function, so a `local_id` it
-cannot compose from is a boundary error, not a silent fallback. The
-operations layer catches it exactly where `ClientIdentity`'s own
-`ValidationError` is already caught (`IdentityOperations.identify`,
-`operations/identity.py:52`) and returns an `OpError`, not a raised
-exception reaching the caller.
+cannot compose from is a boundary error, not a silent fallback.
+
+**Where that `ValueError` is caught — corrected, per djb's round-2 review.**
+Round 1 of this design cited `IdentityOperations.identify`
+(`operations/identity.py:52`) as the existing catch site this would mirror.
+djb read that site end to end and found it wraps a **pydantic**
+`ValidationError` from `ClientIdentity.model_validate`, on the `identify`
+path only — it has nothing to do with `render`/`show`/`update`/`clear`, and
+no catch site for `ConnectionScopedId`'s plain-dataclass `ValueError` exists
+anywhere on those paths today. Nor is the empty-`local_id` case theoretical:
+`RenderRequest.scene_id: str` (`operations/models/render.py:54`) carries no
+`Field(min_length=1)`, so `show(scene_id="")` reaches `__post_init__`'s
+raise with nothing between it and the tool boundary.
+
+The implementation adds an explicit catch at each of the three composition
+call sites this design introduces: `SceneInstaller.install`,
+`SceneOperations.update`, and `SceneClearer.clear`, each wrapping its
+`.scoped(...)`/`ConnectionScopedId.compose` call with
+`except ValueError as exc: return OpError(code="invalid_request",
+reason=str(exc))` — the same shape `RenderRequest.parse` already uses for
+its own pydantic `ValidationError` (`operations/models/render.py:66-69`).
+This is a mechanical, three-site addition, not a design change: a
+construction this design specifies as fail-*closed* must also fail
+*clean* — into the same bounded `OpError` surface every other boundary
+rejection in this codebase uses — rather than into whatever
+FastMCP/FastAPI does with an uncaught exception reaching a request handler.
+The implementation mission's success criteria must include a test that
+calls `show(scene_id="")` and one with a `scene_id` carrying the unit
+separator, asserting a clean `OpError` in both cases, never an exception
+escaping the tool boundary.
 
 ### The one choke point
 
@@ -313,6 +357,18 @@ with that same connection id at the string layer changes nothing about
 caller updating "its own `music-player`" continues to update its own
 `music-player` — it is simply, transparently, no longer able to spell
 "its own" in a way that happens to also spell someone else's.
+
+**One other `SceneId(...)` construction exists outside this write-set —
+verified as not a gap.** `domain/hub/element_invocation_resolver.py:65`
+constructs a raw `SceneId` from `RemoteEventHandlerInvocation.scene_id`.
+djb traced the full path: that field is a display-echo of a click, carrying
+the store's own (already-composed, post-design) id verbatim —
+`display_link.py:455-456` sends `id=scene_id` straight from what the
+replicator read out of the store, with no re-derivation. The value arriving
+at `element_invocation_resolver.py:65` is therefore already a fully
+composed key; `SceneId(scene_id)` there is a correct opaque cast, not a
+second raw-key write path that needs `.scoped()`. Named here so a future
+reader does not re-open it.
 
 ## Threat model
 
@@ -417,6 +473,13 @@ roots (`operations/models/query_ownership.py:17`) — that already answers
 it." Together they make the composed `scene_id` string legible without an
 agent ever needing to parse `ConnectionScopedId`'s own separator convention.
 
+**`inspect_scene` is not addressed by the `SceneSummary` field above, and
+that is a real gap djb's round-2 review found.** `inspect_scene`
+(`operations/queries.py:73`) does a separate, raw, uncomposed
+`SceneId(scene_id)` lookup — not a `SceneSummary` read — against what
+becomes, after this design ships, a composed store. This design's original
+write-set never accounted for it. See Decision 5 below.
+
 ## The frame-id dimension
 
 Namespaced identically to scene ids, by the same `.scoped(owner)` call,
@@ -512,6 +575,35 @@ never-cleared scenes — the CLI already ships the escape hatch a caller who
 *wants* its own namespace needs (`--as`/`LUX_CLIENT`), and I do not think
 this design should overrule that existing, shipped ergonomic choice on its
 own authority. See Decision 3 below.
+
+**What accepting this residual actually costs, stated precisely — not
+"two accidental invocations colliding by coincidence."** djb's round-2
+review sharpened this beyond the framing above. `connection_for`'s hash
+requires no guessing: a hostile same-user-localhost process that wants to
+*become* a target `cli`-kind connection needs only call `identify()` (or
+push over REST, which resolves identity implicitly) with the identical
+`(kind="cli", name, repo, agent)` tuple `CliIdentity.resolve` would have
+produced for the target — a tuple built entirely from public, declared
+information (a repo's directory name and absolute path), not a secret. At
+that point `ConnectionScopedId.compose` does exactly what it is specified
+to do; the writer's own `ConnectionId` is, by the Hub's own rules, now the
+same as the target's. This is not a new capability this design creates —
+the identical `connection_for` collision already grants a hostile process
+the target's exact `Owner` for `SetProperty`/`RemoveElement`
+(`owner_tracker.py:58-68`), which is strictly worse (full element mutation,
+not merely a scene-id collision) — but Decision 3's recommendation to
+accept the residual should be read as accepting *that* capability's narrow
+extension to scene ids, not as accepting a coincidence between well-meaning
+scripts.
+
+**Applet-kind narrows the same class without closing it.**
+`APPLET_NAME_RE` (`client_identity.py:126-145`) forces an applet's declared
+name to embed its own session pid, so two honest applet instances never
+collide by accident. A hostile process can still read that pid from `ps` on
+the same machine as the same user and declare it deliberately — a higher
+bar than the CLI residual (requires observing the target's pid, not just
+its repo path) but the same class of guarantee: same-user-localhost, not a
+different security boundary.
 
 ## The vox migration path
 
@@ -779,16 +871,26 @@ but "nothing breaks in the menu paths" is a claim about code I did not read
 end-to-end, and only the operator (or an implementation-phase audit) can
 close that gap with certainty before this ships.
 
-**Decision 3: whether to leave the `connection_for` CLI-identity residual
-(two bare `lux show <id>` invocations in one repo, no `--as` override,
-sharing one namespace) as an accepted, documented risk, or fold a fix into
+**Decision 3: whether to leave the `connection_for` CLI-identity residual —
+accurately stated, not "two bare `lux show <id>` invocations colliding by
+coincidence" but "any same-user-localhost process can deliberately become a
+target `cli`-kind connection's identity for the price of one honest
+`identify()` call, and thereby collide that connection's scene-id namespace
+with the target's" — as an accepted, documented risk, or fold a fix into
 this design's implementation.** I recommend accepting it as documented —
 the CLI's "re-run to update the same scene" ergonomic already depends on
 repeated bare invocations sharing an identity, and the escape hatch
 (`--as`/`LUX_CLIENT`) already exists for a caller that wants its own
 namespace. Changing this would be a real, user-visible behavior change to
 the CLI's existing contract, not a security fix this design's mandate
-covers. Alternative: extend `connection_for`'s hashed fields (or
+covers. djb's round-2 review confirmed independently that this residual
+grants no *new* capability — the identical `connection_for` collision
+already grants a hostile process the target's exact ownership for
+`SetProperty`/`RemoveElement`, a strictly worse capability than a scene-id
+collision, under the same standing same-user-localhost trust model — so
+accepting the narrower residual here is consistent with a risk this
+codebase already accepts elsewhere, not a new hole this design introduces.
+Alternative: extend `connection_for`'s hashed fields (or
 `CliIdentity`'s defaults) to distinguish concurrent bare invocations by
 some invocation-local token, closing the residual at the cost of breaking
 "run the same command twice to refresh the same display region" for every
@@ -814,3 +916,39 @@ protocols — even though I argue this specific change introduces neither.
 Trade-off I cannot resolve alone: the cost of a z-spec track the reasoning
 above says is unnecessary, against the cost of shipping a security-framed
 fix without one and being wrong.
+
+**Decision 5 (new in round 2): whether `inspect_scene` composes the
+caller's own connection into its `scene_id` argument by default, or
+requires the full composed key, now that raw and composed keys diverge.**
+djb's round-2 review found a gap this design's write-set never accounted
+for: `inspect_scene` (`operations/queries.py:73`, exposed at
+`GET /scenes/{scene_id}`) does a raw, uncomposed `SceneId(scene_id)` lookup
+against what becomes, after this design ships, a composed store. Today an
+agent can `show(scene_id="x")` then immediately `inspect_scene("x")` to
+verify what it just installed — exactly the self-verification workflow
+`target.md`'s Verification section describes. After this design, that same
+call returns `not_found`, because the actual store key is
+`"<connection_id>\x1fx"` and `inspect_scene` never composes against the
+caller's own connection the way `update`/`clear` will.
+
+I recommend **(a): `inspect_scene` composes its `scene_id` argument against
+the caller's own connection by default, exactly as `update`/`clear` will —
+"check the thing I own" is the common case, matching the ergonomic
+invariant this design already gives writes — with a second, optional
+`owner=` parameter accepting the already-composed string `list_scenes`
+returns, for the cross-connection audit case.** Alternative: **(b)**
+`inspect_scene` stays a raw-composed-key lookup only, and this design says
+plainly that self-verification now requires `list_scenes` first — a real,
+disclosed regression instead of a silent one, cheaper to implement but a
+worse day-to-day agent experience. I reject a third option outright, named
+by djb and worth stating so it is not re-proposed later: a permissive
+dual-lookup (try the raw string, fall back to the composed form) that
+reopens, on the read side, the exact ambiguity this design exists to close
+on the write side — a `scene_id` that happens to look like another
+connection's fully composed key could resolve to that connection's scene
+under such a lookup. Trade-off I cannot resolve alone: (a) is a small,
+well-precedented addition consistent with the shape `update`/`clear`
+already take, but it is still a change to `inspect_scene`'s signature that
+this design's original write-set never scoped, and the operator should
+rule on whether that scope extension ships in this design's implementation
+or as an immediate follow-on PR.
