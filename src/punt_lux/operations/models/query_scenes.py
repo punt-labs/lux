@@ -42,7 +42,13 @@ class FrameSummary(BaseModel):
 
 
 class SceneList(BaseModel):
-    """Every live scene and frame, read from the authoritative store."""
+    """Every scene and frame from the authoritative store, live or quarantined.
+
+    Each :class:`SceneSummary` carries a ``status`` discriminator and, when
+    quarantined, a :class:`QuarantineInfo` — quarantine is a replication
+    decision, not a deletion, so this introspection view keeps quarantined
+    scenes visible for the agents that own them.
+    """
 
     model_config = ConfigDict(frozen=True)
 

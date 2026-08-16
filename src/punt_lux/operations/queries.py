@@ -88,7 +88,16 @@ class QueryOperations:
         )
 
     def list_scenes(self) -> SceneList:
-        """List every live scene and frame from the authoritative store."""
+        """List every scene and frame from the authoritative store.
+
+        Includes quarantined scenes alongside live ones — quarantine is a
+        replication decision, not a deletion, so introspection stays honest
+        about the scenes the store still holds. Each summary carries a
+        ``status`` discriminator (``"live"`` or ``"quarantined"``) and, when
+        quarantined, the :class:`QuarantineInfo` record explaining why.
+        Replication reads through :meth:`HubDisplay.live_scene_ids` instead,
+        which excludes quarantined scenes at the source.
+        """
         scenes: list[SceneSummary] = []
         frames: dict[str, FrameAccumulator] = {}
         for sid in self._display.all_scene_ids():
