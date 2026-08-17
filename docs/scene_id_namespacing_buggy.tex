@@ -1,0 +1,158 @@
+%
+% scene_id_namespacing_buggy.tex
+%
+% FIDELITY CONTROL for docs/scene_id_namespacing.tex --- not the shipped
+% design. This model reproduces the pre-DES-086 defect: "composition
+% omitted", the exact bug vox hit running in two Claude Code sessions at once.
+% Where the shipped model composes the store key as the pair
+% (connection_id, local_id), this model uses the caller-submitted local_id
+% alone as the store key --- discarding the connection entirely, which is
+% what HubDisplay.replace_scene keyed by before DES-086. The identical goal
+% shape that is unreachable in the shipped model is reachable here, and this
+% file exists to prove that contrast, not to describe any code this repository
+% ships.
+%
+% Type-check:  fuzz -t docs/scene_id_namespacing_buggy.tex
+% Model-check: probcli docs/scene_id_namespacing_buggy.tex -model_check \
+%                -goal "#(c1,c2,l).(c1:CONNECTION & c2:CONNECTION & \
+%                       l:LOCAL_ID & c1/=c2 & (l|->c1):everShownBy & \
+%                       l:dom(store) & store(l)/=c1)" \
+%                -p DEFAULT_SETSIZE 3 -p MAX_INITIALISATIONS 200
+%   Reported satisfied: this is the collision the shipped design closes.
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{lux Scene-Id Collision: the Pre-DES-086 Defect, Reproduced}
+\author{Fidelity control for docs/scene\_id\_namespacing.tex}
+\date{August 2026}
+\maketitle
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+This is \emph{not} the shipped design. It is the defect DES-086 closes,
+modeled to confirm the shipped model's unreachable goal is genuinely
+unreachable \emph{because of} the composition it adds --- not merely because
+the goal was phrased too weakly to catch anything.
+
+Before DES-086, \texttt{HubDisplay.replace\_scene} stored a scene under the
+literal \texttt{scene\_id} string a client submitted --- no connection
+component, no composition. Two connections choosing the identical string did
+not collide by some rare coincidence; they collided \emph{unconditionally},
+because the store key never depended on who was writing. This model drops
+exactly the one thing DES-086 adds --- the connection half of the composed
+key --- and keeps everything else: the same \texttt{CONNECTION} and
+\texttt{LOCAL\_ID} carriers, the same \texttt{Show} shape, the same
+\texttt{DEFAULT\_SETSIZE} carrier bound.
+
+A history relation, \texttt{everShownBy}, is added so the goal can name the
+collision precisely: ``a connection that once showed a \texttt{local\_id} no
+longer owns what it showed, because a different connection later showed the
+identical string.'' The shipped model needs no such history --- a
+connection's own composed key is never touched by anyone else's write, so
+there is nothing to lose track of. Here there is.
+
+% ============================================================
+\section{Basic Types}
+% ============================================================
+
+\begin{zed}
+  [CONNECTION, LOCAL\_ID]
+\end{zed}
+
+Identical carriers to the shipped model, so the contrast is a fair one: the
+only thing that differs is the shape of the store key.
+
+% ============================================================
+\section{State}
+% ============================================================
+
+\begin{schema}{Store}
+  store : LOCAL\_ID \pfun CONNECTION \\
+  everShownBy : LOCAL\_ID \rel CONNECTION
+\end{schema}
+
+\texttt{store} is keyed by \texttt{LOCAL\_ID} alone --- the raw
+client-submitted string, with no composition step. \texttt{everShownBy} is a
+monotonically growing history: every $(l, c)$ pair such that $c$ has ever
+called \texttt{Show} with $l$, kept even after a later \texttt{Show} from a
+different connection overwrites \texttt{store}'s live entry. It exists only
+to state the goal; it plays no role in a real Hub, which has no such ledger
+and does not need one once composition makes the collision unrepresentable.
+
+% ============================================================
+\section{Initialization}
+% ============================================================
+
+\begin{schema}{Init}
+  Store'
+\where
+  store' = \emptyset \\
+  everShownBy' = \emptyset
+\end{schema}
+
+% ============================================================
+\section{Operations}
+% ============================================================
+
+\texttt{Show} installs a scene the way \texttt{HubDisplay.replace\_scene} did
+before DES-086: it writes the raw \texttt{local\_id} straight into the store,
+attributed to the calling connection, with no composition against that
+connection's identity. A second connection calling \texttt{Show} with the
+identical \texttt{local\_id} overwrites the first's entry outright ---
+there is no ownership check on the first write to a given id, because the key
+carries no connection information for such a check to key on.
+
+\begin{schema}{Show}
+  \Delta Store \\
+  c? : CONNECTION \\
+  l? : LOCAL\_ID
+\where
+  store' = store \oplus \{ l? \mapsto c? \} \\
+  everShownBy' = everShownBy \cup \{ l? \mapsto c? \}
+\end{schema}
+
+% ============================================================
+\section{Verification: the collision, reproduced}
+% ============================================================
+
+The goal shape matches the shipped model's I1 check exactly in spirit ---
+``does a connection's own attribution survive another connection's later
+write'' --- restated in terms this model's history relation can express:
+
+\[
+  B \defs \exists c_1, c_2 : CONNECTION; l : LOCAL\_ID @
+    c_1 \neq c_2 \land (l, c_1) \in everShownBy \land
+    l \in \dom store \land store~l \neq c_1
+\]
+
+--- $c_1$ once showed $l$, but the live store no longer attributes $l$ to
+$c_1$. In ProB:
+
+\begin{verbatim}
+probcli docs/scene_id_namespacing_buggy.tex -model_check \
+  -goal "#(c1,c2,l).(c1:CONNECTION & c2:CONNECTION & l:LOCAL_ID & \
+         c1/=c2 & (l|->c1):everShownBy & l:dom(store) & \
+         store(l)/=c1)" \
+  -p DEFAULT_SETSIZE 3 -p MAX_INITIALISATIONS 200
+\end{verbatim}
+
+Reported \emph{satisfied}: ProB finds the two-step witness
+$\mathit{Show}(c_1, l)$ then $\mathit{Show}(c_2, l)$ for any $c_1 \neq c_2$
+--- the exact vox scenario, two connections each calling \texttt{show(scene\_id=
+"music-player")} with nothing distinguishing their calls but which connection
+made them. The shipped model's identical-shaped goal $B_1$
+(docs/scene\_id\_namespacing.tex, Section~4) is unreachable over the same
+bounded carrier; this file's $B$ is reachable in the minimum two steps. The
+contrast is the whole point: composing the connection into the key does not
+merely check for this collision and reject it --- it removes the shared
+domain the collision needs to occur in at all.
+
+\end{document}
