@@ -29,6 +29,7 @@ from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.scene_writer import HubSceneWriter, SceneScope
 from punt_lux.domain.hub.write_result import WriteRejected
 from punt_lux.domain.ids import SceneId, Topic
+from punt_lux.operations.composition_boundary import compose_or_reject
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.scene_results import Cleared, SceneShown
 from punt_lux.operations.scene_clearing import SceneClearer
@@ -144,10 +145,11 @@ class SceneOperations:
         """
         if isinstance(request, OpError):
             return request
-        try:
-            sid = SceneId(ConnectionScopedId.compose(scope.connection_id, scene_id))
-        except ValueError as exc:
-            return OpError(code="invalid_request", reason=str(exc))
+        sid = compose_or_reject(
+            lambda: SceneId(ConnectionScopedId.compose(scope.connection_id, scene_id))
+        )
+        if isinstance(sid, OpError):
+            return sid
         record: QuarantineRecord | None
         with self._display.write_lock():
             record = self._display.quarantine_record(sid)

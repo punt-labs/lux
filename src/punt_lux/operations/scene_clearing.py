@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.scene_writer import HubSceneWriter
 from punt_lux.domain.ids import SceneId
+from punt_lux.operations.composition_boundary import compose_or_reject
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.scene_results import Cleared
 
@@ -55,20 +56,24 @@ class SceneClearer:
         a caller can only ever clear a scene it is the connection for
         (DES-086).
         """
-        try:
-            target = (
-                SceneId(ConnectionScopedId.compose(owner, scene_id))
-                if scene_id is not None
-                else None
-            )
-        except ValueError as exc:
-            return OpError(code="invalid_request", reason=str(exc))
+        target = self._compose(owner, scene_id)
+        if isinstance(target, OpError):
+            return target
         touched = HubSceneWriter(self._display).clear(owner, target)
         if target is not None and scene_id is not None and not touched:
             return self._scoped_miss(target, scene_id)
         for emptied in touched:
             self._replicator.mark_dirty(emptied)
         return Cleared()
+
+    @staticmethod
+    def _compose(owner: ConnectionId, scene_id: str | None) -> SceneId | OpError | None:
+        """Compose a named filter against ``owner``, or pass an absent one through."""
+        if scene_id is None:
+            return None
+        return compose_or_reject(
+            lambda: SceneId(ConnectionScopedId.compose(owner, scene_id))
+        )
 
     def _scoped_miss(self, composed: SceneId, local_id: str) -> OpError:
         """Say why a scene-scoped clear removed nothing: unknown scene, or unowned.

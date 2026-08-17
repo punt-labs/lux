@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.submission_gate import SubmissionGate
+from punt_lux.operations.composition_boundary import compose_or_reject
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.scene_results import SceneShown
 
@@ -65,10 +66,9 @@ class SceneInstaller:
         )
         if rejection is not None:
             return OpError(code="rejected", reason=rejection)
-        try:
-            scoped = submission.scoped(owner)
-        except ValueError as exc:
-            return OpError(code="invalid_request", reason=str(exc))
+        scoped = compose_or_reject(lambda: submission.scoped(owner))
+        if isinstance(scoped, OpError):
+            return scoped
         self._display.show_scene(
             owner,
             scoped.scene_id,

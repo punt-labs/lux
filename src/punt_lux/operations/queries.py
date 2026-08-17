@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Self, cast, final
 
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.ids import SceneId
+from punt_lux.operations.composition_boundary import compose_or_reject
 from punt_lux.operations.display_facts import DisplayFactProxy
 from punt_lux.operations.frame_grouping import FrameAccumulator
 from punt_lux.operations.models.common import OpError
@@ -79,10 +80,11 @@ class QueryOperations:
         display-side painted geometry is proxied only when ``facts`` asks and
         is never treated as Hub authority.
         """
-        try:
-            sid = SceneId(ConnectionScopedId.compose(scope.connection_id, scene_id))
-        except ValueError as exc:
-            return OpError(code="invalid_request", reason=str(exc))
+        sid = compose_or_reject(
+            lambda: SceneId(ConnectionScopedId.compose(scope.connection_id, scene_id))
+        )
+        if isinstance(sid, OpError):
+            return sid
         if sid not in self._display.all_scene_ids():
             return OpError(code="not_found", reason=f"scene {scene_id!r} not found")
         # The store hands back domain elements; they are structurally the wire
