@@ -307,7 +307,7 @@ def test_a_derived_cli_identity_owns_its_scene_by_repository(
     assert client.render(_render_request("board")) == SceneShown(scene_id="board")
 
     scene = next(
-        s for s in surface.get("/scenes").json()["scenes"] if s["scene_id"] == "board"
+        s for s in surface.get("/scenes").json()["scenes"] if s["local_id"] == "board"
     )
     identity = scene["owners"][0]["identity"]
     assert identity["kind"] == "cli"

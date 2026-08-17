@@ -150,7 +150,9 @@ def _find_leaf(entries: list[dict[str, Any]], label: str) -> str | None:
 
 def _beads_scenes(port: int) -> list[str]:
     scenes = json.loads(_get(port, "/scenes"))["scenes"]
-    return [s["scene_id"] for s in scenes if s["scene_id"].startswith("beads-")]
+    # local_id is the applet's own raw label (DES-086) — scene_id is composed
+    # against the applet's connection, so filtering by it would never match.
+    return [s["scene_id"] for s in scenes if s["local_id"].startswith("beads-")]
 
 
 def test_the_applet_registers_its_entry_and_services_a_click(tmp_path: Path) -> None:

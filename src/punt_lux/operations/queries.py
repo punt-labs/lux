@@ -9,10 +9,13 @@ running display's own ring buffers, so they proxy over luxd's one connection.
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import TYPE_CHECKING, Self, cast, final
 
+from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.ids import SceneId
+from punt_lux.operations.composition_boundary import CompositionBoundary
 from punt_lux.operations.display_facts import DisplayFactProxy
 from punt_lux.operations.frame_grouping import FrameAccumulator
 from punt_lux.operations.models.common import OpError
@@ -36,9 +39,12 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.quarantine_record import QuarantineRecord
     from punt_lux.domain.ids import ConnectionId
     from punt_lux.operations.display_port import DisplayPort
+    from punt_lux.operations.scope import Scope
     from punt_lux.protocol import Element as WireElement
 
 __all__ = ["QueryOperations"]
+
+logger = logging.getLogger(__name__)
 
 
 @final
@@ -62,15 +68,26 @@ class QueryOperations:
     # -- Hub-authoritative reads -------------------------------------------
 
     def inspect_scene(
-        self, scene_id: str, scope: InspectScope = HUB_ONLY
+        self, scene_id: str, scope: Scope, facts: InspectScope = HUB_ONLY
     ) -> SceneInspection | OpError:
         """Return a scene's element tree read from the authoritative store.
 
-        Reads ``HubDisplay`` — never the display replica. An unknown scene is a
-        ``not_found``. The display-side painted geometry is proxied only when
-        ``scope`` asks and is never treated as Hub authority.
+        Reads ``HubDisplay`` — never the display replica. ``scene_id`` is
+        composed against the caller's own connection before the lookup, the
+        same way ``update``/``clear`` compose their own targets — a caller can
+        only ever inspect a scene it owns, with no override (DES-086,
+        Decision 5: "you can only inspect what you put into the
+        hub/display"). An unknown or unowned scene is a ``not_found``, never
+        distinguished from each other — the composed key either resolves to a
+        scene this caller installed, or it resolves to nothing at all. The
+        display-side painted geometry is proxied only when ``facts`` asks and
+        is never treated as Hub authority.
         """
-        sid = SceneId(scene_id)
+        sid = CompositionBoundary.compose_or_reject(
+            lambda: SceneId(ConnectionScopedId.compose(scope.connection_id, scene_id))
+        )
+        if isinstance(sid, OpError):
+            return sid
         if sid not in self._display.all_scene_ids():
             return OpError(code="not_found", reason=f"scene {scene_id!r} not found")
         # The store hands back domain elements; they are structurally the wire
@@ -79,7 +96,7 @@ class QueryOperations:
             self._inspect(cast("WireElement", root))
             for root in self._display.scene_roots(sid)
         ]
-        geometry = self._facts.facts(scene_id, scope)
+        geometry = self._facts.facts(str(sid), facts)
         return SceneInspection(
             scene_id=scene_id,
             elements=elements,
@@ -106,6 +123,7 @@ class QueryOperations:
             scenes.append(
                 SceneSummary(
                     scene_id=str(sid),
+                    local_id=self.local_id_of(sid),
                     element_count=self._display.element_count(sid),
                     frame_id=presentation.frame_id,
                     owners=self._owners_of(sid),
@@ -144,18 +162,23 @@ class QueryOperations:
     def client_facts(self, named: NamedSession) -> HubClient:
         """Return one session's facts — the shape ``list_clients`` reports, for one.
 
-        What the Details command renders, so the menu and the introspection read
-        can never describe a client differently. It takes the session the caller
-        already read rather than reading the registry again: a second read is a
-        second instant, and the registry sweeps lapsed sessions as it is read, so
-        it can retire the very client the caller is describing.
+        What the Details command renders, so the menu and introspection agree.
+        Reads the session the caller already holds rather than re-reading the
+        registry, which sweeps lapsed sessions and could retire this client.
         """
         return self._client(named.connection_id, named.session, time.monotonic())
 
     def _client(
         self, connection_id: ConnectionId, session: ClientSession, now: float
     ) -> HubClient:
-        """Build one session's read shape from the authoritative Hub state."""
+        """Build one session's read shape from the authoritative Hub state.
+
+        ``owned_scenes`` is stripped to each caller's own local id here, at
+        the introspection boundary — the same composed store key
+        ``inspect_scene``/``update``/``clear`` require callers to compose
+        themselves. Reporting the raw composed key would hand an agent a
+        value that separator-rejects on every write path that takes it back.
+        """
         return HubClient(
             connection_id=str(connection_id),
             identity=session.identity,
@@ -165,9 +188,28 @@ class QueryOperations:
                 str(topic) for topic in self._hub.topics_for(connection_id)
             ),
             owned_scenes=sorted(
-                {str(s) for s, _ in self._display.elements_owned_by(connection_id)}
+                {
+                    self.local_id_of(s)
+                    for s, _ in self._display.elements_owned_by(connection_id)
+                }
             ),
         )
+
+    @staticmethod
+    def local_id_of(scene_id: SceneId | str) -> str:
+        """Return the caller's own label for a store key, composed or not.
+
+        Every scene the ops-layer write path installs is composed (DES-086),
+        so this is the caller's raw name in the common case. A key installed
+        through a lower-level API directly carries no separator at all; it is
+        reported as-is rather than raising, but logged — a DES-086 invariant
+        violation worth knowing about, not silently absorbed.
+        """
+        try:
+            return ConnectionScopedId.from_composed(str(scene_id)).local_id
+        except ValueError:
+            logger.warning("non-composed store key at introspection: %r", scene_id)
+            return str(scene_id)
 
     def _owners_of(self, scene_id: SceneId) -> list[SceneOwner]:
         """Return the scene's distinct owners as introspection read shapes."""

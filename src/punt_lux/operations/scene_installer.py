@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.submission_gate import SubmissionGate
+from punt_lux.operations.composition_boundary import CompositionBoundary
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.scene_results import SceneShown
 
@@ -52,19 +53,28 @@ class SceneInstaller:
         """Install ``submission`` as ``owner``'s scene, or return why it was refused.
 
         The install and the dirty mark are one step: the Hub writes its own store
-        and tells the replicator, which does every send.
+        and tells the replicator, which does every send. The store key is never
+        the raw ``scene_id``/``frame_id`` the caller submitted — ``.scoped(owner)``
+        composes both against ``owner`` here, the one choke point every scene
+        install passes through, so two owners' identical raw ids can never
+        alias one store key (DES-086). The result still reports the caller's
+        own raw name, unchanged — composition is a store-key concern the wire
+        contract never surfaces.
         """
         rejection = SubmissionGate().first_rejection(
             submission.scene_id, submission.elements
         )
         if rejection is not None:
             return OpError(code="rejected", reason=rejection)
+        scoped = CompositionBoundary.compose_or_reject(lambda: submission.scoped(owner))
+        if isinstance(scoped, OpError):
+            return scoped
         self._display.show_scene(
             owner,
-            submission.scene_id,
-            submission.elements,
-            submission.presentation,
-            ttl_seconds=submission.ttl_seconds,
+            scoped.scene_id,
+            scoped.elements,
+            scoped.presentation,
+            ttl_seconds=scoped.ttl_seconds,
         )
-        self._replicator.mark_dirty(submission.scene_id)
+        self._replicator.mark_dirty(scoped.scene_id)
         return SceneShown(scene_id=submission.name)

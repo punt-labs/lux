@@ -1,0 +1,325 @@
+%
+% scene_id_namespacing.tex
+%
+% A Z specification of DES-086's connection-scoped store-key composition: the
+% Hub never uses a client-submitted scene/frame id as a store key directly: it
+% composes ConnectionScopedId.compose(connection_id, local_id) at the single
+% write choke point (SceneInstaller.install, mirrored at SceneOperations.update
+% and SceneClearer.clear). This closes the bug vox hit running in two Claude
+% Code sessions at once: both sessions pushed scene_id="music-player" and the
+% second silently evicted the first, because the Hub stored every scene under
+% the literal string a client submitted, with no ownership check on the first
+% write to a given id.
+%
+% The operator required this model as an override of both the design author's
+% and the security reviewer's "not required" recommendation (Decision 4,
+% docs/architecture/scene-id-namespacing-design.md), given the project's
+% history of missed interleavings on DES-037/038. This model proves the
+% design's own "no new interleaving" argument by exhaustive search rather than
+% by taking it on the design's word: composition is a pure function of the
+% caller's already-resolved ConnectionId, so no shared mutable state is
+% contended, and the model-check confirms no operation --- including a
+% connection's own socket re-establishing (Reconnect) --- can misattribute a
+% key once written.
+%
+% Composing the store key as the literal pair (connection_id, local_id) is a
+% faithful abstraction of a separator-delimited string join: the reserved
+% separator's whole job is to make concatenation behave like pairing ---
+% unambiguously decomposable --- which is exactly what a Z pair already is by
+% construction, given a local_id that cannot itself carry the separator (the
+% \texttt{taint} predicate below models that guard). The fidelity control,
+% docs/scene_id_namespacing_buggy.tex, drops the connection component from the
+% key entirely --- "composition omitted", the pre-DES-086 defect --- and the
+% identical goal check that is unreachable here becomes reachable there.
+%
+% Models the design in docs/architecture/scene-id-namespacing-design.md as
+% realised by src/punt_lux/domain/hub/connection_scoped_id.py
+% (ConnectionScopedId.compose, the __post_init__ separator/blank guard) and
+% src/punt_lux/operations/scene_installer.py (the one choke point every scene
+% install passes through).
+%
+% Type-check:  fuzz -t docs/scene_id_namespacing.tex
+% Model-check: probcli docs/scene_id_namespacing.tex -model_check \
+%                -p DEFAULT_SETSIZE 3 -p MAX_INITIALISATIONS 200
+%   Invariant 1 (collision-impossibility) and Invariant 3 (taint rejected
+%   before composition) are reachability goals, not state invariants (so the
+%   fidelity variant, which reuses the identical goal shape, can reach the bad
+%   state it is built to reproduce):
+%     probcli docs/scene_id_namespacing.tex -model_check \
+%       -goal "#(c1,c2,l).(c1:CONNECTION & c2:CONNECTION & l:LOCAL_ID & \
+%              c1/=c2 & (c1|->l):dom(store) & store(c1|->l)/=c1)" \
+%       -p DEFAULT_SETSIZE 3 -p MAX_INITIALISATIONS 200
+%     probcli docs/scene_id_namespacing.tex -model_check \
+%       -goal "#(c,l).(c:CONNECTION & l:LOCAL_ID & (c|->l):dom(store) & \
+%              taint(l)=tainted)" \
+%       -p DEFAULT_SETSIZE 3 -p MAX_INITIALISATIONS 200
+%   Both goals: never satisfied over the whole reachable state space.
+%   Invariant 2 (idempotency) is a corollary of compose being a pure function
+%   of (connection_id, local_id) and is argued in Section~\ref{sec:idempotency}
+%   rather than searched for --- there is no state-space content in "the same
+%   inputs produce the same output" to exhaustively check.
+%
+% Formatting follows the fuzz house rules: schema lines under 80 columns,
+% predicates broken at \land/\lor/\implies.
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{lux Connection-Scoped Store-Key Composition: a Z Specification}
+\author{Formal model of DES-086's collision-impossibility invariant}
+\date{August 2026}
+\maketitle
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+Every scene or frame a client shows is installed under a store key. Before
+DES-086, that key was the literal string the client submitted --- its
+\texttt{scene\_id} --- with no ownership check on the first write to a given
+id. Two different connections that happened to choose the identical string did
+not error; the second silently took over as owner, evicting the first's
+elements wholesale. This is the bug vox hit running in two Claude Code sessions
+at once: both pushed \texttt{scene\_id="music-player"}, and the second overwrote
+the first on the shared display.
+
+DES-086's fix composes the store key from the writing connection's own
+\texttt{ConnectionId} and the caller's local label,
+\texttt{ConnectionScopedId.compose(connection\_id, local\_id)}, at the one
+choke point every scene install passes through. A malformed \texttt{local\_id}
+--- blank, or carrying the reserved unit separator that joins the two halves
+--- is rejected before composition ever runs, so a client cannot construct a
+\texttt{local\_id} that would spell another connection's composed key.
+
+Three properties must hold:
+
+\begin{description}
+  \item[I1 --- collision-impossibility.] Two distinct connections never end up
+    owning the same composed key. Equivalently: the composed key recorded for
+    a connection's own write is always attributed to that connection, never to
+    another one, across every reachable sequence of writes and reconnects.
+  \item[I2 --- idempotency.] The same connection composing the same
+    \texttt{local\_id} twice always produces the same key, so a re-show
+    updates the one scene it already owns rather than creating a second.
+  \item[I3 --- reject before compose.] A \texttt{local\_id} that carries the
+    reserved separator is refused before it is ever composed into a key ---
+    the unrepresentable input is a boundary error, not a value the model ever
+    has to reason about downstream.
+\end{description}
+
+The model abstracts the store key as the pair
+$(\mathit{connection}, \mathit{local\_id})$ rather than as a literal joined
+string. This is a faithful representation, not a simplification that begs the
+question: the separator's entire purpose is to make string concatenation
+behave like pairing --- unambiguously decomposable back into its two halves ---
+which is exactly what a Z pair already is by construction, \emph{given} that
+\texttt{local\_id} cannot itself carry the separator. That precondition is
+what I3 states and what the \texttt{taint} predicate below encodes. What the
+model-check verifies is not the trivial fact that distinct pairs are distinct
+--- it is that no operation in the system, across any reachable interleaving,
+ever writes a connection's own key with someone else's value, and that no
+operation ever composes a key from a \texttt{local\_id} the separator guard
+should have refused.
+
+% ============================================================
+\section{Basic Types}
+% ============================================================
+
+\begin{zed}
+  [CONNECTION, LOCAL\_ID]
+\end{zed}
+
+\texttt{CONNECTION} is the set of connections the Hub can distinguish ---
+\texttt{ConnectionId} values, one per live MCP session or applet connection.
+\texttt{LOCAL\_ID} is the set of caller-chosen labels a \texttt{show} call
+might submit, before any validation or composition. Two connections already
+exhibit the collision question (do connection $c_1$'s and $c_2$'s composed
+keys ever collapse); ProB's \texttt{DEFAULT\_SETSIZE} bounds the carrier and a
+third connection confirms the invariant holds pairwise, not merely for one
+privileged pair.
+
+% ============================================================
+\section{Free Types}
+% ============================================================
+
+\begin{zed}
+  TAINT ::= clean | tainted
+\end{zed}
+
+Whether a raw \texttt{local\_id} carries the reserved unit separator ---
+\texttt{ID\_SEPARATOR} in the implementation, a control character no honest
+caller-chosen id ever contains. \texttt{clean}: composable. \texttt{tainted}:
+refused before composition, mirroring \texttt{ConnectionScopedId.\_\_post\_\allowbreak
+init\_\_}'s guard.
+
+% ============================================================
+\section{Given Functions}
+% ============================================================
+
+\begin{axdef}
+  taint : LOCAL\_ID \fun TAINT
+\end{axdef}
+
+A total, given classification of every \texttt{local\_id} in the carrier ---
+the model does not construct actual character sequences (as the fuzz/ProB
+toolchain has no native string algebra convenient for this), so which ids are
+tainted is fixed axiomatically rather than derived. \texttt{DEFAULT\_SETSIZE}
+guarantees ProB enumerates both a \texttt{clean} and a \texttt{tainted}
+instantiation of \texttt{LOCAL\_ID} across its search, so the guard is
+genuinely exercised, not vacuously true.
+
+% ============================================================
+\section{State}
+% ============================================================
+
+\begin{schema}{Store}
+  store : (CONNECTION \cross LOCAL\_ID) \pfun CONNECTION
+\end{schema}
+
+\texttt{store} is the Hub's authoritative map from a composed key --- the pair
+--- to the connection that installed it. I1 and I3 are deliberately
+\emph{absent} from this schema's predicate: were either a state invariant,
+ProB would treat any operation that broke it as \emph{disabled} rather than as
+a violation, and the fidelity check in the buggy sibling file could no longer
+reach the bad state it exists to reproduce. Both are instead stated as
+reachability goals in Section~\ref{sec:verification} and checked against the
+full reachable state space.
+
+% ============================================================
+\section{Initialization}
+% ============================================================
+
+\begin{schema}{Init}
+  Store'
+\where
+  store' = \emptyset
+\end{schema}
+
+No scene has been shown; the store holds no keys.
+
+% ============================================================
+\section{Operations}
+% ============================================================
+
+\texttt{Show} is a caller installing a scene: it composes its own connection
+with its own chosen \texttt{local\_id} and writes the pair, attributed to
+itself. This is the whole of \texttt{SceneInstaller.install}'s composition
+step, modeled: no operation in this system ever writes a key attributed to a
+connection other than the one performing the write, because \texttt{Show}
+takes only its own $c?$ as both the key's first component and the value ---
+there is no operation that could spell "install under a key naming a
+connection other than the caller's own." Guarded on \texttt{clean}, so a
+tainted \texttt{local\_id} is refused before it ever reaches the store (I3).
+
+\begin{schema}{Show}
+  \Delta Store \\
+  c? : CONNECTION \\
+  l? : LOCAL\_ID
+\where
+  taint~l? = clean \\
+  store' = store \oplus \{ (c?, l?) \mapsto c? \}
+\end{schema}
+
+\texttt{Reconnect} models a connection's socket re-establishing --- the DES-068
+scenario named in the mission's own framing, ``composition against a
+ConnectionId mid-transition.'' A reconnect does not change which
+\texttt{ConnectionId} the session composes with (the identifier is stable for
+the connection's lifetime, derived once from the MCP transport's session key
+or the declared-identity hash); it leaves every already-composed key exactly
+as it was. Modeled as the identity transition on \texttt{store}, so the
+model-check exercises interleavings of \texttt{Show} and \texttt{Reconnect}
+freely and confirms a reconnect never disturbs an existing attribution.
+
+\begin{schema}{Reconnect}
+  \Delta Store \\
+  c? : CONNECTION
+\where
+  store' = store
+\end{schema}
+
+% ============================================================
+\section{Verification}
+\label{sec:verification}
+% ============================================================
+
+I1 is checked as a reachability goal: the negating state
+\[
+  B_1 \defs \exists c_1, c_2 : CONNECTION; l : LOCAL\_ID @
+    c_1 \neq c_2 \land (c_1, l) \in \dom store \land store~(c_1, l) \neq c_1
+\]
+--- some entry keyed by $c_1$'s own composed pair ended up attributed to a
+different connection --- must be unreachable. In ProB:
+
+\begin{verbatim}
+probcli docs/scene_id_namespacing.tex -model_check \
+  -goal "#(c1,c2,l).(c1:CONNECTION & c2:CONNECTION & l:LOCAL_ID & \
+         c1/=c2 & (c1|->l):dom(store) & store(c1|->l)/=c1)" \
+  -p DEFAULT_SETSIZE 3 -p MAX_INITIALISATIONS 200
+\end{verbatim}
+
+Reported never satisfied over the whole reachable state space: no sequence of
+\texttt{Show} and \texttt{Reconnect} calls, in any interleaving, ever
+attributes $c_1$'s own key to $c_2$. This holds because the pair $(c_1, l)$
+and the pair $(c_2, l)$ are distinct domain elements the instant $c_1 \neq
+c_2$, so \texttt{Show}'s override at $(c_2, l)$ never touches $(c_1, l)$ ---
+the exact property that makes the vox collision unrepresentable rather than
+merely checked.
+
+I3 is checked the identical way: the negating state
+\[
+  B_3 \defs \exists c : CONNECTION; l : LOCAL\_ID @
+    (c, l) \in \dom store \land taint~l = tainted
+\]
+--- a tainted \texttt{local\_id} nonetheless reached the store --- must be
+unreachable:
+
+\begin{verbatim}
+probcli docs/scene_id_namespacing.tex -model_check \
+  -goal "#(c,l).(c:CONNECTION & l:LOCAL_ID & (c|->l):dom(store) & \
+         taint(l)=tainted)" \
+  -p DEFAULT_SETSIZE 3 -p MAX_INITIALISATIONS 200
+\end{verbatim}
+
+Reported never satisfied: \texttt{Show}'s precondition $taint~l? = clean$
+disables the operation entirely for a tainted $l?$, so no tainted
+\texttt{local\_id} ever composes into a key. The bare
+\texttt{-model\_check} additionally confirms every operation is covered and
+the structural state predicate is preserved across the reachable space.
+
+\paragraph{Deadlock.} There is nothing here to deadlock: \texttt{Show} and
+\texttt{Reconnect} touch one piece of state under no lock at all in this
+model, because the design's own claim --- confirmed, not merely repeated,
+by this exercise --- is that composition is a pure, synchronous computation
+using data already resolved before the request begins, contending with
+nothing. Whenever a connection and a clean local id exist, \texttt{Show} is
+enabled, so the reachable state space has no stuck state; \texttt{Reconnect}
+is unconditionally enabled. \texttt{-cbc\_deadlock} finds no state with every
+operation disabled.
+
+% ============================================================
+\section{Idempotency (I2)}
+\label{sec:idempotency}
+% ============================================================
+
+I2 --- the same connection composing the same \texttt{local\_id} twice
+produces the same key --- is a corollary of \texttt{Show}'s own definition
+rather than a claim with reachability content to search for. $\mathit{Show}$
+writes at the pair $(c?, l?)$; firing it twice with identical $c?$ and $l?$
+computes the identical pair both times, so the second call re-writes the
+identical domain entry with the identical value $c?$ --- a semantic no-op from
+the store's perspective, which is exactly the "a re-show updates the one scene
+it already owns" behavior \texttt{HubDisplay.replace\_scene} already gives a
+repeated \texttt{show()} on an unchanged \texttt{scene\_id}. There is no
+interleaving or state-space question here: a mathematical function of two
+fixed arguments returns one fixed result on every call, by definition of
+being a function, and \texttt{ConnectionScopedId.compose} is exactly that ---
+a total function of $(connection\_id, local\_id)$ with no hidden state. Unlike
+I1 and I3, forcing this through \texttt{-model\_check} would search a state
+space with nothing left to find.
+
+\end{document}

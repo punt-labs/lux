@@ -156,10 +156,22 @@ class SceneRoutes:
         return self._errors.respond(self._ops.list_scenes())
 
     def inspect_scene(
-        self, scene_id: str, scope: Annotated[InspectScope, Query()]
+        self,
+        scene_id: str,
+        scope: _OwningScope,
+        facts: Annotated[InspectScope, Query()],
     ) -> SceneInspection:
-        """Return one scene's tree; ``want_geometry`` adds the painted rects."""
-        return self._errors.respond(self._ops.inspect_scene(scene_id, scope))
+        """Return the caller's own scene tree; ``want_geometry`` adds the painted rects.
+
+        Unlike ``list_scenes``, a single-scene inspection is now caller-scoped
+        (DES-086, Decision 5) — the composed lookup needs a connection id, and
+        only an identified caller has a stable one. An unidentified request
+        gets the same ``identification_required`` challenge a write gets,
+        rather than silently resolving no scene it could ever own.
+        """
+        return self._errors.respond(
+            self._ops.inspect_scene(scene_id, scope=scope, facts=facts)
+        )
 
     def list_clients(self) -> ClientList:
         """List the Hub's sessions and their scopes."""

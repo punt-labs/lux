@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Self, cast
 from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.hub import client_registry, hub
 from punt_lux.domain.hub.callback_hold import CallbackRouter
+from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.inbox import ensure_writer, next_event
@@ -93,12 +94,14 @@ class _NullReplicator:
 
 
 def _seed(store: HubDisplay) -> None:
+    # Seeded under "local" — the default MCP session key (tools/server.py) —
+    # so the tool's own caller-scoped composition finds it (DES-086).
     text = agent_element_factory().element_from_dict(
         {"kind": "text", "id": "t1", "content": "hi"}
     )
     store.show_scene(
-        ConnectionId("c1"),
-        SceneId("s1"),
+        ConnectionId("local"),
+        SceneId(ConnectionScopedId.compose(ConnectionId("local"), "s1")),
         [cast("DomainElement", text)],
         ScenePresentation(frame_id="f1", frame_title="F1", layout="single"),
     )

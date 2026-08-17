@@ -8,7 +8,7 @@ from punt_lux.domain.hub.scene_presentation import (
     ScenePresentation,
     ScenePresentationRegistry,
 )
-from punt_lux.domain.ids import SceneId
+from punt_lux.domain.ids import ConnectionId, SceneId
 
 if TYPE_CHECKING:
     from punt_lux.domain.element import Element as WireElement
@@ -96,6 +96,29 @@ def test_forget_of_an_unrecorded_scene_is_a_no_op() -> None:
     reg = ScenePresentationRegistry()
     reg.forget(SceneId("never-recorded"))
     assert reg.presentation_for(SceneId("never-recorded")).frame_id == "never-recorded"
+
+
+def test_scoped_composes_the_frame_id_against_the_owner() -> None:
+    pres = ScenePresentation(frame_id="board")
+    scoped = pres.scoped(ConnectionId("session-a"))
+    assert scoped.frame_id == "session-a\x1fboard"
+
+
+def test_scoped_leaves_every_other_field_untouched() -> None:
+    pres = ScenePresentation(
+        frame_id="board",
+        title="Board",
+        frame_title="Beads: lux",
+        frame_size=(640, 480),
+        frame_flags={"no_resize": True},
+        frame_layout="stack",
+    )
+    scoped = pres.scoped(ConnectionId("session-a"))
+    assert scoped.title == "Board"
+    assert scoped.frame_title == "Beads: lux"
+    assert scoped.frame_size == (640, 480)
+    assert scoped.frame_flags == {"no_resize": True}
+    assert scoped.frame_layout == "stack"
 
 
 def test_push_resends_every_presentation_field() -> None:
