@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+### Security
+
+- **Scenes and frames cannot alias across connections (DES-086, `lux-ledm`).**
+  `HubDisplay` stored every scene and frame under the literal string a client
+  submitted, so two connections choosing the same `scene_id` did not error;
+  the second silently evicted the first's roots. Two Claude Code sessions
+  running vox both pushed `scene_id="music-player"` and the second
+  overwrote the first on the shared display. The Hub now composes a
+  `ConnectionScopedId` — `f"{connection_id}\x1f{local_id}"` — from the
+  writing connection's own `ConnectionId` and the caller's raw string, at
+  every scene write and read. Collision becomes unrepresentable, not
+  merely checked: two connections cannot construct the identical composed
+  key because neither controls the other's `ConnectionId` half. `frame_id`
+  is namespaced the same way. The agent↔Hub and Hub↔Display wire protocols
+  are unchanged — callers keep passing the same short local `scene_id`;
+  vox needs no code change. Model-checked with a fidelity control at
+  `docs/scene_id_namespacing.tex` and `_buggy.tex`; the buggy variant
+  reproduces the pre-fix collision in 7 states.
+
+### Added
+
+- **`SceneSummary.local_id`.** `list_scenes` now surfaces both the composed
+  store key (`scene_id`) and the caller's raw label (`local_id`) so an
+  agent can recognize the scene it called `music-player` without parsing
+  the composed form.
+
 ## [0.24.0] - 2026-08-14
 
 ### Fixed
