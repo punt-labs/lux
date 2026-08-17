@@ -367,11 +367,49 @@ def test_list_clients_reads_the_hub_session_registry() -> None:
     assert isinstance(result, ClientList)
     client = next(c for c in result.clients if c.connection_id == "c1")
     assert client.subscribed_topics == ["work.saved"]
-    assert client.owned_scenes == [str(_scoped("c1", "s1"))]
+    # owned_scenes reports the caller's own local id, not the composed store
+    # key — the same shape inspect_scene/update/clear accept back, so an
+    # agent can round-trip a value straight from list_clients into those
+    # calls without separator rejection (Bugbot M, DES-086).
+    assert client.owned_scenes == ["s1"]
     # Age is read from the same monotonic clock the session was stamped with, so
     # it is a coherent, non-negative float — never negative from a wall-clock step.
     assert isinstance(client.connected_seconds, float)
     assert client.connected_seconds >= 0.0
+
+
+def test_list_clients_owned_scenes_round_trips_into_inspect_scene() -> None:
+    # The exact regression Bugbot flagged: an agent discovers a scene via
+    # list_clients, then feeds that string straight back into inspect_scene.
+    # A composed key here would separator-reject; a local id succeeds.
+    store = HubDisplay()
+    _seed_scene(store, scene="foo", connection="c1")
+    hub = Hub()
+    hub.register_writer(ConnectionId("c1"), lambda _msg: None)
+    ops = QueryOperations(store, hub, _ForbiddenPort())
+
+    client = next(c for c in ops.list_clients().clients if c.connection_id == "c1")
+    discovered = client.owned_scenes[0]
+    assert discovered == "foo"
+
+    result = ops.inspect_scene(discovered, Scope(ConnectionId("c1")))
+
+    assert isinstance(result, SceneInspection)
+
+
+def test_list_clients_owned_scenes_reports_two_connections_separately() -> None:
+    store = HubDisplay()
+    _seed_scene(store, scene="foo", connection="c1")
+    _seed_scene(store, scene="foo", connection="c2")
+    hub = Hub()
+    hub.register_writer(ConnectionId("c1"), lambda _msg: None)
+    hub.register_writer(ConnectionId("c2"), lambda _msg: None)
+    ops = QueryOperations(store, hub, _ForbiddenPort())
+
+    clients = {c.connection_id: c for c in ops.list_clients().clients}
+
+    assert clients["c1"].owned_scenes == ["foo"]
+    assert clients["c2"].owned_scenes == ["foo"]
 
 
 def test_list_recent_events_proxies_the_display() -> None:

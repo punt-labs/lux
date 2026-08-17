@@ -14,7 +14,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
-from punt_lux.operations.queries import QueryOperations
 from punt_lux.operations.scene_submission import SceneSubmission
 from punt_lux.protocol.compositions.client_details import (
     ClientDetails,
@@ -73,6 +72,10 @@ class DetailsScene:
         """The facts the scene reports, as the rendering side reads them.
 
         An unidentified session reports as exactly that, never left blank.
+        ``owned_scenes`` already arrives stripped to local ids — ``HubClient``
+        is built by ``QueryOperations._client``, which strips the composed
+        store key at the introspection boundary before this class ever sees
+        it, so no second strip is needed here.
         """
         identity = self._client.identity
         return ClientDetails(
@@ -85,7 +88,5 @@ class DetailsScene:
             connected_seconds=self._client.connected_seconds,
             lease=self._client.lease,
             subscribed_topics=tuple(self._client.subscribed_topics),
-            owned_scenes=tuple(
-                map(QueryOperations.local_id_of, self._client.owned_scenes)
-            ),
+            owned_scenes=tuple(self._client.owned_scenes),
         )

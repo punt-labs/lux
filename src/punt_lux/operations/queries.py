@@ -171,7 +171,14 @@ class QueryOperations:
     def _client(
         self, connection_id: ConnectionId, session: ClientSession, now: float
     ) -> HubClient:
-        """Build one session's read shape from the authoritative Hub state."""
+        """Build one session's read shape from the authoritative Hub state.
+
+        ``owned_scenes`` is stripped to each caller's own local id here, at
+        the introspection boundary — the same composed store key
+        ``inspect_scene``/``update``/``clear`` require callers to compose
+        themselves. Reporting the raw composed key would hand an agent a
+        value that separator-rejects on every write path that takes it back.
+        """
         return HubClient(
             connection_id=str(connection_id),
             identity=session.identity,
@@ -181,7 +188,10 @@ class QueryOperations:
                 str(topic) for topic in self._hub.topics_for(connection_id)
             ),
             owned_scenes=sorted(
-                {str(s) for s, _ in self._display.elements_owned_by(connection_id)}
+                {
+                    self.local_id_of(s)
+                    for s, _ in self._display.elements_owned_by(connection_id)
+                }
             ),
         )
 
