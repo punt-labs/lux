@@ -17,7 +17,8 @@ class SceneSummary(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    scene_id: str
+    scene_id: str  # the composed store key (DES-086)
+    local_id: str  # the caller's own id, as it declared it
     element_count: int
     frame_id: str  # total: an unframed scene defaults to a frame named by its id
     # Every distinct owner of a root in the scene, first-appearance order; empty

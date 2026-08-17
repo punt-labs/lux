@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, cast
 
 from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.details_outcome import DetailsRefused, DetailsShown
 from punt_lux.domain.hub.details_renderer import ClientDetailsRenderer
 from punt_lux.domain.hub.hub import Hub
@@ -127,7 +128,8 @@ class TestHowACompositionRootBuildsIt:
         port, marks = _wired(store, hub)
 
         assert port.render_details(conn) == DetailsShown()
-        assert marks.marked == [f"lux.client-details.{conn}"]
+        composed = ConnectionScopedId.compose(conn, f"lux.client-details.{conn}")
+        assert marks.marked == [composed]
 
     def test_either_root_shows_into_the_same_scene(self) -> None:
         store, hub = HubDisplay(), Hub()
@@ -137,4 +139,5 @@ class TestHowACompositionRootBuildsIt:
 
         assert mcp.render_details(conn) == DetailsShown()
         assert rest.render_details(conn) == DetailsShown()
-        assert list(store.live_scene_ids()) == [SceneId(f"lux.client-details.{conn}")]
+        composed = ConnectionScopedId.compose(conn, f"lux.client-details.{conn}")
+        assert list(store.live_scene_ids()) == [SceneId(composed)]

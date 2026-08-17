@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.scene_writer import HubSceneWriter
 from punt_lux.domain.ids import SceneId
 from punt_lux.operations.models.common import OpError
@@ -49,23 +50,36 @@ class SceneClearer:
         ``scene_id`` absent is the whole-owner clear, which removing nothing
         leaves a settled no-op; naming a scene makes an empty removal an answer
         the caller needs, so it is reported rather than passed off as success.
+        A named ``scene_id`` is composed against ``owner`` before it reaches
+        the store, the same choke point ``install``/``update`` compose at, so
+        a caller can only ever clear a scene it is the connection for
+        (DES-086).
         """
-        target = SceneId(scene_id) if scene_id is not None else None
+        try:
+            target = (
+                SceneId(ConnectionScopedId.compose(owner, scene_id))
+                if scene_id is not None
+                else None
+            )
+        except ValueError as exc:
+            return OpError(code="invalid_request", reason=str(exc))
         touched = HubSceneWriter(self._display).clear(owner, target)
-        if target is not None and not touched:
-            return self._scoped_miss(target)
+        if target is not None and scene_id is not None and not touched:
+            return self._scoped_miss(target, scene_id)
         for emptied in touched:
             self._replicator.mark_dirty(emptied)
         return Cleared()
 
-    def _scoped_miss(self, scene_id: SceneId) -> OpError:
+    def _scoped_miss(self, composed: SceneId, local_id: str) -> OpError:
         """Say why a scene-scoped clear removed nothing: unknown scene, or unowned.
 
         No non-removed root means the scene is unknown (the ``not_found``
         ``inspect_scene`` returns); roots present but none the caller owns is an
-        ownership rejection.
+        ownership rejection. Named by ``local_id`` — the caller's own raw
+        name — never the composed store key it never chose (DES-086).
         """
-        name = str(scene_id)
-        if not self._display.scene_roots(scene_id):
-            return OpError(code="not_found", reason=f"scene {name!r} not found")
-        return OpError(code="rejected", reason=f"scene {name!r} holds nothing you own")
+        if not self._display.scene_roots(composed):
+            return OpError(code="not_found", reason=f"scene {local_id!r} not found")
+        return OpError(
+            code="rejected", reason=f"scene {local_id!r} holds nothing you own"
+        )

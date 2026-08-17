@@ -14,6 +14,7 @@ from collections.abc import Mapping
 from typing import Self, cast
 
 from punt_lux.domain.element import Element as DomainElement
+from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.quarantine_record import QuarantineRecord
@@ -30,7 +31,16 @@ from punt_lux.operations.models.query_geometry import GeometryPresent
 from punt_lux.operations.models.query_inspection import SceneInspection
 from punt_lux.operations.models.query_scenes import SceneList
 from punt_lux.operations.queries import QueryOperations
+from punt_lux.operations.scope import Scope
 from punt_lux.protocol.agent_factory import agent_element_factory
+
+
+def _scoped(connection: str, local_id: str) -> SceneId:
+    """The store key ``local_id`` composes to for ``connection``."""
+    return SceneId(ConnectionScopedId.compose(ConnectionId(connection), local_id))
+
+
+_C1 = Scope(ConnectionId("c1"))
 
 
 class _ForbiddenPort:
@@ -92,7 +102,9 @@ def _seed_scene(store: HubDisplay, *, scene: str, connection: str) -> None:
 
     The connection registers itself first, as a client showing a scene does: a
     store write is attribution, never an arrival, so writing alone would leave
-    the scene owned by a connection the Hub holds no session for.
+    the scene owned by a connection the Hub holds no session for. Seeded at
+    the composed key a real show() would produce, so a caller-scoped
+    inspect_scene(scene, scope=Scope(connection)) finds it (DES-086).
     """
     store.register_client(ConnectionId(connection))
     group = agent_element_factory().element_from_dict(
@@ -104,7 +116,7 @@ def _seed_scene(store: HubDisplay, *, scene: str, connection: str) -> None:
     )
     store.show_scene(
         ConnectionId(connection),
-        SceneId(scene),
+        _scoped(connection, scene),
         [cast("DomainElement", group)],
         ScenePresentation(frame_id="frame-a", frame_title="Frame A", layout="single"),
     )
@@ -115,7 +127,7 @@ def test_inspect_scene_reads_the_hub_without_touching_the_display() -> None:
     _seed_scene(store, scene="s1", connection="c1")
     ops = QueryOperations(store, Hub(), _ForbiddenPort())
 
-    result = ops.inspect_scene("s1")
+    result = ops.inspect_scene("s1", _C1)
 
     assert isinstance(result, SceneInspection)
     assert result.scene_id == "s1"
@@ -149,7 +161,7 @@ def test_inspect_scene_geometry_round_trips_when_requested() -> None:
     port = _CountingPort(reply)
     ops = QueryOperations(store, Hub(), port)
 
-    result = ops.inspect_scene("s1", InspectScope(want_geometry=True))
+    result = ops.inspect_scene("s1", _C1, InspectScope(want_geometry=True))
 
     assert isinstance(result, SceneInspection)
     assert len(port.calls) == 1
@@ -164,14 +176,14 @@ def test_inspect_scene_geometry_not_requested_issues_zero_queries() -> None:
     _seed_scene(store, scene="s1", connection="c1")
     ops = QueryOperations(store, Hub(), _ForbiddenPort())
 
-    result = ops.inspect_scene("s1")
+    result = ops.inspect_scene("s1", _C1)
 
     assert isinstance(result, SceneInspection)
 
 
 def test_inspect_scene_unknown_scene_is_not_found() -> None:
     ops = QueryOperations(HubDisplay(), Hub(), _ForbiddenPort())
-    result = ops.inspect_scene("ghost")
+    result = ops.inspect_scene("ghost", _C1)
     assert isinstance(result, OpError)
     assert result.code == "not_found"
 
@@ -181,7 +193,7 @@ def test_inspect_scene_a_live_scene_carries_no_quarantine_info() -> None:
     _seed_scene(store, scene="s1", connection="c1")
     ops = QueryOperations(store, Hub(), _ForbiddenPort())
 
-    result = ops.inspect_scene("s1")
+    result = ops.inspect_scene("s1", _C1)
 
     assert isinstance(result, SceneInspection)
     assert result.quarantine is None
@@ -193,12 +205,12 @@ def test_inspect_scene_a_quarantined_scene_stays_inspectable() -> None:
     store = HubDisplay()
     _seed_scene(store, scene="s1", connection="c1")
     store.quarantine(
-        SceneId("s1"),
+        _scoped("c1", "s1"),
         QuarantineRecord(death_count=2, last_death_at=42.0, render_error="boom"),
     )
     ops = QueryOperations(store, Hub(), _ForbiddenPort())
 
-    result = ops.inspect_scene("s1")
+    result = ops.inspect_scene("s1", _C1)
 
     assert isinstance(result, SceneInspection)
     assert result.elements  # the tree is still there
@@ -216,7 +228,8 @@ def test_list_scenes_reads_the_hub_without_touching_the_display() -> None:
     result = ops.list_scenes()
 
     assert isinstance(result, SceneList)
-    summary = next(s for s in result.scenes if s.scene_id == "s1")
+    summary = next(s for s in result.scenes if s.local_id == "s1")
+    assert summary.scene_id == str(_scoped("c1", "s1"))
     assert summary.element_count == 2  # the group and its text child
     assert summary.frame_id == "frame-a"
     # A single-owner scene lists the one owner; unidentified here, so the
@@ -224,7 +237,7 @@ def test_list_scenes_reads_the_hub_without_touching_the_display() -> None:
     assert [o.connection_id for o in summary.owners] == ["c1"]
     assert summary.owners[0].identity is None
     frame = next(f for f in result.frames if f.frame_id == "frame-a")
-    assert frame.scene_ids == ["s1"]
+    assert frame.scene_ids == [str(_scoped("c1", "s1"))]
     assert frame.layout == "tab"  # no explicit frame layout defaults to tab
 
 
@@ -240,14 +253,14 @@ def test_list_scenes_lists_every_owning_connection_of_a_shared_scene() -> None:
     store.apply(
         ConnectionId("c2"),
         AddElement(
-            scene_id=SceneId("s1"),
+            scene_id=_scoped("c1", "s1"),
             parent_id=None,
             element=cast("DomainElement", second_root),
         ),
     )
     ops = QueryOperations(store, Hub(), _ForbiddenPort())
 
-    summary = next(s for s in ops.list_scenes().scenes if s.scene_id == "s1")
+    summary = next(s for s in ops.list_scenes().scenes if s.local_id == "s1")
     assert [o.connection_id for o in summary.owners] == ["c1", "c2"]
 
 
@@ -262,7 +275,7 @@ def test_list_scenes_surfaces_the_owner_declared_identity() -> None:
     _seed_scene(store, scene="s1", connection="c1")
     ops = QueryOperations(store, Hub(), _ForbiddenPort())
 
-    summary = next(s for s in ops.list_scenes().scenes if s.scene_id == "s1")
+    summary = next(s for s in ops.list_scenes().scenes if s.local_id == "s1")
     assert summary.owners[0].connection_id == "c1"
     assert summary.owners[0].identity == identity  # structured attribution
 
@@ -272,7 +285,7 @@ def test_list_scenes_reports_live_status_by_default() -> None:
     _seed_scene(store, scene="s1", connection="c1")
     ops = QueryOperations(store, Hub(), _ForbiddenPort())
 
-    summary = next(s for s in ops.list_scenes().scenes if s.scene_id == "s1")
+    summary = next(s for s in ops.list_scenes().scenes if s.local_id == "s1")
     assert summary.status == "live"
     assert summary.quarantine is None
 
@@ -280,10 +293,12 @@ def test_list_scenes_reports_live_status_by_default() -> None:
 def test_list_scenes_reports_a_quarantined_scene() -> None:
     store = HubDisplay()
     _seed_scene(store, scene="s1", connection="c1")
-    store.quarantine(SceneId("s1"), QuarantineRecord(death_count=2, last_death_at=99.0))
+    store.quarantine(
+        _scoped("c1", "s1"), QuarantineRecord(death_count=2, last_death_at=99.0)
+    )
     ops = QueryOperations(store, Hub(), _ForbiddenPort())
 
-    summary = next(s for s in ops.list_scenes().scenes if s.scene_id == "s1")
+    summary = next(s for s in ops.list_scenes().scenes if s.local_id == "s1")
     assert summary.status == "quarantined"
     assert summary.quarantine is not None
     assert summary.quarantine.death_count == 2
@@ -303,7 +318,7 @@ def test_list_clients_reads_the_hub_session_registry() -> None:
     assert isinstance(result, ClientList)
     client = next(c for c in result.clients if c.connection_id == "c1")
     assert client.subscribed_topics == ["work.saved"]
-    assert client.owned_scenes == ["s1"]
+    assert client.owned_scenes == [str(_scoped("c1", "s1"))]
     # Age is read from the same monotonic clock the session was stamped with, so
     # it is a coherent, non-negative float — never negative from a wall-clock step.
     assert isinstance(client.connected_seconds, float)

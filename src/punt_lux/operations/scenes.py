@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.scene_writer import HubSceneWriter, SceneScope
 from punt_lux.domain.hub.write_result import WriteRejected
 from punt_lux.domain.ids import SceneId, Topic
@@ -136,11 +137,17 @@ class SceneOperations:
         converts "reject" into "accepted-but-never-rendered" the moment
         attribution quarantines the scene between the two calls.
         Publication happens after the lock is released to keep subscriber
-        fan-out off the store lock.
+        fan-out off the store lock. ``scene_id`` is composed against the
+        caller's own connection before it ever reaches the store — the same
+        choke point every write in this class already goes through — so a
+        caller can only ever patch a scene it is the connection for (DES-086).
         """
         if isinstance(request, OpError):
             return request
-        sid = SceneId(scene_id)
+        try:
+            sid = SceneId(ConnectionScopedId.compose(scope.connection_id, scene_id))
+        except ValueError as exc:
+            return OpError(code="invalid_request", reason=str(exc))
         record: QuarantineRecord | None
         with self._display.write_lock():
             record = self._display.quarantine_record(sid)
@@ -149,7 +156,12 @@ class SceneOperations:
                 target = SceneScope(scope.connection_id, sid)
                 result = writer.apply(target, request.to_wire())
                 if isinstance(result, WriteRejected):
-                    return OpError(code="rejected", reason=result.reason)
+                    # The writer's own rejection message names the composed
+                    # store key via repr() (its \x1f separator is escaped
+                    # text there, not the raw byte) — restate it as the
+                    # caller's own raw name, the only spelling it ever chose.
+                    reason = result.reason.replace(repr(str(sid)), repr(scene_id))
+                    return OpError(code="rejected", reason=reason)
                 self._replicator.mark_dirty(sid)
                 return SceneShown(scene_id=scene_id)
         self._notify_quarantine(sid, record, scope)

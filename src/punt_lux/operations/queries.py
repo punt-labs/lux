@@ -12,6 +12,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Self, cast, final
 
+from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.ids import SceneId
 from punt_lux.operations.display_facts import DisplayFactProxy
 from punt_lux.operations.frame_grouping import FrameAccumulator
@@ -36,6 +37,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.quarantine_record import QuarantineRecord
     from punt_lux.domain.ids import ConnectionId
     from punt_lux.operations.display_port import DisplayPort
+    from punt_lux.operations.scope import Scope
     from punt_lux.protocol import Element as WireElement
 
 __all__ = ["QueryOperations"]
@@ -62,15 +64,25 @@ class QueryOperations:
     # -- Hub-authoritative reads -------------------------------------------
 
     def inspect_scene(
-        self, scene_id: str, scope: InspectScope = HUB_ONLY
+        self, scene_id: str, scope: Scope, facts: InspectScope = HUB_ONLY
     ) -> SceneInspection | OpError:
         """Return a scene's element tree read from the authoritative store.
 
-        Reads ``HubDisplay`` — never the display replica. An unknown scene is a
-        ``not_found``. The display-side painted geometry is proxied only when
-        ``scope`` asks and is never treated as Hub authority.
+        Reads ``HubDisplay`` — never the display replica. ``scene_id`` is
+        composed against the caller's own connection before the lookup, the
+        same way ``update``/``clear`` compose their own targets — a caller can
+        only ever inspect a scene it owns, with no override (DES-086,
+        Decision 5: "you can only inspect what you put into the
+        hub/display"). An unknown or unowned scene is a ``not_found``, never
+        distinguished from each other — the composed key either resolves to a
+        scene this caller installed, or it resolves to nothing at all. The
+        display-side painted geometry is proxied only when ``facts`` asks and
+        is never treated as Hub authority.
         """
-        sid = SceneId(scene_id)
+        try:
+            sid = SceneId(ConnectionScopedId.compose(scope.connection_id, scene_id))
+        except ValueError as exc:
+            return OpError(code="invalid_request", reason=str(exc))
         if sid not in self._display.all_scene_ids():
             return OpError(code="not_found", reason=f"scene {scene_id!r} not found")
         # The store hands back domain elements; they are structurally the wire
@@ -79,7 +91,7 @@ class QueryOperations:
             self._inspect(cast("WireElement", root))
             for root in self._display.scene_roots(sid)
         ]
-        geometry = self._facts.facts(scene_id, scope)
+        geometry = self._facts.facts(str(sid), facts)
         return SceneInspection(
             scene_id=scene_id,
             elements=elements,
@@ -106,6 +118,7 @@ class QueryOperations:
             scenes.append(
                 SceneSummary(
                     scene_id=str(sid),
+                    local_id=self._local_id_of(sid),
                     element_count=self._display.element_count(sid),
                     frame_id=presentation.frame_id,
                     owners=self._owners_of(sid),
@@ -168,6 +181,22 @@ class QueryOperations:
                 {str(s) for s, _ in self._display.elements_owned_by(connection_id)}
             ),
         )
+
+    @staticmethod
+    def _local_id_of(scene_id: SceneId) -> str:
+        """Return the caller's own label for a store key, composed or not.
+
+        Every scene the ops-layer write path installs is composed (DES-086),
+        so this is the caller's raw name in the common case. A scene the
+        lower-level ``HubDisplay`` API installed directly — outside the
+        choke point composition runs through — carries no separator at
+        all; its own raw key is already the closest thing to a caller
+        label it has, so that is what is reported rather than raising.
+        """
+        try:
+            return ConnectionScopedId.from_composed(str(scene_id)).local_id
+        except ValueError:
+            return str(scene_id)
 
     def _owners_of(self, scene_id: SceneId) -> list[SceneOwner]:
         """Return the scene's distinct owners as introspection read shapes."""

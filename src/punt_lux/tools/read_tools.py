@@ -57,17 +57,19 @@ def ping() -> str:
 def inspect_scene(
     scene_id: str, *, want_geometry: bool = False
 ) -> SceneInspection | OpError:
-    """Return the element tree for a scene, read from the authoritative store.
+    """Return the element tree for a scene you own, read from the authoritative store.
 
     Each element reports its render path (constant "abc" — every kind is on the
     Element-ABC path) and resolved state including defaults, so you verify what
-    the Hub holds without inspecting pixels.
+    the Hub holds without inspecting pixels. ``scene_id`` is composed against
+    your own connection before the lookup — you can only inspect a scene you
+    yourself installed, with no override (DES-086).
     ``want_geometry`` also reads each painted element's screen rect and the frame
     rect from the last completed frame — an element not painted is absent. An
-    unknown scene is a not_found error.
+    unknown or unowned scene is a not_found error.
     """
     return _core.OPERATIONS.inspect_scene(
-        scene_id, InspectScope(want_geometry=want_geometry)
+        scene_id, scope=_core._scope(), facts=InspectScope(want_geometry=want_geometry)
     )
 
 

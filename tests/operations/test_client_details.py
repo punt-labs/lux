@@ -14,6 +14,7 @@ from typing import Self, cast
 
 from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
@@ -95,9 +96,19 @@ def _named(store: HubDisplay, connection: str, identity: ClientIdentity) -> None
     store.clients.named_sessions()
 
 
-def _rows(store: HubDisplay, scene_id: str) -> dict[str, str]:
+def _scoped(owner: str, scene_id: str) -> SceneId:
+    """The store key ``scene_id`` composes to for a Details scene owned by ``owner``.
+
+    A Details scene is written *for* the client it describes — the wire result
+    still reports the caller's own raw name, but the store holds it composed
+    against that same client's own connection (DES-086).
+    """
+    return SceneId(ConnectionScopedId.compose(ConnectionId(owner), scene_id))
+
+
+def _rows(store: HubDisplay, owner: str, scene_id: str) -> dict[str, str]:
     """Read the field/value pairs out of the installed details table."""
-    root = store.scene_roots(SceneId(scene_id))[0]
+    root = store.scene_roots(_scoped(owner, scene_id))[0]
     assert isinstance(root, TableElement)
     return {str(row[0]): str(row[1]) for row in root.rows}
 
@@ -113,7 +124,7 @@ class TestWhatDetailsReports:
         result = details.show_client_details(ConnectionId("c1"))
 
         assert isinstance(result, SceneShown)
-        rows = _rows(store, result.scene_id)
+        rows = _rows(store, "c1", result.scene_id)
         assert rows["Client"] == "lux"  # what the menu calls it
         assert rows["Declared name"] == "lux · lux · #4b97 · lux-beads"
         assert rows["Kind"] == "applet"
@@ -139,7 +150,7 @@ class TestWhatDetailsReports:
         result = details.show_client_details(ConnectionId("c1"))
 
         assert isinstance(result, SceneShown)
-        rows = _rows(store, result.scene_id)
+        rows = _rows(store, "c1", result.scene_id)
         assert rows["Topics"] == "work.saved"
         assert "board" in rows["Scenes"]
 
@@ -151,7 +162,7 @@ class TestWhatDetailsReports:
         result = details.show_client_details(ConnectionId("c1"))
 
         assert isinstance(result, SceneShown)
-        rows = _rows(store, result.scene_id)
+        rows = _rows(store, "c1", result.scene_id)
         assert rows["Repository"] == "none"
         assert rows["Agent"] == "none"
         assert rows["Topics"] == "none"
@@ -165,7 +176,7 @@ class TestWhatDetailsReports:
         result = details.show_client_details(ConnectionId("c1"))
 
         assert isinstance(result, SceneShown)
-        assert _rows(store, result.scene_id)["Lease"] == "permanent"
+        assert _rows(store, "c1", result.scene_id)["Lease"] == "permanent"
 
     def test_a_declared_lease_reads_as_a_span_a_person_says(self) -> None:
         store, hub = HubDisplay(), Hub()
@@ -184,7 +195,7 @@ class TestWhatDetailsReports:
         result = details.show_client_details(ConnectionId("c1"))
 
         assert isinstance(result, SceneShown)
-        assert _rows(store, result.scene_id)["Lease"] == "1m 00s"
+        assert _rows(store, "c1", result.scene_id)["Lease"] == "1m 00s"
 
 
 class TestHowItIsShown:
@@ -198,7 +209,7 @@ class TestHowItIsShown:
         result = details.show_client_details(ConnectionId("c1"))
 
         assert isinstance(result, SceneShown)
-        owners = store.scene_owners(SceneId(result.scene_id))
+        owners = store.scene_owners(_scoped("c1", result.scene_id))
         assert [str(owner.connection_id) for owner in owners] == ["c1"]
 
     def test_the_frame_is_titled_for_the_client_the_menu_named(self) -> None:
@@ -209,7 +220,7 @@ class TestHowItIsShown:
         result = details.show_client_details(ConnectionId("c1"))
 
         assert isinstance(result, SceneShown)
-        presentation = store.frames.presentation_for(SceneId(result.scene_id))
+        presentation = store.frames.presentation_for(_scoped("c1", result.scene_id))
         assert presentation.frame_title == "lux — client details"
 
     def test_two_clients_details_are_two_scenes(self) -> None:
@@ -237,7 +248,8 @@ class TestHowItIsShown:
         assert isinstance(first, SceneShown)
         assert isinstance(second, SceneShown)
         assert first.scene_id == second.scene_id
-        assert marks.marked == [first.scene_id, first.scene_id]
+        composed = str(_scoped("c1", first.scene_id))
+        assert marks.marked == [composed, composed]
 
     def test_the_install_marks_the_scene_for_the_replicator(self) -> None:
         """The Hub writes its store and marks; the replicator does every send."""
@@ -248,7 +260,7 @@ class TestHowItIsShown:
         result = details.show_client_details(ConnectionId("c1"))
 
         assert isinstance(result, SceneShown)
-        assert marks.marked == [result.scene_id]
+        assert marks.marked == [str(_scoped("c1", result.scene_id))]
 
 
 class TestAClickThatOutlivedItsClient:

@@ -14,7 +14,7 @@ frame ids never received the same treatment (DES-086).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import final
+from typing import Self, final
 
 from punt_lux.domain.hub.id_separator import ID_SEPARATOR
 from punt_lux.domain.ids import ConnectionId
@@ -51,3 +51,18 @@ class ConnectionScopedId:
     def compose(cls, connection_id: ConnectionId, local_id: str) -> str:
         """Return the namespaced store-key string for ``local_id``."""
         return str(cls(connection_id, local_id))
+
+    @classmethod
+    def from_composed(cls, composed: str) -> Self:
+        """Parse a store key back into its connection and local id.
+
+        Splits on the first :data:`ID_SEPARATOR` — the same shape
+        :meth:`~punt_lux.domain.hub.session_callback.CallbackInvocation.from_menu_id`
+        parses a leaf id with. Raises ``ValueError`` for a string that never
+        went through :meth:`compose`.
+        """
+        connection, separator, local_id = composed.partition(ID_SEPARATOR)
+        if not separator or not connection or not local_id:
+            msg = f"not a connection-scoped id: {composed!r}"
+            raise ValueError(msg)
+        return cls(ConnectionId(connection), local_id)

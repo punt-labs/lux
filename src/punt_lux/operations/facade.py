@@ -263,10 +263,14 @@ class Operations:
         return self._display.raise_frame(frame_id)
 
     def inspect_scene(
-        self, scene_id: str, scope: InspectScope = HUB_ONLY
+        self, scene_id: str, *, scope: Scope, facts: InspectScope = HUB_ONLY
     ) -> SceneInspection | OpError:
-        """Return a scene's tree; ``scope`` adds the proxied mirror/geometry facts."""
-        return self._queries.inspect_scene(scene_id, scope)
+        """Return the caller's own scene tree; ``facts`` adds proxied geometry.
+
+        Composed against ``scope.connection_id`` — a caller can only ever
+        inspect a scene it owns (DES-086, no admin path).
+        """
+        return self._queries.inspect_scene(scene_id, scope, facts)
 
     def list_scenes(self) -> SceneList:
         """List every live scene and frame from the authoritative store."""

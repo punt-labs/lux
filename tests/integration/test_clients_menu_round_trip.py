@@ -25,6 +25,7 @@ from punt_lux.display.menus.wire_field import WireField
 from punt_lux.domain.hub.callback_hold import CallbackRouter
 from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
 from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.details_binding import DetailsBinding
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
@@ -167,7 +168,13 @@ class _Wired:
 
     @staticmethod
     def _scene(connection_id: ConnectionId) -> SceneId:
-        return SceneId(f"lux.client-details.{connection_id}")
+        # The Details scene is composed against the client it describes
+        # (DES-086) — the same connection that owns it.
+        return SceneId(
+            ConnectionScopedId.compose(
+                connection_id, f"lux.client-details.{connection_id}"
+            )
+        )
 
     def woken(self, connection_id: ConnectionId) -> int:
         return self._legs[connection_id].woken

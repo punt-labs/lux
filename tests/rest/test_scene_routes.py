@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, cast
 from punt_lux.domain.element import Element as WireElement
 from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.domain.interaction import ValueChanged
@@ -15,11 +16,17 @@ from punt_lux.operations.display_reply import DisplayReplied
 from punt_lux.operations.models.query_clients import ClientList
 from punt_lux.protocol.compositions import TableComposition, TableCompositionSpec
 
-from ._fakes import StubPort, make_client
+from ._fakes import DEFAULT_CONNECTION, StubPort, make_client
 
 if TYPE_CHECKING:
     from fastapi.testclient import TestClient
     from httpx import Response
+
+
+def _scoped(local_id: str) -> SceneId:
+    """The store key ``local_id`` composes to for the default identified caller."""
+    return SceneId(ConnectionScopedId.compose(DEFAULT_CONNECTION, local_id))
+
 
 _TEXT = {"kind": "text", "id": "t1", "content": "hi"}
 _TABLE_BODY = {
@@ -130,7 +137,7 @@ def test_scene_scoped_delete_removes_only_the_named_scene() -> None:
     _render(client, "beta")
     resp = client.delete("/scenes/alpha")
     assert resp.status_code == 200
-    assert [s["scene_id"] for s in client.get("/scenes").json()["scenes"]] == ["beta"]
+    assert [s["local_id"] for s in client.get("/scenes").json()["scenes"]] == ["beta"]
 
 
 def test_scene_scoped_delete_of_an_unknown_scene_is_404() -> None:
@@ -143,7 +150,8 @@ def test_list_scenes_reflects_a_rendered_scene() -> None:
     client = make_client()
     _render(client, "alpha")
     body = client.get("/scenes").json()
-    assert [s["scene_id"] for s in body["scenes"]] == ["alpha"]
+    assert [s["local_id"] for s in body["scenes"]] == ["alpha"]
+    assert body["scenes"][0]["scene_id"] == str(_scoped("alpha"))
     owners = body["scenes"][0]["owners"]
     # The default client declared a cli identity named "rest-test"; the scene is
     # attributed to that declared identity, not to a bare connection string.
@@ -186,7 +194,7 @@ def test_blank_optional_header_is_treated_as_absent() -> None:
     resp = _render(client, "blank-repo")
     assert resp.status_code == 200
     body = client.get("/scenes").json()
-    owner = next(s for s in body["scenes"] if s["scene_id"] == "blank-repo")["owners"][
+    owner = next(s for s in body["scenes"] if s["local_id"] == "blank-repo")["owners"][
         0
     ]
     assert owner["identity"]["name"] == "cli-tool"
@@ -212,8 +220,8 @@ def test_render_without_a_frame_lands_framed_by_its_scene_id() -> None:
     resp = client.put("/scenes/alpha", json={"scene_id": "alpha", "elements": [_TEXT]})
     assert resp.status_code == 200
     body = client.get("/scenes").json()
-    assert body["scenes"][0]["frame_id"] == "alpha"
-    assert [f["frame_id"] for f in body["frames"]] == ["alpha"]
+    assert body["scenes"][0]["frame_id"] == str(_scoped("alpha"))
+    assert [f["frame_id"] for f in body["frames"]] == [str(_scoped("alpha"))]
 
 
 def test_inspect_scene_returns_the_tree() -> None:
@@ -343,7 +351,7 @@ def test_render_table_route_installs_the_live_composition() -> None:
     resp = client.put("/scenes/issues/table", json=_TABLE_BODY)
     assert resp.status_code == 200
     search = cast(
-        "AbcElement", store.resolve(SceneId("issues"), ElementId("table-search"))
+        "AbcElement", store.resolve(_scoped("issues"), ElementId("table-search"))
     )
     # the search input carries the composition's SearchFilterHandler on top of its
     # built-in value mirror — two ValueChanged handlers, live chrome.
@@ -360,7 +368,7 @@ def test_replacing_a_composed_scene_does_not_leak_the_old_model() -> None:
     store = HubDisplay()
     client = make_client(store=store)
     client.put("/scenes/issues/table", json=_TABLE_BODY)
-    old_table = store.resolve(SceneId("issues"), ElementId("table"))
+    old_table = store.resolve(_scoped("issues"), ElementId("table"))
     ref = weakref.ref(old_table)
     del old_table
     client.put("/scenes/issues/table", json=_TABLE_BODY)  # replace with fresh build
@@ -395,7 +403,7 @@ def test_beads_board_request_installs_live_chrome_through_the_table_route() -> N
     client = make_client(store=store)
     resp = client.put("/scenes/beads-proj/table", json=request.model_dump())
     assert resp.status_code == 200
-    scene = SceneId("beads-proj")
+    scene = _scoped("beads-proj")
     # The composed chrome is present as real elements, not a lone dead table.
     for element_id in ("table-search", "table", "table-detail"):
         assert store.resolve(scene, ElementId(element_id)) is not None
@@ -430,7 +438,7 @@ def test_generic_render_of_composed_json_loses_the_composition_handlers() -> Non
     resp = client.put("/scenes/issues", json={"scene_id": "issues", "elements": wire})
     assert resp.status_code == 200
     search = cast(
-        "AbcElement", store.resolve(SceneId("issues"), ElementId("table-search"))
+        "AbcElement", store.resolve(_scoped("issues"), ElementId("table-search"))
     )
     # The constructed SearchFilterHandler was stripped on decode — dead chrome.
     assert search.handler_count(ValueChanged) < 2

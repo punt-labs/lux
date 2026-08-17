@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Self
 
 import pytest
 
+from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.crash_attribution import ATTRIBUTION_THRESHOLD
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
@@ -41,6 +42,11 @@ pytestmark = pytest.mark.integration
 
 _CONN = ConnectionId("crash-quarantine-caller")
 _SCOPE = Scope(_CONN)
+
+
+def _scoped(local_id: str) -> SceneId:
+    """The store key ``local_id`` composes to for ``_CONN``."""
+    return SceneId(ConnectionScopedId.compose(_CONN, local_id))
 
 
 class _FaultInjectingSender:
@@ -222,9 +228,9 @@ def test_a_quarantined_scene_is_excluded_from_replication() -> None:
 
 def test_an_owner_write_to_a_quarantined_scene_is_rejected_with_the_record() -> None:
     store, _repl, _sender, ops = _stack()
-    store.replace_scene(_CONN, SceneId("poison"), [TextElement(id="t1", content="x")])
+    store.replace_scene(_CONN, _scoped("poison"), [TextElement(id="t1", content="x")])
     store.quarantine(
-        SceneId("poison"), QuarantineRecord(death_count=2, last_death_at=1.0)
+        _scoped("poison"), QuarantineRecord(death_count=2, last_death_at=1.0)
     )
 
     request = UpdateRequest.parse([{"id": "t1", "set": {"content": "y"}}])
@@ -234,17 +240,17 @@ def test_an_owner_write_to_a_quarantined_scene_is_rejected_with_the_record() -> 
     assert result.code == "rejected"
     assert "quarantined" in result.reason
     # The store is untouched — a patch is not the recovery path.
-    element = store.resolve(SceneId("poison"), ElementId("t1"))
+    element = store.resolve(_scoped("poison"), ElementId("t1"))
     assert element.to_dict()["content"] == "x"
 
 
 def test_quarantine_clears_on_a_wholesale_re_show() -> None:
     store, _repl, _sender, ops = _stack()
-    store.replace_scene(_CONN, SceneId("poison"), [TextElement(id="t1", content="x")])
+    store.replace_scene(_CONN, _scoped("poison"), [TextElement(id="t1", content="x")])
     store.quarantine(
-        SceneId("poison"), QuarantineRecord(death_count=2, last_death_at=1.0)
+        _scoped("poison"), QuarantineRecord(death_count=2, last_death_at=1.0)
     )
-    assert store.is_quarantined(SceneId("poison"))
+    assert store.is_quarantined(_scoped("poison"))
 
     request = RenderRequest.parse(
         {
@@ -255,4 +261,4 @@ def test_quarantine_clears_on_a_wholesale_re_show() -> None:
     result = ops.render(request, scope=_SCOPE)
 
     assert isinstance(result, SceneShown)
-    assert not store.is_quarantined(SceneId("poison"))
+    assert not store.is_quarantined(_scoped("poison"))
