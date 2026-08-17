@@ -118,15 +118,60 @@ def test_two_connections_coexist_under_the_identical_raw_scene_id() -> None:
 
 def test_a_single_connections_re_show_is_idempotent() -> None:
     """The same connection showing the same raw id twice updates one scene."""
-    _store, scenes, queries = _stack()
+    store, scenes, queries = _stack()
 
     first = _render(scenes, _SCOPE_A, _MUSIC_PLAYER)
-    second = _render(scenes, _SCOPE_A, _MUSIC_PLAYER)
+    second_request = RenderRequest.parse(
+        {
+            "scene_id": _MUSIC_PLAYER,
+            "elements": [{"kind": "text", "id": "widget", "content": "second-payload"}],
+        }
+    )
+    second = scenes.render(second_request, scope=_SCOPE_A)
+    assert isinstance(second, SceneShown)
 
     assert first.scene_id == second.scene_id == _MUSIC_PLAYER  # caller's own name
     scene_list = queries.list_scenes()
     music_player_scenes = [s for s in scene_list.scenes if s.local_id == _MUSIC_PLAYER]
     assert len(music_player_scenes) == 1  # the second show updated, not created
+
+    # The second payload actually reached the store — a no-op replace_scene
+    # on a matching key would still leave the count at 1 but the content stale.
+    sid = SceneId(music_player_scenes[0].scene_id)
+    widget = store.resolve(sid, ElementId("widget"))
+    assert isinstance(widget, TextElement)
+    assert widget.content == "second-payload"
+
+
+def test_two_connections_with_the_same_explicit_frame_id_do_not_share_a_frame() -> None:
+    """Decision 2 (unconditional): an explicit frame_id is namespaced too."""
+    _store, scenes, queries = _stack()
+
+    request_a = RenderRequest.parse(
+        {
+            "scene_id": "panel-a",
+            "elements": [{"kind": "text", "id": "widget", "content": str(_A)}],
+            "frame": {"frame_id": "shared"},
+        }
+    )
+    request_b = RenderRequest.parse(
+        {
+            "scene_id": "panel-b",
+            "elements": [{"kind": "text", "id": "widget", "content": str(_B)}],
+            "frame": {"frame_id": "shared"},
+        }
+    )
+    result_a = scenes.render(request_a, scope=_SCOPE_A)
+    result_b = scenes.render(request_b, scope=_SCOPE_B)
+    assert isinstance(result_a, SceneShown)
+    assert isinstance(result_b, SceneShown)
+
+    panels = {"panel-a", "panel-b"}
+    scene_list = queries.list_scenes()
+    frame_ids = {s.frame_id for s in scene_list.scenes if s.local_id in panels}
+    # Both callers asked for frame_id="shared"; composed against two different
+    # connections, the store keys can never collide into one frame.
+    assert len(frame_ids) == 2
 
 
 def _owned_scene_id(queries: QueryOperations, owner: ConnectionId) -> SceneId:
