@@ -174,12 +174,9 @@ class SceneOperations:
     ) -> None:
         """Publish the quarantine to the caller's own topic subscribers.
 
-        An agent subscribed to ``scene:<local id>:quarantined`` under its own
-        connection learns even when it is not the one writing — the push half
-        of the two reach paths (display-crash-quarantine.md Question 2). The
-        topic is keyed by the caller's own raw name, the only spelling it ever
-        chose to subscribe under — the composed store key is never something a
-        subscriber sees or could construct (DES-086).
+        An agent subscribed to ``scene:<local id>:quarantined`` — its own raw
+        name, never the composed store key (DES-086) — learns even when it is
+        not the one writing (display-crash-quarantine.md Question 2).
         """
         topic = Topic(f"scene:{local_id}:quarantined")
         self._hub.publish(scope.connection_id, topic, record.to_payload())
