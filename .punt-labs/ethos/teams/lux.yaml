@@ -1,0 +1,79 @@
+name: lux
+repositories:
+  - punt-labs/lux
+members:
+  - identity: jfreeman
+    role: ceo
+  - identity: claude
+    role: coo
+  # Python
+  - identity: rmh
+    role: python-specialist
+  - identity: gvr
+    role: python-language-design
+  # CLI / MCP surface
+  - identity: mdm
+    role: cli-specialist
+  - identity: rop
+    role: cli-minimalist
+  # Security
+  - identity: djb
+    role: security-engineer
+  # UX — info design + interaction/cognitive engineering
+  - identity: edt
+    role: ux-designer
+  - identity: dna
+    role: ux-cognitive
+  # GPU / perf / inference
+  - identity: kpz
+    role: ml-specialist
+  # Formal methods (Z + probcli, per CLAUDE.md's z-spec workflow)
+  - identity: jms
+    role: z-specialist
+  # Infrastructure — releases, packaging, hybrid plugin pipeline
+  - identity: adb
+    role: infra-engineer
+collaborations:
+  - from: coo
+    to: ceo
+    type: reports_to
+  - from: python-specialist
+    to: coo
+    type: reports_to
+  - from: python-language-design
+    to: coo
+    type: reports_to
+  - from: cli-specialist
+    to: coo
+    type: reports_to
+  - from: cli-minimalist
+    to: coo
+    type: reports_to
+  - from: security-engineer
+    to: coo
+    type: reports_to
+  - from: ux-designer
+    to: coo
+    type: reports_to
+  - from: ux-cognitive
+    to: coo
+    type: reports_to
+  - from: ml-specialist
+    to: coo
+    type: reports_to
+  - from: z-specialist
+    to: coo
+    type: reports_to
+  - from: infra-engineer
+    to: coo
+    type: reports_to
+  # Domain pairings — from CLAUDE.md's ratified worker/evaluator table
+  - from: python-language-design
+    to: python-specialist
+    type: collaborates_with
+  - from: cli-minimalist
+    to: cli-specialist
+    type: collaborates_with
+  - from: ux-cognitive
+    to: ux-designer
+    type: collaborates_with
