@@ -29,7 +29,7 @@ from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.scene_writer import HubSceneWriter, SceneScope
 from punt_lux.domain.hub.write_result import WriteRejected
 from punt_lux.domain.ids import SceneId, Topic
-from punt_lux.operations.composition_boundary import compose_or_reject
+from punt_lux.operations.composition_boundary import CompositionBoundary
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.scene_results import Cleared, SceneShown
 from punt_lux.operations.scene_clearing import SceneClearer
@@ -145,7 +145,7 @@ class SceneOperations:
         """
         if isinstance(request, OpError):
             return request
-        sid = compose_or_reject(
+        sid = CompositionBoundary.compose_or_reject(
             lambda: SceneId(ConnectionScopedId.compose(scope.connection_id, scene_id))
         )
         if isinstance(sid, OpError):

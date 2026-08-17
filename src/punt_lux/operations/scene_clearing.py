@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.scene_writer import HubSceneWriter
 from punt_lux.domain.ids import SceneId
-from punt_lux.operations.composition_boundary import compose_or_reject
+from punt_lux.operations.composition_boundary import CompositionBoundary
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.scene_results import Cleared
 
@@ -71,7 +71,7 @@ class SceneClearer:
         """Compose a named filter against ``owner``, or pass an absent one through."""
         if scene_id is None:
             return None
-        return compose_or_reject(
+        return CompositionBoundary.compose_or_reject(
             lambda: SceneId(ConnectionScopedId.compose(owner, scene_id))
         )
 
