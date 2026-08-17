@@ -166,19 +166,22 @@ class SceneOperations:
                     return OpError(code="rejected", reason=reason)
                 self._replicator.mark_dirty(sid)
                 return SceneShown(scene_id=scene_id)
-        self._notify_quarantine(sid, record, scope)
+        self._notify_quarantine(scene_id, record, scope)
         return OpError(code="rejected", reason=record.describe(scene_id))
 
     def _notify_quarantine(
-        self, scene_id: SceneId, record: QuarantineRecord, scope: Scope
+        self, local_id: str, record: QuarantineRecord, scope: Scope
     ) -> None:
         """Publish the quarantine to the caller's own topic subscribers.
 
-        An agent subscribed to ``scene:<id>:quarantined`` under its own
+        An agent subscribed to ``scene:<local id>:quarantined`` under its own
         connection learns even when it is not the one writing — the push half
-        of the two reach paths (display-crash-quarantine.md Question 2).
+        of the two reach paths (display-crash-quarantine.md Question 2). The
+        topic is keyed by the caller's own raw name, the only spelling it ever
+        chose to subscribe under — the composed store key is never something a
+        subscriber sees or could construct (DES-086).
         """
-        topic = Topic(f"scene:{scene_id}:quarantined")
+        topic = Topic(f"scene:{local_id}:quarantined")
         self._hub.publish(scope.connection_id, topic, record.to_payload())
 
     def clear(self, *, scope: Scope, scene_id: str | None = None) -> Cleared | OpError:
