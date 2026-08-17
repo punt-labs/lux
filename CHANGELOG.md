@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-08-17
+
 ### Security
 
 - **Scenes and frames cannot alias across connections (DES-086, `lux-ledm`).**
