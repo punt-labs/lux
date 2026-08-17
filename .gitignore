@@ -44,6 +44,12 @@ docs/*.synctex.gz
 # Ethos mission log
 .ethos/
 
+# Vendored ethos runtime state (regenerated per-machine — vendored registry only)
+.punt-labs/ethos/missions/
+.punt-labs/ethos/missions.jsonl
+.punt-labs/ethos/sessions/
+.punt-labs/ethos/.biff
+
 # Vox tool local data
 .vox/
 
