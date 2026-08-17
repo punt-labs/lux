@@ -25,6 +25,7 @@ from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.scene_results import SceneShown
 from punt_lux.operations.queries import QueryOperations
 from punt_lux.operations.scene_installer import SceneInstaller
+from punt_lux.operations.scene_submission import SceneSubmission
 from punt_lux.protocol.elements.table import TableElement
 
 
@@ -132,6 +133,10 @@ class TestWhatDetailsReports:
         assert rows["Connection"] == "c1"
 
     def test_it_reports_the_topics_and_scenes_the_client_holds(self) -> None:
+        # "board" is installed through the real composition choke point
+        # (SceneInstaller.install), so the store holds it under the composed
+        # key "c1\x1fboard" — the Scenes row must still read the caller's own
+        # raw name, never the composed key with its embedded separator.
         store, hub = HubDisplay(), Hub()
         _named(store, "c1", _identity())
         hub.register_writer(ConnectionId("c1"), lambda _msg: None)
@@ -139,11 +144,15 @@ class TestWhatDetailsReports:
         group = hub_element_factory(ConnectionId("c1")).element_from_dict(
             {"kind": "text", "id": "t1", "content": "hi"}
         )
-        store.show_scene(
-            ConnectionId("c1"),
-            SceneId("board"),
-            [cast("DomainElement", group)],
-            ScenePresentation(frame_id="f1"),
+        installer = SceneInstaller(store, _Marks())
+        installer.install(
+            SceneSubmission.of(
+                [cast("DomainElement", group)],
+                "board",
+                ScenePresentation(frame_id="f1"),
+                None,
+            ),
+            owner=ConnectionId("c1"),
         )
         details, _marks = _wired(store, hub)
 
@@ -152,7 +161,7 @@ class TestWhatDetailsReports:
         assert isinstance(result, SceneShown)
         rows = _rows(store, "c1", result.scene_id)
         assert rows["Topics"] == "work.saved"
-        assert "board" in rows["Scenes"]
+        assert rows["Scenes"] == "board"
 
     def test_an_empty_field_reads_as_none_rather_than_blank(self) -> None:
         store, hub = HubDisplay(), Hub()

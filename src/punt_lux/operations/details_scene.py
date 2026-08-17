@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.operations.scene_submission import SceneSubmission
 from punt_lux.protocol.compositions.client_details import (
@@ -87,5 +88,7 @@ class DetailsScene:
             connected_seconds=self._client.connected_seconds,
             lease=self._client.lease,
             subscribed_topics=tuple(self._client.subscribed_topics),
-            owned_scenes=tuple(self._client.owned_scenes),
+            owned_scenes=tuple(
+                ConnectionScopedId.local_id_of(s) for s in self._client.owned_scenes
+            ),
         )

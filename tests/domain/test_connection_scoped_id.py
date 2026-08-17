@@ -49,3 +49,31 @@ def test_a_local_id_carrying_the_separator_is_rejected() -> None:
     # to forge another connection's composed key (DES-086 threat model).
     with pytest.raises(ValueError, match="unit separator"):
         ConnectionScopedId(ConnectionId("session-a"), "music\x1fplayer")
+
+
+def test_from_composed_round_trips_compose() -> None:
+    composed = ConnectionScopedId.compose(ConnectionId("session-a"), "music-player")
+    parsed = ConnectionScopedId.from_composed(composed)
+    assert parsed == ConnectionScopedId(ConnectionId("session-a"), "music-player")
+
+
+def test_from_composed_rejects_a_string_that_never_went_through_compose() -> None:
+    with pytest.raises(ValueError, match="not a connection-scoped id"):
+        ConnectionScopedId.from_composed("music-player")
+
+
+def test_local_id_of_returns_the_callers_own_name_for_a_composed_key() -> None:
+    composed = ConnectionScopedId.compose(ConnectionId("session-a"), "music-player")
+    assert ConnectionScopedId.local_id_of(composed) == "music-player"
+
+
+def test_local_id_of_falls_back_to_the_raw_key_when_not_composed(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # A key installed through a lower-level API outside the composition choke
+    # point carries no separator at all — the fallback reports it as-is rather
+    # than raising, but the anomaly is logged, not silently absorbed (M-A).
+    with caplog.at_level("WARNING"):
+        assert ConnectionScopedId.local_id_of("board") == "board"
+    assert "non-composed store key" in caplog.text
+    assert "'board'" in caplog.text

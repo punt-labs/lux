@@ -13,6 +13,7 @@ frame ids never received the same treatment (DES-086).
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Self, final
 
@@ -20,6 +21,8 @@ from punt_lux.domain.hub.id_separator import ID_SEPARATOR
 from punt_lux.domain.ids import ConnectionId
 
 __all__ = ["ConnectionScopedId"]
+
+logger = logging.getLogger(__name__)
 
 
 @final
@@ -66,3 +69,24 @@ class ConnectionScopedId:
             msg = f"not a connection-scoped id: {composed!r}"
             raise ValueError(msg)
         return cls(ConnectionId(connection), local_id)
+
+    @classmethod
+    def local_id_of(cls, composed: str) -> str:
+        """Return the caller's own label for a store key, composed or not.
+
+        Every scene or frame the ops-layer write path installs is composed
+        (DES-086), so this is the caller's raw name in the common case. A key
+        installed through a lower-level API directly — outside the choke
+        point composition runs through — carries no separator at all; its own
+        raw key is the closest thing to a caller label it has, so that is
+        what is reported rather than raising. That path is also a DES-086
+        invariant violation worth knowing about, so it is logged, not
+        silently absorbed.
+        """
+        try:
+            return cls.from_composed(composed).local_id
+        except ValueError:
+            logger.warning(
+                "non-composed store key at introspection boundary: %r", composed
+            )
+            return composed

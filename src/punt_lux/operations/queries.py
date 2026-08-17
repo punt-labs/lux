@@ -186,19 +186,8 @@ class QueryOperations:
 
     @staticmethod
     def _local_id_of(scene_id: SceneId) -> str:
-        """Return the caller's own label for a store key, composed or not.
-
-        Every scene the ops-layer write path installs is composed (DES-086),
-        so this is the caller's raw name in the common case. A scene the
-        lower-level ``HubDisplay`` API installed directly — outside the
-        choke point composition runs through — carries no separator at
-        all; its own raw key is already the closest thing to a caller
-        label it has, so that is what is reported rather than raising.
-        """
-        try:
-            return ConnectionScopedId.from_composed(str(scene_id)).local_id
-        except ValueError:
-            return str(scene_id)
+        """Return the caller's own label for a scene's store key."""
+        return ConnectionScopedId.local_id_of(str(scene_id))
 
     def _owners_of(self, scene_id: SceneId) -> list[SceneOwner]:
         """Return the scene's distinct owners as introspection read shapes."""
