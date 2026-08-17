@@ -11,7 +11,7 @@ answer from the Hub session registry, not the display's socket-client list.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Self, cast
+from typing import TYPE_CHECKING, Self, cast
 
 from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
@@ -33,6 +33,9 @@ from punt_lux.operations.models.query_scenes import SceneList
 from punt_lux.operations.queries import QueryOperations
 from punt_lux.operations.scope import Scope
 from punt_lux.protocol.agent_factory import agent_element_factory
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def _scoped(connection: str, local_id: str) -> SceneId:
@@ -120,6 +123,23 @@ def _seed_scene(store: HubDisplay, *, scene: str, connection: str) -> None:
         [cast("DomainElement", group)],
         ScenePresentation(frame_id="frame-a", frame_title="Frame A", layout="single"),
     )
+
+
+def test_local_id_of_returns_the_callers_own_name_for_a_composed_key() -> None:
+    composed = _scoped("session-a", "music-player")
+    assert QueryOperations.local_id_of(composed) == "music-player"
+
+
+def test_local_id_of_falls_back_to_the_raw_key_when_not_composed(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # A key installed through a lower-level API outside the composition choke
+    # point carries no separator at all — the fallback reports it as-is rather
+    # than raising, but the anomaly is logged, not silently absorbed (M-A).
+    with caplog.at_level("WARNING"):
+        assert QueryOperations.local_id_of("board") == "board"
+    assert "non-composed store key" in caplog.text
+    assert "'board'" in caplog.text
 
 
 def test_inspect_scene_reads_the_hub_without_touching_the_display() -> None:

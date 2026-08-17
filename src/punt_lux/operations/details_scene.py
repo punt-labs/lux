@@ -5,17 +5,16 @@ scene id it is always shown in, the frame that scene is placed in, and the
 element tree that reports the facts. The operation reads the Hub and installs
 what this builds; deciding what the reader sees is this class's job.
 
-The scene id is per client and stable, so two clients' details can be read side
-by side and asking twice about one client repaints its frame instead of stacking
-another. The frame carries no deadline: details stay until the user closes them.
+The scene id is per client and stable: two clients' details read side by side,
+and asking twice repaints the frame instead of stacking. It never expires.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
+from punt_lux.operations.queries import QueryOperations
 from punt_lux.operations.scene_submission import SceneSubmission
 from punt_lux.protocol.compositions.client_details import (
     ClientDetails,
@@ -30,8 +29,7 @@ __all__ = ["DetailsScene"]
 # The scene and frame one client's details are shown in, and the table inside.
 _SCENE_PREFIX = "lux.client-details"
 
-# What a client that declared no identity calls itself — it registered, so the
-# Hub holds it, but it never said who it was.
+# What a client that declared no identity calls itself: registered, unnamed.
 _UNDECLARED = "client"
 
 
@@ -74,8 +72,7 @@ class DetailsScene:
     def _details(self) -> ClientDetails:
         """The facts the scene reports, as the rendering side reads them.
 
-        An unidentified session is reported as exactly that rather than left
-        blank: the Hub holds it, so the frame says what little it knows.
+        An unidentified session reports as exactly that, never left blank.
         """
         identity = self._client.identity
         return ClientDetails(
@@ -89,6 +86,6 @@ class DetailsScene:
             lease=self._client.lease,
             subscribed_topics=tuple(self._client.subscribed_topics),
             owned_scenes=tuple(
-                ConnectionScopedId.local_id_of(s) for s in self._client.owned_scenes
+                map(QueryOperations.local_id_of, self._client.owned_scenes)
             ),
         )

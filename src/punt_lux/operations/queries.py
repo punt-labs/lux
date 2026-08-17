@@ -9,6 +9,7 @@ running display's own ring buffers, so they proxy over luxd's one connection.
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import TYPE_CHECKING, Self, cast, final
 
@@ -42,6 +43,8 @@ if TYPE_CHECKING:
     from punt_lux.protocol import Element as WireElement
 
 __all__ = ["QueryOperations"]
+
+logger = logging.getLogger(__name__)
 
 
 @final
@@ -120,7 +123,7 @@ class QueryOperations:
             scenes.append(
                 SceneSummary(
                     scene_id=str(sid),
-                    local_id=self._local_id_of(sid),
+                    local_id=self.local_id_of(sid),
                     element_count=self._display.element_count(sid),
                     frame_id=presentation.frame_id,
                     owners=self._owners_of(sid),
@@ -159,11 +162,9 @@ class QueryOperations:
     def client_facts(self, named: NamedSession) -> HubClient:
         """Return one session's facts — the shape ``list_clients`` reports, for one.
 
-        What the Details command renders, so the menu and the introspection read
-        can never describe a client differently. It takes the session the caller
-        already read rather than reading the registry again: a second read is a
-        second instant, and the registry sweeps lapsed sessions as it is read, so
-        it can retire the very client the caller is describing.
+        What the Details command renders, so the menu and introspection agree.
+        Reads the session the caller already holds rather than re-reading the
+        registry, which sweeps lapsed sessions and could retire this client.
         """
         return self._client(named.connection_id, named.session, time.monotonic())
 
@@ -185,9 +186,20 @@ class QueryOperations:
         )
 
     @staticmethod
-    def _local_id_of(scene_id: SceneId) -> str:
-        """Return the caller's own label for a scene's store key."""
-        return ConnectionScopedId.local_id_of(str(scene_id))
+    def local_id_of(scene_id: SceneId | str) -> str:
+        """Return the caller's own label for a store key, composed or not.
+
+        Every scene the ops-layer write path installs is composed (DES-086),
+        so this is the caller's raw name in the common case. A key installed
+        through a lower-level API directly carries no separator at all; it is
+        reported as-is rather than raising, but logged — a DES-086 invariant
+        violation worth knowing about, not silently absorbed.
+        """
+        try:
+            return ConnectionScopedId.from_composed(str(scene_id)).local_id
+        except ValueError:
+            logger.warning("non-composed store key at introspection: %r", scene_id)
+            return str(scene_id)
 
     def _owners_of(self, scene_id: SceneId) -> list[SceneOwner]:
         """Return the scene's distinct owners as introspection read shapes."""
