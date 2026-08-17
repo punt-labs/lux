@@ -11,6 +11,7 @@ from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.quarantine_record import QuarantineRecord
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId, Topic
+from punt_lux.domain.update import AddElement
 from punt_lux.operations import (
     Cleared,
     OpError,
@@ -186,6 +187,33 @@ def test_render_rejects_a_type_error_wire_shape_without_raising() -> None:
     assert recorder.dirtied == []
 
 
+def test_render_with_a_blank_scene_id_is_rejected_before_composition() -> None:
+    store, recorder = HubDisplay(), _Recorder()
+    request = RenderRequest.parse(
+        {"scene_id": "", "elements": [{"kind": "text", "id": "t1", "content": "hi"}]}
+    )
+    result = _ops(store, recorder).render(request, scope=_LOCAL)
+    assert isinstance(result, OpError)
+    assert result.code == "invalid_request"
+    assert recorder.dirtied == []
+    assert list(store.all_scene_ids()) == []
+
+
+def test_render_with_a_separator_in_the_scene_id_is_rejected() -> None:
+    store, recorder = HubDisplay(), _Recorder()
+    request = RenderRequest.parse(
+        {
+            "scene_id": "foo\x1fbar",
+            "elements": [{"kind": "text", "id": "t1", "content": "hi"}],
+        }
+    )
+    result = _ops(store, recorder).render(request, scope=_LOCAL)
+    assert isinstance(result, OpError)
+    assert result.code == "invalid_request"
+    assert recorder.dirtied == []
+    assert list(store.all_scene_ids()) == []
+
+
 def test_render_rejects_a_legacy_missing_id_without_raising() -> None:
     # A legacy dataclass decoder indexes required fields directly (d["id"]), so a
     # legacy-only wire (a paged group) missing id raises KeyError, not ValueError.
@@ -223,6 +251,63 @@ def test_update_rejects_an_unknown_element_and_leaves_the_store_untouched() -> N
     assert "ghost" in result.reason
     assert recorder.dirtied == []
     assert store.resolve(_scoped("s1"), ElementId("hdr")).id == "hdr"
+    # The writer's own UnknownElementError.__str__ names the composed store key
+    # via repr() — the caller must see its own raw local name instead, never
+    # the composed key with its embedded unit separator (locks the .replace()
+    # translation at scenes.py against a future format change going silent).
+    assert "\x1f" not in result.reason
+    assert "scene 's1'" in result.reason
+
+
+def test_update_rejection_from_another_owners_element_names_the_raw_scene_id() -> None:
+    # A scene can hold elements from more than one owner. A's own patch attempt
+    # against an element it does not own raises HubOwnershipError, whose
+    # __str__ also names the composed store key via repr() — the same
+    # translation as UnknownElementError must apply here too.
+    store, recorder = HubDisplay(), _Recorder()
+    _seed_header(store, is_open=False)
+    stranger = ConnectionId("stranger")
+    store.apply(
+        stranger,
+        AddElement(
+            scene_id=_scoped("s1"),
+            element=CollapsingHeaderElement(id="theirs", label="Theirs", open=False),
+            parent_id=None,
+        ),
+    )
+    request = UpdateRequest.parse([{"id": "theirs", "set": {"open": True}}])
+    result = _ops(store, recorder).update("s1", request, scope=_LOCAL)
+    assert isinstance(result, OpError)
+    assert result.code == "rejected"
+    assert recorder.dirtied == []
+    assert "\x1f" not in result.reason
+    assert "scene 's1'" in result.reason
+
+
+def test_update_with_a_blank_scene_id_is_rejected_before_composition() -> None:
+    store, recorder = HubDisplay(), _Recorder()
+    _seed_header(store, is_open=False)
+    request = UpdateRequest.parse([{"id": "hdr", "set": {"open": True}}])
+    result = _ops(store, recorder).update("", request, scope=_LOCAL)
+    assert isinstance(result, OpError)
+    assert result.code == "invalid_request"
+    assert recorder.dirtied == []
+    header = store.resolve(_scoped("s1"), ElementId("hdr"))
+    assert isinstance(header, CollapsingHeaderElement)
+    assert header.open is False
+
+
+def test_update_with_a_separator_in_the_scene_id_is_rejected() -> None:
+    store, recorder = HubDisplay(), _Recorder()
+    _seed_header(store, is_open=False)
+    request = UpdateRequest.parse([{"id": "hdr", "set": {"open": True}}])
+    result = _ops(store, recorder).update("foo\x1fbar", request, scope=_LOCAL)
+    assert isinstance(result, OpError)
+    assert result.code == "invalid_request"
+    assert recorder.dirtied == []
+    header = store.resolve(_scoped("s1"), ElementId("hdr"))
+    assert isinstance(header, CollapsingHeaderElement)
+    assert header.open is False
 
 
 def test_clear_empties_every_owned_scene_and_marks_each_dirty() -> None:
@@ -288,6 +373,28 @@ def test_scene_scoped_clear_of_an_unowned_scene_is_rejected() -> None:
     assert result.code == "rejected"
     assert store.resolve(_scoped("theirs"), ElementId("x")).id == "x"
     assert recorder.dirtied == []
+
+
+def test_scene_scoped_clear_with_a_blank_scene_id_is_rejected_before_composition() -> (
+    None
+):
+    store, recorder = HubDisplay(), _Recorder()
+    _seed_header(store)
+    result = _ops(store, recorder).clear(scope=_LOCAL, scene_id="")
+    assert isinstance(result, OpError)
+    assert result.code == "invalid_request"
+    assert recorder.dirtied == []
+    assert store.resolve(_scoped("s1"), ElementId("hdr")).id == "hdr"
+
+
+def test_scene_scoped_clear_with_a_separator_in_the_scene_id_is_rejected() -> None:
+    store, recorder = HubDisplay(), _Recorder()
+    _seed_header(store)
+    result = _ops(store, recorder).clear(scope=_LOCAL, scene_id="foo\x1fbar")
+    assert isinstance(result, OpError)
+    assert result.code == "invalid_request"
+    assert recorder.dirtied == []
+    assert store.resolve(_scoped("s1"), ElementId("hdr")).id == "hdr"
 
 
 class TestWhoAnInstallRegisters:
@@ -388,8 +495,9 @@ class TestQuarantinedScenes:
         # The push half of the two reach paths: an agent subscribed to its own
         # scene's topic learns even though it is the one whose write triggered
         # the discovery, proving the publish fired at all. The topic is keyed
-        # by the composed scene id — the same id the store's quarantine record
-        # is keyed by — not the caller's raw local name.
+        # by the caller's own raw local name — the only spelling it ever chose
+        # to subscribe under — never the composed store key, which it never
+        # sees and could not construct.
         store, recorder = HubDisplay(), _Recorder()
         _seed_header(store)
         store.quarantine(
@@ -401,7 +509,7 @@ class TestQuarantinedScenes:
         hub.register_writer(
             _LOCAL.connection_id, lambda msg: received.append(msg.payload)
         )
-        hub.subscribe(_LOCAL.connection_id, Topic(f"scene:{_scoped('s1')}:quarantined"))
+        hub.subscribe(_LOCAL.connection_id, Topic("scene:s1:quarantined"))
         request = UpdateRequest.parse([{"id": "hdr", "set": {"open": True}}])
         _ops(store, recorder, hub).update("s1", request, scope=_LOCAL)
         assert received == [

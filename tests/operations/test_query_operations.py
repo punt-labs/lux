@@ -188,6 +188,35 @@ def test_inspect_scene_unknown_scene_is_not_found() -> None:
     assert result.code == "not_found"
 
 
+def test_inspect_scene_cannot_read_another_connections_scene() -> None:
+    # DES-086 Decision 5, operator-narrowed: "you can only inspect what you
+    # put into the hub/display." B's "s1" must never answer A's read — not
+    # distinguished from an unknown scene, and no fallback lookup may
+    # silently resolve it for a connection that never wrote it.
+    store = HubDisplay()
+    _seed_scene(store, scene="s1", connection="b")
+    ops = QueryOperations(store, Hub(), _ForbiddenPort())
+
+    result = ops.inspect_scene("s1", Scope(ConnectionId("a")))
+
+    assert isinstance(result, OpError)
+    assert result.code == "not_found"
+
+
+def test_inspect_scene_with_a_blank_scene_id_is_rejected_before_composition() -> None:
+    ops = QueryOperations(HubDisplay(), Hub(), _ForbiddenPort())
+    result = ops.inspect_scene("", _C1)
+    assert isinstance(result, OpError)
+    assert result.code == "invalid_request"
+
+
+def test_inspect_scene_with_a_separator_in_the_id_is_rejected() -> None:
+    ops = QueryOperations(HubDisplay(), Hub(), _ForbiddenPort())
+    result = ops.inspect_scene("foo\x1fbar", _C1)
+    assert isinstance(result, OpError)
+    assert result.code == "invalid_request"
+
+
 def test_inspect_scene_a_live_scene_carries_no_quarantine_info() -> None:
     store = HubDisplay()
     _seed_scene(store, scene="s1", connection="c1")
