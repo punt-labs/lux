@@ -119,10 +119,12 @@ mission, not an open question.
    `version`). Renames are a rename train — no shim, no alias, no
    deprecation window; the ecosystem updates in one release.
 
-6. **Rename train, no shims.** 23 MCP tool renames land atomically.
-   Agent prompts in `.punt-labs/ethos/agents/*.md`, slash-command
-   definitions, cross-repo consumers (vox's applet, z-spec's lux
-   renderer) update in lockstep with the merge.
+6. **Rename train, no shims.** The MCP rename set (26 renames + 3
+   fuse-renames + 2 net-new tools, enumerated in §The MCP rename
+   train) lands atomically. Agent prompts in
+   `.punt-labs/ethos/agents/*.md`, slash-command definitions, and
+   cross-repo consumers (vox's applet, z-spec's lux renderer) update
+   in lockstep with the merge.
 
 7. **Grey-area rulings.** Three cases that could be read admin-wide or
    caller-scoped are ratified here as caller-scoped by default:
@@ -260,11 +262,21 @@ not useful to a programmatic caller — but the invariant is the
 same: no agent-turn is a legitimate caller of an operator-facing
 verb.
 
-## The 23 MCP tool renames
+## The MCP rename train
 
 Extracted from the tables above into one place so any deviation from
 the prior-conversation agreement is leader-visible. Every rename is
 old-name → new-name with no alias, per position 6.
+
+The epic body named 23 renames from the prior conversation. Round-2
+of this design mission added three (F3 split `set_frame_state` into
+four renames; F2 moved `ping` out of the rename set since the tool
+name is unchanged; F4 renamed a *new* tool that never existed on the
+old surface). The atomic set the `.5` rename train lands is now:
+**26 renames** in the numbered table below, **3 fuse-renames** for
+the get/set display pairs (§Display, noted after the table), and
+**2 net-new tools** (`menu_get`, `session_inspect`) that are
+additions rather than renames.
 
 | # | Old MCP tool | New MCP tool |
 |---:|---|---|
@@ -298,10 +310,9 @@ old-name → new-name with no alias, per position 6.
 `get_theme`/`set_theme`, `get_window_settings`/`set_window_settings`,
 and `display_mode`/`set_display_mode` are noted separately: the pair
 fuses into one `display_theme` / `display_window` / `display_mode`
-tool per §Vocabulary (Display). These are three additional renames the
-`.5` rename train also lands, bringing the atomic set to 26; the 23
-figure is the count from the epic body's prior-conversation
-agreement, which recorded fuses as one entry each.
+tool per §Vocabulary (Display). These are three fuse-renames the
+`.5` rename train also lands atomically alongside the 26 numbered
+renames above.
 
 ## Admin / client split
 
@@ -642,9 +653,10 @@ Machine evidence: `lux --json scene inspect <id>` from each identity
 returns the right subset. Operator confirms the rendered pixels.
 
 **`.5` demo (MCP rename train).** Fresh install of the new lux
-plugin; MCP tool list shows all 23 renamed tools and no old names;
-vox's music-player renders correctly against the new tool names
-(coordinated via the cross-repo notify runbook above).
+plugin; MCP tool list shows every renamed tool from §The MCP rename
+train under its new name and no old names present; vox's music-player
+renders correctly against the new tool names (coordinated via the
+cross-repo notify runbook above).
 
 ## Provenance
 
@@ -683,18 +695,20 @@ implemented, matching the existing DES-NNN format.
 > **Decision.** One vocabulary applied to all four client surfaces,
 > under noun-first grouping. Ten nouns (`scene`, `frame`, `menu`,
 > `session`, `topic`, `callback`, `display`, `event`, `error`,
-> `hub`) plus a small set of top-level admin singletons
-> (`enable`/`disable`/`install`/`uninstall`/`mcp`/`doctor`/
-> `version`). Every engine operation appears on every client
-> surface under the same name; each omission is a considered
-> exception with a stated reason. The DRY pivot is a new
-> `src/punt_lux/commands/` package holding one `@final` callable
-> class per operation returning `CommandResult`, with `Ctx` for
-> collaborators (vox's `commands/voice.py` is the reference shape).
-> The existing `Operations` facade becomes an internal collaborator
-> composed into `Ctx`; no adapter reaches past `commands/`. The MCP
-> rename train (23 tools, no aliases, no deprecation window) lands
-> atomically with agent-prompt updates and cross-repo consumer
+> `hub`) plus a small set of top-level singletons split into a
+> diagnostics tier (`ping`, `doctor`, `version`) and an admin tier
+> (`enable`, `disable`, `install`, `uninstall`, `mcp`). Every engine
+> operation appears on every client surface under the same name;
+> each omission is a considered exception with a stated reason.
+> The DRY pivot is a new `src/punt_lux/commands/` package holding
+> one `@final` callable class per operation returning
+> `CommandResult`, with `Ctx` for collaborators (vox's
+> `commands/voice.py` is the reference shape). The existing
+> `Operations` facade becomes an internal collaborator composed into
+> `Ctx`; no adapter reaches past `commands/`. The MCP rename train
+> (26 renames + 3 fuse-renames + 2 net-new tools, no aliases, no
+> deprecation window) lands atomically with agent-prompt updates
+> and cross-repo consumer
 > updates (vox's music-player applet, z-spec's lux renderer). The
 > CLI's `--as/--kind/--name/--repo/--agent` flags declare per-
 > invocation identity — the caller BEING that identity for the
@@ -732,36 +746,24 @@ implemented, matching the existing DES-NNN format.
 
 ## Decisions requiring operator ratification
 
-The seven positions in the epic body are already ratified. The three
-grey-area rulings are ratified per §Grey-area rulings. The 23 MCP
-rename map is prior-conversation agreement.
+The seven positions in the epic body are ratified. The three
+grey-area rulings are ratified per §Grey-area rulings. The MCP
+rename map is prior-conversation agreement (26 renames + 3
+fuse-renames + 2 net-new tools per §The MCP rename train, after
+round-2 amendments F1–F4 from the mdm evaluator review). Local
+Decisions A (fuse get/set into one tool per concern) and B
+(introduce `menu_get`) are ratified as-is (mdm concurred in
+round 2).
 
-Two additional local design choices this mission made — both
-recommended, both defensible without further escalation, both flagged
-here so the leader can escalate if the ruling should be otherwise:
+No open decisions remain for operator ratification. Round-2
+amendments F1–F4 (from `/Users/jfreeman/Coding/punt-labs/lux/.tmp/
+missions/results/m-2026-08-18-002-mdm-eval.md`) are folded in:
 
-**Local Decision A: fuse the get/set pairs into one MCP tool per
-concern (`display_theme`, `display_window`, `display_mode`).** The
-existing surface has `get_theme` / `set_theme` as two tools; the
-noun-first vocabulary reads more naturally as one tool that lists on
-absence and sets on presence — matching how vox's `mic:model`,
-`mic:provider`, and `mic:voice` already work (`../vox/src/punt_vox/
-server_switches.py`). Recommend fuse. Alternative: keep the pair
-(`display_theme_get` / `display_theme_set`) — rejected because it
-duplicates the vox shape without a reason. Trade-off I cannot resolve
-alone: none — this is a design-consistency call and the vox precedent
-is direct.
-
-**Local Decision B: introduce `menu_get` (new MCP tool, no old
-counterpart).** The vocabulary is symmetric — `menu_ls` returns all
-entries, `menu_get` returns one — but today the MCP surface has no
-`menu_get` tool; callers who want one entry list all and filter
-locally. Recommend introduce. Alternative: leave the gap and let
-`menu_ls` be the only read verb — rejected because it fails the
-"symmetry across nouns" rule the vocabulary sets (every other noun
-that lists also individually retrieves), for no cost saving worth the
-inconsistency. Trade-off I cannot resolve alone: none.
-
-If either local decision is ruled the other way, the vocabulary table
-in §Vocabulary and the rename count in §The 23 MCP tool renames
-update to match; nothing else in the design changes.
+- **F1** — `lux scene clear-all` is its own CLI verb, restoring
+  parity with MCP's two-tool split.
+- **F2** — `ping` is a top-level diagnostics verb, not a `hub *`
+  member.
+- **F3** — `set_frame_state` splits into four verbs (`frame raise`,
+  `frame lower`, `frame close`, `frame expire`).
+- **F4** — `session show` renamed to `session inspect`, removing
+  the read/write overload on `show`.
