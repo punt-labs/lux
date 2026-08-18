@@ -215,28 +215,37 @@ for the four client surfaces plus the slash-command form. This is what
 | Stop luxd | `lux hub stop` | — | — | — | — |
 | Restart (rebuild + kick) | `lux hub restart` | — | — | — | — |
 | Status of the luxd process | `lux hub status` | — | — | — | — |
-| Ping the running luxd | `lux hub ping [--wait S]` | `hub_ping` (was `ping`) | `GET /ping` | `client.hub.ping(wait=None)` | `/lux:hub.ping` |
 
-`ping` is the one member of the `hub` group that is *not* admin — a
-liveness check is a legitimate operation for any client. The other
-`hub *` verbs run the process supervisor and never leave the CLI.
+The `hub *` group is purely admin: every verb in it runs the process
+supervisor and never leaves the CLI. `ping` — a client-legitimate
+liveness probe every agent uses — is not in the `hub` group; it is a
+top-level diagnostics verb alongside `doctor` and `version` (see
+below).
 
 ### Top-level singletons (no noun grouping)
 
 | Op | CLI | MCP | REST | Library | Slash |
 |---|---|---|---|---|---|
-| Enable lux in the current repo | `lux enable` | — | — | — | — |
-| Disable | `lux disable` | — | — | — | — |
-| Install machine-scoped (MCP registration) | `lux install` | — | — | — | — |
-| Uninstall machine-scoped | `lux uninstall` | — | — | — | — |
-| Start the MCP server (stdio) | `lux mcp` | — | — | — | — |
-| Health checks | `lux doctor` | — | — | — | — |
-| Print version | `lux version` / `--version` | — | — | — | — |
+| Ping the running luxd (diagnostics) | `lux ping [--wait S]` | `ping` (unchanged) | `GET /ping` | `client.ping(wait=None)` | `/lux:ping` |
+| Health checks (diagnostics) | `lux doctor` | — | — | — | — |
+| Print version (diagnostics) | `lux version` / `--version` | — | — | — | — |
+| Enable lux in the current repo (admin) | `lux enable` | — | — | — | — |
+| Disable (admin) | `lux disable` | — | — | — | — |
+| Install machine-scoped (MCP registration) (admin) | `lux install` | — | — | — | — |
+| Uninstall machine-scoped (admin) | `lux uninstall` | — | — | — | — |
+| Start the MCP server (stdio) (admin) | `lux mcp` | — | — | — | — |
 
-These are admin-tier per the admin/client split below. The
-`enable`/`disable` verbs are ratified admin per
-`punt-kit/standards/tool-enable-disable.md`; the CLI is their sole
-door.
+The top-level singletons split into two tiers. **Diagnostics**
+(`ping`, `doctor`, `version`) are legitimate operations for any
+caller; `ping` in particular is a health check every agent runs and
+lives on every client surface accordingly. **Admin** (`enable`,
+`disable`, `install`, `uninstall`, `mcp`) are CLI-only per
+`punt-kit/standards/tool-enable-disable.md` and the admin/client
+split below. `doctor` and `version` are CLI-only for a different
+reason — they are operator-facing summaries whose output shape is
+not useful to a programmatic caller — but the invariant is the
+same: no agent-turn is a legitimate caller of an operator-facing
+verb.
 
 ## The 23 MCP tool renames
 
@@ -302,9 +311,13 @@ admin verbs run by an operator or a hook, not by an agent-turn.
 Exposing them on MCP would recreate the "superuser MCP surface"
 DES-086 Decision 5 forbids.
 
-`hub ping` is the one member of the `hub` group that is *not* admin —
-a liveness probe is a legitimate operation for any client, and it
-appears on every surface as noted above.
+The `hub *` group is purely admin. `ping` — the one liveness probe
+every agent legitimately uses — is a top-level diagnostics verb, not
+a `hub` verb; grouping it under `hub` would put a client-legitimate
+operation inside an admin group and confuse the mental model. It
+appears on every client surface as `lux ping` / `ping` /
+`GET /ping` / `client.ping(...)` / `/lux:ping` per §Top-level
+singletons.
 
 ## Grey-area rulings
 
