@@ -12,15 +12,12 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Self, final
 
-import pytest
-
 from punt_lux.commands import Ctx, ping
-from punt_lux.commands._result import CommandResult
-from punt_lux.commands.ping import PingCommand
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.operations import OpError, Pong
 
 if TYPE_CHECKING:
+    from punt_lux.commands._result import CommandResult
     from punt_lux.operations.models.common import OpErrorCode
 
 
@@ -109,24 +106,32 @@ def test_ping_display_unavailable_renders_not_running() -> None:
     assert result.error is True
 
 
-def test_to_operation_recovers_pong_from_success_envelope() -> None:
-    result, _ = _run(Pong(rtt_seconds=0.017))
+def test_execute_returns_the_typed_pong_with_no_envelope() -> None:
+    ops = _StubOps(Pong(rtt_seconds=0.017))
+    ctx = Ctx(ops=ops, identity=_identity())
 
-    recovered = PingCommand.to_operation(result)
+    result = asyncio.run(ping.execute(ctx))
 
-    assert recovered == Pong(rtt_seconds=0.017)
-
-
-def test_to_operation_recovers_op_error_from_error_envelope() -> None:
-    result, _ = _run(OpError(code="timeout", reason="slow display"))
-
-    recovered = PingCommand.to_operation(result)
-
-    assert recovered == OpError(code="timeout", reason="slow display")
+    assert result == Pong(rtt_seconds=0.017)
 
 
-def test_to_operation_rejects_a_result_with_no_json_data() -> None:
-    foreign = CommandResult(text="not from PingCommand")
+def test_execute_returns_the_typed_op_error_with_no_envelope() -> None:
+    ops = _StubOps(OpError(code="timeout", reason="slow display"))
+    ctx = Ctx(ops=ops, identity=_identity())
 
-    with pytest.raises(ValueError, match="not a PingCommand result"):
-        PingCommand.to_operation(foreign)
+    result = asyncio.run(ping.execute(ctx))
+
+    assert result == OpError(code="timeout", reason="slow display")
+
+
+def test_call_renders_execute_into_the_shared_envelope() -> None:
+    # __call__ is execute() plus the rendering __call__ layers on top -- this
+    # pins that relationship so a future change to one cannot silently drift
+    # from the other.
+    ops = _StubOps(Pong(rtt_seconds=0.017))
+    ctx = Ctx(ops=ops, identity=_identity())
+
+    result = asyncio.run(ping(ctx))
+
+    assert result.text == "pong rtt=0.017s"
+    assert result.json_data == {"rtt_seconds": 0.017}

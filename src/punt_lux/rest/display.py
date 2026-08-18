@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Annotated, Self, final
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 
 from punt_lux.commands import Ctx as CommandCtx, ping as ping_command
-from punt_lux.commands.ping import PingCommand
 from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.identity_headers import ClientHeaders
 from punt_lux.operations import (
     DisplayInfo,
     FrameRaise,
@@ -28,7 +28,11 @@ if TYPE_CHECKING:
     from punt_lux.operations import Operations
     from punt_lux.rest.status import HttpErrorMap
 
-_REST_APP = ClientIdentity(kind="app", name="luxd")
+# A read route's fallback when the caller sent no (or a malformed)
+# X-Lux-Client-* declaration. Honestly labeled as an anonymous caller, never
+# "luxd" -- luxd is the app itself, never a caller of its own REST surface,
+# and every real declaration ClientHeaders.identity_from parses wins over it.
+_ANONYMOUS_REST = ClientIdentity(kind="cli", name="rest-anonymous")
 
 __all__ = ["DisplayRoutes"]
 
@@ -119,11 +123,19 @@ class DisplayRoutes:
         """Refuse the screenshot: framebuffer capture is unsupported (DES-028)."""
         return self._errors.respond(self._ops.screenshot())
 
-    async def ping(self, timeout: _PingTimeout = None) -> Pong:
-        """Round-trip a ping via PingCommand and return the typed result."""
-        ctx = CommandCtx(ops=self._ops, identity=_REST_APP)
-        result = await ping_command(ctx, timeout)
-        return self._errors.respond(PingCommand.to_operation(result))
+    async def ping(self, request: Request, timeout: _PingTimeout = None) -> Pong:
+        """Round-trip a ping via PingCommand and return the typed result.
+
+        A ping never owns Hub state, so a caller with no ``X-Lux-Client-*``
+        declaration is not challenged the way a write is — it resolves to
+        ``_ANONYMOUS_REST`` rather than luxd's own identity, honestly
+        distinct from every real caller ``ClientHeaders.identity_from``
+        recovers from a declared request.
+        """
+        identity = ClientHeaders.identity_from(request.headers) or _ANONYMOUS_REST
+        ctx = CommandCtx(ops=self._ops, identity=identity)
+        result = await ping_command.execute(ctx, timeout)
+        return self._errors.respond(result)
 
     def list_recent_events(self, count: _EventCount = 50) -> RecentEvents:
         """Return the display's recent interactions, proxied."""

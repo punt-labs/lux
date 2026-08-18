@@ -947,3 +947,5 @@
 {"ts":"2026-08-18T07:21:00Z","commit":"dbe2120f","files_scored":516,"files_improved":0,"files_regressed":5,"verdict":"fail","deltas":{}}
 {"ts":"2026-08-18T07:22:55Z","commit":"dbe2120f","files_scored":516,"files_improved":0,"files_regressed":3,"verdict":"fail","deltas":{}}
 {"ts":"2026-08-18T07:23:07Z","commit":"dbe2120f","files_scored":516,"files_improved":0,"files_regressed":2,"verdict":"fail","deltas":{}}
+{"ts":"2026-08-18T07:45:10Z","commit":"76ce5267","files_scored":516,"files_improved":1,"files_regressed":7,"verdict":"fail","deltas":{"src/punt_lux/__main__.py":{"module_size":[297.0,294.0]}}}
+{"ts":"2026-08-18T07:45:28Z","commit":"76ce5267","files_scored":516,"files_improved":0,"files_regressed":2,"verdict":"fail","deltas":{}}

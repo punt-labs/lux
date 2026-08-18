@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.hub_composition import HubComposition
 from punt_lux.operations import (
@@ -30,6 +31,7 @@ __all__ = [
     "_format_display_mode",
     "_format_render",
     "_format_update",
+    "_identity",
     "_scope",
 ]
 
@@ -49,6 +51,22 @@ def _connection_id() -> ConnectionId:
 def _scope() -> Scope:
     """Resolve the calling MCP session's operation scope."""
     return Scope(_connection_id())
+
+
+def _identity() -> ClientIdentity:
+    """Resolve the calling MCP session's identity for the commands layer's Ctx.
+
+    A session that has already called ``identify`` gets that declaration back.
+    One that has not yet declared itself is a real, honest state (DES-057) --
+    it resolves to an ``mcp-session`` identity named after its own connection,
+    distinct from every other session's, rather than a shared stand-in that
+    would collapse every unidentified caller into one bucket.
+    """
+    scope = _scope()
+    declared = OPERATIONS.identity_of(scope=scope)
+    if declared is not None:
+        return declared
+    return ClientIdentity(kind="mcp-session", name=f"mcp:{scope.connection_id}")
 
 
 def _format_render(result: SceneShown | OpError) -> str:

@@ -7,10 +7,9 @@ isolated store; the pattern is shared with ``composite_tools``.
 
 from __future__ import annotations
 
-import asyncio
+from fastmcp.exceptions import ToolError
 
 from punt_lux.commands import Ctx as CommandCtx, ping as ping_command
-from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.operations import (
     ClientList,
     DisplayInfo,
@@ -42,14 +41,14 @@ __all__ = [
 ]
 
 
-_HUB_APP = ClientIdentity(kind="app", name="luxd")
-
-
 @mcp.tool()
-def ping() -> str:
-    """Ping the display server. Returns round-trip time, "timeout", or "not running"."""
-    ctx = CommandCtx(ops=_core.OPERATIONS, identity=_HUB_APP)
-    return asyncio.run(ping_command(ctx)).text
+async def ping() -> str:
+    """Ping the display server. Returns round-trip time, or raises on failure."""
+    ctx = CommandCtx(ops=_core.OPERATIONS, identity=_core._identity())
+    result = await ping_command(ctx)
+    if result.error:
+        raise ToolError(result.text)
+    return result.text
 
 
 @mcp.tool()

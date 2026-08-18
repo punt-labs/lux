@@ -150,16 +150,15 @@ def ping(
 
     ``--timeout`` (0.1-30s) is the real display-leg budget over luxd's REST API;
     the HTTP round-trip sits a margin above it, so a slow display reports "timeout".
-    Routes through the shared ``ping`` command singleton; recovers the typed
-    result to keep the CLI's own two-way status line (unlike MCP/REST's three-way).
+    Routes through the shared ``ping`` command singleton and prints its rendered
+    line directly — the same three-way status ("not running" / "timeout" /
+    "error: <reason>") the MCP tool and REST route report, on one code path.
     """
     import asyncio
 
     from punt_lux.cli_identity import CliIdentity
     from punt_lux.commands import Ctx as CommandCtx, ping as ping_command
-    from punt_lux.commands.ping import PingCommand
     from punt_lux.domain.hub.display_link import DEFAULT_RECV_TIMEOUT
-    from punt_lux.operations import OpError
     from punt_lux.rest_client import LuxRestClient
     from punt_lux.rest_transport import HubUnavailableError
 
@@ -173,15 +172,13 @@ def ping(
         raise typer.Exit(code=1) from None
 
     ctx = CommandCtx(ops=client, identity=CliIdentity.resolve())
-    command_result = asyncio.run(ping_command(ctx, timeout))
-    result = PingCommand.to_operation(command_result)
+    result = asyncio.run(ping_command(ctx, timeout))
 
-    if isinstance(result, OpError):
-        down = result.code == "display_unavailable"
-        typer.echo("Display not running" if down else "timeout", err=True)
-        raise typer.Exit(code=1)
+    if result.error:
+        typer.echo(result.text, err=True)
+        raise typer.Exit(code=result.exit_code)
 
-    typer.echo(f"pong rtt={result.rtt_seconds:.3f}s")
+    typer.echo(result.text)
 
 
 @app.command()
