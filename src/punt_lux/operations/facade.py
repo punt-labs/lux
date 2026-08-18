@@ -24,6 +24,7 @@ from punt_lux.operations.timing import Timed
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.callback_hold import CallbackRouter
+    from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.domain.hub.clients import ClientRegistry
     from punt_lux.domain.hub.hub import Hub
     from punt_lux.domain.hub.hub_display import HubDisplay
@@ -316,6 +317,10 @@ class Operations:
     ) -> Identified | OpError:
         """Record the caller's declared identity, or reject a malformed one."""
         return self._identity.identify(declaration, scope=scope)
+
+    def identity_of(self, *, scope: Scope) -> ClientIdentity | None:
+        """Return the identity already declared for ``scope``, or ``None``."""
+        return self._identity.current(scope)
 
     def drop_session(self) -> None:
         """Re-push the menu after a session departs so its submenu vanishes."""

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from fastmcp.exceptions import ToolError
 
 from .exerciser import ToolCallError, ToolExerciser
 
@@ -39,8 +40,8 @@ class TestPing:
         assert result == "pong rtt=0.000s"
 
     def test_not_running(self) -> None:
-        result = ToolExerciser.call("ping", {}, {"display_running": False})
-        assert result == "not running"
+        with pytest.raises(ToolError, match="not running"):
+            ToolExerciser.call("ping", {}, {"display_running": False})
 
 
 class TestShow:

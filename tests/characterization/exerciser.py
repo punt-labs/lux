@@ -41,9 +41,10 @@ shaping a wrong-but-stable snapshot.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import unittest.mock as mock
-from collections.abc import Callable, Generator, Mapping
+from collections.abc import Callable, Coroutine, Generator, Mapping
 from typing import Any, ClassVar
 
 from punt_lux import tools as tools_pkg
@@ -215,6 +216,8 @@ class ToolExerciser:
         fn = cls._resolve(tool)
         with cls._apply_setup(setup):
             response = fn(**inputs)
+            if isinstance(response, Coroutine):
+                response = asyncio.run(response)
         if not isinstance(response, str):
             msg = f"tool {tool!r} returned non-string: {type(response).__name__}"
             raise ToolCallError(msg)

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastmcp.exceptions import ToolError
 
 from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.hub import client_registry, hub
@@ -1610,7 +1612,7 @@ class TestPingTool:
         client.ping.return_value = PongMessage(ts=1000.0, display_ts=1000.005)
         mock_get.return_value = client
 
-        result = ping()
+        result = asyncio.run(ping())
         assert result == "pong rtt=0.042s"
 
     @patch("punt_lux.domain.hub.clients.client_registry.get")
@@ -1620,8 +1622,8 @@ class TestPingTool:
         client.ping.return_value = None
         mock_get.return_value = client
 
-        result = ping()
-        assert result == "timeout"
+        with pytest.raises(ToolError, match="timeout"):
+            asyncio.run(ping())
 
 
 class TestRecvTool:
@@ -1782,9 +1784,8 @@ class TestPingNoAutoSpawn:
     def test_ping_not_running(
         self, mock_running: MagicMock, mock_get: MagicMock
     ) -> None:
-
-        result = ping()
-        assert result == "not running"
+        with pytest.raises(ToolError, match="not running"):
+            asyncio.run(ping())
         mock_get.assert_not_called()
 
     @patch("punt_lux.operations.display_connection.time")
@@ -1801,7 +1802,7 @@ class TestPingNoAutoSpawn:
         client.ping.return_value = PongMessage(ts=1000.0, display_ts=1000.005)
         mock_get.return_value = client
 
-        result = ping()
+        result = asyncio.run(ping())
         assert result == "pong rtt=0.042s"
 
 

@@ -104,14 +104,15 @@ class TestPing:
     @pytest.mark.parametrize(
         ("code", "line"),
         [
-            ("display_unavailable", "Display not running"),
+            ("display_unavailable", "not running"),
             ("timeout", "timeout"),
-            ("fault", "timeout"),
+            ("fault", "error: x"),
         ],
     )
     def test_ping_maps_op_error_to_a_status_line(self, code: str, line: str) -> None:
-        # A down display reads "Display not running"; every other reachable-luxd
-        # failure (timeout, fault) reads "timeout". Both exit 1.
+        # The CLI converges on the shared command's three-way status line — the
+        # same one the MCP tool and REST route report — rather than a bespoke
+        # two-way mapping of its own.
         from punt_lux.operations import OpError
 
         with patch(

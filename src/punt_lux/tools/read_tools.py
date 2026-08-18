@@ -1,19 +1,15 @@
 """The read-only MCP tools — introspection and display getters.
 
-These answer questions without changing state: the scene tree and its painted
-geometry, the live scenes/clients/menus, the display's metadata and settings, and
-its recent-event and error ring buffers. They are split from the write tools in
-``tools`` so neither module carries the whole surface.
-
-``_core.OPERATIONS`` and the shared formatters are read at call time, never
-imported by value: the characterization corpus rebinds
-``punt_lux.tools.tools.OPERATIONS`` to route at an isolated store, and a
-value-import would freeze the production facade past that rebind (the shape
-``composite_tools`` established).
+``_core.OPERATIONS`` is read at call time (never imported by value), so the
+characterization corpus can rebind ``punt_lux.tools.tools.OPERATIONS`` at an
+isolated store; the pattern is shared with ``composite_tools``.
 """
 
 from __future__ import annotations
 
+from fastmcp.exceptions import ToolError
+
+from punt_lux.commands import Ctx as CommandCtx, ping as ping_command
 from punt_lux.operations import (
     ClientList,
     DisplayInfo,
@@ -46,11 +42,13 @@ __all__ = [
 
 
 @mcp.tool()
-def ping() -> str:
-    """Ping the display server. Returns round-trip time, "timeout", or "not running"."""
-    return _core._fault_or(
-        _core.OPERATIONS.ping(), lambda r: f"pong rtt={r.rtt_seconds:.3f}s"
-    )
+async def ping() -> str:
+    """Ping the display server. Returns round-trip time, or raises on failure."""
+    ctx = CommandCtx(ops=_core.OPERATIONS, identity=_core._identity())
+    result = await ping_command(ctx)
+    if result.error:
+        raise ToolError(result.text)
+    return result.text
 
 
 @mcp.tool()

@@ -1,18 +1,14 @@
-"""The display routes — facts about, and settings of, the running display.
-
-The Hub cannot own an ImGui theme, a window's opacity, a GPU backend string, a
-framebuffer, a frame's transient minimize state, or the display's own ring
-buffers. These operations proxy over luxd's one connection; the caller still
-enters through a Hub operation, so there is one code path. Each handler binds its
-request, calls one operation, and maps the result.
-"""
+"""The display routes -- proxy display-process facts over luxd's one connection."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Annotated, Self, final
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 
+from punt_lux.commands import Ctx as CommandCtx, ping as ping_command
+from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.identity_headers import ClientHeaders
 from punt_lux.operations import (
     DisplayInfo,
     FrameRaise,
@@ -31,6 +27,12 @@ from punt_lux.operations import (
 if TYPE_CHECKING:
     from punt_lux.operations import Operations
     from punt_lux.rest.status import HttpErrorMap
+
+# A read route's fallback when the caller sent no (or a malformed)
+# X-Lux-Client-* declaration. Honestly labeled as an anonymous caller, never
+# "luxd" -- luxd is the app itself, never a caller of its own REST surface,
+# and every real declaration ClientHeaders.identity_from parses wins over it.
+_ANONYMOUS_REST = ClientIdentity(kind="cli", name="rest-anonymous")
 
 __all__ = ["DisplayRoutes"]
 
@@ -118,21 +120,22 @@ class DisplayRoutes:
         return self._errors.respond(self._ops.raise_frame(frame_id))
 
     def screenshot(self) -> Screenshot:
-        """Refuse the screenshot: framebuffer capture is unsupported (DES-028).
-
-        Capture is unresolved below the message layer, so the operation rejects up
-        front and this route answers 409 rather than returning an image path. It
-        will capture once DES-028 is resolved.
-        """
+        """Refuse the screenshot: framebuffer capture is unsupported (DES-028)."""
         return self._errors.respond(self._ops.screenshot())
 
-    def ping(self, timeout: _PingTimeout = None) -> Pong:
-        """Round-trip a ping and return the elapsed time.
+    async def ping(self, request: Request, timeout: _PingTimeout = None) -> Pong:
+        """Round-trip a ping via PingCommand and return the typed result.
 
-        ``timeout`` bounds the display-ping wait; omitted uses the standing
-        display budget.
+        A ping never owns Hub state, so a caller with no ``X-Lux-Client-*``
+        declaration is not challenged the way a write is — it resolves to
+        ``_ANONYMOUS_REST`` rather than luxd's own identity, honestly
+        distinct from every real caller ``ClientHeaders.identity_from``
+        recovers from a declared request.
         """
-        return self._errors.respond(self._ops.ping(timeout))
+        identity = ClientHeaders.identity_from(request.headers) or _ANONYMOUS_REST
+        ctx = CommandCtx(ops=self._ops, identity=identity)
+        result = await ping_command.execute(ctx, timeout)
+        return self._errors.respond(result)
 
     def list_recent_events(self, count: _EventCount = 50) -> RecentEvents:
         """Return the display's recent interactions, proxied."""
