@@ -255,23 +255,27 @@ below).
 | Ping the running luxd (diagnostics) | `lux ping [--wait S]` | `ping` (unchanged) | `GET /ping` | `client.ping(wait=None)` | `/lux:ping` |
 | Health checks (diagnostics) | `lux doctor` | — | — | — | — |
 | Print version (diagnostics) | `lux version` / `--version` | — | — | — | — |
-| Enable lux in the current repo (admin) | `lux enable` | — | — | — | — |
-| Disable (admin) | `lux disable` | — | — | — | — |
+| Enable lux in the current repo (per-repo integration) | `lux enable` | — (not yet built; see below) | — | — | — (not yet built) |
+| Disable (per-repo integration) | `lux disable` | — (not yet built; see below) | — | — | — (not yet built) |
 | Install machine-scoped (MCP registration) (admin) | `lux install` | — | — | — | — |
 | Uninstall machine-scoped (admin) | `lux uninstall` | — | — | — | — |
 | Start the MCP server (stdio) (admin) | `lux mcp` | — | — | — | — |
 
-The top-level singletons split into two tiers. **Diagnostics**
+The top-level singletons split into three tiers. **Diagnostics**
 (`ping`, `doctor`, `version`) are legitimate operations for any
 caller; `ping` in particular is a health check every agent runs and
-lives on every client surface accordingly. **Admin** (`enable`,
-`disable`, `install`, `uninstall`, `mcp`) are CLI-only per
-`punt-kit/standards/tool-enable-disable.md` and the admin/client
-split below. `doctor` and `version` are CLI-only for a different
-reason — they are operator-facing summaries whose output shape is
-not useful to a programmatic caller — but the invariant is the
-same: no agent-turn is a legitimate caller of an operator-facing
-verb.
+lives on every client surface accordingly. `doctor` and `version` are
+CLI-only for a different reason than the admin tier below — they are
+operator-facing summaries whose output shape is not useful to a
+programmatic caller. **Per-repo integration** (`enable`, `disable`)
+is its own tier per `punt-kit/standards/tool-enable-disable.md` and
+the admin/client split below — not admin, not ordinary client
+vocabulary. Lux implements it CLI-only today; bringing it to
+MCP/slash/library to match vox's shipped pattern is tracked as
+follow-on work, not invented in this design. **Admin** (`install`,
+`uninstall`, `mcp`) are CLI-only per `python.md`'s admin-verb rule and
+the admin/client split below — no agent-turn is a legitimate caller
+of a process-supervision or install verb.
 
 ## The MCP rename train
 
@@ -339,15 +343,27 @@ also where DES-086 identity scoping applies — every write and every
 content read is caller-scoped.
 
 **Admin tier** — the `hub install|uninstall|start|stop|restart|status`
-group and the top-level singletons `enable`, `disable`, `install`,
-`uninstall`, `mcp`, `doctor`, `version`. These run process
-supervision, install/uninstall machine-scoped registrations, and
-manage per-repo enablement. The CLI is their *sole* client surface.
-They are absent from MCP by construction: `python.md` and
-`tool-enable-disable.md` both say `install`/`enable`/`doctor` are
-admin verbs run by an operator or a hook, not by an agent-turn.
+group and the top-level singletons `install`, `uninstall`, `mcp`,
+`doctor`, `version`. These run process supervision and
+install/uninstall machine-scoped registrations. The CLI is their
+*sole* client surface. They are absent from MCP by construction:
+`python.md` and `tool-enable-disable.md` both say `install`/`doctor`
+are admin verbs run by an operator or a hook, not by an agent-turn.
 Exposing them on MCP would recreate the "superuser MCP surface"
 DES-086 Decision 5 forbids.
+
+**Per-repo integration tier (`enable`/`disable`)** — its own tier,
+orthogonal to the admin/client split above, defined in full by
+`punt-kit/standards/tool-enable-disable.md`. Enablement is not
+process supervision (it never installs or uninstalls the tool, and it
+never touches a machine-scoped registration) and it is not ordinary
+client vocabulary (it toggles a per-repo marker, not an engine
+operation on caller-scoped state). Every Punt Labs tool implements it
+across the surfaces that standard defines — today CLI + MCP + slash +
+library, per vox's shipped pattern (`vox enable`/`vox disable` on the
+CLI, `mic:enablement action="enable"` on MCP, `/vox enable` as a
+slash command). `lux enable` / `lux disable` follow that same
+pattern; they are not confined to the CLI.
 
 The `hub *` group is purely admin. `ping` — the one liveness probe
 every agent legitimately uses — is a top-level diagnostics verb, not
@@ -514,10 +530,9 @@ times.
 
 Every operation on every client surface gets a slash-command
 equivalent — with three considered exceptions. The slash surface is
-the one lux has not yet aligned; today `.punt-labs/lux/commands/`
-carries a curated four (`lux:beads`, `lux:dashboard`,
-`lux:data-explorer`, `lux:beads`). Under this epic it grows to a
-per-noun-verb catalog matching the MCP tool set, minus the
+the one lux has not yet aligned; today `skills/` carries a curated
+three (`beads`, `dashboard`, `data-explorer`). Under this epic it
+grows to a per-noun-verb catalog matching the MCP tool set, minus the
 exceptions.
 
 ### Considered exceptions
@@ -531,10 +546,13 @@ Three operations have no slash equivalent, with stated reasons:
 | `callback register` | Callback registration is a programmatic step of hosting a menu entry; a slash form has no meaningful ergonomics because the caller has to provide the callback id (opaque) and the label (only meaningful in the context of a running applet). Slash surface is for user-typed operations, not agent-programmatic ones. |
 
 Every admin-tier operation (`hub install|uninstall|start|stop|
-restart|status`, `enable`, `disable`, `install`, `uninstall`, `mcp`,
-`doctor`, `version`) is also absent from the slash surface — admin
-verbs run from a shell, not from a Claude Code prompt. This is the
-same rule that puts them off MCP; slash inherits.
+restart|status`, `install`, `uninstall`, `mcp`, `doctor`, `version`)
+is also absent from the slash surface — admin verbs run from a shell,
+not from a Claude Code prompt. This is the same rule that puts them
+off MCP; slash inherits. `enable`/`disable` are the per-repo
+integration tier, not admin (§Admin / client split); today they are
+CLI-only in lux, with MCP/slash/library parity tracked as follow-on
+work, so their absence here is a present-state gap, not a rule.
 
 The slash surface receives 29 new command definitions under `.6` —
 one per client-tier operation minus the three considered exceptions
@@ -545,15 +563,17 @@ Callback 1 (of 2), Display 5, Event 1, Error 1, plus top-level
 
 ### Skill vs slash
 
-Today's four `.punt-labs/lux/commands/` entries include skills
-(`lux:beads` — orchestrates several operations to render the beads
-board) and thin slashes (`lux:dashboard` — a single `show_dashboard`
-call). Under this epic, the *thin slashes* are auto-generated from
-the vocabulary (one per client-tier operation); the *skills* stay
-skill-shaped but move under noun groupings — `lux:beads` becomes a
-skill that lives alongside `/lux:scene.*` rather than at the top
-level, so a caller looking for "what can I do with a scene?"
-discovers both the primitives and the skills in one place.
+Today's three `skills/` entries are all skills — `beads` orchestrates
+several operations to render the beads board, `dashboard` composes a
+metrics/chart/table layout via `show`, and `data-explorer` composes a
+filter/table/detail layout via `show`. None of the three is a thin
+one-operation slash today. Under this epic, the *thin slashes* are
+auto-generated from the vocabulary (one per client-tier operation);
+the existing *skills* stay skill-shaped but move under noun
+groupings — `beads` becomes a skill that lives alongside
+`/lux:scene.*` rather than at the top level, so a caller looking for
+"what can I do with a scene?" discovers both the primitives and the
+skills in one place.
 
 ## Cross-repo notify plan
 
@@ -719,8 +739,13 @@ implemented, matching the existing DES-NNN format.
 > `session`, `topic`, `callback`, `display`, `event`, `error`,
 > `hub`) plus a small set of top-level singletons split into a
 > diagnostics tier (`ping`, `doctor`, `version`) and an admin tier
-> (`enable`, `disable`, `install`, `uninstall`, `mcp`). Every engine
-> operation appears on every client surface under the same name;
+> (`install`, `uninstall`, `mcp`). `enable`/`disable` are a separate,
+> third tier — per-repo tool integration, defined by
+> `punt-kit/standards/tool-enable-disable.md`, not folded into either
+> the admin tier or the client-vocabulary tier; every Punt Labs tool
+> implements it across CLI + MCP + slash + library per that standard.
+> Every engine operation appears on every client surface under the
+> same name;
 > each omission is a considered exception with a stated reason.
 > The DRY pivot is a new `src/punt_lux/commands/` package holding
 > one `@final` callable class per operation returning
@@ -778,8 +803,8 @@ Decisions A (fuse get/set into one tool per concern) and B
 round 2).
 
 No open decisions remain for operator ratification. Round-2
-amendments F1–F4 (from `/Users/jfreeman/Coding/punt-labs/lux/.tmp/
-missions/results/m-2026-08-18-002-mdm-eval.md`) are folded in:
+amendments F1–F4 (from the mdm evaluator's mission result,
+`.tmp/missions/results/m-2026-08-18-002-mdm-eval.md`) are folded in:
 
 - **F1** — `lux scene clear-all` is its own CLI verb, restoring
   parity with MCP's two-tool split.
