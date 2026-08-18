@@ -213,6 +213,17 @@ callable per verb, no `if state == ...` ladder inside the tool. See
 | Set/get window settings | `lux display window [<opts>]` | `display_window` (was `get_window_settings` / `set_window_settings` — fused) | `GET/PUT /display/window` | `client.display.window(opts=None)` | `/lux:display.window` |
 | Capture a per-frame screenshot | `lux display screenshot --frame <id>` | `display_screenshot` (was `screenshot`) | `GET /frames/{id}/screenshot` | `client.display.screenshot(frame)` | `/lux:display.screenshot` |
 
+> **`display screenshot` — surface parity ships; implementation
+> blocked.** The CLI, MCP, REST, library, and slash surfaces for
+> `display screenshot` land as part of this epic. The underlying
+> capture path is currently broken (returns
+> `"error: Use the dedicated screenshot_request message"`); root
+> cause and prior investigation are recorded at DES-028 and tracked
+> by bead `lux-olgj` (`AppWindowScreenshotRgbBuffer` exists in
+> hello_imgui but has no Python binding in `imgui-bundle` 1.92.600).
+> Callers invoking the surface today receive that error until
+> `lux-olgj` closes; the parity work does not wait on the fix.
+
 ### Event / Error (caller-scoped only)
 
 | Op | CLI | MCP tool | REST | Library | Slash |
@@ -642,6 +653,14 @@ CLI is itself a security invariant: no superuser MCP surface, ever.
   The direction of DES-055 (one code path) is preserved; the code
   path becomes one command instance per operation instead of one
   facade shape.
+- **DES-028 (`display screenshot` capture path).** Depended upon,
+  not modified. This epic ships the four-surface parity for
+  `display screenshot` (CLI + MCP + REST + library + slash) under
+  the noun-first vocabulary; the underlying capture path DES-028
+  documents remains broken until bead `lux-olgj` closes. Callers
+  invoking the surface today receive DES-028's stated error; the
+  parity work is not blocked on the fix and does not attempt one.
+  See the note-block under §Vocabulary (Display).
 
 ## Verification
 
