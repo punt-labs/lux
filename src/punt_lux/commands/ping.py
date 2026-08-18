@@ -1,25 +1,20 @@
-"""``ping`` -- round-trip a display ping and render the result envelope.
+"""``ping`` -- round-trip a display ping and render the shared result envelope.
 
-The command is a callable object (:class:`PingCommand`) so the four adapters
-share one instance and the ratchet counts the class-per-command shape the rest
-of the layer uses (vox reference: ``VoiceCommand``).
-
-Text shapes are chosen so the shipped MCP tool output stays byte-identical --
-``"pong rtt=0.042s"`` on success, ``"not running"`` when the display is down,
-``"timeout"`` when the round-trip elapsed. Any other engine error reads
-``"error: <reason>"``. The ``json_data`` envelope is the structured form the
-CLI's ``--json`` mode and the REST route consume.
+Text shapes match the shipped MCP tool byte-for-byte -- ``"pong rtt=X.XXXs"``,
+``"not running"``, ``"timeout"``, and ``"error: <reason>"`` -- so adapters that
+already print those lines pick up the command without changing output.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self, final
+from typing import TYPE_CHECKING, Self, cast, final
 
 from punt_lux.commands._result import CommandResult
-from punt_lux.operations import OpError
+from punt_lux.operations import OpError, Pong
 
 if TYPE_CHECKING:
     from punt_lux.commands._result import Ctx
+    from punt_lux.operations.models.common import OpErrorCode
 
 
 @final
@@ -32,15 +27,7 @@ class PingCommand:
         return super().__new__(cls)
 
     async def __call__(self, ctx: Ctx, wait: float | None = None) -> CommandResult:
-        """Round-trip ``ctx.ops.ping(wait)`` and render its outcome.
-
-        Success renders ``pong rtt={seconds:.3f}s`` (matching the shipped MCP
-        surface) with a ``{"rtt_seconds": float}`` envelope. Every error path
-        renders through :meth:`_render_error` so a display that is not running
-        reads ``"not running"``, a bounded round-trip that elapsed reads
-        ``"timeout"``, and anything else reads ``"error: <reason>"`` -- the
-        three status lines the MCP surface has always emitted.
-        """
+        """Round-trip ``ctx.ops.ping(wait)`` and render its outcome."""
         result = ctx.ops.ping(wait)
         if isinstance(result, OpError):
             return self._render_error(result)
@@ -50,13 +37,27 @@ class PingCommand:
         )
 
     @staticmethod
-    def _render_error(err: OpError) -> CommandResult:
-        """Render an ``OpError`` into a CommandResult with the shipped text lines.
+    def to_operation(result: CommandResult) -> Pong | OpError:
+        """Reconstruct the typed operation result from *result*'s envelope.
 
-        The three-way split (down / timeout / other) is the shipped MCP shape
-        pulled through the command layer so every adapter picks it up in one
-        place instead of copying the mapping three times.
+        Raises ``ValueError`` if *result* did not come from :class:`PingCommand`
+        -- every outcome ``__call__`` produces sets ``json_data``, so a missing
+        envelope means the caller passed a result this command never built.
         """
+        data = result.json_data
+        if data is None:
+            msg = "CommandResult has no json_data; not a PingCommand result"
+            raise ValueError(msg)
+        if result.error:
+            return OpError(
+                code=cast("OpErrorCode", data["code"]),
+                reason=str(data["reason"]),
+            )
+        return Pong(rtt_seconds=cast("float", data["rtt_seconds"]))
+
+    @staticmethod
+    def _render_error(err: OpError) -> CommandResult:
+        """Render an ``OpError`` into the CommandResult with the shipped text line."""
         if err.code == "display_unavailable":
             text = "not running"
         elif err.code == "timeout":

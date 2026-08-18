@@ -150,7 +150,14 @@ def ping(
 
     ``--timeout`` (0.1-30s) is the real display-leg budget over luxd's REST API;
     the HTTP round-trip sits a margin above it, so a slow display reports "timeout".
+    Routes through the shared ``ping`` command singleton; recovers the typed
+    result to keep the CLI's own two-way status line (unlike MCP/REST's three-way).
     """
+    import asyncio
+
+    from punt_lux.cli_identity import CliIdentity
+    from punt_lux.commands import Ctx as CommandCtx, ping as ping_command
+    from punt_lux.commands.ping import PingCommand
     from punt_lux.domain.hub.display_link import DEFAULT_RECV_TIMEOUT
     from punt_lux.operations import OpError
     from punt_lux.rest_client import LuxRestClient
@@ -160,10 +167,14 @@ def ping(
     http_timeout = display_wait + _PING_HTTP_MARGIN_SECONDS
 
     try:
-        result = LuxRestClient.connect(timeout=http_timeout).ping(timeout)
+        client = LuxRestClient.connect(timeout=http_timeout)
     except HubUnavailableError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from None
+
+    ctx = CommandCtx(ops=client, identity=CliIdentity.resolve())
+    command_result = asyncio.run(ping_command(ctx, timeout))
+    result = PingCommand.to_operation(command_result)
 
     if isinstance(result, OpError):
         down = result.code == "display_unavailable"

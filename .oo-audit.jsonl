@@ -943,3 +943,7 @@
 {"ts":"2026-08-18T04:25:05Z","commit":"80e0fa54","files_scored":516,"files_improved":1,"files_regressed":3,"verdict":"fail","deltas":{"src/punt_lux/tools/read_tools.py":{"module_size":[121.0,120.0]}}}
 {"ts":"2026-08-18T04:28:03Z","commit":"80e0fa54","files_scored":516,"files_improved":2,"files_regressed":2,"verdict":"fail","deltas":{"src/punt_lux/tools/read_tools.py":{"module_size":[120.0,118.0]},"src/punt_lux/tools/tools.py":{"module_size":[80.0,77.0]}}}
 {"ts":"2026-08-18T04:28:22Z","commit":"80e0fa54","files_scored":516,"files_improved":0,"files_regressed":2,"verdict":"fail","deltas":{}}
+{"ts":"2026-08-18T07:19:25Z","commit":"dbe2120f","files_scored":516,"files_improved":1,"files_regressed":5,"verdict":"fail","deltas":{"src/punt_lux/rest/display.py":{"module_size":[116.0,109.0]}}}
+{"ts":"2026-08-18T07:21:00Z","commit":"dbe2120f","files_scored":516,"files_improved":0,"files_regressed":5,"verdict":"fail","deltas":{}}
+{"ts":"2026-08-18T07:22:55Z","commit":"dbe2120f","files_scored":516,"files_improved":0,"files_regressed":3,"verdict":"fail","deltas":{}}
+{"ts":"2026-08-18T07:23:07Z","commit":"dbe2120f","files_scored":516,"files_improved":0,"files_regressed":2,"verdict":"fail","deltas":{}}

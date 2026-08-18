@@ -1,11 +1,4 @@
-"""The display routes — facts about, and settings of, the running display.
-
-The Hub cannot own an ImGui theme, a window's opacity, a GPU backend string, a
-framebuffer, a frame's transient minimize state, or the display's own ring
-buffers. These operations proxy over luxd's one connection; the caller still
-enters through a Hub operation, so there is one code path. Each handler binds its
-request, calls one operation, and maps the result.
-"""
+"""The display routes -- proxy display-process facts over luxd's one connection."""
 
 from __future__ import annotations
 
@@ -13,6 +6,9 @@ from typing import TYPE_CHECKING, Annotated, Self, final
 
 from fastapi import APIRouter, Query
 
+from punt_lux.commands import Ctx as CommandCtx, ping as ping_command
+from punt_lux.commands.ping import PingCommand
+from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.operations import (
     DisplayInfo,
     FrameRaise,
@@ -31,6 +27,8 @@ from punt_lux.operations import (
 if TYPE_CHECKING:
     from punt_lux.operations import Operations
     from punt_lux.rest.status import HttpErrorMap
+
+_REST_APP = ClientIdentity(kind="app", name="luxd")
 
 __all__ = ["DisplayRoutes"]
 
@@ -118,21 +116,14 @@ class DisplayRoutes:
         return self._errors.respond(self._ops.raise_frame(frame_id))
 
     def screenshot(self) -> Screenshot:
-        """Refuse the screenshot: framebuffer capture is unsupported (DES-028).
-
-        Capture is unresolved below the message layer, so the operation rejects up
-        front and this route answers 409 rather than returning an image path. It
-        will capture once DES-028 is resolved.
-        """
+        """Refuse the screenshot: framebuffer capture is unsupported (DES-028)."""
         return self._errors.respond(self._ops.screenshot())
 
-    def ping(self, timeout: _PingTimeout = None) -> Pong:
-        """Round-trip a ping and return the elapsed time.
-
-        ``timeout`` bounds the display-ping wait; omitted uses the standing
-        display budget.
-        """
-        return self._errors.respond(self._ops.ping(timeout))
+    async def ping(self, timeout: _PingTimeout = None) -> Pong:
+        """Round-trip a ping via PingCommand and return the typed result."""
+        ctx = CommandCtx(ops=self._ops, identity=_REST_APP)
+        result = await ping_command(ctx, timeout)
+        return self._errors.respond(PingCommand.to_operation(result))
 
     def list_recent_events(self, count: _EventCount = 50) -> RecentEvents:
         """Return the display's recent interactions, proxied."""

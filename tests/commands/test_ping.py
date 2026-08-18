@@ -12,12 +12,15 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Self, final
 
+import pytest
+
 from punt_lux.commands import Ctx, ping
+from punt_lux.commands._result import CommandResult
+from punt_lux.commands.ping import PingCommand
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.operations import OpError, Pong
 
 if TYPE_CHECKING:
-    from punt_lux.commands._result import CommandResult
     from punt_lux.operations.models.common import OpErrorCode
 
 
@@ -104,3 +107,26 @@ def test_ping_display_unavailable_renders_not_running() -> None:
 
     assert result.text == "not running"
     assert result.error is True
+
+
+def test_to_operation_recovers_pong_from_success_envelope() -> None:
+    result, _ = _run(Pong(rtt_seconds=0.017))
+
+    recovered = PingCommand.to_operation(result)
+
+    assert recovered == Pong(rtt_seconds=0.017)
+
+
+def test_to_operation_recovers_op_error_from_error_envelope() -> None:
+    result, _ = _run(OpError(code="timeout", reason="slow display"))
+
+    recovered = PingCommand.to_operation(result)
+
+    assert recovered == OpError(code="timeout", reason="slow display")
+
+
+def test_to_operation_rejects_a_result_with_no_json_data() -> None:
+    foreign = CommandResult(text="not from PingCommand")
+
+    with pytest.raises(ValueError, match="not a PingCommand result"):
+        PingCommand.to_operation(foreign)
