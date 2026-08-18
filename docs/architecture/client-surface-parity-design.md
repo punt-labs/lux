@@ -154,7 +154,20 @@ for the four client surfaces plus the slash-command form. This is what
 
 | Op | CLI | MCP tool | REST | Library | Slash |
 |---|---|---|---|---|---|
-| Change a frame's state (raise/lower/close/expire) | `lux frame set-state <id> <state>` | `frame_set_state` (was `set_frame_state`) | `PUT /frames/{id}/state` | `client.frame.set_state(id, state)` | `/lux:frame.set-state` |
+| Raise a frame to the top | `lux frame raise <id>` | `frame_raise` (was `set_frame_state` w/ `state=raised`) | `POST /frames/{id}/raise` | `client.frame.raise_(id)` | `/lux:frame.raise` |
+| Lower a frame below its peers | `lux frame lower <id>` | `frame_lower` (was `set_frame_state` w/ `state=lowered`) | `POST /frames/{id}/lower` | `client.frame.lower(id)` | `/lux:frame.lower` |
+| Close a frame | `lux frame close <id>` | `frame_close` (was `set_frame_state` w/ `state=closed`) | `POST /frames/{id}/close` | `client.frame.close(id)` | `/lux:frame.close` |
+| Expire a frame (schedule TTL) | `lux frame expire <id> [--in S]` | `frame_expire` (was `set_frame_state` w/ `state=expired`) | `POST /frames/{id}/expire` | `client.frame.expire(id, in_=None)` | `/lux:frame.expire` |
+
+The `set-state` discriminator setter — `frame_set_state(id, state)`
+where `state` is one of four literals — collapses four verbs into one
+tool with a `Literal[...]` parameter. Four explicit verbs read
+cleaner on every surface: an agent raises a frame the same way a user
+raises a window; the CLI reads `lux frame raise <id>` rather than the
+Java-style `lux frame set-state <id> raised`. This is also the shape
+that plays best with the DES-058/DES-067 handler dispatch — one
+callable per verb, no `if state == ...` ladder inside the tool. See
+§Rationale below for the alternative rejected.
 
 ### Menu
 
@@ -263,7 +276,10 @@ old-name → new-name with no alias, per position 6.
 | 6 | `list_scenes` | `scene_ls` |
 | 7 | `show_table` | `scene_table` |
 | 8 | `show_dashboard` | `scene_dashboard` |
-| 9 | `set_frame_state` | `frame_set_state` |
+| 9a | `set_frame_state` (state=`raised`) | `frame_raise` |
+| 9b | `set_frame_state` (state=`lowered`) | `frame_lower` |
+| 9c | `set_frame_state` (state=`closed`) | `frame_close` |
+| 9d | `set_frame_state` (state=`expired`) | `frame_expire` |
 | 10 | `list_menus` | `menu_ls` |
 | 11 | `set_menu` | `menu_set` |
 | 12 | `list_clients` | `session_ls` |
@@ -552,7 +568,8 @@ vocabulary reorganizes the client surfaces above them; the invariants
 under the surface are non-negotiable.
 
 **Write scope.** Every write operation on every client surface
-(`scene show`, `scene update`, `scene clear`, `frame set-state`,
+(`scene show`, `scene update`, `scene clear`, `scene clear-all`,
+`frame raise`, `frame lower`, `frame close`, `frame expire`,
 `menu set`, `topic publish`, `topic subscribe`, `topic unsubscribe`,
 `callback register`, `display theme` set, `display mode` set,
 `display window` set) composes its store key on the caller's own
