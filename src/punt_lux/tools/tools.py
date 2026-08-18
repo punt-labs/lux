@@ -24,9 +24,6 @@ from punt_lux.operations import (
 )
 from punt_lux.tools.server import _session_key
 
-# The package-internal interface the sibling tool modules reach through ``_core``:
-# the one facade and the result formatters. Underscore-named because they are not
-# the MCP public surface, listed here because they are used across the package.
 __all__ = [
     "OPERATIONS",
     "_fault_or",
