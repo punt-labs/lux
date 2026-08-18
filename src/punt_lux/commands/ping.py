@@ -7,6 +7,7 @@ already print those lines pick up the command without changing output.
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.commands._result import CommandResult
@@ -27,13 +28,12 @@ class PingCommand:
         return super().__new__(cls)
 
     async def execute(self, ctx: Ctx, wait: float | None = None) -> Pong | OpError:
-        """Round-trip ``ctx.ops.ping(wait)`` and return the typed result.
+        """Round-trip ``ctx.ops.ping(wait)`` off the event loop and return it.
 
-        REST calls this directly and hands the ``Pong | OpError`` straight to
-        its own ``HttpErrorMap``, skipping the rendered envelope entirely --
-        no round trip through text and back.
+        REST calls this directly, skipping the rendered envelope; threaded
+        because ``ctx.ops.ping`` blocks on display-socket I/O.
         """
-        return ctx.ops.ping(wait)
+        return await asyncio.to_thread(ctx.ops.ping, wait)
 
     async def __call__(self, ctx: Ctx, wait: float | None = None) -> CommandResult:
         """Run :meth:`execute` and render its outcome into the shared envelope."""

@@ -43,10 +43,13 @@ class CommandResult:
     Attributes:
         text: Human-readable output for the CLI's text mode and stderr on error.
         json_data: JSON-serializable payload for the CLI's ``--json`` mode and
-            the MCP/REST envelopes. ``None`` means the CLI falls back to
-            ``text``. The ``dict[str, object]`` shape is a wire boundary
-            (PY-TS-14): the payload is serialized straight to JSON, so
-            ``object`` is the narrowest honest static type.
+            the MCP text/envelope response. ``None`` means the CLI falls back
+            to ``text``. REST does not consume this field -- it calls
+            ``execute()`` for the typed ``Pong | OpError`` result and maps it
+            straight to an HTTP response via ``HttpErrorMap``, bypassing the
+            rendered envelope entirely. The ``dict[str, object]`` shape is a
+            wire boundary (PY-TS-14): the payload is serialized straight to
+            JSON, so ``object`` is the narrowest honest static type.
         error: ``True`` signals a user-facing failure (invalid input, missing
             resource, daemon unreachable). Adapters route through their own
             error channel (stderr for CLI, HTTP status for REST, error
