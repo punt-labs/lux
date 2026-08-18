@@ -182,7 +182,7 @@ callable per verb, no `if state == ...` ladder inside the tool. See
 | Op | CLI | MCP tool | REST | Library | Slash |
 |---|---|---|---|---|---|
 | List active sessions (metadata) | `lux session ls` | `session_ls` (was `list_clients`) | `GET /sessions` | `client.session.ls()` | `/lux:session.ls` |
-| Show one session's metadata | `lux session show <id>` | `session_show` (new; extraction of one row from `list_clients`) | `GET /sessions/{id}` | `client.session.show(id)` | `/lux:session.show` |
+| Inspect one session's metadata | `lux session inspect <id>` | `session_inspect` (new; extraction of one row from `list_clients`) | `GET /sessions/{id}` | `client.session.inspect(id)` | `/lux:session.inspect` |
 | Declare caller identity | `lux session identify --kind K --name N ...` | `session_identify` (was `identify`) | `POST /sessions/identify` | `client.session.identify(...)` | *(exception — see below)* |
 
 ### Topic (Hub-managed pub-sub — application-event channel)
@@ -580,7 +580,7 @@ override. This is the DES-086 Decision 5 narrowing.
 content (`scene inspect`, `scene ls`, `event ls`, `error ls`,
 `display screenshot`, `topic recv`, `callback pending`) composes on
 the caller's own `ConnectionId` and returns only what the caller
-owns. Metadata-only operations (`session ls`, `session show`,
+owns. Metadata-only operations (`session ls`, `session inspect`,
 `display info`, `menu ls`, `menu get`) return peer-discovery data
 that is not confidential and stay visible to all callers.
 
