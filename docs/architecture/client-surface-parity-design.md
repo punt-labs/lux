@@ -525,9 +525,12 @@ restart|status`, `enable`, `disable`, `install`, `uninstall`, `mcp`,
 verbs run from a shell, not from a Claude Code prompt. This is the
 same rule that puts them off MCP; slash inherits.
 
-The slash surface receives 22 new command definitions under `.6`
-(one per client-tier operation, minus `session identify`, `topic
-recv`, `callback register`).
+The slash surface receives 29 new command definitions under `.6` —
+one per client-tier operation minus the three considered exceptions
+above (`session identify`, `topic recv`, `callback register`). By
+noun: Scene 8, Frame 4, Menu 3, Session 2 (of 3), Topic 3 (of 4),
+Callback 1 (of 2), Display 5, Event 1, Error 1, plus top-level
+`ping` 1.
 
 ### Skill vs slash
 
