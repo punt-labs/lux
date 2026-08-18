@@ -144,7 +144,7 @@ for the four client surfaces plus the slash-command form. This is what
 | Install / replace a scene | `lux scene show <spec>` | `scene_show` (was `show`) | `PUT /scenes/{id}` | `client.scene.show(spec)` | `/lux:scene.show` |
 | Patch elements in place | `lux scene update <id> <patches>` | `scene_update` (was `update`) | `PATCH /scenes/{id}` | `client.scene.update(id, patches)` | `/lux:scene.update` |
 | Remove a scene | `lux scene clear <id>` | `scene_clear` (was `clear_scene`) | `DELETE /scenes/{id}` | `client.scene.clear(id)` | `/lux:scene.clear` |
-| Remove all caller's scenes | `lux scene clear --all` | `scene_clear_all` (was `clear`) | `DELETE /scenes` | `client.scene.clear_all()` | `/lux:scene.clear-all` |
+| Remove all caller's scenes | `lux scene clear-all` | `scene_clear_all` (was `clear`) | `DELETE /scenes` | `client.scene.clear_all()` | `/lux:scene.clear-all` |
 | Inspect a scene (introspection) | `lux scene inspect <id>` | `scene_inspect` (was `inspect_scene`) | `GET /scenes/{id}` | `client.scene.inspect(id)` | `/lux:scene.inspect` |
 | List scenes (caller-scoped) | `lux scene ls` | `scene_ls` (was `list_scenes`) | `GET /scenes` | `client.scene.ls()` | `/lux:scene.ls` |
 | Render a table (composite convenience) | `lux scene table <spec>` | `scene_table` (was `show_table`) | `PUT /scenes/{id}/table` | `client.scene.table(spec)` | `/lux:scene.table` |
