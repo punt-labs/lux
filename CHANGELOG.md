@@ -44,6 +44,17 @@
   The plugin's own `commands/` — the directory `session-start.sh` deploys from,
   skipping `*-dev.md` — is the one that was meant; both it and the matching
   restore path in `scripts/restore-dev-plugin.sh` now name `plugin/commands`.
+- **`scripts/restore-dev-plugin.sh` never restored dev commands, because its
+  guard could not be true.** It tested `git ls-tree -d <commit> -- <dir>/`,
+  but a trailing-slash pathspec makes `ls-tree` recurse into the directory and
+  report the blobs it contains, and `-d` then filters every one of those blobs
+  out — so the command printed nothing whatever the commit held, `grep -q .`
+  failed, and the restore step was skipped every time. Confirmed against the
+  pre-move layout too: `ls-tree -d <commit> -- commands/` was equally empty.
+  With the two bugs together the dev-command round trip was inert in both
+  directions. The guard drops `-d`; a round trip against a scratch clone now
+  strips a seeded `foo-dev.md` on release-prep and restores it afterward, and
+  the `-d` variant still reports zero entries where the fixed one reports two.
 
 ## [0.25.0] - 2026-08-17
 

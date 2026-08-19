@@ -33,7 +33,13 @@ git -C "$REPO_ROOT" checkout "${RELEASE_PREP_COMMIT}^" -- "$PLUGIN_JSON"
 
 # Restore dev commands if the parent commit had a plugin/commands/ directory.
 # This must name the same directory release-plugin.sh strips *-dev.md from.
-if git -C "$REPO_ROOT" ls-tree -d "${RELEASE_PREP_COMMIT}^" -- plugin/commands/ | grep -q .; then
+#
+# No -d: `ls-tree -d <commit> -- <dir>/` prints NOTHING. A trailing-slash
+# pathspec makes ls-tree recurse into the directory and report its blobs, and
+# -d then filters those blobs out, so the guard was silently always false and
+# dev commands were never restored. Listing the blobs is the actual test of
+# "did this commit have that directory".
+if git -C "$REPO_ROOT" ls-tree "${RELEASE_PREP_COMMIT}^" -- plugin/commands/ | grep -q .; then
   git -C "$REPO_ROOT" checkout "${RELEASE_PREP_COMMIT}^" -- plugin/commands/
 fi
 
