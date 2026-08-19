@@ -10,7 +10,10 @@ set -euo pipefail
 # commit and restores from its parent.
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PLUGIN_JSON="${REPO_ROOT}/plugin/.claude-plugin/plugin.json"
+# Repo-relative, because every use below is a pathspec for a `git -C
+# "$REPO_ROOT"` invocation, and a pathspec is resolved against the worktree.
+# The plugin/commands/ pathspecs further down are already spelled this way.
+PLUGIN_JSON="plugin/.claude-plugin/plugin.json"
 
 # Preflight: abort if repo has uncommitted changes
 if [[ -n "$(git -C "$REPO_ROOT" status --porcelain -uno)" ]]; then

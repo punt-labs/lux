@@ -10,7 +10,13 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # git-subdir source can fetch it alone. COMMANDS_DIR is the plugin's own
 # commands directory — the one session-start.sh deploys from, skipping
 # *-dev.md — not .claude/commands, which lux has never had.
-PLUGIN_JSON="${REPO_ROOT}/plugin/.claude-plugin/plugin.json"
+#
+# Two spellings of each path, and they are not interchangeable: the _REL forms
+# are pathspecs for `git -C "$REPO_ROOT"`, resolved against the worktree; the
+# absolute forms are for python3 and find, which have no repo to resolve
+# against and run from whatever directory the caller invoked this script in.
+PLUGIN_JSON_REL="plugin/.claude-plugin/plugin.json"
+PLUGIN_JSON="${REPO_ROOT}/${PLUGIN_JSON_REL}"
 COMMANDS_DIR="${REPO_ROOT}/plugin/commands"
 
 # Preflight: abort if repo has uncommitted changes
@@ -43,11 +49,12 @@ for srv in d.get('mcpServers', {}).values():
 p.write_text(json.dumps(d, indent=2) + '\n')
 "
 
-# Remove -dev commands
+# Remove -dev commands. find needs the absolute directory, but the results are
+# stripped back to repo-relative because they end up as `git rm` pathspecs.
 dev_files=()
 if [[ -d "$COMMANDS_DIR" ]]; then
   while IFS= read -r -d '' f; do
-    dev_files+=("$f")
+    dev_files+=("${f#"${REPO_ROOT}/"}")
   done < <(find "$COMMANDS_DIR" -name '*-dev.md' -print0)
 fi
 
@@ -60,5 +67,5 @@ else
   git -C "$REPO_ROOT" rm "${dev_files[@]}"
 fi
 
-git -C "$REPO_ROOT" add "$PLUGIN_JSON"
+git -C "$REPO_ROOT" add "$PLUGIN_JSON_REL"
 git -C "$REPO_ROOT" commit --no-verify -m "chore: prepare plugin for release"
