@@ -2,6 +2,49 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **The shippable plugin surface moved to `plugin/`, so a marketplace install
+  fetches only the plugin.** `.claude-plugin/`, `commands/`, `hooks/`, and
+  `skills/` now live under a single `plugin/` directory, which lets the
+  marketplace entry use Claude Code's `git-subdir` source (`"source":
+  "git-subdir"`, `"path": "plugin"`). That source is a blobless partial clone
+  plus a `sparse-checkout set --cone`, so an install stops fetching whole
+  directories: `src/`, `tests/`, `docs/`, `tools/`, `scripts/`, `.github/`,
+  `.beads/`, this repo's `.claude/` dev config, and the vendored
+  `.punt-labs/ethos` persona registry are all absent. Measured against this
+  branch on GitHub: 34 files / 1.7 MB of working tree (3.8 MB including
+  `.git`) versus 1,177 files / 15 MB (21 MB including `.git`) for an
+  equivalent shallow full clone — a 35x file-count and 8.8x working-tree
+  reduction. Note that cone mode always materializes the files sitting in the
+  *repo root*, so roughly 1.6 MB of root-level documents still travel with an
+  install (`.oo-audit.jsonl` 501 KB, `DESIGN.md` 299 KB, `uv.lock` 265 KB,
+  `.oo-baseline.json` 186 KB, `CHANGELOG.md` 113 KB); `plugin/` itself is only
+  84 KB. Shrinking that remainder means moving root documents into a
+  subdirectory, which this change does not attempt.
+- Nothing in the surface reaches outside itself at runtime — the MCP server is
+  luxd's HTTP endpoint, not a file in the plugin — and both
+  `${CLAUDE_PLUGIN_ROOT}/hooks/*.sh` in `hooks.json` and `session-start.sh`'s
+  own `dirname "$0"/..` walk stay correct because the whole surface moved
+  together. The wheel is unaffected: `uv_build` ships `src/punt_lux` only, so
+  the plugin surface was never packaged. **One consequence for anyone working
+  in this repo:** dev-plugin loading is now `claude --plugin-dir plugin`, not
+  `--plugin-dir .` — the argument is the plugin root, and pointed at the repo
+  root it would resolve a `hooks/` that no longer exists there. No user-visible
+  behavior change; existing installs are unaffected until the marketplace entry
+  is repointed.
+
+### Fixed
+
+- **`scripts/release-plugin.sh` stripped release-only commands from a
+  directory that has never existed.** Its `COMMANDS_DIR` pointed at
+  `.claude/commands`, which is absent from every commit in this repo's history,
+  so the `*-dev.md` removal step was a permanent no-op that reported "No -dev
+  commands found — name swap only" whether or not dev commands were present.
+  The plugin's own `commands/` — the directory `session-start.sh` deploys from,
+  skipping `*-dev.md` — is the one that was meant; both it and the matching
+  restore path in `scripts/restore-dev-plugin.sh` now name `plugin/commands`.
+
 ## [0.25.0] - 2026-08-17
 
 ### Security
