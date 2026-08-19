@@ -153,7 +153,7 @@ with nothing added.
 This is how the plugin connects, and a session configured by hand connects the
 same way: straight to `luxd`'s HTTP endpoint (`http://127.0.0.1:8430/mcp`), with
 no per-session process in the path. A copy-paste example is in
-[`.claude-plugin/mcp-http.example.json`](../.claude-plugin/mcp-http.example.json).
+[`plugin/.claude-plugin/mcp-http.example.json`](../plugin/.claude-plugin/mcp-http.example.json).
 
 Such a session gets the whole tool surface but owns no menu entries, because it
 holds no connection a click could arrive on. Menu entries belong to the session's

@@ -6,8 +6,12 @@ set -euo pipefail
 # from it.
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PLUGIN_JSON="${REPO_ROOT}/.claude-plugin/plugin.json"
-COMMANDS_DIR="${REPO_ROOT}/.claude/commands"
+# The shippable plugin surface lives under plugin/, so the marketplace's
+# git-subdir source can fetch it alone. COMMANDS_DIR is the plugin's own
+# commands directory — the one session-start.sh deploys from, skipping
+# *-dev.md — not .claude/commands, which lux has never had.
+PLUGIN_JSON="${REPO_ROOT}/plugin/.claude-plugin/plugin.json"
+COMMANDS_DIR="${REPO_ROOT}/plugin/commands"
 
 # Preflight: abort if repo has uncommitted changes
 if [[ -n "$(git -C "$REPO_ROOT" status --porcelain -uno)" ]]; then

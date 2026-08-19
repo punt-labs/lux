@@ -318,6 +318,13 @@ make restart                   # Rebuild, reinstall, restart luxd AND the displa
 `make check` is the commit gate — it runs ruff, mypy, pyright (via `npx`),
 pytest, and the OO ratchet exactly as CI does.
 
+The Claude Code plugin — its `plugin.json`, the `/lux` command, the session
+hooks, and the skills — lives in `plugin/`, separate from the Python package in
+`src/`. A marketplace install fetches only that directory, so load it for local
+testing with `claude --plugin-dir plugin`. Installing the CLI (`uv tool install`,
+`install.sh`, or `pip`) is unaffected: the wheel ships `src/punt_lux` and never
+contained the plugin surface.
+
 ## Acknowledgements
 
 Lux is a thin orchestration layer. The rendering is done by [Dear ImGui](https://github.com/ocornut/imgui), Omar Cornut's immediate-mode GUI library. ImGui handles all the hard problems --- text layout, widget state, input handling, GPU rendering --- and does so in a single-pass retained-mode-free architecture that maps naturally to Lux's "send JSON, render this frame" model. The 60fps render loop, the composable widget tree, and the ability to drive a full UI from a socket with no threading are all consequences of ImGui's design.
