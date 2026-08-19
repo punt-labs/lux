@@ -47,8 +47,10 @@ if command -v jq &>/dev/null && [[ -f "$SETTINGS" ]]; then
     NEEDS_UPDATE=true
   fi
 
-  # Skill() rules for deployed commands — listed explicitly so
-  # scripts/check-skill-permissions.sh can verify by static grep.
+  # Skill() rules for deployed commands — listed explicitly so the lux repo's
+  # scripts/check-skill-permissions.sh can verify by static grep. That path is
+  # repo-relative, not plugin-relative: the checker is a development gate and
+  # is not installed with this hook.
   SKILL_RULES=(
     "Skill(lux)"
   )
