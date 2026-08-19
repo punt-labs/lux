@@ -25,6 +25,22 @@ if [[ -n "$(git -C "$REPO_ROOT" status --porcelain -uno)" ]]; then
   exit 1
 fi
 
+# Preflight: both halves of the surface this script edits must be where we
+# think they are. A missing commands directory is a broken script, not an empty
+# result — skipping it quietly is how the `.claude/commands` typo survived,
+# with every run reporting "No -dev commands found" while tagging a release
+# that still carried them. Checked here, before the name swap, so a failure
+# leaves the worktree untouched rather than half-edited.
+if [[ ! -f "$PLUGIN_JSON" ]]; then
+  echo "Error: plugin.json not found: ${PLUGIN_JSON}" >&2
+  exit 1
+fi
+if [[ ! -d "$COMMANDS_DIR" ]]; then
+  echo "Error: commands directory not found: ${COMMANDS_DIR}" >&2
+  echo "       Nothing would be stripped, and the release would ship dev commands." >&2
+  exit 1
+fi
+
 # Swap plugin name from *-dev to prod
 current_name="$(python3 -c "import json; print(json.load(open('${PLUGIN_JSON}'))['name'])")"
 prod_name="${current_name%-dev}"
@@ -51,12 +67,13 @@ p.write_text(json.dumps(d, indent=2) + '\n')
 
 # Remove -dev commands. find needs the absolute directory, but the results are
 # stripped back to repo-relative because they end up as `git rm` pathspecs.
+# COMMANDS_DIR was verified in preflight, which is the only guard that can
+# work: `find` runs in a process substitution, so its exit status is not this
+# shell's and `set -e` would not see a failure here.
 dev_files=()
-if [[ -d "$COMMANDS_DIR" ]]; then
-  while IFS= read -r -d '' f; do
-    dev_files+=("${f#"${REPO_ROOT}/"}")
-  done < <(find "$COMMANDS_DIR" -name '*-dev.md' -print0)
-fi
+while IFS= read -r -d '' f; do
+  dev_files+=("${f#"${REPO_ROOT}/"}")
+done < <(find "$COMMANDS_DIR" -name '*-dev.md' -print0)
 
 if [[ ${#dev_files[@]} -eq 0 ]]; then
   echo "No -dev commands found — name swap only"

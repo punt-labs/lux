@@ -42,10 +42,16 @@ git -C "$REPO_ROOT" checkout "${RELEASE_PREP_COMMIT}^" -- "$PLUGIN_JSON"
 # -d then filters those blobs out, so the guard was silently always false and
 # dev commands were never restored. Listing the blobs is the actual test of
 # "did this commit have that directory".
+#
+# The `git add` belongs INSIDE this guard, not after it. Run unconditionally
+# with `2>/dev/null || true` it swallowed two different failures: a restore
+# that produced nothing to stage, and a genuine `git add` error. Staging only
+# what this branch just checked out means a failure here aborts the script
+# under `set -e` instead of committing a half-restored state.
 if git -C "$REPO_ROOT" ls-tree "${RELEASE_PREP_COMMIT}^" -- plugin/commands/ | grep -q .; then
   git -C "$REPO_ROOT" checkout "${RELEASE_PREP_COMMIT}^" -- plugin/commands/
+  git -C "$REPO_ROOT" add plugin/commands/
 fi
 
 git -C "$REPO_ROOT" add "$PLUGIN_JSON"
-git -C "$REPO_ROOT" add plugin/commands/ 2>/dev/null || true
 git -C "$REPO_ROOT" commit --no-verify -m "chore: restore dev plugin state [skip ci]"

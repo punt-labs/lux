@@ -55,6 +55,24 @@
   directions. The guard drops `-d`; a round trip against a scratch clone now
   strips a seeded `foo-dev.md` on release-prep and restores it afterward, and
   the `-d` variant still reports zero entries where the fixed one reports two.
+- **Three suppressed failures in the release and session-start scripts.** Each
+  turned a broken state into a quiet wrong answer.
+  `restore-dev-plugin.sh` staged the commands directory unconditionally with
+  `git add ... 2>/dev/null || true`, which swallowed both "nothing was
+  restored" and a genuine `git add` error, so a half-restored state could be
+  committed; the `git add` now sits inside the guard that does the checkout, so
+  `set -e` aborts on failure. `release-plugin.sh` treated a missing commands
+  directory as an empty result — the mechanism that let the `.claude/commands`
+  typo survive, every run reporting "No -dev commands found" while tagging a
+  release that still carried them; it is now a preflight that refuses, placed
+  before the name swap so a failure leaves the worktree untouched, and it is
+  the only guard that can work because `find` runs in a process substitution
+  whose exit status `set -e` never sees. `session-start.sh` probed
+  `plugin.json` with `grep ... 2>/dev/null` and let `DEV_MODE` default to
+  false, so a wrong `PLUGIN_ROOT` silently took the *prod* branch and wrote the
+  prod MCP tool glob into the user's `settings.json` while a dev plugin was
+  loaded; a missing `plugin.json` now fails loudly, which is safe because the
+  hook is registered `async`.
 
 ## [0.25.0] - 2026-08-17
 
