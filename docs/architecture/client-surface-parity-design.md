@@ -530,7 +530,7 @@ times.
 
 Every operation on every client surface gets a slash-command
 equivalent — with three considered exceptions. The slash surface is
-the one lux has not yet aligned; today `skills/` carries a curated
+the one lux has not yet aligned; today `plugin/skills/` carries a curated
 three (`beads`, `dashboard`, `data-explorer`). Under this epic it
 grows to a per-noun-verb catalog matching the MCP tool set, minus the
 exceptions.
@@ -563,7 +563,7 @@ Callback 1 (of 2), Display 5, Event 1, Error 1, plus top-level
 
 ### Skill vs slash
 
-Today's three `skills/` entries are all skills — `beads` orchestrates
+Today's three `plugin/skills/` entries are all skills — `beads` orchestrates
 several operations to render the beads board, `dashboard` composes a
 metrics/chart/table layout via `show`, and `data-explorer` composes a
 filter/table/detail layout via `show`. None of the three is a thin

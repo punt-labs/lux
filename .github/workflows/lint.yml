@@ -26,3 +26,9 @@ jobs:
       - run: uv run --extra display ruff format --check .
       - run: uv run --extra display mypy src/ tests/
       - run: uv run --extra display pyright src/ tests/
+      # The plugin surface has to stand alone: a marketplace install fetches
+      # only plugin/, so a path resolving outside it passes every check above
+      # — they run against the full tree, where the target is present — and
+      # breaks on every installed copy. Neither of these ran in CI before.
+      - run: bash scripts/check-plugin-surface.sh
+      - run: bash scripts/check-skill-permissions.sh

@@ -6,9 +6,21 @@ SETTINGS="$HOME/.claude/settings.json"
 COMMANDS_DIR="$HOME/.claude/commands"
 PLUGIN_JSON="${PLUGIN_ROOT}/.claude-plugin/plugin.json"
 
+# A missing plugin.json means PLUGIN_ROOT is wrong, not that this is prod.
+# Suppressing grep's error and letting DEV_MODE default to false made a
+# wrong-root hook silently take the prod branch: it would write the *prod* MCP
+# tool glob into the user's settings.json while a dev plugin was actually
+# loaded, and deploy commands from a directory that may not exist. Fail loudly
+# — this hook is registered async, so exiting non-zero surfaces the error
+# without taking the session down.
+if [[ ! -f "$PLUGIN_JSON" ]]; then
+  echo "session-start: no plugin.json at ${PLUGIN_JSON} — refusing to guess dev vs prod" >&2
+  exit 1
+fi
+
 # Detect dev mode: plugin.json name contains "lux-dev"
 DEV_MODE=false
-if grep -q '"lux-dev"' "$PLUGIN_JSON" 2>/dev/null; then
+if grep -q '"lux-dev"' "$PLUGIN_JSON"; then
   DEV_MODE=true
 fi
 
@@ -47,8 +59,10 @@ if command -v jq &>/dev/null && [[ -f "$SETTINGS" ]]; then
     NEEDS_UPDATE=true
   fi
 
-  # Skill() rules for deployed commands — listed explicitly so
-  # scripts/check-skill-permissions.sh can verify by static grep.
+  # Skill() rules for deployed commands — listed explicitly so the lux repo's
+  # scripts/check-skill-permissions.sh can verify by static grep. That path is
+  # repo-relative, not plugin-relative: the checker is a development gate and
+  # is not installed with this hook.
   SKILL_RULES=(
     "Skill(lux)"
   )

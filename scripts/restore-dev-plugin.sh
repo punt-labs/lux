@@ -10,7 +10,10 @@ set -euo pipefail
 # commit and restores from its parent.
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PLUGIN_JSON="${REPO_ROOT}/.claude-plugin/plugin.json"
+# Repo-relative, because every use below is a pathspec for a `git -C
+# "$REPO_ROOT"` invocation, and a pathspec is resolved against the worktree.
+# The plugin/commands/ pathspecs further down are already spelled this way.
+PLUGIN_JSON="plugin/.claude-plugin/plugin.json"
 
 # Preflight: abort if repo has uncommitted changes
 if [[ -n "$(git -C "$REPO_ROOT" status --porcelain -uno)" ]]; then
@@ -31,11 +34,31 @@ fi
 echo "Restoring dev state from parent of ${RELEASE_PREP_COMMIT:0:12}"
 git -C "$REPO_ROOT" checkout "${RELEASE_PREP_COMMIT}^" -- "$PLUGIN_JSON"
 
-# Restore dev commands if the parent commit had a .claude/commands/ directory
-if git -C "$REPO_ROOT" ls-tree -d "${RELEASE_PREP_COMMIT}^" -- .claude/commands/ | grep -q .; then
-  git -C "$REPO_ROOT" checkout "${RELEASE_PREP_COMMIT}^" -- .claude/commands/
+# Restore dev commands if the parent commit had a plugin/commands/ directory.
+# This must name the same directory release-plugin.sh strips *-dev.md from.
+#
+# No -d: `ls-tree -d <commit> -- <dir>/` prints NOTHING. A trailing-slash
+# pathspec makes ls-tree recurse into the directory and report its blobs, and
+# -d then filters those blobs out, so the guard was silently always false and
+# dev commands were never restored. Listing the blobs is the actual test of
+# "did this commit have that directory".
+#
+# Captured rather than piped into `grep -q`: under `set -o pipefail` that
+# pipeline can invert its own answer. `grep -q` exits the moment it matches, so
+# `git ls-tree` writing more output takes SIGPIPE and returns 141, pipefail
+# promotes 141 to the pipeline's status, and the `if` reads a populated
+# directory as empty. A command substitution has one exit status and no race.
+commands_at_parent="$(git -C "$REPO_ROOT" ls-tree "${RELEASE_PREP_COMMIT}^" -- plugin/commands/)"
+
+# The `git add` belongs INSIDE this guard, not after it. Run unconditionally
+# with `2>/dev/null || true` it swallowed two different failures: a restore
+# that produced nothing to stage, and a genuine `git add` error. Staging only
+# what this branch just checked out means a failure here aborts the script
+# under `set -e` instead of committing a half-restored state.
+if [[ -n "$commands_at_parent" ]]; then
+  git -C "$REPO_ROOT" checkout "${RELEASE_PREP_COMMIT}^" -- plugin/commands/
+  git -C "$REPO_ROOT" add plugin/commands/
 fi
 
 git -C "$REPO_ROOT" add "$PLUGIN_JSON"
-git -C "$REPO_ROOT" add .claude/commands/ 2>/dev/null || true
 git -C "$REPO_ROOT" commit --no-verify -m "chore: restore dev plugin state [skip ci]"

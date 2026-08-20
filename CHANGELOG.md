@@ -2,6 +2,127 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **The shippable plugin surface moved to `plugin/`, so a marketplace install
+  fetches only the plugin.** `.claude-plugin/`, `commands/`, `hooks/`, and
+  `skills/` now live under a single `plugin/` directory, which lets the
+  marketplace entry use Claude Code's `git-subdir` source (`"source":
+  "git-subdir"`, `"path": "plugin"`). That source is a blobless partial clone
+  plus a `sparse-checkout set --cone`, so an install stops fetching whole
+  directories: `src/`, `tests/`, `docs/`, `tools/`, `scripts/`, `.github/`,
+  `.beads/`, this repo's `.claude/` dev config, and the vendored
+  `.punt-labs/ethos` persona registry are all absent. Measured against this
+  branch on GitHub: 34 files / 1.7 MB of working tree (3.8 MB including
+  `.git`) versus 1,177 files / 15 MB (21 MB including `.git`) for an
+  equivalent shallow full clone — a 35x file-count and 8.8x working-tree
+  reduction. Note that cone mode always materializes the files sitting in the
+  *repo root*, so roughly 1.6 MB of root-level documents still travel with an
+  install (`.oo-audit.jsonl` 501 KB, `DESIGN.md` 299 KB, `uv.lock` 265 KB,
+  `.oo-baseline.json` 186 KB, `CHANGELOG.md` 113 KB); `plugin/` itself is only
+  84 KB. Shrinking that remainder means moving root documents into a
+  subdirectory, which this change does not attempt.
+- Nothing in the surface reaches outside itself at runtime — the MCP server is
+  luxd's HTTP endpoint, not a file in the plugin — and both
+  `${CLAUDE_PLUGIN_ROOT}/hooks/*.sh` in `hooks.json` and `session-start.sh`'s
+  own `dirname "$0"/..` walk stay correct because the whole surface moved
+  together. The wheel is unaffected: `uv_build` ships `src/punt_lux` only, so
+  the plugin surface was never packaged. **One consequence for anyone working
+  in this repo:** dev-plugin loading is now `claude --plugin-dir plugin`, not
+  `--plugin-dir .` — the argument is the plugin root, and pointed at the repo
+  root it would resolve a `hooks/` that no longer exists there. No user-visible
+  behavior change; existing installs are unaffected until the marketplace entry
+  is repointed.
+
+### Added
+
+- **`make check` now enforces that the plugin surface stands alone.**
+  `scripts/check-plugin-surface.sh` (over `tools/plugin_surface.py`) verifies
+  every path the surface uses to address itself, and it also runs in the lint
+  workflow — as does `check-skill-permissions.sh`, which was previously in
+  `make lint` only and so never ran in CI. The invariant that nothing under
+  `plugin/` reaches outside it was documented and true but structurally
+  unenforced: every other gate runs against the full source tree, where the
+  target of an escaping path is present, so a `../../src/...` reference or a
+  `source "$REPO_ROOT/..."` would pass CI and break every sparse-checkout
+  install. Four checks: each `${CLAUDE_PLUGIN_ROOT}`/`$PLUGIN_ROOT` reference
+  must resolve inside the surface, exist, and — for a shell script, identified
+  by its shebang as well as its suffix — be executable;
+  no symlink may resolve out or onto nothing; no `source`d file may land outside;
+  and the surface may not name the repository root. **Containment is asserted on
+  the resolved path, and existence only afterward** — a textual `../` scan and an
+  `exists()` check both pass a symlink pointing out of the surface, because its
+  text is clean and its target is right there in the source tree, while the
+  install gets a dangling link. That ordering governs every check that resolves a
+  path, symlinks included: a link contained by the surface but pointing at
+  nothing ships broken just as surely. The gate also fails closed if `hooks.json`
+  stops carrying a placeholder, since that would mean the extraction pattern
+  rotted rather than the surface getting clean. Every file the surface ships is
+  read, with binary content skipped by inspecting the bytes rather than the
+  suffix: a suffix allowlist has a blind spot shaped exactly like the files it
+  omits, and since a hook needs no `.sh` name to be a hook, an extensionless
+  script was a place an escaping reference could live while the gate still
+  reported the surface clean — and the same reasoning governs the executable-bit
+  check, which asks what a file *is* rather than what it is called, so a hook at
+  mode 0644 cannot ship merely by having no suffix. The `source` scan reads from
+  that same universe minus documentation: a sourced fragment carries no shebang
+  and needs no exec bit, so gating the scan on shell classification left its
+  plain-relative `source "../../lib/x"` checked by nothing — no placeholder, no
+  repo-root variable, no symlink. Markdown stays out because a `source` line in a
+  command file is an example, not wiring. Twenty-one tests in
+  `tests/test_plugin_surface.py`
+  drive it as a subprocess, including negative controls for each rejected shape
+  and a control that documented prose is never mistaken for a dependency;
+  a guard that never fires is indistinguishable from no guard.
+
+### Fixed
+
+- **`scripts/restore-dev-plugin.sh`'s directory guard could invert its own
+  answer under `pipefail`.** It piped `git ls-tree` into `grep -q .`; `grep -q`
+  exits on the first match, so once the listing exceeds the 64 KB pipe buffer
+  `git` takes SIGPIPE and returns 141, `pipefail` promotes that to the
+  pipeline's status, and the `if` reads a populated directory as empty —
+  skipping the restore. Demonstrated at 141 against a listing large enough to
+  fill the buffer. The listing is now captured into a variable and tested with
+  `[[ -n ]]`: one exit status, no race.
+- **`scripts/release-plugin.sh` stripped release-only commands from a
+  directory that has never existed.** Its `COMMANDS_DIR` pointed at
+  `.claude/commands`, which is absent from every commit in this repo's history,
+  so the `*-dev.md` removal step was a permanent no-op that reported "No -dev
+  commands found — name swap only" whether or not dev commands were present.
+  The plugin's own `commands/` — the directory `session-start.sh` deploys from,
+  skipping `*-dev.md` — is the one that was meant; both it and the matching
+  restore path in `scripts/restore-dev-plugin.sh` now name `plugin/commands`.
+- **`scripts/restore-dev-plugin.sh` never restored dev commands, because its
+  guard could not be true.** It tested `git ls-tree -d <commit> -- <dir>/`,
+  but a trailing-slash pathspec makes `ls-tree` recurse into the directory and
+  report the blobs it contains, and `-d` then filters every one of those blobs
+  out — so the command printed nothing whatever the commit held, `grep -q .`
+  failed, and the restore step was skipped every time. Confirmed against the
+  pre-move layout too: `ls-tree -d <commit> -- commands/` was equally empty.
+  With the two bugs together the dev-command round trip was inert in both
+  directions. The guard drops `-d`; a round trip against a scratch clone now
+  strips a seeded `foo-dev.md` on release-prep and restores it afterward, and
+  the `-d` variant still reports zero entries where the fixed one reports two.
+- **Three suppressed failures in the release and session-start scripts.** Each
+  turned a broken state into a quiet wrong answer.
+  `restore-dev-plugin.sh` staged the commands directory unconditionally with
+  `git add ... 2>/dev/null || true`, which swallowed both "nothing was
+  restored" and a genuine `git add` error, so a half-restored state could be
+  committed; the `git add` now sits inside the guard that does the checkout, so
+  `set -e` aborts on failure. `release-plugin.sh` treated a missing commands
+  directory as an empty result — the mechanism that let the `.claude/commands`
+  typo survive, every run reporting "No -dev commands found" while tagging a
+  release that still carried them; it is now a preflight that refuses, placed
+  before the name swap so a failure leaves the worktree untouched, and it is
+  the only guard that can work because `find` runs in a process substitution
+  whose exit status `set -e` never sees. `session-start.sh` probed
+  `plugin.json` with `grep ... 2>/dev/null` and let `DEV_MODE` default to
+  false, so a wrong `PLUGIN_ROOT` silently took the *prod* branch and wrote the
+  prod MCP tool glob into the user's `settings.json` while a dev plugin was
+  loaded; a missing `plugin.json` now fails loudly, which is safe because the
+  hook is registered `async`.
+
 ## [0.25.0] - 2026-08-17
 
 ### Security
