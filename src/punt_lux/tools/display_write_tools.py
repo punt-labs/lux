@@ -85,7 +85,7 @@ _SET_WINDOW_DESCRIPTION = (
 )
 
 
-@mcp.tool(description=_SET_THEME_DESCRIPTION)
+@mcp.tool(name="display_theme_set", description=_SET_THEME_DESCRIPTION)
 def set_theme(theme: str) -> ThemeState | OpError:
     """Set the display theme; returns the new theme state or an error."""
     ctx: CommandCtx[ThemeOps] = CommandCtx(
@@ -96,7 +96,7 @@ def set_theme(theme: str) -> ThemeState | OpError:
     )
 
 
-@mcp.tool(description=_SET_WINDOW_DESCRIPTION)
+@mcp.tool(name="display_window_set", description=_SET_WINDOW_DESCRIPTION)
 def set_window_settings(
     opacity: float | None = None,
     font_scale: float | None = None,
@@ -136,7 +136,7 @@ def frame_close(frame_id: str) -> Ok | OpError:
     return asyncio.run(frame_close_command.execute(ctx, frame_id))
 
 
-@mcp.tool()
+@mcp.tool(name="display_mode_get")
 def display_mode(repo: str) -> str:
     """Read the current display mode.
 
@@ -150,7 +150,7 @@ def display_mode(repo: str) -> str:
     return asyncio.run(display_mode_get_command(ctx, repo)).text
 
 
-@mcp.tool()
+@mcp.tool(name="display_mode_set")
 def set_display_mode(mode: str, repo: str) -> str:
     """Set the display mode to "y" (on) or "n" (off).
 

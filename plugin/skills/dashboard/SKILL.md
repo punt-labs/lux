@@ -10,15 +10,15 @@ allowed-tools:
   - mcp__plugin_lux_lux__scene_show
   - mcp__plugin_lux_lux__scene_update
   - mcp__plugin_lux_lux__topic_recv
-  - mcp__plugin_lux_lux__set_theme
+  - mcp__plugin_lux_lux__display_theme_set
   - mcp__plugin_lux-dev_lux__scene_show
   - mcp__plugin_lux-dev_lux__scene_update
   - mcp__plugin_lux-dev_lux__topic_recv
-  - mcp__plugin_lux-dev_lux__set_theme
+  - mcp__plugin_lux-dev_lux__display_theme_set
   - mcp__lux__scene_show
   - mcp__lux__scene_update
   - mcp__lux__topic_recv
-  - mcp__lux__set_theme
+  - mcp__lux__display_theme_set
 ---
 
 # /lux:dashboard — Visual Dashboard Composer
@@ -109,7 +109,7 @@ This is the canonical form. Adapt freely — fewer metrics, different chart type
 
 ## Phase 3: Display
 
-Call `set_theme("imgui_colors_light")` before showing the dashboard — light themes work best for data-dense views with tables and charts. Then call `scene_show()` with the composed element tree. Use a descriptive `scene_id` (e.g., `"test-dashboard"`, `"sales-metrics"`).
+Call `display_theme_set("imgui_colors_light")` before showing the dashboard — light themes work best for data-dense views with tables and charts. Then call `scene_show()` with the composed element tree. Use a descriptive `scene_id` (e.g., `"test-dashboard"`, `"sales-metrics"`).
 
 ## Phase 4: Interaction (Optional)
 

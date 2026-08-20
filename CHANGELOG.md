@@ -60,7 +60,19 @@
   | `screenshot` | `display_screenshot` |
   | `list_recent_events` | `event_ls` |
   | `list_errors` | `error_ls` |
+  | `get_theme` | `display_theme_get` |
+  | `set_theme` | `display_theme_set` |
+  | `get_window_settings` | `display_window_get` |
+  | `set_window_settings` | `display_window_set` |
+  | `display_mode` (get variant) | `display_mode_get` |
+  | `set_display_mode` | `display_mode_set` |
   | (new) | `callback_pending` |
+
+  The six display get/set renames above were missed in the initial
+  `.5` rename train because the display fuse deferral swept them under
+  it; they land here as a mechanical follow-on. No behavior changes —
+  Python function names, request/response types, and wire semantics are
+  unchanged; only the MCP tool identifier moves to the noun_verb form.
 
 - **Frame split — `set_frame_state` splits into two new verbs, not four,
   and the split is not a rename.** The old `set_frame_state(minimized=...)`
