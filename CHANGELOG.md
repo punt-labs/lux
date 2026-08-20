@@ -48,12 +48,14 @@
   install. Four checks: each `${CLAUDE_PLUGIN_ROOT}`/`$PLUGIN_ROOT` reference
   must resolve inside the surface, exist, and — for a shell script, identified
   by its shebang as well as its suffix — be executable;
-  no symlink may resolve out; no `source`d file may land outside; and the
-  surface may not name the repository root. **Containment is asserted on the
-  resolved path, and existence only afterward** — a textual `../` scan and an
+  no symlink may resolve out or onto nothing; no `source`d file may land outside;
+  and the surface may not name the repository root. **Containment is asserted on
+  the resolved path, and existence only afterward** — a textual `../` scan and an
   `exists()` check both pass a symlink pointing out of the surface, because its
   text is clean and its target is right there in the source tree, while the
-  install gets a dangling link. The gate also fails closed if `hooks.json`
+  install gets a dangling link. That ordering governs every check that resolves a
+  path, symlinks included: a link contained by the surface but pointing at
+  nothing ships broken just as surely. The gate also fails closed if `hooks.json`
   stops carrying a placeholder, since that would mean the extraction pattern
   rotted rather than the surface getting clean. Every file the surface ships is
   read, with binary content skipped by inspecting the bytes rather than the
@@ -62,9 +64,15 @@
   script was a place an escaping reference could live while the gate still
   reported the surface clean — and the same reasoning governs the executable-bit
   check, which asks what a file *is* rather than what it is called, so a hook at
-  mode 0644 cannot ship merely by having no suffix. Seventeen tests in
+  mode 0644 cannot ship merely by having no suffix. The `source` scan reads from
+  that same universe minus documentation: a sourced fragment carries no shebang
+  and needs no exec bit, so gating the scan on shell classification left its
+  plain-relative `source "../../lib/x"` checked by nothing — no placeholder, no
+  repo-root variable, no symlink. Markdown stays out because a `source` line in a
+  command file is an example, not wiring. Twenty-one tests in
   `tests/test_plugin_surface.py`
-  drive it as a subprocess, including negative controls for each rejected shape;
+  drive it as a subprocess, including negative controls for each rejected shape
+  and a control that documented prose is never mistaken for a dependency;
   a guard that never fires is indistinguishable from no guard.
 
 ### Fixed

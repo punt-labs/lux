@@ -176,6 +176,17 @@ class TestRejectsWhatATextualScanWouldMiss:
         assert result.returncode == 1
         assert "symlink escapes the plugin surface" in result.stderr
 
+    def test_dangling_symlink_inside_the_surface_fails(self, tmp_path: Path) -> None:
+        # Containment is satisfied — the link resolves inside the surface — and
+        # the target still is not there. Both the source tree and the install
+        # get a broken link, which is the same silent break as a reference to
+        # an unshipped path, arriving by a different route.
+        surface = _make_surface(tmp_path)
+        (surface / "hooks" / "helper.sh").symlink_to(surface / "hooks" / "missing.sh")
+        result = _run(surface)
+        assert result.returncode == 1
+        assert "symlink target is not shipped by the surface" in result.stderr
+
     def test_sourced_file_outside_the_surface_fails(self, tmp_path: Path) -> None:
         surface = _make_surface(tmp_path)
         (tmp_path / "lib").mkdir()
@@ -187,6 +198,18 @@ class TestRejectsWhatATextualScanWouldMiss:
         result = _run(surface)
         assert result.returncode == 1
         assert "sourced file escapes the plugin surface" in result.stderr
+
+    def test_sourced_file_inside_but_not_shipped_fails(self, tmp_path: Path) -> None:
+        # Contained but absent: the weaker of the two include claims, and the
+        # one with no coverage until now.
+        surface = _make_surface(tmp_path)
+        (surface / "hooks" / "session-start.sh").write_text(
+            '#!/usr/bin/env bash\nsource "./lib/common.sh"\n', encoding="utf-8"
+        )
+        _make_executable(surface / "hooks" / "session-start.sh")
+        result = _run(surface)
+        assert result.returncode == 1
+        assert "sourced file is not shipped by the surface" in result.stderr
 
     def test_repo_root_variable_fails(self, tmp_path: Path) -> None:
         # `source "$REPO_ROOT/..."`: the path is assembled at runtime, so no
@@ -241,6 +264,35 @@ class TestScansEveryFileTheSurfaceShips:
         result = _run(surface)
         assert result.returncode == 1
         assert "sourced file escapes the plugin surface" in result.stderr
+
+    def test_sourced_escape_in_a_non_shell_fragment_fails(self, tmp_path: Path) -> None:
+        # A fragment carries no shebang — it is sourced, not executed — so
+        # shell classification does not claim it. Its `source` line names no
+        # placeholder and no repo-root variable, and it is not a symlink, so
+        # the include scan is the ONLY check standing between this escape and a
+        # clean report. Scanning includes from a narrower universe than
+        # references would leave exactly this gap.
+        surface = _make_surface(tmp_path)
+        (tmp_path / "lib").mkdir()
+        (tmp_path / "lib" / "common.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+        (surface / "hooks" / "fragment.inc").write_text(
+            'source "../../lib/common.sh"\n', encoding="utf-8"
+        )
+        result = _run(surface)
+        assert result.returncode == 1
+        assert "sourced file escapes the plugin surface" in result.stderr
+
+    def test_prose_naming_a_source_line_is_not_a_finding(self, tmp_path: Path) -> None:
+        # The include scan reaches every text file, so it now meets markdown.
+        # A documented `source` of something the surface does not ship is an
+        # example, not a dependency — the gate must not read prose as wiring.
+        surface = _make_surface(tmp_path)
+        (surface / "commands" / "thing.md").write_text(
+            "Set up your environment:\n\n```bash\nsource ./env/bin/activate\n```\n",
+            encoding="utf-8",
+        )
+        result = _run(surface)
+        assert result.returncode == 0, result.stderr
 
     def test_binary_file_does_not_break_the_gate(self, tmp_path: Path) -> None:
         # Reading every file means meeting the ones that are not text. A PNG in

@@ -52,6 +52,9 @@ _SHELL_INCLUDE = re.compile(r"^\s*(?:source|\.)\s+[\"']?([^\"';|&\s]+)", re.MULT
 
 _SHELL_SUFFIXES = frozenset({".sh", ".bash", ".zsh"})
 
+# Documentation: read as prose, never sourced by a shell. See `_include_files`.
+_DOC_SUFFIXES = frozenset({".md", ".markdown"})
+
 # How much of a file to inspect when deciding whether it is text. A NUL byte in
 # the first few KB is the practical marker for binary content.
 _SNIFF_BYTES = 8192
@@ -119,15 +122,24 @@ class SurfaceAudit:
             p for p in self._root.rglob("*") if p.is_file() and self._is_text(p)
         )
 
-    def _shell_files(self) -> list[Path]:
-        """Files whose `source` lines are a real dependency.
+    def _include_files(self) -> list[Path]:
+        """Files whose `source` lines could be a real dependency.
 
-        Restricted to shell scripts on purpose: the include pattern matches a
-        line beginning with `source` or `.`, which is ordinary prose in a
-        markdown command file. A shebang identifies a script whose suffix does
-        not.
+        Not restricted to shell *scripts*, because a sourced fragment is not
+        one: it carries no shebang and needs no exec bit, since it is read by
+        the script that sources it. Gating this scan on shell classification
+        would leave such a fragment's plain-relative `source "../../lib/x"`
+        checked by nothing at all — it names no plugin-root placeholder and no
+        repo-root variable, and it is not a symlink, so the include scan is its
+        only guard.
+
+        Documentation is the one exclusion, and it is a statement about what
+        markdown *is* rather than what it is called: a command or skill file is
+        prose that Claude reads, never a file a shell sources, so a `source`
+        line in one is an example. Reading those as wiring would fail the gate
+        on a correctly documented command.
         """
-        return [p for p in self._text_files() if self._is_shell_script(p)]
+        return [p for p in self._text_files() if p.suffix.lower() not in _DOC_SUFFIXES]
 
     def _is_shell_script(self, path: Path) -> bool:
         """Is this a shell script, by what it contains rather than its name?
@@ -231,24 +243,29 @@ class SurfaceAudit:
         return []
 
     def _symlink_findings(self) -> list[Finding]:
-        """A symlink out of the surface is the case a textual scan cannot see."""
+        """A symlink out of the surface is the case a textual scan cannot see.
+
+        Containment first, then existence — the same order, and for the same
+        reason, as a placeholder reference. A link that resolves inside the
+        surface onto nothing is still a broken link in every install.
+        """
         findings: list[Finding] = []
         for path in sorted(self._root.rglob("*")):
             if not path.is_symlink():
                 continue
             resolved = path.resolve()
+            shown = f"{path.relative_to(self._root)} -> {resolved}"
             if not self._contains(resolved):
+                findings.append(Finding(f"symlink escapes the plugin surface: {shown}"))
+            elif not resolved.exists():
                 findings.append(
-                    Finding(
-                        f"symlink escapes the plugin surface: "
-                        f"{path.relative_to(self._root)} -> {resolved}"
-                    )
+                    Finding(f"symlink target is not shipped by the surface: {shown}")
                 )
         return findings
 
     def _include_findings(self) -> list[Finding]:
         findings: list[Finding] = []
-        for path in self._shell_files():
+        for path in self._include_files():
             for raw in _SHELL_INCLUDE.findall(self._read(path)):
                 if "$" in raw:
                     # Expanded at runtime; the variable checks below cover the
