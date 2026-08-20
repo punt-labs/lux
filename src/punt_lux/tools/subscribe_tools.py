@@ -121,7 +121,5 @@ def register_callback(callback_id: str, label: str) -> str:
         ops=_core.OPERATIONS, identity=_core._identity()
     )
     request = RegisterCallbackRequest.parse(callback_id=callback_id, label=label)
-    result = asyncio.run(
-        callback_register_command(ctx, request, callback_id, scope=_scope())
-    )
+    result = asyncio.run(callback_register_command(ctx, request, scope=_scope()))
     return signal(result)

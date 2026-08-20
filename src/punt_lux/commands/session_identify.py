@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.commands._faults import render_fault
 from punt_lux.commands._result import CommandResult
 from punt_lux.operations import OpError
 
@@ -53,7 +52,14 @@ class SessionIdentifyCommand:
         """Run :meth:`execute` and render its outcome into the shared envelope."""
         result = await self.execute(ctx, declaration, scope=scope)
         if isinstance(result, OpError):
-            return render_fault(result)
+            # Identify's vocabulary is not display-fault (never yields
+            # "not running"/"timeout") -- render its codes on their own terms.
+            return CommandResult(
+                text=f"error: {result.reason}",
+                json_data={"code": result.code, "reason": result.reason},
+                error=True,
+                exit_code=1,
+            )
         return CommandResult(
             text=f"identified:{result.identity.name}",
             json_data={"name": result.identity.name, "kind": result.identity.kind},

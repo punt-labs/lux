@@ -44,16 +44,24 @@ class CallbackRegisterCommand:
         self,
         ctx: Ctx[CallbackOps],
         request: RegisterCallbackRequest | OpError,
-        callback_id: str,
         *,
         scope: Scope,
     ) -> CommandResult:
         """Run :meth:`execute` and render its outcome into the shared envelope.
 
-        ``callback_id`` is the caller's own name for the callback -- the ``Ok``
-        reply carries no payload, so echoing the caller's id back is what
-        ``"registered:<id>"`` has always meant.
+        A malformed request (``OpError`` at parse time) has no callback id yet,
+        so its rejection prints only the reason -- the ``Ok`` reply carries no
+        payload, so the success line echoes back the caller's own id from the
+        already-validated request. One source of truth for the id, one signature
+        per command (matches every other command's execute/__call__ shape).
         """
+        if isinstance(request, OpError):
+            return CommandResult(
+                text=f"error: {request.reason}",
+                json_data={"code": request.code, "reason": request.reason},
+                error=True,
+                exit_code=1,
+            )
         result = await self.execute(ctx, request, scope=scope)
         if isinstance(result, OpError):
             return CommandResult(
@@ -63,8 +71,8 @@ class CallbackRegisterCommand:
                 exit_code=1,
             )
         return CommandResult(
-            text=f"registered:{callback_id}",
-            json_data={"callback_id": callback_id},
+            text=f"registered:{request.callback.id}",
+            json_data={"callback_id": request.callback.id},
         )
 
 

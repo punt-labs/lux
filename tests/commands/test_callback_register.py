@@ -22,7 +22,7 @@ def test_success_renders_registered_with_callers_id() -> None:
     ops = StubCallbackOps(register_result=Ok())
     ctx: Ctx[CallbackOps] = Ctx(ops=ops, identity=identity())
 
-    result = asyncio.run(callback_register(ctx, _request(), "cb1", scope=_SCOPE))
+    result = asyncio.run(callback_register(ctx, _request(), scope=_SCOPE))
 
     assert result.text == "registered:cb1"
     assert result.error is False
@@ -34,7 +34,7 @@ def test_push_required_renders_shipped_error_line() -> None:
     )
     ctx: Ctx[CallbackOps] = Ctx(ops=ops, identity=identity())
 
-    result = asyncio.run(callback_register(ctx, _request(), "cb1", scope=_SCOPE))
+    result = asyncio.run(callback_register(ctx, _request(), scope=_SCOPE))
 
     assert result.text == "error: no listen leg"
     assert result.error is True

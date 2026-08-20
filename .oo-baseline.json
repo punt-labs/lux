@@ -6470,16 +6470,16 @@
     "public_attr_violations": 0.0
   },
   "src/punt_lux/rest/display.py": {
-    "avg_complexity": 1.08,
-    "avg_params": 0.85,
+    "avg_complexity": 1.0,
+    "avg_params": 0.92,
     "class_to_func_ratio": 1.0,
     "classes_per_module": 1,
     "encapsulation_ratio": 1.0,
     "future_annotations": 1,
     "init_violations": 0,
-    "max_complexity": 2,
+    "max_complexity": 1,
     "method_ratio": 1.0,
-    "module_size": 130,
+    "module_size": 128,
     "public_attr_violations": 0,
     "top_level_functions": 0,
     "top_level_statements": 6

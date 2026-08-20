@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.commands._faults import render_fault
 from punt_lux.commands._result import CommandResult
 from punt_lux.operations import OpError
 
@@ -43,26 +44,10 @@ class PingCommand:
         """Run :meth:`execute` and render its outcome into the shared envelope."""
         result = await self.execute(ctx, wait)
         if isinstance(result, OpError):
-            return self._render_error(result)
+            return render_fault(result)
         return CommandResult(
             text=f"pong rtt={result.rtt_seconds:.3f}s",
             json_data={"rtt_seconds": result.rtt_seconds},
-        )
-
-    @staticmethod
-    def _render_error(err: OpError) -> CommandResult:
-        """Render an ``OpError`` into the CommandResult with the shipped text line."""
-        if err.code == "display_unavailable":
-            text = "not running"
-        elif err.code == "timeout":
-            text = "timeout"
-        else:
-            text = f"error: {err.reason}"
-        return CommandResult(
-            text=text,
-            json_data={"code": err.code, "reason": err.reason},
-            error=True,
-            exit_code=1,
         )
 
 
