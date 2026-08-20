@@ -88,7 +88,7 @@ class TestPing:
         assert result.exit_code == 1
         # Failure lines go to stderr per CLI convention; stdout stays clean.
         assert "luxd is not running" in result.stderr
-        assert "lux hub-install" in result.stderr
+        assert "lux hub install" in result.stderr
 
     def test_ping_reports_round_trip(self) -> None:
         from punt_lux.operations import Pong

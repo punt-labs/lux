@@ -120,7 +120,7 @@ class LuxRestClient:
         port = HubPaths().read_port()
         if port is None:
             raise HubUnavailableError(
-                "luxd is not running. Run 'lux hub-install' to register the service."
+                "luxd is not running. Run 'lux hub install' to register the service."
             )
         return cls(LoopbackTransport(port, timeout), identity)
 

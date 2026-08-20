@@ -604,7 +604,7 @@ class TestBeadsCLI:
 
         assert result.exit_code == 1
         assert "luxd is not running" in result.stderr
-        assert "lux hub-install" in result.stderr
+        assert "lux hub install" in result.stderr
 
     def test_show_beads_reports_render_time_unreachability(
         self,

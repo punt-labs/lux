@@ -365,8 +365,8 @@ def test_connect_raises_the_actionable_message_when_no_port_file(
     with pytest.raises(HubUnavailableError) as excinfo:
         LuxRestClient.connect()
     # Pin the production string end to end, hint included — the CLI prints this
-    # verbatim, so the actionable "run lux hub-install" guidance must be here.
+    # verbatim, so the actionable "run lux hub install" guidance must be here.
     message = str(excinfo.value)
     assert message == (
-        "luxd is not running. Run 'lux hub-install' to register the service."
+        "luxd is not running. Run 'lux hub install' to register the service."
     )

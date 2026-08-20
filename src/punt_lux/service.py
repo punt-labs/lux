@@ -32,7 +32,7 @@ def detect_platform() -> str:
         return "macos"
     if system == "Linux":
         return "linux"
-    msg = f"Unsupported platform: {system}. lux hub-install supports macOS and Linux."
+    msg = f"Unsupported platform: {system}. lux hub install supports macOS and Linux."
     raise SystemExit(msg)
 
 
