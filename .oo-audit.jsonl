@@ -972,3 +972,5 @@
 {"ts":"2026-08-20T10:47:33Z","commit":"70c66664","files_scored":565,"files_improved":2,"files_regressed":0,"verdict":"pass","deltas":{"src/punt_lux/_backends.py":{"avg_params":[0.35,0.14],"avg_complexity":[1.7,1.29],"module_size":[290.0,48.0],"classes_per_module":[3.0,1.0]},"src/punt_lux/service.py":{"method_ratio":[0.889,0.9],"class_to_func_ratio":[0.5,0.667]}}}
 {"ts":"2026-08-20T11:17:16Z","commit":"8669df1f","files_scored":565,"files_improved":0,"files_regressed":3,"verdict":"fail","deltas":{}}
 {"ts":"2026-08-20T11:24:05Z","commit":"8669df1f","files_scored":3,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
+{"ts":"2026-08-20T11:44:29Z","commit":"6a3d8eea","files_scored":565,"files_improved":2,"files_regressed":4,"verdict":"fail","deltas":{"src/punt_lux/rest_client.py":{"avg_complexity":[1.23,1.16],"module_size":[300.0,298.0]},"src/punt_lux/rest_client_scenes.py":{"avg_complexity":[1.5,1.4],"module_size":[118.0,115.0]}}}
+{"ts":"2026-08-20T11:47:10Z","commit":"6a3d8eea","files_scored":4,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
