@@ -11,7 +11,7 @@ script is meant to surface.
 
 Submits through the front door — :class:`LuxRestClient` builds a
 :class:`RenderRequest` per frame, exactly as the CLI and the beads
-board do (``lux show beads``, ``BeadsBoardCommand``). Every frame
+board do (``lux beads``, ``BeadsBoardCommand``). Every frame
 therefore exercises the real Hub path (decode, self-validate, install,
 replicate) and not just the display's renderer; a malformed element
 is caught by Hub-side validation instead of skirting it over a raw

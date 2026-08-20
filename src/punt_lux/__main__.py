@@ -8,6 +8,7 @@ import typer
 
 from punt_lux import __version__
 from punt_lux.cli._shared import JsonFlag, OutputFlags, QuietFlag, VerboseFlag, run
+from punt_lux.cli.beads import beads as beads_command
 from punt_lux.cli.callback import callback_app
 from punt_lux.cli.display import display_app
 from punt_lux.cli.error import error_app
@@ -23,7 +24,6 @@ from punt_lux.cli.plugin import (
 from punt_lux.cli.scene import scene_app
 from punt_lux.cli.session import session_app
 from punt_lux.doctor_report import FAIL, OK, OPTIONAL, DoctorReport
-from punt_lux.show import show_app
 
 
 def _print_version() -> None:
@@ -60,7 +60,7 @@ def _main(  # pyright: ignore[reportUnusedFunction]
 
 hook_app = typer.Typer(hidden=True)
 app.add_typer(hook_app, name="hook")
-app.add_typer(show_app, name="show")
+app.command("beads")(beads_command)
 app.add_typer(hub_app, name="hub")
 app.add_typer(session_app, name="session")
 app.add_typer(scene_app, name="scene")

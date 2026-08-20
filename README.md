@@ -228,23 +228,40 @@ All elements with an `id` support an optional `tooltip` field (string shown on h
 
 ## CLI Commands
 
-| Command | What it does |
-|---------|-------------|
-| `lux display` | Start the display server (ImGui window) |
-| `lux-beads` | The Beads applet: owns this session's Beads menu entry and services its clicks (launched by the plugin's session-start hook) |
+Noun-grouped: every operation is `lux <noun> <verb>`, matching the same
+vocabulary the MCP tools and REST routes use. Every write accepts
+`--as/--kind/--name/--repo/--agent` (per-invocation identity) and every
+command accepts `--json/--verbose/--quiet`.
+
+| Noun group | Verbs |
+|---|---|
+| `lux scene` | `show`, `update`, `clear`, `clear-all`, `inspect`, `ls`, `table`, `dashboard` |
+| `lux frame` | `set-state` |
+| `lux menu` | `ls`, `set` |
+| `lux session` | `ls`, `inspect`, `identify` |
+| `lux display` | `info`, `theme`, `mode`, `window`, `screenshot`, `serve` (the internal render-loop entry point luxd spawns, not an interactive verb) |
+| `lux event` | `ls` |
+| `lux error` | `ls` |
+| `lux callback` | `register` |
+| `lux hub` | `install`, `uninstall`, `start`, `stop`, `restart`, `status` (admin — process supervision, CLI-only) |
+
+| Top-level singleton | What it does |
+|---|---|
+| `lux ping` | Ping the display through luxd; print round-trip time |
+| `lux doctor` | Check installation health (Python, fonts, plugin) |
+| `lux version` | Print version |
 | `lux enable` | Enable visual output for this project |
 | `lux disable` | Disable visual output for this project |
 | `lux status` | Check if the display server is running |
-| `lux doctor` | Check installation health (Python, fonts, plugin) |
 | `lux install` | Install the Claude Code plugin via the marketplace |
 | `lux uninstall` | Uninstall the Claude Code plugin |
-| `lux show beads` | Display the beads issue board via luxd's REST API (no LLM needed) |
-| `lux ping` | Ping the display through luxd; print round-trip time |
-| `lux hub-install` | Register the `luxd` session hub as a launchd/systemd service |
-| `lux hub-uninstall` | Remove the `luxd` service |
-| `lux ensure-hub` | Ensure `luxd` is running (`--restart` to restart) |
-| `lux hub-status` | Report `luxd` service status |
-| `lux version` | Print version |
+| `lux beads` | Display the beads issue board via luxd's REST API (no LLM needed) — a bespoke app-specific convenience, not part of the noun-grouped vocabulary |
+| `lux-beads` | The Beads applet: owns this session's Beads menu entry and services its clicks (launched by the plugin's session-start hook) |
+
+`lux topic *` and `lux callback pending` are not exposed on the CLI: they
+have no REST route by design (`tests/rest/test_app.py`'s `_MCP_ONLY`) —
+delivery for both runs over the listen leg's push/drain, which a stateless
+CLI request cannot bind to.
 
 ## Library (Python)
 

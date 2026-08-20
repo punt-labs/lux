@@ -1,7 +1,18 @@
-"""CLI subcommands for ``lux show`` — pre-built display scenes.
+"""``lux beads`` — display the repository's one beads board (no LLM needed).
 
-Each command reads local data, builds a request, and sends it to luxd through
-:class:`LuxRestClient`: the CLI is a thin REST client of the one engine.
+Not part of the ratified noun-grouped vocabulary (docs/architecture/target/
+target.md's ten nouns): beads-board assembly is app-specific composition, not
+a primitive engine operation -- the same reasoning the design doc's §Skill vs
+slash gives for keeping the beads *skill* separate from the thin one-operation
+slashes generated from the vocabulary. This is the CLI's equivalent: a
+bespoke, top-level convenience a human runs from a shell, distinct from both
+`lux scene table` (the primitive it composes) and the `lux-beads` applet (the
+live, session-bound, click-servicing sibling -- this command renders once and
+exits, with no menu registration and no session watch).
+
+Formerly `lux show beads`, under a `show` Typer group with one command. The
+ratified vocabulary has no top-level `show` noun (PL-PP-1: no shims for a
+retired shape), so this moved to a bare top-level verb, unchanged otherwise.
 """
 
 from __future__ import annotations
@@ -18,17 +29,12 @@ from punt_lux.operations.models.scene_results import SceneShown
 from punt_lux.rest_client import LuxRestClient
 from punt_lux.rest_transport import HubUnavailableError
 
-show_app = typer.Typer(
-    help="Show pre-built scenes in the Lux display.",
-    no_args_is_help=True,
-)
-
-__all__ = ["show_app"]
+__all__ = ["beads"]
 
 
 @final
 class BeadsBoardCommand:
-    """The ``lux show beads`` command: load the board, build its request, name it."""
+    """The ``lux beads`` command: load the board, build its request, name it."""
 
     _browser: BeadsBrowser
     __slots__ = ("_browser",)
@@ -70,7 +76,6 @@ class BeadsBoardCommand:
         return client.render(request)
 
 
-@show_app.command("beads")
 def beads(
     all_issues: bool = typer.Option(False, "--all", "-a", help="Include closed issues"),
 ) -> None:
