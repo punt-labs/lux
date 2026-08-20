@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from unittest.mock import patch
 
 from typer.testing import CliRunner
@@ -19,6 +20,24 @@ from punt_lux.operations import (
 from punt_lux.operations.models.query_clients import HubClient
 
 runner = CliRunner()
+
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
+_BOX_DRAWING = re.compile(r"[─-╿]")  # rich panel borders: ─│╭╮╰╯
+
+
+def _plain_text(output: str) -> str:
+    """Strip ANSI color codes, rich panel borders, and collapse wrapping.
+
+    Rich's error panel wraps at the console width -- which CI and a local
+    terminal do not agree on -- so a substring spanning a wrap point (e.g.
+    "value: --kind") can land on two separate, border-framed lines.
+    Stripping the box-drawing border glyphs and collapsing all whitespace
+    to single spaces makes a substring assertion robust to whatever width
+    the panel happened to wrap at.
+    """
+    stripped = _BOX_DRAWING.sub("", _ANSI_ESCAPE.sub("", output))
+    return " ".join(stripped.split())
+
 
 _IDENTITY = ClientIdentity(kind="cli", name="mdm-test")
 
@@ -124,7 +143,7 @@ class TestSessionIdentify:
             app, ["session", "identify", "--kind", "bogus", "--name", "mdm-test"]
         )
         assert result.exit_code == 2
-        assert "--kind" in result.output
+        assert "Invalid value: --kind" in _plain_text(result.output)
 
 
 class TestEventErrorLs:
