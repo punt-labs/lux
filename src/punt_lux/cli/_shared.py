@@ -17,7 +17,9 @@ import sys
 from typing import TYPE_CHECKING, Annotated, Self, cast, final
 
 import typer
+from pydantic import ValidationError
 
+from punt_lux.cli._identity_errors import describe_identity_error
 from punt_lux.cli_identity import CliIdentity
 from punt_lux.connection_identity import connection_for
 from punt_lux.domain.hub.client_identity import ClientIdentity, ClientKind
@@ -152,12 +154,15 @@ def identity_from_flags(
     resolved_name = name or parsed.get("name") or default.name
     resolved_repo = _resolve_optional(repo, parsed.get("repo"), default.repo)
     resolved_agent = _resolve_optional(agent, parsed.get("agent"), default.agent)
-    return ClientIdentity(
-        kind=cast("ClientKind", resolved_kind),
-        name=resolved_name,
-        repo=resolved_repo,
-        agent=resolved_agent,
-    )
+    try:
+        return ClientIdentity(
+            kind=cast("ClientKind", resolved_kind),
+            name=resolved_name,
+            repo=resolved_repo,
+            agent=resolved_agent,
+        )
+    except ValidationError as exc:
+        raise typer.BadParameter(describe_identity_error(exc)) from None
 
 
 def _resolve_optional(

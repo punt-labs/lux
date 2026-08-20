@@ -117,6 +117,15 @@ class TestSessionIdentify:
             )
         assert result.exit_code == 0
 
+    def test_identify_rejects_an_invalid_kind_as_a_usage_error(self) -> None:
+        """Regression: an invalid --kind used to crash with an unhandled
+        pydantic ValidationError instead of a usage error (Bugbot MEDIUM)."""
+        result = runner.invoke(
+            app, ["session", "identify", "--kind", "bogus", "--name", "mdm-test"]
+        )
+        assert result.exit_code == 2
+        assert "--kind" in result.output
+
 
 class TestEventErrorLs:
     def test_event_ls_reports_zero_events(self) -> None:
