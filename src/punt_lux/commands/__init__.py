@@ -21,12 +21,29 @@ Library callers await these directly::
 
 from __future__ import annotations
 
-from punt_lux.commands._result import CommandResult, Ctx, OpsPort
+from punt_lux.commands._result import CommandResult, Ctx, PingOps, SceneOps
 from punt_lux.commands.ping import ping
+from punt_lux.commands.scene_clear import scene_clear
+from punt_lux.commands.scene_clear_all import scene_clear_all
+from punt_lux.commands.scene_dashboard import scene_dashboard
+from punt_lux.commands.scene_inspect import scene_inspect
+from punt_lux.commands.scene_ls import scene_ls
+from punt_lux.commands.scene_show import scene_show
+from punt_lux.commands.scene_table import scene_table
+from punt_lux.commands.scene_update import scene_update
 
 __all__ = [
     "CommandResult",
     "Ctx",
-    "OpsPort",
+    "PingOps",
+    "SceneOps",
     "ping",
+    "scene_clear",
+    "scene_clear_all",
+    "scene_dashboard",
+    "scene_inspect",
+    "scene_ls",
+    "scene_show",
+    "scene_table",
+    "scene_update",
 ]

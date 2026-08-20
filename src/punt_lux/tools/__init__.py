@@ -31,19 +31,23 @@ from punt_lux.tools.read_tools import (
     screenshot,
 )
 
-# Importing write_tools.py registers the state-changing render/settings/config tools.
+# Importing write_tools.py registers the state-changing scene-write tools.
 from punt_lux.tools.write_tools import (
     clear,
     clear_scene,
-    display_mode,
     identify,
+    show,
+    update,
+)
+
+# Importing display_write_tools.py registers the display/menu/config write tools.
+from punt_lux.tools.display_write_tools import (
+    display_mode,
     set_display_mode,
     set_frame_state,
     set_menu,
     set_theme,
     set_window_settings,
-    show,
-    update,
 )
 
 # Importing composite_tools.py registers the convenience wrappers over show().

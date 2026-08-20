@@ -11,8 +11,15 @@ as the core tools do.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
+from punt_lux.commands import (
+    Ctx as CommandCtx,
+    SceneOps,
+    scene_dashboard as scene_dashboard_command,
+    scene_table as scene_table_command,
+)
 from punt_lux.operations import RenderDashboardRequest, RenderTableRequest
 from punt_lux.tools import tools as _core
 from punt_lux.tools.server import mcp
@@ -126,9 +133,11 @@ def show_table(
             "frame_title": frame_title,
         }
     )
-    return _core._format_render(
-        _core.OPERATIONS.render_table(request, scope=_core._scope())
+    ctx: CommandCtx[SceneOps] = CommandCtx(
+        ops=_core.OPERATIONS, identity=_core._identity()
     )
+    result = asyncio.run(scene_table_command(ctx, request, scope=_core._scope()))
+    return result.text
 
 
 @mcp.tool()
@@ -204,6 +213,8 @@ def show_dashboard(
             "frame_title": frame_title,
         }
     )
-    return _core._format_render(
-        _core.OPERATIONS.render_dashboard(request, scope=_core._scope())
+    ctx: CommandCtx[SceneOps] = CommandCtx(
+        ops=_core.OPERATIONS, identity=_core._identity()
     )
+    result = asyncio.run(scene_dashboard_command(ctx, request, scope=_core._scope()))
+    return result.text

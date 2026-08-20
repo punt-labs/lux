@@ -157,7 +157,7 @@ def ping(
     import asyncio
 
     from punt_lux.cli_identity import CliIdentity
-    from punt_lux.commands import Ctx as CommandCtx, ping as ping_command
+    from punt_lux.commands import Ctx as CommandCtx, PingOps, ping as ping_command
     from punt_lux.domain.hub.display_link import DEFAULT_RECV_TIMEOUT
     from punt_lux.rest_client import LuxRestClient
     from punt_lux.rest_transport import HubUnavailableError
@@ -171,7 +171,7 @@ def ping(
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from None
 
-    ctx = CommandCtx(ops=client, identity=CliIdentity.resolve())
+    ctx: CommandCtx[PingOps] = CommandCtx(ops=client, identity=CliIdentity.resolve())
     result = asyncio.run(ping_command(ctx, timeout))
 
     if result.error:

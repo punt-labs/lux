@@ -7,9 +7,18 @@ isolated store; the pattern is shared with ``composite_tools``.
 
 from __future__ import annotations
 
+import asyncio
+
 from fastmcp.exceptions import ToolError
 
-from punt_lux.commands import Ctx as CommandCtx, ping as ping_command
+from punt_lux.commands import (
+    Ctx as CommandCtx,
+    PingOps,
+    SceneOps,
+    ping as ping_command,
+    scene_inspect as scene_inspect_command,
+    scene_ls as scene_ls_command,
+)
 from punt_lux.operations import (
     ClientList,
     DisplayInfo,
@@ -44,7 +53,9 @@ __all__ = [
 @mcp.tool()
 async def ping() -> str:
     """Ping the display server. Returns round-trip time, or raises on failure."""
-    ctx = CommandCtx(ops=_core.OPERATIONS, identity=_core._identity())
+    ctx: CommandCtx[PingOps] = CommandCtx(
+        ops=_core.OPERATIONS, identity=_core._identity()
+    )
     result = await ping_command(ctx)
     if result.error:
         raise ToolError(result.text)
@@ -66,8 +77,16 @@ def inspect_scene(
     rect from the last completed frame — an element not painted is absent. An
     unknown or unowned scene is a not_found error.
     """
-    return _core.OPERATIONS.inspect_scene(
-        scene_id, scope=_core._scope(), facts=InspectScope(want_geometry=want_geometry)
+    ctx: CommandCtx[SceneOps] = CommandCtx(
+        ops=_core.OPERATIONS, identity=_core._identity()
+    )
+    return asyncio.run(
+        scene_inspect_command.execute(
+            ctx,
+            scene_id,
+            scope=_core._scope(),
+            facts=InspectScope(want_geometry=want_geometry),
+        )
     )
 
 
@@ -78,7 +97,10 @@ def list_scenes() -> SceneList:
     Returns the scenes (scene_id, element_count, frame_id, owners) and frames
     (frame_id, title, scene_count, scene_ids, layout) the Hub is holding.
     """
-    return _core.OPERATIONS.list_scenes()
+    ctx: CommandCtx[SceneOps] = CommandCtx(
+        ops=_core.OPERATIONS, identity=_core._identity()
+    )
+    return asyncio.run(scene_ls_command.execute(ctx))
 
 
 @mcp.tool()

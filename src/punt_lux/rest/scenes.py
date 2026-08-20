@@ -8,10 +8,24 @@ the route translates.
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Annotated, Self, final
 
 from fastapi import APIRouter, Depends, Query
 
+from punt_lux.commands import (
+    Ctx as CommandCtx,
+    SceneOps,
+    scene_clear as scene_clear_command,
+    scene_clear_all as scene_clear_all_command,
+    scene_dashboard as scene_dashboard_command,
+    scene_inspect as scene_inspect_command,
+    scene_ls as scene_ls_command,
+    scene_show as scene_show_command,
+    scene_table as scene_table_command,
+    scene_update as scene_update_command,
+)
+from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.operations import (
     Cleared,
     ClientList,
@@ -31,6 +45,11 @@ from punt_lux.rest.identity import resolve_scope
 if TYPE_CHECKING:
     from punt_lux.operations import Operations
     from punt_lux.rest.status import HttpErrorMap
+
+# A read route's fallback when the caller sent no (or a malformed)
+# X-Lux-Client-* declaration -- shared with DisplayRoutes.ping (rest/display.py),
+# honestly labeled as an anonymous caller rather than luxd's own identity.
+_ANONYMOUS_REST = ClientIdentity(kind="cli", name="rest-anonymous")
 
 __all__ = ["SceneRoutes"]
 
@@ -101,6 +120,17 @@ class SceneRoutes:
         """The router to mount on the app."""
         return self._router
 
+    def _ctx(self) -> CommandCtx[SceneOps]:
+        """Build the scene command context.
+
+        No Phase A scene command reads ``identity`` off the context yet --
+        ``_ANONYMOUS_REST`` is the same honestly-labeled placeholder
+        ``DisplayRoutes.ping`` falls back to for an undeclared caller, reused here
+        because the caller's real identity was already recorded against the scope
+        by ``resolve_scope`` before this route ever runs.
+        """
+        return CommandCtx(ops=self._ops, identity=_ANONYMOUS_REST)
+
     def render(
         self, scene_id: str, request: RenderRequest, scope: _OwningScope
     ) -> SceneShown:
@@ -108,7 +138,10 @@ class SceneRoutes:
         if request.scene_id != scene_id:
             reason = f"body scene_id {request.scene_id!r} must match path {scene_id!r}"
             return self._errors.respond(OpError(code="invalid_request", reason=reason))
-        return self._errors.respond(self._ops.render(request, scope=scope))
+        result = asyncio.run(
+            scene_show_command.execute(self._ctx(), request, scope=scope)
+        )
+        return self._errors.respond(result)
 
     def render_table(
         self, scene_id: str, request: RenderTableRequest, scope: _OwningScope
@@ -124,7 +157,10 @@ class SceneRoutes:
         if request.scene_id != scene_id:
             reason = f"body scene_id {request.scene_id!r} must match path {scene_id!r}"
             return self._errors.respond(OpError(code="invalid_request", reason=reason))
-        return self._errors.respond(self._ops.render_table(request, scope=scope))
+        result = asyncio.run(
+            scene_table_command.execute(self._ctx(), request, scope=scope)
+        )
+        return self._errors.respond(result)
 
     def render_dashboard(
         self, scene_id: str, request: RenderDashboardRequest, scope: _OwningScope
@@ -133,27 +169,36 @@ class SceneRoutes:
         if request.scene_id != scene_id:
             reason = f"body scene_id {request.scene_id!r} must match path {scene_id!r}"
             return self._errors.respond(OpError(code="invalid_request", reason=reason))
-        return self._errors.respond(self._ops.render_dashboard(request, scope=scope))
+        result = asyncio.run(
+            scene_dashboard_command.execute(self._ctx(), request, scope=scope)
+        )
+        return self._errors.respond(result)
 
     def update(
         self, scene_id: str, request: UpdateRequest, scope: _OwningScope
     ) -> SceneShown:
         """Apply a patch batch to the scene named in the path."""
-        return self._errors.respond(self._ops.update(scene_id, request, scope=scope))
+        result = asyncio.run(
+            scene_update_command.execute(self._ctx(), scene_id, request, scope=scope)
+        )
+        return self._errors.respond(result)
 
     def clear(self, scope: _OwningScope) -> Cleared:
         """Clear every scene the calling identity owns."""
-        return self._errors.respond(self._ops.clear(scope=scope))
+        result = asyncio.run(scene_clear_all_command.execute(self._ctx(), scope=scope))
+        return self._errors.respond(result)
 
     def clear_scene(self, scene_id: str, scope: _OwningScope) -> Cleared:
         """Clear just the named scene; unknown or unowned is a 404 / rejection."""
-        return self._errors.respond(
-            self._ops.clear_scene(scope=scope, scene_id=scene_id)
+        result = asyncio.run(
+            scene_clear_command.execute(self._ctx(), scene_id, scope=scope)
         )
+        return self._errors.respond(result)
 
     def list_scenes(self) -> SceneList:
         """List every live scene and frame from the authoritative store."""
-        return self._errors.respond(self._ops.list_scenes())
+        result = asyncio.run(scene_ls_command.execute(self._ctx()))
+        return self._errors.respond(result)
 
     def inspect_scene(
         self,
@@ -169,9 +214,12 @@ class SceneRoutes:
         gets the same ``identification_required`` challenge a write gets,
         rather than silently resolving no scene it could ever own.
         """
-        return self._errors.respond(
-            self._ops.inspect_scene(scene_id, scope=scope, facts=facts)
+        result = asyncio.run(
+            scene_inspect_command.execute(
+                self._ctx(), scene_id, scope=scope, facts=facts
+            )
         )
+        return self._errors.respond(result)
 
     def list_clients(self) -> ClientList:
         """List the Hub's sessions and their scopes."""

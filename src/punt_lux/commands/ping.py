@@ -14,7 +14,7 @@ from punt_lux.commands._result import CommandResult
 from punt_lux.operations import OpError
 
 if TYPE_CHECKING:
-    from punt_lux.commands._result import Ctx
+    from punt_lux.commands._result import Ctx, PingOps
     from punt_lux.operations import Pong
 
 
@@ -27,7 +27,9 @@ class PingCommand:
     def __new__(cls) -> Self:
         return super().__new__(cls)
 
-    async def execute(self, ctx: Ctx, wait: float | None = None) -> Pong | OpError:
+    async def execute(
+        self, ctx: Ctx[PingOps], wait: float | None = None
+    ) -> Pong | OpError:
         """Round-trip ``ctx.ops.ping(wait)`` off the event loop and return it.
 
         REST calls this directly, skipping the rendered envelope; threaded
@@ -35,7 +37,9 @@ class PingCommand:
         """
         return await asyncio.to_thread(ctx.ops.ping, wait)
 
-    async def __call__(self, ctx: Ctx, wait: float | None = None) -> CommandResult:
+    async def __call__(
+        self, ctx: Ctx[PingOps], wait: float | None = None
+    ) -> CommandResult:
         """Run :meth:`execute` and render its outcome into the shared envelope."""
         result = await self.execute(ctx, wait)
         if isinstance(result, OpError):

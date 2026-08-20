@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Annotated, Self, final
 
 from fastapi import APIRouter, Query, Request
 
-from punt_lux.commands import Ctx as CommandCtx, ping as ping_command
+from punt_lux.commands import Ctx as CommandCtx, PingOps, ping as ping_command
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.identity_headers import ClientHeaders
 from punt_lux.operations import (
@@ -133,7 +133,7 @@ class DisplayRoutes:
         recovers from a declared request.
         """
         identity = ClientHeaders.identity_from(request.headers) or _ANONYMOUS_REST
-        ctx = CommandCtx(ops=self._ops, identity=identity)
+        ctx: CommandCtx[PingOps] = CommandCtx(ops=self._ops, identity=identity)
         result = await ping_command.execute(ctx, timeout)
         return self._errors.respond(result)
 
