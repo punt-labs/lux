@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastmcp.exceptions import ToolError
 
 from punt_lux.display.render_loop import RenderLoop
 from punt_lux.display.renderers.imgui.collapsing_header import (
@@ -223,10 +224,19 @@ class TestShowRejectsInvalidHeader:
     def test_show_rejects_empty_label(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
-        result = show(
-            "s1",
-            [{"kind": "collapsing_header", "id": "ch", "label": "", "children": []}],
-        )
+        with pytest.raises(ToolError) as _exc:
+            show(
+                "s1",
+                [
+                    {
+                        "kind": "collapsing_header",
+                        "id": "ch",
+                        "label": "",
+                        "children": [],
+                    }
+                ],
+            )
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "[collapsing_header 'ch']" in result
         assert "non-empty label" in result
@@ -237,20 +247,22 @@ class TestShowRejectsInvalidHeader:
         """A bad progress nested in the header body is collected by the walk."""
         client = _mock_client()
         mock_get.return_value = client
-        result = show(
-            "s1",
-            [
-                {
-                    "kind": "collapsing_header",
-                    "id": "ch",
-                    "label": "Section",
-                    "children": [
-                        {"kind": "text", "id": "ok", "content": "fine"},
-                        {"kind": "progress", "id": "bad", "fraction": -0.5},
-                    ],
-                }
-            ],
-        )
+        with pytest.raises(ToolError) as _exc:
+            show(
+                "s1",
+                [
+                    {
+                        "kind": "collapsing_header",
+                        "id": "ch",
+                        "label": "Section",
+                        "children": [
+                            {"kind": "text", "id": "ok", "content": "fine"},
+                            {"kind": "progress", "id": "bad", "fraction": -0.5},
+                        ],
+                    }
+                ],
+            )
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "[progress 'bad']" in result
         client.show.assert_not_called()

@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Annotated, Self, final
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, Query
 
-from punt_lux.commands import Ctx as CommandCtx, PingOps, ping as ping_command
-from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.identity_headers import ClientHeaders
+from punt_lux.commands import (
+    Ctx as CommandCtx,
+    FrameOps,
+    PingOps,
+    frame_set_state as frame_set_state_command,
+    ping as ping_command,
+)
 from punt_lux.operations import (
     DisplayInfo,
     FrameRaise,
@@ -23,16 +28,14 @@ from punt_lux.operations import (
     WindowSettings,
     WindowSettingsPatch,
 )
+from punt_lux.rest.identity import resolve_identity
 
 if TYPE_CHECKING:
+    from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.operations import Operations
     from punt_lux.rest.status import HttpErrorMap
 
-# A read route's fallback when the caller sent no (or a malformed)
-# X-Lux-Client-* declaration. Honestly labeled as an anonymous caller, never
-# "luxd" -- luxd is the app itself, never a caller of its own REST surface,
-# and every real declaration ClientHeaders.identity_from parses wins over it.
-_ANONYMOUS_REST = ClientIdentity(kind="cli", name="rest-anonymous")
+_CallerIdentity = Annotated["ClientIdentity", Depends(resolve_identity)]
 
 __all__ = ["DisplayRoutes"]
 
@@ -111,9 +114,14 @@ class DisplayRoutes:
         """Change the provided window settings and return the new settings."""
         return self._errors.respond(self._ops.set_window_settings(patch))
 
-    def set_frame_state(self, frame_id: str, patch: FrameStatePatch) -> Ok:
+    def set_frame_state(
+        self, frame_id: str, patch: FrameStatePatch, identity: _CallerIdentity
+    ) -> Ok:
         """Change a frame's transient minimize state."""
-        return self._errors.respond(self._ops.set_frame_state(frame_id, patch))
+        ctx: CommandCtx[FrameOps] = CommandCtx(ops=self._ops, identity=identity)
+        return self._errors.respond(
+            asyncio.run(frame_set_state_command.execute(ctx, frame_id, patch))
+        )
 
     def raise_frame(self, frame_id: str) -> FrameRaise:
         """Bring a frame to the front, restoring it if it was minimized."""
@@ -123,16 +131,16 @@ class DisplayRoutes:
         """Refuse the screenshot: framebuffer capture is unsupported (DES-028)."""
         return self._errors.respond(self._ops.screenshot())
 
-    async def ping(self, request: Request, timeout: _PingTimeout = None) -> Pong:
+    async def ping(
+        self, identity: _CallerIdentity, timeout: _PingTimeout = None
+    ) -> Pong:
         """Round-trip a ping via PingCommand and return the typed result.
 
         A ping never owns Hub state, so a caller with no ``X-Lux-Client-*``
-        declaration is not challenged the way a write is — it resolves to
-        ``_ANONYMOUS_REST`` rather than luxd's own identity, honestly
-        distinct from every real caller ``ClientHeaders.identity_from``
-        recovers from a declared request.
+        declaration is not challenged the way a write is — ``resolve_identity``
+        resolves to ``ANONYMOUS_REST`` rather than luxd's own identity, honestly
+        distinct from every real caller.
         """
-        identity = ClientHeaders.identity_from(request.headers) or _ANONYMOUS_REST
         ctx: CommandCtx[PingOps] = CommandCtx(ops=self._ops, identity=identity)
         result = await ping_command.execute(ctx, timeout)
         return self._errors.respond(result)

@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastmcp.exceptions import ToolError
 
 from punt_lux.display.render_loop import RenderLoop
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
@@ -195,7 +196,9 @@ class TestShowRejectsInvalidColorPicker:
     def test_show_rejects_malformed_hex(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
-        result = show("s1", [{"kind": "color_picker", "id": "cp", "value": "red"}])
+        with pytest.raises(ToolError) as _exc:
+            show("s1", [{"kind": "color_picker", "id": "cp", "value": "red"}])
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "[color_picker 'cp']" in result
         client.show.assert_not_called()
@@ -207,19 +210,21 @@ class TestShowRejectsInvalidColorPicker:
         """A bad picker nested in an all-ABC group is collected by the walk."""
         client = _mock_client()
         mock_get.return_value = client
-        result = show(
-            "s1",
-            [
-                {
-                    "kind": "group",
-                    "id": "g1",
-                    "children": [
-                        {"kind": "text", "id": "ok", "content": "fine"},
-                        {"kind": "color_picker", "id": "bad", "value": "#XYZ"},
-                    ],
-                }
-            ],
-        )
+        with pytest.raises(ToolError) as _exc:
+            show(
+                "s1",
+                [
+                    {
+                        "kind": "group",
+                        "id": "g1",
+                        "children": [
+                            {"kind": "text", "id": "ok", "content": "fine"},
+                            {"kind": "color_picker", "id": "bad", "value": "#XYZ"},
+                        ],
+                    }
+                ],
+            )
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "[color_picker 'bad']" in result
         client.show.assert_not_called()
@@ -231,20 +236,22 @@ class TestShowRejectsInvalidColorPicker:
         """A bad picker nested in a collapsing_header is collected by the walk."""
         client = _mock_client()
         mock_get.return_value = client
-        result = show(
-            "s1",
-            [
-                {
-                    "kind": "collapsing_header",
-                    "id": "hdr",
-                    "label": "Details",
-                    "children": [
-                        {"kind": "text", "id": "ok", "content": "fine"},
-                        {"kind": "color_picker", "id": "bad", "value": "nope"},
-                    ],
-                }
-            ],
-        )
+        with pytest.raises(ToolError) as _exc:
+            show(
+                "s1",
+                [
+                    {
+                        "kind": "collapsing_header",
+                        "id": "hdr",
+                        "label": "Details",
+                        "children": [
+                            {"kind": "text", "id": "ok", "content": "fine"},
+                            {"kind": "color_picker", "id": "bad", "value": "nope"},
+                        ],
+                    }
+                ],
+            )
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "[color_picker 'bad']" in result
         client.show.assert_not_called()
@@ -256,26 +263,32 @@ class TestShowRejectsInvalidColorPicker:
         """A bad picker nested in a tab's children is collected by the walk."""
         client = _mock_client()
         mock_get.return_value = client
-        result = show(
-            "s1",
-            [
-                {
-                    "kind": "tab_bar",
-                    "id": "tb",
-                    "active_tab": "a",
-                    "tabs": [
-                        {
-                            "id": "a",
-                            "label": "One",
-                            "children": [
-                                {"kind": "text", "id": "ok", "content": "fine"},
-                                {"kind": "color_picker", "id": "bad", "value": "#XYZ"},
-                            ],
-                        }
-                    ],
-                }
-            ],
-        )
+        with pytest.raises(ToolError) as _exc:
+            show(
+                "s1",
+                [
+                    {
+                        "kind": "tab_bar",
+                        "id": "tb",
+                        "active_tab": "a",
+                        "tabs": [
+                            {
+                                "id": "a",
+                                "label": "One",
+                                "children": [
+                                    {"kind": "text", "id": "ok", "content": "fine"},
+                                    {
+                                        "kind": "color_picker",
+                                        "id": "bad",
+                                        "value": "#XYZ",
+                                    },
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            )
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "[color_picker 'bad']" in result
         client.show.assert_not_called()

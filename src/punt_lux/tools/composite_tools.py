@@ -22,6 +22,7 @@ from punt_lux.commands import (
 )
 from punt_lux.operations import RenderDashboardRequest, RenderTableRequest
 from punt_lux.tools import tools as _core
+from punt_lux.tools._signal import signal
 from punt_lux.tools.server import mcp
 
 __all__ = ["show_dashboard", "show_table"]
@@ -137,7 +138,7 @@ def show_table(
         ops=_core.OPERATIONS, identity=_core._identity()
     )
     result = asyncio.run(scene_table_command(ctx, request, scope=_core._scope()))
-    return result.text
+    return signal(result)
 
 
 @mcp.tool()
@@ -217,4 +218,4 @@ def show_dashboard(
         ops=_core.OPERATIONS, identity=_core._identity()
     )
     result = asyncio.run(scene_dashboard_command(ctx, request, scope=_core._scope()))
-    return result.text
+    return signal(result)

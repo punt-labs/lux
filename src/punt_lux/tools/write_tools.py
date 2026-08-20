@@ -31,6 +31,7 @@ from punt_lux.commands import (
 from punt_lux.domain.hub.scene_presentation import SceneLayout
 from punt_lux.operations import RenderRequest, UpdateRequest
 from punt_lux.tools import tools as _core
+from punt_lux.tools._signal import signal
 from punt_lux.tools.server import mcp
 
 __all__ = [
@@ -66,7 +67,7 @@ def identify(
             scope=_core._scope(),
         )
     )
-    return result.text
+    return signal(result)
 
 
 @mcp.tool()
@@ -172,7 +173,7 @@ def show(
         ops=_core.OPERATIONS, identity=_core._identity()
     )
     result = asyncio.run(scene_show_command(ctx, request, scope=_core._scope()))
-    return result.text
+    return signal(result)
 
 
 @mcp.tool()
@@ -196,7 +197,7 @@ def update(scene_id: str, patches: list[dict[str, Any]]) -> str:
             ctx, scene_id, UpdateRequest.parse(patches), scope=_core._scope()
         )
     )
-    return result.text
+    return signal(result)
 
 
 @mcp.tool()
@@ -206,7 +207,7 @@ def clear() -> str:
         ops=_core.OPERATIONS, identity=_core._identity()
     )
     result = asyncio.run(scene_clear_all_command(ctx, scope=_core._scope()))
-    return result.text
+    return signal(result)
 
 
 @mcp.tool()
@@ -220,4 +221,4 @@ def clear_scene(scene_id: str) -> str:
         ops=_core.OPERATIONS, identity=_core._identity()
     )
     result = asyncio.run(scene_clear_command(ctx, scene_id, scope=_core._scope()))
-    return result.text
+    return signal(result)

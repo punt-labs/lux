@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.commands._result import CommandResult
@@ -31,7 +32,9 @@ class SceneInspectCommand:
         facts: InspectScope = HUB_ONLY,
     ) -> SceneInspection | OpError:
         """Return ``scene_id``'s tree, composed against the caller's own scope."""
-        return ctx.ops.inspect_scene(scene_id, scope=scope, facts=facts)
+        return await asyncio.to_thread(
+            ctx.ops.inspect_scene, scene_id, scope=scope, facts=facts
+        )
 
     async def __call__(
         self,

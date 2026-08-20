@@ -6,6 +6,7 @@ on success, the shared fault line on error.
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.commands._faults import render_fault
@@ -30,7 +31,7 @@ class MenuSetCommand:
         self, ctx: Ctx[MenuOps], request: SetMenuRequest | OpError
     ) -> Ok | OpError:
         """Install ``request`` as the new menu bar and return the typed outcome."""
-        return ctx.ops.set_menu(request)
+        return await asyncio.to_thread(ctx.ops.set_menu, request)
 
     async def __call__(
         self, ctx: Ctx[MenuOps], request: SetMenuRequest | OpError

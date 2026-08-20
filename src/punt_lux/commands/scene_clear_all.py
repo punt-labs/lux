@@ -10,6 +10,7 @@ error path the shipped surface never had.
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.commands._result import CommandResult
@@ -30,7 +31,7 @@ class SceneClearAllCommand:
 
     async def execute(self, ctx: Ctx[SceneOps], *, scope: Scope) -> Cleared | OpError:
         """Clear every scene ``scope`` owns and return the typed outcome."""
-        return ctx.ops.clear(scope=scope)
+        return await asyncio.to_thread(ctx.ops.clear, scope=scope)
 
     async def __call__(self, ctx: Ctx[SceneOps], *, scope: Scope) -> CommandResult:
         """Clear every owned scene and report ``"cleared"``, as the legacy tool did."""

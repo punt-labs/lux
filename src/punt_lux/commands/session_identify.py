@@ -6,6 +6,7 @@ Text shape matches the shipped ``identify`` MCP tool byte-for-byte --
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.commands._faults import render_fault
@@ -40,7 +41,7 @@ class SessionIdentifyCommand:
         passes the caller's raw kind/name/repo/agent through unchanged so the
         Hub validates the shape once, at the composition boundary.
         """
-        return ctx.ops.identify(declaration, scope=scope)
+        return await asyncio.to_thread(ctx.ops.identify, declaration, scope=scope)
 
     async def __call__(
         self,

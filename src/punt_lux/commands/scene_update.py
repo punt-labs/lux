@@ -6,6 +6,7 @@ Text shapes match the shipped ``update`` MCP tool byte-for-byte --
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.commands._result import CommandResult
@@ -34,7 +35,7 @@ class SceneUpdateCommand:
         scope: Scope,
     ) -> SceneShown | OpError:
         """Apply ``request`` to ``scene_id`` and return the typed outcome."""
-        return ctx.ops.update(scene_id, request, scope=scope)
+        return await asyncio.to_thread(ctx.ops.update, scene_id, request, scope=scope)
 
     async def __call__(
         self,

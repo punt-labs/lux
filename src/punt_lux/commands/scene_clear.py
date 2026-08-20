@@ -8,6 +8,7 @@ scene -- so an unmistyped id can never look like a successful clear.
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.commands._faults import render_fault
@@ -32,7 +33,9 @@ class SceneClearCommand:
         self, ctx: Ctx[SceneOps], scene_id: str, *, scope: Scope
     ) -> Cleared | OpError:
         """Clear ``scene_id`` and return the typed outcome."""
-        return ctx.ops.clear_scene(scope=scope, scene_id=scene_id)
+        return await asyncio.to_thread(
+            ctx.ops.clear_scene, scope=scope, scene_id=scene_id
+        )
 
     async def __call__(
         self, ctx: Ctx[SceneOps], scene_id: str, *, scope: Scope

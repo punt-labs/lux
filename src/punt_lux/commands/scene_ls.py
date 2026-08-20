@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.commands._result import CommandResult
@@ -22,7 +23,7 @@ class SceneLsCommand:
 
     async def execute(self, ctx: Ctx[SceneOps]) -> SceneList:
         """Return every live scene and frame."""
-        return ctx.ops.list_scenes()
+        return await asyncio.to_thread(ctx.ops.list_scenes)
 
     async def __call__(self, ctx: Ctx[SceneOps]) -> CommandResult:
         """Run :meth:`execute` and render its outcome into the shared envelope."""

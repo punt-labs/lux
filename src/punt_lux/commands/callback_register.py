@@ -9,6 +9,7 @@ payload, so the id the caller passed in is the id the caller reads back.
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.commands._result import CommandResult
@@ -37,7 +38,7 @@ class CallbackRegisterCommand:
         scope: Scope,
     ) -> Ok | OpError:
         """Register ``request`` for the caller's scope and return the typed outcome."""
-        return ctx.ops.register_callback(request, scope=scope)
+        return await asyncio.to_thread(ctx.ops.register_callback, request, scope=scope)
 
     async def __call__(
         self,

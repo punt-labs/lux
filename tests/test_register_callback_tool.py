@@ -16,6 +16,9 @@ from collections.abc import Generator
 from typing import Self, final
 from unittest import mock
 
+import pytest
+from fastmcp.exceptions import ToolError
+
 from punt_lux.domain.hub import client_registry, hub
 from punt_lux.domain.hub.callback_hold import CallbackRouter
 from punt_lux.domain.hub.client_identity import ClientIdentity
@@ -151,7 +154,9 @@ def test_a_session_with_no_listen_leg_is_refused_the_push_requirement() -> None:
     """What a bare MCP session gets: the tool exists, but the connection cannot."""
     with _isolated_ops(listening=False):
         write_tools.identify("mcp-session", "claude", "/w/lux")
-        result = subscribe_tools.register_callback("beads", "Beads")
+        with pytest.raises(ToolError) as _exc:
+            subscribe_tools.register_callback("beads", "Beads")
+    result = str(_exc.value)
     assert result.startswith("error: ")
     assert "listen leg" in result
     assert "applet" in result  # and the way to get one
@@ -165,8 +170,9 @@ def test_a_session_that_never_identified_meets_the_leg_it_cannot_hold() -> None:
     a connection's slot. The refusal an unidentified caller meets is therefore the
     push requirement — and identifying alone would not clear it.
     """
-    with _isolated_ops(listening=False):
-        result = subscribe_tools.register_callback("beads", "Beads")
+    with _isolated_ops(listening=False), pytest.raises(ToolError) as _exc:
+        subscribe_tools.register_callback("beads", "Beads")
+    result = str(_exc.value)
     assert result.startswith("error: ")
     assert "listen leg" in result
 

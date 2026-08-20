@@ -576,7 +576,9 @@ class TestShowTool:
 
         # Cast past the SceneLayout type to simulate a wire caller sending an
         # out-of-set value — the runtime parse must still reject it.
-        result = show("s1", [], layout=cast("SceneLayout", "diagonal"))
+        with pytest.raises(ToolError) as _exc:
+            show("s1", [], layout=cast("SceneLayout", "diagonal"))
+        result = str(_exc.value)
 
         assert result == (
             "error: layout must be single/rows/columns/grid, got 'diagonal'"
@@ -609,17 +611,19 @@ class TestShowTool:
         client = _mock_client()
         mock_get.return_value = client
 
-        result = show(
-            "s1",
-            [
-                {
-                    "kind": "table",
-                    "id": "sales",
-                    "columns": ["Name", "Score", "Rank"],
-                    "rows": [["Alice", 95]],
-                },
-            ],
-        )
+        with pytest.raises(ToolError) as _exc:
+            show(
+                "s1",
+                [
+                    {
+                        "kind": "table",
+                        "id": "sales",
+                        "columns": ["Name", "Score", "Rank"],
+                        "rows": [["Alice", 95]],
+                    },
+                ],
+            )
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "[table 'sales']" in result
         assert "2 cell(s)" in result
@@ -635,24 +639,26 @@ class TestShowTool:
         client = _mock_client()
         mock_get.return_value = client
 
-        result = show(
-            "s1",
-            [
-                {
-                    "kind": "group",
-                    "id": "g1",
-                    "children": [
-                        {"kind": "text", "id": "ok", "content": "fine"},
-                        {
-                            "kind": "table",
-                            "id": "nested",
-                            "columns": ["A", "B"],
-                            "rows": [["only-one"]],
-                        },
-                    ],
-                },
-            ],
-        )
+        with pytest.raises(ToolError) as _exc:
+            show(
+                "s1",
+                [
+                    {
+                        "kind": "group",
+                        "id": "g1",
+                        "children": [
+                            {"kind": "text", "id": "ok", "content": "fine"},
+                            {
+                                "kind": "table",
+                                "id": "nested",
+                                "columns": ["A", "B"],
+                                "rows": [["only-one"]],
+                            },
+                        ],
+                    },
+                ],
+            )
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "[table 'nested']" in result
         assert "1 validation error(s):" in result
@@ -663,16 +669,18 @@ class TestShowTool:
         client = _mock_client()
         mock_get.return_value = client
 
-        result = show(
-            "s1",
-            [
-                {
-                    "kind": "window",
-                    "id": "w1",
-                    "children": [_bad_table("in_window")],
-                },
-            ],
-        )
+        with pytest.raises(ToolError) as _exc:
+            show(
+                "s1",
+                [
+                    {
+                        "kind": "window",
+                        "id": "w1",
+                        "children": [_bad_table("in_window")],
+                    },
+                ],
+            )
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "[table 'in_window']" in result
         client.show.assert_not_called()
@@ -684,16 +692,18 @@ class TestShowTool:
         client = _mock_client()
         mock_get.return_value = client
 
-        result = show(
-            "s1",
-            [
-                {
-                    "kind": "tab_bar",
-                    "id": "tb1",
-                    "tabs": [{"label": "One", "children": [_bad_table("in_tab")]}],
-                },
-            ],
-        )
+        with pytest.raises(ToolError) as _exc:
+            show(
+                "s1",
+                [
+                    {
+                        "kind": "tab_bar",
+                        "id": "tb1",
+                        "tabs": [{"label": "One", "children": [_bad_table("in_tab")]}],
+                    },
+                ],
+            )
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "[table 'in_tab']" in result
         client.show.assert_not_called()
@@ -705,17 +715,19 @@ class TestShowTool:
         client = _mock_client()
         mock_get.return_value = client
 
-        result = show(
-            "s1",
-            [
-                {
-                    "kind": "collapsing_header",
-                    "id": "ch1",
-                    "label": "Details",
-                    "children": [_bad_table("in_header")],
-                },
-            ],
-        )
+        with pytest.raises(ToolError) as _exc:
+            show(
+                "s1",
+                [
+                    {
+                        "kind": "collapsing_header",
+                        "id": "ch1",
+                        "label": "Details",
+                        "children": [_bad_table("in_header")],
+                    },
+                ],
+            )
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "[table 'in_header']" in result
         client.show.assert_not_called()
@@ -725,17 +737,19 @@ class TestShowTool:
         client = _mock_client()
         mock_get.return_value = client
 
-        result = show(
-            "s1",
-            [
-                {
-                    "kind": "modal",
-                    "id": "m1",
-                    "title": "Confirm",
-                    "children": [_bad_table("in_modal")],
-                },
-            ],
-        )
+        with pytest.raises(ToolError) as _exc:
+            show(
+                "s1",
+                [
+                    {
+                        "kind": "modal",
+                        "id": "m1",
+                        "title": "Confirm",
+                        "children": [_bad_table("in_modal")],
+                    },
+                ],
+            )
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "[table 'in_modal']" in result
         client.show.assert_not_called()
@@ -748,10 +762,12 @@ class TestShowTool:
         client = _mock_client()
         mock_get.return_value = client
 
-        result = show(
-            "s1",
-            [{"kind": "tree", "id": "files", "label": "Files", "nodes": [42]}],
-        )
+        with pytest.raises(ToolError) as _exc:
+            show(
+                "s1",
+                [{"kind": "tree", "id": "files", "label": "Files", "nodes": [42]}],
+            )
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "nodes[0] must be a mapping" in result
         client.show.assert_not_called()
@@ -763,23 +779,25 @@ class TestShowTool:
         client = _mock_client()
         mock_get.return_value = client
 
-        result = show(
-            "s1",
-            [
-                {
-                    "kind": "window",
-                    "id": "w1",
-                    "children": [
-                        {
-                            "kind": "collapsing_header",
-                            "id": "ch1",
-                            "label": "Nested",
-                            "children": [_bad_table("deep")],
-                        },
-                    ],
-                },
-            ],
-        )
+        with pytest.raises(ToolError) as _exc:
+            show(
+                "s1",
+                [
+                    {
+                        "kind": "window",
+                        "id": "w1",
+                        "children": [
+                            {
+                                "kind": "collapsing_header",
+                                "id": "ch1",
+                                "label": "Nested",
+                                "children": [_bad_table("deep")],
+                            },
+                        ],
+                    },
+                ],
+            )
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "[table 'deep']" in result
         client.show.assert_not_called()
@@ -789,7 +807,9 @@ class TestShowTool:
         client = _mock_client()
         mock_get.return_value = client
 
-        result = show("s1", [_bad_table("first"), _bad_table("second")])
+        with pytest.raises(ToolError) as _exc:
+            show("s1", [_bad_table("first"), _bad_table("second")])
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "[table 'first']" in result
         assert "[table 'second']" in result
@@ -1103,7 +1123,9 @@ class TestUpdateTool:
         _seed_store(store, label="Details")
         client = _bind_store(monkeypatch, store)
 
-        result = update("s1", [{"id": "hdr", "set": {"label": ""}}])
+        with pytest.raises(ToolError) as _exc:
+            update("s1", [{"id": "hdr", "set": {"label": ""}}])
+        result = str(_exc.value)
 
         assert result.startswith("error: scene not updated")
         # The authoritative store is untouched; nothing is re-pushed.
@@ -1120,7 +1142,9 @@ class TestUpdateTool:
         _seed_store(store)
         client = _bind_store(monkeypatch, store)
 
-        result = update("s1", [{"id": "ghost", "set": {"open": True}}])
+        with pytest.raises(ToolError) as _exc:
+            update("s1", [{"id": "ghost", "set": {"open": True}}])
+        result = str(_exc.value)
 
         assert result.startswith("error: scene not updated")
         # The store is untouched — the seeded header survives the rejection.
@@ -1139,7 +1163,9 @@ class TestUpdateTool:
         _seed_store(store)
         client = _bind_store(monkeypatch, store)
 
-        result = update("s1", [{"id": "hdr"}])
+        with pytest.raises(ToolError) as _exc:
+            update("s1", [{"id": "hdr"}])
+        result = str(_exc.value)
 
         assert result.startswith("error: scene not updated")
         assert "hdr" in result
@@ -1153,7 +1179,9 @@ class TestUpdateTool:
         _seed_store(store)
         client = _bind_store(monkeypatch, store)
 
-        result = update("s1", [{"id": "hdr", "set": "not-a-map"}])
+        with pytest.raises(ToolError) as _exc:
+            update("s1", [{"id": "hdr", "set": "not-a-map"}])
+        result = str(_exc.value)
 
         assert result.startswith("error: scene not updated")
         assert "hdr" in result
@@ -1167,7 +1195,9 @@ class TestUpdateTool:
         _seed_store(store)
         client = _bind_store(monkeypatch, store)
 
-        result = update("s1", [{"id": "hdr", "remove": False}])
+        with pytest.raises(ToolError) as _exc:
+            update("s1", [{"id": "hdr", "remove": False}])
+        result = str(_exc.value)
 
         assert result.startswith("error: scene not updated")
         assert "hdr" in result
@@ -1186,7 +1216,9 @@ class TestUpdateTool:
         _seed_store(store)
         client = _bind_store(monkeypatch, store)
 
-        result = update("s1", [{"id": "hdr", "remove": True, "set": {"open": True}}])
+        with pytest.raises(ToolError) as _exc:
+            update("s1", [{"id": "hdr", "remove": True, "set": {"open": True}}])
+        result = str(_exc.value)
 
         assert result.startswith("error: scene not updated")
         assert "hdr" in result
@@ -1208,7 +1240,9 @@ class TestUpdateTool:
         _seed_store(store)
         client = _bind_store(monkeypatch, store)
 
-        result = update("s1", [{"id": "hdr", "remove": "yes"}])
+        with pytest.raises(ToolError) as _exc:
+            update("s1", [{"id": "hdr", "remove": "yes"}])
+        result = str(_exc.value)
 
         assert result.startswith("error: scene not updated")
         assert "hdr" in result
@@ -1224,7 +1258,9 @@ class TestUpdateTool:
         _seed_store(store)
         client = _bind_store(monkeypatch, store)
 
-        result = update("s1", [{"set": {"open": True}}])
+        with pytest.raises(ToolError) as _exc:
+            update("s1", [{"set": {"open": True}}])
+        result = str(_exc.value)
 
         assert result.startswith("error: scene not updated")
         assert "id" in result
@@ -1266,13 +1302,15 @@ class TestUpdateTool:
         _seed_store(store, is_open=False, label="Details")
         client = _bind_store(monkeypatch, store)
 
-        result = update(
-            "s1",
-            [
-                {"id": "hdr", "set": {"open": True}},
-                {"id": "hdr", "set": {"label": ""}},
-            ],
-        )
+        with pytest.raises(ToolError) as _exc:
+            update(
+                "s1",
+                [
+                    {"id": "hdr", "set": {"open": True}},
+                    {"id": "hdr", "set": {"label": ""}},
+                ],
+            )
+        result = str(_exc.value)
 
         assert result.startswith("error: scene not updated")
         header = store.resolve(_scoped("s1"), ElementId("hdr"))
@@ -1295,13 +1333,15 @@ class TestUpdateTool:
         )
         client = _bind_store(monkeypatch, store)
 
-        result = update(
-            "s1",
-            [
-                {"id": "a", "set": {"open": True}},
-                {"id": "b", "set": {"label": ""}},
-            ],
-        )
+        with pytest.raises(ToolError) as _exc:
+            update(
+                "s1",
+                [
+                    {"id": "a", "set": {"open": True}},
+                    {"id": "b", "set": {"label": ""}},
+                ],
+            )
+        result = str(_exc.value)
 
         assert result.startswith("error: scene not updated")
         valid = store.resolve(_scoped("s1"), ElementId("a"))
@@ -1323,13 +1363,15 @@ class TestUpdateTool:
         )
         client = _bind_store(monkeypatch, store)
 
-        result = update(
-            "s1",
-            [
-                {"id": "drop", "remove": True},
-                {"id": "keep", "set": {"label": ""}},
-            ],
-        )
+        with pytest.raises(ToolError) as _exc:
+            update(
+                "s1",
+                [
+                    {"id": "drop", "remove": True},
+                    {"id": "keep", "set": {"label": ""}},
+                ],
+            )
+        result = str(_exc.value)
 
         assert result.startswith("error: scene not updated")
         # The removal never happened — the invalid set rejects the whole batch.
@@ -1367,7 +1409,9 @@ class TestUpdateTool:
 
         token = _session_key.set("intruder")
         try:
-            result = update("s1", [{"id": "hdr", "set": {"open": True}}])
+            with pytest.raises(ToolError) as _exc:
+                update("s1", [{"id": "hdr", "set": {"open": True}}])
+            result = str(_exc.value)
         finally:
             _session_key.reset(token)
 
@@ -1427,7 +1471,9 @@ class TestUpdateTool:
         _seed_store(store)
         client = _bind_store(monkeypatch, store)
 
-        result = update("s1", [{"id": "hdr", "set": {"id": "renamed"}}])
+        with pytest.raises(ToolError) as _exc:
+            update("s1", [{"id": "hdr", "set": {"id": "renamed"}}])
+        result = str(_exc.value)
 
         assert result.startswith("error: scene not updated")
         assert "immutable" in result
@@ -1442,7 +1488,9 @@ class TestUpdateTool:
         _seed_store(store)
         client = _bind_store(monkeypatch, store)
 
-        result = update("s1", [{"id": "hdr", "set": {"nonexistent": 1}}])
+        with pytest.raises(ToolError) as _exc:
+            update("s1", [{"id": "hdr", "set": {"nonexistent": 1}}])
+        result = str(_exc.value)
 
         assert result.startswith("error: scene not updated")
         assert "unknown field" in result
@@ -1550,7 +1598,9 @@ class TestClearTool:
         store = HubDisplay()
         client = _bind_store(monkeypatch, store)
 
-        result = clear_scene("ghost")
+        with pytest.raises(ToolError) as _exc:
+            clear_scene("ghost")
+        result = str(_exc.value)
 
         assert result != "cleared"
         assert result.startswith("error:")

@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, Query
 from punt_lux.commands import (
     Ctx as CommandCtx,
     SceneOps,
+    SessionOps,
     scene_clear as scene_clear_command,
     scene_clear_all as scene_clear_all_command,
     scene_dashboard as scene_dashboard_command,
@@ -24,8 +25,8 @@ from punt_lux.commands import (
     scene_show as scene_show_command,
     scene_table as scene_table_command,
     scene_update as scene_update_command,
+    session_ls as session_ls_command,
 )
-from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.operations import (
     Cleared,
     ClientList,
@@ -40,21 +41,19 @@ from punt_lux.operations import (
     Scope,
     UpdateRequest,
 )
-from punt_lux.rest.identity import resolve_scope
+from punt_lux.rest.identity import resolve_identity, resolve_scope
 
 if TYPE_CHECKING:
+    from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.operations import Operations
     from punt_lux.rest.status import HttpErrorMap
-
-# A read route's fallback when the caller sent no (or a malformed)
-# X-Lux-Client-* declaration -- shared with DisplayRoutes.ping (rest/display.py),
-# honestly labeled as an anonymous caller rather than luxd's own identity.
-_ANONYMOUS_REST = ClientIdentity(kind="cli", name="rest-anonymous")
 
 __all__ = ["SceneRoutes"]
 
 # The owning scope of a write, resolved per request from its identity headers.
 _OwningScope = Annotated[Scope, Depends(resolve_scope)]
+# The caller's identity — the real one when declared, ``ANONYMOUS_REST`` for reads.
+_CallerIdentity = Annotated["ClientIdentity", Depends(resolve_identity)]
 
 
 @final
@@ -120,31 +119,37 @@ class SceneRoutes:
         """The router to mount on the app."""
         return self._router
 
-    def _ctx(self) -> CommandCtx[SceneOps]:
-        """Build the scene command context.
+    def _ctx(self, identity: ClientIdentity) -> CommandCtx[SceneOps]:
+        """Build the scene command context around the caller's real identity.
 
-        No Phase A scene command reads ``identity`` off the context yet --
-        ``_ANONYMOUS_REST`` is the same honestly-labeled placeholder
-        ``DisplayRoutes.ping`` falls back to for an undeclared caller, reused here
-        because the caller's real identity was already recorded against the scope
-        by ``resolve_scope`` before this route ever runs.
+        A future command that reads ``ctx.identity`` sees the caller's declared
+        headers rather than a shared stand-in -- the same identity ``resolve_scope``
+        recorded against the scope before this route ever runs.
         """
-        return CommandCtx(ops=self._ops, identity=_ANONYMOUS_REST)
+        return CommandCtx(ops=self._ops, identity=identity)
 
     def render(
-        self, scene_id: str, request: RenderRequest, scope: _OwningScope
+        self,
+        scene_id: str,
+        request: RenderRequest,
+        scope: _OwningScope,
+        identity: _CallerIdentity,
     ) -> SceneShown:
         """Install a whole scene named by the path; a mismatched body is rejected."""
         if request.scene_id != scene_id:
             reason = f"body scene_id {request.scene_id!r} must match path {scene_id!r}"
             return self._errors.respond(OpError(code="invalid_request", reason=reason))
         result = asyncio.run(
-            scene_show_command.execute(self._ctx(), request, scope=scope)
+            scene_show_command.execute(self._ctx(identity), request, scope=scope)
         )
         return self._errors.respond(result)
 
     def render_table(
-        self, scene_id: str, request: RenderTableRequest, scope: _OwningScope
+        self,
+        scene_id: str,
+        request: RenderTableRequest,
+        scope: _OwningScope,
+        identity: _CallerIdentity,
     ) -> SceneShown:
         """Construct a composed table scene server-side; the path names it.
 
@@ -158,52 +163,67 @@ class SceneRoutes:
             reason = f"body scene_id {request.scene_id!r} must match path {scene_id!r}"
             return self._errors.respond(OpError(code="invalid_request", reason=reason))
         result = asyncio.run(
-            scene_table_command.execute(self._ctx(), request, scope=scope)
+            scene_table_command.execute(self._ctx(identity), request, scope=scope)
         )
         return self._errors.respond(result)
 
     def render_dashboard(
-        self, scene_id: str, request: RenderDashboardRequest, scope: _OwningScope
+        self,
+        scene_id: str,
+        request: RenderDashboardRequest,
+        scope: _OwningScope,
+        identity: _CallerIdentity,
     ) -> SceneShown:
         """Construct a dashboard scene server-side; the path names it."""
         if request.scene_id != scene_id:
             reason = f"body scene_id {request.scene_id!r} must match path {scene_id!r}"
             return self._errors.respond(OpError(code="invalid_request", reason=reason))
         result = asyncio.run(
-            scene_dashboard_command.execute(self._ctx(), request, scope=scope)
+            scene_dashboard_command.execute(self._ctx(identity), request, scope=scope)
         )
         return self._errors.respond(result)
 
     def update(
-        self, scene_id: str, request: UpdateRequest, scope: _OwningScope
+        self,
+        scene_id: str,
+        request: UpdateRequest,
+        scope: _OwningScope,
+        identity: _CallerIdentity,
     ) -> SceneShown:
         """Apply a patch batch to the scene named in the path."""
         result = asyncio.run(
-            scene_update_command.execute(self._ctx(), scene_id, request, scope=scope)
+            scene_update_command.execute(
+                self._ctx(identity), scene_id, request, scope=scope
+            )
         )
         return self._errors.respond(result)
 
-    def clear(self, scope: _OwningScope) -> Cleared:
+    def clear(self, scope: _OwningScope, identity: _CallerIdentity) -> Cleared:
         """Clear every scene the calling identity owns."""
-        result = asyncio.run(scene_clear_all_command.execute(self._ctx(), scope=scope))
+        result = asyncio.run(
+            scene_clear_all_command.execute(self._ctx(identity), scope=scope)
+        )
         return self._errors.respond(result)
 
-    def clear_scene(self, scene_id: str, scope: _OwningScope) -> Cleared:
+    def clear_scene(
+        self, scene_id: str, scope: _OwningScope, identity: _CallerIdentity
+    ) -> Cleared:
         """Clear just the named scene; unknown or unowned is a 404 / rejection."""
         result = asyncio.run(
-            scene_clear_command.execute(self._ctx(), scene_id, scope=scope)
+            scene_clear_command.execute(self._ctx(identity), scene_id, scope=scope)
         )
         return self._errors.respond(result)
 
-    def list_scenes(self) -> SceneList:
+    def list_scenes(self, identity: _CallerIdentity) -> SceneList:
         """List every live scene and frame from the authoritative store."""
-        result = asyncio.run(scene_ls_command.execute(self._ctx()))
+        result = asyncio.run(scene_ls_command.execute(self._ctx(identity)))
         return self._errors.respond(result)
 
     def inspect_scene(
         self,
         scene_id: str,
         scope: _OwningScope,
+        identity: _CallerIdentity,
         facts: Annotated[InspectScope, Query()],
     ) -> SceneInspection:
         """Return the caller's own scene tree; ``want_geometry`` adds the painted rects.
@@ -216,11 +236,12 @@ class SceneRoutes:
         """
         result = asyncio.run(
             scene_inspect_command.execute(
-                self._ctx(), scene_id, scope=scope, facts=facts
+                self._ctx(identity), scene_id, scope=scope, facts=facts
             )
         )
         return self._errors.respond(result)
 
-    def list_clients(self) -> ClientList:
+    def list_clients(self, identity: _CallerIdentity) -> ClientList:
         """List the Hub's sessions and their scopes."""
-        return self._errors.respond(self._ops.list_clients())
+        ctx: CommandCtx[SessionOps] = CommandCtx(ops=self._ops, identity=identity)
+        return self._errors.respond(asyncio.run(session_ls_command.execute(ctx)))

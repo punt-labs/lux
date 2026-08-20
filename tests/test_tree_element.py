@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastmcp.exceptions import ToolError
 
 from punt_lux.display import geometry_capture
 from punt_lux.display.render_loop import RenderLoop
@@ -180,7 +181,9 @@ class TestShowRejectsMalformedTree:
     def test_show_rejects_label_less_node(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
-        result = show("s1", [{"kind": "tree", "id": "tr", "nodes": [{"x": 1}]}])
+        with pytest.raises(ToolError) as _exc:
+            show("s1", [{"kind": "tree", "id": "tr", "nodes": [{"x": 1}]}])
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "label" in result
         client.show.assert_not_called()
@@ -191,19 +194,21 @@ class TestShowRejectsMalformedTree:
     ) -> None:
         client = _mock_client()
         mock_get.return_value = client
-        result = show(
-            "s1",
-            [
-                {
-                    "kind": "group",
-                    "id": "g1",
-                    "children": [
-                        {"kind": "text", "id": "ok", "content": "fine"},
-                        {"kind": "tree", "id": "bad", "nodes": [42]},
-                    ],
-                }
-            ],
-        )
+        with pytest.raises(ToolError) as _exc:
+            show(
+                "s1",
+                [
+                    {
+                        "kind": "group",
+                        "id": "g1",
+                        "children": [
+                            {"kind": "text", "id": "ok", "content": "fine"},
+                            {"kind": "tree", "id": "bad", "nodes": [42]},
+                        ],
+                    }
+                ],
+            )
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         client.show.assert_not_called()
 

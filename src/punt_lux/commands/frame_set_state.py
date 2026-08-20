@@ -7,6 +7,7 @@ to render (``"ok"`` on success, the shared fault line on error).
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.commands._faults import render_fault
@@ -34,7 +35,7 @@ class FrameSetStateCommand:
         patch: FrameStatePatch | OpError,
     ) -> Ok | OpError:
         """Apply ``patch`` to ``frame_id`` and return the typed outcome."""
-        return ctx.ops.set_frame_state(frame_id, patch)
+        return await asyncio.to_thread(ctx.ops.set_frame_state, frame_id, patch)
 
     async def __call__(
         self,

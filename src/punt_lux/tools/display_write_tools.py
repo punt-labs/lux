@@ -37,6 +37,7 @@ from punt_lux.operations.models.window import (
     OPACITY_RANGE,
 )
 from punt_lux.tools import tools as _core
+from punt_lux.tools._signal import signal
 from punt_lux.tools.server import mcp
 
 __all__ = [
@@ -63,7 +64,7 @@ def set_menu(menus: list[dict[str, Any]]) -> str:
         ops=_core.OPERATIONS, identity=_core._identity()
     )
     result = asyncio.run(menu_set_command(ctx, SetMenuRequest.parse(menus)))
-    return result.text
+    return signal(result)
 
 
 # One source for the theme names — description and accepted set cannot drift.

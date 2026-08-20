@@ -26,6 +26,7 @@ from punt_lux.domain.ids import ConnectionId
 from punt_lux.operations import PublishRequest, Scope
 from punt_lux.operations.models.callbacks import RegisterCallbackRequest
 from punt_lux.tools import tools as _core
+from punt_lux.tools._signal import signal
 from punt_lux.tools.server import _session_key, mcp
 from punt_lux.tools.tools import OPERATIONS
 
@@ -123,4 +124,4 @@ def register_callback(callback_id: str, label: str) -> str:
     result = asyncio.run(
         callback_register_command(ctx, request, callback_id, scope=_scope())
     )
-    return result.text
+    return signal(result)

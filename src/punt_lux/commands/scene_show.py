@@ -11,6 +11,7 @@ is shared by :mod:`punt_lux.commands.scene_table` and
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.commands._result import CommandResult
@@ -34,7 +35,7 @@ class SceneShowCommand:
         self, ctx: Ctx[SceneOps], request: RenderRequest | OpError, *, scope: Scope
     ) -> SceneShown | OpError:
         """Install ``request`` in the caller's scope and return the typed outcome."""
-        return ctx.ops.render(request, scope=scope)
+        return await asyncio.to_thread(ctx.ops.render, request, scope=scope)
 
     async def __call__(
         self, ctx: Ctx[SceneOps], request: RenderRequest | OpError, *, scope: Scope

@@ -7,6 +7,7 @@ the delivery path (still ``take`` on the listen leg).
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.commands._result import CommandResult
@@ -30,7 +31,7 @@ class CallbackPendingCommand:
         self, ctx: Ctx[CallbackOps], *, scope: Scope
     ) -> tuple[CallbackInvocation, ...]:
         """Return the caller's currently-held invocations, in delivery order."""
-        return ctx.ops.pending_callbacks(scope=scope)
+        return await asyncio.to_thread(ctx.ops.pending_callbacks, scope=scope)
 
     async def __call__(self, ctx: Ctx[CallbackOps], *, scope: Scope) -> CommandResult:
         """Run :meth:`execute` and render its outcome into the shared envelope."""

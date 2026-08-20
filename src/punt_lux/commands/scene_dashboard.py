@@ -7,6 +7,7 @@ with ``scene show`` and ``scene table``.
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.commands._result import CommandResult
@@ -35,7 +36,7 @@ class SceneDashboardCommand:
         scope: Scope,
     ) -> SceneShown | OpError:
         """Compose ``request`` into a live dashboard and return the typed outcome."""
-        return ctx.ops.render_dashboard(request, scope=scope)
+        return await asyncio.to_thread(ctx.ops.render_dashboard, request, scope=scope)
 
     async def __call__(
         self,

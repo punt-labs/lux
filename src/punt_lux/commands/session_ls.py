@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.commands._result import CommandResult
@@ -22,7 +23,7 @@ class SessionLsCommand:
 
     async def execute(self, ctx: Ctx[SessionOps]) -> ClientList:
         """Return every Hub session with its identity, age, and owned scenes."""
-        return ctx.ops.list_clients()
+        return await asyncio.to_thread(ctx.ops.list_clients)
 
     async def __call__(self, ctx: Ctx[SessionOps]) -> CommandResult:
         """Run :meth:`execute` and render its outcome into the shared envelope."""

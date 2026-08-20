@@ -8,6 +8,7 @@ same ``SceneShown``/``OpError`` outcome as installing a decoded tree.
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.commands._result import CommandResult
@@ -36,7 +37,7 @@ class SceneTableCommand:
         scope: Scope,
     ) -> SceneShown | OpError:
         """Compose ``request`` into a live table and return the typed outcome."""
-        return ctx.ops.render_table(request, scope=scope)
+        return await asyncio.to_thread(ctx.ops.render_table, request, scope=scope)
 
     async def __call__(
         self,
