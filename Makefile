@@ -1,4 +1,4 @@
-.PHONY: help test test-integration test-e2e test-slow snapshot-parity snapshot-record lint type check check-oo update-oo check-suppressions update-suppressions check-coupling update-coupling report format build install clean depot fuzz prob prfaq clean-tex font-test restart reload
+.PHONY: help test test-integration test-e2e test-slow snapshot-parity snapshot-record lint type check check-oo update-oo check-suppressions update-suppressions check-coupling update-coupling check-plugin-surface report format build install clean depot fuzz prob prfaq clean-tex font-test restart reload
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -26,6 +26,7 @@ lint: ## Lint and format check
 	uv run --extra display ruff format --check .
 	npx markdownlint-cli2 "**/*.md" "#node_modules"
 	bash scripts/check-skill-permissions.sh
+	bash scripts/check-plugin-surface.sh
 
 type: ## Type check with mypy and pyright
 	uv run --extra display mypy src/ tests/
@@ -44,6 +45,9 @@ check-suppressions: ## Suppression ratchet — count must not increase
 
 update-suppressions: ## Update suppression baseline
 	uv run --extra display python tools/suppression_ratchet.py src/punt_lux/ --update
+
+check-plugin-surface: ## Verify the plugin/ surface resolves entirely inside itself
+	bash scripts/check-plugin-surface.sh
 
 check-coupling: ## Coupling metrics (informational, not in check chain)
 	uv run --extra display python tools/oo_coupling.py src/punt_lux/ --check

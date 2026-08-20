@@ -34,8 +34,45 @@
   behavior change; existing installs are unaffected until the marketplace entry
   is repointed.
 
+### Added
+
+- **`make check` now enforces that the plugin surface stands alone.**
+  `scripts/check-plugin-surface.sh` (over `tools/plugin_surface.py`) verifies
+  every path the surface uses to address itself, and it also runs in the lint
+  workflow — as does `check-skill-permissions.sh`, which was previously in
+  `make lint` only and so never ran in CI. The invariant that nothing under
+  `plugin/` reaches outside it was documented and true but structurally
+  unenforced: every other gate runs against the full source tree, where the
+  target of an escaping path is present, so a `../../src/...` reference or a
+  `source "$REPO_ROOT/..."` would pass CI and break every sparse-checkout
+  install. Four checks: each `${CLAUDE_PLUGIN_ROOT}`/`$PLUGIN_ROOT` reference
+  must resolve inside the surface, exist, and — for `.sh` — be executable;
+  no symlink may resolve out; no `source`d file may land outside; and the
+  surface may not name the repository root. **Containment is asserted on the
+  resolved path, and existence only afterward** — a textual `../` scan and an
+  `exists()` check both pass a symlink pointing out of the surface, because its
+  text is clean and its target is right there in the source tree, while the
+  install gets a dangling link. The gate also fails closed if `hooks.json`
+  stops carrying a placeholder, since that would mean the extraction pattern
+  rotted rather than the surface getting clean. Every file the surface ships is
+  read, with binary content skipped by inspecting the bytes rather than the
+  suffix: a suffix allowlist has a blind spot shaped exactly like the files it
+  omits, and since a hook needs no `.sh` name to be a hook, an extensionless
+  script was a place an escaping reference could live while the gate still
+  reported the surface clean. Sixteen tests in `tests/test_plugin_surface.py`
+  drive it as a subprocess, including negative controls for each rejected shape;
+  a guard that never fires is indistinguishable from no guard.
+
 ### Fixed
 
+- **`scripts/restore-dev-plugin.sh`'s directory guard could invert its own
+  answer under `pipefail`.** It piped `git ls-tree` into `grep -q .`; `grep -q`
+  exits on the first match, so once the listing exceeds the 64 KB pipe buffer
+  `git` takes SIGPIPE and returns 141, `pipefail` promotes that to the
+  pipeline's status, and the `if` reads a populated directory as empty —
+  skipping the restore. Demonstrated at 141 against a listing large enough to
+  fill the buffer. The listing is now captured into a variable and tested with
+  `[[ -n ]]`: one exit status, no race.
 - **`scripts/release-plugin.sh` stripped release-only commands from a
   directory that has never existed.** Its `COMMANDS_DIR` pointed at
   `.claude/commands`, which is absent from every commit in this repo's history,
