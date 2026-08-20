@@ -41,7 +41,7 @@ fi
 ALLOWED=()
 while IFS= read -r allow; do
   ALLOWED+=("$allow")
-done < <(grep -oE 'Skill\([a-z_-]+\)' "$HOOK" | sed -E 's/Skill\(|\)//g' | sort -u)
+done < <(grep -oE 'Skill\([a-z_.-]+\)' "$HOOK" | sed -E 's/Skill\(|\)//g' | sort -u)
 
 missing=()
 for cmd in "${COMMANDS[@]}"; do

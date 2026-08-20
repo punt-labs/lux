@@ -1,5 +1,5 @@
 ---
-name: dashboard
+name: scene.dashboard
 description: >
   Display a dashboard in the Lux window with metrics cards, charts, and status
   tables. Use when the user asks to "show a dashboard", "display metrics",
@@ -21,7 +21,7 @@ allowed-tools:
   - mcp__lux__display_theme_set
 ---
 
-# /lux:dashboard — Visual Dashboard Composer
+# /lux:scene.dashboard — Visual Dashboard Composer
 
 You are composing a dashboard in the Lux display window. A dashboard is a single-glance overview: metric cards at the top, charts in the middle, detail table at the bottom. Adapt the layout to the data — don't force structure where it doesn't fit.
 

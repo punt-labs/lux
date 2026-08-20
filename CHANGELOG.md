@@ -4,6 +4,71 @@
 
 ### Added
 
+- **Slash-command coverage for every non-exempt MCP tool (`lux-0shg.6`).**
+  21 new slash definitions under `plugin/commands/` — one per client-tier
+  MCP tool — round out the four-surface parity. Filenames are flat and
+  dot-separated (`plugin/commands/scene.show.md` → `/lux:scene.show`);
+  no cached plugin uses nested command directories, and the design doc
+  names commands with dots explicitly, so a dotted filename is the
+  slash routing convention adopted here. New commands, by noun:
+
+  - **scene** (7): `/lux:scene.show`, `/lux:scene.update`,
+    `/lux:scene.clear`, `/lux:scene.clear-all`, `/lux:scene.ls`,
+    `/lux:scene.inspect`, `/lux:scene.table`. The dashboard slot is
+    covered by the composed `scene.dashboard` SKILL (see below), not a
+    thin slash — the two would register the same `/lux:scene.dashboard`
+    name and shadow each other.
+  - **frame** (2): `/lux:frame.raise`, `/lux:frame.close`
+  - **menu** (2): `/lux:menu.ls`, `/lux:menu.set`
+  - **session** (1): `/lux:session.ls`
+  - **topic** (3): `/lux:topic.subscribe`, `/lux:topic.unsubscribe`,
+    `/lux:topic.publish`
+  - **display** (2): `/lux:display.info`, `/lux:display.screenshot`
+  - **event** (1): `/lux:event.ls`
+  - **error** (1): `/lux:error.ls`
+  - **callback** (1): `/lux:callback.pending`
+  - **top-level** (1): `/lux:ping`
+
+  Slash file names follow the CLI verb spelling: `scene.clear-all`
+  matches `lux scene clear-all` (hyphen), even though the MCP tool
+  keeps the underscored `scene_clear_all` (transport convention).
+
+  The existing `/lux y|n` enable/disable command (`plugin/commands/lux.md`)
+  is unchanged — it stays at the top level as the per-repo integration
+  switch.
+
+  **Not shipped as slash (by design).** Seven MCP tools have no slash
+  equivalent, each for a stated reason:
+
+  - `topic_recv` — non-blocking receive; a slash `/lux:topic.recv`
+    would fire once with an empty result almost always. Callers wanting
+    real-time delivery use the library's `LuxHubClient` listener or an
+    MCP poll loop.
+  - `session_identify` — identity is declared once per session at
+    handshake (DES-057); a slash form invites re-identification
+    mid-session, which the identity model does not need.
+  - `callback_register` — callback registration is a programmatic
+    step of hosting a menu entry; a slash form has no meaningful
+    ergonomics (the caller has to provide an opaque callback id).
+  - `display_theme_get`, `display_theme_set`, `display_window_get`,
+    `display_window_set` — deferred to the display fuse follow-on
+    (`lux-5pwu`); once fused, one slash `/lux:display.theme`
+    covers get+set (and likewise `/lux:display.window`). Shipping
+    four thin slashes now would have to be retired within the same
+    epic.
+
+- **Skills reorganized under the scene noun group.** The three existing
+  skills move from `plugin/skills/{beads,dashboard,data-explorer}/` to
+  `plugin/skills/scene.{beads,dashboard,data-explorer}/`. Their
+  `name:` frontmatter is now `scene.beads`, `scene.dashboard`,
+  `scene.data-explorer`, so an agent looking for "what can I do with a
+  scene?" discovers the thin slashes and the composed skills in one
+  place. The session-start hook's `Skill()` allowlist and the
+  `scripts/check-skill-permissions.sh` gate are updated to match.
+  The `scene.dashboard` SKILL owns the `/lux:scene.dashboard` slash
+  outright — the thin scene.dashboard command file was not shipped,
+  so the two never collide.
+
 - **`LuxClient` — the public library facade with noun-grouped accessors
   (`lux-0shg.7`).** A downstream Python consumer now holds a single
   `LuxClient` and reaches the Hub through nine noun-grouped accessors —
@@ -150,7 +215,7 @@
 - **New noun groups**, each wrapping the `commands/` singletons from the
   Humble Object commands layer through a real per-invocation identity:
   `lux scene {show,update,clear,clear-all,inspect,ls,table,dashboard}`,
-  `lux frame set-state`, `lux menu {ls,set}`, `lux session {ls,inspect,identify}`,
+  `lux frame {raise,close}`, `lux menu {ls,set}`, `lux session {ls,inspect,identify}`,
   `lux display {info,theme,mode,window,screenshot,serve}` (theme/mode/window
   are fused: no argument reads, an argument or option writes), `lux event ls`,
   `lux error ls`, `lux callback register`. Every write accepts

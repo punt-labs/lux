@@ -22,7 +22,7 @@ _DISPLAY_ON_CONTEXT = (
     "This session's own applets own their entries in the Lux menu bar and "
     "service their clicks directly, in milliseconds and without a turn of "
     "yours — so do not register menu callbacks and do not poll for clicks. "
-    "When the user asks for the beads board, build it with the /lux:beads skill."
+    "When the user asks for the beads board, build it with the /lux:scene.beads skill."
 )
 
 
