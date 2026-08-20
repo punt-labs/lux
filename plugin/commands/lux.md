@@ -28,7 +28,7 @@ Call `set_display_mode(mode="y", repo="<cwd>")`. Confirm: "Lux display enabled."
 ### `n`
 
 1. Call `set_display_mode(mode="n", repo="<cwd>")`.
-2. Call the `clear` MCP tool to dismiss the window.
+2. Call the `scene_clear_all` MCP tool to dismiss the window.
 3. Confirm: "Lux display disabled."
 
 ### No argument or unrecognized

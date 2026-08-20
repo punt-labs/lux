@@ -104,19 +104,19 @@ This is the canonical form. Adapt freely — fewer metrics, different chart type
 - **Metrics only** (no chart data): Skip the plot, expand metric cards
 - **Single category**: Flat layout, no tabs
 - **Multiple categories**: Use `tab_bar` with one tab per category, each containing its own metrics + chart + table
-- **Live monitoring**: Add a `button` with `id: "refresh"` and a `spinner` for loading state — then use `recv()` to detect clicks and `update()` to refresh values
+- **Live monitoring**: Add a `button` with `id: "refresh"` and a `spinner` for loading state — then use `topic_recv()` to detect clicks and `scene_update()` to refresh values
 - **Comparison view**: Use `group` with `layout: "columns"` to place two chart panels side by side
 
 ## Phase 3: Display
 
-Call `set_theme("imgui_colors_light")` before showing the dashboard — light themes work best for data-dense views with tables and charts. Then call `show()` with the composed element tree. Use a descriptive `scene_id` (e.g., `"test-dashboard"`, `"sales-metrics"`).
+Call `set_theme("imgui_colors_light")` before showing the dashboard — light themes work best for data-dense views with tables and charts. Then call `scene_show()` with the composed element tree. Use a descriptive `scene_id` (e.g., `"test-dashboard"`, `"sales-metrics"`).
 
 ## Phase 4: Interaction (Optional)
 
 If the dashboard has interactive elements (refresh button, filter combo, tab switches):
 
 1. Tell the user what interactions are available
-2. Use `recv()` to listen for events when the user indicates they've interacted
-3. Use `update()` to patch changed values — don't re-send the entire scene
+2. Use `topic_recv()` to listen for events when the user indicates they've interacted
+3. Use `scene_update()` to patch changed values — don't re-send the entire scene
 
 For auto-refresh patterns, the user must trigger each refresh cycle (e.g., "refresh the dashboard") — there is no background polling.

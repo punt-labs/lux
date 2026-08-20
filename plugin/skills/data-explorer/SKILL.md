@@ -40,7 +40,7 @@ You need:
 
 ## Phase 2: Design the Filters
 
-**Prefer the packaged `show_table` filters** — the Hub composes a search box, status combos, the grid, and a selection-bound detail panel from primitives and filters Hub-side (the packaged default): the grid always shows exactly the rows the Hub holds, and a selection hidden by a filter reappears when the filter is cleared. Use separate filter elements + `recv()`/`update()` only when you need custom logic the packaged filters can't handle (e.g., numeric ranges, cross-field filters, external lookups).
+**Prefer the packaged `scene_table` filters** — the Hub composes a search box, status combos, the grid, and a selection-bound detail panel from primitives and filters Hub-side (the packaged default): the grid always shows exactly the rows the Hub holds, and a selection hidden by a filter reappears when the filter is cleared. Use separate filter elements + `topic_recv()`/`scene_update()` only when you need custom logic the packaged filters can't handle (e.g., numeric ranges, cross-field filters, external lookups).
 
 ### Built-in Filters (preferred)
 
@@ -60,14 +60,14 @@ Add a `filters` array to the `table` element. Two types are available:
 
 ### Built-in Detail Panel (preferred)
 
-Pass a `detail` object to `show_table` for drill-down (the basic `table`
-element is just a grid — `show_table` composes the detail panel as a sibling
+Pass a `detail` object to `scene_table` for drill-down (the basic `table`
+element is just a grid — `scene_table` composes the detail panel as a sibling
 element). The Hub binds the composed panel to the grid's selection: click a
 row and the Hub patches the panel with that row's fields and body text.
 
 ### Separate Filter Elements (advanced)
 
-For filters that built-in types can't handle (numeric ranges, sliders, cross-field logic), use separate elements and the `recv()`/`update()` loop:
+For filters that built-in types can't handle (numeric ranges, sliders, cross-field logic), use separate elements and the `topic_recv()`/`scene_update()` loop:
 
 | Data pattern | Element kind |
 |-------------|-------------|
@@ -79,14 +79,14 @@ For filters that built-in types can't handle (numeric ranges, sliders, cross-fie
 
 Build the element tree following the data explorer pattern.
 
-### Pattern: `show_table` with Filters + Detail
+### Pattern: `scene_table` with Filters + Detail
 
-Call the `show_table` tool with `columns`/`rows`/`filters`/`detail`. The Hub
+Call the `scene_table` tool with `columns`/`rows`/`filters`/`detail`. The Hub
 composes a search box, status combos, the grid, and a selection-bound detail
 panel from primitives and wires the Hub-side filter and detail handlers — search,
-filter, row selection, and detail all work without your `recv()`/`update()` loop.
-(Pass `filters`/`detail` to `show_table`, not to a raw `table` element in
-`show()`: the basic `table` element is a grid alone; the chrome is composed.)
+filter, row selection, and detail all work without your `topic_recv()`/`scene_update()` loop.
+(Pass `filters`/`detail` to `scene_table`, not to a raw `table` element in
+`scene_show()`: the basic `table` element is a grid alone; the chrome is composed.)
 
 ### Reference Example
 
@@ -95,7 +95,7 @@ drill-down detail. Adapt freely to any tabular data: search results, log entries
 test cases, inventory, API responses.
 
 ```python
-show_table(
+scene_table(
     scene_id="data-explorer",
     title="Issue Explorer",
     columns=["ID", "Title", "Status", "Priority", "Assignee"],
@@ -141,11 +141,11 @@ show_table(
 
 ## Phase 4: Display
 
-Call `set_theme("imgui_colors_light")` before showing — light themes work best for data-dense views. Then call `show()` with the composed element tree.
+Call `set_theme("imgui_colors_light")` before showing — light themes work best for data-dense views. Then call `scene_show()` with the composed element tree.
 
 ## Phase 5: Interaction
 
-With the packaged `show_table` filters and detail, the data explorer is fully interactive without any `recv()`/`update()` loop. Tell the user:
+With the packaged `scene_table` filters and detail, the data explorer is fully interactive without any `topic_recv()`/`scene_update()` loop. Tell the user:
 
 - **Search** and **filter dropdowns** filter the grid Hub-side (the grid shows exactly the rows that match)
 - **Click any row** to see its full details in the side panel
@@ -153,7 +153,7 @@ With the packaged `show_table` filters and detail, the data explorer is fully in
 
 ### When recv/update IS needed
 
-Use the `recv()`/`update()` loop only for operations that require LLM orchestration:
+Use the `topic_recv()`/`scene_update()` loop only for operations that require LLM orchestration:
 
 - **Actions on selected row** — "Close this issue", "Assign to me" (requires external API calls)
 - **Data refresh** — re-reading from a changing data source (add a "Refresh" button)

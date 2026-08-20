@@ -63,9 +63,9 @@ Truncate `created_at` and `updated_at` to the first 10 characters (date only, e.
 
 Collect unique `status` and `issue_type` values for combo filter items.
 
-## Step 3: Call show_table
+## Step 3: Call scene_table
 
-Call the `show_table` MCP tool with:
+Call the `scene_table` MCP tool with:
 
 - **`scene_id`**: `"beads-<project>"` where `<project>` is the current directory name (e.g. `"beads-lux"`, `"beads-quarry"`). This gives each project its own tab.
 - **`title`**: `"Beads: <project>"` (e.g. `"Beads: lux"`)
@@ -97,7 +97,7 @@ Call the `show_table` MCP tool with:
 
 ## Step 4: Tell the user
 
-After `show_table` returns a value starting with `ack:`, the board is live. If it returns `timeout`, tell the user the display server did not respond. Otherwise, tell the user:
+After `scene_table` returns a value starting with `ack:`, the board is live. If it returns `timeout`, tell the user the display server did not respond. Otherwise, tell the user:
 
 - Search and filter dropdowns work instantly (no round trips)
 - Click any row to see its full details in the side panel
@@ -105,4 +105,4 @@ After `show_table` returns a value starting with `ack:`, the board is live. If i
 
 ## Refreshing
 
-If the user asks to refresh, or after running any `bd` command (close, update, etc.), re-run `bd list --json` via the Bash tool and call `show_table` again.
+If the user asks to refresh, or after running any `bd` command (close, update, etc.), re-run `bd list --json` via the Bash tool and call `scene_table` again.
