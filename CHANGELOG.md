@@ -19,7 +19,7 @@
   | `list_scenes` | `scene_ls` |
   | `show_table` | `scene_table` |
   | `show_dashboard` | `scene_dashboard` |
-  | `set_frame_state` (with `minimized`) | `frame_close` (split) |
+  | `set_frame_state` | (split — see below) |
   | `list_menus` | `menu_ls` |
   | `set_menu` | `menu_set` |
   | `list_clients` | `session_ls` |
@@ -34,15 +34,25 @@
   | `list_recent_events` | `event_ls` |
   | `list_errors` | `error_ls` |
   | (new) | `callback_pending` |
-  | `set_frame_state` (raise semantics) | `frame_raise` (split) |
 
-- **Frame split — 2 verbs, not 4.** The design's four-verb split
+- **Frame split — `set_frame_state` splits into two new verbs, not four,
+  and the split is not a rename.** The old `set_frame_state(minimized=...)`
+  toggled the visibility of a still-alive frame. The two new verbs are a
+  different operation on a different lifecycle stage:
+  - `frame_raise` — unminimize a live frame and bring it to the front
+    (z-order-to-front for a frame the display already holds); a frame the
+    display does not hold returns `raised=false` rather than erroring.
+  - `frame_close` — tear down the frame's scenes on the Hub. This ends
+    the frame's life, it does not toggle its visibility.
+
+  The old operation's minimize aspect is deferred with `frame_lower` per
+  the capability-gap section below. The design's four-verb split
   (`raise|lower|close|expire`) needs display-protocol capabilities that do
-  not yet exist: z-order (for `lower`) and `FrameExpiry.set_deadline`
-  exposed publicly (for scheduled `expire`). This release ships the two
-  verbs the domain supports today: `frame_raise` and `frame_close`. The
-  old `set_frame_state` MCP tool, `lux frame set-state` CLI verb, PATCH
-  `/display/frames/{id}` REST route, and `Operations.set_frame_state`
+  not yet exist: z-order lowering (for `lower`) and
+  `FrameExpiry.set_deadline` exposed publicly (for scheduled `expire`).
+
+  The old `set_frame_state` MCP tool, `lux frame set-state` CLI verb,
+  PATCH `/display/frames/{id}` REST route, and `Operations.set_frame_state`
   facade method are all removed with no alias.
 
 ### Not shipped (by design, capability gap)

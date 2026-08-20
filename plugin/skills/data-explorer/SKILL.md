@@ -8,14 +8,17 @@ description: >
   "data viewer", "record browser", "filterable table", or "drill into the data".
 allowed-tools:
   - mcp__plugin_lux_lux__scene_show
+  - mcp__plugin_lux_lux__scene_table
   - mcp__plugin_lux_lux__scene_update
   - mcp__plugin_lux_lux__topic_recv
   - mcp__plugin_lux_lux__set_theme
   - mcp__plugin_lux-dev_lux__scene_show
+  - mcp__plugin_lux-dev_lux__scene_table
   - mcp__plugin_lux-dev_lux__scene_update
   - mcp__plugin_lux-dev_lux__topic_recv
   - mcp__plugin_lux-dev_lux__set_theme
   - mcp__lux__scene_show
+  - mcp__lux__scene_table
   - mcp__lux__scene_update
   - mcp__lux__topic_recv
   - mcp__lux__set_theme
