@@ -53,15 +53,11 @@ _CallerIdentity = Annotated["ClientIdentity", Depends(resolve_identity)]
 
 __all__ = ["DisplayRoutes"]
 
-# Caps mirror display/query_dispatcher.py's ring buffers (deque maxlen 200 / 100): a
-# negative count would slice a surprising subset and a larger one can never
-# return more, so both are a bind-time 422.
+# Caps mirror display/query_dispatcher.py's ring buffers (deque maxlen 200/100).
 _EventCount = Annotated[int, Query(ge=0, le=200)]
 _ErrorCount = Annotated[int, Query(ge=0, le=100)]
 
-# The display-ping wait: bounded so a caller cannot ask for a sub-100ms probe
-# (unmeasurable) or a 30s+ hang. None (omitted) uses the standing display
-# budget — the documented absence contract, threaded to DisplayLink.ping.
+# None (omitted) uses the standing display budget -- DisplayLink.ping's contract.
 _PingTimeout = Annotated[float | None, Query(ge=0.1, le=30.0)]
 
 
@@ -90,18 +86,11 @@ class DisplayRoutes:
         router.add_api_route(
             "/display/window", self.set_window_settings, methods=["PATCH"]
         )
-        router.add_api_route(
-            "/display/frames/{frame_id}", self.set_frame_state, methods=["PATCH"]
-        )
-        router.add_api_route(
-            "/display/frames/{frame_id}/raise", self.raise_frame, methods=["POST"]
-        )
-        router.add_api_route(
-            "/display/frames/{frame_id}/close", self.close_frame, methods=["POST"]
-        )
-        router.add_api_route(
-            "/display/frames/{frame_id}/expire", self.expire_frame, methods=["POST"]
-        )
+        f = "/display/frames/{frame_id}"
+        router.add_api_route(f, self.set_frame_state, methods=["PATCH"])
+        router.add_api_route(f + "/raise", self.raise_frame, methods=["POST"])
+        router.add_api_route(f + "/close", self.close_frame, methods=["POST"])
+        router.add_api_route(f + "/expire", self.close_frame, methods=["POST"])
         router.add_api_route("/display/screenshot", self.screenshot, methods=["GET"])
         router.add_api_route("/display/ping", self.ping, methods=["GET"])
         router.add_api_route("/events", self.list_recent_events, methods=["GET"])
@@ -163,12 +152,8 @@ class DisplayRoutes:
         return self._errors.respond(self._ops.raise_frame(frame_id))
 
     def close_frame(self, frame_id: str) -> Ok:
-        """Close a frame: tear down its scenes and disarm its TTL."""
+        """Close (or force-expire) a frame: tear down its scenes."""
         return self._errors.respond(self._ops.close_frame(frame_id))
-
-    def expire_frame(self, frame_id: str) -> Ok:
-        """Force a frame's TTL to expire now, tearing down its scenes."""
-        return self._errors.respond(self._ops.expire_frame(frame_id))
 
     def screenshot(self, identity: _CallerIdentity) -> Screenshot:
         """Refuse the screenshot: framebuffer capture is unsupported (DES-028)."""
@@ -180,12 +165,10 @@ class DisplayRoutes:
     async def ping(
         self, identity: _CallerIdentity, timeout: _PingTimeout = None
     ) -> Pong:
-        """Round-trip a ping via PingCommand and return the typed result.
+        """Round-trip a ping and return the typed result.
 
-        A ping never owns Hub state, so a caller with no ``X-Lux-Client-*``
-        declaration is not challenged the way a write is — ``resolve_identity``
-        resolves to ``ANONYMOUS_REST`` rather than luxd's own identity, honestly
-        distinct from every real caller.
+        A ping never owns Hub state, so an unidentified caller resolves to
+        ``ANONYMOUS_REST`` rather than being challenged the way a write is.
         """
         ctx: CommandCtx[PingOps] = CommandCtx(ops=self._ops, identity=identity)
         result = await ping_command.execute(ctx, timeout)

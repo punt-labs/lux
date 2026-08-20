@@ -131,15 +131,9 @@ class Operations:
     ) -> Self:
         """Wire every concern class from injected collaborators — no singletons.
 
-        ``callback_router`` is the one process-wide router: both the MCP and REST
-        composition roots pass the same instance, so a click routed on one surface
-        and drained on another share one set of per-session holds.
-
-        The Hub's own Details command is not composed here. It is not a surface
-        capability — it is keyed by a ``ConnectionId``, a wire key no surface
-        addresses by, and it writes a scene owned by a connection other than the
-        caller's — so it lives on its own concern class, which each composition
-        root builds and binds to the interaction dispatch.
+        ``callback_router`` is the one process-wide router shared by the MCP and
+        REST composition roots. The Hub's own Details command is not composed
+        here -- it is keyed by ``ConnectionId``, not a surface capability.
         """
         scenes = SceneOperations(display, replicator, ports.element_factory, hub)
         callbacks = CallbackOperations(display.clients, callback_router, replicator)
@@ -266,18 +260,7 @@ class Operations:
 
     @Timed("close_frame")
     def close_frame(self, frame_id: str) -> Ok:
-        """Close a frame: tear down its scenes and disarm its TTL."""
-        return self._scenes.close_frame(frame_id)
-
-    @Timed("expire_frame")
-    def expire_frame(self, frame_id: str) -> Ok:
-        """Force a frame's TTL to expire now, tearing down its scenes.
-
-        Equivalent to :meth:`close_frame` today. Scheduling a future deadline
-        (a ``--in <seconds>`` form) needs ``FrameExpiry.set_deadline`` exposed
-        through ``FrameLifecycle``, which is domain/hub/ scope this rename
-        train does not touch.
-        """
+        """Close a frame; ``frame_close`` and ``frame_expire`` both call this."""
         return self._scenes.close_frame(frame_id)
 
     def inspect_scene(
