@@ -102,7 +102,7 @@ class TierBinding:
     renderer_factory: RendererFactory
     emit: Emit
     publish_sink: PublishSink
-    recurse: RecurseFromDict   # the factory's bound element_from_dict
+    recurse: RecurseFromDict  # the factory's bound element_from_dict
 ```
 
 Concrete implementers capture the five construction shapes the current `__new__`
@@ -128,7 +128,7 @@ Each spec also carries its stateless encoder instance and returns it via
 
 ```python
 class AbcElementRegistry:
-    _specs: dict[str, AbcKindSpec]     # keyed by wire kind
+    _specs: dict[str, AbcKindSpec]  # keyed by wire kind
 
     def register(self, spec: AbcKindSpec) -> None: ...
 
@@ -139,14 +139,16 @@ class AbcElementRegistry:
     @property
     def container_kinds(self) -> frozenset[str]: ...
     @property
-    def abc_types(self) -> tuple[type, ...]: ...      # replaces #2, #4, #6
+    def abc_types(self) -> tuple[type, ...]: ...  # replaces #2, #4, #6
 
     def build_decoders(self, binding: TierBinding) -> dict[str, KindDecoder]:
         # replaces #3 — leaf + container decoders in one pass
         ...
+
     def encoder_dispatch(self) -> tuple[tuple[type, KindEncoder], ...]:
         # replaces #5
         ...
+
     def encode(self, elem: object) -> dict[str, object]: ...
 ```
 
@@ -210,14 +212,22 @@ Only the dispatch algorithm, now generic:
 
 ```python
 class JsonElementFactory:
-    def __new__(cls, *, renderer_factory, emit, publish_sink, codec,
-                registry=DEFAULT_ABC_REGISTRY) -> Self:
+    def __new__(
+        cls,
+        *,
+        renderer_factory,
+        emit,
+        publish_sink,
+        codec,
+        registry=DEFAULT_ABC_REGISTRY,
+    ) -> Self:
         self = super().__new__(cls)
         self._codec = codec
         self._registry = registry
-        binding = TierBinding(renderer_factory, emit, publish_sink,
-                              self.element_from_dict)
-        self._decoders = registry.build_decoders(binding)   # leaf + container
+        binding = TierBinding(
+            renderer_factory, emit, publish_sink, self.element_from_dict
+        )
+        self._decoders = registry.build_decoders(binding)  # leaf + container
         return self
 
     def element_from_dict(self, d):
@@ -305,7 +315,7 @@ LeafKindSpec(
     element_cls=TextElement,
     decoder_cls=JsonTextDecoder,
     encoder=JsonTextEncoder(),
-)                       # handler-bearing kinds add handler_builder=build_standalone_…
+)  # handler-bearing kinds add handler_builder=build_standalone_…
 
 # abc_kind_names.py — the string the import-light gate needs
 MIGRATED_ABC_KINDS = frozenset({..., "text"})

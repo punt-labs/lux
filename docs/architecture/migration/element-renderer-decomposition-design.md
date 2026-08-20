@@ -137,7 +137,7 @@ def render_element(self, elem: Element) -> None:
         finally:
             elem_adapter.end(opened=opened)
     else:
-        method_name = self._RENDERERS.get(elem.kind)   # legacy, shrinking
+        method_name = self._RENDERERS.get(elem.kind)  # legacy, shrinking
         ...
 ```
 
@@ -370,10 +370,12 @@ evaluator (Python implementation, rendering).
           if implot.begin_plot(...):
               for series in plt.series:
                   self._plot_series(series)
+
       @staticmethod
       def _plot_series(series: dict[str, Any]) -> None:
-          s_type: str = series.get("type", "line")   # str-with-implicit-values
-          if s_type == "line": ...
+          s_type: str = series.get("type", "line")  # str-with-implicit-values
+          if s_type == "line":
+              ...
   ```
 
   AFTER (`renderers/plot_renderer.py`):
@@ -383,7 +385,7 @@ evaluator (Python implementation, rendering).
   class PlotRenderer:
       def render(self, elem: PlotElement) -> None: ...
       @staticmethod
-      def _plot_series(series: PlotSeries) -> None: ...   # owns plot behaviour
+      def _plot_series(series: PlotSeries) -> None: ...  # owns plot behaviour
   ```
 
 - **Families share via Protocol, not a base class.** BEFORE: `_dispatch_native`

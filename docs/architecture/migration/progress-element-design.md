@@ -148,6 +148,7 @@ class ProgressElement:
     fraction: float = 0.0
     label: str = ""
     tooltip: str | None = None
+
     def to_dict(self) -> dict[str, Any]: ...
     @classmethod
     def from_dict(cls, d): ...
@@ -400,10 +401,10 @@ confirm this placement.)
 
 ```python
 resp = query("inspect_scene", {"scene_id": "s1"})
-rec  = next(r for r in resp["element_paths"] if r["id"] == "p1")
-assert rec["render_path"] == "abc"          # the flip
-assert rec["hub_authoritative"] is True     # routed into HubDisplay
-assert rec["props"]["fraction"] == 0.42     # value reads back
+rec = next(r for r in resp["element_paths"] if r["id"] == "p1")
+assert rec["render_path"] == "abc"  # the flip
+assert rec["hub_authoritative"] is True  # routed into HubDisplay
+assert rec["props"]["fraction"] == 0.42  # value reads back
 assert rec["props"]["label"] == "Loading…"
 ```
 

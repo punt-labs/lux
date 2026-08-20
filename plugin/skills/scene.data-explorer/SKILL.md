@@ -111,8 +111,18 @@ scene_table(
     ],
     filters=[
         {"type": "search", "column": [0, 1], "hint": "Filter by ID or title..."},
-        {"type": "combo", "column": 2, "items": ["All", "Open", "In Progress", "Closed"], "label": "Status"},
-        {"type": "combo", "column": 3, "items": ["All", "P0", "P1", "P2", "P3"], "label": "Priority"},
+        {
+            "type": "combo",
+            "column": 2,
+            "items": ["All", "Open", "In Progress", "Closed"],
+            "label": "Status",
+        },
+        {
+            "type": "combo",
+            "column": 3,
+            "items": ["All", "P0", "P1", "P2", "P3"],
+            "label": "Priority",
+        },
     ],
     detail={
         "fields": ["ID", "Status", "Priority", "Assignee", "Created"],

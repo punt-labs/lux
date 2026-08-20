@@ -248,6 +248,7 @@ collision for menu callbacks under DES-058/DES-067. This class exists
 because scene and frame ids never received the same treatment.
 """
 
+
 @final
 @dataclass(frozen=True, slots=True)
 class ConnectionScopedId:
@@ -460,8 +461,8 @@ field:
 
 ```python
 class SceneSummary(BaseModel):
-    scene_id: str        # now the composed store key
-    local_id: str         # NEW — the caller's own id, as it declared it
+    scene_id: str  # now the composed store key
+    local_id: str  # NEW — the caller's own id, as it declared it
     element_count: int
     frame_id: str
     owners: list[SceneOwner]

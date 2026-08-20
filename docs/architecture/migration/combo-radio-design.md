@@ -321,11 +321,13 @@ dual-write path; its renderer mirrors state into `WidgetState` and emits a
 
 ```python
 # abc_kind_table.py  —  _leaf_specs(), one entry per kind
-LeafKindSpec(
-    kind="combo",
-    codec=KindCodec(ComboElement, JsonComboDecoder, JsonComboEncoder().encode),
-    handler_builder=build_standalone_combo_handler_decoder,
-),
+(
+    LeafKindSpec(
+        kind="combo",
+        codec=KindCodec(ComboElement, JsonComboDecoder, JsonComboEncoder().encode),
+        handler_builder=build_standalone_combo_handler_decoder,
+    ),
+)
 
 # abc_kind_names.py  —  MIGRATED_ABC_KINDS
 frozenset({..., "combo", "radio"})

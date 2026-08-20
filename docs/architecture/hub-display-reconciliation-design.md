@@ -327,6 +327,7 @@ class HubManifestMessage:
     scenes from a prior Hub die (owner reassigned to _ORPHAN_FD) are
     swept by the same rule.
     """
+
     scene_ids: tuple[str, ...]
     type: Literal["hub_manifest"] = "hub_manifest"
 ```
