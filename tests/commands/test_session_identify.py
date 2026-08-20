@@ -27,6 +27,20 @@ def test_success_renders_identified_line() -> None:
     assert result.error is False
 
 
+def test_routes_declaration_and_scope_through_to_ops() -> None:
+    who = ClientIdentity(kind="cli", name="someone")
+    ops = StubSessionOps(identify_result=Identified(identity=who))
+    ctx: Ctx[SessionOps] = Ctx(ops=ops, identity=identity())
+
+    asyncio.run(session_identify.execute(ctx, _DECLARATION, scope=_SCOPE))
+
+    assert ops.last_call == {
+        "method": "identify",
+        "declaration": _DECLARATION,
+        "scope": _SCOPE,
+    }
+
+
 def test_malformed_declaration_renders_shared_fault_line() -> None:
     ops = StubSessionOps(
         identify_result=OpError(code="invalid_request", reason="bad kind")

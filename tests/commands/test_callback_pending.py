@@ -37,6 +37,15 @@ def test_pending_invocations_render_into_the_json_payload() -> None:
     }
 
 
+def test_routes_scope_through_to_ops() -> None:
+    ops = StubCallbackOps(pending=())
+    ctx: Ctx[CallbackOps] = Ctx(ops=ops, identity=identity())
+
+    asyncio.run(callback_pending.execute(ctx, scope=_SCOPE))
+
+    assert ops.last_call == {"method": "pending_callbacks", "scope": _SCOPE}
+
+
 def test_execute_returns_the_typed_tuple_with_no_envelope() -> None:
     invocation = CallbackInvocation(ConnectionId("cx"), "cb1")
     ops = StubCallbackOps(pending=(invocation,))

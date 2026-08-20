@@ -41,3 +41,20 @@ def test_execute_returns_the_typed_outcome_with_no_envelope() -> None:
     result = asyncio.run(scene_update.execute(ctx, "s1", _PATCHES, scope=_SCOPE))
 
     assert result == SceneShown(scene_id="s1")
+
+
+def test_routes_scene_id_scope_and_request_through_to_ops() -> None:
+    # Adapter-routing guard: the command must thread its inputs verbatim
+    # to ctx.ops. A silent drop of any of these is exactly the humble-object
+    # bug class this stub records to catch.
+    ops = StubSceneOps(show=SceneShown(scene_id="s1"))
+    ctx: Ctx[SceneOps] = Ctx(ops=ops, identity=identity())
+
+    asyncio.run(scene_update.execute(ctx, "s1", _PATCHES, scope=_SCOPE))
+
+    assert ops.last_call == {
+        "method": "update",
+        "scene_id": "s1",
+        "request": _PATCHES,
+        "scope": _SCOPE,
+    }

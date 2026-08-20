@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.commands._faults import render_error
 from punt_lux.commands._result import CommandResult
 from punt_lux.operations import Ok, OpError
 
@@ -56,20 +57,10 @@ class CallbackRegisterCommand:
         per command (matches every other command's execute/__call__ shape).
         """
         if isinstance(request, OpError):
-            return CommandResult(
-                text=f"error: {request.reason}",
-                json_data={"code": request.code, "reason": request.reason},
-                error=True,
-                exit_code=1,
-            )
+            return render_error(request)
         result = await self.execute(ctx, request, scope=scope)
         if isinstance(result, OpError):
-            return CommandResult(
-                text=f"error: {result.reason}",
-                json_data={"code": result.code, "reason": result.reason},
-                error=True,
-                exit_code=1,
-            )
+            return render_error(result)
         return CommandResult(
             text=f"registered:{request.callback.id}",
             json_data={"callback_id": request.callback.id},

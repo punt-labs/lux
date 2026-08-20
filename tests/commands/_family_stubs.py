@@ -25,20 +25,23 @@ if TYPE_CHECKING:
 
 @final
 class StubFrameOps:
-    """``FrameOps`` stub returning one preset outcome."""
+    """``FrameOps`` stub returning one preset outcome; records routing args."""
 
     # `| None`: a test supplies the outcome it reads (PY-TS-14).
     _result: Ok | OpError | None
-    __slots__ = ("_result",)
+    last_call: dict[str, object]
+    __slots__ = ("_result", "last_call")
 
     def __new__(cls, result: Ok | OpError | None = None) -> Self:
         self = super().__new__(cls)
         self._result = result
+        self.last_call = {}
         return self
 
     def set_frame_state(
         self, frame_id: str, patch: FrameStatePatch | OpError
     ) -> Ok | OpError:
+        self.last_call = {"frame_id": frame_id, "patch": patch}
         return cast("Ok | OpError", self._result)
 
 
@@ -49,7 +52,8 @@ class StubMenuOps:
     # `| None`: each field only needs a value when the test reads it.
     _set: Ok | OpError | None
     _list: MenuList | None
-    __slots__ = ("_list", "_set")
+    last_call: dict[str, object]
+    __slots__ = ("_list", "_set", "last_call")
 
     def __new__(
         cls,
@@ -59,12 +63,15 @@ class StubMenuOps:
         self = super().__new__(cls)
         self._set = set_result
         self._list = list_result
+        self.last_call = {}
         return self
 
     def set_menu(self, request: SetMenuRequest | OpError) -> Ok | OpError:
+        self.last_call = {"method": "set_menu", "request": request}
         return cast("Ok | OpError", self._set)
 
     def list_menus(self) -> MenuList:
+        self.last_call = {"method": "list_menus"}
         return cast("MenuList", self._list)
 
 
@@ -74,7 +81,8 @@ class StubSessionOps:
 
     _list: ClientList | None
     _identify: Identified | OpError | None
-    __slots__ = ("_identify", "_list")
+    last_call: dict[str, object]
+    __slots__ = ("_identify", "_list", "last_call")
 
     def __new__(
         cls,
@@ -84,14 +92,21 @@ class StubSessionOps:
         self = super().__new__(cls)
         self._list = list_result
         self._identify = identify_result
+        self.last_call = {}
         return self
 
     def list_clients(self) -> ClientList:
+        self.last_call = {"method": "list_clients"}
         return cast("ClientList", self._list)
 
     def identify(
         self, declaration: dict[str, object], *, scope: Scope
     ) -> Identified | OpError:
+        self.last_call = {
+            "method": "identify",
+            "declaration": declaration,
+            "scope": scope,
+        }
         return cast("Identified | OpError", self._identify)
 
 
@@ -101,7 +116,8 @@ class StubCallbackOps:
 
     _register: Ok | OpError | None
     _pending: tuple[CallbackInvocation, ...]
-    __slots__ = ("_pending", "_register")
+    last_call: dict[str, object]
+    __slots__ = ("_pending", "_register", "last_call")
 
     def __new__(
         cls,
@@ -111,12 +127,19 @@ class StubCallbackOps:
         self = super().__new__(cls)
         self._register = register_result
         self._pending = pending
+        self.last_call = {}
         return self
 
     def register_callback(
         self, request: RegisterCallbackRequest | OpError, *, scope: Scope
     ) -> Ok | OpError:
+        self.last_call = {
+            "method": "register_callback",
+            "request": request,
+            "scope": scope,
+        }
         return cast("Ok | OpError", self._register)
 
     def pending_callbacks(self, *, scope: Scope) -> tuple[CallbackInvocation, ...]:
+        self.last_call = {"method": "pending_callbacks", "scope": scope}
         return self._pending

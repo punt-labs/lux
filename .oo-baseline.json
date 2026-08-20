@@ -639,17 +639,19 @@
     "public_attr_violations": 0.0
   },
   "src/punt_lux/commands/ping.py": {
-    "avg_complexity": 1.75,
-    "avg_params": 1.25,
+    "avg_complexity": 1.33,
+    "avg_params": 1.33,
     "class_to_func_ratio": 1.0,
-    "classes_per_module": 1.0,
+    "classes_per_module": 1,
     "encapsulation_ratio": 1.0,
-    "future_annotations": 1.0,
-    "init_violations": 0.0,
-    "max_complexity": 3.0,
+    "future_annotations": 1,
+    "init_violations": 0,
+    "max_complexity": 2,
     "method_ratio": 1.0,
-    "module_size": 54.0,
-    "public_attr_violations": 0.0
+    "module_size": 40,
+    "public_attr_violations": 0,
+    "top_level_functions": 0,
+    "top_level_statements": 2
   },
   "src/punt_lux/commands/scene_clear.py": {
     "avg_complexity": 1.33,

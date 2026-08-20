@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.commands._faults import render_error
 from punt_lux.commands._result import CommandResult
 from punt_lux.operations import OpError, SceneShown
 
@@ -51,12 +52,7 @@ class SceneUpdateCommand:
             return CommandResult(
                 text=f"shown:{result.scene_id}", json_data={"scene_id": result.scene_id}
             )
-        return CommandResult(
-            text=f"error: scene not updated — {result.reason}",
-            json_data={"code": result.code, "reason": result.reason},
-            error=True,
-            exit_code=1,
-        )
+        return render_error(result, prefix="scene not updated — ")
 
 
 scene_update: SceneUpdateCommand = SceneUpdateCommand()

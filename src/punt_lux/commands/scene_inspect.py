@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.commands._faults import render_error
 from punt_lux.commands._result import CommandResult
 from punt_lux.operations import OpError
 from punt_lux.operations.models.inspect_scope import HUB_ONLY
@@ -47,12 +48,7 @@ class SceneInspectCommand:
         """Run :meth:`execute` and render its outcome into the shared envelope."""
         result = await self.execute(ctx, scene_id, scope=scope, facts=facts)
         if isinstance(result, OpError):
-            return CommandResult(
-                text=f"error: {result.reason}",
-                json_data={"code": result.code, "reason": result.reason},
-                error=True,
-                exit_code=1,
-            )
+            return render_error(result)
         return CommandResult(
             text=f"scene:{result.scene_id}", json_data=result.model_dump(mode="json")
         )

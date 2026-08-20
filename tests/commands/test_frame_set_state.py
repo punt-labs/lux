@@ -41,3 +41,13 @@ def test_execute_returns_the_typed_outcome_with_no_envelope() -> None:
     result = asyncio.run(frame_set_state.execute(ctx, "frame-1", _patch()))
 
     assert result == Ok()
+
+
+def test_routes_frame_id_and_patch_through_to_ops() -> None:
+    ops = StubFrameOps(result=Ok())
+    ctx: Ctx[FrameOps] = Ctx(ops=ops, identity=identity())
+    patch = _patch()
+
+    asyncio.run(frame_set_state.execute(ctx, "frame-1", patch))
+
+    assert ops.last_call == {"frame_id": "frame-1", "patch": patch}
