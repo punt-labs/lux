@@ -1,22 +1,34 @@
-"""The display routes — facts about, and settings of, the running display.
-
-The Hub cannot own an ImGui theme, a window's opacity, a GPU backend string, a
-framebuffer, a frame's transient minimize state, or the display's own ring
-buffers. These operations proxy over luxd's one connection; the caller still
-enters through a Hub operation, so there is one code path. Each handler binds its
-request, calls one operation, and maps the result.
-"""
+"""The display routes -- proxy display-process facts over luxd's one connection."""
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Annotated, Self, final
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
+from punt_lux.commands import (
+    Ctx as CommandCtx,
+    DisplayInfoOps,
+    ErrorOps,
+    EventOps,
+    PingOps,
+    ScreenshotOps,
+    ThemeOps,
+    WindowOps,
+    display_get_theme as display_get_theme_command,
+    display_info as display_info_command,
+    display_screenshot as display_screenshot_command,
+    display_set_theme as display_set_theme_command,
+    display_window_get as display_window_get_command,
+    display_window_set as display_window_set_command,
+    error_ls as error_ls_command,
+    event_ls as event_ls_command,
+    ping as ping_command,
+)
 from punt_lux.operations import (
     DisplayInfo,
     FrameRaise,
-    FrameStatePatch,
     Ok,
     Pong,
     RecentErrors,
@@ -27,22 +39,22 @@ from punt_lux.operations import (
     WindowSettings,
     WindowSettingsPatch,
 )
+from punt_lux.rest.identity import resolve_identity, resolve_scope
 
 if TYPE_CHECKING:
+    from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.operations import Operations
     from punt_lux.rest.status import HttpErrorMap
 
+_CallerIdentity = Annotated["ClientIdentity", Depends(resolve_identity)]
+
 __all__ = ["DisplayRoutes"]
 
-# Caps mirror display/query_dispatcher.py's ring buffers (deque maxlen 200 / 100): a
-# negative count would slice a surprising subset and a larger one can never
-# return more, so both are a bind-time 422.
+# Caps mirror display/query_dispatcher.py's ring buffers (deque maxlen 200/100).
 _EventCount = Annotated[int, Query(ge=0, le=200)]
 _ErrorCount = Annotated[int, Query(ge=0, le=100)]
 
-# The display-ping wait: bounded so a caller cannot ask for a sub-100ms probe
-# (unmeasurable) or a 30s+ hang. None (omitted) uses the standing display
-# budget — the documented absence contract, threaded to DisplayLink.ping.
+# None (omitted) uses the standing display budget -- DisplayLink.ping's contract.
 _PingTimeout = Annotated[float | None, Query(ge=0.1, le=30.0)]
 
 
@@ -71,11 +83,18 @@ class DisplayRoutes:
         router.add_api_route(
             "/display/window", self.set_window_settings, methods=["PATCH"]
         )
+        f = "/display/frames/{frame_id}"
         router.add_api_route(
-            "/display/frames/{frame_id}", self.set_frame_state, methods=["PATCH"]
+            f + "/raise",
+            self.raise_frame,
+            methods=["POST"],
+            dependencies=[Depends(resolve_scope)],
         )
         router.add_api_route(
-            "/display/frames/{frame_id}/raise", self.raise_frame, methods=["POST"]
+            f + "/close",
+            self.close_frame,
+            methods=["POST"],
+            dependencies=[Depends(resolve_scope)],
         )
         router.add_api_route("/display/screenshot", self.screenshot, methods=["GET"])
         router.add_api_route("/display/ping", self.ping, methods=["GET"])
@@ -89,55 +108,79 @@ class DisplayRoutes:
         """The router to mount on the app."""
         return self._router
 
-    def get_display_info(self) -> DisplayInfo:
+    def get_display_info(self, identity: _CallerIdentity) -> DisplayInfo:
         """Return the display's backend, geometry, frame rate, and identity."""
-        return self._errors.respond(self._ops.get_display_info())
+        ctx: CommandCtx[DisplayInfoOps] = CommandCtx(ops=self._ops, identity=identity)
+        return self._errors.respond(asyncio.run(display_info_command.execute(ctx)))
 
-    def get_theme(self) -> ThemeState:
+    def get_theme(self, identity: _CallerIdentity) -> ThemeState:
         """Return the active theme and the themes available to switch to."""
-        return self._errors.respond(self._ops.get_theme())
+        ctx: CommandCtx[ThemeOps] = CommandCtx(ops=self._ops, identity=identity)
+        return self._errors.respond(asyncio.run(display_get_theme_command.execute(ctx)))
 
-    def set_theme(self, request: SetThemeRequest) -> ThemeState:
+    def set_theme(
+        self, request: SetThemeRequest, identity: _CallerIdentity
+    ) -> ThemeState:
         """Switch the display theme and return the new theme state."""
-        return self._errors.respond(self._ops.set_theme(request))
+        ctx: CommandCtx[ThemeOps] = CommandCtx(ops=self._ops, identity=identity)
+        return self._errors.respond(
+            asyncio.run(display_set_theme_command.execute(ctx, request))
+        )
 
-    def get_window_settings(self) -> WindowSettings:
+    def get_window_settings(self, identity: _CallerIdentity) -> WindowSettings:
         """Return the window's opacity, font scale, decoration, and idle rate."""
-        return self._errors.respond(self._ops.get_window_settings())
+        ctx: CommandCtx[WindowOps] = CommandCtx(ops=self._ops, identity=identity)
+        return self._errors.respond(
+            asyncio.run(display_window_get_command.execute(ctx))
+        )
 
-    def set_window_settings(self, patch: WindowSettingsPatch) -> WindowSettings:
+    def set_window_settings(
+        self, patch: WindowSettingsPatch, identity: _CallerIdentity
+    ) -> WindowSettings:
         """Change the provided window settings and return the new settings."""
-        return self._errors.respond(self._ops.set_window_settings(patch))
-
-    def set_frame_state(self, frame_id: str, patch: FrameStatePatch) -> Ok:
-        """Change a frame's transient minimize state."""
-        return self._errors.respond(self._ops.set_frame_state(frame_id, patch))
+        ctx: CommandCtx[WindowOps] = CommandCtx(ops=self._ops, identity=identity)
+        return self._errors.respond(
+            asyncio.run(display_window_set_command.execute(ctx, patch))
+        )
 
     def raise_frame(self, frame_id: str) -> FrameRaise:
         """Bring a frame to the front, restoring it if it was minimized."""
         return self._errors.respond(self._ops.raise_frame(frame_id))
 
-    def screenshot(self) -> Screenshot:
-        """Refuse the screenshot: framebuffer capture is unsupported (DES-028).
+    def close_frame(self, frame_id: str) -> Ok:
+        """Close a frame: tear down its scenes; identity required (DES-057)."""
+        result = self._ops.close_frame(frame_id)
+        return self._errors.respond(result)
 
-        Capture is unresolved below the message layer, so the operation rejects up
-        front and this route answers 409 rather than returning an image path. It
-        will capture once DES-028 is resolved.
+    def screenshot(self, identity: _CallerIdentity) -> Screenshot:
+        """Refuse the screenshot: framebuffer capture is unsupported (DES-028)."""
+        ctx: CommandCtx[ScreenshotOps] = CommandCtx(ops=self._ops, identity=identity)
+        return self._errors.respond(
+            asyncio.run(display_screenshot_command.execute(ctx))
+        )
+
+    async def ping(
+        self, identity: _CallerIdentity, timeout: _PingTimeout = None
+    ) -> Pong:
+        """Round-trip a ping and return the typed result.
+
+        A ping never owns Hub state, so an unidentified caller resolves to
+        ``ANONYMOUS_REST`` rather than being challenged the way a write is.
         """
-        return self._errors.respond(self._ops.screenshot())
+        ctx: CommandCtx[PingOps] = CommandCtx(ops=self._ops, identity=identity)
+        result = await ping_command.execute(ctx, timeout)
+        return self._errors.respond(result)
 
-    def ping(self, timeout: _PingTimeout = None) -> Pong:
-        """Round-trip a ping and return the elapsed time.
-
-        ``timeout`` bounds the display-ping wait; omitted uses the standing
-        display budget.
-        """
-        return self._errors.respond(self._ops.ping(timeout))
-
-    def list_recent_events(self, count: _EventCount = 50) -> RecentEvents:
+    def list_recent_events(
+        self, identity: _CallerIdentity, count: _EventCount = 50
+    ) -> RecentEvents:
         """Return the display's recent interactions, proxied."""
-        return self._errors.respond(self._ops.list_recent_events(count))
+        ctx: CommandCtx[EventOps] = CommandCtx(ops=self._ops, identity=identity)
+        return self._errors.respond(asyncio.run(event_ls_command.execute(ctx, count)))
 
-    def list_errors(self, count: _ErrorCount = 20) -> RecentErrors:
+    def list_errors(
+        self, identity: _CallerIdentity, count: _ErrorCount = 20
+    ) -> RecentErrors:
         """Return the display's recent errors, proxied."""
-        return self._errors.respond(self._ops.list_errors(count))
+        ctx: CommandCtx[ErrorOps] = CommandCtx(ops=self._ops, identity=identity)
+        return self._errors.respond(asyncio.run(error_ls_command.execute(ctx, count)))

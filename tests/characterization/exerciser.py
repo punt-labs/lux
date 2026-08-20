@@ -41,10 +41,13 @@ shaping a wrong-but-stable snapshot.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import unittest.mock as mock
-from collections.abc import Callable, Generator, Mapping
+from collections.abc import Callable, Coroutine, Generator, Mapping
 from typing import Any, ClassVar
+
+from fastmcp.exceptions import ToolError
 
 from punt_lux import tools as tools_pkg
 from punt_lux.domain.hub import client_registry, hub
@@ -214,7 +217,15 @@ class ToolExerciser:
         """
         fn = cls._resolve(tool)
         with cls._apply_setup(setup):
-            response = fn(**inputs)
+            try:
+                response = fn(**inputs)
+                if isinstance(response, Coroutine):
+                    response = asyncio.run(response)
+            except ToolError as exc:
+                # A tool that signals a user-facing failure raises ToolError with
+                # the shipped line as its message; the corpus captures that same
+                # line, so an error is the same characterisation as a success.
+                return str(exc)
         if not isinstance(response, str):
             msg = f"tool {tool!r} returned non-string: {type(response).__name__}"
             raise ToolCallError(msg)
@@ -323,7 +334,6 @@ class ToolExerciser:
                 return_value=stub_client,
             ),
             mock.patch("punt_lux.tools.tools.OPERATIONS", test_ops),
-            mock.patch("punt_lux.tools.subscribe_tools.OPERATIONS", test_ops),
         ]
         now = setup.get("time")
         if isinstance(now, int | float):

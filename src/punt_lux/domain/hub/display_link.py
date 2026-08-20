@@ -24,7 +24,7 @@ import select
 import socket
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Self
 
@@ -35,6 +35,7 @@ from punt_lux.protocol import (
     CallbackMenuMessage,
     ConnectMessage,
     FrameReader,
+    HubManifestMessage,
     MenuMessage,
     ObserverMessage,
     PingMessage,
@@ -78,6 +79,13 @@ class DisplayLink:
     ----------
     socket_path:
         Path to the Unix domain socket.  ``None`` uses the default.
+    name:
+        The identity this connection declares in its ``ConnectMessage``.
+    kind:
+        ``"hub"`` triggers single-owner preemption plus a manifest
+        (DES-068); ``"test"`` (default) is the read-only backdoor for
+        every other caller — a deliberately wrong-looking name, since
+        the display logs and rejects a ``SceneMessage`` sent under it.
     auto_spawn:
         If ``True`` (default), spawn the display server when not running.
     connect_timeout:
@@ -88,6 +96,7 @@ class DisplayLink:
 
     _socket_path: Path | None
     _name: str | None
+    _kind: Literal["hub", "test"]
     _auto_spawn: bool
     _connect_timeout: float
     _recv_timeout: float
@@ -108,6 +117,7 @@ class DisplayLink:
         socket_path: str | Path | None = None,
         *,
         name: str | None = None,
+        kind: Literal["hub", "test"] = "test",
         auto_spawn: bool = True,
         connect_timeout: float = 5.0,
         recv_timeout: float = DEFAULT_RECV_TIMEOUT,
@@ -115,6 +125,7 @@ class DisplayLink:
         self = super().__new__(cls)
         self._socket_path = Path(socket_path) if socket_path else None
         self._name = name
+        self._kind = kind
         self._auto_spawn = auto_spawn
         self._connect_timeout = connect_timeout
         self._recv_timeout = recv_timeout
@@ -218,7 +229,7 @@ class DisplayLink:
         """Send the connection's declared identity after handshake."""
         if self._name:
             try:
-                send_message(sock, ConnectMessage(name=self._name))
+                send_message(sock, ConnectMessage(name=self._name, kind=self._kind))
             except OSError as exc:
                 self.close()
                 err = f"ConnectMessage failed after handshake: {exc}"
@@ -493,6 +504,28 @@ class DisplayLink:
     def set_callback_menus(self, submenus: list[dict[str, Any]]) -> None:
         """Replace the display's Clients menu (Hub-composed)."""
         self._send(CallbackMenuMessage(submenus=submenus))
+
+    def send_manifest(self, scene_ids: Sequence[str]) -> None:
+        """Declare the Hub's complete live-scene set to the display (DES-068).
+
+        Meaningful only for a ``kind="hub"`` connection, sent immediately
+        after identifying and before any scene content. The display purges
+        every scene it cannot attribute to this connection that the
+        manifest does not name.
+        """
+        self._send(HubManifestMessage(scene_ids=tuple(scene_ids)))
+
+    def probe_alive(self, timeout: float) -> bool:
+        """Return whether the display responded to a ping within ``timeout``.
+
+        The :class:`DisplaySender` liveness probe the replicator's isolation
+        loop calls between successive singleton sends, so a crash caused by
+        scene N attributes to N (not N+1). A None pong (timed out) or any
+        socket error the underlying send raises means the display did not
+        respond in time; the caller treats that as a failure of the scene
+        just sent.
+        """
+        return self.ping(timeout=timeout) is not None
 
     def ping(self, timeout: float | None = None) -> PongMessage | None:
         """Send a ping and wait for the pong within ``timeout`` (else recv budget)."""

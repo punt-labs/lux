@@ -420,6 +420,10 @@ INTROSPECTION_SCENARIOS: tuple[Scenario, ...] = (
     # the string-parity corpus. Their behavior is pinned by the typed operation
     # and adapter tests under tests/operations/.
     Scenario(
+        # ping's failure path now raises ToolError rather than returning a
+        # string (fastmcp-idiomatic error signaling), so it has no snapshot
+        # here -- the corpus format pins string responses only. The raise is
+        # covered directly by tests/test_tools.py's TestPingNoAutoSpawn.
         name="ping-rtt",
         tool="ping",
         inputs={},
@@ -428,12 +432,6 @@ INTROSPECTION_SCENARIOS: tuple[Scenario, ...] = (
             "time": 1000.042,
             "client": {"ping": {"return": {"ts": 1000.0, "display_ts": 1000.005}}},
         },
-    ),
-    Scenario(
-        name="ping-not-running",
-        tool="ping",
-        inputs={},
-        setup={"display_running": False},
     ),
     Scenario(
         # DES-028: framebuffer capture is unsupported, so screenshot refuses up
@@ -593,6 +591,15 @@ CALLBACK_SCENARIOS: tuple[Scenario, ...] = (
         setup={
             "display_running": False,
             "session_key": "corpus-register-callback-no-listen-leg",
+        },
+    ),
+    Scenario(
+        name="pending-callbacks-empty",
+        tool="pending_callbacks",
+        inputs={},
+        setup={
+            "display_running": False,
+            "session_key": "corpus-pending-callbacks-empty",
         },
     ),
 )

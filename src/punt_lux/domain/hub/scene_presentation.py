@@ -14,15 +14,17 @@ into the frame it was shown in.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Literal, Protocol, Self, final, runtime_checkable
 
+from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.ids import SceneId
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from punt_lux.domain.element import Element as WireElement
+    from punt_lux.domain.ids import ConnectionId
 
 __all__ = [
     "SceneLayout",
@@ -74,6 +76,10 @@ class ScenePresentation:
     frame_size: tuple[int, int] | None = None
     frame_flags: Mapping[str, bool] | None = None
     frame_layout: Literal["tab", "stack"] | None = None
+
+    def scoped(self, owner: ConnectionId) -> Self:
+        """Return this presentation with its frame id namespaced to `owner`."""
+        return replace(self, frame_id=ConnectionScopedId.compose(owner, self.frame_id))
 
     def push(
         self,

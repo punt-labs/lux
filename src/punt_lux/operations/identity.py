@@ -55,3 +55,14 @@ class IdentityOperations:
             return OpError.from_validation(exc)
         self._display.identify_client(scope.connection_id, identity)
         return Identified(identity=identity)
+
+    def current(self, scope: Scope) -> ClientIdentity | None:
+        """Return the identity already declared for ``scope``'s connection, if any.
+
+        ``None`` is the honest state of a connection that has not yet called
+        ``identify`` — genuinely absent, not a give-up: callers that need an
+        identity regardless (e.g. a command's ``Ctx``) supply their own
+        documented fallback rather than this method inventing one.
+        """
+        session = self._display.clients.session_of(scope.connection_id)
+        return session.identity if session is not None else None

@@ -24,10 +24,12 @@ from punt_lux.operations.timing import Timed
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.callback_hold import CallbackRouter
+    from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.domain.hub.clients import ClientRegistry
     from punt_lux.domain.hub.hub import Hub
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.hub.menu_registry import HubMenuRegistry
+    from punt_lux.domain.hub.session_callback import CallbackInvocation
     from punt_lux.operations.models import (
         Cleared,
         DisplayModeRequest,
@@ -49,7 +51,7 @@ if TYPE_CHECKING:
     )
     from punt_lux.operations.models.display_info import DisplayInfo
     from punt_lux.operations.models.display_probe import Pong, Screenshot
-    from punt_lux.operations.models.display_write import FrameRaise, FrameStatePatch
+    from punt_lux.operations.models.display_write import FrameRaise
     from punt_lux.operations.models.identity import Identified
     from punt_lux.operations.models.menu_results import MenuList, Ok, SetMenuRequest
     from punt_lux.operations.models.query_clients import ClientList
@@ -129,17 +131,11 @@ class Operations:
     ) -> Self:
         """Wire every concern class from injected collaborators — no singletons.
 
-        ``callback_router`` is the one process-wide router: both the MCP and REST
-        composition roots pass the same instance, so a click routed on one surface
-        and drained on another share one set of per-session holds.
-
-        The Hub's own Details command is not composed here. It is not a surface
-        capability — it is keyed by a ``ConnectionId``, a wire key no surface
-        addresses by, and it writes a scene owned by a connection other than the
-        caller's — so it lives on its own concern class, which each composition
-        root builds and binds to the interaction dispatch.
+        ``callback_router`` is the one process-wide router shared by the MCP and
+        REST composition roots. The Hub's own Details command is not composed
+        here -- it is keyed by ``ConnectionId``, not a surface capability.
         """
-        scenes = SceneOperations(display, replicator, ports.element_factory)
+        scenes = SceneOperations(display, replicator, ports.element_factory, hub)
         callbacks = CallbackOperations(display.clients, callback_router, replicator)
         queries = QueryOperations(display, hub, ports.display_port)
         return cls(
@@ -250,23 +246,25 @@ class Operations:
         """Change the provided window settings and return the new settings."""
         return self._display.set_window_settings(patch)
 
-    @Timed("set_frame_state")
-    def set_frame_state(
-        self, frame_id: str, patch: FrameStatePatch | OpError
-    ) -> Ok | OpError:
-        """Change a frame's minimize state."""
-        return self._display.set_frame_state(frame_id, patch)
-
     @Timed("raise_frame")
     def raise_frame(self, frame_id: str) -> FrameRaise | OpError:
         """Bring a frame to the front, restoring it if it was minimized."""
         return self._display.raise_frame(frame_id)
 
+    @Timed("close_frame")
+    def close_frame(self, frame_id: str) -> Ok:
+        """Close a frame; ``frame_close`` and ``frame_expire`` both call this."""
+        return self._scenes.close_frame(frame_id)
+
     def inspect_scene(
-        self, scene_id: str, scope: InspectScope = HUB_ONLY
+        self, scene_id: str, *, scope: Scope, facts: InspectScope = HUB_ONLY
     ) -> SceneInspection | OpError:
-        """Return a scene's tree; ``scope`` adds the proxied mirror/geometry facts."""
-        return self._queries.inspect_scene(scene_id, scope)
+        """Return the caller's own scene tree; ``facts`` adds proxied geometry.
+
+        Composed against ``scope.connection_id`` — a caller can only ever
+        inspect a scene it owns (DES-086, no admin path).
+        """
+        return self._queries.inspect_scene(scene_id, scope, facts)
 
     def list_scenes(self) -> SceneList:
         """List every live scene and frame from the authoritative store."""
@@ -307,11 +305,19 @@ class Operations:
         """
         return self._callbacks.register_callback(request, scope=scope)
 
+    def pending_callbacks(self, *, scope: Scope) -> tuple[CallbackInvocation, ...]:
+        """Return the caller's held callback invocations without clearing them."""
+        return self._callbacks.pending_callbacks(scope=scope)
+
     def identify(
         self, declaration: dict[str, object], *, scope: Scope
     ) -> Identified | OpError:
         """Record the caller's declared identity, or reject a malformed one."""
         return self._identity.identify(declaration, scope=scope)
+
+    def identity_of(self, *, scope: Scope) -> ClientIdentity | None:
+        """Return the identity already declared for ``scope``, or ``None``."""
+        return self._identity.current(scope)
 
     def drop_session(self) -> None:
         """Re-push the menu after a session departs so its submenu vanishes."""

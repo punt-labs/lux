@@ -15,6 +15,7 @@ from typing import Self, cast
 import pytest
 
 from punt_lux.domain.element import Element as DomainElement
+from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
@@ -28,9 +29,12 @@ from punt_lux.operations.models.query_geometry import (
 )
 from punt_lux.operations.models.query_inspection import SceneInspection
 from punt_lux.operations.queries import QueryOperations
+from punt_lux.operations.scope import Scope
 from punt_lux.protocol.agent_factory import agent_element_factory
 from punt_lux.protocol.geometry import Rect
 from punt_lux.protocol.painted_geometry import ElementGeometry, FrameGeometry
+
+_C1 = Scope(ConnectionId("c1"))
 
 
 class _StubPort:
@@ -50,13 +54,18 @@ class _StubPort:
         return self._reply
 
 
+def _scoped(local_id: str) -> SceneId:
+    """The store key ``local_id`` composes to for connection "c1"."""
+    return SceneId(ConnectionScopedId.compose(ConnectionId("c1"), local_id))
+
+
 def _seed(store: HubDisplay) -> None:
     text = agent_element_factory().element_from_dict(
         {"kind": "text", "id": "t1", "content": "hi"}
     )
     store.show_scene(
         ConnectionId("c1"),
-        SceneId("s1"),
+        _scoped("s1"),
         [cast("DomainElement", text)],
         ScenePresentation(frame_id="f1", frame_title="F1", layout="single"),
     )
@@ -90,7 +99,7 @@ def test_geometry_not_requested_by_default() -> None:
     store = HubDisplay()
     _seed(store)
     ops = QueryOperations(store, Hub(), _StubPort(DisplayReplied({})))
-    result = ops.inspect_scene("s1")
+    result = ops.inspect_scene("s1", _C1)
     assert isinstance(result, SceneInspection)
     assert isinstance(result.geometry, GeometryNotRequested)
 
@@ -99,7 +108,7 @@ def test_geometry_present_carries_element_and_frame_rects() -> None:
     store = HubDisplay()
     _seed(store)
     ops = QueryOperations(store, Hub(), _StubPort(DisplayReplied(_GEOMETRY_BLOCK)))
-    result = ops.inspect_scene("s1", InspectScope(want_geometry=True))
+    result = ops.inspect_scene("s1", _C1, InspectScope(want_geometry=True))
     assert isinstance(result, SceneInspection)
     assert result.geometry == GeometryPresent(
         frame=FrameGeometry(
@@ -128,7 +137,7 @@ def test_geometry_unavailable_when_display_faults() -> None:
     ops = QueryOperations(
         store, Hub(), _StubPort(DisplayFault(code="display_unavailable"))
     )
-    result = ops.inspect_scene("s1", InspectScope(want_geometry=True))
+    result = ops.inspect_scene("s1", _C1, InspectScope(want_geometry=True))
     assert isinstance(result, SceneInspection)
     assert isinstance(result.geometry, GeometryUnavailable)
 
@@ -137,7 +146,7 @@ def test_geometry_unavailable_when_reply_omits_block() -> None:
     store = HubDisplay()
     _seed(store)
     ops = QueryOperations(store, Hub(), _StubPort(DisplayReplied({"scene_id": "s1"})))
-    result = ops.inspect_scene("s1", InspectScope(want_geometry=True))
+    result = ops.inspect_scene("s1", _C1, InspectScope(want_geometry=True))
     assert isinstance(result, SceneInspection)
     assert result.geometry == GeometryUnavailable(
         reason="display reply omitted geometry"
@@ -149,7 +158,7 @@ def test_geometry_unavailable_when_a_rect_is_malformed() -> None:
     _seed(store)
     bad = {"geometry": {"elements": {"t1": {"x": "wide"}}, "frame": None}}
     ops = QueryOperations(store, Hub(), _StubPort(DisplayReplied(bad)))
-    result = ops.inspect_scene("s1", InspectScope(want_geometry=True))
+    result = ops.inspect_scene("s1", _C1, InspectScope(want_geometry=True))
     assert isinstance(result, SceneInspection)
     assert isinstance(result.geometry, GeometryUnavailable)
 

@@ -39,8 +39,12 @@ class TestPing:
         assert result == "pong rtt=0.000s"
 
     def test_not_running(self) -> None:
-        result = ToolExerciser.call("ping", {}, {"display_running": False})
-        assert result == "not running"
+        # The exerciser catches ToolError so an error snapshot captures the
+        # shipped line rather than an exception traceback -- the same
+        # characterisation as a success.
+        assert (
+            ToolExerciser.call("ping", {}, {"display_running": False}) == "not running"
+        )
 
 
 class TestShow:

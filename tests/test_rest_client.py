@@ -307,7 +307,7 @@ def test_a_derived_cli_identity_owns_its_scene_by_repository(
     assert client.render(_render_request("board")) == SceneShown(scene_id="board")
 
     scene = next(
-        s for s in surface.get("/scenes").json()["scenes"] if s["scene_id"] == "board"
+        s for s in surface.get("/scenes").json()["scenes"] if s["local_id"] == "board"
     )
     identity = scene["owners"][0]["identity"]
     assert identity["kind"] == "cli"
@@ -365,8 +365,8 @@ def test_connect_raises_the_actionable_message_when_no_port_file(
     with pytest.raises(HubUnavailableError) as excinfo:
         LuxRestClient.connect()
     # Pin the production string end to end, hint included — the CLI prints this
-    # verbatim, so the actionable "run lux hub-install" guidance must be here.
+    # verbatim, so the actionable "run lux hub install" guidance must be here.
     message = str(excinfo.value)
     assert message == (
-        "luxd is not running. Run 'lux hub-install' to register the service."
+        "luxd is not running. Run 'lux hub install' to register the service."
     )

@@ -9,6 +9,8 @@ logic is tested against fakes, not a live socket:
   next hand-out reconnects (the Hub's ``ClientRegistry``).
 - ``DisplayLifecycle`` — kills a wedged display and starts a fresh one
   (``DisplayPaths``).
+- ``DirtyMarker`` — the queue-only side of the replicator (``HubReplicator``)
+  that a fresh-connect hook marks after declaring its manifest (DES-068).
 """
 
 from __future__ import annotations
@@ -21,9 +23,12 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
     from pathlib import Path
 
+    from punt_lux.domain.ids import SceneId
+
 __all__ = [
     "CallbackMenuReader",
     "ClientProvider",
+    "DirtyMarker",
     "DisplayLifecycle",
     "DisplaySender",
     "MenuReader",
@@ -73,6 +78,20 @@ class DisplaySender(ScenePusher, Protocol):
     def set_callback_menus(self, submenus: list[dict[str, object]]) -> None:
         """Replace the display's Clients menu."""
 
+    def probe_alive(self, timeout: float) -> bool:
+        """Return whether the display responded to a ping within ``timeout``.
+
+        Used by ``HubReplicator``'s isolation-mode loop as a synchronous
+        liveness check between consecutive singleton probes: a scene N whose
+        render crashed the display surfaces as a broken pipe on the *next*
+        write, so without a roundtrip in between, the death would attribute
+        to scene N+1 (which was in flight when the write raised) rather than
+        to scene N (the real culprit). Raising OSError/BlockingIOError is
+        also a "no" — the caller propagates either as a failure of the last
+        scene sent.
+        """
+        ...
+
 
 @runtime_checkable
 class ClientProvider(Protocol):
@@ -96,3 +115,19 @@ class DisplayLifecycle(Protocol):
     def ensure(self, timeout: float = ...) -> Path:
         """Start a fresh display if none is live; return the socket path."""
         ...
+
+
+@runtime_checkable
+class DirtyMarker(Protocol):
+    """Marks scenes and the menu dirty on the replicator, queue-only.
+
+    ``ClientRegistry``'s connect-success hook (DES-068) marks through this
+    port after declaring a fresh connection's manifest, so the display's
+    content catches up to what the manifest just told it the Hub holds.
+    """
+
+    def mark_dirty(self, scene_id: SceneId) -> None:
+        """Signal that ``scene_id`` changed. Queue-only — never sends."""
+
+    def mark_menus(self) -> None:
+        """Signal that the menu registry changed. Queue-only — never sends."""

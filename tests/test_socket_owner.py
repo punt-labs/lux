@@ -13,7 +13,7 @@ import socket
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Self, final
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -143,3 +143,26 @@ def test_a_non_positive_credential_is_never_a_target(sock_path: Path) -> None:
             assert SocketOwner(sock_path).pid() is None
     finally:
         listener.close()
+
+
+def test_peer_pid_of_a_real_connected_socket() -> None:
+    """The direction ``SocketOwner`` cannot serve: an already-accepted fd.
+
+    DES-068's connect-time audit log reads the *client's* pid off the
+    Display's own accepted socket -- the reverse of ``SocketOwner``, which
+    probes a path to find who is listening. Both share this one static method.
+    """
+    a, b = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        assert SocketOwner.peer_pid_of(a) == os.getpid()
+        assert SocketOwner.peer_pid_of(b) == os.getpid()
+    finally:
+        a.close()
+        b.close()
+
+
+def test_peer_pid_of_returns_none_on_a_mock_socket() -> None:
+    """A mocked ``getsockopt`` returns a ``MagicMock``, not real credential
+    bytes -- ``int.from_bytes`` raises ``TypeError``, which must not escape."""
+    mock_sock = MagicMock()
+    assert SocketOwner.peer_pid_of(mock_sock) is None

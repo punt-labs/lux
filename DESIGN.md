@@ -5437,3 +5437,304 @@ machine-global daemons); a session-bound vs machine-global two-kind menu
 in labels (state pretending to be a name); lazy registration to thin the
 menu (contradicts DES-061 — an entry must exist before the user wants it;
 the per-repo enablement standard is the thinning mechanism).
+
+## DES-065: User-Controlled Window Visibility — `show()` Is a Notification, Not a Window-Raise
+
+**Status:** SETTLED (operator conversation 2026-08-14); implementation
+tracked as bead `lux-mxvy` and children (R1 = `lux-mxvy.1`, R8 =
+`lux-mxvy.8`)
+
+**Problem.** The Lux window today is on screen whenever any agent has ever
+called `show()`, and every agent scene push may raise it, focus it, or
+un-minimize it (DES-025 auto-focus; DES-060's "announce on arrival for new
+scenes"). The operator, comparing Lux to Orbstack — a daemon that runs
+continuously with its window absent until the user picks "Open" from the
+menubar — named this as broken: an agent's `show()` should not be able to
+put the window in the user's face against the user's wish. The current
+model conflates "the scene state changed" with "you should look at it
+now," and the user has no first-class control that overrides the agent.
+
+**Decision.** The user owns window visibility. The Display window has an
+explicit state — `hidden` or `shown` — and the default at Display start is
+`hidden`. Only user-initiated actions (menubar Open Window, dock pill
+click, Fit All, an applet menu entry click per DES-063) transition
+`hidden → shown`. No agent action, scene push, or auto-spawn does. When
+the user opens the window, they see whatever the current scene state is.
+
+`show()` continues to install the authoritative scene in `HubDisplay`,
+unchanged. What it *also* does changes: instead of raising and focusing
+the display window, it delivers a notification down the Hub → Display leg
+alongside the scene replica. Notifications accumulate in a Display-local
+queue and surface where the user is looking — a badge on the menubar
+entry (DES-066), and, if the window is already open, the existing
+in-window signal. `imgui.set_next_window_focus()` on agent-driven pushes
+and `RestoreFrame` on new content are retired.
+
+**Alternatives rejected.** *Keep DES-025/DES-060 and let the menubar
+alone give the user a way to close the window* — leaves the "agent pushes
+me a scene, my window jumps" case unchanged, which is exactly what the
+operator named as broken. *Route the notification through app pub-sub
+instead of a new Hub → Display channel* — pub-sub topics are named by the
+app; the "there is unread content" signal is a system-level fact about
+the Display, not a business event any app defines. *Notify only on
+genuinely new scenes (a stricter DES-060)* — still couples "the scene
+changed" to "the user should be told now," when the user's control is the
+whole point; the notification is passive by design.
+
+**Supersedes.** DES-025 (Frame Auto-Focus) — agent-driven auto-focus is
+retired; the "continuous updates keep stealing focus" trade-off
+disappears because the case cannot arise. DES-060 (Announce on Arrival
+Only) — announcement is replaced by notification. The stricter
+`workspace-model.tex` reading (`AddSceneToFrame` keeps `frameVis`)
+becomes the shipped behavior and is pushed one level higher: the
+*window* itself does not become visible on new content either.
+
+**Open questions to settle in the design mission.** Notification
+granularity (every `update()` or only `show()`); queue persistence across
+Display or Hub restart; menubar badge as unread-count vs Boolean;
+applet-push interaction (an applet's own reload — does it notify, or is
+the applet's menu entry the notification affordance?).
+
+## DES-066: The Menubar App — One User-Facing Surface Consolidating Control Over `luxd-hub` and `luxd-display`
+
+**Status:** SETTLED (operator conversation 2026-08-14); implementation
+tracked as bead `lux-mxvy` and children (R2 = `lux-mxvy.2`, R3 =
+`lux-mxvy.3`, R5 = `lux-mxvy.5`, R6 = `lux-mxvy.6`)
+
+**Problem.** Lux's two-process design (`luxd` Hub + `lux-display`
+renderer) is honest engineering but leaks through the user interface: on
+macOS the display shows up in the Dock and Cmd-Tab as a separate app
+(the DES-023 follow-on reversed the hiding for debugging convenience);
+on Linux it appears in the taskbar. The user sees a "python3.13" or a
+"Lux" window they did not summon, cannot easily control the two
+processes together, and has no first-class surface for open/hide/quit or
+for diagnostics. DES-065 makes this worse rather than better: with the
+window hidden by default, the user has no way to reach it *at all* if
+the platform surface remains what it is today.
+
+**Decision.** A third program — a menubar app on both macOS and Linux —
+becomes the sole user-facing surface. Distribution is a Homebrew tap on
+both platforms (Linux Homebrew is less common but acceptable as a start,
+per the operator's ruling, with room to add native packaging later). The
+menubar app owns Open/Hide Window, Restart Hub, Restart Display, Quit,
+status indicator, launch-at-login, and a diagnostics catalog:
+introspection of Hub state (scenes, clients, menu entries), of Display
+state (recent events, errors), Screenshot, and a copy-to-clipboard
+diagnostic blob.
+
+The menubar app is another client of the Hub, not a fourth process
+type. It reaches luxd through the existing REST surface (DES-055) —
+same routes the CLI uses, plus a small handful of new operations for
+show/hide/notifications/screenshot. Process lifecycle (start/stop/restart
+luxd) shells to the existing `lux hub-*` CLI so there is one authority
+for launchd/systemd, not two. Applets (DES-063) remain in-window Clients
+menu entries on their own connections; the menubar app is a distinct
+species — it renders into the OS menu bar rather than into a Display
+window.
+
+With the menubar app in place, the DES-023 follow-on Dock reversal is
+itself reversed: `luxd-display` runs with `LSUIElement=1` unconditionally
+on macOS, and with `_NET_WM_STATE_SKIP_TASKBAR` and
+`_NET_WM_STATE_SKIP_PAGER` on Linux.
+The `setproctitle("Lux")` display rename is retired because the OS
+process name is now honest: the entry points become `luxd-hub` and
+`luxd-display`, self-documenting (the `d` suffix means "always
+running"), with no bridging binaries. No user ever sees these names, so
+the process names are free to be diagnostic-truthful.
+
+The menubar app is a hard dependency for end users on both platforms.
+Developers may opt out with `LUX_HEADLESS_DEV=1` (or a `--no-menubar`
+flag on `luxd-display`), which restores a visible Dock/taskbar
+activation policy so the developer can still reach the window without
+the menubar. `lux doctor` reports the mode.
+
+**Alternatives rejected.** *Add menubar behavior to `luxd-display`
+itself, no third program* — complicates the display's job (rendering)
+with activation-policy juggling and turns "one visible face" into "the
+same process wearing two faces," which is the current problem repainted.
+*Keep the display Dock-visible and rely on the menubar for
+consolidation* — leaves the two-process split leaking through the
+switcher, which is R2's whole point. *Menubar app optional, with a
+soft-fallback visible Dock icon when it is absent* — two activation-policy
+modes to maintain and a hidden fallback that confuses installation
+states; the explicit developer opt-out is honest about being a developer
+setting. *Menubar app talks launchd/systemd directly rather than through
+`lux hub-*`* — duplicates lifecycle logic the CLI already owns. *Bundle
+the applets' work into the menubar app* — a session-bound applet needs
+the session's repo shell (`PATH`, `.envrc`, cwd); a machine-global
+menubar app has none of that. Applets and menubar are separate species
+by construction (DES-063 still stands).
+
+**Impacts on other ADRs.** DES-023 follow-on (2026-05-21) — reversed;
+`pyobjc-framework-Cocoa` returns to the `[display]` extra (or is
+supplanted by an `Info.plist LSUIElement=1` if the display ships as a
+bundled `.app`). DES-055 (one-code-path) — confirmed and extended: the
+menubar app is another thin client over the same engine. DES-063 (Lux
+Applets) — boundary clarified: applets own in-window Clients menu
+entries; the menubar app owns OS-level menu bar entries; both are Hub
+clients, differentiated by the menu surface they render into.
+`system.tex` §Platform Integration — rewritten for both macOS and Linux
+(the `setproctitle` bullet is retired; the visible-Dock claim is
+retired). `target.md` event model — a third mechanism ("user-visible
+notifications") is added alongside UI event/observer mechanics and
+application pub-sub (see DES-065).
+
+**Precondition — resolved.** `lux-e6i4` (the applet identity collision
+in which two applets in one session collapsed onto one Hub connection
+because `AppletIdentity.for_session(session_pid)` omitted the program
+name) was fixed in punt-lux 0.24.0 (PR #345). `AppletIdentity.for_session`
+now takes the program name as its first argument; the vox mirror
+change (vox-iyny) rides that release. The applet identity model this
+ADR builds on is coherent from 0.24.0 forward.
+
+## DES-067: Menu Grouping by (Repo, Session) — Amend DES-064 So a Session's Two Applets Sit Under One Submenu
+
+**Status:** SETTLED (operator ruling 2026-08-14, `bd proceed`);
+tracked as bead `lux-k3u6` (P1 regression from `lux-e6i4`)
+
+**Problem.** The `lux-e6i4` fix (0.24.0) made two applets in one Claude
+Code session derive distinct `AppletIdentity` values and, correctly,
+two distinct Hub connections. The Clients menu, still built by
+DES-064's rule that groups submenus by `ClientIdentity.menu_label` and
+disambiguates label collisions with a numeric suffix, then split what
+used to be one submenu into two: `lux` (holding the session's `Vox`
+entry) and `lux (3)` (holding the same session's `Beads` entry), with
+no visible relation between them. The dead-control bug the fix
+retired was a correctness win; the grouping change was an
+unintended UX loss discovered only by live `list_menus` after both
+sides of the fix landed.
+
+**Why DES-064's rule now over-fires.** DES-064's collision-numbering
+was designed to distinguish *different clients* that happen to share a
+base label — two Claude Code sessions on the lux repo become `lux` and
+`lux (2)`, one client per submenu. Under `lux-e6i4`, one *session*
+can register two *clients* (its `lux-beads` and its `vox-panel`), and
+both connections' `menu_label` returns the same repo name because
+`menu_label = self._repo_name or self.name` was the right rule when a
+session was assumed to have one connection. It is no longer the right
+grouping key, because it treats "same session, two applets" and
+"different sessions, same repo" as one case when the user
+distinguishes them sharply.
+
+**Decision.** The Clients menu groups submenus by `(_repo_name,
+session_pid)` for applet connections, not by `menu_label` alone.
+Concretely, `MenuManager.menu_model()` (the one place submenus are
+composed per DES-059) partitions applet-kind clients by that pair;
+each partition renders as ONE submenu labeled by `_repo_name`, and
+that submenu contains every program's entries as leaves. The program
+token — already present in each item id's leaf key
+(`<connection_id>\x1f<program>`, per DES-064) — is what distinguishes
+items within one submenu, not what distinguishes submenus. Non-applet
+kinds (`app`, `cli`, `mcp-session`) keep the current
+`menu_label`-based grouping; they don't have session_pids and don't
+own multiple menu entries per session anyway.
+
+DES-064's collision-numbering rule *stays for its original case*:
+when two *different sessions* in the same repo produce the same
+`_repo_name`, the numbering (`lux`, `lux (2)`) still fires — that's
+still two distinct entities the user must be able to tell apart. What
+stops firing is the same-session-two-applets case that DES-064 was
+never designed for.
+
+**How the session_pid reaches the grouping.** It's already in the
+identity — the `name` field is `f"lux · {repo} · #{session_pid:x} ·
+{program}"` per the `lux-e6i4` fix, so the pid is the third
+`·`-separated token. Two paths:
+
+1. **Parse it out of `name` at grouping time.** No wire change; the
+   parser is a `@classmethod` on `AppletIdentity` itself, colocated
+   with the constructor that builds the string. The parser is coupled
+   to the `name` format — that coupling is real, not evaded — but the
+   format and the parser live on the same class, so a format change
+   lands its parser change in the same commit. A round-trip test
+   (`from_program_and_pid(...) → name → parse → assert equal`) pins
+   the coupling and fails loud if either half moves alone. Callers
+   (`MenuManager`) call the classmethod and never touch the string.
+2. **Add `session_pid: int | None` as a first-class field on
+   `ClientIdentity`.** Declarative, one place to validate, no
+   parsing. Cost: a wire-format change every client observes, and a
+   second cross-repo coordination window with vox and z-spec.
+
+Prefer (1) as the shipping shape — the coupling is contained on one
+class and pinned by a round-trip test, and no other repo has to
+coordinate a wire bump for a purely internal grouping change. (2) is
+the right long-term shape when the next reason to bump the wire
+contract shows up — carry it then, not for this alone. The
+`no-shims-no-migration` standard applies either way; both alternatives
+have zero shim.
+
+**Alternatives rejected.**
+
+- *Revert `lux-e6i4`'s identity change and re-introduce clobbering.*
+  Trades a UX regression for the correctness regression it fixed.
+  Rejected outright.
+- *Encode session grouping in the label itself* — e.g., render the
+  submenu as `lux (#12893)`. Restores grouping-by-label at the cost of
+  putting a wire identity token in a user-facing label, which DES-064
+  explicitly rejected ("state pretending to be a name"). Rejected on
+  the same grounds.
+- *One submenu per session, labeled by session id.* Same objection —
+  the session id is a distinctness token, not a name to read aloud.
+  Rejected.
+- *Add `session_pid` to `ClientIdentity` as a required field.*
+  Correct long-term but forces a coordinated wire bump across every
+  applet author for a purely internal grouping change. Deferred to the
+  next real reason to bump the wire.
+
+**Impacts on other ADRs.**
+
+- **DES-064 (Clients Menu)** — AMENDED. The single-source `MenuModel`
+  composition stays; the *grouping key* under it changes for applets.
+  The collision-numbering rule stays for the case it was designed for
+  (different sessions, same base label) and stops firing for the case
+  it was never designed for (same session, two applets).
+- **DES-059 (One MenuModel, Two Projections)** — CONFIRMED. Both the
+  menu bar and the World panel projections inherit the new grouping
+  automatically because the change is in the composer, not in either
+  projection. Structural parity test still holds.
+- **DES-063 (Lux Applets)** — CONFIRMED. Applets remain the species
+  that owns Clients menu entries; the change is in how those entries
+  are grouped for display, not in what applets do.
+
+**Meta-lesson worth capturing here rather than filed alone.** Two
+things this fix taught both sides that neither the pre-flight design
+nor the tests predicted, both surfacing only by looking at the running
+system after both halves shipped:
+
+1. The pre-fix symptom of `lux-e6i4` was two live-looking entries
+   with one dead, not one entry vanishing. Only live `list_clients`
+   inspection revealed the mechanism.
+2. The post-fix menu-grouping regression only appeared once two
+   connections coexisted and shared `menu_label`. Neither the
+   connection-layer distinctness proof nor the tests covered menu
+   grouping under the new invariant. Only live `list_menus` after
+   both sides landed made it visible.
+
+The connection-layer verification (unit tests, adversarial review,
+model-checked identity invariants) was necessary but not sufficient
+for UX-observable changes to shared surfaces like the Clients menu.
+Live introspection on the composed system was the load-bearing check.
+The pattern to carry forward: when a fix changes an invariant that
+another module's rendering rule depends on, add a live-introspection
+check of the RENDERING to the demo gate, not just of the invariant.
+
+**Verification after the amendment ships.** The demo gate for the
+implementation PR:
+
+1. Live `list_menus` from a session running both `lux-beads` AND
+   `vox-panel` shows ONE submenu (labeled by repo name) with BOTH
+   `Beads` AND `Vox` as items.
+2. Live `list_menus` from *two* sessions in the same repo, each
+   running one applet, shows TWO submenus with the DES-064 numbering
+   still applied (`lux`, `lux (2)`) — proving the collision rule
+   stayed for its designed case.
+3. Clicks on both entries dispatch correctly to their owning
+   connections (no dead controls; `lux-e6i4`'s correctness stays).
+
+**Provenance.** The `(repo, session)` grouping shape was proposed
+verbatim by the vox agent (claude:tty29) during their audio-demo
+pre-flight for the `vox-iyny` mirror PR, from live introspection of
+Jim's Hub after both fixes were installed. Convergent diagnosis with
+the lux-side investigation of the same symptom. Vox's PR ships
+independently on their release cadence; this amendment is lux-side and
+does not block it.

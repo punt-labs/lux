@@ -8,20 +8,28 @@ test without the process.
 
 Every operation here is scoped: the caller owns what it writes, and reaching the
 Hub at all is that connection's contact, so a show registers the caller's session
-and renews its lease. Installing itself belongs to ``SceneInstaller``, which the
-Hub also uses to write scenes *for* clients that are not calling — that path
-registers nobody, and holding the installer rather than this class is what makes
-it unable to.
+and renews its lease. ``close_frame`` is the one unscoped write -- a frame is
+shared UI, not one caller's own.
+
+A patch-style ``update`` against a quarantined scene is refused: the scene is
+unchanged, so nothing about it has become safe to render
+(display-crash-quarantine.md Question 2). ``render``/``install`` are the
+recovery path instead — a wholesale replace is a different tree, presumed
+fixed, and ``HubDisplay.replace_scene`` lifts the quarantine as part of
+installing it.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.scene_writer import HubSceneWriter, SceneScope
 from punt_lux.domain.hub.write_result import WriteRejected
-from punt_lux.domain.ids import SceneId
+from punt_lux.domain.ids import SceneId, Topic
+from punt_lux.operations.composition_boundary import CompositionBoundary
 from punt_lux.operations.models.common import OpError
+from punt_lux.operations.models.menu_results import Ok
 from punt_lux.operations.models.scene_results import Cleared, SceneShown
 from punt_lux.operations.scene_clearing import SceneClearer
 from punt_lux.operations.scene_installer import SceneInstaller
@@ -29,7 +37,9 @@ from punt_lux.operations.scene_submission import SceneSubmission
 from punt_lux.operations.wire_tree import WireTreeDecoder
 
 if TYPE_CHECKING:
+    from punt_lux.domain.hub.hub import Hub
     from punt_lux.domain.hub.hub_display import HubDisplay
+    from punt_lux.domain.hub.quarantine_record import QuarantineRecord
     from punt_lux.operations.models.patches import UpdateRequest
     from punt_lux.operations.models.render import RenderRequest
     from punt_lux.operations.ports import DirtyMarker, ElementFactoryFor
@@ -44,20 +54,30 @@ class SceneOperations:
 
     _display: HubDisplay
     _replicator: DirtyMarker
+    _hub: Hub
     _decoder: WireTreeDecoder
     _installer: SceneInstaller
     _clearer: SceneClearer
-    __slots__ = ("_clearer", "_decoder", "_display", "_installer", "_replicator")
+    __slots__ = (
+        "_clearer",
+        "_decoder",
+        "_display",
+        "_hub",
+        "_installer",
+        "_replicator",
+    )
 
     def __new__(
         cls,
         display: HubDisplay,
         replicator: DirtyMarker,
         element_factory: ElementFactoryFor,
+        hub: Hub,
     ) -> Self:
         self = super().__new__(cls)
         self._display = display
         self._replicator = replicator
+        self._hub = hub
         self._decoder = WireTreeDecoder(element_factory)
         self._installer = SceneInstaller(display, replicator)
         self._clearer = SceneClearer(display, replicator)
@@ -101,18 +121,59 @@ class SceneOperations:
     ) -> SceneShown | OpError:
         """Apply a patch batch to the store, or return why it was rejected.
 
-        The writer keeps its ownership and field-legality rejections; a rejected
-        batch leaves the store untouched.
+        A quarantined target is rejected before the writer ever sees it: a patch
+        is not the recovery path (only a wholesale ``render``/``install`` lifts a
+        quarantine), so leaving the scene untouched and reporting why is the
+        correct answer both here (the pull path — the caller learns on its very
+        next write) and for any other agent subscribed to the scene (the push
+        path — fanned out on the caller's own topic scope, see
+        :meth:`_notify_quarantine`). Otherwise the writer keeps its ownership and
+        field-legality rejections; a rejected batch leaves the store untouched.
+
+        The quarantine check and the writer's ``apply`` share one write-lock
+        hold, so the sequence "quarantine-record was None, then apply the
+        patch" is atomic against a replicator-thread quarantine landing in
+        between: without the shared hold, a check-then-act race silently
+        converts "reject" into "accepted-but-never-rendered" the moment
+        attribution quarantines the scene between the two calls.
+        Publication happens after the lock is released to keep subscriber
+        fan-out off the store lock. ``scene_id`` is composed against the
+        caller's own connection before it ever reaches the store — the same
+        choke point every write in this class already goes through — so a
+        caller can only ever patch a scene it is the connection for (DES-086).
         """
         if isinstance(request, OpError):
             return request
-        writer = HubSceneWriter(self._display)
-        target = SceneScope(scope.connection_id, SceneId(scene_id))
-        result = writer.apply(target, request.to_wire())
-        if isinstance(result, WriteRejected):
-            return OpError(code="rejected", reason=result.reason)
-        self._replicator.mark_dirty(SceneId(scene_id))
-        return SceneShown(scene_id=scene_id)
+        sid = CompositionBoundary.compose_or_reject(
+            lambda: SceneId(ConnectionScopedId.compose(scope.connection_id, scene_id))
+        )
+        if isinstance(sid, OpError):
+            return sid
+        record: QuarantineRecord | None
+        with self._display.write_lock():
+            record = self._display.quarantine_record(sid)
+            if record is None:
+                writer = HubSceneWriter(self._display)
+                target = SceneScope(scope.connection_id, sid)
+                result = writer.apply(target, request.to_wire())
+                if isinstance(result, WriteRejected):
+                    # The writer's own rejection message names the composed
+                    # store key via repr() (its \x1f separator is escaped
+                    # text there, not the raw byte) — restate it as the
+                    # caller's own raw name, the only spelling it ever chose.
+                    reason = result.reason.replace(repr(str(sid)), repr(scene_id))
+                    return OpError(code="rejected", reason=reason)
+                self._replicator.mark_dirty(sid)
+                return SceneShown(scene_id=scene_id)
+        self._notify_quarantine(scene_id, record, scope)
+        return OpError(code="rejected", reason=record.describe(scene_id))
+
+    def _notify_quarantine(
+        self, local_id: str, record: QuarantineRecord, scope: Scope
+    ) -> None:
+        """Publish the quarantine to the caller's own raw-named topic subscribers."""
+        topic = Topic(f"scene:{local_id}:quarantined")
+        self._hub.publish(scope.connection_id, topic, record.to_payload())
 
     def clear(self, *, scope: Scope, scene_id: str | None = None) -> Cleared | OpError:
         """Blank the caller's scenes — all, or just ``scene_id``.
@@ -122,3 +183,9 @@ class SceneOperations:
         ``cleared``.
         """
         return self._clearer.clear(scope.connection_id, scene_id)
+
+    def close_frame(self, frame_id: str) -> Ok:
+        """Tear down a frame's scenes and mark them dirty for repaint."""
+        for scene_id in self._display.frames.remove_frame(frame_id):
+            self._replicator.mark_dirty(scene_id)
+        return Ok()

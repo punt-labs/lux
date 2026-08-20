@@ -5,11 +5,12 @@ from __future__ import annotations
 import subprocess
 import sys
 
-# The library surface a consumer imports to drive luxd — the public REST client
-# and the request/result types it speaks, plus the one exceptional error.
+# The library surface a consumer imports to drive luxd — the public facade and
+# the request/result types it speaks, plus the one exceptional error. The old
+# transport-flavoured names (LuxRestClient, LuxHubClient) are no longer in the
+# public __all__: consumers hold LuxClient and reach its noun-grouped accessors.
 _PUBLIC_CLIENT_API = (
-    "LuxRestClient",
-    "LuxHubClient",
+    "LuxClient",
     "ClientIdentity",
     "RenderRequest",
     "RenderTableRequest",
@@ -36,9 +37,10 @@ def test_package_imports():
 
 
 def test_public_client_and_its_types_are_exported():
-    # The operator's ruling: LuxRestClient is the public library API — consumers
-    # (vox and others) call it, not REST directly. It and the types needed to call
-    # it fully typed are in __all__ and importable from the top-level package.
+    # LuxClient is the public library facade — consumers (vox and others) hold it
+    # and reach the Hub through its noun-grouped accessors. It and the types
+    # needed to call it fully typed are in __all__ and importable from the
+    # top-level package.
     import punt_lux
 
     for name in _PUBLIC_CLIENT_API:
@@ -62,7 +64,7 @@ def test_public_import_pulls_no_display_extras():
 
 
 def test_public_client_imports_without_display_extras_in_a_fresh_interpreter():
-    # A consumer's real call: `from punt_lux import LuxRestClient, ...` must succeed
+    # A consumer's real call: `from punt_lux import LuxClient, ...` must succeed
     # in an interpreter that never loaded the display stack.
     names = ", ".join(_PUBLIC_CLIENT_API)
     result = subprocess.run(

@@ -28,8 +28,6 @@ from typing import TYPE_CHECKING, Self, final
 if TYPE_CHECKING:
     from collections.abc import Container, Iterable
 
-    from punt_lux.domain.ids import ConnectionId
-
 __all__ = ["MenuName", "MenuNames"]
 
 # The ordinal the first client of a name holds, and the one that prints bare.
@@ -80,7 +78,7 @@ class MenuName:
 
 
 @final
-class MenuNames:
+class MenuNames[H]:
     """The names held right now, with no holder numbered against a free base.
 
     That is the invariant every operation here leaves standing: if anybody is
@@ -99,7 +97,7 @@ class MenuNames:
     second entry to say nothing new.
     """
 
-    _names: dict[ConnectionId, MenuName]
+    _names: dict[H, MenuName]
     __slots__ = ("_names",)
 
     def __new__(cls) -> Self:
@@ -107,7 +105,7 @@ class MenuNames:
         self._names = {}
         return self
 
-    def take(self, holder: ConnectionId, base: str) -> None:
+    def take(self, holder: H, base: str) -> None:
         """Give *holder* the lowest free name for *base*, unless it holds one already.
 
         A holder's name is its own for as long as it keeps it, so this never
@@ -115,7 +113,7 @@ class MenuNames:
         """
         self._names.setdefault(holder, MenuName.unheld(base, self._labels()))
 
-    def drop(self, holders: Iterable[ConnectionId]) -> None:
+    def drop(self, holders: Iterable[H]) -> None:
         """Take back what *holders* held, and hand any freed base on.
 
         A holder that held no name is no error — the caller may be removing
@@ -125,7 +123,7 @@ class MenuNames:
             self._names.pop(holder, None)
         self._reclaim_freed_bases()
 
-    def labels(self) -> dict[ConnectionId, str]:
+    def labels(self) -> dict[H, str]:
         """What each holder is called, as the last take or drop left it."""
         return {holder: name.label for holder, name in self._names.items()}
 

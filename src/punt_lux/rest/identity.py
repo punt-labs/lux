@@ -7,25 +7,44 @@ connection derived deterministically from that identity, so the same caller owns
 the same scenes across requests. A request that carries no identity is refused
 with the ``identification_required`` challenge — a write owns UI, and only a named
 caller may — while reads take no scope and stay open to an unnamed caller.
+
+Identity attribution goes through :data:`session_identify_command` for parity
+with the MCP surface: adding an audit or invariant check to the command fires
+on both surfaces, never one. A read route that took no scope resolves to
+:data:`ANONYMOUS_REST` — honestly labelled as an anonymous caller rather than
+pretending to be luxd — so a command's ``ctx.identity`` is never a stale global.
 """
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Final, Self, cast, final
 
 from fastapi import HTTPException
 from starlette.requests import Request
 
+from punt_lux.commands import (
+    Ctx as CommandCtx,
+    SessionOps,
+    session_identify as session_identify_command,
+)
 from punt_lux.connection_identity import connection_for
+from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.identity_headers import ClientHeaders
+from punt_lux.operations.models.identity import Identified
 from punt_lux.operations.scope import Scope
 
 if TYPE_CHECKING:
     from punt_lux.domain.ids import ConnectionId
-    from punt_lux.operations import Operations
+    from punt_lux.operations import Operations, OpError
     from punt_lux.rest.status import HttpErrorMap
 
-__all__ = ["RestCaller", "resolve_scope"]
+__all__ = ["ANONYMOUS_REST", "RestCaller", "resolve_identity", "resolve_scope"]
+
+# The honestly-labelled fallback identity a read route with no declaration gets.
+# Reads take no scope, so a command whose Ctx wraps this identity never attributes
+# a write to it -- the label surfaces plainly in introspection instead.
+ANONYMOUS_REST: Final = ClientIdentity(kind="cli", name="rest-anonymous")
 
 
 def resolve_scope(request: Request) -> Scope:
@@ -37,6 +56,17 @@ def resolve_scope(request: Request) -> Scope:
     """
     caller = cast("RestCaller", request.app.state.rest_caller)
     return caller.resolve(request)
+
+
+def resolve_identity(request: Request) -> ClientIdentity:
+    """FastAPI dependency: the caller's declared identity, or the anonymous fallback.
+
+    A route that declares this dependency without also declaring ``resolve_scope``
+    accepts an anonymous caller (a read); a write route pairs it with the scope
+    dependency, so the write is refused before this ever returns a stand-in.
+    """
+    parsed = ClientHeaders.identity_from(request.headers)
+    return parsed if parsed is not None else ANONYMOUS_REST
 
 
 _CHALLENGE_REASON: Final = "declare an identity to own the writes this request makes"
@@ -59,10 +89,11 @@ class RestCaller:
     def resolve(self, request: Request) -> Scope:
         """Return the scope this request's writes own, or reject an unidentified one.
 
-        A named request records its declared identity against a stable, derived
-        connection and returns that scope. A request that carries no identity is
-        refused with the ``identification_required`` challenge (a 401 carrying the
-        challenge header), so nothing anonymous owns a write — a scene or a menu item.
+        A named request records its declared identity through
+        :data:`session_identify_command` -- the same code path MCP's ``identify``
+        runs -- so a future check added to the command fires for both surfaces.
+        A request that carries no identity is refused with the
+        ``identification_required`` challenge before the command ever runs.
         """
         declaration = self._declaration(request)
         if declaration is None:
@@ -72,7 +103,11 @@ class RestCaller:
                 headers={ClientHeaders.CHALLENGE: _CHALLENGE_REASON},
             )
         scope = Scope(self._connection_for(declaration))
-        self._errors.respond(self._ops.identify(declaration, scope=scope))
+        ctx: CommandCtx[SessionOps] = CommandCtx(ops=self._ops, identity=ANONYMOUS_REST)
+        outcome: Identified | OpError = asyncio.run(
+            session_identify_command.execute(ctx, declaration, scope=scope)
+        )
+        self._errors.respond(outcome)
         return scope
 
     @staticmethod

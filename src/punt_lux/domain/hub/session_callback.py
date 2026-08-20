@@ -20,21 +20,17 @@ from typing import Self, final
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from punt_lux.domain.hub.id_separator import ID_SEPARATOR
 from punt_lux.domain.ids import ConnectionId
 
 __all__ = ["CallbackInvocation", "SessionCallback"]
-
-# The ASCII unit separator joins the owning connection and the callback id into
-# one menu-leaf id. It is a control character no agent-chosen id or hashed
-# connection id contains, so the join is reversible by a single split.
-_ID_SEPARATOR = "\x1f"
 
 # The callback id luxd's own Details command carries. It opens with the
 # separator, which ``SessionCallback`` refuses, so no client can register a
 # callback that collides with the Hub's own — and the leaf still round-trips
 # through the one leaf-id encoding, because the join splits on the first
 # separator and this id is the remainder.
-_DETAILS_CALLBACK_ID = f"{_ID_SEPARATOR}details"
+_DETAILS_CALLBACK_ID = f"{ID_SEPARATOR}details"
 
 
 class SessionCallback(BaseModel):
@@ -54,7 +50,7 @@ class SessionCallback(BaseModel):
         separator; an id that itself carried the separator would split ambiguously
         at dispatch, so it is malformed at registration, not silently accepted.
         """
-        if _ID_SEPARATOR in value:
+        if ID_SEPARATOR in value:
             msg = "callback id must not contain the unit separator"
             raise ValueError(msg)
         return value
@@ -91,7 +87,7 @@ class CallbackInvocation:
     @property
     def menu_id(self) -> str:
         """Render the wire id a rendered leaf carries so a click round-trips here."""
-        return f"{self.connection_id}{_ID_SEPARATOR}{self.callback_id}"
+        return f"{self.connection_id}{ID_SEPARATOR}{self.callback_id}"
 
     @classmethod
     def from_menu_id(cls, menu_id: str) -> Self:
@@ -102,7 +98,7 @@ class CallbackInvocation:
         never named a callback leaf and is rejected rather than routed to a
         nonexistent session or callback.
         """
-        connection, separator, callback = menu_id.partition(_ID_SEPARATOR)
+        connection, separator, callback = menu_id.partition(ID_SEPARATOR)
         if not separator or not connection or not callback:
             msg = f"not a callback leaf id: {menu_id!r}"
             raise ValueError(msg)

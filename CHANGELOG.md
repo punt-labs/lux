@@ -2,6 +2,366 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`LuxClient` — the public library facade with noun-grouped accessors
+  (`lux-0shg.7`).** A downstream Python consumer now holds a single
+  `LuxClient` and reaches the Hub through nine noun-grouped accessors —
+  `client.scene.*`, `client.frame.*`, `client.menu.*`, `client.session.*`,
+  `client.callback.*`, `client.display.*`, `client.event.*`,
+  `client.error.*` — plus `client.ping(...)` and `client.listener(...)` at
+  the top level. Every accessor method is async and returns the typed
+  operation result, dispatched through the shared command singletons in
+  `punt_lux.commands` so the library caller runs the same code path as the
+  CLI, MCP, and REST adapters. IDE completion on `client.scene.` shows the
+  same verbs `lux scene <verb>` (CLI), `scene_<verb>` (MCP), and `/scenes`
+  (REST) speak.
+
+### Changed (BREAKING)
+
+- **Library public API swap: `LuxRestClient` / `LuxHubClient` retired from
+  `punt_lux.__all__` in favour of `LuxClient` (`lux-0shg.7`).** The
+  transport classes remain importable from their submodule paths
+  (`from punt_lux.rest_client import LuxRestClient`,
+  `from punt_lux.hub_client import LuxHubClient`) for internal callers and
+  power users who need to hold a transport directly. They are no longer
+  part of the primary consumer surface. Migration table lives in
+  [`docs/library.md`](docs/library.md#migrating-from-luxrestclient--luxhubclient);
+  a typical port is `client.render(req)` → `await client.scene.show(req)`.
+  Cross-repo consumers (vox, z-spec) update in lockstep — beads `vox-oyfs`
+  and `z-spec-t7w` track their migration.
+
+- **MCP tool rename train — 22 renames + 1 new tool + frame_split.** Every
+  MCP-visible tool now uses the noun_verb form of the design vocabulary.
+  There are **no aliases** (PL-PP-1) — any agent invoking an old name after
+  this release will error with an unknown-tool response. The full rename map:
+
+  | Old MCP tool | New MCP tool |
+  |---|---|
+  | `show` | `scene_show` |
+  | `update` | `scene_update` |
+  | `clear` | `scene_clear_all` |
+  | `clear_scene` | `scene_clear` |
+  | `inspect_scene` | `scene_inspect` |
+  | `list_scenes` | `scene_ls` |
+  | `show_table` | `scene_table` |
+  | `show_dashboard` | `scene_dashboard` |
+  | `set_frame_state` | (split — see below) |
+  | `list_menus` | `menu_ls` |
+  | `set_menu` | `menu_set` |
+  | `list_clients` | `session_ls` |
+  | `identify` | `session_identify` |
+  | `publish` | `topic_publish` |
+  | `subscribe` | `topic_subscribe` |
+  | `unsubscribe` | `topic_unsubscribe` |
+  | `recv` | `topic_recv` |
+  | `register_callback` | `callback_register` |
+  | `get_display_info` | `display_info` |
+  | `screenshot` | `display_screenshot` |
+  | `list_recent_events` | `event_ls` |
+  | `list_errors` | `error_ls` |
+  | (new) | `callback_pending` |
+
+- **Frame split — `set_frame_state` splits into two new verbs, not four,
+  and the split is not a rename.** The old `set_frame_state(minimized=...)`
+  toggled the visibility of a still-alive frame. The two new verbs are a
+  different operation on a different lifecycle stage:
+  - `frame_raise` — unminimize a live frame and bring it to the front
+    (z-order-to-front for a frame the display already holds); a frame the
+    display does not hold returns `raised=false` rather than erroring.
+  - `frame_close` — tear down the frame's scenes on the Hub. This ends
+    the frame's life, it does not toggle its visibility.
+
+  The old operation's minimize aspect is deferred with `frame_lower` per
+  the capability-gap section below. The design's four-verb split
+  (`raise|lower|close|expire`) needs display-protocol capabilities that do
+  not yet exist: z-order lowering (for `lower`) and
+  `FrameExpiry.set_deadline` exposed publicly (for scheduled `expire`).
+
+  The old `set_frame_state` MCP tool, `lux frame set-state` CLI verb,
+  PATCH `/display/frames/{id}` REST route, and `Operations.set_frame_state`
+  facade method are all removed with no alias.
+
+### Not shipped (by design, capability gap)
+
+- **`frame_lower`** — needs a genuine z-order concept in the display
+  protocol (only minimize exists today, which is not z-order lowering).
+  Follow-on bead.
+- **`frame_expire --in <seconds>`** — needs `FrameExpiry.set_deadline`
+  exposed through `FrameLifecycle`, currently private to the presentation
+  re-show path in `domain/hub/`. Follow-on bead.
+
+### Not shipped (by design, mechanical)
+
+- **Display fuse (`display_theme` / `display_window` / `display_mode` as
+  fused get/set tools replacing the six current `get_*`/`set_*` MCP tools).**
+  Ratified in the design, but shipping the retirement of the six old
+  commands and wiring three fused replacements is a coordinated multi-file
+  Protocol refactor. OO ratchet enforcement of per-file per-metric baseline
+  prevents such multi-file Protocol refactors mid-edit (the `PostToolUse`
+  hook fires `make check` on every `.py` write and blocks any intermediate
+  state where a single file has regressed, even briefly, against the
+  committed baseline). Will land as follow-on bead once tooling accommodates
+  the pattern. The six current tools (`get_theme`/`set_theme`,
+  `get_window_settings`/`set_window_settings`, `display_mode`/`set_display_mode`)
+  ship unchanged under their current names.
+- **`menu_get` MCP tool + `GET /menus/{label}` REST route + `lux menu get`
+  CLI verb.** Ratified in the design as a net-new tool; the underlying
+  `Operations.get_menu` facade method and `MenuOperations.get_menu`
+  implementation shipped in an earlier commit of this bead. The adapter
+  wiring (command class + Protocol update + stub update + three adapter
+  wirings) is the same multi-file Protocol refactor blocked by the ratchet
+  mechanics above. Will land as follow-on bead.
+- **`session_inspect` MCP tool + `GET /sessions/{id}` REST route + `lux
+  session inspect <id>` CLI verb.** Ratified in the design as a net-new
+  tool (extraction of one row from `session_ls`); needs a new
+  `Operations.session_inspect(id)` facade method plus the same adapter-
+  wiring refactor blocked above. Will land as follow-on bead.
+
+- **The CLI is now noun-grouped, matching the vocabulary the MCP tools and
+  REST routes use.** Every flat verb from before this release is retired,
+  with no alias (PL-PP-1) — a script or muscle-memory invocation of any of
+  these must be updated:
+
+  | Old (retired) | New |
+  |---|---|
+  | `lux hub-install` | `lux hub install` |
+  | `lux hub-uninstall` | `lux hub uninstall` |
+  | `lux ensure-hub` | `lux hub start` |
+  | `lux hub-status` | `lux hub status` |
+  | `lux display` (start the render-loop server) | `lux display serve` |
+  | `lux show beads` | `lux beads` |
+
+  `lux hub stop` is new (previously there was no way to stop luxd without
+  uninstalling the service).
+
+- **New noun groups**, each wrapping the `commands/` singletons from the
+  Humble Object commands layer through a real per-invocation identity:
+  `lux scene {show,update,clear,clear-all,inspect,ls,table,dashboard}`,
+  `lux frame set-state`, `lux menu {ls,set}`, `lux session {ls,inspect,identify}`,
+  `lux display {info,theme,mode,window,screenshot,serve}` (theme/mode/window
+  are fused: no argument reads, an argument or option writes), `lux event ls`,
+  `lux error ls`, `lux callback register`. Every write accepts
+  `--as/--kind/--name/--repo/--agent` (per-invocation identity — the caller
+  *being* a different client for one call, not privilege elevation); every
+  command accepts `--json/--verbose/--quiet`. Identity flags apply to write
+  verbs only — read verbs (`scene ls`, `session ls`, `display info`, ...) use
+  the ambient CLI identity from `CliIdentity.resolve` and take no identity
+  flags of their own, since a read has no owner to declare.
+
+- **`lux ping`, `lux version`, `lux enable`, `lux disable` gained real
+  `--json`/`--quiet` support.** `lux status`/`lux doctor` accept the flags for
+  surface consistency (`--quiet` suppresses their existing text output;
+  `--json` is not wired to a payload for these two yet — their output is a
+  multi-line diagnostic render, not a single value).
+
+- **`LuxRestClient` grew ~20 methods** to satisfy the `commands/` ops
+  Protocols the CLI needs (`scene_update`, `scene_clear`, `scene_clear_all`,
+  `scene_ls`, `scene_inspect`, `scene_dashboard`, `list_clients`,
+  `set_frame_state`, `list_menus`, `set_menu`, the display info/theme/window/
+  mode family, `list_recent_events`, `list_errors`, `screenshot`). Split into
+  three composed classes (`SceneRestOps`, `DisplayRestOps`, plus
+  `LuxRestClient` itself) to stay under the 300-line module-size target.
+
+- **`lux hub stop` implemented**: `LaunchdBackend.stop()` /
+  `SystemdBackend.stop()` stop the running luxd process while leaving its
+  service registration in place (distinct from `uninstall`, which removes the
+  registration too).
+
+- **`CallbackOps` split into `CallbackRegisterOps`/`CallbackPendingOps`**
+  (`commands/_ports.py`): the two operations it bundled have different
+  reachable transports — `register_callback` has a REST route a REST-backed
+  client can implement, `pending_callbacks` does not and never will (see
+  below) — so no REST-only client could ever satisfy the combined Protocol.
+
+### Not shipped (by design, not oversight)
+
+- **`lux topic *` (`publish`/`subscribe`/`unsubscribe`/`recv`) and
+  `lux callback pending` have no CLI verb.** Both would need a REST route,
+  and `tests/rest/test_app.py`'s `_MCP_ONLY` exemption set forbids one by
+  ratified design: delivery for these operations runs over the Hub↔Display
+  listen leg's push/drain, which a stateless CLI/REST request cannot bind to.
+  A route that returns 200 but can never actually deliver is worse than no
+  route.
+- **`lux mcp` (a stdio MCP server) is intentionally not shipped.** The
+  streamable HTTP endpoint at `http://127.0.0.1:8430/mcp` is the
+  authoritative MCP transport (the one-code-path epic `lux-7gcz` removed the
+  stdio/mcp-proxy path); the Claude Code plugin connects to it directly, with
+  no per-session process in the tool path.
+
+- CLI parity guard (`tests/cli/test_parity.py`): every non-admin
+  `commands/` singleton must have a reachable Typer entry, or a stated
+  exemption. Mirrors the REST route-parity guard
+  (`tests/rest/test_app.py`).
+
+## [0.26.0] - 2026-08-19
+
+### Changed
+
+- **The shippable plugin surface moved to `plugin/`, so a marketplace install
+  fetches only the plugin.** `.claude-plugin/`, `commands/`, `hooks/`, and
+  `skills/` now live under a single `plugin/` directory, which lets the
+  marketplace entry use Claude Code's `git-subdir` source (`"source":
+  "git-subdir"`, `"path": "plugin"`). That source is a blobless partial clone
+  plus a `sparse-checkout set --cone`, so an install stops fetching whole
+  directories: `src/`, `tests/`, `docs/`, `tools/`, `scripts/`, `.github/`,
+  `.beads/`, this repo's `.claude/` dev config, and the vendored
+  `.punt-labs/ethos` persona registry are all absent. Measured against this
+  branch on GitHub: 34 files / 1.7 MB of working tree (3.8 MB including
+  `.git`) versus 1,177 files / 15 MB (21 MB including `.git`) for an
+  equivalent shallow full clone — a 35x file-count and 8.8x working-tree
+  reduction. Note that cone mode always materializes the files sitting in the
+  *repo root*, so roughly 1.6 MB of root-level documents still travel with an
+  install (`.oo-audit.jsonl` 501 KB, `DESIGN.md` 299 KB, `uv.lock` 265 KB,
+  `.oo-baseline.json` 186 KB, `CHANGELOG.md` 113 KB); `plugin/` itself is only
+  84 KB. Shrinking that remainder means moving root documents into a
+  subdirectory, which this change does not attempt.
+- Nothing in the surface reaches outside itself at runtime — the MCP server is
+  luxd's HTTP endpoint, not a file in the plugin — and both
+  `${CLAUDE_PLUGIN_ROOT}/hooks/*.sh` in `hooks.json` and `session-start.sh`'s
+  own `dirname "$0"/..` walk stay correct because the whole surface moved
+  together. The wheel is unaffected: `uv_build` ships `src/punt_lux` only, so
+  the plugin surface was never packaged. **One consequence for anyone working
+  in this repo:** dev-plugin loading is now `claude --plugin-dir plugin`, not
+  `--plugin-dir .` — the argument is the plugin root, and pointed at the repo
+  root it would resolve a `hooks/` that no longer exists there. No user-visible
+  behavior change; existing installs are unaffected until the marketplace entry
+  is repointed.
+
+### Added
+
+- **`make check` now enforces that the plugin surface stands alone.**
+  `scripts/check-plugin-surface.sh` (over `tools/plugin_surface.py`) verifies
+  every path the surface uses to address itself, and it also runs in the lint
+  workflow — as does `check-skill-permissions.sh`, which was previously in
+  `make lint` only and so never ran in CI. The invariant that nothing under
+  `plugin/` reaches outside it was documented and true but structurally
+  unenforced: every other gate runs against the full source tree, where the
+  target of an escaping path is present, so a `../../src/...` reference or a
+  `source "$REPO_ROOT/..."` would pass CI and break every sparse-checkout
+  install. Four checks: each `${CLAUDE_PLUGIN_ROOT}`/`$PLUGIN_ROOT` reference
+  must resolve inside the surface, exist, and — for a shell script, identified
+  by its shebang as well as its suffix — be executable;
+  no symlink may resolve out or onto nothing; no `source`d file may land outside;
+  and the surface may not name the repository root. **Containment is asserted on
+  the resolved path, and existence only afterward** — a textual `../` scan and an
+  `exists()` check both pass a symlink pointing out of the surface, because its
+  text is clean and its target is right there in the source tree, while the
+  install gets a dangling link. That ordering governs every check that resolves a
+  path, symlinks included: a link contained by the surface but pointing at
+  nothing ships broken just as surely. The gate also fails closed if `hooks.json`
+  stops carrying a placeholder, since that would mean the extraction pattern
+  rotted rather than the surface getting clean. Every file the surface ships is
+  read, with binary content skipped by inspecting the bytes rather than the
+  suffix: a suffix allowlist has a blind spot shaped exactly like the files it
+  omits, and since a hook needs no `.sh` name to be a hook, an extensionless
+  script was a place an escaping reference could live while the gate still
+  reported the surface clean — and the same reasoning governs the executable-bit
+  check, which asks what a file *is* rather than what it is called, so a hook at
+  mode 0644 cannot ship merely by having no suffix. The `source` scan reads from
+  that same universe minus documentation: a sourced fragment carries no shebang
+  and needs no exec bit, so gating the scan on shell classification left its
+  plain-relative `source "../../lib/x"` checked by nothing — no placeholder, no
+  repo-root variable, no symlink. Markdown stays out because a `source` line in a
+  command file is an example, not wiring. Twenty-one tests in
+  `tests/test_plugin_surface.py`
+  drive it as a subprocess, including negative controls for each rejected shape
+  and a control that documented prose is never mistaken for a dependency;
+  a guard that never fires is indistinguishable from no guard.
+
+### Fixed
+
+- **`scripts/restore-dev-plugin.sh`'s directory guard could invert its own
+  answer under `pipefail`.** It piped `git ls-tree` into `grep -q .`; `grep -q`
+  exits on the first match, so once the listing exceeds the 64 KB pipe buffer
+  `git` takes SIGPIPE and returns 141, `pipefail` promotes that to the
+  pipeline's status, and the `if` reads a populated directory as empty —
+  skipping the restore. Demonstrated at 141 against a listing large enough to
+  fill the buffer. The listing is now captured into a variable and tested with
+  `[[ -n ]]`: one exit status, no race.
+- **`scripts/release-plugin.sh` stripped release-only commands from a
+  directory that has never existed.** Its `COMMANDS_DIR` pointed at
+  `.claude/commands`, which is absent from every commit in this repo's history,
+  so the `*-dev.md` removal step was a permanent no-op that reported "No -dev
+  commands found — name swap only" whether or not dev commands were present.
+  The plugin's own `commands/` — the directory `session-start.sh` deploys from,
+  skipping `*-dev.md` — is the one that was meant; both it and the matching
+  restore path in `scripts/restore-dev-plugin.sh` now name `plugin/commands`.
+- **`scripts/restore-dev-plugin.sh` never restored dev commands, because its
+  guard could not be true.** It tested `git ls-tree -d <commit> -- <dir>/`,
+  but a trailing-slash pathspec makes `ls-tree` recurse into the directory and
+  report the blobs it contains, and `-d` then filters every one of those blobs
+  out — so the command printed nothing whatever the commit held, `grep -q .`
+  failed, and the restore step was skipped every time. Confirmed against the
+  pre-move layout too: `ls-tree -d <commit> -- commands/` was equally empty.
+  With the two bugs together the dev-command round trip was inert in both
+  directions. The guard drops `-d`; a round trip against a scratch clone now
+  strips a seeded `foo-dev.md` on release-prep and restores it afterward, and
+  the `-d` variant still reports zero entries where the fixed one reports two.
+- **Three suppressed failures in the release and session-start scripts.** Each
+  turned a broken state into a quiet wrong answer.
+  `restore-dev-plugin.sh` staged the commands directory unconditionally with
+  `git add ... 2>/dev/null || true`, which swallowed both "nothing was
+  restored" and a genuine `git add` error, so a half-restored state could be
+  committed; the `git add` now sits inside the guard that does the checkout, so
+  `set -e` aborts on failure. `release-plugin.sh` treated a missing commands
+  directory as an empty result — the mechanism that let the `.claude/commands`
+  typo survive, every run reporting "No -dev commands found" while tagging a
+  release that still carried them; it is now a preflight that refuses, placed
+  before the name swap so a failure leaves the worktree untouched, and it is
+  the only guard that can work because `find` runs in a process substitution
+  whose exit status `set -e` never sees. `session-start.sh` probed
+  `plugin.json` with `grep ... 2>/dev/null` and let `DEV_MODE` default to
+  false, so a wrong `PLUGIN_ROOT` silently took the *prod* branch and wrote the
+  prod MCP tool glob into the user's `settings.json` while a dev plugin was
+  loaded; a missing `plugin.json` now fails loudly, which is safe because the
+  hook is registered `async`.
+
+## [0.25.0] - 2026-08-17
+
+### Security
+
+- **Scenes and frames cannot alias across connections (DES-086, `lux-ledm`).**
+  `HubDisplay` stored every scene and frame under the literal string a client
+  submitted, so two connections choosing the same `scene_id` did not error;
+  the second silently evicted the first's roots. Two Claude Code sessions
+  running vox both pushed `scene_id="music-player"` and the second
+  overwrote the first on the shared display. The Hub now composes a
+  `ConnectionScopedId` — `f"{connection_id}\x1f{local_id}"` — from the
+  writing connection's own `ConnectionId` and the caller's raw string, at
+  every scene write and read. Collision becomes unrepresentable, not
+  merely checked: two connections cannot construct the identical composed
+  key because neither controls the other's `ConnectionId` half. `frame_id`
+  is namespaced the same way. The agent↔Hub and Hub↔Display wire protocols
+  are unchanged — callers keep passing the same short local `scene_id`;
+  vox needs no code change. Model-checked with a fidelity control at
+  `docs/scene_id_namespacing.tex` and `_buggy.tex`; the buggy variant
+  reproduces the pre-fix collision in 7 states.
+
+### Added
+
+- **`SceneSummary.local_id`.** `list_scenes` now surfaces both the composed
+  store key (`scene_id`) and the caller's raw label (`local_id`) so an
+  agent can recognize the scene it called `music-player` without parsing
+  the composed form.
+
+## [0.24.0] - 2026-08-14
+
+### Fixed
+
+- **Two applets in one session no longer collapse onto one Hub connection.**
+  `AppletIdentity.for_session(session_pid)` derived identity from `(repo,
+  session_pid)` alone, so lux-beads and a tool's own applet — vox-panel is
+  the first case in the wild — both produced the same identity, landed on
+  the same Hub connection, and the later `register_callback` clobbered the
+  earlier one. The signature is now `AppletIdentity.for_session(program,
+  session_pid)`; the caller names its own program (`"lux-beads"`,
+  `"vox-panel"`), which becomes a fourth distinctness token in the wire
+  `name`. `menu_label` is untouched — the OS menu still reads the repo name,
+  the composite is a wire-level distinctness token, not something to read
+  aloud. Callers of `AppletIdentity.for_session` must update to the new
+  signature; there is no shim.
+
 ### Removed
 
 - **The `signal-beads.sh` PostToolUse hook.** It fired `lux hook post-bash`

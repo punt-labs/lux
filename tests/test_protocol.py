@@ -566,7 +566,7 @@ class TestSerialization:
         )
 
     def test_connect_message_roundtrip(self):
-        original = ConnectMessage(name="quarry")
+        original = ConnectMessage(name="quarry", kind="test")
         d = message_to_dict(original)
         assert d["type"] == "connect"
         assert d["name"] == "quarry"
@@ -616,7 +616,9 @@ class TestSerialization:
                 id="MenuMessage",
             ),
             pytest.param(ThemeMessage(theme="imgui_colors_dark"), id="ThemeMessage"),
-            pytest.param(ConnectMessage(name="quarry"), id="ConnectMessage"),
+            pytest.param(
+                ConnectMessage(name="quarry", kind="test"), id="ConnectMessage"
+            ),
             pytest.param(
                 QueryRequest(method="get_theme", params={"key": "bg"}),
                 id="QueryRequest",
@@ -1507,6 +1509,7 @@ class TestMessageRegistry:
             "callback_menu",
             "theme",
             "connect",
+            "hub_manifest",
             "query_request",
             "query_response",
             "ready",

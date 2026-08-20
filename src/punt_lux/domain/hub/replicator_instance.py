@@ -39,10 +39,18 @@ hub_callback_router = CallbackRouter(hub_display.clients)
 
 # DisplayLink satisfies the port at runtime — its show_async takes the concrete
 # protocol.Element union every WireElement root is; the cast bridges list invariance.
+# hub_display satisfies QuarantinePort structurally (quarantine / is_quarantined).
 hub_replicator = HubReplicator(
     hub_display.reader,
     hub_menu_registry,
     CallbackMenuReplica(hub_display.clients),
     cast("ClientProvider", client_registry),
     DisplayPaths(),
+    hub_display,
 )
+
+# Closes the bootstrap ordering gap: client_registry (clients.py) is built
+# before this replicator exists, so its connect-success hook (DES-068)
+# starts with a no-op marker until this wiring runs, right here at import
+# time, before any surface starts serving.
+client_registry.attach_replicator(hub_replicator)

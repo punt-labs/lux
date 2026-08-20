@@ -163,8 +163,10 @@ class TestRemoveClient:
                 conn = server.clients[0]
                 fd = conn.fileno()
 
-                # Register a name so we can verify cleanup
-                server.register_client_name(fd, "test-client", 1000.0)
+                # Register an identity so we can verify cleanup
+                server.register_client_identity(
+                    fd, kind="test", name="test-client", connect_time=1000.0
+                )
                 assert fd in server.client_names
                 assert fd in server.client_connect_times
 
@@ -176,6 +178,74 @@ class TestRemoveClient:
                 assert fd not in server.client_connect_times
                 assert len(disconnected_fds) == 1
                 assert disconnected_fds[0] == fd
+            finally:
+                client.close()
+        finally:
+            server.shutdown()
+
+
+class TestHubIdentity:
+    """(kind, name) tracking and hub_fd_for — the DES-068 preemption lookup."""
+
+    def test_hub_fd_for_finds_the_matching_hub_connection(self) -> None:
+        server = _make_server()
+        server.register_client_identity(
+            10, kind="hub", name="lux-mcp", connect_time=1.0
+        )
+
+        assert server.hub_fd_for("lux-mcp") == 10
+
+    def test_hub_fd_for_ignores_a_test_connection_of_the_same_name(self) -> None:
+        server = _make_server()
+        server.register_client_identity(
+            10, kind="test", name="lux-mcp", connect_time=1.0
+        )
+
+        assert server.hub_fd_for("lux-mcp") is None
+
+    def test_hub_fd_for_ignores_a_hub_connection_of_a_different_name(self) -> None:
+        server = _make_server()
+        server.register_client_identity(
+            10, kind="hub", name="other-name", connect_time=1.0
+        )
+
+        assert server.hub_fd_for("lux-mcp") is None
+
+    def test_hub_fd_for_returns_none_when_no_one_is_connected(self) -> None:
+        server = _make_server()
+
+        assert server.hub_fd_for("lux-mcp") is None
+
+    def test_kind_of_returns_the_declared_kind(self) -> None:
+        server = _make_server()
+        server.register_client_identity(10, kind="test", name="probe", connect_time=1.0)
+
+        assert server.kind_of(10) == "test"
+
+    def test_kind_of_returns_none_before_identifying(self) -> None:
+        server = _make_server()
+
+        assert server.kind_of(10) is None
+
+    def test_remove_client_clears_the_kind_too(self) -> None:
+        tmpdir = _make_tmpdir()
+        sock_path = Path(tmpdir) / "test.sock"
+        server = _make_server()
+        try:
+            server.setup(sock_path)
+            client = _connect_client(sock_path)
+            try:
+                server.accept_connections()
+                conn = server.clients[0]
+                fd = conn.fileno()
+                server.register_client_identity(
+                    fd, kind="hub", name="lux-mcp", connect_time=1.0
+                )
+                assert server.hub_fd_for("lux-mcp") == fd
+
+                server.remove_client(conn)
+
+                assert server.hub_fd_for("lux-mcp") is None
             finally:
                 client.close()
         finally:

@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastmcp.exceptions import ToolError
 
 from punt_lux.display.render_loop import RenderLoop
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
@@ -243,17 +244,19 @@ class TestForbidWindowInModal:
     def test_show_rejects_a_window_in_a_modal(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
-        result = show(
-            "s1",
-            [
-                {
-                    "kind": "modal",
-                    "id": "m",
-                    "title": "Confirm",
-                    "children": [{"kind": "window", "id": "w"}],
-                }
-            ],
-        )
+        with pytest.raises(ToolError) as _exc:
+            show(
+                "s1",
+                [
+                    {
+                        "kind": "modal",
+                        "id": "m",
+                        "title": "Confirm",
+                        "children": [{"kind": "window", "id": "w"}],
+                    }
+                ],
+            )
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert self._MSG in result
         client.show.assert_not_called()
@@ -265,20 +268,22 @@ class TestShowRejectsInvalidModal:
         """A bad progress nested in the modal body is collected by the walk."""
         client = _mock_client()
         mock_get.return_value = client
-        result = show(
-            "s1",
-            [
-                {
-                    "kind": "modal",
-                    "id": "m",
-                    "title": "Confirm",
-                    "children": [
-                        {"kind": "text", "id": "ok", "content": "fine"},
-                        {"kind": "progress", "id": "bad", "fraction": -0.5},
-                    ],
-                }
-            ],
-        )
+        with pytest.raises(ToolError) as _exc:
+            show(
+                "s1",
+                [
+                    {
+                        "kind": "modal",
+                        "id": "m",
+                        "title": "Confirm",
+                        "children": [
+                            {"kind": "text", "id": "ok", "content": "fine"},
+                            {"kind": "progress", "id": "bad", "fraction": -0.5},
+                        ],
+                    }
+                ],
+            )
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "[progress 'bad']" in result
         client.show.assert_not_called()

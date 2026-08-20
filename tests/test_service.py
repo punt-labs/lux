@@ -8,8 +8,14 @@ from unittest.mock import patch
 
 import pytest
 
-from punt_lux._backends import LaunchdBackend, SystemdBackend
-from punt_lux.service import ServiceManager, detect_platform
+from punt_lux._backend_launchd import LaunchdBackend
+from punt_lux._backend_systemd import SystemdBackend
+from punt_lux.service import (
+    ServiceActionFailedError,
+    ServiceManager,
+    ServiceNotInstalledError,
+    detect_platform,
+)
 
 
 class TestDetectPlatform:
@@ -64,7 +70,7 @@ class TestLaunchdPlistContent:
         luxd.touch()
         luxd.chmod(0o755)
 
-        with patch("punt_lux._backends.Path.home", return_value=fake_home):
+        with patch("punt_lux._backend_launchd.Path.home", return_value=fake_home):
             backend = LaunchdBackend()
             exec_args = [str(luxd), "--port", "8430"]
             content = backend._plist_content(exec_args)
@@ -85,7 +91,7 @@ class TestLaunchdPlistContent:
         luxd.touch()
         luxd.chmod(0o755)
 
-        with patch("punt_lux._backends.Path.home", return_value=fake_home):
+        with patch("punt_lux._backend_launchd.Path.home", return_value=fake_home):
             backend = LaunchdBackend()
             exec_args = [str(luxd), "--port", "8430"]
             content = backend._plist_content(exec_args)
@@ -104,7 +110,7 @@ class TestSystemdUnitContent:
         luxd.touch()
         luxd.chmod(0o755)
 
-        with patch("punt_lux._backends.Path.home", return_value=fake_home):
+        with patch("punt_lux._backend_systemd.Path.home", return_value=fake_home):
             backend = SystemdBackend()
             exec_args = [str(luxd), "--port", "8430"]
             content = backend._unit_content(exec_args)
@@ -125,7 +131,7 @@ class TestSystemdUnitContent:
         luxd.touch()
         luxd.chmod(0o755)
 
-        with patch("punt_lux._backends.Path.home", return_value=fake_home):
+        with patch("punt_lux._backend_systemd.Path.home", return_value=fake_home):
             backend = SystemdBackend()
             exec_args = [str(luxd), "--port", "8430"]
             content = backend._unit_content(exec_args)
@@ -145,3 +151,105 @@ class TestServiceManager:
         with patch("punt_lux.service.detect_platform", return_value="linux"):
             mgr = ServiceManager()
         assert isinstance(mgr._backend, SystemdBackend)
+
+
+class TestServiceManagerStart:
+    def test_raises_when_not_installed(self):
+        with patch("punt_lux.service.detect_platform", return_value="macos"):
+            mgr = ServiceManager()
+        with (
+            patch.object(
+                mgr._backend, "config_path", return_value=Path("/nonexistent")
+            ),
+            pytest.raises(ServiceNotInstalledError, match="lux hub install"),
+        ):
+            mgr.start()
+
+    def test_starts_the_backend_when_installed(self, tmp_path: Path):
+        config = tmp_path / "com.punt-labs.lux.plist"
+        config.touch()
+        with patch("punt_lux.service.detect_platform", return_value="macos"):
+            mgr = ServiceManager()
+        with (
+            patch.object(mgr._backend, "config_path", return_value=config),
+            patch.object(mgr._backend, "start", return_value=True) as backend_start,
+        ):
+            result = mgr.start()
+        backend_start.assert_called_once()
+        assert result == "luxd started."
+
+    def test_raises_when_the_backend_call_fails(self, tmp_path: Path):
+        config = tmp_path / "com.punt-labs.lux.plist"
+        config.touch()
+        with patch("punt_lux.service.detect_platform", return_value="macos"):
+            mgr = ServiceManager()
+        with (
+            patch.object(mgr._backend, "config_path", return_value=config),
+            patch.object(mgr._backend, "start", return_value=False),
+            pytest.raises(ServiceActionFailedError, match="luxd start failed"),
+        ):
+            mgr.start()
+
+
+class TestServiceManagerStop:
+    def test_reports_stopped_when_the_backend_call_succeeds(self):
+        with patch("punt_lux.service.detect_platform", return_value="macos"):
+            mgr = ServiceManager()
+        with patch.object(mgr._backend, "stop", return_value=True):
+            result = mgr.stop()
+        assert result == "luxd stopped."
+
+    def test_raises_when_the_backend_call_fails(self):
+        with patch("punt_lux.service.detect_platform", return_value="macos"):
+            mgr = ServiceManager()
+        with (
+            patch.object(mgr._backend, "stop", return_value=False),
+            pytest.raises(ServiceActionFailedError, match="luxd stop failed"),
+        ):
+            mgr.stop()
+
+
+class TestBackendStartStopSymmetry:
+    def test_launchd_start_calls_launchctl_load(self, tmp_path: Path):
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        with patch("punt_lux._backend_launchd.Path.home", return_value=fake_home):
+            backend = LaunchdBackend()
+        with patch("punt_lux._backend_launchd.subprocess.run") as run:
+            run.return_value.returncode = 0
+            ok = backend.start()
+        assert run.call_args[0][0][:2] == ["launchctl", "load"]
+        assert ok is True
+
+    def test_launchd_start_reports_failure_on_nonzero_exit(self, tmp_path: Path):
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        with patch("punt_lux._backend_launchd.Path.home", return_value=fake_home):
+            backend = LaunchdBackend()
+        with patch("punt_lux._backend_launchd.subprocess.run") as run:
+            run.return_value.returncode = 1
+            run.return_value.stderr = "boom"
+            ok = backend.start()
+        assert ok is False
+
+    def test_systemd_start_calls_systemctl_start(self, tmp_path: Path):
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        with patch("punt_lux._backend_systemd.Path.home", return_value=fake_home):
+            backend = SystemdBackend()
+        with patch("punt_lux._backend_systemd.subprocess.run") as run:
+            run.return_value.returncode = 0
+            ok = backend.start()
+        assert run.call_args[0][0] == ["systemctl", "--user", "start", "lux"]
+        assert ok is True
+
+    def test_systemd_start_reports_failure_on_nonzero_exit(self, tmp_path: Path):
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        with patch("punt_lux._backend_systemd.Path.home", return_value=fake_home):
+            backend = SystemdBackend()
+        with patch("punt_lux._backend_systemd.subprocess.run") as run:
+            run.return_value.returncode = 1
+            run.return_value.stderr = "boom"
+            ok = backend.start()
+        assert ok is False

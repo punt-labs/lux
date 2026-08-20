@@ -16,9 +16,18 @@ connection's connect time with the identity it later declares.
 from __future__ import annotations
 
 from pathlib import PurePath
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
+
+from punt_lux.domain.hub.applet_name_format import APPLET_NAME_RE
 
 __all__ = ["ClientIdentity", "ClientKind"]
 
@@ -92,6 +101,48 @@ class ClientIdentity(BaseModel):
             msg = f"repo must be an absolute path when present; got {value!r}"
             raise ValueError(msg)
         return value
+
+    @field_validator("name", "repo", "agent")
+    @classmethod
+    def _reject_nul(cls, value: str | None) -> str | None:
+        """Reject a NUL in any field, wherever the declaration came from.
+
+        :func:`~punt_lux.connection_identity.connection_for` joins these fields
+        on a NUL to derive a connection id; a field that carries one breaks that
+        join's distinctness guarantee. ``name`` is the field most exposed to
+        this, since it can carry caller-supplied content such as an applet's
+        program, but the guarantee holds only if every source is caught here,
+        not just the ones an author remembered to check upstream.
+        """
+        if value is not None and "\x00" in value:
+            msg = (
+                "identity fields must not contain NUL (breaks the "
+                "connection_for concatenation invariant)"
+            )
+            raise ValueError(msg)
+        return value
+
+    @model_validator(mode="after")
+    def _validate_applet_shape(self) -> Self:
+        """An applet's name must be the four-part shape the grouping composer parses.
+
+        The menu-grouping composer reads the session pid off an applet's
+        ``name`` to fold sibling applets into one submenu (DES-067). A name
+        that cannot yield a pid is rejected at construction rather than
+        silently degrading to per-connection grouping — including the case
+        where a repo directory contains the format separator and the
+        composed name comes out malformed. Applets are legitimately headless
+        (``repo=None``) — see :meth:`AppletIdentity.for_session` — so the
+        repo alone is not enough to reject on.
+        """
+        if self.kind == "applet" and APPLET_NAME_RE.match(self.name) is None:
+            msg = (
+                "an applet name must match "
+                "'lux · <repo> · #<pid> · <program>'; got "
+                f"{self.name!r}"
+            )
+            raise ValueError(msg)
+        return self
 
     @property
     def menu_label(self) -> str:

@@ -633,7 +633,7 @@ the composition (the composition builds chrome from real `input_text` / `combo` 
   *ownership* (Hub-side, composition-provided) and the `FilteredTableModel`
   authority, not the files.
 - `apps/beads.py` — rebuilt to compose the basic grid + Hub-side chrome.
-- `skills/beads/SKILL.md`, `skills/data-explorer/SKILL.md`, and the `show_table`
+- `plugin/skills/beads/SKILL.md`, `plugin/skills/data-explorer/SKILL.md`, and the `show_table`
   surface — updated to the composition (org rule: callers update in the same PR).
 
 **Amended (interaction wiring):**

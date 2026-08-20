@@ -18,12 +18,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, ClassVar, final
 
+from pydantic import ValidationError
+
+from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.header_value import HeaderValue
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
-
-    from punt_lux.domain.hub.client_identity import ClientIdentity
 
 __all__ = ["ClientHeaders"]
 
@@ -102,6 +103,27 @@ class ClientHeaders:
         """
         declared = cls._declared(headers)
         return None if "name" not in declared else {"kind": _DEFAULT_KIND} | declared
+
+    @classmethod
+    def identity_from(cls, headers: Mapping[str, str]) -> ClientIdentity | None:
+        """Parse ``headers`` into a validated identity, or ``None`` for no caller.
+
+        ``None`` covers both a genuinely unnamed request and a named-but-malformed
+        one (a garbled ``lease_ttl``, an out-of-range value) — a read route that
+        calls this is choosing not to challenge on identity, so a header the
+        caller botched degrades to the same "no identity declared" outcome a
+        caller who sent nothing at all gets, rather than a 401 a read never asks
+        for. A write route that must reject a malformed declaration outright
+        uses :meth:`declaration_from` plus the ``identify`` operation instead,
+        which returns the named validation error.
+        """
+        declared = cls.declaration_from(headers)
+        if declared is None:
+            return None
+        try:
+            return ClientIdentity.model_validate(declared)
+        except ValidationError:
+            return None
 
     @classmethod
     def _declared(cls, headers: Mapping[str, str]) -> dict[str, object]:

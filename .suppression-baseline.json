@@ -1,19 +1,22 @@
 {
-  "total": 97,
+  "total": 103,
   "by_category": {
-    "noqa": 22,
+    "noqa": 21,
     "type_ignore": 4,
     "pylint_disable": 2,
     "pyright_ignore": 5,
-    "per_file_ignores": 64
+    "per_file_ignores": 71
   },
   "by_file": {
     "src/punt_lux/__main__.py": {
-      "noqa": 5,
+      "noqa": 1,
       "pyright_ignore": 2
     },
-    "src/punt_lux/_backends.py": {
-      "pylint_disable": 2
+    "src/punt_lux/_backend_launchd.py": {
+      "pylint_disable": 1
+    },
+    "src/punt_lux/_backend_systemd.py": {
+      "pylint_disable": 1
     },
     "src/punt_lux/apps/_beads_payload.py": {
       "type_ignore": 1
@@ -21,7 +24,21 @@
     "src/punt_lux/apps/bd_command.py": {
       "noqa": 1
     },
+    "src/punt_lux/cli/hub.py": {
+      "noqa": 1
+    },
+    "src/punt_lux/cli/plugin.py": {
+      "noqa": 2
+    },
     "src/punt_lux/display/macos.py": {
+      "type_ignore": 1,
+      "pyright_ignore": 1
+    },
+    "src/punt_lux/display/query_dispatcher.py": {
+      "noqa": 1
+    },
+    "src/punt_lux/display/render_loop.py": {
+      "noqa": 1,
       "type_ignore": 1,
       "pyright_ignore": 1
     },
@@ -34,10 +51,8 @@
     "src/punt_lux/display/renderers/imgui/modal.py": {
       "noqa": 1
     },
-    "src/punt_lux/display/server.py": {
-      "noqa": 1,
-      "type_ignore": 1,
-      "pyright_ignore": 1
+    "src/punt_lux/display/socket_server.py": {
+      "noqa": 2
     },
     "src/punt_lux/doctor_checks.py": {
       "noqa": 1
@@ -55,21 +70,15 @@
     "src/punt_lux/paths.py": {
       "noqa": 2
     },
-    "src/punt_lux/protocol/messages/lifecycle.py": {
-      "noqa": 1
-    },
     "src/punt_lux/protocol/messages/scene_codec.py": {
       "pyright_ignore": 1
     },
-    "src/punt_lux/query_dispatcher.py": {
+    "src/punt_lux/protocol/messages/unknown_message.py": {
       "noqa": 1
     },
-    "src/punt_lux/socket_server.py": {
-      "noqa": 2
-    },
-    "src/punt_lux/tools/write_tools.py": {
+    "src/punt_lux/tools/display_write_tools.py": {
       "noqa": 2
     }
   },
-  "updated_at": "2026-08-01T22:21:24Z"
+  "updated_at": "2026-08-20T10:34:42Z"
 }

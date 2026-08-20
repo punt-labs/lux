@@ -129,7 +129,7 @@ byte-for-byte for existing scenes.**
   index int>)`. The legacy renderers emitted a `{"index": i, "item": text}`
   **dict** as the `RemoteEventHandlerInvocation.value`. That dict is a legacy
   interaction-payload shape, **not** the element wire shape, and no consumer
-  reads the `item` string (grep of `apps/`, `skills/`, `tools/` finds only
+  reads the `item` string (grep of `apps/`, `plugin/skills/`, `tools/` finds only
   doc-strings). The `item` is derivable from `items[selected]`, so the migrated
   path drops it and carries the scalar index — the shape `ValueChanged` and the
   Hub `_typed_event` already accept.

@@ -21,6 +21,7 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
+from fastmcp.exceptions import ToolError
 
 from punt_lux.display import geometry_capture
 from punt_lux.display.render_loop import RenderLoop
@@ -188,16 +189,18 @@ class TestCrashDefectRejectedAtHub:
         """The exact non-str-label payload that used to fault mid-render is refused."""
         client = _mock_client()
         mock_get.return_value = client
-        result = show(
-            "s1",
-            [
-                {
-                    "kind": "plot",
-                    "id": "pl1",
-                    "series": [{"label": 42, "x": [1], "y": [2]}],
-                }
-            ],
-        )
+        with pytest.raises(ToolError) as _exc:
+            show(
+                "s1",
+                [
+                    {
+                        "kind": "plot",
+                        "id": "pl1",
+                        "series": [{"label": 42, "x": [1], "y": [2]}],
+                    }
+                ],
+            )
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "label must be a string" in result
         client.show.assert_not_called()
@@ -206,16 +209,18 @@ class TestCrashDefectRejectedAtHub:
     def test_show_rejects_ragged_series(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
-        result = show(
-            "s1",
-            [
-                {
-                    "kind": "plot",
-                    "id": "pl1",
-                    "series": [{"label": "y", "x": [1, 2], "y": [3]}],
-                }
-            ],
-        )
+        with pytest.raises(ToolError) as _exc:
+            show(
+                "s1",
+                [
+                    {
+                        "kind": "plot",
+                        "id": "pl1",
+                        "series": [{"label": "y", "x": [1, 2], "y": [3]}],
+                    }
+                ],
+            )
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "[plot 'pl1']" in result
         client.show.assert_not_called()

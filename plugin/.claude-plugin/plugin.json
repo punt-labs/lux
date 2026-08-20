@@ -1,0 +1,15 @@
+{
+  "name": "lux-dev",
+  "description": "Visual output surface for Claude Code: display text, images, tables, plots, and interactive elements",
+  "version": "0.26.0",
+  "author": {
+    "name": "Punt Labs",
+    "email": "hello@punt-labs.com"
+  },
+  "mcpServers": {
+    "lux": {
+      "type": "http",
+      "url": "http://127.0.0.1:8430/mcp"
+    }
+  }
+}

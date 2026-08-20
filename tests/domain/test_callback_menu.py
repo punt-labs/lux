@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import final
 
+from punt_lux.domain.hub.applet_name_format import format_name
 from punt_lux.domain.hub.callback_menu import CallbackMenu
 from punt_lux.domain.hub.client_identity import ClientIdentity, ClientKind
 from punt_lux.domain.hub.client_roster import ClientRoster
@@ -118,7 +119,9 @@ class TestTheClientsMenu:
 
     def test_a_leaf_is_named_for_the_command_alone(self) -> None:
         """The hierarchy disambiguates, so the leaf label carries nothing else."""
-        menus = _menus(("s", _session("lux · lux · #4b97", "/w/lux", _beads())))
+        menus = _menus(
+            ("s", _session("lux · lux · #4b97 · lux-beads", "/w/lux", _beads()))
+        )
 
         assert _labels_under(_submenu(menus, "lux")) == ["Beads", "Details"]
 
@@ -172,7 +175,12 @@ class TestEveryKindIsAClient:
 
         menus = _menus(
             ("vox", voxd),
-            ("lux", _session("lux · lux · #4b97", "/w/lux", _beads(), kind="applet")),
+            (
+                "lux",
+                _session(
+                    "lux · lux · #4b97 · lux-beads", "/w/lux", _beads(), kind="applet"
+                ),
+            ),
         )
 
         assert [menu.label for menu in menus] == ["Clients"]
@@ -188,7 +196,10 @@ class TestWhatANameIs:
             (
                 "s",
                 _session(
-                    "lux · lux · #4b97", "/Users/someone/lux", _beads(), kind="applet"
+                    "lux · lux · #4b97 · lux-beads",
+                    "/Users/someone/lux",
+                    _beads(),
+                    kind="applet",
                 ),
             )
         )
@@ -224,7 +235,7 @@ class TestWhatANameIs:
     def test_two_clients_on_one_repository_are_numbered(self) -> None:
         menus = _menus(
             ("first", _session("claude", "/w/lux", _beads())),
-            ("second", _session("lux · lux · #4b97", "/w/lux", _beads())),
+            ("second", _session("lux · lux · #4b97 · lux-beads", "/w/lux", _beads())),
         )
 
         assert _labels_under(_clients_menu(menus)) == ["lux", "lux (2)"]
@@ -374,6 +385,133 @@ class TestWhatContributesNothing:
         assert roster.held() == {}
 
 
+def _applet_identity(pid: int, program: str, *, repo: str = "/w/lux") -> ClientIdentity:
+    return ClientIdentity(
+        kind="applet", name=format_name("lux", pid, program), repo=repo
+    )
+
+
+def _applet_session(
+    pid: int, program: str, *callbacks: SessionCallback, repo: str = "/w/lux"
+) -> ClientSession:
+    session = (
+        ClientSession(0.0)
+        .with_identity(_applet_identity(pid, program, repo=repo))
+        .attached(_SilentLeg())
+    )
+    for callback in callbacks:
+        session = session.with_callback(callback)
+    return session
+
+
+class TestAppletGrouping:
+    """DES-067: two applets in one session render as one submenu.
+
+    The user reads them as one entity; the composed menu says so, with each
+    applet's callbacks under the shared label and one Details entry.
+    """
+
+    def test_two_applets_in_one_session_share_one_submenu(self) -> None:
+        pid = 12345
+        beads = SessionCallback(id="beads", label="Beads")
+        vox = SessionCallback(id="music", label="Music")
+
+        menus = _menus(
+            ("beads", _applet_session(pid, "lux-beads", beads)),
+            ("vox", _applet_session(pid, "vox-panel", vox)),
+        )
+
+        # One submenu, both applets' callbacks together, one Details.
+        assert _labels_under(_clients_menu(menus)) == ["lux"]
+        assert _labels_under(_submenu(menus, "lux")) == ["Beads", "Music", "Details"]
+
+    def test_two_applets_in_one_session_route_clicks_to_their_own_connection(
+        self,
+    ) -> None:
+        """A leaf carries the connection of the applet that registered it."""
+        pid = 12345
+        beads_conn, vox_conn = ConnectionId("beads"), ConnectionId("vox")
+
+        menus = _menus(
+            (
+                "beads",
+                _applet_session(
+                    pid, "lux-beads", SessionCallback(id="beads", label="Beads")
+                ),
+            ),
+            (
+                "vox",
+                _applet_session(
+                    pid, "vox-panel", SessionCallback(id="music", label="Music")
+                ),
+            ),
+        )
+
+        items = _submenu(menus, "lux").items
+        by_label = {item.label: item for item in items if isinstance(item, MenuAction)}
+        assert by_label["Beads"].id == CallbackInvocation(beads_conn, "beads").menu_id
+        assert by_label["Music"].id == CallbackInvocation(vox_conn, "music").menu_id
+
+    def test_details_aims_at_the_senior_member(self) -> None:
+        """The Details entry points at the first-registered applet's connection."""
+        pid = 12345
+        beads_conn = ConnectionId("beads")
+
+        menus = _menus(
+            (
+                "beads",
+                _applet_session(pid, "lux-beads", SessionCallback(id="b", label="B")),
+            ),
+            (
+                "vox",
+                _applet_session(pid, "vox-panel", SessionCallback(id="m", label="M")),
+            ),
+        )
+
+        details = _submenu(menus, "lux").items[-1]
+        assert isinstance(details, MenuAction)
+        assert details.id == CallbackInvocation.details(beads_conn).menu_id
+
+    def test_two_different_sessions_are_still_two_submenus(self) -> None:
+        """DES-064's collision-numbering stays for its designed case."""
+        beads = SessionCallback(id="b", label="B")
+
+        menus = _menus(
+            ("a", _applet_session(0xAAAA, "lux-beads", beads)),
+            ("b", _applet_session(0xBBBB, "lux-beads", beads)),
+        )
+
+        assert _labels_under(_clients_menu(menus)) == ["lux", "lux (2)"]
+
+    def test_details_migrates_to_the_junior_when_the_senior_departs(self) -> None:
+        """When the senior is released, Details re-aims at the surviving junior.
+
+        Composition reads the group's members from a fresh roster each time,
+        so a release plus a fresh compose is atomic at the composition boundary
+        — no ghost Details entry surviving into the next paint. This proves the
+        rebuild path, not the display-side cached-menu window (that class is
+        deferred to a follow-up as its own concern).
+        """
+        pid = 12345
+        vox_conn = ConnectionId("vox")
+        roster = ClientRoster()
+        beads = ("beads", _applet_session(pid, "lux-beads", _beads()))
+        vox = (
+            "vox",
+            _applet_session(pid, "vox-panel", SessionCallback(id="m", label="M")),
+        )
+        # Compose once with both members so the group is named.
+        _menus(beads, vox, roster=roster)
+
+        # Senior departs; recompose with just the junior.
+        roster.release([ConnectionId("beads")])
+        menus = _menus(vox, roster=roster)
+
+        details = _submenu(menus, "lux").items[-1]
+        assert isinstance(details, MenuAction)
+        assert details.id == CallbackInvocation.details(vox_conn).menu_id
+
+
 class TestTheReplica:
     """What the replicator sends is the composed menu, as wire."""
 
@@ -385,7 +523,7 @@ class TestTheReplica:
         conn = ConnectionId("lux")
         leg = _SilentLeg()
         identity = ClientIdentity(
-            kind="applet", name="lux · lux · #4b97", repo="/w/lux"
+            kind="applet", name="lux · lux · #4b97 · lux-beads", repo="/w/lux"
         )
         registry.attach_listener(conn, identity, leg)
         registry.register_callback(
@@ -455,12 +593,16 @@ class TestTheReplica:
         ghost, arriving = ConnectionId("outgoing"), ConnectionId("incoming")
         registry.record(
             ghost,
-            ClientIdentity(kind="applet", name="lux · lux · #4b97", repo="/w/lux"),
+            ClientIdentity(
+                kind="applet", name="lux · lux · #4b97 · lux-beads", repo="/w/lux"
+            ),
         )
         leg = _SilentLeg()
         registry.attach_listener(
             arriving,
-            ClientIdentity(kind="applet", name="lux · lux · #f00d", repo="/w/lux"),
+            ClientIdentity(
+                kind="applet", name="lux · lux · #f00d · lux-beads", repo="/w/lux"
+            ),
             leg,
         )
         registry.register_callback(

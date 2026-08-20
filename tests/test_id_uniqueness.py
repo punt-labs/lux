@@ -14,6 +14,9 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
+from fastmcp.exceptions import ToolError
+
 from punt_lux.domain.error import DuplicateIdError
 from punt_lux.domain.hub import hub_display
 from punt_lux.domain.id_uniqueness import DuplicateIdScanner
@@ -160,18 +163,20 @@ class TestShowRejectsDuplicateIds:
         client = _mock_client()
         mock_get.return_value = client
         scene = "dup-root-child"
-        result = show(
-            scene,
-            [
-                {"kind": "text", "id": "dup", "content": "root"},
-                {
-                    "kind": "group",
-                    "id": "g",
-                    "layout": "rows",
-                    "children": [{"kind": "text", "id": "dup", "content": "child"}],
-                },
-            ],
-        )
+        with pytest.raises(ToolError) as _exc:
+            show(
+                scene,
+                [
+                    {"kind": "text", "id": "dup", "content": "root"},
+                    {
+                        "kind": "group",
+                        "id": "g",
+                        "layout": "rows",
+                        "children": [{"kind": "text", "id": "dup", "content": "child"}],
+                    },
+                ],
+            )
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "duplicate element id 'dup'" in result
         assert "unique" in result
@@ -183,13 +188,15 @@ class TestShowRejectsDuplicateIds:
         client = _mock_client()
         mock_get.return_value = client
         scene = "dup-two-roots"
-        result = show(
-            scene,
-            [
-                {"kind": "text", "id": "x", "content": "a"},
-                {"kind": "text", "id": "x", "content": "b"},
-            ],
-        )
+        with pytest.raises(ToolError) as _exc:
+            show(
+                scene,
+                [
+                    {"kind": "text", "id": "x", "content": "a"},
+                    {"kind": "text", "id": "x", "content": "b"},
+                ],
+            )
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "duplicate element id 'x'" in result
         client.show.assert_not_called()
@@ -200,7 +207,9 @@ def _assert_show_rejects_dup(
     client: MagicMock, scene: str, elements: list[dict[str, Any]], dup_id: str
 ) -> None:
     """Drive ``show()`` and assert the tree is rejected without install."""
-    result = show(scene, elements)
+    with pytest.raises(ToolError) as _exc:
+        show(scene, elements)
+    result = str(_exc.value)
     assert result.startswith("error: scene not rendered")
     assert f"duplicate element id '{dup_id}'" in result
     assert "unique" in result

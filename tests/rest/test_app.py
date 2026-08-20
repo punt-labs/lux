@@ -22,7 +22,10 @@ from ._fakes import ForbiddenPort, make_facade
 # blocked on the REST session decision — a connection-less REST publish in one
 # fixed scope can never deliver, so it is not exposed; drop_session is session
 # lifecycle. identify is the MCP session's first-call; REST per-request identity
-# resolution is a later step, so identify carries no REST route yet.
+# resolution is a later step, so identify carries no REST route yet. identity_of
+# reads back an MCP session's already-declared identity for the commands layer's
+# Ctx — REST resolves its own per-request identity straight from headers instead
+# (it never persists a session), so it has no use for this lookup and no route.
 # render_table/render_dashboard ARE routed: a composed table must be CONSTRUCTED
 # server-side (its handlers + model are not wire-expressible), so a REST caller
 # pushing composed JSON through the generic render gets dead chrome.
@@ -33,6 +36,11 @@ _MCP_ONLY = {
     "receive",
     "drop_session",
     "identify",
+    "identity_of",
+    # pending_callbacks is a session-scoped observe of one connection's held
+    # invocations; delivery goes through the listen leg's ``take`` drain, so
+    # a REST route (which cannot bind to a listener) has no way to be useful.
+    "pending_callbacks",
 }
 
 

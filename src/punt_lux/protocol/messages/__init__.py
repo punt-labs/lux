@@ -41,6 +41,7 @@ from punt_lux.protocol.messages.lifecycle import (
     PROTOCOL_VERSION,
     AckMessage,
     ConnectMessage,
+    HubManifestMessage,
     PingMessage,
     PongMessage,
     ReadyMessage,
@@ -75,6 +76,7 @@ __all__ = [
     "ClientMessage",
     "ConnectMessage",
     "DisplayMessage",
+    "HubManifestMessage",
     "IntrospectRequest",
     "IntrospectResponse",
     "ListScenesRequest",
@@ -109,6 +111,7 @@ ClientMessage = (
     | CallbackMenuMessage
     | ThemeMessage
     | ConnectMessage
+    | HubManifestMessage
     | QueryRequest
 )
 

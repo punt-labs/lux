@@ -28,7 +28,9 @@ def test_headless_identity_has_no_repo_or_agent() -> None:
 
 def test_a_client_is_named_for_the_repository_it_works_in() -> None:
     """The menu calls a client after where it works, not what it declared."""
-    identity = ClientIdentity(kind="applet", name="lux · lux · #4b97", repo="/w/lux")
+    identity = ClientIdentity(
+        kind="applet", name="lux · lux · #4b97 · lux-beads", repo="/w/lux"
+    )
     assert identity.menu_label == "lux"
 
 
@@ -102,6 +104,25 @@ def test_blank_agent_is_rejected() -> None:
         ClientIdentity(kind="mcp-session", name="claude", repo="/w/lux", agent="")
 
 
+def test_a_nul_in_name_is_rejected() -> None:
+    """name is the field most exposed to caller-supplied content, e.g. via headers."""
+    with pytest.raises(ValidationError) as exc:
+        ClientIdentity(kind="app", name="foo\x00bar")
+    assert "NUL" in str(exc.value)
+
+
+def test_a_nul_in_repo_is_rejected() -> None:
+    with pytest.raises(ValidationError) as exc:
+        ClientIdentity(kind="cli", name="lux", repo="/tmp\x00/x")
+    assert "NUL" in str(exc.value)
+
+
+def test_a_nul_in_agent_is_rejected() -> None:
+    with pytest.raises(ValidationError) as exc:
+        ClientIdentity(kind="mcp-session", name="claude", agent="me\x00you")
+    assert "NUL" in str(exc.value)
+
+
 def test_unknown_field_is_rejected() -> None:
     with pytest.raises(ValidationError):
         ClientIdentity(kind="cli", name="lux", role="admin")  # type: ignore[call-arg]
@@ -133,3 +154,47 @@ def test_a_lease_ttl_above_the_cap_is_rejected() -> None:
 def test_the_cron_twenty_minute_cadence_is_within_bounds() -> None:
     # The operator's example: a cron client declares a 20-minute lease.
     assert ClientIdentity(kind="cli", name="cron", lease_ttl=1200.0).lease_ttl == 1200.0
+
+
+class TestAppletShape:
+    """An applet name must match the four-part format the grouping composer parses.
+
+    The model validator is what stops a wire-decoded or hand-constructed applet
+    identity with an unparseable name from silently degrading to per-connection
+    grouping — a program with the format separator in it, a repo directory that
+    contains the separator, a truncated legacy payload all raise here at
+    construction rather than surface as ghost submenus at render time.
+    """
+
+    def test_a_missing_program_part_is_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="applet name must match"):
+            ClientIdentity(kind="applet", name="lux · foo · #1234", repo="/w/foo")
+
+    def test_a_non_hex_pid_part_is_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="applet name must match"):
+            ClientIdentity(
+                kind="applet", name="lux · foo · #xyz · beads", repo="/w/foo"
+            )
+
+    def test_a_program_containing_the_separator_is_rejected(self) -> None:
+        """The regex uses ``[^·]+`` — a program with ``·`` breaks the shape."""
+        composed = "lux · lux · #4b97 · has · dots"
+        with pytest.raises(ValidationError, match="applet name must match"):
+            ClientIdentity(kind="applet", name=composed, repo="/w/lux")
+
+    def test_a_repo_containing_the_separator_is_rejected(self) -> None:
+        """A repo directory with ``·`` composes into a name the parser refuses."""
+        composed = "lux · foo · bar · #4b97 · beads"
+        with pytest.raises(ValidationError, match="applet name must match"):
+            ClientIdentity(kind="applet", name=composed, repo="/w/foo · bar")
+
+    def test_a_missing_leading_tool_is_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="applet name must match"):
+            ClientIdentity(kind="applet", name="foo · #4b97 · beads", repo="/w/foo")
+
+    def test_a_valid_four_part_name_is_accepted(self) -> None:
+        ClientIdentity(kind="applet", name="lux · foo · #4b97 · beads", repo="/w/foo")
+
+    def test_non_applet_kinds_do_not_go_through_the_regex(self) -> None:
+        """A CLI whose declared name happens to have separators is left alone."""
+        ClientIdentity(kind="cli", name="anything · at · all", repo="/w/foo")

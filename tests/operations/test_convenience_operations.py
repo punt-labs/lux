@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
+from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
@@ -15,7 +17,13 @@ from punt_lux.operations.conveniences import ConvenienceOperations
 from punt_lux.operations.scenes import SceneOperations
 from punt_lux.operations.scope import Scope
 
-_LOCAL = Scope(ConnectionId("local"))
+_CONNECTION = ConnectionId("local")
+_LOCAL = Scope(_CONNECTION)
+
+
+def _scoped(local_id: str) -> SceneId:
+    """The store key ``local_id`` composes to for the ``_LOCAL`` scope."""
+    return SceneId(ConnectionScopedId.compose(_CONNECTION, local_id))
 
 
 class _Recorder:
@@ -30,7 +38,7 @@ class _Recorder:
 
 
 def _conveniences(store: HubDisplay) -> ConvenienceOperations:
-    scenes = SceneOperations(store, _Recorder(), hub_element_factory)
+    scenes = SceneOperations(store, _Recorder(), hub_element_factory, Hub())
     return ConvenienceOperations(scenes)
 
 
@@ -41,7 +49,7 @@ def test_render_table_installs_a_table_element() -> None:
     )
     result = _conveniences(store).render_table(request, scope=_LOCAL)
     assert isinstance(result, SceneShown)
-    table = store.resolve(SceneId("tbl"), ElementId("table"))
+    table = store.resolve(_scoped("tbl"), ElementId("table"))
     assert table.kind == "table"
 
 
@@ -57,8 +65,8 @@ def test_render_dashboard_installs_metric_and_table_sections() -> None:
     )
     result = _conveniences(store).render_dashboard(request, scope=_LOCAL)
     assert isinstance(result, SceneShown)
-    assert store.resolve(SceneId("dash"), ElementId("metrics-row")).kind == "group"
-    assert store.resolve(SceneId("dash"), ElementId("dashboard-table")).kind == "table"
+    assert store.resolve(_scoped("dash"), ElementId("metrics-row")).kind == "group"
+    assert store.resolve(_scoped("dash"), ElementId("dashboard-table")).kind == "table"
 
 
 def test_render_table_rejects_a_bad_filter_shape_without_raising() -> None:

@@ -39,10 +39,10 @@ Lux ships **four** invocable surfaces. None teaches the interactive io-model.
 
 | Surface | Location | Ships where | Teaches |
 |---|---|---|---|
-| `/lux` command | `commands/lux.md` | lux plugin (marketplace) | enable/disable display mode only |
-| `data-explorer` skill | `skills/data-explorer/SKILL.md` | lux plugin | filterable table + built-in filters + detail; mentions `recv()`/`update()` only for row-action refresh |
-| `dashboard` skill | `skills/dashboard/SKILL.md` | lux plugin | metric cards + charts + table; `recv()` only for a refresh button |
-| `beads` skill | `skills/beads/SKILL.md` | lux plugin | `show_table` from `bd list --json` |
+| `/lux` command | `plugin/commands/lux.md` | lux plugin (marketplace) | enable/disable display mode only |
+| `data-explorer` skill | `plugin/skills/data-explorer/SKILL.md` | lux plugin | filterable table + built-in filters + detail; mentions `recv()`/`update()` only for row-action refresh |
+| `dashboard` skill | `plugin/skills/dashboard/SKILL.md` | lux plugin | metric cards + charts + table; `recv()` only for a refresh button |
+| `beads` skill | `plugin/skills/beads/SKILL.md` | lux plugin | `show_table` from `bd list --json` |
 
 Findings:
 
@@ -50,9 +50,9 @@ Findings:
   observation.** `data-explorer` and `dashboard` mention `recv()` in passing but
   frame it as "detect a refresh-button click," never the publish/recv answer
   loop, and never the dialog dismiss wiring
-  (`skills/data-explorer/SKILL.md:144-165`, `skills/dashboard/SKILL.md:114-122`).
-- Skills live in **`lux/skills/`** and ship via the **marketplace plugin**
-  (`.claude-plugin/plugin.json`), **not** the `punt-lux` PyPI package
+  (`plugin/skills/data-explorer/SKILL.md:144-165`, `plugin/skills/dashboard/SKILL.md:114-122`).
+- Skills live in **`lux/plugin/skills/`** and ship via the **marketplace plugin**
+  (`plugin/.claude-plugin/plugin.json`), **not** the `punt-lux` PyPI package
   (`pyproject.toml:215` — the wheel includes only `src` and `tests`). A consumer
   who installs `punt-lux` but not the plugin gets **no skills at all**.
 - The `allowed-tools` lists in every skill enumerate `show`, `update`, `recv`,
@@ -233,7 +233,7 @@ package. **Weakness:** discoverability — an agent must know to call it; it doe
 not prevent the silent no-op, only answers when asked. Good companion to Rank 2.
 
 **Rank 5 — A Lux plugin skill (interaction/ask-user recipe) (DOCUMENT, plugin
-only).** A new `skills/interaction/SKILL.md` teaching the dialog dismiss pattern
+only).** A new `plugin/skills/interaction/SKILL.md` teaching the dialog dismiss pattern
 and the publish/recv loop. **Weakness:** ships only in the marketplace plugin,
 not the package — fails the "no source install needed" test for a `punt-lux`-only
 consumer, and is hand-maintained prose. Lowest rank for the stated problem,
@@ -305,6 +305,6 @@ touches the wire-decode contract.
 - `publish`/`subscribe`: `src/punt_lux/tools/subscribe_tools.py:33-68`
 - `inspect_scene` (no render_path doc): `src/punt_lux/tools/tools.py:588-608`
 - `render_path`/`resolved_props`: `src/punt_lux/scene_inspection.py:37,75-94`
-- Skills (none teach io-model): `skills/{data-explorer,dashboard,beads}/SKILL.md`
+- Skills (none teach io-model): `plugin/skills/{data-explorer,dashboard,beads}/SKILL.md`
 - Wheel excludes docs: `pyproject.toml:215`
 - README covers dialog shape but omits `click` verb: `README.md:217`, `README.md:162-175`

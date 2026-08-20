@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import final
 
+from punt_lux.domain.hub.applet_name_format import format_name
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.client_roster import ClientRoster
 from punt_lux.domain.hub.client_session import ClientSession
@@ -127,3 +128,78 @@ class TestCommandingClients:
         )
 
         assert [client.name for client in named.commanding()] == ["lux", "lux (2)"]
+
+
+def _applet_session(
+    pid: int, program: str, *commands: SessionCallback
+) -> ClientSession:
+    identity = ClientIdentity(
+        kind="applet",
+        name=format_name("lux", pid, program),
+        repo="/Users/someone/lux",
+    )
+    session = ClientSession(0.0).with_identity(identity).attached(_SilentLeg())
+    for command in commands:
+        session = session.with_callback(command)
+    return session
+
+
+class TestCommandingGroups:
+    """The submenus a menu is composed from — one per group of shared name."""
+
+    def test_a_non_applet_is_a_one_member_group(self) -> None:
+        named = _over(("a", _session("/Users/someone/lux", _beads())))
+
+        groups = list(named.commanding_groups())
+
+        assert [group.name for group in groups] == ["lux"]
+        assert [len(group.members) for group in groups] == [1]
+
+    def test_two_applets_in_one_session_are_one_group(self) -> None:
+        """DES-067: same (repo, session_pid) yields a two-member group."""
+        pid = 12345
+        beads = SessionCallback(id="beads", label="Beads")
+        music = SessionCallback(id="music", label="Music")
+
+        named = _over(
+            ("b", _applet_session(pid, "lux-beads", beads)),
+            ("v", _applet_session(pid, "vox-panel", music)),
+        )
+
+        groups = list(named.commanding_groups())
+
+        assert [group.name for group in groups] == ["lux"]
+        assert len(groups[0].members) == 2
+        member_labels = {
+            callback.label
+            for member in groups[0].members
+            for callback in member.callbacks
+        }
+        assert member_labels == {"Beads", "Music"}
+
+    def test_two_applets_in_different_sessions_are_two_groups(self) -> None:
+        """DES-064's collision-numbering still fires between different sessions."""
+        beads = SessionCallback(id="beads", label="Beads")
+
+        named = _over(
+            ("a", _applet_session(0xAAAA, "lux-beads", beads)),
+            ("b", _applet_session(0xBBBB, "lux-beads", beads)),
+        )
+
+        groups = list(named.commanding_groups())
+
+        assert sorted(group.name for group in groups) == ["lux", "lux (2)"]
+
+    def test_the_senior_member_of_a_group_is_first(self) -> None:
+        """The first-registered applet is the senior, whom Details points at."""
+        pid = 12345
+        beads = SessionCallback(id="beads", label="Beads")
+
+        named = _over(
+            ("first", _applet_session(pid, "lux-beads", beads)),
+            ("second", _applet_session(pid, "vox-panel", beads)),
+        )
+
+        groups = list(named.commanding_groups())
+
+        assert groups[0].members[0].connection_id == ConnectionId("first")

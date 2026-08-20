@@ -340,7 +340,9 @@ probcli.
 
 ## Ethos & Delegation
 
-Identity: `agent: claude` per `.punt-labs/ethos.yaml`. All code delegation uses ethos missions. Every non-trivial delegation has two phases: (1) **design mission** — describes problem, constraints, and invariants but does NOT prescribe a write set; (2) **implementation mission** — uses the write set produced by the design phase. The design mission's output IS the write set — the specialist decides what to create, split, or extract.
+Identity: `agent: claude` per `.punt-labs/ethos/ethos.yaml`. The registry at `.punt-labs/ethos/` is **vendored** (not a submodule) and holds only lux's roster — 12 identities on the `lux` team (`teams/lux.yaml`), not the org's full engineering roster. Upstream changes to `punt-labs/team` don't propagate; a real org-standard change worth pulling in gets deliberately synced by copying the specific files. Persona tuning for lux (e.g. rmh's tool list) lives here and never leaks to other repos.
+
+All code delegation uses ethos missions. Every non-trivial delegation has two phases: (1) **design mission** — describes problem, constraints, and invariants but does NOT prescribe a write set; (2) **implementation mission** — uses the write set produced by the design phase. The design mission's output IS the write set — the specialist decides what to create, split, or extract.
 
 The COO must not read implementation files before writing the design spec. "Add a handler to `display/render_loop.py` at line 923" is a predetermined write set that prevents the specialist from making design decisions. "Add a query operation that returns display metadata — the codebase has a generic query infrastructure, the implementation must follow code quality standards" gives the specialist latitude to decompose and restructure. This is how the original `display.py` grew to 4,208 lines and `display/render_loop.py` is still ~1,400 — write sets were predetermined to existing files instead of letting the specialist extract.
 
@@ -397,7 +399,9 @@ Two lux-specific operational facts the loops rely on:
 
 ## Release
 
-Use `/punt:auto release [version=X.Y.Z]`. Lux is a CLI + Plugin Hybrid — releases publish to both PyPI (`punt-lux`) and the marketplace. Dev plugin testing: `claude --plugin-dir .` loads `lux-dev` alongside prod.
+Use `/punt:auto release [version=X.Y.Z]`. Lux is a CLI + Plugin Hybrid — releases publish to both PyPI (`punt-lux`) and the marketplace. Dev plugin testing: `claude --plugin-dir plugin` loads `lux-dev` alongside prod — the argument is the plugin root, which is `plugin/`, not the repo root.
+
+**The shippable plugin surface lives in `plugin/`.** `plugin/.claude-plugin/`, `plugin/commands/`, `plugin/hooks/`, and `plugin/skills/` are the only directories a marketplace install fetches: the catalog entry uses Claude Code's `git-subdir` source (`"path": "plugin"`), which is a blobless partial clone plus a cone sparse-checkout. Nothing outside `plugin/` may be referenced from inside it, and `${CLAUDE_PLUGIN_ROOT}` resolves to `plugin/`. The wheel is unaffected — `uv_build` ships `src/punt_lux` only, so the plugin surface has never been packaged.
 
 Release scripts: `scripts/release-plugin.sh` (swap `lux-dev` → `lux`), `scripts/restore-dev-plugin.sh` (restore dev state after tag).
 

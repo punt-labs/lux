@@ -1,49 +1,41 @@
 """AppletIdentity — what one applet declares itself to be.
 
-An applet owns two legs into the Hub: the WebSocket it holds open to receive its
-menu clicks, and the REST calls it makes to push what those clicks produce. Both
-must resolve to one Hub connection, so both declare this identity;
+An applet owns two legs into the Hub: the WebSocket it holds open for its menu
+clicks, and the REST calls it makes to push what those clicks produce. Both
+must resolve to one Hub connection, so both declare this identity, and
 :func:`~punt_lux.connection_identity.connection_for` derives the shared
 connection id from its fields.
 
-The name is what a user reads in the menu bar, so it says three things in one
-uniform shape — ``lux · <repository> · #<session>``: which tool the entries
-belong to, which repository this session works in, and which of possibly several
-sessions on that repository it is.
+The name reads as one uniform shape — ``lux · <repository> · #<session> ·
+<program>`` — with each part carrying a distinct guarantee. The session id
+keeps two Claude Code sessions on one repository from collapsing onto one
+connection (the second's WebSocket would silently take over the first's
+clicks). The program name keeps two applets in one session from doing the
+same. Empty, whitespace-only, and NUL-carrying programs are rejected.
 
-The last part is not cosmetic. Two Claude Code sessions open on the same
-repository are two separate services with separate menu entries, and identities
-that compared equal would collapse them onto one connection — the second
-session's WebSocket would silently take over the first's clicks. The session's
-process id distinguishes them, and it is the *session's* rather than the applet's
-for the same reason the applet watches it: the entry belongs to the session. An
-applet restarted against a live session comes back as the same identity and takes
-its own entry over, which is what the succession rules are for.
+The declared lease is short: the Hub sweeps a session whose lease lapses, and
+the listen client renews well inside that window, so a live session never
+lapses and a dead one is gone within the minute.
 
-The declared lease is short on purpose: a session's menu entry should leave the
-bar shortly after the session does. The Hub sweeps a session whose lease lapses,
-and the listen client's keepalive renews well inside that window, so a live
-session never lapses and a dead one is gone within the minute — even if the
-applet's own exit went wrong.
+The name is composed here and parsed by
+:mod:`~punt_lux.domain.hub.applet_name_format`; the round-trip test pins both.
 """
 
 from __future__ import annotations
 
 from typing import Self, final
 
+from punt_lux.domain.hub import applet_name_format
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.repo_root import RepoRoot
 
 __all__ = ["AppletIdentity"]
 
-# What an applet outside any repository calls itself — real and named, the
-# headless counterpart of the repository directory name.
+# What an applet outside any repository calls itself.
 _HEADLESS_NAME = "lux-session"
 
-# How long the Hub may go without hearing from this applet before sweeping it.
-# The listen client renews every 15s, so four beats may be lost before the menu
-# entry goes — long enough to ride out a Hub restart, short enough that a killed
-# session's entry does not linger.
+# Sweep-cadence bounds: longer than several 15s keepalives, short enough that
+# a killed session's menu entry leaves the bar within the minute.
 _LEASE_TTL_SECONDS = 60.0
 
 
@@ -60,19 +52,31 @@ class AppletIdentity:
         return self
 
     @classmethod
-    def for_session(cls, session_pid: int) -> Self:
-        """Derive this applet's identity from its session and its repository."""
+    def for_session(cls, program: str, session_pid: int) -> Self:
+        """Derive this applet's identity from its program, session, and repository."""
+        program = cls._validate_program(program)
         repo = RepoRoot.of(_HEADLESS_NAME)
         return cls(
             ClientIdentity(
                 kind="applet",
-                name=f"lux · {repo.name} · #{session_pid:x}",
+                name=applet_name_format.format_name(repo.name, session_pid, program),
                 repo=repo.declared_path,
                 lease_ttl=_LEASE_TTL_SECONDS,
             )
         )
 
+    @staticmethod
+    def _validate_program(program: str) -> str:
+        """Return *program* stripped, or raise if empty or NUL-carrying."""
+        if not (program := program.strip()):
+            msg = "program must be a non-empty, non-whitespace label"
+            raise ValueError(msg)
+        if "\x00" in program:
+            msg = "program must not contain a NUL character"
+            raise ValueError(msg)
+        return program
+
     @property
     def client(self) -> ClientIdentity:
-        """The identity both Hub legs declare, and the menu label this applet."""
+        """The identity both Hub legs declare."""
         return self._client
