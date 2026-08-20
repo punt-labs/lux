@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import cast
 
-import click
 import typer.main
+from typer.core import TyperCommand, TyperGroup
 
 from punt_lux import commands
 from punt_lux.__main__ import app
@@ -63,13 +64,13 @@ def _typer_command_paths() -> set[tuple[str, ...]]:
 
     E.g. ``lux scene show`` -> ``("scene", "show")``, ``lux ping`` -> ``("ping",)``.
     """
-    root = typer.main.get_command(app)
+    root = cast("TyperCommand | TyperGroup", typer.main.get_command(app))
     paths: set[tuple[str, ...]] = set()
 
-    def walk(cmd: click.Command, prefix: tuple[str, ...]) -> None:
-        if isinstance(cmd, click.Group):
+    def walk(cmd: TyperCommand | TyperGroup, prefix: tuple[str, ...]) -> None:
+        if isinstance(cmd, TyperGroup):
             for name, sub in cmd.commands.items():
-                walk(sub, (*prefix, name))
+                walk(cast("TyperCommand | TyperGroup", sub), (*prefix, name))
         else:
             paths.add(prefix)
 
