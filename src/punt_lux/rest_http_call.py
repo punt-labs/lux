@@ -41,6 +41,16 @@ class HttpCall:
         return cls("POST", path, body.model_dump_json().encode(), headers)
 
     @classmethod
+    def patch(cls, path: str, body: BaseModel, headers: Mapping[str, str]) -> Self:
+        """A ``PATCH`` carrying ``body`` serialized to JSON — a partial update."""
+        return cls("PATCH", path, body.model_dump_json().encode(), headers)
+
+    @classmethod
+    def delete(cls, path: str, headers: Mapping[str, str]) -> Self:
+        """A ``DELETE`` with no body under the caller's headers."""
+        return cls("DELETE", path, None, headers)
+
+    @classmethod
     def command(cls, path: str, headers: Mapping[str, str]) -> Self:
         """A ``POST`` with no body — an action on a resource that takes no arguments.
 

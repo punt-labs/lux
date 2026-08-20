@@ -16,27 +16,49 @@ from typing import TYPE_CHECKING, Self, final
 from urllib.parse import quote, urlencode
 
 from punt_lux.cli_identity import CliIdentity
+from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.hub_client import LuxHubClient
 from punt_lux.hub_paths import HubPaths
 from punt_lux.identity_headers import ClientHeaders
 from punt_lux.operations import (
+    Cleared,
+    ClientList,
+    DisplayInfo,
+    DisplayModeState,
     FrameRaise,
+    MenuList,
     Ok,
     OpError,
     Pong,
+    RecentErrors,
+    RecentEvents,
     RenderRequest,
     RenderTableRequest,
+    SceneInspection,
+    SceneList,
     SceneShown,
+    ThemeState,
+    WindowSettings,
 )
 from punt_lux.operations.models.callbacks import RegisterCallbackRequest
+from punt_lux.operations.models.identity import Identified
 from punt_lux.rest_http_call import HttpCall
 from punt_lux.rest_loopback import LoopbackTransport
 from punt_lux.rest_reply import RestReply
 from punt_lux.rest_transport import HttpTransport, HubUnavailableError
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.hub_client import CallbackHandler, ConnectHandler, EventHandler
+    from punt_lux.operations import (
+        DisplayModeRequest,
+        FrameStatePatch,
+        InspectScope,
+        RenderDashboardRequest,
+        SetMenuRequest,
+        SetThemeRequest,
+        UpdateRequest,
+        WindowSettingsPatch,
+    )
 
 __all__ = ["LuxRestClient"]
 
@@ -175,6 +197,158 @@ class LuxRestClient:
         suffix = f"?{urlencode({'timeout': wait})}" if wait is not None else ""
         call = HttpCall.read(f"/display/ping{suffix}", self._headers)
         return RestReply(self._transport.request(call)).read(Pong)
+
+    def render_dashboard(self, request: RenderDashboardRequest) -> SceneShown | OpError:
+        """Construct a dashboard scene through ``PUT /scenes/{scene_id}/dashboard``."""
+        segment = quote(request.scene_id, safe="")
+        path = f"/scenes/{segment}/dashboard"
+        return self._send(HttpCall.write(path, request, self._headers))
+
+    def update(self, scene_id: str, request: UpdateRequest) -> SceneShown | OpError:
+        """Apply a patch batch through ``PATCH /scenes/{scene_id}``."""
+        segment = quote(scene_id, safe="")
+        call = HttpCall.patch(f"/scenes/{segment}", request, self._headers)
+        return self._send(call)
+
+    def clear(self) -> Cleared | OpError:
+        """Clear every scene this identity owns through ``DELETE /scenes``."""
+        call = HttpCall.delete("/scenes", self._headers)
+        return RestReply(self._transport.request(call)).read(Cleared)
+
+    def clear_scene(self, scene_id: str) -> Cleared | OpError:
+        """Clear one scene through ``DELETE /scenes/{scene_id}``."""
+        segment = quote(scene_id, safe="")
+        call = HttpCall.delete(f"/scenes/{segment}", self._headers)
+        return RestReply(self._transport.request(call)).read(Cleared)
+
+    def list_scenes(self) -> SceneList:
+        """List every live scene and frame through ``GET /scenes``.
+
+        ``SceneOps.list_scenes`` promises a ``SceneList`` with no error case
+        (the in-process ``Operations`` facade this Protocol also serves never
+        fails this read); a REST-level fault is a genuine surprise, so it is
+        raised rather than returned (PY-EH-8).
+        """
+        call = HttpCall.read("/scenes", self._headers)
+        result = RestReply(self._transport.request(call)).read(SceneList)
+        if isinstance(result, OpError):
+            raise RuntimeError(f"list_scenes failed: {result.reason}")
+        return result
+
+    def inspect_scene(
+        self, scene_id: str, *, facts: InspectScope
+    ) -> SceneInspection | OpError:
+        """Return the caller's own scene tree through ``GET /scenes/{scene_id}``."""
+        segment = quote(scene_id, safe="")
+        query = urlencode({"want_geometry": facts.want_geometry})
+        call = HttpCall.read(f"/scenes/{segment}?{query}", self._headers)
+        return RestReply(self._transport.request(call)).read(SceneInspection)
+
+    def list_clients(self) -> ClientList:
+        """List the Hub's sessions and their scopes through ``GET /clients``.
+
+        ``SessionOps.list_clients`` promises a ``ClientList`` with no error
+        case; a REST-level fault is raised rather than returned (PY-EH-8).
+        """
+        call = HttpCall.read("/clients", self._headers)
+        result = RestReply(self._transport.request(call)).read(ClientList)
+        if isinstance(result, OpError):
+            raise RuntimeError(f"list_clients failed: {result.reason}")
+        return result
+
+    def set_frame_state(self, frame_id: str, patch: FrameStatePatch) -> Ok | OpError:
+        """Change a frame's minimize state through ``PATCH /display/frames/{id}``."""
+        segment = quote(frame_id, safe="")
+        call = HttpCall.patch(f"/display/frames/{segment}", patch, self._headers)
+        return RestReply(self._transport.request(call)).read(Ok)
+
+    def list_menus(self) -> MenuList | OpError:
+        """Return the Hub-authoritative menu bar through ``GET /menus``."""
+        call = HttpCall.read("/menus", self._headers)
+        return RestReply(self._transport.request(call)).read(MenuList)
+
+    def set_menu(self, request: SetMenuRequest) -> Ok | OpError:
+        """Replace the Hub-owned menu bar through ``PUT /menus``."""
+        call = HttpCall.write("/menus", request, self._headers)
+        return RestReply(self._transport.request(call)).read(Ok)
+
+    def get_display_info(self) -> DisplayInfo | OpError:
+        """Return the display's backend/geometry through ``GET /display``."""
+        call = HttpCall.read("/display", self._headers)
+        return RestReply(self._transport.request(call)).read(DisplayInfo)
+
+    def get_theme(self) -> ThemeState | OpError:
+        """Return the active theme through ``GET /display/theme``."""
+        call = HttpCall.read("/display/theme", self._headers)
+        return RestReply(self._transport.request(call)).read(ThemeState)
+
+    def set_theme(self, request: SetThemeRequest) -> ThemeState | OpError:
+        """Switch the display theme through ``PUT /display/theme``."""
+        call = HttpCall.write("/display/theme", request, self._headers)
+        return RestReply(self._transport.request(call)).read(ThemeState)
+
+    def get_window_settings(self) -> WindowSettings | OpError:
+        """Return the window's settings through ``GET /display/window``."""
+        call = HttpCall.read("/display/window", self._headers)
+        return RestReply(self._transport.request(call)).read(WindowSettings)
+
+    def set_window_settings(
+        self, patch: WindowSettingsPatch
+    ) -> WindowSettings | OpError:
+        """Change window settings through ``PATCH /display/window``."""
+        call = HttpCall.patch("/display/window", patch, self._headers)
+        return RestReply(self._transport.request(call)).read(WindowSettings)
+
+    def read_display_mode(self, repo: str) -> DisplayModeState | OpError:
+        """Read a project's display mode through ``GET /display-mode``."""
+        query = urlencode({"repo": repo})
+        call = HttpCall.read(f"/display-mode?{query}", self._headers)
+        return RestReply(self._transport.request(call)).read(DisplayModeState)
+
+    def write_display_mode(
+        self, request: DisplayModeRequest
+    ) -> DisplayModeState | OpError:
+        """Write a project's display mode through ``PUT /display-mode``."""
+        call = HttpCall.write("/display-mode", request, self._headers)
+        return RestReply(self._transport.request(call)).read(DisplayModeState)
+
+    def identify(
+        self, declaration: dict[str, object], *, scope: object
+    ) -> Identified | OpError:
+        """Confirm this client's declared identity, with no network round trip.
+
+        REST has no dedicated identify endpoint: every request already carries
+        this client's ``X-Lux-Client-*`` headers, and the Hub resolves the same
+        identity from them on every write via ``RestCaller.resolve`` (the same
+        ``session_identify`` command this method's counterpart runs Hub-side).
+        A separate wire call here would declare nothing new, so this validates
+        ``declaration`` against the client's own identity and confirms it.
+        """
+        del scope  # unused: REST composes scope from headers on every request
+        parsed = ClientIdentity.model_validate(
+            {**declaration, "kind": declaration.get("kind", self._identity.kind)}
+        )
+        if parsed != self._identity:
+            return OpError(
+                code="invalid_request",
+                reason=(
+                    "declared identity does not match this REST client's "
+                    "identity headers"
+                ),
+            )
+        return Identified(identity=self._identity)
+
+    def list_recent_events(self, count: int) -> RecentEvents | OpError:
+        """Return recent interactions through ``GET /events``."""
+        query = urlencode({"count": count})
+        call = HttpCall.read(f"/events?{query}", self._headers)
+        return RestReply(self._transport.request(call)).read(RecentEvents)
+
+    def list_errors(self, count: int) -> RecentErrors | OpError:
+        """Return recent errors through ``GET /errors``."""
+        query = urlencode({"count": count})
+        call = HttpCall.read(f"/errors?{query}", self._headers)
+        return RestReply(self._transport.request(call)).read(RecentErrors)
 
     def _send(self, call: HttpCall) -> SceneShown | OpError:
         """Send a scene-write call and read its reply as a ``SceneShown`` or error."""
