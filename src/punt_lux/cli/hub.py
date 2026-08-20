@@ -15,7 +15,7 @@ import typer
 
 from punt_lux.hub_paths import HubPaths
 from punt_lux.hub_restart import HubRestart, HubRestartError
-from punt_lux.service import ServiceManager
+from punt_lux.service import ServiceManager, ServiceNotInstalledError
 
 hub_app = typer.Typer(
     name="hub",
@@ -40,14 +40,18 @@ def uninstall() -> None:
 
 @hub_app.command("start")
 def start() -> None:
-    """Report luxd status; luxd is auto-started by its supervisor after install."""
+    """Start luxd if it is installed and stopped; report status if already running."""
     hub_paths = HubPaths()
-    if not hub_paths.is_running():
-        typer.echo("luxd not running. Run 'lux hub install' to register the service.")
-        raise typer.Exit(code=1)
-    port = hub_paths.read_port()
-    label = f"luxd running (port {port})" if port is not None else "luxd running"
-    typer.echo(label)
+    if hub_paths.is_running():
+        port = hub_paths.read_port()
+        label = f"luxd running (port {port})" if port is not None else "luxd running"
+        typer.echo(label)
+        return
+    try:
+        typer.echo(ServiceManager().start())
+    except ServiceNotInstalledError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from None
 
 
 @hub_app.command("stop")

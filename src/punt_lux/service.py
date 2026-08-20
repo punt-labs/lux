@@ -13,15 +13,16 @@ import platform
 from pathlib import Path
 from typing import Self
 
-from punt_lux._backends import (
-    LaunchdBackend,
-    ServiceBackend,
-    SystemdBackend,
-    has_linger,
-)
+from punt_lux._backend_launchd import LaunchdBackend
+from punt_lux._backend_systemd import SystemdBackend
+from punt_lux._backends import ServiceBackend, has_linger
 from punt_lux.luxd import DEFAULT_HUB_PORT
 
 logger = logging.getLogger(__name__)
+
+
+class ServiceNotInstalledError(RuntimeError):
+    """The service has not been installed; the message names the fix."""
 
 
 def detect_platform() -> str:
@@ -114,6 +115,14 @@ class ServiceManager:
         """Stop the daemon without removing its service registration."""
         self._backend.stop()
         return "luxd stopped."
+
+    def start(self) -> str:
+        """Start an already-installed, stopped daemon. Raise if not installed."""
+        if not self._backend.config_path().exists():
+            msg = "luxd is not installed. Run 'lux hub install' first."
+            raise ServiceNotInstalledError(msg)
+        self._backend.start()
+        return "luxd started."
 
     @property
     def is_active(self) -> bool:

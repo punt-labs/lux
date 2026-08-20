@@ -19,6 +19,44 @@ class TestHubStatus:
         assert "not running" in result.output
 
 
+class TestHubStart:
+    def test_start_resumes_a_stopped_installed_service(self) -> None:
+        with (
+            patch("punt_lux.hub_paths.HubPaths.is_running", return_value=False),
+            patch("punt_lux.cli.hub.ServiceManager") as mock_cls,
+        ):
+            mock_cls.return_value.start.return_value = "luxd started."
+            result = runner.invoke(app, ["hub", "start"])
+        assert result.exit_code == 0
+        assert "luxd started." in result.output
+        mock_cls.return_value.start.assert_called_once()
+
+    def test_start_reports_not_installed(self) -> None:
+        from punt_lux.service import ServiceNotInstalledError
+
+        with (
+            patch("punt_lux.hub_paths.HubPaths.is_running", return_value=False),
+            patch("punt_lux.cli.hub.ServiceManager") as mock_cls,
+        ):
+            mock_cls.return_value.start.side_effect = ServiceNotInstalledError(
+                "luxd is not installed. Run 'lux hub install' first."
+            )
+            result = runner.invoke(app, ["hub", "start"])
+        assert result.exit_code == 1
+        assert "lux hub install" in result.output
+
+    def test_start_reports_already_running_without_calling_the_backend(self) -> None:
+        with (
+            patch("punt_lux.hub_paths.HubPaths.is_running", return_value=True),
+            patch("punt_lux.hub_paths.HubPaths.read_port", return_value=8430),
+            patch("punt_lux.cli.hub.ServiceManager") as mock_cls,
+        ):
+            result = runner.invoke(app, ["hub", "start"])
+        assert result.exit_code == 0
+        assert "8430" in result.output
+        mock_cls.return_value.start.assert_not_called()
+
+
 class TestHubStop:
     def test_stop_calls_the_service_manager(self) -> None:
         with patch("punt_lux.cli.hub.ServiceManager") as mock_cls:

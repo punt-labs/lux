@@ -161,7 +161,9 @@ ignore = [
 # for this directory; A002 is suppressed for protocol/elements/ only.
 "src/punt_lux/protocol/elements/*.py" = ["A002"]
 "src/punt_lux/service.py" = ["S603", "S607", "PLC0415"]
-"src/punt_lux/_backends.py" = ["S603", "S607", "PLC0415"]
+"src/punt_lux/_backends.py" = ["S603", "S607"]
+"src/punt_lux/_backend_launchd.py" = ["S603", "S607", "PLC0415"]
+"src/punt_lux/_backend_systemd.py" = ["S603", "S607"]
 # Lazy imports to break circular dependency chains in domain/protocol layers
 "src/punt_lux/domain/event_handler_host.py" = ["PLC0415"]
 "src/punt_lux/domain/hub/hub_interaction_dispatch.py" = ["PLC0415"]

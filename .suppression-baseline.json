@@ -1,19 +1,22 @@
 {
-  "total": 99,
+  "total": 103,
   "by_category": {
     "noqa": 21,
     "type_ignore": 4,
     "pylint_disable": 2,
     "pyright_ignore": 5,
-    "per_file_ignores": 67
+    "per_file_ignores": 71
   },
   "by_file": {
     "src/punt_lux/__main__.py": {
       "noqa": 1,
       "pyright_ignore": 2
     },
-    "src/punt_lux/_backends.py": {
-      "pylint_disable": 2
+    "src/punt_lux/_backend_launchd.py": {
+      "pylint_disable": 1
+    },
+    "src/punt_lux/_backend_systemd.py": {
+      "pylint_disable": 1
     },
     "src/punt_lux/apps/_beads_payload.py": {
       "type_ignore": 1
@@ -77,5 +80,5 @@
       "noqa": 2
     }
   },
-  "updated_at": "2026-08-20T08:28:15Z"
+  "updated_at": "2026-08-20T10:34:42Z"
 }
