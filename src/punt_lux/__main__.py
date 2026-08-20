@@ -8,6 +8,8 @@ import typer
 
 from punt_lux import __version__
 from punt_lux.cli.display import display_app
+from punt_lux.cli.error import error_app
+from punt_lux.cli.event import event_app
 from punt_lux.cli.frame import frame_app
 from punt_lux.cli.hub import hub_app
 from punt_lux.cli.menu import menu_app
@@ -63,6 +65,8 @@ app.add_typer(scene_app, name="scene")
 app.add_typer(frame_app, name="frame")
 app.add_typer(menu_app, name="menu")
 app.add_typer(display_app, name="display")
+app.add_typer(event_app, name="event")
+app.add_typer(error_app, name="error")
 
 
 # Product commands
