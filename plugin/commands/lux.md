@@ -1,7 +1,7 @@
 ---
 description: "Enable or disable lux"
 argument-hint: "y | n"
-allowed-tools: ["mcp__plugin_lux_lux__display_mode", "mcp__plugin_lux_lux__set_display_mode", "mcp__plugin_lux_lux__clear", "mcp__plugin_lux-dev_lux__display_mode", "mcp__plugin_lux-dev_lux__set_display_mode", "mcp__plugin_lux-dev_lux__clear", "mcp__lux__display_mode", "mcp__lux__set_display_mode", "mcp__lux__clear"]
+allowed-tools: ["mcp__plugin_lux_lux__display_mode", "mcp__plugin_lux_lux__set_display_mode", "mcp__plugin_lux_lux__scene_clear_all", "mcp__plugin_lux-dev_lux__display_mode", "mcp__plugin_lux-dev_lux__set_display_mode", "mcp__plugin_lux-dev_lux__scene_clear_all", "mcp__lux__display_mode", "mcp__lux__set_display_mode", "mcp__lux__scene_clear_all"]
 ---
 
 # /lux command

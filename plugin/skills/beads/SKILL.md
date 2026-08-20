@@ -8,15 +8,15 @@ description: >
   "kanban", "backlog view", or "bd ready in lux".
 allowed-tools:
   - Bash
-  - mcp__plugin_lux_lux__show_table
-  - mcp__plugin_lux-dev_lux__show_table
-  - mcp__lux__show_table
-  - mcp__plugin_lux_lux__show
-  - mcp__plugin_lux-dev_lux__show
-  - mcp__lux__show
-  - mcp__plugin_lux_lux__identify
-  - mcp__plugin_lux-dev_lux__identify
-  - mcp__lux__identify
+  - mcp__plugin_lux_lux__scene_table
+  - mcp__plugin_lux-dev_lux__scene_table
+  - mcp__lux__scene_table
+  - mcp__plugin_lux_lux__scene_show
+  - mcp__plugin_lux-dev_lux__scene_show
+  - mcp__lux__scene_show
+  - mcp__plugin_lux_lux__session_identify
+  - mcp__plugin_lux-dev_lux__session_identify
+  - mcp__lux__session_identify
 ---
 
 # /lux:beads — Beads Issue Board

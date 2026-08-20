@@ -7,17 +7,17 @@ description: >
   data", or wants to interactively navigate tabular data. Also triggered by
   "data viewer", "record browser", "filterable table", or "drill into the data".
 allowed-tools:
-  - mcp__plugin_lux_lux__show
-  - mcp__plugin_lux_lux__update
-  - mcp__plugin_lux_lux__recv
+  - mcp__plugin_lux_lux__scene_show
+  - mcp__plugin_lux_lux__scene_update
+  - mcp__plugin_lux_lux__topic_recv
   - mcp__plugin_lux_lux__set_theme
-  - mcp__plugin_lux-dev_lux__show
-  - mcp__plugin_lux-dev_lux__update
-  - mcp__plugin_lux-dev_lux__recv
+  - mcp__plugin_lux-dev_lux__scene_show
+  - mcp__plugin_lux-dev_lux__scene_update
+  - mcp__plugin_lux-dev_lux__topic_recv
   - mcp__plugin_lux-dev_lux__set_theme
-  - mcp__lux__show
-  - mcp__lux__update
-  - mcp__lux__recv
+  - mcp__lux__scene_show
+  - mcp__lux__scene_update
+  - mcp__lux__topic_recv
   - mcp__lux__set_theme
 ---
 

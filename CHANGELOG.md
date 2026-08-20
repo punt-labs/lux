@@ -4,6 +4,56 @@
 
 ### Changed (BREAKING)
 
+- **MCP tool rename train — 22 renames + 1 new tool + frame_split.** Every
+  MCP-visible tool now uses the noun_verb form of the design vocabulary.
+  There are **no aliases** (PL-PP-1) — any agent invoking an old name after
+  this release will error with an unknown-tool response. The full rename map:
+
+  | Old MCP tool | New MCP tool |
+  |---|---|
+  | `show` | `scene_show` |
+  | `update` | `scene_update` |
+  | `clear` | `scene_clear_all` |
+  | `clear_scene` | `scene_clear` |
+  | `inspect_scene` | `scene_inspect` |
+  | `list_scenes` | `scene_ls` |
+  | `show_table` | `scene_table` |
+  | `show_dashboard` | `scene_dashboard` |
+  | `set_frame_state` (with `minimized`) | `frame_close` (split) |
+  | `list_menus` | `menu_ls` |
+  | `set_menu` | `menu_set` |
+  | `list_clients` | `session_ls` |
+  | `identify` | `session_identify` |
+  | `publish` | `topic_publish` |
+  | `subscribe` | `topic_subscribe` |
+  | `unsubscribe` | `topic_unsubscribe` |
+  | `recv` | `topic_recv` |
+  | `register_callback` | `callback_register` |
+  | `get_display_info` | `display_info` |
+  | `screenshot` | `display_screenshot` |
+  | `list_recent_events` | `event_ls` |
+  | `list_errors` | `error_ls` |
+  | (new) | `callback_pending` |
+  | `set_frame_state` (raise semantics) | `frame_raise` (split) |
+
+- **Frame split — 2 verbs, not 4.** The design's four-verb split
+  (`raise|lower|close|expire`) needs display-protocol capabilities that do
+  not yet exist: z-order (for `lower`) and `FrameExpiry.set_deadline`
+  exposed publicly (for scheduled `expire`). This release ships the two
+  verbs the domain supports today: `frame_raise` and `frame_close`. The
+  old `set_frame_state` MCP tool, `lux frame set-state` CLI verb, PATCH
+  `/display/frames/{id}` REST route, and `Operations.set_frame_state`
+  facade method are all removed with no alias.
+
+### Not shipped (by design, capability gap)
+
+- **`frame_lower`** — needs a genuine z-order concept in the display
+  protocol (only minimize exists today, which is not z-order lowering).
+  Follow-on bead.
+- **`frame_expire --in <seconds>`** — needs `FrameExpiry.set_deadline`
+  exposed through `FrameLifecycle`, currently private to the presentation
+  re-show path in `domain/hub/`. Follow-on bead.
+
 - **The CLI is now noun-grouped, matching the vocabulary the MCP tools and
   REST routes use.** Every flat verb from before this release is retired,
   with no alias (PL-PP-1) — a script or muscle-memory invocation of any of
