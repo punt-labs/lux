@@ -4,13 +4,13 @@ argument-hint: ""
 allowed-tools: ["mcp__plugin_lux_lux__scene_clear_all", "mcp__plugin_lux-dev_lux__scene_clear_all", "mcp__lux__scene_clear_all"]
 ---
 
-# /lux:scene.clear_all
+# /lux:scene.clear-all
 
 Remove every scene owned by this session from the Hub. Does not touch scenes owned by other agents.
 
 ## Usage
 
-- `/lux:scene.clear_all` — clear all scenes owned by this session
+- `/lux:scene.clear-all` — clear all scenes owned by this session
 
 ## Implementation
 

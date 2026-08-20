@@ -14,4 +14,4 @@ Raise a Hub-owned frame to the top of the window stack. If the frame was minimiz
 
 ## Implementation
 
-Parse `$ARGUMENTS` as one frame id. Call the `frame_raise` MCP tool. An unknown frame returns an error.
+Parse `$ARGUMENTS` as one frame id. Call the `frame_raise` MCP tool. The result is a `FrameRaise` record; when the display does not hold the named frame the record reports `raised: false` rather than an error. Only transport or schema failures return an error envelope.

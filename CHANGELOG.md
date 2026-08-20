@@ -12,9 +12,12 @@
   names commands with dots explicitly, so a dotted filename is the
   slash routing convention adopted here. New commands, by noun:
 
-  - **scene** (8): `/lux:scene.show`, `/lux:scene.update`,
-    `/lux:scene.clear`, `/lux:scene.clear_all`, `/lux:scene.ls`,
-    `/lux:scene.inspect`, `/lux:scene.table`, `/lux:scene.dashboard`
+  - **scene** (7): `/lux:scene.show`, `/lux:scene.update`,
+    `/lux:scene.clear`, `/lux:scene.clear-all`, `/lux:scene.ls`,
+    `/lux:scene.inspect`, `/lux:scene.table`. The dashboard slot is
+    covered by the composed `scene.dashboard` SKILL (see below), not a
+    thin slash — the two would register the same `/lux:scene.dashboard`
+    name and shadow each other.
   - **frame** (2): `/lux:frame.raise`, `/lux:frame.close`
   - **menu** (2): `/lux:menu.ls`, `/lux:menu.set`
   - **session** (1): `/lux:session.ls`
@@ -23,13 +26,18 @@
   - **display** (2): `/lux:display.info`, `/lux:display.screenshot`
   - **event** (1): `/lux:event.ls`
   - **error** (1): `/lux:error.ls`
+  - **callback** (1): `/lux:callback.pending`
   - **top-level** (1): `/lux:ping`
+
+  Slash file names follow the CLI verb spelling: `scene.clear-all`
+  matches `lux scene clear-all` (hyphen), even though the MCP tool
+  keeps the underscored `scene_clear_all` (transport convention).
 
   The existing `/lux y|n` enable/disable command (`plugin/commands/lux.md`)
   is unchanged — it stays at the top level as the per-repo integration
   switch.
 
-  **Not shipped as slash (by design).** Four MCP tools have no slash
+  **Not shipped as slash (by design).** Seven MCP tools have no slash
   equivalent, each for a stated reason:
 
   - `topic_recv` — non-blocking receive; a slash `/lux:topic.recv`
@@ -42,8 +50,12 @@
   - `callback_register` — callback registration is a programmatic
     step of hosting a menu entry; a slash form has no meaningful
     ergonomics (the caller has to provide an opaque callback id).
-  - `callback_pending` — programmatic drain from a listening client,
-    not a user-typed operation.
+  - `display_theme_get`, `display_theme_set`, `display_window_get`,
+    `display_window_set` — deferred to the display fuse follow-on
+    (`lux-5pwu`); once fused, one slash `/lux:display.theme`
+    covers get+set (and likewise `/lux:display.window`). Shipping
+    four thin slashes now would have to be retired within the same
+    epic.
 
 - **Skills reorganized under the scene noun group.** The three existing
   skills move from `plugin/skills/{beads,dashboard,data-explorer}/` to
@@ -53,6 +65,9 @@
   scene?" discovers the thin slashes and the composed skills in one
   place. The session-start hook's `Skill()` allowlist and the
   `scripts/check-skill-permissions.sh` gate are updated to match.
+  The `scene.dashboard` SKILL owns the `/lux:scene.dashboard` slash
+  outright — the thin scene.dashboard command file was not shipped,
+  so the two never collide.
 
 - **`LuxClient` — the public library facade with noun-grouped accessors
   (`lux-0shg.7`).** A downstream Python consumer now holds a single

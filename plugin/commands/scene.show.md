@@ -10,7 +10,7 @@ Display a scene — a tree of typed elements — in the Lux window. Replaces the
 
 ## Usage
 
-- `/lux:scene.show my-scene [{"kind":"text","content":"hello"}]` — render one text element under scene id `my-scene`
+- `/lux:scene.show my-scene [{"kind":"text","id":"t1","content":"hello"}]` — render one text element under scene id `my-scene`
 - `/lux:scene.show my-scene [...] title="My Panel" layout=columns` — with a title and a columns layout
 - `/lux:scene.show my-scene [...] frame_id=work frame_title="Work"` — pin the scene into a named frame
 
