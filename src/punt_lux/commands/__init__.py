@@ -18,7 +18,8 @@ Library callers await these directly::
 from __future__ import annotations
 
 from punt_lux.commands._ports import (
-    CallbackOps,
+    CallbackPendingOps,
+    CallbackRegisterOps,
     Ctx,
     DisplayInfoOps,
     DisplayModeOps,
@@ -67,7 +68,8 @@ from punt_lux.commands.topic_subscribe import topic_subscribe
 from punt_lux.commands.topic_unsubscribe import topic_unsubscribe
 
 __all__ = [
-    "CallbackOps",
+    "CallbackPendingOps",
+    "CallbackRegisterOps",
     "CommandResult",
     "Ctx",
     "DisplayInfoOps",

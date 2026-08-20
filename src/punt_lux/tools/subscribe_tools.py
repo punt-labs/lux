@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 
 from punt_lux.commands import (
-    CallbackOps,
+    CallbackRegisterOps,
     Ctx as CommandCtx,
     TopicOps,
     callback_register as callback_register_command,
@@ -123,7 +123,7 @@ def register_callback(callback_id: str, label: str) -> str:
     session's lease lapses, so there is no separate withdrawal — disconnecting or
     letting the lease expire removes it.
     """
-    ctx: CommandCtx[CallbackOps] = CommandCtx(
+    ctx: CommandCtx[CallbackRegisterOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
     )
     request = RegisterCallbackRequest.parse(callback_id=callback_id, label=label)

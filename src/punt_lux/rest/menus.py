@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Annotated, Self, final
 from fastapi import APIRouter, Depends
 
 from punt_lux.commands import (
-    CallbackOps,
+    CallbackRegisterOps,
     Ctx as CommandCtx,
     MenuOps,
     callback_register as callback_register_command,
@@ -75,7 +75,9 @@ class MenuRoutes:
     def _menu_ctx(self, identity: ClientIdentity) -> CommandCtx[MenuOps]:
         return CommandCtx(ops=self._ops, identity=identity)
 
-    def _callback_ctx(self, identity: ClientIdentity) -> CommandCtx[CallbackOps]:
+    def _callback_ctx(
+        self, identity: ClientIdentity
+    ) -> CommandCtx[CallbackRegisterOps]:
         return CommandCtx(ops=self._ops, identity=identity)
 
     def list_menus(self, identity: _CallerIdentity) -> MenuList:

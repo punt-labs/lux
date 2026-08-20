@@ -128,7 +128,8 @@ class StubSessionOps:
 
 @final
 class StubCallbackOps:
-    """``CallbackOps`` stub returning one preset outcome per method."""
+    """Combined ``CallbackRegisterOps``/``CallbackPendingOps`` stub, one outcome
+    per method."""
 
     _register: Ok | OpError | None
     _pending: tuple[CallbackInvocation, ...]

@@ -17,7 +17,7 @@ from punt_lux.commands._result import CommandResult
 from punt_lux.operations import Ok, OpError
 
 if TYPE_CHECKING:
-    from punt_lux.commands._ports import CallbackOps, Ctx
+    from punt_lux.commands._ports import CallbackRegisterOps, Ctx
     from punt_lux.operations import Scope
     from punt_lux.operations.models.callbacks import RegisterCallbackRequest
 
@@ -33,7 +33,7 @@ class CallbackRegisterCommand:
 
     async def execute(
         self,
-        ctx: Ctx[CallbackOps],
+        ctx: Ctx[CallbackRegisterOps],
         request: RegisterCallbackRequest | OpError,
         *,
         scope: Scope,
@@ -43,7 +43,7 @@ class CallbackRegisterCommand:
 
     async def __call__(
         self,
-        ctx: Ctx[CallbackOps],
+        ctx: Ctx[CallbackRegisterOps],
         request: RegisterCallbackRequest | OpError,
         *,
         scope: Scope,

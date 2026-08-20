@@ -7,6 +7,7 @@ import sys
 import typer
 
 from punt_lux import __version__
+from punt_lux.cli.callback import callback_app
 from punt_lux.cli.display import display_app
 from punt_lux.cli.error import error_app
 from punt_lux.cli.event import event_app
@@ -67,6 +68,7 @@ app.add_typer(menu_app, name="menu")
 app.add_typer(display_app, name="display")
 app.add_typer(event_app, name="event")
 app.add_typer(error_app, name="error")
+app.add_typer(callback_app, name="callback")
 
 
 # Product commands
