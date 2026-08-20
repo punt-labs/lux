@@ -51,7 +51,7 @@ if TYPE_CHECKING:
     )
     from punt_lux.operations.models.display_info import DisplayInfo
     from punt_lux.operations.models.display_probe import Pong, Screenshot
-    from punt_lux.operations.models.display_write import FrameRaise, FrameStatePatch
+    from punt_lux.operations.models.display_write import FrameRaise
     from punt_lux.operations.models.identity import Identified
     from punt_lux.operations.models.menu_results import MenuList, Ok, SetMenuRequest
     from punt_lux.operations.models.query_clients import ClientList
@@ -245,13 +245,6 @@ class Operations:
     ) -> WindowSettings | OpError:
         """Change the provided window settings and return the new settings."""
         return self._display.set_window_settings(patch)
-
-    @Timed("set_frame_state")
-    def set_frame_state(
-        self, frame_id: str, patch: FrameStatePatch | OpError
-    ) -> Ok | OpError:
-        """Change a frame's minimize state."""
-        return self._display.set_frame_state(frame_id, patch)
 
     @Timed("raise_frame")
     def raise_frame(self, frame_id: str) -> FrameRaise | OpError:

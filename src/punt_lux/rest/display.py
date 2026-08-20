@@ -12,7 +12,6 @@ from punt_lux.commands import (
     DisplayInfoOps,
     ErrorOps,
     EventOps,
-    FrameOps,
     PingOps,
     ScreenshotOps,
     ThemeOps,
@@ -25,13 +24,11 @@ from punt_lux.commands import (
     display_window_set as display_window_set_command,
     error_ls as error_ls_command,
     event_ls as event_ls_command,
-    frame_set_state as frame_set_state_command,
     ping as ping_command,
 )
 from punt_lux.operations import (
     DisplayInfo,
     FrameRaise,
-    FrameStatePatch,
     Ok,
     Pong,
     RecentErrors,
@@ -87,10 +84,8 @@ class DisplayRoutes:
             "/display/window", self.set_window_settings, methods=["PATCH"]
         )
         f = "/display/frames/{frame_id}"
-        router.add_api_route(f, self.set_frame_state, methods=["PATCH"])
         router.add_api_route(f + "/raise", self.raise_frame, methods=["POST"])
         router.add_api_route(f + "/close", self.close_frame, methods=["POST"])
-        router.add_api_route(f + "/expire", self.close_frame, methods=["POST"])
         router.add_api_route("/display/screenshot", self.screenshot, methods=["GET"])
         router.add_api_route("/display/ping", self.ping, methods=["GET"])
         router.add_api_route("/events", self.list_recent_events, methods=["GET"])
@@ -136,15 +131,6 @@ class DisplayRoutes:
         ctx: CommandCtx[WindowOps] = CommandCtx(ops=self._ops, identity=identity)
         return self._errors.respond(
             asyncio.run(display_window_set_command.execute(ctx, patch))
-        )
-
-    def set_frame_state(
-        self, frame_id: str, patch: FrameStatePatch, identity: _CallerIdentity
-    ) -> Ok:
-        """Change a frame's transient minimize state."""
-        ctx: CommandCtx[FrameOps] = CommandCtx(ops=self._ops, identity=identity)
-        return self._errors.respond(
-            asyncio.run(frame_set_state_command.execute(ctx, frame_id, patch))
         )
 
     def raise_frame(self, frame_id: str) -> FrameRaise:

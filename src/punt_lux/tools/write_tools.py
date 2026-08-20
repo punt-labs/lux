@@ -1,10 +1,8 @@
 """The state-changing MCP tools for scene writes.
 
 ``show``/``update`` write scenes, ``clear``/``clear_scene`` empty them, and
-``identify`` declares the caller. Display/menu/config state changes
-(``set_menu``, ``set_theme``, ``set_window_settings``, ``set_frame_state``,
-``display_mode``, ``set_display_mode``) live in ``display_write_tools`` so
-neither module mixes the scene concern with the display/config one.
+``identify`` declares the caller. Display/menu/config and frame state changes
+live in ``display_write_tools`` so neither module mixes concerns.
 
 ``_core.OPERATIONS`` and the shared formatters are read at call time, never
 imported by value: the characterization corpus rebinds

@@ -5,18 +5,13 @@ introspection, ``identify``, pub/sub); luxd serves them over streamable-HTTP ``/
 """
 
 # isort: skip_file
-# ORDER MATTERS: server.py creates the FastMCP `mcp` instance, and tools.py
-# builds the OPERATIONS facade the tool modules reach through `_core`. The tool
-# modules register @mcp.tool() decorators at import time, so both must import
-# first — importing a tool module before server.py or tools.py would fail.
+# ORDER MATTERS: server.py creates the FastMCP `mcp` instance; tools.py builds
+# OPERATIONS; the tool modules register @mcp.tool() at import time.
 
 from __future__ import annotations
 
 from punt_lux.tools.server import mcp
 
-# Importing read_tools.py registers the read-only introspection and getter tools.
-# Each tool module reaches the OPERATIONS facade through ``tools`` (as ``_core``),
-# so importing any of them builds that facade before the tool runs.
 from punt_lux.tools.read_tools import (
     get_display_info,
     get_theme,
@@ -43,8 +38,9 @@ from punt_lux.tools.write_tools import (
 # Importing display_write_tools.py registers the display/menu/config write tools.
 from punt_lux.tools.display_write_tools import (
     display_mode,
+    frame_close,
+    frame_raise,
     set_display_mode,
-    set_frame_state,
     set_menu,
     set_theme,
     set_window_settings,
@@ -70,6 +66,8 @@ __all__ = [
     "clear",
     "clear_scene",
     "display_mode",
+    "frame_close",
+    "frame_raise",
     "get_display_info",
     "get_theme",
     "get_window_settings",
@@ -87,7 +85,6 @@ __all__ = [
     "register_callback",
     "screenshot",
     "set_display_mode",
-    "set_frame_state",
     "set_menu",
     "set_theme",
     "set_window_settings",

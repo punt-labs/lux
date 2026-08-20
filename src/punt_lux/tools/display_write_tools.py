@@ -1,11 +1,4 @@
-"""The state-changing MCP tools for display and menu configuration.
-
-These mutate display-process and per-repo config state: ``set_menu`` writes the
-Hub-owned menu bar, ``set_theme``/``set_window_settings``/``set_frame_state``
-proxy display settings, and the ``display_mode`` pair reads and writes the
-per-repo config. Split from the scene-writing tools in ``write_tools`` so
-neither module mixes the scene concern with the display/config one.
-"""
+"""The state-changing MCP tools for display, menu, and frame configuration."""
 
 from __future__ import annotations
 
@@ -23,12 +16,13 @@ from punt_lux.commands import (
     display_mode_set as display_mode_set_command,
     display_set_theme as display_set_theme_command,
     display_window_set as display_window_set_command,
-    frame_set_state as frame_set_state_command,
+    frame_close as frame_close_command,
+    frame_raise as frame_raise_command,
     menu_set as menu_set_command,
 )
 from punt_lux.operations import (
     DisplayModeRequest,
-    FrameStatePatch,
+    FrameRaise,
     Ok,
     OpError,
     SetMenuRequest,
@@ -49,8 +43,9 @@ from punt_lux.tools.server import mcp
 
 __all__ = [
     "display_mode",
+    "frame_close",
+    "frame_raise",
     "set_display_mode",
-    "set_frame_state",
     "set_menu",
     "set_theme",
     "set_window_settings",
@@ -124,19 +119,21 @@ def set_window_settings(
 
 
 @mcp.tool()
-def set_frame_state(
-    frame_id: str,
-    minimized: bool | None = None,  # noqa: FBT001
-) -> Ok | OpError:
-    """Minimize or expand a frame (``minimized`` true to minimize)."""
+def frame_raise(frame_id: str) -> FrameRaise | OpError:
+    """Bring ``frame_id`` to the front, restoring it if minimized."""
     ctx: CommandCtx[FrameOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
     )
-    return asyncio.run(
-        frame_set_state_command.execute(
-            ctx, frame_id, FrameStatePatch.parse({"minimized": minimized})
-        )
+    return asyncio.run(frame_raise_command.execute(ctx, frame_id))
+
+
+@mcp.tool()
+def frame_close(frame_id: str) -> Ok:
+    """Close ``frame_id``: tear down its scenes on the Hub."""
+    ctx: CommandCtx[FrameOps] = CommandCtx(
+        ops=_core.OPERATIONS, identity=_core._identity()
     )
+    return asyncio.run(frame_close_command.execute(ctx, frame_id))
 
 
 @mcp.tool()
