@@ -14,8 +14,15 @@ from typing import Any, get_args
 
 from punt_lux.commands import (
     Ctx as CommandCtx,
+    DisplayModeOps,
     FrameOps,
     MenuOps,
+    ThemeOps,
+    WindowOps,
+    display_mode_get as display_mode_get_command,
+    display_mode_set as display_mode_set_command,
+    display_set_theme as display_set_theme_command,
+    display_window_set as display_window_set_command,
     frame_set_state as frame_set_state_command,
     menu_set as menu_set_command,
 )
@@ -86,7 +93,12 @@ _SET_WINDOW_DESCRIPTION = (
 @mcp.tool(description=_SET_THEME_DESCRIPTION)
 def set_theme(theme: str) -> ThemeState | OpError:
     """Set the display theme; returns the new theme state or an error."""
-    return _core.OPERATIONS.set_theme(SetThemeRequest.parse(theme))
+    ctx: CommandCtx[ThemeOps] = CommandCtx(
+        ops=_core.OPERATIONS, identity=_core._identity()
+    )
+    return asyncio.run(
+        display_set_theme_command.execute(ctx, SetThemeRequest.parse(theme))
+    )
 
 
 @mcp.tool(description=_SET_WINDOW_DESCRIPTION)
@@ -97,16 +109,18 @@ def set_window_settings(
     fps_idle: float | None = None,
 ) -> WindowSettings | OpError:
     """Change the provided window settings; returns the new settings or an error."""
-    return _core.OPERATIONS.set_window_settings(
-        WindowSettingsPatch.parse(
-            {
-                "opacity": opacity,
-                "font_scale": font_scale,
-                "decorated": decorated,
-                "fps_idle": fps_idle,
-            }
-        )
+    ctx: CommandCtx[WindowOps] = CommandCtx(
+        ops=_core.OPERATIONS, identity=_core._identity()
     )
+    patch = WindowSettingsPatch.parse(
+        {
+            "opacity": opacity,
+            "font_scale": font_scale,
+            "decorated": decorated,
+            "fps_idle": fps_idle,
+        }
+    )
+    return asyncio.run(display_window_set_command.execute(ctx, patch))
 
 
 @mcp.tool()
@@ -133,7 +147,10 @@ def display_mode(repo: str) -> str:
     absolute path of the caller's project; the config is read from
     ``<repo>/.punt-labs/lux.md``.
     """
-    return _core._format_display_mode(_core.OPERATIONS.read_display_mode(repo))
+    ctx: CommandCtx[DisplayModeOps] = CommandCtx(
+        ops=_core.OPERATIONS, identity=_core._identity()
+    )
+    return asyncio.run(display_mode_get_command(ctx, repo)).text
 
 
 @mcp.tool()
@@ -144,6 +161,9 @@ def set_display_mode(mode: str, repo: str) -> str:
     config is written to ``<repo>/.punt-labs/lux.md``.
     When ``y``, eagerly connects to the display server.
     """
-    return _core._format_display_mode(
-        _core.OPERATIONS.write_display_mode(DisplayModeRequest.parse(mode, repo))
+    ctx: CommandCtx[DisplayModeOps] = CommandCtx(
+        ops=_core.OPERATIONS, identity=_core._identity()
     )
+    return asyncio.run(
+        display_mode_set_command(ctx, DisplayModeRequest.parse(mode, repo))
+    ).text

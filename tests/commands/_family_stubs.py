@@ -12,14 +12,22 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.session_callback import CallbackInvocation
     from punt_lux.operations import (
         ClientList,
+        DisplayInfo,
+        DisplayModeRequest,
+        DisplayModeState,
         FrameStatePatch,
         MenuList,
         Ok,
         OpError,
         Scope,
         SetMenuRequest,
+        SetThemeRequest,
+        ThemeState,
+        WindowSettings,
+        WindowSettingsPatch,
     )
     from punt_lux.operations.models.callbacks import RegisterCallbackRequest
+    from punt_lux.operations.models.display_probe import Screenshot
     from punt_lux.operations.models.identity import Identified
     from punt_lux.operations.models.pubsub import PublishRequest, Received
     from punt_lux.operations.models.pubsub_acks import (
@@ -239,3 +247,132 @@ class StubErrorOps:
     def list_errors(self, count: int) -> RecentErrors | OpError:
         self.last_call = {"method": "list_errors", "count": count}
         return cast("RecentErrors | OpError", self._result)
+
+
+@final
+class StubDisplayInfoOps:
+    """``DisplayInfoOps`` stub returning one preset outcome."""
+
+    _result: DisplayInfo | OpError | None
+    last_call: dict[str, object]
+    __slots__ = ("_result", "last_call")
+
+    def __new__(cls, result: DisplayInfo | OpError | None = None) -> Self:
+        self = super().__new__(cls)
+        self._result = result
+        self.last_call = {}
+        return self
+
+    def get_display_info(self) -> DisplayInfo | OpError:
+        self.last_call = {"method": "get_display_info"}
+        return cast("DisplayInfo | OpError", self._result)
+
+
+@final
+class StubThemeOps:
+    """``ThemeOps`` stub returning one preset outcome per method."""
+
+    _get: ThemeState | OpError | None
+    _set: ThemeState | OpError | None
+    last_call: dict[str, object]
+    __slots__ = ("_get", "_set", "last_call")
+
+    def __new__(
+        cls,
+        get_result: ThemeState | OpError | None = None,
+        set_result: ThemeState | OpError | None = None,
+    ) -> Self:
+        self = super().__new__(cls)
+        self._get = get_result
+        self._set = set_result
+        self.last_call = {}
+        return self
+
+    def get_theme(self) -> ThemeState | OpError:
+        self.last_call = {"method": "get_theme"}
+        return cast("ThemeState | OpError", self._get)
+
+    def set_theme(self, request: SetThemeRequest | OpError) -> ThemeState | OpError:
+        self.last_call = {"method": "set_theme", "request": request}
+        return cast("ThemeState | OpError", self._set)
+
+
+@final
+class StubWindowOps:
+    """``WindowOps`` stub returning one preset outcome per method."""
+
+    _get: WindowSettings | OpError | None
+    _set: WindowSettings | OpError | None
+    last_call: dict[str, object]
+    __slots__ = ("_get", "_set", "last_call")
+
+    def __new__(
+        cls,
+        get_result: WindowSettings | OpError | None = None,
+        set_result: WindowSettings | OpError | None = None,
+    ) -> Self:
+        self = super().__new__(cls)
+        self._get = get_result
+        self._set = set_result
+        self.last_call = {}
+        return self
+
+    def get_window_settings(self) -> WindowSettings | OpError:
+        self.last_call = {"method": "get_window_settings"}
+        return cast("WindowSettings | OpError", self._get)
+
+    def set_window_settings(
+        self, patch: WindowSettingsPatch | OpError
+    ) -> WindowSettings | OpError:
+        self.last_call = {"method": "set_window_settings", "patch": patch}
+        return cast("WindowSettings | OpError", self._set)
+
+
+@final
+class StubDisplayModeOps:
+    """``DisplayModeOps`` stub returning one preset outcome per method."""
+
+    _read: DisplayModeState | OpError | None
+    _write: DisplayModeState | OpError | None
+    last_call: dict[str, object]
+    __slots__ = ("_read", "_write", "last_call")
+
+    def __new__(
+        cls,
+        read_result: DisplayModeState | OpError | None = None,
+        write_result: DisplayModeState | OpError | None = None,
+    ) -> Self:
+        self = super().__new__(cls)
+        self._read = read_result
+        self._write = write_result
+        self.last_call = {}
+        return self
+
+    def read_display_mode(self, repo: str) -> DisplayModeState | OpError:
+        self.last_call = {"method": "read_display_mode", "repo": repo}
+        return cast("DisplayModeState | OpError", self._read)
+
+    def write_display_mode(
+        self, request: DisplayModeRequest | OpError
+    ) -> DisplayModeState | OpError:
+        self.last_call = {"method": "write_display_mode", "request": request}
+        return cast("DisplayModeState | OpError", self._write)
+
+
+@final
+class StubScreenshotOps:
+    """``ScreenshotOps`` stub returning one preset outcome (always an OpError today)."""
+
+    _result: Screenshot | OpError | None
+    last_call: dict[str, object]
+    __slots__ = ("_result", "last_call")
+
+    def __new__(cls, result: Screenshot | OpError | None = None) -> Self:
+        self = super().__new__(cls)
+        self._result = result
+        self.last_call = {}
+        return self
+
+    def screenshot(self) -> Screenshot | OpError:
+        self.last_call = {"method": "screenshot"}
+        return cast("Screenshot | OpError", self._result)

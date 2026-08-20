@@ -13,10 +13,22 @@ from fastmcp.exceptions import ToolError
 
 from punt_lux.commands import (
     Ctx as CommandCtx,
+    DisplayInfoOps,
+    ErrorOps,
+    EventOps,
     MenuOps,
     PingOps,
     SceneOps,
+    ScreenshotOps,
     SessionOps,
+    ThemeOps,
+    WindowOps,
+    display_get_theme as display_get_theme_command,
+    display_info as display_info_command,
+    display_screenshot as display_screenshot_command,
+    display_window_get as display_window_get_command,
+    error_ls as error_ls_command,
+    event_ls as event_ls_command,
     menu_ls as menu_ls_command,
     ping as ping_command,
     scene_inspect as scene_inspect_command,
@@ -37,6 +49,7 @@ from punt_lux.operations import (
     WindowSettings,
 )
 from punt_lux.tools import tools as _core
+from punt_lux.tools._signal import signal
 from punt_lux.tools.server import mcp
 
 __all__ = [
@@ -117,7 +130,11 @@ def screenshot() -> str:
     explicit rather than a missing verb; it will produce an image once DES-028 is
     resolved.
     """
-    return _core._fault_or(_core.OPERATIONS.screenshot(), lambda r: str(r.path))
+    ctx: CommandCtx[ScreenshotOps] = CommandCtx(
+        ops=_core.OPERATIONS, identity=_core._identity()
+    )
+    result = asyncio.run(display_screenshot_command(ctx))
+    return signal(result)
 
 
 @mcp.tool()
@@ -128,19 +145,28 @@ def get_display_info() -> DisplayInfo | OpError:
     record, so the display's own reply can never be rejected by a schema that
     drifted from it.
     """
-    return _core.OPERATIONS.get_display_info()
+    ctx: CommandCtx[DisplayInfoOps] = CommandCtx(
+        ops=_core.OPERATIONS, identity=_core._identity()
+    )
+    return asyncio.run(display_info_command.execute(ctx))
 
 
 @mcp.tool()
 def get_window_settings() -> WindowSettings | OpError:
     """Return current window settings: opacity, font scale, decoration, idle FPS."""
-    return _core.OPERATIONS.get_window_settings()
+    ctx: CommandCtx[WindowOps] = CommandCtx(
+        ops=_core.OPERATIONS, identity=_core._identity()
+    )
+    return asyncio.run(display_window_get_command.execute(ctx))
 
 
 @mcp.tool()
 def get_theme() -> ThemeState | OpError:
     """Return current theme and available themes."""
-    return _core.OPERATIONS.get_theme()
+    ctx: CommandCtx[ThemeOps] = CommandCtx(
+        ops=_core.OPERATIONS, identity=_core._identity()
+    )
+    return asyncio.run(display_get_theme_command.execute(ctx))
 
 
 @mcp.tool()
@@ -172,7 +198,10 @@ def list_recent_events(count: int = 50) -> RecentEvents | OpError:
     Events include button clicks, slider changes, combo selections, and other
     user interactions. Default 50, max 200. Proxied over luxd's one connection.
     """
-    return _core.OPERATIONS.list_recent_events(count)
+    ctx: CommandCtx[EventOps] = CommandCtx(
+        ops=_core.OPERATIONS, identity=_core._identity()
+    )
+    return asyncio.run(event_ls_command.execute(ctx, count))
 
 
 @mcp.tool()
@@ -182,4 +211,7 @@ def list_errors(count: int = 20) -> RecentErrors | OpError:
     Each entry includes timestamp, severity, message, and context. Default 20,
     max 100. Proxied over luxd's one connection.
     """
-    return _core.OPERATIONS.list_errors(count)
+    ctx: CommandCtx[ErrorOps] = CommandCtx(
+        ops=_core.OPERATIONS, identity=_core._identity()
+    )
+    return asyncio.run(error_ls_command.execute(ctx, count))

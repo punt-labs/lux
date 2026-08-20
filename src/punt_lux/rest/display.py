@@ -9,10 +9,20 @@ from fastapi import APIRouter, Depends, Query
 
 from punt_lux.commands import (
     Ctx as CommandCtx,
+    DisplayInfoOps,
     ErrorOps,
     EventOps,
     FrameOps,
     PingOps,
+    ScreenshotOps,
+    ThemeOps,
+    WindowOps,
+    display_get_theme as display_get_theme_command,
+    display_info as display_info_command,
+    display_screenshot as display_screenshot_command,
+    display_set_theme as display_set_theme_command,
+    display_window_get as display_window_get_command,
+    display_window_set as display_window_set_command,
     error_ls as error_ls_command,
     event_ls as event_ls_command,
     frame_set_state as frame_set_state_command,
@@ -98,25 +108,40 @@ class DisplayRoutes:
         """The router to mount on the app."""
         return self._router
 
-    def get_display_info(self) -> DisplayInfo:
+    def get_display_info(self, identity: _CallerIdentity) -> DisplayInfo:
         """Return the display's backend, geometry, frame rate, and identity."""
-        return self._errors.respond(self._ops.get_display_info())
+        ctx: CommandCtx[DisplayInfoOps] = CommandCtx(ops=self._ops, identity=identity)
+        return self._errors.respond(asyncio.run(display_info_command.execute(ctx)))
 
-    def get_theme(self) -> ThemeState:
+    def get_theme(self, identity: _CallerIdentity) -> ThemeState:
         """Return the active theme and the themes available to switch to."""
-        return self._errors.respond(self._ops.get_theme())
+        ctx: CommandCtx[ThemeOps] = CommandCtx(ops=self._ops, identity=identity)
+        return self._errors.respond(asyncio.run(display_get_theme_command.execute(ctx)))
 
-    def set_theme(self, request: SetThemeRequest) -> ThemeState:
+    def set_theme(
+        self, request: SetThemeRequest, identity: _CallerIdentity
+    ) -> ThemeState:
         """Switch the display theme and return the new theme state."""
-        return self._errors.respond(self._ops.set_theme(request))
+        ctx: CommandCtx[ThemeOps] = CommandCtx(ops=self._ops, identity=identity)
+        return self._errors.respond(
+            asyncio.run(display_set_theme_command.execute(ctx, request))
+        )
 
-    def get_window_settings(self) -> WindowSettings:
+    def get_window_settings(self, identity: _CallerIdentity) -> WindowSettings:
         """Return the window's opacity, font scale, decoration, and idle rate."""
-        return self._errors.respond(self._ops.get_window_settings())
+        ctx: CommandCtx[WindowOps] = CommandCtx(ops=self._ops, identity=identity)
+        return self._errors.respond(
+            asyncio.run(display_window_get_command.execute(ctx))
+        )
 
-    def set_window_settings(self, patch: WindowSettingsPatch) -> WindowSettings:
+    def set_window_settings(
+        self, patch: WindowSettingsPatch, identity: _CallerIdentity
+    ) -> WindowSettings:
         """Change the provided window settings and return the new settings."""
-        return self._errors.respond(self._ops.set_window_settings(patch))
+        ctx: CommandCtx[WindowOps] = CommandCtx(ops=self._ops, identity=identity)
+        return self._errors.respond(
+            asyncio.run(display_window_set_command.execute(ctx, patch))
+        )
 
     def set_frame_state(
         self, frame_id: str, patch: FrameStatePatch, identity: _CallerIdentity
@@ -131,9 +156,12 @@ class DisplayRoutes:
         """Bring a frame to the front, restoring it if it was minimized."""
         return self._errors.respond(self._ops.raise_frame(frame_id))
 
-    def screenshot(self) -> Screenshot:
+    def screenshot(self, identity: _CallerIdentity) -> Screenshot:
         """Refuse the screenshot: framebuffer capture is unsupported (DES-028)."""
-        return self._errors.respond(self._ops.screenshot())
+        ctx: CommandCtx[ScreenshotOps] = CommandCtx(ops=self._ops, identity=identity)
+        return self._errors.respond(
+            asyncio.run(display_screenshot_command.execute(ctx))
+        )
 
     async def ping(
         self, identity: _CallerIdentity, timeout: _PingTimeout = None

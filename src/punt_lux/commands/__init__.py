@@ -20,18 +20,31 @@ from __future__ import annotations
 from punt_lux.commands._ports import (
     CallbackOps,
     Ctx,
+    DisplayInfoOps,
+    DisplayModeOps,
     ErrorOps,
     EventOps,
     FrameOps,
     MenuOps,
     PingOps,
     SceneOps,
+    ScreenshotOps,
     SessionOps,
+    ThemeOps,
     TopicOps,
+    WindowOps,
 )
 from punt_lux.commands._result import CommandResult
 from punt_lux.commands.callback_pending import callback_pending
 from punt_lux.commands.callback_register import callback_register
+from punt_lux.commands.display_get_theme import display_get_theme
+from punt_lux.commands.display_info import display_info
+from punt_lux.commands.display_mode_get import display_mode_get
+from punt_lux.commands.display_mode_set import display_mode_set
+from punt_lux.commands.display_screenshot import display_screenshot
+from punt_lux.commands.display_set_theme import display_set_theme
+from punt_lux.commands.display_window_get import display_window_get
+from punt_lux.commands.display_window_set import display_window_set
 from punt_lux.commands.error_ls import error_ls
 from punt_lux.commands.event_ls import event_ls
 from punt_lux.commands.frame_set_state import frame_set_state
@@ -57,16 +70,29 @@ __all__ = [
     "CallbackOps",
     "CommandResult",
     "Ctx",
+    "DisplayInfoOps",
+    "DisplayModeOps",
     "ErrorOps",
     "EventOps",
     "FrameOps",
     "MenuOps",
     "PingOps",
     "SceneOps",
+    "ScreenshotOps",
     "SessionOps",
+    "ThemeOps",
     "TopicOps",
+    "WindowOps",
     "callback_pending",
     "callback_register",
+    "display_get_theme",
+    "display_info",
+    "display_mode_get",
+    "display_mode_set",
+    "display_screenshot",
+    "display_set_theme",
+    "display_window_get",
+    "display_window_set",
     "error_ls",
     "event_ls",
     "frame_set_state",

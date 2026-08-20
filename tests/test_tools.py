@@ -1912,7 +1912,9 @@ class TestScreenshotTool:
     ) -> None:
         # DES-028: framebuffer capture is unsolved, so the tool refuses cleanly
         # and never reaches the display — even with a display running.
-        result = screenshot()
+        with pytest.raises(ToolError) as _exc:
+            screenshot()
+        result = str(_exc.value)
         assert result == (
             "error: screenshot capture is not supported by the display; see DES-028"
         )

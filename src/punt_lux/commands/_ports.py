@@ -20,6 +20,9 @@ if TYPE_CHECKING:
     from punt_lux.operations import (
         Cleared,
         ClientList,
+        DisplayInfo,
+        DisplayModeRequest,
+        DisplayModeState,
         InspectScope,
         MenuList,
         Ok,
@@ -32,9 +35,14 @@ if TYPE_CHECKING:
         SceneList,
         SceneShown,
         Scope,
+        SetThemeRequest,
+        ThemeState,
         UpdateRequest,
+        WindowSettings,
+        WindowSettingsPatch,
     )
     from punt_lux.operations.models.callbacks import RegisterCallbackRequest
+    from punt_lux.operations.models.display_probe import Screenshot
     from punt_lux.operations.models.display_write import FrameStatePatch
     from punt_lux.operations.models.identity import Identified
     from punt_lux.operations.models.menu_results import SetMenuRequest
@@ -196,6 +204,67 @@ class ErrorOps(Protocol):
 
     def list_errors(self, count: int) -> RecentErrors | OpError:
         """Return the display's recent errors."""
+        ...
+
+
+@runtime_checkable
+class DisplayInfoOps(Protocol):
+    """The ops surface :mod:`punt_lux.commands.display_info` reads."""
+
+    def get_display_info(self) -> DisplayInfo | OpError:
+        """Return the display's backend, geometry, frame rate, and identity."""
+        ...
+
+
+@runtime_checkable
+class ThemeOps(Protocol):
+    """The ops surface the display-theme commands read."""
+
+    def get_theme(self) -> ThemeState | OpError:
+        """Return the active theme and the themes available to switch to."""
+        ...
+
+    def set_theme(self, request: SetThemeRequest | OpError) -> ThemeState | OpError:
+        """Switch the display theme and return the new theme state."""
+        ...
+
+
+@runtime_checkable
+class WindowOps(Protocol):
+    """The ops surface the display-window commands read."""
+
+    def get_window_settings(self) -> WindowSettings | OpError:
+        """Return the window's opacity, font scale, decoration, and idle rate."""
+        ...
+
+    def set_window_settings(
+        self, patch: WindowSettingsPatch | OpError
+    ) -> WindowSettings | OpError:
+        """Change the provided window settings and return the new settings."""
+        ...
+
+
+@runtime_checkable
+class DisplayModeOps(Protocol):
+    """The ops surface the display-mode config commands read."""
+
+    def read_display_mode(self, repo: str) -> DisplayModeState | OpError:
+        """Read a project's display mode."""
+        ...
+
+    def write_display_mode(
+        self, request: DisplayModeRequest | OpError
+    ) -> DisplayModeState | OpError:
+        """Write a project's display mode."""
+        ...
+
+
+@runtime_checkable
+class ScreenshotOps(Protocol):
+    """The ops surface :mod:`punt_lux.commands.display_screenshot` reads."""
+
+    def screenshot(self) -> Screenshot | OpError:
+        """Capture the display framebuffer and return the image path."""
         ...
 
 
