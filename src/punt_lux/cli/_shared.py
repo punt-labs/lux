@@ -218,6 +218,27 @@ def read_json_payload(inline: str | None, from_file: Path | None) -> dict[str, o
     return cast("dict[str, object]", payload)
 
 
+def read_json_array(inline: str | None, from_file: Path | None) -> list[object]:
+    """Read a JSON array from an inline string, a file, or stdin.
+
+    Same source precedence as :func:`read_json_payload`; used by verbs whose
+    body is a bare list (``menu set``'s entries array) rather than an object.
+    """
+    if inline is not None:
+        raw = inline
+    elif from_file is not None:
+        raw = from_file.read_text()
+    else:
+        raw = sys.stdin.read()
+    try:
+        payload = _json.loads(raw)
+    except _json.JSONDecodeError as exc:
+        raise typer.BadParameter(f"invalid JSON: {exc}") from exc
+    if not isinstance(payload, list):
+        raise typer.BadParameter("payload must be a JSON array")
+    return cast("list[object]", payload)
+
+
 def connect_client(*, timeout: float = 2.0) -> LuxRestClient:
     """Build a :class:`LuxRestClient` or exit 1 with the hub-unavailable message."""
     try:

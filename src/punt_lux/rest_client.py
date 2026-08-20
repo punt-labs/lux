@@ -22,8 +22,6 @@ from punt_lux.hub_paths import HubPaths
 from punt_lux.identity_headers import ClientHeaders
 from punt_lux.operations import (
     ClientList,
-    DisplayInfo,
-    DisplayModeState,
     FrameRaise,
     MenuList,
     Ok,
@@ -34,11 +32,10 @@ from punt_lux.operations import (
     RenderRequest,
     RenderTableRequest,
     SceneShown,
-    ThemeState,
-    WindowSettings,
 )
 from punt_lux.operations.models.callbacks import RegisterCallbackRequest
 from punt_lux.operations.models.identity import Identified
+from punt_lux.rest_client_display import DisplayRestOps
 from punt_lux.rest_client_scenes import SceneRestOps
 from punt_lux.rest_http_call import HttpCall
 from punt_lux.rest_loopback import LoopbackTransport
@@ -49,7 +46,9 @@ if TYPE_CHECKING:
     from punt_lux.hub_client import CallbackHandler, ConnectHandler, EventHandler
     from punt_lux.operations import (
         Cleared,
+        DisplayInfo,
         DisplayModeRequest,
+        DisplayModeState,
         FrameStatePatch,
         InspectScope,
         RenderDashboardRequest,
@@ -58,7 +57,9 @@ if TYPE_CHECKING:
         Scope,
         SetMenuRequest,
         SetThemeRequest,
+        ThemeState,
         UpdateRequest,
+        WindowSettings,
         WindowSettingsPatch,
     )
 
@@ -81,7 +82,8 @@ class LuxRestClient:
     _identity: ClientIdentity
     _headers: dict[str, str]
     _scenes: SceneRestOps
-    __slots__ = ("_headers", "_identity", "_scenes", "_transport")
+    _display: DisplayRestOps
+    __slots__ = ("_display", "_headers", "_identity", "_scenes", "_transport")
 
     def __new__(cls, transport: HttpTransport, identity: ClientIdentity) -> Self:
         self = super().__new__(cls)
@@ -89,6 +91,7 @@ class LuxRestClient:
         self._identity = identity
         self._headers = ClientHeaders.to_wire(identity)
         self._scenes = SceneRestOps(transport, self._headers)
+        self._display = DisplayRestOps(transport, self._headers)
         return self
 
     @classmethod
@@ -240,61 +243,66 @@ class LuxRestClient:
             raise RuntimeError(f"list_clients failed: {result.reason}")
         return result
 
-    def set_frame_state(self, frame_id: str, patch: FrameStatePatch) -> Ok | OpError:
+    def set_frame_state(
+        self, frame_id: str, patch: FrameStatePatch | OpError
+    ) -> Ok | OpError:
         """Change a frame's minimize state through ``PATCH /display/frames/{id}``."""
+        if isinstance(patch, OpError):
+            return patch
         segment = quote(frame_id, safe="")
         call = HttpCall.patch(f"/display/frames/{segment}", patch, self._headers)
         return RestReply(self._transport.request(call)).read(Ok)
 
-    def list_menus(self) -> MenuList | OpError:
-        """Return the Hub-authoritative menu bar through ``GET /menus``."""
-        call = HttpCall.read("/menus", self._headers)
-        return RestReply(self._transport.request(call)).read(MenuList)
+    def list_menus(self) -> MenuList:
+        """Return the Hub-authoritative menu bar through ``GET /menus``.
 
-    def set_menu(self, request: SetMenuRequest) -> Ok | OpError:
+        ``MenuOps.list_menus`` promises a ``MenuList`` with no error case; a
+        REST-level fault is raised rather than returned (PY-EH-8).
+        """
+        call = HttpCall.read("/menus", self._headers)
+        result = RestReply(self._transport.request(call)).read(MenuList)
+        if isinstance(result, OpError):
+            raise RuntimeError(f"list_menus failed: {result.reason}")
+        return result
+
+    def set_menu(self, request: SetMenuRequest | OpError) -> Ok | OpError:
         """Replace the Hub-owned menu bar through ``PUT /menus``."""
+        if isinstance(request, OpError):
+            return request
         call = HttpCall.write("/menus", request, self._headers)
         return RestReply(self._transport.request(call)).read(Ok)
 
     def get_display_info(self) -> DisplayInfo | OpError:
         """Return the display's backend/geometry through ``GET /display``."""
-        call = HttpCall.read("/display", self._headers)
-        return RestReply(self._transport.request(call)).read(DisplayInfo)
+        return self._display.get_display_info()
 
     def get_theme(self) -> ThemeState | OpError:
         """Return the active theme through ``GET /display/theme``."""
-        call = HttpCall.read("/display/theme", self._headers)
-        return RestReply(self._transport.request(call)).read(ThemeState)
+        return self._display.get_theme()
 
     def set_theme(self, request: SetThemeRequest) -> ThemeState | OpError:
         """Switch the display theme through ``PUT /display/theme``."""
-        call = HttpCall.write("/display/theme", request, self._headers)
-        return RestReply(self._transport.request(call)).read(ThemeState)
+        return self._display.set_theme(request)
 
     def get_window_settings(self) -> WindowSettings | OpError:
         """Return the window's settings through ``GET /display/window``."""
-        call = HttpCall.read("/display/window", self._headers)
-        return RestReply(self._transport.request(call)).read(WindowSettings)
+        return self._display.get_window_settings()
 
     def set_window_settings(
         self, patch: WindowSettingsPatch
     ) -> WindowSettings | OpError:
         """Change window settings through ``PATCH /display/window``."""
-        call = HttpCall.patch("/display/window", patch, self._headers)
-        return RestReply(self._transport.request(call)).read(WindowSettings)
+        return self._display.set_window_settings(patch)
 
     def read_display_mode(self, repo: str) -> DisplayModeState | OpError:
         """Read a project's display mode through ``GET /display-mode``."""
-        query = urlencode({"repo": repo})
-        call = HttpCall.read(f"/display-mode?{query}", self._headers)
-        return RestReply(self._transport.request(call)).read(DisplayModeState)
+        return self._display.read_display_mode(repo)
 
     def write_display_mode(
         self, request: DisplayModeRequest
     ) -> DisplayModeState | OpError:
         """Write a project's display mode through ``PUT /display-mode``."""
-        call = HttpCall.write("/display-mode", request, self._headers)
-        return RestReply(self._transport.request(call)).read(DisplayModeState)
+        return self._display.write_display_mode(request)
 
     def identify(
         self, declaration: dict[str, object], *, scope: object

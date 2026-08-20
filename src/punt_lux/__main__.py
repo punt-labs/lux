@@ -8,7 +8,9 @@ import sys
 import typer
 
 from punt_lux import __version__
+from punt_lux.cli.frame import frame_app
 from punt_lux.cli.hub import hub_app
+from punt_lux.cli.menu import menu_app
 from punt_lux.cli.plugin import (
     _PLUGIN_ID,
     install as plugin_install,
@@ -59,6 +61,8 @@ app.add_typer(show_app, name="show")
 app.add_typer(hub_app, name="hub")
 app.add_typer(session_app, name="session")
 app.add_typer(scene_app, name="scene")
+app.add_typer(frame_app, name="frame")
+app.add_typer(menu_app, name="menu")
 
 
 # Product commands
