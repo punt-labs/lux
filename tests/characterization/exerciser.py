@@ -334,7 +334,6 @@ class ToolExerciser:
                 return_value=stub_client,
             ),
             mock.patch("punt_lux.tools.tools.OPERATIONS", test_ops),
-            mock.patch("punt_lux.tools.subscribe_tools.OPERATIONS", test_ops),
         ]
         now = setup.get("time")
         if isinstance(now, int | float):

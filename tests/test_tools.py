@@ -1046,7 +1046,8 @@ def _bind_pubsub(
             ),
         ),
     )
-    monkeypatch.setattr("punt_lux.tools.subscribe_tools.OPERATIONS", ops)
+    # Subscribe tools reach OPERATIONS via _core; one patch feeds every consumer.
+    monkeypatch.setattr("punt_lux.tools.tools.OPERATIONS", ops)
 
 
 def _seed_group_with_child(

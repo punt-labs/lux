@@ -38,6 +38,14 @@ if TYPE_CHECKING:
     from punt_lux.operations.models.display_write import FrameStatePatch
     from punt_lux.operations.models.identity import Identified
     from punt_lux.operations.models.menu_results import SetMenuRequest
+    from punt_lux.operations.models.pubsub import PublishRequest, Received
+    from punt_lux.operations.models.pubsub_acks import (
+        Published,
+        Subscribed,
+        Unsubscribed,
+    )
+    from punt_lux.operations.models.query_errors import RecentErrors
+    from punt_lux.operations.models.query_events import RecentEvents
 
 
 @runtime_checkable
@@ -147,6 +155,47 @@ class CallbackOps(Protocol):
 
     def pending_callbacks(self, *, scope: Scope) -> tuple[CallbackInvocation, ...]:
         """Return the caller's held callback invocations without clearing them."""
+        ...
+
+
+@runtime_checkable
+class TopicOps(Protocol):
+    """The ops surface the topic commands read."""
+
+    def publish(
+        self, topic: str, request: PublishRequest, *, scope: Scope
+    ) -> Published:
+        """Fan a payload out to a topic's subscribers."""
+        ...
+
+    def subscribe(self, topic: str, *, scope: Scope) -> Subscribed:
+        """Subscribe the caller's session to a topic."""
+        ...
+
+    def unsubscribe(self, topic: str, *, scope: Scope) -> Unsubscribed:
+        """Unsubscribe the caller's session from a topic."""
+        ...
+
+    def receive(self, *, scope: Scope) -> Received:
+        """Take the next business event for the caller's session."""
+        ...
+
+
+@runtime_checkable
+class EventOps(Protocol):
+    """The ops surface :mod:`punt_lux.commands.event_ls` reads."""
+
+    def list_recent_events(self, count: int) -> RecentEvents | OpError:
+        """Return the display's recent interactions."""
+        ...
+
+
+@runtime_checkable
+class ErrorOps(Protocol):
+    """The ops surface :mod:`punt_lux.commands.error_ls` reads."""
+
+    def list_errors(self, count: int) -> RecentErrors | OpError:
+        """Return the display's recent errors."""
         ...
 
 

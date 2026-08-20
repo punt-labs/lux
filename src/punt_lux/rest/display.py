@@ -9,8 +9,12 @@ from fastapi import APIRouter, Depends, Query
 
 from punt_lux.commands import (
     Ctx as CommandCtx,
+    ErrorOps,
+    EventOps,
     FrameOps,
     PingOps,
+    error_ls as error_ls_command,
+    event_ls as event_ls_command,
     frame_set_state as frame_set_state_command,
     ping as ping_command,
 )
@@ -145,10 +149,16 @@ class DisplayRoutes:
         result = await ping_command.execute(ctx, timeout)
         return self._errors.respond(result)
 
-    def list_recent_events(self, count: _EventCount = 50) -> RecentEvents:
+    def list_recent_events(
+        self, identity: _CallerIdentity, count: _EventCount = 50
+    ) -> RecentEvents:
         """Return the display's recent interactions, proxied."""
-        return self._errors.respond(self._ops.list_recent_events(count))
+        ctx: CommandCtx[EventOps] = CommandCtx(ops=self._ops, identity=identity)
+        return self._errors.respond(asyncio.run(event_ls_command.execute(ctx, count)))
 
-    def list_errors(self, count: _ErrorCount = 20) -> RecentErrors:
+    def list_errors(
+        self, identity: _CallerIdentity, count: _ErrorCount = 20
+    ) -> RecentErrors:
         """Return the display's recent errors, proxied."""
-        return self._errors.respond(self._ops.list_errors(count))
+        ctx: CommandCtx[ErrorOps] = CommandCtx(ops=self._ops, identity=identity)
+        return self._errors.respond(asyncio.run(error_ls_command.execute(ctx, count)))

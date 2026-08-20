@@ -607,23 +607,25 @@
     "init_violations": 0,
     "max_complexity": 0,
     "method_ratio": 1.0,
-    "module_size": 66,
+    "module_size": 84,
     "public_attr_violations": 0,
     "top_level_functions": 0,
     "top_level_statements": 1
   },
   "src/punt_lux/commands/_faults.py": {
-    "avg_complexity": 3.0,
-    "avg_params": 1.0,
+    "avg_complexity": 2.0,
+    "avg_params": 1.5,
     "class_to_func_ratio": 0.0,
-    "classes_per_module": 0.0,
+    "classes_per_module": 0,
     "encapsulation_ratio": 1.0,
-    "future_annotations": 1.0,
-    "init_violations": 0.0,
-    "max_complexity": 3.0,
+    "future_annotations": 1,
+    "init_violations": 0,
+    "max_complexity": 3,
     "method_ratio": 0.0,
-    "module_size": 33.0,
-    "public_attr_violations": 0.0
+    "module_size": 50,
+    "public_attr_violations": 0,
+    "top_level_functions": 2,
+    "top_level_statements": 2
   },
   "src/punt_lux/commands/_result.py": {
     "avg_complexity": 1.0,
@@ -637,6 +639,21 @@
     "method_ratio": 1.0,
     "module_size": 127.0,
     "public_attr_violations": 0.0
+  },
+  "src/punt_lux/commands/callback_register.py": {
+    "avg_complexity": 1.67,
+    "avg_params": 2.0,
+    "class_to_func_ratio": 1.0,
+    "classes_per_module": 1,
+    "encapsulation_ratio": 1.0,
+    "future_annotations": 1,
+    "init_violations": 0,
+    "max_complexity": 3,
+    "method_ratio": 1.0,
+    "module_size": 56,
+    "public_attr_violations": 0,
+    "top_level_functions": 0,
+    "top_level_statements": 2
   },
   "src/punt_lux/commands/ping.py": {
     "avg_complexity": 1.33,
@@ -6473,7 +6490,7 @@
   },
   "src/punt_lux/rest/display.py": {
     "avg_complexity": 1.0,
-    "avg_params": 0.92,
+    "avg_params": 1.08,
     "class_to_func_ratio": 1.0,
     "classes_per_module": 1,
     "encapsulation_ratio": 1.0,
@@ -6481,7 +6498,7 @@
     "init_violations": 0,
     "max_complexity": 1,
     "method_ratio": 1.0,
-    "module_size": 128,
+    "module_size": 138,
     "public_attr_violations": 0,
     "top_level_functions": 0,
     "top_level_statements": 6
@@ -6785,8 +6802,8 @@
     "public_attr_violations": 0.0
   },
   "src/punt_lux/tools/subscribe_tools.py": {
-    "avg_complexity": 1.33,
-    "avg_params": 1.0,
+    "avg_complexity": 1.14,
+    "avg_params": 0.86,
     "class_to_func_ratio": 0.0,
     "classes_per_module": 0,
     "encapsulation_ratio": 1.0,
@@ -6794,9 +6811,9 @@
     "init_violations": 0,
     "max_complexity": 2,
     "method_ratio": 0.0,
-    "module_size": 104,
+    "module_size": 106,
     "public_attr_violations": 0,
-    "top_level_functions": 6,
+    "top_level_functions": 7,
     "top_level_statements": 1
   },
   "src/punt_lux/tools/tools.py": {

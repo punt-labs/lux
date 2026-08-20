@@ -14,12 +14,16 @@ here for tests that snapshot a session's queue.
 from __future__ import annotations
 
 import asyncio
-import json
 
 from punt_lux.commands import (
     CallbackOps,
     Ctx as CommandCtx,
+    TopicOps,
     callback_register as callback_register_command,
+    topic_publish as topic_publish_command,
+    topic_recv as topic_recv_command,
+    topic_subscribe as topic_subscribe_command,
+    topic_unsubscribe as topic_unsubscribe_command,
 )
 from punt_lux.domain.hub.inbox import drain_inbox, inbox_for, next_event
 from punt_lux.domain.ids import ConnectionId
@@ -28,7 +32,6 @@ from punt_lux.operations.models.callbacks import RegisterCallbackRequest
 from punt_lux.tools import tools as _core
 from punt_lux.tools._signal import signal
 from punt_lux.tools.server import _session_key, mcp
-from punt_lux.tools.tools import OPERATIONS
 
 __all__ = [
     "drain_inbox",
@@ -47,6 +50,11 @@ def _scope() -> Scope:
     return Scope(ConnectionId(_session_key.get()))
 
 
+def _topic_ctx() -> CommandCtx[TopicOps]:
+    """Build the topic command context around the calling session's identity."""
+    return CommandCtx(ops=_core.OPERATIONS, identity=_core._identity())
+
+
 @mcp.tool()
 def subscribe(topic: str) -> str:
     """Subscribe the calling session to ``topic`` within its own scope.
@@ -55,15 +63,17 @@ def subscribe(topic: str) -> str:
     first subscribe (or publish) for a topic name in this session's
     scope declares it. Subscriptions never cross sessions.
     """
-    result = OPERATIONS.subscribe(topic, scope=_scope())
-    return f"subscribed:{result.topic}"
+    return signal(
+        asyncio.run(topic_subscribe_command(_topic_ctx(), topic, scope=_scope()))
+    )
 
 
 @mcp.tool()
 def unsubscribe(topic: str) -> str:
     """Drop the calling session's subscription to ``topic``. No-op if absent."""
-    result = OPERATIONS.unsubscribe(topic, scope=_scope())
-    return f"unsubscribed:{result.topic}"
+    return signal(
+        asyncio.run(topic_unsubscribe_command(_topic_ctx(), topic, scope=_scope()))
+    )
 
 
 @mcp.tool()
@@ -74,10 +84,10 @@ def publish(topic: str, payload: dict[str, object] | None = None) -> str:
     that received the message. A publish with no subscribers returns
     ``"delivered:0"`` and is otherwise a no-op.
     """
-    result = OPERATIONS.publish(
-        topic, PublishRequest(payload=payload or {}), scope=_scope()
+    request = PublishRequest(payload=payload or {})
+    return signal(
+        asyncio.run(topic_publish_command(_topic_ctx(), topic, request, scope=_scope()))
     )
-    return f"delivered:{result.delivered}"
 
 
 @mcp.tool()
@@ -90,11 +100,7 @@ def recv() -> str:
     Events come from ``Hub.publish`` scoped to this session; UI wire frames
     (button clicks, slider drags) are not delivered here.
     """
-    result = OPERATIONS.receive(scope=_scope())
-    if result.event is None:
-        return "none"
-    payload = json.dumps(result.event.payload, sort_keys=True)
-    return f"event:{result.event.topic}:{payload}"
+    return signal(asyncio.run(topic_recv_command(_topic_ctx(), scope=_scope())))
 
 
 @mcp.tool()

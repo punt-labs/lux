@@ -141,7 +141,6 @@ def _isolated_ops(*, listening: bool = True) -> Generator[tuple[Operations, _Rig
     token = _session_key.set(_SESSION)
     with (
         mock.patch("punt_lux.tools.tools.OPERATIONS", ops),
-        mock.patch("punt_lux.tools.subscribe_tools.OPERATIONS", ops),
         mock.patch.object(DisplayPaths, "is_running", return_value=False),
     ):
         try:

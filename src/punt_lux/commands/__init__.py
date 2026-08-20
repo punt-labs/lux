@@ -20,15 +20,20 @@ from __future__ import annotations
 from punt_lux.commands._ports import (
     CallbackOps,
     Ctx,
+    ErrorOps,
+    EventOps,
     FrameOps,
     MenuOps,
     PingOps,
     SceneOps,
     SessionOps,
+    TopicOps,
 )
 from punt_lux.commands._result import CommandResult
 from punt_lux.commands.callback_pending import callback_pending
 from punt_lux.commands.callback_register import callback_register
+from punt_lux.commands.error_ls import error_ls
+from punt_lux.commands.event_ls import event_ls
 from punt_lux.commands.frame_set_state import frame_set_state
 from punt_lux.commands.menu_ls import menu_ls
 from punt_lux.commands.menu_set import menu_set
@@ -43,18 +48,27 @@ from punt_lux.commands.scene_table import scene_table
 from punt_lux.commands.scene_update import scene_update
 from punt_lux.commands.session_identify import session_identify
 from punt_lux.commands.session_ls import session_ls
+from punt_lux.commands.topic_publish import topic_publish
+from punt_lux.commands.topic_recv import topic_recv
+from punt_lux.commands.topic_subscribe import topic_subscribe
+from punt_lux.commands.topic_unsubscribe import topic_unsubscribe
 
 __all__ = [
     "CallbackOps",
     "CommandResult",
     "Ctx",
+    "ErrorOps",
+    "EventOps",
     "FrameOps",
     "MenuOps",
     "PingOps",
     "SceneOps",
     "SessionOps",
+    "TopicOps",
     "callback_pending",
     "callback_register",
+    "error_ls",
+    "event_ls",
     "frame_set_state",
     "menu_ls",
     "menu_set",
@@ -69,4 +83,8 @@ __all__ = [
     "scene_update",
     "session_identify",
     "session_ls",
+    "topic_publish",
+    "topic_recv",
+    "topic_subscribe",
+    "topic_unsubscribe",
 ]
