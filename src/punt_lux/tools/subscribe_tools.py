@@ -1,24 +1,15 @@
-"""MCP tool surface for Agent Subscribe / Publish and menu callbacks.
-
-The pub-sub tools — ``subscribe``, ``unsubscribe``, ``publish``, ``recv`` — each
-parse their arguments, call one operation on the Hub-owned pub-sub surface scoped
-to the calling session, and format the result. The two menu-callback tools are
-the session's own end of the callback model: ``register_callback`` puts a menu
-entry in the bar under the calling session's identity, and that entry's clicks
-arrive on the session's listen leg, never on an MCP read. All are session-scoped
-tools that share the same ``_scope`` resolution; the subscription scope, inbox,
-and fan-out live in the operations layer, and the inbox helpers are re-exported
-here for tests that snapshot a session's queue.
-"""
+"""MCP tools for Agent Subscribe / Publish and menu callbacks."""
 
 from __future__ import annotations
 
 import asyncio
 
 from punt_lux.commands import (
+    CallbackPendingOps,
     CallbackRegisterOps,
     Ctx as CommandCtx,
     TopicOps,
+    callback_pending as callback_pending_command,
     callback_register as callback_register_command,
     topic_publish as topic_publish_command,
     topic_recv as topic_recv_command,
@@ -37,6 +28,7 @@ __all__ = [
     "drain_inbox",
     "inbox_for",
     "next_event",
+    "pending_callbacks",
     "publish",
     "recv",
     "register_callback",
@@ -55,7 +47,7 @@ def _topic_ctx() -> CommandCtx[TopicOps]:
     return CommandCtx(ops=_core.OPERATIONS, identity=_core._identity())
 
 
-@mcp.tool()
+@mcp.tool(name="topic_subscribe")
 def subscribe(topic: str) -> str:
     """Subscribe the calling session to ``topic`` within its own scope.
 
@@ -68,7 +60,7 @@ def subscribe(topic: str) -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(name="topic_unsubscribe")
 def unsubscribe(topic: str) -> str:
     """Drop the calling session's subscription to ``topic``. No-op if absent."""
     return signal(
@@ -76,7 +68,7 @@ def unsubscribe(topic: str) -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(name="topic_publish")
 def publish(topic: str, payload: dict[str, object] | None = None) -> str:
     """Fan ``payload`` out to ``topic``'s subscribers in the caller's scope.
 
@@ -90,7 +82,7 @@ def publish(topic: str, payload: dict[str, object] | None = None) -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(name="topic_recv")
 def recv() -> str:
     """Take the next business event waiting for the calling session, or none.
 
@@ -103,25 +95,26 @@ def recv() -> str:
     return signal(asyncio.run(topic_recv_command(_topic_ctx(), scope=_scope())))
 
 
-@mcp.tool()
+@mcp.tool(name="callback_pending")
+def pending_callbacks() -> str:
+    """Return the caller's held callback invocations without draining them.
+
+    Returns ``"pending:<count>"``. A polling client peeks with this; the real
+    delivery still runs on the listen leg's ``take`` drain.
+    """
+    ctx: CommandCtx[CallbackPendingOps] = CommandCtx(
+        ops=_core.OPERATIONS, identity=_core._identity()
+    )
+    result = asyncio.run(callback_pending_command(ctx, scope=_scope()))
+    return signal(result)
+
+
+@mcp.tool(name="callback_register")
 def register_callback(callback_id: str, label: str) -> str:
-    """Register one menu callback the calling session owns and services.
+    """Register a menu callback; requires the caller to hold a listen leg + identify.
 
-    ``label`` is the entry the display shows under this session's submenu;
-    ``callback_id`` is the id its clicks carry back.
-
-    Two things must be true of the caller, and both are refused as
-    ``"error: <reason>"`` rather than half-granted. The connection must hold
-    luxd's listen leg, because a click is delivered by push and a connection with
-    no leg would never learn of it — an MCP session on its own has none, so this
-    tool is for a caller whose process holds one (an applet does, and
-    registers its session's entries itself). And the session must have identified,
-    the same challenge REST's anonymous writes receive.
-
-    On success returns ``"registered:<callback_id>"`` and the replicator pushes the
-    updated bar. A callback lives on its session and leaves the menu when the
-    session's lease lapses, so there is no separate withdrawal — disconnecting or
-    letting the lease expire removes it.
+    On success returns ``"registered:<callback_id>"`` and the replicator pushes
+    the updated bar; the callback dies with the session's lease.
     """
     ctx: CommandCtx[CallbackRegisterOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()

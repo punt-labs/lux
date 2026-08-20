@@ -41,7 +41,7 @@ __all__ = [
 ]
 
 
-@mcp.tool()
+@mcp.tool(name="session_identify")
 def identify(
     kind: str,
     name: str,
@@ -68,7 +68,7 @@ def identify(
     return signal(result)
 
 
-@mcp.tool()
+@mcp.tool(name="scene_show")
 def show(
     scene_id: str,
     elements: list[dict[str, Any]],
@@ -174,7 +174,7 @@ def show(
     return signal(result)
 
 
-@mcp.tool()
+@mcp.tool(name="scene_update")
 def update(scene_id: str, patches: list[dict[str, Any]]) -> str:
     """Update elements in the current scene without replacing everything.
 
@@ -198,7 +198,7 @@ def update(scene_id: str, patches: list[dict[str, Any]]) -> str:
     return signal(result)
 
 
-@mcp.tool()
+@mcp.tool(name="scene_clear_all")
 def clear() -> str:
     """Clear every scene you own (not other agents' UI); use ``clear_scene`` for one."""
     ctx: CommandCtx[SceneOps] = CommandCtx(
@@ -208,7 +208,7 @@ def clear() -> str:
     return signal(result)
 
 
-@mcp.tool()
+@mcp.tool(name="scene_clear")
 def clear_scene(scene_id: str) -> str:
     """Clear one scene and blank its frame; only ``scene_id`` goes.
 

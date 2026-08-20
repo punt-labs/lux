@@ -52,7 +52,7 @@ __all__ = [
 ]
 
 
-@mcp.tool()
+@mcp.tool(name="menu_set")
 def set_menu(menus: list[dict[str, Any]]) -> str:
     """Add custom menus to the Lux display menu bar; clicks arrive via recv().
 
@@ -118,7 +118,7 @@ def set_window_settings(
     return asyncio.run(display_window_set_command.execute(ctx, patch))
 
 
-@mcp.tool()
+@mcp.tool(name="frame_raise")
 def frame_raise(frame_id: str) -> FrameRaise | OpError:
     """Bring ``frame_id`` to the front, restoring it if minimized."""
     ctx: CommandCtx[FrameOps] = CommandCtx(
@@ -127,7 +127,7 @@ def frame_raise(frame_id: str) -> FrameRaise | OpError:
     return asyncio.run(frame_raise_command.execute(ctx, frame_id))
 
 
-@mcp.tool()
+@mcp.tool(name="frame_close")
 def frame_close(frame_id: str) -> Ok:
     """Close ``frame_id``: tear down its scenes on the Hub."""
     ctx: CommandCtx[FrameOps] = CommandCtx(

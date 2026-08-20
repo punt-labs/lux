@@ -32,7 +32,7 @@ __all__ = ["show_dashboard", "show_table"]
 # store, and a value-import would freeze the production facade past that rebind.
 
 
-@mcp.tool()
+@mcp.tool(name="scene_table")
 def show_table(
     scene_id: str,
     columns: list[str],
@@ -141,7 +141,7 @@ def show_table(
     return signal(result)
 
 
-@mcp.tool()
+@mcp.tool(name="scene_dashboard")
 def show_dashboard(
     scene_id: str,
     metrics: list[dict[str, str]] | None = None,

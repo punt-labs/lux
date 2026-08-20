@@ -593,6 +593,15 @@ CALLBACK_SCENARIOS: tuple[Scenario, ...] = (
             "session_key": "corpus-register-callback-no-listen-leg",
         },
     ),
+    Scenario(
+        name="pending-callbacks-empty",
+        tool="pending_callbacks",
+        inputs={},
+        setup={
+            "display_running": False,
+            "session_key": "corpus-pending-callbacks-empty",
+        },
+    ),
 )
 
 

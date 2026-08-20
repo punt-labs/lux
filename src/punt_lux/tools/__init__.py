@@ -26,16 +26,7 @@ from punt_lux.tools.read_tools import (
     screenshot,
 )
 
-# Importing write_tools.py registers the state-changing scene-write tools.
-from punt_lux.tools.write_tools import (
-    clear,
-    clear_scene,
-    identify,
-    show,
-    update,
-)
-
-# Importing display_write_tools.py registers the display/menu/config write tools.
+from punt_lux.tools.write_tools import clear, clear_scene, identify, show, update
 from punt_lux.tools.display_write_tools import (
     display_mode,
     frame_close,
@@ -45,16 +36,9 @@ from punt_lux.tools.display_write_tools import (
     set_theme,
     set_window_settings,
 )
-
-# Importing composite_tools.py registers the convenience wrappers over show().
-from punt_lux.tools.composite_tools import (
-    show_dashboard,
-    show_table,
-)
-
-# Importing subscribe_tools.py registers Agent Subscribe / Publish tools (``recv``)
-# and the menu-callback registration (``register_callback``).
+from punt_lux.tools.composite_tools import show_dashboard, show_table
 from punt_lux.tools.subscribe_tools import (
+    pending_callbacks,
     publish,
     recv,
     register_callback,
@@ -79,6 +63,7 @@ __all__ = [
     "list_recent_events",
     "list_scenes",
     "mcp",
+    "pending_callbacks",
     "ping",
     "publish",
     "recv",
