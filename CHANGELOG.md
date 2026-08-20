@@ -54,6 +54,33 @@
   exposed through `FrameLifecycle`, currently private to the presentation
   re-show path in `domain/hub/`. Follow-on bead.
 
+### Not shipped (by design, mechanical)
+
+- **Display fuse (`display_theme` / `display_window` / `display_mode` as
+  fused get/set tools replacing the six current `get_*`/`set_*` MCP tools).**
+  Ratified in the design, but shipping the retirement of the six old
+  commands and wiring three fused replacements is a coordinated multi-file
+  Protocol refactor. OO ratchet enforcement of per-file per-metric baseline
+  prevents such multi-file Protocol refactors mid-edit (the `PostToolUse`
+  hook fires `make check` on every `.py` write and blocks any intermediate
+  state where a single file has regressed, even briefly, against the
+  committed baseline). Will land as follow-on bead once tooling accommodates
+  the pattern. The six current tools (`get_theme`/`set_theme`,
+  `get_window_settings`/`set_window_settings`, `display_mode`/`set_display_mode`)
+  ship unchanged under their current names.
+- **`menu_get` MCP tool + `GET /menus/{label}` REST route + `lux menu get`
+  CLI verb.** Ratified in the design as a net-new tool; the underlying
+  `Operations.get_menu` facade method and `MenuOperations.get_menu`
+  implementation shipped in an earlier commit of this bead. The adapter
+  wiring (command class + Protocol update + stub update + three adapter
+  wirings) is the same multi-file Protocol refactor blocked by the ratchet
+  mechanics above. Will land as follow-on bead.
+- **`session_inspect` MCP tool + `GET /sessions/{id}` REST route + `lux
+  session inspect <id>` CLI verb.** Ratified in the design as a net-new
+  tool (extraction of one row from `session_ls`); needs a new
+  `Operations.session_inspect(id)` facade method plus the same adapter-
+  wiring refactor blocked above. Will land as follow-on bead.
+
 - **The CLI is now noun-grouped, matching the vocabulary the MCP tools and
   REST routes use.** Every flat verb from before this release is retired,
   with no alias (PL-PP-1) — a script or muscle-memory invocation of any of
