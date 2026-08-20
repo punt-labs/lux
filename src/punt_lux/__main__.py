@@ -10,14 +10,20 @@ import sys
 import typer
 
 from punt_lux import __version__
+from punt_lux.cli.hub import hub_app
 from punt_lux.doctor_report import FAIL, OK, OPTIONAL, DoctorReport
 from punt_lux.log_level import level_from_env
 from punt_lux.show import show_app
 
 
+def _print_version() -> None:
+    """Print the CLI version banner."""
+    print(f"lux {__version__}")
+
+
 def _version_callback(value: bool) -> None:
     if value:
-        print(f"lux {__version__}")
+        _print_version()
         raise typer.Exit
 
 
@@ -45,6 +51,7 @@ def _main(  # pyright: ignore[reportUnusedFunction]
 hook_app = typer.Typer(hidden=True)
 app.add_typer(hook_app, name="hook")
 app.add_typer(show_app, name="show")
+app.add_typer(hub_app, name="hub")
 
 _PLUGIN_ID = "lux@punt-labs"
 
@@ -262,120 +269,38 @@ def doctor(
         raise typer.Exit(code=1)
 
 
-@app.command("hub-install")
-def hub_install() -> None:
-    """Register luxd as a system service (launchd/systemd)."""
-    from punt_lux.service import ServiceManager
-
-    print(ServiceManager().install())
-
-
-@app.command("hub-uninstall")
-def hub_uninstall() -> None:
-    """Remove luxd system service."""
-    from punt_lux.service import ServiceManager
-
-    print(ServiceManager().uninstall())
-
-
-def _restart_hub() -> None:
-    """Restart luxd through the service manager, reporting what came back."""
-    from punt_lux.hub_restart import HubRestart, HubRestartError
-
-    print("Restarting luxd...")
-    try:
-        print(HubRestart().run())
-    except HubRestartError as exc:
-        print(str(exc))
-        raise typer.Exit(code=1) from None
-
-
-@app.command("ensure-hub")
-def ensure_hub(
-    restart: bool = typer.Option(False, "--restart", help="Restart luxd if running"),
-) -> None:
-    """Ensure luxd is running. Restart if --restart flag is set."""
-    from punt_lux.hub_paths import HubPaths
-
-    hub_paths = HubPaths()
-    if restart and hub_paths.is_running():
-        _restart_hub()
-        return
-
-    if hub_paths.is_running():
-        port = hub_paths.read_port()
-        if port is not None:
-            print(f"luxd running (port {port})")
-        else:
-            print("luxd running (port unknown)")
-    else:
-        print("luxd not running. Run 'lux hub-install' to register the service.")
+def _claude_bin() -> str:
+    """Resolve the ``claude`` CLI binary or exit with a helpful message."""
+    claude = shutil.which("claude")
+    if not claude:
+        typer.echo("Error: claude CLI not found on PATH", err=True)
         raise typer.Exit(code=1)
-
-
-@app.command("hub-status")
-def hub_status() -> None:
-    """Show luxd hub status."""
-    import json
-    import urllib.request
-
-    from punt_lux.hub_paths import HubPaths
-
-    hub_paths = HubPaths()
-    if not hub_paths.is_running():
-        print("luxd not running")
-        raise typer.Exit(code=1)
-
-    try:
-        pid = int(hub_paths.pid_path.read_text().strip())
-    except (ValueError, OSError):
-        pid = None
-
-    port = hub_paths.read_port()
-    if port is None:
-        print(f"luxd running (pid {pid}) but port file unreadable")
-        raise typer.Exit(code=1)
-
-    # Try to hit the health endpoint
-    try:
-        url = f"http://127.0.0.1:{port}/health"
-        with urllib.request.urlopen(url, timeout=2) as resp:  # noqa: S310
-            data = json.loads(resp.read())
-        sessions = data.get("sessions", 0)
-        print(f"luxd running (pid {pid}, port {port})")
-        print(f"  sessions: {sessions}")
-    except Exception as exc:  # noqa: BLE001
-        print(f"luxd running (pid {pid}, port {port}) but health check failed: {exc}")
+    return claude
 
 
 @app.command()
 def install() -> None:
     """Install the Claude Code plugin via the punt-labs marketplace."""
-    claude = shutil.which("claude")
-    if not claude:
-        typer.echo("Error: claude CLI not found on PATH", err=True)
-        raise typer.Exit(code=1)
-
     result = subprocess.run(  # noqa: S603
-        [claude, "plugin", "install", _PLUGIN_ID, "--scope", "user"],
+        [_claude_bin(), "plugin", "install", _PLUGIN_ID, "--scope", "user"],
         check=False,
     )
     if result.returncode != 0:
         typer.echo("Error: plugin install failed", err=True)
         raise typer.Exit(code=1)
+    _report_installed()
+
+
+def _report_installed() -> None:
+    """Emit the post-install banner."""
     print("Installed. Restart Claude Code to activate.")
 
 
 @app.command()
 def uninstall() -> None:
     """Uninstall the Claude Code plugin."""
-    claude = shutil.which("claude")
-    if not claude:
-        typer.echo("Error: claude CLI not found on PATH", err=True)
-        raise typer.Exit(code=1)
-
     result = subprocess.run(  # noqa: S603
-        [claude, "plugin", "uninstall", _PLUGIN_ID, "--scope", "user"],
+        [_claude_bin(), "plugin", "uninstall", _PLUGIN_ID, "--scope", "user"],
         check=False,
     )
     if result.returncode != 0:
