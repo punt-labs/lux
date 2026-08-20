@@ -15,7 +15,11 @@ import typer
 
 from punt_lux.hub_paths import HubPaths
 from punt_lux.hub_restart import HubRestart, HubRestartError
-from punt_lux.service import ServiceManager, ServiceNotInstalledError
+from punt_lux.service import (
+    ServiceActionFailedError,
+    ServiceManager,
+    ServiceNotInstalledError,
+)
 
 hub_app = typer.Typer(
     name="hub",
@@ -49,7 +53,7 @@ def start() -> None:
         return
     try:
         typer.echo(ServiceManager().start())
-    except ServiceNotInstalledError as exc:
+    except (ServiceNotInstalledError, ServiceActionFailedError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from None
 
@@ -57,7 +61,11 @@ def start() -> None:
 @hub_app.command("stop")
 def stop() -> None:
     """Stop luxd, leaving the service registration in place."""
-    typer.echo(ServiceManager().stop())
+    try:
+        typer.echo(ServiceManager().stop())
+    except ServiceActionFailedError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from None
 
 
 @hub_app.command("restart")

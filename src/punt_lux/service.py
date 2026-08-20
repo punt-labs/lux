@@ -25,6 +25,10 @@ class ServiceNotInstalledError(RuntimeError):
     """The service has not been installed; the message names the fix."""
 
 
+class ServiceActionFailedError(RuntimeError):
+    """The supervisor rejected a stop/start call; the message names the log."""
+
+
 def detect_platform() -> str:
     """Return ``'macos'`` or ``'linux'``. Raise on unsupported platforms."""
     system = platform.system()
@@ -112,16 +116,36 @@ class ServiceManager:
         return self.install()
 
     def stop(self) -> str:
-        """Stop the daemon without removing its service registration."""
-        self._backend.stop()
+        """Stop the daemon without removing its service registration.
+
+        Raise if the supervisor call itself failed -- a non-zero exit means
+        luxd may still be running, and reporting "stopped" regardless would
+        leave the caller believing a stop that never happened.
+        """
+        if not self._backend.stop():
+            msg = (
+                "luxd stop failed. See "
+                "~/.punt-labs/lux/logs/luxd-stderr.log for details."
+            )
+            raise ServiceActionFailedError(msg)
         return "luxd stopped."
 
     def start(self) -> str:
-        """Start an already-installed, stopped daemon. Raise if not installed."""
+        """Start an already-installed, stopped daemon. Raise if not installed.
+
+        Also raise if the supervisor call itself failed -- a non-zero exit
+        means luxd never actually started, and reporting "started" regardless
+        would leave the caller believing a launch that never happened.
+        """
         if not self._backend.config_path().exists():
             msg = "luxd is not installed. Run 'lux hub install' first."
             raise ServiceNotInstalledError(msg)
-        self._backend.start()
+        if not self._backend.start():
+            msg = (
+                "luxd start failed. See "
+                "~/.punt-labs/lux/logs/luxd-stderr.log for details."
+            )
+            raise ServiceActionFailedError(msg)
         return "luxd started."
 
     @property

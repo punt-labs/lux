@@ -56,6 +56,24 @@ class TestHubStart:
         assert "8430" in result.output
         mock_cls.return_value.start.assert_not_called()
 
+    def test_start_reports_a_failed_supervisor_call_not_success(self) -> None:
+        """Regression: the supervisor rejecting the start used to be silently
+        reported as "luxd started." (Bugbot HIGH)."""
+        from punt_lux.service import ServiceActionFailedError
+
+        with (
+            patch("punt_lux.hub_paths.HubPaths.is_running", return_value=False),
+            patch("punt_lux.cli.hub.ServiceManager") as mock_cls,
+        ):
+            mock_cls.return_value.start.side_effect = ServiceActionFailedError(
+                "luxd start failed. See ~/.punt-labs/lux/logs/luxd-stderr.log "
+                "for details."
+            )
+            result = runner.invoke(app, ["hub", "start"])
+        assert result.exit_code == 1
+        assert "luxd start failed" in result.output
+        assert "luxd started." not in result.output
+
 
 class TestHubStop:
     def test_stop_calls_the_service_manager(self) -> None:
@@ -65,6 +83,21 @@ class TestHubStop:
         assert result.exit_code == 0
         assert "luxd stopped." in result.output
         mock_cls.return_value.stop.assert_called_once()
+
+    def test_stop_reports_a_failed_supervisor_call_not_success(self) -> None:
+        """Regression: the supervisor rejecting the stop used to be silently
+        reported as "luxd stopped." (Bugbot HIGH)."""
+        from punt_lux.service import ServiceActionFailedError
+
+        with patch("punt_lux.cli.hub.ServiceManager") as mock_cls:
+            mock_cls.return_value.stop.side_effect = ServiceActionFailedError(
+                "luxd stop failed. See ~/.punt-labs/lux/logs/luxd-stderr.log "
+                "for details."
+            )
+            result = runner.invoke(app, ["hub", "stop"])
+        assert result.exit_code == 1
+        assert "luxd stop failed" in result.output
+        assert "luxd stopped." not in result.output
 
 
 class TestHubInstall:

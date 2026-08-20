@@ -101,18 +101,19 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
                 self._plist_path,
             )
 
-    def stop(self) -> None:
+    def stop(self) -> bool:
         """Unload luxd from launchd, leaving the plist in place.
 
         ``KeepAlive`` means launchd respawns an unloaded-then-relaunched job on
         its own schedule only if re-loaded; a bare ``bootout``/``unload`` here
         stops the running process without touching the service registration,
         so ``lux hub start`` (or the next login) brings it back the same way
-        ``install`` originally did.
+        ``install`` originally did. A missing plist is a no-op success -- there
+        is nothing running to stop.
         """
         if not self._plist_path.exists():
             logger.info("No plist found at %s -- nothing to stop", self._plist_path)
-            return
+            return True
         result = subprocess.run(
             ["launchctl", "unload", str(self._plist_path)],
             capture_output=True,
@@ -125,8 +126,9 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
                 result.returncode,
                 result.stderr.strip(),
             )
+        return result.returncode == 0
 
-    def start(self) -> None:
+    def start(self) -> bool:
         """Re-load the installed plist into launchd, symmetric to :meth:`stop`.
 
         The plist must already exist -- :meth:`ServiceManager.start` checks
@@ -144,6 +146,7 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
                 result.returncode,
                 result.stderr.strip(),
             )
+        return result.returncode == 0
 
     def _plist_content(self, exec_args: list[str]) -> str:
         """Generate the launchd plist XML for luxd."""

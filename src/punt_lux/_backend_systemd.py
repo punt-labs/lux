@@ -71,7 +71,7 @@ class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
                 self._unit_path,
             )
 
-    def stop(self) -> None:
+    def stop(self) -> bool:
         """Stop the systemd unit, leaving it enabled for the next start/boot."""
         result = subprocess.run(
             ["systemctl", "--user", "stop", "lux"],
@@ -85,8 +85,9 @@ class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
                 result.returncode,
                 result.stderr.strip(),
             )
+        return result.returncode == 0
 
-    def start(self) -> None:
+    def start(self) -> bool:
         """Start the installed systemd unit, symmetric to :meth:`stop`.
 
         The unit must already exist -- :meth:`ServiceManager.start` checks
@@ -104,6 +105,7 @@ class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
                 result.returncode,
                 result.stderr.strip(),
             )
+        return result.returncode == 0
 
     @staticmethod
     def _escape_arg(arg: str) -> str:

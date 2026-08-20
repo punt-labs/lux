@@ -29,12 +29,20 @@ class ServiceBackend(ABC):
         """Stop and remove the daemon service."""
 
     @abstractmethod
-    def stop(self) -> None:
-        """Stop the daemon without removing its service registration."""
+    def stop(self) -> bool:
+        """Stop the daemon without removing its service registration.
+
+        Return whether the supervisor call succeeded -- the caller must not
+        report success on a non-zero exit.
+        """
 
     @abstractmethod
-    def start(self) -> None:
-        """Start an already-installed, stopped daemon. Symmetric to :meth:`stop`."""
+    def start(self) -> bool:
+        """Start an already-installed, stopped daemon. Symmetric to :meth:`stop`.
+
+        Return whether the supervisor call succeeded -- the caller must not
+        report success on a non-zero exit.
+        """
 
     @abstractmethod
     def is_active(self) -> bool:
