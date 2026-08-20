@@ -52,14 +52,8 @@ def start() -> None:
 
 @hub_app.command("stop")
 def stop() -> None:
-    """Stop luxd. Use 'lux hub uninstall' to remove the service permanently."""
-    typer.echo(
-        "lux hub stop: not implemented. Use 'lux hub uninstall' to remove the "
-        "service, or terminate the luxd process directly (launchd/systemd will "
-        "respawn it until the service is uninstalled).",
-        err=True,
-    )
-    raise typer.Exit(code=2)
+    """Stop luxd, leaving the service registration in place."""
+    typer.echo(ServiceManager().stop())
 
 
 @hub_app.command("restart")

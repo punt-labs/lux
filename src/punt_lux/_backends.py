@@ -28,6 +28,10 @@ class ServiceBackend(ABC):
         """Stop and remove the daemon service."""
 
     @abstractmethod
+    def stop(self) -> None:
+        """Stop the daemon without removing its service registration."""
+
+    @abstractmethod
     def is_active(self) -> bool:
         """Return whether the daemon is currently running."""
 
@@ -121,6 +125,31 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
             logger.info(
                 "No plist found at %s -- nothing to uninstall",
                 self._plist_path,
+            )
+
+    def stop(self) -> None:
+        """Unload luxd from launchd, leaving the plist in place.
+
+        ``KeepAlive`` means launchd respawns an unloaded-then-relaunched job on
+        its own schedule only if re-loaded; a bare ``bootout``/``unload`` here
+        stops the running process without touching the service registration,
+        so ``lux hub start`` (or the next login) brings it back the same way
+        ``install`` originally did.
+        """
+        if not self._plist_path.exists():
+            logger.info("No plist found at %s -- nothing to stop", self._plist_path)
+            return
+        result = subprocess.run(
+            ["launchctl", "unload", str(self._plist_path)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            logger.warning(
+                "launchctl unload failed (rc=%d): %s",
+                result.returncode,
+                result.stderr.strip(),
             )
 
     def _plist_content(self, exec_args: list[str]) -> str:
@@ -231,6 +260,21 @@ class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
             logger.info(
                 "No unit found at %s -- nothing to uninstall",
                 self._unit_path,
+            )
+
+    def stop(self) -> None:
+        """Stop the systemd unit, leaving it enabled for the next start/boot."""
+        result = subprocess.run(
+            ["systemctl", "--user", "stop", "lux"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            logger.warning(
+                "systemctl stop failed (rc=%d): %s",
+                result.returncode,
+                result.stderr.strip(),
             )
 
     @staticmethod

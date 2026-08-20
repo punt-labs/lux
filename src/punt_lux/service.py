@@ -110,6 +110,11 @@ class ServiceManager:
         self._backend.uninstall()
         return self.install()
 
+    def stop(self) -> str:
+        """Stop the daemon without removing its service registration."""
+        self._backend.stop()
+        return "luxd stopped."
+
     @property
     def is_active(self) -> bool:
         """Return whether the daemon is currently running."""

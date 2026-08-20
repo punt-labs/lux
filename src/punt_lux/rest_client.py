@@ -21,7 +21,6 @@ from punt_lux.hub_client import LuxHubClient
 from punt_lux.hub_paths import HubPaths
 from punt_lux.identity_headers import ClientHeaders
 from punt_lux.operations import (
-    Cleared,
     ClientList,
     DisplayInfo,
     DisplayModeState,
@@ -34,14 +33,13 @@ from punt_lux.operations import (
     RecentEvents,
     RenderRequest,
     RenderTableRequest,
-    SceneInspection,
-    SceneList,
     SceneShown,
     ThemeState,
     WindowSettings,
 )
 from punt_lux.operations.models.callbacks import RegisterCallbackRequest
 from punt_lux.operations.models.identity import Identified
+from punt_lux.rest_client_scenes import SceneRestOps
 from punt_lux.rest_http_call import HttpCall
 from punt_lux.rest_loopback import LoopbackTransport
 from punt_lux.rest_reply import RestReply
@@ -50,10 +48,13 @@ from punt_lux.rest_transport import HttpTransport, HubUnavailableError
 if TYPE_CHECKING:
     from punt_lux.hub_client import CallbackHandler, ConnectHandler, EventHandler
     from punt_lux.operations import (
+        Cleared,
         DisplayModeRequest,
         FrameStatePatch,
         InspectScope,
         RenderDashboardRequest,
+        SceneInspection,
+        SceneList,
         SetMenuRequest,
         SetThemeRequest,
         UpdateRequest,
@@ -78,13 +79,15 @@ class LuxRestClient:
     _transport: HttpTransport
     _identity: ClientIdentity
     _headers: dict[str, str]
-    __slots__ = ("_headers", "_identity", "_transport")
+    _scenes: SceneRestOps
+    __slots__ = ("_headers", "_identity", "_scenes", "_transport")
 
     def __new__(cls, transport: HttpTransport, identity: ClientIdentity) -> Self:
         self = super().__new__(cls)
         self._transport = transport
         self._identity = identity
         self._headers = ClientHeaders.to_wire(identity)
+        self._scenes = SceneRestOps(transport, self._headers)
         return self
 
     @classmethod
@@ -141,26 +144,12 @@ class LuxRestClient:
         )
 
     def render(self, request: RenderRequest) -> SceneShown | OpError:
-        """Install a whole scene through ``PUT /scenes/{scene_id}``.
-
-        The scene id is a path segment, so it is percent-encoded: a cwd-derived
-        id bearing spaces or reserved characters must not break the request-target.
-        """
-        segment = quote(request.scene_id, safe="")
-        return self._send(HttpCall.write(f"/scenes/{segment}", request, self._headers))
+        """Install a whole scene through ``PUT /scenes/{scene_id}``."""
+        return self._scenes.render(request)
 
     def render_table(self, request: RenderTableRequest) -> SceneShown | OpError:
-        """Install a composed table scene through ``PUT /scenes/{scene_id}/table``.
-
-        The Hub *constructs* the composition — search box, status combos, the grid,
-        and a selection-bound detail panel wired through a shared
-        ``FilteredTableModel`` — so its chrome runs Hub-side and stays live. A
-        pre-composed tree pushed through ``render`` decodes to dead handlers; the
-        table route carries the data and lets the Hub build the handlers.
-        """
-        segment = quote(request.scene_id, safe="")
-        path = f"/scenes/{segment}/table"
-        return self._send(HttpCall.write(path, request, self._headers))
+        """Install a composed table scene through ``PUT /scenes/{scene_id}/table``."""
+        return self._scenes.render_table(request)
 
     def register_callback(self, callback_id: str, label: str) -> Ok | OpError:
         """Register a menu callback for this identity through ``POST /menus/callbacks``.
@@ -200,49 +189,29 @@ class LuxRestClient:
 
     def render_dashboard(self, request: RenderDashboardRequest) -> SceneShown | OpError:
         """Construct a dashboard scene through ``PUT /scenes/{scene_id}/dashboard``."""
-        segment = quote(request.scene_id, safe="")
-        path = f"/scenes/{segment}/dashboard"
-        return self._send(HttpCall.write(path, request, self._headers))
+        return self._scenes.render_dashboard(request)
 
     def update(self, scene_id: str, request: UpdateRequest) -> SceneShown | OpError:
         """Apply a patch batch through ``PATCH /scenes/{scene_id}``."""
-        segment = quote(scene_id, safe="")
-        call = HttpCall.patch(f"/scenes/{segment}", request, self._headers)
-        return self._send(call)
+        return self._scenes.update(scene_id, request)
 
     def clear(self) -> Cleared | OpError:
         """Clear every scene this identity owns through ``DELETE /scenes``."""
-        call = HttpCall.delete("/scenes", self._headers)
-        return RestReply(self._transport.request(call)).read(Cleared)
+        return self._scenes.clear()
 
     def clear_scene(self, scene_id: str) -> Cleared | OpError:
         """Clear one scene through ``DELETE /scenes/{scene_id}``."""
-        segment = quote(scene_id, safe="")
-        call = HttpCall.delete(f"/scenes/{segment}", self._headers)
-        return RestReply(self._transport.request(call)).read(Cleared)
+        return self._scenes.clear_scene(scene_id)
 
     def list_scenes(self) -> SceneList:
-        """List every live scene and frame through ``GET /scenes``.
-
-        ``SceneOps.list_scenes`` promises a ``SceneList`` with no error case
-        (the in-process ``Operations`` facade this Protocol also serves never
-        fails this read); a REST-level fault is a genuine surprise, so it is
-        raised rather than returned (PY-EH-8).
-        """
-        call = HttpCall.read("/scenes", self._headers)
-        result = RestReply(self._transport.request(call)).read(SceneList)
-        if isinstance(result, OpError):
-            raise RuntimeError(f"list_scenes failed: {result.reason}")
-        return result
+        """List every live scene and frame through ``GET /scenes``."""
+        return self._scenes.list_scenes()
 
     def inspect_scene(
         self, scene_id: str, *, facts: InspectScope
     ) -> SceneInspection | OpError:
         """Return the caller's own scene tree through ``GET /scenes/{scene_id}``."""
-        segment = quote(scene_id, safe="")
-        query = urlencode({"want_geometry": facts.want_geometry})
-        call = HttpCall.read(f"/scenes/{segment}?{query}", self._headers)
-        return RestReply(self._transport.request(call)).read(SceneInspection)
+        return self._scenes.inspect_scene(scene_id, facts=facts)
 
     def list_clients(self) -> ClientList:
         """List the Hub's sessions and their scopes through ``GET /clients``.
