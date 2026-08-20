@@ -108,7 +108,7 @@ def inspect_scene(
 
 
 @mcp.tool()
-def list_scenes() -> SceneList:
+def list_scenes() -> SceneList | OpError:
     """List all active scenes and frames from the authoritative store.
 
     Returns the scenes (scene_id, element_count, frame_id, owners) and frames
@@ -170,7 +170,7 @@ def get_theme() -> ThemeState | OpError:
 
 
 @mcp.tool()
-def list_clients() -> ClientList:
+def list_clients() -> ClientList | OpError:
     """List the Hub's sessions — the connections and their scopes.
 
     After the Hub took over, the display has one socket client (luxd); the
@@ -183,7 +183,7 @@ def list_clients() -> ClientList:
 
 
 @mcp.tool()
-def list_menus() -> MenuList:
+def list_menus() -> MenuList | OpError:
     """List the Hub-owned menu bar and its items, read with no reach-around."""
     ctx: CommandCtx[MenuOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()

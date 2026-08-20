@@ -451,7 +451,9 @@ class TestSetMenuTool:
         try:
             result = set_menu(menus)
             assert result == "ok"
-            assert any(m.label == "Tools" for m in list_menus().menus)
+            listed = list_menus()
+            assert not isinstance(listed, OpError)
+            assert any(m.label == "Tools" for m in listed.menus)
         finally:
             set_menu([])
 

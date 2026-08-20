@@ -222,7 +222,7 @@ class LuxRestClient:
         """Clear one scene through ``DELETE /scenes/{scene_id}``."""
         return self._scenes.clear_scene(scope=scope, scene_id=scene_id)
 
-    def list_scenes(self) -> SceneList:
+    def list_scenes(self) -> SceneList | OpError:
         """List every live scene and frame through ``GET /scenes``."""
         return self._scenes.list_scenes()
 
@@ -232,17 +232,16 @@ class LuxRestClient:
         """Return the caller's own scene tree through ``GET /scenes/{scene_id}``."""
         return self._scenes.inspect_scene(scene_id, scope=scope, facts=facts)
 
-    def list_clients(self) -> ClientList:
+    def list_clients(self) -> ClientList | OpError:
         """List the Hub's sessions and their scopes through ``GET /clients``.
 
-        ``SessionOps.list_clients`` promises a ``ClientList`` with no error
-        case; a REST-level fault is raised rather than returned (PY-EH-8).
+        The in-process ``Operations`` facade never fails this read, but a REST
+        round trip can (stale port, unreachable Hub, unexpected response) --
+        returning the ``OpError`` instead of raising lets every caller handle
+        it through the shared command envelope rather than crashing.
         """
         call = HttpCall.read("/clients", self._headers)
-        result = RestReply(self._transport.request(call)).read(ClientList)
-        if isinstance(result, OpError):
-            raise RuntimeError(f"list_clients failed: {result.reason}")
-        return result
+        return RestReply(self._transport.request(call)).read(ClientList)
 
     def set_frame_state(
         self, frame_id: str, patch: FrameStatePatch | OpError
@@ -254,17 +253,16 @@ class LuxRestClient:
         call = HttpCall.patch(f"/display/frames/{segment}", patch, self._headers)
         return RestReply(self._transport.request(call)).read(Ok)
 
-    def list_menus(self) -> MenuList:
+    def list_menus(self) -> MenuList | OpError:
         """Return the Hub-authoritative menu bar through ``GET /menus``.
 
-        ``MenuOps.list_menus`` promises a ``MenuList`` with no error case; a
-        REST-level fault is raised rather than returned (PY-EH-8).
+        The in-process ``Operations`` facade never fails this read, but a REST
+        round trip can (stale port, unreachable Hub, unexpected response) --
+        returning the ``OpError`` instead of raising lets every caller handle
+        it through the shared command envelope rather than crashing.
         """
         call = HttpCall.read("/menus", self._headers)
-        result = RestReply(self._transport.request(call)).read(MenuList)
-        if isinstance(result, OpError):
-            raise RuntimeError(f"list_menus failed: {result.reason}")
-        return result
+        return RestReply(self._transport.request(call)).read(MenuList)
 
     def set_menu(self, request: SetMenuRequest | OpError) -> Ok | OpError:
         """Replace the Hub-owned menu bar through ``PUT /menus``."""

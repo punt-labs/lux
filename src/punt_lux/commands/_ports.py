@@ -107,7 +107,7 @@ class SceneOps(Protocol):
         """Return the caller's own scene tree."""
         ...
 
-    def list_scenes(self) -> SceneList:
+    def list_scenes(self) -> SceneList | OpError:
         """List every live scene and frame from the authoritative store."""
         ...
 
@@ -131,7 +131,7 @@ class MenuOps(Protocol):
         """Replace the Hub-owned menu bar; the replicator pushes it."""
         ...
 
-    def list_menus(self) -> MenuList:
+    def list_menus(self) -> MenuList | OpError:
         """Return the Hub-authoritative menu bar."""
         ...
 
@@ -140,7 +140,7 @@ class MenuOps(Protocol):
 class SessionOps(Protocol):
     """The ops surface the session commands read."""
 
-    def list_clients(self) -> ClientList:
+    def list_clients(self) -> ClientList | OpError:
         """List the Hub's sessions and their scopes."""
         ...
 

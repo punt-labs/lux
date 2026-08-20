@@ -9,7 +9,7 @@ from unittest.mock import patch
 from typer.testing import CliRunner
 
 from punt_lux.__main__ import app
-from punt_lux.operations import Cleared, SceneList, SceneShown
+from punt_lux.operations import Cleared, OpError, SceneList, SceneShown
 
 runner = CliRunner()
 
@@ -36,7 +36,7 @@ class _SceneClient:
         self.calls.append(("clear", None))
         return Cleared()
 
-    def list_scenes(self) -> SceneList:
+    def list_scenes(self) -> SceneList | OpError:
         return SceneList(scenes=[], frames=[])
 
 
@@ -98,3 +98,19 @@ class TestSceneLs:
             result = runner.invoke(app, ["scene", "ls"])
         assert result.exit_code == 0
         assert "scenes:0" in result.output
+
+    def test_ls_reports_a_transport_fault_not_a_crash(self) -> None:
+        """Regression: list_scenes used to raise RuntimeError on an OpError
+        instead of reaching the shared error envelope (Bugbot)."""
+
+        class _FaultingSceneClient(_SceneClient):
+            def list_scenes(self) -> OpError:
+                return OpError(code="invalid_request", reason="stale port")
+
+        client = _FaultingSceneClient()
+        with patch(
+            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+        ):
+            result = runner.invoke(app, ["scene", "ls"])
+        assert result.exit_code == 1
+        assert "stale port" in result.output

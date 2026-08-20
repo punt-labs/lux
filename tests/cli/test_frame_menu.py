@@ -8,7 +8,7 @@ from unittest.mock import patch
 from typer.testing import CliRunner
 
 from punt_lux.__main__ import app
-from punt_lux.operations import MenuList, Ok
+from punt_lux.operations import MenuList, Ok, OpError
 
 if TYPE_CHECKING:
     from punt_lux.operations import FrameStatePatch
@@ -25,7 +25,7 @@ class _FrameMenuClient:
         self.frame_calls.append((frame_id, patch))
         return Ok()
 
-    def list_menus(self) -> MenuList:
+    def list_menus(self) -> MenuList | OpError:
         return MenuList(menus=[])
 
     def set_menu(self, request: object) -> Ok:
@@ -55,6 +55,22 @@ class TestMenuLs:
             result = runner.invoke(app, ["menu", "ls"])
         assert result.exit_code == 0
         assert "menus:0" in result.output
+
+    def test_ls_reports_a_transport_fault_not_a_crash(self) -> None:
+        """Regression: list_menus used to raise RuntimeError on an OpError
+        instead of reaching the shared error envelope (Bugbot)."""
+
+        class _FaultingMenuClient(_FrameMenuClient):
+            def list_menus(self) -> OpError:
+                return OpError(code="invalid_request", reason="stale port")
+
+        client = _FaultingMenuClient()
+        with patch(
+            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+        ):
+            result = runner.invoke(app, ["menu", "ls"])
+        assert result.exit_code == 1
+        assert "stale port" in result.output
 
 
 class TestMenuSet:

@@ -51,7 +51,7 @@ class StubSceneOps:
     _show: SceneShown | OpError | None
     _clear: Cleared | OpError | None
     _inspect: SceneInspection | OpError | None
-    _list: SceneList | None
+    _list: SceneList | OpError | None
     last_call: dict[str, object]
     __slots__ = ("_clear", "_inspect", "_list", "_show", "last_call")
 
@@ -60,7 +60,7 @@ class StubSceneOps:
         show: SceneShown | OpError | None = None,
         clear: Cleared | OpError | None = None,
         inspect: SceneInspection | OpError | None = None,
-        scenes: SceneList | None = None,
+        scenes: SceneList | OpError | None = None,
     ) -> Self:
         self = super().__new__(cls)
         self._show = show
@@ -126,6 +126,6 @@ class StubSceneOps:
         }
         return cast("SceneInspection | OpError", self._inspect)
 
-    def list_scenes(self) -> SceneList:
+    def list_scenes(self) -> SceneList | OpError:
         self.last_call = {"method": "list_scenes"}
-        return cast("SceneList", self._list)
+        return cast("SceneList | OpError", self._list)

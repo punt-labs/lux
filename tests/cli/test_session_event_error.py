@@ -9,7 +9,13 @@ from typer.testing import CliRunner
 from punt_lux.__main__ import app
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.lease_term import PermanentLease
-from punt_lux.operations import ClientList, Identified, RecentErrors, RecentEvents
+from punt_lux.operations import (
+    ClientList,
+    Identified,
+    OpError,
+    RecentErrors,
+    RecentEvents,
+)
 from punt_lux.operations.models.query_clients import HubClient
 
 runner = CliRunner()
@@ -31,6 +37,14 @@ class _SessionClient:
                 )
             ]
         )
+
+    def identify(self, declaration: dict[str, object], *, scope: object) -> Identified:
+        return Identified(identity=_IDENTITY)
+
+
+class _FaultingSessionClient:
+    def list_clients(self) -> OpError:
+        return OpError(code="invalid_request", reason="stale port")
 
     def identify(self, declaration: dict[str, object], *, scope: object) -> Identified:
         return Identified(identity=_IDENTITY)
@@ -70,6 +84,26 @@ class TestSessionLs:
         ):
             result = runner.invoke(app, ["session", "inspect", "nope"])
         assert result.exit_code == 1
+
+    def test_ls_reports_a_transport_fault_not_a_crash(self) -> None:
+        """Regression: list_clients used to raise RuntimeError on an OpError
+        instead of reaching the shared error envelope (Bugbot)."""
+        client = _FaultingSessionClient()
+        with patch(
+            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+        ):
+            result = runner.invoke(app, ["session", "ls"])
+        assert result.exit_code == 1
+        assert "stale port" in result.output
+
+    def test_inspect_reports_a_transport_fault_not_a_crash(self) -> None:
+        client = _FaultingSessionClient()
+        with patch(
+            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+        ):
+            result = runner.invoke(app, ["session", "inspect", "c1"])
+        assert result.exit_code == 1
+        assert "stale port" in result.output
 
 
 class TestSessionIdentify:

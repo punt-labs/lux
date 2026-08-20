@@ -110,19 +110,16 @@ class SceneRestOps:
         call = HttpCall.delete(f"/scenes/{segment}", self._headers)
         return RestReply(self._transport.request(call)).read(Cleared)
 
-    def list_scenes(self) -> SceneList:
+    def list_scenes(self) -> SceneList | OpError:
         """List every live scene and frame through ``GET /scenes``.
 
-        ``SceneOps.list_scenes`` promises a ``SceneList`` with no error case
-        (the in-process ``Operations`` facade this Protocol also serves never
-        fails this read); a REST-level fault is a genuine surprise, so it is
-        raised rather than returned (PY-EH-8).
+        The in-process ``Operations`` facade never fails this read, but a REST
+        round trip can (stale port, unreachable Hub, unexpected response) --
+        returning the ``OpError`` instead of raising lets every caller handle
+        it through the shared command envelope rather than crashing.
         """
         call = HttpCall.read("/scenes", self._headers)
-        result = RestReply(self._transport.request(call)).read(SceneList)
-        if isinstance(result, OpError):
-            raise RuntimeError(f"list_scenes failed: {result.reason}")
-        return result
+        return RestReply(self._transport.request(call)).read(SceneList)
 
     def inspect_scene(
         self, scene_id: str, *, scope: Scope, facts: InspectScope

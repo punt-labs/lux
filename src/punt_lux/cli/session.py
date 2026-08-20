@@ -24,6 +24,7 @@ from punt_lux.cli._shared import (
     scope_for,
 )
 from punt_lux.commands import Ctx, SessionOps, session_identify, session_ls
+from punt_lux.operations import OpError
 
 session_app = typer.Typer(
     name="session",
@@ -68,6 +69,9 @@ def inspect(
     ctx: Ctx[SessionOps] = Ctx(ops=connect_client(identity=identity), identity=identity)
     flags.apply_logging()
     result = asyncio.run(session_ls.execute(ctx))
+    if isinstance(result, OpError):
+        typer.echo(f"error: {result.reason}", err=True)
+        raise typer.Exit(code=1)
     for row in result.clients:
         if row.connection_id == connection_id:
             if flags.json:
