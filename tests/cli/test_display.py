@@ -138,3 +138,35 @@ class TestDisplayModeFused:
             )
         assert result.exit_code == 0
         assert client.calls[0][0] == "write_display_mode"
+
+    def test_an_invalid_mode_value_is_rejected_before_any_network_call(
+        self, tmp_path: Path
+    ) -> None:
+        client = _DisplayClient()
+        with patch(
+            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+        ):
+            result = runner.invoke(
+                app, ["display", "mode", "bogus", "--repo", str(tmp_path)]
+            )
+        assert result.exit_code == 2  # typer usage error, not a traceback
+        assert client.calls == []
+
+    def test_a_nonexistent_repo_reports_the_shared_error_envelope_not_a_crash(
+        self,
+    ) -> None:
+        """Regression: OpError from DisplayModeRequest.parse used to crash the
+        CLI with an unhandled ValidationError (Bugbot MEDIUM 2) -- confirms it
+        is now caught client-side and reported as the shared error envelope,
+        exiting cleanly rather than with a traceback."""
+        client = _DisplayClient()
+        with patch(
+            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+        ):
+            result = runner.invoke(
+                app,
+                ["display", "mode", "on", "--repo", "/nonexistent/path/xyz"],
+            )
+        assert result.exit_code == 1
+        assert "does not exist" in result.output
+        assert client.calls == []

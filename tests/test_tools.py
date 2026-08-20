@@ -1757,22 +1757,28 @@ class TestDisplayModeRepoArg:
         assert display_mode(repo=str(repo_b)) == "display:off"
 
     def test_repo_must_be_absolute(self) -> None:
-        with pytest.raises(ValueError, match="absolute path"):
-            display_mode(repo="relative/path")
+        # Matches every other tool's OpError shape: the error rides in the
+        # returned text, the tool call itself does not raise.
+        result = display_mode(repo="relative/path")
+        assert result.startswith("error:")
+        assert "absolute path" in result
 
     def test_repo_must_exist(self, tmp_path: Path) -> None:
-        with pytest.raises(ValueError, match="does not exist"):
-            display_mode(repo=str(tmp_path / "does-not-exist"))
+        result = display_mode(repo=str(tmp_path / "does-not-exist"))
+        assert result.startswith("error:")
+        assert "does not exist" in result
 
     def test_repo_must_be_directory(self, tmp_path: Path) -> None:
         file_path = tmp_path / "regular-file"
         file_path.write_text("not a directory")
-        with pytest.raises(ValueError, match="must be a directory"):
-            display_mode(repo=str(file_path))
+        result = display_mode(repo=str(file_path))
+        assert result.startswith("error:")
+        assert "must be a directory" in result
 
     def test_repo_empty_string_raises(self) -> None:
-        with pytest.raises(ValueError, match="repo is required"):
-            display_mode(repo="")
+        result = display_mode(repo="")
+        assert result.startswith("error:")
+        assert "repo is required" in result
 
     def test_repo_is_required(self) -> None:
         with pytest.raises(TypeError):

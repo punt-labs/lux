@@ -124,7 +124,17 @@ def mode(
     if value is None:
         run(display_mode_get(ctx, repo), flags)
         return
-    request = DisplayModeRequest.model_validate({"mode": value, "repo": repo})
+    # DisplayModeRequest.parse speaks the shared y/n toggle vocabulary (the
+    # same one set_display_mode's MCP tool takes); on/off is this verb's
+    # own human-readable spelling, translated here rather than widening the
+    # shared model's vocabulary.
+    if value not in ("on", "off"):
+        raise typer.BadParameter("mode must be 'on' or 'off'")
+    toggle = "y" if value == "on" else "n"
+    request = DisplayModeRequest.parse(toggle, repo)
+    if isinstance(request, OpError):
+        typer.echo(f"error: {request.reason}", err=True)
+        raise typer.Exit(code=1)
     run(display_mode_set(ctx, request), flags)
 
 
