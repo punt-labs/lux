@@ -37,6 +37,10 @@ _MCP_ONLY = {
     "drop_session",
     "identify",
     "identity_of",
+    # pending_callbacks is a session-scoped observe of one connection's held
+    # invocations; delivery goes through the listen leg's ``take`` drain, so
+    # a REST route (which cannot bind to a listener) has no way to be useful.
+    "pending_callbacks",
 }
 
 

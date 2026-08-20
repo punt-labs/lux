@@ -1,39 +1,13 @@
-"""Shared types for the commands layer: ``CommandResult``, ``Ctx``, ``OpsPort``.
+"""The shared ``CommandResult`` envelope every command returns.
 
-Every command in :mod:`punt_lux.commands` takes a :class:`Ctx` and returns a
-:class:`CommandResult`. The four adapters -- CLI, MCP, REST, and library --
-share one command singleton; each interprets the result its own way (text vs
-JSON, exit code vs HTTP status vs MCP envelope).
-
-The vox reference (``../vox/src/punt_vox/commands/_result.py``) is the shape
-this module copies verbatim on :class:`CommandResult` (``frozen``, ``slots``,
-four fields).
+Vox's ``../vox/src/punt_vox/commands/_result.py`` is the shape this module
+copies verbatim: ``frozen``, ``slots``, four fields. ``Ctx`` and the
+per-family ops Protocols live in :mod:`punt_lux.commands._ports`.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
-
-if TYPE_CHECKING:
-    from punt_lux.domain.hub.client_identity import ClientIdentity
-    from punt_lux.operations import OpError, Pong
-
-
-@runtime_checkable
-class OpsPort(Protocol):
-    """The operations surface a command reads through.
-
-    Every method a command calls appears here. ``Operations`` (luxd's typed
-    facade) satisfies it structurally; ``LuxRestClient`` satisfies the same
-    method shapes for the operations it exposes, so a CLI or library caller
-    can build a :class:`Ctx` around either side of the process boundary and
-    reach one shared command instance. The port widens as commands land in .3.
-    """
-
-    def ping(self, wait: float | None = None) -> Pong | OpError:
-        """Round-trip a display ping bounded by ``wait`` seconds."""
-        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,11 +19,11 @@ class CommandResult:
         json_data: JSON-serializable payload for the CLI's ``--json`` mode and
             the MCP text/envelope response. ``None`` means the CLI falls back
             to ``text``. REST does not consume this field -- it calls
-            ``execute()`` for the typed ``Pong | OpError`` result and maps it
-            straight to an HTTP response via ``HttpErrorMap``, bypassing the
-            rendered envelope entirely. The ``dict[str, object]`` shape is a
-            wire boundary (PY-TS-14): the payload is serialized straight to
-            JSON, so ``object`` is the narrowest honest static type.
+            ``execute()`` for the typed result and maps it straight to an HTTP
+            response via ``HttpErrorMap``, bypassing the rendered envelope
+            entirely. The ``dict[str, object]`` shape is a wire boundary
+            (PY-TS-14): the payload is serialized straight to JSON, so
+            ``object`` is the narrowest honest static type.
         error: ``True`` signals a user-facing failure (invalid input, missing
             resource, daemon unreachable). Adapters route through their own
             error channel (stderr for CLI, HTTP status for REST, error
@@ -65,21 +39,3 @@ class CommandResult:
     json_data: dict[str, object] | None = None
     error: bool = False
     exit_code: int = 0
-
-
-@dataclass(frozen=True, slots=True)
-class Ctx:
-    """Collaborators shared by every command.
-
-    Attributes:
-        ops: The operations surface -- ``Operations`` in-process, or a client
-            that structurally satisfies :class:`OpsPort` across the process
-            boundary.
-        identity: The caller's declared identity (DES-086). Later commands key
-            store lookups by ``identity.name`` / ``identity.repo`` /
-            ``identity.agent``; PingCommand does not read it, but Ctx carries
-            it now so the shape is fixed before it multiplies.
-    """
-
-    ops: OpsPort
-    identity: ClientIdentity

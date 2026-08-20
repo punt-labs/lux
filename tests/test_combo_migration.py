@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastmcp.exceptions import ToolError
 
 from punt_lux.display.render_loop import RenderLoop
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
@@ -210,9 +211,12 @@ class TestShowRejectsInvalidCombo:
     def test_show_rejects_out_of_range_index(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
-        result = show(
-            "s1", [{"kind": "combo", "id": "co", "items": ["A", "B"], "selected": 9}]
-        )
+        with pytest.raises(ToolError) as _exc:
+            show(
+                "s1",
+                [{"kind": "combo", "id": "co", "items": ["A", "B"], "selected": 9}],
+            )
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "[combo 'co']" in result
         client.show.assert_not_called()
@@ -222,19 +226,26 @@ class TestShowRejectsInvalidCombo:
         """A bad combo nested in an all-ABC group is collected by the walk."""
         client = _mock_client()
         mock_get.return_value = client
-        result = show(
-            "s1",
-            [
-                {
-                    "kind": "group",
-                    "id": "g1",
-                    "children": [
-                        {"kind": "text", "id": "ok", "content": "fine"},
-                        {"kind": "combo", "id": "bad", "items": ["A"], "selected": 3},
-                    ],
-                }
-            ],
-        )
+        with pytest.raises(ToolError) as _exc:
+            show(
+                "s1",
+                [
+                    {
+                        "kind": "group",
+                        "id": "g1",
+                        "children": [
+                            {"kind": "text", "id": "ok", "content": "fine"},
+                            {
+                                "kind": "combo",
+                                "id": "bad",
+                                "items": ["A"],
+                                "selected": 3,
+                            },
+                        ],
+                    }
+                ],
+            )
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "[combo 'bad']" in result
         client.show.assert_not_called()
@@ -246,20 +257,27 @@ class TestShowRejectsInvalidCombo:
         """A bad combo nested in a collapsing_header is collected by the walk."""
         client = _mock_client()
         mock_get.return_value = client
-        result = show(
-            "s1",
-            [
-                {
-                    "kind": "collapsing_header",
-                    "id": "hdr",
-                    "label": "Details",
-                    "children": [
-                        {"kind": "text", "id": "ok", "content": "fine"},
-                        {"kind": "combo", "id": "bad", "items": ["A"], "selected": 3},
-                    ],
-                }
-            ],
-        )
+        with pytest.raises(ToolError) as _exc:
+            show(
+                "s1",
+                [
+                    {
+                        "kind": "collapsing_header",
+                        "id": "hdr",
+                        "label": "Details",
+                        "children": [
+                            {"kind": "text", "id": "ok", "content": "fine"},
+                            {
+                                "kind": "combo",
+                                "id": "bad",
+                                "items": ["A"],
+                                "selected": 3,
+                            },
+                        ],
+                    }
+                ],
+            )
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "[combo 'bad']" in result
         client.show.assert_not_called()

@@ -6,17 +6,28 @@ config is a repo file the operation reads and writes; the route only translates.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self, final
+import asyncio
+from typing import TYPE_CHECKING, Annotated, Self, final
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from punt_lux.commands import (
+    Ctx as CommandCtx,
+    DisplayModeOps,
+    display_mode_get as display_mode_get_command,
+    display_mode_set as display_mode_set_command,
+)
 from punt_lux.operations import DisplayModeRequest, DisplayModeState
+from punt_lux.rest.identity import resolve_identity
 
 if TYPE_CHECKING:
+    from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.operations import Operations
     from punt_lux.rest.status import HttpErrorMap
 
 __all__ = ["DisplayModeRoutes"]
+
+_CallerIdentity = Annotated["ClientIdentity", Depends(resolve_identity)]
 
 
 @final
@@ -53,10 +64,20 @@ class DisplayModeRoutes:
         """The router to mount on the app."""
         return self._router
 
-    def read_display_mode(self, repo: str) -> DisplayModeState:
+    def read_display_mode(
+        self, repo: str, identity: _CallerIdentity
+    ) -> DisplayModeState:
         """Read a project's display mode; ``repo`` is its absolute path."""
-        return self._errors.respond(self._ops.read_display_mode(repo))
+        ctx: CommandCtx[DisplayModeOps] = CommandCtx(ops=self._ops, identity=identity)
+        return self._errors.respond(
+            asyncio.run(display_mode_get_command.execute(ctx, repo))
+        )
 
-    def write_display_mode(self, request: DisplayModeRequest) -> DisplayModeState:
+    def write_display_mode(
+        self, request: DisplayModeRequest, identity: _CallerIdentity
+    ) -> DisplayModeState:
         """Write a project's display mode."""
-        return self._errors.respond(self._ops.write_display_mode(request))
+        ctx: CommandCtx[DisplayModeOps] = CommandCtx(ops=self._ops, identity=identity)
+        return self._errors.respond(
+            asyncio.run(display_mode_set_command.execute(ctx, request))
+        )

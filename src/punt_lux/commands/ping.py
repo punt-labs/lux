@@ -10,11 +10,12 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.commands._faults import render_fault
 from punt_lux.commands._result import CommandResult
 from punt_lux.operations import OpError
 
 if TYPE_CHECKING:
-    from punt_lux.commands._result import Ctx
+    from punt_lux.commands._ports import Ctx, PingOps
     from punt_lux.operations import Pong
 
 
@@ -27,7 +28,9 @@ class PingCommand:
     def __new__(cls) -> Self:
         return super().__new__(cls)
 
-    async def execute(self, ctx: Ctx, wait: float | None = None) -> Pong | OpError:
+    async def execute(
+        self, ctx: Ctx[PingOps], wait: float | None = None
+    ) -> Pong | OpError:
         """Round-trip ``ctx.ops.ping(wait)`` off the event loop and return it.
 
         REST calls this directly, skipping the rendered envelope; threaded
@@ -35,30 +38,16 @@ class PingCommand:
         """
         return await asyncio.to_thread(ctx.ops.ping, wait)
 
-    async def __call__(self, ctx: Ctx, wait: float | None = None) -> CommandResult:
+    async def __call__(
+        self, ctx: Ctx[PingOps], wait: float | None = None
+    ) -> CommandResult:
         """Run :meth:`execute` and render its outcome into the shared envelope."""
         result = await self.execute(ctx, wait)
         if isinstance(result, OpError):
-            return self._render_error(result)
+            return render_fault(result)
         return CommandResult(
             text=f"pong rtt={result.rtt_seconds:.3f}s",
             json_data={"rtt_seconds": result.rtt_seconds},
-        )
-
-    @staticmethod
-    def _render_error(err: OpError) -> CommandResult:
-        """Render an ``OpError`` into the CommandResult with the shipped text line."""
-        if err.code == "display_unavailable":
-            text = "not running"
-        elif err.code == "timeout":
-            text = "timeout"
-        else:
-            text = f"error: {err.reason}"
-        return CommandResult(
-            text=text,
-            json_data={"code": err.code, "reason": err.reason},
-            error=True,
-            exit_code=1,
         )
 
 

@@ -2,13 +2,32 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Annotated, Self, final
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, Query
 
-from punt_lux.commands import Ctx as CommandCtx, ping as ping_command
-from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.identity_headers import ClientHeaders
+from punt_lux.commands import (
+    Ctx as CommandCtx,
+    DisplayInfoOps,
+    ErrorOps,
+    EventOps,
+    FrameOps,
+    PingOps,
+    ScreenshotOps,
+    ThemeOps,
+    WindowOps,
+    display_get_theme as display_get_theme_command,
+    display_info as display_info_command,
+    display_screenshot as display_screenshot_command,
+    display_set_theme as display_set_theme_command,
+    display_window_get as display_window_get_command,
+    display_window_set as display_window_set_command,
+    error_ls as error_ls_command,
+    event_ls as event_ls_command,
+    frame_set_state as frame_set_state_command,
+    ping as ping_command,
+)
 from punt_lux.operations import (
     DisplayInfo,
     FrameRaise,
@@ -23,16 +42,14 @@ from punt_lux.operations import (
     WindowSettings,
     WindowSettingsPatch,
 )
+from punt_lux.rest.identity import resolve_identity
 
 if TYPE_CHECKING:
+    from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.operations import Operations
     from punt_lux.rest.status import HttpErrorMap
 
-# A read route's fallback when the caller sent no (or a malformed)
-# X-Lux-Client-* declaration. Honestly labeled as an anonymous caller, never
-# "luxd" -- luxd is the app itself, never a caller of its own REST surface,
-# and every real declaration ClientHeaders.identity_from parses wins over it.
-_ANONYMOUS_REST = ClientIdentity(kind="cli", name="rest-anonymous")
+_CallerIdentity = Annotated["ClientIdentity", Depends(resolve_identity)]
 
 __all__ = ["DisplayRoutes"]
 
@@ -91,56 +108,85 @@ class DisplayRoutes:
         """The router to mount on the app."""
         return self._router
 
-    def get_display_info(self) -> DisplayInfo:
+    def get_display_info(self, identity: _CallerIdentity) -> DisplayInfo:
         """Return the display's backend, geometry, frame rate, and identity."""
-        return self._errors.respond(self._ops.get_display_info())
+        ctx: CommandCtx[DisplayInfoOps] = CommandCtx(ops=self._ops, identity=identity)
+        return self._errors.respond(asyncio.run(display_info_command.execute(ctx)))
 
-    def get_theme(self) -> ThemeState:
+    def get_theme(self, identity: _CallerIdentity) -> ThemeState:
         """Return the active theme and the themes available to switch to."""
-        return self._errors.respond(self._ops.get_theme())
+        ctx: CommandCtx[ThemeOps] = CommandCtx(ops=self._ops, identity=identity)
+        return self._errors.respond(asyncio.run(display_get_theme_command.execute(ctx)))
 
-    def set_theme(self, request: SetThemeRequest) -> ThemeState:
+    def set_theme(
+        self, request: SetThemeRequest, identity: _CallerIdentity
+    ) -> ThemeState:
         """Switch the display theme and return the new theme state."""
-        return self._errors.respond(self._ops.set_theme(request))
+        ctx: CommandCtx[ThemeOps] = CommandCtx(ops=self._ops, identity=identity)
+        return self._errors.respond(
+            asyncio.run(display_set_theme_command.execute(ctx, request))
+        )
 
-    def get_window_settings(self) -> WindowSettings:
+    def get_window_settings(self, identity: _CallerIdentity) -> WindowSettings:
         """Return the window's opacity, font scale, decoration, and idle rate."""
-        return self._errors.respond(self._ops.get_window_settings())
+        ctx: CommandCtx[WindowOps] = CommandCtx(ops=self._ops, identity=identity)
+        return self._errors.respond(
+            asyncio.run(display_window_get_command.execute(ctx))
+        )
 
-    def set_window_settings(self, patch: WindowSettingsPatch) -> WindowSettings:
+    def set_window_settings(
+        self, patch: WindowSettingsPatch, identity: _CallerIdentity
+    ) -> WindowSettings:
         """Change the provided window settings and return the new settings."""
-        return self._errors.respond(self._ops.set_window_settings(patch))
+        ctx: CommandCtx[WindowOps] = CommandCtx(ops=self._ops, identity=identity)
+        return self._errors.respond(
+            asyncio.run(display_window_set_command.execute(ctx, patch))
+        )
 
-    def set_frame_state(self, frame_id: str, patch: FrameStatePatch) -> Ok:
+    def set_frame_state(
+        self, frame_id: str, patch: FrameStatePatch, identity: _CallerIdentity
+    ) -> Ok:
         """Change a frame's transient minimize state."""
-        return self._errors.respond(self._ops.set_frame_state(frame_id, patch))
+        ctx: CommandCtx[FrameOps] = CommandCtx(ops=self._ops, identity=identity)
+        return self._errors.respond(
+            asyncio.run(frame_set_state_command.execute(ctx, frame_id, patch))
+        )
 
     def raise_frame(self, frame_id: str) -> FrameRaise:
         """Bring a frame to the front, restoring it if it was minimized."""
         return self._errors.respond(self._ops.raise_frame(frame_id))
 
-    def screenshot(self) -> Screenshot:
+    def screenshot(self, identity: _CallerIdentity) -> Screenshot:
         """Refuse the screenshot: framebuffer capture is unsupported (DES-028)."""
-        return self._errors.respond(self._ops.screenshot())
+        ctx: CommandCtx[ScreenshotOps] = CommandCtx(ops=self._ops, identity=identity)
+        return self._errors.respond(
+            asyncio.run(display_screenshot_command.execute(ctx))
+        )
 
-    async def ping(self, request: Request, timeout: _PingTimeout = None) -> Pong:
+    async def ping(
+        self, identity: _CallerIdentity, timeout: _PingTimeout = None
+    ) -> Pong:
         """Round-trip a ping via PingCommand and return the typed result.
 
         A ping never owns Hub state, so a caller with no ``X-Lux-Client-*``
-        declaration is not challenged the way a write is — it resolves to
-        ``_ANONYMOUS_REST`` rather than luxd's own identity, honestly
-        distinct from every real caller ``ClientHeaders.identity_from``
-        recovers from a declared request.
+        declaration is not challenged the way a write is — ``resolve_identity``
+        resolves to ``ANONYMOUS_REST`` rather than luxd's own identity, honestly
+        distinct from every real caller.
         """
-        identity = ClientHeaders.identity_from(request.headers) or _ANONYMOUS_REST
-        ctx = CommandCtx(ops=self._ops, identity=identity)
+        ctx: CommandCtx[PingOps] = CommandCtx(ops=self._ops, identity=identity)
         result = await ping_command.execute(ctx, timeout)
         return self._errors.respond(result)
 
-    def list_recent_events(self, count: _EventCount = 50) -> RecentEvents:
+    def list_recent_events(
+        self, identity: _CallerIdentity, count: _EventCount = 50
+    ) -> RecentEvents:
         """Return the display's recent interactions, proxied."""
-        return self._errors.respond(self._ops.list_recent_events(count))
+        ctx: CommandCtx[EventOps] = CommandCtx(ops=self._ops, identity=identity)
+        return self._errors.respond(asyncio.run(event_ls_command.execute(ctx, count)))
 
-    def list_errors(self, count: _ErrorCount = 20) -> RecentErrors:
+    def list_errors(
+        self, identity: _CallerIdentity, count: _ErrorCount = 20
+    ) -> RecentErrors:
         """Return the display's recent errors, proxied."""
-        return self._errors.respond(self._ops.list_errors(count))
+        ctx: CommandCtx[ErrorOps] = CommandCtx(ops=self._ops, identity=identity)
+        return self._errors.respond(asyncio.run(error_ls_command.execute(ctx, count)))
