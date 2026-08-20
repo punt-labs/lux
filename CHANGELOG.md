@@ -2,7 +2,34 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`LuxClient` — the public library facade with noun-grouped accessors
+  (`lux-0shg.7`).** A downstream Python consumer now holds a single
+  `LuxClient` and reaches the Hub through nine noun-grouped accessors —
+  `client.scene.*`, `client.frame.*`, `client.menu.*`, `client.session.*`,
+  `client.callback.*`, `client.display.*`, `client.event.*`,
+  `client.error.*` — plus `client.ping(...)` and `client.listener(...)` at
+  the top level. Every accessor method is async and returns the typed
+  operation result, dispatched through the shared command singletons in
+  `punt_lux.commands` so the library caller runs the same code path as the
+  CLI, MCP, and REST adapters. IDE completion on `client.scene.` shows the
+  same verbs `lux scene <verb>` (CLI), `scene_<verb>` (MCP), and `/scenes`
+  (REST) speak.
+
 ### Changed (BREAKING)
+
+- **Library public API swap: `LuxRestClient` / `LuxHubClient` retired from
+  `punt_lux.__all__` in favour of `LuxClient` (`lux-0shg.7`).** The
+  transport classes remain importable from their submodule paths
+  (`from punt_lux.rest_client import LuxRestClient`,
+  `from punt_lux.hub_client import LuxHubClient`) for internal callers and
+  power users who need to hold a transport directly. They are no longer
+  part of the primary consumer surface. Migration table lives in
+  [`docs/library.md`](docs/library.md#migrating-from-luxrestclient--luxhubclient);
+  a typical port is `client.render(req)` → `await client.scene.show(req)`.
+  Cross-repo consumers (vox, z-spec) update in lockstep — beads `vox-oyfs`
+  and `z-spec-t7w` track their migration.
 
 - **MCP tool rename train — 22 renames + 1 new tool + frame_split.** Every
   MCP-visible tool now uses the noun_verb form of the design vocabulary.
@@ -161,8 +188,6 @@
   authoritative MCP transport (the one-code-path epic `lux-7gcz` removed the
   stdio/mcp-proxy path); the Claude Code plugin connects to it directly, with
   no per-session process in the tool path.
-
-### Added
 
 - CLI parity guard (`tests/cli/test_parity.py`): every non-admin
   `commands/` singleton must have a reachable Typer entry, or a stated
