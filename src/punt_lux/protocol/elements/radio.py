@@ -171,8 +171,10 @@ class RadioElement(Element):
         if self._items:
             if self._selected >= len(self._items):
                 return (
-                    f"selected ({self._selected}) must be < len(items) "
-                    f"({len(self._items)})",
+                    (
+                        f"selected ({self._selected}) must be < len(items) "
+                        f"({len(self._items)})"
+                    ),
                 )
             return ()
         if self._selected != 0:

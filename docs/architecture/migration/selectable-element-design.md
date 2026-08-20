@@ -268,20 +268,22 @@ implies. Every module stays under PY-OO-2 (≤ 300 lines, ≤ 3 classes).
 **`abc_kind_table.py`** (`_leaf_specs()`, after the `radio` entry):
 
 ```python
-LeafKindSpec(
-    kind="selectable",
-    codec=KindCodec(
-        SelectableElement, JsonSelectableDecoder, JsonSelectableEncoder().encode
+(
+    LeafKindSpec(
+        kind="selectable",
+        codec=KindCodec(
+            SelectableElement, JsonSelectableDecoder, JsonSelectableEncoder().encode
+        ),
+        handler_builder=build_standalone_value_handler_decoder,
     ),
-    handler_builder=build_standalone_value_handler_decoder,
-),
+)
 ```
 
 **`display/renderers/imgui/factory.py`** (`_DISPATCH`, after `radio`):
 
 ```python
-(RadioElement, ImGuiRadioRenderer),
-+ (SelectableElement, ImGuiSelectableRenderer),
+((RadioElement, ImGuiRadioRenderer),)
+(+(SelectableElement, ImGuiSelectableRenderer),)
 ```
 
 **`display/element_renderer.py`** — construction, widget-state set, and
@@ -294,7 +296,7 @@ _WIDGET_STATE_RENDERERS = (..., "_selectable_renderer", "_container_renderer")
 
 # AFTER
 self._selectable_renderer = SelectableRenderer()
-_WIDGET_STATE_RENDERERS = (..., "_container_renderer")   # selectable removed
+_WIDGET_STATE_RENDERERS = (..., "_container_renderer")  # selectable removed
 # _NATIVE_DISPATCH keeps (SelectableElement, "_selectable_renderer")  — DES-042
 # NEW: `selectable_renderer` property mirroring `combo_renderer`
 ```

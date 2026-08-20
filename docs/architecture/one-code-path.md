@@ -169,16 +169,17 @@ matches on a field rather than parsing a sentence, and an illegal
 from typing import Annotated, Literal
 from pydantic import BaseModel, Field
 
+
 class OpError(BaseModel):
     kind: Literal["error"] = "error"
     code: Literal[
         "display_unavailable",  # the display process is not running
-        "timeout",              # a proxied round-trip exceeded its bound
-        "rejected",             # the engine refused the caller's request
-        "invalid_request",      # the request itself did not type-check
-        "not_found",            # the named scene or resource does not exist
-        "fault",                # an engine-side failure: a malformed display
-                                #   reply, an unreadable config file
+        "timeout",  # a proxied round-trip exceeded its bound
+        "rejected",  # the engine refused the caller's request
+        "invalid_request",  # the request itself did not type-check
+        "not_found",  # the named scene or resource does not exist
+        "fault",  # an engine-side failure: a malformed display
+        #   reply, an unreadable config file
     ]
     reason: str
 ```
@@ -201,6 +202,7 @@ validated.
 ```python
 class RenderRequest(BaseModel):
     ...
+
     @classmethod
     def parse(cls, raw: Mapping[str, object]) -> "RenderRequest | OpError":
         """Validate raw arguments, or return an OpError instead of raising."""
@@ -214,7 +216,9 @@ The operation accepts the builder's result — a valid request or an `OpError` �
 and passes an `OpError` straight through:
 
 ```python
-def render(self, request: RenderRequest | OpError, *, scope: Scope) -> SceneShown | OpError:
+def render(
+    self, request: RenderRequest | OpError, *, scope: Scope
+) -> SceneShown | OpError:
     if isinstance(request, OpError):
         return request
     # trust the validated request from here on; do the work
@@ -323,7 +327,7 @@ output schema.
 ```python
 class DisplayInfo(BaseModel):
     kind: Literal["ok"] = "ok"
-    backend: str            # e.g. "OpenGL3"
+    backend: str  # e.g. "OpenGL3"
     window_width: int
     window_height: int
     fps: float
@@ -339,8 +343,9 @@ class DisplayInfo(BaseModel):
 class SceneSummary(BaseModel):
     scene_id: str
     element_count: int
-    frame_id: str | None    # None when the scene is not shown into a frame
-    owner: str | None       # the owning connection id, None if unowned
+    frame_id: str | None  # None when the scene is not shown into a frame
+    owner: str | None  # the owning connection id, None if unowned
+
 
 class FrameSummary(BaseModel):
     frame_id: str
@@ -349,10 +354,12 @@ class FrameSummary(BaseModel):
     scene_ids: list[str]
     layout: Literal["tab", "stack"]
 
+
 class SceneList(BaseModel):
     kind: Literal["ok"] = "ok"
     scenes: list[SceneSummary]
     frames: list[FrameSummary]
+
 
 class InspectedElement(BaseModel):
     id: str
@@ -363,10 +370,12 @@ class InspectedElement(BaseModel):
     resolved_props: dict[str, object]
     children: list["InspectedElement"] = []
 
+
 class SceneInspection(BaseModel):
     kind: Literal["ok"] = "ok"
     scene_id: str
     elements: list[InspectedElement]
+
 
 class HubClient(BaseModel):
     connection_id: str
@@ -374,20 +383,24 @@ class HubClient(BaseModel):
     subscribed_topics: list[str]
     owned_scenes: list[str]
 
+
 class ClientList(BaseModel):
     kind: Literal["ok"] = "ok"
     clients: list[HubClient]
 
+
 class InteractionEvent(BaseModel):
     element_id: str
-    action: str             # open-ended interaction name (clicked, changed, …)
-    value: object | None = None   # the new value for value-bearing widgets
+    action: str  # open-ended interaction name (clicked, changed, …)
+    value: object | None = None  # the new value for value-bearing widgets
     timestamp: float
+
 
 class RecentEvents(BaseModel):
     kind: Literal["ok"] = "ok"
     events: list[InteractionEvent]
     total_buffered: int
+
 
 class DisplayErrorEntry(BaseModel):
     timestamp: float
@@ -395,27 +408,33 @@ class DisplayErrorEntry(BaseModel):
     message: str
     context: str
 
+
 class RecentErrors(BaseModel):
     kind: Literal["ok"] = "ok"
     errors: list[DisplayErrorEntry]
     total_buffered: int
 
+
 class MenuAction(BaseModel):
     kind: Literal["action"] = "action"
     id: str
     label: str
-    shortcut: str | None = None    # None when the item has no accelerator
-    icon: str | None = None        # None when the item has no icon
+    shortcut: str | None = None  # None when the item has no accelerator
+    icon: str | None = None  # None when the item has no icon
+
 
 class MenuSeparator(BaseModel):
     kind: Literal["separator"] = "separator"
 
+
 # A menu entry is an action or a separator, never a half-formed action.
 MenuEntry = Annotated[MenuAction | MenuSeparator, Field(discriminator="kind")]
+
 
 class Menu(BaseModel):
     label: str
     items: list[MenuEntry]
+
 
 class MenuList(BaseModel):
     kind: Literal["ok"] = "ok"
@@ -438,21 +457,34 @@ always registers an action.
 
 ```python
 ThemeName = Literal[
-    "imgui_colors_classic", "imgui_colors_dark", "imgui_colors_light",
-    "material_flat", "photoshop_style", "gray_variations",
-    "gray_variations_darker", "microsoft_style", "cherry", "darcula",
-    "darcula_darker", "light_rounded", "so_dark_accent_blue",
-    "so_dark_accent_yellow", "so_dark_accent_red", "black_is_black",
+    "imgui_colors_classic",
+    "imgui_colors_dark",
+    "imgui_colors_light",
+    "material_flat",
+    "photoshop_style",
+    "gray_variations",
+    "gray_variations_darker",
+    "microsoft_style",
+    "cherry",
+    "darcula",
+    "darcula_darker",
+    "light_rounded",
+    "so_dark_accent_blue",
+    "so_dark_accent_yellow",
+    "so_dark_accent_red",
+    "black_is_black",
     "white_is_white",
 ]
 # The seventeen names above are hello_imgui's real theme enumeration,
 # verified against the renderer. An earlier draft listed two themes that do
 # not exist and omitted seven that do.
 
+
 class ThemeState(BaseModel):
     kind: Literal["ok"] = "ok"
     theme: ThemeName
     available: list[ThemeName]
+
 
 class WindowSettings(BaseModel):
     kind: Literal["ok"] = "ok"
@@ -461,32 +493,39 @@ class WindowSettings(BaseModel):
     decorated: bool
     fps_idle: float
 
+
 class Screenshot(BaseModel):
     kind: Literal["ok"] = "ok"
-    path: str               # PNG file path on the display host
+    path: str  # PNG file path on the display host
+
 
 class Pong(BaseModel):
     kind: Literal["ok"] = "ok"
     rtt_seconds: float
 
+
 class SetMenuRequest(BaseModel):
     menus: list[Menu]
 
+
 class BusEvent(BaseModel):
     topic: str
-    payload: dict[str, object]   # app-defined topic payload
+    payload: dict[str, object]  # app-defined topic payload
+
 
 class Subscribed(BaseModel):
     kind: Literal["ok"] = "ok"
     topic: str
 
+
 class Unsubscribed(BaseModel):
     kind: Literal["ok"] = "ok"
     topic: str
 
+
 class Received(BaseModel):
     kind: Literal["ok"] = "ok"
-    event: BusEvent | None = None   # None is the documented "inbox empty" contract
+    event: BusEvent | None = None  # None is the documented "inbox empty" contract
 ```
 
 ## The REST Surface
@@ -561,12 +600,14 @@ class FrameFlags(BaseModel):
     no_background: bool = False
     no_scrollbar: bool = False
 
+
 class FrameSpec(BaseModel):
     frame_id: str | None = None
     frame_title: str | None = None
-    size: tuple[int, int] | None = None    # None means let the display choose
+    size: tuple[int, int] | None = None  # None means let the display choose
     flags: FrameFlags | None = None
     layout: Literal["tab", "stack"] | None = None
+
 
 class RenderRequest(BaseModel):
     scene_id: str
@@ -578,9 +619,11 @@ class RenderRequest(BaseModel):
     layout: Literal["single", "rows", "columns", "grid"] = "single"
     frame: FrameSpec | None = None
 
+
 class SceneShown(BaseModel):
     kind: Literal["ok"] = "ok"
     scene_id: str
+
 
 class SetPatch(BaseModel):
     kind: Literal["set"] = "set"
@@ -589,46 +632,58 @@ class SetPatch(BaseModel):
     # open and validated per kind by the element codec in the operation.
     set: dict[str, object]
 
+
 class RemovePatch(BaseModel):
     kind: Literal["remove"] = "remove"
     id: str
+
 
 # A patch sets fields on an element or removes it — never both, never neither.
 # Real update patches carry no kind field ({"id", "set"} or {"id", "remove":
 # true}); the boundary codec maps each wire shape to its typed variant.
 ScenePatch = Annotated[SetPatch | RemovePatch, Field(discriminator="kind")]
 
+
 class UpdateRequest(BaseModel):
     patches: list[ScenePatch]
+
 
 class Cleared(BaseModel):
     kind: Literal["ok"] = "ok"
 
+
 class Ok(BaseModel):
     kind: Literal["ok"] = "ok"
+
 
 class SetThemeRequest(BaseModel):
     theme: ThemeName
 
+
 class WindowSettingsPatch(BaseModel):
-    opacity: float | None = None       # only provided fields change
+    opacity: float | None = None  # only provided fields change
     font_scale: float | None = None
     decorated: bool | None = None
     fps_idle: float | None = None
 
+
 class FrameStatePatch(BaseModel):
     minimized: bool | None = None
 
+
 class DisplayModeRequest(BaseModel):
     mode: Literal["on", "off"]
-    repo: str                          # absolute path to the caller's project
+    repo: str  # absolute path to the caller's project
+
 
 class DisplayModeState(BaseModel):
     kind: Literal["ok"] = "ok"
     mode: Literal["on", "off"]
 
+
 class PublishRequest(BaseModel):
-    payload: dict[str, object] = {}    # app-defined topic payload
+    payload: dict[str, object] = {}  # app-defined topic payload
+
 
 class Published(BaseModel):
     kind: Literal["ok"] = "ok"
@@ -770,7 +825,9 @@ def beads(all_issues: bool = typer.Option(False, "--all", "-a")) -> None:
             scene_id=f"beads-{project}",
             elements=[e.to_dict() for e in elements],
             title=f"Beads: {project}",
-            frame=FrameSpec(frame_id=f"beads-{project}", frame_title=f"Beads: {project}"),
+            frame=FrameSpec(
+                frame_id=f"beads-{project}", frame_title=f"Beads: {project}"
+            ),
         )
     )
     typer.echo(_beads_message(result, issues, load_error))

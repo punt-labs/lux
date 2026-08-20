@@ -29,6 +29,7 @@ from punt_lux import LuxClient, RenderRequest, SceneShown, TextElement
 # the git repository it runs in — so the scene below is owned by that repo.
 client = LuxClient.connect()
 
+
 async def render_hello() -> None:
     result = await client.scene.show(
         RenderRequest(
@@ -38,6 +39,7 @@ async def render_hello() -> None:
     )
     if isinstance(result, SceneShown):
         print("shown:", result.scene_id)
+
 
 asyncio.run(render_hello())
 ```
@@ -106,26 +108,28 @@ from punt_lux import ClientIdentity, LuxClient
 # the WebSocket. A long-lived daemon declares an "app" identity — who it is,
 # not where it ran — and a short lease TTL so its menu entries leave when it
 # dies.
-client = LuxClient.for_identity(
-    ClientIdentity(kind="app", name="voxd", lease_ttl=30)
-)
+client = LuxClient.for_identity(ClientIdentity(kind="app", name="voxd", lease_ttl=30))
+
 
 async def on_callback(callback_id: str) -> None:
-    print("menu click:", callback_id)          # run the action for this item
+    print("menu click:", callback_id)  # run the action for this item
+
 
 async def on_event(topic: str, payload: dict[str, object]) -> None:
-    print("event:", topic, payload)            # e.g. {"album_id": "jazz-1"}
+    print("event:", topic, payload)  # e.g. {"album_id": "jazz-1"}
+
 
 async def on_connect() -> None:
     # Runs after every handshake — re-establish the per-connection state the
     # reconnect does not: register menu callbacks, re-push any scenes.
     await client.callback.register("music", "Music")
 
+
 listener = client.listener(
     on_callback=on_callback, on_event=on_event, on_connect=on_connect
 )
 listener.subscribe("music.play", "music.stop")
-asyncio.run(listener.listen())                 # blocks, reconnecting as needed
+asyncio.run(listener.listen())  # blocks, reconnecting as needed
 ```
 
 Registering from `on_connect` is required, not merely tidy: the Hub refuses a
@@ -163,9 +167,16 @@ did:
 A click on the second row delivers:
 
 ```python
-("music.play", {"kind": "row_selection_changed",
-                "scene_id": "player", "element_id": "albums",
-                "row_ids": ["dusk"], "anchor": "dusk"})
+(
+    "music.play",
+    {
+        "kind": "row_selection_changed",
+        "scene_id": "player",
+        "element_id": "albums",
+        "row_ids": ["dusk"],
+        "anchor": "dusk",
+    },
+)
 ```
 
 Every payload opens with the same three keys — what happened, and the scene and

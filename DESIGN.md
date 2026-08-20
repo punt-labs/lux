@@ -1006,9 +1006,10 @@ Add an optional `filters` field to `TableElement`. When present, the display ser
 @dataclass(frozen=True)
 class TableFilter:
     """A filter control rendered above a table."""
+
     type: Literal["search", "combo"]
-    column: int | list[int]       # column index(es) to filter on
-    hint: str = ""                # placeholder text (search only)
+    column: int | list[int]  # column index(es) to filter on
+    hint: str = ""  # placeholder text (search only)
     items: list[str] | None = None  # dropdown items (combo only, first item = "All")
 ```
 
@@ -1122,9 +1123,10 @@ Add an optional `detail` field to `TableElement`. When present, clicking a row r
 @dataclass(frozen=True)
 class TableDetail:
     """Detail data for each row, rendered when the row is selected."""
-    fields: list[str]          # field names (e.g., ["ID", "Title", "Status", ...])
-    rows: list[list[Any]]      # one row per table row, values for each field
-    body: list[str]            # one body text per table row (long-form content)
+
+    fields: list[str]  # field names (e.g., ["ID", "Title", "Status", ...])
+    rows: list[list[Any]]  # one row per table row, values for each field
+    body: list[str]  # one body text per table row (long-form content)
 ```
 
 ```python
@@ -1288,6 +1290,7 @@ class RegisterMenuMessage:
     Replaces any previous registration from the same client (socket).
     Automatically cleaned up on disconnect.
     """
+
     items: list[dict[str, Any]]  # [{label, id, shortcut?, enabled?, icon?}]
     type: Literal["register_menu"] = "register_menu"
 ```
@@ -1329,8 +1332,8 @@ No client-side filtering needed. The routing is invisible to the `recv()` caller
 ```python
 # DisplayServer additions:
 _menu_registrations: dict[int, list[dict[str, Any]]]  # fd → items
-_menu_owners: dict[str, int]                           # item_id → fd
-_fd_to_client: dict[int, socket.socket]                # fd → socket (O(1) routing)
+_menu_owners: dict[str, int]  # item_id → fd
+_fd_to_client: dict[int, socket.socket]  # fd → socket (O(1) routing)
 ```
 
 `_menu_registrations` stores each client's raw item list (for re-rendering the menu). `_menu_owners` is the reverse index (for routing clicks). `_fd_to_client` is a reverse index for O(1) socket lookup by FD, matching the existing `_readers: dict[int, FrameReader]` pattern. All three are maintained in `_accept_connections` and `_remove_client`.
@@ -1398,12 +1401,14 @@ def register_tool(
     Items are automatically removed when the server disconnects.
     """
     client = _get_client()
-    client.register_menu_item({
-        "label": label,
-        "id": tool_id,
-        "shortcut": shortcut,
-        "icon": icon,
-    })
+    client.register_menu_item(
+        {
+            "label": label,
+            "id": tool_id,
+            "shortcut": shortcut,
+            "icon": icon,
+        }
+    )
     return f"registered:{tool_id}"
 ```
 
@@ -1729,7 +1734,10 @@ try:
 except ModuleNotFoundError as exc:
     _display_modules = {"imgui_bundle", "numpy", "PIL", "OpenGL"}
     if exc.name and exc.name.split(".")[0] in _display_modules:
-        typer.echo("Display extras not installed. Run: pip install 'punt-lux[display]'", err=True)
+        typer.echo(
+            "Display extras not installed. Run: pip install 'punt-lux[display]'",
+            err=True,
+        )
         raise typer.Exit(code=1) from None
     raise
 ```
@@ -2268,10 +2276,10 @@ functions does not give us that. The single-runtime test from
 display = Display()
 alice_id = display.connect_client(name="alice")
 bob_id = display.connect_client(name="bob")
-display.apply(alice_id, AddElement("s1", parent_id=None,
-                                   element=Button(id="b1", label="hi")))
-refused = display.apply(bob_id,
-                        SetProperty("s1", "b1", "label", "evil"))
+display.apply(
+    alice_id, AddElement("s1", parent_id=None, element=Button(id="b1", label="hi"))
+)
+refused = display.apply(bob_id, SetProperty("s1", "b1", "label", "evil"))
 assert isinstance(refused, OwnershipError)
 assert display.snapshot("s1").element("b1").label == "hi"
 ```

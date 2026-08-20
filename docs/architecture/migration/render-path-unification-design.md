@@ -157,11 +157,13 @@ def _begin(self, renderer: Renderer) -> bool:
     surface is a container that must be opened (and may fail to open)."""
     return True
 
+
 def _paint_self(self, renderer: Renderer) -> None:
     """Paint this node's own body. Default: delegate to the renderer.
     A pure container whose body is only its children overrides this to
     nothing (its renderer's ``paint`` is then a no-op)."""
     renderer.paint()
+
 
 def _render_children(self, renderer: Renderer) -> None:
     """Paint this node's children. Default: recurse ``_children()``,
@@ -170,6 +172,7 @@ def _render_children(self, renderer: Renderer) -> None:
     a container's opened surface encloses them for free."""
     for child in self._children():
         child.render()
+
 
 def _end(self, renderer: Renderer, opened: bool) -> None:
     """Close this node's surface. Default: nothing (a leaf has none).
@@ -300,6 +303,7 @@ inside it. It overrides nothing else.
 ```python
 class DialogElement(Element):
     ...
+
     def _begin(self, renderer: Renderer) -> bool:
         """Open the modal popup; return whether it opened. The skeleton
         then draws the body and children only inside an open popup."""
