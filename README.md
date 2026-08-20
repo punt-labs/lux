@@ -158,7 +158,7 @@ Agents interact with Lux through the MCP tools `luxd` serves over its streamable
 ### Show text and a button
 
 ```json
-{"tool": "show", "input": {
+{"tool": "scene_show", "input": {
   "scene_id": "hello",
   "elements": [
     {"kind": "text", "id": "t1", "content": "Hello from the agent"},
@@ -172,11 +172,11 @@ background replicator paints it; no tool call ever waits on the display. A
 button click fires its handler on the Hub (the agent does not poll for it). To observe interactions, read the introspection log:
 
 ```json
-{"tool": "list_recent_events", "input": {"count": 5}}
+{"tool": "event_ls", "input": {"count": 5}}
 ```
 
-A Hub-side handler can `publish` an app event that the agent then reads with
-`recv` (see the Pub/Sub tools above). An element that declares
+A Hub-side handler can `topic_publish` an app event that the agent then reads
+with `topic_recv` (see the Communication tools above). An element that declares
 `"publish": ["my.topic"]` publishes what the user did — the event's kind, the
 scene and element it landed on, and its own fields, such as a table selection's
 `row_ids` and `anchor`. The full shape is in
@@ -185,7 +185,7 @@ scene and element it landed on, and its own fields, such as a table selection's
 ### Multi-window dashboard
 
 ```json
-{"tool": "show", "input": {
+{"tool": "scene_show", "input": {
   "scene_id": "dash",
   "elements": [
     {"kind": "window", "id": "w1", "title": "Controls", "x": 10, "y": 10,

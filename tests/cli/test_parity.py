@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import cast
 
 import click
 import typer.main
@@ -63,7 +64,7 @@ def _typer_command_paths() -> set[tuple[str, ...]]:
 
     E.g. ``lux scene show`` -> ``("scene", "show")``, ``lux ping`` -> ``("ping",)``.
     """
-    root = typer.main.get_command(app)
+    root = cast("click.Command", typer.main.get_command(app))
     paths: set[tuple[str, ...]] = set()
 
     def walk(cmd: click.Command, prefix: tuple[str, ...]) -> None:
