@@ -47,7 +47,7 @@
 
 - **Skills reorganized under the scene noun group.** The three existing
   skills move from `plugin/skills/{beads,dashboard,data-explorer}/` to
-  `plugin/skills/scene/{beads,dashboard,data-explorer}/`. Their
+  `plugin/skills/scene.{beads,dashboard,data-explorer}/`. Their
   `name:` frontmatter is now `scene.beads`, `scene.dashboard`,
   `scene.data-explorer`, so an agent looking for "what can I do with a
   scene?" discovers the thin slashes and the composed skills in one
@@ -200,7 +200,7 @@
 - **New noun groups**, each wrapping the `commands/` singletons from the
   Humble Object commands layer through a real per-invocation identity:
   `lux scene {show,update,clear,clear-all,inspect,ls,table,dashboard}`,
-  `lux frame set-state`, `lux menu {ls,set}`, `lux session {ls,inspect,identify}`,
+  `lux frame {raise,close}`, `lux menu {ls,set}`, `lux session {ls,inspect,identify}`,
   `lux display {info,theme,mode,window,screenshot,serve}` (theme/mode/window
   are fused: no argument reads, an argument or option writes), `lux event ls`,
   `lux error ls`, `lux callback register`. Every write accepts
