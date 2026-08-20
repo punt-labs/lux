@@ -55,7 +55,7 @@ class TestHandleSessionStart:
         mock_cls = _mock_config_manager(_DISPLAY_ON)
         with patch("punt_lux.hooks.ConfigManager", mock_cls):
             ctx = _ctx(handle_session_start())
-        assert "/lux:beads" in ctx
+        assert "/lux:scene.beads" in ctx
 
     def test_display_off_says_nothing_about_menus(self) -> None:
         mock_cls = _mock_config_manager(_DISPLAY_OFF)

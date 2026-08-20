@@ -65,6 +65,27 @@ if command -v jq &>/dev/null && [[ -f "$SETTINGS" ]]; then
   # is not installed with this hook.
   SKILL_RULES=(
     "Skill(lux)"
+    "Skill(ping)"
+    "Skill(scene.show)"
+    "Skill(scene.update)"
+    "Skill(scene.clear)"
+    "Skill(scene.clear_all)"
+    "Skill(scene.ls)"
+    "Skill(scene.inspect)"
+    "Skill(scene.table)"
+    "Skill(scene.dashboard)"
+    "Skill(frame.raise)"
+    "Skill(frame.close)"
+    "Skill(menu.ls)"
+    "Skill(menu.set)"
+    "Skill(session.ls)"
+    "Skill(topic.subscribe)"
+    "Skill(topic.unsubscribe)"
+    "Skill(topic.publish)"
+    "Skill(display.info)"
+    "Skill(display.screenshot)"
+    "Skill(event.ls)"
+    "Skill(error.ls)"
   )
 
   PLUGIN_RULES='['

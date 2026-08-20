@@ -1,5 +1,5 @@
 ---
-name: beads
+name: scene.beads
 description: >
   Display a beads issue board in the Lux window with filterable table and detail
   panel. Use when the user asks to "show beads", "show the board", "show issues",
@@ -19,7 +19,7 @@ allowed-tools:
   - mcp__lux__session_identify
 ---
 
-# /lux:beads — Beads Issue Board
+# /lux:scene.beads — Beads Issue Board
 
 Display beads issues in a filterable list/detail table in the Lux window.
 

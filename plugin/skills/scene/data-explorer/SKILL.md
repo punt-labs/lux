@@ -1,5 +1,5 @@
 ---
-name: data-explorer
+name: scene.data-explorer
 description: >
   Display an interactive data explorer in the Lux window with filterable tables,
   search inputs, and detail panels. Use when the user asks to "explore data",
@@ -24,7 +24,7 @@ allowed-tools:
   - mcp__lux__display_theme_set
 ---
 
-# /lux:data-explorer — Interactive Data Explorer
+# /lux:scene.data-explorer — Interactive Data Explorer
 
 You are composing an interactive data explorer in the Lux display window. A data explorer lets the user filter, search, and drill into tabular data. The layout is: filter controls at the top, data table in the middle, detail panel at the bottom. Interaction is the core — the user changes filters, the table updates.
 

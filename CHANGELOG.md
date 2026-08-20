@@ -4,6 +4,56 @@
 
 ### Added
 
+- **Slash-command coverage for every non-exempt MCP tool (`lux-0shg.6`).**
+  21 new slash definitions under `plugin/commands/` — one per client-tier
+  MCP tool — round out the four-surface parity. Filenames are flat and
+  dot-separated (`plugin/commands/scene.show.md` → `/lux:scene.show`);
+  no cached plugin uses nested command directories, and the design doc
+  names commands with dots explicitly, so a dotted filename is the
+  slash routing convention adopted here. New commands, by noun:
+
+  - **scene** (8): `/lux:scene.show`, `/lux:scene.update`,
+    `/lux:scene.clear`, `/lux:scene.clear_all`, `/lux:scene.ls`,
+    `/lux:scene.inspect`, `/lux:scene.table`, `/lux:scene.dashboard`
+  - **frame** (2): `/lux:frame.raise`, `/lux:frame.close`
+  - **menu** (2): `/lux:menu.ls`, `/lux:menu.set`
+  - **session** (1): `/lux:session.ls`
+  - **topic** (3): `/lux:topic.subscribe`, `/lux:topic.unsubscribe`,
+    `/lux:topic.publish`
+  - **display** (2): `/lux:display.info`, `/lux:display.screenshot`
+  - **event** (1): `/lux:event.ls`
+  - **error** (1): `/lux:error.ls`
+  - **top-level** (1): `/lux:ping`
+
+  The existing `/lux y|n` enable/disable command (`plugin/commands/lux.md`)
+  is unchanged — it stays at the top level as the per-repo integration
+  switch.
+
+  **Not shipped as slash (by design).** Four MCP tools have no slash
+  equivalent, each for a stated reason:
+
+  - `topic_recv` — non-blocking receive; a slash `/lux:topic.recv`
+    would fire once with an empty result almost always. Callers wanting
+    real-time delivery use the library's `LuxHubClient` listener or an
+    MCP poll loop.
+  - `session_identify` — identity is declared once per session at
+    handshake (DES-057); a slash form invites re-identification
+    mid-session, which the identity model does not need.
+  - `callback_register` — callback registration is a programmatic
+    step of hosting a menu entry; a slash form has no meaningful
+    ergonomics (the caller has to provide an opaque callback id).
+  - `callback_pending` — programmatic drain from a listening client,
+    not a user-typed operation.
+
+- **Skills reorganized under the scene noun group.** The three existing
+  skills move from `plugin/skills/{beads,dashboard,data-explorer}/` to
+  `plugin/skills/scene/{beads,dashboard,data-explorer}/`. Their
+  `name:` frontmatter is now `scene.beads`, `scene.dashboard`,
+  `scene.data-explorer`, so an agent looking for "what can I do with a
+  scene?" discovers the thin slashes and the composed skills in one
+  place. The session-start hook's `Skill()` allowlist and the
+  `scripts/check-skill-permissions.sh` gate are updated to match.
+
 - **`LuxClient` — the public library facade with noun-grouped accessors
   (`lux-0shg.7`).** A downstream Python consumer now holds a single
   `LuxClient` and reaches the Hub through nine noun-grouped accessors —
