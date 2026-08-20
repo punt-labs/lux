@@ -9,7 +9,7 @@ from punt_lux.operations import OpError
 from punt_lux.operations.models.inspect_scope import HUB_ONLY
 
 if TYPE_CHECKING:
-    from punt_lux.commands._result import Ctx, SceneOps
+    from punt_lux.commands._ports import Ctx, SceneOps
     from punt_lux.operations import InspectScope, SceneInspection, Scope
 
 

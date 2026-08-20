@@ -15,7 +15,7 @@ from punt_lux.commands.scene_show import scene_show
 from punt_lux.operations import OpError, SceneShown
 
 if TYPE_CHECKING:
-    from punt_lux.commands._result import Ctx, SceneOps
+    from punt_lux.commands._ports import Ctx, SceneOps
     from punt_lux.operations import RenderTableRequest, Scope
 
 

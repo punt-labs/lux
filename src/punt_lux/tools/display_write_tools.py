@@ -9,8 +9,16 @@ neither module mixes the scene concern with the display/config one.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, get_args
 
+from punt_lux.commands import (
+    Ctx as CommandCtx,
+    FrameOps,
+    MenuOps,
+    frame_set_state as frame_set_state_command,
+    menu_set as menu_set_command,
+)
 from punt_lux.operations import (
     DisplayModeRequest,
     FrameStatePatch,
@@ -51,9 +59,11 @@ def set_menu(menus: list[dict[str, Any]]) -> str:
     The menu bar is Hub-owned: this writes the Hub menu registry and the
     background replicator pushes the bar to the display.
     """
-    return _core._fault_or(
-        _core.OPERATIONS.set_menu(SetMenuRequest.parse(menus)), lambda _r: "ok"
+    ctx: CommandCtx[MenuOps] = CommandCtx(
+        ops=_core.OPERATIONS, identity=_core._identity()
     )
+    result = asyncio.run(menu_set_command(ctx, SetMenuRequest.parse(menus)))
+    return result.text
 
 
 # One source for the theme names — description and accepted set cannot drift.
@@ -104,8 +114,13 @@ def set_frame_state(
     minimized: bool | None = None,  # noqa: FBT001
 ) -> Ok | OpError:
     """Minimize or expand a frame (``minimized`` true to minimize)."""
-    return _core.OPERATIONS.set_frame_state(
-        frame_id, FrameStatePatch.parse({"minimized": minimized})
+    ctx: CommandCtx[FrameOps] = CommandCtx(
+        ops=_core.OPERATIONS, identity=_core._identity()
+    )
+    return asyncio.run(
+        frame_set_state_command.execute(
+            ctx, frame_id, FrameStatePatch.parse({"minimized": minimized})
+        )
     )
 
 

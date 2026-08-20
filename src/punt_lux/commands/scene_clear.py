@@ -15,7 +15,7 @@ from punt_lux.commands._result import CommandResult
 from punt_lux.operations import Cleared, OpError
 
 if TYPE_CHECKING:
-    from punt_lux.commands._result import Ctx, SceneOps
+    from punt_lux.commands._ports import Ctx, SceneOps
     from punt_lux.operations import Scope
 
 

@@ -1,0 +1,122 @@
+"""Per-family ops stubs the Phase B command tests compose.
+
+One class per ops family, each returning a preset outcome the test sets at
+construction; a test supplies only the outcome its own command reads.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Self, cast, final
+
+if TYPE_CHECKING:
+    from punt_lux.domain.hub.session_callback import CallbackInvocation
+    from punt_lux.operations import (
+        ClientList,
+        FrameStatePatch,
+        MenuList,
+        Ok,
+        OpError,
+        Scope,
+        SetMenuRequest,
+    )
+    from punt_lux.operations.models.callbacks import RegisterCallbackRequest
+    from punt_lux.operations.models.identity import Identified
+
+
+@final
+class StubFrameOps:
+    """``FrameOps`` stub returning one preset outcome."""
+
+    # `| None`: a test supplies the outcome it reads (PY-TS-14).
+    _result: Ok | OpError | None
+    __slots__ = ("_result",)
+
+    def __new__(cls, result: Ok | OpError | None = None) -> Self:
+        self = super().__new__(cls)
+        self._result = result
+        return self
+
+    def set_frame_state(
+        self, frame_id: str, patch: FrameStatePatch | OpError
+    ) -> Ok | OpError:
+        return cast("Ok | OpError", self._result)
+
+
+@final
+class StubMenuOps:
+    """``MenuOps`` stub returning one preset outcome per method."""
+
+    # `| None`: each field only needs a value when the test reads it.
+    _set: Ok | OpError | None
+    _list: MenuList | None
+    __slots__ = ("_list", "_set")
+
+    def __new__(
+        cls,
+        set_result: Ok | OpError | None = None,
+        list_result: MenuList | None = None,
+    ) -> Self:
+        self = super().__new__(cls)
+        self._set = set_result
+        self._list = list_result
+        return self
+
+    def set_menu(self, request: SetMenuRequest | OpError) -> Ok | OpError:
+        return cast("Ok | OpError", self._set)
+
+    def list_menus(self) -> MenuList:
+        return cast("MenuList", self._list)
+
+
+@final
+class StubSessionOps:
+    """``SessionOps`` stub returning one preset outcome per method."""
+
+    _list: ClientList | None
+    _identify: Identified | OpError | None
+    __slots__ = ("_identify", "_list")
+
+    def __new__(
+        cls,
+        list_result: ClientList | None = None,
+        identify_result: Identified | OpError | None = None,
+    ) -> Self:
+        self = super().__new__(cls)
+        self._list = list_result
+        self._identify = identify_result
+        return self
+
+    def list_clients(self) -> ClientList:
+        return cast("ClientList", self._list)
+
+    def identify(
+        self, declaration: dict[str, object], *, scope: Scope
+    ) -> Identified | OpError:
+        return cast("Identified | OpError", self._identify)
+
+
+@final
+class StubCallbackOps:
+    """``CallbackOps`` stub returning one preset outcome per method."""
+
+    _register: Ok | OpError | None
+    _pending: tuple[CallbackInvocation, ...]
+    __slots__ = ("_pending", "_register")
+
+    def __new__(
+        cls,
+        register_result: Ok | OpError | None = None,
+        pending: tuple[CallbackInvocation, ...] = (),
+    ) -> Self:
+        self = super().__new__(cls)
+        self._register = register_result
+        self._pending = pending
+        return self
+
+    def register_callback(
+        self, request: RegisterCallbackRequest | OpError, *, scope: Scope
+    ) -> Ok | OpError:
+        return cast("Ok | OpError", self._register)
+
+    def pending_callbacks(self, *, scope: Scope) -> tuple[CallbackInvocation, ...]:
+        return self._pending

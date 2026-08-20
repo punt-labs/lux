@@ -13,12 +13,19 @@ here for tests that snapshot a session's queue.
 
 from __future__ import annotations
 
+import asyncio
 import json
 
+from punt_lux.commands import (
+    CallbackOps,
+    Ctx as CommandCtx,
+    callback_register as callback_register_command,
+)
 from punt_lux.domain.hub.inbox import drain_inbox, inbox_for, next_event
 from punt_lux.domain.ids import ConnectionId
-from punt_lux.operations import OpError, PublishRequest, Scope
+from punt_lux.operations import PublishRequest, Scope
 from punt_lux.operations.models.callbacks import RegisterCallbackRequest
+from punt_lux.tools import tools as _core
 from punt_lux.tools.server import _session_key, mcp
 from punt_lux.tools.tools import OPERATIONS
 
@@ -109,10 +116,11 @@ def register_callback(callback_id: str, label: str) -> str:
     session's lease lapses, so there is no separate withdrawal — disconnecting or
     letting the lease expire removes it.
     """
-    result = OPERATIONS.register_callback(
-        RegisterCallbackRequest.parse(callback_id=callback_id, label=label),
-        scope=_scope(),
+    ctx: CommandCtx[CallbackOps] = CommandCtx(
+        ops=_core.OPERATIONS, identity=_core._identity()
     )
-    if isinstance(result, OpError):
-        return f"error: {result.reason}"
-    return f"registered:{callback_id}"
+    request = RegisterCallbackRequest.parse(callback_id=callback_id, label=label)
+    result = asyncio.run(
+        callback_register_command(ctx, request, callback_id, scope=_scope())
+    )
+    return result.text

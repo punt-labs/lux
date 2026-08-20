@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.hub import Hub
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.hub.menu_registry import HubMenuRegistry
+    from punt_lux.domain.hub.session_callback import CallbackInvocation
     from punt_lux.operations.models import (
         Cleared,
         DisplayModeRequest,
@@ -311,6 +312,10 @@ class Operations:
         read to poll.
         """
         return self._callbacks.register_callback(request, scope=scope)
+
+    def pending_callbacks(self, *, scope: Scope) -> tuple[CallbackInvocation, ...]:
+        """Return the caller's held callback invocations without clearing them."""
+        return self._callbacks.pending_callbacks(scope=scope)
 
     def identify(
         self, declaration: dict[str, object], *, scope: Scope

@@ -21,10 +21,12 @@ from typing import Any, Literal
 from punt_lux.commands import (
     Ctx as CommandCtx,
     SceneOps,
+    SessionOps,
     scene_clear as scene_clear_command,
     scene_clear_all as scene_clear_all_command,
     scene_show as scene_show_command,
     scene_update as scene_update_command,
+    session_identify as session_identify_command,
 )
 from punt_lux.domain.hub.scene_presentation import SceneLayout
 from punt_lux.operations import RenderRequest, UpdateRequest
@@ -54,13 +56,17 @@ def identify(
     (omit when headless); ``agent`` is your persona handle when you are an agent.
     Returns "identified:<name>", or "error: <reason>" for a malformed declaration.
     """
-    return _core._fault_or(
-        _core.OPERATIONS.identify(
+    ctx: CommandCtx[SessionOps] = CommandCtx(
+        ops=_core.OPERATIONS, identity=_core._identity()
+    )
+    result = asyncio.run(
+        session_identify_command(
+            ctx,
             {"kind": kind, "name": name, "repo": repo, "agent": agent},
             scope=_core._scope(),
-        ),
-        lambda result: f"identified:{result.identity.name}",
+        )
     )
+    return result.text
 
 
 @mcp.tool()

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.commands._result import CommandResult
 
 if TYPE_CHECKING:
-    from punt_lux.commands._result import Ctx, SceneOps
+    from punt_lux.commands._ports import Ctx, SceneOps
     from punt_lux.operations import SceneList
 
 

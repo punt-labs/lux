@@ -14,7 +14,7 @@ from punt_lux.commands._result import CommandResult
 from punt_lux.operations import OpError
 
 if TYPE_CHECKING:
-    from punt_lux.commands._result import Ctx, PingOps
+    from punt_lux.commands._ports import Ctx, PingOps
     from punt_lux.operations import Pong
 
 

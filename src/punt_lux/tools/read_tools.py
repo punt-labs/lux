@@ -13,11 +13,15 @@ from fastmcp.exceptions import ToolError
 
 from punt_lux.commands import (
     Ctx as CommandCtx,
+    MenuOps,
     PingOps,
     SceneOps,
+    SessionOps,
+    menu_ls as menu_ls_command,
     ping as ping_command,
     scene_inspect as scene_inspect_command,
     scene_ls as scene_ls_command,
+    session_ls as session_ls_command,
 )
 from punt_lux.operations import (
     ClientList,
@@ -146,13 +150,19 @@ def list_clients() -> ClientList:
     After the Hub took over, the display has one socket client (luxd); the
     meaningful client list is the set of Hub sessions the Hub holds.
     """
-    return _core.OPERATIONS.list_clients()
+    ctx: CommandCtx[SessionOps] = CommandCtx(
+        ops=_core.OPERATIONS, identity=_core._identity()
+    )
+    return asyncio.run(session_ls_command.execute(ctx))
 
 
 @mcp.tool()
 def list_menus() -> MenuList:
     """List the Hub-owned menu bar and its items, read with no reach-around."""
-    return _core.OPERATIONS.list_menus()
+    ctx: CommandCtx[MenuOps] = CommandCtx(
+        ops=_core.OPERATIONS, identity=_core._identity()
+    )
+    return asyncio.run(menu_ls_command.execute(ctx))
 
 
 @mcp.tool()
