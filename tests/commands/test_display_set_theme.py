@@ -30,3 +30,13 @@ def test_display_unavailable_renders_shared_fault_line() -> None:
     result = asyncio.run(display_set_theme(ctx, _request()))
 
     assert result.text == "not running"
+
+
+def test_routes_request_through_to_ops() -> None:
+    request = _request()
+    ops = StubThemeOps(set_result=ThemeState(theme="darcula", available=["darcula"]))
+    ctx: Ctx[ThemeOps] = Ctx(ops=ops, identity=identity())
+
+    asyncio.run(display_set_theme(ctx, request))
+
+    assert ops.last_call == {"method": "set_theme", "request": request}

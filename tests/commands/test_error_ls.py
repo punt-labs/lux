@@ -29,3 +29,12 @@ def test_display_unavailable_renders_shared_fault_line() -> None:
 
     assert result.text == "not running"
     assert result.error is True
+
+
+def test_routes_count_through_to_ops() -> None:
+    ops = StubErrorOps(result=RecentErrors(errors=[], total_buffered=0))
+    ctx: Ctx[ErrorOps] = Ctx(ops=ops, identity=identity())
+
+    asyncio.run(error_ls(ctx, 20))
+
+    assert ops.last_call == {"method": "list_errors", "count": 20}

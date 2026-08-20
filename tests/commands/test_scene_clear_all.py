@@ -40,3 +40,12 @@ def test_execute_returns_the_typed_outcome_with_no_envelope() -> None:
     result = asyncio.run(scene_clear_all.execute(ctx, scope=_SCOPE))
 
     assert result == Cleared()
+
+
+def test_routes_scope_through_to_ops() -> None:
+    ops = StubSceneOps(clear=Cleared())
+    ctx: Ctx[SceneOps] = Ctx(ops=ops, identity=identity())
+
+    asyncio.run(scene_clear_all.execute(ctx, scope=_SCOPE))
+
+    assert ops.last_call == {"method": "clear", "scope": _SCOPE}

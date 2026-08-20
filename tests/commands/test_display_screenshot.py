@@ -28,3 +28,14 @@ def test_unsupported_renders_the_shipped_error_line() -> None:
 
     assert result.error is True
     assert "screenshot capture is not supported" in result.text
+
+
+def test_routes_the_zero_arg_call_through_to_screenshot() -> None:
+    ops = StubScreenshotOps(
+        result=OpError(code="rejected", reason="pin routing arg"),
+    )
+    ctx: Ctx[ScreenshotOps] = Ctx(ops=ops, identity=identity())
+
+    asyncio.run(display_screenshot(ctx))
+
+    assert ops.last_call == {"method": "screenshot"}

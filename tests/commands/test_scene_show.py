@@ -52,3 +52,16 @@ def test_execute_returns_the_typed_outcome_with_no_envelope() -> None:
     result = asyncio.run(scene_show.execute(ctx, _REQUEST, scope=_SCOPE))
 
     assert result == SceneShown(scene_id="s1")
+
+
+def test_routes_request_and_scope_through_to_ops() -> None:
+    ops = StubSceneOps(show=SceneShown(scene_id="s1"))
+    ctx: Ctx[SceneOps] = Ctx(ops=ops, identity=identity())
+
+    asyncio.run(scene_show.execute(ctx, _REQUEST, scope=_SCOPE))
+
+    assert ops.last_call == {
+        "method": "render",
+        "request": _REQUEST,
+        "scope": _SCOPE,
+    }

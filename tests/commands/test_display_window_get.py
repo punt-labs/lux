@@ -30,3 +30,12 @@ def test_display_unavailable_renders_shared_fault_line() -> None:
     result = asyncio.run(display_window_get(ctx))
 
     assert result.text == "not running"
+
+
+def test_routes_the_zero_arg_call_through_to_get_window_settings() -> None:
+    ops = StubWindowOps(get_result=_settings())
+    ctx: Ctx[WindowOps] = Ctx(ops=ops, identity=identity())
+
+    asyncio.run(display_window_get(ctx))
+
+    assert ops.last_call == {"method": "get_window_settings"}

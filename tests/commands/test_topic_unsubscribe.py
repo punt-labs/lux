@@ -22,3 +22,16 @@ def test_success_renders_unsubscribed_line() -> None:
 
     assert result.text == "unsubscribed:t1"
     assert result.error is False
+
+
+def test_routes_topic_and_scope_through_to_ops() -> None:
+    ops = StubTopicOps(unsubscribe=Unsubscribed(topic="t1"))
+    ctx: Ctx[TopicOps] = Ctx(ops=ops, identity=identity())
+
+    asyncio.run(topic_unsubscribe(ctx, "t1", scope=_SCOPE))
+
+    assert ops.last_call == {
+        "method": "unsubscribe",
+        "topic": "t1",
+        "scope": _SCOPE,
+    }

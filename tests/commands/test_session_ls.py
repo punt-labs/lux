@@ -28,3 +28,12 @@ def test_call_renders_session_count_into_the_shared_envelope() -> None:
 
     assert result.text == "sessions:0"
     assert result.error is False
+
+
+def test_routes_the_zero_arg_call_through_to_list_clients() -> None:
+    ops = StubSessionOps(list_result=ClientList(clients=[]))
+    ctx: Ctx[SessionOps] = Ctx(ops=ops, identity=identity())
+
+    asyncio.run(session_ls.execute(ctx))
+
+    assert ops.last_call == {"method": "list_clients"}

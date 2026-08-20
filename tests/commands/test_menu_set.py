@@ -41,3 +41,13 @@ def test_execute_returns_the_typed_outcome_with_no_envelope() -> None:
     result = asyncio.run(menu_set.execute(ctx, _request()))
 
     assert result == Ok()
+
+
+def test_routes_request_through_to_ops() -> None:
+    request = _request()
+    ops = StubMenuOps(set_result=Ok())
+    ctx: Ctx[MenuOps] = Ctx(ops=ops, identity=identity())
+
+    asyncio.run(menu_set.execute(ctx, request))
+
+    assert ops.last_call == {"method": "set_menu", "request": request}

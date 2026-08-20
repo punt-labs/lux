@@ -38,3 +38,17 @@ def test_push_required_renders_shipped_error_line() -> None:
 
     assert result.text == "error: no listen leg"
     assert result.error is True
+
+
+def test_routes_request_and_scope_through_to_ops() -> None:
+    request = _request()
+    ops = StubCallbackOps(register_result=Ok())
+    ctx: Ctx[CallbackOps] = Ctx(ops=ops, identity=identity())
+
+    asyncio.run(callback_register(ctx, request, scope=_SCOPE))
+
+    assert ops.last_call == {
+        "method": "register_callback",
+        "request": request,
+        "scope": _SCOPE,
+    }

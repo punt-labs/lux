@@ -22,3 +22,16 @@ def test_success_renders_subscribed_line() -> None:
 
     assert result.text == "subscribed:t1"
     assert result.error is False
+
+
+def test_routes_topic_and_scope_through_to_ops() -> None:
+    ops = StubTopicOps(subscribe=Subscribed(topic="t1"))
+    ctx: Ctx[TopicOps] = Ctx(ops=ops, identity=identity())
+
+    asyncio.run(topic_subscribe(ctx, "t1", scope=_SCOPE))
+
+    assert ops.last_call == {
+        "method": "subscribe",
+        "topic": "t1",
+        "scope": _SCOPE,
+    }

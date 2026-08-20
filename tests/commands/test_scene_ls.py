@@ -28,3 +28,12 @@ def test_call_renders_the_scene_count_into_the_shared_envelope() -> None:
 
     assert result.text == "scenes:0"
     assert result.error is False
+
+
+def test_routes_the_zero_arg_call_through_to_list_scenes() -> None:
+    ops = StubSceneOps(scenes=SceneList(scenes=[], frames=[]))
+    ctx: Ctx[SceneOps] = Ctx(ops=ops, identity=identity())
+
+    asyncio.run(scene_ls.execute(ctx))
+
+    assert ops.last_call == {"method": "list_scenes"}
