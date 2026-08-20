@@ -49,7 +49,7 @@ class SceneShowCommand:
 
         A parse-level ``invalid_request`` carries the specific legacy message with
         no prefix; every other rejection (submission gate, undecodable element) is
-        a ``"scene not rendered -- "`` error.
+        a ``"scene not rendered — "`` error.
         """
         if isinstance(result, SceneShown):
             return CommandResult(

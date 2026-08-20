@@ -51,9 +51,9 @@ def render_fault(err: OpError) -> CommandResult:
 def render_error(err: OpError, prefix: str = "") -> CommandResult:
     """Render a non-display ``OpError`` as ``"error: <prefix><reason>"``.
 
-    ``prefix`` covers the shipped ``"scene not updated -- "`` /
-    ``"scene not rendered -- "`` shapes; call without it for a bare
-    ``"error: <reason>"`` line. Never specialises a code -- use
+    ``prefix`` covers the shipped ``"scene not updated — "`` /
+    ``"scene not rendered — "`` shapes; call without it for a bare
+    ``"error: <reason>"`` line. Never specialises a code — use
     :func:`render_fault` for the display's own fault vocabulary.
     """
     return CommandResult(

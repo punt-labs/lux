@@ -3,7 +3,7 @@
 Text shapes match the shipped ``clear_scene`` MCP tool byte-for-byte --
 ``"cleared"`` on success, the shared fault line
 (:func:`punt_lux.commands._faults.render_fault`) on an unknown or unowned
-scene -- so an unmistyped id can never look like a successful clear.
+scene -- so a mistyped id can never look like a successful clear.
 """
 
 from __future__ import annotations
