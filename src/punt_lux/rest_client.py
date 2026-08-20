@@ -49,7 +49,6 @@ if TYPE_CHECKING:
         DisplayInfo,
         DisplayModeRequest,
         DisplayModeState,
-        FrameStatePatch,
         InspectScope,
         RenderDashboardRequest,
         SceneInspection,
@@ -243,14 +242,15 @@ class LuxRestClient:
         call = HttpCall.read("/clients", self._headers)
         return RestReply(self._transport.request(call)).read(ClientList)
 
-    def set_frame_state(
-        self, frame_id: str, patch: FrameStatePatch | OpError
-    ) -> Ok | OpError:
-        """Change a frame's minimize state through ``PATCH /display/frames/{id}``."""
-        if isinstance(patch, OpError):
-            return patch
+    def close_frame(self, frame_id: str) -> Ok | OpError:
+        """Close a frame through ``POST /display/frames/{id}/close``.
+
+        Returns ``Ok`` on success or ``OpError`` on any REST-visible failure --
+        matching ``raise_frame``'s shape so a caller handles both through the
+        shared command envelope rather than a bare ``RuntimeError``.
+        """
         segment = quote(frame_id, safe="")
-        call = HttpCall.patch(f"/display/frames/{segment}", patch, self._headers)
+        call = HttpCall.command(f"/display/frames/{segment}/close", self._headers)
         return RestReply(self._transport.request(call)).read(Ok)
 
     def list_menus(self) -> MenuList | OpError:

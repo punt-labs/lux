@@ -1,19 +1,4 @@
-"""Humble Object commands for punt-lux -- one class per operation, one instance shared.
-
-Each command is a ``@final`` callable class exported as a module-level
-singleton (``ping`` and the ``scene_*`` family). Every command takes a
-:class:`~punt_lux.commands._ports.Ctx` plus its own arguments and returns a
-:class:`~punt_lux.commands._result.CommandResult` carrying the rendered
-``text``, machine-readable ``json_data``, an ``error`` flag, and the
-``exit_code`` the CLI adapter maps to ``typer.Exit``. Adapters share one
-singleton per command; none re-derives the envelope.
-
-Library callers await these directly::
-
-    from punt_lux.commands import Ctx, ping
-    ctx = Ctx(ops=..., identity=...)
-    result = await ping(ctx, wait=0.5)
-"""
+"""Humble Object commands: one @final callable class per op, one shared singleton."""
 
 from __future__ import annotations
 
@@ -48,7 +33,8 @@ from punt_lux.commands.display_window_get import display_window_get
 from punt_lux.commands.display_window_set import display_window_set
 from punt_lux.commands.error_ls import error_ls
 from punt_lux.commands.event_ls import event_ls
-from punt_lux.commands.frame_set_state import frame_set_state
+from punt_lux.commands.frame_close import frame_close
+from punt_lux.commands.frame_raise import frame_raise
 from punt_lux.commands.menu_ls import menu_ls
 from punt_lux.commands.menu_set import menu_set
 from punt_lux.commands.ping import ping
@@ -97,7 +83,8 @@ __all__ = [
     "display_window_set",
     "error_ls",
     "event_ls",
-    "frame_set_state",
+    "frame_close",
+    "frame_raise",
     "menu_ls",
     "menu_set",
     "ping",

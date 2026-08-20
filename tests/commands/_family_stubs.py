@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, cast, final
 
+from punt_lux.operations import Ok
+
 if TYPE_CHECKING:
     from punt_lux.domain.hub.session_callback import CallbackInvocation
     from punt_lux.operations import (
@@ -15,9 +17,9 @@ if TYPE_CHECKING:
         DisplayInfo,
         DisplayModeRequest,
         DisplayModeState,
+        FrameRaise,
         FrameStatePatch,
         MenuList,
-        Ok,
         OpError,
         Scope,
         SetMenuRequest,
@@ -59,6 +61,14 @@ class StubFrameOps:
     ) -> Ok | OpError:
         self.last_call = {"frame_id": frame_id, "patch": patch}
         return cast("Ok | OpError", self._result)
+
+    def raise_frame(self, frame_id: str) -> FrameRaise | OpError:
+        self.last_call = {"frame_id": frame_id, "op": "raise"}
+        return cast("FrameRaise | OpError", self._result)
+
+    def close_frame(self, frame_id: str) -> Ok:
+        self.last_call = {"frame_id": frame_id, "op": "close"}
+        return Ok()
 
 
 @final

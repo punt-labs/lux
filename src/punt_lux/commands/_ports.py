@@ -1,13 +1,4 @@
-"""Per-family ops-surface Protocols and the ``Ctx`` that carries them.
-
-Each Protocol names exactly the methods the commands in one family call.
-Splitting the ops surface family-by-family keeps every stub test small (the
-scene commands' ``StubSceneOps`` implements ``SceneOps`` and nothing else),
-and lets a narrow transport such as :class:`LuxRestClient` satisfy only the
-families it exposes. ``Operations`` (luxd's typed facade) satisfies every
-family structurally. ``Ctx`` lives here beside them so a command imports the
-Protocol and the context it wraps from one module.
-"""
+"""Per-family ops-surface Protocols and the ``Ctx`` that carries them."""
 
 from __future__ import annotations
 
@@ -43,7 +34,7 @@ if TYPE_CHECKING:
     )
     from punt_lux.operations.models.callbacks import RegisterCallbackRequest
     from punt_lux.operations.models.display_probe import Screenshot
-    from punt_lux.operations.models.display_write import FrameStatePatch
+    from punt_lux.operations.models.display_write import FrameRaise
     from punt_lux.operations.models.identity import Identified
     from punt_lux.operations.models.menu_results import SetMenuRequest
     from punt_lux.operations.models.pubsub import PublishRequest, Received
@@ -116,10 +107,12 @@ class SceneOps(Protocol):
 class FrameOps(Protocol):
     """The ops surface the frame commands read."""
 
-    def set_frame_state(
-        self, frame_id: str, patch: FrameStatePatch | OpError
-    ) -> Ok | OpError:
-        """Change a frame's minimize state."""
+    def raise_frame(self, frame_id: str) -> FrameRaise | OpError:
+        """Bring a frame to the front, restoring it if it was minimized."""
+        ...
+
+    def close_frame(self, frame_id: str) -> Ok | OpError:
+        """Close a frame: tear down its scenes on the Hub."""
         ...
 
 

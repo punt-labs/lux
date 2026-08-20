@@ -51,7 +51,7 @@ if TYPE_CHECKING:
     )
     from punt_lux.operations.models.display_info import DisplayInfo
     from punt_lux.operations.models.display_probe import Pong, Screenshot
-    from punt_lux.operations.models.display_write import FrameRaise, FrameStatePatch
+    from punt_lux.operations.models.display_write import FrameRaise
     from punt_lux.operations.models.identity import Identified
     from punt_lux.operations.models.menu_results import MenuList, Ok, SetMenuRequest
     from punt_lux.operations.models.query_clients import ClientList
@@ -131,15 +131,9 @@ class Operations:
     ) -> Self:
         """Wire every concern class from injected collaborators — no singletons.
 
-        ``callback_router`` is the one process-wide router: both the MCP and REST
-        composition roots pass the same instance, so a click routed on one surface
-        and drained on another share one set of per-session holds.
-
-        The Hub's own Details command is not composed here. It is not a surface
-        capability — it is keyed by a ``ConnectionId``, a wire key no surface
-        addresses by, and it writes a scene owned by a connection other than the
-        caller's — so it lives on its own concern class, which each composition
-        root builds and binds to the interaction dispatch.
+        ``callback_router`` is the one process-wide router shared by the MCP and
+        REST composition roots. The Hub's own Details command is not composed
+        here -- it is keyed by ``ConnectionId``, not a surface capability.
         """
         scenes = SceneOperations(display, replicator, ports.element_factory, hub)
         callbacks = CallbackOperations(display.clients, callback_router, replicator)
@@ -252,17 +246,15 @@ class Operations:
         """Change the provided window settings and return the new settings."""
         return self._display.set_window_settings(patch)
 
-    @Timed("set_frame_state")
-    def set_frame_state(
-        self, frame_id: str, patch: FrameStatePatch | OpError
-    ) -> Ok | OpError:
-        """Change a frame's minimize state."""
-        return self._display.set_frame_state(frame_id, patch)
-
     @Timed("raise_frame")
     def raise_frame(self, frame_id: str) -> FrameRaise | OpError:
         """Bring a frame to the front, restoring it if it was minimized."""
         return self._display.raise_frame(frame_id)
+
+    @Timed("close_frame")
+    def close_frame(self, frame_id: str) -> Ok:
+        """Close a frame; ``frame_close`` and ``frame_expire`` both call this."""
+        return self._scenes.close_frame(frame_id)
 
     def inspect_scene(
         self, scene_id: str, *, scope: Scope, facts: InspectScope = HUB_ONLY

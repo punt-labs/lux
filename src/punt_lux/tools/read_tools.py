@@ -67,7 +67,7 @@ __all__ = [
 ]
 
 
-@mcp.tool()
+@mcp.tool(name="ping")
 async def ping() -> str:
     """Ping the display server. Returns round-trip time, or raises on failure."""
     ctx: CommandCtx[PingOps] = CommandCtx(
@@ -79,7 +79,7 @@ async def ping() -> str:
     return result.text
 
 
-@mcp.tool()
+@mcp.tool(name="scene_inspect")
 def inspect_scene(
     scene_id: str, *, want_geometry: bool = False
 ) -> SceneInspection | OpError:
@@ -107,7 +107,7 @@ def inspect_scene(
     )
 
 
-@mcp.tool()
+@mcp.tool(name="scene_ls")
 def list_scenes() -> SceneList | OpError:
     """List all active scenes and frames from the authoritative store.
 
@@ -120,7 +120,7 @@ def list_scenes() -> SceneList | OpError:
     return asyncio.run(scene_ls_command.execute(ctx))
 
 
-@mcp.tool()
+@mcp.tool(name="display_screenshot")
 def screenshot() -> str:
     """Report that display screenshot capture is unsupported (DES-028).
 
@@ -137,7 +137,7 @@ def screenshot() -> str:
     return signal(result)
 
 
-@mcp.tool()
+@mcp.tool(name="display_info")
 def get_display_info() -> DisplayInfo | OpError:
     """Return display server metadata: backend, resolution, FPS, PID, uptime.
 
@@ -169,7 +169,7 @@ def get_theme() -> ThemeState | OpError:
     return asyncio.run(display_get_theme_command.execute(ctx))
 
 
-@mcp.tool()
+@mcp.tool(name="session_ls")
 def list_clients() -> ClientList | OpError:
     """List the Hub's sessions — the connections and their scopes.
 
@@ -182,7 +182,7 @@ def list_clients() -> ClientList | OpError:
     return asyncio.run(session_ls_command.execute(ctx))
 
 
-@mcp.tool()
+@mcp.tool(name="menu_ls")
 def list_menus() -> MenuList | OpError:
     """List the Hub-owned menu bar and its items, read with no reach-around."""
     ctx: CommandCtx[MenuOps] = CommandCtx(
@@ -191,7 +191,7 @@ def list_menus() -> MenuList | OpError:
     return asyncio.run(menu_ls_command.execute(ctx))
 
 
-@mcp.tool()
+@mcp.tool(name="event_ls")
 def list_recent_events(count: int = 50) -> RecentEvents | OpError:
     """Return the last N interaction events from the display.
 
@@ -204,7 +204,7 @@ def list_recent_events(count: int = 50) -> RecentEvents | OpError:
     return asyncio.run(event_ls_command.execute(ctx, count))
 
 
-@mcp.tool()
+@mcp.tool(name="error_ls")
 def list_errors(count: int = 20) -> RecentErrors | OpError:
     """Return the last N display-side errors and warnings.
 

@@ -552,17 +552,6 @@ class TestTier3WriteTools:
         assert result.code == "invalid_request"
         assert result.reason == "no settings provided"
 
-    def test_set_frame_state_not_running(self) -> None:
-        from unittest.mock import patch
-
-        from punt_lux.operations import OpError
-        from punt_lux.tools import set_frame_state
-
-        with patch.object(DisplayPaths, "is_running", return_value=False):
-            result = set_frame_state(frame_id="test", minimized=True)
-        assert isinstance(result, OpError)
-        assert result.code == "display_unavailable"
-
     def test_set_theme_not_running(self) -> None:
         from unittest.mock import patch
 
