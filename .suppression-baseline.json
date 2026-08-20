@@ -1,15 +1,15 @@
 {
-  "total": 96,
+  "total": 99,
   "by_category": {
     "noqa": 21,
     "type_ignore": 4,
     "pylint_disable": 2,
     "pyright_ignore": 5,
-    "per_file_ignores": 64
+    "per_file_ignores": 67
   },
   "by_file": {
     "src/punt_lux/__main__.py": {
-      "noqa": 3,
+      "noqa": 1,
       "pyright_ignore": 2
     },
     "src/punt_lux/_backends.py": {
@@ -23,6 +23,9 @@
     },
     "src/punt_lux/cli/hub.py": {
       "noqa": 1
+    },
+    "src/punt_lux/cli/plugin.py": {
+      "noqa": 2
     },
     "src/punt_lux/display/macos.py": {
       "type_ignore": 1,
@@ -74,5 +77,5 @@
       "noqa": 2
     }
   },
-  "updated_at": "2026-08-20T07:27:02Z"
+  "updated_at": "2026-08-20T08:28:15Z"
 }

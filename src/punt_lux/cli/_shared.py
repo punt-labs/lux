@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import json as _json
 import logging
+import sys
 from typing import TYPE_CHECKING, Annotated, Self, cast, final
 
 import typer
@@ -26,6 +27,7 @@ from punt_lux.rest_transport import HubUnavailableError
 
 if TYPE_CHECKING:
     from collections.abc import Coroutine
+    from pathlib import Path
 
     from punt_lux.commands._result import CommandResult
 
@@ -41,6 +43,7 @@ __all__ = [
     "VerboseFlag",
     "connect_client",
     "identity_from_flags",
+    "read_json_payload",
     "run",
     "scope_for",
 ]
@@ -190,6 +193,29 @@ def scope_for(identity: ClientIdentity) -> Scope:
             }
         )
     )
+
+
+def read_json_payload(inline: str | None, from_file: Path | None) -> dict[str, object]:
+    """Read a JSON object from an inline string, a file, or stdin.
+
+    Exactly one source wins: ``inline`` when given, else ``from_file``, else
+    stdin (so a caller can pipe ``echo '{...}' | lux scene show s1``). A
+    non-object top-level value is a usage error — every payload this reads is
+    a request body, which is always a JSON object.
+    """
+    if inline is not None:
+        raw = inline
+    elif from_file is not None:
+        raw = from_file.read_text()
+    else:
+        raw = sys.stdin.read()
+    try:
+        payload = _json.loads(raw)
+    except _json.JSONDecodeError as exc:
+        raise typer.BadParameter(f"invalid JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise typer.BadParameter("payload must be a JSON object")
+    return cast("dict[str, object]", payload)
 
 
 def connect_client(*, timeout: float = 2.0) -> LuxRestClient:

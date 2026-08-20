@@ -14,6 +14,7 @@ from punt_lux.cli.plugin import (
     install as plugin_install,
     uninstall as plugin_uninstall,
 )
+from punt_lux.cli.scene import scene_app
 from punt_lux.cli.session import session_app
 from punt_lux.doctor_report import FAIL, OK, OPTIONAL, DoctorReport
 from punt_lux.log_level import level_from_env
@@ -57,6 +58,7 @@ app.add_typer(hook_app, name="hook")
 app.add_typer(show_app, name="show")
 app.add_typer(hub_app, name="hub")
 app.add_typer(session_app, name="session")
+app.add_typer(scene_app, name="scene")
 
 
 # Product commands

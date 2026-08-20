@@ -55,6 +55,7 @@ if TYPE_CHECKING:
         RenderDashboardRequest,
         SceneInspection,
         SceneList,
+        Scope,
         SetMenuRequest,
         SetThemeRequest,
         UpdateRequest,
@@ -143,13 +144,23 @@ class LuxRestClient:
             on_connect=on_connect,
         )
 
-    def render(self, request: RenderRequest) -> SceneShown | OpError:
-        """Install a whole scene through ``PUT /scenes/{scene_id}``."""
-        return self._scenes.render(request)
+    def render(
+        self, request: RenderRequest | OpError, *, scope: Scope | None = None
+    ) -> SceneShown | OpError:
+        """Install a whole scene through ``PUT /scenes/{scene_id}``.
 
-    def render_table(self, request: RenderTableRequest) -> SceneShown | OpError:
+        ``scope`` satisfies :class:`~punt_lux.commands._ports.SceneOps`'s call
+        signature -- unused over REST, which composes scope from the
+        ``X-Lux-Client-*`` headers already stamped on every request. Defaults
+        to ``None`` so pre-Protocol callers keep working unchanged.
+        """
+        return self._scenes.render(request, scope=scope)
+
+    def render_table(
+        self, request: RenderTableRequest | OpError, *, scope: Scope | None = None
+    ) -> SceneShown | OpError:
         """Install a composed table scene through ``PUT /scenes/{scene_id}/table``."""
-        return self._scenes.render_table(request)
+        return self._scenes.render_table(request, scope=scope)
 
     def register_callback(self, callback_id: str, label: str) -> Ok | OpError:
         """Register a menu callback for this identity through ``POST /menus/callbacks``.
@@ -187,31 +198,35 @@ class LuxRestClient:
         call = HttpCall.read(f"/display/ping{suffix}", self._headers)
         return RestReply(self._transport.request(call)).read(Pong)
 
-    def render_dashboard(self, request: RenderDashboardRequest) -> SceneShown | OpError:
+    def render_dashboard(
+        self, request: RenderDashboardRequest | OpError, *, scope: Scope
+    ) -> SceneShown | OpError:
         """Construct a dashboard scene through ``PUT /scenes/{scene_id}/dashboard``."""
-        return self._scenes.render_dashboard(request)
+        return self._scenes.render_dashboard(request, scope=scope)
 
-    def update(self, scene_id: str, request: UpdateRequest) -> SceneShown | OpError:
+    def update(
+        self, scene_id: str, request: UpdateRequest | OpError, *, scope: Scope
+    ) -> SceneShown | OpError:
         """Apply a patch batch through ``PATCH /scenes/{scene_id}``."""
-        return self._scenes.update(scene_id, request)
+        return self._scenes.update(scene_id, request, scope=scope)
 
-    def clear(self) -> Cleared | OpError:
+    def clear(self, *, scope: Scope) -> Cleared | OpError:
         """Clear every scene this identity owns through ``DELETE /scenes``."""
-        return self._scenes.clear()
+        return self._scenes.clear(scope=scope)
 
-    def clear_scene(self, scene_id: str) -> Cleared | OpError:
+    def clear_scene(self, scene_id: str, *, scope: Scope) -> Cleared | OpError:
         """Clear one scene through ``DELETE /scenes/{scene_id}``."""
-        return self._scenes.clear_scene(scene_id)
+        return self._scenes.clear_scene(scope=scope, scene_id=scene_id)
 
     def list_scenes(self) -> SceneList:
         """List every live scene and frame through ``GET /scenes``."""
         return self._scenes.list_scenes()
 
     def inspect_scene(
-        self, scene_id: str, *, facts: InspectScope
+        self, scene_id: str, *, scope: Scope, facts: InspectScope
     ) -> SceneInspection | OpError:
         """Return the caller's own scene tree through ``GET /scenes/{scene_id}``."""
-        return self._scenes.inspect_scene(scene_id, facts=facts)
+        return self._scenes.inspect_scene(scene_id, scope=scope, facts=facts)
 
     def list_clients(self) -> ClientList:
         """List the Hub's sessions and their scopes through ``GET /clients``.
