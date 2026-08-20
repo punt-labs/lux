@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.commands._result import CommandResult
 
 if TYPE_CHECKING:
-    from punt_lux.commands._ports import CallbackOps, Ctx
+    from punt_lux.commands._ports import CallbackPendingOps, Ctx
     from punt_lux.domain.hub.session_callback import CallbackInvocation
     from punt_lux.operations import Scope
 
@@ -28,12 +28,14 @@ class CallbackPendingCommand:
         return super().__new__(cls)
 
     async def execute(
-        self, ctx: Ctx[CallbackOps], *, scope: Scope
+        self, ctx: Ctx[CallbackPendingOps], *, scope: Scope
     ) -> tuple[CallbackInvocation, ...]:
         """Return the caller's currently-held invocations, in delivery order."""
         return await asyncio.to_thread(ctx.ops.pending_callbacks, scope=scope)
 
-    async def __call__(self, ctx: Ctx[CallbackOps], *, scope: Scope) -> CommandResult:
+    async def __call__(
+        self, ctx: Ctx[CallbackPendingOps], *, scope: Scope
+    ) -> CommandResult:
         """Run :meth:`execute` and render its outcome into the shared envelope."""
         held = await self.execute(ctx, scope=scope)
         return CommandResult(

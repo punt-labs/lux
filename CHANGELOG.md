@@ -2,6 +2,86 @@
 
 ## [Unreleased]
 
+### Changed (BREAKING)
+
+- **The CLI is now noun-grouped, matching the vocabulary the MCP tools and
+  REST routes use.** Every flat verb from before this release is retired,
+  with no alias (PL-PP-1) — a script or muscle-memory invocation of any of
+  these must be updated:
+
+  | Old (retired) | New |
+  |---|---|
+  | `lux hub-install` | `lux hub install` |
+  | `lux hub-uninstall` | `lux hub uninstall` |
+  | `lux ensure-hub` | `lux hub start` |
+  | `lux hub-status` | `lux hub status` |
+  | `lux display` (start the render-loop server) | `lux display serve` |
+  | `lux show beads` | `lux beads` |
+
+  `lux hub stop` is new (previously there was no way to stop luxd without
+  uninstalling the service).
+
+- **New noun groups**, each wrapping the `commands/` singletons from the
+  Humble Object commands layer through a real per-invocation identity:
+  `lux scene {show,update,clear,clear-all,inspect,ls,table,dashboard}`,
+  `lux frame set-state`, `lux menu {ls,set}`, `lux session {ls,inspect,identify}`,
+  `lux display {info,theme,mode,window,screenshot,serve}` (theme/mode/window
+  are fused: no argument reads, an argument or option writes), `lux event ls`,
+  `lux error ls`, `lux callback register`. Every write accepts
+  `--as/--kind/--name/--repo/--agent` (per-invocation identity — the caller
+  *being* a different client for one call, not privilege elevation); every
+  command accepts `--json/--verbose/--quiet`. Identity flags apply to write
+  verbs only — read verbs (`scene ls`, `session ls`, `display info`, ...) use
+  the ambient CLI identity from `CliIdentity.resolve` and take no identity
+  flags of their own, since a read has no owner to declare.
+
+- **`lux ping`, `lux version`, `lux enable`, `lux disable` gained real
+  `--json`/`--quiet` support.** `lux status`/`lux doctor` accept the flags for
+  surface consistency (`--quiet` suppresses their existing text output;
+  `--json` is not wired to a payload for these two yet — their output is a
+  multi-line diagnostic render, not a single value).
+
+- **`LuxRestClient` grew ~20 methods** to satisfy the `commands/` ops
+  Protocols the CLI needs (`scene_update`, `scene_clear`, `scene_clear_all`,
+  `scene_ls`, `scene_inspect`, `scene_dashboard`, `list_clients`,
+  `set_frame_state`, `list_menus`, `set_menu`, the display info/theme/window/
+  mode family, `list_recent_events`, `list_errors`, `screenshot`). Split into
+  three composed classes (`SceneRestOps`, `DisplayRestOps`, plus
+  `LuxRestClient` itself) to stay under the 300-line module-size target.
+
+- **`lux hub stop` implemented**: `LaunchdBackend.stop()` /
+  `SystemdBackend.stop()` stop the running luxd process while leaving its
+  service registration in place (distinct from `uninstall`, which removes the
+  registration too).
+
+- **`CallbackOps` split into `CallbackRegisterOps`/`CallbackPendingOps`**
+  (`commands/_ports.py`): the two operations it bundled have different
+  reachable transports — `register_callback` has a REST route a REST-backed
+  client can implement, `pending_callbacks` does not and never will (see
+  below) — so no REST-only client could ever satisfy the combined Protocol.
+
+### Not shipped (by design, not oversight)
+
+- **`lux topic *` (`publish`/`subscribe`/`unsubscribe`/`recv`) and
+  `lux callback pending` have no CLI verb.** Both would need a REST route,
+  and `tests/rest/test_app.py`'s `_MCP_ONLY` exemption set forbids one by
+  ratified design: delivery for these operations runs over the Hub↔Display
+  listen leg's push/drain, which a stateless CLI/REST request cannot bind to.
+  A route that returns 200 but can never actually deliver is worse than no
+  route.
+- **`lux mcp` (a stdio MCP server) is intentionally not shipped.** The
+  streamable HTTP endpoint at `http://127.0.0.1:8430/mcp` is the
+  authoritative MCP transport (the one-code-path epic `lux-7gcz` removed the
+  stdio/mcp-proxy path); the Claude Code plugin connects to it directly, with
+  no per-session process in the tool path.
+
+### Added
+
+- CLI parity guard (`tests/cli/test_parity.py`): every non-admin
+  `commands/` singleton must have a reachable Typer entry, or a stated
+  exemption. Mirrors the REST route-parity guard
+  (`tests/rest/test_app.py`).
+
 ## [0.26.0] - 2026-08-19
 
 ### Changed

@@ -146,7 +146,7 @@ class LuxHubClient:
         url = cls._read_hub_endpoint()
         if url is None:
             raise HubUnavailableError(
-                "luxd is not running. Run 'lux hub-install' to register the service."
+                "luxd is not running. Run 'lux hub install' to register the service."
             )
         return cls(
             url,

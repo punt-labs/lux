@@ -13,15 +13,20 @@ import platform
 from pathlib import Path
 from typing import Self
 
-from punt_lux._backends import (
-    LaunchdBackend,
-    ServiceBackend,
-    SystemdBackend,
-    has_linger,
-)
+from punt_lux._backend_launchd import LaunchdBackend
+from punt_lux._backend_systemd import SystemdBackend
+from punt_lux._backends import ServiceBackend, has_linger
 from punt_lux.luxd import DEFAULT_HUB_PORT
 
 logger = logging.getLogger(__name__)
+
+
+class ServiceNotInstalledError(RuntimeError):
+    """The service has not been installed; the message names the fix."""
+
+
+class ServiceActionFailedError(RuntimeError):
+    """The supervisor rejected a stop/start call; the message names the log."""
 
 
 def detect_platform() -> str:
@@ -31,7 +36,7 @@ def detect_platform() -> str:
         return "macos"
     if system == "Linux":
         return "linux"
-    msg = f"Unsupported platform: {system}. lux hub-install supports macOS and Linux."
+    msg = f"Unsupported platform: {system}. lux hub install supports macOS and Linux."
     raise SystemExit(msg)
 
 
@@ -109,6 +114,39 @@ class ServiceManager:
         """Restart the daemon via uninstall + install cycle."""
         self._backend.uninstall()
         return self.install()
+
+    def stop(self) -> str:
+        """Stop the daemon without removing its service registration.
+
+        Raise if the supervisor call itself failed -- a non-zero exit means
+        luxd may still be running, and reporting "stopped" regardless would
+        leave the caller believing a stop that never happened.
+        """
+        if not self._backend.stop():
+            msg = (
+                "luxd stop failed. See "
+                "~/.punt-labs/lux/logs/luxd-stderr.log for details."
+            )
+            raise ServiceActionFailedError(msg)
+        return "luxd stopped."
+
+    def start(self) -> str:
+        """Start an already-installed, stopped daemon. Raise if not installed.
+
+        Also raise if the supervisor call itself failed -- a non-zero exit
+        means luxd never actually started, and reporting "started" regardless
+        would leave the caller believing a launch that never happened.
+        """
+        if not self._backend.config_path().exists():
+            msg = "luxd is not installed. Run 'lux hub install' first."
+            raise ServiceNotInstalledError(msg)
+        if not self._backend.start():
+            msg = (
+                "luxd start failed. See "
+                "~/.punt-labs/lux/logs/luxd-stderr.log for details."
+            )
+            raise ServiceActionFailedError(msg)
+        return "luxd started."
 
     @property
     def is_active(self) -> bool:

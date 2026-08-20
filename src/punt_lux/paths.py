@@ -196,6 +196,7 @@ class DisplayPaths:
             "-m",
             "punt_lux",
             "display",
+            "serve",
             "--socket",
             str(self._socket_path),
         ]

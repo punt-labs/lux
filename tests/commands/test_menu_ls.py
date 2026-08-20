@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 
 from punt_lux.commands import Ctx, MenuOps, menu_ls
-from punt_lux.operations import MenuList
+from punt_lux.operations import MenuList, OpError
 from tests.commands._family_stubs import StubMenuOps
 from tests.commands._scene_stub import identity
 
@@ -37,3 +37,16 @@ def test_routes_the_zero_arg_call_through_to_list_menus() -> None:
     asyncio.run(menu_ls.execute(ctx))
 
     assert ops.last_call == {"method": "list_menus"}
+
+
+def test_op_error_renders_the_shared_envelope_not_a_crash() -> None:
+    """Regression: a REST-transport fault used to crash (RuntimeError) instead
+    of reaching the shared error envelope."""
+    ops = StubMenuOps(list_result=OpError(code="invalid_request", reason="bad"))
+    ctx: Ctx[MenuOps] = Ctx(ops=ops, identity=identity())
+
+    result = asyncio.run(menu_ls(ctx))
+
+    assert result.text == "error: bad"
+    assert result.error is True
+    assert result.exit_code == 1

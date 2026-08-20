@@ -67,14 +67,14 @@ class StubMenuOps:
 
     # `| None`: each field only needs a value when the test reads it.
     _set: Ok | OpError | None
-    _list: MenuList | None
+    _list: MenuList | OpError | None
     last_call: dict[str, object]
     __slots__ = ("_list", "_set", "last_call")
 
     def __new__(
         cls,
         set_result: Ok | OpError | None = None,
-        list_result: MenuList | None = None,
+        list_result: MenuList | OpError | None = None,
     ) -> Self:
         self = super().__new__(cls)
         self._set = set_result
@@ -86,23 +86,23 @@ class StubMenuOps:
         self.last_call = {"method": "set_menu", "request": request}
         return cast("Ok | OpError", self._set)
 
-    def list_menus(self) -> MenuList:
+    def list_menus(self) -> MenuList | OpError:
         self.last_call = {"method": "list_menus"}
-        return cast("MenuList", self._list)
+        return cast("MenuList | OpError", self._list)
 
 
 @final
 class StubSessionOps:
     """``SessionOps`` stub returning one preset outcome per method."""
 
-    _list: ClientList | None
+    _list: ClientList | OpError | None
     _identify: Identified | OpError | None
     last_call: dict[str, object]
     __slots__ = ("_identify", "_list", "last_call")
 
     def __new__(
         cls,
-        list_result: ClientList | None = None,
+        list_result: ClientList | OpError | None = None,
         identify_result: Identified | OpError | None = None,
     ) -> Self:
         self = super().__new__(cls)
@@ -111,9 +111,9 @@ class StubSessionOps:
         self.last_call = {}
         return self
 
-    def list_clients(self) -> ClientList:
+    def list_clients(self) -> ClientList | OpError:
         self.last_call = {"method": "list_clients"}
-        return cast("ClientList", self._list)
+        return cast("ClientList | OpError", self._list)
 
     def identify(
         self, declaration: dict[str, object], *, scope: Scope
@@ -128,7 +128,8 @@ class StubSessionOps:
 
 @final
 class StubCallbackOps:
-    """``CallbackOps`` stub returning one preset outcome per method."""
+    """Combined ``CallbackRegisterOps``/``CallbackPendingOps`` stub, one outcome
+    per method."""
 
     _register: Ok | OpError | None
     _pending: tuple[CallbackInvocation, ...]

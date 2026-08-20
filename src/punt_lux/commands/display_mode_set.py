@@ -1,6 +1,15 @@
 """``display mode-set`` -- write a project's per-repo display mode.
 
-Preserves the historical ``ValueError`` on a malformed mode/repo.
+Preserves the historical ``ValueError`` on a malformed mode/repo -- the MCP
+tool (``tools/display_write_tools.py:set_display_mode``) and the
+characterization suite (``tests/characterization/test_exerciser.py::
+TestToolExceptionPropagates``) both pin this as the one tool whose exception
+propagates unmolested, proving the exerciser does not swallow a raise. The
+CLI verb avoids ever reaching this raise for its own malformed-input case by
+building the request with ``DisplayModeRequest.parse`` (returning
+``Request | OpError``) and checking ``isinstance(..., OpError)`` itself
+before calling this command, the same shape ``scene_show``/``scene_update``
+use -- see ``cli/display.py``.
 """
 
 from __future__ import annotations

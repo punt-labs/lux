@@ -1,4 +1,4 @@
-"""Unit tests for ``lux show`` subcommands."""
+"""Unit tests for the ``lux beads`` command and its supporting apps."""
 
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from punt_lux.apps.beads import BeadsBrowser
 from punt_lux.apps.beads_board import BeadsBoard
 from punt_lux.apps.beads_load import BeadsLoad
 from punt_lux.apps.beads_result import BeadsFailure, BeadsResult, BeadsRows
+from punt_lux.cli.beads import BeadsBoardCommand
 from punt_lux.operations import (
     OpError,
     RenderRequest,
@@ -26,7 +27,6 @@ from punt_lux.operations import (
     SceneShown,
 )
 from punt_lux.rest_transport import HubUnavailableError
-from punt_lux.show import BeadsBoardCommand
 
 runner = CliRunner()
 
@@ -511,7 +511,7 @@ class TestBeadsBoard:
         assert note.startswith("bd error:")
 
 
-class TestShowBeadsCLI:
+class TestBeadsCLI:
     def test_bd_failure_surfaces_error(
         self,
         tmp_path: Path,
@@ -524,9 +524,9 @@ class TestShowBeadsCLI:
                 "punt_lux.apps.bd_command.subprocess.Popen",
                 return_value=_FakeProcess("", "db locked", 1),
             ),
-            patch("punt_lux.show.LuxRestClient.connect", return_value=client),
+            patch("punt_lux.cli.beads.LuxRestClient.connect", return_value=client),
         ):
-            result = runner.invoke(app, ["show", "beads"])
+            result = runner.invoke(app, ["beads"])
 
         # When bd fails, the CLI reports the error rather than misleading "0 issues".
         # luxd still receives a message scene carrying a visible error element.
@@ -550,9 +550,9 @@ class TestShowBeadsCLI:
                 "punt_lux.apps.bd_command.subprocess.Popen",
                 return_value=_bd_wrote(active),
             ),
-            patch("punt_lux.show.LuxRestClient.connect", return_value=client),
+            patch("punt_lux.cli.beads.LuxRestClient.connect", return_value=client),
         ):
-            result = runner.invoke(app, ["show", "beads"])
+            result = runner.invoke(app, ["beads"])
 
         assert result.exit_code == 0
         assert "2 issues" in result.output
@@ -575,9 +575,9 @@ class TestShowBeadsCLI:
                 "punt_lux.apps.bd_command.subprocess.Popen",
                 return_value=_bd_wrote(_ISSUES),
             ),
-            patch("punt_lux.show.LuxRestClient.connect", return_value=client),
+            patch("punt_lux.cli.beads.LuxRestClient.connect", return_value=client),
         ):
-            result = runner.invoke(app, ["show", "beads"])
+            result = runner.invoke(app, ["beads"])
 
         assert result.exit_code == 1
         assert "Beads board not shown: duplicate element id 'table'" in result.stderr
@@ -600,11 +600,11 @@ class TestShowBeadsCLI:
             ),
             patch("punt_lux.hub_paths.HubPaths.read_port", return_value=None),
         ):
-            result = runner.invoke(app, ["show", "beads"])
+            result = runner.invoke(app, ["beads"])
 
         assert result.exit_code == 1
         assert "luxd is not running" in result.stderr
-        assert "lux hub-install" in result.stderr
+        assert "lux hub install" in result.stderr
 
     def test_show_beads_reports_render_time_unreachability(
         self,
@@ -624,18 +624,25 @@ class TestShowBeadsCLI:
                 return_value=_bd_wrote(_ISSUES),
             ),
             patch(
-                "punt_lux.show.LuxRestClient.connect",
+                "punt_lux.cli.beads.LuxRestClient.connect",
                 return_value=_UnreachableClient(),
             ),
         ):
-            result = runner.invoke(app, ["show", "beads"])
+            result = runner.invoke(app, ["beads"])
 
         assert result.exit_code == 1
         assert "luxd is not reachable" in result.stderr
         # The error was caught and turned into a clean exit, not re-raised.
         assert not isinstance(result.exception, HubUnavailableError)
 
-    def test_show_no_args_shows_help(self) -> None:
-        result = runner.invoke(app, ["show"])
-        assert result.exit_code in {0, 2}
+    def test_show_beads_retired_no_alias(self) -> None:
+        # PL-PP-1: no backwards-compat shim for the retired `lux show beads`
+        # top-level group -- the verb is `lux beads` now, with no alias.
+        result = runner.invoke(app, ["show", "beads"])
+        assert result.exit_code == 2
+        assert "no such command" in result.output.lower()
+
+    def test_beads_help_names_the_command(self) -> None:
+        result = runner.invoke(app, ["beads", "--help"])
+        assert result.exit_code == 0
         assert "beads" in result.output.lower()

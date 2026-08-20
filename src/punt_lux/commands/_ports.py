@@ -107,7 +107,7 @@ class SceneOps(Protocol):
         """Return the caller's own scene tree."""
         ...
 
-    def list_scenes(self) -> SceneList:
+    def list_scenes(self) -> SceneList | OpError:
         """List every live scene and frame from the authoritative store."""
         ...
 
@@ -131,7 +131,7 @@ class MenuOps(Protocol):
         """Replace the Hub-owned menu bar; the replicator pushes it."""
         ...
 
-    def list_menus(self) -> MenuList:
+    def list_menus(self) -> MenuList | OpError:
         """Return the Hub-authoritative menu bar."""
         ...
 
@@ -140,7 +140,7 @@ class MenuOps(Protocol):
 class SessionOps(Protocol):
     """The ops surface the session commands read."""
 
-    def list_clients(self) -> ClientList:
+    def list_clients(self) -> ClientList | OpError:
         """List the Hub's sessions and their scopes."""
         ...
 
@@ -152,14 +152,31 @@ class SessionOps(Protocol):
 
 
 @runtime_checkable
-class CallbackOps(Protocol):
-    """The ops surface the callback commands read."""
+class CallbackRegisterOps(Protocol):
+    """The ops surface :mod:`punt_lux.commands.callback_register` reads.
+
+    Split from the pending-invocations read (below) because the two have
+    different reachable transports: ``register_callback`` has a REST route
+    and a REST-backed client can implement it; ``pending_callbacks`` does
+    not (its delivery is the listen leg's ``take`` drain, which a stateless
+    REST request cannot bind to) -- see :class:`CallbackPendingOps`.
+    """
 
     def register_callback(
         self, request: RegisterCallbackRequest | OpError, *, scope: Scope
     ) -> Ok | OpError:
         """Register a menu callback for the caller's session."""
         ...
+
+
+@runtime_checkable
+class CallbackPendingOps(Protocol):
+    """The ops surface :mod:`punt_lux.commands.callback_pending` reads.
+
+    No REST route exists or can exist for this read (ratified:
+    ``tests/rest/test_app.py`` ``_MCP_ONLY``) -- delivery is the listen
+    leg's drain, which only the in-process ``Operations`` facade can serve.
+    """
 
     def pending_callbacks(self, *, scope: Scope) -> tuple[CallbackInvocation, ...]:
         """Return the caller's held callback invocations without clearing them."""

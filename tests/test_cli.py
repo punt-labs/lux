@@ -88,7 +88,7 @@ class TestPing:
         assert result.exit_code == 1
         # Failure lines go to stderr per CLI convention; stdout stays clean.
         assert "luxd is not running" in result.stderr
-        assert "lux hub-install" in result.stderr
+        assert "lux hub install" in result.stderr
 
     def test_ping_reports_round_trip(self) -> None:
         from punt_lux.operations import Pong
@@ -189,29 +189,31 @@ class TestPing:
 
 class TestDisplay:
     def test_display_calls_server(self) -> None:
-        """display command constructs RenderLoop and calls run()."""
+        """display serve constructs RenderLoop and calls run()."""
         with patch("punt_lux.display.RenderLoop") as mock_cls:
-            result = runner.invoke(app, ["display"])
+            result = runner.invoke(app, ["display", "serve"])
             assert result.exit_code == 0
             mock_cls.assert_called_once_with(None, test_auto_click=False)
             mock_cls.return_value.run.assert_called_once()
 
     def test_display_with_socket(self) -> None:
         with patch("punt_lux.display.RenderLoop") as mock_cls:
-            result = runner.invoke(app, ["display", "--socket", "/tmp/test.sock"])
+            result = runner.invoke(
+                app, ["display", "serve", "--socket", "/tmp/test.sock"]
+            )
             assert result.exit_code == 0
             mock_cls.assert_called_once_with("/tmp/test.sock", test_auto_click=False)
 
     def test_display_with_test_auto_click(self) -> None:
         with patch("punt_lux.display.RenderLoop") as mock_cls:
-            result = runner.invoke(app, ["display", "--test-auto-click"])
+            result = runner.invoke(app, ["display", "serve", "--test-auto-click"])
             assert result.exit_code == 0
             mock_cls.assert_called_once_with(None, test_auto_click=True)
 
 
 class TestDisplayMissingExtras:
     def test_display_missing_display_extra(self) -> None:
-        """lux display exits 1 with helpful message when display deps missing."""
+        """lux display serve exits 1 with helpful message when display deps missing."""
         import builtins
 
         real_import = builtins.__import__
@@ -222,13 +224,13 @@ class TestDisplayMissingExtras:
             return real_import(name, *args, **kwargs)
 
         with patch("builtins.__import__", side_effect=fake_import):
-            result = runner.invoke(app, ["display"])
+            result = runner.invoke(app, ["display", "serve"])
 
         assert result.exit_code == 1
         assert "Display extras not installed" in result.output
 
     def test_display_reraises_unrelated_import_error(self) -> None:
-        """lux display re-raises ModuleNotFoundError for non-display modules."""
+        """lux display serve re-raises ModuleNotFoundError for non-display modules."""
         import builtins
 
         real_import = builtins.__import__
@@ -239,7 +241,7 @@ class TestDisplayMissingExtras:
             return real_import(name, *args, **kwargs)
 
         with patch("builtins.__import__", side_effect=fake_import):
-            result = runner.invoke(app, ["display"])
+            result = runner.invoke(app, ["display", "serve"])
 
         # Typer catches the unhandled exception — exit code 1 but no
         # "Display extras" message

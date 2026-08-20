@@ -1,9 +1,7 @@
 """``display mode-get`` -- read a project's per-repo display mode.
 
 Text shape matches the shipped ``display_mode`` MCP tool byte-for-byte --
-``"display:on"``/``"display:off"`` on success -- and raises ``ValueError`` on
-a malformed repo, so the CLI/adapter surface preserves the historical
-exception path.
+``"display:on"``/``"display:off"`` on success.
 """
 
 from __future__ import annotations
@@ -11,6 +9,7 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.commands._faults import render_error
 from punt_lux.commands._result import CommandResult
 from punt_lux.operations import DisplayModeState, OpError
 
@@ -36,12 +35,15 @@ class DisplayModeGetCommand:
     async def __call__(self, ctx: Ctx[DisplayModeOps], repo: str) -> CommandResult:
         """Run :meth:`execute` and render its outcome into the shared envelope.
 
-        Preserves the shipped tool's ``raise ValueError(reason)`` on any
-        ``OpError`` -- historical exception path for a malformed repo argument.
+        A malformed ``repo`` is always ``invalid_request`` (never a display-
+        proxy fault code -- this reads a local config file, not the display),
+        so :func:`render_error` -- not :func:`~punt_lux.commands._faults.
+        render_fault` -- is the matching vocabulary, same shape as every other
+        command's ``OpError`` path.
         """
         result = await self.execute(ctx, repo)
         if isinstance(result, OpError):
-            raise ValueError(result.reason)
+            return render_error(result)
         return CommandResult(
             text=f"display:{result.mode}",
             json_data={"mode": result.mode},

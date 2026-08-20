@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
-
 from punt_lux.commands import Ctx, DisplayModeOps, display_mode_get
 from punt_lux.operations import DisplayModeState, OpError
 from tests.commands._family_stubs import StubDisplayModeOps
@@ -21,13 +19,16 @@ def test_success_renders_display_line() -> None:
     assert result.text == "display:on"
 
 
-def test_op_error_raises_value_error() -> None:
-    """Preserves the shipped tool's ``raise ValueError`` on a malformed repo."""
+def test_op_error_renders_the_shared_envelope() -> None:
+    """Matches every other command's OpError path -- a CommandResult, not a raise."""
     ops = StubDisplayModeOps(read_result=OpError(code="invalid_request", reason="bad"))
     ctx: Ctx[DisplayModeOps] = Ctx(ops=ops, identity=identity())
 
-    with pytest.raises(ValueError, match="bad"):
-        asyncio.run(display_mode_get(ctx, ""))
+    result = asyncio.run(display_mode_get(ctx, ""))
+
+    assert result.text == "error: bad"
+    assert result.error is True
+    assert result.exit_code == 1
 
 
 def test_routes_repo_through_to_ops() -> None:
