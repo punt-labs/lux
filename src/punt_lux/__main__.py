@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import logging
 import sys
 
 import typer
 
 from punt_lux import __version__
+from punt_lux.cli.display import display_app
 from punt_lux.cli.frame import frame_app
 from punt_lux.cli.hub import hub_app
 from punt_lux.cli.menu import menu_app
@@ -19,7 +19,6 @@ from punt_lux.cli.plugin import (
 from punt_lux.cli.scene import scene_app
 from punt_lux.cli.session import session_app
 from punt_lux.doctor_report import FAIL, OK, OPTIONAL, DoctorReport
-from punt_lux.log_level import level_from_env
 from punt_lux.show import show_app
 
 
@@ -63,50 +62,10 @@ app.add_typer(session_app, name="session")
 app.add_typer(scene_app, name="scene")
 app.add_typer(frame_app, name="frame")
 app.add_typer(menu_app, name="menu")
+app.add_typer(display_app, name="display")
 
 
 # Product commands
-
-
-@app.command()
-def display(
-    socket: str | None = typer.Option(None, "--socket", "-s", help="Socket path"),
-    test_auto_click: bool = typer.Option(
-        False,
-        "--test-auto-click",
-        help="Auto-fire click events for buttons (testing)",
-    ),
-) -> None:
-    """Start the Lux display server."""
-    from pathlib import Path
-
-    from punt_lux.paths import DisplayPaths
-
-    try:
-        from punt_lux.display import RenderLoop
-    except ModuleNotFoundError as exc:
-        _display_modules = {"imgui_bundle", "numpy", "PIL", "OpenGL"}
-        if exc.name and exc.name.split(".")[0] in _display_modules:
-            typer.echo(
-                "Display extras not installed. Run: pip install 'punt-lux[display]'",
-                err=True,
-            )
-            raise typer.Exit(code=1) from None
-        raise
-
-    dp = DisplayPaths(Path(socket) if socket else None)
-    log_path = dp.log_path
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-
-    logging.basicConfig(
-        filename=str(log_path),
-        level=level_from_env("INFO"),
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        datefmt="%H:%M:%S",
-    )
-
-    server = RenderLoop(socket, test_auto_click=test_auto_click)
-    server.run()
 
 
 @app.command()

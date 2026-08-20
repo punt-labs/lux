@@ -14,6 +14,8 @@ from urllib.parse import urlencode
 from punt_lux.operations import (
     DisplayInfo,
     DisplayModeState,
+    OpError,
+    Screenshot,
     ThemeState,
     WindowSettings,
 )
@@ -23,7 +25,6 @@ from punt_lux.rest_reply import RestReply
 if TYPE_CHECKING:
     from punt_lux.operations import (
         DisplayModeRequest,
-        OpError,
         SetThemeRequest,
         WindowSettingsPatch,
     )
@@ -56,8 +57,10 @@ class DisplayRestOps:
         call = HttpCall.read("/display/theme", self._headers)
         return RestReply(self._transport.request(call)).read(ThemeState)
 
-    def set_theme(self, request: SetThemeRequest) -> ThemeState | OpError:
+    def set_theme(self, request: SetThemeRequest | OpError) -> ThemeState | OpError:
         """Switch the display theme through ``PUT /display/theme``."""
+        if isinstance(request, OpError):
+            return request
         call = HttpCall.write("/display/theme", request, self._headers)
         return RestReply(self._transport.request(call)).read(ThemeState)
 
@@ -67,9 +70,11 @@ class DisplayRestOps:
         return RestReply(self._transport.request(call)).read(WindowSettings)
 
     def set_window_settings(
-        self, patch: WindowSettingsPatch
+        self, patch: WindowSettingsPatch | OpError
     ) -> WindowSettings | OpError:
         """Change window settings through ``PATCH /display/window``."""
+        if isinstance(patch, OpError):
+            return patch
         call = HttpCall.patch("/display/window", patch, self._headers)
         return RestReply(self._transport.request(call)).read(WindowSettings)
 
@@ -80,8 +85,15 @@ class DisplayRestOps:
         return RestReply(self._transport.request(call)).read(DisplayModeState)
 
     def write_display_mode(
-        self, request: DisplayModeRequest
+        self, request: DisplayModeRequest | OpError
     ) -> DisplayModeState | OpError:
         """Write a project's display mode through ``PUT /display-mode``."""
+        if isinstance(request, OpError):
+            return request
         call = HttpCall.write("/display-mode", request, self._headers)
         return RestReply(self._transport.request(call)).read(DisplayModeState)
+
+    def screenshot(self) -> Screenshot | OpError:
+        """Capture the display framebuffer through ``GET /display/screenshot``."""
+        call = HttpCall.read("/display/screenshot", self._headers)
+        return RestReply(self._transport.request(call)).read(Screenshot)

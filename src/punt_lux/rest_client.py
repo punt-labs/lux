@@ -55,6 +55,7 @@ if TYPE_CHECKING:
         SceneInspection,
         SceneList,
         Scope,
+        Screenshot,
         SetMenuRequest,
         SetThemeRequest,
         ThemeState,
@@ -280,7 +281,7 @@ class LuxRestClient:
         """Return the active theme through ``GET /display/theme``."""
         return self._display.get_theme()
 
-    def set_theme(self, request: SetThemeRequest) -> ThemeState | OpError:
+    def set_theme(self, request: SetThemeRequest | OpError) -> ThemeState | OpError:
         """Switch the display theme through ``PUT /display/theme``."""
         return self._display.set_theme(request)
 
@@ -289,7 +290,7 @@ class LuxRestClient:
         return self._display.get_window_settings()
 
     def set_window_settings(
-        self, patch: WindowSettingsPatch
+        self, patch: WindowSettingsPatch | OpError
     ) -> WindowSettings | OpError:
         """Change window settings through ``PATCH /display/window``."""
         return self._display.set_window_settings(patch)
@@ -299,10 +300,14 @@ class LuxRestClient:
         return self._display.read_display_mode(repo)
 
     def write_display_mode(
-        self, request: DisplayModeRequest
+        self, request: DisplayModeRequest | OpError
     ) -> DisplayModeState | OpError:
         """Write a project's display mode through ``PUT /display-mode``."""
         return self._display.write_display_mode(request)
+
+    def screenshot(self) -> Screenshot | OpError:
+        """Capture the display framebuffer through ``GET /display/screenshot``."""
+        return self._display.screenshot()
 
     def identify(
         self, declaration: dict[str, object], *, scope: object
