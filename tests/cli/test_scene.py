@@ -43,7 +43,9 @@ class _SceneClient:
 class TestSceneShow:
     def test_show_installs_a_scene_from_inline_json(self) -> None:
         client = _SceneClient()
-        with patch("punt_lux.rest_client.LuxRestClient.connect", return_value=client):
+        with patch(
+            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+        ):
             result = runner.invoke(
                 app,
                 [
@@ -59,7 +61,9 @@ class TestSceneShow:
 
     def test_show_rejects_malformed_json_before_any_network_call(self) -> None:
         client = _SceneClient()
-        with patch("punt_lux.rest_client.LuxRestClient.connect", return_value=client):
+        with patch(
+            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+        ):
             result = runner.invoke(app, ["scene", "show", "s1", "not-json"])
         assert result.exit_code != 0
         assert client.calls == []
@@ -68,14 +72,18 @@ class TestSceneShow:
 class TestSceneClear:
     def test_clear_removes_one_scene(self) -> None:
         client = _SceneClient()
-        with patch("punt_lux.rest_client.LuxRestClient.connect", return_value=client):
+        with patch(
+            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+        ):
             result = runner.invoke(app, ["scene", "clear", "s1"])
         assert result.exit_code == 0
         assert client.calls == [("clear_scene", "s1")]
 
     def test_clear_all_removes_every_scene(self) -> None:
         client = _SceneClient()
-        with patch("punt_lux.rest_client.LuxRestClient.connect", return_value=client):
+        with patch(
+            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+        ):
             result = runner.invoke(app, ["scene", "clear-all"])
         assert result.exit_code == 0
         assert client.calls == [("clear", None)]
@@ -84,7 +92,9 @@ class TestSceneClear:
 class TestSceneLs:
     def test_ls_reports_scene_count(self) -> None:
         client = _SceneClient()
-        with patch("punt_lux.rest_client.LuxRestClient.connect", return_value=client):
+        with patch(
+            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+        ):
             result = runner.invoke(app, ["scene", "ls"])
         assert result.exit_code == 0
         assert "scenes:0" in result.output

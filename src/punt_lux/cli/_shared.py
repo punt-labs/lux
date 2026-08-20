@@ -245,9 +245,24 @@ def read_json_array(inline: str | None, from_file: Path | None) -> list[object]:
     return cast("list[object]", payload)
 
 
-def connect_client(*, timeout: float = 2.0) -> LuxRestClient:
-    """Build a :class:`LuxRestClient` or exit 1 with the hub-unavailable message."""
+def connect_client(
+    *, identity: ClientIdentity | None = None, timeout: float = 2.0
+) -> LuxRestClient:
+    """Build a :class:`LuxRestClient` or exit 1 with the hub-unavailable message.
+
+    ``identity`` must be the same :class:`ClientIdentity`
+    :func:`identity_from_flags` resolved for this invocation — REST stamps its
+    ``X-Lux-Client-*`` headers from the identity the client declares at
+    connect time, so a caller's ``--as/--kind/--name/--repo/--agent`` flags
+    only reach the wire if this client is built with them. Omitting
+    ``identity`` falls back to :meth:`LuxRestClient.connect`'s own ambient
+    resolution — the same identity :func:`identity_from_flags` would resolve
+    with every flag absent, so a caller with no identity flags gets the
+    identical result either way.
+    """
     try:
+        if identity is not None:
+            return LuxRestClient.for_identity(identity, timeout=timeout)
         return LuxRestClient.connect(timeout=timeout)
     except HubUnavailableError as exc:
         typer.echo(str(exc), err=True)

@@ -69,5 +69,5 @@ def set_state(
     if isinstance(patch, OpError):
         typer.echo(f"error: {patch.reason}", err=True)
         raise typer.Exit(code=1)
-    ctx: Ctx[FrameOps] = Ctx(ops=connect_client(), identity=identity)
+    ctx: Ctx[FrameOps] = Ctx(ops=connect_client(identity=identity), identity=identity)
     run(frame_set_state(ctx, frame_id, patch), flags)

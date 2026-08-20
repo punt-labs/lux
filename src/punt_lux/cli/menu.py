@@ -60,7 +60,7 @@ def ls(
     identity = identity_from_flags(
         as_=None, kind=None, name=None, repo=None, agent=None
     )
-    ctx: Ctx[MenuOps] = Ctx(ops=connect_client(), identity=identity)
+    ctx: Ctx[MenuOps] = Ctx(ops=connect_client(identity=identity), identity=identity)
     run(menu_ls(ctx), flags)
 
 
@@ -88,5 +88,5 @@ def set_(
     if isinstance(request, OpError):
         typer.echo(f"error: {request.reason}", err=True)
         raise typer.Exit(code=1)
-    ctx: Ctx[MenuOps] = Ctx(ops=connect_client(), identity=identity)
+    ctx: Ctx[MenuOps] = Ctx(ops=connect_client(identity=identity), identity=identity)
     run(menu_set(ctx, request), flags)

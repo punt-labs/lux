@@ -46,7 +46,7 @@ def ls(
     identity = identity_from_flags(
         as_=None, kind=None, name=None, repo=None, agent=None
     )
-    ctx: Ctx[SessionOps] = Ctx(ops=connect_client(), identity=identity)
+    ctx: Ctx[SessionOps] = Ctx(ops=connect_client(identity=identity), identity=identity)
     run(session_ls(ctx), flags)
 
 
@@ -65,7 +65,7 @@ def inspect(
     identity = identity_from_flags(
         as_=None, kind=None, name=None, repo=None, agent=None
     )
-    ctx: Ctx[SessionOps] = Ctx(ops=connect_client(), identity=identity)
+    ctx: Ctx[SessionOps] = Ctx(ops=connect_client(identity=identity), identity=identity)
     flags.apply_logging()
     result = asyncio.run(session_ls.execute(ctx))
     for row in result.clients:
@@ -97,7 +97,7 @@ def identify(
     identity = identity_from_flags(
         as_=as_, kind=kind, name=name, repo=repo, agent=agent
     )
-    ctx: Ctx[SessionOps] = Ctx(ops=connect_client(), identity=identity)
+    ctx: Ctx[SessionOps] = Ctx(ops=connect_client(identity=identity), identity=identity)
     declaration: dict[str, object] = {"kind": identity.kind, "name": identity.name}
     if identity.repo is not None:
         declaration["repo"] = identity.repo

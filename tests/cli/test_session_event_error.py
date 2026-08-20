@@ -47,21 +47,27 @@ class _EventErrorClient:
 class TestSessionLs:
     def test_ls_reports_session_count(self) -> None:
         client = _SessionClient()
-        with patch("punt_lux.rest_client.LuxRestClient.connect", return_value=client):
+        with patch(
+            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+        ):
             result = runner.invoke(app, ["session", "ls"])
         assert result.exit_code == 0
         assert "sessions:1" in result.output
 
     def test_inspect_finds_a_known_connection(self) -> None:
         client = _SessionClient()
-        with patch("punt_lux.rest_client.LuxRestClient.connect", return_value=client):
+        with patch(
+            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+        ):
             result = runner.invoke(app, ["session", "inspect", "c1"])
         assert result.exit_code == 0
         assert "c1" in result.output
 
     def test_inspect_reports_an_unknown_connection(self) -> None:
         client = _SessionClient()
-        with patch("punt_lux.rest_client.LuxRestClient.connect", return_value=client):
+        with patch(
+            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+        ):
             result = runner.invoke(app, ["session", "inspect", "nope"])
         assert result.exit_code == 1
 
@@ -69,7 +75,9 @@ class TestSessionLs:
 class TestSessionIdentify:
     def test_identify_declares_the_callers_identity(self) -> None:
         client = _SessionClient()
-        with patch("punt_lux.rest_client.LuxRestClient.connect", return_value=client):
+        with patch(
+            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+        ):
             result = runner.invoke(
                 app, ["session", "identify", "--kind", "cli", "--name", "mdm-test"]
             )
@@ -79,12 +87,16 @@ class TestSessionIdentify:
 class TestEventErrorLs:
     def test_event_ls_reports_zero_events(self) -> None:
         client = _EventErrorClient()
-        with patch("punt_lux.rest_client.LuxRestClient.connect", return_value=client):
+        with patch(
+            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+        ):
             result = runner.invoke(app, ["event", "ls"])
         assert result.exit_code == 0
 
     def test_error_ls_reports_zero_errors(self) -> None:
         client = _EventErrorClient()
-        with patch("punt_lux.rest_client.LuxRestClient.connect", return_value=client):
+        with patch(
+            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+        ):
             result = runner.invoke(app, ["error", "ls"])
         assert result.exit_code == 0

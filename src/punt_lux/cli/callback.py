@@ -96,6 +96,6 @@ def register(
         as_=as_, kind=kind, name=name, repo=repo, agent=agent
     )
     request = RegisterCallbackRequest.parse(callback_id=callback_id, label=label)
-    ops = _CallbackRegisterAdapter(connect_client())
+    ops = _CallbackRegisterAdapter(connect_client(identity=identity))
     ctx: Ctx[CallbackRegisterOps] = Ctx(ops=ops, identity=identity)
     run(callback_register(ctx, request, scope=scope_for(identity)), flags)

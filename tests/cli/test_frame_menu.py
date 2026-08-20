@@ -36,7 +36,9 @@ class _FrameMenuClient:
 class TestFrameSetState:
     def test_set_state_minimizes_a_frame(self) -> None:
         client = _FrameMenuClient()
-        with patch("punt_lux.rest_client.LuxRestClient.connect", return_value=client):
+        with patch(
+            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+        ):
             result = runner.invoke(app, ["frame", "set-state", "f1", "--minimized"])
         assert result.exit_code == 0
         frame_id, patch_obj = client.frame_calls[0]
@@ -47,7 +49,9 @@ class TestFrameSetState:
 class TestMenuLs:
     def test_ls_reports_menu_count(self) -> None:
         client = _FrameMenuClient()
-        with patch("punt_lux.rest_client.LuxRestClient.connect", return_value=client):
+        with patch(
+            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+        ):
             result = runner.invoke(app, ["menu", "ls"])
         assert result.exit_code == 0
         assert "menus:0" in result.output
@@ -56,7 +60,9 @@ class TestMenuLs:
 class TestMenuSet:
     def test_set_replaces_the_menu_bar_from_inline_json(self) -> None:
         client = _FrameMenuClient()
-        with patch("punt_lux.rest_client.LuxRestClient.connect", return_value=client):
+        with patch(
+            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+        ):
             result = runner.invoke(
                 app,
                 ["menu", "set", '[{"id": "beads", "label": "Beads"}]'],
@@ -66,7 +72,9 @@ class TestMenuSet:
 
     def test_set_rejects_a_json_object_body_not_array(self) -> None:
         client = _FrameMenuClient()
-        with patch("punt_lux.rest_client.LuxRestClient.connect", return_value=client):
+        with patch(
+            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+        ):
             result = runner.invoke(app, ["menu", "set", '{"not": "an array"}'])
         assert result.exit_code != 0
         assert client.calls == []

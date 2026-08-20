@@ -24,7 +24,9 @@ class _CallbackClient:
 class TestCallbackRegister:
     def test_register_sends_the_callback_id_and_label(self) -> None:
         client = _CallbackClient()
-        with patch("punt_lux.rest_client.LuxRestClient.connect", return_value=client):
+        with patch(
+            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+        ):
             result = runner.invoke(app, ["callback", "register", "beads", "Beads"])
         assert result.exit_code == 0
         assert "registered:beads" in result.output

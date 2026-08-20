@@ -966,3 +966,4 @@
 {"ts":"2026-08-20T09:31:19Z","commit":"afe05ae5","files_scored":563,"files_improved":0,"files_regressed":1,"verdict":"fail","deltas":{}}
 {"ts":"2026-08-20T09:46:01Z","commit":"f0073804","files_scored":563,"files_improved":1,"files_regressed":0,"verdict":"pass","deltas":{"src/punt_lux/cli/beads.py":{"method_ratio":[0.0,0.75],"encapsulation_ratio":[0.0,1.0],"avg_params":[0.0,1.0],"max_complexity":[0.0,3.0],"avg_complexity":[0.0,1.75],"module_size":[0.0,76.0],"classes_per_module":[0.0,1.0],"class_to_func_ratio":[0.0,0.5],"init_violations":[0.0,0.0],"public_attr_violations":[0.0,0.0],"future_annotations":[0.0,1.0]}}}
 {"ts":"2026-08-20T10:01:07Z","commit":"c176f113","files_scored":563,"files_improved":0,"files_regressed":0,"verdict":"pass","deltas":{}}
+{"ts":"2026-08-20T10:18:00Z","commit":"71fbad8d","files_scored":563,"files_improved":0,"files_regressed":2,"verdict":"fail","deltas":{}}
