@@ -96,6 +96,12 @@ class DisplayRoutes:
         router.add_api_route(
             "/display/frames/{frame_id}/raise", self.raise_frame, methods=["POST"]
         )
+        router.add_api_route(
+            "/display/frames/{frame_id}/close", self.close_frame, methods=["POST"]
+        )
+        router.add_api_route(
+            "/display/frames/{frame_id}/expire", self.expire_frame, methods=["POST"]
+        )
         router.add_api_route("/display/screenshot", self.screenshot, methods=["GET"])
         router.add_api_route("/display/ping", self.ping, methods=["GET"])
         router.add_api_route("/events", self.list_recent_events, methods=["GET"])
@@ -155,6 +161,14 @@ class DisplayRoutes:
     def raise_frame(self, frame_id: str) -> FrameRaise:
         """Bring a frame to the front, restoring it if it was minimized."""
         return self._errors.respond(self._ops.raise_frame(frame_id))
+
+    def close_frame(self, frame_id: str) -> Ok:
+        """Close a frame: tear down its scenes and disarm its TTL."""
+        return self._errors.respond(self._ops.close_frame(frame_id))
+
+    def expire_frame(self, frame_id: str) -> Ok:
+        """Force a frame's TTL to expire now, tearing down its scenes."""
+        return self._errors.respond(self._ops.expire_frame(frame_id))
 
     def screenshot(self, identity: _CallerIdentity) -> Screenshot:
         """Refuse the screenshot: framebuffer capture is unsupported (DES-028)."""

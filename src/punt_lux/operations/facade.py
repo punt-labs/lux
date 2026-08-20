@@ -264,6 +264,22 @@ class Operations:
         """Bring a frame to the front, restoring it if it was minimized."""
         return self._display.raise_frame(frame_id)
 
+    @Timed("close_frame")
+    def close_frame(self, frame_id: str) -> Ok:
+        """Close a frame: tear down its scenes and disarm its TTL."""
+        return self._scenes.close_frame(frame_id)
+
+    @Timed("expire_frame")
+    def expire_frame(self, frame_id: str) -> Ok:
+        """Force a frame's TTL to expire now, tearing down its scenes.
+
+        Equivalent to :meth:`close_frame` today. Scheduling a future deadline
+        (a ``--in <seconds>`` form) needs ``FrameExpiry.set_deadline`` exposed
+        through ``FrameLifecycle``, which is domain/hub/ scope this rename
+        train does not touch.
+        """
+        return self._scenes.close_frame(frame_id)
+
     def inspect_scene(
         self, scene_id: str, *, scope: Scope, facts: InspectScope = HUB_ONLY
     ) -> SceneInspection | OpError:

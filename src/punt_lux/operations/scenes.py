@@ -31,6 +31,7 @@ from punt_lux.domain.hub.write_result import WriteRejected
 from punt_lux.domain.ids import SceneId, Topic
 from punt_lux.operations.composition_boundary import CompositionBoundary
 from punt_lux.operations.models.common import OpError
+from punt_lux.operations.models.menu_results import Ok
 from punt_lux.operations.models.scene_results import Cleared, SceneShown
 from punt_lux.operations.scene_clearing import SceneClearer
 from punt_lux.operations.scene_installer import SceneInstaller
@@ -189,3 +190,16 @@ class SceneOperations:
         ``cleared``.
         """
         return self._clearer.clear(scope.connection_id, scene_id)
+
+    def close_frame(self, frame_id: str) -> Ok:
+        """Tear down ``frame_id``'s scenes on the Hub and mark them dirty.
+
+        Mirrors the display-initiated close path
+        (``hub_interaction_dispatch._close_frame``): the Hub removes the
+        scenes the frame held so the authoritative store agrees the frame is
+        gone, then marks each dirty so the replicator blanks them. Unscoped
+        like ``raise_frame`` -- a frame is shared UI, not one caller's own.
+        """
+        for scene_id in self._display.frames.remove_frame(frame_id):
+            self._replicator.mark_dirty(scene_id)
+        return Ok()
