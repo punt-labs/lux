@@ -1,6 +1,6 @@
 """The ``LuxClient`` public library surface -- one facade, noun-grouped accessors.
 
-Ships nine accessors: ``scene``, ``frame``, ``menu``, ``session``, ``callback``,
+Ships eight accessors: ``scene``, ``frame``, ``menu``, ``session``, ``callback``,
 ``display``, ``event``, ``error`` -- every noun that reaches the Hub through
 the shipped REST surface. ``topic`` (publish/subscribe/receive) and
 ``callback.pending`` are omitted this cycle: neither has a REST route today
