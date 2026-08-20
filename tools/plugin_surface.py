@@ -127,11 +127,22 @@ class SurfaceAudit:
         markdown command file. A shebang identifies a script whose suffix does
         not.
         """
-        return [
-            p
-            for p in self._text_files()
-            if p.suffix in _SHELL_SUFFIXES or self._has_shell_shebang(p)
-        ]
+        return [p for p in self._text_files() if self._is_shell_script(p)]
+
+    def _is_shell_script(self, path: Path) -> bool:
+        """Is this a shell script, by what it contains rather than its name?
+
+        The one place both the `source` scan and the executable-bit check ask
+        the question, because both are asking the same thing. A `.sh` suffix is
+        sufficient but not necessary: hooks.json names the command and Claude
+        Code execs whatever it points at, so a suffixless script is still a
+        script, and still ships broken at mode 0644.
+        """
+        if not path.is_file():
+            return False
+        if path.suffix in _SHELL_SUFFIXES:
+            return True
+        return self._is_text(path) and self._has_shell_shebang(path)
 
     @staticmethod
     def _is_text(path: Path) -> bool:
@@ -163,6 +174,12 @@ class SurfaceAudit:
         above stopped working, not that the surface got clean. Without this the
         gate would pass vacuously the moment someone reformatted the file --
         the same shape as a guard whose condition can never be true.
+
+        That property is contingent on hooks.json existing. An absent one
+        answers True -- fails open -- because a plugin that registers no hooks
+        legitimately has no such file, and there is no way to tell that case
+        from a deleted one here. A surface WITH hooks is held to the check; a
+        surface without hooks is taken at its word.
         """
         hooks = self._root / "hooks" / "hooks.json"
         if not hooks.is_file():
@@ -207,8 +224,9 @@ class SurfaceAudit:
             ]
         # A hook Claude Code invokes as a command must be executable in the
         # installed copy; git carries the mode bit, so a non-executable script
-        # here ships broken.
-        if relative.endswith(".sh") and not os.access(target, os.X_OK):
+        # here ships broken. Classification, not suffix: a hook needs no `.sh`
+        # name, and `.sh` is only the most common way to spell one.
+        if self._is_shell_script(target) and not os.access(target, os.X_OK):
             return [Finding(f"hook script is not executable: {shown}")]
         return []
 

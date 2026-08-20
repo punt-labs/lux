@@ -46,7 +46,8 @@
   target of an escaping path is present, so a `../../src/...` reference or a
   `source "$REPO_ROOT/..."` would pass CI and break every sparse-checkout
   install. Four checks: each `${CLAUDE_PLUGIN_ROOT}`/`$PLUGIN_ROOT` reference
-  must resolve inside the surface, exist, and — for `.sh` — be executable;
+  must resolve inside the surface, exist, and — for a shell script, identified
+  by its shebang as well as its suffix — be executable;
   no symlink may resolve out; no `source`d file may land outside; and the
   surface may not name the repository root. **Containment is asserted on the
   resolved path, and existence only afterward** — a textual `../` scan and an
@@ -59,7 +60,10 @@
   suffix: a suffix allowlist has a blind spot shaped exactly like the files it
   omits, and since a hook needs no `.sh` name to be a hook, an extensionless
   script was a place an escaping reference could live while the gate still
-  reported the surface clean. Sixteen tests in `tests/test_plugin_surface.py`
+  reported the surface clean — and the same reasoning governs the executable-bit
+  check, which asks what a file *is* rather than what it is called, so a hook at
+  mode 0644 cannot ship merely by having no suffix. Seventeen tests in
+  `tests/test_plugin_surface.py`
   drive it as a subprocess, including negative controls for each rejected shape;
   a guard that never fires is indistinguishable from no guard.
 

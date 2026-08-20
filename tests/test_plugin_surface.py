@@ -149,6 +149,18 @@ class TestRejectsAReferenceTheSurfaceCannotSatisfy:
         assert result.returncode == 1
         assert "not executable" in result.stderr
 
+    def test_non_executable_extensionless_hook_fails(self, tmp_path: Path) -> None:
+        # The exec bit matters because Claude Code execs the command, and it
+        # execs whatever hooks.json names — so keying the check off a `.sh`
+        # suffix would let mode 0644 ship on a hook that simply has no suffix.
+        # Classification, not spelling, decides what is a script.
+        surface = _make_surface(tmp_path, hook="dispatch")
+        script = surface / "hooks" / "dispatch"
+        script.chmod(script.stat().st_mode & ~0o111)
+        result = _run(surface)
+        assert result.returncode == 1
+        assert "not executable" in result.stderr
+
 
 class TestRejectsWhatATextualScanWouldMiss:
     def test_symlink_out_of_the_surface_fails(self, tmp_path: Path) -> None:
