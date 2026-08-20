@@ -39,7 +39,7 @@ from punt_lux.operations import (
     WindowSettings,
     WindowSettingsPatch,
 )
-from punt_lux.rest.identity import resolve_identity
+from punt_lux.rest.identity import resolve_identity, resolve_scope
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.client_identity import ClientIdentity
@@ -84,8 +84,18 @@ class DisplayRoutes:
             "/display/window", self.set_window_settings, methods=["PATCH"]
         )
         f = "/display/frames/{frame_id}"
-        router.add_api_route(f + "/raise", self.raise_frame, methods=["POST"])
-        router.add_api_route(f + "/close", self.close_frame, methods=["POST"])
+        router.add_api_route(
+            f + "/raise",
+            self.raise_frame,
+            methods=["POST"],
+            dependencies=[Depends(resolve_scope)],
+        )
+        router.add_api_route(
+            f + "/close",
+            self.close_frame,
+            methods=["POST"],
+            dependencies=[Depends(resolve_scope)],
+        )
         router.add_api_route("/display/screenshot", self.screenshot, methods=["GET"])
         router.add_api_route("/display/ping", self.ping, methods=["GET"])
         router.add_api_route("/events", self.list_recent_events, methods=["GET"])
@@ -138,8 +148,9 @@ class DisplayRoutes:
         return self._errors.respond(self._ops.raise_frame(frame_id))
 
     def close_frame(self, frame_id: str) -> Ok:
-        """Close (or force-expire) a frame: tear down its scenes."""
-        return self._errors.respond(self._ops.close_frame(frame_id))
+        """Close a frame: tear down its scenes; identity required (DES-057)."""
+        result = self._ops.close_frame(frame_id)
+        return self._errors.respond(result)
 
     def screenshot(self, identity: _CallerIdentity) -> Screenshot:
         """Refuse the screenshot: framebuffer capture is unsupported (DES-028)."""

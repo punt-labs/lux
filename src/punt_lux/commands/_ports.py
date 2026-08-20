@@ -111,7 +111,7 @@ class FrameOps(Protocol):
         """Bring a frame to the front, restoring it if it was minimized."""
         ...
 
-    def close_frame(self, frame_id: str) -> Ok:
+    def close_frame(self, frame_id: str) -> Ok | OpError:
         """Close a frame: tear down its scenes on the Hub."""
         ...
 

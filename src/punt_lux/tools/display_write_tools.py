@@ -128,7 +128,7 @@ def frame_raise(frame_id: str) -> FrameRaise | OpError:
 
 
 @mcp.tool(name="frame_close")
-def frame_close(frame_id: str) -> Ok:
+def frame_close(frame_id: str) -> Ok | OpError:
     """Close ``frame_id``: tear down its scenes on the Hub."""
     ctx: CommandCtx[FrameOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
