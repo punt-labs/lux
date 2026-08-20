@@ -139,6 +139,12 @@ def identity_from_flags(
     invocation's own working-directory-derived ``cli`` identity. Any explicit
     flag replaces the corresponding field on that default; ``--as`` supplies
     a bundle of fields under one flag, and per-key flags override it.
+
+    Write verbs call this with the identity flags wired to real ``typer``
+    options, so a caller can declare who it is for that one write. Read verbs
+    (``scene ls``, ``session ls``, ``display info``, ...) call this with every
+    flag ``None`` — they scope to the ambient CLI identity and take no
+    identity flags of their own, because a read has no owner to declare.
     """
     parsed = _parse_as(as_)
     default = CliIdentity.resolve()

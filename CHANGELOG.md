@@ -30,7 +30,10 @@
   `lux error ls`, `lux callback register`. Every write accepts
   `--as/--kind/--name/--repo/--agent` (per-invocation identity — the caller
   *being* a different client for one call, not privilege elevation); every
-  command accepts `--json/--verbose/--quiet`.
+  command accepts `--json/--verbose/--quiet`. Identity flags apply to write
+  verbs only — read verbs (`scene ls`, `session ls`, `display info`, ...) use
+  the ambient CLI identity from `CliIdentity.resolve` and take no identity
+  flags of their own, since a read has no owner to declare.
 
 - **`lux ping`, `lux version`, `lux enable`, `lux disable` gained real
   `--json`/`--quiet` support.** `lux status`/`lux doctor` accept the flags for
