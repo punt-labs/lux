@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import logging
-import shutil
-import subprocess
 import sys
 
 import typer
 
 from punt_lux import __version__
 from punt_lux.cli.hub import hub_app
+from punt_lux.cli.plugin import (
+    _PLUGIN_ID,
+    install as plugin_install,
+    uninstall as plugin_uninstall,
+)
+from punt_lux.cli.session import session_app
 from punt_lux.doctor_report import FAIL, OK, OPTIONAL, DoctorReport
 from punt_lux.log_level import level_from_env
 from punt_lux.show import show_app
@@ -52,8 +56,7 @@ hook_app = typer.Typer(hidden=True)
 app.add_typer(hook_app, name="hook")
 app.add_typer(show_app, name="show")
 app.add_typer(hub_app, name="hub")
-
-_PLUGIN_ID = "lux@punt-labs"
+app.add_typer(session_app, name="session")
 
 
 # Product commands
@@ -269,44 +272,8 @@ def doctor(
         raise typer.Exit(code=1)
 
 
-def _claude_bin() -> str:
-    """Resolve the ``claude`` CLI binary or exit with a helpful message."""
-    claude = shutil.which("claude")
-    if not claude:
-        typer.echo("Error: claude CLI not found on PATH", err=True)
-        raise typer.Exit(code=1)
-    return claude
-
-
-@app.command()
-def install() -> None:
-    """Install the Claude Code plugin via the punt-labs marketplace."""
-    result = subprocess.run(  # noqa: S603
-        [_claude_bin(), "plugin", "install", _PLUGIN_ID, "--scope", "user"],
-        check=False,
-    )
-    if result.returncode != 0:
-        typer.echo("Error: plugin install failed", err=True)
-        raise typer.Exit(code=1)
-    _report_installed()
-
-
-def _report_installed() -> None:
-    """Emit the post-install banner."""
-    print("Installed. Restart Claude Code to activate.")
-
-
-@app.command()
-def uninstall() -> None:
-    """Uninstall the Claude Code plugin."""
-    result = subprocess.run(  # noqa: S603
-        [_claude_bin(), "plugin", "uninstall", _PLUGIN_ID, "--scope", "user"],
-        check=False,
-    )
-    if result.returncode != 0:
-        typer.echo("Error: plugin uninstall failed", err=True)
-        raise typer.Exit(code=1)
-    print("Uninstalled.")
+app.command()(plugin_install)
+app.command()(plugin_uninstall)
 
 
 if __name__ == "__main__":
