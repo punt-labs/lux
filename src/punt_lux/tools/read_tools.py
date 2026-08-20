@@ -151,7 +151,7 @@ def get_display_info() -> DisplayInfo | OpError:
     return asyncio.run(display_info_command.execute(ctx))
 
 
-@mcp.tool()
+@mcp.tool(name="display_window_get")
 def get_window_settings() -> WindowSettings | OpError:
     """Return current window settings: opacity, font scale, decoration, idle FPS."""
     ctx: CommandCtx[WindowOps] = CommandCtx(
@@ -160,7 +160,7 @@ def get_window_settings() -> WindowSettings | OpError:
     return asyncio.run(display_window_get_command.execute(ctx))
 
 
-@mcp.tool()
+@mcp.tool(name="display_theme_get")
 def get_theme() -> ThemeState | OpError:
     """Return current theme and available themes."""
     ctx: CommandCtx[ThemeOps] = CommandCtx(
