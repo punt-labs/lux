@@ -40,10 +40,10 @@
   `luxd-display` in `ps`, `top`, and Activity Monitor. launchd labels
   and systemd unit names match (`com.punt-labs.luxd-hub`,
   `com.punt-labs.luxd-display`; `luxd-hub.service`,
-  `luxd-display.service`). This covers R5 of `lux-mxvy`. Existing
-  installs registered under the old `com.punt-labs.lux` label should
-  reinstall with `lux hub install` to pick up the new label; no
-  automatic migration.
+  `luxd-display.service`). This covers R5 of `lux-mxvy`. `lux hub
+  install` unloads and removes any orphan `com.punt-labs.lux.plist` from
+  a prior version so the two labels cannot race to bind port 8430 at the
+  next login.
 
 ## [0.27.0] - 2026-08-21
 
