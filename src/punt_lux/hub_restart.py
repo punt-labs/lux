@@ -3,10 +3,14 @@
 Restarting the Hub is one supervisor call, not a signal-and-wait against a
 pid file the daemon does not itself keep current. The service manager
 (launchd or systemd) already knows luxd's pid, so ask the supervisor to
-atomically kill-and-respawn, then wait for the process id under the
-service's ``setproctitle`` name to *change* — the same signal on a fresh
-install (``None`` → new pid) and on an upgrade (old pid → new pid),
-without any dependence on a socket peer credential or pid file.
+atomically kill-and-respawn, then wait for two independent witnesses
+before declaring the restart complete: the process id under the
+service's ``setproctitle`` name has *changed* (the new instance is
+running) and ``HubPaths.is_running()`` returns true (uvicorn has bound,
+because luxd only writes its pid file after ``_startup_with_port_file``
+returns). Requiring both closes the gap between "process exists" and
+"port is up" — setproctitle is called before uvicorn binds, so pgrep
+alone would say restarted while ``curl :8430`` still refuses.
 
 Failure is raised as :class:`HubRestartError` with the reason already
 worded for a human.
@@ -19,6 +23,7 @@ from typing import TYPE_CHECKING, Self, final
 
 from punt_lux._backends import pgrep_pid
 from punt_lux._service_spec import HUB_SPEC, ServiceSpec
+from punt_lux.hub_paths import HubPaths
 from punt_lux.service import (
     HubServiceManager,
     ServiceActionFailedError,
@@ -42,20 +47,23 @@ class HubRestartError(RuntimeError):
 
 @final
 class HubRestart:
-    """Restart luxd via its supervisor and wait for the pid to change."""
+    """Restart luxd via its supervisor and wait for both pid and port."""
 
     _spec: ServiceSpec
     _manager: HubServiceManager
-    __slots__ = ("_manager", "_spec")
+    _paths: HubPaths
+    __slots__ = ("_manager", "_paths", "_spec")
 
     def __new__(
         cls,
         spec: ServiceSpec | None = None,
         manager: HubServiceManager | None = None,
+        paths: HubPaths | None = None,
     ) -> Self:
         self = super().__new__(cls)
         self._spec = spec if spec is not None else HUB_SPEC
         self._manager = manager if manager is not None else HubServiceManager()
+        self._paths = paths if paths is not None else HubPaths()
         return self
 
     def run(self) -> str:
@@ -65,31 +73,33 @@ class HubRestart:
             self._manager.restart()
         except (ServiceActionFailedError, ServiceNotInstalledError) as exc:
             raise HubRestartError(str(exc)) from exc
-        return self._await_new_pid(before)
+        return self._await_ready(before)
 
-    def _await_new_pid(self, before: int | None) -> str:
-        """Wait for a pid that differs from ``before``, and describe it.
+    def _await_ready(self, before: int | None) -> str:
+        """Wait for a new pid AND a live port, and describe it.
 
-        A pid equal to ``before`` is the previous instance still exiting, not
-        the respawn — treat it as absent and keep waiting. The first pid
-        that satisfies ``pid is not None and pid != before`` witnesses the
-        restart; only then is the operation safe to report as complete.
+        A pid alone is not enough — luxd calls ``set_process_title`` at
+        the top of ``main`` before uvicorn binds, so pgrep can see the new
+        pid while the TCP port is still down. The pid file, written only
+        after ``_startup_with_port_file`` completes, is what witnesses the
+        port is actually up. Requiring both means a returned "restarted"
+        line is safe to hand to the next ``curl :8430``.
         """
         for _ in self._polls():
             pid = pgrep_pid(self._spec.process_name)
-            if pid is not None and pid != before:
-                return f"luxd restarted (pid {pid})"
+            if pid is None or pid == before:
+                continue
+            if not self._paths.is_running():
+                continue
+            port = self._paths.read_port()
+            where = f"port {port}" if port is not None else "port file not yet written"
+            return f"luxd restarted (pid {pid}, {where})"
         msg = f"luxd did not come back within {_WAIT_SECONDS:.0f}s"
         raise HubRestartError(msg)
 
     @staticmethod
     def _polls() -> Iterator[None]:
-        """The bounded poll schedule: sleep, then look, until spent.
-
-        Sleeping before the first look is deliberate — the supervisor's
-        respawn cannot have completed in the instant after the kickstart
-        call returned.
-        """
+        """The bounded poll schedule: sleep, then look, until spent."""
         for _ in range(int(_WAIT_SECONDS / _POLL_SECONDS)):
             time.sleep(_POLL_SECONDS)
             yield
