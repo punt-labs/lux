@@ -170,6 +170,9 @@ ignore = [
 "src/punt_lux/_backend_launchd.py" = ["S603", "S607", "PLC0415"]
 "src/punt_lux/_backend_systemd.py" = ["S603", "S607"]
 "src/punt_lux/_launchctl.py" = ["S603"]
+"src/punt_lux/_port_guard.py" = ["S603", "S607"]
+"src/punt_lux/_legacy_sweep_launchd.py" = ["S603", "S607"]
+"src/punt_lux/_legacy_sweep_systemd.py" = ["S603", "S607"]
 # Lazy imports to break circular dependency chains in domain/protocol layers
 "src/punt_lux/domain/event_handler_host.py" = ["PLC0415"]
 "src/punt_lux/domain/hub/hub_interaction_dispatch.py" = ["PLC0415"]
