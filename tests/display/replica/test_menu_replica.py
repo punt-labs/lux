@@ -81,7 +81,7 @@ class TestMenuModelComposition:
 
         labels = tuple(s.label for s in manager.menu_model().sections)
 
-        assert labels == ("Lux", "Windows", "Help", "File", "voxd")
+        assert labels == ("Lux", "voxd", "File", "Windows", "Help")
 
     def test_the_model_is_rebuilt_from_live_state(self) -> None:
         opacity = 0.25
