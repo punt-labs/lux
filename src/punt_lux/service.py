@@ -133,6 +133,28 @@ class ServiceManager:
             raise ServiceActionFailedError(msg)
         return f"{self._SPEC.display_name} started."
 
+    def restart(self) -> str:
+        """Atomically restart the service via its supervisor.
+
+        The supervisor already knows the daemon's pid, so a restart is one
+        call — never a signal-and-wait against a pid file the daemon does
+        not itself keep current. Refuses when the service is not installed
+        so the caller gets the same "run install" hint as :meth:`start`.
+        """
+        if not self._backend.config_path().exists():
+            msg = (
+                f"{self._SPEC.display_name} is not installed. "
+                f"Run 'lux {self._SPEC.cli_verb} install' first."
+            )
+            raise ServiceNotInstalledError(msg)
+        if not self._backend.restart():
+            msg = (
+                f"{self._SPEC.display_name} restart failed. See "
+                "~/.punt-labs/lux/logs/ for details."
+            )
+            raise ServiceActionFailedError(msg)
+        return f"{self._SPEC.display_name} restarted."
+
     @property
     def is_active(self) -> bool:
         """Return whether the service is currently running."""

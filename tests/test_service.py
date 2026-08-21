@@ -371,16 +371,60 @@ class TestSystemdLegacyUnitCleanup:
         assert legacy.exists()
 
 
+class TestServiceManagerRestart:
+    def test_raises_when_not_installed(self):
+        with patch("punt_lux.service.detect_platform", return_value="macos"):
+            mgr = ServiceManager.for_hub()
+        with (
+            patch.object(
+                mgr._backend, "config_path", return_value=Path("/nonexistent")
+            ),
+            pytest.raises(ServiceNotInstalledError, match="lux hub install"),
+        ):
+            mgr.restart()
+
+    def test_restarts_the_backend_when_installed(self, tmp_path: Path):
+        config = tmp_path / "com.punt-labs.luxd-hub.plist"
+        config.touch()
+        with patch("punt_lux.service.detect_platform", return_value="macos"):
+            mgr = ServiceManager.for_hub()
+        with (
+            patch.object(mgr._backend, "config_path", return_value=config),
+            patch.object(mgr._backend, "restart", return_value=True) as backend_restart,
+        ):
+            result = mgr.restart()
+        backend_restart.assert_called_once()
+        assert result == "luxd restarted."
+
+    def test_raises_when_the_backend_call_fails(self, tmp_path: Path):
+        config = tmp_path / "com.punt-labs.luxd-hub.plist"
+        config.touch()
+        with patch("punt_lux.service.detect_platform", return_value="macos"):
+            mgr = ServiceManager.for_hub()
+        with (
+            patch.object(mgr._backend, "config_path", return_value=config),
+            patch.object(mgr._backend, "restart", return_value=False),
+            pytest.raises(ServiceActionFailedError, match="luxd restart failed"),
+        ):
+            mgr.restart()
+
+
 class TestBackendStartStopSymmetry:
     def test_launchd_start_calls_launchctl_bootstrap(self, tmp_path: Path):
         # bootstrap, not load: the counterpart to stop's bootout, so a
         # service this backend stopped can be started again without
         # relying on the legacy load/unload shim (lux-5uc7 F5).
+        #
+        # start() calls launchctl.run(), not subprocess.run() directly —
+        # patch the actual call site in _launchctl, not _backend_launchd's
+        # module-level subprocess import (Copilot F1: the wrong-module patch
+        # only works by accident, because subprocess is one shared module
+        # object across every importer).
         fake_home = tmp_path / "home"
         fake_home.mkdir()
         with patch("punt_lux._backend_launchd.Path.home", return_value=fake_home):
             backend = LaunchdBackend(HUB_SPEC)
-        with patch("punt_lux._backend_launchd.subprocess.run") as run:
+        with patch("punt_lux._launchctl.subprocess.run") as run:
             run.return_value.returncode = 0
             ok = backend.start()
         assert run.call_args[0][0][:2] == ["launchctl", "bootstrap"]
@@ -397,7 +441,7 @@ class TestBackendStartStopSymmetry:
             backend = LaunchdBackend(HUB_SPEC)
         backend.config_path().parent.mkdir(parents=True, exist_ok=True)
         backend.config_path().write_text("<plist/>")
-        with patch("punt_lux._backend_launchd.subprocess.run") as run:
+        with patch("punt_lux._launchctl.subprocess.run") as run:
             run.return_value.returncode = 0
             ok = backend.stop()
         args = run.call_args[0][0]
@@ -411,7 +455,7 @@ class TestBackendStartStopSymmetry:
         fake_home.mkdir()
         with patch("punt_lux._backend_launchd.Path.home", return_value=fake_home):
             backend = LaunchdBackend(HUB_SPEC)
-        with patch("punt_lux._backend_launchd.subprocess.run") as run:
+        with patch("punt_lux._launchctl.subprocess.run") as run:
             run.return_value.returncode = 1
             run.return_value.stderr = "boom"
             ok = backend.start()
@@ -437,4 +481,54 @@ class TestBackendStartStopSymmetry:
             run.return_value.returncode = 1
             run.return_value.stderr = "boom"
             ok = backend.start()
+        assert ok is False
+
+    def test_launchd_restart_calls_launchctl_kickstart(self, tmp_path: Path):
+        # kickstart -k: one supervisor call that kills and respawns under the
+        # same plist. No pid file consulted; the supervisor already knows the
+        # pid the daemon does not itself keep current.
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        with patch("punt_lux._backend_launchd.Path.home", return_value=fake_home):
+            backend = LaunchdBackend(HUB_SPEC)
+        with patch("punt_lux._launchctl.subprocess.run") as run:
+            run.return_value.returncode = 0
+            ok = backend.restart()
+        args = run.call_args[0][0]
+        assert args[:3] == ["launchctl", "kickstart", "-k"]
+        assert args[3].startswith("gui/")
+        assert args[3].endswith(HUB_SPEC.launchd_label)
+        assert ok is True
+
+    def test_launchd_restart_reports_failure_on_nonzero_exit(self, tmp_path: Path):
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        with patch("punt_lux._backend_launchd.Path.home", return_value=fake_home):
+            backend = LaunchdBackend(HUB_SPEC)
+        with patch("punt_lux._launchctl.subprocess.run") as run:
+            run.return_value.returncode = 1
+            run.return_value.stderr = "boom"
+            ok = backend.restart()
+        assert ok is False
+
+    def test_systemd_restart_calls_systemctl_restart(self, tmp_path: Path):
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        with patch("punt_lux._backend_systemd.Path.home", return_value=fake_home):
+            backend = SystemdBackend(HUB_SPEC)
+        with patch("punt_lux._backend_systemd.subprocess.run") as run:
+            run.return_value.returncode = 0
+            ok = backend.restart()
+        assert run.call_args[0][0] == ["systemctl", "--user", "restart", "luxd-hub"]
+        assert ok is True
+
+    def test_systemd_restart_reports_failure_on_nonzero_exit(self, tmp_path: Path):
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        with patch("punt_lux._backend_systemd.Path.home", return_value=fake_home):
+            backend = SystemdBackend(HUB_SPEC)
+        with patch("punt_lux._backend_systemd.subprocess.run") as run:
+            run.return_value.returncode = 1
+            run.return_value.stderr = "boom"
+            ok = backend.restart()
         assert ok is False

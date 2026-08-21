@@ -32,6 +32,7 @@ class ServiceSpec:
     extra_args: tuple[str, ...]
     log_stem: str
     cli_verb: str
+    process_name: str
 
     def resolve_exec_args(self) -> list[str]:
         """Return the command that launches this service.
@@ -69,6 +70,7 @@ HUB_SPEC: ServiceSpec = ServiceSpec(
     extra_args=("--port", str(DEFAULT_HUB_PORT)),
     log_stem="luxd",
     cli_verb="hub",
+    process_name="luxd-hub",
 )
 
 
@@ -81,4 +83,5 @@ DISPLAY_SPEC: ServiceSpec = ServiceSpec(
     extra_args=("display", "serve"),
     log_stem="luxd-display",
     cli_verb="display",
+    process_name="luxd-display",
 )

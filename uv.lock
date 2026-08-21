@@ -1084,6 +1084,7 @@ dependencies = [
     { name = "mcp" },
     { name = "pydantic" },
     { name = "rich" },
+    { name = "setproctitle" },
     { name = "starlette" },
     { name = "typer" },
     { name = "uvicorn" },
@@ -1098,7 +1099,6 @@ display = [
     { name = "pyobjc-framework-cocoa", marker = "sys_platform == 'darwin'" },
     { name = "pyobjc-framework-quartz", marker = "sys_platform == 'darwin'" },
     { name = "pyopengl" },
-    { name = "setproctitle" },
 ]
 
 [package.dev-dependencies]
@@ -1123,7 +1123,7 @@ requires-dist = [
     { name = "pyobjc-framework-quartz", marker = "sys_platform == 'darwin' and extra == 'display'", specifier = ">=10.0" },
     { name = "pyopengl", marker = "extra == 'display'", specifier = ">=3.1.0" },
     { name = "rich", specifier = ">=15,<16" },
-    { name = "setproctitle", marker = "extra == 'display'", specifier = ">=1.3.0" },
+    { name = "setproctitle", specifier = ">=1.3.0" },
     { name = "starlette", specifier = ">=1.3.1,<2" },
     { name = "typer", specifier = ">=0.15.0,<1" },
     { name = "uvicorn", specifier = ">=0.34.0" },

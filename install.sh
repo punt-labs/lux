@@ -101,28 +101,21 @@ fi
 
 ok "$BINARY $(command -v "$BINARY")"
 
-# --- Step 4b: Restart display if already running ---
-
-if "$BINARY" status >/dev/null 2>&1; then
-  _pid_file="/tmp/lux-$(whoami)/display.sock.pid"
-  if [ -f "$_pid_file" ]; then
-    _old_pid=$(cat "$_pid_file" 2>/dev/null)
-    if [ -n "$_old_pid" ] && kill -0 "$_old_pid" 2>/dev/null; then
-      kill "$_old_pid" 2>/dev/null
-      info "Stopped old display server (pid $_old_pid) — next show() will spawn the new version"
-    fi
-  fi
-fi
-
 # --- Step 5: Register luxd service ---
+# 'hub install' is idempotent under launchd — an already-loaded service is not
+# cycled — so a bare install on an upgrade leaves the previous luxd process
+# running with the previous bytecode. Restart afterwards so the running daemon
+# matches the newly-installed wheel (lux-w66z).
 
 info "Registering luxd service..."
 "$BINARY" hub install || fail "Failed to register luxd service -- the plugin cannot reach luxd until it runs"
+"$BINARY" hub restart || fail "Failed to restart luxd -- the running daemon still holds the previous bytecode"
 
 # --- Step 5b: Register the display service ---
 
 info "Registering display service..."
 "$BINARY" display install || fail "Failed to register display service -- the window will not appear until it runs"
+"$BINARY" display restart || fail "Failed to restart the display -- the running window still holds the previous bytecode"
 
 # --- Step 6: Health-check luxd ---
 
