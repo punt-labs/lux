@@ -50,7 +50,23 @@ class ServiceManager:
     __slots__ = ("_backend",)
     _backend: ServiceBackend
 
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        """Reject a subclass that forgets to fix ``_SPEC``, at definition time."""
+        super().__init_subclass__(**kwargs)
+        if "_SPEC" not in cls.__dict__:
+            msg = (
+                f"{cls.__name__} must set _SPEC "
+                "(see HubServiceManager, DisplayServiceManager)"
+            )
+            raise TypeError(msg)
+
     def __new__(cls) -> Self:
+        if "_SPEC" not in cls.__dict__:
+            msg = (
+                f"{cls.__name__} is abstract — instantiate HubServiceManager or "
+                "DisplayServiceManager (or use for_hub()/for_display())"
+            )
+            raise TypeError(msg)
         self = super().__new__(cls)
         backend_cls = LaunchdBackend if detect_platform() == "macos" else SystemdBackend
         self._backend = backend_cls(cls._SPEC)

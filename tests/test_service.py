@@ -205,6 +205,14 @@ class TestServiceManager:
         assert isinstance(mgr._backend, LaunchdBackend)
         assert mgr.spec is DISPLAY_SPEC
 
+    def test_bare_instantiation_raises_type_error(self):
+        with pytest.raises(TypeError, match="abstract"):
+            ServiceManager()
+
+    def test_subclass_without_spec_raises_at_definition_time(self):
+        with pytest.raises(TypeError, match="_SPEC"):
+            type("Incomplete", (ServiceManager,), {"__slots__": ()})
+
 
 class TestServiceManagerStart:
     def test_raises_when_not_installed(self):
