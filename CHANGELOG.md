@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-08-21
+
 ### Added
 
 - **Slash-command coverage for every non-exempt MCP tool (`lux-0shg.6`).**
