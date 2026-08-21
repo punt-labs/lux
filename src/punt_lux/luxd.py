@@ -28,6 +28,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from punt_lux.log_level import level_from_env
 from punt_lux.mcp_transport import McpHttpTransport
+from punt_lux.proctitle import set_process_title
 from punt_lux.rest import HubHealth, RestSurface
 from punt_lux.transport_policy import LoopbackTransportPolicy
 from punt_lux.ws_transport import HubListenTransport
@@ -217,25 +218,13 @@ def serve(
 
 
 def main() -> None:
-    """Entry point for the luxd binary.
-
-    The floor is DEBUG: luxd's stderr goes to a file launchd owns, so the
-    per-operation duration lines are readable whenever someone looks.
-    """
+    """Boot luxd — DEBUG floor so launchd's stderr log stays readable."""
     logging.basicConfig(
         level=level_from_env("DEBUG"),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
-
-    # Visible in ps/top/Activity Monitor; matches the launchd label suffix.
-    try:
-        import setproctitle  # pyright: ignore[reportMissingImports]
-
-        setproctitle.setproctitle("luxd-hub")
-    except ImportError:
-        pass
-
+    set_process_title("luxd-hub")
     parser = argparse.ArgumentParser(description="Lux session hub daemon")
     parser.add_argument("--host", default="127.0.0.1", help="Bind address")
     parser.add_argument("--port", type=int, default=DEFAULT_HUB_PORT, help="Bind port")

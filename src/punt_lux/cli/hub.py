@@ -33,13 +33,13 @@ __all__ = ["hub_app"]
 @hub_app.command("install")
 def install() -> None:
     """Register luxd as a system service (launchd on macOS, systemd on Linux)."""
-    typer.echo(ServiceManager().install())
+    typer.echo(ServiceManager.for_hub().install())
 
 
 @hub_app.command("uninstall")
 def uninstall() -> None:
     """Remove the luxd system service registration."""
-    typer.echo(ServiceManager().uninstall())
+    typer.echo(ServiceManager.for_hub().uninstall())
 
 
 @hub_app.command("start")
@@ -52,7 +52,7 @@ def start() -> None:
         typer.echo(label)
         return
     try:
-        typer.echo(ServiceManager().start())
+        typer.echo(ServiceManager.for_hub().start())
     except (ServiceNotInstalledError, ServiceActionFailedError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from None
@@ -62,7 +62,7 @@ def start() -> None:
 def stop() -> None:
     """Stop luxd, leaving the service registration in place."""
     try:
-        typer.echo(ServiceManager().stop())
+        typer.echo(ServiceManager.for_hub().stop())
     except ServiceActionFailedError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from None

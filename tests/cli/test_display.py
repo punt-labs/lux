@@ -170,3 +170,37 @@ class TestDisplayModeFused:
         assert result.exit_code == 1
         assert "does not exist" in result.output
         assert client.calls == []
+
+
+class TestDisplayAdminVerbs:
+    def test_install_delegates_to_display_service_manager(self) -> None:
+        with patch("punt_lux.cli.display_service.ServiceManager") as mock_cls:
+            mock_cls.for_display.return_value.install.return_value = (
+                "luxd-display installed."
+            )
+            result = runner.invoke(app, ["display", "install"])
+        assert result.exit_code == 0
+        assert "luxd-display installed." in result.output
+        mock_cls.for_display.assert_called_once()
+
+    def test_start_reports_not_installed(self) -> None:
+        from punt_lux.service import ServiceNotInstalledError
+
+        with patch("punt_lux.cli.display_service.ServiceManager") as mock_cls:
+            mock_cls.for_display.return_value.start.side_effect = (
+                ServiceNotInstalledError(
+                    "luxd-display is not installed. Run 'lux display install' first."
+                )
+            )
+            result = runner.invoke(app, ["display", "start"])
+        assert result.exit_code == 1
+        assert "lux display install" in result.output
+
+    def test_stop_delegates(self) -> None:
+        with patch("punt_lux.cli.display_service.ServiceManager") as mock_cls:
+            mock_cls.for_display.return_value.stop.return_value = (
+                "luxd-display stopped."
+            )
+            result = runner.invoke(app, ["display", "stop"])
+        assert result.exit_code == 0
+        assert "luxd-display stopped." in result.output

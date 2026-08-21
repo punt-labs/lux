@@ -25,11 +25,11 @@ class TestHubStart:
             patch("punt_lux.hub_paths.HubPaths.is_running", return_value=False),
             patch("punt_lux.cli.hub.ServiceManager") as mock_cls,
         ):
-            mock_cls.return_value.start.return_value = "luxd started."
+            mock_cls.for_hub.return_value.start.return_value = "luxd started."
             result = runner.invoke(app, ["hub", "start"])
         assert result.exit_code == 0
         assert "luxd started." in result.output
-        mock_cls.return_value.start.assert_called_once()
+        mock_cls.for_hub.return_value.start.assert_called_once()
 
     def test_start_reports_not_installed(self) -> None:
         from punt_lux.service import ServiceNotInstalledError
@@ -38,7 +38,7 @@ class TestHubStart:
             patch("punt_lux.hub_paths.HubPaths.is_running", return_value=False),
             patch("punt_lux.cli.hub.ServiceManager") as mock_cls,
         ):
-            mock_cls.return_value.start.side_effect = ServiceNotInstalledError(
+            mock_cls.for_hub.return_value.start.side_effect = ServiceNotInstalledError(
                 "luxd is not installed. Run 'lux hub install' first."
             )
             result = runner.invoke(app, ["hub", "start"])
@@ -54,7 +54,7 @@ class TestHubStart:
             result = runner.invoke(app, ["hub", "start"])
         assert result.exit_code == 0
         assert "8430" in result.output
-        mock_cls.return_value.start.assert_not_called()
+        mock_cls.for_hub.return_value.start.assert_not_called()
 
     def test_start_reports_a_failed_supervisor_call_not_success(self) -> None:
         """Regression: the supervisor rejecting the start used to be silently
@@ -65,7 +65,7 @@ class TestHubStart:
             patch("punt_lux.hub_paths.HubPaths.is_running", return_value=False),
             patch("punt_lux.cli.hub.ServiceManager") as mock_cls,
         ):
-            mock_cls.return_value.start.side_effect = ServiceActionFailedError(
+            mock_cls.for_hub.return_value.start.side_effect = ServiceActionFailedError(
                 "luxd start failed. See ~/.punt-labs/lux/logs/luxd-stderr.log "
                 "for details."
             )
@@ -78,11 +78,11 @@ class TestHubStart:
 class TestHubStop:
     def test_stop_calls_the_service_manager(self) -> None:
         with patch("punt_lux.cli.hub.ServiceManager") as mock_cls:
-            mock_cls.return_value.stop.return_value = "luxd stopped."
+            mock_cls.for_hub.return_value.stop.return_value = "luxd stopped."
             result = runner.invoke(app, ["hub", "stop"])
         assert result.exit_code == 0
         assert "luxd stopped." in result.output
-        mock_cls.return_value.stop.assert_called_once()
+        mock_cls.for_hub.return_value.stop.assert_called_once()
 
     def test_stop_reports_a_failed_supervisor_call_not_success(self) -> None:
         """Regression: the supervisor rejecting the stop used to be silently
@@ -90,7 +90,7 @@ class TestHubStop:
         from punt_lux.service import ServiceActionFailedError
 
         with patch("punt_lux.cli.hub.ServiceManager") as mock_cls:
-            mock_cls.return_value.stop.side_effect = ServiceActionFailedError(
+            mock_cls.for_hub.return_value.stop.side_effect = ServiceActionFailedError(
                 "luxd stop failed. See ~/.punt-labs/lux/logs/luxd-stderr.log "
                 "for details."
             )
@@ -103,7 +103,9 @@ class TestHubStop:
 class TestHubInstall:
     def test_install_calls_the_service_manager(self) -> None:
         with patch("punt_lux.cli.hub.ServiceManager") as mock_cls:
-            mock_cls.return_value.install.return_value = "luxd running on port 8430."
+            mock_cls.for_hub.return_value.install.return_value = (
+                "luxd running on port 8430."
+            )
             result = runner.invoke(app, ["hub", "install"])
         assert result.exit_code == 0
         assert "luxd running on port 8430." in result.output

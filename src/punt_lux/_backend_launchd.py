@@ -1,4 +1,4 @@
-"""macOS launchd backend for luxd's daemon lifecycle."""
+"""macOS launchd backend for Lux service lifecycle (hub or display)."""
 
 from __future__ import annotations
 
@@ -7,14 +7,15 @@ import os
 import subprocess
 import textwrap
 from pathlib import Path
-from typing import Self, final
+from typing import TYPE_CHECKING, Self, final
 from xml.sax.saxutils import escape as _xml_escape
 
 from punt_lux._backends import ServiceBackend
 
-logger = logging.getLogger(__name__)
+if TYPE_CHECKING:
+    from punt_lux.service import ServiceSpec
 
-_LABEL = "com.punt-labs.luxd-hub"
+logger = logging.getLogger(__name__)
 
 __all__ = ["LaunchdBackend"]
 
@@ -23,14 +24,16 @@ __all__ = ["LaunchdBackend"]
 class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
     """Implement ServiceBackend for launchd (plist)."""
 
-    __slots__ = ("_plist_path",)
+    __slots__ = ("_plist_path", "_spec")
 
     _plist_path: Path
+    _spec: ServiceSpec
     _DIR: Path = Path.home() / "Library" / "LaunchAgents"
 
-    def __new__(cls) -> Self:
+    def __new__(cls, spec: ServiceSpec) -> Self:
         self = super().__new__(cls)
-        self._plist_path = cls._DIR / f"{_LABEL}.plist"
+        self._spec = spec
+        self._plist_path = cls._DIR / f"{spec.launchd_label}.plist"
         return self
 
     def config_path(self) -> Path:
@@ -40,43 +43,42 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
     def is_active(self) -> bool:
         """Return whether the luxd launchd service is loaded."""
         result = subprocess.run(
-            ["launchctl", "list", _LABEL],
+            ["launchctl", "list", self._spec.launchd_label],
             capture_output=True,
             text=True,
         )
         return result.returncode == 0
 
-    def install(self, exec_args: list[str]) -> None:
-        """Write the plist and load luxd into launchd."""
+    def install(self) -> None:
+        """Write the plist and load the service into launchd."""
         from punt_lux.hub_paths import HubPaths
 
         HubPaths().log_dir.mkdir(parents=True, exist_ok=True)
         self._DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
 
         # Unload first -- handles upgrades with a changed binary path.
+        label = self._spec.launchd_label
         if self.is_active():
             result = subprocess.run(
                 ["launchctl", "unload", "-w", str(self._plist_path)],
                 check=False,
             )
             if result.returncode == 0:
-                logger.info("Unloaded existing %s before upgrade", _LABEL)
+                logger.info("Unloaded existing %s before upgrade", label)
             else:
                 logger.warning(
                     "Could not unload %s (rc=%d) -- proceeding with load",
-                    _LABEL,
+                    label,
                     result.returncode,
                 )
 
-        content = self._plist_content(exec_args)
-        self._write_config_atomic(content)
+        self._write_config_atomic(self._plist_content())
         logger.info("Wrote %s", self._plist_path)
-
         subprocess.run(
             ["launchctl", "load", "-w", str(self._plist_path)],
             check=True,
         )
-        logger.info("Loaded %s into launchd", _LABEL)
+        logger.info("Loaded %s into launchd", label)
 
     def uninstall(self) -> None:
         """Unload luxd from launchd and remove the plist."""
@@ -102,15 +104,7 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
             )
 
     def stop(self) -> bool:
-        """Unload luxd from launchd, leaving the plist in place.
-
-        ``KeepAlive`` means launchd respawns an unloaded-then-relaunched job on
-        its own schedule only if re-loaded; a bare ``bootout``/``unload`` here
-        stops the running process without touching the service registration,
-        so ``lux hub start`` (or the next login) brings it back the same way
-        ``install`` originally did. A missing plist is a no-op success -- there
-        is nothing running to stop.
-        """
+        """Unload from launchd (plist stays); a missing plist is a no-op success."""
         if not self._plist_path.exists():
             logger.info("No plist found at %s -- nothing to stop", self._plist_path)
             return True
@@ -148,12 +142,15 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
             )
         return result.returncode == 0
 
-    def _plist_content(self, exec_args: list[str]) -> str:
-        """Generate the launchd plist XML for luxd."""
+    def _plist_content(self) -> str:
+        """Generate the launchd plist XML for the service."""
+        exec_args = self._spec.resolve_exec_args()
         program_args = "\n".join(
             f"        <string>{_xml_escape(a)}</string>" for a in exec_args
         )
         log_dir = Path.home() / ".punt-labs" / "lux" / "logs"
+        stdout = self._spec.log_stdout(log_dir)
+        stderr = self._spec.log_stderr(log_dir)
         return textwrap.dedent(f"""\
             <?xml version="1.0" encoding="UTF-8"?>
             <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
@@ -161,7 +158,7 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
             <plist version="1.0">
             <dict>
                 <key>Label</key>
-                <string>{_LABEL}</string>
+                <string>{self._spec.launchd_label}</string>
                 <key>ProgramArguments</key>
                 <array>
             {program_args}
@@ -171,9 +168,9 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
                 <key>KeepAlive</key>
                 <true/>
                 <key>StandardOutPath</key>
-                <string>{log_dir}/luxd-stdout.log</string>
+                <string>{stdout}</string>
                 <key>StandardErrorPath</key>
-                <string>{log_dir}/luxd-stderr.log</string>
+                <string>{stderr}</string>
             </dict>
             </plist>
         """)

@@ -1,32 +1,34 @@
-"""Daemon lifecycle management for luxd.
-
-Provides ``ServiceManager`` to register luxd as a system service
-(launchd on macOS, systemd on Linux) so the daemon starts at login
-and restarts on crash.
-"""
+"""Daemon lifecycle for hub and display services via launchd/systemd."""
 
 from __future__ import annotations
 
 import logging
 import os
 import platform
-from pathlib import Path
-from typing import Self
+from typing import ClassVar, Self, final
 
 from punt_lux._backend_launchd import LaunchdBackend
 from punt_lux._backend_systemd import SystemdBackend
 from punt_lux._backends import ServiceBackend, has_linger
-from punt_lux.luxd import DEFAULT_HUB_PORT
+from punt_lux._service_errors import (
+    ServiceActionFailedError,
+    ServiceNotInstalledError,
+)
+from punt_lux._service_spec import DISPLAY_SPEC, HUB_SPEC, ServiceSpec
 
 logger = logging.getLogger(__name__)
 
-
-class ServiceNotInstalledError(RuntimeError):
-    """The service has not been installed; the message names the fix."""
-
-
-class ServiceActionFailedError(RuntimeError):
-    """The supervisor rejected a stop/start call; the message names the log."""
+__all__ = [
+    "DISPLAY_SPEC",
+    "HUB_SPEC",
+    "DisplayServiceManager",
+    "HubServiceManager",
+    "ServiceActionFailedError",
+    "ServiceManager",
+    "ServiceNotInstalledError",
+    "ServiceSpec",
+    "detect_platform",
+]
 
 
 def detect_platform() -> str:
@@ -36,119 +38,108 @@ def detect_platform() -> str:
         return "macos"
     if system == "Linux":
         return "linux"
-    msg = f"Unsupported platform: {system}. lux hub install supports macOS and Linux."
+    msg = f"Unsupported platform: {system}; only macOS and Linux are supported."
     raise SystemExit(msg)
 
 
 class ServiceManager:
-    """Coordinate daemon lifecycle across platforms."""
+    """Coordinate one service's lifecycle; subclasses fix ``_SPEC``."""
+
+    _SPEC: ClassVar[ServiceSpec]
 
     __slots__ = ("_backend",)
-
     _backend: ServiceBackend
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
-        self._backend = cls._resolve_backend()
+        backend_cls = LaunchdBackend if detect_platform() == "macos" else SystemdBackend
+        self._backend = backend_cls(cls._SPEC)
         return self
 
-    @staticmethod
-    def _resolve_backend() -> ServiceBackend:
-        """Return the backend matching the current platform."""
-        plat = detect_platform()
-        if plat == "macos":
-            return LaunchdBackend()
-        return SystemdBackend()
+    @classmethod
+    def for_hub(cls) -> HubServiceManager:
+        """Return a manager supervising luxd (the session hub)."""
+        return HubServiceManager()
 
-    @staticmethod
-    def _luxd_exec_args() -> list[str]:
-        """Return the command to invoke luxd.
-
-        Resolution order:
-
-        1. ``~/.local/bin/luxd`` (uv tool install symlink).
-        2. Refuse to register -- raise ``RuntimeError`` instead of
-           silently using ``sys.executable`` or ``shutil.which()``,
-           either of which may resolve to a dev venv binary.
-        """
-        local_bin = Path.home() / ".local" / "bin" / "luxd"
-        if local_bin.exists():
-            # Symlink path, not resolve() -- stable across uv tool upgrade.
-            logger.info("Service binary: %s (uv tool)", local_bin)
-            return [str(local_bin), "--port", str(DEFAULT_HUB_PORT)]
-
-        msg = (
-            "Cannot find luxd binary at ~/.local/bin/luxd. "
-            "Install lux first: uv tool install punt-lux"
-        )
-        raise RuntimeError(msg)
+    @classmethod
+    def for_display(cls) -> DisplayServiceManager:
+        """Return a manager supervising the display window process."""
+        return DisplayServiceManager()
 
     def install(self) -> str:
-        """Install luxd as a system service. Return a status message."""
-        exec_args = self._luxd_exec_args()
-        self._backend.install(exec_args)
+        """Install the service and return a status message."""
+        self._backend.install()
         is_running = self._backend.is_active()
-
-        exec_display = " ".join(exec_args)
+        exec_display = " ".join(self._SPEC.resolve_exec_args())
         status_label = "running" if is_running else "installed (not yet running)"
         lines = [
-            f"luxd {status_label} on port {DEFAULT_HUB_PORT}.",
+            f"{self._SPEC.display_name} {status_label}.",
             f"  Service: {self._backend.config_path()}",
             f"  Command: {exec_display}",
         ]
         if isinstance(self._backend, SystemdBackend) and not has_linger():
             lines.append(
                 "  Warning: loginctl linger is not enabled. "
-                "The daemon will stop when you log out. "
+                "The service will stop when you log out. "
                 "Run: loginctl enable-linger"
             )
         return os.linesep.join(lines)
 
     def uninstall(self) -> str:
-        """Remove luxd system service. Return a status message."""
+        """Remove the service and return a status message."""
         path = self._backend.config_path()
         self._backend.uninstall()
-        return f"luxd uninstalled. Removed {path}."
-
-    def restart(self) -> str:
-        """Restart the daemon via uninstall + install cycle."""
-        self._backend.uninstall()
-        return self.install()
+        return f"{self._SPEC.display_name} uninstalled. Removed {path}."
 
     def stop(self) -> str:
-        """Stop the daemon without removing its service registration.
-
-        Raise if the supervisor call itself failed -- a non-zero exit means
-        luxd may still be running, and reporting "stopped" regardless would
-        leave the caller believing a stop that never happened.
-        """
+        """Stop the service; raise if the supervisor call itself failed."""
         if not self._backend.stop():
             msg = (
-                "luxd stop failed. See "
-                "~/.punt-labs/lux/logs/luxd-stderr.log for details."
+                f"{self._SPEC.display_name} stop failed. See "
+                "~/.punt-labs/lux/logs/ for details."
             )
             raise ServiceActionFailedError(msg)
-        return "luxd stopped."
+        return f"{self._SPEC.display_name} stopped."
 
     def start(self) -> str:
-        """Start an already-installed, stopped daemon. Raise if not installed.
-
-        Also raise if the supervisor call itself failed -- a non-zero exit
-        means luxd never actually started, and reporting "started" regardless
-        would leave the caller believing a launch that never happened.
-        """
+        """Start an already-installed, stopped service."""
         if not self._backend.config_path().exists():
-            msg = "luxd is not installed. Run 'lux hub install' first."
+            verb = "display" if self._SPEC is DISPLAY_SPEC else "hub"
+            msg = (
+                f"{self._SPEC.display_name} is not installed. "
+                f"Run 'lux {verb} install' first."
+            )
             raise ServiceNotInstalledError(msg)
         if not self._backend.start():
             msg = (
-                "luxd start failed. See "
-                "~/.punt-labs/lux/logs/luxd-stderr.log for details."
+                f"{self._SPEC.display_name} start failed. See "
+                "~/.punt-labs/lux/logs/ for details."
             )
             raise ServiceActionFailedError(msg)
-        return "luxd started."
+        return f"{self._SPEC.display_name} started."
 
     @property
     def is_active(self) -> bool:
-        """Return whether the daemon is currently running."""
+        """Return whether the service is currently running."""
         return self._backend.is_active()
+
+    @property
+    def spec(self) -> ServiceSpec:
+        """Return the spec identifying this managed service."""
+        return self._SPEC
+
+
+@final
+class HubServiceManager(ServiceManager):
+    """Supervise luxd (the session hub) under launchd/systemd."""
+
+    __slots__ = ()
+    _SPEC: ClassVar[ServiceSpec] = HUB_SPEC
+
+
+@final
+class DisplayServiceManager(ServiceManager):
+    """Supervise the ImGui display window process under launchd/systemd."""
+
+    __slots__ = ()
+    _SPEC: ClassVar[ServiceSpec] = DISPLAY_SPEC

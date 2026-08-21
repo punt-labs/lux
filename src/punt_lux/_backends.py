@@ -21,8 +21,8 @@ class ServiceBackend(ABC):
     """Platform-specific daemon lifecycle strategy."""
 
     @abstractmethod
-    def install(self, exec_args: list[str]) -> None:
-        """Register and start the daemon service."""
+    def install(self) -> None:
+        """Register and start the daemon service using its ``ServiceSpec``."""
 
     @abstractmethod
     def uninstall(self) -> None:

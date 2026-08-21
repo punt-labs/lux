@@ -1,4 +1,4 @@
-"""Linux systemd user-unit backend for luxd's daemon lifecycle."""
+"""Linux systemd user-unit backend for Lux service lifecycle (hub or display)."""
 
 from __future__ import annotations
 
@@ -7,9 +7,12 @@ import os
 import subprocess
 import textwrap
 from pathlib import Path
-from typing import Self, final
+from typing import TYPE_CHECKING, Self, final
 
 from punt_lux._backends import ServiceBackend
+
+if TYPE_CHECKING:
+    from punt_lux.service import ServiceSpec
 
 logger = logging.getLogger(__name__)
 
@@ -20,14 +23,16 @@ __all__ = ["SystemdBackend"]
 class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
     """Implement ServiceBackend for systemd user units."""
 
-    __slots__ = ("_unit_path",)
+    __slots__ = ("_spec", "_unit_path")
 
+    _spec: ServiceSpec
     _unit_path: Path
     _DIR: Path = Path.home() / ".config" / "systemd" / "user"
 
-    def __new__(cls) -> Self:
+    def __new__(cls, spec: ServiceSpec) -> Self:
         self = super().__new__(cls)
-        self._unit_path = cls._DIR / "luxd-hub.service"
+        self._spec = spec
+        self._unit_path = cls._DIR / f"{spec.systemd_unit}.service"
         return self
 
     def config_path(self) -> Path:
@@ -35,33 +40,31 @@ class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         return self._unit_path
 
     def is_active(self) -> bool:
-        """Return whether the luxd systemd user service is active."""
+        """Return whether the systemd user service is active."""
         result = subprocess.run(
-            ["systemctl", "--user", "is-active", "luxd-hub"],
+            ["systemctl", "--user", "is-active", self._spec.systemd_unit],
             capture_output=True,
             text=True,
         )
         return result.stdout.strip() == "active"
 
-    def install(self, exec_args: list[str]) -> None:
-        """Write the unit file, reload systemd, and enable+start luxd."""
+    def install(self) -> None:
+        """Write the unit file, reload systemd, and enable+start the service."""
         self._DIR.mkdir(parents=True, exist_ok=True)
-        content = self._unit_content(exec_args)
-        self._write_config_atomic(content)
+        self._write_config_atomic(self._unit_content())
         logger.info("Wrote %s", self._unit_path)
 
+        unit = self._spec.systemd_unit
         subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
-        subprocess.run(
-            ["systemctl", "--user", "enable", "--now", "luxd-hub"], check=True
-        )
-        subprocess.run(["systemctl", "--user", "restart", "luxd-hub"], check=True)
-        logger.info("Enabled and restarted luxd-hub.service")
+        subprocess.run(["systemctl", "--user", "enable", "--now", unit], check=True)
+        subprocess.run(["systemctl", "--user", "restart", unit], check=True)
+        logger.info("Enabled and restarted %s.service", unit)
 
     def uninstall(self) -> None:
         """Stop, disable, and remove the systemd unit."""
         if self._unit_path.exists():
             subprocess.run(
-                ["systemctl", "--user", "disable", "--now", "luxd-hub"],
+                ["systemctl", "--user", "disable", "--now", self._spec.systemd_unit],
                 check=False,
             )
             self._unit_path.unlink()
@@ -74,36 +77,25 @@ class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
             )
 
     def stop(self) -> bool:
-        """Stop the systemd unit, leaving it enabled for the next start/boot."""
-        result = subprocess.run(
-            ["systemctl", "--user", "stop", "luxd-hub"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode != 0:
-            logger.warning(
-                "systemctl stop failed (rc=%d): %s",
-                result.returncode,
-                result.stderr.strip(),
-            )
-        return result.returncode == 0
+        """Stop the unit; it stays enabled for the next start/boot."""
+        return self._run_verb("stop")
 
     def start(self) -> bool:
-        """Start the installed systemd unit, symmetric to :meth:`stop`.
+        """Start the installed unit, symmetric to :meth:`stop`."""
+        return self._run_verb("start")
 
-        The unit must already exist -- :meth:`ServiceManager.start` checks
-        that and reports the "run install" message before this ever runs.
-        """
+    def _run_verb(self, verb: str) -> bool:
+        """Invoke ``systemctl --user <verb>`` on this service; log on failure."""
         result = subprocess.run(
-            ["systemctl", "--user", "start", "luxd-hub"],
+            ["systemctl", "--user", verb, self._spec.systemd_unit],
             capture_output=True,
             text=True,
             check=False,
         )
         if result.returncode != 0:
             logger.warning(
-                "systemctl start failed (rc=%d): %s",
+                "systemctl %s failed (rc=%d): %s",
+                verb,
                 result.returncode,
                 result.stderr.strip(),
             )
@@ -111,20 +103,17 @@ class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
 
     @staticmethod
     def _escape_arg(arg: str) -> str:
-        """Escape a single argument for systemd ExecStart.
-
-        systemd uses its own parser, not POSIX shell. Double-quote the
-        value and backslash-escape embedded double-quotes and backslashes.
-        """
+        """Escape ``arg`` for systemd ExecStart (its own parser, not POSIX)."""
         escaped = arg.replace("\\", "\\\\").replace('"', '\\"')
         return f'"{escaped}"'
 
-    def _unit_content(self, exec_args: list[str]) -> str:
-        """Generate the systemd unit file content for luxd."""
+    def _unit_content(self) -> str:
+        """Generate the systemd unit file content for the service."""
+        exec_args = self._spec.resolve_exec_args()
         exec_start = " ".join(self._escape_arg(a) for a in exec_args)
         return textwrap.dedent(f"""\
             [Unit]
-            Description=Lux session hub daemon
+            Description={self._spec.systemd_description}
             After=network.target
 
             [Service]
