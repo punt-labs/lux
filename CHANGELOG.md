@@ -15,9 +15,13 @@
 
 ### Added
 
-- **`lux display install|uninstall|start|stop|status`** — five admin
-  verbs on the display noun group, symmetric to `lux hub *` (from
-  `lux-0shg.4`). `install` registers a per-user LaunchAgent
+- **`lux display install|uninstall|start|stop|restart|status`** — six
+  admin verbs on the display noun group, symmetric to `lux hub *` (from
+  `lux-0shg.4`). `restart` mirrors `HubRestart`: SIGTERM the recorded
+  display pid, wait for the supervisor to respawn under a new pid, then
+  report the new one. `start` reports the running display and skips the
+  supervisor call when the socket is already alive, matching `lux hub
+  start`'s already-running fast path. `install` registers a per-user LaunchAgent
   (`com.punt-labs.luxd-display`) or systemd user unit (`luxd-display`)
   that runs at login and restarts on crash; the remaining verbs toggle
   and inspect that service. The `install.sh` bootstrap runs `lux
