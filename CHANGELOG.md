@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **`lux hub restart` was broken (`lux-2ph5`).** The command signalled luxd
+  by reading the recorded pid from `~/.punt-labs/lux/hub.pid` and errored
+  with `[Errno 2] No such file or directory` whenever the file was absent
+  — every upgrade of an already-running luxd hit it. F4's socket
+  peer-credential path from `lux-5uc7` does not apply here because luxd
+  speaks TCP (port 8430), not a Unix socket. Restart now routes through
+  the service supervisor — `launchctl kickstart -k` on macOS,
+  `systemctl --user restart` on Linux — which already knows the daemon's
+  pid, and then waits for the same liveness check `lux hub status` uses.
+- **`install.sh` did not restart the running daemons after upgrade
+  (`lux-w66z`).** `lux hub install` and `lux display install` are
+  idempotent under launchd — an already-loaded service is not cycled —
+  so a fresh install left the previous processes running with the
+  previous bytecode, and every subsequent MCP dispatch missed any new
+  code. The script now runs `lux hub restart` and `lux display restart`
+  after each install and aborts loudly on failure, matching the
+  `warn`→`fail` discipline `lux-2msd` established.
+
+### Added
+
+- **`ServiceBackend.restart()` and `ServiceManager.restart()`** — a
+  supervisor-native atomic restart on both platforms.  `LaunchdBackend`
+  calls `launchctl kickstart -k`, `SystemdBackend` calls
+  `systemctl --user restart`. Neither reads a pid file: the supervisor
+  already knows the pid the daemon does not itself keep current.
+
 ## [0.28.0] - 2026-08-21
 
 ### Fixed
