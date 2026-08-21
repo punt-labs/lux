@@ -33,7 +33,7 @@ from punt_lux.display.glfw_window import GlfwWindow
 from punt_lux.display.hub_reconciliation import HubReconciliation
 from punt_lux.display.idle_screen import render_idle
 from punt_lux.display.interaction_delivery import InteractionDelivery
-from punt_lux.display.macos import hide_from_dock_and_cmd_tab
+from punt_lux.display.macos import set_regular_activation_policy
 from punt_lux.display.markdown_font import MarkdownFont
 from punt_lux.display.paint_clock import PaintClock
 from punt_lux.display.pending_interactions import PendingInteractions
@@ -415,7 +415,7 @@ class RenderLoop:
         io = imgui.get_io()
         io.config_flags |= imgui.ConfigFlags_.docking_enable.value
 
-        hide_from_dock_and_cmd_tab()
+        set_regular_activation_policy()
 
         # Suppress focus-stealing on every *reshow* after this one (a
         # respawned display's later windows) — GLFW/HelloImGui cannot suppress

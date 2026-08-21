@@ -187,26 +187,18 @@ class DisplayPaths:
             self._clear_dead_files()
 
     def _spawn(self) -> None:
-        """Launch the display server subprocess, detached from this session."""
+        """Launch the display subprocess in the parent's GUI session.
+
+        No ``start_new_session=True``: a new session strips macOS's GUI-session
+        bootstrap, and the window never appears.
+        """
         self._socket_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         self._socket_path.parent.chmod(0o700)
         log_file = self.log_path.open("w")
-        cmd = [
-            sys.executable,
-            "-m",
-            "punt_lux",
-            "display",
-            "serve",
-            "--socket",
-            str(self._socket_path),
-        ]
+        argv = [sys.executable, "-m", "punt_lux", "display", "serve",
+                "--socket", str(self._socket_path)]  # fmt: skip
         try:
-            subprocess.Popen(  # noqa: S603
-                cmd,
-                start_new_session=True,
-                stdout=log_file,
-                stderr=log_file,
-            )
+            subprocess.Popen(argv, stdout=log_file, stderr=log_file)  # noqa: S603
         finally:
             log_file.close()
 

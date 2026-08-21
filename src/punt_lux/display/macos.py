@@ -1,10 +1,12 @@
-"""macOS-specific display tweaks for the Lux ImGui window.
+"""macOS-specific NSApplication activation policy for the Lux display.
 
-Without a ``.app`` bundle the process advertises itself as ``python3.14``
-in the Dock and Cmd-Tab. We can't easily fix the bundle identity at
-runtime, so we hide the entry instead via the Accessory activation
-policy — the window stays visible, the Dock tile and app-switcher
-entry go away.
+The display sets ``NSApplicationActivationPolicyRegular`` so the OS gives it
+a Dock icon and lists it in Cmd-Tab — standard macOS app behaviour when a
+window is on screen and there is no menubar/status-item entry.
+
+When the menubar-app epic (lux-mxvy.3) ships, this flips to
+``NSApplicationActivationPolicyAccessory`` so the menubar controls visibility
+and the Dock stays clean.
 """
 
 from __future__ import annotations
@@ -16,14 +18,13 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-def hide_from_dock_and_cmd_tab() -> None:
-    """Apply ``NSApplicationActivationPolicyAccessory`` on macOS.
+def set_regular_activation_policy() -> None:
+    """Apply ``NSApplicationActivationPolicyRegular`` on macOS.
 
-    Must be called after NSApplication has been initialized (e.g. from
-    the ImGui ``post_init`` callback). No-op on non-Darwin platforms.
-    Failure is logged at warning level so the regression is visible —
-    silent failure here means the user sees "python3.14" in the Dock
-    with no signal.
+    Must be called after NSApplication has been initialized (from the ImGui
+    ``post_init`` callback). No-op on non-Darwin platforms. Failure is logged
+    at warning level — silent failure would leave the window with no Dock
+    icon on macOS with no signal to anyone.
     """
     if platform.system() != "Darwin":
         return
@@ -32,11 +33,11 @@ def hide_from_dock_and_cmd_tab() -> None:
 
         _ak: Any = _AppKit  # PY-TS-9: AppKit is an untyped pyobjc shim.
         _ak.NSApplication.sharedApplication().setActivationPolicy_(
-            _ak.NSApplicationActivationPolicyAccessory
+            _ak.NSApplicationActivationPolicyRegular
         )
     except (ImportError, AttributeError, RuntimeError) as exc:
         logger.warning(
-            "macOS Accessory activation policy not applied (%s); "
-            "the display may show as 'python3.14' in the Dock",
+            "macOS Regular activation policy not applied (%s); "
+            "the display window may lack a Dock icon",
             exc,
         )
