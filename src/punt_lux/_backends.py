@@ -45,6 +45,17 @@ class ServiceBackend(ABC):
         """
 
     @abstractmethod
+    def restart(self) -> bool:
+        """Atomically kill-and-respawn the daemon under its supervisor.
+
+        The whole point of routing through the supervisor is that it already
+        knows the daemon's pid — so a restart never has to read one from a
+        file that the daemon does not itself keep current. Return whether the
+        supervisor call succeeded; the caller must not report success on a
+        non-zero exit.
+        """
+
+    @abstractmethod
     def is_active(self) -> bool:
         """Return whether the daemon is currently running."""
 

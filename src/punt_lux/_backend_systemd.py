@@ -83,6 +83,17 @@ class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         """Start the installed unit, symmetric to :meth:`stop`."""
         return self._run_verb("start")
 
+    def restart(self) -> bool:
+        """Atomically restart the unit under systemd.
+
+        ``systemctl --user restart`` sends the unit's stop and start in one
+        supervisor call — no gap where the unit is deregistered, no pid file
+        consulted. The supervisor already knows the pid, so a restart is not
+        a signal-based handshake with a pid file the daemon does not itself
+        keep current.
+        """
+        return self._run_verb("restart")
+
     def _run_verb(self, verb: str) -> bool:
         """Invoke ``systemctl --user <verb>`` on this service; log on failure."""
         result = subprocess.run(

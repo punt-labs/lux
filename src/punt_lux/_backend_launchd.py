@@ -117,6 +117,21 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         target = f"{self._gui_domain()}/{self._spec.launchd_label}"
         return launchctl.run(["launchctl", "bootout", target], verb="bootout")
 
+    def restart(self) -> bool:
+        """Atomically kill-and-respawn the job under launchd.
+
+        ``launchctl kickstart -k`` sends the current instance a signal and
+        launchd starts a fresh one under the same plist — one supervisor
+        call, no pid file, no gap where the daemon is deregistered. The
+        supervisor already knows the pid, so a restart is not a signal-based
+        handshake with a pid file the daemon does not itself keep current.
+        """
+        target = f"{self._gui_domain()}/{self._spec.launchd_label}"
+        return launchctl.run(
+            ["launchctl", "kickstart", "-k", target],
+            verb="kickstart",
+        )
+
     def start(self) -> bool:
         """Re-bootstrap the installed plist into launchd, symmetric to :meth:`stop`.
 
