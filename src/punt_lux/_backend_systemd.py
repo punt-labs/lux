@@ -51,6 +51,7 @@ class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
     def install(self) -> None:
         """Write the unit file, reload systemd, and enable+start the service."""
         self._DIR.mkdir(parents=True, exist_ok=True)
+        self._remove_legacy_units()
         self._write_config_atomic(self._unit_content())
         logger.info("Wrote %s", self._unit_path)
 
@@ -63,10 +64,7 @@ class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
     def uninstall(self) -> None:
         """Stop, disable, and remove the systemd unit."""
         if self._unit_path.exists():
-            subprocess.run(
-                ["systemctl", "--user", "disable", "--now", self._spec.systemd_unit],
-                check=False,
-            )
+            self._disable_now(self._spec.systemd_unit)
             self._unit_path.unlink()
             subprocess.run(["systemctl", "--user", "daemon-reload"], check=False)
             logger.info("Removed %s", self._unit_path)
@@ -100,6 +98,34 @@ class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
                 result.stderr.strip(),
             )
         return result.returncode == 0
+
+    def _remove_legacy_units(self) -> None:
+        """Disable and delete units shipped under the pre-rename name.
+
+        A rename train leaves the old unit behind, and both the old and new
+        user units would race to bind the same port at next boot. The
+        current hub unit is ``luxd-hub``; the pre-rename unit was ``lux``.
+        Only the hub install cleans it up; the display had no prior unit.
+        Mirrors ``LaunchdBackend._remove_legacy_plists``.
+        """
+        if self._spec.systemd_unit != "luxd-hub":
+            return
+        legacy = self._DIR / "lux.service"
+        if not legacy.exists():
+            return
+        self._disable_now("lux.service")
+        legacy.unlink(missing_ok=True)
+        logger.info("Removed legacy unit %s", legacy)
+
+    @staticmethod
+    def _disable_now(unit: str) -> None:
+        """Run ``systemctl --user disable --now <unit>``, tolerating absence."""
+        subprocess.run(
+            ["systemctl", "--user", "disable", "--now", unit],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
 
     @staticmethod
     def _escape_arg(arg: str) -> str:

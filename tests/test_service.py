@@ -321,6 +321,52 @@ class TestLegacyPlistCleanup:
         assert legacy.exists()
 
 
+class TestSystemdLegacyUnitCleanup:
+    def test_hub_install_removes_legacy_lux_unit(self, tmp_path: Path):
+        fake_home = tmp_path / "home"
+        units = fake_home / ".config" / "systemd" / "user"
+        units.mkdir(parents=True)
+        legacy = units / "lux.service"
+        legacy.write_text("[Unit]")
+        local_bin = fake_home / ".local" / "bin"
+        local_bin.mkdir(parents=True)
+        (local_bin / "luxd").touch()
+
+        with (
+            patch("punt_lux._backend_systemd.Path.home", return_value=fake_home),
+            patch("punt_lux._service_spec.Path.home", return_value=fake_home),
+            patch.object(SystemdBackend, "_DIR", units),
+            patch("punt_lux._backend_systemd.subprocess.run") as run,
+        ):
+            run.return_value.returncode = 0
+            backend = SystemdBackend(HUB_SPEC)
+            backend.install()
+
+        assert not legacy.exists()
+
+    def test_display_install_leaves_legacy_unit_alone(self, tmp_path: Path):
+        fake_home = tmp_path / "home"
+        units = fake_home / ".config" / "systemd" / "user"
+        units.mkdir(parents=True)
+        legacy = units / "lux.service"
+        legacy.write_text("[Unit]")
+        local_bin = fake_home / ".local" / "bin"
+        local_bin.mkdir(parents=True)
+        (local_bin / "lux").touch()
+
+        with (
+            patch("punt_lux._backend_systemd.Path.home", return_value=fake_home),
+            patch("punt_lux._service_spec.Path.home", return_value=fake_home),
+            patch.object(SystemdBackend, "_DIR", units),
+            patch("punt_lux._backend_systemd.subprocess.run") as run,
+        ):
+            run.return_value.returncode = 0
+            backend = SystemdBackend(DISPLAY_SPEC)
+            backend.install()
+
+        assert legacy.exists()
+
+
 class TestBackendStartStopSymmetry:
     def test_launchd_start_calls_launchctl_load(self, tmp_path: Path):
         fake_home = tmp_path / "home"
