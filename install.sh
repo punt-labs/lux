@@ -117,7 +117,7 @@ fi
 # --- Step 5: Register luxd service ---
 
 info "Registering luxd service..."
-"$BINARY" hub-install || warn "Failed to register luxd service -- the plugin cannot reach luxd until it runs"
+"$BINARY" hub install || fail "Failed to register luxd service -- the plugin cannot reach luxd until it runs"
 
 # --- Step 6: Health-check luxd ---
 
