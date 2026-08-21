@@ -4,16 +4,24 @@
 
 ### Fixed
 
-- **`lux hub restart` and `lux display restart` now wait for the pid to
-  change**, so a "restart succeeded" line always names the fresh process.
-  The Hub wait previously polled a pid file that could still name the
-  old, still-exiting instance on its first look and report a restart
-  that had not happened; the display wait resolved the pid through the
-  socket peer credential, which is not yet answering on a first-ever
-  install and made `install.sh` abort. Both now capture the pid via
-  `pgrep -x` before the supervisor call and wait for a pid that differs
-  — the same predicate handles the fresh install (`None` → new pid) and
-  the upgrade (old pid → new pid).
+- **`setproctitle` moved from the `[display]` optional extra to base
+  dependencies.** luxd itself needs its process identity (`luxd-hub` /
+  `luxd-display`) for logs, `ps`, Activity Monitor, and the pgrep-diff
+  restart wait — not just the display renderer. A `pip install punt-lux`
+  without `[display]` used to leave luxd running as `python3`, which meant
+  `pgrep -x luxd-hub` never found it and `lux hub restart` hung on the
+  post-supervisor wait.
+- **`lux hub restart` and `lux display restart` now wait for both a pid
+  change AND liveness** before reporting success. luxd sets its process
+  title at the top of `main()`, before uvicorn binds, so pgrep can see a
+  new pid while the TCP port is still down. The wait now requires
+  `pgrep -x` to observe a different pid AND the paths' liveness probe
+  to succeed — `HubPaths.is_running()` reads the pid file which luxd
+  only writes after `_startup_with_port_file`, and `DisplayPaths.is_running()`
+  is a socket-connect probe that witnesses a listener actually accepting.
+  The pid capture uses `pgrep -x` before the supervisor call, so the same
+  predicate covers a fresh install (`None` → new pid) and an upgrade
+  (old pid → new pid).
 - **`lux hub restart` was broken (`lux-2ph5`).** The command signalled luxd
   by reading the recorded pid from `~/.punt-labs/lux/hub.pid` and errored
   with `[Errno 2] No such file or directory` whenever the file was absent
