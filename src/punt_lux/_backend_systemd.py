@@ -1,15 +1,18 @@
-"""Linux systemd user-unit backend for luxd's daemon lifecycle."""
+"""Linux systemd user-unit backend for Lux service lifecycle (hub or display)."""
 
 from __future__ import annotations
 
 import logging
-import os
 import subprocess
 import textwrap
 from pathlib import Path
-from typing import Self, final
+from typing import TYPE_CHECKING, Self, final
 
+from punt_lux._atomic_write import write_config_atomic
 from punt_lux._backends import ServiceBackend
+
+if TYPE_CHECKING:
+    from punt_lux.service import ServiceSpec
 
 logger = logging.getLogger(__name__)
 
@@ -20,14 +23,17 @@ __all__ = ["SystemdBackend"]
 class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
     """Implement ServiceBackend for systemd user units."""
 
-    __slots__ = ("_unit_path",)
+    __slots__ = ("_dir", "_spec", "_unit_path")
 
+    _spec: ServiceSpec
     _unit_path: Path
-    _DIR: Path = Path.home() / ".config" / "systemd" / "user"
+    _dir: Path
 
-    def __new__(cls) -> Self:
+    def __new__(cls, spec: ServiceSpec) -> Self:
         self = super().__new__(cls)
-        self._unit_path = cls._DIR / "lux.service"
+        self._spec = spec
+        self._dir = Path.home() / ".config" / "systemd" / "user"
+        self._unit_path = self._dir / f"{spec.systemd_unit}.service"
         return self
 
     def config_path(self) -> Path:
@@ -35,33 +41,31 @@ class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         return self._unit_path
 
     def is_active(self) -> bool:
-        """Return whether the luxd systemd user service is active."""
+        """Return whether the systemd user service is active."""
         result = subprocess.run(
-            ["systemctl", "--user", "is-active", "lux"],
+            ["systemctl", "--user", "is-active", self._spec.systemd_unit],
             capture_output=True,
             text=True,
         )
         return result.stdout.strip() == "active"
 
-    def install(self, exec_args: list[str]) -> None:
-        """Write the unit file, reload systemd, and enable+start luxd."""
-        self._DIR.mkdir(parents=True, exist_ok=True)
-        content = self._unit_content(exec_args)
-        self._write_config_atomic(content)
+    def install(self) -> None:
+        """Write the unit file, reload systemd, and enable+start the service."""
+        self._dir.mkdir(parents=True, exist_ok=True)
+        self._remove_legacy_units()
+        write_config_atomic.write(self._unit_path, self._unit_content())
         logger.info("Wrote %s", self._unit_path)
 
+        unit = self._spec.systemd_unit
         subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
-        subprocess.run(["systemctl", "--user", "enable", "--now", "lux"], check=True)
-        subprocess.run(["systemctl", "--user", "restart", "lux"], check=True)
-        logger.info("Enabled and restarted lux.service")
+        subprocess.run(["systemctl", "--user", "enable", "--now", unit], check=True)
+        subprocess.run(["systemctl", "--user", "restart", unit], check=True)
+        logger.info("Enabled and restarted %s.service", unit)
 
     def uninstall(self) -> None:
         """Stop, disable, and remove the systemd unit."""
         if self._unit_path.exists():
-            subprocess.run(
-                ["systemctl", "--user", "disable", "--now", "lux"],
-                check=False,
-            )
+            self._disable_now(self._spec.systemd_unit)
             self._unit_path.unlink()
             subprocess.run(["systemctl", "--user", "daemon-reload"], check=False)
             logger.info("Removed %s", self._unit_path)
@@ -72,57 +76,71 @@ class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
             )
 
     def stop(self) -> bool:
-        """Stop the systemd unit, leaving it enabled for the next start/boot."""
-        result = subprocess.run(
-            ["systemctl", "--user", "stop", "lux"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode != 0:
-            logger.warning(
-                "systemctl stop failed (rc=%d): %s",
-                result.returncode,
-                result.stderr.strip(),
-            )
-        return result.returncode == 0
+        """Stop the unit; it stays enabled for the next start/boot."""
+        return self._run_verb("stop")
 
     def start(self) -> bool:
-        """Start the installed systemd unit, symmetric to :meth:`stop`.
+        """Start the installed unit, symmetric to :meth:`stop`."""
+        return self._run_verb("start")
 
-        The unit must already exist -- :meth:`ServiceManager.start` checks
-        that and reports the "run install" message before this ever runs.
-        """
+    def _run_verb(self, verb: str) -> bool:
+        """Invoke ``systemctl --user <verb>`` on this service; log on failure."""
         result = subprocess.run(
-            ["systemctl", "--user", "start", "lux"],
+            ["systemctl", "--user", verb, self._spec.systemd_unit],
             capture_output=True,
             text=True,
             check=False,
         )
         if result.returncode != 0:
             logger.warning(
-                "systemctl start failed (rc=%d): %s",
+                "systemctl %s failed (rc=%d): %s",
+                verb,
                 result.returncode,
                 result.stderr.strip(),
             )
         return result.returncode == 0
+
+    def _remove_legacy_units(self) -> None:
+        """Disable and delete units shipped under the pre-rename name.
+
+        A rename train leaves the old unit behind, and both the old and new
+        user units would race to bind the same port at next boot. The
+        current hub unit is ``luxd-hub``; the pre-rename unit was ``lux``.
+        Only the hub install cleans it up; the display had no prior unit.
+        Mirrors ``LaunchdBackend._remove_legacy_plists``.
+        """
+        if self._spec.systemd_unit != "luxd-hub":
+            return
+        legacy = self._dir / "lux.service"
+        if not legacy.exists():
+            return
+        self._disable_now("lux.service")
+        legacy.unlink(missing_ok=True)
+        logger.info("Removed legacy unit %s", legacy)
+
+    @staticmethod
+    def _disable_now(unit: str) -> None:
+        """Run ``systemctl --user disable --now <unit>``, tolerating absence."""
+        subprocess.run(
+            ["systemctl", "--user", "disable", "--now", unit],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
 
     @staticmethod
     def _escape_arg(arg: str) -> str:
-        """Escape a single argument for systemd ExecStart.
-
-        systemd uses its own parser, not POSIX shell. Double-quote the
-        value and backslash-escape embedded double-quotes and backslashes.
-        """
+        """Escape ``arg`` for systemd ExecStart (its own parser, not POSIX)."""
         escaped = arg.replace("\\", "\\\\").replace('"', '\\"')
         return f'"{escaped}"'
 
-    def _unit_content(self, exec_args: list[str]) -> str:
-        """Generate the systemd unit file content for luxd."""
+    def _unit_content(self) -> str:
+        """Generate the systemd unit file content for the service."""
+        exec_args = self._spec.resolve_exec_args()
         exec_start = " ".join(self._escape_arg(a) for a in exec_args)
         return textwrap.dedent(f"""\
             [Unit]
-            Description=Lux session hub daemon
+            Description={self._spec.systemd_description}
             After=network.target
 
             [Service]
@@ -133,22 +151,3 @@ class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
             [Install]
             WantedBy=default.target
         """)
-
-    def _write_config_atomic(self, content: str) -> None:
-        """Atomically write config to the unit path."""
-        tmp_path = self._unit_path.with_name(self._unit_path.name + ".tmp")
-        flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
-        fd = os.open(str(tmp_path), flags, 0o600)
-        try:
-            f = os.fdopen(fd, "w")
-        except BaseException:
-            os.close(fd)
-            tmp_path.unlink(missing_ok=True)
-            raise
-        try:
-            with f:
-                f.write(content)
-            tmp_path.replace(self._unit_path)
-        except BaseException:
-            tmp_path.unlink(missing_ok=True)
-            raise

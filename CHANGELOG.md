@@ -2,6 +2,49 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Display never showed a window on macOS (#362, `lux-5uc7`).** The Hub
+  spawned the display with `start_new_session=True`, which stripped the
+  child from the macOS GUI-session bootstrap; the socket handshake
+  completed and nothing appeared. The Hub-side spawn no longer creates a
+  new session, and the display now installs as its own launchd/systemd
+  service under `lux display install` so the OS supervises it directly
+  (parallel to `lux hub *`). `lux display serve` in the foreground stays
+  attached to its terminal.
+
+### Added
+
+- **`lux display install|uninstall|start|stop|restart|status`** — six
+  admin verbs on the display noun group, symmetric to `lux hub *` (from
+  `lux-0shg.4`). `restart` mirrors `HubRestart`: SIGTERM the recorded
+  display pid, wait for the supervisor to respawn under a new pid, then
+  report the new one. `start` reports the running display and skips the
+  supervisor call when the socket is already alive, matching `lux hub
+  start`'s already-running fast path. `install` registers a per-user LaunchAgent
+  (`com.punt-labs.luxd-display`) or systemd user unit (`luxd-display`)
+  that runs at login and restarts on crash; the remaining verbs toggle
+  and inspect that service. The `install.sh` bootstrap runs `lux
+  display install` after `lux hub install` so `curl … | sh` produces a
+  working window with no extra step.
+- **macOS Dock icon.** The display now applies
+  `NSApplicationActivationPolicyRegular` at startup: the window gets a
+  Dock icon and is listed in Cmd-Tab (standard macOS app behaviour).
+  When the menubar-app epic (`lux-mxvy.3`) ships this flips back to
+  `Accessory` and the menubar controls visibility instead — a foreseen
+  breaking change tracked with the epic.
+
+### Changed
+
+- **Process names.** The hub identifies as `luxd-hub` and the display as
+  `luxd-display` in `ps`, `top`, and Activity Monitor. launchd labels
+  and systemd unit names match (`com.punt-labs.luxd-hub`,
+  `com.punt-labs.luxd-display`; `luxd-hub.service`,
+  `luxd-display.service`). This covers R5 of `lux-mxvy`. `lux hub
+  install` unloads and removes any orphan `com.punt-labs.lux.plist` from
+  a prior version so the two labels cannot race to bind port 8430 at the
+  next login.
+
 ## [0.27.0] - 2026-08-21
 
 ### Added

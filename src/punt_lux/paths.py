@@ -45,11 +45,6 @@ class SocketLiveness(Enum):
     READY = auto()
 
 
-# ---------------------------------------------------------------------------
-# DisplayPaths — OO API for socket/pid/log path resolution and lifecycle
-# ---------------------------------------------------------------------------
-
-
 class DisplayPaths:
     """Resolve socket/PID/log paths and own the display process lifecycle.
 
@@ -132,6 +127,19 @@ class DisplayPaths:
         """Return whether a live process owns the socket (accepts a connection)."""
         return self._probe() is not SocketLiveness.DEAD
 
+    def running_status_line(self) -> str | None:
+        """Return a one-line status if running; ``None`` names the absent case."""
+        if not self.is_running():
+            return None
+        return f"display running{self._pid_hint()} at {self._socket_path}"
+
+    def _pid_hint(self) -> str:
+        """Return ``' (pid N)'`` from the pid file, or ``' (pid unknown)'``."""
+        try:
+            return f" (pid {int(self.pid_path.read_text().strip())})"
+        except (OSError, ValueError):
+            return " (pid unknown)"
+
     # -- spawn --------------------------------------------------------------
 
     def ensure(self, timeout: float = 5.0) -> Path:
@@ -164,17 +172,11 @@ class DisplayPaths:
             lock_file.close()  # closing the fd releases the advisory lock
 
     def _spawn_lock(self) -> contextlib.AbstractContextManager[None]:
-        """Serialize spawns across processes and threads via a file lock."""
+        """Serialize spawns via a file lock."""
         return self._file_lock(self._lock_path)
 
     def bind_lock(self) -> contextlib.AbstractContextManager[None]:
-        """Serialize the cleanup+bind+listen critical section across binders.
-
-        Distinct from the spawn lock: ``ensure()`` holds the spawn lock through
-        ``_await_ready`` while the display it spawns takes this bind lock, so the
-        two are never awaited in a cycle. Held only across bind arbitration
-        (probe, stale cleanup, ``bind``, ``listen``), never through serving.
-        """
+        """Serialize cleanup+bind+listen; distinct from the spawn lock, no cycle."""
         return self._file_lock(self._bind_lock_path)
 
     def _clear_dead_files_locked(self) -> None:
@@ -187,26 +189,18 @@ class DisplayPaths:
             self._clear_dead_files()
 
     def _spawn(self) -> None:
-        """Launch the display server subprocess, detached from this session."""
+        """Launch the display subprocess in the parent's GUI session.
+
+        No ``start_new_session=True``: a new session strips macOS's GUI-session
+        bootstrap, and the window never appears.
+        """
         self._socket_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         self._socket_path.parent.chmod(0o700)
         log_file = self.log_path.open("w")
-        cmd = [
-            sys.executable,
-            "-m",
-            "punt_lux",
-            "display",
-            "serve",
-            "--socket",
-            str(self._socket_path),
-        ]
+        argv = [sys.executable, "-m", "punt_lux", "display", "serve",
+                "--socket", str(self._socket_path)]  # fmt: skip
         try:
-            subprocess.Popen(  # noqa: S603
-                cmd,
-                start_new_session=True,
-                stdout=log_file,
-                stderr=log_file,
-            )
+            subprocess.Popen(argv, stdout=log_file, stderr=log_file)  # noqa: S603
         finally:
             log_file.close()
 
@@ -238,7 +232,7 @@ class DisplayPaths:
             if not self.is_running():
                 self._clear_dead_files_locked()
                 return
-            pid = self._peer_pid()
+            pid = self.peer_pid()
             if pid is None:
                 # TOCTOU: the owner may have exited between probe and peer read.
                 if not self.is_running():
@@ -252,13 +246,12 @@ class DisplayPaths:
             self._terminate(pid, timeout)  # raises if the owner outlives SIGKILL
             self._clear_dead_files_locked()
 
-    def _peer_pid(self) -> int | None:
-        """Return the socket owner's PID from its OS peer credential, or ``None``.
+    def peer_pid(self) -> int | None:
+        """Return the socket owner's PID via kernel peer credential, or ``None``.
 
-        The socket wins on identity — a PID file can be stale or divergent — so
-        the reap path asks the kernel who is behind the socket rather than what a
-        file claims. ``None`` is an unresolvable owner, which the caller must never
-        turn into a signal.
+        Absence is unresolvable owner (documented contract); a caller signalling
+        the display must never fall back to a PID file — the socket wins on
+        identity, and a PID file can be stale or reused by an unrelated process.
         """
         return SocketOwner(self._socket_path).pid()
 
@@ -304,8 +297,6 @@ class DisplayPaths:
                 return True
             time.sleep(0.05)
         return False
-
-    # -- PID file -----------------------------------------------------------
 
     def write_pid(self) -> None:
         """Write the current process PID next to the socket file."""

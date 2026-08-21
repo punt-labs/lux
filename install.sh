@@ -119,6 +119,11 @@ fi
 info "Registering luxd service..."
 "$BINARY" hub install || fail "Failed to register luxd service -- the plugin cannot reach luxd until it runs"
 
+# --- Step 5b: Register the display service ---
+
+info "Registering display service..."
+"$BINARY" display install || fail "Failed to register display service -- the window will not appear until it runs"
+
 # --- Step 6: Health-check luxd ---
 
 info "Waiting for luxd..."

@@ -10,7 +10,7 @@ from punt_lux import __version__
 from punt_lux.cli._shared import JsonFlag, OutputFlags, QuietFlag, VerboseFlag, run
 from punt_lux.cli.beads import beads as beads_command
 from punt_lux.cli.callback import callback_app
-from punt_lux.cli.display import display_app
+from punt_lux.cli.display_service import display_app
 from punt_lux.cli.error import error_app
 from punt_lux.cli.event import event_app
 from punt_lux.cli.frame import frame_app
