@@ -105,43 +105,59 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
             )
 
     def stop(self) -> bool:
-        """Unload from launchd (plist stays); a missing plist is a no-op success."""
+        """Boot the job out of launchd (plist stays); a missing plist is a no-op.
+
+        ``bootout``, not ``unload``: with ``KeepAlive=true`` (every plist this
+        backend writes), ``launchctl stop`` sends SIGTERM and launchd
+        immediately respawns the job per the KeepAlive contract — the daemon
+        never actually stops. ``bootout`` deregisters the job from the GUI
+        domain outright, so nothing is left to respawn it.
+        """
         if not self._plist_path.exists():
             logger.info("No plist found at %s -- nothing to stop", self._plist_path)
             return True
+        target = f"{self._gui_domain()}/{self._spec.launchd_label}"
         result = subprocess.run(
-            ["launchctl", "unload", str(self._plist_path)],
+            ["launchctl", "bootout", target],
             capture_output=True,
             text=True,
             check=False,
         )
         if result.returncode != 0:
             logger.warning(
-                "launchctl unload failed (rc=%d): %s",
+                "launchctl bootout failed (rc=%d): %s",
                 result.returncode,
                 result.stderr.strip(),
             )
         return result.returncode == 0
 
     def start(self) -> bool:
-        """Re-load the installed plist into launchd, symmetric to :meth:`stop`.
+        """Re-bootstrap the installed plist into launchd, symmetric to :meth:`stop`.
 
         The plist must already exist -- :meth:`ServiceManager.start` checks
         that and reports the "run install" message before this ever runs.
+        ``bootstrap``, not ``load``: the counterpart to ``bootout`` in the same
+        modern subsystem, so a service this backend stopped can be started
+        again without relying on the legacy load/unload shim.
         """
         result = subprocess.run(
-            ["launchctl", "load", str(self._plist_path)],
+            ["launchctl", "bootstrap", self._gui_domain(), str(self._plist_path)],
             capture_output=True,
             text=True,
             check=False,
         )
         if result.returncode != 0:
             logger.warning(
-                "launchctl load failed (rc=%d): %s",
+                "launchctl bootstrap failed (rc=%d): %s",
                 result.returncode,
                 result.stderr.strip(),
             )
         return result.returncode == 0
+
+    @staticmethod
+    def _gui_domain() -> str:
+        """Return this user's launchd GUI domain target, e.g. ``gui/501``."""
+        return f"gui/{os.getuid()}"
 
     def _plist_content(self) -> str:
         """Generate the launchd plist XML for the service."""

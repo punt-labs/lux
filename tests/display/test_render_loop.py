@@ -41,6 +41,30 @@ def _make_scene(scene_id: str, frame_id: str | None = None) -> SceneMessage:
     )
 
 
+class TestHandleSigterm:
+    def test_sets_app_shall_exit_rather_than_raising(self) -> None:
+        # A SystemExit raised from the handler would only unwind Python frames;
+        # while the main thread is inside immapp.run()'s C++ loop it would never
+        # be seen, and the process would limp until the supervisor's SIGKILL
+        # grace window expired (lux-5uc7 F5). app_shall_exit asks the loop
+        # itself to stop, so before_exit cleanup still runs.
+        server = _make_server()
+        runner_params = MagicMock()
+        runner_params.app_shall_exit = False
+        server._runner_params = runner_params
+
+        server._handle_sigterm(15, None)
+
+        assert runner_params.app_shall_exit is True
+
+    def test_is_a_no_op_before_the_loop_has_started(self) -> None:
+        # run() has not created runner_params yet (the handler is armed before
+        # ImGui init) -- nothing to signal, so this must not raise.
+        server = _make_server()
+        assert server._runner_params is None
+        server._handle_sigterm(15, None)
+
+
 class TestHandleConnectDispatch:
     def test_a_second_hub_identify_preempts_the_first_via_the_real_socket_listener(
         self,

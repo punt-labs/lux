@@ -71,6 +71,8 @@ from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
+    from imgui_bundle import hello_imgui
+
     from punt_lux.protocol import Message
 
 logger = logging.getLogger(__name__)
@@ -110,6 +112,9 @@ class RenderLoop:
     _imgui_renderer_factory: ImGuiRendererFactory
     _luxd_factory: Any  # JsonElementFactory, declared Any to avoid an import cycle
     _hub_reconciliation: HubReconciliation
+    # None until run() builds it; imgui-bundle is a lazy import (see module
+    # docstring), so there is nothing to hold before the render loop starts.
+    _runner_params: hello_imgui.RunnerParams | None
 
     def __new__(
         cls,
@@ -200,6 +205,7 @@ class RenderLoop:
         self._test_auto_click = test_auto_click
         self._start_time = time.time()
         self._current_scene_id = None
+        self._runner_params = None
         self._imgui_renderer_factory = ImGuiRendererFactory(
             widget_state=self._widget_state,
             texture_cache=self._textures,
@@ -387,6 +393,8 @@ class RenderLoop:
         runner_params.callbacks.after_swap = self._on_after_swap
         runner_params.callbacks.before_exit = self._on_exit
         runner_params.fps_idling.fps_idle = 30.0
+        # Held so _handle_sigterm can request a clean exit -- see its docstring.
+        self._runner_params = runner_params
 
         addons = immapp.AddOnsParams()
         addons.with_implot = True
@@ -507,9 +515,19 @@ class RenderLoop:
         self._fit_all_frames = True
 
     def _handle_sigterm(self, _signum: int, _frame: object) -> None:
-        """SIGTERM handler — remove PID file and exit."""
-        self._display_paths.remove_pid()
-        raise SystemExit(0)
+        """SIGTERM handler — request a clean exit from the ImGui loop.
+
+        Python signal handlers only run between Python bytecodes; while the
+        main thread is inside ``immapp.run()``'s C++ event loop, a handler
+        that raised ``SystemExit`` here would unwind only the Python frames
+        it fires in and never reach that loop, so the process would limp on
+        until the supervisor's SIGKILL grace window expired. Setting
+        ``app_shall_exit`` asks the loop itself to stop at its next
+        iteration, so ``before_exit`` (``_on_exit``) runs and the socket and
+        pid files are cleaned up promptly, the same as any other exit path.
+        """
+        if self._runner_params is not None:
+            self._runner_params.app_shall_exit = True
 
     def _on_exit(self) -> None:
         """Called before the window closes."""

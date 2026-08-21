@@ -376,7 +376,10 @@ class TestSystemdLegacyUnitCleanup:
 
 
 class TestBackendStartStopSymmetry:
-    def test_launchd_start_calls_launchctl_load(self, tmp_path: Path):
+    def test_launchd_start_calls_launchctl_bootstrap(self, tmp_path: Path):
+        # bootstrap, not load: the counterpart to stop's bootout, so a
+        # service this backend stopped can be started again without
+        # relying on the legacy load/unload shim (lux-5uc7 F5).
         fake_home = tmp_path / "home"
         fake_home.mkdir()
         with patch("punt_lux._backend_launchd.Path.home", return_value=fake_home):
@@ -384,7 +387,26 @@ class TestBackendStartStopSymmetry:
         with patch("punt_lux._backend_launchd.subprocess.run") as run:
             run.return_value.returncode = 0
             ok = backend.start()
-        assert run.call_args[0][0][:2] == ["launchctl", "load"]
+        assert run.call_args[0][0][:2] == ["launchctl", "bootstrap"]
+        assert ok is True
+
+    def test_launchd_stop_calls_launchctl_bootout(self, tmp_path: Path):
+        # bootout, not unload/stop: under KeepAlive=true, launchctl stop
+        # sends SIGTERM and launchd immediately respawns the job. bootout
+        # deregisters it from the GUI domain so nothing respawns it
+        # (lux-5uc7 F5 — the operator live-reproduced the respawn).
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        with patch("punt_lux._backend_launchd.Path.home", return_value=fake_home):
+            backend = LaunchdBackend(HUB_SPEC)
+        backend.config_path().write_text("<plist/>")
+        with patch("punt_lux._backend_launchd.subprocess.run") as run:
+            run.return_value.returncode = 0
+            ok = backend.stop()
+        args = run.call_args[0][0]
+        assert args[:2] == ["launchctl", "bootout"]
+        assert args[2].startswith("gui/")
+        assert args[2].endswith(HUB_SPEC.launchd_label)
         assert ok is True
 
     def test_launchd_start_reports_failure_on_nonzero_exit(self, tmp_path: Path):
