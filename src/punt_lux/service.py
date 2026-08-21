@@ -10,8 +10,15 @@ from typing import ClassVar, Self, final
 from punt_lux._backend_launchd import LaunchdBackend
 from punt_lux._backend_systemd import SystemdBackend
 from punt_lux._backends import ServiceBackend, has_linger
+from punt_lux._doctor_result import DoctorResult
+from punt_lux._legacy_sweep import LegacySweep
+from punt_lux._legacy_sweep_launchd import LaunchdLegacySweep
+from punt_lux._legacy_sweep_systemd import SystemdLegacySweep
+from punt_lux._port_guard import PortGuard
 from punt_lux._service_errors import (
+    PortConflictError,
     ServiceActionFailedError,
+    ServiceMigrationError,
     ServiceNotInstalledError,
 )
 from punt_lux._service_spec import DISPLAY_SPEC, HUB_SPEC, ServiceSpec
@@ -22,9 +29,12 @@ __all__ = [
     "DISPLAY_SPEC",
     "HUB_SPEC",
     "DisplayServiceManager",
+    "DoctorResult",
     "HubServiceManager",
+    "PortConflictError",
     "ServiceActionFailedError",
     "ServiceManager",
+    "ServiceMigrationError",
     "ServiceNotInstalledError",
     "ServiceSpec",
     "detect_platform",
@@ -47,8 +57,10 @@ class ServiceManager:
 
     _SPEC: ClassVar[ServiceSpec]
 
-    __slots__ = ("_backend",)
+    __slots__ = ("_backend", "_legacy_sweep", "_port_guard")
     _backend: ServiceBackend
+    _legacy_sweep: LegacySweep
+    _port_guard: PortGuard
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         """Reject a subclass that forgets to fix ``_SPEC``, at definition time."""
@@ -68,8 +80,12 @@ class ServiceManager:
             )
             raise TypeError(msg)
         self = super().__new__(cls)
-        backend_cls = LaunchdBackend if detect_platform() == "macos" else SystemdBackend
+        is_macos = detect_platform() == "macos"
+        backend_cls = LaunchdBackend if is_macos else SystemdBackend
+        sweep_cls = LaunchdLegacySweep if is_macos else SystemdLegacySweep
         self._backend = backend_cls(cls._SPEC)
+        self._legacy_sweep = sweep_cls(cls._SPEC)
+        self._port_guard = PortGuard(cls._SPEC)
         return self
 
     @classmethod
@@ -83,7 +99,16 @@ class ServiceManager:
         return DisplayServiceManager()
 
     def install(self) -> str:
-        """Install the service and return a status message."""
+        """Install the service and return a status message.
+
+        Cures any legacy launchd/systemd registration left by a prior
+        rename, and refuses to proceed onto a port held by a foreign
+        process, before writing this service's own config -- a rename is a
+        migration, not a hope.
+        """
+        self._legacy_sweep.sweep()
+        if self._SPEC.health_port is not None:
+            self._port_guard.guard()
         self._backend.install()
         is_running = self._backend.is_active()
         exec_display = " ".join(self._SPEC.resolve_exec_args())
@@ -164,6 +189,53 @@ class ServiceManager:
     def spec(self) -> ServiceSpec:
         """Return the spec identifying this managed service."""
         return self._SPEC
+
+    def doctor(self, *, fix: bool) -> DoctorResult:
+        """Diagnose (``fix=False``) or repair (``fix=True``) this service.
+
+        ``lux <verb> doctor`` and ``install()`` invoke the same
+        ``_legacy_sweep``/``_port_guard`` objects -- one implementation,
+        two entries. Without ``fix``, only the non-mutating
+        :meth:`~punt_lux._legacy_sweep.LegacySweep.diagnose` and
+        :meth:`~punt_lux._port_guard.PortGuard.check` run. With ``fix``,
+        :meth:`~punt_lux._legacy_sweep.LegacySweep.sweep` and
+        :meth:`~punt_lux._port_guard.PortGuard.guard` run -- a failure of
+        either is recorded as ``repair_failed``, never raised past this
+        method, so the CLI can render the result and choose its own exit
+        code.
+        """
+        if not fix:
+            legacy = self._legacy_sweep.diagnose()
+            port = self._port_guard.check()
+            return DoctorResult(
+                display_name=self._SPEC.display_name,
+                process_name=self._SPEC.process_name,
+                health_port=self._SPEC.health_port,
+                legacy=legacy,
+                port=port,
+                repair_failed=False,
+            )
+        repair_failed = False
+        try:
+            legacy = self._legacy_sweep.sweep()
+        except ServiceMigrationError:
+            legacy = self._legacy_sweep.diagnose()
+            repair_failed = True
+        port = self._port_guard.check()
+        if self._SPEC.health_port is not None and port.status not in ("free", "ours"):
+            try:
+                self._port_guard.guard()
+                port = self._port_guard.check()
+            except PortConflictError:
+                repair_failed = True
+        return DoctorResult(
+            display_name=self._SPEC.display_name,
+            process_name=self._SPEC.process_name,
+            health_port=self._SPEC.health_port,
+            legacy=legacy,
+            port=port,
+            repair_failed=repair_failed,
+        )
 
 
 @final

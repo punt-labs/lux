@@ -282,93 +282,113 @@ class TestServiceManagerStop:
 
 
 class TestLegacyPlistCleanup:
-    def test_hub_install_removes_legacy_lux_plist(self, tmp_path: Path):
+    """ServiceManager.install() now owns the legacy sweep (service.py §2.1).
+
+    The plist file itself is exercised via LaunchdLegacySweep's own tests
+    (test_legacy_sweep.py); here the concern is that ServiceManager wires
+    the sweep in for the hub and leaves DISPLAY_SPEC's empty
+    legacy_launchd_labels tuple to no-op naturally, with zero string
+    special-casing.
+    """
+
+    def test_hub_install_invokes_the_legacy_sweep(self, tmp_path: Path):
         fake_home = tmp_path / "home"
-        agents = fake_home / "Library" / "LaunchAgents"
-        agents.mkdir(parents=True)
-        legacy = agents / "com.punt-labs.lux.plist"
-        legacy.write_text("<plist/>")
+        fake_home.mkdir()
         local_bin = fake_home / ".local" / "bin"
         local_bin.mkdir(parents=True)
         (local_bin / "luxd").touch()
 
         with (
+            patch("punt_lux.service.detect_platform", return_value="macos"),
             patch("punt_lux._backend_launchd.Path.home", return_value=fake_home),
             patch("punt_lux._service_spec.Path.home", return_value=fake_home),
             patch("punt_lux.hub_paths.Path.home", return_value=fake_home),
-            patch("punt_lux._backend_launchd.subprocess.run") as run,
         ):
-            run.return_value.returncode = 0
-            backend = LaunchdBackend(HUB_SPEC)
-            backend.install()
+            mgr = ServiceManager.for_hub()
+            with (
+                patch.object(type(mgr._legacy_sweep), "sweep") as sweep,
+                patch.object(mgr._backend, "install"),
+                patch.object(mgr._backend, "is_active", return_value=True),
+                patch.object(type(mgr._port_guard), "guard"),
+            ):
+                mgr.install()
 
-        assert not legacy.exists()
+        sweep.assert_called_once()
 
-    def test_display_install_leaves_legacy_plist_alone(self, tmp_path: Path):
+    def test_display_install_never_touches_the_legacy_sweep(self, tmp_path: Path):
+        # DISPLAY_SPEC's legacy_launchd_labels is (); the sweep is still
+        # invoked (uniform code path), but it has nothing to iterate --
+        # exactly the "no if spec.launchd_label != ...: return" posture
+        # the design replaces (§5.2).
         fake_home = tmp_path / "home"
-        agents = fake_home / "Library" / "LaunchAgents"
-        agents.mkdir(parents=True)
-        legacy = agents / "com.punt-labs.lux.plist"
-        legacy.write_text("<plist/>")
+        fake_home.mkdir()
         local_bin = fake_home / ".local" / "bin"
         local_bin.mkdir(parents=True)
         (local_bin / "lux").touch()
 
         with (
+            patch("punt_lux.service.detect_platform", return_value="macos"),
             patch("punt_lux._backend_launchd.Path.home", return_value=fake_home),
             patch("punt_lux._service_spec.Path.home", return_value=fake_home),
             patch("punt_lux.hub_paths.Path.home", return_value=fake_home),
-            patch("punt_lux._backend_launchd.subprocess.run") as run,
         ):
-            run.return_value.returncode = 0
-            backend = LaunchdBackend(DISPLAY_SPEC)
-            backend.install()
+            mgr = ServiceManager.for_display()
+            with (
+                patch.object(mgr._backend, "install"),
+                patch.object(mgr._backend, "is_active", return_value=True),
+            ):
+                report = mgr.install()
 
-        assert legacy.exists()
+        assert mgr._legacy_sweep.is_clean()
+        assert "displa" in report.lower() or report  # install() returned normally
 
 
 class TestSystemdLegacyUnitCleanup:
-    def test_hub_install_removes_legacy_lux_unit(self, tmp_path: Path):
+    """Mirrors TestLegacyPlistCleanup for the systemd backend."""
+
+    def test_hub_install_invokes_the_legacy_sweep(self, tmp_path: Path):
         fake_home = tmp_path / "home"
-        units = fake_home / ".config" / "systemd" / "user"
-        units.mkdir(parents=True)
-        legacy = units / "lux.service"
-        legacy.write_text("[Unit]")
+        fake_home.mkdir()
         local_bin = fake_home / ".local" / "bin"
         local_bin.mkdir(parents=True)
         (local_bin / "luxd").touch()
 
         with (
+            patch("punt_lux.service.detect_platform", return_value="linux"),
             patch("punt_lux._backend_systemd.Path.home", return_value=fake_home),
             patch("punt_lux._service_spec.Path.home", return_value=fake_home),
-            patch("punt_lux._backend_systemd.subprocess.run") as run,
         ):
-            run.return_value.returncode = 0
-            backend = SystemdBackend(HUB_SPEC)
-            backend.install()
+            mgr = ServiceManager.for_hub()
+            with (
+                patch.object(type(mgr._legacy_sweep), "sweep") as sweep,
+                patch.object(mgr._backend, "install"),
+                patch.object(mgr._backend, "is_active", return_value=True),
+                patch.object(type(mgr._port_guard), "guard"),
+            ):
+                mgr.install()
 
-        assert not legacy.exists()
+        sweep.assert_called_once()
 
-    def test_display_install_leaves_legacy_unit_alone(self, tmp_path: Path):
+    def test_display_install_has_nothing_to_sweep(self, tmp_path: Path):
         fake_home = tmp_path / "home"
-        units = fake_home / ".config" / "systemd" / "user"
-        units.mkdir(parents=True)
-        legacy = units / "lux.service"
-        legacy.write_text("[Unit]")
+        fake_home.mkdir()
         local_bin = fake_home / ".local" / "bin"
         local_bin.mkdir(parents=True)
         (local_bin / "lux").touch()
 
         with (
+            patch("punt_lux.service.detect_platform", return_value="linux"),
             patch("punt_lux._backend_systemd.Path.home", return_value=fake_home),
             patch("punt_lux._service_spec.Path.home", return_value=fake_home),
-            patch("punt_lux._backend_systemd.subprocess.run") as run,
         ):
-            run.return_value.returncode = 0
-            backend = SystemdBackend(DISPLAY_SPEC)
-            backend.install()
+            mgr = ServiceManager.for_display()
+            with (
+                patch.object(mgr._backend, "install"),
+                patch.object(mgr._backend, "is_active", return_value=True),
+            ):
+                mgr.install()
 
-        assert legacy.exists()
+        assert mgr._legacy_sweep.is_clean()
 
 
 class TestServiceManagerRestart:

@@ -48,7 +48,19 @@ _DELETED_MODULES = (
 # Source patterns that only the legacy path produces. A grep over ``src`` for
 # these must return nothing outside git history.
 _FORBIDDEN_SOURCE_PATTERNS = (
-    "class Legacy",  # a Legacy* element/realization class
+    # The six deleted Legacy*Element classes, named precisely rather than by
+    # the bare "class Legacy" prefix -- "legacy" is also the correct English
+    # word for the unrelated service-lifecycle domain (LegacySweep and kin,
+    # src/punt_lux/_legacy_sweep.py: curing pre-rename launchd/systemd
+    # registrations), and a bare-prefix match would forbid that legitimate
+    # reuse along with the real element-migration regression it exists to
+    # catch.
+    "class LegacyTableElement",
+    "class LegacyGroupElement",
+    "class LegacyTabBarElement",
+    "class LegacyCollapsingHeaderElement",
+    "class LegacyWindowElement",
+    "class LegacyModalElement",
     "ContainerAbcGate",  # the all-ABC fork gate
     "class ElementCodec",  # the legacy dispatch table
     "build_element_codec",  # the legacy-codec factory
