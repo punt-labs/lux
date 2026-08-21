@@ -21,7 +21,6 @@ attribution are deterministic without a real sleep.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING, Self, cast
 
 from punt_lux.domain.hub.crash_attribution import CrashAttribution
@@ -66,7 +65,7 @@ class _FakeProvider:
 
 
 class _FakeLifecycle:
-    """Records reap/ensure order."""
+    """Records reap calls; killing is the Hub's only remaining lifecycle role."""
 
     calls: list[str]
     __slots__ = ("calls",)
@@ -78,10 +77,6 @@ class _FakeLifecycle:
 
     def reap(self, timeout: float = 2.0) -> None:
         self.calls.append("reap")
-
-    def ensure(self, timeout: float = 5.0) -> Path:
-        self.calls.append("ensure")
-        return Path("/tmp/lux-test.sock")
 
 
 class _FakeSignal:
@@ -163,7 +158,7 @@ def test_a_wedged_display_is_reaped_then_respawned_then_remarked(
     monkeypatch.setattr("punt_lux.domain.hub.recovery.time.sleep", _no_sleep)
     recovery, provider, lifecycle, signal, _attribution = _recovery()
     recovery.recover(_BATCH, wedged=True, suspect=frozenset({_SCENE}))
-    assert lifecycle.calls == ["reap", "ensure"]  # kill before respawn
+    assert lifecycle.calls == ["reap"]  # kill; the service unit respawns it
     assert provider.drops == 1
     assert signal.added == [_SCENE]  # the failed batch's own scenes re-marked
 

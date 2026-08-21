@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import threading
 import time
-from pathlib import Path
 from typing import TYPE_CHECKING, Self
 
 import pytest
@@ -282,34 +281,33 @@ class _FakeProvider:
 
 
 class _FakeLifecycle:
-    """Records reap/ensure calls and their order; ``ensure`` can be armed to fail.
+    """Records reap calls; ``reap`` can be armed to fail.
 
-    An armed ``ensure`` raises once and then clears, modelling a display that
-    cannot be respawned on the first try but recovers on a retry.
+    Killing is the Hub's only remaining lifecycle role (lux-5uc7) — the
+    display's own service unit respawns it, so there is no ``ensure`` to call
+    or to arm a failure on. An armed ``reap`` raises once and then clears,
+    modelling a kill that cannot complete on the first try but recovers on a
+    retry.
     """
 
     calls: list[str]
-    _ensure_fail: Exception | None
-    __slots__ = ("_ensure_fail", "calls")
+    _reap_fail: Exception | None
+    __slots__ = ("_reap_fail", "calls")
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
         self.calls = []
-        self._ensure_fail = None
+        self._reap_fail = None
         return self
 
-    def arm_ensure_failure(self, exc: Exception) -> None:
-        self._ensure_fail = exc
+    def arm_reap_failure(self, exc: Exception) -> None:
+        self._reap_fail = exc
 
     def reap(self, timeout: float = 2.0) -> None:
         self.calls.append("reap")
-
-    def ensure(self, timeout: float = 5.0) -> Path:
-        self.calls.append("ensure")
-        if self._ensure_fail is not None:
-            exc, self._ensure_fail = self._ensure_fail, None
+        if self._reap_fail is not None:
+            exc, self._reap_fail = self._reap_fail, None
             raise exc
-        return Path("/tmp/lux-test.sock")
 
 
 def _replicator(
@@ -438,7 +436,7 @@ def test_a_scene_only_reap_re_pushes_the_agent_bar() -> None:
             if sender.menus:
                 break
             threading.Event().wait(0.01)
-        assert lifecycle.calls == ["reap", "ensure"]
+        assert lifecycle.calls == ["reap"]
         assert provider.drops == 1
         assert sender.shows == ["s1"]  # the scene repainted
         assert sender.menus == [[{"label": "File", "items": []}]]  # bar restored
@@ -464,7 +462,7 @@ def test_a_wedged_menu_send_is_reaped_and_the_bar_re_delivered() -> None:
             if sender.menus:
                 break
             threading.Event().wait(0.01)
-        assert lifecycle.calls == ["reap", "ensure"]
+        assert lifecycle.calls == ["reap"]
         assert provider.drops == 1
         assert sender.menus == [[{"label": "File", "items": []}]]  # re-delivered
     finally:
@@ -532,8 +530,8 @@ def test_the_resend_carries_the_stores_current_value() -> None:
 
 
 def test_a_wedged_display_is_reaped_respawned_and_repainted() -> None:
-    # P3 / K1 / K2: BlockingIOError → reap then ensure (in that order), drop the
-    # dead fd, re-mark every live scene, and repaint the fresh display.
+    # P3 / K1 / K2: BlockingIOError → reap (the service unit respawns it), drop
+    # the dead fd, re-mark every live scene, and repaint the fresh display.
     store = HubDisplay()
     scene = _seed(store, "s1")
     repl, sender, provider, lifecycle = _replicator(store)
@@ -543,7 +541,7 @@ def test_a_wedged_display_is_reaped_respawned_and_repainted() -> None:
         repl.mark_dirty(scene)
         # The first send raises; recovery heals and the re-mark repaints.
         assert sender.wait_sent(3.0)
-        assert lifecycle.calls == ["reap", "ensure"]
+        assert lifecycle.calls == ["reap"]
         assert provider.drops == 1
         assert sender.shows == ["s1"]
     finally:
@@ -569,23 +567,23 @@ def test_a_dead_peer_reconnects_without_reaping() -> None:
 
 
 def test_a_recovery_failure_restores_the_batch_and_retries() -> None:
-    # A recovery step that itself fails — here ``ensure`` cannot respawn the
+    # A recovery step that itself fails — here ``reap`` cannot kill the wedged
     # display on the first try — must not drop the drained work. The worker puts
     # the batch back, backs off, and the next cycle retries it once the display
-    # recovers, so nothing is lost when a respawn transiently fails.
+    # recovers, so nothing is lost when a kill transiently fails.
     store = HubDisplay()
     scene = _seed(store, "s1")
     repl, sender, _provider, lifecycle = _replicator(store)
-    sender.arm_failure(BlockingIOError())  # first send wedges → reap/ensure
-    lifecycle.arm_ensure_failure(RuntimeError("cannot spawn display"))
+    sender.arm_failure(BlockingIOError())  # first send wedges → reap
+    lifecycle.arm_reap_failure(RuntimeError("cannot kill display"))
     repl.start()
     try:
         repl.mark_dirty(scene)
-        # The first cycle wedges and its respawn raises; the batch is restored
+        # The first cycle wedges and its kill raises; the batch is restored
         # and the retry, with a healed display, repaints the scene.
         assert sender.wait_sent(3.0)
         assert sender.shows == ["s1"]
-        assert lifecycle.calls == ["reap", "ensure"]  # ensure raised, not retried
+        assert lifecycle.calls == ["reap"]  # raised once; the retry's send never wedged
     finally:
         repl.stop()
 
@@ -796,7 +794,7 @@ def test_recovery_of_an_emptied_store_repaints_nothing() -> None:
                 break
             threading.Event().wait(0.01)
         assert provider.drops == 1
-        assert lifecycle.calls == ["reap", "ensure"]
+        assert lifecycle.calls == ["reap"]
         assert sender.shows == []  # nothing live to repaint
     finally:
         gate.set()
