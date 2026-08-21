@@ -76,28 +76,20 @@ build: ## Build wheel and sdist
 install: build ## Build and install locally (with display extras)
 	uv tool install --force "$$(ls dist/punt_lux-*.whl)[display]"
 
-LUX_LAUNCHD_LABEL := com.punt-labs.lux
+LUX_LAUNCHD_LABEL := com.punt-labs.luxd-hub
+LUX_DISPLAY_LAUNCHD_LABEL := com.punt-labs.luxd-display
 
 restart: install ## Install + restart luxd (via launchd) and display
 	@# Restart luxd — launchd manages the daemon (KeepAlive: true)
 	@launchctl kickstart -k "gui/$$(id -u)/$(LUX_LAUNCHD_LABEL)" 2>/dev/null || \
 		echo "warning: launchctl kickstart failed — luxd may not be a launchd service"
 	@sleep 1
-	@# Reap the running display, then ensure exactly one — via the LOCKED, idempotent
-	@# path, never a bare unlocked `lux display &`. reap() holds the spawn lock to
-	@# terminate the owner (by its socket peer credential); ensure() re-acquires the
-	@# lock, checks is_running() UNDER it, and REUSES any display a concurrent ensure()
-	@# (e.g. the beads hook) raced into the reap->ensure gap — else spawns one. So a
-	@# concurrent spawn can never stack a second window. ensure() waits for the READY
-	@# handshake, so a display that cannot start (no monitor) fails LOUDLY here instead
-	@# of backgrounding a dead process and printing success. LUX_LOG_LEVEL is NOT
-	@# defaulted here: ensure()'s _spawn inherits this process's environment, so an
-	@# operator who exports it still reaches the display, while an operator who has
-	@# asked for nothing gets the display's own INFO floor rather than a DEBUG
-	@# firehose they never requested.
-	@uv run --extra display python -c "from punt_lux.paths import DisplayPaths; dp = DisplayPaths(); dp.reap(); dp.ensure()" || \
-		{ echo "error: could not reap and restart the display — aborting restart (see log above)" >&2; exit 1; }
-	@echo "luxd restarted via launchd; display reaped and exactly one live display ensured"
+	@# Restart the display — launchd manages it (KeepAlive: true), same as luxd.
+	@# The Hub no longer spawns the display (lux-5uc7 F2); the display runs as its
+	@# own launchd service under com.punt-labs.luxd-display.
+	@launchctl kickstart -k "gui/$$(id -u)/$(LUX_DISPLAY_LAUNCHD_LABEL)" 2>/dev/null || \
+		echo "warning: launchctl kickstart failed — luxd-display may not be a launchd service (run 'lux display install')"
+	@echo "luxd + luxd-display restarted via launchd"
 
 reload: install ## Install + restart luxd only (display keeps running)
 	@launchctl kickstart -k "gui/$$(id -u)/$(LUX_LAUNCHD_LABEL)" 2>/dev/null || \
