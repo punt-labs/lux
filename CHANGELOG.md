@@ -7,9 +7,10 @@
 - **`install.sh` called the retired `lux hub-install` verb (`lux-2msd`).**
   The rename train in `lux-0shg.4` retired flat `hub-install` in favour of
   noun-grouped `lux hub install`, but `install.sh` at the repo root was
-  missed and every fresh installer on v0.27.0 hit `Error: No such command
-  'hub-install'`. The luxd LaunchAgent was silently never registered — the
-  plugin then couldn't reach a hub, but the script printed "lux is ready!"
+  missed and every fresh installer on v0.27.0 hit
+  `Error: No such command 'hub-install'`. The luxd LaunchAgent was silently
+  never registered — the plugin then couldn't reach a Hub, but the script
+  printed "lux is ready!"
   anyway. `install.sh` now calls `lux hub install`, and the failure branch
   is `fail` rather than `warn` so a registration miss aborts loudly instead
   of shipping a broken end-state.
