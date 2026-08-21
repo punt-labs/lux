@@ -100,6 +100,29 @@ class TestHubStop:
         assert "luxd stopped." not in result.output
 
 
+class TestHubRestart:
+    def test_restart_routes_through_the_service_manager(self) -> None:
+        """The CLI's restart handler must call HubRestart, not touch the pid
+        file — this is what fixes the ENOENT regression in lux-2ph5."""
+        with patch("punt_lux.cli.hub.HubRestart") as mock_cls:
+            mock_cls.return_value.run.return_value = "luxd restarted (port 8430)"
+            result = runner.invoke(app, ["hub", "restart"])
+        assert result.exit_code == 0
+        assert "luxd restarted (port 8430)" in result.output
+        mock_cls.return_value.run.assert_called_once()
+
+    def test_restart_reports_supervisor_failure(self) -> None:
+        from punt_lux.hub_restart import HubRestartError
+
+        with patch("punt_lux.cli.hub.HubRestart") as mock_cls:
+            mock_cls.return_value.run.side_effect = HubRestartError(
+                "luxd restart failed. See ~/.punt-labs/lux/logs/ for details."
+            )
+            result = runner.invoke(app, ["hub", "restart"])
+        assert result.exit_code == 1
+        assert "luxd restart failed" in result.output
+
+
 class TestHubInstall:
     def test_install_calls_the_service_manager(self) -> None:
         with patch("punt_lux.cli.hub.ServiceManager") as mock_cls:
