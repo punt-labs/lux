@@ -1,14 +1,20 @@
-"""Shared ``launchctl`` invocation for ``LaunchdBackend``."""
+"""Shared ``launchctl`` invocation for ``LaunchdBackend`` and ``LaunchdLegacySweep``."""
 
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 from typing import Self, final
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["launchctl"]
+__all__ = ["gui_domain", "launchctl"]
+
+
+def gui_domain() -> str:
+    """Return this user's launchd GUI domain target, e.g. ``gui/501``."""
+    return f"gui/{os.getuid()}"
 
 
 @final
