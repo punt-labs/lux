@@ -29,6 +29,21 @@ def _paths_stub(*, is_running: bool = True, port: int | None = 8430) -> MagicMoc
     return paths
 
 
+def _pid_after(before: int, after: int) -> object:
+    """Return a ``pgrep_pid`` side_effect: ``before`` once, then ``after`` forever.
+
+    Models "the process genuinely restarted" without asserting how many
+    times the wait polls — the first call captures ``before``, and every
+    poll after that observes the new pid.
+    """
+    calls = iter([before])
+
+    def _next(_name: str) -> int:
+        return next(calls, after)
+
+    return _next
+
+
 class TestHubRestartSuccess:
     def test_succeeds_when_pid_changes_and_port_is_up(self) -> None:
         manager = MagicMock()
@@ -136,6 +151,12 @@ class TestHubRestartFailure:
             HubRestart(manager=manager, paths=_paths_stub()).run()
 
     def test_raises_when_port_never_comes_up(self) -> None:
+        """The pid changes (the process genuinely restarted) but the port
+        never binds — the wait must fail on liveness, not on "pid never
+        changed". A constant pgrep_pid across the whole run (the earlier
+        version of this test) makes ``pid == before`` true forever, so the
+        timeout fires for the wrong reason and the liveness branch is never
+        exercised."""
         manager = MagicMock()
         manager.restart.return_value = "luxd restarted."
         paths = MagicMock()
@@ -143,7 +164,9 @@ class TestHubRestartFailure:
         with (
             patch("punt_lux.hub_restart._POLL_SECONDS", 0.001),
             patch("punt_lux.hub_restart._WAIT_SECONDS", 0.01),
-            patch("punt_lux.hub_restart.pgrep_pid", return_value=99999),
+            patch(
+                "punt_lux.hub_restart.pgrep_pid", side_effect=_pid_after(12345, 99999)
+            ),
             pytest.raises(HubRestartError, match="did not come back"),
         ):
             HubRestart(manager=manager, paths=paths).run()

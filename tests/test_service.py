@@ -414,11 +414,17 @@ class TestBackendStartStopSymmetry:
         # bootstrap, not load: the counterpart to stop's bootout, so a
         # service this backend stopped can be started again without
         # relying on the legacy load/unload shim (lux-5uc7 F5).
+        #
+        # start() calls launchctl.run(), not subprocess.run() directly —
+        # patch the actual call site in _launchctl, not _backend_launchd's
+        # module-level subprocess import (Copilot F1: the wrong-module patch
+        # only works by accident, because subprocess is one shared module
+        # object across every importer).
         fake_home = tmp_path / "home"
         fake_home.mkdir()
         with patch("punt_lux._backend_launchd.Path.home", return_value=fake_home):
             backend = LaunchdBackend(HUB_SPEC)
-        with patch("punt_lux._backend_launchd.subprocess.run") as run:
+        with patch("punt_lux._launchctl.subprocess.run") as run:
             run.return_value.returncode = 0
             ok = backend.start()
         assert run.call_args[0][0][:2] == ["launchctl", "bootstrap"]
@@ -435,7 +441,7 @@ class TestBackendStartStopSymmetry:
             backend = LaunchdBackend(HUB_SPEC)
         backend.config_path().parent.mkdir(parents=True, exist_ok=True)
         backend.config_path().write_text("<plist/>")
-        with patch("punt_lux._backend_launchd.subprocess.run") as run:
+        with patch("punt_lux._launchctl.subprocess.run") as run:
             run.return_value.returncode = 0
             ok = backend.stop()
         args = run.call_args[0][0]
@@ -449,7 +455,7 @@ class TestBackendStartStopSymmetry:
         fake_home.mkdir()
         with patch("punt_lux._backend_launchd.Path.home", return_value=fake_home):
             backend = LaunchdBackend(HUB_SPEC)
-        with patch("punt_lux._backend_launchd.subprocess.run") as run:
+        with patch("punt_lux._launchctl.subprocess.run") as run:
             run.return_value.returncode = 1
             run.return_value.stderr = "boom"
             ok = backend.start()
@@ -485,7 +491,7 @@ class TestBackendStartStopSymmetry:
         fake_home.mkdir()
         with patch("punt_lux._backend_launchd.Path.home", return_value=fake_home):
             backend = LaunchdBackend(HUB_SPEC)
-        with patch("punt_lux._backend_launchd.subprocess.run") as run:
+        with patch("punt_lux._launchctl.subprocess.run") as run:
             run.return_value.returncode = 0
             ok = backend.restart()
         args = run.call_args[0][0]
@@ -499,7 +505,7 @@ class TestBackendStartStopSymmetry:
         fake_home.mkdir()
         with patch("punt_lux._backend_launchd.Path.home", return_value=fake_home):
             backend = LaunchdBackend(HUB_SPEC)
-        with patch("punt_lux._backend_launchd.subprocess.run") as run:
+        with patch("punt_lux._launchctl.subprocess.run") as run:
             run.return_value.returncode = 1
             run.return_value.stderr = "boom"
             ok = backend.restart()
