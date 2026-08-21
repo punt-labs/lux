@@ -104,10 +104,9 @@ class ServiceManager:
     def start(self) -> str:
         """Start an already-installed, stopped service."""
         if not self._backend.config_path().exists():
-            verb = "display" if self._SPEC is DISPLAY_SPEC else "hub"
             msg = (
                 f"{self._SPEC.display_name} is not installed. "
-                f"Run 'lux {verb} install' first."
+                f"Run 'lux {self._SPEC.cli_verb} install' first."
             )
             raise ServiceNotInstalledError(msg)
         if not self._backend.start():
