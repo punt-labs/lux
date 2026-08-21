@@ -83,9 +83,14 @@ sh install.sh
 <summary>Run a demo</summary>
 
 ```bash
-lux display &
+lux display install       # register the display as a launchd/systemd service
 uv run python demos/dashboard.py
 ```
+
+The `install.sh` bootstrap already runs `lux display install` for you; run it
+yourself only when driving Lux from a source checkout that did not use the
+bootstrap. Foreground `lux display serve` also works and stays attached to the
+terminal (Ctrl-C stops it) — that is the exact command the supervisor invokes.
 
 Demos are in `demos/` --- each connects as a client and drives the display:
 
@@ -239,11 +244,11 @@ command accepts `--json/--verbose/--quiet`.
 | `lux frame` | `set-state` |
 | `lux menu` | `ls`, `set` |
 | `lux session` | `ls`, `inspect`, `identify` |
-| `lux display` | `info`, `theme`, `mode`, `window`, `screenshot`, `serve` (the internal render-loop entry point luxd spawns, not an interactive verb) |
+| `lux display` | `info`, `theme`, `mode`, `window`, `screenshot`, `serve` (raw render-loop entry point, invoked by the supervisor), `install`, `uninstall`, `start`, `stop`, `status` (admin — window process supervision, CLI-only) |
 | `lux event` | `ls` |
 | `lux error` | `ls` |
 | `lux callback` | `register` |
-| `lux hub` | `install`, `uninstall`, `start`, `stop`, `restart`, `status` (admin — process supervision, CLI-only) |
+| `lux hub` | `install`, `uninstall`, `start`, `stop`, `restart`, `status` (admin — luxd process supervision, CLI-only) |
 
 | Top-level singleton | What it does |
 |---|---|
@@ -257,6 +262,21 @@ command accepts `--json/--verbose/--quiet`.
 | `lux uninstall` | Uninstall the Claude Code plugin |
 | `lux beads` | Display the beads issue board via luxd's REST API (no LLM needed) — a bespoke app-specific convenience, not part of the noun-grouped vocabulary |
 | `lux-beads` | The Beads applet: owns this session's Beads menu entry and services its clicks (launched by the plugin's session-start hook) |
+
+### Display window management
+
+The display window runs as its own supervised service, symmetric to the hub.
+`lux display install` registers a launchd LaunchAgent (macOS) or systemd user
+unit (Linux) that spawns `lux display serve` at login and restarts it on
+crash; `lux display start` / `stop` toggle the running process; `lux display
+status` reports supervisor and window state; `lux display uninstall` reverses
+the registration. This is the reliable path for the window to appear on macOS
+— a child of the graphical login session gets the GUI bootstrap the OS needs
+to draw. Foreground `lux display serve` is the same entry point; the
+supervisor invokes it. On macOS the window gets a Dock icon (regular
+activation policy) so it is visible and switchable; when the menubar-app epic
+(`lux-mxvy.3`) ships, the policy flips to accessory and the menubar controls
+visibility instead.
 
 `lux topic *` and `lux callback pending` are not exposed on the CLI: they
 have no REST route by design (`tests/rest/test_app.py`'s `_MCP_ONLY`) —
