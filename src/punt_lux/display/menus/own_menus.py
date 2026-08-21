@@ -103,9 +103,18 @@ class OwnMenus:
         self._chrome = chrome
         return self
 
-    def sections(self) -> list[Submenu]:
-        """Return the display's own menus, in the order they appear on the bar."""
-        return [self._lux_menu(), self._windows_menu(), self._help_menu()]
+    def lux_section(self) -> Submenu:
+        """Return the Lux menu — the display owns the leftmost bar section."""
+        return self._lux_menu()
+
+    def chrome_sections(self) -> list[Submenu]:
+        """Return Windows and Help — the display owns the two rightmost sections.
+
+        The bar composer places agent-supplied and callback (``Clients``)
+        sections between :meth:`lux_section` and these, so ``Clients`` reads
+        second-from-left and window-chrome menus stay pinned to the right.
+        """
+        return [self._windows_menu(), self._help_menu()]
 
     def _lux_menu(self) -> Submenu:
         """Build the Lux menu: settings, font size, quit."""

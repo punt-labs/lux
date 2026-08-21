@@ -66,7 +66,8 @@ class TestReplicatedMenuState:
 
 
 class TestMenuModelComposition:
-    """The model is the display's own menus, then agent bars, then sessions."""
+    """The model interleaves the display's Lux section, callback menus (Clients),
+    agent bars, and the display's chrome sections (Windows, Help) — in that order."""
 
     def test_the_display_has_menus_of_its_own_with_nothing_replicated(self) -> None:
         model = _manager().menu_model()
@@ -74,14 +75,14 @@ class TestMenuModelComposition:
         assert isinstance(model, MenuModel)
         assert tuple(s.label for s in model.sections) == ("Lux", "Windows", "Help")
 
-    def test_replicated_menus_follow_the_display_own_menus(self) -> None:
+    def test_callback_and_agent_menus_slot_between_lux_and_chrome(self) -> None:
         manager = _manager()
         manager.replace_agent_menus([wire_menu("File", [])])
         manager.replace_callback_menus([wire_menu("voxd", [])])
 
         labels = tuple(s.label for s in manager.menu_model().sections)
 
-        assert labels == ("Lux", "Windows", "Help", "File", "voxd")
+        assert labels == ("Lux", "voxd", "File", "Windows", "Help")
 
     def test_the_model_is_rebuilt_from_live_state(self) -> None:
         opacity = 0.25
