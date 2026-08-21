@@ -4,6 +4,15 @@
 
 ### Fixed
 
+- **`install.sh` called the retired `lux hub-install` verb (`lux-2msd`).**
+  The rename train in `lux-0shg.4` retired flat `hub-install` in favour of
+  noun-grouped `lux hub install`, but `install.sh` at the repo root was
+  missed and every fresh installer on v0.27.0 hit `Error: No such command
+  'hub-install'`. The luxd LaunchAgent was silently never registered — the
+  plugin then couldn't reach a hub, but the script printed "lux is ready!"
+  anyway. `install.sh` now calls `lux hub install`, and the failure branch
+  is `fail` rather than `warn` so a registration miss aborts loudly instead
+  of shipping a broken end-state.
 - **Display never showed a window on macOS (#362, `lux-5uc7`).** The Hub
   spawned the display with `start_new_session=True`, which stripped the
   child from the macOS GUI-session bootstrap; the socket handshake
@@ -36,6 +45,13 @@
 
 ### Changed
 
+- **Menu bar reordered so Clients sits second-from-left.** The bar composed
+  as `Lux Windows Help [agent bars] Clients`; users scanning left-to-right
+  passed the two chrome menus (used least often) before reaching the client
+  roster (used most). It now composes as `Lux Clients [agent bars] Windows
+  Help`. `OwnMenus.sections()` split into `lux_section()` +
+  `chrome_sections()`; `MenuReplica.menu_model()` interleaves Lux → callback
+  menus (Clients) → agent menus → chrome.
 - **Process names.** The hub identifies as `luxd-hub` and the display as
   `luxd-display` in `ps`, `top`, and Activity Monitor. launchd labels
   and systemd unit names match (`com.punt-labs.luxd-hub`,
