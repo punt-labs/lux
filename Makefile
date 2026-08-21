@@ -80,20 +80,16 @@ LUX_LAUNCHD_LABEL := com.punt-labs.luxd-hub
 LUX_DISPLAY_LAUNCHD_LABEL := com.punt-labs.luxd-display
 
 restart: install ## Install + restart luxd (via launchd) and display
-	@# Restart luxd — launchd manages the daemon (KeepAlive: true)
-	@launchctl kickstart -k "gui/$$(id -u)/$(LUX_LAUNCHD_LABEL)" 2>/dev/null || \
-		echo "warning: launchctl kickstart failed — luxd may not be a launchd service"
+	@launchctl kickstart -k "gui/$$(id -u)/$(LUX_LAUNCHD_LABEL)" || \
+		{ echo "error: launchctl kickstart failed for $(LUX_LAUNCHD_LABEL) — run 'lux hub install'" >&2; exit 1; }
 	@sleep 1
-	@# Restart the display — launchd manages it (KeepAlive: true), same as luxd.
-	@# The Hub no longer spawns the display (lux-5uc7 F2); the display runs as its
-	@# own launchd service under com.punt-labs.luxd-display.
-	@launchctl kickstart -k "gui/$$(id -u)/$(LUX_DISPLAY_LAUNCHD_LABEL)" 2>/dev/null || \
-		echo "warning: launchctl kickstart failed — luxd-display may not be a launchd service (run 'lux display install')"
+	@launchctl kickstart -k "gui/$$(id -u)/$(LUX_DISPLAY_LAUNCHD_LABEL)" || \
+		{ echo "error: launchctl kickstart failed for $(LUX_DISPLAY_LAUNCHD_LABEL) — run 'lux display install'" >&2; exit 1; }
 	@echo "luxd + luxd-display restarted via launchd"
 
 reload: install ## Install + restart luxd only (display keeps running)
-	@launchctl kickstart -k "gui/$$(id -u)/$(LUX_LAUNCHD_LABEL)" 2>/dev/null || \
-		echo "warning: launchctl kickstart failed — luxd may not be a launchd service"
+	@launchctl kickstart -k "gui/$$(id -u)/$(LUX_LAUNCHD_LABEL)" || \
+		{ echo "error: launchctl kickstart failed for $(LUX_LAUNCHD_LABEL) — run 'lux hub install'" >&2; exit 1; }
 	@sleep 1
 	@echo "luxd restarted via launchd"
 

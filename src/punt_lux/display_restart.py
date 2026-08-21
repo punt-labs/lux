@@ -2,11 +2,15 @@
 
 The display and the Hub share one restart shape: ask the supervisor to
 atomically kill-and-respawn (launchctl kickstart -k / systemctl --user
-restart), then wait for two independent witnesses — a new pid under the
-service's ``setproctitle`` name AND a live socket that accepts a
-connection. Requiring both closes the gap between "process exists" and
-"socket is accepting": setproctitle fires early in display startup, well
-before the socket is bound.
+restart), then wait for three independent witnesses — a new pid under the
+service's ``setproctitle`` name, a live socket that accepts a connection,
+AND that socket's kernel peer credential naming the *same* new pid.
+Requiring the third closes a narrower race than "process exists" vs
+"socket is accepting": during a kickstart there is a window where pgrep
+already sees the new pid but the OLD display instance still holds the
+socket lease, so ``is_running()`` alone can witness the wrong owner's
+accept. ``DisplayPaths.peer_pid()`` (used by :meth:`DisplayPaths.reap`
+for the same reason) resolves who is actually answering.
 
 Failure is raised as :class:`DisplayRestartError` with a human-worded reason.
 """
@@ -69,19 +73,24 @@ class DisplayRestart:
         return self._await_ready(before)
 
     def _await_ready(self, before: int | None) -> str:
-        """Wait for a new pid AND a socket that answers, and describe it.
+        """Wait for a new pid, a live socket, AND that socket naming the new pid.
 
         setproctitle fires at the top of the display's ``run`` method,
-        before the socket is bound and accepting. Requiring
-        ``paths.is_running()`` (an AF_UNIX connect probe) alongside the
-        pid change closes the gap between "process exists" and
-        "clients can connect".
+        before the socket is bound and accepting, so pgrep alone is not
+        enough. ``paths.is_running()`` alone is not enough either: during
+        a kickstart there is a window where pgrep already reports the new
+        pid but the OLD instance still holds the socket lease, so a
+        connect-success can witness the wrong owner. Confirming
+        ``peer_pid() == pid`` closes that window — the kernel-reported
+        owner of the socket must be the same process pgrep just found.
         """
         for _ in self._polls():
             pid = pgrep_pid(self._spec.process_name)
             if pid is None or pid == before:
                 continue
             if not self._paths.is_running():
+                continue
+            if self._paths.peer_pid() != pid:
                 continue
             return f"display restarted (pid {pid}) at {self._paths.socket_path}"
         msg = f"display did not come back within {_WAIT_SECONDS:.0f}s"

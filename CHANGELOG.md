@@ -22,6 +22,13 @@
   The pid capture uses `pgrep -x` before the supervisor call, so the same
   predicate covers a fresh install (`None` → new pid) and an upgrade
   (old pid → new pid).
+- **`lux display restart` also confirms the socket's kernel peer credential
+  before reporting success.** A connect-success alone can witness the
+  wrong owner: during `launchctl kickstart -k`, there is a window where
+  `pgrep` already reports the new pid but the OLD display instance still
+  holds the socket lease and answers connects. `DisplayPaths.peer_pid()` —
+  the same primitive `DisplayPaths.reap()` uses to resolve who is actually
+  answering — must also name the new pid.
 - **`lux hub restart` was broken (`lux-2ph5`).** The command signalled luxd
   by reading the recorded pid from `~/.punt-labs/lux/hub.pid` and errored
   with `[Errno 2] No such file or directory` whenever the file was absent
@@ -30,7 +37,9 @@
   speaks TCP (port 8430), not a Unix socket. Restart now routes through
   the service supervisor — `launchctl kickstart -k` on macOS,
   `systemctl --user restart` on Linux — which already knows the daemon's
-  pid, and then waits for the same liveness check `lux hub status` uses.
+  pid, and then waits for `HubPaths.is_running()` (the pid-file check
+  luxd only satisfies after startup completes) plus `pgrep -x` observing
+  a fresh pid.
 - **`install.sh` did not restart the running daemons after upgrade
   (`lux-w66z`).** `lux hub install` and `lux display install` are
   idempotent under launchd — an already-loaded service is not cycled —
