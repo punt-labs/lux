@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import platform
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -390,6 +391,15 @@ class TestBackendStartStopSymmetry:
         assert run.call_args[0][0][:2] == ["launchctl", "bootstrap"]
         assert ok is True
 
+    @pytest.mark.skipif(
+        sys.platform != "darwin",
+        reason=(
+            "LaunchdBackend._DIR is bound to the real Path.home() at class "
+            "definition time, so config_path() resolves to the real "
+            "~/Library/LaunchAgents regardless of the Path.home() patch "
+            "below -- a directory that only exists on macOS"
+        ),
+    )
     def test_launchd_stop_calls_launchctl_bootout(self, tmp_path: Path):
         # bootout, not unload/stop: under KeepAlive=true, launchctl stop
         # sends SIGTERM and launchd immediately respawns the job. bootout
