@@ -52,7 +52,6 @@ class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
     def install(self) -> None:
         """Write the unit file, reload systemd, and enable+start the service."""
         self._dir.mkdir(parents=True, exist_ok=True)
-        self._remove_legacy_units()
         write_config_atomic.write(self._unit_path, self._unit_content())
         logger.info("Wrote %s", self._unit_path)
 
@@ -110,24 +109,6 @@ class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
                 result.stderr.strip(),
             )
         return result.returncode == 0
-
-    def _remove_legacy_units(self) -> None:
-        """Disable and delete units shipped under the pre-rename name.
-
-        A rename train leaves the old unit behind, and both the old and new
-        user units would race to bind the same port at next boot. The
-        current hub unit is ``luxd-hub``; the pre-rename unit was ``lux``.
-        Only the hub install cleans it up; the display had no prior unit.
-        Mirrors ``LaunchdBackend._remove_legacy_plists``.
-        """
-        if self._spec.systemd_unit != "luxd-hub":
-            return
-        legacy = self._dir / "lux.service"
-        if not legacy.exists():
-            return
-        self._disable_now("lux.service")
-        legacy.unlink(missing_ok=True)
-        logger.info("Removed legacy unit %s", legacy)
 
     @staticmethod
     def _disable_now(unit: str) -> None:
