@@ -16,7 +16,6 @@ from __future__ import annotations
 import dataclasses
 import logging
 import platform
-import signal
 import socket
 import time
 from pathlib import Path
@@ -26,6 +25,7 @@ from PIL import Image
 
 from punt_lux.display.auto_click import AutoClicker
 from punt_lux.display.dock_bar import DockBar
+from punt_lux.display.exit_signal import ExitSignal
 from punt_lux.display.frame_commands import FrameCommands
 from punt_lux.display.frame_placement import FramePlacement
 from punt_lux.display.frame_tiling import FrameTiling
@@ -71,8 +71,6 @@ from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
-    from imgui_bundle import hello_imgui
-
     from punt_lux.protocol import Message
 
 logger = logging.getLogger(__name__)
@@ -112,9 +110,7 @@ class RenderLoop:
     _imgui_renderer_factory: ImGuiRendererFactory
     _luxd_factory: Any  # JsonElementFactory, declared Any to avoid an import cycle
     _hub_reconciliation: HubReconciliation
-    # None until run() builds it; imgui-bundle is a lazy import (see module
-    # docstring), so there is nothing to hold before the render loop starts.
-    _runner_params: hello_imgui.RunnerParams | None
+    _exit_signal: ExitSignal
 
     def __new__(
         cls,
@@ -205,7 +201,6 @@ class RenderLoop:
         self._test_auto_click = test_auto_click
         self._start_time = time.time()
         self._current_scene_id = None
-        self._runner_params = None
         self._imgui_renderer_factory = ImGuiRendererFactory(
             widget_state=self._widget_state,
             texture_cache=self._textures,
@@ -363,9 +358,7 @@ class RenderLoop:
         """
         if not self._socket_listener.setup(self._socket_path):
             return
-        signal.signal(signal.SIGTERM, self._handle_sigterm)  # arm before ImGui init
-        self._display_paths.write_pid()
-        logger.info("Display server listening on %s", self._socket_path)
+        self._announce_listening()
         # Set process name (visible in ps, top, Activity Monitor)
         try:
             import setproctitle  # pyright: ignore[reportMissingImports]
@@ -393,8 +386,7 @@ class RenderLoop:
         runner_params.callbacks.after_swap = self._on_after_swap
         runner_params.callbacks.before_exit = self._on_exit
         runner_params.fps_idling.fps_idle = 30.0
-        # Held so _handle_sigterm can request a clean exit -- see its docstring.
-        self._runner_params = runner_params
+        self._exit_signal = ExitSignal(runner_params)
 
         addons = immapp.AddOnsParams()
         addons.with_implot = True
@@ -412,6 +404,11 @@ class RenderLoop:
             addons.with_markdown = True
 
         immapp.run(runner_params, addons)
+
+    def _announce_listening(self) -> None:
+        """Record the pid and log once the socket claim has succeeded."""
+        self._display_paths.write_pid()
+        logger.info("Display server listening on %s", self._socket_path)
 
     # -- ImGui callbacks ---------------------------------------------------
 
@@ -513,21 +510,6 @@ class RenderLoop:
     def _request_fit_all(self) -> None:
         """Callback for MenuReplica: request fit-all layout."""
         self._fit_all_frames = True
-
-    def _handle_sigterm(self, _signum: int, _frame: object) -> None:
-        """SIGTERM handler — request a clean exit from the ImGui loop.
-
-        Python signal handlers only run between Python bytecodes; while the
-        main thread is inside ``immapp.run()``'s C++ event loop, a handler
-        that raised ``SystemExit`` here would unwind only the Python frames
-        it fires in and never reach that loop, so the process would limp on
-        until the supervisor's SIGKILL grace window expired. Setting
-        ``app_shall_exit`` asks the loop itself to stop at its next
-        iteration, so ``before_exit`` (``_on_exit``) runs and the socket and
-        pid files are cleaned up promptly, the same as any other exit path.
-        """
-        if self._runner_params is not None:
-            self._runner_params.app_shall_exit = True
 
     def _on_exit(self) -> None:
         """Called before the window closes."""

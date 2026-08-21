@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import logging
-import os
 import subprocess
 import textwrap
 from pathlib import Path
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux._atomic_write import write_config_atomic
 from punt_lux._backends import ServiceBackend
 
 if TYPE_CHECKING:
@@ -23,16 +23,17 @@ __all__ = ["SystemdBackend"]
 class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
     """Implement ServiceBackend for systemd user units."""
 
-    __slots__ = ("_spec", "_unit_path")
+    __slots__ = ("_dir", "_spec", "_unit_path")
 
     _spec: ServiceSpec
     _unit_path: Path
-    _DIR: Path = Path.home() / ".config" / "systemd" / "user"
+    _dir: Path
 
     def __new__(cls, spec: ServiceSpec) -> Self:
         self = super().__new__(cls)
         self._spec = spec
-        self._unit_path = cls._DIR / f"{spec.systemd_unit}.service"
+        self._dir = Path.home() / ".config" / "systemd" / "user"
+        self._unit_path = self._dir / f"{spec.systemd_unit}.service"
         return self
 
     def config_path(self) -> Path:
@@ -50,9 +51,9 @@ class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
 
     def install(self) -> None:
         """Write the unit file, reload systemd, and enable+start the service."""
-        self._DIR.mkdir(parents=True, exist_ok=True)
+        self._dir.mkdir(parents=True, exist_ok=True)
         self._remove_legacy_units()
-        self._write_config_atomic(self._unit_content())
+        write_config_atomic.write(self._unit_path, self._unit_content())
         logger.info("Wrote %s", self._unit_path)
 
         unit = self._spec.systemd_unit
@@ -110,7 +111,7 @@ class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         """
         if self._spec.systemd_unit != "luxd-hub":
             return
-        legacy = self._DIR / "lux.service"
+        legacy = self._dir / "lux.service"
         if not legacy.exists():
             return
         self._disable_now("lux.service")
@@ -150,22 +151,3 @@ class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
             [Install]
             WantedBy=default.target
         """)
-
-    def _write_config_atomic(self, content: str) -> None:
-        """Atomically write config to the unit path."""
-        tmp_path = self._unit_path.with_name(self._unit_path.name + ".tmp")
-        flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
-        fd = os.open(str(tmp_path), flags, 0o600)
-        try:
-            f = os.fdopen(fd, "w")
-        except BaseException:
-            os.close(fd)
-            tmp_path.unlink(missing_ok=True)
-            raise
-        try:
-            with f:
-                f.write(content)
-            tmp_path.replace(self._unit_path)
-        except BaseException:
-            tmp_path.unlink(missing_ok=True)
-            raise

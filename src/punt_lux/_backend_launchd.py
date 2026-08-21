@@ -10,7 +10,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Self, final
 from xml.sax.saxutils import escape as _xml_escape
 
+from punt_lux._atomic_write import write_config_atomic
 from punt_lux._backends import ServiceBackend
+from punt_lux._launchctl import launchctl
 
 if TYPE_CHECKING:
     from punt_lux.service import ServiceSpec
@@ -24,16 +26,20 @@ __all__ = ["LaunchdBackend"]
 class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
     """Implement ServiceBackend for launchd (plist)."""
 
-    __slots__ = ("_plist_path", "_spec")
+    __slots__ = ("_dir", "_plist_path", "_spec")
 
+    _dir: Path
     _plist_path: Path
     _spec: ServiceSpec
-    _DIR: Path = Path.home() / "Library" / "LaunchAgents"
 
     def __new__(cls, spec: ServiceSpec) -> Self:
         self = super().__new__(cls)
         self._spec = spec
-        self._plist_path = cls._DIR / f"{spec.launchd_label}.plist"
+        # Resolved here, not as a class attribute -- a class body runs once
+        # at import time, binding the real Path.home() forever. Resolving it
+        # per-instance is what makes Path.home() patchable in tests.
+        self._dir = Path.home() / "Library" / "LaunchAgents"
+        self._plist_path = self._dir / f"{spec.launchd_label}.plist"
         return self
 
     def config_path(self) -> Path:
@@ -54,7 +60,7 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         from punt_lux.hub_paths import HubPaths
 
         HubPaths().log_dir.mkdir(parents=True, exist_ok=True)
-        self._DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self._dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         self._remove_legacy_plists()
 
         # Unload first -- handles upgrades with a changed binary path.
@@ -73,7 +79,7 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
                     result.returncode,
                 )
 
-        self._write_config_atomic(self._plist_content())
+        write_config_atomic.write(self._plist_path, self._plist_content())
         logger.info("Wrote %s", self._plist_path)
         subprocess.run(
             ["launchctl", "load", "-w", str(self._plist_path)],
@@ -84,18 +90,10 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
     def uninstall(self) -> None:
         """Unload luxd from launchd and remove the plist."""
         if self._plist_path.exists():
-            result = subprocess.run(
+            launchctl.run(
                 ["launchctl", "unload", "-w", str(self._plist_path)],
-                capture_output=True,
-                text=True,
-                check=False,
+                verb="unload",
             )
-            if result.returncode != 0:
-                logger.warning(
-                    "launchctl unload failed (rc=%d): %s",
-                    result.returncode,
-                    result.stderr.strip(),
-                )
             self._plist_path.unlink()
             logger.info("Removed %s", self._plist_path)
         else:
@@ -117,19 +115,7 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
             logger.info("No plist found at %s -- nothing to stop", self._plist_path)
             return True
         target = f"{self._gui_domain()}/{self._spec.launchd_label}"
-        result = subprocess.run(
-            ["launchctl", "bootout", target],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode != 0:
-            logger.warning(
-                "launchctl bootout failed (rc=%d): %s",
-                result.returncode,
-                result.stderr.strip(),
-            )
-        return result.returncode == 0
+        return launchctl.run(["launchctl", "bootout", target], verb="bootout")
 
     def start(self) -> bool:
         """Re-bootstrap the installed plist into launchd, symmetric to :meth:`stop`.
@@ -140,19 +126,10 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         modern subsystem, so a service this backend stopped can be started
         again without relying on the legacy load/unload shim.
         """
-        result = subprocess.run(
+        return launchctl.run(
             ["launchctl", "bootstrap", self._gui_domain(), str(self._plist_path)],
-            capture_output=True,
-            text=True,
-            check=False,
+            verb="bootstrap",
         )
-        if result.returncode != 0:
-            logger.warning(
-                "launchctl bootstrap failed (rc=%d): %s",
-                result.returncode,
-                result.stderr.strip(),
-            )
-        return result.returncode == 0
 
     @staticmethod
     def _gui_domain() -> str:
@@ -203,33 +180,9 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         """
         if self._spec.launchd_label != "com.punt-labs.luxd-hub":
             return
-        legacy = self._DIR / "com.punt-labs.lux.plist"
+        legacy = self._dir / "com.punt-labs.lux.plist"
         if not legacy.exists():
             return
-        subprocess.run(
-            ["launchctl", "unload", "-w", str(legacy)],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        launchctl.run(["launchctl", "unload", "-w", str(legacy)], verb="unload")
         legacy.unlink(missing_ok=True)
         logger.info("Removed legacy plist %s", legacy)
-
-    def _write_config_atomic(self, content: str) -> None:
-        """Atomically write config to the plist path."""
-        tmp_path = self._plist_path.with_name(self._plist_path.name + ".tmp")
-        flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
-        fd = os.open(str(tmp_path), flags, 0o600)
-        try:
-            f = os.fdopen(fd, "w")
-        except BaseException:
-            os.close(fd)
-            tmp_path.unlink(missing_ok=True)
-            raise
-        try:
-            with f:
-                f.write(content)
-            tmp_path.replace(self._plist_path)
-        except BaseException:
-            tmp_path.unlink(missing_ok=True)
-            raise

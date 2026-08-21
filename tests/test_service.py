@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import platform
-import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -297,7 +296,6 @@ class TestLegacyPlistCleanup:
             patch("punt_lux._backend_launchd.Path.home", return_value=fake_home),
             patch("punt_lux._service_spec.Path.home", return_value=fake_home),
             patch("punt_lux.hub_paths.Path.home", return_value=fake_home),
-            patch.object(LaunchdBackend, "_DIR", agents),
             patch("punt_lux._backend_launchd.subprocess.run") as run,
         ):
             run.return_value.returncode = 0
@@ -320,7 +318,6 @@ class TestLegacyPlistCleanup:
             patch("punt_lux._backend_launchd.Path.home", return_value=fake_home),
             patch("punt_lux._service_spec.Path.home", return_value=fake_home),
             patch("punt_lux.hub_paths.Path.home", return_value=fake_home),
-            patch.object(LaunchdBackend, "_DIR", agents),
             patch("punt_lux._backend_launchd.subprocess.run") as run,
         ):
             run.return_value.returncode = 0
@@ -344,7 +341,6 @@ class TestSystemdLegacyUnitCleanup:
         with (
             patch("punt_lux._backend_systemd.Path.home", return_value=fake_home),
             patch("punt_lux._service_spec.Path.home", return_value=fake_home),
-            patch.object(SystemdBackend, "_DIR", units),
             patch("punt_lux._backend_systemd.subprocess.run") as run,
         ):
             run.return_value.returncode = 0
@@ -366,7 +362,6 @@ class TestSystemdLegacyUnitCleanup:
         with (
             patch("punt_lux._backend_systemd.Path.home", return_value=fake_home),
             patch("punt_lux._service_spec.Path.home", return_value=fake_home),
-            patch.object(SystemdBackend, "_DIR", units),
             patch("punt_lux._backend_systemd.subprocess.run") as run,
         ):
             run.return_value.returncode = 0
@@ -391,15 +386,6 @@ class TestBackendStartStopSymmetry:
         assert run.call_args[0][0][:2] == ["launchctl", "bootstrap"]
         assert ok is True
 
-    @pytest.mark.skipif(
-        sys.platform != "darwin",
-        reason=(
-            "LaunchdBackend._DIR is bound to the real Path.home() at class "
-            "definition time, so config_path() resolves to the real "
-            "~/Library/LaunchAgents regardless of the Path.home() patch "
-            "below -- a directory that only exists on macOS"
-        ),
-    )
     def test_launchd_stop_calls_launchctl_bootout(self, tmp_path: Path):
         # bootout, not unload/stop: under KeepAlive=true, launchctl stop
         # sends SIGTERM and launchd immediately respawns the job. bootout
@@ -409,6 +395,7 @@ class TestBackendStartStopSymmetry:
         fake_home.mkdir()
         with patch("punt_lux._backend_launchd.Path.home", return_value=fake_home):
             backend = LaunchdBackend(HUB_SPEC)
+        backend.config_path().parent.mkdir(parents=True, exist_ok=True)
         backend.config_path().write_text("<plist/>")
         with patch("punt_lux._backend_launchd.subprocess.run") as run:
             run.return_value.returncode = 0
