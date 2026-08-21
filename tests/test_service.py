@@ -77,7 +77,7 @@ class TestLaunchdPlistContent:
 
         assert '<?xml version="1.0"' in content
         assert "<plist" in content
-        assert "com.punt-labs.lux" in content
+        assert "com.punt-labs.luxd-hub" in content
         assert "KeepAlive" in content
         assert "RunAtLoad" in content
         assert "luxd-stdout.log" in content
@@ -240,7 +240,7 @@ class TestBackendStartStopSymmetry:
         with patch("punt_lux._backend_systemd.subprocess.run") as run:
             run.return_value.returncode = 0
             ok = backend.start()
-        assert run.call_args[0][0] == ["systemctl", "--user", "start", "lux"]
+        assert run.call_args[0][0] == ["systemctl", "--user", "start", "luxd-hub"]
         assert ok is True
 
     def test_systemd_start_reports_failure_on_nonzero_exit(self, tmp_path: Path):

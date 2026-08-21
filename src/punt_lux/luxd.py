@@ -228,6 +228,14 @@ def main() -> None:
         datefmt="%H:%M:%S",
     )
 
+    # Visible in ps/top/Activity Monitor; matches the launchd label suffix.
+    try:
+        import setproctitle  # pyright: ignore[reportMissingImports]
+
+        setproctitle.setproctitle("luxd-hub")
+    except ImportError:
+        pass
+
     parser = argparse.ArgumentParser(description="Lux session hub daemon")
     parser.add_argument("--host", default="127.0.0.1", help="Bind address")
     parser.add_argument("--port", type=int, default=DEFAULT_HUB_PORT, help="Bind port")

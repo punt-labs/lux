@@ -364,7 +364,7 @@ class RenderLoop:
         try:
             import setproctitle  # pyright: ignore[reportMissingImports]
 
-            setproctitle.setproctitle("Lux")
+            setproctitle.setproctitle("luxd-display")
         except ImportError:
             pass
 

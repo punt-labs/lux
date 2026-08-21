@@ -14,7 +14,7 @@ from punt_lux._backends import ServiceBackend
 
 logger = logging.getLogger(__name__)
 
-_LABEL = "com.punt-labs.lux"
+_LABEL = "com.punt-labs.luxd-hub"
 
 __all__ = ["LaunchdBackend"]
 

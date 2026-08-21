@@ -27,7 +27,7 @@ class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
-        self._unit_path = cls._DIR / "lux.service"
+        self._unit_path = cls._DIR / "luxd-hub.service"
         return self
 
     def config_path(self) -> Path:
@@ -37,7 +37,7 @@ class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
     def is_active(self) -> bool:
         """Return whether the luxd systemd user service is active."""
         result = subprocess.run(
-            ["systemctl", "--user", "is-active", "lux"],
+            ["systemctl", "--user", "is-active", "luxd-hub"],
             capture_output=True,
             text=True,
         )
@@ -51,15 +51,17 @@ class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         logger.info("Wrote %s", self._unit_path)
 
         subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
-        subprocess.run(["systemctl", "--user", "enable", "--now", "lux"], check=True)
-        subprocess.run(["systemctl", "--user", "restart", "lux"], check=True)
-        logger.info("Enabled and restarted lux.service")
+        subprocess.run(
+            ["systemctl", "--user", "enable", "--now", "luxd-hub"], check=True
+        )
+        subprocess.run(["systemctl", "--user", "restart", "luxd-hub"], check=True)
+        logger.info("Enabled and restarted luxd-hub.service")
 
     def uninstall(self) -> None:
         """Stop, disable, and remove the systemd unit."""
         if self._unit_path.exists():
             subprocess.run(
-                ["systemctl", "--user", "disable", "--now", "lux"],
+                ["systemctl", "--user", "disable", "--now", "luxd-hub"],
                 check=False,
             )
             self._unit_path.unlink()
@@ -74,7 +76,7 @@ class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
     def stop(self) -> bool:
         """Stop the systemd unit, leaving it enabled for the next start/boot."""
         result = subprocess.run(
-            ["systemctl", "--user", "stop", "lux"],
+            ["systemctl", "--user", "stop", "luxd-hub"],
             capture_output=True,
             text=True,
             check=False,
@@ -94,7 +96,7 @@ class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         that and reports the "run install" message before this ever runs.
         """
         result = subprocess.run(
-            ["systemctl", "--user", "start", "lux"],
+            ["systemctl", "--user", "start", "luxd-hub"],
             capture_output=True,
             text=True,
             check=False,
