@@ -1,9 +1,15 @@
 """DisplayRestart — term the display and wait for its supervisor to bring it back.
 
-Restarting the display mirrors ``HubRestart``: SIGTERM the recorded pid, watch
-the old socket owner go, then watch a live socket come back under a different
-pid. Waiting for the new pid is what makes the operation honest — returning as
-soon as the old one died would report a restart that had not happened yet.
+Restarting the display mirrors ``HubRestart``'s two-phase wait: SIGTERM, watch
+the old owner go, then watch a live socket come back under a different pid.
+Waiting for the new pid is what makes the operation honest — returning as soon
+as the old one died would report a restart that had not happened yet.
+
+Unlike the Hub (a port, no socket peer credential available), the display is
+reached over a Unix socket, so the pid to signal is resolved via
+``DisplayPaths.peer_pid`` — the kernel's live peer credential — rather than
+trusted from the pid file: a pid file can be stale or, worse, reused by an
+unrelated process, and signalling on faith is not safe here.
 
 Failure is raised as :class:`DisplayRestartError` with a human-worded reason.
 """
@@ -19,7 +25,6 @@ from punt_lux.paths import DisplayPaths
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
-    from pathlib import Path
 
 __all__ = ["DisplayRestart", "DisplayRestartError"]
 
@@ -50,12 +55,20 @@ class DisplayRestart:
         return self._await_respawn(old_pid)
 
     def _term(self) -> int:
-        """Send SIGTERM to the recorded pid and return it, or say why it failed."""
+        """Send SIGTERM to the socket's live owner and return its pid.
+
+        Resolved via the kernel peer credential, not the pid file: a pid file
+        can be stale or belong to an unrelated process that has since reused
+        the pid, and signalling on that faith is not safe.
+        """
+        pid = self._paths.peer_pid()
+        if pid is None:
+            msg = f"could not resolve display's live pid at {self._paths.socket_path}"
+            raise DisplayRestartError(msg)
         try:
-            pid = int(self._pid_path.read_text().strip())
             os.kill(pid, signal.SIGTERM)
-        except (ValueError, OSError) as exc:
-            msg = f"could not signal display: {exc}"
+        except OSError as exc:
+            msg = f"could not signal display (pid {pid}): {exc}"
             raise DisplayRestartError(msg) from exc
         return pid
 
@@ -78,13 +91,15 @@ class DisplayRestart:
         raise DisplayRestartError(msg)
 
     def _live_pid(self) -> int | None:
-        """The pid of a running display, or ``None`` while there is not one yet."""
+        """The socket's live owner pid, or ``None`` while there is not one yet.
+
+        Resolved via the kernel peer credential, same as ``_term`` — the pid
+        file is not consulted, so a stale file can never be mistaken for the
+        fresh respawn this wait is looking for.
+        """
         if not self._paths.is_running():
             return None
-        try:
-            return int(self._pid_path.read_text().strip())
-        except (ValueError, OSError):
-            return None
+        return self._paths.peer_pid()
 
     @staticmethod
     def _alive(pid: int) -> bool:
@@ -101,7 +116,3 @@ class DisplayRestart:
         for _ in range(int(_WAIT_SECONDS / _POLL_SECONDS)):
             time.sleep(_POLL_SECONDS)
             yield
-
-    @property
-    def _pid_path(self) -> Path:
-        return self._paths.pid_path

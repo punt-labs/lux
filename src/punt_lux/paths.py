@@ -232,7 +232,7 @@ class DisplayPaths:
             if not self.is_running():
                 self._clear_dead_files_locked()
                 return
-            pid = self._peer_pid()
+            pid = self.peer_pid()
             if pid is None:
                 # TOCTOU: the owner may have exited between probe and peer read.
                 if not self.is_running():
@@ -246,11 +246,12 @@ class DisplayPaths:
             self._terminate(pid, timeout)  # raises if the owner outlives SIGKILL
             self._clear_dead_files_locked()
 
-    def _peer_pid(self) -> int | None:
+    def peer_pid(self) -> int | None:
         """Return the socket owner's PID via kernel peer credential, or ``None``.
 
-        Absence is unresolvable owner (documented contract); reap must never
-        signal ``None`` — the socket wins on identity, a PID file may be stale.
+        Absence is unresolvable owner (documented contract); a caller signalling
+        the display must never fall back to a PID file — the socket wins on
+        identity, and a PID file can be stale or reused by an unrelated process.
         """
         return SocketOwner(self._socket_path).pid()
 

@@ -1037,7 +1037,7 @@ class TestReap:
         """An owner that exits between the liveness probe and the peer read.
 
         is_running() is True at the top of reap(), the owner then exits
-        cleanly, and _peer_pid() returns None. reap() must re-check
+        cleanly, and peer_pid() returns None. reap() must re-check
         liveness, find the socket dead, clear files, and NOT raise a
         scary 'owner unresolved' error.
         """
@@ -1051,7 +1051,7 @@ class TestReap:
             # Probe 1: alive. Probe 2 (after None peer): dead. Probe 3
             # (_clear_dead_files re-probe before unlink): dead.
             patch.object(DisplayPaths, "is_running", side_effect=[True, False, False]),
-            patch.object(DisplayPaths, "_peer_pid", return_value=None),
+            patch.object(DisplayPaths, "peer_pid", return_value=None),
             patch("punt_lux.paths.os.kill") as kill,
         ):
             dp.reap(timeout=0.2)  # no raise
@@ -1099,7 +1099,7 @@ class TestReap:
 
         try:
             with (
-                patch.object(DisplayPaths, "_peer_pid", return_value=None),
+                patch.object(DisplayPaths, "peer_pid", return_value=None),
                 patch("punt_lux.paths.os.kill") as kill,
                 pytest.raises(RuntimeError, match="refusing to reap"),
             ):
