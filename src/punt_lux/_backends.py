@@ -14,7 +14,31 @@ import subprocess
 from abc import ABC, abstractmethod
 from pathlib import Path
 
-__all__ = ["ServiceBackend", "has_linger"]
+__all__ = ["ServiceBackend", "has_linger", "pgrep_pid"]
+
+
+def pgrep_pid(process_name: str) -> int | None:
+    """Return the pid of the running process, or ``None`` if none is up.
+
+    ``pgrep -x`` matches the ``setproctitle`` name — the same string that
+    shows in ``ps`` and Activity Monitor. Answers on both macOS and Linux
+    without depending on a socket peer credential (the Hub speaks TCP and
+    cannot expose one) or a pid file (the daemon may not yet have written
+    it). Absence is the documented contract when nothing is up.
+    """
+    result = subprocess.run(
+        ["pgrep", "-x", process_name],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    lines = result.stdout.strip().splitlines()
+    if not lines:
+        return None
+    try:
+        return int(lines[0])
+    except ValueError:
+        return None
 
 
 class ServiceBackend(ABC):

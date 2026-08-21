@@ -1,27 +1,28 @@
-"""DisplayRestart — term the display and wait for its supervisor to bring it back.
+"""DisplayRestart — restart the display through its service supervisor.
 
-Restarting the display mirrors ``HubRestart``'s two-phase wait: SIGTERM, watch
-the old owner go, then watch a live socket come back under a different pid.
-Waiting for the new pid is what makes the operation honest — returning as soon
-as the old one died would report a restart that had not happened yet.
-
-Unlike the Hub (a port, no socket peer credential available), the display is
-reached over a Unix socket, so the pid to signal is resolved via
-``DisplayPaths.peer_pid`` — the kernel's live peer credential — rather than
-trusted from the pid file: a pid file can be stale or, worse, reused by an
-unrelated process, and signalling on faith is not safe here.
+The display and the Hub share one restart shape: ask the supervisor to
+atomically kill-and-respawn (launchctl kickstart -k / systemctl --user
+restart), then wait for the process id under the service's
+``setproctitle`` name to *change* — the same signal on a first-ever
+install (``None`` → new pid) and on an upgrade (old pid → new pid). No
+socket peer credential, no pid file, no dependence on state the daemon
+does not itself keep current.
 
 Failure is raised as :class:`DisplayRestartError` with a human-worded reason.
 """
 
 from __future__ import annotations
 
-import os
-import signal
 import time
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.paths import DisplayPaths
+from punt_lux._backends import pgrep_pid
+from punt_lux._service_spec import DISPLAY_SPEC, ServiceSpec
+from punt_lux.service import (
+    DisplayServiceManager,
+    ServiceActionFailedError,
+    ServiceNotInstalledError,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -38,81 +39,49 @@ class DisplayRestartError(RuntimeError):
 
 @final
 class DisplayRestart:
-    """Term the display and wait for the supervisor to respawn it on a new pid."""
+    """Restart the display via its supervisor and wait for the pid to change."""
 
-    _paths: DisplayPaths
-    __slots__ = ("_paths",)
+    _spec: ServiceSpec
+    _manager: DisplayServiceManager
+    __slots__ = ("_manager", "_spec")
 
-    def __new__(cls, paths: DisplayPaths | None = None) -> Self:
+    def __new__(
+        cls,
+        spec: ServiceSpec | None = None,
+        manager: DisplayServiceManager | None = None,
+    ) -> Self:
         self = super().__new__(cls)
-        self._paths = paths if paths is not None else DisplayPaths()
+        self._spec = spec if spec is not None else DISPLAY_SPEC
+        self._manager = manager if manager is not None else DisplayServiceManager()
         return self
 
     def run(self) -> str:
         """Restart the display and return the line describing what came back."""
-        old_pid = self._term()
-        self._await_exit(old_pid)
-        return self._await_respawn(old_pid)
-
-    def _term(self) -> int:
-        """Send SIGTERM to the socket's live owner and return its pid.
-
-        Resolved via the kernel peer credential, not the pid file: a pid file
-        can be stale or belong to an unrelated process that has since reused
-        the pid, and signalling on that faith is not safe.
-        """
-        pid = self._paths.peer_pid()
-        if pid is None:
-            msg = f"could not resolve display's live pid at {self._paths.socket_path}"
-            raise DisplayRestartError(msg)
+        before = pgrep_pid(self._spec.process_name)
         try:
-            os.kill(pid, signal.SIGTERM)
-        except OSError as exc:
-            msg = f"could not signal display (pid {pid}): {exc}"
-            raise DisplayRestartError(msg) from exc
-        return pid
+            self._manager.restart()
+        except (ServiceActionFailedError, ServiceNotInstalledError) as exc:
+            raise DisplayRestartError(str(exc)) from exc
+        return self._await_new_pid(before)
 
-    def _await_exit(self, pid: int) -> None:
-        """Wait for the termed process to go, or raise once the bound passes."""
-        for _ in self._polls():
-            if not self._alive(pid) or not self._paths.is_running():
-                return
-        msg = f"display (pid {pid}) did not stop within {_WAIT_SECONDS:.0f}s"
-        raise DisplayRestartError(msg)
+    def _await_new_pid(self, before: int | None) -> str:
+        """Wait for a pid that differs from ``before``, and describe it.
 
-    def _await_respawn(self, old_pid: int) -> str:
-        """Wait for a different live pid to own the socket, and describe it."""
-        for _ in self._polls():
-            pid = self._live_pid()
-            if pid is None or pid == old_pid:
-                continue
-            return f"display restarted (pid {pid}) at {self._paths.socket_path}"
-        msg = f"display did not restart within {_WAIT_SECONDS:.0f}s"
-        raise DisplayRestartError(msg)
-
-    def _live_pid(self) -> int | None:
-        """The socket's live owner pid, or ``None`` while there is not one yet.
-
-        Resolved via the kernel peer credential, same as ``_term`` — the pid
-        file is not consulted, so a stale file can never be mistaken for the
-        fresh respawn this wait is looking for.
+        A pid equal to ``before`` is the previous instance still exiting, not
+        the respawn — treat it as absent and keep waiting. The first pid
+        that satisfies ``pid is not None and pid != before`` witnesses the
+        restart; only then is the operation safe to report as complete.
         """
-        if not self._paths.is_running():
-            return None
-        return self._paths.peer_pid()
-
-    @staticmethod
-    def _alive(pid: int) -> bool:
-        """Whether ``pid`` still exists; an unreadable process counts as gone."""
-        try:
-            os.kill(pid, 0)
-        except (ProcessLookupError, PermissionError):
-            return False
-        return True
+        for _ in self._polls():
+            pid = pgrep_pid(self._spec.process_name)
+            if pid is not None and pid != before:
+                return f"display restarted (pid {pid})"
+        msg = f"display did not come back within {_WAIT_SECONDS:.0f}s"
+        raise DisplayRestartError(msg)
 
     @staticmethod
     def _polls() -> Iterator[None]:
-        """The bounded poll schedule both waits share."""
+        """The bounded poll schedule: sleep, then look, until spent."""
         for _ in range(int(_WAIT_SECONDS / _POLL_SECONDS)):
             time.sleep(_POLL_SECONDS)
             yield
