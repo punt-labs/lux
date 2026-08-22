@@ -11,6 +11,16 @@
 
 ### Fixed
 
+- **`lux-5i3n`: `make restart` hung indefinitely** — `launchctl kickstart -k`
+  restarts a service through its *existing* launchd plist; it never rewrites
+  the plist, so after `lux-j169` renamed the hub binary the plist still
+  pointed at the deleted `~/.local/bin/luxd` and kickstart hung waiting on a
+  missing program. The `restart`/`reload` Makefile targets now run
+  `lux hub install` (and `lux display install`), which regenerate the plist
+  from the current `ServiceSpec.binary_name` via
+  `ServiceManager.install()` before starting the service — the same fix
+  that was already required to pick up the display rename above.
+
 - **`lux-j169`: `uv tool install --force` after the `luxd` -> `luxd-hub`
   rename left a stale `~/.local/bin/luxd` shim behind** — `uv` only
   reconciles the entrypoints it currently declares, so it has no reason to
@@ -116,6 +126,12 @@
 
 ### Added
 
+- **`luxd-display` top-level console script** (`lux-5i3n`), completing the
+  binary rename `lux-j169` shipped for the hub only. `uv tool install
+  punt-lux[display]` now installs `luxd-display` alongside `luxd-hub`;
+  `DISPLAY_SPEC.binary_name` is `"luxd-display"` (was `"lux"`, launched via
+  `lux display serve`). `lux display serve` still works — it now delegates
+  to the same `DisplayEntryPoint.serve` the top-level binary runs.
 - **`lux hub doctor` / `lux display doctor` (`--fix`).** Diagnoses (or, with
   `--fix`, repairs) a service's legacy launchd/systemd registrations and port
   conflicts. Exit codes: `0` clean (or `--fix` reached clean), `1` dirty with
