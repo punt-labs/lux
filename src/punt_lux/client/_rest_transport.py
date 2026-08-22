@@ -1,13 +1,18 @@
-"""The public Python client of luxd's REST surface.
+"""The private REST transport :class:`LuxClient` composes -- never imported by name.
 
-:class:`LuxRestClient` is the library surface a consumer imports — the CLI and any
-downstream app use it rather than hand-rolling REST. It locates luxd's port,
+:class:`_RestTransport` speaks luxd's REST surface: it locates luxd's port,
 speaks the operations request/result models over HTTP, and never touches the
 display socket. It stamps the caller's ``X-Lux-Client-*`` identity headers on
 every request, so each installed scene is attributed to the caller's repository;
 :class:`HttpCall` builds the request and :class:`RestReply` reads the reply. An
 unreachable luxd raises :class:`HubUnavailableError`; a reachable Hub's refusal
 returns a typed :class:`OpError`.
+
+This module's leading underscore is the encapsulation boundary: no
+``__init__.py`` re-exports ``_RestTransport``, so the only way to reach it is an
+explicit ``from punt_lux.client._rest_transport import _RestTransport`` --
+visibly wrong at review time. Every consumer reaches this class through
+:class:`~punt_lux.client.facade.LuxClient`'s accessors or its ``sync`` property.
 """
 
 from __future__ import annotations
@@ -16,6 +21,8 @@ from typing import TYPE_CHECKING, Self, final
 from urllib.parse import quote, urlencode
 
 from punt_lux.cli_identity import CliIdentity
+from punt_lux.client._rest_display import _DisplayRestOps
+from punt_lux.client._rest_scenes import _SceneRestOps
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.hub_client import LuxHubClient
 from punt_lux.hub_paths import HubPaths
@@ -35,8 +42,6 @@ from punt_lux.operations import (
 )
 from punt_lux.operations.models.callbacks import RegisterCallbackRequest
 from punt_lux.operations.models.identity import Identified
-from punt_lux.rest_client_display import DisplayRestOps
-from punt_lux.rest_client_scenes import SceneRestOps
 from punt_lux.rest_http_call import HttpCall
 from punt_lux.rest_loopback import LoopbackTransport
 from punt_lux.rest_reply import RestReply
@@ -63,26 +68,26 @@ if TYPE_CHECKING:
         WindowSettingsPatch,
     )
 
-__all__ = ["LuxRestClient"]
+__all__ = ["_RestTransport"]
 
 
 @final
-class LuxRestClient:
-    """The public Python client of luxd — the library surface every consumer uses.
+class _RestTransport:
+    """The REST transport :class:`~punt_lux.client.facade.LuxClient` composes.
 
-    A downstream app (vox, a headless tool) reaches the Hub through this typed
-    client, not by hand-rolling REST, so it gets the same validation, typing, and
-    identity behavior the CLI does. A daemon or app builds it with
-    :meth:`for_identity`, declaring an EXPLICIT identity — who it is, an ``app``
-    named for the service, not where it happened to run. A ``lux`` command uses
-    :meth:`connect`, which derives a ``cli`` identity from its working context.
+    A downstream app (vox, a headless tool) reaches the Hub through
+    ``LuxClient``, never through this class by name. A daemon or app builds
+    ``LuxClient`` with :meth:`for_identity`, declaring an EXPLICIT identity --
+    who it is, an ``app`` named for the service, not where it happened to run.
+    A ``lux`` command uses :meth:`connect`, which derives a ``cli`` identity
+    from its working context.
     """
 
     _transport: HttpTransport
     _identity: ClientIdentity
     _headers: dict[str, str]
-    _scenes: SceneRestOps
-    _display: DisplayRestOps
+    _scenes: _SceneRestOps
+    _display: _DisplayRestOps
     __slots__ = ("_display", "_headers", "_identity", "_scenes", "_transport")
 
     def __new__(cls, transport: HttpTransport, identity: ClientIdentity) -> Self:
@@ -90,8 +95,8 @@ class LuxRestClient:
         self._transport = transport
         self._identity = identity
         self._headers = ClientHeaders.to_wire(identity)
-        self._scenes = SceneRestOps(transport, self._headers)
-        self._display = DisplayRestOps(transport, self._headers)
+        self._scenes = _SceneRestOps(transport, self._headers)
+        self._display = _DisplayRestOps(transport, self._headers)
         return self
 
     @classmethod

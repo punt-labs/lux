@@ -1,9 +1,9 @@
-"""The display-family wire methods :class:`LuxRestClient` composes and delegates to.
+"""The display-family wire methods :class:`_RestTransport` composes and delegates to.
 
-Splits the display-info/theme/window/mode cluster out of ``rest_client.py`` so
-that module stays under its size target. Shares one
+Splits the display-info/theme/window/mode cluster out of ``_rest_transport.py``
+so that module stays under its size target. Shares one
 :class:`~punt_lux.rest_transport.HttpTransport` and one identity header set
-with the composing client; :class:`DisplayRestOps` never constructs its own.
+with the composing client; :class:`_DisplayRestOps` never constructs its own.
 """
 
 from __future__ import annotations
@@ -30,11 +30,11 @@ if TYPE_CHECKING:
     )
     from punt_lux.rest_transport import HttpTransport
 
-__all__ = ["DisplayRestOps"]
+__all__ = ["_DisplayRestOps"]
 
 
 @final
-class DisplayRestOps:
+class _DisplayRestOps:
     """Wraps the ``/display`` and ``/display-mode`` REST routes."""
 
     _transport: HttpTransport

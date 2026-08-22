@@ -41,5 +41,7 @@ def ls(
     identity = identity_from_flags(
         as_=None, kind=None, name=None, repo=None, agent=None
     )
-    ctx: Ctx[EventOps] = Ctx(ops=connect_client(identity=identity), identity=identity)
+    ctx: Ctx[EventOps] = Ctx(
+        ops=connect_client(identity=identity).sync, identity=identity
+    )
     run(event_ls(ctx, count), flags)

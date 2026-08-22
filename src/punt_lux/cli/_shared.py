@@ -21,10 +21,10 @@ from pydantic import ValidationError
 
 from punt_lux.cli._identity_errors import describe_identity_error
 from punt_lux.cli_identity import CliIdentity
+from punt_lux.client.facade import LuxClient
 from punt_lux.connection_identity import connection_for
 from punt_lux.domain.hub.client_identity import ClientIdentity, ClientKind
 from punt_lux.operations import Scope
-from punt_lux.rest_client import LuxRestClient
 from punt_lux.rest_transport import HubUnavailableError
 
 if TYPE_CHECKING:
@@ -252,23 +252,24 @@ def read_json_array(inline: str | None, from_file: Path | None) -> list[object]:
 
 def connect_client(
     *, identity: ClientIdentity | None = None, timeout: float = 2.0
-) -> LuxRestClient:
-    """Build a :class:`LuxRestClient` or exit 1 with the hub-unavailable message.
+) -> LuxClient:
+    """Build a :class:`LuxClient` or exit 1 with the hub-unavailable message.
 
     ``identity`` must be the same :class:`ClientIdentity`
     :func:`identity_from_flags` resolved for this invocation — REST stamps its
     ``X-Lux-Client-*`` headers from the identity the client declares at
     connect time, so a caller's ``--as/--kind/--name/--repo/--agent`` flags
     only reach the wire if this client is built with them. Omitting
-    ``identity`` falls back to :meth:`LuxRestClient.connect`'s own ambient
+    ``identity`` falls back to :meth:`LuxClient.connect`'s own ambient
     resolution — the same identity :func:`identity_from_flags` would resolve
     with every flag absent, so a caller with no identity flags gets the
-    identical result either way.
+    identical result either way. Every ``Ctx[XxxOps]`` construction reads
+    ``.sync`` off the returned client rather than holding it directly.
     """
     try:
         if identity is not None:
-            return LuxRestClient.for_identity(identity, timeout=timeout)
-        return LuxRestClient.connect(timeout=timeout)
+            return LuxClient.for_identity(identity, timeout=timeout)
+        return LuxClient.connect(timeout=timeout)
     except HubUnavailableError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from None

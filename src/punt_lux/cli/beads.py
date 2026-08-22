@@ -17,17 +17,21 @@ retired shape), so this moved to a bare top-level verb, unchanged otherwise.
 
 from __future__ import annotations
 
-from typing import Self, final
+from typing import TYPE_CHECKING, Self, final
 
 import typer
 
+from punt_lux.applets.board_ops import ScopedBoardOps
 from punt_lux.apps.beads import BeadsBrowser
 from punt_lux.apps.beads_board import BeadsBoard
 from punt_lux.apps.beads_result import BeadsFailure
+from punt_lux.client.facade import LuxClient
 from punt_lux.operations import OpError, RenderRequest, RenderTableRequest
 from punt_lux.operations.models.scene_results import SceneShown
-from punt_lux.rest_client import LuxRestClient
 from punt_lux.rest_transport import HubUnavailableError
+
+if TYPE_CHECKING:
+    from punt_lux.applets.board_ops import BoardOps
 
 __all__ = ["beads"]
 
@@ -63,7 +67,7 @@ class BeadsBoardCommand:
         return board.request(result), note
 
     def push(
-        self, client: LuxRestClient, request: RenderTableRequest | RenderRequest
+        self, client: BoardOps, request: RenderTableRequest | RenderRequest
     ) -> SceneShown | OpError:
         """Install the board through the route its request calls for.
 
@@ -83,7 +87,9 @@ def beads(
     command = BeadsBoardCommand()
     request, note = command.request(all_issues=all_issues)
     try:
-        result = command.push(LuxRestClient.connect(), request)
+        connected = LuxClient.connect()
+        client = ScopedBoardOps(connected.sync, connected.scope)
+        result = command.push(client, request)
     except HubUnavailableError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from None

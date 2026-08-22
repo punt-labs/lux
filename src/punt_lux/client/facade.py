@@ -3,11 +3,12 @@
 A downstream app builds one ``LuxClient`` from its declared identity, then
 reaches the Hub through noun-grouped accessors: the ``client.scene.show`` verb,
 ``client.topic.publish(...)``, ``client.callback.register(...)``. The facade
-composes the transport (a :class:`~punt_lux.rest_client.LuxRestClient` by
-default) once and hands the same transport reference to every accessor so a
-callback registered through one accessor is delivered through this client's
-listener on another. The listener leg is built on demand from
-:meth:`LuxClient.listener`.
+composes the transport (a private ``_RestTransport`` by default) once and hands
+the same transport reference to every accessor so a callback registered
+through one accessor is delivered through this client's listener on another.
+The listener leg is built on demand from :meth:`LuxClient.listener`; a caller
+that is architecturally synchronous reaches the same transport through
+:attr:`LuxClient.sync` instead.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from functools import cached_property
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.cli_identity import CliIdentity
+from punt_lux.client._rest_transport import _RestTransport
 from punt_lux.client.callback import CallbackAccessor
 from punt_lux.client.display import DisplayAccessor
 from punt_lux.client.error import ErrorAccessor
@@ -28,9 +30,9 @@ from punt_lux.commands import ping as ping_command
 from punt_lux.commands._ports import Ctx
 from punt_lux.connection_identity import connection_for
 from punt_lux.operations import Scope
-from punt_lux.rest_client import LuxRestClient
 
 if TYPE_CHECKING:
+    from punt_lux.client._sync_ops import SyncOps
     from punt_lux.commands._ports import PingOps
     from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.hub_client import (
@@ -54,12 +56,12 @@ class LuxClient:
     :class:`SceneAccessor` every time.
     """
 
-    _transport: LuxRestClient
+    _transport: _RestTransport
     _identity: ClientIdentity
     _scope: Scope
     __slots__ = ("__dict__", "_identity", "_scope", "_transport")
 
-    def __new__(cls, transport: LuxRestClient, identity: ClientIdentity) -> Self:
+    def __new__(cls, transport: _RestTransport, identity: ClientIdentity) -> Self:
         self = super().__new__(cls)
         self._transport = transport
         self._identity = identity
@@ -78,7 +80,7 @@ class LuxClient:
     @classmethod
     def for_identity(cls, identity: ClientIdentity, *, timeout: float = 2.0) -> Self:
         """Build a client for a daemon or app that declares an EXPLICIT identity."""
-        return cls(LuxRestClient.for_identity(identity, timeout=timeout), identity)
+        return cls(_RestTransport.for_identity(identity, timeout=timeout), identity)
 
     @classmethod
     def connect(cls, *, timeout: float = 2.0) -> Self:
@@ -142,6 +144,21 @@ class LuxClient:
     def error(self) -> ErrorAccessor:
         """The ``client.error.*`` verbs."""
         return ErrorAccessor(self._transport, self._identity)
+
+    @cached_property
+    def sync(self) -> SyncOps:
+        """The synchronous ops surface this client's transport already satisfies.
+
+        For callers that are architecturally synchronous and must not create or
+        join an event loop -- an applet's worker thread, dispatched via
+        ``asyncio.to_thread`` specifically so it never touches the loop renewing
+        its own session's lease (see ``applets/runner.py``'s module docstring).
+        Returns the SAME transport instance ``scene``/``frame``/``menu``/...
+        compose -- no new object, no ``asyncio.run()`` per call, no thread hop.
+        Its declared type is a Protocol, never ``_RestTransport`` by name, so a
+        caller can hold and pass this value without importing anything private.
+        """
+        return self._transport
 
     async def ping(self, wait: float | None = None) -> Pong | OpError:
         """Round-trip a display ping (top-level diagnostics verb)."""

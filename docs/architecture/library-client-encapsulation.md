@@ -268,9 +268,19 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 
 from punt_lux.commands._ports import (
-    CallbackRegisterOps, DisplayInfoOps, DisplayModeOps, ErrorOps,
-    EventOps, FrameOps, MenuOps, PingOps, SceneOps, ScreenshotOps,
-    SessionOps, ThemeOps, WindowOps,
+    CallbackRegisterOps,
+    DisplayInfoOps,
+    DisplayModeOps,
+    ErrorOps,
+    EventOps,
+    FrameOps,
+    MenuOps,
+    PingOps,
+    SceneOps,
+    ScreenshotOps,
+    SessionOps,
+    ThemeOps,
+    WindowOps,
 )
 
 __all__ = ["SyncOps"]
@@ -278,9 +288,20 @@ __all__ = ["SyncOps"]
 
 @runtime_checkable
 class SyncOps(
-    PingOps, SceneOps, FrameOps, MenuOps, SessionOps, CallbackRegisterOps,
-    EventOps, ErrorOps, DisplayInfoOps, ThemeOps, WindowOps, DisplayModeOps,
-    ScreenshotOps, Protocol,
+    PingOps,
+    SceneOps,
+    FrameOps,
+    MenuOps,
+    SessionOps,
+    CallbackRegisterOps,
+    EventOps,
+    ErrorOps,
+    DisplayInfoOps,
+    ThemeOps,
+    WindowOps,
+    DisplayModeOps,
+    ScreenshotOps,
+    Protocol,
 ):
     """Every synchronous Hub operation ``LuxClient.sync`` exposes at once.
 

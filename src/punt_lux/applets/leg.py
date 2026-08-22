@@ -35,15 +35,16 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.applets.latency import ClickLatency
 from punt_lux.applets.runner import ServiceRunner
 from punt_lux.applets.underway import Underway
+from punt_lux.client.facade import LuxClient
 from punt_lux.hub_client import LuxHubClient
 from punt_lux.operations import Ok, OpError
-from punt_lux.rest_client import LuxRestClient
 from punt_lux.rest_transport import HubUnavailableError
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from punt_lux.applets.service import AppletService
+    from punt_lux.client._sync_ops import CallbackConvenienceOps
     from punt_lux.domain.hub.client_identity import ClientIdentity
 
 logger = logging.getLogger(__name__)
@@ -169,11 +170,11 @@ class AppletLeg:
         """
         logger.debug("unsubscribed event on the session leg: %s %s", topic, payload)
 
-    def _rest(self) -> LuxRestClient:
-        """Build a REST client for the current luxd, sharing this leg's identity.
+    def _rest(self) -> CallbackConvenienceOps:
+        """Build a Hub connection for the current luxd, sharing this leg's identity.
 
         Built per use rather than held, because the port is luxd's current one: a
         Hub that restarted onto a new port is followed here exactly as the listen
         client follows it, instead of registering against a port nobody is on.
         """
-        return LuxRestClient.for_identity(self._identity)
+        return LuxClient.for_identity(self._identity).sync

@@ -75,7 +75,7 @@ def info(
         as_=None, kind=None, name=None, repo=None, agent=None
     )
     ctx: Ctx[DisplayInfoOps] = Ctx(
-        ops=connect_client(identity=identity), identity=identity
+        ops=connect_client(identity=identity).sync, identity=identity
     )
     run(display_info(ctx), flags)
 
@@ -93,7 +93,9 @@ def theme(
     identity = identity_from_flags(
         as_=None, kind=None, name=None, repo=None, agent=None
     )
-    ctx: Ctx[ThemeOps] = Ctx(ops=connect_client(identity=identity), identity=identity)
+    ctx: Ctx[ThemeOps] = Ctx(
+        ops=connect_client(identity=identity).sync, identity=identity
+    )
     if name is None:
         run(display_get_theme(ctx), flags)
         return
@@ -119,7 +121,7 @@ def mode(
         as_=None, kind=None, name=None, repo=None, agent=None
     )
     ctx: Ctx[DisplayModeOps] = Ctx(
-        ops=connect_client(identity=identity), identity=identity
+        ops=connect_client(identity=identity).sync, identity=identity
     )
     if value is None:
         run(display_mode_get(ctx, repo), flags)
@@ -158,7 +160,9 @@ def window(
     identity = identity_from_flags(
         as_=None, kind=None, name=None, repo=None, agent=None
     )
-    ctx: Ctx[WindowOps] = Ctx(ops=connect_client(identity=identity), identity=identity)
+    ctx: Ctx[WindowOps] = Ctx(
+        ops=connect_client(identity=identity).sync, identity=identity
+    )
     if (
         opacity is None
         and font_scale is None
@@ -190,7 +194,7 @@ def screenshot(
         as_=None, kind=None, name=None, repo=None, agent=None
     )
     ctx: Ctx[ScreenshotOps] = Ctx(
-        ops=connect_client(identity=identity), identity=identity
+        ops=connect_client(identity=identity).sync, identity=identity
     )
     run(display_screenshot(ctx), flags)
 

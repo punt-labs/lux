@@ -45,7 +45,9 @@ def raise_(
     identity = identity_from_flags(
         as_=as_, kind=kind, name=name, repo=repo, agent=agent
     )
-    ctx: Ctx[FrameOps] = Ctx(ops=connect_client(identity=identity), identity=identity)
+    ctx: Ctx[FrameOps] = Ctx(
+        ops=connect_client(identity=identity).sync, identity=identity
+    )
     run(frame_raise(ctx, frame_id), flags)
 
 
@@ -67,5 +69,7 @@ def close(
     identity = identity_from_flags(
         as_=as_, kind=kind, name=name, repo=repo, agent=agent
     )
-    ctx: Ctx[FrameOps] = Ctx(ops=connect_client(identity=identity), identity=identity)
+    ctx: Ctx[FrameOps] = Ctx(
+        ops=connect_client(identity=identity).sync, identity=identity
+    )
     run(frame_close(ctx, frame_id), flags)
