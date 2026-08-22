@@ -87,6 +87,16 @@ class ServiceBackend(ABC):
     def config_path(self) -> Path:
         """Return the path to the service config file."""
 
+    def linger_warning(self) -> str:
+        """Return a post-install warning line, or ``""`` when none applies.
+
+        Base case: no warning. Overridden by :class:`SystemdBackend`, whose
+        supervisor stops the service at logout unless linger is enabled --
+        a platform-specific concern this dispatches on the object, not an
+        ``isinstance`` check at the call site.
+        """
+        return ""
+
 
 def has_linger() -> bool:
     """Check if loginctl linger is enabled for the current user."""

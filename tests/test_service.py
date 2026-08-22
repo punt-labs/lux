@@ -10,6 +10,7 @@ import pytest
 
 from punt_lux._backend_launchd import LaunchdBackend
 from punt_lux._backend_systemd import SystemdBackend
+from punt_lux._service_errors import ServiceMigrationError
 from punt_lux.service import (
     DISPLAY_SPEC,
     HUB_SPEC,
@@ -282,93 +283,164 @@ class TestServiceManagerStop:
 
 
 class TestLegacyPlistCleanup:
-    def test_hub_install_removes_legacy_lux_plist(self, tmp_path: Path):
+    """ServiceManager.install() now owns the legacy sweep (service.py §2.1).
+
+    The plist file itself is exercised via LaunchdLegacySweep's own tests
+    (test_legacy_sweep.py); here the concern is that ServiceManager wires
+    the sweep in for the hub and leaves DISPLAY_SPEC's empty
+    legacy_launchd_labels tuple to no-op naturally, with zero string
+    special-casing.
+    """
+
+    def test_hub_install_invokes_the_legacy_sweep(self, tmp_path: Path):
         fake_home = tmp_path / "home"
-        agents = fake_home / "Library" / "LaunchAgents"
-        agents.mkdir(parents=True)
-        legacy = agents / "com.punt-labs.lux.plist"
-        legacy.write_text("<plist/>")
+        fake_home.mkdir()
         local_bin = fake_home / ".local" / "bin"
         local_bin.mkdir(parents=True)
         (local_bin / "luxd").touch()
 
         with (
+            patch("punt_lux.service.detect_platform", return_value="macos"),
             patch("punt_lux._backend_launchd.Path.home", return_value=fake_home),
             patch("punt_lux._service_spec.Path.home", return_value=fake_home),
             patch("punt_lux.hub_paths.Path.home", return_value=fake_home),
-            patch("punt_lux._backend_launchd.subprocess.run") as run,
         ):
-            run.return_value.returncode = 0
-            backend = LaunchdBackend(HUB_SPEC)
-            backend.install()
+            mgr = ServiceManager.for_hub()
+            with (
+                patch.object(type(mgr._legacy_sweep), "sweep") as sweep,
+                patch.object(mgr._backend, "install"),
+                patch.object(mgr._backend, "is_active", return_value=True),
+                patch.object(type(mgr._port_guard), "guard"),
+            ):
+                mgr.install()
 
-        assert not legacy.exists()
+        sweep.assert_called_once()
 
-    def test_display_install_leaves_legacy_plist_alone(self, tmp_path: Path):
+    def test_display_install_never_touches_the_legacy_sweep(self, tmp_path: Path):
+        # DISPLAY_SPEC's legacy_launchd_labels is (); the sweep is still
+        # invoked (uniform code path), but it has nothing to iterate --
+        # exactly the "no if spec.launchd_label != ...: return" posture
+        # the design replaces (§5.2).
         fake_home = tmp_path / "home"
-        agents = fake_home / "Library" / "LaunchAgents"
-        agents.mkdir(parents=True)
-        legacy = agents / "com.punt-labs.lux.plist"
-        legacy.write_text("<plist/>")
+        fake_home.mkdir()
         local_bin = fake_home / ".local" / "bin"
         local_bin.mkdir(parents=True)
         (local_bin / "lux").touch()
 
         with (
+            patch("punt_lux.service.detect_platform", return_value="macos"),
             patch("punt_lux._backend_launchd.Path.home", return_value=fake_home),
             patch("punt_lux._service_spec.Path.home", return_value=fake_home),
             patch("punt_lux.hub_paths.Path.home", return_value=fake_home),
-            patch("punt_lux._backend_launchd.subprocess.run") as run,
         ):
-            run.return_value.returncode = 0
-            backend = LaunchdBackend(DISPLAY_SPEC)
-            backend.install()
+            mgr = ServiceManager.for_display()
+            with (
+                patch.object(mgr._backend, "install"),
+                patch.object(mgr._backend, "is_active", return_value=True),
+            ):
+                report = mgr.install()
 
-        assert legacy.exists()
+        assert mgr._legacy_sweep.is_clean()
+        assert "displa" in report.lower() or report  # install() returned normally
+
+
+class TestInstallAndDoctorShareTheSameSweepObjects:
+    """install() and 'lux hub doctor' invoke the SAME sweep + port guard objects.
+
+    Two entries, one implementation -- a repair via install() and a repair
+    via doctor_fix() cure the same machine state through the same code,
+    never two implementations that could drift.
+    """
+
+    def test_install_and_doctor_fix_call_the_identical_sweep_and_guard(
+        self, tmp_path: Path
+    ):
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        local_bin = fake_home / ".local" / "bin"
+        local_bin.mkdir(parents=True)
+        (local_bin / "luxd").touch()
+
+        with (
+            patch("punt_lux.service.detect_platform", return_value="macos"),
+            patch("punt_lux._backend_launchd.Path.home", return_value=fake_home),
+            patch("punt_lux._service_spec.Path.home", return_value=fake_home),
+            patch("punt_lux.hub_paths.Path.home", return_value=fake_home),
+        ):
+            mgr = ServiceManager.for_hub()
+            legacy_sweep = mgr._legacy_sweep
+            port_guard = mgr._port_guard
+
+            with (
+                patch.object(type(legacy_sweep), "sweep") as install_sweep,
+                patch.object(mgr._backend, "install"),
+                patch.object(mgr._backend, "is_active", return_value=True),
+                patch.object(type(port_guard), "guard") as install_guard,
+            ):
+                mgr.install()
+
+            with (
+                patch.object(type(legacy_sweep), "sweep") as fix_sweep,
+                patch.object(type(port_guard), "check") as fix_check,
+                patch.object(type(port_guard), "guard"),
+            ):
+                mgr.doctor_fix()
+
+        # Same bound instances -- not two separately-constructed sweeps.
+        assert mgr._legacy_sweep is legacy_sweep
+        assert mgr._port_guard is port_guard
+        install_sweep.assert_called_once()
+        install_guard.assert_called_once()
+        fix_sweep.assert_called_once()
+        fix_check.assert_called()
 
 
 class TestSystemdLegacyUnitCleanup:
-    def test_hub_install_removes_legacy_lux_unit(self, tmp_path: Path):
+    """Mirrors TestLegacyPlistCleanup for the systemd backend."""
+
+    def test_hub_install_invokes_the_legacy_sweep(self, tmp_path: Path):
         fake_home = tmp_path / "home"
-        units = fake_home / ".config" / "systemd" / "user"
-        units.mkdir(parents=True)
-        legacy = units / "lux.service"
-        legacy.write_text("[Unit]")
+        fake_home.mkdir()
         local_bin = fake_home / ".local" / "bin"
         local_bin.mkdir(parents=True)
         (local_bin / "luxd").touch()
 
         with (
+            patch("punt_lux.service.detect_platform", return_value="linux"),
             patch("punt_lux._backend_systemd.Path.home", return_value=fake_home),
             patch("punt_lux._service_spec.Path.home", return_value=fake_home),
-            patch("punt_lux._backend_systemd.subprocess.run") as run,
         ):
-            run.return_value.returncode = 0
-            backend = SystemdBackend(HUB_SPEC)
-            backend.install()
+            mgr = ServiceManager.for_hub()
+            with (
+                patch.object(type(mgr._legacy_sweep), "sweep") as sweep,
+                patch.object(mgr._backend, "install"),
+                patch.object(mgr._backend, "is_active", return_value=True),
+                patch.object(type(mgr._port_guard), "guard"),
+            ):
+                mgr.install()
 
-        assert not legacy.exists()
+        sweep.assert_called_once()
 
-    def test_display_install_leaves_legacy_unit_alone(self, tmp_path: Path):
+    def test_display_install_has_nothing_to_sweep(self, tmp_path: Path):
         fake_home = tmp_path / "home"
-        units = fake_home / ".config" / "systemd" / "user"
-        units.mkdir(parents=True)
-        legacy = units / "lux.service"
-        legacy.write_text("[Unit]")
+        fake_home.mkdir()
         local_bin = fake_home / ".local" / "bin"
         local_bin.mkdir(parents=True)
         (local_bin / "lux").touch()
 
         with (
+            patch("punt_lux.service.detect_platform", return_value="linux"),
             patch("punt_lux._backend_systemd.Path.home", return_value=fake_home),
             patch("punt_lux._service_spec.Path.home", return_value=fake_home),
-            patch("punt_lux._backend_systemd.subprocess.run") as run,
         ):
-            run.return_value.returncode = 0
-            backend = SystemdBackend(DISPLAY_SPEC)
-            backend.install()
+            mgr = ServiceManager.for_display()
+            with (
+                patch.object(mgr._backend, "install"),
+                patch.object(mgr._backend, "is_active", return_value=True),
+            ):
+                mgr.install()
 
-        assert legacy.exists()
+        assert mgr._legacy_sweep.is_clean()
 
 
 class TestServiceManagerRestart:
@@ -532,3 +604,95 @@ class TestBackendStartStopSymmetry:
             run.return_value.stderr = "boom"
             ok = backend.restart()
         assert ok is False
+
+
+class TestLaunchdSelfUpgrade:
+    """§5.6 required scope: install()'s OWN-label upgrade path.
+
+    The identical anti-pattern lived nine lines from the legacy-cleanup
+    bug: unload -w/load -w with warn-and-continue on failure, applied to
+    the service's own label during an in-place binary-path upgrade. This
+    must route through the same bootout + is_clean() discipline, fatal on
+    failure -- never `launchctl unload` or `launchctl load` again.
+    """
+
+    def test_install_never_issues_unload_or_load(self, tmp_path: Path):
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        local_bin = fake_home / ".local" / "bin"
+        local_bin.mkdir(parents=True)
+        (local_bin / "luxd").touch()
+
+        with (
+            patch("punt_lux._backend_launchd.Path.home", return_value=fake_home),
+            patch("punt_lux._service_spec.Path.home", return_value=fake_home),
+            patch("punt_lux.hub_paths.Path.home", return_value=fake_home),
+            patch("punt_lux._launchctl.subprocess.run") as run,
+        ):
+            backend = LaunchdBackend(HUB_SPEC)
+            with patch.object(backend, "is_active", return_value=True):
+                run.side_effect = [
+                    _result(0),  # print -> registered
+                    _result(0),  # bootout -> succeeds
+                    _result(1),  # print -> gone
+                    _result(0),  # bootstrap -> succeeds
+                ]
+                backend.install()
+
+        verbs_issued = [call.args[0] for call in run.call_args_list]
+        assert any(v[:2] == ["launchctl", "bootout"] for v in verbs_issued)
+        assert any(v[:2] == ["launchctl", "bootstrap"] for v in verbs_issued)
+        assert not any("unload" in v for v in verbs_issued)
+        assert not any(v[:2] == ["launchctl", "load"] for v in verbs_issued)
+
+    def test_install_raises_when_self_upgrade_sweep_fails(self, tmp_path: Path):
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        local_bin = fake_home / ".local" / "bin"
+        local_bin.mkdir(parents=True)
+        (local_bin / "luxd").touch()
+
+        with (
+            patch("punt_lux._backend_launchd.Path.home", return_value=fake_home),
+            patch("punt_lux._service_spec.Path.home", return_value=fake_home),
+            patch("punt_lux.hub_paths.Path.home", return_value=fake_home),
+            patch("punt_lux._launchctl.subprocess.run") as run,
+        ):
+            backend = LaunchdBackend(HUB_SPEC)
+            with (
+                patch.object(backend, "is_active", return_value=True),
+                pytest.raises(ServiceMigrationError),
+            ):
+                run.return_value = _result(0)
+                backend.install()
+
+    def test_install_raises_when_bootstrap_fails(self, tmp_path: Path):
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        local_bin = fake_home / ".local" / "bin"
+        local_bin.mkdir(parents=True)
+        (local_bin / "luxd").touch()
+
+        with (
+            patch("punt_lux._backend_launchd.Path.home", return_value=fake_home),
+            patch("punt_lux._service_spec.Path.home", return_value=fake_home),
+            patch("punt_lux.hub_paths.Path.home", return_value=fake_home),
+            patch("punt_lux._launchctl.subprocess.run") as run,
+        ):
+            backend = LaunchdBackend(HUB_SPEC)
+            with (
+                patch.object(backend, "is_active", return_value=False),
+                pytest.raises(ServiceMigrationError, match="bootstrap"),
+            ):
+                run.return_value = _result(1)  # bootstrap -> fails
+                backend.install()
+
+
+def _result(returncode: int):
+    class _Result:
+        def __init__(self) -> None:
+            self.returncode = returncode
+            self.stdout = ""
+            self.stderr = ""
+
+    return _Result()

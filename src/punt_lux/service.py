@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import logging
 import os
-import platform
 from typing import ClassVar, Self, final
 
-from punt_lux._backend_launchd import LaunchdBackend
-from punt_lux._backend_systemd import SystemdBackend
-from punt_lux._backends import ServiceBackend, has_linger
+from punt_lux._backends import ServiceBackend
+from punt_lux._doctor_result import DoctorResult
+from punt_lux._legacy_sweep import LegacySweep
+from punt_lux._platform_dispatch import detect_platform, platform_classes
+from punt_lux._port_guard import PortGuard
 from punt_lux._service_errors import (
+    PortConflictError,
     ServiceActionFailedError,
+    ServiceMigrationError,
     ServiceNotInstalledError,
 )
 from punt_lux._service_spec import DISPLAY_SPEC, HUB_SPEC, ServiceSpec
@@ -22,24 +25,16 @@ __all__ = [
     "DISPLAY_SPEC",
     "HUB_SPEC",
     "DisplayServiceManager",
+    "DoctorResult",
     "HubServiceManager",
+    "PortConflictError",
     "ServiceActionFailedError",
     "ServiceManager",
+    "ServiceMigrationError",
     "ServiceNotInstalledError",
     "ServiceSpec",
     "detect_platform",
 ]
-
-
-def detect_platform() -> str:
-    """Return ``'macos'`` or ``'linux'``. Raise on unsupported platforms."""
-    system = platform.system()
-    if system == "Darwin":
-        return "macos"
-    if system == "Linux":
-        return "linux"
-    msg = f"Unsupported platform: {system}; only macOS and Linux are supported."
-    raise SystemExit(msg)
 
 
 class ServiceManager:
@@ -47,8 +42,10 @@ class ServiceManager:
 
     _SPEC: ClassVar[ServiceSpec]
 
-    __slots__ = ("_backend",)
+    __slots__ = ("_backend", "_legacy_sweep", "_port_guard")
     _backend: ServiceBackend
+    _legacy_sweep: LegacySweep
+    _port_guard: PortGuard
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         """Reject a subclass that forgets to fix ``_SPEC``, at definition time."""
@@ -68,8 +65,10 @@ class ServiceManager:
             )
             raise TypeError(msg)
         self = super().__new__(cls)
-        backend_cls = LaunchdBackend if detect_platform() == "macos" else SystemdBackend
-        self._backend = backend_cls(cls._SPEC)
+        classes = platform_classes(detect_platform())
+        self._backend = classes.backend(cls._SPEC)
+        self._legacy_sweep = classes.legacy_sweep(cls._SPEC)
+        self._port_guard = PortGuard(cls._SPEC)
         return self
 
     @classmethod
@@ -83,7 +82,10 @@ class ServiceManager:
         return DisplayServiceManager()
 
     def install(self) -> str:
-        """Install the service and return a status message."""
+        """Cure any legacy registration and port conflict, then install."""
+        self._legacy_sweep.sweep()
+        if self._SPEC.health_port is not None:
+            self._port_guard.guard()
         self._backend.install()
         is_running = self._backend.is_active()
         exec_display = " ".join(self._SPEC.resolve_exec_args())
@@ -93,12 +95,8 @@ class ServiceManager:
             f"  Service: {self._backend.config_path()}",
             f"  Command: {exec_display}",
         ]
-        if isinstance(self._backend, SystemdBackend) and not has_linger():
-            lines.append(
-                "  Warning: loginctl linger is not enabled. "
-                "The service will stop when you log out. "
-                "Run: loginctl enable-linger"
-            )
+        if warning := self._backend.linger_warning():
+            lines.append(warning)
         return os.linesep.join(lines)
 
     def uninstall(self) -> str:
@@ -119,12 +117,7 @@ class ServiceManager:
 
     def start(self) -> str:
         """Start an already-installed, stopped service."""
-        if not self._backend.config_path().exists():
-            msg = (
-                f"{self._SPEC.display_name} is not installed. "
-                f"Run 'lux {self._SPEC.cli_verb} install' first."
-            )
-            raise ServiceNotInstalledError(msg)
+        self._require_installed()
         if not self._backend.start():
             msg = (
                 f"{self._SPEC.display_name} start failed. See "
@@ -134,19 +127,8 @@ class ServiceManager:
         return f"{self._SPEC.display_name} started."
 
     def restart(self) -> str:
-        """Atomically restart the service via its supervisor.
-
-        The supervisor already knows the daemon's pid, so a restart is one
-        call — never a signal-and-wait against a pid file the daemon does
-        not itself keep current. Refuses when the service is not installed
-        so the caller gets the same "run install" hint as :meth:`start`.
-        """
-        if not self._backend.config_path().exists():
-            msg = (
-                f"{self._SPEC.display_name} is not installed. "
-                f"Run 'lux {self._SPEC.cli_verb} install' first."
-            )
-            raise ServiceNotInstalledError(msg)
+        """Atomically restart via the supervisor -- no pid file, no signal-and-wait."""
+        self._require_installed()
         if not self._backend.restart():
             msg = (
                 f"{self._SPEC.display_name} restart failed. See "
@@ -154,6 +136,15 @@ class ServiceManager:
             )
             raise ServiceActionFailedError(msg)
         return f"{self._SPEC.display_name} restarted."
+
+    def _require_installed(self) -> None:
+        """Raise :class:`ServiceNotInstalledError` unless the config exists."""
+        if not self._backend.config_path().exists():
+            msg = (
+                f"{self._SPEC.display_name} is not installed. "
+                f"Run 'lux {self._SPEC.cli_verb} install' first."
+            )
+            raise ServiceNotInstalledError(msg)
 
     @property
     def is_active(self) -> bool:
@@ -164,6 +155,14 @@ class ServiceManager:
     def spec(self) -> ServiceSpec:
         """Return the spec identifying this managed service."""
         return self._SPEC
+
+    def doctor(self) -> DoctorResult:
+        """Diagnose this service, read-only (``lux <verb> doctor``)."""
+        return DoctorResult.diagnose(self._legacy_sweep, self._port_guard, self._SPEC)
+
+    def doctor_fix(self) -> DoctorResult:
+        """Repair this service, same objects :meth:`install` uses (``--fix``)."""
+        return DoctorResult.repair(self._legacy_sweep, self._port_guard, self._SPEC)
 
 
 @final

@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import logging
-import os
 import subprocess
 import textwrap
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Self, final
 from xml.sax.saxutils import escape as _xml_escape
@@ -13,6 +13,8 @@ from xml.sax.saxutils import escape as _xml_escape
 from punt_lux._atomic_write import write_config_atomic
 from punt_lux._backends import ServiceBackend
 from punt_lux._launchctl import launchctl
+from punt_lux._legacy_sweep_launchd import LaunchdLegacySweep
+from punt_lux._service_errors import ServiceMigrationError
 
 if TYPE_CHECKING:
     from punt_lux.service import ServiceSpec
@@ -56,51 +58,58 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         return result.returncode == 0
 
     def install(self) -> None:
-        """Write the plist and load the service into launchd."""
+        """Write the plist and bootstrap the service into launchd.
+
+        Curing a stale registration under this service's OWN label (an
+        in-place binary-path upgrade) uses the same bootout-and-verify
+        discipline as a renamed predecessor's cleanup
+        (:class:`~punt_lux._legacy_sweep_launchd.LaunchdLegacySweep`) --
+        fatal on failure, never a warn-and-continue fallthrough onto a
+        supervisor call that may silently no-op.
+        """
         from punt_lux.hub_paths import HubPaths
 
         HubPaths().log_dir.mkdir(parents=True, exist_ok=True)
         self._dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-        self._remove_legacy_plists()
 
-        # Unload first -- handles upgrades with a changed binary path.
         label = self._spec.launchd_label
         if self.is_active():
-            result = subprocess.run(
-                ["launchctl", "unload", "-w", str(self._plist_path)],
-                check=False,
-            )
-            if result.returncode == 0:
-                logger.info("Unloaded existing %s before upgrade", label)
-            else:
-                logger.warning(
-                    "Could not unload %s (rc=%d) -- proceeding with load",
-                    label,
-                    result.returncode,
-                )
+            self._self_upgrade_sweep().sweep()
+            logger.info("Deregistered existing %s before upgrade", label)
 
         write_config_atomic.write(self._plist_path, self._plist_content())
         logger.info("Wrote %s", self._plist_path)
-        subprocess.run(
-            ["launchctl", "load", "-w", str(self._plist_path)],
-            check=True,
+        if not launchctl.run(
+            ["launchctl", "bootstrap", launchctl.gui_domain(), str(self._plist_path)],
+            verb="bootstrap",
+        ):
+            msg = f"failed to bootstrap {label} into launchd"
+            raise ServiceMigrationError(msg)
+        logger.info("Bootstrapped %s into launchd", label)
+
+    def _self_upgrade_sweep(self) -> LaunchdLegacySweep:
+        """Return a sweep targeting this service's OWN label.
+
+        Reuses the legacy-sweep primitive against the current label rather
+        than a historical one -- the ordering and verification discipline a
+        stale in-place registration needs is identical either way.
+        """
+        return LaunchdLegacySweep(
+            replace(self._spec, legacy_launchd_labels=(self._spec.launchd_label,))
         )
-        logger.info("Loaded %s into launchd", label)
 
     def uninstall(self) -> None:
-        """Unload luxd from launchd and remove the plist."""
-        if self._plist_path.exists():
-            launchctl.run(
-                ["launchctl", "unload", "-w", str(self._plist_path)],
-                verb="unload",
-            )
-            self._plist_path.unlink()
-            logger.info("Removed %s", self._plist_path)
-        else:
+        """Boot the job out of launchd (if loaded) and remove the plist."""
+        if not self._plist_path.exists():
             logger.info(
                 "No plist found at %s -- nothing to uninstall",
                 self._plist_path,
             )
+            return
+        target = f"{launchctl.gui_domain()}/{self._spec.launchd_label}"
+        launchctl.run(["launchctl", "bootout", target], verb="bootout")
+        self._plist_path.unlink()
+        logger.info("Removed %s", self._plist_path)
 
     def stop(self) -> bool:
         """Boot the job out of launchd (plist stays); a missing plist is a no-op.
@@ -114,7 +123,7 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         if not self._plist_path.exists():
             logger.info("No plist found at %s -- nothing to stop", self._plist_path)
             return True
-        target = f"{self._gui_domain()}/{self._spec.launchd_label}"
+        target = f"{launchctl.gui_domain()}/{self._spec.launchd_label}"
         return launchctl.run(["launchctl", "bootout", target], verb="bootout")
 
     def restart(self) -> bool:
@@ -126,7 +135,7 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         supervisor already knows the pid, so a restart is not a signal-based
         handshake with a pid file the daemon does not itself keep current.
         """
-        target = f"{self._gui_domain()}/{self._spec.launchd_label}"
+        target = f"{launchctl.gui_domain()}/{self._spec.launchd_label}"
         return launchctl.run(
             ["launchctl", "kickstart", "-k", target],
             verb="kickstart",
@@ -142,14 +151,9 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         again without relying on the legacy load/unload shim.
         """
         return launchctl.run(
-            ["launchctl", "bootstrap", self._gui_domain(), str(self._plist_path)],
+            ["launchctl", "bootstrap", launchctl.gui_domain(), str(self._plist_path)],
             verb="bootstrap",
         )
-
-    @staticmethod
-    def _gui_domain() -> str:
-        """Return this user's launchd GUI domain target, e.g. ``gui/501``."""
-        return f"gui/{os.getuid()}"
 
     def _plist_content(self) -> str:
         """Generate the launchd plist XML for the service."""
@@ -183,21 +187,3 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
             </dict>
             </plist>
         """)
-
-    def _remove_legacy_plists(self) -> None:
-        """Unload and delete plists shipped under old labels for this service.
-
-        A rename train leaves the old plist behind, and both the old and new
-        LaunchAgents would race to bind the same port at next login. The
-        current hub label is ``com.punt-labs.luxd-hub``; the pre-rename label
-        was ``com.punt-labs.lux``. Only the hub install cleans it up; the
-        display had no prior label.
-        """
-        if self._spec.launchd_label != "com.punt-labs.luxd-hub":
-            return
-        legacy = self._dir / "com.punt-labs.lux.plist"
-        if not legacy.exists():
-            return
-        launchctl.run(["launchctl", "unload", "-w", str(legacy)], verb="unload")
-        legacy.unlink(missing_ok=True)
-        logger.info("Removed legacy plist %s", legacy)

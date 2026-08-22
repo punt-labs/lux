@@ -79,6 +79,25 @@ def restart() -> None:
         raise typer.Exit(code=1) from None
 
 
+@hub_app.command("doctor")
+def doctor(
+    *,
+    fix: bool = typer.Option(
+        False, "--fix", help="Repair legacy registrations and re-verify the port."
+    ),
+) -> None:
+    """Diagnose (or repair, with --fix) legacy registrations and port conflicts."""
+    mgr = ServiceManager.for_hub()
+    if fix:
+        typer.echo("Repairing...")
+        result = mgr.doctor_fix()
+    else:
+        result = mgr.doctor()
+    typer.echo(result.render())
+    if result.exit_code != 0:
+        raise typer.Exit(code=result.exit_code)
+
+
 @hub_app.command("status")
 def status() -> None:
     """Show luxd hub status including port and active session count."""

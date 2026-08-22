@@ -33,6 +33,11 @@ class ServiceSpec:
     log_stem: str
     cli_verb: str
     process_name: str
+    legacy_launchd_labels: tuple[str, ...] = ()
+    legacy_systemd_units: tuple[str, ...] = ()
+    # None means "this service has no fixed port to guard" -- DISPLAY_SPEC's
+    # documented contract, not a value PortGuard failed to determine.
+    health_port: int | None = None
 
     def resolve_exec_args(self) -> list[str]:
         """Return the command that launches this service.
@@ -71,6 +76,9 @@ HUB_SPEC: ServiceSpec = ServiceSpec(
     log_stem="luxd",
     cli_verb="hub",
     process_name="luxd-hub",
+    legacy_launchd_labels=("com.punt-labs.lux",),
+    legacy_systemd_units=("lux",),
+    health_port=DEFAULT_HUB_PORT,
 )
 
 
