@@ -344,6 +344,57 @@ class TestLegacyPlistCleanup:
         assert "displa" in report.lower() or report  # install() returned normally
 
 
+class TestInstallAndDoctorShareTheSameSweepObjects:
+    """install() and 'lux hub doctor' invoke the SAME sweep + port guard objects.
+
+    Two entries, one implementation -- a repair via install() and a repair
+    via doctor_fix() cure the same machine state through the same code,
+    never two implementations that could drift.
+    """
+
+    def test_install_and_doctor_fix_call_the_identical_sweep_and_guard(
+        self, tmp_path: Path
+    ):
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        local_bin = fake_home / ".local" / "bin"
+        local_bin.mkdir(parents=True)
+        (local_bin / "luxd").touch()
+
+        with (
+            patch("punt_lux.service.detect_platform", return_value="macos"),
+            patch("punt_lux._backend_launchd.Path.home", return_value=fake_home),
+            patch("punt_lux._service_spec.Path.home", return_value=fake_home),
+            patch("punt_lux.hub_paths.Path.home", return_value=fake_home),
+        ):
+            mgr = ServiceManager.for_hub()
+            legacy_sweep = mgr._legacy_sweep
+            port_guard = mgr._port_guard
+
+            with (
+                patch.object(type(legacy_sweep), "sweep") as install_sweep,
+                patch.object(mgr._backend, "install"),
+                patch.object(mgr._backend, "is_active", return_value=True),
+                patch.object(type(port_guard), "guard") as install_guard,
+            ):
+                mgr.install()
+
+            with (
+                patch.object(type(legacy_sweep), "sweep") as fix_sweep,
+                patch.object(type(port_guard), "check") as fix_check,
+                patch.object(type(port_guard), "guard"),
+            ):
+                mgr.doctor_fix()
+
+        # Same bound instances -- not two separately-constructed sweeps.
+        assert mgr._legacy_sweep is legacy_sweep
+        assert mgr._port_guard is port_guard
+        install_sweep.assert_called_once()
+        install_guard.assert_called_once()
+        fix_sweep.assert_called_once()
+        fix_check.assert_called()
+
+
 class TestSystemdLegacyUnitCleanup:
     """Mirrors TestLegacyPlistCleanup for the systemd backend."""
 
