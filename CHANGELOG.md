@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-08-22
+
 ### Changed
 
 - **`luxd` console script renamed to `luxd-hub`**, matching the process and
