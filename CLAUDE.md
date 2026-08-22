@@ -14,7 +14,7 @@ If cloned outside the workspace, these rules and configuration will not be prese
 Lux is a **visual output surface for Claude Code**. Vox gives agents a voice; Lux gives agents a screen. An ImGui window renders JSON element trees sent by agents over Unix socket IPC.
 
 - **Package**: `punt-lux`
-- **CLI**: `lux`, `luxd`; applet entry `lux-beads`
+- **Executables**: `lux` (CLI), `luxd-hub` (Hub daemon), `luxd-display` (Display renderer), `lux-beads` (beads applet)
 - **MCP server**: `luxd` serves streamable HTTP at `/mcp`; the plugin connects directly (no per-session process)
 - **Python**: 3.13+, managed with `uv`
 
@@ -155,7 +155,7 @@ path with remote handler wrapping and Hub-side re-dispatch.
 
 | Module | Responsibility |
 |--------|---------------|
-| `display/render_loop.py` | `RenderLoop` — ImGui render loop and coordinator — **~1,550 lines, still over the 300-line target; remaining debt from the original `display.py`** |
+| `display/render_loop.py` | `RenderLoop` — ImGui render loop and coordinator — **~1,100 lines, still over the 300-line target; remaining debt from the original `display.py`** |
 | `display/renderers/imgui/` | Per-element-kind ImGui adapters (one module per kind; every leaf inherits `LeafRenderer`) |
 | `display/replica/` | The Display's replica of what the Hub sent: `SceneReplica` (scene state, frame composition), `FrameBook`, `WidgetStateStore`, `MenuReplica` (the replicated menu state both menu surfaces render) |
 | `display/texture_cache.py` | Image texture upload (unbounded dict — no eviction policy yet; see `system.tex` §7 "No texture eviction") |
@@ -166,7 +166,7 @@ path with remote handler wrapping and Hub-side re-dispatch.
 | `rest/` | Typed FastAPI surface on luxd (`RestSurface`, five concern routers, one `OpError`→HTTP table) |
 | `rest_client.py` | `LuxRestClient` — the CLI's typed HTTP client of luxd |
 | `tools/server.py` | FastMCP instance and per-session lifecycle |
-| `tools/tools.py` | MCP tool definitions — zero-logic adapters over the `Operations` facade |
+| `tools/{read,write,composite,display_write,subscribe}_tools.py` | MCP tool definitions — zero-logic adapters over the `Operations` facade, split by concern |
 | `domain/hub/display_link.py` | `DisplayLink` — the Hub's (luxd's) sole Unix-socket client to the display; constructed only in `domain/hub/clients.py`, guard-enforced |
 | `applets/` | Lux applets (DES-063): `AppletLeg` (listener + register-on-connect + click servicing), `SessionWatch` (parent-pid lifetime), `beads.py` (`lux-beads` — the first bundled applet) |
 | `apps/beads.py` | `BeadsBrowser` — beads issue browser app (the board the applet and CLI render) |
@@ -222,11 +222,11 @@ Default Python — procedural functions operating on dataclasses, `| None` every
 
 ### Module-size constraints
 
-**`display/render_loop.py` (~1,500 lines, `RenderLoop`, formerly `display/server.py`/`DisplayServer`) must be decomposed further** — it is over the 300-line target. Any PR that adds rendering logic to it without extracting existing code will be rejected. The original `display.py` was 4,208 lines; PR #158 split it into the `display/` package; `render_loop.py` still carries the bulk of the original mass. (`element_renderer.py` and the other legacy renderers were deleted with the legacy render path in B7.)
+**`display/render_loop.py` (~1,100 lines, `RenderLoop`, formerly `display/server.py`/`DisplayServer`) must be decomposed further** — it is over the 300-line target. Any PR that adds rendering logic to it without extracting existing code will be rejected. The original `display.py` was 4,208 lines; PR #158 split it into the `display/` package; `render_loop.py` still carries the bulk of the original mass. (`element_renderer.py` and the other legacy renderers were deleted with the legacy render path in B7.)
 
 **Protocol codec debt — resolved by the element migration.** Every element kind now has a class-based codec beside its element module (`JsonXEncoder`/`JsonXDecoder`); the legacy family modules with module-level `_<kind>_to_dict` functions were deleted in B7. The remaining procedural corners live in `protocol/messages/*.py` — fix a message codec onto its class when you touch the file.
 
-**MCP tool boilerplate — resolved.** The missing abstraction this paragraph used to flag now exists: every tool in `tools/tools.py` (23) and `tools/subscribe_tools.py` (4) is a grep-provable parse-call-format adapter over the `Operations` facade, and the REST routes are the same adapters over HTTP. New capabilities are added as operations; the surfaces inherit them.
+**MCP tool boilerplate — resolved.** Every tool under `tools/` (`read_tools.py`, `write_tools.py`, `composite_tools.py`, `display_write_tools.py`, `subscribe_tools.py`) is a grep-provable parse-call-format adapter over the `Operations` facade, and the REST routes are the same adapters over HTTP. New capabilities are added as operations; the surfaces inherit them.
 
 **OO ratchet:** `make check-oo` (part of `make check`) compares current OO scores against `.oo-baseline.json`. It passes only if no metric regressed on touched files and at least one metric improved. It fails if any metric got worse or nothing improved.
 
@@ -344,7 +344,7 @@ Identity: `agent: claude` per `.punt-labs/ethos/ethos.yaml`. The registry at `.p
 
 All code delegation uses ethos missions. Every non-trivial delegation has two phases: (1) **design mission** — describes problem, constraints, and invariants but does NOT prescribe a write set; (2) **implementation mission** — uses the write set produced by the design phase. The design mission's output IS the write set — the specialist decides what to create, split, or extract.
 
-The COO must not read implementation files before writing the design spec. "Add a handler to `display/render_loop.py` at line 923" is a predetermined write set that prevents the specialist from making design decisions. "Add a query operation that returns display metadata — the codebase has a generic query infrastructure, the implementation must follow code quality standards" gives the specialist latitude to decompose and restructure. This is how the original `display.py` grew to 4,208 lines and `display/render_loop.py` is still ~1,400 — write sets were predetermined to existing files instead of letting the specialist extract.
+The COO must not read implementation files before writing the design spec. "Add a handler to `display/render_loop.py` at line 923" is a predetermined write set that prevents the specialist from making design decisions. "Add a query operation that returns display metadata — the codebase has a generic query infrastructure, the implementation must follow code quality standards" gives the specialist latitude to decompose and restructure. This is how the original `display.py` grew to 4,208 lines and `display/render_loop.py` is still ~1,100 — write sets were predetermined to existing files instead of letting the specialist extract.
 
 ### Why these pairings
 
@@ -422,15 +422,17 @@ Release scripts: `scripts/release-plugin.sh` (swap `lux-dev` → `lux`), `script
 - [`docs/architecture/target/element-contract.md`](docs/architecture/target/element-contract.md) — the Element-ABC contract every migrated kind satisfies.
 - [`docs/architecture/target/introspection-api.md`](docs/architecture/target/introspection-api.md) — introspection and control surface.
 
-**Element migration (active plan):**
+**Element migration (completed 2026-07-27, epic `lux-xs7r`):**
 
-- [`docs/architecture/migration/README.md`](docs/architecture/migration/README.md) — the migration approach ([DES-041](DESIGN.md)): **fork, don't mix** (parallel new path; duplicate rather than mix legacy + ABC in composites, new class gets the canonical name), ordered **by testability** (container + primitives first, complex widgets last), per-element verify-as-you-go. Tracked as beads epic `lux-xs7r`.
-- [`docs/architecture/element-migration-audit.md`](docs/architecture/element-migration-audit.md) — per-element map of all 25 kinds (4 on the Element-ABC path, 21 legacy).
-- [`docs/architecture/migration/progress-element-design.md`](docs/architecture/migration/progress-element-design.md) — the display-only-leaf worked example (`progress`). Under DES-041 `progress` is a primitive migrated after a container, not element #1; read it for the leaf pattern, not the sequencing.
+All 25 element kinds are on the Element-ABC / Hub-Display path; the legacy path is deleted. The design docs below stay as historical record:
+
+- [`docs/architecture/migration/README.md`](docs/architecture/migration/README.md) — the migration approach ([DES-041](DESIGN.md)): **fork, don't mix**, ordered by testability, per-element verify-as-you-go.
+- [`docs/architecture/element-migration-audit.md`](docs/architecture/element-migration-audit.md) — per-element map of all 25 kinds (all now migrated).
+- [`docs/architecture/migration/progress-element-design.md`](docs/architecture/migration/progress-element-design.md) — the display-only-leaf worked example for `progress`; read it for the leaf pattern.
 
 **Decisions, specs, product:**
 
-- [`DESIGN.md`](DESIGN.md) — ADR log (40 entries; DES-039 self-validating elements, DES-040 interaction model + tool/skill surface are the most recent). **Do not read start to finish** — grep for a specific `DES-NNN` when you need the rationale behind a settled decision. Append new ADRs at the end; do not reorganize existing ones.
+- [`DESIGN.md`](DESIGN.md) — ADR log (67 entries; DES-066 menubar app, DES-067 menu grouping by (repo, session) are the most recent). **Do not read start to finish** — grep for a specific `DES-NNN` when you need the rationale behind a settled decision. Append new ADRs at the end; do not reorganize existing ones.
 - [`docs/display_lifecycle.tex`](docs/display_lifecycle.tex) → [`docs/display_lifecycle.pdf`](docs/display_lifecycle.pdf) — the ProB-verified display-singleton lifecycle spec (DES-037/038); partition [coverage](docs/display_lifecycle_coverage.md). Keep the PDF in sync with the `.tex` (rebuild + commit together).
 - [`prfaq.tex`](prfaq.tex) → [`prfaq.pdf`](prfaq.pdf) — the Working Backwards PR/FAQ (product direction, hypothesis stage). Update when the change shifts product direction.
 - [`CHANGELOG.md`](CHANGELOG.md) — release history; add entries under `## [Unreleased]`.
@@ -465,3 +467,4 @@ documents by meaning, ingest new content, and recall knowledge across sessions.
 - **Search tip**: natural language queries work best ("What were Q3 margins?"
   outperforms "Q3 margins").
 <!-- quarry:end -->
+@.punt-labs/vox/CLAUDE.md

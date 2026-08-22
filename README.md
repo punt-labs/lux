@@ -31,7 +31,7 @@ The design draws on X11's client/server split and Smalltalk-style live introspec
 ## Quick Start
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/punt-labs/lux/b32b19a9/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/punt-labs/lux/b12c4302/install.sh | sh
 ```
 
 Restart Claude Code twice. The Lux display window opens automatically when agents send visual output.
@@ -71,7 +71,7 @@ This pulls ~2 MB of lightweight deps. The 66 MB display stack (imgui-bundle, num
 <summary>Verify before running</summary>
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/punt-labs/lux/b32b19a9/install.sh -o install.sh
+curl -fsSL https://raw.githubusercontent.com/punt-labs/lux/b12c4302/install.sh -o install.sh
 shasum -a 256 install.sh
 cat install.sh
 sh install.sh
@@ -285,12 +285,12 @@ CLI request cannot bind to.
 
 ## Library (Python)
 
-Python applications drive the Hub through `LuxRestClient`, the typed client of
-`luxd` — the same validation, typing, and identity handling the CLI gets, with
-no `[display]` extra required. Long-lived apps add `LuxHubClient` to receive
-menu clicks and pub-sub events over a persistent connection; vox's music
-player is the reference app built this way. The full guide, with working
-examples, is [docs/library.md](docs/library.md).
+Python applications drive the Hub through `LuxClient`, the typed async facade
+over `luxd`'s REST API. It gets the same validation, typing, and identity
+handling the CLI gets, with no `[display]` extra required. Long-lived apps add
+`LuxHubClient` to receive menu clicks and pub-sub events over a persistent
+connection; vox's music player is the reference app built this way. The full
+guide, with working examples, is [docs/library.md](docs/library.md).
 
 ## Architecture
 
