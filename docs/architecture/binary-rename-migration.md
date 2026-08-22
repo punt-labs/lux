@@ -1,7 +1,10 @@
 # Binary Rename Migration: Curing a Stale `~/.local/bin` Shim
 
-**Status:** design, unimplemented. Bead `lux-j169`, mission `m-2026-08-22-001`.
-Implementation is a separate mission after operator ratification.
+**Status:** historical record. Design shipped in PR #383 (lux-j169); the
+implementation lives in `_binary_sweep.py`, `_binary_sweep_disk.py`,
+`_shim_ownership.py`, and the current `_service_spec.py`. Sections below
+describe the state of the tree *before* the rename shipped — read as the
+motivating snapshot, not as the current codebase.
 
 This document extends `docs/architecture/service-lifecycle-migration.md`
 (bead `lux-ehzy`, implemented in `_legacy_sweep.py` /
@@ -45,13 +48,13 @@ not assumed:**
 
 ```text
 $ ls -la ~/.local/bin/luxd
-lrwxr-xr-x  1 jfreeman  staff  55 Aug 22 07:57 /Users/jfreeman/.local/bin/luxd@ -> /Users/jfreeman/.local/share/uv/tools/punt-lux/bin/luxd
+lrwxr-xr-x  1 <user>  <group>  55 Aug 22 07:57 ~/.local/bin/luxd@ -> ~/.local/share/uv/tools/punt-lux/bin/luxd
 
 $ readlink -f ~/.local/bin/luxd
-/Users/jfreeman/.local/share/uv/tools/punt-lux/bin/luxd
+~/.local/share/uv/tools/punt-lux/bin/luxd
 
 $ head -c 200 ~/.local/share/uv/tools/punt-lux/bin/luxd
-#!/Users/jfreeman/.local/share/uv/tools/punt-lux/bin/python3
+#!~/.local/share/uv/tools/punt-lux/bin/python3
 # -*- coding: utf-8 -*-
 import sys
 from punt_lux.luxd import main
@@ -61,13 +64,13 @@ $ cat ~/.local/share/uv/tools/punt-lux/uv-receipt.toml
 [tool]
 requirements = [{ name = "punt-lux", extras = ["display"], path = "..." }]
 entrypoints = [
-    { name = "lux", install-path = "/Users/jfreeman/.local/bin/lux" },
-    { name = "lux-beads", install-path = "/Users/jfreeman/.local/bin/lux-beads" },
-    { name = "luxd", install-path = "/Users/jfreeman/.local/bin/luxd" },
+    { name = "lux", install-path = "~/.local/bin/lux" },
+    { name = "lux-beads", install-path = "~/.local/bin/lux-beads" },
+    { name = "luxd", install-path = "~/.local/bin/luxd" },
 ]
 
 $ uv tool dir
-/Users/jfreeman/.local/share/uv/tools
+~/.local/share/uv/tools
 ```
 
 Three facts this design relies on, all verified above rather than assumed:
@@ -652,8 +655,8 @@ Expected output while dirty (the operator's current state, §9):
 
 ```text
 luxd hub: DIRTY
-  legacy binary /Users/jfreeman/.local/bin/luxd: still present
-    fix: rm /Users/jfreeman/.local/bin/luxd
+  legacy binary ~/.local/bin/luxd: still present
+    fix: rm ~/.local/bin/luxd
   port 8430: owned by luxd-hub (pid 41213)
 
 Run 'lux hub doctor --fix' to repair automatically, or apply the commands
@@ -664,8 +667,8 @@ Expected output if ownership cannot be verified (the refusal case, §6):
 
 ```text
 luxd hub: DIRTY
-  legacy binary /Users/jfreeman/.local/bin/luxd: present but NOT verified as a punt-lux shim
-    inspect: readlink -f /Users/jfreeman/.local/bin/luxd
+  legacy binary ~/.local/bin/luxd: present but NOT verified as a punt-lux shim
+    inspect: readlink -f ~/.local/bin/luxd
     this file was left in place -- verify by hand before removing it
 ```
 
