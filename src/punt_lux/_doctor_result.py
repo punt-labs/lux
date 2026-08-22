@@ -105,7 +105,7 @@ class DoctorResult:
         if not self.legacy.outcomes:
             return []
         if self.legacy.all_clean:
-            return ["  legacy labels: none registered"]
+            return ["  legacy registrations: none"]
         return [line for line in self.legacy.describe().splitlines() if line]
 
     def _port_lines(self) -> list[str]:

@@ -47,4 +47,7 @@ def platform_classes(platform: str) -> PlatformClasses:
     """Return the classes for ``platform`` (``"macos"`` or ``"linux"``)."""
     if platform == "macos":
         return PlatformClasses(LaunchdBackend, LaunchdLegacySweep)
-    return PlatformClasses(SystemdBackend, SystemdLegacySweep)
+    if platform == "linux":
+        return PlatformClasses(SystemdBackend, SystemdLegacySweep)
+    msg = f"Unsupported platform: {platform!r}; only 'macos' and 'linux' are supported."
+    raise ValueError(msg)

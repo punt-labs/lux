@@ -30,6 +30,9 @@
   fail-closed: a foreign process or a missing `lsof` both refuse, never
   "assume safe."
 
+  `LaunchdBackend._remove_legacy_plists` itself is deleted — `LegacySweep` is
+  its replacement, not an addition beside it.
+
   `ServiceSpec` carries the service's legacy identity as data
   (`legacy_launchd_labels`, `legacy_systemd_units`, `health_port`) instead of
   a hardcoded string comparison in the backend — a future rename train adds
