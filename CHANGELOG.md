@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.29.1] - 2026-08-22
+
 ### Fixed
 
 - **Installer emitted spurious `launchctl print failed (rc=113)` warnings on
