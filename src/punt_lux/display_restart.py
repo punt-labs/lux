@@ -34,8 +34,12 @@ if TYPE_CHECKING:
 
 __all__ = ["DisplayRestart", "DisplayRestartError"]
 
+# Thirty seconds spans an ImGui cold start: loading imgui-bundle
+# (~66 MB), building the GL context, and creating the window measurably
+# outlasts ten seconds on a warm laptop and much more so on a loaded CI
+# runner.
 _POLL_SECONDS = 0.5
-_WAIT_SECONDS = 10.0
+_WAIT_SECONDS = 30.0
 
 
 class DisplayRestartError(RuntimeError):

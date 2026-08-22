@@ -105,17 +105,35 @@ ok "$BINARY $(command -v "$BINARY")"
 # 'hub install' is idempotent under launchd — an already-loaded service is not
 # cycled — so a bare install on an upgrade leaves the previous luxd process
 # running with the previous bytecode. Restart afterwards so the running daemon
-# matches the newly-installed wheel (lux-w66z).
+# matches the newly-installed wheel — but only on an upgrade. On a fresh
+# install the daemon we would restart is the one 'hub install' just started,
+# so the restart is redundant AND races the cold-load import of the [display]
+# extras (imgui-bundle, numpy, Pillow) that pushes the ready-window past the
+# restart's own timeout.
+
+hub_was_running=0
+if pgrep -x luxd-hub >/dev/null 2>&1; then
+  hub_was_running=1
+fi
+
+display_was_running=0
+if pgrep -x luxd-display >/dev/null 2>&1; then
+  display_was_running=1
+fi
 
 info "Registering luxd service..."
 "$BINARY" hub install || fail "Failed to register luxd service -- the plugin cannot reach luxd until it runs"
-"$BINARY" hub restart || fail "Failed to restart luxd -- the running daemon still holds the previous bytecode"
+if [ "$hub_was_running" = "1" ]; then
+  "$BINARY" hub restart || fail "Failed to restart luxd -- the running daemon still holds the previous bytecode"
+fi
 
 # --- Step 5b: Register the display service ---
 
 info "Registering display service..."
 "$BINARY" display install || fail "Failed to register display service -- the window will not appear until it runs"
-"$BINARY" display restart || fail "Failed to restart the display -- the running window still holds the previous bytecode"
+if [ "$display_was_running" = "1" ]; then
+  "$BINARY" display restart || fail "Failed to restart the display -- the running window still holds the previous bytecode"
+fi
 
 # --- Step 6: Health-check luxd ---
 

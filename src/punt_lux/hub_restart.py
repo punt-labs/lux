@@ -35,10 +35,13 @@ if TYPE_CHECKING:
 
 __all__ = ["HubRestart", "HubRestartError"]
 
-# Ten seconds is generous for a local service manager's respawn and short
-# enough that a stuck one is reported rather than hung on.
+# Thirty seconds spans a cold start on a fresh install: importing the
+# ``[display]`` extras (imgui-bundle at ~66 MB, numpy, Pillow) plus the
+# service manager's respawn and uvicorn's port bind routinely takes
+# 15-25s on a warm laptop and longer on a loaded CI runner. Ten seconds
+# was tight enough to false-alarm during ``install.sh``.
 _POLL_SECONDS = 0.5
-_WAIT_SECONDS = 10.0
+_WAIT_SECONDS = 30.0
 
 
 class HubRestartError(RuntimeError):

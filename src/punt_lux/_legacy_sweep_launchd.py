@@ -85,7 +85,9 @@ class LaunchdLegacySweep:
                 fix_command=fix_command,
             )
         target = f"{launchctl.gui_domain()}/{label}"
-        deregistered = launchctl.run(["launchctl", "bootout", target], verb="bootout")
+        # A plist-only sweep (no registration to remove) surfaces rc=113
+        # from ``bootout`` — expected, not a failure to warn about.
+        deregistered = launchctl.probe(["launchctl", "bootout", target], verb="bootout")
         # The config file is only deleted once this re-check confirms the
         # deregister actually took -- a zero exit from bootout alone is not
         # proof; a mismatched launchd domain returns success while the job
@@ -128,7 +130,7 @@ class LaunchdLegacySweep:
 
     def _is_registered(self, label: str) -> bool:
         target = f"{launchctl.gui_domain()}/{label}"
-        return launchctl.run(["launchctl", "print", target], verb="print")
+        return launchctl.probe(["launchctl", "print", target], verb="print")
 
     def _plist_path(self, label: str) -> Path:
         return self._dir / f"{label}.plist"
