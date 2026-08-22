@@ -35,6 +35,7 @@ class ServiceSpec:
     process_name: str
     legacy_launchd_labels: tuple[str, ...] = ()
     legacy_systemd_units: tuple[str, ...] = ()
+    legacy_binary_names: tuple[str, ...] = ()
     # None means "this service has no fixed port to guard" -- DISPLAY_SPEC's
     # documented contract, not a value PortGuard failed to determine.
     health_port: int | None = None
@@ -71,13 +72,14 @@ HUB_SPEC: ServiceSpec = ServiceSpec(
     launchd_label="com.punt-labs.luxd-hub",
     systemd_unit="luxd-hub",
     systemd_description="Lux session hub daemon",
-    binary_name="luxd",
+    binary_name="luxd-hub",
     extra_args=("--port", str(DEFAULT_HUB_PORT)),
     log_stem="luxd",
     cli_verb="hub",
     process_name="luxd-hub",
     legacy_launchd_labels=("com.punt-labs.lux",),
     legacy_systemd_units=("lux",),
+    legacy_binary_names=("luxd",),
     health_port=DEFAULT_HUB_PORT,
 )
 
