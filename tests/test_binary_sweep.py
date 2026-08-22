@@ -189,3 +189,36 @@ class TestDiskBinarySweepUvAbsent:
 
         assert link.exists()
         assert link.is_symlink()
+
+
+class TestDiskBinarySweepUvToolDirEmptyStdout:
+    """Regression test: an empty or relative ``uv tool dir`` stdout must not
+    resolve to CWD, which would make every relative path look "ours"."""
+
+    def test_sweep_refuses_when_uv_tool_dir_prints_nothing(
+        self, tmp_path: Path
+    ) -> None:
+        bin_dir = tmp_path / "home" / ".local" / "bin"
+        bin_dir.mkdir(parents=True)
+        link = _plant_owned_shim(tmp_path, bin_dir, "luxd")
+
+        class _EmptyResult:
+            returncode = 0
+            stdout = "\n"
+            stderr = ""
+
+        with (
+            patch(
+                "punt_lux._binary_sweep_disk.Path.home", return_value=tmp_path / "home"
+            ),
+            patch(
+                "punt_lux._binary_sweep_disk.subprocess.run",
+                return_value=_EmptyResult(),
+            ),
+        ):
+            sweep = DiskBinaryLegacySweep(_SPEC)
+            with pytest.raises(ServiceMigrationError):
+                sweep.sweep()
+
+        assert link.exists()
+        assert link.is_symlink()

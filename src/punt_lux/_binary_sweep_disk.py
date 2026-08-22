@@ -158,7 +158,15 @@ class DiskBinaryLegacySweep:
                 result.returncode,
             )
             return None
-        return Path(result.stdout.strip()).resolve() / _UV_TOOL_PACKAGE
+        stdout = result.stdout.strip()
+        if not stdout or not Path(stdout).is_absolute():
+            logger.warning(
+                "uv tool dir printed no usable path (%r); cannot verify "
+                "legacy binaries",
+                stdout,
+            )
+            return None
+        return Path(stdout).resolve() / _UV_TOOL_PACKAGE
 
     def _is_ours(self, path: Path) -> bool:
         """Return whether ``path`` ultimately resolves inside this package's tool dir.
@@ -192,7 +200,8 @@ class DiskBinaryLegacySweep:
             return path.resolve()
         if path.is_file():
             try:
-                first_line = path.open(encoding="utf-8", errors="replace").readline()
+                with path.open(encoding="utf-8", errors="replace") as fh:
+                    first_line = fh.readline()
             except OSError:
                 return None
             if first_line.startswith("#!"):
@@ -201,4 +210,7 @@ class DiskBinaryLegacySweep:
 
     @staticmethod
     def _fix_command(path: Path) -> str:
-        return f"readlink -f {path}"
+        # `readlink -f` is BSD-incompatible (macOS readlink lacks -f by
+        # default); `ls -la` shows the symlink target on both macOS and
+        # Linux without relying on a GNU-only flag.
+        return f"ls -la {path}"
