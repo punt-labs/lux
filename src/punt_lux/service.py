@@ -9,7 +9,7 @@ from typing import ClassVar, Self, final
 from punt_lux._backends import ServiceBackend
 from punt_lux._binary_sweep import BinarySweep
 from punt_lux._binary_sweep_disk import DiskBinaryLegacySweep
-from punt_lux._doctor_result import DoctorResult
+from punt_lux._doctor_result import DoctorCheckers, DoctorResult
 from punt_lux._legacy_sweep import LegacySweep
 from punt_lux._platform_dispatch import detect_platform, platform_classes
 from punt_lux._port_guard import PortGuard
@@ -163,14 +163,18 @@ class ServiceManager:
 
     def doctor(self) -> DoctorResult:
         """Diagnose this service, read-only (``lux <verb> doctor``)."""
-        return DoctorResult.diagnose(
-            self._legacy_sweep, self._binary_sweep, self._port_guard, self._SPEC
-        )
+        return DoctorResult.diagnose(self._checkers())
 
     def doctor_fix(self) -> DoctorResult:
         """Repair this service, same objects :meth:`install` uses (``--fix``)."""
-        return DoctorResult.repair(
-            self._legacy_sweep, self._binary_sweep, self._port_guard, self._SPEC
+        return DoctorResult.repair(self._checkers())
+
+    def _checkers(self) -> DoctorCheckers:
+        return DoctorCheckers(
+            legacy_sweep=self._legacy_sweep,
+            binary_sweep=self._binary_sweep,
+            port_guard=self._port_guard,
+            spec=self._SPEC,
         )
 
 

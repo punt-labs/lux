@@ -16,9 +16,20 @@ if TYPE_CHECKING:
     from punt_lux._port_guard import PortGuard
     from punt_lux._service_spec import ServiceSpec
 
-__all__ = ["DoctorResult"]
+__all__ = ["DoctorCheckers", "DoctorResult"]
 
 _CLEAN_PORT_STATUSES = ("free", "ours")
+
+
+@final
+@dataclass(frozen=True, slots=True)
+class DoctorCheckers:
+    """The sweep/guard objects `install()` and `doctor` share for one service."""
+
+    legacy_sweep: LegacySweep
+    binary_sweep: BinarySweep
+    port_guard: PortGuard
+    spec: ServiceSpec
 
 
 @final
@@ -35,60 +46,35 @@ class DoctorResult:
     repair_failed: bool
 
     @classmethod
-    def diagnose(
-        cls,
-        legacy_sweep: LegacySweep,
-        binary_sweep: BinarySweep,
-        port_guard: PortGuard,
-        spec: ServiceSpec,
-    ) -> Self:
+    def diagnose(cls, checkers: DoctorCheckers) -> Self:
         """Build a result from the non-mutating query methods only.
 
         The ``lux <verb> doctor`` (no ``--fix``) branch -- zero mutating
         calls, safe to run repeatedly.
         """
+        spec = checkers.spec
         return cls(
             display_name=spec.display_name,
             process_name=spec.process_name,
             health_port=spec.health_port,
-            legacy=legacy_sweep.diagnose(),
-            binary=binary_sweep.diagnose(),
-            port=port_guard.check(),
+            legacy=checkers.legacy_sweep.diagnose(),
+            binary=checkers.binary_sweep.diagnose(),
+            port=checkers.port_guard.check(),
             repair_failed=False,
         )
 
     @classmethod
-    def repair(
-        cls,
-        legacy_sweep: LegacySweep,
-        binary_sweep: BinarySweep,
-        port_guard: PortGuard,
-        spec: ServiceSpec,
-    ) -> Self:
+    def repair(cls, checkers: DoctorCheckers) -> Self:
         """Build a result by curing what's dirty, same objects `install()` uses.
 
         The ``lux <verb> doctor --fix`` branch. A failed cure is folded into
         ``repair_failed`` rather than propagated -- the CLI renders and
         chooses its exit code from the result, it never catches here.
         """
-        repair_failed = False
-        try:
-            legacy = legacy_sweep.sweep()
-        except ServiceMigrationError:
-            legacy = legacy_sweep.diagnose()
-            repair_failed = True
-        try:
-            binary = binary_sweep.sweep()
-        except ServiceMigrationError:
-            binary = binary_sweep.diagnose()
-            repair_failed = True
-        port = port_guard.check()
-        if spec.health_port is not None and port.status not in _CLEAN_PORT_STATUSES:
-            try:
-                port_guard.guard()
-                port = port_guard.check()
-            except PortConflictError:
-                repair_failed = True
+        spec = checkers.spec
+        legacy, legacy_failed = cls._repair_legacy(checkers.legacy_sweep)
+        binary, binary_failed = cls._repair_binary(checkers.binary_sweep)
+        port, port_failed = cls._repair_port(checkers.port_guard, spec)
         return cls(
             display_name=spec.display_name,
             process_name=spec.process_name,
@@ -96,8 +82,35 @@ class DoctorResult:
             legacy=legacy,
             binary=binary,
             port=port,
-            repair_failed=repair_failed,
+            repair_failed=legacy_failed or binary_failed or port_failed,
         )
+
+    @staticmethod
+    def _repair_legacy(legacy_sweep: LegacySweep) -> tuple[LegacySweepReport, bool]:
+        try:
+            return legacy_sweep.sweep(), False
+        except ServiceMigrationError:
+            return legacy_sweep.diagnose(), True
+
+    @staticmethod
+    def _repair_binary(binary_sweep: BinarySweep) -> tuple[BinarySweepReport, bool]:
+        try:
+            return binary_sweep.sweep(), False
+        except ServiceMigrationError:
+            return binary_sweep.diagnose(), True
+
+    @staticmethod
+    def _repair_port(
+        port_guard: PortGuard, spec: ServiceSpec
+    ) -> tuple[PortGuardResult, bool]:
+        port = port_guard.check()
+        if spec.health_port is None or port.status in _CLEAN_PORT_STATUSES:
+            return port, False
+        try:
+            port_guard.guard()
+            return port_guard.check(), False
+        except PortConflictError:
+            return port, True
 
     @property
     def is_clean(self) -> bool:
