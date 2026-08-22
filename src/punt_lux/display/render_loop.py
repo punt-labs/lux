@@ -80,6 +80,13 @@ logger = logging.getLogger(__name__)
 # frame or a new client adopts it.
 _ORPHAN_FD = -1
 
+# Total wall-clock a single frame's synchronous sends (Acks, Pongs, query
+# responses) may spend waiting on a backpressured Hub. Well below the 1 s ping
+# timeout and the ~2 s macOS "not responding" threshold, so a slow-but-alive
+# peer never wedges the render thread long enough to trip either. Individual
+# sends past the budget are deferred by the caller, not blocked.
+_FRAME_SEND_BUDGET = 0.1
+
 
 class RenderLoop:
     """The ImGui render loop, with non-blocking Unix socket IPC."""
@@ -432,11 +439,22 @@ class RenderLoop:
         self._themes = list(hello_imgui.ImGuiTheme_)
 
     def _on_frame(self) -> None:
-        """Called every frame by ImGui."""
-        self._socket_listener.accept_connections()
-        self._socket_listener.poll_clients()
-        self._render_scene()
-        self._flush_events()
+        """Called every frame by ImGui.
+
+        A single bounded send deadline is armed for the whole frame so a burst
+        of Acks, Pongs, and query responses under Hub backpressure cannot stack
+        per-send waits and wedge the render thread past the ping timeout or the
+        macOS "not responding" threshold. Sends past the budget defer, they do
+        not block.
+        """
+        self._socket_listener.set_frame_deadline(time.monotonic() + _FRAME_SEND_BUDGET)
+        try:
+            self._socket_listener.accept_connections()
+            self._socket_listener.poll_clients()
+            self._render_scene()
+            self._flush_events()
+        finally:
+            self._socket_listener.clear_frame_deadline()
 
     def _on_after_swap(self) -> None:
         """Called after GL buffer swap -- GL_FRONT has rendered content."""

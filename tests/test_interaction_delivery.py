@@ -9,7 +9,7 @@ and scene widget state.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from unittest.mock import ANY, MagicMock
+from unittest.mock import MagicMock
 
 from punt_lux.display.evictions import Evictions
 from punt_lux.display.interaction_delivery import InteractionDelivery
@@ -19,8 +19,6 @@ from punt_lux.protocol import RemoteEventHandlerInvocation
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-
-    import pytest
 
 
 def _build(
@@ -36,7 +34,7 @@ def _build(
     socket_listener.fd_to_client = fd_to_client or {}
     results = send_results or {}
 
-    def _send(sock: object, _msg: object, _deadline: float) -> bool:
+    def _send(sock: object, _msg: object) -> bool:
         return results.get(sock, True)
 
     socket_listener.send_to_client.side_effect = _send
@@ -96,7 +94,7 @@ class TestDeliver:
         )
 
         assert delivery.deliver([event]) == 1  # one delivered
-        socket_listener.send_to_client.assert_called_once_with(owner_sock, event, ANY)
+        socket_listener.send_to_client.assert_called_once_with(owner_sock, event)
 
     def test_broadcast_sends_to_every_client_without_short_circuit(self) -> None:
         a, b = object(), object()
@@ -141,20 +139,16 @@ class TestDeliver:
         assert delivery.deliver([event]) == 0
         socket_listener.send_to_client.assert_not_called()
 
-    def test_spent_budget_delivers_nothing(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        # A non-positive budget means the deadline is already past: no event is
-        # attempted this frame, everything defers.
-        monkeypatch.setattr(
-            "punt_lux.display.interaction_delivery._FRAME_SEND_BUDGET", -1.0
-        )
+    def test_spent_budget_delivers_nothing(self) -> None:
+        # When the frame budget is spent, ``SocketListener.send_to_client`` returns
+        # False (its deadline has passed). Delivery stops at the first refusal so
+        # the caller re-holds the whole prefix for the next frame.
         sock = object()
-        delivery, socket_listener = _build(clients=[sock])
+        delivery, socket_listener = _build(clients=[sock], send_results={sock: False})
         event = RemoteEventHandlerInvocation(element_id="b", action="click", ts=1.0)
 
         assert delivery.deliver([event]) == 0
-        socket_listener.send_to_client.assert_not_called()
+        assert socket_listener.send_to_client.call_count == 1
 
 
 class TestCompensateEvicted:
