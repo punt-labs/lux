@@ -10,6 +10,7 @@ import pytest
 
 from punt_lux._backend_launchd import LaunchdBackend
 from punt_lux._backend_systemd import SystemdBackend
+from punt_lux._service_errors import ServiceMigrationError
 from punt_lux.service import (
     DISPLAY_SPEC,
     HUB_SPEC,
@@ -552,3 +553,102 @@ class TestBackendStartStopSymmetry:
             run.return_value.stderr = "boom"
             ok = backend.restart()
         assert ok is False
+
+
+class TestLaunchdSelfUpgrade:
+    """§5.6 required scope: install()'s OWN-label upgrade path.
+
+    The identical anti-pattern lived nine lines from the legacy-cleanup
+    bug: unload -w/load -w with warn-and-continue on failure, applied to
+    the service's own label during an in-place binary-path upgrade. This
+    must route through the same bootout + is_clean() discipline, fatal on
+    failure -- never `launchctl unload` or `launchctl load` again.
+    """
+
+    def test_install_never_issues_unload_or_load(self, tmp_path: Path):
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        local_bin = fake_home / ".local" / "bin"
+        local_bin.mkdir(parents=True)
+        (local_bin / "luxd").touch()
+
+        with (
+            patch("punt_lux._backend_launchd.Path.home", return_value=fake_home),
+            patch("punt_lux._service_spec.Path.home", return_value=fake_home),
+            patch("punt_lux.hub_paths.Path.home", return_value=fake_home),
+        ):
+            backend = LaunchdBackend(HUB_SPEC)
+        with (
+            patch.object(backend, "is_active", return_value=True),
+            patch("punt_lux._launchctl.subprocess.run") as run,
+        ):
+            # print (self-upgrade sweep's pre-check): registered.
+            # bootout: succeeds. print (post-check): now gone.
+            # bootstrap (the final install step): succeeds.
+            run.side_effect = [
+                _result(0),  # print -> registered
+                _result(0),  # bootout -> succeeds
+                _result(1),  # print -> gone
+                _result(0),  # bootstrap -> succeeds
+            ]
+            backend.install()
+
+        verbs_issued = [call.args[0] for call in run.call_args_list]
+        assert any(v[:2] == ["launchctl", "bootout"] for v in verbs_issued)
+        assert any(v[:2] == ["launchctl", "bootstrap"] for v in verbs_issued)
+        assert not any("unload" in v for v in verbs_issued)
+        assert not any(v[:2] == ["launchctl", "load"] for v in verbs_issued)
+
+    def test_install_raises_when_self_upgrade_sweep_fails(self, tmp_path: Path):
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        local_bin = fake_home / ".local" / "bin"
+        local_bin.mkdir(parents=True)
+        (local_bin / "luxd").touch()
+
+        with (
+            patch("punt_lux._backend_launchd.Path.home", return_value=fake_home),
+            patch("punt_lux._service_spec.Path.home", return_value=fake_home),
+            patch("punt_lux.hub_paths.Path.home", return_value=fake_home),
+        ):
+            backend = LaunchdBackend(HUB_SPEC)
+        with (
+            patch.object(backend, "is_active", return_value=True),
+            patch("punt_lux._launchctl.subprocess.run") as run,
+            pytest.raises(ServiceMigrationError),
+        ):
+            # print always reports "found" -- the lying-deregister case --
+            # fatal, no continue-on-failure fallthrough onto bootstrap.
+            run.return_value = _result(0)
+            backend.install()
+
+    def test_install_raises_when_bootstrap_fails(self, tmp_path: Path):
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        local_bin = fake_home / ".local" / "bin"
+        local_bin.mkdir(parents=True)
+        (local_bin / "luxd").touch()
+
+        with (
+            patch("punt_lux._backend_launchd.Path.home", return_value=fake_home),
+            patch("punt_lux._service_spec.Path.home", return_value=fake_home),
+            patch("punt_lux.hub_paths.Path.home", return_value=fake_home),
+        ):
+            backend = LaunchdBackend(HUB_SPEC)
+        with (
+            patch.object(backend, "is_active", return_value=False),
+            patch("punt_lux._launchctl.subprocess.run") as run,
+            pytest.raises(ServiceMigrationError, match="bootstrap"),
+        ):
+            run.return_value = _result(1)  # bootstrap -> fails
+            backend.install()
+
+
+def _result(returncode: int):
+    class _Result:
+        def __init__(self) -> None:
+            self.returncode = returncode
+            self.stdout = ""
+            self.stderr = ""
+
+    return _Result()
