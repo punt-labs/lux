@@ -2,6 +2,38 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Installer emitted spurious `launchctl print failed (rc=113)` warnings on
+  every fresh install** — the legacy-label sweep and the self-upgrade probe
+  both used `launchctl.run()`, which warns on any non-zero exit. launchd's
+  rc=113 ("no such service in this domain") is the probe's answer, not a
+  failure. Adds `launchctl.probe()` with `quiet_exits={113}` and routes the
+  legacy sweep's `print` and plist-only `bootout` calls through it so a
+  clean machine reads clean (#394).
+
+- **Installer bailed with "luxd did not come back within 10s" on fresh
+  installs, leaving the display never registered** — `install.sh` fired
+  `lux hub restart` immediately after `lux hub install` on a fresh v0.29.0
+  install. Install had just bootstrapped the daemon; the restart added
+  nothing and its 10-second port-bind timeout raced the `[display]`
+  extras' cold load (imgui-bundle ~66 MB, numpy, Pillow). `install.sh`
+  now captures whether the daemons were running before install and skips
+  the restart on a fresh install. `_WAIT_SECONDS` in `hub_restart.py` and
+  `display_restart.py` widens from 10 to 30 to accommodate real
+  cold-load timings (#394).
+
+- **`lux-z6g7`: display connection dropped and macOS "not responding"
+  spinner on Cmd-Q under Hub backpressure** — every `send_to_client`
+  call without an explicit deadline could each spend up to 1s waiting on
+  `select` inside `BoundedSend._wait_writable`. A burst of messages in
+  one `poll_clients` pass stacked those waits into a multi-second wedge
+  on the render thread, tripping the 1s ping timeout and past ~2s the
+  macOS spinner. `SocketListener` now carries an optional
+  `_frame_deadline` armed at the top of each frame with a 100ms budget
+  shared across every in-frame send, and cleared at the end so
+  post-frame one-off sends keep their own 1s budget (#395).
+
 ## [0.29.0] - 2026-08-22
 
 ### Changed
