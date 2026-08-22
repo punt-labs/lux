@@ -56,7 +56,6 @@ from typing import Final, Self, cast
 
 from PIL import Image, UnidentifiedImageError
 
-from punt_lux.client._sync_ops import SyncOps
 from punt_lux.client.facade import LuxClient
 from punt_lux.domain.validation_walk import HasChildElements
 from punt_lux.operations import OpError, RenderRequest
@@ -394,7 +393,7 @@ class SmokeRunner:
             print("No frame was sent — manifest describes intended contents only.")
         print("=" * 72)
 
-    def run(self, client: SyncOps) -> RunResult:
+    def run(self, client: LuxClient) -> RunResult:
         """Send every frame through the front door, return a :class:`RunResult`.
 
         Tries every frame even if earlier ones fail — partial coverage
@@ -428,7 +427,7 @@ class SmokeRunner:
                     title=spec.title,
                     frame=FrameSpec(frame_id=spec.frame_id, frame_title=spec.title),
                 )
-                result = client.sync.render(request)
+                result = client.sync.render(request, scope=client.scope)
             except (HubUnavailableError, TypeError, ValueError) as exc:
                 # Three failure modes routed to the same bucket, all meaning
                 # "this frame did not reach the renderer" from the operator's
@@ -984,7 +983,7 @@ def main() -> int:
         )
         runner.print_manifest(attempted=False)
         return 2
-    result = runner.run(client.sync)
+    result = runner.run(client)
     runner.print_manifest(attempted=True)
     if result.rejected:
         print(
