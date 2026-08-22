@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 from typing import Self, final
 
@@ -14,6 +15,15 @@ from punt_lux._service_spec import ServiceSpec
 logger = logging.getLogger(__name__)
 
 __all__ = ["LaunchdLegacySweep"]
+
+# launchd deregisters a job asynchronously: `launchctl bootout` can return
+# before the job actually leaves the domain, so an immediate `launchctl print`
+# recheck can observe the job still registered even though the bootout is
+# about to land. Poll briefly before declaring the sweep failed -- this is
+# the exact race the self-upgrade path (`install()` deregistering its own
+# running label before rewriting the plist) hits on every restart.
+_BOOTOUT_POLL_INTERVAL_SECONDS = 0.2
+_BOOTOUT_POLL_TIMEOUT_SECONDS = 2.0
 
 
 @final
@@ -80,7 +90,10 @@ class LaunchdLegacySweep:
         # deregister actually took -- a zero exit from bootout alone is not
         # proof; a mismatched launchd domain returns success while the job
         # stays registered (the exact ordering bug this primitive replaces).
-        if not self._is_registered(label):
+        # bootout's deregistration lands asynchronously, so the recheck polls
+        # briefly rather than firing once against a launchd that hasn't
+        # caught up yet.
+        if self._wait_until_deregistered(label):
             self._plist_path(label).unlink(missing_ok=True)
             return LegacyServiceOutcome(
                 identifier=label,
@@ -102,6 +115,16 @@ class LaunchdLegacySweep:
 
     def _is_label_clean(self, label: str) -> bool:
         return not self._is_registered(label) and not self._plist_path(label).exists()
+
+    def _wait_until_deregistered(self, label: str) -> bool:
+        """Poll ``_is_registered`` briefly; bootout's effect lands async."""
+        deadline = time.monotonic() + _BOOTOUT_POLL_TIMEOUT_SECONDS
+        while True:
+            if not self._is_registered(label):
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(_BOOTOUT_POLL_INTERVAL_SECONDS)
 
     def _is_registered(self, label: str) -> bool:
         target = f"{launchctl.gui_domain()}/{label}"

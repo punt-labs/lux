@@ -7,7 +7,6 @@ Get/Set command singletons per the design vocabulary's fused Display group.
 
 from __future__ import annotations
 
-import logging
 from typing import Annotated
 
 import typer
@@ -37,7 +36,6 @@ from punt_lux.commands import (
     display_window_get,
     display_window_set,
 )
-from punt_lux.log_level import level_from_env
 from punt_lux.operations import (
     DisplayModeRequest,
     OpError,
@@ -206,15 +204,13 @@ def serve(
 ) -> None:
     """Start the Lux display server (the ImGui render loop process).
 
-    This is the process luxd spawns (``lux display serve``) — not a verb an
-    agent or human runs interactively.
+    Interactive/manual entry point onto
+    :meth:`punt_lux.luxd_display.DisplayEntryPoint.serve` — the process
+    launchd/systemd runs directly is the top-level ``luxd-display`` executable,
+    not this subcommand.
     """
-    from pathlib import Path
-
-    from punt_lux.paths import DisplayPaths
-
     try:
-        from punt_lux.display import RenderLoop
+        from punt_lux.luxd_display import DisplayEntryPoint
     except ModuleNotFoundError as exc:
         _display_modules = {"imgui_bundle", "numpy", "PIL", "OpenGL"}
         if exc.name and exc.name.split(".")[0] in _display_modules:
@@ -225,16 +221,4 @@ def serve(
             raise typer.Exit(code=1) from None
         raise
 
-    dp = DisplayPaths(Path(socket) if socket else None)
-    log_path = dp.log_path
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-
-    logging.basicConfig(
-        filename=str(log_path),
-        level=level_from_env("INFO"),
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        datefmt="%H:%M:%S",
-    )
-
-    server = RenderLoop(socket, test_auto_click=test_auto_click)
-    server.run()
+    DisplayEntryPoint.serve(socket, test_auto_click=test_auto_click)
