@@ -2,7 +2,31 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **`luxd` console script renamed to `luxd-hub`**, matching the process and
+  supervisor identity (`luxd-hub`, `com.punt-labs.luxd-hub`) that already
+  shipped in the previous release. `uv tool install punt-lux[display]` now
+  writes `~/.local/bin/luxd-hub`, not `~/.local/bin/luxd`.
+
 ### Fixed
+
+- **`lux-j169`: `uv tool install --force` after the `luxd` -> `luxd-hub`
+  rename left a stale `~/.local/bin/luxd` shim behind** — `uv` only
+  reconciles the entrypoints it currently declares, so it has no reason to
+  remove a file it no longer manages under the old name. `lux hub install`
+  now sweeps this legacy disk binary the same way it already sweeps legacy
+  launchd/systemd registrations: `DiskBinaryLegacySweep`
+  (`_binary_sweep_disk.py`) resolves `~/.local/bin/luxd`'s real target
+  (following a symlink or a shebang line), verifies via `uv tool dir` that
+  the target resolves inside this package's own uv-tool directory using
+  `Path.is_relative_to()` (not a `str.startswith()` prefix check, which a
+  sibling tool directory like `punt-lux-devtools` could false-positive),
+  and only then removes it. An unrecognized file is left in place with a
+  loud refusal (`ServiceMigrationError`), never silently deleted or
+  silently ignored. `lux hub doctor` reports stale legacy binaries
+  alongside legacy registrations and port conflicts; `--fix` repairs all
+  three through the same objects `install()` uses.
 
 - **`lux-ehzy`: a stale `com.punt-labs.lux` launchd registration survived
   every upgrade and held port 8430, causing every fresh `luxd` to

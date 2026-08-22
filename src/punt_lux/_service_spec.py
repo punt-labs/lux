@@ -35,17 +35,15 @@ class ServiceSpec:
     process_name: str
     legacy_launchd_labels: tuple[str, ...] = ()
     legacy_systemd_units: tuple[str, ...] = ()
-    # None means "this service has no fixed port to guard" -- DISPLAY_SPEC's
-    # documented contract, not a value PortGuard failed to determine.
+    legacy_binary_names: tuple[str, ...] = ()
+    # None: no fixed port to guard -- DISPLAY_SPEC's documented contract.
     health_port: int | None = None
 
     def resolve_exec_args(self) -> list[str]:
         """Return the command that launches this service.
 
-        Resolves ``~/.local/bin/<binary_name>`` — the uv-tool install symlink —
-        and refuses if it is missing. ``sys.executable`` or ``shutil.which``
-        would happily resolve to a dev venv binary; the caller wants the
-        installed one, stable across ``uv tool upgrade``.
+        Resolves ``~/.local/bin/<binary_name>`` -- the uv-tool install
+        symlink, stable across ``uv tool upgrade`` -- and refuses if missing.
         """
         local_bin = Path.home() / ".local" / "bin" / self.binary_name
         if not local_bin.exists():
@@ -71,13 +69,14 @@ HUB_SPEC: ServiceSpec = ServiceSpec(
     launchd_label="com.punt-labs.luxd-hub",
     systemd_unit="luxd-hub",
     systemd_description="Lux session hub daemon",
-    binary_name="luxd",
+    binary_name="luxd-hub",
     extra_args=("--port", str(DEFAULT_HUB_PORT)),
     log_stem="luxd",
     cli_verb="hub",
     process_name="luxd-hub",
     legacy_launchd_labels=("com.punt-labs.lux",),
     legacy_systemd_units=("lux",),
+    legacy_binary_names=("luxd",),
     health_port=DEFAULT_HUB_PORT,
 )
 

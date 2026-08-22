@@ -44,7 +44,7 @@ class TestHubSpecExecArgs:
         fake_home.mkdir()
         with (
             patch("punt_lux._service_spec.Path.home", return_value=fake_home),
-            pytest.raises(RuntimeError, match="Cannot find luxd binary"),
+            pytest.raises(RuntimeError, match="Cannot find luxd-hub binary"),
         ):
             HUB_SPEC.resolve_exec_args()
 
@@ -52,14 +52,14 @@ class TestHubSpecExecArgs:
         fake_home = tmp_path / "home"
         local_bin = fake_home / ".local" / "bin"
         local_bin.mkdir(parents=True)
-        luxd = local_bin / "luxd"
+        luxd = local_bin / "luxd-hub"
         luxd.touch()
         luxd.chmod(0o755)
 
         with patch("punt_lux._service_spec.Path.home", return_value=fake_home):
             args = HUB_SPEC.resolve_exec_args()
 
-        assert args[0].endswith("luxd")
+        assert args[0].endswith("luxd-hub")
         assert "--port" in args
         assert "8430" in args
 
@@ -84,8 +84,8 @@ class TestLaunchdPlistContent:
         fake_home = tmp_path / "home"
         local_bin = fake_home / ".local" / "bin"
         local_bin.mkdir(parents=True)
-        (local_bin / "luxd").touch()
-        (local_bin / "luxd").chmod(0o755)
+        (local_bin / "luxd-hub").touch()
+        (local_bin / "luxd-hub").chmod(0o755)
 
         with (
             patch("punt_lux._backend_launchd.Path.home", return_value=fake_home),
@@ -106,8 +106,8 @@ class TestLaunchdPlistContent:
         fake_home = tmp_path / "home"
         local_bin = fake_home / ".local" / "bin"
         local_bin.mkdir(parents=True)
-        (local_bin / "luxd").touch()
-        (local_bin / "luxd").chmod(0o755)
+        (local_bin / "luxd-hub").touch()
+        (local_bin / "luxd-hub").chmod(0o755)
 
         with (
             patch("punt_lux._backend_launchd.Path.home", return_value=fake_home),
@@ -145,8 +145,8 @@ class TestSystemdUnitContent:
         fake_home = tmp_path / "home"
         local_bin = fake_home / ".local" / "bin"
         local_bin.mkdir(parents=True)
-        (local_bin / "luxd").touch()
-        (local_bin / "luxd").chmod(0o755)
+        (local_bin / "luxd-hub").touch()
+        (local_bin / "luxd-hub").chmod(0o755)
 
         with (
             patch("punt_lux._backend_systemd.Path.home", return_value=fake_home),
@@ -167,8 +167,8 @@ class TestSystemdUnitContent:
         fake_home = tmp_path / "home"
         local_bin = fake_home / ".local" / "bin"
         local_bin.mkdir(parents=True)
-        (local_bin / "luxd").touch()
-        (local_bin / "luxd").chmod(0o755)
+        (local_bin / "luxd-hub").touch()
+        (local_bin / "luxd-hub").chmod(0o755)
 
         with (
             patch("punt_lux._backend_systemd.Path.home", return_value=fake_home),
@@ -297,7 +297,7 @@ class TestLegacyPlistCleanup:
         fake_home.mkdir()
         local_bin = fake_home / ".local" / "bin"
         local_bin.mkdir(parents=True)
-        (local_bin / "luxd").touch()
+        (local_bin / "luxd-hub").touch()
 
         with (
             patch("punt_lux.service.detect_platform", return_value="macos"),
@@ -359,7 +359,7 @@ class TestInstallAndDoctorShareTheSameSweepObjects:
         fake_home.mkdir()
         local_bin = fake_home / ".local" / "bin"
         local_bin.mkdir(parents=True)
-        (local_bin / "luxd").touch()
+        (local_bin / "luxd-hub").touch()
 
         with (
             patch("punt_lux.service.detect_platform", return_value="macos"),
@@ -403,7 +403,7 @@ class TestSystemdLegacyUnitCleanup:
         fake_home.mkdir()
         local_bin = fake_home / ".local" / "bin"
         local_bin.mkdir(parents=True)
-        (local_bin / "luxd").touch()
+        (local_bin / "luxd-hub").touch()
 
         with (
             patch("punt_lux.service.detect_platform", return_value="linux"),
@@ -621,7 +621,7 @@ class TestLaunchdSelfUpgrade:
         fake_home.mkdir()
         local_bin = fake_home / ".local" / "bin"
         local_bin.mkdir(parents=True)
-        (local_bin / "luxd").touch()
+        (local_bin / "luxd-hub").touch()
 
         with (
             patch("punt_lux._backend_launchd.Path.home", return_value=fake_home),
@@ -650,7 +650,7 @@ class TestLaunchdSelfUpgrade:
         fake_home.mkdir()
         local_bin = fake_home / ".local" / "bin"
         local_bin.mkdir(parents=True)
-        (local_bin / "luxd").touch()
+        (local_bin / "luxd-hub").touch()
 
         with (
             patch("punt_lux._backend_launchd.Path.home", return_value=fake_home),
@@ -671,7 +671,7 @@ class TestLaunchdSelfUpgrade:
         fake_home.mkdir()
         local_bin = fake_home / ".local" / "bin"
         local_bin.mkdir(parents=True)
-        (local_bin / "luxd").touch()
+        (local_bin / "luxd-hub").touch()
 
         with (
             patch("punt_lux._backend_launchd.Path.home", return_value=fake_home),
