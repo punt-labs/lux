@@ -29,6 +29,7 @@ class PortGuardResult:
 
     status: Literal["free", "ours", "foreign", "unknown"]
     pid: int | None  # the holding pid, when status is "ours" or "foreign"; else None
+    reason: str | None = None  # human-readable why, set only when status is "unknown"
 
 
 @final
@@ -65,7 +66,9 @@ class PortGuard:
             logger.warning(
                 "lsof not found on PATH; cannot verify port %d is free", port
             )
-            return PortGuardResult(status="unknown", pid=None)
+            return PortGuardResult(
+                status="unknown", pid=None, reason="lsof is not on PATH"
+            )
         if result.returncode > 1:
             # lsof exits 1 for "no matches" (normal); anything higher is a
             # real failure (bad args, permission) -- fail closed, not free.
@@ -74,7 +77,11 @@ class PortGuard:
                 result.returncode,
                 port,
             )
-            return PortGuardResult(status="unknown", pid=None)
+            return PortGuardResult(
+                status="unknown",
+                pid=None,
+                reason=f"lsof exited {result.returncode} (real failure, not a no-match)",
+            )
         pids = [int(line) for line in result.stdout.split() if line.strip()]
         if not pids:
             return PortGuardResult(status="free", pid=None)
@@ -90,9 +97,11 @@ class PortGuard:
         """Raise :class:`PortConflictError` unless ``check()`` confirms free-or-ours.
 
         Fail-closed: both ``"foreign"`` (a verified other process) and
-        ``"unknown"`` (``lsof`` missing, so nothing was verified) raise.
-        Proceeding on an unconfirmed assumption is exactly the silent
-        pass-through this design exists to close out.
+        ``"unknown"`` (verification failed for any reason — ``lsof`` missing
+        from PATH, or ``lsof`` exited with a non-normal code) raise.
+        The specific reason for ``"unknown"`` is carried in
+        ``PortGuardResult.reason`` and included in the raised error message,
+        so a permissions failure isn't misdiagnosed as a missing binary.
         """
         result = self.check()
         if result.status in ("free", "ours"):
@@ -105,5 +114,6 @@ class PortGuard:
                 f"lsof -nP -iTCP:{port} -sTCP:LISTEN"
             )
         else:
-            msg = f"cannot verify port {port} is free or ours -- lsof is not on PATH"
+            reason = result.reason or "unknown reason"
+            msg = f"cannot verify port {port} is free or ours -- {reason}"
         raise PortConflictError(msg)
