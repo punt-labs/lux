@@ -85,17 +85,13 @@ jobs:
   # binaries already exist). BLOCKING: a hung `make restart` on the operator's
   # machine is exactly the failure class this job exists to catch before merge.
   #
-  # Deliberately does NOT run `make test-e2e` (pytest -m e2e unscoped): that
-  # marker also covers tests/test_e2e.py, tests/test_direct_connection_probe.py,
-  # and tests/integration/test_hub_display_reconciliation.py, all of which spawn
-  # a real ImGui display process and fail on the headless macos-latest runner
-  # ("Display server failed to start within 10.0s"). This job runs only the two
-  # install/launchd files -- they DO start `luxd-display` via launchd (that's
-  # part of `lux display install`), but do NOT spawn an interactive ImGui/GLFW
-  # window process, which is what the excluded tests require. The narrowing IS
-  # the fix, not a workaround; those renderer-window-dependent tests already
-  # have a home in the `integration`/manual-visual tiers documented in
-  # tests/CLAUDE.md.
+  # Runs `make test-e2e`, which now filters `-m 'e2e and not gui'`: tests
+  # spawning a real ImGui/GLFW window (tests/test_e2e.py,
+  # tests/integration/test_hub_display_reconciliation.py,
+  # tests/integration/test_subprocess_lifecycle.py) carry `@pytest.mark.gui`
+  # and are excluded on the headless macos-latest runner. The marker filter is
+  # the exclusion mechanism now, not a hardcoded file list -- any new e2e test
+  # that needs a real window gets the same marker and CI skips it automatically.
   e2e-macos:
     runs-on: macos-latest
     timeout-minutes: 25
@@ -112,8 +108,5 @@ jobs:
         run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Pre-install so ~/.local/bin is populated before pytest collects tests/e2e/
         run: make install
-      - name: E2E tests (install/launchd subset -- no ImGui window spawned)
-        run: >-
-          uv run --extra display pytest -m e2e
-          tests/e2e/test_make_restart.py
-          tests/e2e/test_install_matches_pyproject.py
+      - name: E2E tests (no ImGui window spawned; gui-marked tests excluded)
+        run: make test-e2e

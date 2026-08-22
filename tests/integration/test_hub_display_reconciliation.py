@@ -62,6 +62,7 @@ def _wait_until(predicate: object, timeout: float = 5.0) -> bool:
 
 
 @pytest.mark.e2e
+@pytest.mark.gui
 def test_a_restart_purges_the_dead_hubs_scene() -> None:
     """A fresh Hub identify with an empty manifest purges the dead Hub's ghost.
 

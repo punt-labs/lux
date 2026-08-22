@@ -11,6 +11,12 @@
 
 ### Fixed
 
+- **`tests/test_e2e.py`'s `TestWalkingSkeleton` spawned the display with a
+  stale CLI invocation** — `lux-5i3n`'s display CLI restructure moved the
+  socket-serving entry point to `display serve --socket`, but the two
+  `subprocess.Popen` calls in this test still called `display --socket`
+  directly, so both tests failed to spawn the display subprocess.
+
 - **`lux-5i3n`: `make restart` hung indefinitely** — `launchctl kickstart -k`
   restarts a service through its *existing* launchd plist; it never rewrites
   the plist, so after `lux-j169` renamed the hub binary the plist still
@@ -144,10 +150,9 @@
   calls `launchctl kickstart -k`, `SystemdBackend` calls
   `systemctl --user restart`. Neither reads a pid file: the supervisor
   already knows the pid the daemon does not itself keep current.
-- **`lux-csjb`: `e2e-macos` CI job** — runs `tests/e2e/test_make_restart.py`
-  and `tests/e2e/test_install_matches_pyproject.py` (the install/launchd
-  subset of the e2e tier — starts `luxd-hub` and `luxd-display` via launchd,
-  no interactive ImGui window) against a real `macos-latest`
+- **`lux-csjb`: `e2e-macos` CI job** — runs `make test-e2e` (the e2e tier
+  minus GUI-dependent tests — starts `luxd-hub` and `luxd-display` via
+  launchd, no interactive ImGui window) against a real `macos-latest`
   runner's launchd GUI domain. This is the class of defect `lux-j169`
   shipped unnoticed: a renamed disk binary that `launchctl kickstart -k`
   silently hung on, invisible to the ubuntu-latest `test`/`integration`/`slow`
@@ -158,6 +163,14 @@
   (repo Settings → Branches → main → required status checks) for this job to
   actually gate merges. Until that setting is updated, the job runs and
   reports on every PR but does not block one from merging.
+- **`gui` pytest marker.** Marks e2e tests that spawn a real ImGui window
+  (GLFW init, a live display session) as distinct from e2e tests that only
+  need process/launchd machinery. `make test-e2e` now filters `-m 'e2e and
+  not gui'`; the new `make test-e2e-gui` target runs `-m 'e2e and gui'` for
+  local use against a real display. `e2e-macos` runs plain `make test-e2e`
+  — the marker is the exclusion mechanism, not a hardcoded file list, so a
+  future GUI-dependent e2e test is excluded automatically by carrying the
+  marker.
 
 ## [0.28.0] - 2026-08-21
 
