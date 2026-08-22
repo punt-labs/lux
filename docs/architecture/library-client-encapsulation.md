@@ -701,7 +701,17 @@ changes.
 
 ## 9. Post-Implementation Verification
 
-Exact commands, each expected to return zero lines:
+Exact commands, each expected to return zero lines. `docs/` is swept too, but
+the sweep carries an exemption list for prose that is *about* the rename --
+this document narrates the retired name throughout its own rationale, and a
+handful of other design/historical records (`library.md`'s migration table,
+`system.tex`, `client-identity.md`, `one-code-path.md`,
+`client-surface-parity-design.md`) do the same. Rewriting those sentences to
+avoid the string they are documenting would corrupt them. The shipped guard,
+`tests/e2e/test_no_luxrestclient.py`, encodes this exemption list precisely
+(`_EXEMPT_FILES`) and is what actually runs in CI; the raw `grep` below is
+illustrative and will show hits inside this file and its sibling exemptions
+when run by hand -- that is expected, not a failure:
 
 ```bash
 grep -rn "LuxRestClient" src/ tests/ docs/
@@ -728,7 +738,11 @@ the 300-line ceiling.
 
 A dedicated test asserting the leak cannot reopen silently — this is the test
 that answers "how does the design verify the encapsulation," not merely "how
-does the design verify the operations still work":
+does the design verify the operations still work". This snippet is the
+shipped `tests/client/test_encapsulation.py` verbatim, not an illustrative
+sketch: `alias.asname or alias.name` already resolves aliased imports (e.g.
+`from ... import _RestTransport as RT` records `_RestTransport`, not `RT`),
+so an alias cannot dodge the guard:
 
 ```python
 # tests/client/test_encapsulation.py
