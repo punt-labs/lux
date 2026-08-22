@@ -19,6 +19,7 @@ class TestPortGuardCheck:
     def test_no_holder_reports_free(self) -> None:
         guard = PortGuard(HUB_SPEC)
         with patch("punt_lux._port_guard.subprocess.run") as run:
+            run.return_value.returncode = 1
             run.return_value.stdout = ""
             result = guard.check()
         assert result.status == "free"
@@ -30,6 +31,7 @@ class TestPortGuardCheck:
             patch("punt_lux._port_guard.subprocess.run") as run,
             patch("punt_lux._port_guard.pgrep_pid", return_value=4242),
         ):
+            run.return_value.returncode = 0
             run.return_value.stdout = "4242\n"
             result = guard.check()
         assert result.status == "ours"
@@ -41,10 +43,46 @@ class TestPortGuardCheck:
             patch("punt_lux._port_guard.subprocess.run") as run,
             patch("punt_lux._port_guard.pgrep_pid", return_value=None),
         ):
+            run.return_value.returncode = 0
             run.return_value.stdout = "14100\n"
             result = guard.check()
         assert result.status == "foreign"
         assert result.pid == 14100
+
+    def test_any_foreign_pid_among_many_reports_foreign(self) -> None:
+        """lsof -t can list multiple pids; one foreign pid fails closed."""
+        guard = PortGuard(HUB_SPEC)
+        with (
+            patch("punt_lux._port_guard.subprocess.run") as run,
+            patch("punt_lux._port_guard.pgrep_pid", return_value=4242),
+        ):
+            run.return_value.returncode = 0
+            run.return_value.stdout = "4242\n14100\n"
+            result = guard.check()
+        assert result.status == "foreign"
+        assert result.pid == 14100
+
+    def test_all_pids_ours_reports_ours(self) -> None:
+        guard = PortGuard(HUB_SPEC)
+        with (
+            patch("punt_lux._port_guard.subprocess.run") as run,
+            patch("punt_lux._port_guard.pgrep_pid", return_value=4242),
+        ):
+            run.return_value.returncode = 0
+            run.return_value.stdout = "4242\n4242\n"
+            result = guard.check()
+        assert result.status == "ours"
+        assert result.pid == 4242
+
+    def test_lsof_real_error_reports_unknown_not_free(self) -> None:
+        """rc > 1 is a real lsof failure, not a fail-open 'no matches'."""
+        guard = PortGuard(HUB_SPEC)
+        with patch("punt_lux._port_guard.subprocess.run") as run:
+            run.return_value.returncode = 2
+            run.return_value.stdout = ""
+            result = guard.check()
+        assert result.status == "unknown"
+        assert result.pid is None
 
     def test_missing_lsof_reports_unknown_not_free(self) -> None:
         """A query that cannot determine the answer reports that as data."""
@@ -61,6 +99,7 @@ class TestPortGuardGuard:
     def test_free_passes(self) -> None:
         guard = PortGuard(HUB_SPEC)
         with patch("punt_lux._port_guard.subprocess.run") as run:
+            run.return_value.returncode = 1
             run.return_value.stdout = ""
             guard.guard()  # must not raise
 
@@ -70,6 +109,7 @@ class TestPortGuardGuard:
             patch("punt_lux._port_guard.subprocess.run") as run,
             patch("punt_lux._port_guard.pgrep_pid", return_value=4242),
         ):
+            run.return_value.returncode = 0
             run.return_value.stdout = "4242\n"
             guard.guard()  # must not raise
 
@@ -80,7 +120,19 @@ class TestPortGuardGuard:
             patch("punt_lux._port_guard.pgrep_pid", return_value=None),
             pytest.raises(PortConflictError, match="14100"),
         ):
+            run.return_value.returncode = 0
             run.return_value.stdout = "14100\n"
+            guard.guard()
+
+    def test_lsof_real_error_raises(self) -> None:
+        """rc > 1 is fail-closed through guard() too, not treated as free."""
+        guard = PortGuard(HUB_SPEC)
+        with (
+            patch("punt_lux._port_guard.subprocess.run") as run,
+            pytest.raises(PortConflictError, match="lsof"),
+        ):
+            run.return_value.returncode = 2
+            run.return_value.stdout = ""
             guard.guard()
 
     def test_missing_lsof_raises_never_assumes_safe(self) -> None:

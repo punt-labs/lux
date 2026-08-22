@@ -28,7 +28,7 @@ class PortGuardResult:
     """The outcome of one port check: exactly one of these four states."""
 
     status: Literal["free", "ours", "foreign", "unknown"]
-    pid: int | None  # the holding pid, when status is "foreign"; else None
+    pid: int | None  # the holding pid, when status is "ours" or "foreign"; else None
 
 
 @final
@@ -66,13 +66,25 @@ class PortGuard:
                 "lsof not found on PATH; cannot verify port %d is free", port
             )
             return PortGuardResult(status="unknown", pid=None)
+        if result.returncode > 1:
+            # lsof exits 1 for "no matches" (normal); anything higher is a
+            # real failure (bad args, permission) -- fail closed, not free.
+            logger.warning(
+                "lsof exited %d checking port %d; cannot verify free or ours",
+                result.returncode,
+                port,
+            )
+            return PortGuardResult(status="unknown", pid=None)
         pids = [int(line) for line in result.stdout.split() if line.strip()]
         if not pids:
             return PortGuardResult(status="free", pid=None)
-        holder = pids[0]
-        if holder == pgrep_pid(self._spec.process_name):
-            return PortGuardResult(status="ours", pid=holder)
-        return PortGuardResult(status="foreign", pid=holder)
+        ours = pgrep_pid(self._spec.process_name)
+        # lsof -t can list multiple pids (SO_REUSEPORT, multiple listeners);
+        # any pid that isn't ours means the port isn't exclusively ours.
+        foreign = next((pid for pid in pids if pid != ours), None)
+        if foreign is not None:
+            return PortGuardResult(status="foreign", pid=foreign)
+        return PortGuardResult(status="ours", pid=ours)
 
     def guard(self) -> None:
         """Raise :class:`PortConflictError` unless ``check()`` confirms free-or-ours.

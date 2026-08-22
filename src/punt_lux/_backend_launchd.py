@@ -187,21 +187,3 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
             </dict>
             </plist>
         """)
-
-    def _remove_legacy_plists(self) -> None:
-        """Unload and delete plists shipped under old labels for this service.
-
-        A rename train leaves the old plist behind, and both the old and new
-        LaunchAgents would race to bind the same port at next login. The
-        current hub label is ``com.punt-labs.luxd-hub``; the pre-rename label
-        was ``com.punt-labs.lux``. Only the hub install cleans it up; the
-        display had no prior label.
-        """
-        if self._spec.launchd_label != "com.punt-labs.luxd-hub":
-            return
-        legacy = self._dir / "com.punt-labs.lux.plist"
-        if not legacy.exists():
-            return
-        launchctl.run(["launchctl", "unload", "-w", str(legacy)], verb="unload")
-        legacy.unlink(missing_ok=True)
-        logger.info("Removed legacy plist %s", legacy)
