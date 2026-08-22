@@ -34,7 +34,7 @@ class DiskBinaryOutcome:
     ownership_verified: bool
     removed: bool
     verified_clean: bool
-    fix_command: str
+    remediation: str
 
     def describe(self) -> str:
         """Return an operator-facing repair line, or ``""`` when already clean.
@@ -56,14 +56,14 @@ class DiskBinaryOutcome:
             return os.linesep.join(
                 (
                     not_verified,
-                    f"    inspect: {self.fix_command}",
+                    f"    inspect: {self.remediation}",
                     not_removed,
                 )
             )
         return os.linesep.join(
             (
                 f"  legacy binary {self.path}: still present",
-                f"    fix: {self.fix_command}",
+                f"    fix: {self.remediation}",
             )
         )
 
