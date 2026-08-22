@@ -7,6 +7,8 @@ import os
 from typing import ClassVar, Self, final
 
 from punt_lux._backends import ServiceBackend
+from punt_lux._binary_sweep import BinarySweep
+from punt_lux._binary_sweep_disk import DiskBinaryLegacySweep
 from punt_lux._doctor_result import DoctorResult
 from punt_lux._legacy_sweep import LegacySweep
 from punt_lux._platform_dispatch import detect_platform, platform_classes
@@ -42,8 +44,9 @@ class ServiceManager:
 
     _SPEC: ClassVar[ServiceSpec]
 
-    __slots__ = ("_backend", "_legacy_sweep", "_port_guard")
+    __slots__ = ("_backend", "_binary_sweep", "_legacy_sweep", "_port_guard")
     _backend: ServiceBackend
+    _binary_sweep: BinarySweep
     _legacy_sweep: LegacySweep
     _port_guard: PortGuard
 
@@ -68,6 +71,7 @@ class ServiceManager:
         classes = platform_classes(detect_platform())
         self._backend = classes.backend(cls._SPEC)
         self._legacy_sweep = classes.legacy_sweep(cls._SPEC)
+        self._binary_sweep = DiskBinaryLegacySweep(cls._SPEC)
         self._port_guard = PortGuard(cls._SPEC)
         return self
 
@@ -84,6 +88,7 @@ class ServiceManager:
     def install(self) -> str:
         """Cure any legacy registration and port conflict, then install."""
         self._legacy_sweep.sweep()
+        self._binary_sweep.sweep()
         if self._SPEC.health_port is not None:
             self._port_guard.guard()
         self._backend.install()
@@ -158,11 +163,15 @@ class ServiceManager:
 
     def doctor(self) -> DoctorResult:
         """Diagnose this service, read-only (``lux <verb> doctor``)."""
-        return DoctorResult.diagnose(self._legacy_sweep, self._port_guard, self._SPEC)
+        return DoctorResult.diagnose(
+            self._legacy_sweep, self._binary_sweep, self._port_guard, self._SPEC
+        )
 
     def doctor_fix(self) -> DoctorResult:
         """Repair this service, same objects :meth:`install` uses (``--fix``)."""
-        return DoctorResult.repair(self._legacy_sweep, self._port_guard, self._SPEC)
+        return DoctorResult.repair(
+            self._legacy_sweep, self._binary_sweep, self._port_guard, self._SPEC
+        )
 
 
 @final

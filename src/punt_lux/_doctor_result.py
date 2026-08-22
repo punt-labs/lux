@@ -5,11 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux._binary_sweep import BinarySweepReport
 from punt_lux._legacy_sweep import LegacySweepReport
 from punt_lux._port_guard import PortGuardResult
 from punt_lux._service_errors import PortConflictError, ServiceMigrationError
 
 if TYPE_CHECKING:
+    from punt_lux._binary_sweep import BinarySweep
     from punt_lux._legacy_sweep import LegacySweep
     from punt_lux._port_guard import PortGuard
     from punt_lux._service_spec import ServiceSpec
@@ -28,12 +30,17 @@ class DoctorResult:
     process_name: str
     health_port: int | None  # None mirrors ServiceSpec: no fixed port to guard
     legacy: LegacySweepReport
+    binary: BinarySweepReport
     port: PortGuardResult
     repair_failed: bool
 
     @classmethod
     def diagnose(
-        cls, legacy_sweep: LegacySweep, port_guard: PortGuard, spec: ServiceSpec
+        cls,
+        legacy_sweep: LegacySweep,
+        binary_sweep: BinarySweep,
+        port_guard: PortGuard,
+        spec: ServiceSpec,
     ) -> Self:
         """Build a result from the non-mutating query methods only.
 
@@ -45,13 +52,18 @@ class DoctorResult:
             process_name=spec.process_name,
             health_port=spec.health_port,
             legacy=legacy_sweep.diagnose(),
+            binary=binary_sweep.diagnose(),
             port=port_guard.check(),
             repair_failed=False,
         )
 
     @classmethod
     def repair(
-        cls, legacy_sweep: LegacySweep, port_guard: PortGuard, spec: ServiceSpec
+        cls,
+        legacy_sweep: LegacySweep,
+        binary_sweep: BinarySweep,
+        port_guard: PortGuard,
+        spec: ServiceSpec,
     ) -> Self:
         """Build a result by curing what's dirty, same objects `install()` uses.
 
@@ -65,6 +77,11 @@ class DoctorResult:
         except ServiceMigrationError:
             legacy = legacy_sweep.diagnose()
             repair_failed = True
+        try:
+            binary = binary_sweep.sweep()
+        except ServiceMigrationError:
+            binary = binary_sweep.diagnose()
+            repair_failed = True
         port = port_guard.check()
         if spec.health_port is not None and port.status not in _CLEAN_PORT_STATUSES:
             try:
@@ -77,14 +94,19 @@ class DoctorResult:
             process_name=spec.process_name,
             health_port=spec.health_port,
             legacy=legacy,
+            binary=binary,
             port=port,
             repair_failed=repair_failed,
         )
 
     @property
     def is_clean(self) -> bool:
-        """Return whether both the legacy identifiers and the port are clean."""
-        return self.legacy.all_clean and self.port.status in _CLEAN_PORT_STATUSES
+        """Return whether the legacy identifiers, binaries, and port are all clean."""
+        return (
+            self.legacy.all_clean
+            and self.binary.all_clean
+            and self.port.status in _CLEAN_PORT_STATUSES
+        )
 
     @property
     def exit_code(self) -> int:
@@ -98,7 +120,12 @@ class DoctorResult:
         header = f"{self.display_name}: {'clean' if self.is_clean else 'DIRTY'}"
         if self.repair_failed:
             header += " -- automatic repair failed"
-        lines = [header, *self._legacy_lines(), *self._port_lines()]
+        lines = [
+            header,
+            *self._legacy_lines(),
+            *self._binary_lines(),
+            *self._port_lines(),
+        ]
         return "\n".join(lines)
 
     def _legacy_lines(self) -> list[str]:
@@ -107,6 +134,13 @@ class DoctorResult:
         if self.legacy.all_clean:
             return ["  legacy registrations: none"]
         return [line for line in self.legacy.describe().splitlines() if line]
+
+    def _binary_lines(self) -> list[str]:
+        if not self.binary.outcomes:
+            return []
+        if self.binary.all_clean:
+            return ["  legacy binaries: none present"]
+        return [line for line in self.binary.describe().splitlines() if line]
 
     def _port_lines(self) -> list[str]:
         if self.health_port is None:
