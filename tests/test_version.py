@@ -6,9 +6,10 @@ import subprocess
 import sys
 
 # The library surface a consumer imports to drive luxd — the public facade and
-# the request/result types it speaks, plus the one exceptional error. The old
-# transport-flavoured names (LuxRestClient, LuxHubClient) are no longer in the
-# public __all__: consumers hold LuxClient and reach its noun-grouped accessors.
+# the request/result types it speaks, plus the one exceptional error. The
+# transport-flavoured names (the private REST transport, LuxHubClient) are not
+# in the public __all__: consumers hold LuxClient and reach its noun-grouped
+# accessors.
 _PUBLIC_CLIENT_API = (
     "LuxClient",
     "ClientIdentity",

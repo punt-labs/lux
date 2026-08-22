@@ -43,6 +43,10 @@ _IDENTITY = ClientIdentity(kind="cli", name="mdm-test")
 
 
 class _SessionClient:
+    @property
+    def sync(self) -> _SessionClient:
+        return self
+
     def list_clients(self) -> ClientList:
         return ClientList(
             clients=[
@@ -62,6 +66,10 @@ class _SessionClient:
 
 
 class _FaultingSessionClient:
+    @property
+    def sync(self) -> _FaultingSessionClient:
+        return self
+
     def list_clients(self) -> OpError:
         return OpError(code="invalid_request", reason="stale port")
 
@@ -70,6 +78,10 @@ class _FaultingSessionClient:
 
 
 class _EventErrorClient:
+    @property
+    def sync(self) -> _EventErrorClient:
+        return self
+
     def list_recent_events(self, count: int) -> RecentEvents:
         return RecentEvents(events=[], total_buffered=0)
 
@@ -81,7 +93,7 @@ class TestSessionLs:
     def test_ls_reports_session_count(self) -> None:
         client = _SessionClient()
         with patch(
-            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+            "punt_lux.client.facade.LuxClient.for_identity", return_value=client
         ):
             result = runner.invoke(app, ["session", "ls"])
         assert result.exit_code == 0
@@ -90,7 +102,7 @@ class TestSessionLs:
     def test_inspect_finds_a_known_connection(self) -> None:
         client = _SessionClient()
         with patch(
-            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+            "punt_lux.client.facade.LuxClient.for_identity", return_value=client
         ):
             result = runner.invoke(app, ["session", "inspect", "c1"])
         assert result.exit_code == 0
@@ -99,7 +111,7 @@ class TestSessionLs:
     def test_inspect_reports_an_unknown_connection(self) -> None:
         client = _SessionClient()
         with patch(
-            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+            "punt_lux.client.facade.LuxClient.for_identity", return_value=client
         ):
             result = runner.invoke(app, ["session", "inspect", "nope"])
         assert result.exit_code == 1
@@ -109,7 +121,7 @@ class TestSessionLs:
         instead of reaching the shared error envelope (Bugbot)."""
         client = _FaultingSessionClient()
         with patch(
-            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+            "punt_lux.client.facade.LuxClient.for_identity", return_value=client
         ):
             result = runner.invoke(app, ["session", "ls"])
         assert result.exit_code == 1
@@ -118,7 +130,7 @@ class TestSessionLs:
     def test_inspect_reports_a_transport_fault_not_a_crash(self) -> None:
         client = _FaultingSessionClient()
         with patch(
-            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+            "punt_lux.client.facade.LuxClient.for_identity", return_value=client
         ):
             result = runner.invoke(app, ["session", "inspect", "c1"])
         assert result.exit_code == 1
@@ -129,7 +141,7 @@ class TestSessionIdentify:
     def test_identify_declares_the_callers_identity(self) -> None:
         client = _SessionClient()
         with patch(
-            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+            "punt_lux.client.facade.LuxClient.for_identity", return_value=client
         ):
             result = runner.invoke(
                 app, ["session", "identify", "--kind", "cli", "--name", "mdm-test"]
@@ -150,7 +162,7 @@ class TestEventErrorLs:
     def test_event_ls_reports_zero_events(self) -> None:
         client = _EventErrorClient()
         with patch(
-            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+            "punt_lux.client.facade.LuxClient.for_identity", return_value=client
         ):
             result = runner.invoke(app, ["event", "ls"])
         assert result.exit_code == 0
@@ -158,7 +170,7 @@ class TestEventErrorLs:
     def test_error_ls_reports_zero_errors(self) -> None:
         client = _EventErrorClient()
         with patch(
-            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+            "punt_lux.client.facade.LuxClient.for_identity", return_value=client
         ):
             result = runner.invoke(app, ["error", "ls"])
         assert result.exit_code == 0

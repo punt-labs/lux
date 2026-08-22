@@ -1,4 +1,4 @@
-"""The CLI's REST client — over a fake transport and the real REST surface.
+"""The private REST transport — over a fake transport and the real REST surface.
 
 The parsing and error-mapping tests drive a canned transport so every branch is
 exact and offline. The end-to-end tests wire the client through a TestClient
@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from punt_lux.cli_identity import CliIdentity
+from punt_lux.client._rest_transport import _RestTransport
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.hub_paths import HubPaths
 from punt_lux.operations import (
@@ -24,10 +25,8 @@ from punt_lux.operations import (
     RenderTableRequest,
     SceneShown,
 )
-from punt_lux.rest_client import LuxRestClient
 from punt_lux.rest_transport import HttpResponse, HubUnavailableError
-
-from .rest._fakes import make_client
+from tests.rest._fakes import make_client
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -72,8 +71,8 @@ class SurfaceTransport:
         return HttpResponse(status=resp.status_code, body=resp.content)
 
 
-def _client_over(transport: object) -> LuxRestClient:
-    return LuxRestClient(transport, _IDENTITY)  # type: ignore[arg-type]  # HttpTransport protocol; fakes satisfy it structurally
+def _client_over(transport: object) -> _RestTransport:
+    return _RestTransport(transport, _IDENTITY)  # type: ignore[arg-type]  # HttpTransport protocol; fakes satisfy it structurally
 
 
 def _sent(transport: CannedTransport) -> HttpCall:
@@ -303,7 +302,7 @@ def test_a_derived_cli_identity_owns_its_scene_by_repository(
     monkeypatch.delenv("LUX_CLIENT", raising=False)
 
     surface = make_client()
-    client = LuxRestClient(SurfaceTransport(surface), CliIdentity.resolve())
+    client = _RestTransport(SurfaceTransport(surface), CliIdentity.resolve())
     assert client.render(_render_request("board")) == SceneShown(scene_id="board")
 
     scene = next(
@@ -363,7 +362,7 @@ def test_connect_raises_the_actionable_message_when_no_port_file(
 
     monkeypatch.setattr(HubPaths, "read_port", _no_port)
     with pytest.raises(HubUnavailableError) as excinfo:
-        LuxRestClient.connect()
+        _RestTransport.connect()
     # Pin the production string end to end, hint included — the CLI prints this
     # verbatim, so the actionable "run lux hub install" guidance must be here.
     message = str(excinfo.value)

@@ -1,5 +1,5 @@
 """CLI-adapter tests for ``lux scene`` -- flag parsing, JSON payload handling,
-and Ctx/scope wiring, with a stand-in :class:`LuxRestClient` (no real luxd).
+and Ctx/scope wiring, with a stand-in sync-ops client (no real luxd).
 """
 
 from __future__ import annotations
@@ -15,10 +15,14 @@ runner = CliRunner()
 
 
 class _SceneClient:
-    """A LuxRestClient stand-in recording calls and returning preset results."""
+    """A sync-ops stand-in recording calls and returning preset results."""
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, object]] = []
+
+    @property
+    def sync(self) -> _SceneClient:
+        return self
 
     def render(self, request: object, *, scope: object = None) -> SceneShown:
         self.calls.append(("render", request))
@@ -44,7 +48,7 @@ class TestSceneShow:
     def test_show_installs_a_scene_from_inline_json(self) -> None:
         client = _SceneClient()
         with patch(
-            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+            "punt_lux.client.facade.LuxClient.for_identity", return_value=client
         ):
             result = runner.invoke(
                 app,
@@ -62,7 +66,7 @@ class TestSceneShow:
     def test_show_rejects_malformed_json_before_any_network_call(self) -> None:
         client = _SceneClient()
         with patch(
-            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+            "punt_lux.client.facade.LuxClient.for_identity", return_value=client
         ):
             result = runner.invoke(app, ["scene", "show", "s1", "not-json"])
         assert result.exit_code != 0
@@ -73,7 +77,7 @@ class TestSceneClear:
     def test_clear_removes_one_scene(self) -> None:
         client = _SceneClient()
         with patch(
-            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+            "punt_lux.client.facade.LuxClient.for_identity", return_value=client
         ):
             result = runner.invoke(app, ["scene", "clear", "s1"])
         assert result.exit_code == 0
@@ -82,7 +86,7 @@ class TestSceneClear:
     def test_clear_all_removes_every_scene(self) -> None:
         client = _SceneClient()
         with patch(
-            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+            "punt_lux.client.facade.LuxClient.for_identity", return_value=client
         ):
             result = runner.invoke(app, ["scene", "clear-all"])
         assert result.exit_code == 0
@@ -93,7 +97,7 @@ class TestSceneLs:
     def test_ls_reports_scene_count(self) -> None:
         client = _SceneClient()
         with patch(
-            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+            "punt_lux.client.facade.LuxClient.for_identity", return_value=client
         ):
             result = runner.invoke(app, ["scene", "ls"])
         assert result.exit_code == 0
@@ -109,7 +113,7 @@ class TestSceneLs:
 
         client = _FaultingSceneClient()
         with patch(
-            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+            "punt_lux.client.facade.LuxClient.for_identity", return_value=client
         ):
             result = runner.invoke(app, ["scene", "ls"])
         assert result.exit_code == 1

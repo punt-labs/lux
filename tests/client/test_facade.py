@@ -57,11 +57,17 @@ def test_for_identity_is_the_daemon_path() -> None:
     assert callable(LuxClient.connect)
 
 
+def test_sync_returns_the_same_transport_every_time() -> None:
+    client = _build_client()
+    assert client.sync is client.sync
+    assert client.sync is client._transport  # not a new wrapper object
+
+
 def test_public_api_exports_lux_client_only() -> None:
     # The public library API exposes LuxClient; the transport classes
-    # (LuxRestClient, LuxHubClient) are no longer re-exported.
+    # (the private REST transport, LuxHubClient) are no longer re-exported.
     import punt_lux
 
     assert "LuxClient" in punt_lux.__all__
-    assert "LuxRestClient" not in punt_lux.__all__
+    assert "_RestTransport" not in punt_lux.__all__
     assert "LuxHubClient" not in punt_lux.__all__

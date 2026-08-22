@@ -407,48 +407,80 @@ class TestBoardRequest:
 
 
 class _RecordingClient:
-    """A LuxRestClient stand-in that records the request and reports success.
+    """A ``LuxClient`` stand-in that records the request and reports success.
 
     Both surfaces record into ``request``: a table board reaches ``render_table``
     and a message board reaches ``render``, so a test reads the one that fired.
+    ``.sync``/``.scope`` satisfy :meth:`ScopedBoardOps.for_client`'s contract --
+    the same object serves as both the ``LuxClient`` and its own transport.
     """
 
     def __init__(self) -> None:
         self.request: RenderTableRequest | RenderRequest | None = None
 
-    def render(self, request: RenderRequest) -> SceneShown:
+    @property
+    def sync(self) -> _RecordingClient:
+        return self
+
+    @property
+    def scope(self) -> None:
+        return None
+
+    def render(self, request: RenderRequest, *, scope: object = None) -> SceneShown:
         self.request = request
         return SceneShown(scene_id=request.scene_id)
 
-    def render_table(self, request: RenderTableRequest) -> SceneShown:
+    def render_table(
+        self, request: RenderTableRequest, *, scope: object = None
+    ) -> SceneShown:
         self.request = request
         return SceneShown(scene_id=request.scene_id)
 
 
 class _RejectingClient:
-    """A LuxRestClient stand-in whose installs are refused by the Hub."""
+    """A ``LuxClient`` stand-in whose installs are refused by the Hub."""
 
     def __init__(self, reason: str) -> None:
         self._reason = reason
 
-    def render(self, request: RenderRequest) -> OpError:
+    @property
+    def sync(self) -> _RejectingClient:
+        return self
+
+    @property
+    def scope(self) -> None:
+        return None
+
+    def render(self, request: RenderRequest, *, scope: object = None) -> OpError:
         return OpError(code="rejected", reason=self._reason)
 
-    def render_table(self, request: RenderTableRequest) -> OpError:
+    def render_table(
+        self, request: RenderTableRequest, *, scope: object = None
+    ) -> OpError:
         return OpError(code="rejected", reason=self._reason)
 
 
 class _UnreachableClient:
-    """A LuxRestClient stand-in whose installs find luxd gone mid-call.
+    """A ``LuxClient`` stand-in whose installs find luxd gone mid-call.
 
     ``connect`` only reads the port file; the socket work happens in the install
     call, so an unreachable luxd raises there, not at connect time.
     """
 
-    def render(self, request: RenderRequest) -> SceneShown:
+    @property
+    def sync(self) -> _UnreachableClient:
+        return self
+
+    @property
+    def scope(self) -> None:
+        return None
+
+    def render(self, request: RenderRequest, *, scope: object = None) -> SceneShown:
         raise HubUnavailableError("luxd is not reachable on port 5001 — refused")
 
-    def render_table(self, request: RenderTableRequest) -> SceneShown:
+    def render_table(
+        self, request: RenderTableRequest, *, scope: object = None
+    ) -> SceneShown:
         raise HubUnavailableError("luxd is not reachable on port 5001 — refused")
 
 
@@ -524,7 +556,7 @@ class TestBeadsCLI:
                 "punt_lux.apps.bd_command.subprocess.Popen",
                 return_value=_FakeProcess("", "db locked", 1),
             ),
-            patch("punt_lux.cli.beads.LuxRestClient.connect", return_value=client),
+            patch("punt_lux.cli.beads.LuxClient.connect", return_value=client),
         ):
             result = runner.invoke(app, ["beads"])
 
@@ -550,7 +582,7 @@ class TestBeadsCLI:
                 "punt_lux.apps.bd_command.subprocess.Popen",
                 return_value=_bd_wrote(active),
             ),
-            patch("punt_lux.cli.beads.LuxRestClient.connect", return_value=client),
+            patch("punt_lux.cli.beads.LuxClient.connect", return_value=client),
         ):
             result = runner.invoke(app, ["beads"])
 
@@ -575,7 +607,7 @@ class TestBeadsCLI:
                 "punt_lux.apps.bd_command.subprocess.Popen",
                 return_value=_bd_wrote(_ISSUES),
             ),
-            patch("punt_lux.cli.beads.LuxRestClient.connect", return_value=client),
+            patch("punt_lux.cli.beads.LuxClient.connect", return_value=client),
         ):
             result = runner.invoke(app, ["beads"])
 
@@ -589,7 +621,7 @@ class TestBeadsCLI:
     ) -> None:
         """luxd unreachable is one actionable line and a non-zero exit.
 
-        The real ``LuxRestClient.connect`` runs with no port file, so the CLI
+        The real ``LuxClient.connect`` runs with no port file, so the CLI
         surfaces the production message — hint included — not a test string.
         """
         monkeypatch.chdir(tmp_path)
@@ -624,7 +656,7 @@ class TestBeadsCLI:
                 return_value=_bd_wrote(_ISSUES),
             ),
             patch(
-                "punt_lux.cli.beads.LuxRestClient.connect",
+                "punt_lux.cli.beads.LuxClient.connect",
                 return_value=_UnreachableClient(),
             ),
         ):

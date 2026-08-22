@@ -13,7 +13,7 @@ runner = CliRunner()
 
 
 class _FrameClient:
-    """Fake FrameOps client with recording -- one preset outcome per method."""
+    """Fake sync-ops FrameOps client -- one preset outcome per method."""
 
     def __init__(
         self,
@@ -23,6 +23,10 @@ class _FrameClient:
         self._raise_result = raise_result
         self._close_result = close_result
         self.calls: list[tuple[str, str]] = []
+
+    @property
+    def sync(self) -> _FrameClient:
+        return self
 
     def raise_frame(self, frame_id: str) -> FrameRaise | OpError:
         self.calls.append(("raise_frame", frame_id))
@@ -39,7 +43,7 @@ class TestFrameRaise:
     def test_raise_brings_a_live_frame_to_the_front(self) -> None:
         client = _FrameClient(raise_result=FrameRaise(frame_id="f1", raised=True))
         with patch(
-            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+            "punt_lux.client.facade.LuxClient.for_identity", return_value=client
         ):
             result = runner.invoke(app, ["frame", "raise", "f1"])
         assert result.exit_code == 0
@@ -48,7 +52,7 @@ class TestFrameRaise:
     def test_raise_reports_an_absent_frame_without_erroring(self) -> None:
         client = _FrameClient(raise_result=FrameRaise(frame_id="f1", raised=False))
         with patch(
-            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+            "punt_lux.client.facade.LuxClient.for_identity", return_value=client
         ):
             result = runner.invoke(app, ["frame", "raise", "f1"])
         assert result.exit_code == 0
@@ -58,7 +62,7 @@ class TestFrameRaise:
             raise_result=OpError(code="display_unavailable", reason="down"),
         )
         with patch(
-            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+            "punt_lux.client.facade.LuxClient.for_identity", return_value=client
         ):
             result = runner.invoke(app, ["frame", "raise", "f1"])
         assert result.exit_code == 1
@@ -68,7 +72,7 @@ class TestFrameClose:
     def test_close_tears_down_a_frame(self) -> None:
         client = _FrameClient(close_result=Ok())
         with patch(
-            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+            "punt_lux.client.facade.LuxClient.for_identity", return_value=client
         ):
             result = runner.invoke(app, ["frame", "close", "f1"])
         assert result.exit_code == 0
@@ -79,7 +83,7 @@ class TestFrameClose:
             close_result=OpError(code="display_unavailable", reason="down"),
         )
         with patch(
-            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+            "punt_lux.client.facade.LuxClient.for_identity", return_value=client
         ):
             result = runner.invoke(app, ["frame", "close", "f1"])
         assert result.exit_code == 1
