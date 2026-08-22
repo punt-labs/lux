@@ -215,13 +215,13 @@ DiskBinaryLegacySweep(spec: ServiceSpec)     # @final, __slots__
 class DiskBinaryOutcome:
     """The sweep's result for one legacy disk-binary name."""
 
-    binary_name: str        # e.g. "luxd"
-    path: str                # str(Path.home() / ".local" / "bin" / binary_name)
-    was_present: bool        # the path existed before sweep() ran
+    binary_name: str  # e.g. "luxd"
+    path: str  # str(Path.home() / ".local" / "bin" / binary_name)
+    was_present: bool  # the path existed before sweep() ran
     ownership_verified: bool  # resolved target is inside this package's uv-tool dir
-    removed: bool             # unlink() was attempted and did not raise
-    verified_clean: bool      # post-attempt Path.exists() is False
-    fix_command: str          # "rm <path>" -- valid ONLY when ownership_verified
+    removed: bool  # unlink() was attempted and did not raise
+    verified_clean: bool  # post-attempt Path.exists() is False
+    fix_command: str  # "rm <path>" -- valid ONLY when ownership_verified
 
     def describe(self) -> str:
         """Operator-facing repair line, or "" when already clean.
@@ -275,6 +275,7 @@ class DiskBinaryLegacySweep:
     def _sweep_one(self, name: str) -> DiskBinaryOutcome: ...
     def _resolve_tool_root(self) -> Path | None:
         """Shell out to `uv tool dir` once; cache the result on the instance."""
+
     def _is_ours(self, path: Path) -> bool:
         """True iff `path` ultimately resolves under this package's tool dir."""
 ```
@@ -373,7 +374,7 @@ class ServiceSpec:
     ...
     legacy_launchd_labels: tuple[str, ...] = ()
     legacy_systemd_units: tuple[str, ...] = ()
-    legacy_binary_names: tuple[str, ...] = ()   # new
+    legacy_binary_names: tuple[str, ...] = ()  # new
     health_port: int | None = None
 
     def resolve_exec_args(self) -> list[str]:
@@ -431,7 +432,7 @@ class ServiceManager:
 def install(self) -> str:
     """Cure any legacy registration and port conflict, then install."""
     self._legacy_sweep.sweep()
-    self._binary_sweep.sweep()          # new
+    self._binary_sweep.sweep()  # new
     if self._SPEC.health_port is not None:
         self._port_guard.guard()
     self._backend.install()
