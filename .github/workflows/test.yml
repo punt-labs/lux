@@ -68,3 +68,52 @@ jobs:
       - run: uv sync --locked --extra display
       - name: Slow / timing-sensitive tests (pytest -m slow, non-blocking)
         run: make test-slow
+
+  # Tier-3 e2e gate (lux-csjb). Drives the real `make restart` sequence -- a real
+  # `uv build` + `uv tool install`, then `lux hub install` / `lux display install`,
+  # which regenerate the launchd plists -- against a live launchd GUI domain
+  # (`gui/<uid>`). launchd exists only on Darwin, so this class of defect is
+  # invisible to the ubuntu-latest `test`/`integration`/`slow` jobs above:
+  # lux-j169 renamed the hub disk binary and the Makefile's `restart` target kept
+  # calling `launchctl kickstart -k`, which never rewrites a plist, so it hung
+  # forever against the deleted binary path -- and shipped unnoticed because no
+  # CI job ever exercised the real launchd install path. `make install` runs
+  # before pytest so ~/.local/bin is populated before test collection,
+  # independent of pytest's file collection order between
+  # test_install_matches_pyproject.py and test_make_restart.py (the latter
+  # performs its own install as part of the test body; the former only asserts
+  # binaries already exist). BLOCKING: a hung `make restart` on the operator's
+  # machine is exactly the failure class this job exists to catch before merge.
+  #
+  # Deliberately does NOT run `make test-e2e` (pytest -m e2e unscoped): that
+  # marker also covers tests/test_e2e.py, tests/test_direct_connection_probe.py,
+  # and tests/integration/test_hub_display_reconciliation.py, all of which spawn
+  # a real ImGui display process and fail on the headless macos-latest runner
+  # ("Display server failed to start within 10.0s"). This job runs only the two
+  # install/launchd files -- they DO start `luxd-display` via launchd (that's
+  # part of `lux display install`), but do NOT spawn an interactive ImGui/GLFW
+  # window process, which is what the excluded tests require. The narrowing IS
+  # the fix, not a workaround; those renderer-window-dependent tests already
+  # have a home in the `integration`/manual-visual tiers documented in
+  # tests/CLAUDE.md.
+  e2e-macos:
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+      - uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
+        with:
+          enable-cache: true
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - run: uv sync --locked --extra display
+      - name: Put uv's tool bin dir on PATH (lux/luxd-hub/luxd-display, shelled out to by tests/e2e/)
+        run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Pre-install so ~/.local/bin is populated before pytest collects tests/e2e/
+        run: make install
+      - name: E2E tests (install/launchd subset -- no ImGui window spawned)
+        run: >-
+          uv run --extra display pytest -m e2e
+          tests/e2e/test_make_restart.py
+          tests/e2e/test_install_matches_pyproject.py
