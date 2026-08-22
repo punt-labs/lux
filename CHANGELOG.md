@@ -4,6 +4,44 @@
 
 ### Fixed
 
+- **`lux-ehzy`: a stale `com.punt-labs.lux` launchd registration survived
+  every upgrade and held port 8430, causing every fresh `luxd` to
+  `EADDRINUSE`-fail.** `LaunchdBackend._remove_legacy_plists` used
+  `launchctl unload -w`, the legacy pre-`bootstrap` API — it silently no-ops
+  on a `bootstrap`-registered service (returns exit 0 without deregistering
+  it), and the plist file was then unlinked unconditionally regardless of
+  whether the unload actually worked. The zombie LaunchAgent stayed alive in
+  launchd's job table and was relaunched at every login, with no on-disk
+  evidence it existed. The identical anti-pattern — legacy API, silent
+  continue-on-failure — also lived nine lines away in `install()`'s own
+  in-place upgrade path (`unload -w`/`load -w`), applied to the service's
+  *own* label rather than a renamed predecessor's.
+
+  Both call sites now route through `LegacySweep` (`LaunchdLegacySweep` /
+  `SystemdLegacySweep`), which deregisters via `bootout`/`disable --now`,
+  re-verifies via `launchctl print`/`systemctl status`, and only deletes the
+  config file after confirming the deregister actually took. Every legacy
+  identifier is attempted to completion — a machine that accumulated cruft
+  from two rename trains sees every failure in one `lux hub doctor` or one
+  failed `lux hub install`, not the first failure discovered by hand. Failure
+  is fatal by construction (`ServiceMigrationError`), never a
+  warn-and-continue fallthrough. `PortGuard` independently verifies the
+  service's port is free or already ours before `install()` proceeds —
+  fail-closed: a foreign process or a missing `lsof` both refuse, never
+  "assume safe."
+
+  `ServiceSpec` carries the service's legacy identity as data
+  (`legacy_launchd_labels`, `legacy_systemd_units`, `health_port`) instead of
+  a hardcoded string comparison in the backend — a future rename train adds
+  one label to one tuple, no backend or sweep-class code changes.
+
+  **No manual migration step is required.** `lux hub install`'s sweep call is
+  unconditional on every invocation and already idempotent; upgrading to this
+  release and re-running `lux hub install` (or `lux hub doctor --fix`) cures
+  an already-broken machine automatically. The one-time manual escape hatch
+  for anyone who cannot upgrade immediately:
+  `launchctl bootout gui/$(id -u)/com.punt-labs.lux; rm ~/Library/LaunchAgents/com.punt-labs.lux.plist`.
+
 - **`setproctitle` moved from the `[display]` optional extra to base
   dependencies.** luxd itself needs its process identity (`luxd-hub` /
   `luxd-display`) for logs, `ps`, Activity Monitor, and the pgrep-diff
@@ -51,6 +89,13 @@
 
 ### Added
 
+- **`lux hub doctor` / `lux display doctor` (`--fix`).** Diagnoses (or, with
+  `--fix`, repairs) a service's legacy launchd/systemd registrations and port
+  conflicts. Exit codes: `0` clean (or `--fix` reached clean), `1` dirty with
+  no `--fix`, `2` `--fix` ran but the machine is still not clean. `--fix` and
+  `lux hub install`/`lux display install` invoke the identical
+  `LegacySweep`/`PortGuard` objects, never two implementations that could
+  drift.
 - **`ServiceBackend.restart()` and `ServiceManager.restart()`** — a
   supervisor-native atomic restart on both platforms.  `LaunchdBackend`
   calls `launchctl kickstart -k`, `SystemdBackend` calls
