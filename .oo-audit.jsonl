@@ -1023,3 +1023,5 @@
 {"ts":"2026-08-22T12:50:27Z","commit":"454b8489","files_scored":596,"files_improved":6,"files_regressed":0,"verdict":"pass","deltas":{"src/punt_lux/applets/board_ops.py":{"avg_params":[1.71,1.62],"module_size":[86.0,73.0]},"src/punt_lux/applets/leg.py":{"module_size":[145.0,142.0]},"src/punt_lux/applets/runner.py":{"module_size":[72.0,70.0]},"src/punt_lux/cli/_shared.py":{"module_size":[259.0,255.0]},"src/punt_lux/cli/beads.py":{"module_size":[76.0,75.0]},"src/punt_lux/client/facade.py":{"avg_params":[0.6,0.56],"module_size":[137.0,136.0]}}}
 {"ts":"2026-08-22T12:50:31Z","commit":"454b8489","files_scored":596,"files_improved":0,"files_regressed":0,"verdict":"pass","deltas":{}}
 {"ts":"2026-08-22T13:20:27Z","commit":"c738f5d8","files_scored":596,"files_improved":0,"files_regressed":0,"verdict":"pass","deltas":{}}
+{"ts":"2026-08-22T13:23:26Z","commit":"c990b9c1","files_scored":597,"files_improved":0,"files_regressed":1,"verdict":"fail","deltas":{}}
+{"ts":"2026-08-22T13:26:26Z","commit":"c990b9c1","files_scored":597,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
