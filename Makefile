@@ -76,21 +76,13 @@ build: ## Build wheel and sdist
 install: build ## Build and install locally (with display extras)
 	uv tool install --force "$$(ls dist/punt_lux-*.whl)[display]"
 
-LUX_LAUNCHD_LABEL := com.punt-labs.luxd-hub
-LUX_DISPLAY_LAUNCHD_LABEL := com.punt-labs.luxd-display
-
 restart: install ## Install + restart luxd (via launchd) and display
-	@launchctl kickstart -k "gui/$$(id -u)/$(LUX_LAUNCHD_LABEL)" || \
-		{ echo "error: launchctl kickstart failed for $(LUX_LAUNCHD_LABEL) — run 'lux hub install'" >&2; exit 1; }
-	@sleep 1
-	@launchctl kickstart -k "gui/$$(id -u)/$(LUX_DISPLAY_LAUNCHD_LABEL)" || \
-		{ echo "error: launchctl kickstart failed for $(LUX_DISPLAY_LAUNCHD_LABEL) — run 'lux display install'" >&2; exit 1; }
+	@lux hub install || { echo "error: 'lux hub install' failed — see output above" >&2; exit 1; }
+	@lux display install || { echo "error: 'lux display install' failed — see output above" >&2; exit 1; }
 	@echo "luxd + luxd-display restarted via launchd"
 
 reload: install ## Install + restart luxd only (display keeps running)
-	@launchctl kickstart -k "gui/$$(id -u)/$(LUX_LAUNCHD_LABEL)" || \
-		{ echo "error: launchctl kickstart failed for $(LUX_LAUNCHD_LABEL) — run 'lux hub install'" >&2; exit 1; }
-	@sleep 1
+	@lux hub install || { echo "error: 'lux hub install' failed — see output above" >&2; exit 1; }
 	@echo "luxd restarted via launchd"
 
 clean: ## Remove build artifacts

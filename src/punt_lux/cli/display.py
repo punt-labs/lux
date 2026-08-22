@@ -204,12 +204,13 @@ def serve(
 ) -> None:
     """Start the Lux display server (the ImGui render loop process).
 
-    Interactive/manual entry point onto :func:`punt_lux.luxd_display.serve` —
-    the process launchd/systemd runs directly is the top-level ``luxd-display``
-    executable, not this subcommand.
+    Interactive/manual entry point onto
+    :meth:`punt_lux.luxd_display.DisplayEntryPoint.serve` — the process
+    launchd/systemd runs directly is the top-level ``luxd-display`` executable,
+    not this subcommand.
     """
     try:
-        from punt_lux.luxd_display import serve as _serve
+        from punt_lux.luxd_display import DisplayEntryPoint
     except ModuleNotFoundError as exc:
         _display_modules = {"imgui_bundle", "numpy", "PIL", "OpenGL"}
         if exc.name and exc.name.split(".")[0] in _display_modules:
@@ -220,4 +221,4 @@ def serve(
             raise typer.Exit(code=1) from None
         raise
 
-    _serve(socket, test_auto_click=test_auto_click)
+    DisplayEntryPoint.serve(socket, test_auto_click=test_auto_click)
