@@ -41,7 +41,5 @@ def ls(
     identity = identity_from_flags(
         as_=None, kind=None, name=None, repo=None, agent=None
     )
-    ctx: Ctx[ErrorOps] = Ctx(
-        ops=connect_client(identity=identity).sync, identity=identity
-    )
+    ctx: Ctx[ErrorOps] = Ctx(ops=connect_client(identity=identity), identity=identity)
     run(error_ls(ctx, count), flags)

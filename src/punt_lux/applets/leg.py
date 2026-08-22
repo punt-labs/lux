@@ -171,10 +171,5 @@ class AppletLeg:
         logger.debug("unsubscribed event on the session leg: %s %s", topic, payload)
 
     def _rest(self) -> CallbackConvenienceOps:
-        """Build a Hub connection for the current luxd, sharing this leg's identity.
-
-        Built per use rather than held, because the port is luxd's current one: a
-        Hub that restarted onto a new port is followed here exactly as the listen
-        client follows it, instead of registering against a port nobody is on.
-        """
+        """Build a Hub connection, sharing this leg's identity; built per use."""
         return LuxClient.for_identity(self._identity).sync

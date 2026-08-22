@@ -6,9 +6,7 @@ reaches the Hub through noun-grouped accessors: the ``client.scene.show`` verb,
 composes the transport (a private ``_RestTransport`` by default) once and hands
 the same transport reference to every accessor so a callback registered
 through one accessor is delivered through this client's listener on another.
-The listener leg is built on demand from :meth:`LuxClient.listener`; a caller
-that is architecturally synchronous reaches the same transport through
-:attr:`LuxClient.sync` instead.
+The listener leg is built on demand from :meth:`LuxClient.listener`.
 """
 
 from __future__ import annotations
@@ -65,16 +63,13 @@ class LuxClient:
         self = super().__new__(cls)
         self._transport = transport
         self._identity = identity
-        self._scope = Scope(
-            connection_for(
-                {
-                    "kind": identity.kind,
-                    "name": identity.name,
-                    "repo": identity.repo,
-                    "agent": identity.agent,
-                }
-            )
-        )
+        declared = {
+            "kind": identity.kind,
+            "name": identity.name,
+            "repo": identity.repo,
+            "agent": identity.agent,
+        }
+        self._scope = Scope(connection_for(declared))
         return self
 
     @classmethod
@@ -126,14 +121,8 @@ class LuxClient:
     @cached_property
     def display(self) -> DisplayAccessor:
         """The ``client.display.*`` verbs."""
-        return DisplayAccessor(
-            self._transport,
-            self._transport,
-            self._transport,
-            self._transport,
-            self._transport,
-            self._identity,
-        )
+        t = self._transport
+        return DisplayAccessor(t, t, t, t, t, self._identity)
 
     @cached_property
     def event(self) -> EventAccessor:
@@ -147,16 +136,11 @@ class LuxClient:
 
     @cached_property
     def sync(self) -> SyncOps:
-        """The synchronous ops surface this client's transport already satisfies.
+        """The sync ops surface for callers that must not touch an event loop.
 
-        For callers that are architecturally synchronous and must not create or
-        join an event loop -- an applet's worker thread, dispatched via
-        ``asyncio.to_thread`` specifically so it never touches the loop renewing
-        its own session's lease (see ``applets/runner.py``'s module docstring).
-        Returns the SAME transport instance ``scene``/``frame``/``menu``/...
-        compose -- no new object, no ``asyncio.run()`` per call, no thread hop.
-        Its declared type is a Protocol, never ``_RestTransport`` by name, so a
-        caller can hold and pass this value without importing anything private.
+        Returns the SAME transport ``scene``/``frame``/``menu``/... compose --
+        no new object, no ``asyncio.run()``, no thread hop -- typed as a
+        Protocol so a caller never imports ``_RestTransport`` by name.
         """
         return self._transport
 

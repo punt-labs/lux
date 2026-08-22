@@ -84,11 +84,5 @@ class ServiceRunner:
         ServicedClick(self._service, self._running, self._rest, latency).served()
 
     def _rest(self) -> BoardOps:
-        """Build a Hub connection for the current luxd, under the session's identity.
-
-        Built per use rather than held, because the port is luxd's current one: a
-        Hub that restarted onto a new port is followed here exactly as the listen
-        client follows it, instead of pushing to a port nobody is on.
-        """
-        client = LuxClient.for_identity(self._identity)
-        return ScopedBoardOps(client.sync, client.scope)
+        """Build a Hub connection, under the session's identity; built per use."""
+        return ScopedBoardOps.for_client(LuxClient.for_identity(self._identity))

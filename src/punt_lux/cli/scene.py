@@ -91,9 +91,7 @@ def show(
     request = RenderRequest.parse(raw)
     if isinstance(request, OpError):
         _fail(request)
-    ctx: Ctx[SceneOps] = Ctx(
-        ops=connect_client(identity=identity).sync, identity=identity
-    )
+    ctx: Ctx[SceneOps] = Ctx(ops=connect_client(identity=identity), identity=identity)
     run(scene_show(ctx, request, scope=scope_for(identity)), flags)
 
 
@@ -124,9 +122,7 @@ def update(
     request = UpdateRequest.parse(cast("list[object]", patches_raw))
     if isinstance(request, OpError):
         _fail(request)
-    ctx: Ctx[SceneOps] = Ctx(
-        ops=connect_client(identity=identity).sync, identity=identity
-    )
+    ctx: Ctx[SceneOps] = Ctx(ops=connect_client(identity=identity), identity=identity)
     run(scene_update(ctx, scene_id, request, scope=scope_for(identity)), flags)
 
 
@@ -148,9 +144,7 @@ def clear(
     identity = identity_from_flags(
         as_=as_, kind=kind, name=name, repo=repo, agent=agent
     )
-    ctx: Ctx[SceneOps] = Ctx(
-        ops=connect_client(identity=identity).sync, identity=identity
-    )
+    ctx: Ctx[SceneOps] = Ctx(ops=connect_client(identity=identity), identity=identity)
     run(scene_clear(ctx, scene_id, scope=scope_for(identity)), flags)
 
 
@@ -171,9 +165,7 @@ def clear_all(
     identity = identity_from_flags(
         as_=as_, kind=kind, name=name, repo=repo, agent=agent
     )
-    ctx: Ctx[SceneOps] = Ctx(
-        ops=connect_client(identity=identity).sync, identity=identity
-    )
+    ctx: Ctx[SceneOps] = Ctx(ops=connect_client(identity=identity), identity=identity)
     run(scene_clear_all(ctx, scope=scope_for(identity)), flags)
 
 
@@ -199,9 +191,7 @@ def inspect(
     identity = identity_from_flags(
         as_=as_, kind=kind, name=name, repo=repo, agent=agent
     )
-    ctx: Ctx[SceneOps] = Ctx(
-        ops=connect_client(identity=identity).sync, identity=identity
-    )
+    ctx: Ctx[SceneOps] = Ctx(ops=connect_client(identity=identity), identity=identity)
     facts = InspectScope(want_geometry=want_geometry)
     run(
         scene_inspect(ctx, scene_id, scope=scope_for(identity), facts=facts),
@@ -221,9 +211,7 @@ def ls(
     identity = identity_from_flags(
         as_=None, kind=None, name=None, repo=None, agent=None
     )
-    ctx: Ctx[SceneOps] = Ctx(
-        ops=connect_client(identity=identity).sync, identity=identity
-    )
+    ctx: Ctx[SceneOps] = Ctx(ops=connect_client(identity=identity), identity=identity)
     run(scene_ls(ctx), flags)
 
 
@@ -252,9 +240,7 @@ def table(
     request = RenderTableRequest.parse(raw)
     if isinstance(request, OpError):
         _fail(request)
-    ctx: Ctx[SceneOps] = Ctx(
-        ops=connect_client(identity=identity).sync, identity=identity
-    )
+    ctx: Ctx[SceneOps] = Ctx(ops=connect_client(identity=identity), identity=identity)
     run(scene_table(ctx, request, scope=scope_for(identity)), flags)
 
 
@@ -283,7 +269,5 @@ def dashboard(
     request = RenderDashboardRequest.parse(raw)
     if isinstance(request, OpError):
         _fail(request)
-    ctx: Ctx[SceneOps] = Ctx(
-        ops=connect_client(identity=identity).sync, identity=identity
-    )
+    ctx: Ctx[SceneOps] = Ctx(ops=connect_client(identity=identity), identity=identity)
     run(scene_dashboard(ctx, request, scope=scope_for(identity)), flags)

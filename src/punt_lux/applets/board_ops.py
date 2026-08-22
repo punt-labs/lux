@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
 
 if TYPE_CHECKING:
     from punt_lux.client._sync_ops import SyncOps
+    from punt_lux.client.facade import LuxClient
     from punt_lux.operations import (
         FrameRaise,
         OpError,
@@ -22,28 +23,14 @@ __all__ = ["BoardOps", "ScopedBoardOps"]
 class BoardOps(Protocol):
     """The Hub-write surface a board push needs: raise a frame, install a scene.
 
-    Composed here, in the applets package, rather than as a member of
-    ``client._sync_ops.SyncOps`` -- the composite belongs beside its one
-    consumer (types and Protocols live in their own module, close to where
-    they are read), not inside the client package that produces values
-    satisfying it.
-
-    Deliberately narrow: every applet-internal class (``BoardChannel``,
-    ``ServicedClick``, ``BoardLoad``, ``BoardWork``, ``AppletService``)
-    collectively calls exactly these three methods on the object it is
-    handed -- not the full ``SceneOps``/``FrameOps`` families those methods
-    belong to Hub-side. ``scope`` is optional here (unlike
-    ``commands._ports.SceneOps``, where the in-process ``Operations`` facade
-    genuinely needs it): over REST the parameter is structural conformance
-    only (``RestCaller.resolve`` derives scope from the identity headers on
-    every request), and an applet's board layer never owns a ``Scope`` to
-    begin with -- only the leg that built the transport does. A caller
-    reaches this Protocol through :class:`ScopedBoardOps`, never through
+    Deliberately narrow -- every applet-internal class collectively calls
+    exactly these three methods, not the full ``SceneOps``/``FrameOps``
+    families they belong to Hub-side. ``scope`` is optional here (REST
+    composes it from identity headers; an applet's board layer never owns
+    one). Reached through :class:`ScopedBoardOps`, never through
     ``LuxClient.sync`` directly -- ``SyncOps`` inherits ``SceneOps``'s
-    mandatory-``scope`` Protocol signature verbatim (the annotation a
-    Protocol declares, not the default its concrete implementation happens
-    to carry), so it does not structurally satisfy this narrower, optional
-    -scope shape.
+    mandatory-``scope`` signature verbatim and does not structurally satisfy
+    this narrower shape on its own.
     """
 
     def render(
@@ -67,13 +54,8 @@ class BoardOps(Protocol):
 class ScopedBoardOps:
     """A ``BoardOps`` binding one fixed :class:`Scope` to a ``SyncOps`` transport.
 
-    ``SyncOps.render``/``render_table`` require ``scope`` -- the Protocol
-    signature ``SyncOps`` inherits from ``commands._ports.SceneOps`` -- so a
-    value typed ``SyncOps`` cannot be handed to an applet-internal class
-    expecting :class:`BoardOps` without one. This adapter binds the scope
-    once, at the one place the identity is known (``ServiceRunner._rest``),
-    and forwards every call with it already filled in; ``raise_frame`` needs
-    no scope and passes straight through.
+    Binds the scope once, at the one place the identity is known, and
+    forwards every call with it filled in; ``raise_frame`` needs no scope.
     """
 
     _ops: SyncOps
@@ -85,6 +67,11 @@ class ScopedBoardOps:
         self._ops = ops
         self._scope = scope
         return self
+
+    @classmethod
+    def for_client(cls, client: LuxClient) -> Self:
+        """Bind a ``LuxClient``'s own transport and scope in one call."""
+        return cls(client.sync, client.scope)
 
     def render(
         self, request: RenderRequest | OpError, *, scope: Scope | None = None

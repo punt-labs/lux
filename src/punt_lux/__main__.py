@@ -179,9 +179,7 @@ def ping(
     http_timeout = display_wait + _PING_HTTP_MARGIN_SECONDS
 
     client = connect_client(timeout=http_timeout)
-    ctx: CommandCtx[PingOps] = CommandCtx(
-        ops=client.sync, identity=CliIdentity.resolve()
-    )
+    ctx: CommandCtx[PingOps] = CommandCtx(ops=client, identity=CliIdentity.resolve())
     run(ping_command(ctx, timeout), flags)
 
 

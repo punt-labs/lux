@@ -2,13 +2,10 @@
 
 Not part of the ratified noun-grouped vocabulary (docs/architecture/target/
 target.md's ten nouns): beads-board assembly is app-specific composition, not
-a primitive engine operation -- the same reasoning the design doc's §Skill vs
-slash gives for keeping the beads *skill* separate from the thin one-operation
-slashes generated from the vocabulary. This is the CLI's equivalent: a
-bespoke, top-level convenience a human runs from a shell, distinct from both
-`lux scene table` (the primitive it composes) and the `lux-beads` applet (the
-live, session-bound, click-servicing sibling -- this command renders once and
-exits, with no menu registration and no session watch).
+a primitive engine operation. A bespoke, top-level convenience a human runs
+from a shell, distinct from both `lux scene table` (the primitive it
+composes) and the `lux-beads` applet (the live, session-bound sibling --
+this command renders once and exits, with no menu registration or watch).
 
 Formerly `lux show beads`, under a `show` Typer group with one command. The
 ratified vocabulary has no top-level `show` noun (PL-PP-1: no shims for a
@@ -17,11 +14,11 @@ retired shape), so this moved to a bare top-level verb, unchanged otherwise.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self, final
+from typing import Self, final
 
 import typer
 
-from punt_lux.applets.board_ops import ScopedBoardOps
+from punt_lux.applets.board_ops import BoardOps, ScopedBoardOps
 from punt_lux.apps.beads import BeadsBrowser
 from punt_lux.apps.beads_board import BeadsBoard
 from punt_lux.apps.beads_result import BeadsFailure
@@ -29,9 +26,6 @@ from punt_lux.client.facade import LuxClient
 from punt_lux.operations import OpError, RenderRequest, RenderTableRequest
 from punt_lux.operations.models.scene_results import SceneShown
 from punt_lux.rest_transport import HubUnavailableError
-
-if TYPE_CHECKING:
-    from punt_lux.applets.board_ops import BoardOps
 
 __all__ = ["beads"]
 
@@ -87,8 +81,7 @@ def beads(
     command = BeadsBoardCommand()
     request, note = command.request(all_issues=all_issues)
     try:
-        connected = LuxClient.connect()
-        client = ScopedBoardOps(connected.sync, connected.scope)
+        client = ScopedBoardOps.for_client(LuxClient.connect())
         result = command.push(client, request)
     except HubUnavailableError as exc:
         typer.echo(str(exc), err=True)
