@@ -77,6 +77,32 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
+  "src/punt_lux/_binary_sweep.py": {
+    "method_ratio": 1.0,
+    "encapsulation_ratio": 1.0,
+    "avg_params": 0.0,
+    "max_complexity": 4.0,
+    "avg_complexity": 2.0,
+    "module_size": 96.0,
+    "classes_per_module": 2.0,
+    "class_to_func_ratio": 1.0,
+    "init_violations": 0.0,
+    "public_attr_violations": 0.0,
+    "future_annotations": 1.0
+  },
+  "src/punt_lux/_binary_sweep_disk.py": {
+    "method_ratio": 1.0,
+    "encapsulation_ratio": 1.0,
+    "avg_params": 0.6,
+    "max_complexity": 5.0,
+    "avg_complexity": 2.7,
+    "module_size": 180.0,
+    "classes_per_module": 1.0,
+    "class_to_func_ratio": 1.0,
+    "init_violations": 0.0,
+    "public_attr_violations": 0.0,
+    "future_annotations": 1.0
+  },
   "src/punt_lux/_doctor_result.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
@@ -187,7 +213,7 @@
     "avg_params": 0.67,
     "max_complexity": 2.0,
     "avg_complexity": 1.33,
-    "module_size": 78.0,
+    "module_size": 77.0,
     "classes_per_module": 1.0,
     "class_to_func_ratio": 1.0,
     "init_violations": 0.0,

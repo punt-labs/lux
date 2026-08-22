@@ -36,17 +36,14 @@ class ServiceSpec:
     legacy_launchd_labels: tuple[str, ...] = ()
     legacy_systemd_units: tuple[str, ...] = ()
     legacy_binary_names: tuple[str, ...] = ()
-    # None means "this service has no fixed port to guard" -- DISPLAY_SPEC's
-    # documented contract, not a value PortGuard failed to determine.
+    # None: no fixed port to guard -- DISPLAY_SPEC's documented contract.
     health_port: int | None = None
 
     def resolve_exec_args(self) -> list[str]:
         """Return the command that launches this service.
 
-        Resolves ``~/.local/bin/<binary_name>`` — the uv-tool install symlink —
-        and refuses if it is missing. ``sys.executable`` or ``shutil.which``
-        would happily resolve to a dev venv binary; the caller wants the
-        installed one, stable across ``uv tool upgrade``.
+        Resolves ``~/.local/bin/<binary_name>`` -- the uv-tool install
+        symlink, stable across ``uv tool upgrade`` -- and refuses if missing.
         """
         local_bin = Path.home() / ".local" / "bin" / self.binary_name
         if not local_bin.exists():
