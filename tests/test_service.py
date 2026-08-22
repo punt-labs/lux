@@ -627,22 +627,17 @@ class TestLaunchdSelfUpgrade:
             patch("punt_lux._backend_launchd.Path.home", return_value=fake_home),
             patch("punt_lux._service_spec.Path.home", return_value=fake_home),
             patch("punt_lux.hub_paths.Path.home", return_value=fake_home),
-        ):
-            backend = LaunchdBackend(HUB_SPEC)
-        with (
-            patch.object(backend, "is_active", return_value=True),
             patch("punt_lux._launchctl.subprocess.run") as run,
         ):
-            # print (self-upgrade sweep's pre-check): registered.
-            # bootout: succeeds. print (post-check): now gone.
-            # bootstrap (the final install step): succeeds.
-            run.side_effect = [
-                _result(0),  # print -> registered
-                _result(0),  # bootout -> succeeds
-                _result(1),  # print -> gone
-                _result(0),  # bootstrap -> succeeds
-            ]
-            backend.install()
+            backend = LaunchdBackend(HUB_SPEC)
+            with patch.object(backend, "is_active", return_value=True):
+                run.side_effect = [
+                    _result(0),  # print -> registered
+                    _result(0),  # bootout -> succeeds
+                    _result(1),  # print -> gone
+                    _result(0),  # bootstrap -> succeeds
+                ]
+                backend.install()
 
         verbs_issued = [call.args[0] for call in run.call_args_list]
         assert any(v[:2] == ["launchctl", "bootout"] for v in verbs_issued)
@@ -661,17 +656,15 @@ class TestLaunchdSelfUpgrade:
             patch("punt_lux._backend_launchd.Path.home", return_value=fake_home),
             patch("punt_lux._service_spec.Path.home", return_value=fake_home),
             patch("punt_lux.hub_paths.Path.home", return_value=fake_home),
+            patch("punt_lux._launchctl.subprocess.run") as run,
         ):
             backend = LaunchdBackend(HUB_SPEC)
-        with (
-            patch.object(backend, "is_active", return_value=True),
-            patch("punt_lux._launchctl.subprocess.run") as run,
-            pytest.raises(ServiceMigrationError),
-        ):
-            # print always reports "found" -- the lying-deregister case --
-            # fatal, no continue-on-failure fallthrough onto bootstrap.
-            run.return_value = _result(0)
-            backend.install()
+            with (
+                patch.object(backend, "is_active", return_value=True),
+                pytest.raises(ServiceMigrationError),
+            ):
+                run.return_value = _result(0)
+                backend.install()
 
     def test_install_raises_when_bootstrap_fails(self, tmp_path: Path):
         fake_home = tmp_path / "home"
@@ -684,15 +677,15 @@ class TestLaunchdSelfUpgrade:
             patch("punt_lux._backend_launchd.Path.home", return_value=fake_home),
             patch("punt_lux._service_spec.Path.home", return_value=fake_home),
             patch("punt_lux.hub_paths.Path.home", return_value=fake_home),
+            patch("punt_lux._launchctl.subprocess.run") as run,
         ):
             backend = LaunchdBackend(HUB_SPEC)
-        with (
-            patch.object(backend, "is_active", return_value=False),
-            patch("punt_lux._launchctl.subprocess.run") as run,
-            pytest.raises(ServiceMigrationError, match="bootstrap"),
-        ):
-            run.return_value = _result(1)  # bootstrap -> fails
-            backend.install()
+            with (
+                patch.object(backend, "is_active", return_value=False),
+                pytest.raises(ServiceMigrationError, match="bootstrap"),
+            ):
+                run.return_value = _result(1)  # bootstrap -> fails
+                backend.install()
 
 
 def _result(returncode: int):
