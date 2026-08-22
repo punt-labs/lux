@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import final
+from typing import TYPE_CHECKING, Self, final
 
 from punt_lux._legacy_sweep import LegacySweepReport
 from punt_lux._port_guard import PortGuardResult
+from punt_lux._service_errors import PortConflictError, ServiceMigrationError
+
+if TYPE_CHECKING:
+    from punt_lux._legacy_sweep import LegacySweep
+    from punt_lux._port_guard import PortGuard
+    from punt_lux._service_spec import ServiceSpec
 
 __all__ = ["DoctorResult"]
 
@@ -24,6 +30,56 @@ class DoctorResult:
     legacy: LegacySweepReport
     port: PortGuardResult
     repair_failed: bool
+
+    @classmethod
+    def diagnose(
+        cls, legacy_sweep: LegacySweep, port_guard: PortGuard, spec: ServiceSpec
+    ) -> Self:
+        """Build a result from the non-mutating query methods only.
+
+        The ``lux <verb> doctor`` (no ``--fix``) branch -- zero mutating
+        calls, safe to run repeatedly.
+        """
+        return cls(
+            display_name=spec.display_name,
+            process_name=spec.process_name,
+            health_port=spec.health_port,
+            legacy=legacy_sweep.diagnose(),
+            port=port_guard.check(),
+            repair_failed=False,
+        )
+
+    @classmethod
+    def repair(
+        cls, legacy_sweep: LegacySweep, port_guard: PortGuard, spec: ServiceSpec
+    ) -> Self:
+        """Build a result by curing what's dirty, same objects `install()` uses.
+
+        The ``lux <verb> doctor --fix`` branch. A failed cure is folded into
+        ``repair_failed`` rather than propagated -- the CLI renders and
+        chooses its exit code from the result, it never catches here.
+        """
+        repair_failed = False
+        try:
+            legacy = legacy_sweep.sweep()
+        except ServiceMigrationError:
+            legacy = legacy_sweep.diagnose()
+            repair_failed = True
+        port = port_guard.check()
+        if spec.health_port is not None and port.status not in _CLEAN_PORT_STATUSES:
+            try:
+                port_guard.guard()
+                port = port_guard.check()
+            except PortConflictError:
+                repair_failed = True
+        return cls(
+            display_name=spec.display_name,
+            process_name=spec.process_name,
+            health_port=spec.health_port,
+            legacy=legacy,
+            port=port,
+            repair_failed=repair_failed,
+        )
 
     @property
     def is_clean(self) -> bool:

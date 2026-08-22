@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux._atomic_write import write_config_atomic
-from punt_lux._backends import ServiceBackend
+from punt_lux._backends import ServiceBackend, has_linger
 
 if TYPE_CHECKING:
     from punt_lux.service import ServiceSpec
@@ -39,6 +39,16 @@ class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
     def config_path(self) -> Path:
         """Return the unit file path."""
         return self._unit_path
+
+    def linger_warning(self) -> str:
+        """Warn that the unit stops at logout unless loginctl linger is enabled."""
+        if has_linger():
+            return ""
+        return (
+            "  Warning: loginctl linger is not enabled. "
+            "The service will stop when you log out. "
+            "Run: loginctl enable-linger"
+        )
 
     def is_active(self) -> bool:
         """Return whether the systemd user service is active."""

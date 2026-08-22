@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import subprocess
 import textwrap
 from dataclasses import replace
@@ -13,7 +12,7 @@ from xml.sax.saxutils import escape as _xml_escape
 
 from punt_lux._atomic_write import write_config_atomic
 from punt_lux._backends import ServiceBackend
-from punt_lux._launchctl import gui_domain, launchctl
+from punt_lux._launchctl import launchctl
 from punt_lux._legacy_sweep_launchd import LaunchdLegacySweep
 from punt_lux._service_errors import ServiceMigrationError
 
@@ -81,7 +80,7 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         write_config_atomic.write(self._plist_path, self._plist_content())
         logger.info("Wrote %s", self._plist_path)
         if not launchctl.run(
-            ["launchctl", "bootstrap", gui_domain(), str(self._plist_path)],
+            ["launchctl", "bootstrap", launchctl.gui_domain(), str(self._plist_path)],
             verb="bootstrap",
         ):
             msg = f"failed to bootstrap {label} into launchd"
@@ -107,7 +106,7 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
                 self._plist_path,
             )
             return
-        target = f"{gui_domain()}/{self._spec.launchd_label}"
+        target = f"{launchctl.gui_domain()}/{self._spec.launchd_label}"
         launchctl.run(["launchctl", "bootout", target], verb="bootout")
         self._plist_path.unlink()
         logger.info("Removed %s", self._plist_path)
@@ -124,7 +123,7 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         if not self._plist_path.exists():
             logger.info("No plist found at %s -- nothing to stop", self._plist_path)
             return True
-        target = f"{self._gui_domain()}/{self._spec.launchd_label}"
+        target = f"{launchctl.gui_domain()}/{self._spec.launchd_label}"
         return launchctl.run(["launchctl", "bootout", target], verb="bootout")
 
     def restart(self) -> bool:
@@ -136,7 +135,7 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         supervisor already knows the pid, so a restart is not a signal-based
         handshake with a pid file the daemon does not itself keep current.
         """
-        target = f"{self._gui_domain()}/{self._spec.launchd_label}"
+        target = f"{launchctl.gui_domain()}/{self._spec.launchd_label}"
         return launchctl.run(
             ["launchctl", "kickstart", "-k", target],
             verb="kickstart",
@@ -152,14 +151,9 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         again without relying on the legacy load/unload shim.
         """
         return launchctl.run(
-            ["launchctl", "bootstrap", self._gui_domain(), str(self._plist_path)],
+            ["launchctl", "bootstrap", launchctl.gui_domain(), str(self._plist_path)],
             verb="bootstrap",
         )
-
-    @staticmethod
-    def _gui_domain() -> str:
-        """Return this user's launchd GUI domain target, e.g. ``gui/501``."""
-        return f"gui/{os.getuid()}"
 
     def _plist_content(self) -> str:
         """Generate the launchd plist XML for the service."""

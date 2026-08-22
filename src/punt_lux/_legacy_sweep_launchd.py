@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Self, final
 
-from punt_lux._launchctl import gui_domain, launchctl
+from punt_lux._launchctl import launchctl
 from punt_lux._legacy_sweep import LegacyServiceOutcome, LegacySweepReport
 from punt_lux._service_errors import ServiceMigrationError
 from punt_lux._service_spec import ServiceSpec
@@ -74,7 +74,7 @@ class LaunchdLegacySweep:
                 verified_clean=True,
                 fix_command=fix_command,
             )
-        target = f"{gui_domain()}/{label}"
+        target = f"{launchctl.gui_domain()}/{label}"
         deregistered = launchctl.run(["launchctl", "bootout", target], verb="bootout")
         # The config file is only deleted once this re-check confirms the
         # deregister actually took -- a zero exit from bootout alone is not
@@ -104,7 +104,7 @@ class LaunchdLegacySweep:
         return not self._is_registered(label) and not self._plist_path(label).exists()
 
     def _is_registered(self, label: str) -> bool:
-        target = f"{gui_domain()}/{label}"
+        target = f"{launchctl.gui_domain()}/{label}"
         return launchctl.run(["launchctl", "print", target], verb="print")
 
     def _plist_path(self, label: str) -> Path:
@@ -112,4 +112,4 @@ class LaunchdLegacySweep:
 
     @staticmethod
     def _fix_command(label: str) -> str:
-        return f"launchctl bootout {gui_domain()}/{label}"
+        return f"launchctl bootout {launchctl.gui_domain()}/{label}"
