@@ -46,14 +46,29 @@ def _run(*args: str, timeout: float = 300.0) -> subprocess.CompletedProcess[str]
     )
 
 
-def _wait_for_pid(binary_name: str, timeout: float = 20.0) -> int:
-    """Poll ``pgrep -x`` until ``binary_name`` appears; fail loud on timeout."""
-    pgrep = shutil.which("pgrep")
-    assert pgrep is not None, "pgrep is not on PATH"
+_PGREP = "/usr/bin/pgrep"
+
+
+def _wait_for_pid(binary_name: str, timeout: float = 60.0) -> int:
+    """Poll ``pgrep -x`` until ``binary_name`` appears; fail loud on timeout.
+
+    ``pgrep`` ships at a fixed path on every macOS install (this test is
+    ``skipif``'d to Darwin only). ``shutil.which("pgrep")`` returns ``None``
+    on GitHub's ``macos-latest`` runner because the default Actions shell
+    PATH omits ``/usr/bin`` -- calling the absolute path sidesteps that PATH
+    dependency entirely rather than papering over it with a PATH extension
+    in the workflow.
+
+    The 60s timeout (was 20s) accounts for GitHub's ``macos-latest`` runner
+    cold-starting launchd's GUI-domain service: loading the native ImGui/GLFW
+    stack and creating a GPU context on a shared CI VM measurably outlasts the
+    same sequence on a warm local machine.
+    """
+    assert Path(_PGREP).exists(), f"{_PGREP} is not present on this Darwin host"
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         result = subprocess.run(
-            [pgrep, "-x", binary_name], capture_output=True, text=True
+            [_PGREP, "-x", binary_name], capture_output=True, text=True
         )
         if result.returncode == 0 and result.stdout.strip():
             return int(result.stdout.strip().splitlines()[0])
