@@ -190,14 +190,14 @@ class TestPing:
 class TestDisplay:
     def test_display_calls_server(self) -> None:
         """display serve constructs RenderLoop and calls run()."""
-        with patch("punt_lux.display.RenderLoop") as mock_cls:
+        with patch("punt_lux.luxd_display.RenderLoop") as mock_cls:
             result = runner.invoke(app, ["display", "serve"])
             assert result.exit_code == 0
             mock_cls.assert_called_once_with(None, test_auto_click=False)
             mock_cls.return_value.run.assert_called_once()
 
     def test_display_with_socket(self) -> None:
-        with patch("punt_lux.display.RenderLoop") as mock_cls:
+        with patch("punt_lux.luxd_display.RenderLoop") as mock_cls:
             result = runner.invoke(
                 app, ["display", "serve", "--socket", "/tmp/test.sock"]
             )
@@ -205,7 +205,7 @@ class TestDisplay:
             mock_cls.assert_called_once_with("/tmp/test.sock", test_auto_click=False)
 
     def test_display_with_test_auto_click(self) -> None:
-        with patch("punt_lux.display.RenderLoop") as mock_cls:
+        with patch("punt_lux.luxd_display.RenderLoop") as mock_cls:
             result = runner.invoke(app, ["display", "serve", "--test-auto-click"])
             assert result.exit_code == 0
             mock_cls.assert_called_once_with(None, test_auto_click=True)
@@ -219,7 +219,7 @@ class TestDisplayMissingExtras:
         real_import = builtins.__import__
 
         def fake_import(name: str, *args: Any, **kwargs: Any) -> Any:
-            if name == "punt_lux.display":
+            if name == "punt_lux.luxd_display":
                 raise ModuleNotFoundError(name="imgui_bundle")
             return real_import(name, *args, **kwargs)
 
@@ -236,7 +236,7 @@ class TestDisplayMissingExtras:
         real_import = builtins.__import__
 
         def fake_import(name: str, *args: Any, **kwargs: Any) -> Any:
-            if name == "punt_lux.display":
+            if name == "punt_lux.luxd_display":
                 raise ModuleNotFoundError(name="some_unrelated_package")
             return real_import(name, *args, **kwargs)
 
