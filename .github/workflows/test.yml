@@ -90,9 +90,12 @@ jobs:
   # and tests/integration/test_hub_display_reconciliation.py, all of which spawn
   # a real ImGui display process and fail on the headless macos-latest runner
   # ("Display server failed to start within 10.0s"). This job runs only the two
-  # install/launchd files that need zero display -- the narrowing IS the fix,
-  # not a workaround; those display-dependent e2e/integration tests already have
-  # a home in the `integration`/manual-visual tiers documented in tests/CLAUDE.md.
+  # install/launchd files -- they DO start `luxd-display` via launchd (that's
+  # part of `lux display install`), but do NOT spawn an interactive ImGui/GLFW
+  # window process, which is what the excluded tests require. The narrowing IS
+  # the fix, not a workaround; those renderer-window-dependent tests already
+  # have a home in the `integration`/manual-visual tiers documented in
+  # tests/CLAUDE.md.
   e2e-macos:
     runs-on: macos-latest
     timeout-minutes: 25
@@ -109,7 +112,7 @@ jobs:
         run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Pre-install so ~/.local/bin is populated before pytest collects tests/e2e/
         run: make install
-      - name: E2E tests (install/launchd subset only -- no display spawned)
+      - name: E2E tests (install/launchd subset -- no ImGui window spawned)
         run: >-
           uv run --extra display pytest -m e2e
           tests/e2e/test_make_restart.py

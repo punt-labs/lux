@@ -53,9 +53,9 @@ def _wait_for_pid(binary_name: str, timeout: float = 60.0) -> int:
     """Poll ``pgrep -x`` until ``binary_name`` appears; fail loud on timeout.
 
     ``pgrep`` ships at a fixed path on every macOS install (this test is
-    ``skipif``'d to Darwin only). ``shutil.which("pgrep")`` returns ``None``
-    on GitHub's ``macos-latest`` runner because the default Actions shell
-    PATH omits ``/usr/bin`` -- calling the absolute path sidesteps that PATH
+    ``skipif``'d to Darwin only). ``shutil.which("pgrep")`` is not reliably
+    resolvable across every CI shell env or under ``uv run`` if ``/usr/bin``
+    is missing from PATH; calling the absolute path sidesteps that PATH
     dependency entirely rather than papering over it with a PATH extension
     in the workflow.
 

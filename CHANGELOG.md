@@ -146,7 +146,8 @@
   already knows the pid the daemon does not itself keep current.
 - **`lux-csjb`: `e2e-macos` CI job** — runs `tests/e2e/test_make_restart.py`
   and `tests/e2e/test_install_matches_pyproject.py` (the install/launchd
-  subset of the e2e tier, no display process) against a real `macos-latest`
+  subset of the e2e tier — starts `luxd-hub` and `luxd-display` via launchd,
+  no interactive ImGui window) against a real `macos-latest`
   runner's launchd GUI domain. This is the class of defect `lux-j169`
   shipped unnoticed: a renamed disk binary that `launchctl kickstart -k`
   silently hung on, invisible to the ubuntu-latest `test`/`integration`/`slow`
