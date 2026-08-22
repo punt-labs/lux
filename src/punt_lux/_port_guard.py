@@ -80,7 +80,10 @@ class PortGuard:
             return PortGuardResult(
                 status="unknown",
                 pid=None,
-                reason=f"lsof exited {result.returncode} (real failure, not a no-match)",
+                reason=(
+                    f"lsof exited {result.returncode} "
+                    "(real failure, not a no-match)"
+                ),
             )
         pids = [int(line) for line in result.stdout.split() if line.strip()]
         if not pids:
