@@ -65,18 +65,17 @@ class TestHubSpecExecArgs:
 
 
 class TestDisplaySpecExecArgs:
-    def test_resolves_lux_binary(self, tmp_path: Path):
+    def test_resolves_luxd_display_binary(self, tmp_path: Path):
         fake_home = tmp_path / "home"
         local_bin = fake_home / ".local" / "bin"
         local_bin.mkdir(parents=True)
-        (local_bin / "lux").touch()
-        (local_bin / "lux").chmod(0o755)
+        (local_bin / "luxd-display").touch()
+        (local_bin / "luxd-display").chmod(0o755)
 
         with patch("punt_lux._service_spec.Path.home", return_value=fake_home):
             args = DISPLAY_SPEC.resolve_exec_args()
 
-        assert args[0].endswith("lux")
-        assert args[-2:] == ["display", "serve"]
+        assert args == [str(local_bin / "luxd-display")]
 
 
 class TestLaunchdPlistContent:
@@ -124,8 +123,8 @@ class TestLaunchdPlistContent:
         fake_home = tmp_path / "home"
         local_bin = fake_home / ".local" / "bin"
         local_bin.mkdir(parents=True)
-        (local_bin / "lux").touch()
-        (local_bin / "lux").chmod(0o755)
+        (local_bin / "luxd-display").touch()
+        (local_bin / "luxd-display").chmod(0o755)
 
         with (
             patch("punt_lux._backend_launchd.Path.home", return_value=fake_home),
@@ -135,8 +134,7 @@ class TestLaunchdPlistContent:
             content = backend._plist_content()
 
         assert "com.punt-labs.luxd-display" in content
-        assert "display" in content
-        assert "serve" in content
+        assert "luxd-display" in content
         assert "luxd-display-stderr.log" in content
 
 
@@ -325,7 +323,7 @@ class TestLegacyPlistCleanup:
         fake_home.mkdir()
         local_bin = fake_home / ".local" / "bin"
         local_bin.mkdir(parents=True)
-        (local_bin / "lux").touch()
+        (local_bin / "luxd-display").touch()
 
         with (
             patch("punt_lux.service.detect_platform", return_value="macos"),
@@ -426,7 +424,7 @@ class TestSystemdLegacyUnitCleanup:
         fake_home.mkdir()
         local_bin = fake_home / ".local" / "bin"
         local_bin.mkdir(parents=True)
-        (local_bin / "lux").touch()
+        (local_bin / "luxd-display").touch()
 
         with (
             patch("punt_lux.service.detect_platform", return_value="linux"),
