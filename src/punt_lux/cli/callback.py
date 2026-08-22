@@ -34,8 +34,8 @@ from punt_lux.operations import OpError
 from punt_lux.operations.models.callbacks import RegisterCallbackRequest
 
 if TYPE_CHECKING:
+    from punt_lux.client._sync_ops import CallbackConvenienceOps
     from punt_lux.operations import Ok, Scope
-    from punt_lux.rest_client import LuxRestClient
 
 callback_app = typer.Typer(
     name="callback",
@@ -48,19 +48,19 @@ __all__ = ["callback_app"]
 
 @final
 class _CallbackRegisterAdapter:
-    """Satisfies ``CallbackRegisterOps`` over :class:`LuxRestClient`.
+    """Satisfies ``CallbackRegisterOps`` over the transport's convenience shape.
 
-    ``LuxRestClient.register_callback(callback_id, label)`` is a convenience
-    shape production callers (``applets/leg.py``) already depend on; this
-    command needs the Protocol's ``(request, *, scope)`` shape instead. A
-    small adapter here avoids changing the shipped convenience method's
-    signature under existing callers.
+    ``register_callback(callback_id, label)`` is a convenience shape
+    production callers (``applets/leg.py``) already depend on; this command
+    needs the Protocol's ``(request, *, scope)`` shape instead. A small
+    adapter here avoids changing the shipped convenience method's signature
+    under existing callers.
     """
 
-    _client: LuxRestClient
+    _client: CallbackConvenienceOps
     __slots__ = ("_client",)
 
-    def __new__(cls, client: LuxRestClient) -> Self:
+    def __new__(cls, client: CallbackConvenienceOps) -> Self:
         self = super().__new__(cls)
         self._client = client
         return self

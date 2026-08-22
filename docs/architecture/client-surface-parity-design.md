@@ -25,7 +25,7 @@ The CLI has admin verbs only. The MCP surface has 23 tools with a
 verb-first, single-word shape (`show`, `identify`, `list_clients`) that
 was fine when it was three tools and is a naming schism now that it is
 23. The REST surface has grown by ad-hoc addition. The library surface
-is two transport-flavoured objects (`LuxRestClient`, `LuxHubClient`)
+is two transport-flavoured objects (the REST transport, `LuxHubClient`)
 that expose HTTP mechanics rather than engine nouns.
 
 The proposal is one vocabulary, applied everywhere:
@@ -64,7 +64,7 @@ down (`show a scene`, `show the table`, `show the dashboard`);
 verb the way no other tool does. The CLI surface has the opposite
 problem: an admin sub-surface with `hub-install`, `hub-status`, etc.,
 and no client sub-surface at all. The library surface hands consumers
-`LuxHubClient` (a websocket) and `LuxRestClient` (an HTTP session), not
+`LuxHubClient` (a websocket) and the REST transport (an HTTP session), not
 `scene.show` and `topic.publish`.
 
 **Four copies of every operation.** Today an operation is a shape in
@@ -419,9 +419,10 @@ client.topic.publish("openTicket", {"id": 42})
 result = client.topic.recv()
 ```
 
-`LuxRestClient` and `LuxHubClient` do not disappear; they become the
-transport adapters `LuxClient` composes. A power user reaching under
-the facade can still hold them directly, but the surface every
+The REST transport and `LuxHubClient` do not disappear; they become the
+transport adapters `LuxClient` composes -- the REST transport as a
+private implementation detail, per the encapsulation bead (lux-duqj).
+The surface every
 consumer sees is the noun-grouped facade. This is the shape vox
 already presents (`../vox/src/punt_vox/commands/__init__.py`
 re-exports `voice`, `model`, `provider` as callable instances a
@@ -727,7 +728,7 @@ implemented, matching the existing DES-NNN format.
 > `identify`, `list_clients`) that were fine at three tools and are
 > a naming schism at 23. The CLI has admin verbs only — no client-
 > tier presence. The library surface hands consumers transport
-> objects (`LuxRestClient`, `LuxHubClient`) rather than engine
+> objects (the REST transport, `LuxHubClient`) rather than engine
 > nouns. Every operation is written four times — once as an
 > `Operations` request shape, once as a REST handler, once as an MCP
 > tool, once as a CLI command (if it has one). The menubar app

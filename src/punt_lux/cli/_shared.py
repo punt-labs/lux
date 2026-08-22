@@ -21,16 +21,17 @@ from pydantic import ValidationError
 
 from punt_lux.cli._identity_errors import describe_identity_error
 from punt_lux.cli_identity import CliIdentity
+from punt_lux.client.facade import LuxClient
 from punt_lux.connection_identity import connection_for
 from punt_lux.domain.hub.client_identity import ClientIdentity, ClientKind
 from punt_lux.operations import Scope
-from punt_lux.rest_client import LuxRestClient
 from punt_lux.rest_transport import HubUnavailableError
 
 if TYPE_CHECKING:
     from collections.abc import Coroutine
     from pathlib import Path
 
+    from punt_lux.client._sync_ops import SyncOps
     from punt_lux.commands._result import CommandResult
 
 __all__ = [
@@ -252,23 +253,18 @@ def read_json_array(inline: str | None, from_file: Path | None) -> list[object]:
 
 def connect_client(
     *, identity: ClientIdentity | None = None, timeout: float = 2.0
-) -> LuxRestClient:
-    """Build a :class:`LuxRestClient` or exit 1 with the hub-unavailable message.
+) -> SyncOps:
+    """Connect and return the caller's synchronous ops surface, or exit 1.
 
     ``identity`` must be the same :class:`ClientIdentity`
-    :func:`identity_from_flags` resolved for this invocation — REST stamps its
-    ``X-Lux-Client-*`` headers from the identity the client declares at
-    connect time, so a caller's ``--as/--kind/--name/--repo/--agent`` flags
-    only reach the wire if this client is built with them. Omitting
-    ``identity`` falls back to :meth:`LuxRestClient.connect`'s own ambient
-    resolution — the same identity :func:`identity_from_flags` would resolve
-    with every flag absent, so a caller with no identity flags gets the
-    identical result either way.
+    :func:`identity_from_flags` resolved -- REST stamps its
+    ``X-Lux-Client-*`` headers from it. Omitting ``identity`` falls back to
+    :meth:`LuxClient.connect`'s own ambient resolution.
     """
     try:
         if identity is not None:
-            return LuxRestClient.for_identity(identity, timeout=timeout)
-        return LuxRestClient.connect(timeout=timeout)
+            return LuxClient.for_identity(identity, timeout=timeout).sync
+        return LuxClient.connect(timeout=timeout).sync
     except HubUnavailableError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from None

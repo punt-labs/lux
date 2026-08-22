@@ -29,8 +29,8 @@ from punt_lux.apps.beads import BeadsBrowser
 from punt_lux.apps.beads_board import BeadsBoard
 
 if TYPE_CHECKING:
+    from punt_lux.applets.board_ops import BoardOps
     from punt_lux.applets.latency import ClickLatency
-    from punt_lux.rest_client import LuxRestClient
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +94,7 @@ class BeadsService:
         except BoardUnavailableError as exc:
             logger.warning("no board could be loaded ahead of the first click: %s", exc)
 
-    def acknowledge(self, client: LuxRestClient, latency: ClickLatency) -> None:
+    def acknowledge(self, client: BoardOps, latency: ClickLatency) -> None:
         """Put something on screen now, before any issue has been read.
 
         A click has to launch in the time a user reads as instant, and reading
@@ -104,7 +104,7 @@ class BeadsService:
         """
         self._board.answers(self._board.work(client, latency))
 
-    def service(self, client: LuxRestClient, latency: ClickLatency) -> None:
+    def service(self, client: BoardOps, latency: ClickLatency) -> None:
         """Answer a click: load the issues, keep what loaded, and show it.
 
         Runs after :meth:`acknowledge` has made the frame visible, so this half

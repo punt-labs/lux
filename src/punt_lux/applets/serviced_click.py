@@ -33,10 +33,10 @@ from punt_lux.rest_transport import HubUnavailableError
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from punt_lux.applets.board_ops import BoardOps
     from punt_lux.applets.latency import ClickLatency
     from punt_lux.applets.service import AppletService
     from punt_lux.applets.single_flight import SingleFlight
-    from punt_lux.rest_client import LuxRestClient
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ _ALREADY_RUNNING = "a load was already running"
 class ServicedClick:
     """One click of a session's menu entry, from its answer to the line it leaves."""
 
-    _connect: Callable[[], LuxRestClient]
+    _connect: Callable[[], BoardOps]
     _latency: ClickLatency
     _running: SingleFlight
     _service: AppletService
@@ -62,7 +62,7 @@ class ServicedClick:
         cls,
         service: AppletService,
         running: SingleFlight,
-        connect: Callable[[], LuxRestClient],
+        connect: Callable[[], BoardOps],
         latency: ClickLatency,
     ) -> Self:
         self = super().__new__(cls)
@@ -97,12 +97,12 @@ class ServicedClick:
         finally:
             self._latency.report()
 
-    def _answered(self, client: LuxRestClient) -> None:
+    def _answered(self, client: BoardOps) -> None:
         """Put something on screen — the one stage held to the click's budget."""
         with self._latency.answering():
             self._service.acknowledge(client, self._latency)
 
-    def _worked(self, client: LuxRestClient) -> None:
+    def _worked(self, client: BoardOps) -> None:
         """Do the click's work, unless the click before it is still doing it.
 
         The user is not made to wait for their answer either way: that has

@@ -9,7 +9,7 @@ the script fails loudly (exit 2) when the prerequisite isn't met
 because silent auto-spawn would hide the operator setup mistake the
 script is meant to surface.
 
-Submits through the front door — :class:`LuxRestClient` builds a
+Submits through the front door — :class:`LuxClient` builds a
 :class:`RenderRequest` per frame, exactly as the CLI and the beads
 board do (``lux beads``, ``BeadsBoardCommand``). Every frame
 therefore exercises the real Hub path (decode, self-validate, install,
@@ -56,6 +56,8 @@ from typing import Final, Self, cast
 
 from PIL import Image, UnidentifiedImageError
 
+from punt_lux.client._sync_ops import SyncOps
+from punt_lux.client.facade import LuxClient
 from punt_lux.domain.validation_walk import HasChildElements
 from punt_lux.operations import OpError, RenderRequest
 from punt_lux.operations.models.render import FrameSpec
@@ -98,7 +100,6 @@ from punt_lux.protocol.elements.plot_series import PlotSeries
 from punt_lux.protocol.elements.table_flags import TableFlags
 from punt_lux.protocol.elements.tree_node import TreeNode
 from punt_lux.protocol.elements.window_chrome import WindowPlacement
-from punt_lux.rest_client import LuxRestClient
 from punt_lux.rest_transport import HubUnavailableError
 
 
@@ -393,7 +394,7 @@ class SmokeRunner:
             print("No frame was sent — manifest describes intended contents only.")
         print("=" * 72)
 
-    def run(self, client: LuxRestClient) -> RunResult:
+    def run(self, client: SyncOps) -> RunResult:
         """Send every frame through the front door, return a :class:`RunResult`.
 
         Tries every frame even if earlier ones fail — partial coverage
@@ -427,13 +428,13 @@ class SmokeRunner:
                     title=spec.title,
                     frame=FrameSpec(frame_id=spec.frame_id, frame_title=spec.title),
                 )
-                result = client.render(request)
+                result = client.sync.render(request)
             except (HubUnavailableError, TypeError, ValueError) as exc:
                 # Three failure modes routed to the same bucket, all meaning
                 # "this frame did not reach the renderer" from the operator's
                 # perspective:
                 # - HubUnavailableError: luxd is unreachable or stalled
-                #   (LuxRestClient._send / the loopback transport)
+                #   (the REST transport's render / the loopback transport)
                 # - TypeError / ValueError: a local encode-side failure
                 #   building the wire dict (element.to_dict()) before any
                 #   request was sent
@@ -950,7 +951,7 @@ def main() -> int:
     fails loud with a diff before any I/O happens.
 
     Connects and pings through the same front door an agent or the CLI
-    uses (:class:`LuxRestClient`) — ``ping()`` proves the Hub actually
+    uses (:class:`LuxClient`) — ``ping()`` proves the Hub actually
     holds a live Display connection, not just that luxd's port file
     exists. Prerequisite failures are surfaced as the documented exit-2
     failure with a clear stderr message, never as an unframed traceback.
@@ -966,8 +967,8 @@ def main() -> int:
         runner.print_manifest(attempted=False)
         return 5
     try:
-        client = LuxRestClient.connect()
-        ping_result = client.ping()
+        client = LuxClient.connect()
+        ping_result = client.sync.ping()
     except HubUnavailableError as exc:
         # connect() only checks that the port file exists; ping() is the
         # first real HTTP round-trip, and a stale port file or a dead luxd
@@ -983,7 +984,7 @@ def main() -> int:
         )
         runner.print_manifest(attempted=False)
         return 2
-    result = runner.run(client)
+    result = runner.run(client.sync)
     runner.print_manifest(attempted=True)
     if result.rejected:
         print(

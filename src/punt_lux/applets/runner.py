@@ -21,11 +21,13 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.applets.board_ops import ScopedBoardOps
 from punt_lux.applets.serviced_click import ServicedClick
 from punt_lux.applets.single_flight import SingleFlight
-from punt_lux.rest_client import LuxRestClient
+from punt_lux.client.facade import LuxClient
 
 if TYPE_CHECKING:
+    from punt_lux.applets.board_ops import BoardOps
     from punt_lux.applets.latency import ClickLatency
     from punt_lux.applets.service import AppletService
     from punt_lux.domain.hub.client_identity import ClientIdentity
@@ -81,11 +83,6 @@ class ServiceRunner:
         """Run one click's servicing, on the worker thread this was handed to."""
         ServicedClick(self._service, self._running, self._rest, latency).served()
 
-    def _rest(self) -> LuxRestClient:
-        """Build a REST client for the current luxd, under the session's identity.
-
-        Built per use rather than held, because the port is luxd's current one: a
-        Hub that restarted onto a new port is followed here exactly as the listen
-        client follows it, instead of pushing to a port nobody is on.
-        """
-        return LuxRestClient.for_identity(self._identity)
+    def _rest(self) -> BoardOps:
+        """Build a Hub connection, under the session's identity; built per use."""
+        return ScopedBoardOps.for_client(LuxClient.for_identity(self._identity))

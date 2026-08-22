@@ -209,19 +209,19 @@ a payload of your own:
 That delivers `("music.play", {"album_id": "jazz-1"})` — the payload verbatim,
 with nothing added.
 
-## Migrating from `LuxRestClient` / `LuxHubClient`
+## Migrating from the old transport-flavoured names
 
-The transport classes remain importable from their submodule paths
-(`from punt_lux.rest_client import LuxRestClient`,
-`from punt_lux.hub_client import LuxHubClient`) for internal callers and power
-users who need to hold a transport directly. They are no longer part of the
-public library API; consumers should hold a `LuxClient` and reach its
-accessors.
+The REST transport is now a private implementation detail of `LuxClient`
+(`punt_lux.client._rest_transport`, not importable by name from outside
+`client/`) -- consumers hold a `LuxClient` and reach its accessors, or its
+`.sync` property for a synchronous ops surface (an applet's worker thread,
+for example). `LuxHubClient` (`punt_lux.hub_client`) is unchanged and remains
+public for callers that hold the listen leg directly.
 
 | Old (transport-flavoured, synchronous) | New (facade, async) |
 |----------------------------------------|---------------------|
-| `LuxRestClient.connect()` | `LuxClient.connect()` |
-| `LuxRestClient.for_identity(...)` | `LuxClient.for_identity(...)` |
+| `LuxRestClient.connect()` (removed) | `LuxClient.connect()` |
+| `LuxRestClient.for_identity(...)` (removed) | `LuxClient.for_identity(...)` |
 | `client.render(req)` | `await client.scene.show(req)` |
 | `client.render_table(req)` | `await client.scene.table(req)` |
 | `client.render_dashboard(req)` | `await client.scene.dashboard(req)` |

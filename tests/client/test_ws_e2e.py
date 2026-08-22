@@ -33,6 +33,7 @@ import anyio
 import pytest
 import uvicorn
 
+from punt_lux.client._rest_transport import _RestTransport
 from punt_lux.connection_identity import connection_for
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.replicator_instance import hub_callback_router
@@ -41,7 +42,6 @@ from punt_lux.header_value import HeaderValue
 from punt_lux.hub_client import LuxHubClient
 from punt_lux.luxd import build_app
 from punt_lux.operations import Ok, OpError
-from punt_lux.rest_client import LuxRestClient
 from punt_lux.rest_loopback import LoopbackTransport
 
 pytestmark = pytest.mark.integration
@@ -103,7 +103,7 @@ def test_register_from_on_connect_then_receive_the_click_over_the_websocket() ->
     identity = ClientIdentity(kind="app", name=f"voxd-e2e-{os.getpid()}", repo="/w/vox")
     conn = connection_for({"kind": "app", "name": identity.name, "repo": "/w/vox"})
     with _running_luxd() as port:
-        rest = LuxRestClient(LoopbackTransport(port, 5.0), identity)
+        rest = _RestTransport(LoopbackTransport(port, 5.0), identity)
         received: list[str] = []
         registered: list[object] = []
         client = LuxHubClient(
@@ -150,7 +150,7 @@ def test_a_non_ascii_name_registers_on_its_own_leg_from_either_client_generation
         lease_ttl=30,
     )
     with _running_luxd() as port:
-        rest = LuxRestClient(LoopbackTransport(port, 5.0), identity)
+        rest = _RestTransport(LoopbackTransport(port, 5.0), identity)
         registered: list[object] = []
         client = LuxHubClient(
             f"ws://127.0.0.1:{port}/ws",
@@ -181,7 +181,7 @@ def test_registering_without_the_leg_is_refused_on_the_production_path() -> None
     """A REST caller holding no listen leg is refused, naming what it must hold."""
     identity = ClientIdentity(kind="app", name=f"legless-{os.getpid()}", repo="/w/vox")
     with _running_luxd() as port:
-        result = LuxRestClient(
+        result = _RestTransport(
             LoopbackTransport(port, 5.0), identity
         ).register_callback("beads", "Beads")
     assert isinstance(result, OpError)

@@ -1,10 +1,10 @@
-"""The scene-family wire methods :class:`LuxRestClient` composes and delegates to.
+"""The scene-family wire methods :class:`_RestTransport` composes and delegates to.
 
 Splits the largest cohesive cluster of REST verbs -- scene install, patch,
 clear, list, inspect, and the table/dashboard composites -- out of
-``rest_client.py`` so that module stays under its size target. Both classes
+``_rest_transport.py`` so that module stays under its size target. Both classes
 share one :class:`~punt_lux.rest_transport.HttpTransport` and one identity
-header set; :class:`SceneRestOps` never constructs its own.
+header set; :class:`_SceneRestOps` never constructs its own.
 
 Every write method accepts (and ignores) a ``scope`` keyword to satisfy
 :class:`~punt_lux.commands._ports.SceneOps`'s call signature -- the
@@ -37,11 +37,11 @@ if TYPE_CHECKING:
     from punt_lux.operations import InspectScope, Scope
     from punt_lux.rest_transport import HttpTransport
 
-__all__ = ["SceneRestOps"]
+__all__ = ["_SceneRestOps"]
 
 
 @final
-class SceneRestOps:
+class _SceneRestOps:
     """Wraps the ``/scenes`` REST routes under one shared transport and headers."""
 
     _transport: HttpTransport

@@ -45,7 +45,7 @@ _PUSH_REQUIRED = OpError(
     code="push_required",
     reason="this connection holds no listen leg, so a click on the menu item could "
     "never reach it; register from a connection holding luxd's /ws leg — a "
-    "session's applet, or a client built with LuxRestClient.listener",
+    "session's applet, or a client built with LuxClient.listener",
 )
 
 

@@ -22,6 +22,10 @@ class _DisplayClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, object]] = []
 
+    @property
+    def sync(self) -> _DisplayClient:
+        return self
+
     def get_display_info(self) -> DisplayInfo:
         return DisplayInfo(
             backend="opengl3",
@@ -63,7 +67,7 @@ class TestDisplayInfo:
     def test_info_reads_display_metadata(self) -> None:
         client = _DisplayClient()
         with patch(
-            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+            "punt_lux.client.facade.LuxClient.for_identity", return_value=client
         ):
             result = runner.invoke(app, ["display", "info"])
         assert result.exit_code == 0
@@ -73,7 +77,7 @@ class TestDisplayThemeFused:
     def test_no_argument_reads_the_theme(self) -> None:
         client = _DisplayClient()
         with patch(
-            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+            "punt_lux.client.facade.LuxClient.for_identity", return_value=client
         ):
             result = runner.invoke(app, ["display", "theme"])
         assert result.exit_code == 0
@@ -82,7 +86,7 @@ class TestDisplayThemeFused:
     def test_an_argument_sets_the_theme(self) -> None:
         client = _DisplayClient()
         with patch(
-            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+            "punt_lux.client.facade.LuxClient.for_identity", return_value=client
         ):
             result = runner.invoke(app, ["display", "theme", "darcula"])
         assert result.exit_code == 0
@@ -91,7 +95,7 @@ class TestDisplayThemeFused:
     def test_an_invalid_theme_name_is_rejected_before_any_network_call(self) -> None:
         client = _DisplayClient()
         with patch(
-            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+            "punt_lux.client.facade.LuxClient.for_identity", return_value=client
         ):
             result = runner.invoke(app, ["display", "theme", "not-a-real-theme"])
         assert result.exit_code == 1
@@ -102,7 +106,7 @@ class TestDisplayWindowFused:
     def test_no_options_reads_window_settings(self) -> None:
         client = _DisplayClient()
         with patch(
-            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+            "punt_lux.client.facade.LuxClient.for_identity", return_value=client
         ):
             result = runner.invoke(app, ["display", "window"])
         assert result.exit_code == 0
@@ -111,7 +115,7 @@ class TestDisplayWindowFused:
     def test_an_option_sets_window_settings(self) -> None:
         client = _DisplayClient()
         with patch(
-            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+            "punt_lux.client.facade.LuxClient.for_identity", return_value=client
         ):
             result = runner.invoke(app, ["display", "window", "--opacity", "0.5"])
         assert result.exit_code == 0
@@ -122,7 +126,7 @@ class TestDisplayModeFused:
     def test_no_value_reads_the_mode(self) -> None:
         client = _DisplayClient()
         with patch(
-            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+            "punt_lux.client.facade.LuxClient.for_identity", return_value=client
         ):
             result = runner.invoke(app, ["display", "mode", "--repo", "/tmp/proj"])
         assert result.exit_code == 0
@@ -131,7 +135,7 @@ class TestDisplayModeFused:
     def test_a_value_sets_the_mode(self, tmp_path: Path) -> None:
         client = _DisplayClient()
         with patch(
-            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+            "punt_lux.client.facade.LuxClient.for_identity", return_value=client
         ):
             result = runner.invoke(
                 app, ["display", "mode", "off", "--repo", str(tmp_path)]
@@ -144,7 +148,7 @@ class TestDisplayModeFused:
     ) -> None:
         client = _DisplayClient()
         with patch(
-            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+            "punt_lux.client.facade.LuxClient.for_identity", return_value=client
         ):
             result = runner.invoke(
                 app, ["display", "mode", "bogus", "--repo", str(tmp_path)]
@@ -161,7 +165,7 @@ class TestDisplayModeFused:
         exiting cleanly rather than with a traceback."""
         client = _DisplayClient()
         with patch(
-            "punt_lux.rest_client.LuxRestClient.for_identity", return_value=client
+            "punt_lux.client.facade.LuxClient.for_identity", return_value=client
         ):
             result = runner.invoke(
                 app,
