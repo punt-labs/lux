@@ -75,18 +75,24 @@ class ColorChannelStrip:
         count = 4 if elem.alpha else 3
         chans = [self._to_255(x) for x in (r, g, b, a)]
 
+        # push_id/begin_group/push_item_flag/push_style_color are cheap,
+        # argument-only ImGui stack pushes that cannot themselves raise; issuing
+        # all four before the guarded span (rather than interleaved with the
+        # style/geometry calls and the drag_int loop that can) means one
+        # try/finally unwinds all four stacks unconditionally, in reverse, on
+        # any raise — an unbalanced id/group/style-color stack would otherwise
+        # trip ImGui's own assertions on the next unrelated frame.
         imgui.push_id(elem.id)
         imgui.begin_group()
         imgui.push_item_flag(_LIVE_EDIT_FLAG, enabled=True)
+        for col in _FRAME_COLS:
+            imgui.push_style_color(col.value, _TRANSPARENT)
         try:
             style = imgui.get_style()
             spacing = style.item_inner_spacing.x
             frame_h = imgui.get_frame_height()
             # Reserve count spacings: count-1 between channels, one before the swatch.
             w_inputs = max(imgui.calc_item_width() - (frame_h + count * spacing), 1.0)
-
-            for col in _FRAME_COLS:
-                imgui.push_style_color(col.value, _TRANSPARENT)
 
             changed = False
             prev = 0.0
@@ -104,12 +110,12 @@ class ColorChannelStrip:
                 )
                 changed = changed or edited
 
-            imgui.pop_style_color(len(_FRAME_COLS))
+            self._preview(elem, chans, frame_h, spacing)
         finally:
+            imgui.pop_style_color(len(_FRAME_COLS))
             imgui.pop_item_flag()
-        self._preview(elem, chans, frame_h, spacing)
-        imgui.end_group()
-        imgui.pop_id()
+            imgui.end_group()
+            imgui.pop_id()
 
         alpha = chans[3] / 255.0 if elem.alpha else a
         return (changed, (chans[0] / 255.0, chans[1] / 255.0, chans[2] / 255.0, alpha))
