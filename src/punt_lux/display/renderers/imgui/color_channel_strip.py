@@ -78,33 +78,35 @@ class ColorChannelStrip:
         imgui.push_id(elem.id)
         imgui.begin_group()
         imgui.push_item_flag(_LIVE_EDIT_FLAG, enabled=True)
-        style = imgui.get_style()
-        spacing = style.item_inner_spacing.x
-        frame_h = imgui.get_frame_height()
-        # Reserve count spacings: count-1 between channels, one before the swatch.
-        w_inputs = max(imgui.calc_item_width() - (frame_h + count * spacing), 1.0)
+        try:
+            style = imgui.get_style()
+            spacing = style.item_inner_spacing.x
+            frame_h = imgui.get_frame_height()
+            # Reserve count spacings: count-1 between channels, one before the swatch.
+            w_inputs = max(imgui.calc_item_width() - (frame_h + count * spacing), 1.0)
 
-        for col in _FRAME_COLS:
-            imgui.push_style_color(col.value, _TRANSPARENT)
+            for col in _FRAME_COLS:
+                imgui.push_style_color(col.value, _TRANSPARENT)
 
-        changed = False
-        prev = 0.0
-        for idx in range(count):
-            if idx > 0:
-                imgui.same_line(0.0, spacing)
-            split = math.floor(w_inputs * (idx + 1) / count)
-            width = max(split - prev, 1.0)
-            prev = split
-            imgui.set_next_item_width(width)
-            pos = imgui.get_cursor_screen_pos()
-            self._fill(pos, width, frame_h, chans[idx], _FILLS[idx])
-            edited, chans[idx] = imgui.drag_int(
-                f"##c{idx}", chans[idx], 1.0, 0, 255, flags=_CHANNEL_FLAGS
-            )
-            changed = changed or edited
+            changed = False
+            prev = 0.0
+            for idx in range(count):
+                if idx > 0:
+                    imgui.same_line(0.0, spacing)
+                split = math.floor(w_inputs * (idx + 1) / count)
+                width = max(split - prev, 1.0)
+                prev = split
+                imgui.set_next_item_width(width)
+                pos = imgui.get_cursor_screen_pos()
+                self._fill(pos, width, frame_h, chans[idx], _FILLS[idx])
+                edited, chans[idx] = imgui.drag_int(
+                    f"##c{idx}", chans[idx], 1.0, 0, 255, flags=_CHANNEL_FLAGS
+                )
+                changed = changed or edited
 
-        imgui.pop_style_color(len(_FRAME_COLS))
-        imgui.pop_item_flag()
+            imgui.pop_style_color(len(_FRAME_COLS))
+        finally:
+            imgui.pop_item_flag()
         self._preview(elem, chans, frame_h, spacing)
         imgui.end_group()
         imgui.pop_id()
