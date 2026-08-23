@@ -1201,8 +1201,6 @@ bounding the rendered rows.
   \item \textbf{No ImGui ID scoping.}  Widget IDs derive from
     \field{element\_id} alone, so ImGui internal state can bleed between
     tabs with colliding IDs.
-  \item \textbf{Per-frame filtering.}  Table filters re-run every frame
-    even when nothing changed; harmless at current scale.
   \item \textbf{No screenshot capture.}  Framebuffer capture is unsolved
     below the message layer, so \tool{screenshot} refuses (DES-028).
 \end{enumerate}

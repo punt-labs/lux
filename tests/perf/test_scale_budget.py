@@ -16,11 +16,29 @@ a live display:
   exercises per frame for every element in a scene.
 - The **Hub-side table model cost** — ``FilteredTableModel``'s per-event
   filter scan and ``TableElement``'s per-patch selection-intersect scan. Both
-  are O(rows) Python work with no ImGui dependency: the actual row *painting*
+  were O(rows) Python work with no ImGui dependency: the actual row *painting*
   (``TableRowPainter``, the list-clipper walk) requires a live ImGui frame
   and cannot run in-process, but the Hub-side scans these two fix beads
   target (#3 filter memoization, #4 selection O(rows)->O(selected)) run on
   every filter keystroke and every selection patch, live or not.
+
+Measured receipts (this machine, both before lux-qfzu.3/.4 and after; ``make
+test-slow`` prints these live — treat as an order-of-magnitude reference, not
+an assertion):
+
+- ``table-10k-no-filter``: 29.0 ms -> ~10.3 ms. ``_visible_rows`` no longer
+  rescans on a repeated identical (empty) filter, but ``_reproject`` still
+  patches all 10k rows back onto the table every call (``_set_rows`` rebuilds
+  ``_live_ids_cache`` over the full row set) — that remaining O(rows) cost is
+  outside bead #3's scope (it targets the filter *scan*, not the patch push).
+- ``table-10k-filtered-100``: 9.1 ms -> ~0.2 ms. The dominant win: a repeated
+  identical ("active") filter now hits the memoized 100-row visible set
+  instead of rescanning 10k rows every call.
+- ``table-10k-select-0`` / ``table-10k-select-100``: 6.1 ms / 6.0 ms (near-
+  identical, the O(rows) defect) -> ~0.003 ms / ~0.013 ms. The two now
+  *diverge* in proportion to selection size — proof bead #4 replaced the
+  O(rows) ``_live_ids()`` rescan with an O(1) cached lookup plus an
+  O(selected) intersect.
 
 Marked ``slow`` (not the mission-requested ``perf``): ``pyproject.toml``
 already wires ``slow`` into ``addopts`` and ``make test-slow``, and the
@@ -331,10 +349,17 @@ def test_ten_thousand_row_table_multi_selection_scan_under_budget() -> None:
     via ``TableElement._set_selected_row_ids``'s ``frozenset & self._live_ids()``
     intersect; epic bead #4 (selection scan O(rows) -> O(selected)) is measured
     against whichever of the two costs more before the fix, and both after.
+
+    ``table`` is bound to a ``FilteredTableModel`` (an observer of every
+    selection write), whose own ``visible_ids()`` cache warms on the first
+    call. That warm-up cost is paid once, real, and off the critical path this
+    bead targets — it is deliberately absorbed here, before either measured
+    block, so neither the zero- nor the hundred-selection budget carries it.
     """
     table, _model = TableScaleFixture.build_unfiltered(_TABLE_ROW_COUNT)
     all_ids = tuple(table.row_id(row) for row in table.rows)
     selected_ids = list(all_ids[:_TABLE_SELECTION_COUNT])
+    table.apply_patch({"selected_row_ids": []})  # warm the model's visible-ids cache
 
     def patch_zero_selected() -> None:
         table.apply_patch({"selected_row_ids": []})
