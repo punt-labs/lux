@@ -143,7 +143,7 @@ class TestRendererHonour:
 
 
 class TestRendererLiveEditFlag:
-    def test_draw_pushes_live_edit_on_input_scalar(
+    def test_draw_pushes_live_edit_on_input_scalar_for_the_integer_variant(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # The arbiter's observe(edited=...) call needs per-keystroke ``changed``
@@ -155,6 +155,18 @@ class TestRendererLiveEditFlag:
         renderer = InputNumberRenderer(WidgetState())
 
         renderer.render(_number(value=42.0, integer=True))
+
+        expected = imgui.ItemFlags_.live_edit_on_input_scalar.value
+        assert fake.item_flags == [(expected, True)]
+
+    def test_draw_pushes_live_edit_on_input_scalar_for_the_float_variant(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake = _FakeImgui(_Frame(edited=None, active=False, committed=False))
+        _install(monkeypatch, fake)
+        renderer = InputNumberRenderer(WidgetState())
+
+        renderer.render(_number(value=42.0, integer=False))
 
         expected = imgui.ItemFlags_.live_edit_on_input_scalar.value
         assert fake.item_flags == [(expected, True)]
