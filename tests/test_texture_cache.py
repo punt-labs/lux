@@ -137,6 +137,112 @@ class TestPathLeg:
         assert any("not found" in r.getMessage() for r in caplog.records)
 
 
+class TestLruEviction:
+    """The cache caps at ``LUX_TEXTURE_CACHE_CAP`` entries under LRU eviction."""
+
+    def test_cache_respects_cap_under_repeated_inserts(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("LUX_TEXTURE_CACHE_CAP", "3")
+        ids: Iterator[int] = iter(range(100))
+
+        def _fake_upload(_img: object) -> int:
+            return next(ids)
+
+        def _noop_delete(_tex_id: int) -> None:
+            return None
+
+        monkeypatch.setattr(TextureCache, "_upload", _fake_upload)
+        monkeypatch.setattr(TextureCache, "_delete_texture", staticmethod(_noop_delete))
+        cache = TextureCache()
+
+        for size in range(10):
+            cache.get_or_load_data(_png_base64((size + 1, size + 1)))
+
+        assert len(cache._textures) == 3
+
+    def test_lru_order_recent_access_renews_position(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Touching the oldest entry keeps it alive; the untouched one is evicted."""
+        monkeypatch.setenv("LUX_TEXTURE_CACHE_CAP", "2")
+        ids: Iterator[int] = iter(range(100))
+
+        def _fake_upload(_img: object) -> int:
+            return next(ids)
+
+        monkeypatch.setattr(TextureCache, "_upload", _fake_upload)
+        deleted: list[int] = []
+        monkeypatch.setattr(
+            TextureCache, "_delete_texture", staticmethod(deleted.append)
+        )
+        cache = TextureCache()
+
+        payload_a = _png_base64((1, 1))
+        payload_b = _png_base64((2, 2))
+        payload_c = _png_base64((3, 3))
+
+        cache.get_or_load_data(payload_a)  # tex id 0
+        cache.get_or_load_data(payload_b)  # tex id 1
+        # Touch A again — B is now the LRU entry, not A.
+        cache.get_or_load_data(payload_a)
+        cache.get_or_load_data(payload_c)  # evicts B (id 1), not A
+
+        key_a = cache._data_keys[payload_a]
+        key_c = cache._data_keys[payload_c]
+        assert deleted == [1]
+        assert list(cache._textures.keys()) == [key_a, key_c]
+
+    def test_gl_delete_fires_on_eviction_with_correct_tex_id(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("LUX_TEXTURE_CACHE_CAP", "1")
+        ids: Iterator[int] = iter((11, 22))
+
+        def _fake_upload(_img: object) -> int:
+            return next(ids)
+
+        monkeypatch.setattr(TextureCache, "_upload", _fake_upload)
+        deleted: list[int] = []
+        monkeypatch.setattr(
+            TextureCache, "_delete_texture", staticmethod(deleted.append)
+        )
+        cache = TextureCache()
+
+        cache.get_or_load_data(_png_base64((1, 1)))
+        cache.get_or_load_data(_png_base64((2, 2)))
+
+        assert deleted == [11]
+
+    def test_none_entries_evict_alongside_real_textures(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("LUX_TEXTURE_CACHE_CAP", "2")
+        cache = TextureCache()
+
+        cache.get_or_load("/no/such/file/one.png")
+        cache.get_or_load("/no/such/file/two.png")
+        cache.get_or_load("/no/such/file/three.png")
+
+        assert len(cache._textures) == 2
+        assert "/no/such/file/one.png" not in cache._textures
+
+    def test_failure_none_entries_do_not_trigger_gl_delete_on_eviction(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("LUX_TEXTURE_CACHE_CAP", "1")
+        deleted: list[int] = []
+        monkeypatch.setattr(
+            TextureCache, "_delete_texture", staticmethod(deleted.append)
+        )
+        cache = TextureCache()
+
+        cache.get_or_load("/no/such/file/one.png")
+        cache.get_or_load("/no/such/file/two.png")
+
+        assert deleted == []
+
+
 class TestNegativeCacheLogsOnce:
     """A broken source is decoded and logged exactly once, not every frame."""
 
