@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.29.2] - 2026-08-23
+
 ### Changed
 
 - **Dependency: `imgui-bundle` 1.92.801 → 1.92.900.** Upstream Dear ImGui 1.92.9b
