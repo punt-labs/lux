@@ -58,13 +58,10 @@ class TextureLru:
         self._order.move_to_end(key)
 
     def remember(self, key: str, tex_id: int | None) -> tuple[str, int | None] | None:
-        """Insert *key* as most-recently-used; return the evicted entry, if any.
+        """Insert *key* as most-recently-used; return the evicted ``(key, tex_id)``.
 
-        Returns the ``(key, texture_id)`` pair evicted to stay within the cap,
-        or ``None`` when nothing was evicted. The evicted key lets a caller
-        that keys a second, related index (e.g. a payload→key memo) off the
-        same key drop its own entry in step, rather than growing unbounded
-        alongside a bounded LRU it claims to be keyed by.
+        ``None`` means nothing was evicted. A caller keying a second index off
+        the same key uses the evicted key to drop its own entry in step.
         """
         self._order[key] = tex_id
         self._order.move_to_end(key)
