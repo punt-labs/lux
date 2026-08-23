@@ -68,6 +68,7 @@ class TableElement(Element):
     _tooltip: str | None
     _scroll_reserve_lines: int
     _kind: Literal["table"]
+    _live_ids_cache: frozenset[str]
 
     def __new__(
         cls,
@@ -86,8 +87,7 @@ class TableElement(Element):
         tooltip: str | None = None,
         scroll_reserve_lines: int = 0,
     ) -> Self:
-        # Columns/rows coerce to tuples so callers may pass lists — direct
-        # construction stays ergonomic while the stored state is immutable.
+        # Columns/rows coerce to tuples: callers pass lists, storage stays immutable.
         self = super().__new__(cls, renderer_factory=renderer_factory, emit=emit)
         self._id = id
         self._columns = tuple(columns)
@@ -101,6 +101,7 @@ class TableElement(Element):
         self._tooltip = tooltip
         self._scroll_reserve_lines = scroll_reserve_lines
         self._kind = "table"
+        self._live_ids_cache = self._compute_live_ids()
         return self
 
     # -- read-only accessors (the wire-facing surface) ----------------------
@@ -164,9 +165,8 @@ class TableElement(Element):
     def scroll_reserve_lines(self) -> int:
         """Return the text lines to leave below the scroll region for a sibling.
 
-        A composed table with a detail panel below it sets this so the grid's
-        scroll region stops short and the detail stays visible; ``0`` (the
-        default) lets the grid take the available height.
+        Nonzero for a composed table with a detail panel, so the grid's scroll
+        region stops short and the panel stays visible; ``0`` uses full height.
         """
         return self._scroll_reserve_lines
 
@@ -182,8 +182,8 @@ class TableElement(Element):
             return str(row[self._key_column])
         return ""
 
-    def _live_ids(self) -> frozenset[str]:
-        """Return the id set of the current rows."""
+    def _compute_live_ids(self) -> frozenset[str]:
+        """Scan the rows for ``_live_ids_cache`` (never on a selection-only patch)."""
         return frozenset(self.row_id(row) for row in self._rows)
 
     # -- minimal setters for the scene patch path --------------------------
@@ -199,8 +199,9 @@ class TableElement(Element):
         other, so atomicity holds.
         """
         self._rows = TableWire.rows_from_wire(value)
+        self._live_ids_cache = self._compute_live_ids()
         before = self._selection
-        self._selection = self._selection.reconciled(self._live_ids())
+        self._selection = self._selection.reconciled(self._live_ids_cache)
         self._notify_observers("rows")
         if (
             self._selection.selected_row_ids != before.selected_row_ids
@@ -229,7 +230,7 @@ class TableElement(Element):
         next re-projection.
         """
         wire_ids = TableWire.str_list(value, "selected_row_ids")
-        ids = frozenset(wire_ids) & self._live_ids()
+        ids = frozenset(wire_ids) & self._live_ids_cache
         self._selection = self._selection.with_selection(ids)
         self._notify_observers("selected_row_ids")
 
@@ -248,9 +249,8 @@ class TableElement(Element):
     def _remote_dispatch_specs(self) -> tuple[RemoteDispatchSpec, ...]:
         """Return the row-selection dispatch spec — none for a display-only grid.
 
-        A ``none``-mode grid carries no selection machinery: it advertises no
-        remote dispatch (so introspection does not report it interactive) and the
-        Display wraps no handler for it.
+        A ``none``-mode grid advertises none, so introspection reports it as
+        non-interactive and the Display wraps no handler for it.
         """
         if self.selection_mode == "none":
             return ()
@@ -263,9 +263,8 @@ class TableElement(Element):
     def validate(self) -> tuple[ValidationError, ...]:
         """Return errors where the data or selection does not fit the grid.
 
-        Delegated to ``TableValidator``: always the rows-vs-columns shape and
-        renderable cells; when selectable, the key column, its values, and the
-        selection set (DES-039).
+        Delegated to ``TableValidator``: rows-vs-columns shape and renderable
+        cells always; the key column, its values, and the selection when selectable.
         """
         return TableValidator(self).errors()
 
