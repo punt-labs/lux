@@ -6,8 +6,8 @@
 
 - **Dependency: `imgui-bundle` 1.92.801 → 1.92.900.** Upstream Dear ImGui 1.92.9b
   changes keyboard-typing commit semantics on scalar widgets — `input_int`,
-  `input_float`, `drag_int/float`, and `slider_int/float` no longer fire
-  `changed` per keystroke, only on Enter / tab-out / deactivation.
+  `input_float`, `drag_int`, `drag_float`, `slider_int`, and `slider_float` no
+  longer fire `changed` per keystroke, only on Enter / tab-out / deactivation.
   `InputNumberRenderer`, `SliderRenderer`, and the `ColorChannelStrip` `drag_int`
   path now push `imgui.ItemFlags_.live_edit_on_input_scalar` around each scalar
   widget call so `ContinuousEditArbiter.observe(edited=changed, …)` continues to
