@@ -43,6 +43,10 @@ _FILLS: tuple[ImVec4, ...] = (
 # paints past the field until RgbaColor clamps it at commit — the declared
 # channel bounds must hold on every input path, not only the drag.
 _CHANNEL_FLAGS = imgui.SliderFlags_.always_clamp.value
+# arbiter.observe(edited=...) needs per-keystroke ``changed`` when a channel is
+# Ctrl+click typed into; without this flag a scalar widget only reports
+# ``changed`` on commit (Enter/tab-out/deactivation).
+_LIVE_EDIT_FLAG = imgui.ItemFlags_.live_edit_on_input_scalar.value
 # A transparent frame lets the fill show; DragInt otherwise paints an opaque
 # FrameBg over it.
 _TRANSPARENT = ImVec4(0.0, 0.0, 0.0, 0.0)
@@ -71,37 +75,47 @@ class ColorChannelStrip:
         count = 4 if elem.alpha else 3
         chans = [self._to_255(x) for x in (r, g, b, a)]
 
+        # push_id/begin_group/push_item_flag/push_style_color are cheap,
+        # argument-only ImGui stack pushes that cannot themselves raise; issuing
+        # all four before the guarded span (rather than interleaved with the
+        # style/geometry calls and the drag_int loop that can) means one
+        # try/finally unwinds all four stacks unconditionally, in reverse, on
+        # any raise — an unbalanced id/group/style-color stack would otherwise
+        # trip ImGui's own assertions on the next unrelated frame.
         imgui.push_id(elem.id)
         imgui.begin_group()
-        style = imgui.get_style()
-        spacing = style.item_inner_spacing.x
-        frame_h = imgui.get_frame_height()
-        # Reserve count spacings: count-1 between channels, one before the swatch.
-        w_inputs = max(imgui.calc_item_width() - (frame_h + count * spacing), 1.0)
-
+        imgui.push_item_flag(_LIVE_EDIT_FLAG, enabled=True)
         for col in _FRAME_COLS:
             imgui.push_style_color(col.value, _TRANSPARENT)
+        try:
+            style = imgui.get_style()
+            spacing = style.item_inner_spacing.x
+            frame_h = imgui.get_frame_height()
+            # Reserve count spacings: count-1 between channels, one before the swatch.
+            w_inputs = max(imgui.calc_item_width() - (frame_h + count * spacing), 1.0)
 
-        changed = False
-        prev = 0.0
-        for idx in range(count):
-            if idx > 0:
-                imgui.same_line(0.0, spacing)
-            split = math.floor(w_inputs * (idx + 1) / count)
-            width = max(split - prev, 1.0)
-            prev = split
-            imgui.set_next_item_width(width)
-            pos = imgui.get_cursor_screen_pos()
-            self._fill(pos, width, frame_h, chans[idx], _FILLS[idx])
-            edited, chans[idx] = imgui.drag_int(
-                f"##c{idx}", chans[idx], 1.0, 0, 255, flags=_CHANNEL_FLAGS
-            )
-            changed = changed or edited
+            changed = False
+            prev = 0.0
+            for idx in range(count):
+                if idx > 0:
+                    imgui.same_line(0.0, spacing)
+                split = math.floor(w_inputs * (idx + 1) / count)
+                width = max(split - prev, 1.0)
+                prev = split
+                imgui.set_next_item_width(width)
+                pos = imgui.get_cursor_screen_pos()
+                self._fill(pos, width, frame_h, chans[idx], _FILLS[idx])
+                edited, chans[idx] = imgui.drag_int(
+                    f"##c{idx}", chans[idx], 1.0, 0, 255, flags=_CHANNEL_FLAGS
+                )
+                changed = changed or edited
 
-        imgui.pop_style_color(len(_FRAME_COLS))
-        self._preview(elem, chans, frame_h, spacing)
-        imgui.end_group()
-        imgui.pop_id()
+            self._preview(elem, chans, frame_h, spacing)
+        finally:
+            imgui.pop_style_color(len(_FRAME_COLS))
+            imgui.pop_item_flag()
+            imgui.end_group()
+            imgui.pop_id()
 
         alpha = chans[3] / 255.0 if elem.alpha else a
         return (changed, (chans[0] / 255.0, chans[1] / 255.0, chans[2] / 255.0, alpha))

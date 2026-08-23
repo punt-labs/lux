@@ -74,6 +74,12 @@ class _FakeImgui:
         self._current = frames[0]
         return self
 
+    def push_item_flag(self, option: int, *, enabled: bool) -> None:
+        """No item-flag stack in the fake."""
+
+    def pop_item_flag(self) -> None:
+        """Pair the item-flag push."""
+
     def input_float(
         self, _label: str, current: float, _step: float, _fast: float, _fmt: str
     ) -> tuple[bool, float]:

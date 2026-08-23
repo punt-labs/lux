@@ -314,9 +314,13 @@ class _FakeImgui:
     ``begin_group`` for the strip, at ``color_picker*`` for the picker.
     """
 
+    # The renderer/strip read the real enum off the substituted ``imgui`` module.
+    ItemFlags_ = imgui.ItemFlags_
+
     recorded: list[Rgba]
     picker_flags: list[int]
     channel_flags: list[int]
+    item_flags: list[tuple[int, bool]]
     draw_list: _FakeDrawList
     _frames: list[_Frame]
     _index: int
@@ -330,6 +334,7 @@ class _FakeImgui:
         self.recorded = []
         self.picker_flags = []
         self.channel_flags = []
+        self.item_flags = []
         self.draw_list = _FakeDrawList()
         self._frames = list(frames)
         self._index = 0
@@ -338,6 +343,12 @@ class _FakeImgui:
         self._depth = 0
         self._picked = False
         return self
+
+    def push_item_flag(self, option: int, enabled: bool) -> None:
+        self.item_flags.append((option, enabled))
+
+    def pop_item_flag(self) -> None:
+        """Pair the item-flag push."""
 
     # -- channel-strip surface (the inline edit path) ----------------------
 
@@ -777,6 +788,41 @@ class TestChannelFillScalesWithValue:
         assert r_high > r_low
         assert r_high == pytest.approx(60.0 * 216 / 255)
         assert r_low == pytest.approx(60.0 * 37 / 255)
+
+
+class TestChannelLiveEditFlag:
+    """The channel strip pushes ``live_edit_on_input_scalar`` around its DragInts.
+
+    The arbiter's observe(edited=...) call needs per-keystroke ``changed`` when a
+    channel is Ctrl+click typed into (Dear ImGui 1.92.9b onward reports it only
+    on commit by default). Both the inline strip and the full-picker route their
+    RGB channels through the same ``ColorChannelStrip``, so one flag push covers
+    both paths.
+    """
+
+    def test_inline_strip_pushes_live_edit_on_input_scalar(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake = _FakeImgui(_Frame(dragged=None, active=False, committed=False))
+        _install(monkeypatch, fake)
+        renderer = ColorPickerRenderer(WidgetState())
+
+        renderer.render(_picker(value="#FF3399"))
+
+        expected = imgui.ItemFlags_.live_edit_on_input_scalar.value
+        assert fake.item_flags == [(expected, True)]
+
+    def test_full_picker_pushes_live_edit_on_input_scalar(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake = _FakeImgui(_Frame(dragged=None, active=False, committed=False))
+        _install(monkeypatch, fake)
+        renderer = ColorPickerRenderer(WidgetState())
+
+        renderer.render(_full_picker(value="#FF3399"))
+
+        expected = imgui.ItemFlags_.live_edit_on_input_scalar.value
+        assert fake.item_flags == [(expected, True)]
 
 
 class TestChannelInputIsClamped:
