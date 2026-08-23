@@ -1,7 +1,7 @@
 """TextureCache — the data leg decodes/caches; malformed input degrades, never raises.
 
 The OpenGL upload needs a live context the unit tier has no window for, so these
-tests stub ``TextureCache._upload`` to a sentinel id and exercise the decode and
+tests stub ``GLTexture.upload`` to a sentinel id and exercise the decode and
 cache-keying around it. Malformed input fails before the upload, so it needs no
 stub at all — which is exactly the property under test.
 """
@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 
 from PIL import Image
 
+from punt_lux.display.gl_texture import GLTexture
 from punt_lux.display.texture_cache import TextureCache
 
 if TYPE_CHECKING:
@@ -40,7 +41,7 @@ class TestDataLeg:
             uploads["n"] += 1
             return 4242
 
-        monkeypatch.setattr(TextureCache, "_upload", _fake_upload)
+        monkeypatch.setattr(GLTexture, "upload", _fake_upload)
         cache = TextureCache()
         data = _png_base64()
 
@@ -61,7 +62,7 @@ class TestDataLeg:
         def _fake_upload(_img: object) -> int:
             return 4242
 
-        monkeypatch.setattr(TextureCache, "_upload", _fake_upload)
+        monkeypatch.setattr(GLTexture, "upload", _fake_upload)
         real_sha256 = hashlib.sha256
         hashes = {"n": 0}
 
@@ -120,7 +121,7 @@ class TestDataLeg:
         def _fake_upload(_img: object) -> int:
             return next(ids)
 
-        monkeypatch.setattr(TextureCache, "_upload", _fake_upload)
+        monkeypatch.setattr(GLTexture, "upload", _fake_upload)
         cache = TextureCache()
         assert cache.get_or_load_data(_png_base64((2, 2))) == 1
         assert cache.get_or_load_data(_png_base64((3, 3))) == 2
@@ -152,14 +153,14 @@ class TestLruEviction:
         def _noop_delete(_tex_id: int) -> None:
             return None
 
-        monkeypatch.setattr(TextureCache, "_upload", _fake_upload)
-        monkeypatch.setattr(TextureCache, "_delete_texture", staticmethod(_noop_delete))
+        monkeypatch.setattr(GLTexture, "upload", _fake_upload)
+        monkeypatch.setattr(GLTexture, "delete", staticmethod(_noop_delete))
         cache = TextureCache()
 
         for size in range(10):
             cache.get_or_load_data(_png_base64((size + 1, size + 1)))
 
-        assert len(cache._textures) == 3
+        assert len(cache) == 3
 
     def test_lru_order_recent_access_renews_position(
         self, monkeypatch: pytest.MonkeyPatch
@@ -171,11 +172,9 @@ class TestLruEviction:
         def _fake_upload(_img: object) -> int:
             return next(ids)
 
-        monkeypatch.setattr(TextureCache, "_upload", _fake_upload)
+        monkeypatch.setattr(GLTexture, "upload", _fake_upload)
         deleted: list[int] = []
-        monkeypatch.setattr(
-            TextureCache, "_delete_texture", staticmethod(deleted.append)
-        )
+        monkeypatch.setattr(GLTexture, "delete", staticmethod(deleted.append))
         cache = TextureCache()
 
         payload_a = _png_base64((1, 1))
@@ -190,8 +189,8 @@ class TestLruEviction:
 
         key_a = cache._data_keys[payload_a]
         key_c = cache._data_keys[payload_c]
-        assert deleted == [1]
-        assert list(cache._textures.keys()) == [key_a, key_c]
+        assert [d for d in deleted if d is not None] == [1]
+        assert list(cache._lru.keys()) == [key_a, key_c]
 
     def test_gl_delete_fires_on_eviction_with_correct_tex_id(
         self, monkeypatch: pytest.MonkeyPatch
@@ -202,17 +201,15 @@ class TestLruEviction:
         def _fake_upload(_img: object) -> int:
             return next(ids)
 
-        monkeypatch.setattr(TextureCache, "_upload", _fake_upload)
+        monkeypatch.setattr(GLTexture, "upload", _fake_upload)
         deleted: list[int] = []
-        monkeypatch.setattr(
-            TextureCache, "_delete_texture", staticmethod(deleted.append)
-        )
+        monkeypatch.setattr(GLTexture, "delete", staticmethod(deleted.append))
         cache = TextureCache()
 
         cache.get_or_load_data(_png_base64((1, 1)))
         cache.get_or_load_data(_png_base64((2, 2)))
 
-        assert deleted == [11]
+        assert [d for d in deleted if d is not None] == [11]
 
     def test_none_entries_evict_alongside_real_textures(
         self, monkeypatch: pytest.MonkeyPatch
@@ -224,23 +221,24 @@ class TestLruEviction:
         cache.get_or_load("/no/such/file/two.png")
         cache.get_or_load("/no/such/file/three.png")
 
-        assert len(cache._textures) == 2
-        assert "/no/such/file/one.png" not in cache._textures
+        assert len(cache) == 2
+        assert "/no/such/file/one.png" not in cache._lru
 
-    def test_failure_none_entries_do_not_trigger_gl_delete_on_eviction(
+    def test_failure_none_entries_do_not_trigger_a_real_gl_delete_on_eviction(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Evicting a failure record calls ``GLTexture.delete(None)`` (a no-op) —
+        never with a real texture id, since a failed load never uploaded one.
+        """
         monkeypatch.setenv("LUX_TEXTURE_CACHE_CAP", "1")
-        deleted: list[int] = []
-        monkeypatch.setattr(
-            TextureCache, "_delete_texture", staticmethod(deleted.append)
-        )
+        deleted: list[int | None] = []
+        monkeypatch.setattr(GLTexture, "delete", staticmethod(deleted.append))
         cache = TextureCache()
 
         cache.get_or_load("/no/such/file/one.png")
         cache.get_or_load("/no/such/file/two.png")
 
-        assert deleted == []
+        assert [d for d in deleted if d is not None] == []
 
 
 class TestNegativeCacheLogsOnce:
