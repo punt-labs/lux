@@ -1187,7 +1187,10 @@ bounding the rendered rows.
   \item \textbf{Texture cache.}  OpenGL texture IDs are held under an LRU
     policy capped at 256 entries (\texttt{LUX\_TEXTURE\_CACHE\_CAP}); the
     least-recently-used texture is deleted on the GPU when a new upload
-    would exceed the cap, bounding memory for image-heavy sessions.
+    would exceed the cap. The base64-payload$\to$content-hash memo that
+    keys data-sourced images is coupled to the same eviction, so it is
+    bounded by the same cap rather than growing for the process lifetime.
+    Both bound memory for image-heavy sessions.
   \item \textbf{Ring buffers.}  The event and error buffers are bounded
     deques; constant memory.
 \end{itemize}
