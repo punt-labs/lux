@@ -9,7 +9,6 @@ stub at all — which is exactly the property under test.
 from __future__ import annotations
 
 import base64
-import hashlib
 import io
 import logging
 from collections.abc import Iterator
@@ -51,33 +50,26 @@ class TestDataLeg:
         assert cache.get_or_load_data(data) == 4242
         assert uploads["n"] == 1
 
-    def test_same_payload_hashes_once_across_repeated_loads(
+    def test_repeated_loads_of_the_same_payload_hit_the_key_memo(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The renderer reloads the same payload every frame; the SHA-256 that
-        derives the content key runs on first sight only, then serves from the
-        payload→key memo — otherwise a cached image pays O(payload) per frame.
+        """The renderer reloads the same payload every frame; the content-hash
+        key memoization (``DataKeyMemo``, tested directly for its own
+        once-only SHA-256 guarantee) means repeated loads of the same payload
+        never re-decode or re-upload.
         """
+        uploads = {"n": 0}
 
         def _fake_upload(_img: object) -> int:
+            uploads["n"] += 1
             return 4242
 
         monkeypatch.setattr(GLTexture, "upload", _fake_upload)
-        real_sha256 = hashlib.sha256
-        hashes = {"n": 0}
-
-        def _counting_sha256(payload: bytes = b"") -> object:
-            hashes["n"] += 1
-            return real_sha256(payload)
-
-        monkeypatch.setattr(
-            "punt_lux.display.texture_cache.hashlib.sha256", _counting_sha256
-        )
         cache = TextureCache()
         data = _png_base64()
 
         assert [cache.get_or_load_data(data) for _ in range(3)] == [4242, 4242, 4242]
-        assert hashes["n"] == 1
+        assert uploads["n"] == 1
 
     def test_bad_base64_returns_none_and_warns(
         self, caplog: pytest.LogCaptureFixture
@@ -187,8 +179,8 @@ class TestLruEviction:
         cache.get_or_load_data(payload_a)
         cache.get_or_load_data(payload_c)  # evicts B (id 1), not A
 
-        key_a = cache._data_keys[payload_a]
-        key_c = cache._data_keys[payload_c]
+        key_a = cache._data_keys.key_for(payload_a)
+        key_c = cache._data_keys.key_for(payload_c)
         assert [d for d in deleted if d is not None] == [1]
         assert list(cache._lru.keys()) == [key_a, key_c]
 
@@ -239,6 +231,76 @@ class TestLruEviction:
         cache.get_or_load("/no/such/file/two.png")
 
         assert [d for d in deleted if d is not None] == []
+
+
+class TestDataKeysBounded:
+    """``_data_keys`` (a ``DataKeyMemo``) is coupled to ``_lru`` eviction —
+    bounded by the same cap as the textures, not left to grow for the
+    process lifetime.
+    """
+
+    def test_data_keys_bounded_by_cap_under_repeated_distinct_payloads(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("LUX_TEXTURE_CACHE_CAP", "3")
+        ids: Iterator[int] = iter(range(100))
+
+        def _fake_upload(_img: object) -> int:
+            return next(ids)
+
+        def _noop_delete(_tex_id: int | None) -> None:
+            return None
+
+        monkeypatch.setattr(GLTexture, "upload", _fake_upload)
+        monkeypatch.setattr(GLTexture, "delete", staticmethod(_noop_delete))
+        cache = TextureCache()
+
+        for size in range(10):
+            cache.get_or_load_data(_png_base64((size + 1, size + 1)))
+
+        assert len(cache._data_keys) == 3
+        assert len(cache._data_keys._key_to_data) == 3
+
+    def test_evicted_payload_re_decodes_and_re_uploads(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Once a data-keyed entry is evicted, its payload memo is gone too —
+        loading the same payload again is a fresh decode/upload, not a hit.
+        """
+        monkeypatch.setenv("LUX_TEXTURE_CACHE_CAP", "1")
+        ids: Iterator[int] = iter((1, 2, 3))
+
+        def _fake_upload(_img: object) -> int:
+            return next(ids)
+
+        def _noop_delete(_tex_id: int | None) -> None:
+            return None
+
+        monkeypatch.setattr(GLTexture, "upload", _fake_upload)
+        monkeypatch.setattr(GLTexture, "delete", staticmethod(_noop_delete))
+        cache = TextureCache()
+
+        payload_a = _png_base64((1, 1))
+        payload_b = _png_base64((2, 2))
+
+        assert cache.get_or_load_data(payload_a) == 1
+        assert payload_a in cache._data_keys
+        cache.get_or_load_data(payload_b)  # evicts A's data-key memo too
+        assert payload_a not in cache._data_keys
+
+        assert cache.get_or_load_data(payload_a) == 3  # re-decoded, re-uploaded
+
+    def test_path_keyed_entries_never_touch_data_keys(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("LUX_TEXTURE_CACHE_CAP", "5")
+        cache = TextureCache()
+
+        cache.get_or_load("/no/such/file/one.png")
+        cache.get_or_load("/no/such/file/two.png")
+
+        assert len(cache._data_keys) == 0
+        assert len(cache._data_keys._key_to_data) == 0
 
 
 class TestNegativeCacheLogsOnce:

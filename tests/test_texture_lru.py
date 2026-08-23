@@ -54,7 +54,7 @@ class TestRememberAndEvict:
         lru = TextureLru()
         assert lru.remember("a", 1) is None
         assert lru.remember("b", 2) is None
-        assert lru.remember("c", 3) == 1  # evicts "a", tex id 1
+        assert lru.remember("c", 3) == ("a", 1)  # evicts "a", tex id 1
         assert list(lru.keys()) == ["b", "c"]
 
     def test_touch_renews_position_and_protects_from_eviction(
@@ -65,7 +65,7 @@ class TestRememberAndEvict:
         lru.remember("a", 1)
         lru.remember("b", 2)
         lru.touch("a")  # "b" is now the LRU entry
-        assert lru.remember("c", 3) == 2  # evicts "b", tex id 2
+        assert lru.remember("c", 3) == ("b", 2)  # evicts "b", tex id 2
         assert list(lru.keys()) == ["a", "c"]
 
     def test_none_entries_evict_and_report_no_texture(
@@ -74,7 +74,7 @@ class TestRememberAndEvict:
         monkeypatch.setenv("LUX_TEXTURE_CACHE_CAP", "1")
         lru = TextureLru()
         lru.remember("a", None)
-        assert lru.remember("b", 5) is None  # evicts "a", which had no texture
+        assert lru.remember("b", 5) == ("a", None)  # evicts "a", no texture to delete
 
     def test_contains_and_getitem(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("LUX_TEXTURE_CACHE_CAP", "5")
