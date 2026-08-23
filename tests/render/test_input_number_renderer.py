@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import Self
 
 import pytest
+from imgui_bundle import imgui
 
 from punt_lux.display.renderers import input_number_renderer
 from punt_lux.display.renderers.imgui.continuous_edit_accessors import (
@@ -57,9 +58,14 @@ class _FakeImgui:
 
     ``recorded`` is the sequence of positions ``render`` handed to the widget —
     the honour/defer evidence (always a ``float`` for a clean cross-variant diff).
+    ``item_flags`` records each ``push_item_flag`` call's arguments.
     """
 
+    # The renderer reads the real enum off the substituted ``imgui`` module.
+    ItemFlags_ = imgui.ItemFlags_
+
     recorded: list[float]
+    item_flags: list[tuple[int, bool]]
     _frames: list[_Frame]
     _index: int
     _current: _Frame
@@ -67,10 +73,17 @@ class _FakeImgui:
     def __new__(cls, *frames: _Frame) -> Self:
         self = super().__new__(cls)
         self.recorded = []
+        self.item_flags = []
         self._frames = list(frames)
         self._index = 0
         self._current = frames[0]
         return self
+
+    def push_item_flag(self, option: int, enabled: bool) -> None:
+        self.item_flags.append((option, enabled))
+
+    def pop_item_flag(self) -> None:
+        """Pair the item-flag push."""
 
     def input_float(
         self, _label: str, current: float, _step: float, _step_fast: float, _fmt: str
@@ -127,6 +140,24 @@ class TestRendererHonour:
         renderer.render(_number(value=63.5))
 
         assert fake.recorded == [42.0, 63.5]
+
+
+class TestRendererLiveEditFlag:
+    def test_draw_pushes_live_edit_on_input_scalar(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The arbiter's observe(edited=...) call needs per-keystroke ``changed``
+        # from ImGui's scalar widgets (Dear ImGui 1.92.9b onward reports it only
+        # on commit by default); the widget seam pushes the flag that restores
+        # per-keystroke reporting for both the float and integer variant.
+        fake = _FakeImgui(_Frame(edited=None, active=False, committed=False))
+        _install(monkeypatch, fake)
+        renderer = InputNumberRenderer(WidgetState())
+
+        renderer.render(_number(value=42.0, integer=True))
+
+        expected = imgui.ItemFlags_.live_edit_on_input_scalar.value
+        assert fake.item_flags == [(expected, True)]
 
 
 class TestRendererDefer:

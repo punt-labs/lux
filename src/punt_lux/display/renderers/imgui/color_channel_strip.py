@@ -43,6 +43,10 @@ _FILLS: tuple[ImVec4, ...] = (
 # paints past the field until RgbaColor clamps it at commit — the declared
 # channel bounds must hold on every input path, not only the drag.
 _CHANNEL_FLAGS = imgui.SliderFlags_.always_clamp.value
+# arbiter.observe(edited=...) needs per-keystroke ``changed`` when a channel is
+# Ctrl+click typed into; without this flag a scalar widget only reports
+# ``changed`` on commit (Enter/tab-out/deactivation).
+_LIVE_EDIT_FLAG = imgui.ItemFlags_.live_edit_on_input_scalar.value
 # A transparent frame lets the fill show; DragInt otherwise paints an opaque
 # FrameBg over it.
 _TRANSPARENT = ImVec4(0.0, 0.0, 0.0, 0.0)
@@ -73,6 +77,7 @@ class ColorChannelStrip:
 
         imgui.push_id(elem.id)
         imgui.begin_group()
+        imgui.push_item_flag(_LIVE_EDIT_FLAG, enabled=True)
         style = imgui.get_style()
         spacing = style.item_inner_spacing.x
         frame_h = imgui.get_frame_height()
@@ -99,6 +104,7 @@ class ColorChannelStrip:
             changed = changed or edited
 
         imgui.pop_style_color(len(_FRAME_COLS))
+        imgui.pop_item_flag()
         self._preview(elem, chans, frame_h, spacing)
         imgui.end_group()
         imgui.pop_id()
