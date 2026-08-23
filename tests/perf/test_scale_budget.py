@@ -57,7 +57,7 @@ _SCENE_FRAMES: Final[int] = 20
 # The sibling test_ten_text_elements budget is 20 ms / 10 elements == 2 ms
 # per element (a ~70x margin over its own ~0.28 ms measured cost); this
 # scales that per-element budget linearly to 1000 elements. Measured
-# locally at ~165 ms/frame, so the ~12x headroom left here still catches an
+# locally at ~98.6 ms/frame, so the ~20x headroom left here still catches an
 # O(n^2) blow-up or an accidental per-element I/O call without flaking
 # under CI load.
 _SCENE_BUDGET_SECONDS: Final[float] = 2.000
