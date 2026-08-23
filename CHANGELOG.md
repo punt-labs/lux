@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Dependency: `imgui-bundle` 1.92.801 → 1.92.900.** Upstream Dear ImGui 1.92.9b
+  changes keyboard-typing commit semantics on scalar widgets — `input_int`,
+  `input_float`, `drag_int`, `drag_float`, `slider_int`, and `slider_float` no
+  longer fire `changed` per keystroke, only on Enter / tab-out / deactivation.
+  `InputNumberRenderer`, `SliderRenderer`, and the `ColorChannelStrip` `drag_int`
+  path now push `imgui.ItemFlags_.live_edit_on_input_scalar` around each scalar
+  widget call so `ContinuousEditArbiter.observe(edited=changed, …)` continues to
+  see the per-keystroke signal it needs to defer a mid-typing Hub re-push. Text
+  inputs and mouse-drag paths are unaffected upstream (#406).
+- **Dependency: `uvicorn` 0.46.0 → 0.52.4** (#405).
+- **Dependency: `numpy` 2.4.4 → 2.5.2** (#404).
+- **Dependency: `starlette` 1.3.1 → 1.6.0** (#403).
+- **Dev dependency: `ruff` 0.16.2 → 0.16.3** (#401).
+- **CI: `actions/checkout` 4.3.1 → 7.0.1**; `astral-sh/setup-uv` 9.0.0 → 10.0.1
+  across all four workflows (`biff-notify`, `test`, `lint`, `release`)
+  (#402, #400).
+
+### Fixed
+
+- **`ColorChannelStrip.draw` exception safety.** All four ImGui stack push/pop
+  pairs (`push_id`, `begin_group`, `push_item_flag`, `push_style_color`) are
+  now wrapped in a single `try`/`finally` that unwinds every stack in reverse
+  order on any raise. Previously a widget-call exception in the per-channel
+  loop could leak a `begin_group` or `push_id` and trip ImGui's own
+  stack-balance assertions on the next frame (#406).
+
 ## [0.29.1] - 2026-08-22
 
 ### Fixed
