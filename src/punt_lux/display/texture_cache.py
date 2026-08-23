@@ -5,17 +5,16 @@
 from __future__ import annotations
 
 import base64
-import hashlib
 import io
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Self
+from typing import Self
 
-import numpy as np
 from PIL import Image
 
-if TYPE_CHECKING:
-    from PIL.Image import Image as PILImage
+from punt_lux.display.data_key_memo import DataKeyMemo
+from punt_lux.display.gl_texture import GLTexture
+from punt_lux.display.texture_lru import TextureLru
 
 logger = logging.getLogger(__name__)
 
@@ -24,63 +23,75 @@ class TextureCache:
     """Maps image sources to OpenGL texture IDs. Uploads on first access.
 
     A path-sourced image keys on its path; a data-sourced image keys on a
-    content hash of its base64 payload (there is no path to key on). ``_textures``
-    holds each key's resolution outcome once decided: an uploaded texture id, or
-    ``None`` for a source that failed to load. A key present with ``None`` is the
-    "known-failed" record, so a broken image is decoded and warned **once**, not
-    every frame — the render loop retries neither the load nor the log.
+    content hash of its base64 payload, memoized by the composed
+    ``DataKeyMemo`` (there is no path to key on). ``_lru`` holds each key's
+    resolution outcome once decided: an uploaded texture id, or ``None`` for a
+    source that failed to load. A key present with ``None`` is the
+    "known-failed" record, so a broken image is decoded and warned **once**,
+    not every frame — the render loop retries neither the load nor the log.
+
+    ``_lru`` caps entries under least-recently-used eviction (see
+    ``TextureLru``): the least recently accessed key is dropped first, and its
+    OpenGL texture is deleted at eviction time (a ``None`` failure record has
+    nothing to delete). ``_data_keys`` is coupled to that same eviction — when
+    ``_lru`` evicts a data-sourced key, ``_settle`` tells the memo to forget it
+    too — so both the textures and the payload memo are bounded by the same
+    cap instead of growing for the process lifetime.
     """
 
-    _textures: dict[str, int | None]  # None marks a known-failed source
-    _data_keys: dict[str, str]
+    _lru: TextureLru
+    _data_keys: DataKeyMemo
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
-        self._textures = {}
-        self._data_keys = {}
+        self._lru = TextureLru()
+        self._data_keys = DataKeyMemo()
         return self
+
+    def __len__(self) -> int:
+        """Return the number of live cache entries, for introspection/debugging."""
+        return len(self._lru)
+
+    def __repr__(self) -> str:
+        return f"TextureCache(entries={len(self)})"
 
     def get_or_load(self, path: str) -> int | None:
         """Return a texture ID for *path*, uploading (and logging once) as needed."""
-        if path in self._textures:
-            return self._textures[path]
+        if path in self._lru:
+            self._lru.touch(path)
+            return self._lru[path]
         if not Path(path).is_file():
             logger.warning("Image file not found: %s", path)
-            self._textures[path] = None
+            self._settle(self._lru.remember(path, None))
             return None
-        self._textures[path] = tex_id = self._create_texture(path)
+        tex_id = self._create_texture(path)
+        self._settle(self._lru.remember(path, tex_id))
         return tex_id
 
     def get_or_load_data(self, data: str) -> int | None:
-        """Return a texture ID for a base64 image *data* blob, uploading if needed.
-
-        Keyed by a content hash of the payload, since a data-sourced image has
-        no path. The renderer asks for the same payload every frame, so the
-        payload→key mapping is memoized in ``_data_keys``: only the first sight
-        of a payload pays the SHA-256, and a persistent element's repeated loads
-        are an amortized O(1) dict hit (Python caches a str's hash). Malformed
-        base64 or bytes that are not a decodable image yield ``None`` and the key
-        is remembered, so a broken payload is decoded and logged exactly once —
-        the caller degrades to alt text and the render loop survives.
-        """
-        if (key := self._data_keys.get(data)) is None:
-            key = self._data_keys[data] = (
-                f"data:{hashlib.sha256(data.encode()).hexdigest()}"
-            )
-        if key in self._textures:
-            return self._textures[key]
-        self._textures[key] = tex_id = self._create_texture_from_data(data)
+        """Return a texture ID for a base64 image *data* blob, uploading if needed."""
+        key = self._data_keys.key_for(data)
+        if key in self._lru:
+            self._lru.touch(key)
+            return self._lru[key]
+        tex_id = self._create_texture_from_data(data)
+        self._settle(self._lru.remember(key, tex_id))
         return tex_id
 
     def cleanup(self) -> None:
         """Delete all OpenGL textures and clear the caches."""
-        import OpenGL.GL as GL
-
-        for tex_id in self._textures.values():
-            if tex_id is not None:
-                GL.glDeleteTextures(1, [tex_id])
-        self._textures.clear()
+        for tex_id in self._lru.values():
+            GLTexture.delete(tex_id)
+        self._lru.clear()
         self._data_keys.clear()
+
+    def _settle(self, evicted: tuple[str, int | None] | None) -> None:
+        """Delete an evicted texture and drop its data-key memo entry, if any."""
+        if evicted is None:
+            return
+        key, tex_id = evicted
+        GLTexture.delete(tex_id)
+        self._data_keys.forget(key)
 
     @staticmethod
     def _create_texture(path: str) -> int | None:
@@ -90,7 +101,7 @@ class TextureCache:
         except Exception:
             logger.exception("Failed to load image: %s", path)
             return None
-        return TextureCache._upload(img)
+        return GLTexture.upload(img)
 
     @staticmethod
     def _create_texture_from_data(data: str) -> int | None:
@@ -111,30 +122,4 @@ class TextureCache:
                 exc,
             )
             return None
-        return TextureCache._upload(img)
-
-    @staticmethod
-    def _upload(img: PILImage) -> int:
-        """Upload an RGBA PIL image as an OpenGL texture; return its texture id."""
-        import OpenGL.GL as GL
-
-        data = np.array(img, dtype=np.uint8)
-        h, w = data.shape[:2]
-
-        tex_id: int = GL.glGenTextures(1)
-        GL.glBindTexture(GL.GL_TEXTURE_2D, tex_id)
-        GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR)
-        GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR)
-        GL.glTexImage2D(
-            GL.GL_TEXTURE_2D,
-            0,
-            GL.GL_RGBA,
-            w,
-            h,
-            0,
-            GL.GL_RGBA,
-            GL.GL_UNSIGNED_BYTE,
-            data,
-        )
-        GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
-        return int(tex_id)
+        return GLTexture.upload(img)
