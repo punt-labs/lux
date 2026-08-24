@@ -2,6 +2,49 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Scale-perf test suite** (`tests/perf/test_scale_budget.py`, `@pytest.mark.slow`).
+  Four measured baselines for the display's render walk and Hub-side table
+  operations: 1000-element mixed scene, 10k-row table (no filter, filtered to
+  ~100 rows, multi-select with 0 vs 100 selections). `FrameBudget` helper
+  reports raw wall-clock and a normalized cost-per-visible-unit metric. Every
+  subsequent perf change in the lux-qfzu epic carries before/after numbers
+  against these baselines (#410).
+
+### Changed
+
+- **TextureCache: LRU eviction with a size cap.** Cap default 256, overridable
+  via `LUX_TEXTURE_CACHE_CAP`. Extracts `TextureLru` (ordering + capacity),
+  `GLTexture` (upload/delete), and `DataKeyMemo` (payload → hash-key memo,
+  coupled to LRU eviction) into their own classes composed by `TextureCache`.
+  Bounds both GPU memory (texture IDs) and Python heap (base64-payload memo)
+  for long-lived image-heavy sessions. Closes system.tex §7 Limitation #2
+  (#411).
+
+- **Table filter path: memoized.** `FilteredTableModel._visible_rows` cached
+  by `(id(_all_rows), _search, frozenset(_combo_picks.items()))`;
+  `visible_ids()` shares the cache instead of re-scanning cached rows. Closes
+  system.tex §7 Limitation #3. Filter of 10k rows to ~100 dropped from
+  9.1 ms to 0.2 ms (45x). No behavior change (#413).
+
+- **Table selection path: O(selected), not O(rows).**
+  `TableElement._live_ids_cache` replaces the per-call `frozenset` rebuild.
+  Recomputed only on a real rows change; selection patches iterate only
+  `selected_row_ids`. 10k-row multi-select 0 vs 100 selections dropped from
+  a near-identical 6.1/6.0 ms (dominated by the O(rows) scan) to
+  0.003/0.013 ms (now proportional to selection size, empirically proving
+  the scan removal). No behavior change (#413).
+
+### Fixed
+
+- **Regression guard: stack-layout renders skip collapsed scenes.**
+  `_render_frame_stack` has gated `_render_framed_scene` inside
+  `if imgui.collapsing_header(...)` since March 2026, but the invariant had
+  no test coverage. Added `tests/display/test_frame_stack_layout.py` — three
+  collapsed scenes render nothing on the outer walk; opening one exposes it
+  next frame; closing it again stops further renders (#412).
+
 ## [0.29.2] - 2026-08-23
 
 ### Changed
