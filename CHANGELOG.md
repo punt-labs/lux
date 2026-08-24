@@ -5,7 +5,7 @@
 ### Added
 
 - **Homebrew formula** (`punt-labs/homebrew-tap`, `Formula/lux.rb`, tap PR:
-  TBD). `brew install punt-labs/tap/lux` installs all four console entry
+  punt-labs/homebrew-tap#35). `brew install punt-labs/tap/lux` installs all four console entry
   points (`lux`, `luxd-hub`, `luxd-display`, `lux-beads`) via
   `Language::Python::Virtualenv`. `imgui-bundle`'s sdist build fails under
   Homebrew's build isolation (an ABI mismatch between its pinned C++
