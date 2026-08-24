@@ -5746,3 +5746,241 @@ Jim's Hub after both fixes were installed. Convergent diagnosis with
 the lux-side investigation of the same symptom. Vox's PR ships
 independently on their release cadence; this amendment is lux-side and
 does not block it.
+
+## DES-068: TextureCache Bounds — LRU + Coupled DataKeyMemo Eviction Under One Cap
+
+**Status:** SETTLED (shipped v0.30.0, bead `lux-qfzu.2`, PR #411)
+
+**Problem.** `TextureCache` was documented as unbounded (system.tex §7
+Known Limitation #2) for months. Two distinct memory leaks lived in one
+class: GPU-side texture IDs accumulated in `_lru: dict[str, int | None]`
+until process exit, and Python-side base64 payloads accumulated in
+`_data_keys: dict[str, str]` (the payload → sha256-key memo). A
+long-lived image-heavy session — a browser panel that renders many
+distinct images over hours — would leak both GPU memory and Python heap
+until the process died. `cleanup()` cleared both, but only ran at
+`_on_exit`.
+
+**Decision.** LRU eviction on textures, with a cap default of 256
+overridable via `LUX_TEXTURE_CACHE_CAP`, and the `DataKeyMemo` bounded
+by coupled eviction rather than a second LRU.
+
+Extract three collaborators into their own classes, composed by
+`TextureCache`:
+
+1. `TextureLru` (`display/texture_lru.py`) — ordering and capacity, no
+   knowledge of GL. `remember(key, tex_id)` returns the evicted
+   `(key, tex_id)` pair (or `None`) so the caller can act on both halves.
+2. `GLTexture` (`display/gl_texture.py`) — the two raw GL calls
+   (upload, delete). Two staticmethods, zero state. `delete(None)` is a
+   no-op so failure records evict cleanly.
+3. `DataKeyMemo` (`display/data_key_memo.py`) — the payload ↔ hash-key
+   memo, exposing `key_for`, `forget`, `clear`. `forget(key)` drops both
+   memo directions.
+
+`TextureCache._settle(evicted)` unpacks the LRU's returned pair and
+calls `GLTexture.delete(tex_id)` and `DataKeyMemo.forget(key)` in one
+place. The memo is bounded by the same cap as the LRU by construction:
+every real-key eviction drops its memo entry in step.
+
+**Alternatives rejected.**
+
+- *Leave the memo unbounded; only cap textures.* This was the round-1
+  landing shape that Copilot correctly caught in post-review. It fixes
+  the GPU leak but leaves the Python-heap leak, which is worse in
+  practice — base64 payloads are KB-per-image, so the memo becomes the
+  dominant memory cost on any image-heavy workload. Bounded-half is
+  worse than the unbounded status quo because it advertises the leak as
+  fixed. Rejected on Copilot's finding; DataKeyMemo landed round 2.
+- *Parallel LRU on `_data_keys`.* Second cache with its own cap, kept
+  in sync. Two independent invalidation paths that must never drift.
+  The coupled-eviction shape is simpler — one cap, one invalidation
+  event, one place both drop together — and produces the same
+  bounded-ness guarantee with less machinery.
+- *Eliminate the memo entirely; always compute the sha256 per call.*
+  Loses the "same-object payload memoized to O(1) after first sight"
+  win on the common pattern (a persistent element passing the same
+  `elem.data` every frame). The compute cost per KB isn't material at
+  current scale, but the pattern of "cache what stays stable across
+  frames, evict when it doesn't" is worth preserving as a shape other
+  renderers will imitate.
+- *Reference counting per scene.* Explicit `retain`/`release` semantics
+  tied to scene lifetime. LRU is enough; ref-counting adds a discipline
+  every caller has to follow and gives no additional bound.
+
+**Verification.** `TextureLru.remember(c)` at cap=2 with keys `a`,
+`b` traced by hand: evicts `a`, `_settle` unpacks `(a, tex_a)`,
+`GLTexture.delete(tex_a)` fires, `DataKeyMemo.forget(a)` drops both
+`_data_to_key[a]` and `_key_to_data[key_a]`. Test
+`test_evicted_payload_re_decodes_and_re_uploads` asserts
+`payload_a not in cache._data_keys` directly (not inferred from an
+upload-count change), so a bug where `forget()` isn't called fails
+loud. 35 tests cover cap, LRU order, GL-delete-on-evict,
+GL-delete-skipped-on-None-evict, env override, empty and size-1
+edges, and the bounded-ness of the memo under repeated distinct
+payloads.
+
+**Provenance.** Round-1 gvr eval accepted the LRU code but did not
+audit sibling data structures; Copilot's PR review caught the memo
+leak the eval missed. Round-2 gvr eval carried the "audit every
+data-holding attribute in every class in the module" discipline
+forward — a rule shape worth naming for future perf-adjacent evals.
+
+## DES-069: Table Hot-Path Memoization — `id()`-Key Invalidation on Reassigned-Tuple Data
+
+**Status:** SETTLED (shipped v0.30.0, beads `lux-qfzu.3` + `lux-qfzu.4`, PR #413)
+
+**Problem.** Two O(rows) scans ran on the table hot path every frame a
+table was visible:
+
+1. `FilteredTableModel._visible_rows` scanned the full row list under
+   any active search or combo filter, even when nothing changed
+   (system.tex §7 Known Limitation #3). `visible_ids()` then re-derived
+   ids by scanning the already-filtered result again — a second hidden
+   O(rows) cost.
+2. `TableElement._live_ids` rebuilt a `frozenset` over every row on
+   every call, regardless of selection size, so `_set_selected_row_ids`
+   cost the same for one selection as for a thousand.
+
+The qfzu.1 scale-perf test measured 9.1 ms for 10k-row filter,
+6.1/6.0 ms for 0-vs-100 selections (near-identical because the row
+scan dominated).
+
+**Decision.** Memoize `FilteredTableModel._visible_rows` by the tuple
+`(id(_all_rows), _search, frozenset(_combo_picks.items()))`, and let
+`visible_ids()` share the same cache. On `TableElement`, cache the
+live-ids `frozenset` on first read after a rows change and reuse it on
+selection-only operations.
+
+The invalidation trigger uses Python's `id()` on `_all_rows`. This is
+safe here — not in general — because `_all_rows` is only ever
+*reassigned* (in `__new__` and `_absorb_dataset`), never mutated in
+place. `_all_rows` is a tuple, so in-place mutation isn't possible
+either. Under that discipline `id()` is a valid change signal: a new
+tuple object means new content by construction, and CPython id-reuse
+after GC can't bite in the synchronous flow because nothing recycles a
+freshly-allocated tuple mid-request.
+
+The `TableElement._live_ids_cache` is invalidated in `_set_rows`
+*before* `self._selection.reconciled(...)` runs, so reconciliation
+always sees fresh ids. Selection-only patches (via
+`_set_selected_row_ids`) read the cache untouched; a rows patch
+recomputes it.
+
+**Perf receipts** (from `tests/perf/test_scale_budget.py`):
+
+| Scenario                        | Before   | After     | Ratio |
+|---|---|---|---|
+| 10k rows, filter to ~100        | 9.1 ms   | 0.2 ms    | 45×   |
+| 10k rows, multi-select 0 sel    | 6.1 ms   | 0.003 ms  | 2000× |
+| 10k rows, multi-select 100 sel  | 6.0 ms   | 0.013 ms  | 460×  |
+
+The 0-vs-100 divergence (previously near-identical, now cleanly
+proportional to selection size) is the empirical proof the O(rows)
+scan was removed rather than the constant just shrinking.
+
+**Alternatives rejected.**
+
+- *Content-hash keying (`hash(_all_rows)` or a per-row content hash).*
+  Correct without any tuple-reassignment discipline, but O(rows) to
+  compute on every miss. Given `_all_rows` is a tuple reassigned
+  wholesale, `id()` is O(1) and equally correct. Content-hash keying
+  is the right choice for a caller that mutates a list in place —
+  `_all_rows` is not that caller.
+- *Full recompute per frame (status quo).* No cache. The perf receipts
+  make this untenable at 10k rows.
+- *Display-side WidgetState caching.* `FilteredTableModel` and
+  `TableElement` live on the Hub side of the split. Caching Hub-owned
+  derived state in `display/replica/widget_state.py` would violate the
+  target.md rule that WidgetState is display-local ephemeral state
+  (selection, scroll, in-progress text — things that live and die with
+  the scene render), not authoritative-Hub state that survives resend.
+  The cache belongs where the state it derives from lives.
+- *Refactor `TableElement._live_ids` to iterate `selected_row_ids` and
+  do per-id lookups against a set.* Also O(selected), also correct.
+  Requires re-deriving the live-ids set on every call anyway (to
+  populate the lookup set), which is the same cost as the cache and
+  loses the "recomputed only on rows change" optimization. Rejected
+  as strictly weaker.
+
+**Non-obvious invariant worth writing down.** The `id()`-keying works
+*because* of the tuple-reassignment discipline, not despite it. A
+future author who changes `_all_rows` to a list, or who introduces an
+in-place mutation path, silently invalidates the correctness argument.
+An inline comment on `_visible_cache_key`'s type annotation is planned
+as a follow-up ride-along on the next touch of `filtered_table_model.py`
+(gvr's non-blocking round-1 suggestion).
+
+## DES-070: Scale-Perf Test as Permanent Guardrail — Receipts Required, Not Optional
+
+**Status:** SETTLED (shipped v0.30.0, bead `lux-qfzu.1`, PR #410)
+
+**Problem.** The display had no perf test above 10 elements or 4 table
+rows before the lux-qfzu epic. The "10k rows via `imgui.ListClipper`"
+claim in the codebase rested on the clipper's contract in
+`table_row_painter.py:53-66`, not on measurement. Perf claims —
+"faster," "bounded," "no regression" — landed without empirical
+before/after receipts. That made it impossible to distinguish real
+improvement from placebo, and impossible to catch a regression until a
+user noticed the display got slow.
+
+**Decision.** `tests/perf/test_scale_budget.py` establishes measured
+baselines under `@pytest.mark.slow` (opt-in via `make test-slow`, not
+in the default `make check` gate). Four scenarios, chosen to cover the
+render walk and the Hub-side table operations that matter at scale:
+
+1. 1000-element mixed-kind scene — measures the outer render walk
+   dispatch cost. 98.6 ms baseline against a 2.0 s budget (~20× CI
+   headroom).
+2. 10k-row table, no filter — measures full-row Hub-side traversal.
+3. 10k-row table, filtered to ~100 rows — measures the filter path.
+4. 10k-row table, `selection_mode=multi`, 0 vs 100 selections —
+   measures the selection path and exposes its size-dependence (or
+   lack thereof).
+
+Each test reports raw wall-clock in ms and a normalized
+"cost-per-visible-unit" metric via a `FrameBudget` helper class, so
+receipts survive machine-to-machine noise. Budgets are catastrophic-
+blowup guards, not per-change regression guards — that's the
+sibling `test_frame_budget.py`'s established philosophy per
+`tests/CLAUDE.md`, deliberately preserved here so CI stays reliable
+under load. The receipts are read by humans in commit messages and
+CHANGELOG entries; the tests fail only on order-of-magnitude
+regressions.
+
+**How the epic used it.** DES-068 (texture eviction) had no meaningful
+receipts against this suite because its cost lives in memory over
+time, not per-frame wall-clock — but DES-069 (table hot path) received
+concrete receipts and a specific structural proof (the 0-vs-100
+divergence) that qfzu.4 actually removed the O(rows) scan rather than
+just shrinking the constant. That divergence is the shape of receipt
+the guardrail exists to produce.
+
+**Alternatives rejected.**
+
+- *No perf tests (status quo).* The `_data_keys` leak lived in the
+  code for months, undetected until Copilot flagged it during PR
+  review — because there was no test measuring memory bounds. The
+  filter re-scan lived as a `## Known Limitation` note that no one had
+  the receipt to close. Untenable at this repo's rate of change.
+- *One-shot benchmark scripts (`scripts/bench_*.py`).* Reproducible
+  numbers on demand, but no ratchet — no automatic comparison against
+  a baseline, no CI enforcement, no receipt in commit history. Fine
+  for exploratory profiling; wrong shape for a guardrail.
+- *Include the perf suite in the default `make check` gate.* Would
+  make CI flaky under load (perf tests time-sensitive) and prevent
+  contributors on slower machines from running the standard gate.
+  `@pytest.mark.slow` behind `make test-slow` matches the existing
+  `test_frame_budget.py` shape and stays out of the way when not
+  wanted.
+- *Assert the divergence ratio (`select-100 / select-0 >= 3`) rather
+  than just report it.* Considered for qfzu.3+4's addition. Rejected:
+  the receipt is what humans read in the PR description and CHANGELOG;
+  a hard-coded ratio would fail on future architectures that legit-
+  imately close the gap by making both cases equally fast. Report the
+  numbers; let the reader interpret.
+
+**Related.** DES-068 and DES-069 both cite this ADR as the receipt-
+producer. Future perf work in the epic (or any successor) is expected
+to update the docstring numbers in `test_scale_budget.py` as its
+before/after evidence.
