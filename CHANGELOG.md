@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-08-24
+
 ### Added
 
 - **Scale-perf test suite** (`tests/perf/test_scale_budget.py`, `@pytest.mark.slow`).
