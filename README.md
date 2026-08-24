@@ -80,6 +80,23 @@ sh install.sh
 </details>
 
 <details>
+<summary>Homebrew (Apple Silicon macOS, Linux)</summary>
+
+Intel macOS is not currently supported by the Homebrew path — `imgui-bundle`, lux's ImGui binding, publishes no Intel macOS wheel at the version lux pins, so the formula restricts itself to arm64 there.
+
+`brew install` puts all four of lux's executables on `PATH`: `lux` (CLI), `luxd-hub` (Hub daemon), `luxd-display` (Display renderer), and `lux-beads` (the bundled beads applet).
+
+```bash
+brew install punt-labs/tap/lux
+```
+
+**Use the fully qualified name.** Homebrew Core already ships an unrelated formula also named `lux` (a Go video downloader) — `brew install lux` without the `punt-labs/tap/` prefix silently installs that one instead of this project, since Homebrew resolves unqualified names against Homebrew Core first even with the tap tapped. `brew install punt-labs/tap/lux` is unambiguous.
+
+Use one distribution channel per machine — mixing Homebrew with the `curl | sh` installer puts two copies of `lux` on `PATH` in different locations, and whichever comes first wins. Run `which lux` (or `command -v lux`) to see which one that is.
+
+</details>
+
+<details>
 <summary>Run a demo</summary>
 
 ```bash
