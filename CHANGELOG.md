@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Homebrew formula** (`punt-labs/homebrew-tap`, `Formula/lux.rb`, tap PR:
+  punt-labs/homebrew-tap#35). `brew install punt-labs/tap/lux` installs all four console entry
+  points (`lux`, `luxd-hub`, `luxd-display`, `lux-beads`) via
+  `Language::Python::Virtualenv`. `imgui-bundle`'s sdist build fails under
+  Homebrew's build isolation (an ABI mismatch between its pinned C++
+  bindings and an unpinned newer nanobind pulled in at build time), so the
+  formula pins the prebuilt wheel directly rather than building from
+  source, following the same workaround quarry's formula uses for its own
+  wheel-only dependencies. Apple Silicon macOS only for now — the wheel pin
+  is macOS arm64 only (no Linux stanza yet, tracked as a follow-up), and
+  Intel macOS is unsupported because `imgui-bundle` ships no Intel macOS
+  wheel at the pinned version.
+
 ## [0.30.0] - 2026-08-24
 
 ### Added
