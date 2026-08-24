@@ -80,9 +80,9 @@ sh install.sh
 </details>
 
 <details>
-<summary>Homebrew (Apple Silicon macOS, Linux)</summary>
+<summary>Homebrew (Apple Silicon macOS)</summary>
 
-Intel macOS is not currently supported by the Homebrew path — `imgui-bundle`, lux's ImGui binding, publishes no Intel macOS wheel at the version lux pins, so the formula restricts itself to arm64 there.
+macOS only for now, arm64 only. The formula pins a single macOS arm64 wheel for `imgui-bundle`, lux's ImGui binding — there is no Linux stanza yet, so a Linux build would hand pip a macOS wheel and fail. Intel macOS is unsupported for the same reason: `imgui-bundle` publishes no Intel macOS wheel at the version lux pins. Linux support is tracked as a follow-up.
 
 `brew install` puts all four of lux's executables on `PATH`: `lux` (CLI), `luxd-hub` (Hub daemon), `luxd-display` (Display renderer), and `lux-beads` (the bundled beads applet).
 
