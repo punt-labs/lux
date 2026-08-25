@@ -147,9 +147,7 @@ class TestLaunchdLegacySweepDiagnose:
 
 
 class TestSystemdLegacySweepVerbs:
-    def test_sweep_uses_is_active_disable_and_daemon_reload_never_unload(
-        self, tmp_path: Path
-    ):
+    def test_sweep_uses_is_active_and_disable_never_unload(self, tmp_path: Path):
         fake_home = tmp_path / "home"
         units = fake_home / ".config" / "systemd" / "user"
         units.mkdir(parents=True)
@@ -164,7 +162,6 @@ class TestSystemdLegacySweepVerbs:
                 _result(0),  # is-active -> active (not clean)
                 _result(0),  # disable --now -> succeeds
                 _result(3),  # is-active -> inactive (safe to remove)
-                _result(0),  # daemon-reload -> succeeds
             ]
             report = sweep.sweep()
 
@@ -174,9 +171,6 @@ class TestSystemdLegacySweepVerbs:
         assert any(v[:3] == ["systemctl", "--user", "is-active"] for v in verbs_issued)
         assert any(
             v[:4] == ["systemctl", "--user", "disable", "--now"] for v in verbs_issued
-        )
-        assert any(
-            v[:3] == ["systemctl", "--user", "daemon-reload"] for v in verbs_issued
         )
         assert not any("unload" in v for v in verbs_issued)
 
@@ -223,7 +217,6 @@ class TestSystemdLegacySweepOrderingFidelity:
                 _result(3),  # is-active -> inactive (file present -> not clean)
                 _result(0),  # disable --now -> idempotent success
                 _result(3),  # is-active -> still inactive (safe)
-                _result(0),  # daemon-reload -> succeeds
             ]
             report = sweep.sweep()
 

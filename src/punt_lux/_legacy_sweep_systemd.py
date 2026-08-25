@@ -15,11 +15,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["SystemdLegacySweep"]
 
-# ``systemctl is-active`` returns 0 for "active" and "activating"; any other
-# exit code (inactive, failed, deactivating, unit-not-found) means the unit
-# is quiesced. ``status`` cannot be used for this check because it returns 0
-# for a disabled+inactive unit whose file is still on disk -- and that file
-# is exactly what a sweep needs to remove.
+# ``is-active`` reflects real state; ``status`` cannot gate file removal.
 _ACTIVE = 0
 
 
@@ -88,19 +84,11 @@ class SystemdLegacySweep:
             check=False,
         )
         deregistered = result.returncode == 0
-        # The unit file is only deleted once ``is-active`` confirms the unit
-        # is quiesced -- the same ordering discipline as the launchd sweep,
-        # so a lying disable exit code never orphans a live process. After
-        # unlink, ``daemon-reload`` clears systemd's cached unit state so
-        # any operator recheck reflects the removal.
+        # File removal only proceeds after ``is-active`` confirms the unit is
+        # quiesced -- a lying disable rc must never orphan a live process.
+        # systemd's inotify watch on the unit directory picks up the removal.
         if not self._is_active(unit):
             self._unit_path(unit).unlink(missing_ok=True)
-            subprocess.run(
-                ["systemctl", "--user", "daemon-reload"],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
             return LegacyServiceOutcome(
                 identifier=unit,
                 was_present=True,

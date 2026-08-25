@@ -12,9 +12,9 @@
   unit was never active), the sweep saw `status` rc=0, refused to delete
   the file, and failed the install with `ServiceMigrationError: legacy
   systemd cleanup failed`. The check now uses `is-active`, which reflects
-  real runtime state; after unlink the sweep runs `daemon-reload` so
-  systemd forgets the unit. Adds a regression test covering the
-  disabled+inactive-with-stale-file scenario.
+  real runtime state; systemd's inotify watch on the unit directory picks
+  up the file removal without an explicit `daemon-reload`. Adds a
+  regression test covering the disabled+inactive-with-stale-file scenario.
 
 ## [0.31.0] - 2026-08-25
 
