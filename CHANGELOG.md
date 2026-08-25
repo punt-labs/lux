@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-08-25
+
 ### Fixed
 
 - **Installer hang on `lux hub install` reinstall/upgrade** (lux-94p0). Two
