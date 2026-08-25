@@ -15,8 +15,11 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["SystemdLegacySweep"]
 
-# ``is-active`` reflects real state; ``status`` cannot gate file removal.
-_ACTIVE = 0
+# ``systemctl --user is-active`` prints one of: active, activating,
+# deactivating, inactive, failed, unknown. Only these three signal that the
+# unit is definitively stopped -- anything else (including empty stdout on
+# a bus error) is treated as unsafe to remove, per the sweep's contract.
+_QUIESCED = frozenset({"inactive", "failed", "unknown"})
 
 
 @final
@@ -107,7 +110,7 @@ class SystemdLegacySweep:
         return not self._is_active(unit) and not self._unit_path(unit).exists()
 
     def _is_active(self, unit: str) -> bool:
-        return self._run("is-active", f"{unit}.service").returncode == _ACTIVE
+        return self._run("is-active", f"{unit}.service").stdout.strip() not in _QUIESCED
 
     def _run(self, *args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(

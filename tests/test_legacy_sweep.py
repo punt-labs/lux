@@ -161,10 +161,10 @@ class TestSystemdLegacySweepVerbs:
 
         with patch("punt_lux._legacy_sweep_systemd.subprocess.run") as run:
             run.side_effect = [
-                _result(0),  # is-active -> active (not clean)
-                _result(0),  # disable --now -> succeeds
-                _result(3),  # is-active -> inactive (safe to remove)
-                _result(0),  # daemon-reload -> succeeds
+                _active(),  # is-active -> active (not clean)
+                _ok(),  # disable --now -> succeeds
+                _inactive(),  # is-active -> inactive (safe to remove)
+                _ok(),  # daemon-reload -> succeeds
             ]
             report = sweep.sweep()
 
@@ -195,7 +195,31 @@ class TestSystemdLegacySweepOrderingFidelity:
         with patch("punt_lux._legacy_sweep_systemd.subprocess.run") as run:
             # ``is-active`` always reports "active" -- the unit is still
             # running, so the file must survive to keep systemd able to stop it.
-            run.return_value = _result(0)
+            run.return_value = _active()
+            with pytest.raises(ServiceMigrationError, match="lux"):
+                sweep.sweep()
+
+        assert unit_file.exists()
+
+    def test_bus_error_is_treated_as_active_and_file_survives(self, tmp_path: Path):
+        """``systemctl --user is-active`` on a bus error prints nothing (or
+        ``unknown``) with a non-zero rc. Treating rc alone as "not active"
+        would unlink the file without confirming the unit is quiesced --
+        a broken user bus means we cannot know, and cannot know means unsafe.
+        """
+        fake_home = tmp_path / "home"
+        units = fake_home / ".config" / "systemd" / "user"
+        units.mkdir(parents=True)
+        unit_file = units / "lux.service"
+        unit_file.write_text("[Unit]")
+
+        with patch("punt_lux._legacy_sweep_systemd.Path.home", return_value=fake_home):
+            sweep = SystemdLegacySweep(_spec_with_units("lux"))
+
+        with patch("punt_lux._legacy_sweep_systemd.subprocess.run") as run:
+            # A DBus error returns non-zero rc with empty stdout. Neither
+            # rc=0 nor a "safe" state string -- must be treated as active.
+            run.return_value = _result(1, "")
             with pytest.raises(ServiceMigrationError, match="lux"):
                 sweep.sweep()
 
@@ -220,10 +244,10 @@ class TestSystemdLegacySweepOrderingFidelity:
 
         with patch("punt_lux._legacy_sweep_systemd.subprocess.run") as run:
             run.side_effect = [
-                _result(3),  # is-active -> inactive (file present -> not clean)
-                _result(0),  # disable --now -> idempotent success
-                _result(3),  # is-active -> still inactive (safe)
-                _result(0),  # daemon-reload -> succeeds
+                _inactive(),  # is-active -> inactive (file present -> not clean)
+                _ok(),  # disable --now -> idempotent success
+                _inactive(),  # is-active -> still inactive (safe)
+                _ok(),  # daemon-reload -> succeeds
             ]
             report = sweep.sweep()
 
@@ -232,11 +256,23 @@ class TestSystemdLegacySweepOrderingFidelity:
 
 
 class _Result:
-    def __init__(self, returncode: int) -> None:
+    def __init__(self, returncode: int, stdout: str = "") -> None:
         self.returncode = returncode
-        self.stdout = ""
+        self.stdout = stdout
         self.stderr = ""
 
 
-def _result(returncode: int) -> _Result:
-    return _Result(returncode)
+def _result(returncode: int, stdout: str = "") -> _Result:
+    return _Result(returncode, stdout)
+
+
+def _active() -> _Result:
+    return _result(0, "active\n")
+
+
+def _inactive() -> _Result:
+    return _result(3, "inactive\n")
+
+
+def _ok() -> _Result:
+    return _result(0)
