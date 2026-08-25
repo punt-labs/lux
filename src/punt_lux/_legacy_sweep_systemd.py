@@ -90,10 +90,9 @@ class SystemdLegacySweep:
         deregistered = result.returncode == 0
         # The unit file is only deleted once ``is-active`` confirms the unit
         # is quiesced -- the same ordering discipline as the launchd sweep,
-        # so a lying disable exit code never orphans a live process. Once
-        # the file is gone, ``daemon-reload`` makes systemd forget the unit
-        # entirely; without it, a follow-up sweep would still see the unit
-        # in ``is-enabled`` output.
+        # so a lying disable exit code never orphans a live process. After
+        # unlink, ``daemon-reload`` clears systemd's cached unit state so
+        # any operator recheck reflects the removal.
         if not self._is_active(unit):
             self._unit_path(unit).unlink(missing_ok=True)
             subprocess.run(
