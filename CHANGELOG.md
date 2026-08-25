@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **`lux hub install` blocked on Ubuntu by a disabled-but-present legacy
+  `lux.service`.** `SystemdLegacySweep` used `systemctl status` to decide
+  whether a legacy unit was still "registered", but `status` returns 0 as
+  long as the unit *file* is on disk — regardless of enabled/active state.
+  On a machine where `disable --now` had already succeeded (or where the
+  unit was never active), the sweep saw `status` rc=0, refused to delete
+  the file, and failed the install with `ServiceMigrationError: legacy
+  systemd cleanup failed`. The check now uses `is-active`, which reflects
+  real runtime state; after unlink the sweep runs `daemon-reload` to
+  match `SystemdBackend.uninstall()`'s pattern and clear systemd's cached
+  unit state so operator rechecks see the removal. Adds a regression test
+  covering the disabled+inactive-with-stale-file scenario.
+
 ## [0.31.0] - 2026-08-25
 
 ### Fixed

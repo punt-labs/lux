@@ -15,9 +15,9 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["SystemdLegacySweep"]
 
-# systemctl's documented exit code for "unit could not be found" -- anything
-# else means the unit is still known to systemd, loaded or not.
-_UNIT_NOT_FOUND = 4
+# Definitively stopped states. ``unknown`` is safe only with empty stderr
+# (see ``_is_active``); with stderr it usually means a bus error.
+_QUIESCED = frozenset({"inactive", "failed"})
 
 
 @final
@@ -78,18 +78,14 @@ class SystemdLegacySweep:
                 verified_clean=True,
                 fix_command=fix_command,
             )
-        result = subprocess.run(
-            ["systemctl", "--user", "disable", "--now", f"{unit}.service"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        deregistered = result.returncode == 0
-        # The unit file is only deleted once this re-check confirms the
-        # disable actually took -- the same ordering discipline as the
-        # launchd sweep, so a lying exit code never orphans a live unit.
-        if not self._is_registered(unit):
+        deregistered = self._run("disable", "--now", f"{unit}.service").returncode == 0
+        # File removal only proceeds once ``is-active`` confirms the unit is
+        # quiesced -- a lying disable rc must never orphan a live process.
+        # ``daemon-reload`` matches SystemdBackend.uninstall(): it drops the
+        # cached unit so operator rechecks (is-enabled/status) see the removal.
+        if not self._is_active(unit):
             self._unit_path(unit).unlink(missing_ok=True)
+            self._run("daemon-reload")
             return LegacyServiceOutcome(
                 identifier=unit,
                 was_present=True,
@@ -98,7 +94,7 @@ class SystemdLegacySweep:
                 verified_clean=True,
                 fix_command=fix_command,
             )
-        logger.warning("legacy systemd unit %s still registered after disable", unit)
+        logger.warning("legacy systemd unit %s still active after disable", unit)
         return LegacyServiceOutcome(
             identifier=unit,
             was_present=True,
@@ -109,16 +105,20 @@ class SystemdLegacySweep:
         )
 
     def _is_unit_clean(self, unit: str) -> bool:
-        return not self._is_registered(unit) and not self._unit_path(unit).exists()
+        return not self._is_active(unit) and not self._unit_path(unit).exists()
 
-    def _is_registered(self, unit: str) -> bool:
-        result = subprocess.run(
-            ["systemctl", "--user", "status", f"{unit}.service"],
+    def _is_active(self, unit: str) -> bool:
+        result = self._run("is-active", f"{unit}.service")
+        stopped = _QUIESCED if result.stderr.strip() else _QUIESCED | {"unknown"}
+        return result.stdout.strip() not in stopped
+
+    def _run(self, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["systemctl", "--user", *args],
             capture_output=True,
             text=True,
             check=False,
         )
-        return result.returncode != _UNIT_NOT_FOUND
 
     def _unit_path(self, unit: str) -> Path:
         return self._dir / f"{unit}.service"

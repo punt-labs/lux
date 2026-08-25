@@ -31,6 +31,29 @@ def _spec_with_units(*units: str):
     return replace(HUB_SPEC, legacy_systemd_units=units)
 
 
+class _Result:
+    def __init__(self, returncode: int, stdout: str = "", stderr: str = "") -> None:
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+def _result(returncode: int, stdout: str = "", stderr: str = "") -> _Result:
+    return _Result(returncode, stdout, stderr)
+
+
+def _active() -> _Result:
+    return _result(0, "active\n")
+
+
+def _inactive() -> _Result:
+    return _result(3, "inactive\n")
+
+
+def _ok() -> _Result:
+    return _result(0)
+
+
 class TestLaunchdLegacySweepVerbs:
     def test_sweep_uses_bootout_and_print_never_unload(self, tmp_path: Path):
         fake_home = tmp_path / "home"
@@ -147,25 +170,37 @@ class TestLaunchdLegacySweepDiagnose:
 
 
 class TestSystemdLegacySweepVerbs:
-    def test_sweep_uses_disable_and_status_never_unload(self, tmp_path: Path):
+    def test_sweep_uses_is_active_disable_and_daemon_reload_never_unload(
+        self, tmp_path: Path
+    ):
         fake_home = tmp_path / "home"
-        fake_home.mkdir()
+        units = fake_home / ".config" / "systemd" / "user"
+        units.mkdir(parents=True)
+        unit_file = units / "lux.service"
+        unit_file.write_text("[Unit]")
+
         with patch("punt_lux._legacy_sweep_systemd.Path.home", return_value=fake_home):
             sweep = SystemdLegacySweep(_spec_with_units("lux"))
 
         with patch("punt_lux._legacy_sweep_systemd.subprocess.run") as run:
             run.side_effect = [
-                _result(0),  # status -> active (not clean)
-                _result(0),  # disable --now -> succeeds
-                _result(4),  # status -> not found (clean)
+                _active(),  # is-active -> active (not clean)
+                _ok(),  # disable --now -> succeeds
+                _inactive(),  # is-active -> inactive (safe to remove)
+                _ok(),  # daemon-reload -> succeeds
             ]
             report = sweep.sweep()
 
         assert report.all_clean
+        assert not unit_file.exists()
         verbs_issued = [call.args[0] for call in run.call_args_list]
-        disable = ["systemctl", "--user", "disable", "--now"]
-        assert any(v[:3] == ["systemctl", "--user", "status"] for v in verbs_issued)
-        assert any(v[:4] == disable for v in verbs_issued)
+        assert any(v[:3] == ["systemctl", "--user", "is-active"] for v in verbs_issued)
+        assert any(
+            v[:4] == ["systemctl", "--user", "disable", "--now"] for v in verbs_issued
+        )
+        assert any(
+            v[:3] == ["systemctl", "--user", "daemon-reload"] for v in verbs_issued
+        )
         assert not any("unload" in v for v in verbs_issued)
 
 
@@ -181,19 +216,77 @@ class TestSystemdLegacySweepOrderingFidelity:
             sweep = SystemdLegacySweep(_spec_with_units("lux"))
 
         with patch("punt_lux._legacy_sweep_systemd.subprocess.run") as run:
-            run.return_value = _result(0)  # status always "active"
+            # ``is-active`` always reports "active" -- the unit is still
+            # running, so the file must survive to keep systemd able to stop it.
+            run.return_value = _active()
             with pytest.raises(ServiceMigrationError, match="lux"):
                 sweep.sweep()
 
         assert unit_file.exists()
 
+    @pytest.mark.parametrize(
+        ("bus_error", "label"),
+        [
+            (_result(1, ""), "empty stdout"),
+            (_result(1, "unknown\n", "Failed to connect to bus"), "unknown + stderr"),
+        ],
+    )
+    def test_bus_error_is_treated_as_active_and_file_survives(
+        self, tmp_path: Path, bus_error: _Result, label: str
+    ):
+        """``systemctl --user is-active`` on a bus error either prints nothing
+        or prints ``unknown`` alongside a stderr diagnostic. Both mean the real
+        state is unknowable -- and cannot know means unsafe to remove.
+        """
+        del label  # used only to name the parametrised cases
+        fake_home = tmp_path / "home"
+        units = fake_home / ".config" / "systemd" / "user"
+        units.mkdir(parents=True)
+        unit_file = units / "lux.service"
+        unit_file.write_text("[Unit]")
 
-class _Result:
-    def __init__(self, returncode: int) -> None:
-        self.returncode = returncode
-        self.stdout = ""
-        self.stderr = ""
+        with patch("punt_lux._legacy_sweep_systemd.Path.home", return_value=fake_home):
+            sweep = SystemdLegacySweep(_spec_with_units("lux"))
 
+        with patch("punt_lux._legacy_sweep_systemd.subprocess.run") as run:
+            # Only the ``is-active`` probes see the bus error -- ``disable``
+            # itself succeeds. This proves the safety comes from ``_is_active``,
+            # not from ``disable`` accidentally failing.
+            run.side_effect = [
+                bus_error,  # is-active (from _is_unit_clean) -> bus error
+                _ok(),  # disable --now -> succeeds
+                bus_error,  # is-active (safety re-check) -> bus error
+            ]
+            with pytest.raises(ServiceMigrationError, match="lux"):
+                sweep.sweep()
 
-def _result(returncode: int) -> _Result:
-    return _Result(returncode)
+        assert unit_file.exists()
+
+    def test_disabled_inactive_unit_with_stale_file_is_swept_clean(
+        self, tmp_path: Path
+    ):
+        """A unit already disabled+inactive but whose .service file is on disk
+        must be cleared. Regression for the Ubuntu install-path failure where
+        the legacy ``lux.service`` blocked ``luxd-hub`` registration in a loop
+        the caller could not break with any obvious workaround.
+        """
+        fake_home = tmp_path / "home"
+        units = fake_home / ".config" / "systemd" / "user"
+        units.mkdir(parents=True)
+        unit_file = units / "lux.service"
+        unit_file.write_text("[Unit]")
+
+        with patch("punt_lux._legacy_sweep_systemd.Path.home", return_value=fake_home):
+            sweep = SystemdLegacySweep(_spec_with_units("lux"))
+
+        with patch("punt_lux._legacy_sweep_systemd.subprocess.run") as run:
+            run.side_effect = [
+                _inactive(),  # is-active -> inactive (file present -> not clean)
+                _ok(),  # disable --now -> idempotent success
+                _inactive(),  # is-active -> still inactive (safe)
+                _ok(),  # daemon-reload -> succeeds
+            ]
+            report = sweep.sweep()
+
+        assert report.all_clean
+        assert not unit_file.exists()
