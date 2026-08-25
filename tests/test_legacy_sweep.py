@@ -249,7 +249,14 @@ class TestSystemdLegacySweepOrderingFidelity:
             sweep = SystemdLegacySweep(_spec_with_units("lux"))
 
         with patch("punt_lux._legacy_sweep_systemd.subprocess.run") as run:
-            run.return_value = bus_error
+            # Only the ``is-active`` probes see the bus error -- ``disable``
+            # itself succeeds. This proves the safety comes from ``_is_active``,
+            # not from ``disable`` accidentally failing.
+            run.side_effect = [
+                bus_error,  # is-active (from _is_unit_clean) -> bus error
+                _ok(),  # disable --now -> succeeds
+                bus_error,  # is-active (safety re-check) -> bus error
+            ]
             with pytest.raises(ServiceMigrationError, match="lux"):
                 sweep.sweep()
 
