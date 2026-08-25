@@ -91,10 +91,15 @@ class ServiceManager:
         self._binary_sweep.sweep()
         if self._SPEC.health_port is not None:
             self._port_guard.guard()
-        self._backend.install()
+        already_up_to_date = self._backend.install()
         is_running = self._backend.is_active()
         exec_display = " ".join(self._SPEC.resolve_exec_args())
-        status_label = "running" if is_running else "installed (not yet running)"
+        if already_up_to_date:
+            status_label = "already installed and up to date"
+        elif is_running:
+            status_label = "running"
+        else:
+            status_label = "installed (not yet running)"
         lines = [
             f"{self._SPEC.display_name} {status_label}.",
             f"  Service: {self._backend.config_path()}",

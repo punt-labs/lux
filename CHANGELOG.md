@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Installer hang on `lux hub install` reinstall/upgrade** (lux-94p0). Two
+  compounding defects: (A) `LaunchdBackend.install()` unconditionally
+  booted out and rebootstrapped an already-active service on every call
+  (introduced in #382, "cure, don't hope"), contradicting `install.sh`'s
+  own "idempotent" comment; (B) `luxd`'s `uvicorn.Config()` never bounded
+  `timeout_graceful_shutdown`, so a SIGTERM-triggered shutdown waited
+  indefinitely for every open MCP streamable-HTTP connection to close --
+  the normal, expected state of a Hub with agents attached. Together,
+  reinstalling a live `luxd-hub` (the common case on any re-run of
+  `install.sh` against a machine already using lux) hung forever. Fixed
+  both: `install()` now compares the plist it would write against what's
+  already registered and is a true no-op when unchanged, and
+  `timeout_graceful_shutdown=10` bounds the shutdown a genuine upgrade
+  still triggers.
+
 ### Added
 
 - **Homebrew formula** (`punt-labs/homebrew-tap`, `Formula/lux.rb`, tap PR:

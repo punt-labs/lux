@@ -102,12 +102,16 @@ fi
 ok "$BINARY $(command -v "$BINARY")"
 
 # --- Step 5: Register luxd service ---
-# 'hub install' is idempotent under launchd — an already-loaded service is not
-# cycled — so a bare install on an upgrade leaves the previous luxd process
-# running with the previous bytecode. Restart afterwards so the running daemon
-# matches the newly-installed wheel — but only on an upgrade. On a fresh
-# install the daemon we would restart is the one 'hub install' just started,
-# so the restart is redundant AND races the cold-load import of the [display]
+# 'hub install' is idempotent under launchd — it compares the plist it would
+# write against what's already registered, and leaves an active, unchanged
+# service alone rather than booting it out just to bootstrap the same thing
+# back. The resolved binary path and args it writes are stable across
+# versions, so a same-plist install() never touches a running daemon, and a
+# bare install on an upgrade leaves the previous luxd process running with
+# the previous bytecode. Restart afterwards so the running daemon matches
+# the newly-installed wheel — but only on an upgrade. On a fresh install the
+# daemon we would restart is the one 'hub install' just started, so the
+# restart is redundant AND races the cold-load import of the [display]
 # extras (imgui-bundle, numpy, Pillow) that pushes the ready-window past the
 # restart's own timeout.
 

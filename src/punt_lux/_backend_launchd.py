@@ -57,12 +57,21 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         )
         return result.returncode == 0
 
-    def install(self) -> None:
+    def install(self) -> bool:
         """Write the plist and bootstrap the service into launchd.
 
-        Curing a stale registration under this service's OWN label (an
-        in-place binary-path upgrade) uses the same bootout-and-verify
-        discipline as a renamed predecessor's cleanup
+        Returns whether this call was a no-op: the service was already
+        active under the plist content we would write anyway. Reinstalling
+        an unchanged, running service must never bootout a live daemon just
+        to bootstrap the same thing back -- a daemon serving long-lived
+        connections (luxd's MCP streamable-HTTP sessions) may never actually
+        exit on the resulting SIGTERM (uvicorn's graceful-shutdown window is
+        unbounded while a client is attached), turning a same-version
+        reinstall into an indefinite hang (lux-94p0). Curing a stale
+        registration under this service's OWN label (an in-place
+        binary-path upgrade, where the content genuinely differs) still
+        uses the same bootout-and-verify discipline as a renamed
+        predecessor's cleanup
         (:class:`~punt_lux._legacy_sweep_launchd.LaunchdLegacySweep`) --
         fatal on failure, never a warn-and-continue fallthrough onto a
         supervisor call that may silently no-op.
@@ -73,11 +82,19 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         self._dir.mkdir(mode=0o700, parents=True, exist_ok=True)
 
         label = self._spec.launchd_label
+        desired_plist = self._plist_content()
         if self.is_active():
+            unchanged = (
+                self._plist_path.exists()
+                and self._plist_path.read_text() == desired_plist
+            )
+            if unchanged:
+                logger.info("%s already installed and up to date; no-op", label)
+                return True
             self._self_upgrade_sweep().sweep()
             logger.info("Deregistered existing %s before upgrade", label)
 
-        write_config_atomic.write(self._plist_path, self._plist_content())
+        write_config_atomic.write(self._plist_path, desired_plist)
         logger.info("Wrote %s", self._plist_path)
         if not launchctl.run(
             ["launchctl", "bootstrap", launchctl.gui_domain(), str(self._plist_path)],
@@ -86,6 +103,7 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
             msg = f"failed to bootstrap {label} into launchd"
             raise ServiceMigrationError(msg)
         logger.info("Bootstrapped %s into launchd", label)
+        return False
 
     def _self_upgrade_sweep(self) -> LaunchdLegacySweep:
         """Return a sweep targeting this service's OWN label.
