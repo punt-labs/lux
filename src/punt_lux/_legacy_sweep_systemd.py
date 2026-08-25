@@ -77,18 +77,14 @@ class SystemdLegacySweep:
                 verified_clean=True,
                 fix_command=fix_command,
             )
-        result = subprocess.run(
-            ["systemctl", "--user", "disable", "--now", f"{unit}.service"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        deregistered = result.returncode == 0
-        # File removal only proceeds after ``is-active`` confirms the unit is
+        deregistered = self._run("disable", "--now", f"{unit}.service").returncode == 0
+        # File removal only proceeds once ``is-active`` confirms the unit is
         # quiesced -- a lying disable rc must never orphan a live process.
-        # systemd's inotify watch on the unit directory picks up the removal.
+        # ``daemon-reload`` matches SystemdBackend.uninstall(): it drops the
+        # cached unit so operator rechecks (is-enabled/status) see the removal.
         if not self._is_active(unit):
             self._unit_path(unit).unlink(missing_ok=True)
+            self._run("daemon-reload")
             return LegacyServiceOutcome(
                 identifier=unit,
                 was_present=True,
@@ -111,13 +107,15 @@ class SystemdLegacySweep:
         return not self._is_active(unit) and not self._unit_path(unit).exists()
 
     def _is_active(self, unit: str) -> bool:
-        result = subprocess.run(
-            ["systemctl", "--user", "is-active", f"{unit}.service"],
+        return self._run("is-active", f"{unit}.service").returncode == _ACTIVE
+
+    def _run(self, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["systemctl", "--user", *args],
             capture_output=True,
             text=True,
             check=False,
         )
-        return result.returncode == _ACTIVE
 
     def _unit_path(self, unit: str) -> Path:
         return self._dir / f"{unit}.service"
