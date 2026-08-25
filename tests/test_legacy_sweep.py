@@ -31,6 +31,29 @@ def _spec_with_units(*units: str):
     return replace(HUB_SPEC, legacy_systemd_units=units)
 
 
+class _Result:
+    def __init__(self, returncode: int, stdout: str = "", stderr: str = "") -> None:
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+def _result(returncode: int, stdout: str = "", stderr: str = "") -> _Result:
+    return _Result(returncode, stdout, stderr)
+
+
+def _active() -> _Result:
+    return _result(0, "active\n")
+
+
+def _inactive() -> _Result:
+    return _result(3, "inactive\n")
+
+
+def _ok() -> _Result:
+    return _result(0)
+
+
 class TestLaunchdLegacySweepVerbs:
     def test_sweep_uses_bootout_and_print_never_unload(self, tmp_path: Path):
         fake_home = tmp_path / "home"
@@ -201,12 +224,21 @@ class TestSystemdLegacySweepOrderingFidelity:
 
         assert unit_file.exists()
 
-    def test_bus_error_is_treated_as_active_and_file_survives(self, tmp_path: Path):
-        """``systemctl --user is-active`` on a bus error prints nothing (or
-        ``unknown``) with a non-zero rc. Treating rc alone as "not active"
-        would unlink the file without confirming the unit is quiesced --
-        a broken user bus means we cannot know, and cannot know means unsafe.
+    @pytest.mark.parametrize(
+        ("bus_error", "label"),
+        [
+            (_result(1, ""), "empty stdout"),
+            (_result(1, "unknown\n", "Failed to connect to bus"), "unknown + stderr"),
+        ],
+    )
+    def test_bus_error_is_treated_as_active_and_file_survives(
+        self, tmp_path: Path, bus_error: _Result, label: str
+    ):
+        """``systemctl --user is-active`` on a bus error either prints nothing
+        or prints ``unknown`` alongside a stderr diagnostic. Both mean the real
+        state is unknowable -- and cannot know means unsafe to remove.
         """
+        del label  # used only to name the parametrised cases
         fake_home = tmp_path / "home"
         units = fake_home / ".config" / "systemd" / "user"
         units.mkdir(parents=True)
@@ -217,9 +249,7 @@ class TestSystemdLegacySweepOrderingFidelity:
             sweep = SystemdLegacySweep(_spec_with_units("lux"))
 
         with patch("punt_lux._legacy_sweep_systemd.subprocess.run") as run:
-            # A DBus error returns non-zero rc with empty stdout. Neither
-            # rc=0 nor a "safe" state string -- must be treated as active.
-            run.return_value = _result(1, "")
+            run.return_value = bus_error
             with pytest.raises(ServiceMigrationError, match="lux"):
                 sweep.sweep()
 
@@ -253,26 +283,3 @@ class TestSystemdLegacySweepOrderingFidelity:
 
         assert report.all_clean
         assert not unit_file.exists()
-
-
-class _Result:
-    def __init__(self, returncode: int, stdout: str = "") -> None:
-        self.returncode = returncode
-        self.stdout = stdout
-        self.stderr = ""
-
-
-def _result(returncode: int, stdout: str = "") -> _Result:
-    return _Result(returncode, stdout)
-
-
-def _active() -> _Result:
-    return _result(0, "active\n")
-
-
-def _inactive() -> _Result:
-    return _result(3, "inactive\n")
-
-
-def _ok() -> _Result:
-    return _result(0)

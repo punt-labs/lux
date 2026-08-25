@@ -15,11 +15,9 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["SystemdLegacySweep"]
 
-# ``systemctl --user is-active`` prints one of: active, activating,
-# deactivating, inactive, failed, unknown. Only these three signal that the
-# unit is definitively stopped -- anything else (including empty stdout on
-# a bus error) is treated as unsafe to remove, per the sweep's contract.
-_QUIESCED = frozenset({"inactive", "failed", "unknown"})
+# Definitively stopped states. ``unknown`` is safe only with empty stderr
+# (see ``_is_active``); with stderr it usually means a bus error.
+_QUIESCED = frozenset({"inactive", "failed"})
 
 
 @final
@@ -110,7 +108,9 @@ class SystemdLegacySweep:
         return not self._is_active(unit) and not self._unit_path(unit).exists()
 
     def _is_active(self, unit: str) -> bool:
-        return self._run("is-active", f"{unit}.service").stdout.strip() not in _QUIESCED
+        result = self._run("is-active", f"{unit}.service")
+        stopped = _QUIESCED if result.stderr.strip() else _QUIESCED | {"unknown"}
+        return result.stdout.strip() not in stopped
 
     def _run(self, *args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
