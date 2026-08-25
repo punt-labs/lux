@@ -45,8 +45,12 @@ class ServiceBackend(ABC):
     """Platform-specific daemon lifecycle strategy."""
 
     @abstractmethod
-    def install(self) -> None:
-        """Register and start the daemon service using its ``ServiceSpec``."""
+    def install(self) -> bool:
+        """Register and start the daemon service using its ``ServiceSpec``.
+
+        Return whether the call was a no-op -- the service was already
+        active and up to date, so nothing was registered or restarted.
+        """
 
     @abstractmethod
     def uninstall(self) -> None:

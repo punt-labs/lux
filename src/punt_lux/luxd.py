@@ -189,6 +189,13 @@ def serve(
         log_config=None,
         log_level="warning",
         access_log=False,
+        # Unset, uvicorn waits forever for every open connection to close
+        # before a SIGTERM-triggered shutdown completes -- and an MCP
+        # streamable-HTTP session is a long-lived connection by design, so a
+        # healthy luxd (one with agents attached) would never exit on its
+        # own (lux-94p0). Bounded here so a supervisor-issued restart or
+        # bootout always completes.
+        timeout_graceful_shutdown=10,
     )
     server = uvicorn.Server(config)
 

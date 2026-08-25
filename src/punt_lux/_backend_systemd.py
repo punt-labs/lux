@@ -59,8 +59,14 @@ class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         )
         return result.stdout.strip() == "active"
 
-    def install(self) -> None:
-        """Write the unit file, reload systemd, and enable+start the service."""
+    def install(self) -> bool:
+        """Write the unit file, reload systemd, and enable+start the service.
+
+        Always does the full cycle -- unlike :class:`LaunchdBackend`,
+        systemd's ``restart`` verb is idempotent-safe on an unchanged unit,
+        so this backend has no equivalent no-op short-circuit. Always
+        returns ``False`` (never a no-op).
+        """
         self._dir.mkdir(parents=True, exist_ok=True)
         write_config_atomic.write(self._unit_path, self._unit_content())
         logger.info("Wrote %s", self._unit_path)
@@ -70,6 +76,7 @@ class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         subprocess.run(["systemctl", "--user", "enable", "--now", unit], check=True)
         subprocess.run(["systemctl", "--user", "restart", unit], check=True)
         logger.info("Enabled and restarted %s.service", unit)
+        return False
 
     def uninstall(self) -> None:
         """Stop, disable, and remove the systemd unit."""
