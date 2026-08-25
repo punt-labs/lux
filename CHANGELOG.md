@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.31.1] - 2026-08-25
+
 ### Fixed
 
 - **`lux hub install` blocked on Ubuntu by a disabled-but-present legacy
