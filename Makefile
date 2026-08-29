@@ -1,4 +1,4 @@
-.PHONY: help test test-integration test-e2e test-slow snapshot-parity snapshot-record lint type check check-oo update-oo check-suppressions update-suppressions check-coupling update-coupling check-plugin-surface report format build install clean depot fuzz prob prfaq clean-tex font-test restart reload
+.PHONY: help test test-integration test-e2e test-e2e-gui test-slow snapshot-parity snapshot-record lint type check check-oo update-oo check-suppressions update-suppressions check-coupling update-coupling check-plugin-surface report format build install clean depot fuzz prob prfaq clean-tex font-test restart reload
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -9,8 +9,11 @@ test: ## Run tests — tier 1 unit only (excludes slow, integration, e2e)
 test-integration: ## Run integration tests (tier 2, requires no display)
 	uv run --extra display pytest -m integration
 
-test-e2e: ## Run end-to-end tests (tier 3, requires display process running)
-	uv run --extra display pytest -m e2e
+test-e2e: ## Run end-to-end tests that need no GUI window (tier 3, CI-safe)
+	uv run --extra display pytest -m 'e2e and not gui'
+
+test-e2e-gui: ## Run end-to-end tests that spawn a real ImGui window (tier 3, local only)
+	uv run --extra display pytest -m 'e2e and gui'
 
 test-slow: ## Run the isolated slow / timing-sensitive tests (excluded from the default gate)
 	uv run --extra display pytest -m slow
@@ -76,33 +79,13 @@ build: ## Build wheel and sdist
 install: build ## Build and install locally (with display extras)
 	uv tool install --force "$$(ls dist/punt_lux-*.whl)[display]"
 
-LUX_LAUNCHD_LABEL := com.punt-labs.lux
-
 restart: install ## Install + restart luxd (via launchd) and display
-	@# Restart luxd — launchd manages the daemon (KeepAlive: true)
-	@launchctl kickstart -k "gui/$$(id -u)/$(LUX_LAUNCHD_LABEL)" 2>/dev/null || \
-		echo "warning: launchctl kickstart failed — luxd may not be a launchd service"
-	@sleep 1
-	@# Reap the running display, then ensure exactly one — via the LOCKED, idempotent
-	@# path, never a bare unlocked `lux display &`. reap() holds the spawn lock to
-	@# terminate the owner (by its socket peer credential); ensure() re-acquires the
-	@# lock, checks is_running() UNDER it, and REUSES any display a concurrent ensure()
-	@# (e.g. the beads hook) raced into the reap->ensure gap — else spawns one. So a
-	@# concurrent spawn can never stack a second window. ensure() waits for the READY
-	@# handshake, so a display that cannot start (no monitor) fails LOUDLY here instead
-	@# of backgrounding a dead process and printing success. LUX_LOG_LEVEL is NOT
-	@# defaulted here: ensure()'s _spawn inherits this process's environment, so an
-	@# operator who exports it still reaches the display, while an operator who has
-	@# asked for nothing gets the display's own INFO floor rather than a DEBUG
-	@# firehose they never requested.
-	@uv run --extra display python -c "from punt_lux.paths import DisplayPaths; dp = DisplayPaths(); dp.reap(); dp.ensure()" || \
-		{ echo "error: could not reap and restart the display — aborting restart (see log above)" >&2; exit 1; }
-	@echo "luxd restarted via launchd; display reaped and exactly one live display ensured"
+	@lux hub install || { echo "error: 'lux hub install' failed — see output above" >&2; exit 1; }
+	@lux display install || { echo "error: 'lux display install' failed — see output above" >&2; exit 1; }
+	@echo "luxd + luxd-display restarted via launchd"
 
 reload: install ## Install + restart luxd only (display keeps running)
-	@launchctl kickstart -k "gui/$$(id -u)/$(LUX_LAUNCHD_LABEL)" 2>/dev/null || \
-		echo "warning: launchctl kickstart failed — luxd may not be a launchd service"
-	@sleep 1
+	@lux hub install || { echo "error: 'lux hub install' failed — see output above" >&2; exit 1; }
 	@echo "luxd restarted via launchd"
 
 clean: ## Remove build artifacts

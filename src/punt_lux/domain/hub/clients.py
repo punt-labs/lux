@@ -92,7 +92,11 @@ class ClientRegistry:
         called concurrently from the lifespan thread and MCP tool threads."""
         with self._lock:
             if self._client is None:
-                self._client = DisplayLink(name=_DISPLAY_CLIENT_NAME, kind="hub")
+                # The display's own service unit is its supervisor now; the Hub
+                # only sends scenes, it never launches a competing process.
+                self._client = DisplayLink(
+                    name=_DISPLAY_CLIENT_NAME, kind="hub", auto_spawn=False
+                )
             self._setup_apps()
             if not self._client.is_connected:
                 self._connect_and_reconcile(self._client)

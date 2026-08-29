@@ -38,6 +38,10 @@ __all__ = ["InputNumberRenderer"]
 
 # The float accessor is stateless, so one shared instance serves every frame.
 _ACCESSOR = FloatValueAccessor()
+# arbiter.observe(edited=...) needs per-keystroke ``changed`` to detect an
+# in-progress edit and defer a mid-typing Hub re-push; without this flag a
+# scalar widget only reports ``changed`` on commit (Enter/tab-out/deactivation).
+_LIVE_EDIT_FLAG = imgui.ItemFlags_.live_edit_on_input_scalar.value
 
 
 @final
@@ -101,10 +105,14 @@ class InputNumberRenderer:
     def _draw(elem: InputNumberElement, resolved: float) -> tuple[bool, int | float]:
         """Draw the int/float variant; the int seam coerces to ``int`` for input_int."""
         label = f"{elem.label}##{elem.id}"
-        if elem.integer:
-            step = int(elem.step) if elem.step is not None else 0
-            return imgui.input_int(label, int(resolved), step, step * 10)
-        step_f = elem.step if elem.step is not None else 0.0
-        return imgui.input_float(
-            label, float(resolved), step_f, step_f * 10.0, elem.format
-        )
+        imgui.push_item_flag(_LIVE_EDIT_FLAG, enabled=True)
+        try:
+            if elem.integer:
+                step = int(elem.step) if elem.step is not None else 0
+                return imgui.input_int(label, int(resolved), step, step * 10)
+            step_f = elem.step if elem.step is not None else 0.0
+            return imgui.input_float(
+                label, float(resolved), step_f, step_f * 10.0, elem.format
+            )
+        finally:
+            imgui.pop_item_flag()

@@ -122,16 +122,19 @@ class MenuReplica:
     # -- the one model ------------------------------------------------------
 
     def menu_model(self) -> MenuModel:
-        """Compose the menu: the display's own menus, agent bars, then clients.
+        """Compose the menu: Lux, then Clients, then agent bars, then chrome.
 
-        Rebuilt each frame, so every item reads live state — the theme in use,
-        where each frame is, which sessions still hold a callback lease.
+        ``Clients`` (the callback menus) sits second-from-left so users can reach
+        it without scanning past window-chrome menus. Rebuilt each frame, so every
+        item reads live state — the theme in use, where each frame is, which
+        sessions still hold a callback lease.
         """
         return MenuModel(
             [
-                *self._own.sections(),
-                *(Submenu.from_wire(m, self._emit_event) for m in self._agent_menus),
+                self._own.lux_section(),
                 *(Submenu.from_wire(m, self._emit_event) for m in self._callback_menus),
+                *(Submenu.from_wire(m, self._emit_event) for m in self._agent_menus),
+                *self._own.chrome_sections(),
             ]
         )
 

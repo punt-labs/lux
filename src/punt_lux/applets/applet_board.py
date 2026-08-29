@@ -23,10 +23,10 @@ from punt_lux.applets.board_work import BoardWork
 if TYPE_CHECKING:
     from punt_lux.applets.board_cache import CachedBoard
     from punt_lux.applets.board_load import BoardLoad
+    from punt_lux.applets.board_ops import BoardOps
     from punt_lux.applets.board_slot import BoardSlot
     from punt_lux.applets.built_board import BuiltBoard
     from punt_lux.applets.latency import ClickLatency
-    from punt_lux.rest_client import LuxRestClient
 
 __all__ = ["AppletBoard"]
 
@@ -75,6 +75,6 @@ class AppletBoard:
         """Put up the newer of what is kept and *mine*, one pusher at a time."""
         self._glass.shows(work, mine)
 
-    def work(self, client: LuxRestClient, latency: ClickLatency) -> BoardWork:
+    def work(self, client: BoardOps, latency: ClickLatency) -> BoardWork:
         """One click's work against this board: what to load, and its clock."""
         return BoardWork(self._load, client, latency)

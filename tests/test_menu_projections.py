@@ -176,7 +176,7 @@ class TestOneMenuTwoSurfaces:
         manager.replace_callback_menus([_VOXD_MENU])
         expected = tuple(s.label for s in manager.menu_model().sections)
 
-        assert expected == ("Lux", "Windows", "Help", "File", "Clients")
+        assert expected == ("Lux", "Clients", "File", "Windows", "Help")
         for imgui in (_draw_bar(manager), _draw_panel(manager)):
             assert _sections_drawn(imgui) == expected
 
@@ -228,7 +228,7 @@ class TestTheClientsMenu:
         manager.replace_callback_menus([_CLIENTS_MENU])
 
         for imgui in (_draw_bar(manager), _draw_panel(manager)):
-            assert _sections_drawn(imgui) == ("Lux", "Windows", "Help", "Clients")
+            assert _sections_drawn(imgui) == ("Lux", "Clients", "Windows", "Help")
 
     def test_a_nested_leaf_click_routes_the_same_from_either_surface(self) -> None:
         sent: list[RemoteEventHandlerInvocation] = []
@@ -357,7 +357,7 @@ class TestAMenuThatCannotBeDrawn:
 
         for imgui in (_draw_bar(manager), _draw_panel(manager)):
             drawn = _sections_drawn(imgui)
-            assert drawn == ("Lux", "Windows", "Help", "File", "Clients")
+            assert drawn == ("Lux", "Clients", "File", "Windows", "Help")
             assert imgui.labels_under("Clients", "voxd")[0] == "Music"
 
     def test_a_failing_action_still_closes_the_panels_window(

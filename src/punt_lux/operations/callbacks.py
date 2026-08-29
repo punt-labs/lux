@@ -45,7 +45,7 @@ _PUSH_REQUIRED = OpError(
     code="push_required",
     reason="this connection holds no listen leg, so a click on the menu item could "
     "never reach it; register from a connection holding luxd's /ws leg — a "
-    "session's applet, or a client built with LuxRestClient.listener",
+    "session's applet, or a client built with LuxClient.listener",
 )
 
 
@@ -137,6 +137,17 @@ class CallbackOperations:
     def callback_menus(self) -> list[Menu]:
         """Build the uniform ``Clients`` menu from one read of the named clients."""
         return CallbackMenu.from_named(self._clients.named_sessions())
+
+    def pending_callbacks(self, *, scope: Scope) -> tuple[CallbackInvocation, ...]:
+        """Return the caller's held callback invocations without clearing them.
+
+        Exposes :meth:`CallbackRouter.pending` at the facade so a client that
+        wants to *observe* what has been buffered for its session -- without
+        taking delivery of it -- can do so through the one code path every
+        surface calls into. Delivery still goes through the listen leg's
+        ``take`` drain; ``pending`` is a peek, not a poll.
+        """
+        return self._router.pending(scope.connection_id)
 
     def drop_session(self) -> None:
         """Re-push the menu after a session departs so its submenu vanishes.

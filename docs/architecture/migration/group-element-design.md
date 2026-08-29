@@ -371,6 +371,7 @@ an all-ABC gate over the wire subtree.
 ```python
 _MIGRATED_ABC_KINDS = frozenset({"text", "button", "checkbox", "dialog", "group"})
 
+
 def _group_is_all_abc(self, raw: Mapping[str, object]) -> bool:
     """True iff every element in the group's subtree is a migrated ABC kind."""
     # Walk raw["children"] and raw["pages"] recursively; every element's

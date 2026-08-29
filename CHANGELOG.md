@@ -59,6 +59,671 @@
   of a queued interaction, and carrying an empty string through either path only
   put a name on the wire that named nothing.
 
+## [0.31.1] - 2026-08-25
+
+### Fixed
+
+- **`lux hub install` blocked on Ubuntu by a disabled-but-present legacy
+  `lux.service`.** `SystemdLegacySweep` used `systemctl status` to decide
+  whether a legacy unit was still "registered", but `status` returns 0 as
+  long as the unit *file* is on disk — regardless of enabled/active state.
+  On a machine where `disable --now` had already succeeded (or where the
+  unit was never active), the sweep saw `status` rc=0, refused to delete
+  the file, and failed the install with `ServiceMigrationError: legacy
+  systemd cleanup failed`. The check now uses `is-active`, which reflects
+  real runtime state; after unlink the sweep runs `daemon-reload` to
+  match `SystemdBackend.uninstall()`'s pattern and clear systemd's cached
+  unit state so operator rechecks see the removal. Adds a regression test
+  covering the disabled+inactive-with-stale-file scenario.
+
+## [0.31.0] - 2026-08-25
+
+### Fixed
+
+- **Installer hang on `lux hub install` reinstall/upgrade** (lux-94p0). Two
+  compounding defects: (A) `LaunchdBackend.install()` unconditionally
+  booted out and rebootstrapped an already-active service on every call
+  (introduced in #382, "cure, don't hope"), contradicting `install.sh`'s
+  own "idempotent" comment; (B) `luxd`'s `uvicorn.Config()` never bounded
+  `timeout_graceful_shutdown`, so a SIGTERM-triggered shutdown waited
+  indefinitely for every open MCP streamable-HTTP connection to close --
+  the normal, expected state of a Hub with agents attached. Together,
+  reinstalling a live `luxd-hub` (the common case on any re-run of
+  `install.sh` against a machine already using lux) hung forever. Fixed
+  both: `install()` now compares the plist it would write against what's
+  already registered and is a true no-op when unchanged, and
+  `timeout_graceful_shutdown=10` bounds the shutdown a genuine upgrade
+  still triggers.
+
+### Added
+
+- **Homebrew formula** (`punt-labs/homebrew-tap`, `Formula/lux.rb`, tap PR:
+  punt-labs/homebrew-tap#35). `brew install punt-labs/tap/lux` installs all four console entry
+  points (`lux`, `luxd-hub`, `luxd-display`, `lux-beads`) via
+  `Language::Python::Virtualenv`. `imgui-bundle`'s sdist build fails under
+  Homebrew's build isolation (an ABI mismatch between its pinned C++
+  bindings and an unpinned newer nanobind pulled in at build time), so the
+  formula pins the prebuilt wheel directly rather than building from
+  source, following the same workaround quarry's formula uses for its own
+  wheel-only dependencies. Apple Silicon macOS only for now — the wheel pin
+  is macOS arm64 only (no Linux stanza yet, tracked as a follow-up), and
+  Intel macOS is unsupported because `imgui-bundle` ships no Intel macOS
+  wheel at the pinned version.
+
+## [0.30.0] - 2026-08-24
+
+### Added
+
+- **Scale-perf test suite** (`tests/perf/test_scale_budget.py`, `@pytest.mark.slow`).
+  Four measured baselines for the display's render walk and Hub-side table
+  operations: 1000-element mixed scene, 10k-row table (no filter, filtered to
+  ~100 rows, multi-select with 0 vs 100 selections). `FrameBudget` helper
+  reports raw wall-clock and a normalized cost-per-visible-unit metric. Every
+  subsequent perf change in the lux-qfzu epic carries before/after numbers
+  against these baselines (#410).
+
+### Changed
+
+- **TextureCache: LRU eviction with a size cap.** Cap default 256, overridable
+  via `LUX_TEXTURE_CACHE_CAP`. Extracts `TextureLru` (ordering + capacity),
+  `GLTexture` (upload/delete), and `DataKeyMemo` (payload → hash-key memo,
+  coupled to LRU eviction) into their own classes composed by `TextureCache`.
+  Bounds both GPU memory (texture IDs) and Python heap (base64-payload memo)
+  for long-lived image-heavy sessions. Closes system.tex §7 Limitation #2
+  (#411).
+
+- **Table filter path: memoized.** `FilteredTableModel._visible_rows` cached
+  by `(id(_all_rows), _search, frozenset(_combo_picks.items()))`;
+  `visible_ids()` shares the cache instead of re-scanning cached rows. Closes
+  system.tex §7 Limitation #3. Filter of 10k rows to ~100 dropped from
+  9.1 ms to 0.2 ms (45x). No behavior change (#413).
+
+- **Table selection path: O(selected), not O(rows).**
+  `TableElement._live_ids_cache` replaces the per-call `frozenset` rebuild.
+  Recomputed only on a real rows change; selection patches iterate only
+  `selected_row_ids`. 10k-row multi-select 0 vs 100 selections dropped from
+  a near-identical 6.1/6.0 ms (dominated by the O(rows) scan) to
+  0.003/0.013 ms (now proportional to selection size, empirically proving
+  the scan removal). No behavior change (#413).
+
+### Fixed
+
+- **Regression guard: stack-layout renders skip collapsed scenes.**
+  `_render_frame_stack` has gated `_render_framed_scene` inside
+  `if imgui.collapsing_header(...)` since March 2026, but the invariant had
+  no test coverage. Added `tests/display/test_frame_stack_layout.py` — three
+  collapsed scenes render nothing on the outer walk; opening one exposes it
+  next frame; closing it again stops further renders (#412).
+
+## [0.29.2] - 2026-08-23
+
+### Changed
+
+- **Dependency: `imgui-bundle` 1.92.801 → 1.92.900.** Upstream Dear ImGui 1.92.9b
+  changes keyboard-typing commit semantics on scalar widgets — `input_int`,
+  `input_float`, `drag_int`, `drag_float`, `slider_int`, and `slider_float` no
+  longer fire `changed` per keystroke, only on Enter / tab-out / deactivation.
+  `InputNumberRenderer`, `SliderRenderer`, and the `ColorChannelStrip` `drag_int`
+  path now push `imgui.ItemFlags_.live_edit_on_input_scalar` around each scalar
+  widget call so `ContinuousEditArbiter.observe(edited=changed, …)` continues to
+  see the per-keystroke signal it needs to defer a mid-typing Hub re-push. Text
+  inputs and mouse-drag paths are unaffected upstream (#406).
+- **Dependency: `uvicorn` 0.46.0 → 0.52.4** (#405).
+- **Dependency: `numpy` 2.4.4 → 2.5.2** (#404).
+- **Dependency: `starlette` 1.3.1 → 1.6.0** (#403).
+- **Dev dependency: `ruff` 0.16.2 → 0.16.3** (#401).
+- **CI: `actions/checkout` 4.3.1 → 7.0.1**; `astral-sh/setup-uv` 9.0.0 → 10.0.1
+  across all four workflows (`biff-notify`, `test`, `lint`, `release`)
+  (#402, #400).
+
+### Fixed
+
+- **`ColorChannelStrip.draw` exception safety.** All four ImGui stack push/pop
+  pairs (`push_id`, `begin_group`, `push_item_flag`, `push_style_color`) are
+  now wrapped in a single `try`/`finally` that unwinds every stack in reverse
+  order on any raise. Previously a widget-call exception in the per-channel
+  loop could leak a `begin_group` or `push_id` and trip ImGui's own
+  stack-balance assertions on the next frame (#406).
+
+## [0.29.1] - 2026-08-22
+
+### Fixed
+
+- **Installer emitted spurious `launchctl print failed (rc=113)` warnings on
+  every fresh install** — the legacy-label sweep and the self-upgrade probe
+  both used `launchctl.run()`, which warns on any non-zero exit. launchd's
+  rc=113 ("no such service in this domain") is the probe's answer, not a
+  failure. Adds `launchctl.probe()` with `quiet_exits={113}` and routes the
+  legacy sweep's `print` and plist-only `bootout` calls through it so a
+  clean machine reads clean (#394).
+
+- **Installer bailed with "luxd did not come back within 10s" on fresh
+  installs, leaving the display never registered** — `install.sh` fired
+  `lux hub restart` immediately after `lux hub install` on a fresh v0.29.0
+  install. Install had just bootstrapped the daemon; the restart added
+  nothing and its 10-second port-bind timeout raced the `[display]`
+  extras' cold load (imgui-bundle ~66 MB, numpy, Pillow). `install.sh`
+  now captures whether the daemons were running before install and skips
+  the restart on a fresh install. `_WAIT_SECONDS` in `hub_restart.py` and
+  `display_restart.py` widens from 10 to 30 to accommodate real
+  cold-load timings (#394).
+
+- **`lux-z6g7`: display connection dropped and macOS "not responding"
+  spinner on Cmd-Q under Hub backpressure** — every `send_to_client`
+  call without an explicit deadline could each spend up to 1s waiting on
+  `select` inside `BoundedSend._wait_writable`. A burst of messages in
+  one `poll_clients` pass stacked those waits into a multi-second wedge
+  on the render thread, tripping the 1s ping timeout and past ~2s the
+  macOS spinner. `SocketListener` now carries an optional
+  `_frame_deadline` armed at the top of each frame with a 100ms budget
+  shared across every in-frame send, and cleared at the end so
+  post-frame one-off sends keep their own 1s budget (#395).
+
+## [0.29.0] - 2026-08-22
+
+### Changed
+
+- **`luxd` console script renamed to `luxd-hub`**, matching the process and
+  supervisor identity (`luxd-hub`, `com.punt-labs.luxd-hub`) that already
+  shipped in the previous release. `uv tool install punt-lux[display]` now
+  writes `~/.local/bin/luxd-hub`, not `~/.local/bin/luxd`.
+
+### Fixed
+
+- **`tests/test_e2e.py`'s `TestWalkingSkeleton` spawned the display with a
+  stale CLI invocation** — `lux-5i3n`'s display CLI restructure moved the
+  socket-serving entry point to `display serve --socket`, but the two
+  `subprocess.Popen` calls in this test still called `display --socket`
+  directly, so both tests failed to spawn the display subprocess.
+
+- **`lux-5i3n`: `make restart` hung indefinitely** — `launchctl kickstart -k`
+  restarts a service through its *existing* launchd plist; it never rewrites
+  the plist, so after `lux-j169` renamed the hub binary the plist still
+  pointed at the deleted `~/.local/bin/luxd` and kickstart hung waiting on a
+  missing program. The `restart`/`reload` Makefile targets now run
+  `lux hub install` (and `lux display install`), which regenerate the plist
+  from the current `ServiceSpec.binary_name` via
+  `ServiceManager.install()` before starting the service — the same fix
+  that was already required to pick up the display rename above.
+
+- **`lux-j169`: `uv tool install --force` after the `luxd` -> `luxd-hub`
+  rename left a stale `~/.local/bin/luxd` shim behind** — `uv` only
+  reconciles the entrypoints it currently declares, so it has no reason to
+  remove a file it no longer manages under the old name. `lux hub install`
+  now sweeps this legacy disk binary the same way it already sweeps legacy
+  launchd/systemd registrations: `DiskBinaryLegacySweep`
+  (`_binary_sweep_disk.py`) resolves `~/.local/bin/luxd`'s real target
+  (following a symlink or a shebang line), verifies via `uv tool dir` that
+  the target resolves inside this package's own uv-tool directory using
+  `Path.is_relative_to()` (not a `str.startswith()` prefix check, which a
+  sibling tool directory like `punt-lux-devtools` could false-positive),
+  and only then removes it. An unrecognized file is left in place with a
+  loud refusal (`ServiceMigrationError`), never silently deleted or
+  silently ignored. `lux hub doctor` reports stale legacy binaries
+  alongside legacy registrations and port conflicts; `--fix` repairs all
+  three through the same objects `install()` uses.
+
+- **`lux-ehzy`: a stale `com.punt-labs.lux` launchd registration survived
+  every upgrade and held port 8430, causing every fresh `luxd` to
+  `EADDRINUSE`-fail.** `LaunchdBackend._remove_legacy_plists` used
+  `launchctl unload -w`, the legacy pre-`bootstrap` API — it silently no-ops
+  on a `bootstrap`-registered service (returns exit 0 without deregistering
+  it), and the plist file was then unlinked unconditionally regardless of
+  whether the unload actually worked. The zombie LaunchAgent stayed alive in
+  launchd's job table and was relaunched at every login, with no on-disk
+  evidence it existed. The identical anti-pattern — legacy API, silent
+  continue-on-failure — also lived nine lines away in `install()`'s own
+  in-place upgrade path (`unload -w`/`load -w`), applied to the service's
+  *own* label rather than a renamed predecessor's.
+
+  Both call sites now route through `LegacySweep` (`LaunchdLegacySweep` /
+  `SystemdLegacySweep`), which deregisters via `bootout`/`disable --now`,
+  re-verifies via `launchctl print`/`systemctl status`, and only deletes the
+  config file after confirming the deregister actually took. Every legacy
+  identifier is attempted to completion — a machine that accumulated cruft
+  from two rename trains sees every failure in one `lux hub doctor` or one
+  failed `lux hub install`, not the first failure discovered by hand. Failure
+  is fatal by construction (`ServiceMigrationError`), never a
+  warn-and-continue fallthrough. `PortGuard` independently verifies the
+  service's port is free or already ours before `install()` proceeds —
+  fail-closed: a foreign process or a missing `lsof` both refuse, never
+  "assume safe."
+
+  `LaunchdBackend._remove_legacy_plists` itself is deleted — `LegacySweep` is
+  its replacement, not an addition beside it.
+
+  `ServiceSpec` carries the service's legacy identity as data
+  (`legacy_launchd_labels`, `legacy_systemd_units`, `health_port`) instead of
+  a hardcoded string comparison in the backend — a future rename train adds
+  one label to one tuple, no backend or sweep-class code changes.
+
+  **No manual migration step is required.** `lux hub install`'s sweep call is
+  unconditional on every invocation and already idempotent; upgrading to this
+  release and re-running `lux hub install` (or `lux hub doctor --fix`) cures
+  an already-broken machine automatically. The one-time manual escape hatch
+  for anyone who cannot upgrade immediately:
+  `launchctl bootout gui/$(id -u)/com.punt-labs.lux; rm ~/Library/LaunchAgents/com.punt-labs.lux.plist`.
+
+- **`setproctitle` moved from the `[display]` optional extra to base
+  dependencies.** luxd itself needs its process identity (`luxd-hub` /
+  `luxd-display`) for logs, `ps`, Activity Monitor, and the pgrep-diff
+  restart wait — not just the display renderer. A `pip install punt-lux`
+  without `[display]` used to leave luxd running as `python3`, which meant
+  `pgrep -x luxd-hub` never found it and `lux hub restart` hung on the
+  post-supervisor wait.
+- **`lux hub restart` and `lux display restart` now wait for both a pid
+  change AND liveness** before reporting success. luxd sets its process
+  title at the top of `main()`, before uvicorn binds, so pgrep can see a
+  new pid while the TCP port is still down. The wait now requires
+  `pgrep -x` to observe a different pid AND the paths' liveness probe
+  to succeed — `HubPaths.is_running()` reads the pid file which luxd
+  only writes after `_startup_with_port_file`, and `DisplayPaths.is_running()`
+  is a socket-connect probe that witnesses a listener actually accepting.
+  The pid capture uses `pgrep -x` before the supervisor call, so the same
+  predicate covers a fresh install (`None` → new pid) and an upgrade
+  (old pid → new pid).
+- **`lux display restart` also confirms the socket's kernel peer credential
+  before reporting success.** A connect-success alone can witness the
+  wrong owner: during `launchctl kickstart -k`, there is a window where
+  `pgrep` already reports the new pid but the OLD display instance still
+  holds the socket lease and answers connects. `DisplayPaths.peer_pid()` —
+  the same primitive `DisplayPaths.reap()` uses to resolve who is actually
+  answering — must also name the new pid.
+- **`lux hub restart` was broken (`lux-2ph5`).** The command signalled luxd
+  by reading the recorded pid from `~/.punt-labs/lux/hub.pid` and errored
+  with `[Errno 2] No such file or directory` whenever the file was absent
+  — every upgrade of an already-running luxd hit it. F4's socket
+  peer-credential path from `lux-5uc7` does not apply here because luxd
+  speaks TCP (port 8430), not a Unix socket. Restart now routes through
+  the service supervisor — `launchctl kickstart -k` on macOS,
+  `systemctl --user restart` on Linux — which already knows the daemon's
+  pid, and then waits for `HubPaths.is_running()` (the pid-file check
+  luxd only satisfies after startup completes) plus `pgrep -x` observing
+  a fresh pid.
+- **`install.sh` did not restart the running daemons after upgrade
+  (`lux-w66z`).** `lux hub install` and `lux display install` are
+  idempotent under launchd — an already-loaded service is not cycled —
+  so a fresh install left the previous processes running with the
+  previous bytecode, and every subsequent MCP dispatch missed any new
+  code. The script now runs `lux hub restart` and `lux display restart`
+  after each install and aborts loudly on failure, matching the
+  `warn`→`fail` discipline `lux-2msd` established.
+
+### Added
+
+- **`luxd-display` top-level console script** (`lux-5i3n`), completing the
+  binary rename `lux-j169` shipped for the hub only. `uv tool install
+  punt-lux[display]` now installs `luxd-display` alongside `luxd-hub`;
+  `DISPLAY_SPEC.binary_name` is `"luxd-display"` (was `"lux"`, launched via
+  `lux display serve`). `lux display serve` still works — it now delegates
+  to the same `DisplayEntryPoint.serve` the top-level binary runs.
+- **`lux hub doctor` / `lux display doctor` (`--fix`).** Diagnoses (or, with
+  `--fix`, repairs) a service's legacy launchd/systemd registrations and port
+  conflicts. Exit codes: `0` clean (or `--fix` reached clean), `1` dirty with
+  no `--fix`, `2` `--fix` ran but the machine is still not clean. `--fix` and
+  `lux hub install`/`lux display install` invoke the identical
+  `LegacySweep`/`PortGuard` objects, never two implementations that could
+  drift.
+- **`ServiceBackend.restart()` and `ServiceManager.restart()`** — a
+  supervisor-native atomic restart on both platforms.  `LaunchdBackend`
+  calls `launchctl kickstart -k`, `SystemdBackend` calls
+  `systemctl --user restart`. Neither reads a pid file: the supervisor
+  already knows the pid the daemon does not itself keep current.
+- **`lux-csjb`: `e2e-macos` CI job** — runs `make test-e2e` (the e2e tier
+  minus GUI-dependent tests — starts `luxd-hub` and `luxd-display` via
+  launchd, no interactive ImGui window) against a real `macos-latest`
+  runner's launchd GUI domain. This is the class of defect `lux-j169`
+  shipped unnoticed: a renamed disk binary that `launchctl kickstart -k`
+  silently hung on, invisible to the ubuntu-latest `test`/`integration`/`slow`
+  jobs since launchd only exists on Darwin. **Operator action required:**
+  `e2e-macos` is wired into `.github/workflows/test.yml` as a workflow job,
+  but GitHub branch protection does not pick up new required status checks
+  automatically — add `e2e-macos` to main's required status checks list
+  (repo Settings → Branches → main → required status checks) for this job to
+  actually gate merges. Until that setting is updated, the job runs and
+  reports on every PR but does not block one from merging.
+- **`gui` pytest marker.** Marks e2e tests that spawn a real ImGui window
+  (GLFW init, a live display session) as distinct from e2e tests that only
+  need process/launchd machinery. `make test-e2e` now filters `-m 'e2e and
+  not gui'`; the new `make test-e2e-gui` target runs `-m 'e2e and gui'` for
+  local use against a real display. `e2e-macos` runs plain `make test-e2e`
+  — the marker is the exclusion mechanism, not a hardcoded file list, so a
+  future GUI-dependent e2e test is excluded automatically by carrying the
+  marker.
+
+## [0.28.0] - 2026-08-21
+
+### Fixed
+
+- **`install.sh` called the retired `lux hub-install` verb (`lux-2msd`).**
+  The rename train in `lux-0shg.4` retired flat `hub-install` in favour of
+  noun-grouped `lux hub install`, but `install.sh` at the repo root was
+  missed and every fresh installer on v0.27.0 hit
+  `Error: No such command 'hub-install'`. The luxd LaunchAgent was silently
+  never registered — the plugin then couldn't reach a Hub, but the script
+  printed "lux is ready!"
+  anyway. `install.sh` now calls `lux hub install`, and the failure branch
+  is `fail` rather than `warn` so a registration miss aborts loudly instead
+  of shipping a broken end-state.
+- **Display never showed a window on macOS (#362, `lux-5uc7`).** The Hub
+  spawned the display with `start_new_session=True`, which stripped the
+  child from the macOS GUI-session bootstrap; the socket handshake
+  completed and nothing appeared. The Hub-side spawn no longer creates a
+  new session, and the display now installs as its own launchd/systemd
+  service under `lux display install` so the OS supervises it directly
+  (parallel to `lux hub *`). `lux display serve` in the foreground stays
+  attached to its terminal.
+
+### Added
+
+- **`lux display install|uninstall|start|stop|restart|status`** — six
+  admin verbs on the display noun group, symmetric to `lux hub *` (from
+  `lux-0shg.4`). `restart` mirrors `HubRestart`: SIGTERM the recorded
+  display pid, wait for the supervisor to respawn under a new pid, then
+  report the new one. `start` reports the running display and skips the
+  supervisor call when the socket is already alive, matching `lux hub
+  start`'s already-running fast path. `install` registers a per-user LaunchAgent
+  (`com.punt-labs.luxd-display`) or systemd user unit (`luxd-display`)
+  that runs at login and restarts on crash; the remaining verbs toggle
+  and inspect that service. The `install.sh` bootstrap runs `lux
+  display install` after `lux hub install` so `curl … | sh` produces a
+  working window with no extra step.
+- **macOS Dock icon.** The display now applies
+  `NSApplicationActivationPolicyRegular` at startup: the window gets a
+  Dock icon and is listed in Cmd-Tab (standard macOS app behaviour).
+  When the menubar-app epic (`lux-mxvy.3`) ships this flips back to
+  `Accessory` and the menubar controls visibility instead — a foreseen
+  breaking change tracked with the epic.
+
+### Changed
+
+- **Menu bar reordered so Clients sits second-from-left.** The bar composed
+  as `Lux Windows Help [agent bars] Clients`; users scanning left-to-right
+  passed the two chrome menus (used least often) before reaching the client
+  roster (used most). It now composes as `Lux Clients [agent bars] Windows
+  Help`. `OwnMenus.sections()` split into `lux_section()` +
+  `chrome_sections()`; `MenuReplica.menu_model()` interleaves Lux → callback
+  menus (Clients) → agent menus → chrome.
+- **Process names.** The hub identifies as `luxd-hub` and the display as
+  `luxd-display` in `ps`, `top`, and Activity Monitor. launchd labels
+  and systemd unit names match (`com.punt-labs.luxd-hub`,
+  `com.punt-labs.luxd-display`; `luxd-hub.service`,
+  `luxd-display.service`). This covers R5 of `lux-mxvy`. `lux hub
+  install` unloads and removes any orphan `com.punt-labs.lux.plist` from
+  a prior version so the two labels cannot race to bind port 8430 at the
+  next login.
+
+## [0.27.0] - 2026-08-21
+
+### Added
+
+- **Slash-command coverage for every non-exempt MCP tool (`lux-0shg.6`).**
+  21 new slash definitions under `plugin/commands/` — one per client-tier
+  MCP tool — round out the four-surface parity. Filenames are flat and
+  dot-separated (`plugin/commands/scene.show.md` → `/lux:scene.show`);
+  no cached plugin uses nested command directories, and the design doc
+  names commands with dots explicitly, so a dotted filename is the
+  slash routing convention adopted here. New commands, by noun:
+
+  - **scene** (7): `/lux:scene.show`, `/lux:scene.update`,
+    `/lux:scene.clear`, `/lux:scene.clear-all`, `/lux:scene.ls`,
+    `/lux:scene.inspect`, `/lux:scene.table`. The dashboard slot is
+    covered by the composed `scene.dashboard` SKILL (see below), not a
+    thin slash — the two would register the same `/lux:scene.dashboard`
+    name and shadow each other.
+  - **frame** (2): `/lux:frame.raise`, `/lux:frame.close`
+  - **menu** (2): `/lux:menu.ls`, `/lux:menu.set`
+  - **session** (1): `/lux:session.ls`
+  - **topic** (3): `/lux:topic.subscribe`, `/lux:topic.unsubscribe`,
+    `/lux:topic.publish`
+  - **display** (2): `/lux:display.info`, `/lux:display.screenshot`
+  - **event** (1): `/lux:event.ls`
+  - **error** (1): `/lux:error.ls`
+  - **callback** (1): `/lux:callback.pending`
+  - **top-level** (1): `/lux:ping`
+
+  Slash file names follow the CLI verb spelling: `scene.clear-all`
+  matches `lux scene clear-all` (hyphen), even though the MCP tool
+  keeps the underscored `scene_clear_all` (transport convention).
+
+  The existing `/lux y|n` enable/disable command (`plugin/commands/lux.md`)
+  is unchanged — it stays at the top level as the per-repo integration
+  switch.
+
+  **Not shipped as slash (by design).** Seven MCP tools have no slash
+  equivalent, each for a stated reason:
+
+  - `topic_recv` — non-blocking receive; a slash `/lux:topic.recv`
+    would fire once with an empty result almost always. Callers wanting
+    real-time delivery use the library's `LuxHubClient` listener or an
+    MCP poll loop.
+  - `session_identify` — identity is declared once per session at
+    handshake (DES-057); a slash form invites re-identification
+    mid-session, which the identity model does not need.
+  - `callback_register` — callback registration is a programmatic
+    step of hosting a menu entry; a slash form has no meaningful
+    ergonomics (the caller has to provide an opaque callback id).
+  - `display_theme_get`, `display_theme_set`, `display_window_get`,
+    `display_window_set` — deferred to the display fuse follow-on
+    (`lux-5pwu`); once fused, one slash `/lux:display.theme`
+    covers get+set (and likewise `/lux:display.window`). Shipping
+    four thin slashes now would have to be retired within the same
+    epic.
+
+- **Skills reorganized under the scene noun group.** The three existing
+  skills move from `plugin/skills/{beads,dashboard,data-explorer}/` to
+  `plugin/skills/scene.{beads,dashboard,data-explorer}/`. Their
+  `name:` frontmatter is now `scene.beads`, `scene.dashboard`,
+  `scene.data-explorer`, so an agent looking for "what can I do with a
+  scene?" discovers the thin slashes and the composed skills in one
+  place. The session-start hook's `Skill()` allowlist and the
+  `scripts/check-skill-permissions.sh` gate are updated to match.
+  The `scene.dashboard` SKILL owns the `/lux:scene.dashboard` slash
+  outright — the thin scene.dashboard command file was not shipped,
+  so the two never collide.
+
+- **`LuxClient` — the public library facade with noun-grouped accessors
+  (`lux-0shg.7`).** A downstream Python consumer now holds a single
+  `LuxClient` and reaches the Hub through nine noun-grouped accessors —
+  `client.scene.*`, `client.frame.*`, `client.menu.*`, `client.session.*`,
+  `client.callback.*`, `client.display.*`, `client.event.*`,
+  `client.error.*` — plus `client.ping(...)` and `client.listener(...)` at
+  the top level. Every accessor method is async and returns the typed
+  operation result, dispatched through the shared command singletons in
+  `punt_lux.commands` so the library caller runs the same code path as the
+  CLI, MCP, and REST adapters. IDE completion on `client.scene.` shows the
+  same verbs `lux scene <verb>` (CLI), `scene_<verb>` (MCP), and `/scenes`
+  (REST) speak.
+
+### Changed (BREAKING)
+
+- **Library public API swap: `LuxRestClient` / `LuxHubClient` retired from
+  `punt_lux.__all__` in favour of `LuxClient` (`lux-0shg.7`).** The
+  transport classes remain importable from their submodule paths
+  (`from punt_lux.rest_client import LuxRestClient`,
+  `from punt_lux.hub_client import LuxHubClient`) for internal callers and
+  power users who need to hold a transport directly. They are no longer
+  part of the primary consumer surface. Migration table lives in
+  [`docs/library.md`](docs/library.md#migrating-from-luxrestclient--luxhubclient);
+  a typical port is `client.render(req)` → `await client.scene.show(req)`.
+  Cross-repo consumers (vox, z-spec) update in lockstep — beads `vox-oyfs`
+  and `z-spec-t7w` track their migration.
+
+- **MCP tool rename train — 22 renames + 1 new tool + frame_split.** Every
+  MCP-visible tool now uses the noun_verb form of the design vocabulary.
+  There are **no aliases** (PL-PP-1) — any agent invoking an old name after
+  this release will error with an unknown-tool response. The full rename map:
+
+  | Old MCP tool | New MCP tool |
+  |---|---|
+  | `show` | `scene_show` |
+  | `update` | `scene_update` |
+  | `clear` | `scene_clear_all` |
+  | `clear_scene` | `scene_clear` |
+  | `inspect_scene` | `scene_inspect` |
+  | `list_scenes` | `scene_ls` |
+  | `show_table` | `scene_table` |
+  | `show_dashboard` | `scene_dashboard` |
+  | `set_frame_state` | (split — see below) |
+  | `list_menus` | `menu_ls` |
+  | `set_menu` | `menu_set` |
+  | `list_clients` | `session_ls` |
+  | `identify` | `session_identify` |
+  | `publish` | `topic_publish` |
+  | `subscribe` | `topic_subscribe` |
+  | `unsubscribe` | `topic_unsubscribe` |
+  | `recv` | `topic_recv` |
+  | `register_callback` | `callback_register` |
+  | `get_display_info` | `display_info` |
+  | `screenshot` | `display_screenshot` |
+  | `list_recent_events` | `event_ls` |
+  | `list_errors` | `error_ls` |
+  | `get_theme` | `display_theme_get` |
+  | `set_theme` | `display_theme_set` |
+  | `get_window_settings` | `display_window_get` |
+  | `set_window_settings` | `display_window_set` |
+  | `display_mode` (get variant) | `display_mode_get` |
+  | `set_display_mode` | `display_mode_set` |
+  | (new) | `callback_pending` |
+
+  The six display get/set renames above were missed in the initial
+  `.5` rename train because the display fuse deferral swept them under
+  it; they land here as a mechanical follow-on. No behavior changes —
+  Python function names, request/response types, and wire semantics are
+  unchanged; only the MCP tool identifier moves to the noun_verb form.
+
+- **Frame split — `set_frame_state` splits into two new verbs, not four,
+  and the split is not a rename.** The old `set_frame_state(minimized=...)`
+  toggled the visibility of a still-alive frame. The two new verbs are a
+  different operation on a different lifecycle stage:
+  - `frame_raise` — unminimize a live frame and bring it to the front
+    (z-order-to-front for a frame the display already holds); a frame the
+    display does not hold returns `raised=false` rather than erroring.
+  - `frame_close` — tear down the frame's scenes on the Hub. This ends
+    the frame's life, it does not toggle its visibility.
+
+  The old operation's minimize aspect is deferred with `frame_lower` per
+  the capability-gap section below. The design's four-verb split
+  (`raise|lower|close|expire`) needs display-protocol capabilities that do
+  not yet exist: z-order lowering (for `lower`) and
+  `FrameExpiry.set_deadline` exposed publicly (for scheduled `expire`).
+
+  The old `set_frame_state` MCP tool, `lux frame set-state` CLI verb,
+  PATCH `/display/frames/{id}` REST route, and `Operations.set_frame_state`
+  facade method are all removed with no alias.
+
+### Not shipped (by design, capability gap)
+
+- **`frame_lower`** — needs a genuine z-order concept in the display
+  protocol (only minimize exists today, which is not z-order lowering).
+  Follow-on bead.
+- **`frame_expire --in <seconds>`** — needs `FrameExpiry.set_deadline`
+  exposed through `FrameLifecycle`, currently private to the presentation
+  re-show path in `domain/hub/`. Follow-on bead.
+
+### Not shipped (by design, mechanical)
+
+- **Display fuse (`display_theme` / `display_window` / `display_mode` as
+  fused get/set tools replacing the six current `get_*`/`set_*` MCP tools).**
+  Ratified in the design, but shipping the retirement of the six old
+  commands and wiring three fused replacements is a coordinated multi-file
+  Protocol refactor. OO ratchet enforcement of per-file per-metric baseline
+  prevents such multi-file Protocol refactors mid-edit (the `PostToolUse`
+  hook fires `make check` on every `.py` write and blocks any intermediate
+  state where a single file has regressed, even briefly, against the
+  committed baseline). Will land as follow-on bead once tooling accommodates
+  the pattern. The six current tools (`get_theme`/`set_theme`,
+  `get_window_settings`/`set_window_settings`, `display_mode`/`set_display_mode`)
+  ship unchanged under their current names.
+- **`menu_get` MCP tool + `GET /menus/{label}` REST route + `lux menu get`
+  CLI verb.** Ratified in the design as a net-new tool; the underlying
+  `Operations.get_menu` facade method and `MenuOperations.get_menu`
+  implementation shipped in an earlier commit of this bead. The adapter
+  wiring (command class + Protocol update + stub update + three adapter
+  wirings) is the same multi-file Protocol refactor blocked by the ratchet
+  mechanics above. Will land as follow-on bead.
+- **`session_inspect` MCP tool + `GET /sessions/{id}` REST route + `lux
+  session inspect <id>` CLI verb.** Ratified in the design as a net-new
+  tool (extraction of one row from `session_ls`); needs a new
+  `Operations.session_inspect(id)` facade method plus the same adapter-
+  wiring refactor blocked above. Will land as follow-on bead.
+
+- **The CLI is now noun-grouped, matching the vocabulary the MCP tools and
+  REST routes use.** Every flat verb from before this release is retired,
+  with no alias (PL-PP-1) — a script or muscle-memory invocation of any of
+  these must be updated:
+
+  | Old (retired) | New |
+  |---|---|
+  | `lux hub-install` | `lux hub install` |
+  | `lux hub-uninstall` | `lux hub uninstall` |
+  | `lux ensure-hub` | `lux hub start` |
+  | `lux hub-status` | `lux hub status` |
+  | `lux display` (start the render-loop server) | `lux display serve` |
+  | `lux show beads` | `lux beads` |
+
+  `lux hub stop` is new (previously there was no way to stop luxd without
+  uninstalling the service).
+
+- **New noun groups**, each wrapping the `commands/` singletons from the
+  Humble Object commands layer through a real per-invocation identity:
+  `lux scene {show,update,clear,clear-all,inspect,ls,table,dashboard}`,
+  `lux frame {raise,close}`, `lux menu {ls,set}`, `lux session {ls,inspect,identify}`,
+  `lux display {info,theme,mode,window,screenshot,serve}` (theme/mode/window
+  are fused: no argument reads, an argument or option writes), `lux event ls`,
+  `lux error ls`, `lux callback register`. Every write accepts
+  `--as/--kind/--name/--repo/--agent` (per-invocation identity — the caller
+  *being* a different client for one call, not privilege elevation); every
+  command accepts `--json/--verbose/--quiet`. Identity flags apply to write
+  verbs only — read verbs (`scene ls`, `session ls`, `display info`, ...) use
+  the ambient CLI identity from `CliIdentity.resolve` and take no identity
+  flags of their own, since a read has no owner to declare.
+
+- **`lux ping`, `lux version`, `lux enable`, `lux disable` gained real
+  `--json`/`--quiet` support.** `lux status`/`lux doctor` accept the flags for
+  surface consistency (`--quiet` suppresses their existing text output;
+  `--json` is not wired to a payload for these two yet — their output is a
+  multi-line diagnostic render, not a single value).
+
+- **`LuxRestClient` grew ~20 methods** to satisfy the `commands/` ops
+  Protocols the CLI needs (`scene_update`, `scene_clear`, `scene_clear_all`,
+  `scene_ls`, `scene_inspect`, `scene_dashboard`, `list_clients`,
+  `set_frame_state`, `list_menus`, `set_menu`, the display info/theme/window/
+  mode family, `list_recent_events`, `list_errors`, `screenshot`). Split into
+  three composed classes (`SceneRestOps`, `DisplayRestOps`, plus
+  `LuxRestClient` itself) to stay under the 300-line module-size target.
+
+- **`lux hub stop` implemented**: `LaunchdBackend.stop()` /
+  `SystemdBackend.stop()` stop the running luxd process while leaving its
+  service registration in place (distinct from `uninstall`, which removes the
+  registration too).
+
+- **`CallbackOps` split into `CallbackRegisterOps`/`CallbackPendingOps`**
+  (`commands/_ports.py`): the two operations it bundled have different
+  reachable transports — `register_callback` has a REST route a REST-backed
+  client can implement, `pending_callbacks` does not and never will (see
+  below) — so no REST-only client could ever satisfy the combined Protocol.
+
+### Not shipped (by design, not oversight)
+
+- **`lux topic *` (`publish`/`subscribe`/`unsubscribe`/`recv`) and
+  `lux callback pending` have no CLI verb.** Both would need a REST route,
+  and `tests/rest/test_app.py`'s `_MCP_ONLY` exemption set forbids one by
+  ratified design: delivery for these operations runs over the Hub↔Display
+  listen leg's push/drain, which a stateless CLI/REST request cannot bind to.
+  A route that returns 200 but can never actually deliver is worse than no
+  route.
+- **`lux mcp` (a stdio MCP server) is intentionally not shipped.** The
+  streamable HTTP endpoint at `http://127.0.0.1:8430/mcp` is the
+  authoritative MCP transport (the one-code-path epic `lux-7gcz` removed the
+  stdio/mcp-proxy path); the Claude Code plugin connects to it directly, with
+  no per-session process in the tool path.
+
+- CLI parity guard (`tests/cli/test_parity.py`): every non-admin
+  `commands/` singleton must have a reachable Typer entry, or a stated
+  exemption. Mirrors the REST route-parity guard
+  (`tests/rest/test_app.py`).
+
 ## [0.26.0] - 2026-08-19
 
 ### Changed

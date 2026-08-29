@@ -129,28 +129,11 @@ def test_list_frames_reports_a_closed_frame_over_http() -> None:
     }
 
 
-def test_set_frame_state() -> None:
-    reply = DisplayReplied({"frame_id": "f1", "changed": {"minimized": True}})
-    client = make_client(display_port=StubPort(reply))
-    resp = client.patch("/display/frames/f1", json={"minimized": True})
+def test_close_frame() -> None:
+    client = make_client(display_port=StubPort(DisplayReplied({})))
+    resp = client.post("/display/frames/f1/close")
     assert resp.status_code == 200
     assert resp.json() == {"kind": "ok"}
-
-
-def test_set_frame_state_rejects_an_unknown_field_with_422() -> None:
-    # FrameStatePatch forbids extra fields; a stray key is a bind-time rejection.
-    client = make_client(display_port=StubPort(DisplayReplied({})))
-    assert client.patch("/display/frames/f1", json={"bogus": True}).status_code == 422
-
-
-def test_set_frame_state_id_mismatch_is_502() -> None:
-    # The display acked a different frame than requested — a backend fault, not a
-    # caller error (409) or a down display (503).
-    reply = DisplayReplied({"frame_id": "other", "changed": {"minimized": True}})
-    client = make_client(display_port=StubPort(reply))
-    assert (
-        client.patch("/display/frames/f1", json={"minimized": True}).status_code == 502
-    )
 
 
 def test_raise_frame() -> None:

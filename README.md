@@ -31,7 +31,7 @@ The design draws on X11's client/server split and Smalltalk-style live introspec
 ## Quick Start
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/punt-labs/lux/c6a817d6/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/punt-labs/lux/e6ee040/install.sh | sh
 ```
 
 Restart Claude Code twice. The Lux display window opens automatically when agents send visual output.
@@ -71,7 +71,7 @@ This pulls ~2 MB of lightweight deps. The 66 MB display stack (imgui-bundle, num
 <summary>Verify before running</summary>
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/punt-labs/lux/c6a817d6/install.sh -o install.sh
+curl -fsSL https://raw.githubusercontent.com/punt-labs/lux/e6ee040/install.sh -o install.sh
 shasum -a 256 install.sh
 cat install.sh
 sh install.sh
@@ -80,12 +80,34 @@ sh install.sh
 </details>
 
 <details>
+<summary>Homebrew (Apple Silicon macOS)</summary>
+
+macOS only for now, arm64 only. The formula pins a single macOS arm64 wheel for `imgui-bundle`, lux's ImGui binding — there is no Linux stanza yet, so a Linux build would hand pip a macOS wheel and fail. Intel macOS is unsupported for the same reason: `imgui-bundle` publishes no Intel macOS wheel at the version lux pins. Linux support is tracked as a follow-up.
+
+`brew install` puts all four of lux's executables on `PATH`: `lux` (CLI), `luxd-hub` (Hub daemon), `luxd-display` (Display renderer), and `lux-beads` (the bundled beads applet).
+
+```bash
+brew install punt-labs/tap/lux
+```
+
+**Use the fully qualified name.** Homebrew Core already ships an unrelated formula also named `lux` (a Go video downloader) — `brew install lux` without the `punt-labs/tap/` prefix silently installs that one instead of this project, since Homebrew resolves unqualified names against Homebrew Core first even with the tap tapped. `brew install punt-labs/tap/lux` is unambiguous.
+
+Use one distribution channel per machine — mixing Homebrew with the `curl | sh` installer puts two copies of `lux` on `PATH` in different locations, and whichever comes first wins. Run `which lux` (or `command -v lux`) to see which one that is.
+
+</details>
+
+<details>
 <summary>Run a demo</summary>
 
 ```bash
-lux display &
+lux display install       # register the display as a launchd/systemd service
 uv run python demos/dashboard.py
 ```
+
+The `install.sh` bootstrap already runs `lux display install` for you; run it
+yourself only when driving Lux from a source checkout that did not use the
+bootstrap. Foreground `lux display serve` also works and stays attached to the
+terminal (Ctrl-C stops it) — that is the exact command the supervisor invokes.
 
 Demos are in `demos/` --- each connects as a client and drives the display:
 
@@ -159,7 +181,7 @@ Agents interact with Lux through the MCP tools `luxd` serves over its streamable
 ### Show text and a button
 
 ```json
-{"tool": "show", "input": {
+{"tool": "scene_show", "input": {
   "scene_id": "hello",
   "elements": [
     {"kind": "text", "id": "t1", "content": "Hello from the agent"},
@@ -173,11 +195,11 @@ background replicator paints it; no tool call ever waits on the display. A
 button click fires its handler on the Hub (the agent does not poll for it). To observe interactions, read the introspection log:
 
 ```json
-{"tool": "list_recent_events", "input": {"count": 5}}
+{"tool": "event_ls", "input": {"count": 5}}
 ```
 
-A Hub-side handler can `publish` an app event that the agent then reads with
-`recv` (see the Pub/Sub tools above). An element that declares
+A Hub-side handler can `topic_publish` an app event that the agent then reads
+with `topic_recv` (see the Communication tools above). An element that declares
 `"publish": ["my.topic"]` publishes what the user did — the event's kind, the
 scene and element it landed on, and its own fields, such as a table selection's
 `row_ids` and `anchor`. The full shape is in
@@ -186,7 +208,7 @@ scene and element it landed on, and its own fields, such as a table selection's
 ### Multi-window dashboard
 
 ```json
-{"tool": "show", "input": {
+{"tool": "scene_show", "input": {
   "scene_id": "dash",
   "elements": [
     {"kind": "window", "id": "w1", "title": "Controls", "x": 10, "y": 10,
@@ -229,32 +251,64 @@ All elements with an `id` support an optional `tooltip` field (string shown on h
 
 ## CLI Commands
 
-| Command | What it does |
-|---------|-------------|
-| `lux display` | Start the display server (ImGui window) |
-| `lux-beads` | The Beads applet: owns this session's Beads menu entry and services its clicks (launched by the plugin's session-start hook) |
+Noun-grouped: every operation is `lux <noun> <verb>`, matching the same
+vocabulary the MCP tools and REST routes use. Every write accepts
+`--as/--kind/--name/--repo/--agent` (per-invocation identity) and every
+command accepts `--json/--verbose/--quiet`.
+
+| Noun group | Verbs |
+|---|---|
+| `lux scene` | `show`, `update`, `clear`, `clear-all`, `inspect`, `ls`, `table`, `dashboard` |
+| `lux frame` | `set-state` |
+| `lux menu` | `ls`, `set` |
+| `lux session` | `ls`, `inspect`, `identify` |
+| `lux display` | `info`, `theme`, `mode`, `window`, `screenshot`, `serve` (raw render-loop entry point, invoked by the supervisor), `install`, `uninstall`, `start`, `stop`, `status` (admin — window process supervision, CLI-only) |
+| `lux event` | `ls` |
+| `lux error` | `ls` |
+| `lux callback` | `register` |
+| `lux hub` | `install`, `uninstall`, `start`, `stop`, `restart`, `status` (admin — luxd process supervision, CLI-only) |
+
+| Top-level singleton | What it does |
+|---|---|
+| `lux ping` | Ping the display through luxd; print round-trip time |
+| `lux doctor` | Check installation health (Python, fonts, plugin) |
+| `lux version` | Print version |
 | `lux enable` | Enable visual output for this project |
 | `lux disable` | Disable visual output for this project |
 | `lux status` | Check if the display server is running |
-| `lux doctor` | Check installation health (Python, fonts, plugin) |
 | `lux install` | Install the Claude Code plugin via the marketplace |
 | `lux uninstall` | Uninstall the Claude Code plugin |
-| `lux show beads` | Display the beads issue board via luxd's REST API (no LLM needed) |
-| `lux ping` | Ping the display through luxd; print round-trip time |
-| `lux hub-install` | Register the `luxd` session hub as a launchd/systemd service |
-| `lux hub-uninstall` | Remove the `luxd` service |
-| `lux ensure-hub` | Ensure `luxd` is running (`--restart` to restart) |
-| `lux hub-status` | Report `luxd` service status |
-| `lux version` | Print version |
+| `lux beads` | Display the beads issue board via luxd's REST API (no LLM needed) — a bespoke app-specific convenience, not part of the noun-grouped vocabulary |
+| `lux-beads` | The Beads applet: owns this session's Beads menu entry and services its clicks (launched by the plugin's session-start hook) |
+
+### Display window management
+
+The display window runs as its own supervised service, symmetric to the hub.
+`lux display install` registers a launchd LaunchAgent (macOS) or systemd user
+unit (Linux) that spawns `lux display serve` at login and restarts it on
+crash; `lux display start` / `stop` toggle the running process; `lux display
+status` reports supervisor and window state; `lux display uninstall` reverses
+the registration. This is the reliable path for the window to appear on macOS
+— a child of the graphical login session gets the GUI bootstrap the OS needs
+to draw. Foreground `lux display serve` is the same entry point; the
+supervisor invokes it. On macOS the window gets a Dock icon (regular
+activation policy) so it is visible and switchable; when the menubar-app epic
+(`lux-mxvy.3`) ships, the policy flips to accessory and the menubar controls
+visibility instead.
+
+`lux topic *` and `lux callback pending` are not exposed on the CLI: they
+have no REST route by design (`tests/rest/test_app.py`'s `_MCP_ONLY`) —
+delivery for both runs over the listen leg's push/drain, which a stateless
+CLI request cannot bind to.
 
 ## Library (Python)
 
-Python applications drive the Hub through `LuxRestClient`, the typed client of
-`luxd` — the same validation, typing, and identity handling the CLI gets, with
-no `[display]` extra required. Long-lived apps add `LuxHubClient` to receive
-menu clicks and pub-sub events over a persistent connection; vox's music
-player is the reference app built this way. The full guide, with working
-examples, is [docs/library.md](docs/library.md).
+Python applications drive the Hub through `LuxClient`, the typed async facade
+over `luxd`'s REST API. It gets the same validation, typing, and identity
+handling the CLI gets, with no `[display]` extra required. Long-lived apps add
+`LuxHubClient` to receive menu clicks and pub-sub events over a persistent
+connection; vox's music player is the reference app built this way. The full
+guide, with working examples, is [docs/library.md](docs/library.md).
 
 ## Architecture
 

@@ -61,6 +61,7 @@ def _terminate(proc: subprocess.Popen[bytes]) -> None:
 
 
 @pytest.mark.e2e
+@pytest.mark.gui
 class TestWalkingSkeleton:
     """Walking skeleton: display subprocess + client round-trip + interaction."""
 
@@ -78,7 +79,15 @@ class TestWalkingSkeleton:
         )
 
         proc = subprocess.Popen(
-            [sys.executable, "-m", "punt_lux", "display", "--socket", str(sock_path)],
+            [
+                sys.executable,
+                "-m",
+                "punt_lux",
+                "display",
+                "serve",
+                "--socket",
+                str(sock_path),
+            ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
         )
@@ -130,6 +139,7 @@ class TestWalkingSkeleton:
                 "-m",
                 "punt_lux",
                 "display",
+                "serve",
                 "--socket",
                 str(sock_path),
                 "--test-auto-click",

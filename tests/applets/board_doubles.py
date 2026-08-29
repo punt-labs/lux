@@ -214,7 +214,7 @@ class Gated:
 
 @final
 class RecordingClient:
-    """A LuxRestClient stand-in recording the scene writes a service makes.
+    """A ``BoardOps`` stand-in recording the scene writes a service makes.
 
     Its three failure modes are the three a real client has, and they are not
     interchangeable: a refusal is a Hub that answered no, an unreachable Hub is

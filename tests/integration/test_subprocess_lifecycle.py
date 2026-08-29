@@ -43,6 +43,7 @@ def _wait_pid_gone(pid_path: Path, timeout: float = 5.0) -> bool:
 
 
 @pytest.mark.e2e
+@pytest.mark.gui
 def test_text_scene_survives_subprocess_lifecycle() -> None:
     """Spawn display, send Text scene, shut down, assert PID file removed."""
     short_dir, sock_path = _short_sock_path()

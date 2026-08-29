@@ -697,8 +697,13 @@ class TableSelectionModel:
     _selected: frozenset[str]
     _anchor: str
 
-    def __new__(cls, *, mode: SelectionMode = "none",
-                selected: frozenset[str] = frozenset(), anchor: str = "") -> Self: ...
+    def __new__(
+        cls,
+        *,
+        mode: SelectionMode = "none",
+        selected: frozenset[str] = frozenset(),
+        anchor: str = "",
+    ) -> Self: ...
 
     @property
     def mode(self) -> SelectionMode: ...
@@ -735,7 +740,7 @@ class TableElement(Element):
     _rows: tuple[tuple[object, ...], ...]
     _flags: TableFlags
     _column_widths: tuple[float, ...]  # () = no explicit widths (auto-size)
-    _key_column: int                   # resolved from int-or-name at decode
+    _key_column: int  # resolved from int-or-name at decode
     _selection: TableSelectionModel
     _tooltip: str | None
     _kind: Literal["table"]
@@ -756,7 +761,9 @@ class TableElement(Element):
         self._selection.reconcile(frozenset(self._row_id(r) for r in self._rows))
 
     def _remote_dispatch_specs(self) -> tuple[RemoteDispatchSpec, ...]:
-        return (RemoteDispatchSpec(RowSelectionChanged, self.id, "row_selection_changed"),)
+        return (
+            RemoteDispatchSpec(RowSelectionChanged, self.id, "row_selection_changed"),
+        )
 
     def validate(self) -> tuple[ValidationError, ...]:
         """Rows-vs-columns + renderable cells always. When selectable
@@ -784,9 +791,9 @@ class FilteredTableModel:
     """Authority for a filtered table composition: the unfiltered rows and the
     FULL selection (spanning hidden rows). Projects onto the target table."""
 
-    _all_rows: tuple[tuple[object, ...], ...]   # unfiltered superset
-    _full_selection: set[str]                    # authoritative, spans hidden rows
-    _filter_state: FilterState                    # current search text + combo picks
+    _all_rows: tuple[tuple[object, ...], ...]  # unfiltered superset
+    _full_selection: set[str]  # authoritative, spans hidden rows
+    _filter_state: FilterState  # current search text + combo picks
 
     def visible_ids(self) -> frozenset[str]: ...  # ids of filter(all_rows)
 

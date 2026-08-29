@@ -29,6 +29,10 @@ __all__ = ["SliderRenderer"]
 
 # The float accessor is stateless, so one shared instance serves every frame.
 _ACCESSOR = FloatValueAccessor()
+# arbiter.observe(edited=...) needs per-keystroke ``changed`` when the thumb is
+# Ctrl+click typed into; without this flag a scalar widget only reports
+# ``changed`` on commit (Enter/tab-out/deactivation).
+_LIVE_EDIT_FLAG = imgui.ItemFlags_.live_edit_on_input_scalar.value
 
 
 @final
@@ -82,8 +86,14 @@ class SliderRenderer:
         elem: SliderElement, label: str, resolved: float
     ) -> tuple[bool, int | float]:
         """Draw the int/float variant; ImGui clamps ``(changed, value)`` into range."""
-        if elem.integer:
-            return imgui.slider_int(label, int(resolved), int(elem.min), int(elem.max))
-        return imgui.slider_float(
-            label, float(resolved), float(elem.min), float(elem.max), elem.format
-        )
+        imgui.push_item_flag(_LIVE_EDIT_FLAG, enabled=True)
+        try:
+            if elem.integer:
+                return imgui.slider_int(
+                    label, int(resolved), int(elem.min), int(elem.max)
+                )
+            return imgui.slider_float(
+                label, float(resolved), float(elem.min), float(elem.max), elem.format
+            )
+        finally:
+            imgui.pop_item_flag()

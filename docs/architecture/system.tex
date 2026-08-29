@@ -1184,8 +1184,13 @@ bounding the rendered rows.
   \item \textbf{Scene storage.}  Scenes are Python dataclass trees in
     memory, bounded per message by the 16\,MiB cap; dismissed scenes are
     garbage-collected.
-  \item \textbf{Texture cache.}  OpenGL texture IDs are held until exit
-    with no eviction policy, so image-heavy sessions accumulate GPU memory.
+  \item \textbf{Texture cache.}  OpenGL texture IDs are held under an LRU
+    policy capped at 256 entries (\texttt{LUX\_TEXTURE\_CACHE\_CAP}); the
+    least-recently-used texture is deleted on the GPU when a new upload
+    would exceed the cap. The base64-payload$\to$content-hash memo that
+    keys data-sourced images is coupled to the same eviction, so it is
+    bounded by the same cap rather than growing for the process lifetime.
+    Both bound memory for image-heavy sessions.
   \item \textbf{Ring buffers.}  The event and error buffers are bounded
     deques; constant memory.
 \end{itemize}
@@ -1196,10 +1201,6 @@ bounding the rendered rows.
   \item \textbf{No ImGui ID scoping.}  Widget IDs derive from
     \field{element\_id} alone, so ImGui internal state can bleed between
     tabs with colliding IDs.
-  \item \textbf{No texture eviction.}  Long sessions with many images
-    accumulate GPU memory.
-  \item \textbf{Per-frame filtering.}  Table filters re-run every frame
-    even when nothing changed; harmless at current scale.
   \item \textbf{No screenshot capture.}  Framebuffer capture is unsolved
     below the message layer, so \tool{screenshot} refuses (DES-028).
 \end{enumerate}

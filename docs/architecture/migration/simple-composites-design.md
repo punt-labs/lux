@@ -387,13 +387,17 @@ cannot" report an `active_tab` it did not own.
 def resolved_props(self) -> Mapping[str, object]:
     return {
         "tabs": [
-            {"tab_id": t.tab_id, "label": t.label,
-             "children": [c.id for c in t.children]}
+            {
+                "tab_id": t.tab_id,
+                "label": t.label,
+                "children": [c.id for c in t.children],
+            }
             for t in self._tabs
         ],
         "active_tab": self._active_tab,
         "tooltip": self._tooltip,
     }
+
 
 # CollapsingHeaderElement
 def resolved_props(self) -> Mapping[str, object]:
@@ -429,6 +433,7 @@ mirroring `button.py:153` / `checkbox.py:117`:
 def _remote_dispatch_specs(self) -> tuple[RemoteDispatchSpec, ...]:
     return (RemoteDispatchSpec(TabChanged, self.id, "tab_changed"),)
 
+
 # CollapsingHeaderElement
 def _remote_dispatch_specs(self) -> tuple[RemoteDispatchSpec, ...]:
     return (RemoteDispatchSpec(HeaderToggled, self.id, "header_toggled"),)
@@ -456,6 +461,7 @@ type and payload differ. Take `tab_bar` (header is the same with
    ```python
    class _UpdateActiveTabHandler:
        """Built-in state-sync: mirror the new active tab onto the element."""
+
        def __call__(self, event: TabChanged) -> None:
            self._elem.apply_patch({"active_tab": event.tab_id})
    ```

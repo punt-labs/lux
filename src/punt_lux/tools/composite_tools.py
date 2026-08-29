@@ -11,10 +11,18 @@ as the core tools do.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
+from punt_lux.commands import (
+    Ctx as CommandCtx,
+    SceneOps,
+    scene_dashboard as scene_dashboard_command,
+    scene_table as scene_table_command,
+)
 from punt_lux.operations import RenderDashboardRequest, RenderTableRequest
 from punt_lux.tools import tools as _core
+from punt_lux.tools._signal import signal
 from punt_lux.tools.server import mcp
 
 __all__ = ["show_dashboard", "show_table"]
@@ -24,7 +32,7 @@ __all__ = ["show_dashboard", "show_table"]
 # store, and a value-import would freeze the production facade past that rebind.
 
 
-@mcp.tool()
+@mcp.tool(name="scene_table")
 def show_table(
     scene_id: str,
     columns: list[str],
@@ -126,12 +134,14 @@ def show_table(
             "frame_title": frame_title,
         }
     )
-    return _core._format_render(
-        _core.OPERATIONS.render_table(request, scope=_core._scope())
+    ctx: CommandCtx[SceneOps] = CommandCtx(
+        ops=_core.OPERATIONS, identity=_core._identity()
     )
+    result = asyncio.run(scene_table_command(ctx, request, scope=_core._scope()))
+    return signal(result)
 
 
-@mcp.tool()
+@mcp.tool(name="scene_dashboard")
 def show_dashboard(
     scene_id: str,
     metrics: list[dict[str, str]] | None = None,
@@ -204,6 +214,8 @@ def show_dashboard(
             "frame_title": frame_title,
         }
     )
-    return _core._format_render(
-        _core.OPERATIONS.render_dashboard(request, scope=_core._scope())
+    ctx: CommandCtx[SceneOps] = CommandCtx(
+        ops=_core.OPERATIONS, identity=_core._identity()
     )
+    result = asyncio.run(scene_dashboard_command(ctx, request, scope=_core._scope()))
+    return signal(result)

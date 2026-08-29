@@ -7,8 +7,8 @@ logic is tested against fakes, not a live socket:
 - ``DisplaySender`` — the fire-and-forget send surface (a ``DisplayLink``).
 - ``ClientProvider`` — hands out the current sender and drops a dead one so the
   next hand-out reconnects (the Hub's ``ClientRegistry``).
-- ``DisplayLifecycle`` — kills a wedged display and starts a fresh one
-  (``DisplayPaths``).
+- ``DisplayLifecycle`` — kills a wedged display; its own service unit
+  respawns it (``DisplayPaths``).
 - ``DirtyMarker`` — the queue-only side of the replicator (``HubReplicator``)
   that a fresh-connect hook marks after declaring its manifest (DES-068).
 """
@@ -21,7 +21,6 @@ from punt_lux.domain.hub.scene_presentation import ScenePusher
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
-    from pathlib import Path
 
     from punt_lux.domain.ids import SceneId
 
@@ -107,14 +106,15 @@ class ClientProvider(Protocol):
 
 @runtime_checkable
 class DisplayLifecycle(Protocol):
-    """Kills a wedged display and ensures a fresh one — the reap/respawn pair."""
+    """Kills a wedged display; its own service unit respawns it.
+
+    Before lux-5uc7, the Hub both reaped a wedged display and spawned its
+    replacement — a second supervisor racing the launchd/systemd unit that
+    now owns respawn. The Hub's remaining lifecycle role is killing.
+    """
 
     def reap(self, timeout: float = ...) -> None:
         """Terminate the socket's current owner, by its peer credential."""
-
-    def ensure(self, timeout: float = ...) -> Path:
-        """Start a fresh display if none is live; return the socket path."""
-        ...
 
 
 @runtime_checkable

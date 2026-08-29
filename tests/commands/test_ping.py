@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.commands import Ctx, ping
+from punt_lux.commands import Ctx, PingOps, ping
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.operations import OpError, Pong
 
@@ -61,7 +61,7 @@ def _run(
 ) -> tuple[CommandResult, _StubOps]:
     """Build a Ctx around *result*, drive the command, and return both."""
     ops = _StubOps(result)
-    ctx = Ctx(ops=ops, identity=_identity())
+    ctx: Ctx[PingOps] = Ctx(ops=ops, identity=_identity())
     return asyncio.run(ping(ctx, wait)), ops
 
 
@@ -108,7 +108,7 @@ def test_ping_display_unavailable_renders_not_running() -> None:
 
 def test_execute_returns_the_typed_pong_with_no_envelope() -> None:
     ops = _StubOps(Pong(rtt_seconds=0.017))
-    ctx = Ctx(ops=ops, identity=_identity())
+    ctx: Ctx[PingOps] = Ctx(ops=ops, identity=_identity())
 
     result = asyncio.run(ping.execute(ctx))
 
@@ -117,7 +117,7 @@ def test_execute_returns_the_typed_pong_with_no_envelope() -> None:
 
 def test_execute_returns_the_typed_op_error_with_no_envelope() -> None:
     ops = _StubOps(OpError(code="timeout", reason="slow display"))
-    ctx = Ctx(ops=ops, identity=_identity())
+    ctx: Ctx[PingOps] = Ctx(ops=ops, identity=_identity())
 
     result = asyncio.run(ping.execute(ctx))
 
@@ -129,7 +129,7 @@ def test_call_renders_execute_into_the_shared_envelope() -> None:
     # pins that relationship so a future change to one cannot silently drift
     # from the other.
     ops = _StubOps(Pong(rtt_seconds=0.017))
-    ctx = Ctx(ops=ops, identity=_identity())
+    ctx: Ctx[PingOps] = Ctx(ops=ops, identity=_identity())
 
     result = asyncio.run(ping(ctx))
 

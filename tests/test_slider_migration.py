@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastmcp.exceptions import ToolError
 
 from punt_lux.display.render_loop import RenderLoop
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
@@ -262,7 +263,9 @@ class TestShowRejectsInvalidSlider:
     def test_show_rejects_inverted_range(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
-        result = show("s1", [{"kind": "slider", "id": "sl", "min": 100.0, "max": 0.0}])
+        with pytest.raises(ToolError) as _exc:
+            show("s1", [{"kind": "slider", "id": "sl", "min": 100.0, "max": 0.0}])
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "[slider 'sl']" in result
         client.show.assert_not_called()
@@ -271,9 +274,12 @@ class TestShowRejectsInvalidSlider:
     def test_show_rejects_out_of_range_value(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
-        result = show(
-            "s1", [{"kind": "slider", "id": "sl", "value": 5.0, "min": 0.0, "max": 1.0}]
-        )
+        with pytest.raises(ToolError) as _exc:
+            show(
+                "s1",
+                [{"kind": "slider", "id": "sl", "value": 5.0, "min": 0.0, "max": 1.0}],
+            )
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "[slider 'sl']" in result
         client.show.assert_not_called()
@@ -282,7 +288,9 @@ class TestShowRejectsInvalidSlider:
     def test_show_rejects_nan_value(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
-        result = show("s1", [{"kind": "slider", "id": "sl", "value": math.nan}])
+        with pytest.raises(ToolError) as _exc:
+            show("s1", [{"kind": "slider", "id": "sl", "value": math.nan}])
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "[slider 'sl']" in result
         client.show.assert_not_called()
@@ -291,7 +299,9 @@ class TestShowRejectsInvalidSlider:
     def test_show_rejects_bad_format(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
-        result = show("s1", [{"kind": "slider", "id": "sl", "format": "no-percent"}])
+        with pytest.raises(ToolError) as _exc:
+            show("s1", [{"kind": "slider", "id": "sl", "format": "no-percent"}])
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "[slider 'sl']" in result
         client.show.assert_not_called()
@@ -301,19 +311,21 @@ class TestShowRejectsInvalidSlider:
         """A bad slider nested in an all-ABC group is collected by the walk."""
         client = _mock_client()
         mock_get.return_value = client
-        result = show(
-            "s1",
-            [
-                {
-                    "kind": "group",
-                    "id": "g1",
-                    "children": [
-                        {"kind": "text", "id": "ok", "content": "fine"},
-                        {"kind": "slider", "id": "bad", "min": 10.0, "max": 0.0},
-                    ],
-                }
-            ],
-        )
+        with pytest.raises(ToolError) as _exc:
+            show(
+                "s1",
+                [
+                    {
+                        "kind": "group",
+                        "id": "g1",
+                        "children": [
+                            {"kind": "text", "id": "ok", "content": "fine"},
+                            {"kind": "slider", "id": "bad", "min": 10.0, "max": 0.0},
+                        ],
+                    }
+                ],
+            )
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "[slider 'bad']" in result
         client.show.assert_not_called()
@@ -325,20 +337,22 @@ class TestShowRejectsInvalidSlider:
         """A bad slider nested in a collapsing_header is collected by the walk."""
         client = _mock_client()
         mock_get.return_value = client
-        result = show(
-            "s1",
-            [
-                {
-                    "kind": "collapsing_header",
-                    "id": "hdr",
-                    "label": "Details",
-                    "children": [
-                        {"kind": "text", "id": "ok", "content": "fine"},
-                        {"kind": "slider", "id": "bad", "min": 10.0, "max": 0.0},
-                    ],
-                }
-            ],
-        )
+        with pytest.raises(ToolError) as _exc:
+            show(
+                "s1",
+                [
+                    {
+                        "kind": "collapsing_header",
+                        "id": "hdr",
+                        "label": "Details",
+                        "children": [
+                            {"kind": "text", "id": "ok", "content": "fine"},
+                            {"kind": "slider", "id": "bad", "min": 10.0, "max": 0.0},
+                        ],
+                    }
+                ],
+            )
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "[slider 'bad']" in result
         client.show.assert_not_called()

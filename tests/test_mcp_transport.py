@@ -33,35 +33,38 @@ pytestmark = pytest.mark.integration
 # names the exact tool that changed rather than only a count that moved.
 _EXPECTED_TOOLS = frozenset(
     {
-        "clear",
-        "clear_scene",
-        "display_mode",
-        "get_display_info",
-        "get_theme",
-        "get_window_settings",
-        "identify",
-        "inspect_scene",
-        "list_clients",
-        "list_errors",
-        "list_menus",
-        "list_recent_events",
-        "list_scenes",
+        "callback_pending",
+        "callback_register",
+        "display_info",
+        "display_mode_get",
+        "display_mode_set",
+        "display_screenshot",
+        "display_theme_get",
+        "display_theme_set",
+        "display_window_get",
+        "display_window_set",
+        "error_ls",
+        "event_ls",
+        "frame_close",
+        "frame_raise",
+        "list_frames",
+        "menu_ls",
+        "menu_set",
         "ping",
-        "publish",
-        "recv",
-        "register_callback",
-        "screenshot",
-        "set_display_mode",
-        "set_frame_state",
-        "set_menu",
-        "set_theme",
-        "set_window_settings",
-        "show",
-        "show_dashboard",
-        "show_table",
-        "subscribe",
-        "unsubscribe",
-        "update",
+        "scene_clear",
+        "scene_clear_all",
+        "scene_dashboard",
+        "scene_inspect",
+        "scene_ls",
+        "scene_show",
+        "scene_table",
+        "scene_update",
+        "session_identify",
+        "session_ls",
+        "topic_publish",
+        "topic_recv",
+        "topic_subscribe",
+        "topic_unsubscribe",
     }
 )
 
@@ -101,12 +104,12 @@ def test_full_session_capabilities_over_streamable_http() -> None:
         ):
             await session.initialize()
             tools = await session.list_tools()
-            scenes = await session.call_tool("list_scenes", {})
-            await session.call_tool("subscribe", {"topic": "itest.topic"})
+            scenes = await session.call_tool("scene_ls", {})
+            await session.call_tool("topic_subscribe", {"topic": "itest.topic"})
             await session.call_tool(
-                "publish", {"topic": "itest.topic", "payload": {"n": 1}}
+                "topic_publish", {"topic": "itest.topic", "payload": {"n": 1}}
             )
-            received = await session.call_tool("recv", {})
+            received = await session.call_tool("topic_recv", {})
             block = received.content[0]
             return {
                 "tool_names": frozenset(tool.name for tool in tools.tools),
@@ -206,15 +209,15 @@ def test_two_concurrent_sessions_are_isolated() -> None:
             both_live = _health_sessions(port)
 
             for session in (session_a, session_b):
-                await session.call_tool("subscribe", {"topic": topic})
+                await session.call_tool("topic_subscribe", {"topic": topic})
             await session_a.call_tool(
-                "publish", {"topic": topic, "payload": {"who": "A"}}
+                "topic_publish", {"topic": topic, "payload": {"who": "A"}}
             )
             await session_b.call_tool(
-                "publish", {"topic": topic, "payload": {"who": "B"}}
+                "topic_publish", {"topic": topic, "payload": {"who": "B"}}
             )
-            a_recv = _tool_text(await session_a.call_tool("recv", {}))
-            b_recv = _tool_text(await session_b.call_tool("recv", {}))
+            a_recv = _tool_text(await session_a.call_tool("topic_recv", {}))
+            b_recv = _tool_text(await session_b.call_tool("topic_recv", {}))
 
             await a_scope.aclose()  # close A only; B stays live
 
@@ -226,7 +229,7 @@ def test_two_concurrent_sessions_are_isolated() -> None:
                     break
                 await anyio.sleep(0.1)
 
-            b_still_works = not (await session_b.call_tool("list_scenes", {})).isError
+            b_still_works = not (await session_b.call_tool("scene_ls", {})).isError
             return both_live, a_recv, b_recv, after_a_close, b_still_works
 
     with _running_luxd() as port:

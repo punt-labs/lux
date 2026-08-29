@@ -5,7 +5,7 @@ connection to luxd: it subscribes to pub-sub topics and receives, in a blocking
 receive loop, both those topics' events and the menu-callback clicks routed to its
 session, dispatching each to an app handler. It carries the same
 :class:`~punt_lux.domain.hub.client_identity.ClientIdentity` a
-:class:`~punt_lux.rest_client.LuxRestClient` uses, so the daemon's scene pushes
+:class:`~punt_lux.client.facade.LuxClient` uses, so the daemon's scene pushes
 (over REST) and its listen stream (over this WebSocket) resolve to one connection —
 a callback the daemon registers over REST is delivered here.
 
@@ -146,7 +146,7 @@ class LuxHubClient:
         url = cls._read_hub_endpoint()
         if url is None:
             raise HubUnavailableError(
-                "luxd is not running. Run 'lux hub-install' to register the service."
+                "luxd is not running. Run 'lux hub install' to register the service."
             )
         return cls(
             url,

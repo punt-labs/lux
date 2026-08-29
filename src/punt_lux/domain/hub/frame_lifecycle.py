@@ -1,20 +1,23 @@
 """FrameLifecycle — a scene's frame, from how it is shown to how it is torn down.
 
 Everything the store knows about a frame lives here: how each scene is framed for
-a resend (its :class:`ScenePresentation`), its optional TTL deadline, and the one
-way it is torn down — its time-to-live passes. All of it sits behind one lock
-discipline rather than scattered across the store facade, because a frame's
-presentation, its deadline, and its teardown must not be read or written
-half-applied. This component composes the presentation registry, the subtree
-remover (the teardown walk), the :class:`FrameExpiry` deadlines, and the store
-lock.
+a resend (its :class:`ScenePresentation`), its optional TTL deadline, and the two
+ways it is torn down: an explicit close request, or its time-to-live passing. All
+of it sits behind one lock discipline rather than scattered across the store
+facade, because a frame's presentation, its deadline, and its teardown must not be
+read or written half-applied. This component composes the presentation registry,
+the subtree remover (the teardown walk), the :class:`FrameExpiry` deadlines, and
+the store lock.
 
-There used to be a second teardown — a user closing a frame on the Display sent
-a ``frame_close`` the Hub answered by removing the frame's scenes. That is gone
-(DES-088). Where a window sits is the Display's own business and the Hub is not
-told, so a *user* gesture is no longer one of the ways a frame is torn down here.
-The client taking its content away still is: an empty push or a manifest purge
-goes through :meth:`forget`, and a deadline passing through :meth:`expire_due`.
+There used to be a *third* teardown — a user closing a frame on the Display sent
+a ``frame_close`` event the Hub answered by removing the frame's scenes. That is
+gone (DES-088). Where a window sits is the Display's own business and the Hub is
+not told, so a *user gesture on the Display* is no longer one of the ways a frame
+is torn down here. What remains is a caller *asking* to close a frame outright —
+:meth:`remove_frame`, reached through the ``frame_close``/``close_frame`` command,
+a deliberate teardown distinct from the retired auto-close. The client taking its
+content away is the third path: an empty push or a manifest purge goes through
+:meth:`forget`, and a deadline passing through :meth:`expire_due`.
 
 Recording a presentation, arming a deadline, and sweeping expiry all take the same
 lock every store write takes, so a frame re-armed with a fresh TTL is never torn
@@ -122,6 +125,20 @@ class FrameLifecycle:
         """Return how a scene was shown, or a self-framed default, read under lock."""
         with self._lock.read():
             return self._frames.presentation_for(scene_id)
+
+    def remove_frame(self, frame_id: str) -> frozenset[SceneId]:
+        """Close ``frame_id`` outright: tear down scenes, disarm its TTL, return them.
+
+        Reached only by an explicit close request (the ``frame_close``/
+        ``close_frame`` command) — never by a Display-originated event, which
+        DES-088 retired (see the module docstring). Each scene's roots are
+        dropped whatever the (possibly departed) owner, so an orphaned frame
+        still closes, and the deadline is disarmed so a closed frame is never
+        swept again.
+        """
+        with self._lock.write():
+            self._expiry.disarm(frame_id)
+            return self._tear_down(frame_id)
 
     def expire_due(self) -> frozenset[SceneId]:
         """Tear down every frame whose TTL has passed; return the scenes to repaint.

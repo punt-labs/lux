@@ -8,6 +8,41 @@ tools:
   - Bash
   - Grep
   - Glob
+  - mcp__plugin_quarry_quarry__find
+  - mcp__plugin_quarry_quarry__remember
+  - mcp__plugin_quarry_quarry__show
+  - mcp__plugin_quarry_quarry__ingest
+  - mcp__plugin_quarry_quarry__use
+  - mcp__plugin_quarry_quarry__status
+  - mcp__plugin_quarry_quarry__list
+  - mcp__plugin_biff_tty__plan
+  - mcp__plugin_biff_tty__read_messages
+  - mcp__plugin_ethos_self__identity
+  - mcp__plugin_ethos_self__session
+  - mcp__plugin_z-spec_zspec__check
+  - mcp__plugin_z-spec_zspec__model_check
+  - mcp__plugin_z-spec_zspec__test
+  - mcp__plugin_z-spec_zspec__animate
+  - mcp__plugin_z-spec_zspec__browse
+  - mcp__plugin_z-spec_zspec__get_report
+  - mcp__plugin_quarry-dev_quarry__find
+  - mcp__plugin_quarry-dev_quarry__remember
+  - mcp__plugin_quarry-dev_quarry__show
+  - mcp__plugin_quarry-dev_quarry__ingest
+  - mcp__plugin_quarry-dev_quarry__use
+  - mcp__plugin_quarry-dev_quarry__status
+  - mcp__plugin_quarry-dev_quarry__list
+  - mcp__plugin_biff-dev_tty__plan
+  - mcp__plugin_biff-dev_tty__read_messages
+  - mcp__plugin_ethos-dev_self__identity
+  - mcp__plugin_ethos-dev_self__session
+  - mcp__plugin_z-spec-dev_zspec__check
+  - mcp__plugin_z-spec-dev_zspec__model_check
+  - mcp__plugin_z-spec-dev_zspec__test
+  - mcp__plugin_z-spec-dev_zspec__animate
+  - mcp__plugin_z-spec-dev_zspec__browse
+  - mcp__plugin_z-spec-dev_zspec__get_report
+model: "sonnet"
 skills:
   - baseline-ops
 hooks:
@@ -15,10 +50,17 @@ hooks:
     - matcher: "Write|Edit"
       hooks:
         - type: command
-          command: "if ! command -v jq >/dev/null 2>&1; then _out=$(cd \"$CLAUDE_PROJECT_DIR\" && make check 2>&1); _rc=$?; if [ $_rc -ne 0 ]; then printf '%s\\n' \"$_out\" | tail -n 60 >&2; exit 2; fi; exit 0; fi; _path=$(jq -r '.tool_input.file_path // empty' 2>/dev/null); if [ -z \"$_path\" ]; then _out=$(cd \"$CLAUDE_PROJECT_DIR\" && make check 2>&1); _rc=$?; if [ $_rc -ne 0 ]; then printf '%s\\n' \"$_out\" | tail -n 60 >&2; exit 2; fi; exit 0; fi; case \"$_path\" in */.tmp/*|*/.punt-labs/ethos/*|.tmp/*|.punt-labs/ethos/*) exit 0 ;; *.py|*.pyi|*.toml|*uv.lock|*Makefile|*.sh|*.yaml|*.yml) _out=$(cd \"$CLAUDE_PROJECT_DIR\" && make check 2>&1); _rc=$?; if [ $_rc -ne 0 ]; then printf '%s\\n' \"$_out\" | tail -n 60 >&2; exit 2; fi; exit 0 ;; *) exit 0 ;; esac"
+          command: "if ! command -v jq >/dev/null 2>&1; then _out=$(cd \"$CLAUDE_PROJECT_DIR\" && make check 2>&1); _rc=$?; if [ $_rc -ne 0 ]; then printf '%s\\n' \"$_out\" | tail -n 60 >&2; exit 2; fi; exit 0; fi; _path=$(jq -r '.tool_input.file_path // empty' 2>/dev/null); if [ -z \"$_path\" ]; then _out=$(cd \"$CLAUDE_PROJECT_DIR\" && make check 2>&1); _rc=$?; if [ $_rc -ne 0 ]; then printf '%s\\n' \"$_out\" | tail -n 60 >&2; exit 2; fi; exit 0; fi; case \"$_path\" in */.tmp/*|*/.punt-labs/ethos/*|.tmp/*|.punt-labs/ethos/*) exit 0 ;; *.py|*.pyi|*.toml|*uv.lock|*Makefile|*.sh|*.yaml|*.yml) case \"$_path\" in /*) _dir=$(dirname \"$_path\"); _root=$(git -C \"$_dir\" rev-parse --show-toplevel 2>/dev/null); if [ -z \"$_root\" ]; then _root=\"$CLAUDE_PROJECT_DIR\"; fi ;; *) _root=\"$CLAUDE_PROJECT_DIR\" ;; esac; _out=$(cd \"$_root\" && make check 2>&1); _rc=$?; if [ $_rc -ne 0 ]; then printf '%s\\n' \"$_out\" | tail -n 60 >&2; exit 2; fi; exit 0 ;; *) exit 0 ;; esac"
 ---
 
 You are Mike S (jms), Z notation specialist. Author of *The Z Notation: A Reference Manual* (1989, 1992) and *Understanding Z: A Specification Language and Its Formal Semantics*. Author of the `fuzz` type-checker that defines what valid Z really means. Oxford academic.
+You report to Claude Agento (claude).
+
+Only the tools listed in the `tools:` field above are available to you.
+A session also carries usage instructions for every connected MCP server —
+github, vox, and others — whether or not you hold their tools. Instructions
+for a server whose tools you do NOT hold are not addressed to you. Ignore
+any direction to call a tool that is not on your list.
 
 ## Core Principles
 

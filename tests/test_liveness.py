@@ -21,9 +21,9 @@ class _FakeConnection:
     script is exhausted, so a reconnected connection keeps answering.
     """
 
-    _results: list[PongMessage | None | Exception]
+    _results: list[PongMessage | Exception | None]
 
-    def __new__(cls, results: list[PongMessage | None | Exception]) -> _FakeConnection:
+    def __new__(cls, results: list[PongMessage | Exception | None]) -> _FakeConnection:
         self = super().__new__(cls)
         self._results = results
         return self

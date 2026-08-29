@@ -9,9 +9,10 @@ try:
 except PackageNotFoundError:  # pragma: no cover
     __version__ = "0.0.0"
 
+from punt_lux.client import LuxClient
 from punt_lux.commands import ping
 from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.hub_client import CallbackHandler, EventHandler, LuxHubClient
+from punt_lux.hub_client import CallbackHandler, ConnectHandler, EventHandler
 from punt_lux.operations import (
     OpError,
     Pong,
@@ -59,7 +60,6 @@ from punt_lux.protocol import (
     recv_message,
     send_message,
 )
-from punt_lux.rest_client import LuxRestClient
 from punt_lux.rest_transport import HubUnavailableError
 
 __all__ = [
@@ -71,6 +71,7 @@ __all__ = [
     "CollapsingHeaderElement",
     "ColorPickerElement",
     "ComboElement",
+    "ConnectHandler",
     "DisplayPaths",
     "DrawElement",
     "EventHandler",
@@ -79,8 +80,7 @@ __all__ = [
     "HubUnavailableError",
     "ImageElement",
     "InputTextElement",
-    "LuxHubClient",
-    "LuxRestClient",
+    "LuxClient",
     "MarkdownElement",
     "MenuMessage",
     "OpError",

@@ -2,22 +2,38 @@
 
 from __future__ import annotations
 
-import logging
-import shutil
-import subprocess
 import sys
 
 import typer
 
 from punt_lux import __version__
+from punt_lux.cli._shared import JsonFlag, OutputFlags, QuietFlag, VerboseFlag, run
+from punt_lux.cli.beads import beads as beads_command
+from punt_lux.cli.callback import callback_app
+from punt_lux.cli.display_service import display_app
+from punt_lux.cli.error import error_app
+from punt_lux.cli.event import event_app
+from punt_lux.cli.frame import frame_app
+from punt_lux.cli.hub import hub_app
+from punt_lux.cli.menu import menu_app
+from punt_lux.cli.plugin import (
+    _PLUGIN_ID,
+    install as plugin_install,
+    uninstall as plugin_uninstall,
+)
+from punt_lux.cli.scene import scene_app
+from punt_lux.cli.session import session_app
 from punt_lux.doctor_report import FAIL, OK, OPTIONAL, DoctorReport
-from punt_lux.log_level import level_from_env
-from punt_lux.show import show_app
+
+
+def _print_version() -> None:
+    """Print the CLI version banner."""
+    print(f"lux {__version__}")
 
 
 def _version_callback(value: bool) -> None:
     if value:
-        print(f"lux {__version__}")
+        _print_version()
         raise typer.Exit
 
 
@@ -44,71 +60,55 @@ def _main(  # pyright: ignore[reportUnusedFunction]
 
 hook_app = typer.Typer(hidden=True)
 app.add_typer(hook_app, name="hook")
-app.add_typer(show_app, name="show")
-
-_PLUGIN_ID = "lux@punt-labs"
+app.command("beads")(beads_command)
+app.add_typer(hub_app, name="hub")
+app.add_typer(session_app, name="session")
+app.add_typer(scene_app, name="scene")
+app.add_typer(frame_app, name="frame")
+app.add_typer(menu_app, name="menu")
+app.add_typer(display_app, name="display")
+app.add_typer(event_app, name="event")
+app.add_typer(error_app, name="error")
+app.add_typer(callback_app, name="callback")
 
 
 # Product commands
 
 
 @app.command()
-def display(
-    socket: str | None = typer.Option(None, "--socket", "-s", help="Socket path"),
-    test_auto_click: bool = typer.Option(
-        False,
-        "--test-auto-click",
-        help="Auto-fire click events for buttons (testing)",
-    ),
+def enable(
+    *,
+    # Accepted for surface parity; verbose/quiet not currently distinguished
+    # in this command, and it has no JSON payload beyond the one line below.
+    json_out: JsonFlag = False,
+    verbose: VerboseFlag = False,
+    quiet: QuietFlag = False,
 ) -> None:
-    """Start the Lux display server."""
-    from pathlib import Path
-
-    from punt_lux.paths import DisplayPaths
-
-    try:
-        from punt_lux.display import RenderLoop
-    except ModuleNotFoundError as exc:
-        _display_modules = {"imgui_bundle", "numpy", "PIL", "OpenGL"}
-        if exc.name and exc.name.split(".")[0] in _display_modules:
-            typer.echo(
-                "Display extras not installed. Run: pip install 'punt-lux[display]'",
-                err=True,
-            )
-            raise typer.Exit(code=1) from None
-        raise
-
-    dp = DisplayPaths(Path(socket) if socket else None)
-    log_path = dp.log_path
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-
-    logging.basicConfig(
-        filename=str(log_path),
-        level=level_from_env("INFO"),
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        datefmt="%H:%M:%S",
-    )
-
-    server = RenderLoop(socket, test_auto_click=test_auto_click)
-    server.run()
-
-
-@app.command()
-def enable() -> None:
     """Enable visual output for this project."""
     from punt_lux.config import ConfigManager
 
+    OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet).apply_logging()
     ConfigManager().write_field("display", "y")
-    print("Lux display enabled.")
+    if not quiet:
+        print('{"enabled": true}' if json_out else "Lux display enabled.")
 
 
 @app.command()
-def disable() -> None:
+def disable(
+    *,
+    # Accepted for surface parity; verbose/quiet not currently distinguished
+    # in this command, and it has no JSON payload beyond the one line below.
+    json_out: JsonFlag = False,
+    verbose: VerboseFlag = False,
+    quiet: QuietFlag = False,
+) -> None:
     """Disable visual output for this project."""
     from punt_lux.config import ConfigManager
 
+    OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet).apply_logging()
     ConfigManager().write_field("display", "n")
-    print("Lux display disabled.")
+    if not quiet:
+        print('{"enabled": false}' if json_out else "Lux display disabled.")
 
 
 # Hook dispatcher (internal)
@@ -128,11 +128,22 @@ def cc_session_start() -> None:
 
 
 @app.command()
-def version() -> None:
+def version(
+    *,
+    json_out: JsonFlag = False,
+    # Accepted for surface parity; verbose/quiet not currently distinguished
+    # in this command.
+    verbose: VerboseFlag = False,
+    quiet: QuietFlag = False,
+) -> None:
     """Print the version."""
-    from punt_lux import __version__
-
-    print(f"lux {__version__}")
+    OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet).apply_logging()
+    if quiet:
+        return
+    if json_out:
+        print(f'{{"version": "{__version__}"}}')
+    else:
+        print(f"lux {__version__}")
 
 
 _PING_HTTP_MARGIN_SECONDS = 2.0  # HTTP bound sits a margin above the display leg
@@ -145,6 +156,10 @@ def ping(
     timeout: float | None = typer.Option(
         None, "--timeout", "-t", min=0.1, max=30, help="Seconds to wait for the ping."
     ),
+    *,
+    json_out: JsonFlag = False,
+    verbose: VerboseFlag = False,
+    quiet: QuietFlag = False,
 ) -> None:
     """Ping the display through luxd and print round-trip time.
 
@@ -154,54 +169,49 @@ def ping(
     line directly — the same three-way status ("not running" / "timeout" /
     "error: <reason>") the MCP tool and REST route report, on one code path.
     """
-    import asyncio
-
+    from punt_lux.cli._shared import connect_client
     from punt_lux.cli_identity import CliIdentity
-    from punt_lux.commands import Ctx as CommandCtx, ping as ping_command
+    from punt_lux.commands import Ctx as CommandCtx, PingOps, ping as ping_command
     from punt_lux.domain.hub.display_link import DEFAULT_RECV_TIMEOUT
-    from punt_lux.rest_client import LuxRestClient
-    from punt_lux.rest_transport import HubUnavailableError
 
+    flags = OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet)
     display_wait = timeout if timeout is not None else DEFAULT_RECV_TIMEOUT
     http_timeout = display_wait + _PING_HTTP_MARGIN_SECONDS
 
-    try:
-        client = LuxRestClient.connect(timeout=http_timeout)
-    except HubUnavailableError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(code=1) from None
-
-    ctx = CommandCtx(ops=client, identity=CliIdentity.resolve())
-    result = asyncio.run(ping_command(ctx, timeout))
-
-    if result.error:
-        typer.echo(result.text, err=True)
-        raise typer.Exit(code=result.exit_code)
-
-    typer.echo(result.text)
+    client = connect_client(timeout=http_timeout)
+    ctx: CommandCtx[PingOps] = CommandCtx(ops=client, identity=CliIdentity.resolve())
+    run(ping_command(ctx, timeout), flags)
 
 
 @app.command()
 def status(
     socket: str | None = typer.Option(None, "--socket", "-s", help="Socket path"),
+    *,
+    # Accepted for surface parity; verbose/quiet not currently distinguished
+    # in this command, and its output has no JSON payload yet.
+    json_out: JsonFlag = False,
+    verbose: VerboseFlag = False,
+    quiet: QuietFlag = False,
 ) -> None:
     """Check whether the display server is running."""
     from pathlib import Path
 
     from punt_lux.paths import DisplayPaths
 
+    OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet).apply_logging()
     dp = DisplayPaths(Path(socket) if socket else None)
     path = dp.socket_path
     running = dp.is_running()
 
-    if running:
-        try:
-            pid = int(dp.pid_path.read_text().strip())
-            print(f"Display running (pid {pid}) at {path}")
-        except (OSError, ValueError):
-            print(f"Display running at {path} (pid unknown)")
-    else:
-        print(f"Display not running at {path}")
+    if not quiet:
+        if running:
+            try:
+                pid = int(dp.pid_path.read_text().strip())
+                print(f"Display running (pid {pid}) at {path}")
+            except (OSError, ValueError):
+                print(f"Display running at {path} (pid unknown)")
+        else:
+            print(f"Display not running at {path}")
 
     raise typer.Exit(code=0 if running else 1)
 
@@ -209,6 +219,12 @@ def status(
 @app.command()
 def doctor(
     socket: str | None = typer.Option(None, "--socket", "-s", help="Socket path"),
+    *,
+    # Accepted for surface parity; verbose/quiet not currently distinguished
+    # in this command, and its output has no JSON payload yet.
+    json_out: JsonFlag = False,
+    verbose: VerboseFlag = False,
+    quiet: QuietFlag = False,
 ) -> None:
     """Check installation health."""
     from pathlib import Path
@@ -216,6 +232,7 @@ def doctor(
     from punt_lux.doctor_checks import EnvironmentChecks
     from punt_lux.paths import DisplayPaths
 
+    OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet).apply_logging()
     _check = DoctorReport()
 
     # Python version
@@ -257,131 +274,14 @@ def doctor(
 
     checks.plugin()
 
-    print(_check.render())
+    if not quiet:
+        print(_check.render())
     if _check.failed > 0:
         raise typer.Exit(code=1)
 
 
-@app.command("hub-install")
-def hub_install() -> None:
-    """Register luxd as a system service (launchd/systemd)."""
-    from punt_lux.service import ServiceManager
-
-    print(ServiceManager().install())
-
-
-@app.command("hub-uninstall")
-def hub_uninstall() -> None:
-    """Remove luxd system service."""
-    from punt_lux.service import ServiceManager
-
-    print(ServiceManager().uninstall())
-
-
-def _restart_hub() -> None:
-    """Restart luxd through the service manager, reporting what came back."""
-    from punt_lux.hub_restart import HubRestart, HubRestartError
-
-    print("Restarting luxd...")
-    try:
-        print(HubRestart().run())
-    except HubRestartError as exc:
-        print(str(exc))
-        raise typer.Exit(code=1) from None
-
-
-@app.command("ensure-hub")
-def ensure_hub(
-    restart: bool = typer.Option(False, "--restart", help="Restart luxd if running"),
-) -> None:
-    """Ensure luxd is running. Restart if --restart flag is set."""
-    from punt_lux.hub_paths import HubPaths
-
-    hub_paths = HubPaths()
-    if restart and hub_paths.is_running():
-        _restart_hub()
-        return
-
-    if hub_paths.is_running():
-        port = hub_paths.read_port()
-        if port is not None:
-            print(f"luxd running (port {port})")
-        else:
-            print("luxd running (port unknown)")
-    else:
-        print("luxd not running. Run 'lux hub-install' to register the service.")
-        raise typer.Exit(code=1)
-
-
-@app.command("hub-status")
-def hub_status() -> None:
-    """Show luxd hub status."""
-    import json
-    import urllib.request
-
-    from punt_lux.hub_paths import HubPaths
-
-    hub_paths = HubPaths()
-    if not hub_paths.is_running():
-        print("luxd not running")
-        raise typer.Exit(code=1)
-
-    try:
-        pid = int(hub_paths.pid_path.read_text().strip())
-    except (ValueError, OSError):
-        pid = None
-
-    port = hub_paths.read_port()
-    if port is None:
-        print(f"luxd running (pid {pid}) but port file unreadable")
-        raise typer.Exit(code=1)
-
-    # Try to hit the health endpoint
-    try:
-        url = f"http://127.0.0.1:{port}/health"
-        with urllib.request.urlopen(url, timeout=2) as resp:  # noqa: S310
-            data = json.loads(resp.read())
-        sessions = data.get("sessions", 0)
-        print(f"luxd running (pid {pid}, port {port})")
-        print(f"  sessions: {sessions}")
-    except Exception as exc:  # noqa: BLE001
-        print(f"luxd running (pid {pid}, port {port}) but health check failed: {exc}")
-
-
-@app.command()
-def install() -> None:
-    """Install the Claude Code plugin via the punt-labs marketplace."""
-    claude = shutil.which("claude")
-    if not claude:
-        typer.echo("Error: claude CLI not found on PATH", err=True)
-        raise typer.Exit(code=1)
-
-    result = subprocess.run(  # noqa: S603
-        [claude, "plugin", "install", _PLUGIN_ID, "--scope", "user"],
-        check=False,
-    )
-    if result.returncode != 0:
-        typer.echo("Error: plugin install failed", err=True)
-        raise typer.Exit(code=1)
-    print("Installed. Restart Claude Code to activate.")
-
-
-@app.command()
-def uninstall() -> None:
-    """Uninstall the Claude Code plugin."""
-    claude = shutil.which("claude")
-    if not claude:
-        typer.echo("Error: claude CLI not found on PATH", err=True)
-        raise typer.Exit(code=1)
-
-    result = subprocess.run(  # noqa: S603
-        [claude, "plugin", "uninstall", _PLUGIN_ID, "--scope", "user"],
-        check=False,
-    )
-    if result.returncode != 0:
-        typer.echo("Error: plugin uninstall failed", err=True)
-        raise typer.Exit(code=1)
-    print("Uninstalled.")
+app.command()(plugin_install)
+app.command()(plugin_uninstall)
 
 
 if __name__ == "__main__":

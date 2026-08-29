@@ -16,7 +16,6 @@ from __future__ import annotations
 import dataclasses
 import logging
 import platform
-import signal
 import socket
 import time
 from pathlib import Path
@@ -26,6 +25,7 @@ from PIL import Image
 
 from punt_lux.display.auto_click import AutoClicker
 from punt_lux.display.dock_bar import DockBar
+from punt_lux.display.exit_signal import ExitSignal
 from punt_lux.display.frame_commands import FrameCommands
 from punt_lux.display.frame_placement import FramePlacement
 from punt_lux.display.frame_tiling import FrameTiling
@@ -33,7 +33,7 @@ from punt_lux.display.glfw_window import GlfwWindow
 from punt_lux.display.hub_reconciliation import HubReconciliation
 from punt_lux.display.idle_screen import render_idle
 from punt_lux.display.interaction_delivery import InteractionDelivery
-from punt_lux.display.macos import hide_from_dock_and_cmd_tab
+from punt_lux.display.macos import set_regular_activation_policy
 from punt_lux.display.markdown_font import MarkdownFont
 from punt_lux.display.paint_clock import PaintClock
 from punt_lux.display.pending_interactions import PendingInteractions
@@ -80,6 +80,13 @@ logger = logging.getLogger(__name__)
 # frame or a new client adopts it.
 _ORPHAN_FD = -1
 
+# Total wall-clock a single frame's synchronous sends (Acks, Pongs, query
+# responses) may spend waiting on a backpressured Hub. Well below the 1 s ping
+# timeout and the ~2 s macOS "not responding" threshold, so a slow-but-alive
+# peer never wedges the render thread long enough to trip either. Individual
+# sends past the budget are deferred by the caller, not blocked.
+_FRAME_SEND_BUDGET = 0.1
+
 
 class RenderLoop:
     """The ImGui render loop, with non-blocking Unix socket IPC."""
@@ -110,6 +117,7 @@ class RenderLoop:
     _imgui_renderer_factory: ImGuiRendererFactory
     _luxd_factory: Any  # JsonElementFactory, declared Any to avoid an import cycle
     _hub_reconciliation: HubReconciliation
+    _exit_signal: ExitSignal
 
     def __new__(
         cls,
@@ -357,14 +365,12 @@ class RenderLoop:
         """
         if not self._socket_listener.setup(self._socket_path):
             return
-        signal.signal(signal.SIGTERM, self._handle_sigterm)  # arm before ImGui init
-        self._display_paths.write_pid()
-        logger.info("Display server listening on %s", self._socket_path)
+        self._announce_listening()
         # Set process name (visible in ps, top, Activity Monitor)
         try:
             import setproctitle  # pyright: ignore[reportMissingImports]
 
-            setproctitle.setproctitle("Lux")
+            setproctitle.setproctitle("luxd-display")
         except ImportError:
             pass
 
@@ -387,6 +393,7 @@ class RenderLoop:
         runner_params.callbacks.after_swap = self._on_after_swap
         runner_params.callbacks.before_exit = self._on_exit
         runner_params.fps_idling.fps_idle = 30.0
+        self._exit_signal = ExitSignal(runner_params)
 
         addons = immapp.AddOnsParams()
         addons.with_implot = True
@@ -405,6 +412,11 @@ class RenderLoop:
 
         immapp.run(runner_params, addons)
 
+    def _announce_listening(self) -> None:
+        """Record the pid and log once the socket claim has succeeded."""
+        self._display_paths.write_pid()
+        logger.info("Display server listening on %s", self._socket_path)
+
     # -- ImGui callbacks ---------------------------------------------------
 
     def _on_post_init(self) -> None:
@@ -415,7 +427,7 @@ class RenderLoop:
         io = imgui.get_io()
         io.config_flags |= imgui.ConfigFlags_.docking_enable.value
 
-        hide_from_dock_and_cmd_tab()
+        set_regular_activation_policy()
 
         # Suppress focus-stealing on every *reshow* after this one (a
         # respawned display's later windows) — GLFW/HelloImGui cannot suppress
@@ -427,11 +439,22 @@ class RenderLoop:
         self._themes = list(hello_imgui.ImGuiTheme_)
 
     def _on_frame(self) -> None:
-        """Called every frame by ImGui."""
-        self._socket_listener.accept_connections()
-        self._socket_listener.poll_clients()
-        self._render_scene()
-        self._flush_events()
+        """Called every frame by ImGui.
+
+        A single bounded send deadline is armed for the whole frame so a burst
+        of Acks, Pongs, and query responses under Hub backpressure cannot stack
+        per-send waits and wedge the render thread past the ping timeout or the
+        macOS "not responding" threshold. Sends past the budget defer, they do
+        not block.
+        """
+        self._socket_listener.set_frame_deadline(time.monotonic() + _FRAME_SEND_BUDGET)
+        try:
+            self._socket_listener.accept_connections()
+            self._socket_listener.poll_clients()
+            self._render_scene()
+            self._flush_events()
+        finally:
+            self._socket_listener.clear_frame_deadline()
 
     def _on_after_swap(self) -> None:
         """Called after GL buffer swap -- GL_FRONT has rendered content."""
@@ -518,11 +541,6 @@ class RenderLoop:
     def _request_fit_all(self) -> None:
         """Callback for MenuReplica: request fit-all layout."""
         self._fit_all_frames = True
-
-    def _handle_sigterm(self, _signum: int, _frame: object) -> None:
-        """SIGTERM handler — remove PID file and exit."""
-        self._display_paths.remove_pid()
-        raise SystemExit(0)
 
     def _on_exit(self) -> None:
         """Called before the window closes."""

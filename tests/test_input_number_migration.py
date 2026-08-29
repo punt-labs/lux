@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastmcp.exceptions import ToolError
 
 from punt_lux.display.render_loop import RenderLoop
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
@@ -260,9 +261,9 @@ class TestShowRejectsInvalidInput:
     def test_show_rejects_inverted_range(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
-        result = show(
-            "s1", [{"kind": "input_number", "id": "in", "min": 100.0, "max": 0.0}]
-        )
+        with pytest.raises(ToolError) as _exc:
+            show("s1", [{"kind": "input_number", "id": "in", "min": 100.0, "max": 0.0}])
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "[input_number 'in']" in result
         client.show.assert_not_called()
@@ -271,7 +272,9 @@ class TestShowRejectsInvalidInput:
     def test_show_rejects_nan_value(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
-        result = show("s1", [{"kind": "input_number", "id": "in", "value": math.nan}])
+        with pytest.raises(ToolError) as _exc:
+            show("s1", [{"kind": "input_number", "id": "in", "value": math.nan}])
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "[input_number 'in']" in result
         client.show.assert_not_called()
@@ -280,7 +283,9 @@ class TestShowRejectsInvalidInput:
     def test_show_rejects_negative_step(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
-        result = show("s1", [{"kind": "input_number", "id": "in", "step": -1.0}])
+        with pytest.raises(ToolError) as _exc:
+            show("s1", [{"kind": "input_number", "id": "in", "step": -1.0}])
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "[input_number 'in']" in result
         client.show.assert_not_called()
@@ -290,19 +295,26 @@ class TestShowRejectsInvalidInput:
         """A bad input nested in an all-ABC group is collected by the walk."""
         client = _mock_client()
         mock_get.return_value = client
-        result = show(
-            "s1",
-            [
-                {
-                    "kind": "group",
-                    "id": "g1",
-                    "children": [
-                        {"kind": "text", "id": "ok", "content": "fine"},
-                        {"kind": "input_number", "id": "bad", "min": 10.0, "max": 0.0},
-                    ],
-                }
-            ],
-        )
+        with pytest.raises(ToolError) as _exc:
+            show(
+                "s1",
+                [
+                    {
+                        "kind": "group",
+                        "id": "g1",
+                        "children": [
+                            {"kind": "text", "id": "ok", "content": "fine"},
+                            {
+                                "kind": "input_number",
+                                "id": "bad",
+                                "min": 10.0,
+                                "max": 0.0,
+                            },
+                        ],
+                    }
+                ],
+            )
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "[input_number 'bad']" in result
         client.show.assert_not_called()
@@ -314,20 +326,27 @@ class TestShowRejectsInvalidInput:
         """A bad input nested in a collapsing_header is collected by the walk."""
         client = _mock_client()
         mock_get.return_value = client
-        result = show(
-            "s1",
-            [
-                {
-                    "kind": "collapsing_header",
-                    "id": "hdr",
-                    "label": "Details",
-                    "children": [
-                        {"kind": "text", "id": "ok", "content": "fine"},
-                        {"kind": "input_number", "id": "bad", "min": 10.0, "max": 0.0},
-                    ],
-                }
-            ],
-        )
+        with pytest.raises(ToolError) as _exc:
+            show(
+                "s1",
+                [
+                    {
+                        "kind": "collapsing_header",
+                        "id": "hdr",
+                        "label": "Details",
+                        "children": [
+                            {"kind": "text", "id": "ok", "content": "fine"},
+                            {
+                                "kind": "input_number",
+                                "id": "bad",
+                                "min": 10.0,
+                                "max": 0.0,
+                            },
+                        ],
+                    }
+                ],
+            )
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "[input_number 'bad']" in result
         client.show.assert_not_called()

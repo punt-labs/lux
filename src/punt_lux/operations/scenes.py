@@ -8,10 +8,8 @@ test without the process.
 
 Every operation here is scoped: the caller owns what it writes, and reaching the
 Hub at all is that connection's contact, so a show registers the caller's session
-and renews its lease. Installing itself belongs to ``SceneInstaller``, which the
-Hub also uses to write scenes *for* clients that are not calling — that path
-registers nobody, and holding the installer rather than this class is what makes
-it unable to.
+and renews its lease. ``close_frame`` is the one unscoped write -- a frame is
+shared UI, not one caller's own.
 
 A patch-style ``update`` against a quarantined scene is refused: the scene is
 unchanged, so nothing about it has become safe to render
@@ -31,6 +29,7 @@ from punt_lux.domain.hub.write_result import WriteRejected
 from punt_lux.domain.ids import SceneId, Topic
 from punt_lux.operations.composition_boundary import CompositionBoundary
 from punt_lux.operations.models.common import OpError
+from punt_lux.operations.models.menu_results import Ok
 from punt_lux.operations.models.scene_results import Cleared, SceneShown
 from punt_lux.operations.scene_clearing import SceneClearer
 from punt_lux.operations.scene_installer import SceneInstaller
@@ -172,12 +171,7 @@ class SceneOperations:
     def _notify_quarantine(
         self, local_id: str, record: QuarantineRecord, scope: Scope
     ) -> None:
-        """Publish the quarantine to the caller's own topic subscribers.
-
-        An agent subscribed to ``scene:<local id>:quarantined`` — its own raw
-        name, never the composed store key (DES-086) — learns even when it is
-        not the one writing (display-crash-quarantine.md Question 2).
-        """
+        """Publish the quarantine to the caller's own raw-named topic subscribers."""
         topic = Topic(f"scene:{local_id}:quarantined")
         self._hub.publish(scope.connection_id, topic, record.to_payload())
 
@@ -189,3 +183,9 @@ class SceneOperations:
         ``cleared``.
         """
         return self._clearer.clear(scope.connection_id, scene_id)
+
+    def close_frame(self, frame_id: str) -> Ok:
+        """Tear down a frame's scenes and mark them dirty for repaint."""
+        for scene_id in self._display.frames.remove_frame(frame_id):
+            self._replicator.mark_dirty(scene_id)
+        return Ok()
