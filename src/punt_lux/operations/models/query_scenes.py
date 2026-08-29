@@ -8,6 +8,10 @@ from pydantic import BaseModel, ConfigDict
 
 from punt_lux.operations.models.query_ownership import SceneOwner
 from punt_lux.operations.models.query_quarantine import QuarantineInfo
+from punt_lux.operations.models.query_visibility import (
+    FrameVisibilityState,
+    VisibilityNotRequested,
+)
 
 __all__ = ["FrameSummary", "SceneList", "SceneSummary"]
 
@@ -31,7 +35,7 @@ class SceneSummary(BaseModel):
 
 
 class FrameSummary(BaseModel):
-    """One frame and the scenes it presents."""
+    """One frame, the scenes it presents, and where the display is showing it."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -40,6 +44,12 @@ class FrameSummary(BaseModel):
     scene_count: int
     scene_ids: list[str]
     layout: Literal["tab", "stack"]
+    # Proxied from the running display, never Hub authority: the user owns where
+    # a window sits and it is never replicated back (DES-088). Off unless the
+    # caller asks, so a bare list_scenes stays one Hub-local read; discriminated
+    # rather than nullable, so "not asked" and "could not answer" cannot be read
+    # as "on screen".
+    visibility: FrameVisibilityState = VisibilityNotRequested()
 
 
 class SceneList(BaseModel):

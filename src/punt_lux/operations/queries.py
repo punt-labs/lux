@@ -18,6 +18,7 @@ from punt_lux.domain.ids import SceneId
 from punt_lux.operations.composition_boundary import CompositionBoundary
 from punt_lux.operations.display_facts import DisplayFactProxy
 from punt_lux.operations.frame_grouping import FrameAccumulator
+from punt_lux.operations.frame_visibility_proxy import FrameVisibilityProxy
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.inspect_scope import HUB_ONLY, InspectScope
 from punt_lux.operations.models.query_clients import ClientList, HubClient
@@ -29,7 +30,11 @@ from punt_lux.operations.models.query_inspection import (
 )
 from punt_lux.operations.models.query_ownership import SceneOwner
 from punt_lux.operations.models.query_quarantine import QuarantineInfo
-from punt_lux.operations.models.query_scenes import SceneList, SceneSummary
+from punt_lux.operations.models.query_scenes import (
+    FrameSummary,
+    SceneList,
+    SceneSummary,
+)
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.client_session import ClientSession
@@ -37,6 +42,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.hub.named_sessions import NamedSession
     from punt_lux.domain.hub.quarantine_record import QuarantineRecord
+    from punt_lux.domain.hub.scene_presentation import ScenePresentation
     from punt_lux.domain.ids import ConnectionId
     from punt_lux.operations.display_port import DisplayPort
     from punt_lux.operations.scope import Scope
@@ -55,7 +61,8 @@ class QueryOperations:
     _hub: Hub
     _port: DisplayPort
     _facts: DisplayFactProxy
-    __slots__ = ("_display", "_facts", "_hub", "_port")
+    _seen: FrameVisibilityProxy
+    __slots__ = ("_display", "_facts", "_hub", "_port", "_seen")
 
     def __new__(cls, display: HubDisplay, hub: Hub, port: DisplayPort) -> Self:
         self = super().__new__(cls)
@@ -63,6 +70,7 @@ class QueryOperations:
         self._hub = hub
         self._port = port
         self._facts = DisplayFactProxy(port)
+        self._seen = FrameVisibilityProxy(port)
         return self
 
     # -- Hub-authoritative reads -------------------------------------------
@@ -104,7 +112,7 @@ class QueryOperations:
             quarantine=self._quarantine_info(sid),
         )
 
-    def list_scenes(self) -> SceneList:
+    def list_scenes(self, facts: InspectScope = HUB_ONLY) -> SceneList:
         """List every scene and frame from the authoritative store.
 
         Includes quarantined scenes alongside live ones — quarantine is a
@@ -114,36 +122,61 @@ class QueryOperations:
         quarantined, the :class:`QuarantineInfo` record explaining why.
         Replication reads through :meth:`HubDisplay.live_scene_ids` instead,
         which excludes quarantined scenes at the source.
+
+        ``facts`` may ask for each frame's visibility, which is the one thing
+        here the Hub does not hold: where a window sits belongs to the user and
+        is never replicated back (DES-088). It is proxied from the running
+        display only when asked, so a bare call stays a single Hub-local read and
+        never reaches around — the same bargain ``inspect_scene`` strikes for
+        painted geometry.
         """
         scenes: list[SceneSummary] = []
         frames: dict[str, FrameAccumulator] = {}
         for sid in self._display.all_scene_ids():
             presentation = self._display.frames.presentation_for(sid)
-            quarantine = self._quarantine_info(sid)
-            scenes.append(
-                SceneSummary(
-                    scene_id=str(sid),
-                    local_id=self.local_id_of(sid),
-                    element_count=self._display.element_count(sid),
-                    frame_id=presentation.frame_id,
-                    owners=self._owners_of(sid),
-                    status="quarantined" if quarantine is not None else "live",
-                    quarantine=quarantine,
-                )
-            )
-            layout = presentation.frame_layout or "tab"
-            frame = frames.setdefault(
-                presentation.frame_id,
-                FrameAccumulator(
-                    title=presentation.frame_title or presentation.frame_id,
-                    layout=layout,
-                ),
-            )
-            frame.add(str(sid))
-        return SceneList(
-            scenes=scenes,
-            frames=[acc.summary(fid) for fid, acc in frames.items()],
+            scenes.append(self._scene_summary(sid, presentation))
+            self._gather(frames, presentation).add(str(sid))
+        return SceneList(scenes=scenes, frames=self._frame_summaries(frames, facts))
+
+    def _scene_summary(
+        self, sid: SceneId, presentation: ScenePresentation
+    ) -> SceneSummary:
+        """Build one scene's summary, quarantined or live."""
+        quarantine = self._quarantine_info(sid)
+        return SceneSummary(
+            scene_id=str(sid),
+            local_id=self.local_id_of(sid),
+            element_count=self._display.element_count(sid),
+            frame_id=presentation.frame_id,
+            owners=self._owners_of(sid),
+            status="quarantined" if quarantine is not None else "live",
+            quarantine=quarantine,
         )
+
+    @staticmethod
+    def _gather(
+        frames: dict[str, FrameAccumulator], presentation: ScenePresentation
+    ) -> FrameAccumulator:
+        """Return the accumulator for this scene's frame, starting one if needed."""
+        return frames.setdefault(
+            presentation.frame_id,
+            FrameAccumulator(
+                title=presentation.frame_title or presentation.frame_id,
+                layout=presentation.frame_layout or "tab",
+            ),
+        )
+
+    def _frame_summaries(
+        self, frames: dict[str, FrameAccumulator], facts: InspectScope
+    ) -> list[FrameSummary]:
+        """Close every accumulator, attaching the visibility ``facts`` asked for.
+
+        The display is asked once for the whole call rather than once per frame:
+        asking repeatedly would let the answer change mid-list.
+        """
+        seen = self._seen.of_frames(facts)
+        absent = self._seen.absent(facts)
+        return [acc.summary(fid, seen.get(fid, absent)) for fid, acc in frames.items()]
 
     def list_clients(self) -> ClientList:
         """List the Hub's sessions with the identity each declared and its age.

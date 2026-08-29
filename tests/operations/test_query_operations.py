@@ -30,6 +30,11 @@ from punt_lux.operations.models.query_events import RecentEvents
 from punt_lux.operations.models.query_geometry import GeometryPresent
 from punt_lux.operations.models.query_inspection import SceneInspection
 from punt_lux.operations.models.query_scenes import SceneList
+from punt_lux.operations.models.query_visibility import (
+    VisibilityNotRequested,
+    VisibilityPresent,
+    VisibilityUnavailable,
+)
 from punt_lux.operations.queries import QueryOperations
 from punt_lux.operations.scope import Scope
 from punt_lux.protocol.agent_factory import agent_element_factory
@@ -267,6 +272,81 @@ def test_inspect_scene_a_quarantined_scene_stays_inspectable() -> None:
     assert result.quarantine.death_count == 2
     assert result.quarantine.last_death_at == 42.0
     assert result.quarantine.render_error == "boom"
+
+
+def test_list_scenes_reports_frame_visibility_when_asked() -> None:
+    """The opt-in that makes a closed frame observable from a real client surface.
+
+    Where a window sits is not the Hub's to give --- the user owns it and it is
+    never replicated back --- so it is proxied from the running display, on the
+    same terms ``inspect_scene`` proxies painted geometry: only when asked.
+    """
+    store = HubDisplay()
+    _seed_scene(store, scene="s1", connection="c1")
+    port = _StubPort(
+        DisplayReplied(
+            {
+                "scenes": [],
+                "frames": [
+                    {"frame_id": "frame-a", "visibility": "closed"},
+                ],
+            }
+        )
+    )
+    ops = QueryOperations(store, Hub(), port)
+
+    result = ops.list_scenes(InspectScope(want_visibility=True))
+
+    assert isinstance(result, SceneList)
+    frame = next(f for f in result.frames if f.frame_id == "frame-a")
+    assert isinstance(frame.visibility, VisibilityPresent)
+    assert frame.visibility.visibility == "closed"
+    assert frame.visibility.is_closed is True
+
+
+def test_list_scenes_says_not_requested_rather_than_guessing() -> None:
+    """A bare call never asked, and says so instead of reporting a default.
+
+    "Nobody asked" and "the frame is on screen" are different facts, and a
+    nullable field would let a caller read the first as the second.
+    """
+    store = HubDisplay()
+    _seed_scene(store, scene="s1", connection="c1")
+
+    result = QueryOperations(store, Hub(), _ForbiddenPort()).list_scenes()
+
+    frame = next(f for f in result.frames if f.frame_id == "frame-a")
+    assert isinstance(frame.visibility, VisibilityNotRequested)
+
+
+def test_list_scenes_marks_a_frame_the_display_never_mentioned_unavailable() -> None:
+    """The question was put and went unanswered --- not the same as not asking."""
+    store = HubDisplay()
+    _seed_scene(store, scene="s1", connection="c1")
+    port = _StubPort(DisplayReplied({"scenes": [], "frames": []}))
+
+    result = QueryOperations(store, Hub(), port).list_scenes(
+        InspectScope(want_visibility=True)
+    )
+
+    frame = next(f for f in result.frames if f.frame_id == "frame-a")
+    assert isinstance(frame.visibility, VisibilityUnavailable)
+    assert "did not report" in frame.visibility.reason
+
+
+def test_list_scenes_survives_a_display_that_cannot_be_asked() -> None:
+    """A down display costs the visibility, never the Hub-authoritative answer."""
+    store = HubDisplay()
+    _seed_scene(store, scene="s1", connection="c1")
+    port = _StubPort(DisplayFault(code="display_unavailable"))
+
+    result = QueryOperations(store, Hub(), port).list_scenes(
+        InspectScope(want_visibility=True)
+    )
+
+    frame = next(f for f in result.frames if f.frame_id == "frame-a")
+    assert isinstance(frame.visibility, VisibilityUnavailable)
+    assert [s.local_id for s in result.scenes] == ["s1"]  # the Hub read is intact
 
 
 def test_list_scenes_reads_the_hub_without_touching_the_display() -> None:

@@ -6,7 +6,9 @@ It is fetched over luxd's one bounded connection and narrowed here into a
 discriminated state — ``unavailable`` with a reason when the round-trip
 faults or the reply is malformed, the answer otherwise, and ``not_requested``
 when the scope did not ask. This fact is read, never installed as Hub state
-(introspection-api.md).
+(introspection-api.md). Where each *frame* is being shown is the other such
+fact, and it has a proxy of its own --- one class per fact, so neither carries
+the other's narrowing.
 """
 
 from __future__ import annotations

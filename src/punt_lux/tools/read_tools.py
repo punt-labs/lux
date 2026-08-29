@@ -73,13 +73,18 @@ def inspect_scene(
 
 
 @mcp.tool()
-def list_scenes() -> SceneList:
+def list_scenes(*, want_visibility: bool = False) -> SceneList:
     """List all active scenes and frames from the authoritative store.
 
     Returns the scenes (scene_id, element_count, frame_id, owners) and frames
     (frame_id, title, scene_count, scene_ids, layout) the Hub is holding.
+
+    Set ``want_visibility`` to also report where the display is showing each
+    frame --- ``on_screen``, ``docked``, or ``closed`` (the user shut it). That
+    one fact is not the Hub's, so it costs a round trip to the display and is off
+    by default; without it each frame reads ``not_requested`` rather than a guess.
     """
-    return _core.OPERATIONS.list_scenes()
+    return _core.OPERATIONS.list_scenes(InspectScope(want_visibility=want_visibility))
 
 
 @mcp.tool()

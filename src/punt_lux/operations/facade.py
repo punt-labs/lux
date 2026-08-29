@@ -279,9 +279,9 @@ class Operations:
         """
         return self._queries.inspect_scene(scene_id, scope, facts)
 
-    def list_scenes(self) -> SceneList:
-        """List every live scene and frame from the authoritative store."""
-        return self._queries.list_scenes()
+    def list_scenes(self, facts: InspectScope = HUB_ONLY) -> SceneList:
+        """List every live scene and frame; ``facts`` adds proxied visibility."""
+        return self._queries.list_scenes(facts)
 
     def list_clients(self) -> ClientList:
         """List the Hub's sessions and their scopes."""
