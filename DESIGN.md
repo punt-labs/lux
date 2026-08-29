@@ -5738,3 +5738,154 @@ Jim's Hub after both fixes were installed. Convergent diagnosis with
 the lux-side investigation of the same symptom. Vox's PR ships
 independently on their release cadence; this amendment is lux-side and
 does not block it.
+
+## DES-088: Closed Is a Visibility the Display Owns — Frame Content and Frame Visibility Are Two Axes
+
+**Status:** SETTLED (operator ratification 2026-08-29); implements
+R8 of DES-065, bead `lux-mxvy.8`. Design note:
+`docs/design-des065-visibility.md`. Formal model:
+`docs/frame-visibility-lifecycle.tex`, fuzz-clean and ProB
+model-checked (95 states, 845 transitions, all operations covered),
+with a fidelity control that reaches every property the intact
+specification cannot.
+
+**Problem.** Two authorities write to a frame, and they were writing
+to the same fields. A *client* owns its content — `show()`,
+`update()`, an empty push, a manifest purge, a frame TTL. The *user*
+owns its visibility — the collapse button, the close button, a dock
+pill, `raise_frame`, Expand/Collapse/Fit All. Two defects shipped,
+both found downstream in vox, and they are that confusion broken once
+in each direction:
+
+- **`vox-640w`.** `SceneReplica.close_frame` popped the frame out of
+  `FrameBook` entirely, so `FrameCommands.raise_it` found nothing and
+  answered `raised: false`. The one mechanism that exists to restore a
+  frame on a user gesture could not act on a frame the user closed.
+- **`vox-7l2d`.** The same `close_frame` called `forget_scene` for
+  every scene the frame held, returning those ids to *unseen*. The
+  next background push therefore read as `is_new`, and the `is_new`
+  branch cleared `minimized` and requested focus. A track change
+  reopened a window the user had shut.
+
+They share one cause. `is_new` — "this scene id is not in this frame"
+— is a fact about **content**, and it was wired to affordances that
+belong to **visibility**. Because a close erased content, the user's
+decision was round-tripped through the content axis and destroyed
+there.
+
+**Decision.** One rule, and the whole of it: *a content event never
+writes visibility; a visibility event never writes content.*
+
+`Frame.minimized: bool` becomes a three-valued `FrameVisibility`,
+asked through `is_on_screen` / `is_docked` / `is_closed` and moved
+through `minimize()` / `close()` / `restore()`. The boolean and its
+setter are deleted, not aliased. A closed frame stays in `FrameBook`
+with its scenes, widget state, active tab and cascade index: nothing
+about it is destroyed, it is simply not painted.
+
+Three things fall out of that choice which no other arrangement gives
+for free. `raise_frame` works on a closed frame with no change to its
+logic, because the frame is still there to be found — the load-bearing
+confirmation the whole design rests on, and the one `vox-640w`'s own
+fix depends on. There is one store rather than a graveyard beside the
+live frames, so there is no second place for the purge sweep and
+introspection to disagree with. And the "known but unframed" state the
+bead asks for needs no representation of its own: it is *known* with a
+frame whose visibility happens to be `CLOSED`.
+
+`close_frame` was one name over two operations, split five call sites
+to one. It becomes `close` — visibility only, no `forget_scene`, no
+widget-state discard, no stale-id notification — for the frame's ✕,
+and `dispose_frame` — the previous behaviour entire — for Clear All,
+the tab ✕, an empty push, a husk, and a manifest purge. The husk rule
+survives both: a frame whose last scene is disposed goes with it
+whatever its visibility, so a closed frame is not an unbounded leak.
+
+A frame is born `ON_SCREEN`, by one assignment in `FrameBook.ensure`
+and nothing else attached to it. That is not a raise: R8's acceptance
+tests are about the *window* and about *focus*, and its own final test
+("user opens the window via the menubar: the scene is visible")
+requires that arriving scenes did get frames while the window was
+hidden. There is no preference knob — a "create new frames minimized"
+setting has no requester and would give the user a way to make
+arriving content invisible with no affordance saying where it went.
+
+The formalisation surfaced three consequences that changed the
+implementation.
+
+- **The active tab is in the same category as visibility.** A
+  user-owned selection. A new scene takes it only when the frame has
+  none yet — its first scene, which has nothing to take. Otherwise it
+  joins the tab strip and the selection stays put. `DES-060` gated
+  three affordances to new scenes (un-minimize, focus, active-tab);
+  R8 retires the first two by name and this retires the third for the
+  same reason.
+- **A closed frame needs a deliberate reopen affordance, and it is
+  in scope.** Once the accidental path is gone, a frame is reopenable
+  only by a named gesture, and a plain agent `show()` scene owns no
+  menu entry. So the Windows menu gains a list of closed frames, one
+  entry each, going through `raise_frame`; and Expand All restores
+  docked and closed alike. The dock bar deliberately shows no pill for
+  a closed frame — keeping closed out of it is what makes closing a
+  stronger statement than collapsing.
+- **The Hub must stop deleting scenes when the user closes a frame.**
+  Invisible from `scene_replica.py` alone, and it would have survived
+  a Display-only fix. `render_loop._close_frame` sent a
+  `frame_close` invocation; `HubInteractionDispatch` answered by
+  calling `remove_frame` and marking every scene dirty, and the
+  replicator pushed those scenes back **empty** — which is the dispose
+  path. So even a Display that kept its closed frame perfectly would
+  have had it thrown out one round trip later, by the Hub, on the
+  user's own close. The wire event and its handler are retired
+  entirely, and `notify=False` with them, the user-close and purge
+  paths now being different methods rather than one method with a
+  flag. `FrameLifecycle.remove_frame` stays for the TTL sweep.
+
+**Why the model earned its place.** It found that the two halves of
+the fix must ship together or the product gets worse. Retiring the
+`is_new` side effect while leaving `close_frame` destructive reaches a
+state where the user has closed a frame, `raise_frame` cannot find it,
+and the accidental recreation that used to bring it back is gone —
+**today, `vox-7l2d` *is* the only reopen path for a closed frame.**
+Take it away on its own and the close button becomes a one-way door.
+The implementation was therefore not split along that seam, and its
+tests assert the composite: close, then raise, then confirm the frame
+is on screen.
+
+**Alternatives rejected.** *A graveyard of closed scenes beside the
+live frames* — needs a resurrection path, a second place for the purge
+sweep to look, and a second place for introspection to read; every one
+of those is somewhere the two copies can disagree. *Keep `close_frame`
+and give it a flag* — a flag over two incompatible meanings is how the
+six call sites came to disagree in the first place. *Persist `CLOSED`
+across a Display restart* — visibility is Display-local session state
+like focus and cascade position, neither of which survives either, and
+persisting it would mean replicating a Display-owned value back to the
+Hub, which is the exact coupling this severs. *Fix the tab ✕ at the
+same time* — `dismiss_framed_scene` has the same defect one level
+down, but repairing it needs *per-scene* visibility (a dismissed tab
+is one scene put away inside a frame that stays on screen) and this
+design's visibility is per-frame; filed as `lux-ksdw` rather than
+half-done here.
+
+**Supersedes.** DES-025 (Frame Auto-Focus) and DES-060 (Announce on
+Arrival Only), as DES-065 R8 already declares — this is where the
+retirement actually lands in the code. **Amends** DES-063 (Lux
+Applets) with the guarantee its raise-first pattern needs:
+`raise_frame` works identically on an open, docked, or closed frame,
+so `display_control.raise_frame` answers `raised: true` for a frame
+the user shut, and an applet's `BoardChannel.raised` → skip-the-push
+path behaves correctly for the first time.
+
+**Consequences, stated rather than discovered later.** Closing now
+tells the client nothing at all; an applet that would like to pause
+expensive work while its window is shut has no signal, and if that is
+ever wanted it is a new Hub → client notification designed on its own
+merits, not a reason to keep a deletion. A closed frame's scenes stay
+in the Hub's store until the client disposes them, the client
+disconnects, or the frame TTL passes — bounded by client lifetime, and
+the price of "closed is visibility, not deletion". And the parity
+design's planned `lux frame close` client operation is a **dispose**
+(a client saying its content is gone), not a **close** (the user
+putting a window away); that work should pick a different name for one
+of them.

@@ -2,6 +2,46 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **A frame the user closes stays closed, and can be opened again.** Closing a
+  frame used to remove it outright, which broke the same rule in both
+  directions: `raise_frame` had nothing left to act on and answered
+  `raised: false`, and because the close also forgot the frame's scene ids, the
+  next background push read as a brand-new scene and reopened the window — a
+  track change putting back a board the user had shut. Closing is now a
+  *visibility* state like collapsing. The frame keeps its scenes, its widget
+  state (scroll, selection, half-typed text), its active tab and its place in
+  the cascade; it is simply not painted. Asking for it back by name brings back
+  exactly what was shut. (`lux-mxvy.8`, DES-088; fixes the lux side of vox's
+  `vox-640w` and `vox-7l2d`.)
+- **A scene push no longer moves a window the user placed.** Whether the scene
+  is new to its frame or the tenth repaint of one already there, a push writes
+  content only: it never restores a docked or closed frame, never takes focus,
+  and never pulls the selection off the tab being read. A frame arriving where
+  none existed is created on screen and does nothing else — it takes no focus,
+  opens no window, and disturbs no other frame.
+- **The tab strip stops stealing the selection.** A second scene arriving in a
+  frame joins the strip; the tab the user is reading stays selected. Only a
+  frame's *first* scene takes the tab, having no selection to take.
+- **Closing a frame no longer deletes its scenes on the Hub.** The Display used
+  to send a `frame_close` event that the Hub answered by removing the frame's
+  scenes, which the replicator then pushed back empty — so a closed frame was
+  thrown out one round trip later regardless of what the Display did. Where a
+  window sits is the Display's business, and the event is retired.
+
+### Added
+
+- **The Windows menu lists the frames you have closed**, one entry each, and
+  clicking one brings that frame back and to the front. Without it, closing
+  would be a one-way door for any client that owns no menu entry of its own.
+  `Expand All` now restores closed frames alongside docked ones. The dock bar
+  deliberately shows no pill for a closed frame — that is what makes closing a
+  stronger statement than collapsing.
+- **`list_scenes` reports each frame's visibility** (`on_screen`, `docked`, or
+  `closed`), since a closed frame's presence no longer distinguishes it from
+  one that is up.
+
 ## [0.26.0] - 2026-08-19
 
 ### Changed
