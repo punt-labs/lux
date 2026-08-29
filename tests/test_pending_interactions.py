@@ -11,10 +11,16 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 
-def _event(element_id: str, *, kind: str = "clicked") -> RemoteEventHandlerInvocation:
+def _event(
+    element_id: str, *, kind: str = "clicked", scene_id: str | None = None
+) -> RemoteEventHandlerInvocation:
     """Build a minimal interaction for the buffer tests."""
     return RemoteEventHandlerInvocation(
-        element_id=element_id, action="click", event_kind=kind, ts=1.0
+        element_id=element_id,
+        action="click",
+        event_kind=kind,
+        ts=1.0,
+        scene_id=scene_id,
     )
 
 
@@ -125,3 +131,57 @@ class TestBulkEviction:
         assert _ids(removed.lost) == ["gone"]
         assert _ids(removed.compensable) == ["gone"]  # the element took all of them
         assert _ids(buf.pending_events()) == ["keep1", "keep2"]  # order preserved
+
+
+class TestDiscardScenes:
+    """Scene-scoped discard, in isolation from the render-loop/scene-replica
+    integration coverage of the same operation (``test_display_partition.py``'s
+    ``test_close_frame_leaves_a_shared_id_alone_in_a_frame_still_up`` and
+    ``test_close_frame_leaves_a_menu_click_alone``, and
+    ``test_scene_replica.py``'s ``test_closing_names_no_scene_of_a_frame_that_stays_up``
+    already pin the shared-element-id scenario end to end)."""
+
+    def test_discard_scenes_with_empty_set_is_a_noop(self) -> None:
+        buf = PendingInteractions(max_age=3.0, max_count=128)
+        buf.admit([_event("a", scene_id="s1"), _event("b", scene_id="s2")], now=100.0)
+        removed = buf.discard_scenes(set())
+        assert removed.lost == ()
+        assert _ids(buf.pending_events()) == ["a", "b"]
+
+    def test_discard_scenes_matching_no_held_scene_is_a_noop(self) -> None:
+        buf = PendingInteractions(max_age=3.0, max_count=128)
+        buf.admit([_event("a", scene_id="s1"), _event("b", scene_id="s2")], now=100.0)
+        removed = buf.discard_scenes({"no-such-scene"})
+        assert removed.lost == ()
+        assert _ids(buf.pending_events()) == ["a", "b"]
+
+    def test_discard_scenes_preserves_survivor_order(self) -> None:
+        # Removing a scene from the middle of the buffer must not disturb the
+        # relative order of what is left holding.
+        buf = PendingInteractions(max_age=3.0, max_count=128)
+        buf.admit(
+            [
+                _event("keep1", scene_id="s1"),
+                _event("gone", scene_id="s2"),
+                _event("keep2", scene_id="s1"),
+            ],
+            now=100.0,
+        )
+        removed = buf.discard_scenes({"s2"})
+        assert _ids(removed.lost) == ["gone"]
+        assert removed.lost[0].scene_id == "s2"
+        assert _ids(removed.compensable) == ["gone"]  # the scene took all of them
+        assert _ids(buf.pending_events()) == ["keep1", "keep2"]  # order preserved
+
+    def test_discard_scenes_leaves_a_broadcast_event_alone(self) -> None:
+        # A menu-bar click carries no scene_id -- explicitly set here, since a
+        # bare RemoteEventHandlerInvocation defaults to None regardless -- so it
+        # belongs to no frame and must survive discard_scenes no matter which
+        # scenes are named. Production stamps scene_id in _emit_event; here it
+        # is set by hand so the assertion is pinned rather than accidental.
+        buf = PendingInteractions(max_age=3.0, max_count=128)
+        buf.admit([_event("menu-item", scene_id=None)], now=100.0)
+        removed = buf.discard_scenes({"s1", "s2"})
+        assert removed.lost == ()
+        assert _ids(buf.pending_events()) == ["menu-item"]
+        assert buf.pending_events()[0].scene_id is None
