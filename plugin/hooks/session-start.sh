@@ -92,26 +92,50 @@ fi
 # model. luxd cannot do this work itself: launchd starts it with no PATH, no
 # repository, and no credentials, while this session has all three.
 #
-# $PPID is the Claude Code process that ran this hook. The applet watches it and
-# exits when it goes, so an applet never outlives its session — including when
-# the session is killed rather than closed, which is the case a SessionEnd hook
-# would miss. The Hub's lease sweeps the menu entry regardless.
+# $PPID is NOT the Claude Code process that ran this hook — it is a short-lived
+# `sh` wrapper that Claude Code interposes to invoke SessionStart hooks, and that
+# wrapper exits within seconds of this script finishing. Watching $PPID means the
+# applet's own liveness check (SessionWatch, in punt_lux.applets.watch) sees the
+# wrapper vanish almost immediately and leaves before ever reaching the Hub — the
+# applet never registers in the menu. The genuinely persistent `claude` process
+# is the wrapper's *parent*, i.e. $PPID's grandparent from here. Resolve it, but
+# verify its command name looks like Claude Code before trusting it: a
+# differently-shaped process tree (a future Claude Code version with no wrapper,
+# a different OS's process model) must fail safe — an applet that exits too
+# early, same as today — rather than silently watching an unrelated long-lived
+# ancestor (a login shell, systemd) forever, which would leak the applet process
+# past the actual session's end.
+#
+# The applet watches $SESSION_WATCH_PID and exits when it goes, so an applet
+# never outlives its session — including when the session is killed rather than
+# closed, which is the case a SessionEnd hook would miss. The Hub's lease sweeps
+# the menu entry regardless.
 #
 # SessionStart fires more than once for one session — /resume and /clear both
 # fire it again against the same process — and a session gets one applet: a
 # second one would take the first's callbacks and the menu entry would flap
 # between them. The applet refuses a second start itself, under a lock on
-# $TMPDIR/lux-beads-$PPID.pid; this check is what saves the pointless spawn.
-# Both files a session's applet leaves behind are named after the session, so
-# the log below and that claim sit together.
+# $TMPDIR/lux-beads-$SESSION_WATCH_PID.pid; this check is what saves the
+# pointless spawn. Both files a session's applet leaves behind are named after
+# the session, so the log below and that claim sit together.
+_grandparent_pid="$(ps -o ppid= -p "$PPID" 2>/dev/null | tr -d '[:space:]')"
+_grandparent_comm=""
+if [[ -n "$_grandparent_pid" ]]; then
+  _grandparent_comm="$(ps -o comm= -p "$_grandparent_pid" 2>/dev/null)"
+fi
+case "$_grandparent_comm" in
+*claude*) SESSION_WATCH_PID="$_grandparent_pid" ;;
+*) SESSION_WATCH_PID="$PPID" ;;
+esac
+
 if command -v lux-beads &>/dev/null; then
-  LUX_APPLET_LOG="${TMPDIR:-/tmp}/lux-beads-$PPID.log"
-  if pgrep -f "lux-beads --session-pid ${PPID}\$" >/dev/null 2>&1; then
+  LUX_APPLET_LOG="${TMPDIR:-/tmp}/lux-beads-$SESSION_WATCH_PID.log"
+  if pgrep -f "lux-beads --session-pid ${SESSION_WATCH_PID}\$" >/dev/null 2>&1; then
     echo "$(date '+%Y-%m-%d %H:%M:%S') session-start: this session is already served; not spawning another applet" >>"$LUX_APPLET_LOG"
   else
     # Appended rather than truncated: a spawn that raced past the check must not
     # take the running applet's log with it.
-    nohup lux-beads --session-pid "$PPID" >>"$LUX_APPLET_LOG" 2>&1 &
+    nohup lux-beads --session-pid "$SESSION_WATCH_PID" >>"$LUX_APPLET_LOG" 2>&1 &
     disown
   fi
 fi
