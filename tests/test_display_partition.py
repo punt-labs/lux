@@ -1427,6 +1427,68 @@ class TestFrameLayoutPartitions:
         assert msg.frame_layout is None
 
 
+class _TabBarClosingOneTab:
+    """A stand-in imgui whose tab bar reports ``close_id``'s ✕ as clicked.
+
+    Only what ``_render_frame_tabs`` calls. Every tab reports *not selected*, so
+    the render branch (which needs a GL context) is never entered and the close
+    branch — the one this change re-routed — is what runs.
+    """
+
+    def __init__(self, close_id: str) -> None:
+        self._close_id = close_id
+
+    def begin_tab_bar(self, _label: str) -> bool:
+        return True
+
+    def begin_tab_item(self, label: str, _closable: bool) -> tuple[bool, bool]:
+        scene_id = label.split("##")[-1]
+        return False, scene_id != self._close_id
+
+    def end_tab_bar(self) -> None:
+        return
+
+
+class TestTabCloseDisposes:
+    """D6 — the tab ✕ is a content dismissal, so an emptied frame is disposed.
+
+    Not put away: the user said that *scene* is gone, and a frame with no
+    content is a husk. This is the one call site of the old ``close_frame`` most
+    easily mistaken for the frame ✕, and routing it to ``close`` would leave an
+    empty window that no push could ever refill.
+    """
+
+    def test_closing_the_last_tab_disposes_the_frame(self):
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_message(
+            sock, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
+        )
+        frame = server._scenes.frames["f1"]
+
+        server._render_frame_tabs(frame, _TabBarClosingOneTab("s1"))
+
+        assert "f1" not in server._scenes.frames
+        assert "s1" not in server._scenes.scene_to_frame
+
+    def test_closing_one_tab_of_several_keeps_the_frame(self):
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        for sid in ("s1", "s2"):
+            server._handle_message(
+                sock, _framed_scene(sid, "f1", TextElement(id=f"t-{sid}", content="A"))
+            )
+        frame = server._scenes.frames["f1"]
+
+        server._render_frame_tabs(frame, _TabBarClosingOneTab("s1"))
+
+        assert "f1" in server._scenes.frames
+        assert server._scenes.resolve_scene("s1") is None
+        assert server._scenes.resolve_scene("s2") is not None
+
+
 class TestFrameVisibilityPartitions:
     """Where a frame is, and which gestures are entitled to move it."""
 
