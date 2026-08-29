@@ -23,6 +23,9 @@
 %   probcli docs/frame-visibility-lifecycle_buggy.tex -model_check -nodead \
 %       -goal "card({f|f:FRAME & f:frames & f:userClosed & vis(f)=vOpen})>0" \
 %       -p DEFAULT_SETSIZE 2
+%   probcli docs/frame-visibility-lifecycle_buggy.tex -model_check -nodead \
+%       -goal "#s.(s:SCENE & s:content & s:closedScenes
+%                  & vis(sceneFrame(s))=vOpen)" -p DEFAULT_SETSIZE 2
 %
 
 \documentclass[a4paper,10pt,fleqn]{article}
@@ -41,7 +44,7 @@
 \section{Purpose}
 % ============================================================
 
-\texttt{docs/frame-visibility-lifecycle.tex} claims that four invariants hold
+\texttt{docs/frame-visibility-lifecycle.tex} claims that five invariants hold
 of the Display's frame bookkeeping once bead \texttt{lux-mxvy.8} is
 implemented.  The claim is worth nothing unless the same model, carrying
 today's behaviour instead, \emph{reaches} the states those invariants forbid.
@@ -68,10 +71,11 @@ content with visibility.
 Everything else --- the state schema, the initial state, the repeat push, both
 disposals, minimize, raise, tab selection, and the focus consume --- is
 character-for-character the specification's.  The ghosts
-(\texttt{userClosed}, \texttt{autoFocused}, \texttt{tabStolen}) are modelling
-devices with no counterpart in the code, and they are what let a state be
-judged against what the user actually did; \texttt{Close} here therefore still
-records the user's intent even though the code it models retains nothing.
+(\texttt{userClosed}, \texttt{closedScenes}, \texttt{autoFocused},
+\texttt{tabStolen}) are modelling devices with no counterpart in the code, and
+they are what let a state be judged against what the user actually did;
+\texttt{Close} here therefore still records the user's intent, and the scene
+ids that intent covered, even though the code it models retains neither.
 
 % ============================================================
 \section{The Model}
@@ -93,6 +97,7 @@ records the user's intent even though the code it models retains nothing.
   activeTab : FRAME \pfun SCENE \\
   focus : \power FRAME \\
   userClosed : \power FRAME \\
+  closedScenes : \power SCENE \\
   autoFocused : \power FRAME \\
   tabStolen : \power FRAME
 \where
@@ -117,6 +122,7 @@ records the user's intent even though the code it models retains nothing.
   activeTab' = \emptyset \\
   focus' = \emptyset \\
   userClosed' = \emptyset \\
+  closedScenes' = \emptyset \\
   autoFocused' = \emptyset \\
   tabStolen' = \emptyset
 \end{schema}
@@ -143,6 +149,7 @@ requested, and \texttt{autoFocused} records that a content event did it.
   focus' = \{ f? \} \\
   autoFocused' = autoFocused \cup \{ f? \} \\
   userClosed' = userClosed \\
+  closedScenes' = closedScenes \\
   tabStolen' = tabStolen
 \end{schema}
 
@@ -169,7 +176,8 @@ takes the tab.
   autoFocused' = autoFocused \cup \{ f? \} \\
   tabStolen' = tabStolen \cup \{ f? \} \\
   frames' = frames \\
-  userClosed' = userClosed
+  userClosed' = userClosed \\
+  closedScenes' = closedScenes
 \end{schema}
 
 % -------------------------------------------------------------------
@@ -204,6 +212,7 @@ takes the tab.
   vis' = vis \\
   focus' = focus \\
   userClosed' = userClosed \\
+  closedScenes' = closedScenes \setminus \{ s? \} \\
   autoFocused' = autoFocused \\
   tabStolen' = tabStolen
 \end{schema}
@@ -223,6 +232,7 @@ takes the tab.
   activeTab' = \{ f? \} \ndres activeTab \\
   focus' = focus \setminus \{ f? \} \\
   userClosed' = userClosed \setminus \{ f? \} \\
+  closedScenes' = closedScenes \setminus \{ s? \} \\
   autoFocused' = autoFocused \setminus \{ f? \} \\
   tabStolen' = tabStolen \setminus \{ f? \}
 \end{schema}
@@ -244,6 +254,7 @@ takes the tab.
   sceneFrame' = sceneFrame \\
   activeTab' = activeTab \\
   userClosed' = userClosed \\
+  closedScenes' = closedScenes \\
   autoFocused' = autoFocused \\
   tabStolen' = tabStolen
 \end{schema}
@@ -274,6 +285,7 @@ defect is that the code retains nothing.
   activeTab' = \{ f? \} \ndres activeTab \\
   focus' = focus \setminus \{ f? \} \\
   userClosed' = userClosed \cup \{ f? \} \\
+  closedScenes' = closedScenes \cup \dom (sceneFrame \rres \{ f? \}) \\
   autoFocused' = autoFocused \setminus \{ f? \} \\
   tabStolen' = tabStolen \setminus \{ f? \}
 \end{schema}
@@ -290,6 +302,7 @@ defect is that the code retains nothing.
   vis' = vis \oplus \{ f? \mapsto vOpen \} \\
   focus' = \{ f? \} \\
   userClosed' = userClosed \setminus \{ f? \} \\
+  closedScenes' = closedScenes \setminus \dom (sceneFrame \rres \{ f? \}) \\
   frames' = frames \\
   content' = content \\
   sceneFrame' = sceneFrame \\
@@ -316,6 +329,7 @@ defect is that the code retains nothing.
   vis' = vis \\
   focus' = focus \\
   userClosed' = userClosed \\
+  closedScenes' = closedScenes \\
   autoFocused' = autoFocused \\
   tabStolen' = tabStolen
 \end{schema}
@@ -336,6 +350,7 @@ defect is that the code retains nothing.
   vis' = vis \\
   activeTab' = activeTab \\
   userClosed' = userClosed \\
+  closedScenes' = closedScenes \\
   autoFocused' = autoFocused \\
   tabStolen' = tabStolen
 \end{schema}
@@ -349,23 +364,30 @@ each must be reported \emph{found} here.  The specification reports every one
 of them \emph{not found}; that difference is the evidence the model sees the
 defects the code is being changed to remove.
 
+Every goal is written over state components and bound variables only.  A goal
+may not name an element of a given set --- \texttt{probcli} rejects
+\texttt{FRAME2 : frames} with a \texttt{type\_expression\_error} while
+happily printing \texttt{FRAME2} in its own traces, and a rejected goal makes
+the model-check report ``no counter example'' \emph{vacuously}.  Goal~5 exists
+in the form it does for exactly that reason.
+
 \paragraph{Goal 1 --- content took focus (Invariant 1 violated).}
 \begin{verbatim}
   probcli docs/frame-visibility-lifecycle_buggy.tex -model_check -nodead \
     -goal "autoFocused /= {}" -p DEFAULT_SETSIZE 2
 \end{verbatim}
-One step: \texttt{PushNewFrame}$(s_1, f_1)$ leaves \texttt{autoFocused} $=
-\{f_1\}$.  This is DES-025's auto-focus and DES-060's announce-on-arrival,
-both of which R8 retires.
+A single \texttt{PushNewFrame} leaves \texttt{autoFocused} $= \{f_1\}$.
+This is DES-025's auto-focus and DES-060's announce-on-arrival, both of which
+R8 retires.
 
 \paragraph{Goal 2 --- content stole the tab (Invariant 2 violated).}
 \begin{verbatim}
   probcli docs/frame-visibility-lifecycle_buggy.tex -model_check -nodead \
     -goal "tabStolen /= {}" -p DEFAULT_SETSIZE 2
 \end{verbatim}
-Two steps: \texttt{PushNewFrame}$(s_1, f_1)$ then
-\texttt{PushNewScene}$(s_2, f_1)$.  The user is reading $s_1$; $s_2$ arrives
-and the selection moves under them.
+A \texttt{PushNewFrame} followed by a \texttt{PushNewScene} into the same
+frame.  The user is reading $s_1$; $s_2$ arrives and the selection moves under
+them.
 
 \paragraph{Goal 3 --- bug A: the closed frame cannot be raised (Invariant 3
 violated).}
@@ -373,9 +395,9 @@ violated).}
   probcli docs/frame-visibility-lifecycle_buggy.tex -model_check -nodead \
     -goal "userClosed /\ frames /= userClosed" -p DEFAULT_SETSIZE 2
 \end{verbatim}
-Two steps: \texttt{PushNewFrame}$(s_1, f_1)$ then \texttt{Close}$(f_1)$.
-Afterwards \texttt{userClosed} $= \{f_1\}$ and \texttt{frames} $= \emptyset$,
-so \texttt{Raise}$(f_1)$ is not enabled --- the precondition $f_1 \in frames$
+A \texttt{PushNewFrame} followed by a \texttt{Close} of the same frame.
+Afterwards \texttt{userClosed} $= \{f_1\}$ and $f_1 \notin frames$, so
+\texttt{Raise}$(f_1)$ is not enabled --- the precondition $f_1 \in frames$
 fails.  In the running system this is \texttt{raise\_frame} answering
 \texttt{raised: false} because \texttt{FrameBook} popped the frame, and it is
 why an applet's menu-entry click cannot bring back a frame the user closed.
@@ -392,18 +414,65 @@ recreation is the only reopen path there is.
     -goal "card({f|f:FRAME & f:frames & f:userClosed & vis(f)=vOpen})>0" \
     -p DEFAULT_SETSIZE 2
 \end{verbatim}
-Three steps: \texttt{PushNewFrame}$(s_1, f_1)$, \texttt{Close}$(f_1)$,
-\texttt{PushNewFrame}$(s_1, f_1)$.  The third step is enabled only because the
-second returned $s_1$ to the unseen pool; the frame comes back
+Three steps, confirmed by replay rather than by search:
+\texttt{PushNewFrame}, \texttt{Close}, \texttt{PushNewFrame} --- the same
+frame id and the same scene id both times.  The third step is enabled only
+because the second returned $s_1$ to the unseen pool; the frame comes back
 \texttt{vOpen}, focused, while \texttt{userClosed} still holds $f_1$.  In the
-running system this is voxd's next track change reopening the music window
-the user shut.
+running system this is voxd's next track change reopening the music window the
+user shut.
 
-\paragraph{Status of the ProB leg.}  As recorded in the specification's
-Verification section, \texttt{probcli} is not installed on the development
-host --- \texttt{\$(HOME)/Applications/ProB/probcli} holds only a 314-byte
-\texttt{probcli.zip} that is not a valid archive.  This control is
-\texttt{fuzz}-clean and its four traces are hand-derived from the operation
-schemas above.  The reachability searches themselves have not been run.
+\paragraph{Goal 5 --- bug B in the shape the user meets it (Invariant 5
+violated).}
+\begin{verbatim}
+  probcli docs/frame-visibility-lifecycle_buggy.tex -model_check -nodead \
+    -goal "#s.(s:SCENE & s:content & s:closedScenes
+               & vis(sceneFrame(s))=vOpen)" \
+    -p DEFAULT_SETSIZE 2
+\end{verbatim}
+Goal~4 says \emph{a frame id the user closed is open}.  This one says
+\emph{the very scene the user shut is in front of them again}, which is the
+symptom vox reports.  The three steps that matter are the same as goal~4's ---
+\texttt{PushNewFrame}, \texttt{Close}, \texttt{PushNewFrame} on one frame id
+and one scene id --- and this goal is what makes the \emph{scene} identity part
+of the claim rather than just the frame's.
+
+\paragraph{Results.}  Run against ProB 1.15.1 (SICStus 4.8.0).  This control's
+reachable state space is \textbf{1030 states, 10309 transitions}, with
+\texttt{ALL OPERATIONS COVERED}.  Every goal is found, and the traces above
+are ProB's own:
+
+\begin{center}
+\begin{tabular}{lll}
+  \textbf{Goal} & \textbf{Defect} & \textbf{Result} \\
+  \hline
+  1 & focus steal & found \\
+  2 & tab steal & found \\
+  3 & bug A & found \\
+  4 & bug B & found \\
+  5 & bug B, same scene id & found \\
+\end{tabular}
+\end{center}
+
+The specification finds none of the five over its 95 states.  That difference,
+on the same carriers and the same initial state, is the evidence the model
+detects the defects the code is being changed to remove.
+
+The individual witness traces are \emph{not} quoted, because they are not
+stable: ProB's search order varies between runs, and repeated invocations of one
+goal return witnesses of different lengths.  The verdict and the state-space
+size are stable; the witness is not.  The two deterministic
+\texttt{probcli -t} replays in the specification's fidelity section are the
+citable artifact, and each names exactly one operation that is enabled in one
+design and not the other:
+
+\begin{center}
+\begin{tabular}{lll}
+  \textbf{Replay} & \textbf{This control} & \textbf{The specification} \\
+  \hline
+  \texttt{PushNewFrame; Close; PushNewFrame} & replays & fails at step 3 \\
+  \texttt{PushNewFrame; Close; Raise} & fails at step 3 & replays \\
+\end{tabular}
+\end{center}
 
 \end{document}

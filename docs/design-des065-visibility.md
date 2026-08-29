@@ -2,7 +2,7 @@
 
 **Bead:** `lux-mxvy.8` (R8 of epic `lux-mxvy`)
 **Mission:** `m-2026-08-29-004` (design; worker `rmh`, evaluator `gvr`)
-**Status:** design complete, awaiting leader review and one operator ruling
+**Status:** design complete, model-checked, awaiting leader review
 **Model:** [`frame-visibility-lifecycle.tex`](frame-visibility-lifecycle.tex),
 fidelity control [`frame-visibility-lifecycle_buggy.tex`](frame-visibility-lifecycle_buggy.tex),
 partition audit [`frame_visibility_lifecycle_coverage.md`](frame_visibility_lifecycle_coverage.md)
@@ -202,15 +202,14 @@ user wants a frame put away they can close it, and now that decision sticks.
 
 ## 4. What the model says
 
-`docs/frame-visibility-lifecycle.tex` — fuzz-clean, `fuzz -t` exit 0 —
-formalises §1 and §2 as nine flat state components: four for the content axis
-(`frames`, `content`, `sceneFrame`, and the derived no-husk rule), three for the
-visibility axis (`vis`, `activeTab`, `focus`), and two ghosts recording what the
-*user* did (`userClosed`, plus `autoFocused`/`tabStolen` for the violations).
-Eleven operation schemas cover every transition: three content pushes, two
-disposals, and six user gestures.
+`docs/frame-visibility-lifecycle.tex` formalises §1 and §2 as ten flat state
+components: three for the content axis (`frames`, `content`, `sceneFrame`),
+three for the visibility axis (`vis`, `activeTab`, `focus`), and four ghosts
+recording what the *user* did (`userClosed`, `closedScenes`, and
+`autoFocused`/`tabStolen` for the violations). Ten operation schemas cover every
+transition: three content pushes, two disposals, and five user gestures.
 
-Four invariants, none placed in the state schema (a predicate there is enforced
+Five invariants, none placed in the state schema (a predicate there is enforced
 as a guard on every successor and would silently mask the defect):
 
 1. `autoFocused = ∅` — no content event ever requests focus.
@@ -218,6 +217,13 @@ as a guard on every successor and would silently mask the defect):
 3. `userClosed ⊆ frames` — **bug A**: a closed frame is still there to raise.
 4. `{f ∈ frames | f ∈ userClosed ∧ vis f = vOpen} = ∅` — **bug B**: only a raise
    reopens a closed frame.
+5. `∀ s ∈ closedScenes ∩ content • vis (sceneFrame s) ≠ vOpen` — **bug B in the
+   shape the user meets it**: not merely that a frame id came back, but that the
+   very scene they shut is in front of them again.
+
+`fuzz -t` exits 0 on both documents. ProB 1.15.1 explores the intact model's
+whole reachable state space — **95 states, 845 transitions, ALL OPERATIONS
+COVERED**, no deadlock — and finds no counter-example to any of the five.
 
 ### 4.1 Findings the formalisation surfaced
 
@@ -282,36 +288,57 @@ are now different methods rather than one method with a flag.
 `docs/frame-visibility-lifecycle_buggy.tex` is the same model with today's code
 restored in exactly three schemas — `Close` disposes the frame and forgets its
 scenes; `PushNewFrame` and `PushNewScene` carry the `is_new` side effect. Every
-other schema is identical. It is fuzz-clean.
+other schema is identical. It is fuzz-clean, and its state space is 1030 states
+/ 10309 transitions, also with every operation covered.
 
-| Goal (negated invariant) | Intact spec | Control | Reproduces |
-|---|---|---|---|
-| `autoFocused /= {}` | not found | **found**, 1 step | the DES-025/DES-060 focus steal R8 retires |
-| `tabStolen /= {}` | not found | **found**, 2 steps | F2, the tab steal |
-| `userClosed /\ frames /= userClosed` | not found | **found**, 2 steps | **bug A** |
-| `card({f\|f:FRAME & f:frames & f:userClosed & vis(f)=vOpen})>0` | not found | **found**, 3 steps | **bug B** |
+Every goal is **found** in the control and **not found** in the intact spec, on
+the same carriers and the same initial state:
 
-Bug B's trace is the whole defect in three steps:
-`PushNewFrame(s₁,f₁)` → `Close(f₁)` → `PushNewFrame(s₁,f₁)`. The third step is
-enabled *only because the second returned s₁ to the unseen pool*. Under the
-intact spec the third step is `PushRepeat` — a Ξ operation — and the frame stays
-closed. The bug is created by the close, not by the push.
+| Goal (negated invariant) | Intact | Control |
+|---|---|---|
+| `autoFocused /= {}` | not found | **found** |
+| `tabStolen /= {}` | not found | **found** |
+| `userClosed /\ frames /= userClosed` | not found | **found** |
+| `card({f\|f:FRAME & f:frames & f:userClosed & vis(f)=vOpen})>0` | not found | **found** |
+| `#s.(s:closedScenes & vis(sceneFrame(s))=vOpen)` | not found | **found** |
 
-### ProB is not runnable on this host — ESCALATION
+**The individual witness traces are not cited, because they are not stable.**
+ProB's search order varies between runs — the same goal returned a 3-step
+witness on one invocation and a 6-step one on the next. The verdict and the
+state-space size are stable; the witness is not. So the fidelity evidence is
+given instead as two deterministic `probcli -t` trace replays, each of which
+names exactly one operation that is enabled in one design and not the other:
 
-`fuzz` passes on both documents (`fuzz -t`, exit 0). The ProB leg has **not been
-run**. The `Makefile`'s `prob` target resolves `$(HOME)/Applications/ProB/probcli`;
-that directory holds only a 314-byte `probcli.zip`, and `unzip -l` rejects it —
-*"End-of-central-directory signature not found"*. It is a failed download, not an
-installation.
+| Replay | Control | Intact spec |
+|---|---|---|
+| `PushNewFrame; Close; PushNewFrame` (same frame id, same scene id) | replays | **fails at step 3** |
+| `PushNewFrame; Close; Raise` | **fails at step 3** | replays |
 
-Both documents carry the exact goal predicates with their required verdicts, and
-the traces above are hand-derived from the operation schemas. This is recorded
-rather than glossed: the model is type-correct and the fidelity argument is
-explicit, but nobody has watched ProB find those traces. **If the mission's
-"model-checked with ProB" criterion is to be met literally, ProB has to be
-installed** (or the run routed through the z-spec MCP server, which this worker
-holds no tools for). Leader's call whether that blocks the mission.
+That pair is the whole design in two lines. **Bug B**: after a close, pushing
+the same scene into the same frame is not even a legal `PushNewFrame` any more —
+its guard `s ∉ content` fails, because the close no longer forgot the scene, so
+the push is a `PushRepeat` and the frame stays closed. **Bug A**: after a close,
+`Raise` is enabled here and is not enabled in the control, where the close
+removed the frame — which in the running system is `raise_frame` answering
+`raised: false` to an applet's menu click.
+
+### Two things the ProB run changed
+
+**Invariant 5 was added because invariant 4 was weaker than the claim.** The
+first four invariants are about frame *identity* — "a frame the user closed is
+open". The symptom vox reports is stronger: *the very scene they shut* is in
+front of them again on a track change. The model as first written could not
+witness that, and a `-goal` naming a specific element (`FRAME2 : frames`) is
+rejected by probcli with a `type_expression_error` — it prints those names in
+its own traces but will not accept them in a goal, and the model-check then
+reports "no counter example" **vacuously**. Rather than leave an unwitnessed
+claim in this document, the model gained the `closedScenes` ghost (the scene ids
+that were in a frame when it was closed, cleared on raise or dispose) and
+invariant 5 over it. It holds on the intact spec and is violated by the control.
+
+**`ALL OPERATIONS COVERED` is the guard against a vacuous pass.** ProB reports
+it for both documents, so no invariant is discharged by an operation that never
+fired.
 
 ---
 
@@ -492,11 +519,12 @@ parity work should pick a different name for one of them.
 
 ## 9. Open items for the leader
 
-1. **ProB (§5).** Not installed on this host; the model-check leg is specified
-   and unexecuted. Install it, route it through z-spec, or accept the fuzz-clean
-   model plus hand-derived traces. Recommendation: accept for the design
-   mission, and require the ProB run before the *implementation* mission closes,
-   where the environment can be fixed once for the repo.
+1. **ProB — RESOLVED, no longer an open item.** ProB 1.15.1 was installed and
+   both documents were model-checked. The intact spec: 95 states, 845
+   transitions, all operations covered, no deadlock, and no counter-example to
+   any of the five invariants. The control: 1030 states, every goal found, with
+   the traces in §5. The run also strengthened the model — see §5's "Two things
+   the ProB run changed".
 2. **Write-set (§7 vs the contract).** The mission's `write_set` names one file;
    this design also required `frame-visibility-lifecycle.tex` (criterion 4) and
    its fidelity control. Already raised with the leader; noted here for the

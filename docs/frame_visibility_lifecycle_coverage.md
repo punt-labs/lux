@@ -194,7 +194,7 @@ ships without the other.
 
 ## 4. Fidelity control
 
-The buggy variant reaches four states the specification cannot. Each maps to a
+The buggy variant reaches five states the specification cannot. Each maps to a
 partition above, and to a test that must go from failing to passing:
 
 | Goal (negated invariant) | Partition | Defect |
@@ -203,10 +203,30 @@ partition above, and to a test that must go from failing to passing:
 | `tabStolen /= {}` | N2, N3 | the active-tab steal (F2 of the design note) |
 | `userClosed /\ frames /= userClosed` | A3, A5 | **bug A** — the closed frame cannot be raised |
 | `card({f\|f:FRAME & f:frames & f:userClosed & vis(f)=vOpen})>0` | R3, R5 | **bug B** — the closed frame reopens on a push |
+| `#s.(s:closedScenes & vis(sceneFrame(s))=vOpen)` | R5 | **bug B, same scene id** — the scene the user shut is back in front of them |
 
-**The ProB leg has not been run.** `probcli` is not installed on this host — the
-`Makefile`'s `prob` target resolves `$(HOME)/Applications/ProB/probcli`, and that
-directory holds only a 314-byte `probcli.zip` that `unzip` rejects as not an
-archive. Both documents are `fuzz`-clean (`fuzz -t`, exit 0) and carry the exact
-goal predicates with their required verdicts; the traces are hand-derived from
-the operation schemas. Escalated to the leader in §9 of the design note.
+**Both legs have been run.** `fuzz -t` exits 0 on both documents. ProB 1.15.1
+(SICStus 4.8.0) explores the intact spec's whole reachable state space — 95
+states, 845 transitions, `ALL OPERATIONS COVERED`, no deadlock — and finds no
+counter-example to any of the five goals. The control reaches all five, over
+1030 states. `ALL OPERATIONS COVERED` on both is what rules out a vacuous pass:
+no invariant is discharged by an operation that never fired.
+
+The two partitions that carry the change (§3) map to two deterministic
+`probcli -t` trace replays rather than to search-order witnesses, which are not
+stable between runs:
+
+| Replay | Control | Intact spec | Partition |
+|---|---|---|---|
+| `PushNewFrame; Close; PushNewFrame` (same frame and scene id) | replays | fails at step 3 | **R5 / X3** |
+| `PushNewFrame; Close; Raise` | fails at step 3 | replays | **A3 / A5** |
+
+Each names one operation that is enabled in one design and not the other, which
+is exactly what the corresponding test must assert.
+
+Two things the run surfaced. R5 needed the `closedScenes` ghost in the model:
+a ProB goal may not name an element of a given set (`FRAME2 : frames` raises
+`type_expression_error` and makes the check pass *vacuously*), so "the same
+scene came back" could not be stated as a cleverer goal over the original state.
+And the witness traces varied in length across repeated runs of one goal, which
+is why the replays above — not the witnesses — are the citable artifact.

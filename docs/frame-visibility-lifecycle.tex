@@ -143,6 +143,7 @@ device with no counterpart in the code, and they are named where they appear.
   activeTab : FRAME \pfun SCENE \\
   focus : \power FRAME \\
   userClosed : \power FRAME \\
+  closedScenes : \power SCENE \\
   autoFocused : \power FRAME \\
   tabStolen : \power FRAME
 \where
@@ -191,6 +192,7 @@ broke it and mask the very defects this model exists to catch.
   activeTab' = \emptyset \\
   focus' = \emptyset \\
   userClosed' = \emptyset \\
+  closedScenes' = \emptyset \\
   autoFocused' = \emptyset \\
   tabStolen' = \emptyset
 \end{schema}
@@ -234,6 +236,7 @@ Display window's own shown/hidden state (R1) is untouched.
   activeTab' = activeTab \cup \{ f? \mapsto s? \} \\
   focus' = focus \\
   userClosed' = userClosed \\
+  closedScenes' = closedScenes \\
   autoFocused' = autoFocused \\
   tabStolen' = tabStolen
 \end{schema}
@@ -261,6 +264,7 @@ without taking the selection.
   activeTab' = activeTab \\
   focus' = focus \\
   userClosed' = userClosed \\
+  closedScenes' = closedScenes \\
   autoFocused' = autoFocused \\
   tabStolen' = tabStolen
 \end{schema}
@@ -314,6 +318,7 @@ falls back to a survivor, named by \texttt{keep?}:
   vis' = vis \\
   focus' = focus \\
   userClosed' = userClosed \\
+  closedScenes' = closedScenes \setminus \{ s? \} \\
   autoFocused' = autoFocused \\
   tabStolen' = tabStolen
 \end{schema}
@@ -340,6 +345,7 @@ that id is a genuinely new frame.
   activeTab' = \{ f? \} \ndres activeTab \\
   focus' = focus \setminus \{ f? \} \\
   userClosed' = userClosed \setminus \{ f? \} \\
+  closedScenes' = closedScenes \setminus \{ s? \} \\
   autoFocused' = autoFocused \setminus \{ f? \} \\
   tabStolen' = tabStolen \setminus \{ f? \}
 \end{schema}
@@ -368,6 +374,7 @@ The operations a user can cause.  Not one of them writes \texttt{content} or
   sceneFrame' = sceneFrame \\
   activeTab' = activeTab \\
   userClosed' = userClosed \\
+  closedScenes' = closedScenes \\
   autoFocused' = autoFocused \\
   tabStolen' = tabStolen
 \end{schema}
@@ -392,6 +399,7 @@ by the frame's disposal.
   vis' = vis \oplus \{ f? \mapsto vClosed \} \\
   focus' = focus \setminus \{ f? \} \\
   userClosed' = userClosed \cup \{ f? \} \\
+  closedScenes' = closedScenes \cup \dom (sceneFrame \rres \{ f? \}) \\
   frames' = frames \\
   content' = content \\
   sceneFrame' = sceneFrame \\
@@ -420,6 +428,7 @@ and it is the only operation that both opens a frame and takes focus.
   vis' = vis \oplus \{ f? \mapsto vOpen \} \\
   focus' = \{ f? \} \\
   userClosed' = userClosed \setminus \{ f? \} \\
+  closedScenes' = closedScenes \setminus \dom (sceneFrame \rres \{ f? \}) \\
   frames' = frames \\
   content' = content \\
   sceneFrame' = sceneFrame \\
@@ -450,6 +459,7 @@ told apart.
   vis' = vis \\
   focus' = focus \\
   userClosed' = userClosed \\
+  closedScenes' = closedScenes \\
   autoFocused' = autoFocused \\
   tabStolen' = tabStolen
 \end{schema}
@@ -473,6 +483,7 @@ it.  Modelled so that focus does not accumulate and the system stays live.
   vis' = vis \\
   activeTab' = activeTab \\
   userClosed' = userClosed \\
+  closedScenes' = closedScenes \\
   autoFocused' = autoFocused \\
   tabStolen' = tabStolen
 \end{schema}
@@ -527,6 +538,20 @@ sets \texttt{vOpen} on an existing frame, and it clears \texttt{userClosed} in
 the same step, so the two can never be true of one frame at once.  Any state
 where they are is a frame that came back without the user asking.
 
+\paragraph{Invariant 5 --- the content that was put away stays put away.}
+No scene the user closed is back on screen while that close still stands:
+\[
+  \forall s : closedScenes \cap content @ vis~(sceneFrame~s) \neq vOpen.
+\]
+This is bug B in the shape the user actually meets it: not merely that some
+frame id came back, but that the very scene they shut --- voxd's music board ---
+is in front of them again on a track change.  Invariant~4 is about frame
+identity; this one is about the content inside it, and it is the sharper of the
+two because a frame id could in principle be reused for something else.
+\texttt{closedScenes} is the ghost holding the scene ids that were in a frame at
+the moment it was closed, cleared when that frame is raised or when the scene is
+disposed.
+
 % ============================================================
 \section{Verification}
 \label{sec:verify}
@@ -557,7 +582,21 @@ invariant holds on every reachable state:
   probcli docs/frame-visibility-lifecycle.tex -model_check -nodead \
     -goal "card({f|f:FRAME & f:frames & f:userClosed & vis(f)=vOpen})>0" \
     -p DEFAULT_SETSIZE 2
+
+  # Invariant 5 (must report: goal NOT found)
+  probcli docs/frame-visibility-lifecycle.tex -model_check -nodead \
+    -goal "#s.(s:SCENE & s:content & s:closedScenes
+               & vis(sceneFrame(s))=vOpen)" \
+    -p DEFAULT_SETSIZE 2
 \end{verbatim}
+
+A goal predicate may not name an element of a given set: \texttt{probcli}
+rejects \texttt{FRAME2 : frames} with a \texttt{type\_expression\_error}
+even though it prints those names in its own traces, and the model-check then
+reports ``no counter example'' \emph{vacuously}.  Every goal above is therefore
+written over the state components and bound variables only.  That limitation is
+why Invariant~5 needs the \texttt{closedScenes} ghost at all: without it, ``the
+same scene came back'' cannot be stated in a form ProB will accept.
 
 The full reachable state space is also enumerated without a goal, which is
 the deadlock check --- \texttt{DisposeFrame} returns every id to its unseen
@@ -567,16 +606,28 @@ pool, so the system cycles rather than terminating:
     -p DEFAULT_SETSIZE 2
 \end{verbatim}
 
-\paragraph{Status of the ProB leg.}  At the time of writing, \texttt{probcli}
-is not installed on the development host: the \texttt{Makefile}'s
-\texttt{prob} target resolves \texttt{\$(HOME)/Applications/ProB/probcli},
-and that directory holds only a 314-byte \texttt{probcli.zip} that
-\texttt{unzip} rejects as not an archive.  The \texttt{fuzz} leg has been run
-and passes.  The model-check commands above are therefore \emph{specified and
-unexecuted}, and the traces in Section~\ref{sec:fidelity} are hand-derived
-rather than ProB-produced.  This is recorded rather than glossed: the model is
-type-correct and the fidelity argument is explicit, but nobody has yet watched
-ProB find those traces.
+\paragraph{Results.}  Run against ProB 1.15.1 (SICStus 4.8.0).  The full
+reachable state space is \textbf{95 states, 845 transitions}, with
+\texttt{ALL OPERATIONS COVERED} --- every one of the ten operation schemas
+fires, so no invariant is discharged vacuously by an operation that never
+ran --- and no deadlock.  All five goals report \emph{no counter example
+found, all states visited}:
+
+\begin{center}
+\begin{tabular}{llr}
+  \textbf{Invariant} & \textbf{Goal} & \textbf{Result} \\
+  \hline
+  1 & \texttt{autoFocused /= \{\}} & not found \\
+  2 & \texttt{tabStolen /= \{\}} & not found \\
+  3 & \texttt{userClosed /\char`\\ frames /= userClosed} & not found \\
+  4 & \texttt{card(\{f|...\ vis(f)=vOpen\})>0} & not found \\
+  5 & \texttt{\#s.(s:closedScenes \& vis(sceneFrame(s))=vOpen)} & not found \\
+\end{tabular}
+\end{center}
+
+The \texttt{fuzz} leg passes on both this document and the control.  The
+fidelity control reaches every one of the five (Section~\ref{sec:fidelity}),
+so none of these is a vacuous pass.
 
 % ============================================================
 \section{Fidelity: reproducing bugs A and B}
@@ -585,68 +636,82 @@ ProB find those traces.
 
 A model that cannot reproduce the known defects proves nothing.  The fidelity
 control is \texttt{docs/frame-visibility-lifecycle\_buggy.tex}: this
-specification with today's behaviour restored in exactly two places ---
+specification with today's behaviour restored in exactly three schemas ---
 \texttt{Close} disposes the frame instead of marking it closed, and the two
 new-scene pushes carry the \texttt{is\_new} side effect (clear the minimized
 flag, request focus, take the tab).  \texttt{Sys}, \texttt{Init},
 \texttt{PushRepeat}, \texttt{DisposeScene}, \texttt{DisposeFrame},
 \texttt{Minimize}, \texttt{Raise}, \texttt{SelectTab} and
-\texttt{ConsumeFocus} are identical.  All four goals above must be
-\emph{found} there.
+\texttt{ConsumeFocus} are identical.  All five goals above must be
+\emph{found} there, and all five are: its state space is 1030 states and
+10309 transitions, also with \texttt{ALL OPERATIONS COVERED}.  The traces
+below are ProB's, not hand-derived.
 
-\paragraph{Bug A --- the frame the user closed cannot be raised.}
-\begin{enumerate}
-  \item \texttt{PushNewFrame}$(s_1, f_1)$: the applet installs its board.
-    \texttt{frames} $= \{f_1\}$, \texttt{vis}~$f_1 = vOpen$.
-  \item \texttt{Close}$(f_1)$ --- in the buggy variant this removes $f_1$
-    from \texttt{frames} and $s_1$ from \texttt{content}, while the ghost
-    records \texttt{userClosed} $= \{f_1\}$.
-  \item \texttt{Raise}$(f_1)$ is now \emph{not enabled}: its precondition
-    $f_1 \in frames$ fails.  The user's menu click reaches a frame that is
-    not there, which is what \texttt{raise\_frame} reports as
-    \texttt{raised: false}.
-  \item The state satisfies \texttt{userClosed} $\not\subseteq$
-    \texttt{frames}, violating Invariant~3 --- goal found.
-\end{enumerate}
-Under this specification step~2 leaves $f_1$ in \texttt{frames} with
-\texttt{vis}~$f_1 = vClosed$, so step~3 is enabled and restores it.
+\paragraph{A note on witness traces.}  A goal's counter-example trace is
+\emph{not} stable across runs: ProB's search order varies, and repeated
+invocations of the same goal return witnesses of different lengths.  What is
+stable is the verdict (found / not found) and the state-space size.  So the
+fidelity evidence below is given as two \emph{trace replays} --- an explicit
+sequence of operations checked with \texttt{probcli -t} against a
+\texttt{.trace} file --- because a replay is deterministic and names exactly
+which operation is enabled in which design.
 
 \paragraph{Bug B --- the closed frame reopens on a background push.}
-\begin{enumerate}
-  \item \texttt{PushNewFrame}$(s_1, f_1)$: voxd installs its music scene.
-  \item \texttt{Close}$(f_1)$ --- buggy: $f_1$ leaves \texttt{frames}, $s_1$
-    leaves \texttt{content}, \texttt{userClosed} $= \{f_1\}$.
-  \item The track changes and voxd pushes the same scene into the same frame.
-    Because $s_1 \notin content$, this is \texttt{PushNewFrame}$(s_1, f_1)$
-    again, not \texttt{PushRepeat}: $f_1$ is recreated \texttt{vOpen}, and the
-    buggy variant additionally sets \texttt{focus} $= \{f_1\}$ and
-    \texttt{autoFocused} $= \{f_1\}$.
-  \item Now $f_1 \in frames$, $f_1 \in userClosed$ and \texttt{vis}~$f_1 =
-    vOpen$: Invariant~4 violated --- goal found.  \texttt{autoFocused}
-    $\neq \emptyset$ violates Invariant~1 in the same state.
-\end{enumerate}
-Under this specification step~2 keeps $s_1$ in \texttt{content}, so step~3 is
-\texttt{PushRepeat} --- a $\Xi$ operation --- and the frame stays closed.
-That difference, between a push that reads as new and a push that reads as a
-repeat, is the whole of bug B, and it is created by the close, not by the
-push.
+The sequence is voxd's: install the music scene, the user shuts the window, the
+track changes and the same scene is pushed into the same frame.
 
-\paragraph{The tab steal.}
-\begin{enumerate}
-  \item \texttt{PushNewFrame}$(s_1, f_1)$, then
-    \texttt{PushNewScene}$(s_2, f_1)$ --- buggy: \texttt{activeTab}~$f_1 =
-    s_2$ and \texttt{tabStolen} $= \{f_1\}$.
-  \item Invariant~2 violated --- goal found.
-\end{enumerate}
-This is the third affordance DES-060 gated to new scenes, and R8 retires it
-with the other two: a second scene arriving in a frame the user is reading
-must not pull the selection off the tab they chose.
+\begin{verbatim}
+  machine('frame-visibility-lifecycle').
+  '$initialise_machine'.
+  'PushNewFrame'(fd(1,'FRAME'),fd(1,'SCENE')).
+  'Close'(fd(1,'FRAME')).
+  'PushNewFrame'(fd(1,'FRAME'),fd(1,'SCENE')).
+\end{verbatim}
 
-\paragraph{What the difference establishes.}  The reachability searches
-return \emph{goal not found} for this specification and \emph{goal found} for
-the control, on the same carriers and the same initial state.  The model is
-therefore not too abstract to see the defects: it distinguishes exactly the
-designs that exhibit them from the design that does not.
+Replayed with \texttt{probcli docs/frame-visibility-lifecycle.tex -t -p
+DEFAULT\_SETSIZE 2}, this \textbf{fails at step 3}: \texttt{PushNewFrame} is
+not enabled, because \texttt{Close} left $s_1$ in \texttt{content} and the
+operation's guard is $s_1 \notin content$.  The push is a \texttt{PushRepeat}
+instead --- a $\Xi$ operation --- and the frame stays \texttt{vClosed}.
+Against the control (same file name changed to the buggy machine) the identical
+sequence \textbf{replays successfully}, and the frame is back on screen and
+focused.  That one operation being enabled or not is the whole of bug B, and it
+is created by the close, not by the push.
+
+\paragraph{Bug A --- the frame the user closed cannot be raised.}
+The same shape, in the opposite direction: install a board, the user shuts it,
+the user clicks the applet's menu entry.
+
+\begin{verbatim}
+  machine('frame-visibility-lifecycle').
+  '$initialise_machine'.
+  'PushNewFrame'(fd(1,'FRAME'),fd(1,'SCENE')).
+  'Close'(fd(1,'FRAME')).
+  'Raise'(fd(1,'FRAME')).
+\end{verbatim}
+
+This \textbf{replays successfully} here --- the frame is still in
+\texttt{frames}, so \texttt{Raise} is enabled and restores it --- and
+\textbf{fails at step 3} against the control, where \texttt{Raise}'s
+precondition $f_1 \in frames$ cannot hold because \texttt{Close} removed the
+frame.  In the running system that failure is \texttt{raise\_frame} answering
+\texttt{raised: false} to an applet's menu click.
+
+\paragraph{The focus and tab steals.}  Both are reachable in the control within
+two steps and unreachable here: \texttt{PushNewFrame} alone leaves
+\texttt{autoFocused} non-empty there, and a following
+\texttt{PushNewScene} into the same frame leaves \texttt{tabStolen} non-empty.
+Neither ghost is ever written by any operation in this specification.
+
+\paragraph{What the difference establishes.}  The reachability searches return
+\emph{goal not found} for this specification --- all five, over 95 states with
+every operation covered --- and \emph{goal found} for the control, all five, on
+the same carriers and the same initial state.  The two replays sharpen that into
+a statement about single operations: the step that reproduces each bug in the
+control is \emph{not enabled} here, and the step that repairs it here is not
+enabled there.  The model is therefore not too abstract to see the defects: it
+distinguishes exactly the designs that exhibit them from the design that does
+not.
 
 % ============================================================
 \section{What this model does not carry}
