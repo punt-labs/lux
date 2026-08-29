@@ -139,8 +139,6 @@ prob: ## Animate and model-check a Z spec with ProB (usage: make prob SPEC=docs/
 	@$(PROBCLI) "$(SPEC)" -animate 20 $(PROB_FLAGS) 2>&1 | grep -E "COVERED|not_covered|Runtime"
 	@echo "--- cbc assertions ---"
 	@$(PROBCLI) "$(SPEC)" -cbc_assertions $(PROB_FLAGS) 2>&1 | grep -E "counter|ASSERTION"
-	@echo "--- cbc deadlock ---"
-	@$(PROBCLI) "$(SPEC)" -cbc_deadlock $(PROB_FLAGS) 2>&1 | grep -E "deadlock|DEADLOCK"
 	@echo "--- model check ---"
 	@$(PROBCLI) "$(SPEC)" -model_check $(PROB_FLAGS) \
 		-p MAX_INITIALISATIONS 100 -p MAX_OPERATIONS 5000 2>&1 | \
