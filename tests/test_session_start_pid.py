@@ -21,6 +21,7 @@ import os
 import shutil
 import stat
 import subprocess
+import time
 from pathlib import Path
 
 _SCRIPT = (
@@ -36,6 +37,23 @@ fi
 "$@" &
 wait
 """
+
+
+def _wait_for_file(path: Path, *, timeout: float = 5.0, interval: float = 0.05) -> None:
+    """Poll until *path* exists, or raise a clear ``TimeoutError``.
+
+    The hook backgrounds ``lux-beads`` with ``nohup ... & disown`` — pure
+    fire-and-forget — so the hook script's own exit is no guarantee the stub
+    has run yet. Checking immediately races an async process; this polls
+    instead of narrowing the race with a blind ``sleep``.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if path.exists():
+            return
+        time.sleep(interval)
+    msg = f"{path} did not appear within {timeout}s (lux-beads stub was never invoked)"
+    raise TimeoutError(msg)
 
 
 def _make_executable(path: Path) -> None:
@@ -102,7 +120,7 @@ def _run_tree(tmp_path: Path, *, claude_comm: str) -> tuple[int, int, int]:
     assert len(trace_lines) == 2, trace_lines
     wrapper_pid = int(trace_lines[1])
 
-    assert stub_out.exists(), "lux-beads stub was never invoked"
+    _wait_for_file(stub_out)
     stub_args = stub_out.read_text(encoding="utf-8").split()
     assert stub_args[:1] == ["--session-pid"], stub_args
     resolved_session_pid = int(stub_args[1])
