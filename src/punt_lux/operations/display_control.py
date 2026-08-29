@@ -1,8 +1,9 @@
 """DisplayControlOperations — the display-fact reads and writes, all proxied.
 
 The Hub cannot own an ImGui theme, a window's opacity, a GPU backend string, or
-a frame's transient minimize state. These operations reach the running display
-over luxd's one connection through the injected :class:`DisplayPort`. The caller
+where a frame sits --- on screen, docked, or put away by the user. These
+operations reach the running display over luxd's one connection through the
+injected :class:`DisplayPort`. The caller
 still enters through a Hub operation, so there is one code path; the reach-around
 that is gone is a tool or a command-line tool talking to the display directly.
 
@@ -21,6 +22,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.operations.models.common import OpError
+from punt_lux.operations.models.display_frames import FrameStates
 from punt_lux.operations.models.display_info import DisplayInfo
 from punt_lux.operations.models.display_probe import Pong, Screenshot
 from punt_lux.operations.models.display_write import (
@@ -140,6 +142,24 @@ class DisplayControlOperations:
             reason = f"set_frame_state acknowledged {ack.frame_id!r}, not {frame_id!r}"
             return OpError(code="fault", reason=reason)
         return Ok()
+
+    def list_frames(self) -> FrameStates | OpError:
+        """Return every frame the display holds and where it is showing each one.
+
+        The read that makes a closed frame observable from outside the display.
+        Closing is a visibility and not an erasure (DES-088), so a frame the user
+        shut is still here — a caller can no longer tell it from a frame that
+        never existed by its absence, and this is where it learns the difference.
+
+        Not a field on ``list_scenes``: that read is Hub-authoritative and never
+        reaches around to the display, and where a window sits is not a fact the
+        Hub has. Here it sits beside :meth:`set_frame_state` and
+        :meth:`raise_frame`, the other two operations over the same state.
+        """
+        payload = self._port.query("list_scenes", {}).resolve()
+        if isinstance(payload, OpError):
+            return payload
+        return FrameStates.from_payload(payload)
 
     def raise_frame(self, frame_id: str) -> FrameRaise | OpError:
         """Bring a frame to the front, restoring it if it was minimized.

@@ -31,6 +31,7 @@ from punt_lux.applets.beads_service import BeadsService
 from punt_lux.applets.board_load import BoardLoad
 from punt_lux.applets.board_slot import BoardSlot
 from punt_lux.applets.leg import AppletLeg
+from punt_lux.applets.runner import ServiceRunner
 from punt_lux.apps.beads_board import BeadsBoard
 from punt_lux.apps.beads_result import BeadsRows
 from punt_lux.domain.hub.client_identity import ClientIdentity
@@ -44,8 +45,8 @@ from .board_doubles import GATE_SECONDS, ISSUE, Gated, RecordingClient
 if TYPE_CHECKING:
     import pytest
 
+    from punt_lux.applets.board_ops import BoardOps
     from punt_lux.applets.latency import ClickLatency
-    from punt_lux.rest_client import LuxRestClient
 
 _IDENTITY = ClientIdentity(kind="mcp-session", name="lux · lux · #1", repo="/w/lux")
 
@@ -107,10 +108,10 @@ class _SlowService:
     def prefetch(self) -> None:
         """Nothing to warm: this service exists to exercise the click."""
 
-    def acknowledge(self, client: LuxRestClient, latency: ClickLatency) -> None:
+    def acknowledge(self, client: BoardOps, latency: ClickLatency) -> None:
         """Instant by construction: the phase under a budget never blocks."""
 
-    def service(self, client: LuxRestClient, latency: ClickLatency) -> None:
+    def service(self, client: BoardOps, latency: ClickLatency) -> None:
         self._started.set()
         self._release.wait(timeout=5)
         self._serviced += 1
@@ -149,10 +150,10 @@ class _WarmingService:
         self._release.wait(timeout=5)
         self._prefetched += 1
 
-    def acknowledge(self, client: LuxRestClient, latency: ClickLatency) -> None:
+    def acknowledge(self, client: BoardOps, latency: ClickLatency) -> None:
         """Not under test here: this service exists to exercise the warm-up."""
 
-    def service(self, client: LuxRestClient, latency: ClickLatency) -> None:
+    def service(self, client: BoardOps, latency: ClickLatency) -> None:
         """Not under test here: this service exists to exercise the warm-up."""
 
     @property
@@ -177,10 +178,10 @@ class _ExplodingWarmUp:
     def prefetch(self) -> None:
         raise RuntimeError("something nobody modelled")
 
-    def acknowledge(self, client: LuxRestClient, latency: ClickLatency) -> None:
+    def acknowledge(self, client: BoardOps, latency: ClickLatency) -> None:
         """The failure under test is in the warm-up, not in answering a click."""
 
-    def service(self, client: LuxRestClient, latency: ClickLatency) -> None:
+    def service(self, client: BoardOps, latency: ClickLatency) -> None:
         """The failure under test is in the warm-up, not in the click's work."""
 
 
@@ -205,14 +206,23 @@ class _AcceptingClient:
 
 
 def _patch_rest(monkeypatch: pytest.MonkeyPatch, client: object) -> None:
-    """Point the leg's per-use REST client at a stand-in, not a running Hub."""
+    """Point the leg's and runner's per-use Hub connection at a stand-in.
 
-    def _for_identity(_identity: ClientIdentity, *, timeout: float = 2.0) -> object:
+    ``AppletLeg._rest`` (registration) and ``ServiceRunner._rest`` (click
+    work) each build their own connection per use, so both are patched
+    directly to the same stand-in rather than patching the transport they
+    build it from -- the stand-in serves whichever of the two a given test
+    exercises.
+    """
+
+    def _stand_in_leg(self: AppletLeg) -> object:
         return client
 
-    monkeypatch.setattr(
-        "punt_lux.applets.leg.LuxRestClient.for_identity", _for_identity
-    )
+    def _stand_in_runner(self: ServiceRunner) -> object:
+        return client
+
+    monkeypatch.setattr(AppletLeg, "_rest", _stand_in_leg)
+    monkeypatch.setattr(ServiceRunner, "_rest", _stand_in_runner)
 
 
 def test_a_slow_click_does_not_stall_the_loop_that_holds_the_lease(
@@ -367,10 +377,10 @@ class _PushingService:
     def prefetch(self) -> None:
         """Nothing to warm: this service exists to exercise the push."""
 
-    def acknowledge(self, client: LuxRestClient, latency: ClickLatency) -> None:
+    def acknowledge(self, client: BoardOps, latency: ClickLatency) -> None:
         """Nothing to answer with: this service exists to exercise the push."""
 
-    def service(self, client: LuxRestClient, latency: ClickLatency) -> None:
+    def service(self, client: BoardOps, latency: ClickLatency) -> None:
         client.render_table(None)  # type: ignore[arg-type]  # the push is what is under test, not its payload
 
 
@@ -391,10 +401,10 @@ class _ExplodingService:
     def prefetch(self) -> None:
         """Nothing to warm: the failure under test is in the click's work."""
 
-    def acknowledge(self, client: LuxRestClient, latency: ClickLatency) -> None:
+    def acknowledge(self, client: BoardOps, latency: ClickLatency) -> None:
         """The failure under test is in the work, not in answering the click."""
 
-    def service(self, client: LuxRestClient, latency: ClickLatency) -> None:
+    def service(self, client: BoardOps, latency: ClickLatency) -> None:
         raise RuntimeError("something nobody modelled")
 
 
@@ -424,10 +434,10 @@ def test_a_hub_that_vanishes_before_the_client_is_built_leaves_the_leg_up(
 ) -> None:
     """Building the client reads luxd's port, so `make restart` lands here too."""
 
-    def _unreachable(_identity: ClientIdentity, *, timeout: float = 2.0) -> object:
+    def _unreachable(self: ServiceRunner) -> object:
         raise HubUnavailableError("luxd is not running")
 
-    monkeypatch.setattr("punt_lux.applets.leg.LuxRestClient.for_identity", _unreachable)
+    monkeypatch.setattr(ServiceRunner, "_rest", _unreachable)
     started, release = threading.Event(), threading.Event()
     release.set()
     leg = AppletLeg(_IDENTITY, _SlowService(started, release))
@@ -476,10 +486,10 @@ class _OrderedService:
     def prefetch(self) -> None:
         self._steps.append("prefetch")
 
-    def acknowledge(self, client: LuxRestClient, latency: ClickLatency) -> None:
+    def acknowledge(self, client: BoardOps, latency: ClickLatency) -> None:
         self._steps.append("acknowledge")
 
-    def service(self, client: LuxRestClient, latency: ClickLatency) -> None:
+    def service(self, client: BoardOps, latency: ClickLatency) -> None:
         self._steps.append("service")
 
     @property
@@ -574,12 +584,12 @@ class _ParkedService:
     def prefetch(self) -> None:
         """Nothing to warm: this service exists to exercise two clicks at once."""
 
-    def acknowledge(self, client: LuxRestClient, latency: ClickLatency) -> None:
+    def acknowledge(self, client: BoardOps, latency: ClickLatency) -> None:
         self._answers.append("answered")
         if len(self._answers) == 2:
             self._both.set()
 
-    def service(self, client: LuxRestClient, latency: ClickLatency) -> None:
+    def service(self, client: BoardOps, latency: ClickLatency) -> None:
         self._release.wait(timeout=GATE_SECONDS)
         self._serviced += 1
 

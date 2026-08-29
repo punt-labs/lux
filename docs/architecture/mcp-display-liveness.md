@@ -239,16 +239,16 @@ worker catches `BlockingIOError` before the more general `OSError`, because
 ```python
 try:
     push(...)
-except BlockingIOError:              # send-timeout: peer accepts but won't drain
-    DisplayPaths().reap(timeout=2.0) # SIGTERM→SIGKILL the wedged owner
-    DisplayPaths().ensure()          # respawn a fresh Display process
-    client.close()                   # drop the dead fd so the next get() rebinds
-    remark_all_dirty()               # re-mark every live scene, re-push fresh state
-except OSError:                      # ECONNRESET/EPIPE: peer already dead
-    client.close()                   # same: force a fresh connection
-    reconnect()                      # nothing to kill — the peer is gone
-    remark_all_dirty()               # the display may come back empty, so
-                                     # re-push every live scene from the store
+except BlockingIOError:  # send-timeout: peer accepts but won't drain
+    DisplayPaths().reap(timeout=2.0)  # SIGTERM→SIGKILL the wedged owner
+    DisplayPaths().ensure()  # respawn a fresh Display process
+    client.close()  # drop the dead fd so the next get() rebinds
+    remark_all_dirty()  # re-mark every live scene, re-push fresh state
+except OSError:  # ECONNRESET/EPIPE: peer already dead
+    client.close()  # same: force a fresh connection
+    reconnect()  # nothing to kill — the peer is gone
+    remark_all_dirty()  # the display may come back empty, so
+    # re-push every live scene from the store
 ```
 
 Both failure paths end by re-marking every live scene. A dead peer usually

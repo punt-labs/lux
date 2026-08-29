@@ -13,6 +13,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from punt_lux.display.menus import MenuBar, MenuModel, MenuSurface, WorldPanel
+from punt_lux.display.replica.frame_visibility import FrameVisibility
 from punt_lux.protocol import RemoteEventHandlerInvocation
 
 from .menu_doubles import (
@@ -175,7 +176,7 @@ class TestOneMenuTwoSurfaces:
         manager.replace_callback_menus([_VOXD_MENU])
         expected = tuple(s.label for s in manager.menu_model().sections)
 
-        assert expected == ("Lux", "Windows", "Help", "File", "Clients")
+        assert expected == ("Lux", "Clients", "File", "Windows", "Help")
         for imgui in (_draw_bar(manager), _draw_panel(manager)):
             assert _sections_drawn(imgui) == expected
 
@@ -227,7 +228,7 @@ class TestTheClientsMenu:
         manager.replace_callback_menus([_CLIENTS_MENU])
 
         for imgui in (_draw_bar(manager), _draw_panel(manager)):
-            assert _sections_drawn(imgui) == ("Lux", "Windows", "Help", "Clients")
+            assert _sections_drawn(imgui) == ("Lux", "Clients", "Windows", "Help")
 
     def test_a_nested_leaf_click_routes_the_same_from_either_surface(self) -> None:
         sent: list[RemoteEventHandlerInvocation] = []
@@ -356,7 +357,7 @@ class TestAMenuThatCannotBeDrawn:
 
         for imgui in (_draw_bar(manager), _draw_panel(manager)):
             drawn = _sections_drawn(imgui)
-            assert drawn == ("Lux", "Windows", "Help", "File", "Clients")
+            assert drawn == ("Lux", "Clients", "File", "Windows", "Help")
             assert imgui.labels_under("Clients", "voxd")[0] == "Music"
 
     def test_a_failing_action_still_closes_the_panels_window(
@@ -477,7 +478,9 @@ class TestWorldPanelOpening:
 
     def test_a_click_over_the_dock_bar_leaves_the_panel_shut(self) -> None:
         manager = make_menu_replica(
-            get_frames=lambda: {"f1": make_frame("f1", minimized=True)}
+            get_frames=lambda: {
+                "f1": make_frame("f1", visibility=FrameVisibility.DOCKED)
+            }
         )
         imgui = FakeImGui()
         imgui.click_background(Vec2(400.0, 790.0))  # inside the dock bar's strip

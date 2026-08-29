@@ -1,36 +1,47 @@
-"""HubRestart — stop luxd and wait for its service manager to bring it back.
+"""HubRestart — restart luxd through its service supervisor.
 
-Restarting the Hub is not a signal, it is a handshake with launchd or systemd:
-send the term, watch the old process go, then watch a *different* pid appear with
-a port behind it. Waiting for the new pid is what makes the operation honest —
-returning as soon as the old one died would report a restart that had not happened
-yet, and the next command would find no Hub.
+Restarting the Hub is one supervisor call, not a signal-and-wait against a
+pid file the daemon does not itself keep current. The service manager
+(launchd or systemd) already knows luxd's pid, so ask the supervisor to
+atomically kill-and-respawn, then wait for two independent witnesses
+before declaring the restart complete: the process id under the
+service's ``setproctitle`` name has *changed* (the new instance is
+running) and ``HubPaths.is_running()`` returns true (uvicorn has bound,
+because luxd only writes its pid file after ``_startup_with_port_file``
+returns). Requiring both closes the gap between "process exists" and
+"port is up" — setproctitle is called before uvicorn binds, so pgrep
+alone would say restarted while ``curl :8430`` still refuses.
 
-The steps and their bounds live here rather than in the CLI so the CLI stays what
-it should be: parse, call, print. Failure is raised as :class:`HubRestartError`
-with the reason already worded for a human.
+Failure is raised as :class:`HubRestartError` with the reason already
+worded for a human.
 """
 
 from __future__ import annotations
 
-import os
-import signal
 import time
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux._backends import pgrep_pid
+from punt_lux._service_spec import HUB_SPEC, ServiceSpec
 from punt_lux.hub_paths import HubPaths
+from punt_lux.service import (
+    HubServiceManager,
+    ServiceActionFailedError,
+    ServiceNotInstalledError,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
-    from pathlib import Path
 
 __all__ = ["HubRestart", "HubRestartError"]
 
-# Each wait polls at this interval up to this bound. Ten seconds is generous for
-# a local service manager's respawn and short enough that a stuck one is reported
-# rather than hung on.
+# Thirty seconds spans a cold start on a fresh install: importing the
+# ``[display]`` extras (imgui-bundle at ~66 MB, numpy, Pillow) plus the
+# service manager's respawn and uvicorn's port bind routinely takes
+# 15-25s on a warm laptop and longer on a loaded CI runner. Ten seconds
+# was tight enough to false-alarm during ``install.sh``.
 _POLL_SECONDS = 0.5
-_WAIT_SECONDS = 10.0
+_WAIT_SECONDS = 30.0
 
 
 class HubRestartError(RuntimeError):
@@ -39,94 +50,59 @@ class HubRestartError(RuntimeError):
 
 @final
 class HubRestart:
-    """Term luxd and wait for the service manager to respawn it on a new pid."""
+    """Restart luxd via its supervisor and wait for both pid and port."""
 
+    _spec: ServiceSpec
+    _manager: HubServiceManager
     _paths: HubPaths
-    __slots__ = ("_paths",)
+    __slots__ = ("_manager", "_paths", "_spec")
 
-    # ``paths`` absent means "the real Hub's paths" — resolved per instance rather
-    # than bound once at import, so a caller (a test) can restart against its own
-    # state directory without the default reaching into someone's home.
-    def __new__(cls, paths: HubPaths | None = None) -> Self:
+    def __new__(
+        cls,
+        spec: ServiceSpec | None = None,
+        manager: HubServiceManager | None = None,
+        paths: HubPaths | None = None,
+    ) -> Self:
         self = super().__new__(cls)
+        self._spec = spec if spec is not None else HUB_SPEC
+        self._manager = manager if manager is not None else HubServiceManager()
         self._paths = paths if paths is not None else HubPaths()
         return self
 
     def run(self) -> str:
         """Restart luxd and return the line describing the Hub that came back."""
-        old_pid = self._term()
-        self._await_exit(old_pid)
-        return self._await_respawn(old_pid)
-
-    def _term(self) -> int:
-        """Send SIGTERM to the recorded pid and return it, or say why it failed."""
+        before = pgrep_pid(self._spec.process_name)
         try:
-            pid = int(self._pid_path.read_text().strip())
-            os.kill(pid, signal.SIGTERM)
-        except (ValueError, OSError) as exc:
-            msg = f"could not signal luxd: {exc}"
-            raise HubRestartError(msg) from exc
-        return pid
+            self._manager.restart()
+        except (ServiceActionFailedError, ServiceNotInstalledError) as exc:
+            raise HubRestartError(str(exc)) from exc
+        return self._await_ready(before)
 
-    def _await_exit(self, pid: int) -> None:
-        """Wait for the termed process to go, or raise once the bound passes."""
-        for _ in self._polls():
-            if not self._alive(pid):
-                return
-        msg = f"luxd (pid {pid}) did not stop within {_WAIT_SECONDS:.0f}s"
-        raise HubRestartError(msg)
+    def _await_ready(self, before: int | None) -> str:
+        """Wait for a new pid AND a live port, and describe it.
 
-    def _await_respawn(self, old_pid: int) -> str:
-        """Wait for a *different* live pid to own the Hub, and describe it.
-
-        A pid equal to the old one is the file not yet rewritten, not a restart,
-        so it keeps waiting. A live new pid whose port file has not landed yet is
-        still a restart, and is reported as such rather than failed.
+        A pid alone is not enough — luxd calls ``set_process_title`` at
+        the top of ``main`` before uvicorn binds, so pgrep can see the new
+        pid while the TCP port is still down. The pid file, written only
+        after ``_startup_with_port_file`` completes, is what witnesses the
+        port is actually up. Requiring both means a returned "restarted"
+        line is safe to hand to the next ``curl :8430``.
         """
         for _ in self._polls():
-            pid = self._live_pid()
-            if pid is None or pid == old_pid:
+            pid = pgrep_pid(self._spec.process_name)
+            if pid is None or pid == before:
+                continue
+            if not self._paths.is_running():
                 continue
             port = self._paths.read_port()
             where = f"port {port}" if port is not None else "port file not yet written"
             return f"luxd restarted (pid {pid}, {where})"
-        msg = f"luxd did not restart within {_WAIT_SECONDS:.0f}s"
+        msg = f"luxd did not come back within {_WAIT_SECONDS:.0f}s"
         raise HubRestartError(msg)
-
-    def _live_pid(self) -> int | None:
-        """The pid of a running Hub, or ``None`` while there is not one yet.
-
-        Absence is the expected state mid-restart — the service manager has not
-        respawned, or the pid file is being rewritten — so the caller keeps
-        waiting rather than treating it as a failure.
-        """
-        if not self._paths.is_running():
-            return None
-        try:
-            return int(self._pid_path.read_text().strip())
-        except (ValueError, OSError):
-            return None
-
-    @staticmethod
-    def _alive(pid: int) -> bool:
-        """Whether ``pid`` still exists; an unreadable process counts as gone."""
-        try:
-            os.kill(pid, 0)
-        except (ProcessLookupError, PermissionError):
-            return False
-        return True
 
     @staticmethod
     def _polls() -> Iterator[None]:
-        """The bounded poll schedule both waits share: sleep, then look, until spent.
-
-        Sleeping before the first look is deliberate — neither the process's exit
-        nor the manager's respawn can have happened in the instant after the term.
-        """
+        """The bounded poll schedule: sleep, then look, until spent."""
         for _ in range(int(_WAIT_SECONDS / _POLL_SECONDS)):
             time.sleep(_POLL_SECONDS)
             yield
-
-    @property
-    def _pid_path(self) -> Path:
-        return self._paths.pid_path

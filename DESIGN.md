@@ -1006,9 +1006,10 @@ Add an optional `filters` field to `TableElement`. When present, the display ser
 @dataclass(frozen=True)
 class TableFilter:
     """A filter control rendered above a table."""
+
     type: Literal["search", "combo"]
-    column: int | list[int]       # column index(es) to filter on
-    hint: str = ""                # placeholder text (search only)
+    column: int | list[int]  # column index(es) to filter on
+    hint: str = ""  # placeholder text (search only)
     items: list[str] | None = None  # dropdown items (combo only, first item = "All")
 ```
 
@@ -1122,9 +1123,10 @@ Add an optional `detail` field to `TableElement`. When present, clicking a row r
 @dataclass(frozen=True)
 class TableDetail:
     """Detail data for each row, rendered when the row is selected."""
-    fields: list[str]          # field names (e.g., ["ID", "Title", "Status", ...])
-    rows: list[list[Any]]      # one row per table row, values for each field
-    body: list[str]            # one body text per table row (long-form content)
+
+    fields: list[str]  # field names (e.g., ["ID", "Title", "Status", ...])
+    rows: list[list[Any]]  # one row per table row, values for each field
+    body: list[str]  # one body text per table row (long-form content)
 ```
 
 ```python
@@ -1288,6 +1290,7 @@ class RegisterMenuMessage:
     Replaces any previous registration from the same client (socket).
     Automatically cleaned up on disconnect.
     """
+
     items: list[dict[str, Any]]  # [{label, id, shortcut?, enabled?, icon?}]
     type: Literal["register_menu"] = "register_menu"
 ```
@@ -1329,8 +1332,8 @@ No client-side filtering needed. The routing is invisible to the `recv()` caller
 ```python
 # DisplayServer additions:
 _menu_registrations: dict[int, list[dict[str, Any]]]  # fd → items
-_menu_owners: dict[str, int]                           # item_id → fd
-_fd_to_client: dict[int, socket.socket]                # fd → socket (O(1) routing)
+_menu_owners: dict[str, int]  # item_id → fd
+_fd_to_client: dict[int, socket.socket]  # fd → socket (O(1) routing)
 ```
 
 `_menu_registrations` stores each client's raw item list (for re-rendering the menu). `_menu_owners` is the reverse index (for routing clicks). `_fd_to_client` is a reverse index for O(1) socket lookup by FD, matching the existing `_readers: dict[int, FrameReader]` pattern. All three are maintained in `_accept_connections` and `_remove_client`.
@@ -1398,12 +1401,14 @@ def register_tool(
     Items are automatically removed when the server disconnects.
     """
     client = _get_client()
-    client.register_menu_item({
-        "label": label,
-        "id": tool_id,
-        "shortcut": shortcut,
-        "icon": icon,
-    })
+    client.register_menu_item(
+        {
+            "label": label,
+            "id": tool_id,
+            "shortcut": shortcut,
+            "icon": icon,
+        }
+    )
     return f"registered:{tool_id}"
 ```
 
@@ -1585,14 +1590,21 @@ World
 
 ### Frame Lifecycle
 
+> **Superseded in part by DES-088.** The `frame_close` row and the paragraph
+> below it no longer describe the system. Closing a frame is a Display-local
+> visibility change and reaches no client at all: the send and the Hub-side
+> handler are both retired, so nothing can "ignore the close and keep the frame
+> open" — there is no message to ignore, and the frame is not going anywhere.
+> The rest of the table stands.
+
 | Event | Protocol Message | Direction |
 |-------|-----------------|-----------|
 | Create/update frame | `SceneMessage` with `frame_id` | Client → Display |
-| Close frame (user) | `InteractionMessage` with `action: "frame_close"` | Display → Client |
+| ~~Close frame (user)~~ | ~~`InteractionMessage` with `action: "frame_close"`~~ — retired (DES-088) | — |
 | Minimize frame (user) | `InteractionMessage` with `action: "frame_minimize"` | Display → Client |
 | Client disconnect | (implicit) | Display removes client's frames |
 
-The display sends frame lifecycle events (close, minimize) to the owning client. The client can react — e.g., a Beads Explorer might save state before closing, or ignore the close and keep the frame open (like a dirty-document dialog).
+The display sends frame lifecycle events (minimize) to the owning client. The client can react — e.g., a Beads Explorer might save state before collapsing.
 
 ### World Menu Lifecycle
 
@@ -1729,7 +1741,10 @@ try:
 except ModuleNotFoundError as exc:
     _display_modules = {"imgui_bundle", "numpy", "PIL", "OpenGL"}
     if exc.name and exc.name.split(".")[0] in _display_modules:
-        typer.echo("Display extras not installed. Run: pip install 'punt-lux[display]'", err=True)
+        typer.echo(
+            "Display extras not installed. Run: pip install 'punt-lux[display]'",
+            err=True,
+        )
         raise typer.Exit(code=1) from None
     raise
 ```
@@ -2268,10 +2283,10 @@ functions does not give us that. The single-runtime test from
 display = Display()
 alice_id = display.connect_client(name="alice")
 bob_id = display.connect_client(name="bob")
-display.apply(alice_id, AddElement("s1", parent_id=None,
-                                   element=Button(id="b1", label="hi")))
-refused = display.apply(bob_id,
-                        SetProperty("s1", "b1", "label", "evil"))
+display.apply(
+    alice_id, AddElement("s1", parent_id=None, element=Button(id="b1", label="hi"))
+)
+refused = display.apply(bob_id, SetProperty("s1", "b1", "label", "evil"))
 assert isinstance(refused, OwnershipError)
 assert display.snapshot("s1").element("b1").label == "hi"
 ```
@@ -5738,3 +5753,433 @@ Jim's Hub after both fixes were installed. Convergent diagnosis with
 the lux-side investigation of the same symptom. Vox's PR ships
 independently on their release cadence; this amendment is lux-side and
 does not block it.
+
+## DES-088: Closed Is a Visibility the Display Owns — Frame Content and Frame Visibility Are Two Axes
+
+**Status:** SETTLED (operator ratification 2026-08-29); implements
+R8 of DES-065, bead `lux-mxvy.8`. Design note:
+`docs/design-des065-visibility.md`. Formal model:
+`docs/frame-visibility-lifecycle.tex`, fuzz-clean and ProB
+model-checked (95 states, 845 transitions, all operations covered),
+with a fidelity control that reaches every property the intact
+specification cannot.
+
+**Problem.** Two authorities write to a frame, and they were writing
+to the same fields. A *client* owns its content — `show()`,
+`update()`, an empty push, a manifest purge, a frame TTL. The *user*
+owns its visibility — the collapse button, the close button, a dock
+pill, `raise_frame`, Expand/Collapse/Fit All. Two defects shipped,
+both found downstream in vox, and they are that confusion broken once
+in each direction:
+
+- **`vox-640w`.** `SceneReplica.close_frame` popped the frame out of
+  `FrameBook` entirely, so `FrameCommands.raise_it` found nothing and
+  answered `raised: false`. The one mechanism that exists to restore a
+  frame on a user gesture could not act on a frame the user closed.
+- **`vox-7l2d`.** The same `close_frame` called `forget_scene` for
+  every scene the frame held, returning those ids to *unseen*. The
+  next background push therefore read as `is_new`, and the `is_new`
+  branch cleared `minimized` and requested focus. A track change
+  reopened a window the user had shut.
+
+They share one cause. `is_new` — "this scene id is not in this frame"
+— is a fact about **content**, and it was wired to affordances that
+belong to **visibility**. Because a close erased content, the user's
+decision was round-tripped through the content axis and destroyed
+there.
+
+**Decision.** One rule, and the whole of it: *a content event never
+writes visibility; a visibility event never writes content.*
+
+`Frame.minimized: bool` becomes a three-valued `FrameVisibility`,
+asked through `is_on_screen` / `is_docked` / `is_closed` and moved
+through `minimize()` / `close()` / `restore()`. The boolean and its
+setter are deleted, not aliased. A closed frame stays in `FrameBook`
+with its scenes, widget state, active tab and cascade index: nothing
+about it is destroyed, it is simply not painted.
+
+Three things fall out of that choice which no other arrangement gives
+for free. `raise_frame` works on a closed frame with no change to its
+logic, because the frame is still there to be found — the load-bearing
+confirmation the whole design rests on, and the one `vox-640w`'s own
+fix depends on. There is one store rather than a graveyard beside the
+live frames, so there is no second place for the purge sweep and
+introspection to disagree with. And the "known but unframed" state the
+bead asks for needs no representation of its own: it is *known* with a
+frame whose visibility happens to be `CLOSED`.
+
+`close_frame` was one name over two operations, split five call sites
+to one. It becomes `close` — visibility only, no `forget_scene`, no
+widget-state discard, no stale-id notification — for the frame's ✕,
+and `dispose_frame` — the previous behaviour entire — for Clear All,
+the tab ✕, an empty push, a husk, and a manifest purge. The husk rule
+survives both: a frame whose last scene is disposed goes with it
+whatever its visibility, so a closed frame is not an unbounded leak.
+
+A frame is born `ON_SCREEN`, by one assignment in `FrameBook.ensure`
+and nothing else attached to it. That is not a raise: R8's acceptance
+tests are about the *window* and about *focus*, and its own final test
+("user opens the window via the menubar: the scene is visible")
+requires that arriving scenes did get frames while the window was
+hidden. There is no preference knob — a "create new frames minimized"
+setting has no requester and would give the user a way to make
+arriving content invisible with no affordance saying where it went.
+
+The formalisation surfaced three consequences that changed the
+implementation.
+
+- **The active tab is in the same category as visibility.** A
+  user-owned selection. A new scene takes it only when the frame has
+  none yet — its first scene, which has nothing to take. Otherwise it
+  joins the tab strip and the selection stays put. `DES-060` gated
+  three affordances to new scenes (un-minimize, focus, active-tab);
+  R8 retires the first two by name and this retires the third for the
+  same reason.
+- **A closed frame needs a deliberate reopen affordance, and it is
+  in scope.** Once the accidental path is gone, a frame is reopenable
+  only by a named gesture, and a plain agent `show()` scene owns no
+  menu entry. So the Windows menu gains a list of closed frames, one
+  entry each, going through `raise_frame`; and Expand All restores
+  docked and closed alike. The dock bar deliberately shows no pill for
+  a closed frame — keeping closed out of it is what makes closing a
+  stronger statement than collapsing.
+- **The Hub must stop deleting scenes when the user closes a frame.**
+  Invisible from `scene_replica.py` alone, and it would have survived
+  a Display-only fix. `render_loop._close_frame` sent a
+  `frame_close` invocation; `HubInteractionDispatch` answered by
+  calling `remove_frame` and marking every scene dirty, and the
+  replicator pushed those scenes back **empty** — which is the dispose
+  path. So even a Display that kept its closed frame perfectly would
+  have had it thrown out one round trip later, by the Hub, on the
+  user's own close. The wire event and its handler are retired
+  entirely, and `notify=False` with them, the user-close and purge
+  paths now being different methods rather than one method with a
+  flag.
+
+  `FrameLifecycle.remove_frame` goes too. The design note said it
+  "stays for the TTL sweep", and that was wrong on a point of fact:
+  the sweep is `expire_due`, which calls `_tear_down` directly and
+  never reached `remove_frame`. With the `frame_close` handler retired
+  it had no caller at all, so keeping it would have left dead source
+  teaching the next reader that the TTL path runs through it. Deleted
+  per PY-RF-6 (operator ruling 2026-08-29). The parity design's future
+  `lux frame close` is a *dispose* by its own account (§8.5), so this
+  was not clearly its seam either. Two of the three properties its
+  tests asserted are real and survive against the sweep — teardown
+  works after the owning session has departed, and a synthesized frame
+  is a lifecycle citizen; the third (an unknown frame touches nothing)
+  had no subject once the method was gone.
+
+**The reopen path is `raise_frame` and nothing else.** Review of the
+implementation found a second door the design note had not considered:
+`FrameCommands.set_state` — the `set_frame_state` operation the whole
+client surface carries — called `restore()` on whatever frame it was
+handed, so once a closed frame was retained, any client holding a frame
+id could silently reopen a window the user had just shut. It is bug B's
+shape through a client command rather than a content push, and the
+mirror case was open too: docking a closed frame would have given it a
+pill in the bar the user never asked for. The old code was safe here
+only by accident, the same way it was broken by accident elsewhere —
+closing popped the frame, so the call raised `LookupError`. Retaining
+the frame is what opened the door, which makes this a defect the fix
+created and part of the same change. `set_state` now refuses a closed
+frame in both directions, and raises rather than no-ops: a caller cannot
+see visibility from its own request, so a quiet "nothing changed" would
+let it believe it had acted.
+
+The model had not caught it because the model had no such operation, and
+a specification cannot constrain what it does not carry.
+`frame-visibility-lifecycle.tex` gained `SetDockState` with the guard and
+the control gained it without, taking the intact spec to 119 states and
+1309 transitions with every operation covered and all five invariants
+still holding. The guard is evidenced by a deterministic replay —
+`PushNewFrame; Close; SetDockState(f, vOpen)` fails at exactly that
+operation. The narrow lesson is worth keeping: an operation inventory is
+part of a model's fidelity, not scaffolding around it.
+
+**Why the model earned its place.** It found that the two halves of
+the fix must ship together or the product gets worse. Retiring the
+`is_new` side effect while leaving `close_frame` destructive reaches a
+state where the user has closed a frame, `raise_frame` cannot find it,
+and the accidental recreation that used to bring it back is gone —
+**today, `vox-7l2d` *is* the only reopen path for a closed frame.**
+Take it away on its own and the close button becomes a one-way door.
+The implementation was therefore not split along that seam, and its
+tests assert the composite: close, then raise, then confirm the frame
+is on screen.
+
+**Alternatives rejected.** *A graveyard of closed scenes beside the
+live frames* — needs a resurrection path, a second place for the purge
+sweep to look, and a second place for introspection to read; every one
+of those is somewhere the two copies can disagree. *Keep `close_frame`
+and give it a flag* — a flag over two incompatible meanings is how the
+six call sites came to disagree in the first place. *Persist `CLOSED`
+across a Display restart* — visibility is Display-local session state
+like focus and cascade position, neither of which survives either, and
+persisting it would mean replicating a Display-owned value back to the
+Hub, which is the exact coupling this severs. *Fix the tab ✕ at the
+same time* — `dismiss_framed_scene` has the same defect one level
+down, but repairing it needs *per-scene* visibility (a dismissed tab
+is one scene put away inside a frame that stays on screen) and this
+design's visibility is per-frame; filed as `lux-ksdw` rather than
+half-done here.
+
+**Supersedes.** DES-025 (Frame Auto-Focus) and DES-060 (Announce on
+Arrival Only), as DES-065 R8 already declares — this is where the
+retirement actually lands in the code. **Amends** DES-063 (Lux
+Applets) with the guarantee its raise-first pattern needs:
+`raise_frame` works identically on an open, docked, or closed frame,
+so `display_control.raise_frame` answers `raised: true` for a frame
+the user shut, and an applet's `BoardChannel.raised` → skip-the-push
+path behaves correctly for the first time.
+
+**Consequences, stated rather than discovered later.** Closing now
+tells the client nothing at all; an applet that would like to pause
+expensive work while its window is shut has no signal, and if that is
+ever wanted it is a new Hub → client notification designed on its own
+merits, not a reason to keep a deletion. A closed frame's scenes stay
+in the Hub's store until the client disposes them, the client
+disconnects, or the frame TTL passes — bounded by client lifetime, and
+the price of "closed is visibility, not deletion". And the parity
+design's planned `lux frame close` client operation is a **dispose**
+(a client saying its content is gone), not a **close** (the user
+putting a window away); that work should pick a different name for one
+of them.
+
+## DES-068: TextureCache Bounds — LRU + Coupled DataKeyMemo Eviction Under One Cap
+
+**Status:** SETTLED (shipped v0.30.0, bead `lux-qfzu.2`, PR #411)
+
+**Problem.** `TextureCache` was documented as unbounded (system.tex §7
+Known Limitation #2) for months. Two distinct memory leaks lived in one
+class: GPU-side texture IDs accumulated in `_lru: dict[str, int | None]`
+until process exit, and Python-side base64 payloads accumulated in
+`_data_keys: dict[str, str]` (the payload → sha256-key memo). A
+long-lived image-heavy session — a browser panel that renders many
+distinct images over hours — would leak both GPU memory and Python heap
+until the process died. `cleanup()` cleared both, but only ran at
+`_on_exit`.
+
+**Decision.** LRU eviction on textures, with a cap default of 256
+overridable via `LUX_TEXTURE_CACHE_CAP`, and the `DataKeyMemo` bounded
+by coupled eviction rather than a second LRU.
+
+Extract three collaborators into their own classes, composed by
+`TextureCache`:
+
+1. `TextureLru` (`display/texture_lru.py`) — ordering and capacity, no
+   knowledge of GL. `remember(key, tex_id)` returns the evicted
+   `(key, tex_id)` pair (or `None`) so the caller can act on both halves.
+2. `GLTexture` (`display/gl_texture.py`) — the two raw GL calls
+   (upload, delete). Two staticmethods, zero state. `delete(None)` is a
+   no-op so failure records evict cleanly.
+3. `DataKeyMemo` (`display/data_key_memo.py`) — the payload ↔ hash-key
+   memo, exposing `key_for`, `forget`, `clear`. `forget(key)` drops both
+   memo directions.
+
+`TextureCache._settle(evicted)` unpacks the LRU's returned pair and
+calls `GLTexture.delete(tex_id)` and `DataKeyMemo.forget(key)` in one
+place. The memo is bounded by the same cap as the LRU by construction:
+every real-key eviction drops its memo entry in step.
+
+**Alternatives rejected.**
+
+- *Leave the memo unbounded; only cap textures.* This was the round-1
+  landing shape that Copilot correctly caught in post-review. It fixes
+  the GPU leak but leaves the Python-heap leak, which is worse in
+  practice — base64 payloads are KB-per-image, so the memo becomes the
+  dominant memory cost on any image-heavy workload. Bounded-half is
+  worse than the unbounded status quo because it advertises the leak as
+  fixed. Rejected on Copilot's finding; DataKeyMemo landed round 2.
+- *Parallel LRU on `_data_keys`.* Second cache with its own cap, kept
+  in sync. Two independent invalidation paths that must never drift.
+  The coupled-eviction shape is simpler — one cap, one invalidation
+  event, one place both drop together — and produces the same
+  bounded-ness guarantee with less machinery.
+- *Eliminate the memo entirely; always compute the sha256 per call.*
+  Loses the "same-object payload memoized to O(1) after first sight"
+  win on the common pattern (a persistent element passing the same
+  `elem.data` every frame). The compute cost per KB isn't material at
+  current scale, but the pattern of "cache what stays stable across
+  frames, evict when it doesn't" is worth preserving as a shape other
+  renderers will imitate.
+- *Reference counting per scene.* Explicit `retain`/`release` semantics
+  tied to scene lifetime. LRU is enough; ref-counting adds a discipline
+  every caller has to follow and gives no additional bound.
+
+**Verification.** `TextureLru.remember(c)` at cap=2 with keys `a`,
+`b` traced by hand: evicts `a`, `_settle` unpacks `(a, tex_a)`,
+`GLTexture.delete(tex_a)` fires, `DataKeyMemo.forget(a)` drops both
+`_data_to_key[a]` and `_key_to_data[key_a]`. Test
+`test_evicted_payload_re_decodes_and_re_uploads` asserts
+`payload_a not in cache._data_keys` directly (not inferred from an
+upload-count change), so a bug where `forget()` isn't called fails
+loud. 35 tests cover cap, LRU order, GL-delete-on-evict,
+GL-delete-skipped-on-None-evict, env override, empty and size-1
+edges, and the bounded-ness of the memo under repeated distinct
+payloads.
+
+**Provenance.** Round-1 gvr eval accepted the LRU code but did not
+audit sibling data structures; Copilot's PR review caught the memo
+leak the eval missed. Round-2 gvr eval carried the "audit every
+data-holding attribute in every class in the module" discipline
+forward — a rule shape worth naming for future perf-adjacent evals.
+
+## DES-069: Table Hot-Path Memoization — `id()`-Key Invalidation on Reassigned-Tuple Data
+
+**Status:** SETTLED (shipped v0.30.0, beads `lux-qfzu.3` + `lux-qfzu.4`, PR #413)
+
+**Problem.** Two O(rows) scans ran on the table hot path every frame a
+table was visible:
+
+1. `FilteredTableModel._visible_rows` scanned the full row list under
+   any active search or combo filter, even when nothing changed
+   (system.tex §7 Known Limitation #3). `visible_ids()` then re-derived
+   ids by scanning the already-filtered result again — a second hidden
+   O(rows) cost.
+2. `TableElement._live_ids` rebuilt a `frozenset` over every row on
+   every call, regardless of selection size, so `_set_selected_row_ids`
+   cost the same for one selection as for a thousand.
+
+The qfzu.1 scale-perf test measured 9.1 ms for 10k-row filter,
+6.1/6.0 ms for 0-vs-100 selections (near-identical because the row
+scan dominated).
+
+**Decision.** Memoize `FilteredTableModel._visible_rows` by the tuple
+`(id(_all_rows), _search, frozenset(_combo_picks.items()))`, and let
+`visible_ids()` share the same cache. On `TableElement`, cache the
+live-ids `frozenset` on first read after a rows change and reuse it on
+selection-only operations.
+
+The invalidation trigger uses Python's `id()` on `_all_rows`. This is
+safe here — not in general — because `_all_rows` is only ever
+*reassigned* (in `__new__` and `_absorb_dataset`), never mutated in
+place. `_all_rows` is a tuple, so in-place mutation isn't possible
+either. Under that discipline `id()` is a valid change signal: a new
+tuple object means new content by construction, and CPython id-reuse
+after GC can't bite in the synchronous flow because nothing recycles a
+freshly-allocated tuple mid-request.
+
+The `TableElement._live_ids_cache` is invalidated in `_set_rows`
+*before* `self._selection.reconciled(...)` runs, so reconciliation
+always sees fresh ids. Selection-only patches (via
+`_set_selected_row_ids`) read the cache untouched; a rows patch
+recomputes it.
+
+**Perf receipts** (from `tests/perf/test_scale_budget.py`):
+
+| Scenario                        | Before   | After     | Ratio |
+|---|---|---|---|
+| 10k rows, filter to ~100        | 9.1 ms   | 0.2 ms    | 45×   |
+| 10k rows, multi-select 0 sel    | 6.1 ms   | 0.003 ms  | 2000× |
+| 10k rows, multi-select 100 sel  | 6.0 ms   | 0.013 ms  | 460×  |
+
+The 0-vs-100 divergence (previously near-identical, now cleanly
+proportional to selection size) is the empirical proof the O(rows)
+scan was removed rather than the constant just shrinking.
+
+**Alternatives rejected.**
+
+- *Content-hash keying (`hash(_all_rows)` or a per-row content hash).*
+  Correct without any tuple-reassignment discipline, but O(rows) to
+  compute on every miss. Given `_all_rows` is a tuple reassigned
+  wholesale, `id()` is O(1) and equally correct. Content-hash keying
+  is the right choice for a caller that mutates a list in place —
+  `_all_rows` is not that caller.
+- *Full recompute per frame (status quo).* No cache. The perf receipts
+  make this untenable at 10k rows.
+- *Display-side WidgetState caching.* `FilteredTableModel` and
+  `TableElement` live on the Hub side of the split. Caching Hub-owned
+  derived state in `display/replica/widget_state.py` would violate the
+  target.md rule that WidgetState is display-local ephemeral state
+  (selection, scroll, in-progress text — things that live and die with
+  the scene render), not authoritative-Hub state that survives resend.
+  The cache belongs where the state it derives from lives.
+- *Refactor `TableElement._live_ids` to iterate `selected_row_ids` and
+  do per-id lookups against a set.* Also O(selected), also correct.
+  Requires re-deriving the live-ids set on every call anyway (to
+  populate the lookup set), which is the same cost as the cache and
+  loses the "recomputed only on rows change" optimization. Rejected
+  as strictly weaker.
+
+**Non-obvious invariant worth writing down.** The `id()`-keying works
+*because* of the tuple-reassignment discipline, not despite it. A
+future author who changes `_all_rows` to a list, or who introduces an
+in-place mutation path, silently invalidates the correctness argument.
+An inline comment on `_visible_cache_key`'s type annotation is planned
+as a follow-up ride-along on the next touch of `filtered_table_model.py`
+(gvr's non-blocking round-1 suggestion).
+
+## DES-070: Scale-Perf Test as Permanent Guardrail — Receipts Required, Not Optional
+
+**Status:** SETTLED (shipped v0.30.0, bead `lux-qfzu.1`, PR #410)
+
+**Problem.** The display had no perf test above 10 elements or 4 table
+rows before the lux-qfzu epic. The "10k rows via `imgui.ListClipper`"
+claim in the codebase rested on the clipper's contract in
+`table_row_painter.py:53-66`, not on measurement. Perf claims —
+"faster," "bounded," "no regression" — landed without empirical
+before/after receipts. That made it impossible to distinguish real
+improvement from placebo, and impossible to catch a regression until a
+user noticed the display got slow.
+
+**Decision.** `tests/perf/test_scale_budget.py` establishes measured
+baselines under `@pytest.mark.slow` (opt-in via `make test-slow`, not
+in the default `make check` gate). Four scenarios, chosen to cover the
+render walk and the Hub-side table operations that matter at scale:
+
+1. 1000-element mixed-kind scene — measures the outer render walk
+   dispatch cost. 98.6 ms baseline against a 2.0 s budget (~20× CI
+   headroom).
+2. 10k-row table, no filter — measures full-row Hub-side traversal.
+3. 10k-row table, filtered to ~100 rows — measures the filter path.
+4. 10k-row table, `selection_mode=multi`, 0 vs 100 selections —
+   measures the selection path and exposes its size-dependence (or
+   lack thereof).
+
+Each test reports raw wall-clock in ms and a normalized
+"cost-per-visible-unit" metric via a `FrameBudget` helper class, so
+receipts survive machine-to-machine noise. Budgets are catastrophic-
+blowup guards, not per-change regression guards — that's the
+sibling `test_frame_budget.py`'s established philosophy per
+`tests/CLAUDE.md`, deliberately preserved here so CI stays reliable
+under load. The receipts are read by humans in commit messages and
+CHANGELOG entries; the tests fail only on order-of-magnitude
+regressions.
+
+**How the epic used it.** DES-068 (texture eviction) had no meaningful
+receipts against this suite because its cost lives in memory over
+time, not per-frame wall-clock — but DES-069 (table hot path) received
+concrete receipts and a specific structural proof (the 0-vs-100
+divergence) that qfzu.4 actually removed the O(rows) scan rather than
+just shrinking the constant. That divergence is the shape of receipt
+the guardrail exists to produce.
+
+**Alternatives rejected.**
+
+- *No perf tests (status quo).* The `_data_keys` leak lived in the
+  code for months, undetected until Copilot flagged it during PR
+  review — because there was no test measuring memory bounds. The
+  filter re-scan lived as a `## Known Limitation` note that no one had
+  the receipt to close. Untenable at this repo's rate of change.
+- *One-shot benchmark scripts (`scripts/bench_*.py`).* Reproducible
+  numbers on demand, but no ratchet — no automatic comparison against
+  a baseline, no CI enforcement, no receipt in commit history. Fine
+  for exploratory profiling; wrong shape for a guardrail.
+- *Include the perf suite in the default `make check` gate.* Would
+  make CI flaky under load (perf tests time-sensitive) and prevent
+  contributors on slower machines from running the standard gate.
+  `@pytest.mark.slow` behind `make test-slow` matches the existing
+  `test_frame_budget.py` shape and stays out of the way when not
+  wanted.
+- *Assert the divergence ratio (`select-100 / select-0 >= 3`) rather
+  than just report it.* Considered for qfzu.3+4's addition. Rejected:
+  the receipt is what humans read in the PR description and CHANGELOG;
+  a hard-coded ratio would fail on future architectures that legit-
+  imately close the gap by making both cases equally fast. Report the
+  numbers; let the reader interpret.
+
+**Related.** DES-068 and DES-069 both cite this ADR as the receipt-
+producer. Future perf work in the epic (or any successor) is expected
+to update the docstring numbers in `test_scale_budget.py` as its
+before/after evidence.

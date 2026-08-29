@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastmcp.exceptions import ToolError
 
 from punt_lux.display import geometry_capture
 from punt_lux.display.render_loop import RenderLoop
@@ -181,16 +182,18 @@ class TestCommandValidationAtHub:
         """The wrong-schema command that used to render silently is refused."""
         client = _mock_client()
         mock_get.return_value = client
-        result = show(
-            "s1",
-            [
-                {
-                    "kind": "draw",
-                    "id": "dr1",
-                    "commands": [{"op": "circle", "x": 100, "y": 100, "r": 40}],
-                }
-            ],
-        )
+        with pytest.raises(ToolError) as _exc:
+            show(
+                "s1",
+                [
+                    {
+                        "kind": "draw",
+                        "id": "dr1",
+                        "commands": [{"op": "circle", "x": 100, "y": 100, "r": 40}],
+                    }
+                ],
+            )
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "cmd" in result
         client.show.assert_not_called()
@@ -201,18 +204,20 @@ class TestCommandValidationAtHub:
     ) -> None:
         client = _mock_client()
         mock_get.return_value = client
-        result = show(
-            "s1",
-            [
-                {
-                    "kind": "group",
-                    "id": "g1",
-                    "children": [
-                        {"kind": "draw", "id": "dr1", "commands": [{"cmd": "blob"}]}
-                    ],
-                }
-            ],
-        )
+        with pytest.raises(ToolError) as _exc:
+            show(
+                "s1",
+                [
+                    {
+                        "kind": "group",
+                        "id": "g1",
+                        "children": [
+                            {"kind": "draw", "id": "dr1", "commands": [{"cmd": "blob"}]}
+                        ],
+                    }
+                ],
+            )
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         client.show.assert_not_called()
 

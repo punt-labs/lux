@@ -12,7 +12,6 @@ unless a newer gesture of the same kind is still speaking for that element.
 
 from __future__ import annotations
 
-import time
 from typing import TYPE_CHECKING, Self
 
 from punt_lux.display.evicted_compensation import CompensationTable
@@ -27,10 +26,6 @@ if TYPE_CHECKING:
     from punt_lux.protocol import RemoteEventHandlerInvocation
 
 __all__ = ["InteractionDelivery"]
-
-# Total time one flush may block the render thread, shared across every send in
-# the frame (not per event) so a slow-but-alive peer costs at most this once.
-_FRAME_SEND_BUDGET = 1.0
 
 
 class InteractionDelivery:
@@ -58,25 +53,23 @@ class InteractionDelivery:
 
     @trace
     def deliver(self, events: Sequence[RemoteEventHandlerInvocation]) -> int:
-        """Send events in order under one frame budget; return the count sent.
+        """Send events in order under the frame's shared send budget; return count sent.
 
-        Render-thread blocking is capped once per frame by a single deadline taken
-        here, not per event. Delivery is a prefix: the moment an event cannot be
-        sent — the budget lapsed, the peer is slow, or its client went — that event
-        and every one after it stay the caller's to re-hold, in their original order.
+        The render loop arms ``SocketListener.set_frame_deadline`` before invoking
+        this method, so every send here shares that one budget with the frame's
+        Acks, Pongs, and query responses — a slow-but-alive peer costs at most one
+        frame budget total, not one per event or one per collaborator. Delivery is
+        a prefix: the moment an event cannot be sent — the budget lapsed, the peer
+        is slow, or its client went — that event and every one after it stay the
+        caller's to re-hold, in their original order.
         """
-        deadline = time.monotonic() + _FRAME_SEND_BUDGET
         for index, event in enumerate(events):
-            if time.monotonic() >= deadline:
-                return index
-            if not self._deliver_one(event, deadline):
+            if not self._deliver_one(event):
                 return index
         return len(events)
 
-    def _deliver_one(
-        self, event: RemoteEventHandlerInvocation, deadline: float
-    ) -> bool:
-        """Send one event to its scene owner or broadcast under ``deadline``; landed?
+    def _deliver_one(self, event: RemoteEventHandlerInvocation) -> bool:
+        """Send one event to its scene owner or broadcast under the frame budget.
 
         A menu-bar click carries no ``scene_id``, so it broadcasts to every
         display client — reaching luxd, whose fallback handler resolves the
@@ -89,12 +82,12 @@ class InteractionDelivery:
             target = self._socket_listener.fd_to_client.get(owner_fd)
             if target is None:
                 return False
-            return self._socket_listener.send_to_client(target, event, deadline)
+            return self._socket_listener.send_to_client(target, event)
         # Broadcast to every client — the list comprehension sends to all before
         # reducing, so one success never short-circuits the rest (a generator in
         # ``any`` would stop at the first delivered send and skip the others).
         sent = [
-            self._socket_listener.send_to_client(client, event, deadline)
+            self._socket_listener.send_to_client(client, event)
             for client in list(self._socket_listener.clients)
         ]
         return any(sent)

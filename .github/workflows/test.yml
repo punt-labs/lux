@@ -14,11 +14,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
-      - uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
       - run: uv sync --locked --extra display
@@ -37,11 +37,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
-      - uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
       - run: uv sync --locked --extra display
@@ -58,13 +58,55 @@ jobs:
     timeout-minutes: 20
     continue-on-error: true
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
-      - uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
       - run: uv sync --locked --extra display
       - name: Slow / timing-sensitive tests (pytest -m slow, non-blocking)
         run: make test-slow
+
+  # Tier-3 e2e gate (lux-csjb). Drives the real `make restart` sequence -- a real
+  # `uv build` + `uv tool install`, then `lux hub install` / `lux display install`,
+  # which regenerate the launchd plists -- against a live launchd GUI domain
+  # (`gui/<uid>`). launchd exists only on Darwin, so this class of defect is
+  # invisible to the ubuntu-latest `test`/`integration`/`slow` jobs above:
+  # lux-j169 renamed the hub disk binary and the Makefile's `restart` target kept
+  # calling `launchctl kickstart -k`, which never rewrites a plist, so it hung
+  # forever against the deleted binary path -- and shipped unnoticed because no
+  # CI job ever exercised the real launchd install path. `make install` runs
+  # before pytest so ~/.local/bin is populated before test collection,
+  # independent of pytest's file collection order between
+  # test_install_matches_pyproject.py and test_make_restart.py (the latter
+  # performs its own install as part of the test body; the former only asserts
+  # binaries already exist). BLOCKING: a hung `make restart` on the operator's
+  # machine is exactly the failure class this job exists to catch before merge.
+  #
+  # Runs `make test-e2e`, which now filters `-m 'e2e and not gui'`: tests
+  # spawning a real ImGui/GLFW window (tests/test_e2e.py,
+  # tests/integration/test_hub_display_reconciliation.py,
+  # tests/integration/test_subprocess_lifecycle.py) carry `@pytest.mark.gui`
+  # and are excluded on the headless macos-latest runner. The marker filter is
+  # the exclusion mechanism now, not a hardcoded file list -- any new e2e test
+  # that needs a real window gets the same marker and CI skips it automatically.
+  e2e-macos:
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - run: uv sync --locked --extra display
+      - name: Put uv's tool bin dir on PATH (lux/luxd-hub/luxd-display, shelled out to by tests/e2e/)
+        run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Pre-install so ~/.local/bin is populated before pytest collects tests/e2e/
+        run: make install
+      - name: E2E tests (no ImGui window spawned; gui-marked tests excluded)
+        run: make test-e2e

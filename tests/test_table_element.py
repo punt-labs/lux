@@ -444,3 +444,101 @@ class TestRowsReconcileNotifiesObservers:
         table.add_observer(seen.append)
         table.apply_patch({"selected_row_ids": ["a"], "anchor_row_id": "a"})
         assert seen == ["selected_row_ids"]
+
+
+class TestLiveIdsCacheIsOSelected:
+    """``_live_ids_cache`` (lux-qfzu.4): recomputed only when rows change.
+
+    A selection-only patch must never touch the cache object — proven by object
+    identity, not wall-clock — while a rows patch always produces a fresh one.
+    """
+
+    def test_selection_only_patch_does_not_recompute_the_cache(self) -> None:
+        table = TableElement(
+            id="t",
+            columns=("ID",),
+            rows=(("a",), ("b",), ("c",)),
+            selection_mode="multi",
+        )
+        before = table._live_ids_cache
+        table.apply_patch({"selected_row_ids": ["a", "b"]})
+        assert table._live_ids_cache is before
+
+    def test_rows_patch_recomputes_the_cache(self) -> None:
+        table = TableElement(
+            id="t", columns=("ID",), rows=(("a",), ("b",)), selection_mode="multi"
+        )
+        before = table._live_ids_cache
+        table.apply_patch({"rows": [["a"], ["b"], ["c"]]})
+        assert table._live_ids_cache is not before
+        assert table._live_ids_cache == frozenset({"a", "b", "c"})
+
+    def test_cache_seeded_at_construction_matches_row_ids(self) -> None:
+        table = TableElement(
+            id="t", columns=("ID",), rows=(("x",), ("y",), ("z",)), key_column=0
+        )
+        assert table._live_ids_cache == frozenset({"x", "y", "z"})
+
+
+class TestSelectionPreservationAcrossTheCacheRefactor:
+    """The six correctness axes lux-qfzu.4's contract names.
+
+    Selection state after the ``_live_ids_cache`` refactor must bit-equal
+    selection state before under every one of these operations.
+    """
+
+    def _table(self, *, selection_mode: str = "multi") -> TableElement:
+        return TableElement(
+            id="t",
+            columns=("ID",),
+            rows=tuple((f"r{i}",) for i in range(10)),
+            selection_mode=cast("Any", selection_mode),
+        )
+
+    def test_single_select(self) -> None:
+        table = self._table(selection_mode="single")
+        table.apply_patch({"selected_row_ids": ["r3"]})
+        assert table.selected_row_ids == frozenset({"r3"})
+
+    def test_multi_select(self) -> None:
+        table = self._table()
+        table.apply_patch({"selected_row_ids": ["r1", "r4", "r7"]})
+        assert table.selected_row_ids == frozenset({"r1", "r4", "r7"})
+
+    def test_anchor_plus_shift_click_range(self) -> None:
+        # A shift-click range fires as a single RowSelectionChanged carrying the
+        # full span plus the range's terminal row as the new anchor. Decode (not
+        # direct construction) so the built-in state-sync handler is installed.
+        table = _decode(
+            {
+                "kind": "table",
+                "id": "t",
+                "columns": ["ID"],
+                "rows": [[f"r{i}"] for i in range(10)],
+                "selection_mode": "multi",
+            }
+        )
+        assert isinstance(table, TableElement)
+        table.fire(
+            RowSelectionChanged(
+                scene_id=SceneId("s"),
+                element_id=ElementId("t"),
+                owner_id=ClientId("c"),
+                row_ids=("r2", "r3", "r4", "r5"),
+                anchor="r5",
+            )
+        )
+        assert table.selected_row_ids == frozenset({"r2", "r3", "r4", "r5"})
+        assert table.anchor_row_id == "r5"
+
+    def test_empty_selection(self) -> None:
+        table = self._table()
+        table.apply_patch({"selected_row_ids": ["r1"]})
+        table.apply_patch({"selected_row_ids": []})
+        assert table.selected_row_ids == frozenset()
+
+    def test_row_removal_during_active_selection(self) -> None:
+        table = self._table()
+        table.apply_patch({"selected_row_ids": ["r1", "r2", "r9"]})
+        table.apply_patch({"rows": [["r0"], ["r2"], ["r9"]]})  # r1 removed
+        assert table.selected_row_ids == frozenset({"r2", "r9"})

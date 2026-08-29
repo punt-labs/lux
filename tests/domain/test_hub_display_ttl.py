@@ -141,21 +141,6 @@ def test_a_reshow_without_a_ttl_makes_the_frame_permanent() -> None:
     assert display.scene_roots(scene)
 
 
-def test_manual_remove_frame_disarms_the_ttl() -> None:
-    clock = FakeClock()
-    display = HubDisplay(clock)
-    scene = SceneId("s")
-    _show(display, scene, ttl_seconds=5.0)
-
-    display.frames.remove_frame(_FRAME)  # user closes the frame before it expires
-    assert display.frames.seconds_until_next() is None
-
-    clock.advance(100.0)
-    assert (
-        display.frames.expire_due() == frozenset()
-    )  # no stale sweep of a closed frame
-
-
 def test_forget_disarms_the_ttl_once_the_frame_empties() -> None:
     clock = FakeClock()
     display = HubDisplay(clock)

@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping
 from typing import Self
 
-from punt_lux.display.replica.element_walk import SceneTreeWalk
 from punt_lux.display.replica.frame import Frame
 from punt_lux.display.replica.frame_book import FrameBook
+from punt_lux.display.replica.stale_ids import OnSceneReplacedFn, StaleIds
 from punt_lux.display.replica.widget_state import WidgetState
 from punt_lux.display.replica.widget_state_store import WidgetStateStore
 from punt_lux.protocol import SceneMessage
 
-type OnSceneReplacedFn = Callable[[list[str]], None]
+__all__ = ["OnSceneReplacedFn", "SceneReplica"]
 
 
 class SceneReplica:
@@ -20,17 +20,20 @@ class SceneReplica:
 
     Every scene lives in a frame: the Hub synthesizes one at the render boundary
     when the caller names none, so there is no unframed scene storage. Frames and
-    the scene→frame/owner maps belong to a composed :class:`FrameBook`, and the
-    per-scene widget state to a composed :class:`WidgetStateStore`; this class
-    keeps the stale-id notification the frames share. Pure state machine: no
-    ImGui, socket, or OpenGL. Tree navigation is delegated to
-    :class:`SceneTreeWalk`.
+    the scene→frame/owner maps belong to a composed :class:`FrameBook`, the
+    per-scene widget state to a composed :class:`WidgetStateStore`, and the
+    element-id bookkeeping and stale-id notification to a composed
+    :class:`StaleIds`. Pure state machine: no ImGui, socket, or OpenGL.
+
+    Two authorities write here and they must not write to each other's fields.
+    A client owns *content* — which scene ids exist. The user owns *visibility* —
+    where each frame is, which is why ``close`` and ``dispose_frame`` are two
+    methods rather than one with a flag (DES-065 R8).
     """
 
     _book: FrameBook
     _widget_state: WidgetStateStore
-    _on_scene_replaced: OnSceneReplacedFn
-    _walk: SceneTreeWalk
+    _stale: StaleIds
 
     def __new__(
         cls,
@@ -40,8 +43,7 @@ class SceneReplica:
         self = super().__new__(cls)
         self._book = FrameBook()
         self._widget_state = WidgetStateStore()
-        self._on_scene_replaced = on_scene_replaced
-        self._walk = SceneTreeWalk()
+        self._stale = StaleIds(self._book, on_scene_replaced)
         return self
 
     # -- read-only access for the rendering layer ---------------------------
@@ -56,14 +58,13 @@ class SceneReplica:
         return sum(len(f.scenes) for f in self._book.frames.values())
 
     @property
-    def frame_count(self) -> int:
-        """Number of open frames."""
-        return len(self._book.frames)
-
-    @property
     def active_scene_id(self) -> str | None:
-        """The first frame's active tab — the display's single 'current' scene."""
-        for frame in self._book.frames.values():
+        """The first painted frame's active tab — the display's 'current' scene.
+
+        A docked or closed frame is not on screen, so its tab is not what the
+        display is currently showing, however early it sits in the book.
+        """
+        for frame in self._book.on_screen():
             if frame.active_tab is not None:
                 return frame.active_tab
         return None
@@ -85,8 +86,30 @@ class SceneReplica:
         return self._book.consume_focus(frame_id)
 
     def minimize(self, frame_id: str) -> None:
-        """Minimize the named frame. No-op if it is gone."""
+        """Dock the named frame. No-op if it is gone."""
         self._book.minimize(frame_id)
+
+    def raise_frame(self, frame_id: str) -> bool:
+        """Restore the named frame and ask for focus; report whether it is held.
+
+        The whole gesture behind a user asking for a frame by name — an applet's
+        menu entry, a dock pill, the Windows menu's closed-frame list. It works
+        the same from every visibility, which is what makes a closed frame
+        reachable again.
+        """
+        return self._book.restore(frame_id)
+
+    def on_screen_frames(self) -> list[Frame]:
+        """Return the frames the renderer paints."""
+        return self._book.on_screen()
+
+    def docked_frames(self) -> list[Frame]:
+        """Return the frames the dock bar shows a pill for."""
+        return self._book.docked()
+
+    def closed_frames(self) -> list[Frame]:
+        """Return the frames the user put away."""
+        return self._book.closed()
 
     def reassign_scenes_of(self, departed_fd: int, orphan_fd: int) -> None:
         """Transfer a departed client's framed scenes to a surviving co-owner."""
@@ -124,7 +147,7 @@ class SceneReplica:
         if not msg.elements:
             stale = self._book.frame_of_scene(msg.id) or self._book.frames.get(frame_id)
             if stale is not None and self.dismiss_framed_scene(stale, msg.id):
-                self.close_frame(stale.frame_id)
+                self.dispose_frame(stale.frame_id)
             return
         frame = self._book.ensure(msg, frame_id, owner_fd)
         self.upsert_scene_in_frame(frame, msg)
@@ -133,29 +156,46 @@ class SceneReplica:
     def upsert_scene_in_frame(self, frame: Frame, msg: SceneMessage) -> None:
         """Add or replace a scene within a frame.
 
-        A scene new to the frame earns its attention — tab, raise, focus; a
-        replacement repaints in place and earns none of it.
+        A push is a notification, not a window-raise. Whether the scene is new to
+        the frame or a repaint of one already there, this writes content only: it
+        never restores a frame the user docked or closed, never asks for focus,
+        and never moves the tab the user is reading. The one tab it does write is
+        a frame's first scene, which has no selection to take.
         """
-        # A scene lives in one frame at a time: dismiss it from any other.
-        old_frame = self._book.frame_of_scene(msg.id)
-        if (
-            old_frame is not None
-            and old_frame.frame_id != frame.frame_id
-            and self.dismiss_framed_scene(old_frame, msg.id)
-        ):
-            self.close_frame(old_frame.frame_id)
+        self._vacate_other_frame(frame, msg.id)
         is_new = msg.id not in frame.scenes
         old_scene = frame.scenes.get(msg.id)
         frame.scenes[msg.id] = msg
         if is_new:
-            frame.scene_order.append(msg.id)
-            self._widget_state.open(msg.id)
-            frame.active_tab = msg.id
-            frame.minimized = False
-            self._book.set_frame(msg.id, frame.frame_id)
-            self._book.request_focus(frame.frame_id)
+            self._admit_new_scene(frame, msg.id)
         else:
             self._replace_scene_state(msg, old_scene)
+
+    def _vacate_other_frame(self, frame: Frame, scene_id: str) -> None:
+        """Take ``scene_id`` out of any frame but this one: it lives in one at a time.
+
+        The frame it leaves is disposed if that emptied it — a frame with no
+        content is a husk, whatever the user had made of it.
+        """
+        old_frame = self._book.frame_of_scene(scene_id)
+        if old_frame is None or old_frame.frame_id == frame.frame_id:
+            return
+        if self.dismiss_framed_scene(old_frame, scene_id):
+            self.dispose_frame(old_frame.frame_id)
+
+    def _admit_new_scene(self, frame: Frame, scene_id: str) -> None:
+        """Place a scene the frame did not hold, writing content and nothing else.
+
+        The active tab is the one thing here that could be called presentation,
+        and it is written only when the frame has none — its first scene, which
+        has no selection to take. A later arrival joins the strip and leaves the
+        user reading what they were reading.
+        """
+        frame.scene_order.append(scene_id)
+        self._widget_state.open(scene_id)
+        if frame.active_tab is None:
+            frame.active_tab = scene_id
+        self._book.set_frame(scene_id, frame.frame_id)
 
     def resolve_scene(self, scene_id: str) -> SceneMessage | None:
         """Find a scene in its frame, or None when no frame holds it."""
@@ -170,7 +210,7 @@ class SceneReplica:
         """
         dismissed = frame.scenes.pop(scene_id, None)
         if dismissed is not None:
-            self._notify_stale(self._element_ids(dismissed.elements))
+            self._stale.notify(self._stale.in_tree(dismissed.elements))
         frame.scene_order = [s for s in frame.scene_order if s != scene_id]
         self._widget_state.discard(scene_id)
         self._book.forget_scene(scene_id)
@@ -178,22 +218,46 @@ class SceneReplica:
             frame.active_tab = frame.scene_order[0] if frame.scene_order else None
         return not frame.scenes
 
-    def close_frame(self, frame_id: str) -> list[str]:
-        """Remove a frame and all its scenes, returning the stale element IDs.
+    def close(self, frame_id: str) -> list[str]:
+        """Put a frame away, returning the scene ids the caller should drain.
 
-        The caller drains its event queue and sends close notifications from them.
+        The visibility half of the old ``close_frame``: the user shut a window,
+        which says nothing about its content. The frame keeps its place in the
+        book, its scenes stay *known*, its widget state and active tab survive,
+        and the Hub is told nothing — no element was replaced, so nothing is
+        stale to anyone but this Display.
+
+        What comes back is the frame's *scenes*, not their element ids, and the
+        distinction is load-bearing. The caller drops its own queued interactions
+        for them, so a button in a window the user just shut cannot fire
+        afterwards — but an element id is shareable across scenes, so draining by
+        id would reach into a frame still on screen and cancel a click the user
+        is waiting on there. Scene ids identify the frame's own work and nothing
+        else. Empty for a frame the book does not hold.
+        """
+        frame = self._book.close(frame_id)
+        if frame is None:
+            return []
+        return list(frame.scene_order)
+
+    def dispose_frame(self, frame_id: str) -> list[str]:
+        """Throw a frame out with all its scenes, returning the stale element IDs.
+
+        The content half of the old ``close_frame``: the client says its content
+        is gone — an empty push, a manifest purge, a TTL sweep, Clear All — so the
+        frame leaves the book, its scene ids return to *unseen*, its widget state
+        goes, and the ids no surviving scene holds are reported stale. It applies
+        whatever visibility the user had left the frame in: a frame with no
+        content is a husk, and a closed one is no exception.
         """
         frame = self._book.pop_frame(frame_id)
         if frame is None:
             return []
-        removed_ids: set[str] = set()
+        removed_ids = self._stale.of_frame(frame)
         for scene_id in frame.scene_order:
-            scene = frame.scenes.get(scene_id)
-            if scene is not None:
-                removed_ids |= self._element_ids(scene.elements)
             self._widget_state.discard(scene_id)
             self._book.forget_scene(scene_id)
-        return self._notify_stale(removed_ids)
+        return self._stale.notify(removed_ids)
 
     def clear_all(self) -> None:
         """Remove all scenes, frames, and associated state."""
@@ -211,20 +275,6 @@ class SceneReplica:
 
     # -- scene-replacement helpers -----------------------------------------
 
-    def _notify_stale(self, candidate_ids: set[str]) -> list[str]:
-        """Report and return candidate ids no surviving framed scene holds."""
-        stale = candidate_ids - self._surviving_element_ids()
-        if stale:
-            self._on_scene_replaced(list(stale))
-        return list(stale)
-
-    def _surviving_element_ids(self) -> set[str]:
-        """Return every element id held by any framed scene still stored."""
-        ids: set[str] = set()
-        for scene in self._book.framed_scenes():
-            ids |= self._element_ids(scene.elements)
-        return ids
-
     def _replace_scene_state(
         self, msg: SceneMessage, old_scene: SceneMessage | None = None
     ) -> None:
@@ -236,14 +286,6 @@ class SceneReplica:
         """
         if old_scene is None:
             return
-        old_ids = self._element_ids(old_scene.elements)
-        stale_ids = old_ids - self._element_ids(msg.elements)
-        self._notify_stale(stale_ids)
+        stale_ids = self._stale.dropped_by(msg, old_scene)
+        self._stale.notify(stale_ids)
         self._widget_state.retire_elements(msg.id, stale_ids)
-
-    def _element_ids(self, elements: Sequence[object]) -> set[str]:
-        """Return every element id in ``elements``, recursing containers."""
-        ids: set[str] = set()
-        for elem in elements:
-            ids.update(self._walk.collect_ids(elem))
-        return ids

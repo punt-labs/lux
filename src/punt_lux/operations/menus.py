@@ -15,6 +15,7 @@ from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.menu_results import MenuList, Ok
 
 if TYPE_CHECKING:
+    from punt_lux.domain.hub.menu_models import Menu
     from punt_lux.domain.hub.menu_registry import HubMenuRegistry
     from punt_lux.operations.callbacks import CallbackMenuSource
     from punt_lux.operations.models.menu_results import SetMenuRequest
@@ -53,21 +54,20 @@ class MenuOperations:
         return Ok()
 
     def list_menus(self) -> MenuList:
-        """Return the whole Hub-authoritative menu state with no reach-around.
-
-        Reports the agent menu bar, then the ``Clients`` menu composed from the
-        live sessions. One read inventories every menu the Hub owns: the agent bar
-        the agent set and the callback model built from the live clients.
-        """
+        """Return the agent menu bar plus the ``Clients`` menu, no reach-around."""
         menus = list(self._registry.menu_bar())
         menus.extend(self._callback_menus.callback_menus())
         return MenuList(menus=menus)
 
-    def _push(self) -> None:
-        """Flag the menu change for the replicator — the sole display writer.
+    def get_menu(self, label: str) -> Menu | OpError:
+        """Return the one menu named ``label``, or a ``not_found`` error."""
+        matches = filter(lambda m: m.label == label, self.list_menus().menus)
+        return next(matches, self._not_found(label))
 
-        The flag is payload-less: the worker reads the registry fresh at send
-        time, so whatever the registry holds when the send runs is what the
-        display receives — the scene-pattern that makes a stale push impossible.
-        """
+    @staticmethod
+    def _not_found(label: str) -> OpError:
+        return OpError(code="not_found", reason=f"menu {label!r} not found")
+
+    def _push(self) -> None:
+        """Flag the change; the replicator reads the registry fresh at send time."""
         self._replicator.mark_menus()

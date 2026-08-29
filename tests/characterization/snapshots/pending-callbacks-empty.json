@@ -1,0 +1,9 @@
+{
+  "inputs": [],
+  "response": "pending:0",
+  "setup": {
+    "display_running": false,
+    "session_key": "corpus-pending-callbacks-empty"
+  },
+  "tool": "pending_callbacks"
+}

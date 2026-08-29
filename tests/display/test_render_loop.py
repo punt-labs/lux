@@ -1,11 +1,15 @@
-"""RenderLoop — DES-068 wiring: connect/manifest dispatch and the notify guard.
+"""RenderLoop — DES-068 wiring, and what a close tells the outside world.
 
 ``HubReconciliation`` (``tests/display/test_hub_reconciliation.py``) owns the
 preemption and purge policy itself; these tests verify ``RenderLoop`` wires its
-socket-callback dispatch to that policy correctly, and — the design's own
-regression guard — that a manifest-driven purge never notifies a dead owner
-(``notify=False``) while every pre-existing user-initiated close keeps
-notifying (``notify=True``, unchanged).
+socket-callback dispatch to that policy correctly.
+
+They also pin down the silence DES-065 R8 establishes. Where a window sits is
+the Display's own business, so *no* close tells anyone anything — not the purge
+that used to be exempted by a ``notify=False`` flag, and not the user's click on
+the ✕, which used to send a ``frame_close`` the Hub answered by deleting the
+frame's scenes. With both paths silent the flag has nothing left to distinguish,
+so it is gone too.
 """
 
 from __future__ import annotations
@@ -85,8 +89,8 @@ class TestHandleManifestDispatch:
         assert server._scenes.resolve_scene("s1") is None
 
 
-class TestNotifyRegressionGuard:
-    """Regression guard: a purge stays silent, a user-initiated close still notifies."""
+class TestAClosePassesNoWord:
+    """No close reaches a client: not the Hub's purge, and not the user's ✕."""
 
     def test_a_manifest_driven_purge_sends_no_frame_close_event(self) -> None:
         server = _make_server()
@@ -106,8 +110,15 @@ class TestNotifyRegressionGuard:
         owner_sock.send.assert_not_called()
         assert "f1" not in server._scenes.frames
 
-    def test_a_user_initiated_close_still_notifies_the_owner(self) -> None:
-        """Regression guard: this design must not change the existing close paths."""
+    def test_a_user_initiated_close_tells_the_owner_nothing(self) -> None:
+        """X8 — closing is Display-owned, so the client hears about it not at all.
+
+        This is the send F4 retires. The Hub answered a ``frame_close`` by
+        removing the frame's scenes and marking them dirty; the replicator then
+        pushed them back empty, and an empty push is the dispose path. So even a
+        Display that kept its closed frame perfectly would have had it thrown out
+        one round trip later, by the Hub, on the user's own close.
+        """
         server = _make_server()
         owner_sock = _mock_sock(10)
         server._socket_listener.clients.append(owner_sock)
@@ -115,11 +126,55 @@ class TestNotifyRegressionGuard:
         server._handle_scene(owner_sock, _make_scene("s1", "f1"))
         owner_sock.send.reset_mock()  # drop the scene-install ack, not under test
 
-        server._close_frame("f1")  # notify=True default, the World-menu close path
+        server._close_frame("f1")
 
-        owner_sock.send.assert_called_once()
-        sent = bytes(owner_sock.send.call_args[0][0])
-        assert b"frame_close" in sent
+        owner_sock.send.assert_not_called()
+
+    def test_a_user_initiated_close_keeps_the_frame_and_its_scene(self) -> None:
+        """The user shut a window; the content behind it is untouched."""
+        server = _make_server()
+        owner_sock = _mock_sock(10)
+        server._handle_scene(owner_sock, _make_scene("s1", "f1"))
+
+        server._close_frame("f1")
+
+        assert server._scenes.frames["f1"].is_closed is True
+        assert server._scenes.resolve_scene("s1") is not None
+
+    def test_a_close_drops_the_frames_queued_interactions(self) -> None:
+        """X6 — a button in a window the user just shut must not fire afterwards.
+
+        The drain is Display-local: it reaches nothing outside this process,
+        which is what makes it a visibility-side action rather than a content one.
+        """
+        server = _make_server()
+        owner_sock = _mock_sock(10)
+        server._handle_scene(owner_sock, _make_scene("s1", "f1"))
+        server._event_queue.append(
+            RemoteEventHandlerInvocation(
+                element_id="s1-t", action="click", scene_id="s1"
+            )
+        )
+
+        server._close_frame("f1")
+
+        assert server._event_queue == []
+
+    def test_a_close_leaves_another_frames_queued_interactions_alone(self) -> None:
+        """The drain is for the frame that was shut, not for the workspace."""
+        server = _make_server()
+        owner_sock = _mock_sock(10)
+        server._handle_scene(owner_sock, _make_scene("s1", "f1"))
+        server._handle_scene(owner_sock, _make_scene("s2", "f2"))
+        server._event_queue.append(
+            RemoteEventHandlerInvocation(
+                element_id="s2-t", action="click", scene_id="s2"
+            )
+        )
+
+        server._close_frame("f1")
+
+        assert [e.element_id for e in server._event_queue] == ["s2-t"]
 
 
 class TestConnectMessageStillDispatchesThroughHandleMessage:

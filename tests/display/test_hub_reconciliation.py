@@ -22,8 +22,6 @@ from punt_lux.protocol import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     import pytest
 
 
@@ -44,14 +42,8 @@ def _make_listener() -> SocketListener:
 def _make_reconciliation(
     listener: SocketListener,
     scenes: SceneReplica,
-    close_frame: Callable[[str], None] | None = None,
 ) -> HubReconciliation:
-    return HubReconciliation(
-        listener,
-        scenes,
-        close_frame or (lambda _fid: None),
-        lambda _sev, _msg, _ctx: None,
-    )
+    return HubReconciliation(listener, scenes, lambda _sev, _msg, _ctx: None)
 
 
 def _make_scene(scene_id: str, frame_id: str | None = None) -> SceneMessage:
@@ -194,51 +186,47 @@ class TestHandleManifest:
         listener = _make_listener()
         scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
         scenes.handle_framed_scene(_make_scene("s1", "f1"), owner_fd=10)
-        closed: list[str] = []
-        reconciliation = _make_reconciliation(listener, scenes, closed.append)
+        reconciliation = _make_reconciliation(listener, scenes)
         sock = _mock_sock(20)
         _identify_as_hub(listener, 20)
 
         reconciliation.handle_manifest(sock, HubManifestMessage(scene_ids=()))
 
         assert scenes.resolve_scene("s1") is None
-        assert closed == ["f1"]
+        assert "f1" not in scenes.frames  # the pass emptied it, so the husk goes too
 
     def test_a_scene_in_the_manifest_survives(self) -> None:
         listener = _make_listener()
         scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
         scenes.handle_framed_scene(_make_scene("s1", "f1"), owner_fd=10)
-        closed: list[str] = []
-        reconciliation = _make_reconciliation(listener, scenes, closed.append)
+        reconciliation = _make_reconciliation(listener, scenes)
         sock = _mock_sock(20)
         _identify_as_hub(listener, 20)
 
         reconciliation.handle_manifest(sock, HubManifestMessage(scene_ids=("s1",)))
 
         assert scenes.resolve_scene("s1") is not None
-        assert closed == []
+        assert "f1" in scenes.frames
 
     def test_a_scene_owned_by_the_identifying_fd_survives(self) -> None:
         listener = _make_listener()
         scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
         scenes.handle_framed_scene(_make_scene("s1", "f1"), owner_fd=20)
-        closed: list[str] = []
-        reconciliation = _make_reconciliation(listener, scenes, closed.append)
+        reconciliation = _make_reconciliation(listener, scenes)
         sock = _mock_sock(20)
         _identify_as_hub(listener, 20)
 
         reconciliation.handle_manifest(sock, HubManifestMessage(scene_ids=()))
 
         assert scenes.resolve_scene("s1") is not None
-        assert closed == []
+        assert "f1" in scenes.frames
 
     def test_a_mixed_frame_only_loses_its_ghost_scene(self) -> None:
         listener = _make_listener()
         scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
         scenes.handle_framed_scene(_make_scene("s1", "f1"), owner_fd=10)
         scenes.handle_framed_scene(_make_scene("s2", "f1"), owner_fd=10)
-        closed: list[str] = []
-        reconciliation = _make_reconciliation(listener, scenes, closed.append)
+        reconciliation = _make_reconciliation(listener, scenes)
         sock = _mock_sock(20)
         _identify_as_hub(listener, 20)
 
@@ -253,8 +241,7 @@ class TestHandleManifest:
         listener = _make_listener()
         scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
         scenes.handle_framed_scene(_make_scene("s1", "f1"), owner_fd=10)
-        closed: list[str] = []
-        reconciliation = _make_reconciliation(listener, scenes, closed.append)
+        reconciliation = _make_reconciliation(listener, scenes)
         sock = _mock_sock(20)
         listener.register_client_identity(
             20, kind="test", name="probe", connect_time=0.0
@@ -263,20 +250,19 @@ class TestHandleManifest:
         reconciliation.handle_manifest(sock, HubManifestMessage(scene_ids=()))
 
         assert scenes.resolve_scene("s1") is not None  # untouched
-        assert closed == []
+        assert "f1" in scenes.frames
 
     def test_a_manifest_from_an_unidentified_fd_is_rejected(self) -> None:
         listener = _make_listener()
         scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
         scenes.handle_framed_scene(_make_scene("s1", "f1"), owner_fd=10)
-        closed: list[str] = []
-        reconciliation = _make_reconciliation(listener, scenes, closed.append)
+        reconciliation = _make_reconciliation(listener, scenes)
         sock = _mock_sock(20)  # never sent a ConnectMessage at all
 
         reconciliation.handle_manifest(sock, HubManifestMessage(scene_ids=()))
 
         assert scenes.resolve_scene("s1") is not None
-        assert closed == []
+        assert "f1" in scenes.frames
 
     def test_a_rejected_manifest_surfaces_via_the_injected_record_error(self) -> None:
         listener = _make_listener()
@@ -285,7 +271,6 @@ class TestHandleManifest:
         reconciliation = HubReconciliation(
             listener,
             scenes,
-            lambda _fid: None,
             lambda _sev, msg, _ctx: errors.append(msg),
         )
         sock = _mock_sock(20)

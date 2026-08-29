@@ -4,18 +4,16 @@ The element's ``selected_row_ids`` under a filter is only the *visible* projecti
 of the selection; on its own it would silently drop a selected-but-hidden row and
 never restore it. This model owns the truth instead: the unfiltered ``all_rows``
 and the **full** selection spanning hidden rows. A filter change re-projects the
-element (``selected_row_ids`` becomes ``full`` intersect ``visible``) without
-touching the full selection, so clearing the filter restores hidden selections —
-the fix to the drop-on-filter blocker (table-design.md §6.1).
+element without touching the full selection, so clearing the filter restores it.
 
-The model is held by the composition's filter and selection handlers as an
-attribute and is serializable, so it travels inside the pickled scene blob and
-lives on the authoritative Hub copy; it never runs on the Display.
+Held by the composition's filter/selection handlers, serializable so it travels
+inside the pickled scene blob to the authoritative Hub copy; never runs on the
+Display.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Self, cast
 
 if TYPE_CHECKING:
     from punt_lux.protocol.compositions.table_selection_handlers import (
@@ -36,13 +34,16 @@ class FilteredTableModel:
     _full_selection: set[str]
     _search: str
     _combo_picks: dict[int, str]
-    # True only while the model is patching the table from its own re-projection,
-    # so ``_on_table_change`` can tell its own filtered-subset ``rows`` write from
-    # an external (agent) dataset write and not fold the subset in as the dataset.
+    # True only during the model's own patch, so ``_on_table_change`` can tell its
+    # filtered-subset write from an external (agent) dataset write.
     _reprojecting: bool
-    # PY-TS-14 OK: genuinely optional — only a master/detail composition binds a
-    # detail region; a plain filtered table has none.
+    # PY-TS-14 OK: optional — only a master/detail composition binds one.
     _detail: DetailBindingHandler | None
+    # Memoizes the visible-row scan by (rows identity, filter state); ``None`` is
+    # "nothing cached yet" (PY-TS-14).
+    _visible_cache_key: tuple[int, str, frozenset[tuple[int, str]]] | None
+    _visible_cache_rows: tuple[tuple[object, ...], ...] | None
+    _visible_cache_ids: frozenset[str] | None
 
     def __new__(
         cls,
@@ -57,18 +58,17 @@ class FilteredTableModel:
         self._key_column = key_column
         self._search_columns = search_columns
         self._table = table
-        # Seed from the table's initial selection, so a grid built with a seeded
-        # selection (a rebuilt show_table) starts with a matching full selection.
+        # Seed from the table's initial selection (a rebuilt show_table's seed).
         self._full_selection = set(table.selected_row_ids)
         self._search = ""
         self._combo_picks = {}
         self._reprojecting = False
         self._detail = None
-        # Observe the table's writes so an agent apply_patch of selected_row_ids
-        # OR rows folds into the model the same way a gesture/reproject does,
-        # never shadowed on the next re-projection. Registered on __new__ only; a
-        # pickled replica restores via object.__new__ and never mutates the Hub
-        # copy, so it needs no observer of its own.
+        self._visible_cache_key = None
+        self._visible_cache_rows = None
+        self._visible_cache_ids = None
+        # __new__-only: an apply_patch folds in like a gesture; a pickled replica
+        # restores via object.__new__ and never mutates the Hub copy.
         table.add_observer(self._on_table_change)
         return self
 
@@ -87,7 +87,7 @@ class FilteredTableModel:
 
     @property
     def full_selection(self) -> frozenset[str]:
-        """Return the authoritative full selection — what an agent reads (Decision 1).
+        """Return the authoritative full selection an agent reads (Decision 1).
 
         Spans rows currently hidden by the filter, never a filter-truncated view.
         """
@@ -106,9 +106,8 @@ class FilteredTableModel:
     def on_selection_gesture(self, visible_selection: frozenset[str]) -> None:
         """Merge a user's visible pick into the full selection, keeping hidden rows.
 
-        The new full selection is ``(full minus visible) union (visible_selection
-        intersect visible)`` — the hidden part is preserved so a filter-clear
-        restores it.
+        New full = (full minus visible) union (visible_selection intersect
+        visible) — hidden ids survive so a filter-clear restores them.
         """
         visible = self.visible_ids()
         self._full_selection = (self._full_selection - visible) | (
@@ -118,15 +117,10 @@ class FilteredTableModel:
     def _on_table_change(self, prop: str) -> None:
         """Fold a table write into the model (the observer callback).
 
-        A ``selected_row_ids`` write — a gesture's built-in sync, an agent
-        ``apply_patch``, or a filter re-projection's own patch — folds into the
-        full selection and re-drives a bound detail through one shared path
-        (visible-scoped and idempotent, so a re-projection's own write is a
-        no-op). A ``rows`` write from *outside* the model (an agent refreshing the
-        data) becomes the new dataset; the model's own re-projection writes the
-        filtered subset, which the ``_reprojecting`` guard excludes so the subset
-        is never folded in as the dataset. Other notifications (``removed``) are
-        ignored.
+        ``selected_row_ids`` folds into the full selection and re-drives a
+        detail (idempotent, so the model's own write is a no-op). ``rows`` from
+        *outside* the model becomes the new dataset; ``_reprojecting`` excludes
+        the model's own filtered-subset write.
         """
         if prop == "rows":
             if not self._reprojecting:
@@ -139,16 +133,11 @@ class FilteredTableModel:
             self._detail.render_anchor(self._table.anchor_row_id)
 
     def _absorb_dataset(self) -> None:
-        """Adopt the table's rows as the new unfiltered dataset and re-project.
+        """Adopt the table's rows as the new dataset, reconcile, and re-project.
 
-        The full selection reconciles against the new dataset — ids that vanished
-        from the *data* leave it (a dataset change, unlike a filter, which keeps
-        hidden ids for restore) — then folds in the element's *committed*
-        ``selected_row_ids``. Reading the element's post-patch state makes a single
-        ``apply_patch`` that set BOTH rows and selection atomic regardless of which
-        notification the commit flushes first: the patched selection is honoured
-        instead of clobbered by a re-projection off the stale full selection. The
-        re-project then re-applies the active filter to the new rows.
+        Ids missing from the new data leave the full selection (unlike a
+        filter, which keeps hidden ids); the element's committed selection then
+        folds in, atomic regardless of commit-flush order.
         """
         self._all_rows = self._table.rows
         live = {self._row_id(row) for row in self._all_rows}
@@ -157,19 +146,20 @@ class FilteredTableModel:
         self._reproject()
 
     def visible_ids(self) -> frozenset[str]:
-        """Return the ids of the rows the current filter leaves visible."""
-        return frozenset(self._row_id(row) for row in self._visible_rows())
+        """Return the ids of the rows the filter leaves visible (shares the cache
+        ``_visible_rows`` fills, so an ids-only caller never re-derives them)."""
+        self._visible_rows()
+        return cast("frozenset[str]", self._visible_cache_ids)
 
     def _reproject(self) -> None:
         """Patch the table with the visible rows + projected selection.
 
-        The selection patch reseats the table's anchor onto a still-visible row
-        (or clears it); the bound detail is re-driven from that anchor by the
-        ``selected_row_ids`` observer (``_on_table_change``) — the one shared
-        re-drive path — so the panel never keeps showing a row the filter hid.
+        The selection patch reseats the anchor onto a still-visible row (or
+        clears it); ``_on_table_change`` re-drives a bound detail from that
+        anchor, so the panel never keeps showing a row the filter hid.
         """
         visible = self._visible_rows()
-        visible_ids = frozenset(self._row_id(row) for row in visible)
+        visible_ids = self.visible_ids()
         self._reprojecting = True
         try:
             self._table.apply_patch(
@@ -182,7 +172,20 @@ class FilteredTableModel:
             self._reprojecting = False
 
     def _visible_rows(self) -> tuple[tuple[object, ...], ...]:
-        """Return the unfiltered rows that pass the search and combo predicates."""
+        """Return the unfiltered rows passing the search/combo predicates, memoized
+        by ``(rows identity, filter state)`` so an unchanged call (e.g. every
+        render frame) skips the rescan."""
+        key = (id(self._all_rows), self._search, frozenset(self._combo_picks.items()))
+        if self._visible_cache_rows is not None and key == self._visible_cache_key:
+            return self._visible_cache_rows
+        visible = self._scan_visible_rows()
+        self._visible_cache_key = key
+        self._visible_cache_rows = visible
+        self._visible_cache_ids = frozenset(self._row_id(row) for row in visible)
+        return visible
+
+    def _scan_visible_rows(self) -> tuple[tuple[object, ...], ...]:
+        """Scan ``_all_rows`` and return those passing the search/combo predicates."""
         needle = self._search.lower()
         return tuple(
             row
@@ -193,9 +196,8 @@ class FilteredTableModel:
     def _matches_search(self, row: tuple[object, ...], needle: str) -> bool:
         """Return whether ``row`` contains ``needle`` in any searched column.
 
-        A search declared with no resolvable columns (names, or a missing
-        ``column``) searches *every* column rather than matching nothing, so a
-        stray search config never silently empties the table.
+        No resolvable columns searches *every* column, so a stray search config
+        never silently empties the table.
         """
         if not needle:
             return True
@@ -206,12 +208,11 @@ class FilteredTableModel:
 
     def _matches_combos(self, row: tuple[object, ...]) -> bool:
         """Return whether ``row`` satisfies every active categorical filter."""
-        for column, chosen in self._combo_picks.items():
-            if not chosen or chosen == "All":
-                continue
-            if not 0 <= column < len(row) or str(row[column]) != chosen:
-                return False
-        return True
+        return all(
+            0 <= column < len(row) and str(row[column]) == chosen
+            for column, chosen in self._combo_picks.items()
+            if chosen and chosen != "All"
+        )
 
     def _row_id(self, row: tuple[object, ...]) -> str:
         """Return ``row``'s stable id — its key-column cell as a string."""

@@ -20,8 +20,8 @@ from punt_lux.rest_transport import HubUnavailableError
 
 if TYPE_CHECKING:
     from punt_lux.applets.board_load import BoardRequest
+    from punt_lux.applets.board_ops import BoardOps
     from punt_lux.operations.models.scene_results import SceneShown
-    from punt_lux.rest_client import LuxRestClient
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +32,10 @@ __all__ = ["BoardChannel"]
 class BoardChannel:
     """One click's line to the Hub, and the log every failure on it ends in."""
 
-    _client: LuxRestClient
+    _client: BoardOps
     __slots__ = ("_client",)
 
-    def __new__(cls, client: LuxRestClient) -> Self:
+    def __new__(cls, client: BoardOps) -> Self:
         self = super().__new__(cls)
         self._client = client
         return self

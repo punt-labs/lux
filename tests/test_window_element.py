@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastmcp.exceptions import ToolError
 
 from punt_lux.display.render_loop import RenderLoop
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
@@ -247,10 +248,20 @@ class TestShowRejectsInvalidWindow:
     def test_show_rejects_non_positive_size(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
-        result = show(
-            "s1",
-            [{"kind": "window", "id": "w", "width": 0, "height": 100, "children": []}],
-        )
+        with pytest.raises(ToolError) as _exc:
+            show(
+                "s1",
+                [
+                    {
+                        "kind": "window",
+                        "id": "w",
+                        "width": 0,
+                        "height": 100,
+                        "children": [],
+                    }
+                ],
+            )
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "[window 'w']" in result
         client.show.assert_not_called()
@@ -259,19 +270,21 @@ class TestShowRejectsInvalidWindow:
     def test_show_rejects_progress_nested_in_window(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
-        result = show(
-            "s1",
-            [
-                {
-                    "kind": "window",
-                    "id": "w",
-                    "children": [
-                        {"kind": "text", "id": "ok", "content": "fine"},
-                        {"kind": "progress", "id": "bad", "fraction": -0.5},
-                    ],
-                }
-            ],
-        )
+        with pytest.raises(ToolError) as _exc:
+            show(
+                "s1",
+                [
+                    {
+                        "kind": "window",
+                        "id": "w",
+                        "children": [
+                            {"kind": "text", "id": "ok", "content": "fine"},
+                            {"kind": "progress", "id": "bad", "fraction": -0.5},
+                        ],
+                    }
+                ],
+            )
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "[progress 'bad']" in result
         client.show.assert_not_called()

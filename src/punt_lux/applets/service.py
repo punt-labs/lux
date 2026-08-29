@@ -18,8 +18,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
+    from punt_lux.applets.board_ops import BoardOps
     from punt_lux.applets.latency import ClickLatency
-    from punt_lux.rest_client import LuxRestClient
 
 __all__ = ["AppletService"]
 
@@ -48,7 +48,7 @@ class AppletService(Protocol):
         """
         ...
 
-    def acknowledge(self, client: LuxRestClient, latency: ClickLatency) -> None:
+    def acknowledge(self, client: BoardOps, latency: ClickLatency) -> None:
         """Show the user their click landed — the fastest visible thing there is.
 
         The clock is passed rather than only wrapped around the call because what
@@ -58,7 +58,7 @@ class AppletService(Protocol):
         """
         ...
 
-    def service(self, client: LuxRestClient, latency: ClickLatency) -> None:
+    def service(self, client: BoardOps, latency: ClickLatency) -> None:
         """Do the work a click asks for, pushing whatever it produces via ``client``.
 
         The stages of that work are timed into ``latency`` and reported with the

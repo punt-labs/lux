@@ -1,7 +1,7 @@
 """Drive a direct streamable-HTTP MCP session against a running luxd.
 
 This is the evidence that Claude Code can reach luxd natively over HTTP MCP,
-with no mcp-proxy in the path. Start luxd (``lux hub-install`` then the service,
+with no mcp-proxy in the path. Start luxd (``lux hub install`` then the service,
 or ``luxd`` in a terminal), then run::
 
     uv run python scripts/direct_connection_probe.py
@@ -53,7 +53,7 @@ def main() -> int:
     if port is None:
         print(
             "luxd is not running (no port file). Start it first, e.g. "
-            "`lux hub-install` then start the service, or run `luxd`.",
+            "`lux hub install` then start the service, or run `luxd`.",
             file=sys.stderr,
         )
         return 1

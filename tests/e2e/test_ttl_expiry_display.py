@@ -63,6 +63,7 @@ def test_ttl_expiry_removes_the_frame_from_the_display_tier() -> None:
         display.handle_framed_scene(_framed([]), owner_fd=_OWNER_FD)
         assert _FRAME not in display.frames  # the display dropped the frame
     finally:
-        hub_display.frames.remove_frame(_FRAME)
+        # The sweep above already tore the scene down; dropping the connection
+        # clears whatever a failed assertion left behind.
         hub.on_disconnect(conn)
         hub_display.drop_connection(conn)

@@ -147,6 +147,51 @@ class TestStartupBindGuard:
         assert exc.value.code == 2
 
 
+class TestGracefulShutdownBound:
+    """lux-94p0: uvicorn must not wait forever for open connections on shutdown.
+
+    Unset, ``timeout_graceful_shutdown`` defaults to ``None`` -- uvicorn
+    waits indefinitely for every open connection to close before a
+    SIGTERM-triggered shutdown completes. luxd serves long-lived MCP
+    streamable-HTTP sessions by design, so an unbounded window means a
+    healthy, in-use luxd never exits on its own supervisor-issued restart
+    or bootout. This is a spot check on the ``uvicorn.Config`` value, not a
+    live shutdown -- the live-shutdown behavior is exercised by hand
+    against a real process, not reproducible cheaply in the unit tier.
+    """
+
+    def test_serve_configures_a_bounded_graceful_shutdown(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        captured: dict[str, object] = {}
+        real_config = __import__("uvicorn").Config
+
+        def _capture_config(*args: object, **kwargs: object):
+            config = real_config(*args, **kwargs)
+            captured["timeout_graceful_shutdown"] = config.timeout_graceful_shutdown
+            return config
+
+        class _NoRunServer:
+            def __init__(self, config: object) -> None:
+                self.config = config
+                self.servers: list[object] = []
+                self.startup = self._noop_startup
+
+            async def _noop_startup(self, sockets: object = None) -> None:
+                return None
+
+            def run(self) -> None:
+                return None
+
+        monkeypatch.setattr("punt_lux.luxd.uvicorn.Config", _capture_config)
+        monkeypatch.setattr("punt_lux.luxd.uvicorn.Server", _NoRunServer)
+
+        serve(port=0)
+
+        assert captured["timeout_graceful_shutdown"] is not None
+        assert captured["timeout_graceful_shutdown"] == 10
+
+
 class TestRestSurfaceMounted:
     """The typed REST surface is live on the same app luxd serves.
 

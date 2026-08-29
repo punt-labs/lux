@@ -446,6 +446,59 @@ class TestSendClientLifecycle:
         assert sock not in server.clients
 
 
+class TestFrameDeadline:
+    """A frame-scoped deadline caps every in-frame send's wait past the budget."""
+
+    def test_frame_deadline_supersedes_one_off_budget(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A frame deadline in the past defers at once, not after the 1s one-off wait.
+
+        Before the fix, a burst of Acks / Pongs / query responses under Hub
+        backpressure could each spend up to ``_ONE_OFF_SEND_BUDGET`` (1 s) waiting
+        on ``select`` — stacking into a multi-second wedge that tripped the ping
+        timeout and the macOS "not responding" spinner. With a frame deadline set
+        by the render loop, every in-frame send shares that one budget: an
+        exhausted budget defers the send at once instead of blocking.
+        """
+        wait_calls: list[tuple[float, float]] = []
+
+        def _record_wait(
+            _r: list[object], _w: list[object], _x: list[object], t: float
+        ) -> tuple[list[object], list[object], list[object]]:
+            wait_calls.append((time.monotonic(), t))
+            return ([], [], [])  # never writable
+
+        monkeypatch.setattr("punt_lux.bounded_send.select.select", _record_wait)
+        server = _make_server()
+        client = _FakeClient(fd=5001, eagain_before=1_000_000)
+        sock = _inject_client(server, client)
+
+        server.set_frame_deadline(time.monotonic() - 1.0)  # already past
+        start = time.monotonic()
+        delivered = server.send_to_client(sock, ReadyMessage())
+        elapsed = time.monotonic() - start
+
+        assert delivered is False  # deferred, not delivered
+        assert elapsed < 0.05, f"expected instant defer, took {elapsed:.3f}s"
+        # An expired frame deadline means BoundedSend never even tries to wait:
+        # remaining <= 0 short-circuits before ``select``.
+        assert wait_calls == []
+        assert sock in server.clients  # alive-but-slow is never removed
+
+    def test_clear_frame_deadline_restores_one_off_budget(self) -> None:
+        """After ``clear_frame_deadline`` a deadline-less send takes the 1s one-off."""
+        server = _make_server()
+        server.set_frame_deadline(time.monotonic() - 1.0)
+        server.clear_frame_deadline()
+        client = _FakeClient(fd=5002)
+        sock = _inject_client(server, client)
+
+        # No wait needed: the fake accepts on the first send. Just prove the send
+        # succeeds — proving the deadline reset by absence of the immediate defer.
+        assert server.send_to_client(sock, ReadyMessage()) is True
+
+
 class _BindRaises:
     """Fake socket whose bind raises a chosen ``OSError`` — for the race window."""
 

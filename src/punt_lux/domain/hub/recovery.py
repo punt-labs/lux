@@ -1,12 +1,14 @@
 """SendRecovery — heal the display after a send failure and re-mark the work.
 
 When a send to the display fails, the worker hands the failure here. A wedged
-display (send timeout, ``BlockingIOError``) is killed and respawned; a dead peer
-(``OSError``) is only dropped so the next send reconnects. Either way the heal
-re-marks every live scene, a consumed clear, and the menu, so a display that came
-back blank is fully repainted — scenes, the old clear, and the agent bar alike.
+display (send timeout, ``BlockingIOError``) is killed — its launchd/systemd
+unit respawns it (lux-5uc7); the Hub never spawns a competing process — and a
+dead peer (``OSError``) is only dropped so the next send reconnects. Either way
+the heal re-marks every live scene, a consumed clear, and the menu, so a display
+that came back blank is fully repainted — scenes, the old clear, and the agent
+bar alike.
 
-If the heal itself cannot complete — an unspawnable display, a refused reconnect
+If the heal itself cannot complete — the kill itself fails, a refused reconnect
 — the worker instead restores the exact batch and backs off. ``restore`` is that
 path: it puts the drained work back so nothing is lost.
 
@@ -20,11 +22,11 @@ scene the batch emptied has no roots and so is absent from
 ``live_scene_ids()``; that is a guarantee specific to *this* failed batch,
 not a duplicate of the connect-success hook's policy.
 
-The one respawn a wedged death drives is also where the crash-loop quarantine
+The one kill a wedged death drives is also where the crash-loop quarantine
 lives (display-crash-quarantine.md): ``recover`` attributes the death to its
 caller-determined suspect set — the whole batch in the replicator's batching
-mode, a probed singleton in isolation mode — before healing, and paces a
-respawn through :class:`~punt_lux.domain.hub.respawn_backoff.RespawnBackoff`
+mode, a probed singleton in isolation mode — before healing, and paces the
+kill through :class:`~punt_lux.domain.hub.respawn_backoff.RespawnBackoff`
 rather than the send-retry backoff, whose reset-on-clean-send condition fires
 too eagerly under isolation.
 """
@@ -119,7 +121,6 @@ class SendRecovery:
         if wedged:
             time.sleep(self._respawn.note_respawn())
             self._lifecycle.reap(_REAP_TIMEOUT)
-            self._lifecycle.ensure()
         self._clients.drop()
         self._clients.get()
         self._requeue(batch.scenes, menus_dirty=True)

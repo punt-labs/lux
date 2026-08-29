@@ -1,6 +1,6 @@
 [project]
 name = "punt-lux"
-version = "0.26.0"
+version = "0.31.1"
 description = "The paintbrush for Claude. A visual output surface for AI agents — diagrams, tables, images, and interactive controls."
 readme = "README.md"
 requires-python = ">=3.13"
@@ -35,15 +35,19 @@ dependencies = [
     # uvicorn already resolves websockets for its own server protocol, so this only
     # makes the client's dependency explicit rather than pulling a new package.
     "websockets>=16.0,<17",
+    # luxd itself needs its process identity ("luxd-hub") — for logs, ps,
+    # Activity Monitor, and the pgrep-diff restart wait. Without this in the
+    # base install, `pip install punt-lux` (no [display] extra) leaves luxd
+    # running as "python3", pgrep never finds it, and `lux hub restart` hangs.
+    "setproctitle>=1.3.0",
 ]
 
 [project.optional-dependencies]
 display = [
-    "imgui-bundle==1.92.801",
+    "imgui-bundle==1.92.900",
     "Pillow>=12.3.0",
     "numpy>=2.0.0",
     "PyOpenGL>=3.1.0",
-    "setproctitle>=1.3.0",
     "pyobjc-framework-Cocoa>=10.0; sys_platform == 'darwin'",
     "pyobjc-framework-Quartz>=10.0; sys_platform == 'darwin'",
 ]
@@ -67,7 +71,8 @@ dev = [
 
 [project.scripts]
 lux = "punt_lux.__main__:app"
-luxd = "punt_lux.luxd:main"
+luxd-hub = "punt_lux.luxd:main"
+luxd-display = "punt_lux.luxd_display:DisplayEntryPoint.main"
 lux-beads = "punt_lux.applets.beads:app"
 
 [project.urls]
@@ -129,6 +134,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tools/*" = ["T20", "S603", "S607", "C901", "PERF403"]
 "tests/*" = ["S101", "S105", "S106", "S108", "S603", "T20", "SLF001", "ARG", "FBT", "PLC0415", "A002"]
+"tests/e2e/test_legacy_sweep.py" = ["S101", "S603", "S607"]
 "demos/*" = ["T20", "S311", "C901"]
 "scripts/*" = ["T20", "S108", "S603", "S607", "PLC0415"]
 "src/punt_lux/__main__.py" = ["T20", "FBT", "PLC0415"]
@@ -138,11 +144,12 @@ ignore = [
 "src/punt_lux/hooks.py" = ["S607"]
 "src/punt_lux/display/render_loop.py" = ["PLC0415"]
 "src/punt_lux/display/replica/menu_replica.py" = ["PLC0415"]
-"src/punt_lux/display/texture_cache.py" = ["PLC0415"]
+"src/punt_lux/display/gl_texture.py" = ["PLC0415"]
 "src/punt_lux/display/idle_screen.py" = ["PLC0415"]
 "src/punt_lux/display/macos.py" = ["PLC0415"]
 "src/punt_lux/cli.py" = ["T20", "FBT", "PLC0415"]
 "src/punt_lux/show.py" = ["T20", "FBT", "PLC0415"]
+"src/punt_lux/cli/*.py" = ["T20", "FBT", "PLC0415"]
 "src/punt_lux/luxd.py" = ["PLC0415"]
 "src/punt_lux/apps/beads.py" = ["PLC0415"]
 "src/punt_lux/tools/server.py" = ["PLC0415"]
@@ -160,7 +167,16 @@ ignore = [
 # for this directory; A002 is suppressed for protocol/elements/ only.
 "src/punt_lux/protocol/elements/*.py" = ["A002"]
 "src/punt_lux/service.py" = ["S603", "S607", "PLC0415"]
-"src/punt_lux/_backends.py" = ["S603", "S607", "PLC0415"]
+"src/punt_lux/proctitle.py" = ["PLC0415"]
+"src/punt_lux/_backends.py" = ["S603", "S607"]
+"src/punt_lux/_backend_launchd.py" = ["S603", "S607", "PLC0415"]
+"src/punt_lux/_backend_systemd.py" = ["S603", "S607"]
+"src/punt_lux/_launchctl.py" = ["S603"]
+"src/punt_lux/_port_guard.py" = ["S603", "S607"]
+"src/punt_lux/_legacy_sweep_launchd.py" = ["S603", "S607"]
+"src/punt_lux/_legacy_sweep_systemd.py" = ["S603", "S607"]
+"src/punt_lux/_shim_ownership.py" = ["S603", "S607"]
+"tests/e2e/test_binary_sweep.py" = ["S101", "S603", "S607"]
 # Lazy imports to break circular dependency chains in domain/protocol layers
 "src/punt_lux/domain/event_handler_host.py" = ["PLC0415"]
 "src/punt_lux/domain/hub/hub_interaction_dispatch.py" = ["PLC0415"]
@@ -259,6 +275,7 @@ markers = [
     "slow: marks tests as slow",
     "integration: marks integration tests (socket IPC, cross-component; no display process required)",
     "e2e: marks end-to-end tests requiring full stack",
+    "gui: marks tests requiring a real ImGui window (GLFW init, display session)",
 ]
 
 [tool.coverage.run]

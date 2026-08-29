@@ -57,6 +57,7 @@ class SocketListener:
     _on_message: Callable[[socket.socket, Message], None]
     _on_client_disconnected: Callable[[int], None]
     _on_error: Callable[[str, str, str], None]
+    _frame_deadline: float | None  # bounds in-frame sends when set by the render loop
 
     def __new__(
         cls,
@@ -75,6 +76,7 @@ class SocketListener:
         self._on_message = on_message
         self._on_client_disconnected = on_client_disconnected
         self._on_error = on_error
+        self._frame_deadline = None
         return self
 
     # -- public properties --------------------------------------------------
@@ -103,6 +105,22 @@ class SocketListener:
     def fd_to_client(self) -> dict[int, socket.socket]:
         """Return fd-to-socket mapping for O(1) lookup."""
         return self._fd_to_client
+
+    # -- frame-scoped send budget -------------------------------------------
+
+    def set_frame_deadline(self, deadline: float) -> None:
+        """Bound every deadline-less send in this frame by ``deadline`` (monotonic).
+
+        The render loop calls this at the top of each frame so a burst of Acks,
+        Pongs, and query responses cannot stack per-send ``_ONE_OFF_SEND_BUDGET``
+        waits into a multi-second wedge under Hub backpressure. Sends that pass an
+        explicit deadline (interaction delivery already does so) are unaffected.
+        """
+        self._frame_deadline = deadline
+
+    def clear_frame_deadline(self) -> None:
+        """Restore the one-off send budget for post-frame sends (screenshot, etc.)."""
+        self._frame_deadline = None
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -213,12 +231,20 @@ class SocketListener:
         """Send ``msg`` to ``sock`` before ``deadline``; return whether it landed.
 
         The render loop passes one shared ``deadline`` so a frame's sends share a
-        budget; a one-off send omits it and gets its own. A ``BlockingIOError`` (the
-        peer alive but not drained before the deadline) keeps the client and reports
-        ``False`` so the caller defers; only a dead-peer ``OSError`` removes it.
+        budget; a one-off send omits it and gets its own. When the render loop has
+        armed a frame deadline (``set_frame_deadline``) the caller-less path uses
+        that instead of the one-off budget, so a burst of in-frame Acks / Pongs /
+        query responses cannot stack per-send waits into a multi-second wedge under
+        Hub backpressure. A ``BlockingIOError`` (the peer alive but not drained
+        before the deadline) keeps the client and reports ``False`` so the caller
+        defers; only a dead-peer ``OSError`` removes it.
         """
         if deadline is None:
-            deadline = time.monotonic() + _ONE_OFF_SEND_BUDGET
+            deadline = (
+                self._frame_deadline
+                if self._frame_deadline is not None
+                else time.monotonic() + _ONE_OFF_SEND_BUDGET
+            )
         try:
             BoundedSend().send(sock, encode_message(msg), deadline)
         except BlockingIOError:

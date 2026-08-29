@@ -29,7 +29,7 @@ If the question is "what does the code approximately do today?", use
 
 ## Users and Integrators
 
-- [library.md](./library.md) — the Python library guide: `LuxRestClient`,
+- [library.md](./library.md) — the Python library guide: `LuxClient`,
   the persistent `LuxHubClient` listener, and connecting to `luxd`'s MCP
   endpoint directly. The [README](../README.md) is for users; this is the
   developer companion.

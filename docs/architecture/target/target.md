@@ -146,6 +146,27 @@ its scene rather than carried in any Hub resend. It lives beside the
 replicated scene data because both are scoped to the same scene's lifetime,
 not because the Hub sent it.
 
+A frame's **visibility** is the second and sharper counterexample to
+"nothing more than the Hub's last resend put there" — sharper because it is
+the one Display-local value a Hub resend could plausibly be expected to
+overwrite, and must not. Two authorities write to a frame, and they own
+different axes of it (DES-088):
+
+| Axis | Owned by | Moved by | Held in |
+|---|---|---|---|
+| **Content** — does this scene id exist? | the client, via the Hub | `show()`, `update()`, an empty push, a manifest purge, a frame TTL | replicated: `FrameBook.scene_to_frame`, `Frame.scenes` |
+| **Visibility** — where is this frame? | the user, at the Display | the close and collapse buttons, a dock pill, `raise_frame`, Expand/Collapse/Fit All | Display-local: `Frame.visibility`, `Frame.active_tab`, `FocusRequest`, `Frame.cascade_index` |
+
+The rule that separates them is that a content event never writes visibility
+and a visibility event never writes content. It is why a frame the user
+closed keeps its scenes rather than being removed, why `close` and
+`dispose_frame` are two methods rather than one with a flag, and why closing
+a frame tells the Hub nothing at all. Visibility is never replicated back, so
+it does not survive a Display restart — deliberately, like focus and cascade
+position, because persisting it would mean sending a Display-owned value to
+the Hub and re-deriving it from a resend, which is the coupling the rule
+exists to sever.
+
 ## Event Models
 
 Lux has two different event mechanisms and they must not be conflated.

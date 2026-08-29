@@ -19,6 +19,7 @@ from punt_lux.operations.display_reply import (
     DisplayReply,
 )
 from punt_lux.operations.models.common import OpError
+from punt_lux.operations.models.display_frames import FrameStates
 from punt_lux.operations.models.display_info import DisplayInfo
 from punt_lux.operations.models.display_probe import Pong
 from punt_lux.operations.models.display_write import FrameRaise, FrameStatePatch
@@ -252,6 +253,69 @@ def test_set_frame_state_returns_ok_and_rejects_empty_patch() -> None:
     assert isinstance(empty, OpError)
     assert empty.code == "invalid_request"
     assert empty.reason == "no frame state provided"
+
+
+def test_list_frames_reports_where_each_frame_is_shown() -> None:
+    # The read that makes a closed frame observable from outside the display.
+    # Closing is a visibility, not an erasure, so the frame the user shut is
+    # listed like any other -- a caller can no longer tell it from a frame that
+    # never existed by its absence, and this is where it learns the difference.
+    port = _FakePort(
+        query=DisplayReplied(
+            {
+                "scenes": [],
+                "frames": [
+                    {
+                        "frame_id": "f1",
+                        "title": "Music",
+                        "scene_count": 1,
+                        "scene_ids": ["s1"],
+                        "layout": "tab",
+                        "visibility": "closed",
+                    },
+                    {
+                        "frame_id": "f2",
+                        "title": "Beads",
+                        "scene_count": 1,
+                        "scene_ids": ["s2"],
+                        "layout": "tab",
+                        "visibility": "on_screen",
+                    },
+                ],
+            }
+        )
+    )
+
+    result = DisplayControlOperations(port).list_frames()
+
+    assert isinstance(result, FrameStates)
+    assert [(f.frame_id, f.visibility) for f in result.frames] == [
+        ("f1", "closed"),
+        ("f2", "on_screen"),
+    ]
+    assert result.frames[0].is_closed is True
+    assert result.frames[1].is_closed is False
+    assert port.last_method == "list_scenes"
+
+
+def test_list_frames_refuses_a_reply_it_does_not_recognise() -> None:
+    # "The display answered with something I do not understand" and "the display
+    # holds no frames" are different facts, and an empty list would conflate them.
+    port = _FakePort(query=DisplayReplied({"frames": [{"frame_id": "f1"}]}))
+
+    result = DisplayControlOperations(port).list_frames()
+
+    assert isinstance(result, OpError)
+
+
+def test_list_frames_passes_a_display_failure_through() -> None:
+    """No display running is a fault the caller sees, never an empty frame list."""
+    port = _FakePort(query=DisplayFault(code="display_unavailable"))
+
+    result = DisplayControlOperations(port).list_frames()
+
+    assert isinstance(result, OpError)
+    assert result.code == "display_unavailable"
 
 
 def test_raise_frame_reports_whether_the_display_held_the_frame() -> None:

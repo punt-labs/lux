@@ -20,7 +20,7 @@ MARKETPLACE_NAME="punt-labs"
 PLUGIN_NAME="lux"
 PACKAGE="punt-lux"
 EXTRAS="display"
-VERSION="0.26.0"
+VERSION="0.31.1"
 BINARY="lux"
 
 # --- Step 1: Prerequisites ---
@@ -101,23 +101,43 @@ fi
 
 ok "$BINARY $(command -v "$BINARY")"
 
-# --- Step 4b: Restart display if already running ---
+# --- Step 5: Register luxd service ---
+# 'hub install' is idempotent under launchd — it compares the plist it would
+# write against what's already registered, and leaves an active, unchanged
+# service alone rather than booting it out just to bootstrap the same thing
+# back. The resolved binary path and args it writes are stable across
+# versions, so a same-plist install() never touches a running daemon, and a
+# bare install on an upgrade leaves the previous luxd process running with
+# the previous bytecode. Restart afterwards so the running daemon matches
+# the newly-installed wheel — but only on an upgrade. On a fresh install the
+# daemon we would restart is the one 'hub install' just started, so the
+# restart is redundant AND races the cold-load import of the [display]
+# extras (imgui-bundle, numpy, Pillow) that pushes the ready-window past the
+# restart's own timeout.
 
-if "$BINARY" status >/dev/null 2>&1; then
-  _pid_file="/tmp/lux-$(whoami)/display.sock.pid"
-  if [ -f "$_pid_file" ]; then
-    _old_pid=$(cat "$_pid_file" 2>/dev/null)
-    if [ -n "$_old_pid" ] && kill -0 "$_old_pid" 2>/dev/null; then
-      kill "$_old_pid" 2>/dev/null
-      info "Stopped old display server (pid $_old_pid) — next show() will spawn the new version"
-    fi
-  fi
+hub_was_running=0
+if pgrep -x luxd-hub >/dev/null 2>&1; then
+  hub_was_running=1
 fi
 
-# --- Step 5: Register luxd service ---
+display_was_running=0
+if pgrep -x luxd-display >/dev/null 2>&1; then
+  display_was_running=1
+fi
 
 info "Registering luxd service..."
-"$BINARY" hub-install || warn "Failed to register luxd service -- the plugin cannot reach luxd until it runs"
+"$BINARY" hub install || fail "Failed to register luxd service -- the plugin cannot reach luxd until it runs"
+if [ "$hub_was_running" = "1" ]; then
+  "$BINARY" hub restart || fail "Failed to restart luxd -- the running daemon still holds the previous bytecode"
+fi
+
+# --- Step 5b: Register the display service ---
+
+info "Registering display service..."
+"$BINARY" display install || fail "Failed to register display service -- the window will not appear until it runs"
+if [ "$display_was_running" = "1" ]; then
+  "$BINARY" display restart || fail "Failed to restart the display -- the running window still holds the previous bytecode"
+fi
 
 # --- Step 6: Health-check luxd ---
 

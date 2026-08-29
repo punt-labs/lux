@@ -13,10 +13,10 @@ if TYPE_CHECKING:
     from contextlib import AbstractContextManager
 
     from punt_lux.applets.board_load import BoardLoad, BoardRequest
+    from punt_lux.applets.board_ops import BoardOps
     from punt_lux.applets.board_read import BoardRead
     from punt_lux.applets.built_board import BuiltBoard
     from punt_lux.applets.latency import ClickLatency
-    from punt_lux.rest_client import LuxRestClient
 
 __all__ = ["BoardWork"]
 
@@ -25,14 +25,12 @@ __all__ = ["BoardWork"]
 class BoardWork:
     """The board to load, the client to push it to, and the clock timing both."""
 
-    _client: LuxRestClient
+    _client: BoardOps
     _latency: ClickLatency
     _load: BoardLoad
     __slots__ = ("_client", "_latency", "_load")
 
-    def __new__(
-        cls, load: BoardLoad, client: LuxRestClient, latency: ClickLatency
-    ) -> Self:
+    def __new__(cls, load: BoardLoad, client: BoardOps, latency: ClickLatency) -> Self:
         self = super().__new__(cls)
         self._load = load
         self._client = client

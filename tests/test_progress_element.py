@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastmcp.exceptions import ToolError
 
 from punt_lux.display.render_loop import RenderLoop
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
@@ -156,7 +157,9 @@ class TestShowRejectsInvalidProgress:
     def test_show_rejects_out_of_range_progress(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
-        result = show("s1", [{"kind": "progress", "id": "p1", "fraction": 2.0}])
+        with pytest.raises(ToolError) as _exc:
+            show("s1", [{"kind": "progress", "id": "p1", "fraction": 2.0}])
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "[progress 'p1']" in result
         assert "fraction must be in [0, 1]" in result
@@ -167,19 +170,21 @@ class TestShowRejectsInvalidProgress:
         """A bad progress nested in an all-ABC group is collected by the walk."""
         client = _mock_client()
         mock_get.return_value = client
-        result = show(
-            "s1",
-            [
-                {
-                    "kind": "group",
-                    "id": "g1",
-                    "children": [
-                        {"kind": "text", "id": "ok", "content": "fine"},
-                        {"kind": "progress", "id": "bad", "fraction": -0.5},
-                    ],
-                }
-            ],
-        )
+        with pytest.raises(ToolError) as _exc:
+            show(
+                "s1",
+                [
+                    {
+                        "kind": "group",
+                        "id": "g1",
+                        "children": [
+                            {"kind": "text", "id": "ok", "content": "fine"},
+                            {"kind": "progress", "id": "bad", "fraction": -0.5},
+                        ],
+                    }
+                ],
+            )
+        result = str(_exc.value)
         assert result.startswith("error: scene not rendered")
         assert "[progress 'bad']" in result
         client.show.assert_not_called()
