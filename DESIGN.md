@@ -5839,7 +5839,21 @@ implementation.
   user's own close. The wire event and its handler are retired
   entirely, and `notify=False` with them, the user-close and purge
   paths now being different methods rather than one method with a
-  flag. `FrameLifecycle.remove_frame` stays for the TTL sweep.
+  flag.
+
+  `FrameLifecycle.remove_frame` goes too. The design note said it
+  "stays for the TTL sweep", and that was wrong on a point of fact:
+  the sweep is `expire_due`, which calls `_tear_down` directly and
+  never reached `remove_frame`. With the `frame_close` handler retired
+  it had no caller at all, so keeping it would have left dead source
+  teaching the next reader that the TTL path runs through it. Deleted
+  per PY-RF-6 (operator ruling 2026-08-29). The parity design's future
+  `lux frame close` is a *dispose* by its own account (§8.5), so this
+  was not clearly its seam either. Two of the three properties its
+  tests asserted are real and survive against the sweep — teardown
+  works after the owning session has departed, and a synthesized frame
+  is a lifecycle citizen; the third (an unknown frame touches nothing)
+  had no subject once the method was gone.
 
 **Why the model earned its place.** It found that the two halves of
 the fix must ship together or the product gets worse. Retiring the

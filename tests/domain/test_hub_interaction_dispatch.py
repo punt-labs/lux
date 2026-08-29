@@ -456,8 +456,9 @@ def test_hub_interaction_dispatch_never_deletes_a_frames_scenes(
 
     Where a window sits is the Display's business. The Hub is told nothing, and
     an action it does not recognise falls through to the element fire, where it
-    resolves to nothing and is dropped. ``FrameLifecycle.remove_frame`` stays —
-    the TTL sweep still uses it — but no interaction reaches it.
+    resolves to nothing and is dropped. ``FrameLifecycle.remove_frame`` went
+    with the handler: the TTL sweep never used it, so retiring the branch left
+    it with no caller at all.
     """
     import punt_lux.domain.hub as hub_module
 

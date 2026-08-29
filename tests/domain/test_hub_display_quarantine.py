@@ -55,31 +55,12 @@ def test_remove_element_that_empties_scene_fires_observers() -> None:
     assert not store.is_quarantined(_SCENE)
 
 
-def test_frame_close_fires_quarantine_cleared_observers() -> None:
-    # Finding 4's TTL/frame-close territory: closing the scene's frame tears
-    # its roots down and must also lift the quarantine, so a later write against
-    # the (gone) scene gets "not found", not a spurious quarantine rejection.
-    store = HubDisplay()
-    store.register_client(_CONN)
-    store.show_scene(
-        _CONN,
-        _SCENE,
-        [TextElement(id="t1", content="x")],
-        ScenePresentation(frame_id="only-frame"),
-    )
-    store.quarantine(_SCENE, _record())
-    observed: list[SceneId] = []
-    store.add_quarantine_cleared_observer(observed.append)
-
-    torn = store.frames.remove_frame("only-frame")
-
-    assert torn == frozenset({_SCENE})
-    assert observed == [_SCENE]
-    assert not store.is_quarantined(_SCENE)
-
-
 def test_ttl_expiry_fires_quarantine_cleared_observers() -> None:
-    # The other Finding 4 path: TTL sweep must clear quarantine too.
+    # Finding 4's teardown territory: tearing a scene's roots down must also
+    # lift the quarantine, so a later write against the (gone) scene gets
+    # "not found" rather than a spurious quarantine rejection. The TTL sweep is
+    # the only Hub-side teardown left -- a user closing a frame on the Display
+    # no longer reaches the Hub at all (DES-088).
     now = [1000.0]
     store = HubDisplay(clock=lambda: now[0])
     store.register_client(_CONN)
