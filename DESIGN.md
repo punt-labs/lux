@@ -5855,6 +5855,33 @@ implementation.
   is a lifecycle citizen; the third (an unknown frame touches nothing)
   had no subject once the method was gone.
 
+**The reopen path is `raise_frame` and nothing else.** Review of the
+implementation found a second door the design note had not considered:
+`FrameCommands.set_state` — the `set_frame_state` operation the whole
+client surface carries — called `restore()` on whatever frame it was
+handed, so once a closed frame was retained, any client holding a frame
+id could silently reopen a window the user had just shut. It is bug B's
+shape through a client command rather than a content push, and the
+mirror case was open too: docking a closed frame would have given it a
+pill in the bar the user never asked for. The old code was safe here
+only by accident, the same way it was broken by accident elsewhere —
+closing popped the frame, so the call raised `LookupError`. Retaining
+the frame is what opened the door, which makes this a defect the fix
+created and part of the same change. `set_state` now refuses a closed
+frame in both directions, and raises rather than no-ops: a caller cannot
+see visibility from its own request, so a quiet "nothing changed" would
+let it believe it had acted.
+
+The model had not caught it because the model had no such operation, and
+a specification cannot constrain what it does not carry.
+`frame-visibility-lifecycle.tex` gained `SetDockState` with the guard and
+the control gained it without, taking the intact spec to 119 states and
+1309 transitions with every operation covered and all five invariants
+still holding. The guard is evidenced by a deterministic replay —
+`PushNewFrame; Close; SetDockState(f, vOpen)` fails at exactly that
+operation. The narrow lesson is worth keeping: an operation inventory is
+part of a model's fidelity, not scaffolding around it.
+
 **Why the model earned its place.** It found that the two halves of
 the fix must ship together or the product gets worse. Retiring the
 `is_new` side effect while leaving `close_frame` destructive reaches a

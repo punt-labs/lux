@@ -25,11 +25,14 @@ Spec-operation → code mapping (target state, not current):
 | `Minimize` | `FrameBook.minimize`, `render_loop._render_frames` `"minimized"` result |
 | `Close` | `SceneReplica.close` (the split's visibility half), `render_loop._render_frames` `"closed"` result |
 | `Raise` | `FrameCommands.raise_it` → `Frame.restore()` + `FrameBook.request_focus`; also `DockPill`, `Expand All`, the Windows menu's closed list |
+| `SetDockState` | `FrameCommands.set_state` — the `set_frame_state` client-surface dock toggle |
 | `SelectTab` | `render_loop._render_frame_tabs` selection write-back |
 | `ConsumeFocus` | `FrameBook.consume_focus` |
 
 Two operations have no code today and are the change: `Close` as a visibility
-write, and `Raise` from a closed frame.
+write, and `Raise` from a closed frame. A third, `SetDockState`, was added to the
+model in round 2: it existed in the code all along, but not here — which is why
+neither the model nor this audit caught it silently reopening a closed frame.
 
 ## 1. Partitions
 
@@ -82,6 +85,22 @@ writing out rather than sampling.
 | D8 | dispose: widget state | discarded (unlike close — X4) |
 | D9 | dispose: stale element ids | notified (unlike close — X5) |
 | D10 | a scene id shared across frames, one dismissed | the other frame's copy survives |
+
+### SetDockState(f?, v?) — the client-surface dock toggle
+
+`set_frame_state` is not a user gesture, so it is not a way back for a closed
+frame. Its whole partition table is about which frames it may touch.
+
+| # | Partition | Expected |
+|---|---|---|
+| S1 | dock a frame that is on screen | `MINIMIZED`; no focus taken |
+| S2 | undock a docked frame | `OPEN`; no focus taken — only `raise_it` focuses |
+| S3 | **undock a `CLOSED` frame** | **refused — the reopen path is `raise_frame`** |
+| S4 | **dock a `CLOSED` frame** | **refused — a pill the user never asked for** |
+| S5 | the older `collapsed` spelling, closed frame | refused identically |
+| S6 | a request naming neither key | no-op, not a refusal — nothing was asked |
+| S7 | a frame the display does not hold | `LookupError`, as before |
+| S8 | refuse, then `raise_frame` | works — the refusal is not a one-way door |
 
 ### Raise(f?) — the user gesture, DES-063's raise-first path
 
@@ -172,6 +191,8 @@ test exists; the implementation mission writes it.
 | V6 | `tests/test_dock_bar.py`, `tests/test_menu_projections.py` | COVERED |
 | V7 | `tests/display/test_scene_inspection.py` | GAP — visibility is not in the payload today |
 | V8 | — | GAP |
+| S1–S2 | `test_frame_commands.py::test_setting_the_minimize_state_reports_what_changed`, `::test_clearing_the_minimize_state_brings_the_frame_back_on_screen`, `::test_setting_state_carries_no_focus_of_its_own` | COVERED |
+| S3–S8 | `test_frame_commands.py::TestSetStateCannotReachAClosedFrame` (seven tests) | COVERED — round 2 |
 | F1 | `tests/display/replica/test_frame_book.py::test_consume_is_one_shot` | COVERED |
 | F2 | `test_scene_replica.py::test_focus_frame_cleared` | RETARGET |
 | F3 | `test_scene_replica.py::test_a_replace_leaves_the_foreground_frame_focused` | partial — covers repeat only; **GAP** for the new-scene cases (N1–N4) |
@@ -185,6 +206,14 @@ rather than its symptom, and it is the one assertion that cannot be satisfied by
 accident. Push a scene, close its frame, push the same scene id again, and
 assert the frame is still `CLOSED`. If `close` still calls `forget_scene`, the
 second push is an arrival and the test fails.
+
+**S3/S4 — `set_frame_state` cannot reach a closed frame.** Added in round 2,
+and the equal of the two below. `set_state` is on the whole client surface and
+toggles a dock state; a closed frame is not in that domain. Before the fix the
+door was shut by accident (closing popped the frame, so the call raised "not
+found"); retaining the frame opened it by construction, and any client holding a
+frame id could silently reopen a window the user shut. Mutation-checked: dropping
+the guard fails five of the seven tests.
 
 **A5 — close, then raise.** The design note's finding F1: today's only reopen
 path for a closed frame *is* bug B, so retiring the `is_new` side effect without

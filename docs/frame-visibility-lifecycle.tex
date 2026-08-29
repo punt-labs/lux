@@ -409,6 +409,53 @@ by the frame's disposal.
 \end{schema}
 
 % -------------------------------------------------------------------
+\subsection{Set the Dock State}
+% -------------------------------------------------------------------
+
+A client adjusting a frame's dock state through \texttt{set\_frame\_state} ---
+the operation the whole client surface carries (MCP, REST, CLI).  It is not a
+user gesture, so it is \emph{not} a way back for a closed frame: its guard
+admits only a frame that is up or docked, and it may set only those two values.
+
+Both halves of that guard matter, and for the same reason.  Undocking a closed
+frame would put back a window the user shut, with nothing behind it but a client
+holding a frame id; docking one would give it a pill in the bar the user never
+asked for.  They are one invariant broken in two directions, and invariant~4
+catches either.
+
+This operation was missing from the first version of this model, which is why
+the model did not catch the defect: the code retained the closed frame (so the
+call no longer failed with ``not found'') and then restored it unguarded.  A
+specification that omits an operation cannot constrain it.
+
+\begin{schema}{SetDockState}
+  \Delta Sys \\
+  f? : FRAME \\
+  v? : VIS
+\where
+  f? \in frames \\
+  vis~f? \in \{ vOpen, vMinimized \} \\
+  v? \in \{ vOpen, vMinimized \} \\
+  vis' = vis \oplus \{ f? \mapsto v? \} \\
+  frames' = frames \\
+  content' = content \\
+  sceneFrame' = sceneFrame \\
+  activeTab' = activeTab \\
+  focus' = focus \\
+  userClosed' = userClosed \\
+  closedScenes' = closedScenes \\
+  autoFocused' = autoFocused \\
+  tabStolen' = tabStolen
+\end{schema}
+
+It leaves \texttt{focus} alone rather than clearing it, matching the code: only
+a close releases a pending focus request, and a bulk dock does not.  It never
+writes \texttt{userClosed}, which is what keeps invariant~4 true --- a frame in
+that ghost has \texttt{vis} of \texttt{vClosed}, so the guard excludes it and no
+run of this operation can reach a state where the user's close still stands over
+an open frame.
+
+% -------------------------------------------------------------------
 \subsection{Raise}
 % -------------------------------------------------------------------
 
@@ -658,8 +705,8 @@ is live rather than vacuous: run against the $n \leq 2$ control it reports
 \texttt{Found "deadlock" error in state id 2}, the real one.
 
 \paragraph{Results.}  Run against ProB 1.15.1 (SICStus 4.8.0).  The full
-reachable state space is \textbf{95 states, 845 transitions}, with
-\texttt{ALL OPERATIONS COVERED} --- every one of the ten operation schemas
+reachable state space is \textbf{119 states, 1309 transitions}, with
+\texttt{ALL OPERATIONS COVERED} --- every one of the eleven operation schemas
 fires, so no invariant is discharged vacuously by an operation that never
 ran --- and no deadlock.  All five goals report \emph{no counter example
 found, all states visited}:
@@ -680,6 +727,41 @@ found, all states visited}:
 The \texttt{fuzz} leg passes on both this document and the control.  The
 fidelity control reaches every one of the five (Section~\ref{sec:fidelity}),
 so none of these is a vacuous pass.
+
+\paragraph{\texttt{SetDockState} and the defect that only the new design can
+have.}  This operation was added after the first implementation round, when
+review found that \texttt{set\_frame\_state} --- carried by the whole client
+surface --- restored a closed frame with no gesture behind it.  The model had
+not caught it for the plain reason that the model did not have the operation.
+
+The evidence for the guard is a deterministic replay rather than a search-order
+witness, for the reason given in Section~\ref{sec:fidelity}:
+
+\begin{verbatim}
+  machine('frame-visibility-lifecycle').
+  '$initialise_machine'.
+  'PushNewFrame'(fd(1,'FRAME'),fd(1,'SCENE')).
+  'Close'(fd(1,'FRAME')).
+  'SetDockState'(fd(1,'FRAME'),vOpen).
+\end{verbatim}
+
+\noindent
+Replayed with \texttt{probcli ... -t -p DEFAULT\_SETSIZE 2} it \textbf{fails at
+step 3}, naming \texttt{SetDockState} as the operation that is not enabled:
+the guard $vis~f? \in \{vOpen, vMinimized\}$ excludes a closed frame.  Remove
+that guard and the same sequence replays into a state where $f_1 \in userClosed$
+and $vis~f_1 = vOpen$ --- the negation of invariant~4.
+
+The usual fidelity control cannot host this one, and the reason is worth
+stating: its \texttt{Close} is the destructive original, which \emph{removes}
+the frame, so \texttt{SetDockState}'s $f? \in frames$ fails and the sequence is
+not expressible there at all.  That is the point rather than a gap.  This defect
+is reachable only in a design that \emph{retains} the closed frame, so it is a
+defect the old code could not have and the new code created --- an accident of
+the fix, closed here by the guard.  What the control does show is the operation
+running unguarded: \texttt{SetDockState}$(f_1, vClosed)$ then
+\texttt{SetDockState}$(f_1, vOpen)$ replays successfully there, a client both
+shutting a window and reopening it with no user gesture anywhere.
 
 % ============================================================
 \section{Fidelity: reproducing bugs A and B}

@@ -11,6 +11,8 @@
 % It differs from frame-visibility-lifecycle.tex in exactly three schemas:
 % PushNewFrame, PushNewScene and Close.  Sys, Init, PushRepeat, DisposeScene,
 % DisposeFrame, Minimize, Raise, SelectTab and ConsumeFocus are identical.
+% SetDockState is the third restored defect: unguarded here, so a client can
+% undock (or dock) a frame the user closed; guarded in the intact document.
 %
 % Type-check:  fuzz -t docs/frame-visibility-lifecycle_buggy.tex
 % Model-check (each goal must be FOUND -- see Section 3):
@@ -288,6 +290,40 @@ defect is that the code retains nothing.
   closedScenes' = closedScenes \cup \dom (sceneFrame \rres \{ f? \}) \\
   autoFocused' = autoFocused \setminus \{ f? \} \\
   tabStolen' = tabStolen \setminus \{ f? \}
+\end{schema}
+
+% -------------------------------------------------------------------
+\subsection{Set the Dock State --- unguarded}
+% -------------------------------------------------------------------
+
+The third restored defect, and the one the first version of this pair could not
+see at all, because neither document carried the operation.  ``set\_frame\_state''
+is on the whole client surface, and here it writes any visibility to any frame:
+no guard on the frame's current state, and no guard on the value asked for.  So
+a client holding a frame id can undock a frame the user closed --- putting the
+window back with no gesture behind it --- or dock one, giving it a pill in the
+bar the user never asked for.
+
+The intact specification guards both ends: the frame must already be up or
+docked, and the value must be one of those two.  Invariant~4 is what separates
+them, and this operation is the one that reaches it without going near a push.
+
+\begin{schema}{SetDockState}
+  \Delta Sys \\
+  f? : FRAME \\
+  v? : VIS
+\where
+  f? \in frames \\
+  vis' = vis \oplus \{ f? \mapsto v? \} \\
+  frames' = frames \\
+  content' = content \\
+  sceneFrame' = sceneFrame \\
+  activeTab' = activeTab \\
+  focus' = focus \\
+  userClosed' = userClosed \\
+  closedScenes' = closedScenes \\
+  autoFocused' = autoFocused \\
+  tabStolen' = tabStolen
 \end{schema}
 
 % -------------------------------------------------------------------

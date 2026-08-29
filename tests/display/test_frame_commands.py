@@ -157,6 +157,98 @@ def test_setting_state_carries_no_focus_of_its_own() -> None:
     assert scenes.consume_focus(_FRAME) is False
 
 
+class TestSetStateCannotReachAClosedFrame:
+    """The second door onto a closed frame, and why it is shut.
+
+    ``set_frame_state`` is on the whole client surface — MCP, REST, CLI — and any
+    caller holding a frame id can reach it. Before this change it could not touch
+    a closed frame *by accident*: closing popped the frame out of the book, so the
+    call raised "not found". Retaining the frame (DES-088) opened that door by
+    construction, and undocking through it would have put back a window the user
+    shut with no gesture behind it — bug B's shape again, one surface across.
+
+    Both directions are refused, not just the undock: docking a closed frame
+    would give it a pill in the bar the user never asked for, which is the same
+    invariant broken the other way.
+    """
+
+    def test_undocking_a_closed_frame_is_refused(self) -> None:
+        scenes = _manager_with_a_frame()
+        scenes.close(_FRAME)
+
+        with pytest.raises(ValueError, match="is closed"):
+            FrameCommands(scenes).set_state(frame_id=_FRAME, minimized=False)
+
+        assert scenes.frames[_FRAME].is_closed is True
+
+    def test_docking_a_closed_frame_is_refused(self) -> None:
+        scenes = _manager_with_a_frame()
+        scenes.close(_FRAME)
+
+        with pytest.raises(ValueError, match="is closed"):
+            FrameCommands(scenes).set_state(frame_id=_FRAME, minimized=True)
+
+        assert scenes.frames[_FRAME].is_closed is True
+
+    def test_the_older_collapsed_spelling_is_refused_too(self) -> None:
+        """The wire has two names for one flag; a fix on one is a fix on neither."""
+        scenes = _manager_with_a_frame()
+        scenes.close(_FRAME)
+
+        with pytest.raises(ValueError, match="is closed"):
+            FrameCommands(scenes).set_state(frame_id=_FRAME, collapsed=False)
+
+        assert scenes.frames[_FRAME].is_closed is True
+
+    def test_the_refusal_names_the_gesture_that_does_apply(self) -> None:
+        """A caller cannot see visibility from its own request, so the error says."""
+        scenes = _manager_with_a_frame()
+        scenes.close(_FRAME)
+
+        with pytest.raises(ValueError, match="raise_frame"):
+            FrameCommands(scenes).set_state(frame_id=_FRAME, minimized=False)
+
+    def test_a_request_that_asks_for_nothing_is_still_a_noop_not_a_refusal(
+        self,
+    ) -> None:
+        """There is nothing to refuse when the caller named neither key."""
+        scenes = _manager_with_a_frame()
+        scenes.close(_FRAME)
+
+        assert FrameCommands(scenes).set_state(frame_id=_FRAME) == {
+            "frame_id": _FRAME,
+            "changed": {},
+        }
+        assert scenes.frames[_FRAME].is_closed is True
+
+    def test_raise_it_is_the_one_way_back_and_it_still_works(self) -> None:
+        """The refusal above must not have made closing a one-way door again."""
+        scenes = _manager_with_a_frame()
+        scenes.close(_FRAME)
+        commands = FrameCommands(scenes)
+
+        with pytest.raises(ValueError, match="is closed"):
+            commands.set_state(frame_id=_FRAME, minimized=False)
+
+        assert commands.raise_it(frame_id=_FRAME) == {
+            "frame_id": _FRAME,
+            "raised": True,
+        }
+        assert scenes.frames[_FRAME].is_on_screen is True
+
+    def test_a_docked_frame_is_untouched_by_the_refusal(self) -> None:
+        """The guard is about closed frames only; docking still toggles freely."""
+        scenes = _manager_with_a_frame()
+        scenes.minimize(_FRAME)
+        commands = FrameCommands(scenes)
+
+        commands.set_state(frame_id=_FRAME, minimized=False)
+        assert scenes.frames[_FRAME].is_on_screen is True
+
+        commands.set_state(frame_id=_FRAME, minimized=True)
+        assert scenes.frames[_FRAME].is_docked is True
+
+
 def test_collapsed_is_read_as_the_minimize_state() -> None:
     """The display's older name for the same state, still accepted on the wire."""
     scenes = _manager_with_a_frame()

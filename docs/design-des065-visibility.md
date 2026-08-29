@@ -141,6 +141,16 @@ The implementation must also honour these, which follow from the split:
   afterwards. That drain is Display-local (`_drain_stale_events` informs no one)
   and so is a visibility-side action, not a content one. Mechanism is the
   implementer's call.
+- **`set_frame_state` must not reach a closed frame, in either direction.**
+  *(Added after implementation round 1; see §10.)* `FrameCommands.set_state` is
+  on the whole client surface — MCP, REST, CLI, via
+  `operations/display_control.py` — and it toggles a dock state. A closed frame
+  is not in that state's domain: undocking one puts back a window the user shut
+  with no gesture behind it, and docking one gives it a pill they never asked
+  for. Both break §6's rule that a closed frame is reachable **only** by a named
+  user gesture, which is `raise_frame` and nothing else. The command refuses
+  loudly rather than no-opping, because a caller cannot see a frame's visibility
+  from the request it is making and silence would let it believe it had acted.
 
 ---
 
@@ -206,8 +216,9 @@ user wants a frame put away they can close it, and now that decision sticks.
 components: three for the content axis (`frames`, `content`, `sceneFrame`),
 three for the visibility axis (`vis`, `activeTab`, `focus`), and four ghosts
 recording what the *user* did (`userClosed`, `closedScenes`, and
-`autoFocused`/`tabStolen` for the violations). Ten operation schemas cover every
-transition: three content pushes, two disposals, and five user gestures.
+`autoFocused`/`tabStolen` for the violations). Eleven operation schemas cover
+every transition: three content pushes, two disposals, five user gestures, and
+`SetDockState` — the client-surface dock toggle, added in round 2 (§10).
 
 Five invariants, none placed in the state schema (a predicate there is enforced
 as a guard on every successor and would silently mask the defect):
@@ -448,7 +459,8 @@ modules not listed here.
 ### Display — the callers
 
 - `src/punt_lux/display/frame_commands.py` — `raise_it` restores from any
-  visibility (§6).
+  visibility (§6); `set_state` refuses a closed frame in both directions, so the
+  dock toggle cannot become a second, gesture-less way back (§2.4, §10).
 - `src/punt_lux/display/render_loop.py` — paint only on-screen frames; route the
   ✕ to `close` and Clear All / purge to `dispose_frame`; Fit All tiles on-screen
   frames; retire the `frame_close` send and the `notify` flag.
@@ -594,3 +606,47 @@ parity work should pick a different name for one of them.
 
 Criterion 2 is **not** on this list: it resolves from R8's own acceptance tests
 and `workspace-model.tex` without an operator ruling. §3 gives the reasoning.
+
+---
+
+## 10. Round-2 amendment: `set_frame_state` was a second door onto a closed frame
+
+**Status:** found by `silent-failure-hunter` during leader review of the
+implementation, ruled and fixed 2026-08-29.
+
+**What was missed.** This document reasoned about the six call sites of
+`close_frame` and about `raise_frame`, and concluded that a closed frame is
+reachable only by a named user gesture (§6, F3). It never mentioned
+`FrameCommands.set_state` — the `set_frame_state` operation, carried by the
+whole client surface. That operation calls `restore()` on whatever frame it is
+given, so after this design retained the closed frame, any client holding a
+frame id could silently reopen a window the user had just shut.
+
+**Why it is the same bug in a new place.** Bug B was a *content* event undoing
+the user's decision. This is a *client command* doing it — different path, same
+rule broken, and the same shape: no gesture, no focus, nothing to tell the user
+where the window came from. Docking a closed frame is the mirror image and was
+equally open: it would have given the frame a pill in the bar the user never
+asked for.
+
+**Why the old code did not have it.** Closing used to pop the frame out of the
+book, so `set_state` on a closed frame raised `LookupError` — the door was shut
+*by accident*, exactly as `raise_frame` was broken by accident (F1's shape,
+one operation over). Retaining the frame is what opened it. This is a defect the
+fix created, and it belongs in the same change.
+
+**Why the model did not catch it.** The specification had no `SetDockState`
+operation. A model cannot constrain an operation it does not carry, and
+invariant 4 — "only a raise reopens a closed frame" — was true of every
+transition the model knew about. The lesson is narrow and worth keeping: the
+operation inventory is part of the model's fidelity, not scaffolding around it.
+`frame-visibility-lifecycle.tex` now carries `SetDockState` with the guard, the
+control carries it without, and the guard is evidenced by a deterministic replay
+that fails at exactly that operation.
+
+**Decision.** `set_state` refuses a closed frame in both directions, raising
+rather than no-opping. A caller cannot see visibility from its own request, so a
+quiet "nothing changed" would let it believe it had collapsed something —
+and unexplained silence on this axis is what the whole design exists to remove.
+The refusal names `raise_frame` as the operation that does apply. Undocking and
+docking a frame that is *up* are untouched.
