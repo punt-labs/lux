@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **The lux-beads applet never registered in the Lux menu.** `session-start.sh`
+  passed `$PPID` to `lux-beads --session-pid`, but `$PPID` is a short-lived `sh`
+  wrapper Claude Code interposes to run `SessionStart` hooks — it exits within
+  seconds, so the applet's `SessionWatch` saw its session end almost
+  immediately and left before ever reaching the Hub to register. The hook now
+  resolves the wrapper's *parent* — the actual `claude` process — and verifies
+  its command name looks like Claude Code before trusting it, falling back to
+  raw `$PPID` for any other process tree shape so an unrecognized shape fails
+  safe instead of watching an unrelated long-lived ancestor forever.
+
 ## [0.26.0] - 2026-08-19
 
 ### Changed
