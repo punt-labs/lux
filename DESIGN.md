@@ -5351,7 +5351,7 @@ borrowed.
    finishing, so a watch on raw `$PPID` saw its target vanish almost
    immediately and left before ever registering — the applet never actually
    bound to the session at all, on any session, since this ADR was written.
-   The decision above (poll-based binding, no hook) stands unchanged; the
+   The decision above (poll-based binding, no `SessionEnd` hook) stands unchanged; the
    fix is in *which* pid fulfills it: the hook resolves `$PPID`'s own
    parent, verifies its `ps -o comm=` names Claude Code, and only then binds
    the watch to it — falling back to the old (safe-but-broken) `$PPID`
