@@ -118,10 +118,14 @@ fi
 # $TMPDIR/lux-beads-$SESSION_WATCH_PID.pid; this check is what saves the
 # pointless spawn. Both files a session's applet leaves behind are named after
 # the session, so the log below and that claim sit together.
-_grandparent_pid="$(ps -o ppid= -p "$PPID" 2>/dev/null | tr -d '[:space:]')"
+# Both `ps` calls are allowed to fail — a vanished parent between resolving the
+# pid and querying its comm is a real race, however rare, and under `set -e` an
+# unguarded failure here would abort the whole hook (no menu setup, no applet
+# at all) rather than falling back to $PPID as intended.
+_grandparent_pid="$(ps -o ppid= -p "$PPID" 2>/dev/null | tr -d '[:space:]')" || true
 _grandparent_comm=""
 if [[ -n "$_grandparent_pid" ]]; then
-  _grandparent_comm="$(ps -o comm= -p "$_grandparent_pid" 2>/dev/null)"
+  _grandparent_comm="$(ps -o comm= -p "$_grandparent_pid" 2>/dev/null)" || true
 fi
 case "$_grandparent_comm" in
 *claude*) SESSION_WATCH_PID="$_grandparent_pid" ;;
