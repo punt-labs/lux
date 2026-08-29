@@ -1,39 +1,30 @@
-"""Shared types for the commands layer: ``CommandResult``, ``Ctx``, ``OpsPort``.
+"""``CommandResult`` -- the outcome envelope every command hands back.
 
-Every command in :mod:`punt_lux.commands` takes a :class:`Ctx` and returns a
-:class:`CommandResult`. The four adapters -- CLI, MCP, REST, and library --
-share one command singleton; each interprets the result its own way (text vs
-JSON, exit code vs HTTP status vs MCP envelope).
+Every command in :mod:`punt_lux.commands` takes a
+:class:`~punt_lux.commands._ctx.Ctx` and returns a :class:`CommandResult`.
+The four adapters -- CLI, MCP, REST, and library -- share one command
+singleton; each interprets the result its own way (text vs JSON, exit code
+vs HTTP status vs MCP envelope).
 
 The vox reference (``../vox/src/punt_vox/commands/_result.py``) is the shape
 this module copies verbatim on :class:`CommandResult` (``frozen``, ``slots``,
 four fields).
+
+:class:`~punt_lux.commands._ops_port.OpsPort` and
+:class:`~punt_lux.commands._ctx.Ctx` live in their own modules -- the port is
+a family contract, ``Ctx`` is the per-call collaborator bundle, and this
+module's only job is the result shape a command produces. Both are
+re-exported here so the rest of the commands layer keeps one import path.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-if TYPE_CHECKING:
-    from punt_lux.domain.hub.client_identity import ClientIdentity
-    from punt_lux.operations import OpError, Pong
+from punt_lux.commands._ctx import Ctx
+from punt_lux.commands._ops_port import OpsPort
 
-
-@runtime_checkable
-class OpsPort(Protocol):
-    """The operations surface a command reads through.
-
-    Every method a command calls appears here. ``Operations`` (luxd's typed
-    facade) satisfies it structurally; ``LuxRestClient`` satisfies the same
-    method shapes for the operations it exposes, so a CLI or library caller
-    can build a :class:`Ctx` around either side of the process boundary and
-    reach one shared command instance. The port widens as commands land in .3.
-    """
-
-    def ping(self, wait: float | None = None) -> Pong | OpError:
-        """Round-trip a display ping bounded by ``wait`` seconds."""
-        ...
+__all__ = ["CommandResult", "Ctx", "OpsPort"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,21 +56,3 @@ class CommandResult:
     json_data: dict[str, object] | None = None
     error: bool = False
     exit_code: int = 0
-
-
-@dataclass(frozen=True, slots=True)
-class Ctx:
-    """Collaborators shared by every command.
-
-    Attributes:
-        ops: The operations surface -- ``Operations`` in-process, or a client
-            that structurally satisfies :class:`OpsPort` across the process
-            boundary.
-        identity: The caller's declared identity (DES-086). Later commands key
-            store lookups by ``identity.name`` / ``identity.repo`` /
-            ``identity.agent``; PingCommand does not read it, but Ctx carries
-            it now so the shape is fixed before it multiplies.
-    """
-
-    ops: OpsPort
-    identity: ClientIdentity
