@@ -4,7 +4,8 @@
 **Mission:** `m-2026-08-29-004` (design; worker `rmh`, evaluator `gvr`)
 **Status:** design complete, awaiting leader review and one operator ruling
 **Model:** [`frame-visibility-lifecycle.tex`](frame-visibility-lifecycle.tex),
-fidelity control [`frame-visibility-lifecycle_buggy.tex`](frame-visibility-lifecycle_buggy.tex)
+fidelity control [`frame-visibility-lifecycle_buggy.tex`](frame-visibility-lifecycle_buggy.tex),
+partition audit [`frame_visibility_lifecycle_coverage.md`](frame_visibility_lifecycle_coverage.md)
 
 Design only. No source file is touched by this mission; the write-set for the
 implementation mission is in §7.
@@ -404,7 +405,10 @@ the fix. Module ownership is the specialist's call.
 `tests/display/replica/test_frame_book.py`, `tests/display/test_frame_commands.py`,
 `tests/display/test_render_loop.py`, `tests/display/test_hub_reconciliation.py`,
 `tests/domain/test_hub_interaction_dispatch.py`, `tests/test_display_partition.py`.
-The tests must assert the modelled properties by name:
+The tests must assert the modelled properties by name. The full partition
+table, with every existing test marked COVERED, REPLACE, RETARGET or GAP, is
+[`frame_visibility_lifecycle_coverage.md`](frame_visibility_lifecycle_coverage.md);
+the summary is:
 
 - *content never raises* — push (new and repeat) against `OPEN`, `MINIMIZED` and
   `CLOSED`; visibility and focus unchanged in all six.
