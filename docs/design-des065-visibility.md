@@ -220,10 +220,16 @@ as a guard on every successor and would silently mask the defect):
 5. `∀ s ∈ closedScenes ∩ content • vis (sceneFrame s) ≠ vOpen` — **bug B in the
    shape the user meets it**: not merely that a frame id came back, but that the
    very scene they shut is in front of them again.
+6. **Deadlock freedom** — no reachable state leaves every operation disabled.
+   A property of the transition relation rather than a state predicate, so it is
+   discharged by the model check itself rather than by a goal.
 
 `fuzz -t` exits 0 on both documents. ProB 1.15.1 explores the intact model's
 whole reachable state space — **95 states, 845 transitions, ALL OPERATIONS
-COVERED**, no deadlock — and finds no counter-example to any of the five.
+COVERED**, no deadlock — and finds no counter-example to any of the five goals.
+Also clean at `DEFAULT_SETSIZE 3` (2593 states, 34939 transitions); size 4 does
+not finish usefully and is not needed, since every operation is covered at 2 and
+none of the properties is cardinality-dependent.
 
 ### 4.1 Findings the formalisation surfaced
 
@@ -339,6 +345,47 @@ invariant 5 over it. It holds on the intact spec and is violated by the control.
 **`ALL OPERATIONS COVERED` is the guard against a vacuous pass.** ProB reports
 it for both documents, so no invariant is discharged by an operation that never
 fired.
+
+### `make prob` reports a spurious deadlock — on this spec and every other one in the repo
+
+`make prob` runs a constraint-based deadlock check (`-cbc_deadlock`) alongside
+the model check, and that step prints `*** DEADLOCK state found ***` for this
+document. **It is noise, and it is not this model's.** The state it reports is
+not a state of the specification at all:
+
+```text
+vis = {(FRAME1|->vOpen), (FRAME1|->vMinimized)},  frames = {}
+```
+
+`vis` maps one frame to two values, so it is not a function, let alone the
+partial function `Sys` declares — and `dom vis = {FRAME1}` while `frames = {}`,
+violating `Sys`'s own `dom vis = frames`. In ProB's Z mode `-cbc_deadlock` does
+not constrain its solutions to the state schema. The two-line proof: give it a
+counter declared `n : ℕ` and bounded `n ≤ 2`, whose only real deadlock is at
+`n = 2`, and it reports the deadlocking state as **`n = -2`**, having enumerated
+`n` over `INTEGER`.
+
+Ruling out the two candidate explanations, in order:
+
+- **Not a reachable deadlock.** `-model_check` without `-nodead` explores the
+  reachable state space with deadlock detection on and reports none, at
+  `DEFAULT_SETSIZE` 2 and 3. That detection is live, not vacuous: run against
+  the `n ≤ 2` control it reports `Found "deadlock" error in state id 2`.
+- **Not a small-carrier artifact.** It persists unchanged at `DEFAULT_SETSIZE`
+  2, 3, 4 and 6. Growing the carrier does not remove it.
+- **Not specific to this model.** `display_lifecycle.tex`,
+  `architecture/workspace-model.tex`, `hub_replicator.tex` and
+  `listen_lifecycle.tex` all report it too — including `display_lifecycle.tex`,
+  whose own Verification section discharges deadlock freedom with `-model_check`
+  and is right to do so.
+
+**Recommendation (needs the leader — `Makefile` is outside this write-set).**
+The `--- cbc deadlock ---` step of `make prob` prints a red
+`*** DEADLOCK state found ***` for every Z spec in the repository and has never
+meant anything. It cost one review cycle on this mission alone. Either drop the
+step, or keep it and have it print the caveat beside the result. Leaving a check
+in place that always fails trains everyone to ignore it, which is worse than not
+having it.
 
 ---
 
@@ -519,12 +566,11 @@ parity work should pick a different name for one of them.
 
 ## 9. Open items for the leader
 
-1. **ProB — RESOLVED, no longer an open item.** ProB 1.15.1 was installed and
-   both documents were model-checked. The intact spec: 95 states, 845
-   transitions, all operations covered, no deadlock, and no counter-example to
-   any of the five invariants. The control: 1030 states, every goal found, with
-   the traces in §5. The run also strengthened the model — see §5's "Two things
-   the ProB run changed".
+1. **ProB — RESOLVED.** ProB 1.15.1 was installed and both documents were
+   model-checked. The intact spec: 95 states, 845 transitions, all operations
+   covered, no deadlock, no counter-example to any of the five goals; also clean
+   at `DEFAULT_SETSIZE 3`. The control: 1030 states, every goal found. The run
+   strengthened the model — see §5.
 2. **Write-set (§7 vs the contract).** The mission's `write_set` names one file;
    this design also required `frame-visibility-lifecycle.tex` (criterion 4) and
    its fidelity control. Already raised with the leader; noted here for the
@@ -538,6 +584,13 @@ parity work should pick a different name for one of them.
 5. **New bead for the tab ✕ (§8.4).** Same defect one level down; needs
    per-scene visibility, which this write-set does not have. Recommendation:
    file it, do not grow this change.
+6. **`make prob`'s cbc-deadlock step is broken repo-wide (§5).** It prints
+   `*** DEADLOCK state found ***` for every Z spec in the repository, from a
+   state that violates the spec's own state schema. Not this model's defect and
+   not a carrier-size artifact — see the analysis in §5. `Makefile` is outside
+   this write-set, so this needs the leader: drop the step or annotate it.
+   Recommendation: drop it. A check that always fails trains everyone to ignore
+   it.
 
 Criterion 2 is **not** on this list: it resolves from R8's own acceptance tests
 and `workspace-model.tex` without an operator ruling. §3 gives the reasoning.

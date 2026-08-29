@@ -208,8 +208,13 @@ partition above, and to a test that must go from failing to passing:
 **Both legs have been run.** `fuzz -t` exits 0 on both documents. ProB 1.15.1
 (SICStus 4.8.0) explores the intact spec's whole reachable state space — 95
 states, 845 transitions, `ALL OPERATIONS COVERED`, no deadlock — and finds no
-counter-example to any of the five goals. The control reaches all five, over
-1030 states. `ALL OPERATIONS COVERED` on both is what rules out a vacuous pass:
+counter-example to any of the five goals; also clean at `DEFAULT_SETSIZE 3`
+(2593 states). The control reaches all five, over 1030 states.
+
+`make prob`'s `--- cbc deadlock ---` step prints `*** DEADLOCK state found ***`
+for this spec and for every other Z spec in the repo, from a state that violates
+the spec's own state schema. It is a ProB Z-mode artifact, not a finding; the
+analysis is in §5 of the design note. `ALL OPERATIONS COVERED` on both is what rules out a vacuous pass:
 no invariant is discharged by an operation that never fired.
 
 The two partitions that carry the change (§3) map to two deterministic

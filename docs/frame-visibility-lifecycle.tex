@@ -493,8 +493,9 @@ it.  Modelled so that focus does not accumulate and the system stays live.
 \label{sec:inv}
 % ============================================================
 
-Four properties must hold across every reachable state.  None is placed in
-\texttt{Sys}, for the reason given with that schema.
+Six properties must hold across every reachable state.  The first five are
+state predicates; the sixth is a property of the transition relation.  None is
+placed in \texttt{Sys}, for the reason given with that schema.
 
 \paragraph{Invariant 1 --- content never takes focus.}
 No focus request is ever raised by a content event:
@@ -552,6 +553,14 @@ two because a frame id could in principle be reused for something else.
 the moment it was closed, cleared when that frame is raised or when the scene is
 disposed.
 
+\paragraph{Invariant 6 --- deadlock freedom.}
+No reachable state leaves every operation disabled.  \texttt{DisposeFrame}
+returns a frame id and a scene id to their unseen pools, so a workspace can
+always be emptied and repopulated and the system cycles rather than
+terminating; and \texttt{PushNewFrame} is enabled in the empty state.  This is
+a property of the reachable state space, discharged by the model check in
+Section~\ref{sec:verify} rather than by a goal.
+
 % ============================================================
 \section{Verification}
 \label{sec:verify}
@@ -598,13 +607,55 @@ written over the state components and bound variables only.  That limitation is
 why Invariant~5 needs the \texttt{closedScenes} ghost at all: without it, ``the
 same scene came back'' cannot be stated in a form ProB will accept.
 
-The full reachable state space is also enumerated without a goal, which is
-the deadlock check --- \texttt{DisposeFrame} returns every id to its unseen
-pool, so the system cycles rather than terminating:
+Invariant~6 is the deadlock check over the full reachable state space, which
+is what \texttt{-model\_check} performs when no \texttt{-nodead} is given:
 \begin{verbatim}
   probcli docs/frame-visibility-lifecycle.tex -model_check \
     -p DEFAULT_SETSIZE 2
 \end{verbatim}
+
+\paragraph{Carrier sensitivity.}  The results above are at
+\texttt{DEFAULT\_SETSIZE 2}.  The model is also deadlock-free and
+counter-example-free at \texttt{DEFAULT\_SETSIZE 3} --- 2593 states, 34939
+transitions, \texttt{ALL OPERATIONS COVERED} --- which is worth having because
+three frames and three scenes is the first size at which a frame can be closed
+while two others remain in different visibilities.  Size 4 does not finish in a
+useful time and is not required: every operation is already covered at 2, and
+the properties are not cardinality-dependent.
+
+\paragraph{\texttt{-cbc\_deadlock} reports a spurious deadlock here, and on
+every other Z specification in this repository.  Ignore it.}
+The \texttt{make prob} target runs a constraint-based deadlock check as well as
+the model check, and that step prints \texttt{*** DEADLOCK state found ***} for
+this document.  The state it reports is not a state of this specification:
+
+\begin{verbatim}
+  vis = {(FRAME1|->vOpen), (FRAME1|->vMinimized)},  frames = {}
+\end{verbatim}
+
+\noindent
+\texttt{vis} maps one frame to two values, so it is not a function at all, let
+alone the partial function \texttt{Sys} declares; and \texttt{\dom vis} is
+\texttt{\{FRAME1\}} while \texttt{frames} is empty, so it violates
+\texttt{Sys}'s own \texttt{\dom vis = frames}.  In ProB's Z mode
+\texttt{-cbc\_deadlock} does not constrain its solutions to the state schema.
+The clearest demonstration is a two-line control --- a counter declared
+$n : \nat$ and bounded $n \leq 2$, whose only genuine deadlock is at $n = 2$:
+\texttt{-cbc\_deadlock} reports the deadlocking state as \textbf{$n = -2$},
+having enumerated $n$ over \texttt{INTEGER}.
+
+Three consequences.  It is not a reachable deadlock: the reachable-state check
+says so directly.  It is not an artifact of a small carrier: it persists
+unchanged at \texttt{DEFAULT\_SETSIZE} 2, 3, 4 and 6.  And it is not specific
+to this document: \texttt{display\_lifecycle.tex},
+\texttt{architecture/workspace-model.tex}, \texttt{hub\_replicator.tex} and
+\texttt{listen\_lifecycle.tex} all report it too --- including
+\texttt{display\_lifecycle.tex}, whose own Verification section discharges
+deadlock freedom with \texttt{-model\_check} and is correct to do so.
+
+The reachable-state check is the authoritative one, and its deadlock detection
+is live rather than vacuous: run against the $n \leq 2$ control it reports
+\texttt{Found "deadlock" error in state id 2}, the real one.
 
 \paragraph{Results.}  Run against ProB 1.15.1 (SICStus 4.8.0).  The full
 reachable state space is \textbf{95 states, 845 transitions}, with
@@ -622,6 +673,7 @@ found, all states visited}:
   3 & \texttt{userClosed /\char`\\ frames /= userClosed} & not found \\
   4 & \texttt{card(\{f|...\ vis(f)=vOpen\})>0} & not found \\
   5 & \texttt{\#s.(s:closedScenes \& vis(sceneFrame(s))=vOpen)} & not found \\
+  6 & deadlock (no goal --- the model check itself) & none \\
 \end{tabular}
 \end{center}
 
