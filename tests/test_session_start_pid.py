@@ -45,9 +45,10 @@ def _make_executable(path: Path) -> None:
 def _make_named_binary(tmp_path: Path, name: str) -> Path:
     """Copy the real `bash` binary to *name* so its `ps` comm matches *name*.
 
-    `/proc/[pid]/comm` reflects the basename of the execve'd file, not a
-    script's shebang target — invoking `bash script.sh` always reports comm
-    `bash`. Renaming the binary itself is the only way to control comm.
+    `ps -o comm=` reports the basename of the execve'd file, not a script's
+    shebang target — invoking `bash script.sh` always reports comm `bash`.
+    Renaming the binary itself is the only way to control what `ps -o comm=`
+    reports.
     """
     bash_path = shutil.which("bash")
     assert bash_path is not None, "bash must be on PATH to build the fixture"
