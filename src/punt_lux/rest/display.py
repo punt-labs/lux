@@ -13,6 +13,7 @@ from punt_lux.operations import (
     DisplayInfo,
     FrameRaise,
     FrameStatePatch,
+    FrameStates,
     Ok,
     Pong,
     RecentErrors,
@@ -73,6 +74,7 @@ class DisplayRoutes:
         router.add_api_route(
             "/display/window", self.set_window_settings, methods=["PATCH"]
         )
+        router.add_api_route("/display/frames", self.list_frames, methods=["GET"])
         router.add_api_route(
             "/display/frames/{frame_id}", self.set_frame_state, methods=["PATCH"]
         )
@@ -110,6 +112,10 @@ class DisplayRoutes:
     def set_window_settings(self, patch: WindowSettingsPatch) -> WindowSettings:
         """Change the provided window settings and return the new settings."""
         return self._errors.respond(self._ops.set_window_settings(patch))
+
+    def list_frames(self) -> FrameStates:
+        """List the display's frames and where each one is currently shown."""
+        return self._errors.respond(self._ops.list_frames())
 
     def set_frame_state(self, frame_id: str, patch: FrameStatePatch) -> Ok:
         """Change a frame's transient minimize state."""

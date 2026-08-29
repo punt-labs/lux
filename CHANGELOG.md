@@ -38,9 +38,26 @@
   `Expand All` now restores closed frames alongside docked ones. The dock bar
   deliberately shows no pill for a closed frame — that is what makes closing a
   stronger statement than collapsing.
-- **`list_scenes` reports each frame's visibility** (`on_screen`, `docked`, or
-  `closed`), since a closed frame's presence no longer distinguishes it from
-  one that is up.
+- **`list_frames`** — a new read on the display-control surface (MCP tool,
+  `GET /display/frames`) listing every frame the display holds with its
+  `visibility`: `on_screen`, `docked`, or `closed`. A closed frame is listed
+  like any other, which is the point — closing is a visibility and not an
+  erasure, so a caller can no longer tell a window the user shut from one that
+  never existed by its absence. It reads the running display rather than the
+  Hub's store, because where a window sits belongs to the user and is never
+  replicated back.
+
+### Changed
+
+- **`set_frame_state` refuses a frame the user closed**, in both directions:
+  undocking one would put back a window they shut with no gesture behind it,
+  and docking one would give it a pill in the bar they never asked for.
+  `raise_frame` is the way back, and the refusal says so. Docking and undocking
+  a frame that is up are unaffected.
+- **An element with no id — a separator — is no longer collected as one.**
+  It cannot be addressed, so it can be neither stale to the Hub nor the target
+  of a queued interaction, and carrying an empty string through either path only
+  put a name on the wire that named nothing.
 
 ## [0.26.0] - 2026-08-19
 

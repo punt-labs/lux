@@ -26,7 +26,7 @@ from punt_lux.connection_timing import CONNECTION_TIMING
 from punt_lux.display.evictions import Evictions
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Callable, Iterable
 
     from punt_lux.protocol import RemoteEventHandlerInvocation
 
@@ -130,10 +130,34 @@ class PendingInteractions:
         against UI that no longer exists; the caller compensates what comes back.
         Order among the survivors is preserved.
         """
-        removed = [p.event for p in self._events if p.event.element_id in element_ids]
-        self._events = deque(
-            p for p in self._events if p.event.element_id not in element_ids
-        )
+        return self._discard(lambda event: event.element_id in element_ids)
+
+    def discard_scenes(self, scene_ids: set[str]) -> Evictions:
+        """Remove held interactions that originated in one of ``scene_ids``.
+
+        Scoped by *scene* rather than by element id, because an element id is
+        shareable across scenes --- two frames can each hold a button called
+        ``save``. Dropping by id alone would reach into a frame still on screen
+        and cancel a click the user is waiting on there, which is the same reason
+        ``StaleIds.notify`` subtracts the survivors before reporting.
+
+        An interaction carrying no scene --- a menu-bar click, which broadcasts
+        --- belongs to no frame and is never dropped here. Order among the
+        survivors is preserved.
+        """
+        return self._discard(lambda event: event.scene_id in scene_ids)
+
+    def _discard(
+        self, matches: Callable[[RemoteEventHandlerInvocation], bool]
+    ) -> Evictions:
+        """Remove every held interaction ``matches`` selects, keeping the rest in order.
+
+        The two public discards differ only in what they match on --- an element
+        that is gone, or a frame that is no longer on screen --- so the removal
+        itself is written once.
+        """
+        removed = [p.event for p in self._events if matches(p.event)]
+        self._events = deque(p for p in self._events if not matches(p.event))
         return Evictions.of(removed, self.pending_events())
 
     def _evict_aged(self, now: float) -> list[RemoteEventHandlerInvocation]:

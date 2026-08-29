@@ -48,6 +48,7 @@ if TYPE_CHECKING:
     from punt_lux.operations.models.callbacks import (
         RegisterCallbackRequest,
     )
+    from punt_lux.operations.models.display_frames import FrameStates
     from punt_lux.operations.models.display_info import DisplayInfo
     from punt_lux.operations.models.display_probe import Pong, Screenshot
     from punt_lux.operations.models.display_write import FrameRaise, FrameStatePatch
@@ -262,6 +263,11 @@ class Operations:
     def raise_frame(self, frame_id: str) -> FrameRaise | OpError:
         """Bring a frame to the front, restoring it if it was minimized."""
         return self._display.raise_frame(frame_id)
+
+    @Timed("list_frames")
+    def list_frames(self) -> FrameStates | OpError:
+        """List every frame the display holds and where it is showing each one."""
+        return self._display.list_frames()
 
     def inspect_scene(
         self, scene_id: str, *, scope: Scope, facts: InspectScope = HUB_ONLY

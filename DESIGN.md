@@ -1585,14 +1585,21 @@ World
 
 ### Frame Lifecycle
 
+> **Superseded in part by DES-088.** The `frame_close` row and the paragraph
+> below it no longer describe the system. Closing a frame is a Display-local
+> visibility change and reaches no client at all: the send and the Hub-side
+> handler are both retired, so nothing can "ignore the close and keep the frame
+> open" — there is no message to ignore, and the frame is not going anywhere.
+> The rest of the table stands.
+
 | Event | Protocol Message | Direction |
 |-------|-----------------|-----------|
 | Create/update frame | `SceneMessage` with `frame_id` | Client → Display |
-| Close frame (user) | `InteractionMessage` with `action: "frame_close"` | Display → Client |
+| ~~Close frame (user)~~ | ~~`InteractionMessage` with `action: "frame_close"`~~ — retired (DES-088) | — |
 | Minimize frame (user) | `InteractionMessage` with `action: "frame_minimize"` | Display → Client |
 | Client disconnect | (implicit) | Display removes client's frames |
 
-The display sends frame lifecycle events (close, minimize) to the owning client. The client can react — e.g., a Beads Explorer might save state before closing, or ignore the close and keep the frame open (like a dirty-document dialog).
+The display sends frame lifecycle events (minimize) to the owning client. The client can react — e.g., a Beads Explorer might save state before collapsing.
 
 ### World Menu Lifecycle
 

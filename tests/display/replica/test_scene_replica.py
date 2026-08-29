@@ -494,16 +494,32 @@ class TestClose:
 
         assert stale_calls == []
 
-    def test_closing_returns_the_element_ids_for_the_caller_to_drain(self) -> None:
+    def test_closing_returns_the_scene_ids_for_the_caller_to_drain(self) -> None:
         """X6's half of the contract: a shut window's button must not fire later.
 
-        The ids come back unfiltered — the elements *do* survive, which is why
-        the survivor-aware stale path cannot be what drains them.
+        Scene ids, not element ids. An element id is shareable across scenes, so
+        draining by id would reach into a frame still on screen; a scene id names
+        this frame's own work and nothing else. The survivor-aware stale path
+        cannot do the job either — the elements *do* survive a close.
         """
         mgr, _ = _make_manager()
-        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), owner_fd=10)
+        for sid in ("s1", "s2"):
+            mgr.handle_framed_scene(_make_scene(scene_id=sid, frame_id="f1"), 10)
 
-        assert mgr.close("f1") == ["b1", "t1"]
+        assert mgr.close("f1") == ["s1", "s2"]
+
+    def test_closing_names_no_scene_of_a_frame_that_stays_up(self) -> None:
+        """The drain list is one frame's, even when another shares an element id."""
+        mgr, _ = _make_manager()
+        shared: list[object] = [ButtonElement(id="save", label="Save")]
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s1", frame_id="f1", elements=shared), 10
+        )
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s2", frame_id="f2", elements=shared), 10
+        )
+
+        assert mgr.close("f1") == ["s1"]
 
     def test_closing_clears_a_focus_request_that_frame_held(self) -> None:
         """X7 — a frame that is not painted cannot take focus."""
@@ -781,7 +797,7 @@ class TestClearAll:
 
         mgr.clear_all()
 
-        assert mgr.frame_count == 0
+        assert len(mgr.frames) == 0
         assert mgr.scene_count == 0
         assert len(mgr.scene_to_frame) == 0
         assert len(mgr.scene_to_owner) == 0
@@ -791,7 +807,7 @@ class TestClearAll:
         """Calling clear_all on empty state does not fail."""
         mgr, _ = _make_manager()
         mgr.clear_all()
-        assert mgr.frame_count == 0
+        assert len(mgr.frames) == 0
 
 
 class TestWidgetStateDiscardFor:

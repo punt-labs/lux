@@ -13,6 +13,7 @@ from punt_lux.commands import Ctx as CommandCtx, ping as ping_command
 from punt_lux.operations import (
     ClientList,
     DisplayInfo,
+    FrameStates,
     InspectScope,
     MenuList,
     OpError,
@@ -79,6 +80,21 @@ def list_scenes() -> SceneList:
     (frame_id, title, scene_count, scene_ids, layout) the Hub is holding.
     """
     return _core.OPERATIONS.list_scenes()
+
+
+@mcp.tool()
+def list_frames() -> FrameStates | OpError:
+    """List the display's frames and where each one is currently shown.
+
+    Each frame reports a ``visibility`` of ``on_screen``, ``docked`` (collapsed
+    to the dock bar), or ``closed`` (the user shut it). A closed frame is still
+    listed and still holds its scenes --- closing puts a window away, it does not
+    throw its contents out --- and ``raise_frame`` brings it back.
+
+    Read from the running display rather than the Hub's store, because where a
+    window sits belongs to the user and is never replicated back.
+    """
+    return _core.OPERATIONS.list_frames()
 
 
 @mcp.tool()

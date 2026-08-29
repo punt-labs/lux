@@ -58,11 +58,6 @@ class SceneReplica:
         return sum(len(f.scenes) for f in self._book.frames.values())
 
     @property
-    def frame_count(self) -> int:
-        """Number of frames held, whatever visibility the user left each one in."""
-        return len(self._book.frames)
-
-    @property
     def active_scene_id(self) -> str | None:
         """The first painted frame's active tab — the display's 'current' scene.
 
@@ -224,7 +219,7 @@ class SceneReplica:
         return not frame.scenes
 
     def close(self, frame_id: str) -> list[str]:
-        """Put a frame away, returning the element ids the caller should drain.
+        """Put a frame away, returning the scene ids the caller should drain.
 
         The visibility half of the old ``close_frame``: the user shut a window,
         which says nothing about its content. The frame keeps its place in the
@@ -232,15 +227,18 @@ class SceneReplica:
         and the Hub is told nothing — no element was replaced, so nothing is
         stale to anyone but this Display.
 
-        The ids come back unfiltered rather than through :meth:`_notify_stale`,
-        precisely because the elements *do* survive: the caller drops its own
-        queued interactions for them so a button in a window the user just shut
-        cannot fire afterwards. Empty for a frame the book does not hold.
+        What comes back is the frame's *scenes*, not their element ids, and the
+        distinction is load-bearing. The caller drops its own queued interactions
+        for them, so a button in a window the user just shut cannot fire
+        afterwards — but an element id is shareable across scenes, so draining by
+        id would reach into a frame still on screen and cancel a click the user
+        is waiting on there. Scene ids identify the frame's own work and nothing
+        else. Empty for a frame the book does not hold.
         """
         frame = self._book.close(frame_id)
         if frame is None:
             return []
-        return sorted(self._stale.of_frame(frame))
+        return list(frame.scene_order)
 
     def dispose_frame(self, frame_id: str) -> list[str]:
         """Throw a frame out with all its scenes, returning the stale element IDs.

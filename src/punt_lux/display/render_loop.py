@@ -1066,11 +1066,28 @@ class RenderLoop:
         rather than a blank rebuilt from the next push.
 
         The one thing it does beyond the visibility write is drop this Display's
-        queued interactions for the frame's elements, so a button in a window the
-        user just shut cannot fire afterwards. That drain reaches no one outside
-        this process.
+        queued interactions that originated in the frame's scenes, so a button in
+        a window the user just shut cannot fire afterwards. That drain reaches no
+        one outside this process, and it is scoped by scene rather than by
+        element id: ids are shareable across scenes, so draining by id would
+        cancel a click the user is still waiting on in a frame that is up.
         """
-        self._drain_stale_events(self._scenes.close(frame_id))
+        self._drop_queued_interactions(self._scenes.close(frame_id))
+
+    def _drop_queued_interactions(self, scene_ids: list[str]) -> None:
+        """Drop queued and held interactions that came from ``scene_ids``.
+
+        The scene-scoped counterpart to :meth:`_drain_stale_events`. That one
+        answers "these elements are gone"; this one answers "this frame is not
+        on screen any more", and the two need different scopings because an
+        element id can be held by more than one scene at once.
+        """
+        scenes = set(scene_ids)
+        evicted = self._pending.discard_scenes(scenes)
+        self._event_queue = [
+            ev for ev in self._event_queue if ev.scene_id not in scenes
+        ]
+        self._interaction_delivery.compensate_evicted(evicted)
 
     # -- event flushing ----------------------------------------------------
 

@@ -1174,7 +1174,9 @@ class TestFrameStaleEventDrainPartitions:
             _framed_scene("s1", "f1", ButtonElement(id="b1", label="X")),
         )
         server._event_queue.append(
-            RemoteEventHandlerInvocation(element_id="b1", action="clicked", ts=1.0)
+            RemoteEventHandlerInvocation(
+                element_id="b1", action="clicked", ts=1.0, scene_id="s1"
+            )
         )
 
         server._close_frame("f1")
@@ -1182,6 +1184,51 @@ class TestFrameStaleEventDrainPartitions:
         # b1 event drained
         remaining = [e for e in server._event_queue if e.element_id == "b1"]
         assert len(remaining) == 0
+
+    def test_close_frame_leaves_a_shared_id_alone_in_a_frame_still_up(self):
+        """The drain is scoped by scene, because element ids are not unique.
+
+        Two frames can each hold a button called ``save``. Draining by element id
+        would cancel the click the user is waiting on in the frame that is still
+        painted --- the same reason the stale path subtracts its survivors.
+        """
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._socket_listener._fd_to_client[10] = sock
+        server._handle_message(
+            sock, _framed_scene("s1", "f1", ButtonElement(id="save", label="Save"))
+        )
+        server._handle_message(
+            sock, _framed_scene("s2", "f2", ButtonElement(id="save", label="Save"))
+        )
+        for scene_id in ("s1", "s2"):
+            server._event_queue.append(
+                RemoteEventHandlerInvocation(
+                    element_id="save", action="clicked", ts=1.0, scene_id=scene_id
+                )
+            )
+
+        server._close_frame("f1")
+
+        surviving = [(e.element_id, e.scene_id) for e in server._event_queue]
+        assert surviving == [("save", "s2")]
+
+    def test_close_frame_leaves_a_menu_click_alone(self):
+        """A menu-bar click carries no scene, so it belongs to no frame."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_message(
+            sock, _framed_scene("s1", "f1", ButtonElement(id="b1", label="X"))
+        )
+        server._event_queue.append(
+            RemoteEventHandlerInvocation(element_id="leaf", action="menu", ts=1.0)
+        )
+
+        server._close_frame("f1")
+
+        assert [e.action for e in server._event_queue] == ["menu"]
 
 
 class TestNoPushEverTakesFocus:
@@ -1563,5 +1610,5 @@ class TestFrameVisibilityPartitions:
 
         server._clear_all()
 
-        assert server._scenes.frame_count == 0
+        assert len(server._scenes.frames) == 0
         assert len(server._scenes.scene_to_frame) == 0

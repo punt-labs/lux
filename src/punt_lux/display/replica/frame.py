@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Literal, Self
+from typing import Literal, Self, final
 
 from punt_lux.display.replica.frame_visibility import FrameVisibility
 from punt_lux.protocol import SceneMessage
 
 
+@final
 class Frame:
     """A named inner window in the workspace.
 
@@ -32,6 +33,19 @@ class Frame:
     _initial_size: tuple[int, int] | None
     _flags: dict[str, bool] | None
     _layout: Literal["tab", "stack"]
+    __slots__ = (
+        "_active_tab",
+        "_cascade_index",
+        "_flags",
+        "_frame_id",
+        "_initial_size",
+        "_layout",
+        "_owner_fds",
+        "_scene_order",
+        "_scenes",
+        "_title",
+        "_visibility",
+    )
 
     def __new__(
         cls,
