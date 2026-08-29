@@ -1,0 +1,514 @@
+%
+% frame-visibility-lifecycle_buggy.tex
+%
+% FIDELITY CONTROL for docs/frame-visibility-lifecycle.tex.  This is the
+% Display's frame bookkeeping AS THE CODE STANDS -- close_frame that pops the
+% frame and forgets its scenes, and upsert_scene_in_frame's is_new branch that
+% clears the minimized flag, requests focus, and takes the tab.  It exists to
+% be violated: a model that cannot reproduce the defects it guards against is
+% too abstract to trust.
+%
+% It differs from frame-visibility-lifecycle.tex in exactly three schemas:
+% PushNewFrame, PushNewScene and Close.  Sys, Init, PushRepeat, DisposeScene,
+% DisposeFrame, Minimize, Raise, SelectTab and ConsumeFocus are identical.
+% SetDockState is the third restored defect: unguarded here, so a client can
+% undock (or dock) a frame the user closed; guarded in the intact document.
+%
+% Type-check:  fuzz -t docs/frame-visibility-lifecycle_buggy.tex
+% Model-check (each goal must be FOUND -- see Section 3):
+%   probcli docs/frame-visibility-lifecycle_buggy.tex -model_check -nodead \
+%       -goal "autoFocused /= {}" -p DEFAULT_SETSIZE 2
+%   probcli docs/frame-visibility-lifecycle_buggy.tex -model_check -nodead \
+%       -goal "tabStolen /= {}" -p DEFAULT_SETSIZE 2
+%   probcli docs/frame-visibility-lifecycle_buggy.tex -model_check -nodead \
+%       -goal "userClosed /\ frames /= userClosed" -p DEFAULT_SETSIZE 2
+%   probcli docs/frame-visibility-lifecycle_buggy.tex -model_check -nodead \
+%       -goal "card({f|f:FRAME & f:frames & f:userClosed & vis(f)=vOpen})>0" \
+%       -p DEFAULT_SETSIZE 2
+%   probcli docs/frame-visibility-lifecycle_buggy.tex -model_check -nodead \
+%       -goal "#s.(s:SCENE & s:content & s:closedScenes
+%                  & vis(sceneFrame(s))=vOpen)" -p DEFAULT_SETSIZE 2
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{Frame Visibility as the Code Stands: a Fidelity Control}
+\author{The variant that reaches the bad states}
+\date{August 2026}
+\maketitle
+
+% ============================================================
+\section{Purpose}
+% ============================================================
+
+\texttt{docs/frame-visibility-lifecycle.tex} claims that five invariants hold
+of the Display's frame bookkeeping once bead \texttt{lux-mxvy.8} is
+implemented.  The claim is worth nothing unless the same model, carrying
+today's behaviour instead, \emph{reaches} the states those invariants forbid.
+This document is that control.
+
+Three schemas differ, and they are the three places today's code conflates
+content with visibility.
+
+\begin{description}
+  \item[\texttt{Close}.]  Today \texttt{SceneReplica.close\_frame} calls
+    \texttt{FrameBook.pop\_frame} and then, for every scene the frame held,
+    \texttt{forget\_scene} and \texttt{widget\_state.discard}.  The frame and
+    its scene ids leave the replica outright: a user's visibility decision is
+    written into the content axis, and destroyed there.
+  \item[\texttt{PushNewFrame} and \texttt{PushNewScene}.]  Today
+    \texttt{upsert\_scene\_in\_frame} takes the \texttt{is\_new} branch ---
+    \texttt{frame.active\_tab = msg.id}, \texttt{frame.minimized = False},
+    \texttt{request\_focus(frame.frame\_id)} --- whenever the scene id is not
+    already in the frame.  A content event writes all three
+    visibility-owned values.  This is DES-060's shipped ``announce on
+    arrival'', which R8 of DES-065 retires.
+\end{description}
+
+Everything else --- the state schema, the initial state, the repeat push, both
+disposals, minimize, raise, tab selection, and the focus consume --- is
+character-for-character the specification's.  The ghosts
+(\texttt{userClosed}, \texttt{closedScenes}, \texttt{autoFocused},
+\texttt{tabStolen}) are modelling devices with no counterpart in the code, and
+they are what let a state be judged against what the user actually did;
+\texttt{Close} here therefore still records the user's intent, and the scene
+ids that intent covered, even though the code it models retains neither.
+
+% ============================================================
+\section{The Model}
+% ============================================================
+
+\begin{zed}
+  [FRAME, SCENE]
+\end{zed}
+
+\begin{zed}
+  VIS ::= vOpen | vMinimized | vClosed
+\end{zed}
+
+\begin{schema}{Sys}
+  frames : \power FRAME \\
+  content : \power SCENE \\
+  sceneFrame : SCENE \pfun FRAME \\
+  vis : FRAME \pfun VIS \\
+  activeTab : FRAME \pfun SCENE \\
+  focus : \power FRAME \\
+  userClosed : \power FRAME \\
+  closedScenes : \power SCENE \\
+  autoFocused : \power FRAME \\
+  tabStolen : \power FRAME
+\where
+  \dom vis = frames \\
+  \dom activeTab = frames \\
+  \dom sceneFrame = content \\
+  \ran sceneFrame \subseteq frames \\
+  \forall f : frames @ f \in \ran sceneFrame \\
+  \forall f : frames @ activeTab~f \in content \\
+  \forall f : frames @ sceneFrame~(activeTab~f) = f \\
+  focus \subseteq frames \\
+  \# focus \leq 1
+\end{schema}
+
+\begin{schema}{Init}
+  Sys'
+\where
+  frames' = \emptyset \\
+  content' = \emptyset \\
+  sceneFrame' = \emptyset \\
+  vis' = \emptyset \\
+  activeTab' = \emptyset \\
+  focus' = \emptyset \\
+  userClosed' = \emptyset \\
+  closedScenes' = \emptyset \\
+  autoFocused' = \emptyset \\
+  tabStolen' = \emptyset
+\end{schema}
+
+% -------------------------------------------------------------------
+\subsection{Push a New Scene into a New Frame --- DIFFERS}
+% -------------------------------------------------------------------
+
+The \texttt{is\_new} branch fires on the frame it has just created: focus is
+requested, and \texttt{autoFocused} records that a content event did it.
+
+\begin{schema}{PushNewFrame}
+  \Delta Sys \\
+  s? : SCENE \\
+  f? : FRAME
+\where
+  s? \notin content \\
+  f? \notin frames \\
+  frames' = frames \cup \{ f? \} \\
+  content' = content \cup \{ s? \} \\
+  sceneFrame' = sceneFrame \cup \{ s? \mapsto f? \} \\
+  vis' = vis \cup \{ f? \mapsto vOpen \} \\
+  activeTab' = activeTab \cup \{ f? \mapsto s? \} \\
+  focus' = \{ f? \} \\
+  autoFocused' = autoFocused \cup \{ f? \} \\
+  userClosed' = userClosed \\
+  closedScenes' = closedScenes \\
+  tabStolen' = tabStolen
+\end{schema}
+
+% -------------------------------------------------------------------
+\subsection{Push a New Scene into an Existing Frame --- DIFFERS}
+% -------------------------------------------------------------------
+
+The same branch on a frame that already exists, whatever the user had made of
+it: the minimized flag is cleared, focus is requested, and the arriving scene
+takes the tab.
+
+\begin{schema}{PushNewScene}
+  \Delta Sys \\
+  s? : SCENE \\
+  f? : FRAME
+\where
+  s? \notin content \\
+  f? \in frames \\
+  content' = content \cup \{ s? \} \\
+  sceneFrame' = sceneFrame \cup \{ s? \mapsto f? \} \\
+  vis' = vis \oplus \{ f? \mapsto vOpen \} \\
+  activeTab' = activeTab \oplus \{ f? \mapsto s? \} \\
+  focus' = \{ f? \} \\
+  autoFocused' = autoFocused \cup \{ f? \} \\
+  tabStolen' = tabStolen \cup \{ f? \} \\
+  frames' = frames \\
+  userClosed' = userClosed \\
+  closedScenes' = closedScenes
+\end{schema}
+
+% -------------------------------------------------------------------
+\subsection{Push a Scene Already Held --- identical}
+% -------------------------------------------------------------------
+
+\begin{schema}{PushRepeat}
+  \Xi Sys \\
+  s? : SCENE
+\where
+  s? \in content
+\end{schema}
+
+% -------------------------------------------------------------------
+\subsection{Dispose a Scene --- identical}
+% -------------------------------------------------------------------
+
+\begin{schema}{DisposeScene}
+  \Delta Sys \\
+  s? : SCENE \\
+  f? : FRAME \\
+  keep? : SCENE
+\where
+  s? \in content \\
+  sceneFrame~s? = f? \\
+  keep? \in \dom (sceneFrame \rres \{ f? \}) \\
+  keep? \neq s? \\
+  content' = content \setminus \{ s? \} \\
+  sceneFrame' = \{ s? \} \ndres sceneFrame \\
+  activeTab' = activeTab \oplus \{ f? \mapsto keep? \} \\
+  frames' = frames \\
+  vis' = vis \\
+  focus' = focus \\
+  userClosed' = userClosed \\
+  closedScenes' = closedScenes \setminus \{ s? \} \\
+  autoFocused' = autoFocused \\
+  tabStolen' = tabStolen
+\end{schema}
+
+\begin{schema}{DisposeFrame}
+  \Delta Sys \\
+  s? : SCENE \\
+  f? : FRAME
+\where
+  s? \in content \\
+  sceneFrame~s? = f? \\
+  \dom (sceneFrame \rres \{ f? \}) = \{ s? \} \\
+  content' = content \setminus \{ s? \} \\
+  sceneFrame' = \{ s? \} \ndres sceneFrame \\
+  frames' = frames \setminus \{ f? \} \\
+  vis' = \{ f? \} \ndres vis \\
+  activeTab' = \{ f? \} \ndres activeTab \\
+  focus' = focus \setminus \{ f? \} \\
+  userClosed' = userClosed \setminus \{ f? \} \\
+  closedScenes' = closedScenes \setminus \{ s? \} \\
+  autoFocused' = autoFocused \setminus \{ f? \} \\
+  tabStolen' = tabStolen \setminus \{ f? \}
+\end{schema}
+
+% -------------------------------------------------------------------
+\subsection{Minimize --- identical}
+% -------------------------------------------------------------------
+
+\begin{schema}{Minimize}
+  \Delta Sys \\
+  f? : FRAME
+\where
+  f? \in frames \\
+  vis~f? = vOpen \\
+  vis' = vis \oplus \{ f? \mapsto vMinimized \} \\
+  focus' = focus \setminus \{ f? \} \\
+  frames' = frames \\
+  content' = content \\
+  sceneFrame' = sceneFrame \\
+  activeTab' = activeTab \\
+  userClosed' = userClosed \\
+  closedScenes' = closedScenes \\
+  autoFocused' = autoFocused \\
+  tabStolen' = tabStolen
+\end{schema}
+
+% -------------------------------------------------------------------
+\subsection{Close --- DIFFERS}
+% -------------------------------------------------------------------
+
+Today's \texttt{close\_frame}: the frame is popped and every scene it held is
+forgotten.  \texttt{vClosed} is never assigned, because today it is not a
+state --- closed \emph{is} the absence of the frame.  The scene ids return to
+the unseen pool, which is what makes the next push read as new.
+
+The ghost \texttt{userClosed} still records that the user did this.  It has no
+counterpart in the code being modelled; that is precisely the point, since the
+defect is that the code retains nothing.
+
+\begin{schema}{Close}
+  \Delta Sys \\
+  f? : FRAME
+\where
+  f? \in frames \\
+  vis~f? \in \{ vOpen, vMinimized \} \\
+  frames' = frames \setminus \{ f? \} \\
+  content' = content \setminus \dom (sceneFrame \rres \{ f? \}) \\
+  sceneFrame' = \dom (sceneFrame \rres \{ f? \}) \ndres sceneFrame \\
+  vis' = \{ f? \} \ndres vis \\
+  activeTab' = \{ f? \} \ndres activeTab \\
+  focus' = focus \setminus \{ f? \} \\
+  userClosed' = userClosed \cup \{ f? \} \\
+  closedScenes' = closedScenes \cup \dom (sceneFrame \rres \{ f? \}) \\
+  autoFocused' = autoFocused \setminus \{ f? \} \\
+  tabStolen' = tabStolen \setminus \{ f? \}
+\end{schema}
+
+% -------------------------------------------------------------------
+\subsection{Set the Dock State --- unguarded}
+% -------------------------------------------------------------------
+
+The third restored defect, and the one the first version of this pair could not
+see at all, because neither document carried the operation.  ``set\_frame\_state''
+is on the whole client surface, and here it writes any visibility to any frame:
+no guard on the frame's current state, and no guard on the value asked for.  So
+a client holding a frame id can undock a frame the user closed --- putting the
+window back with no gesture behind it --- or dock one, giving it a pill in the
+bar the user never asked for.
+
+The intact specification guards both ends: the frame must already be up or
+docked, and the value must be one of those two.  Invariant~4 is what separates
+them, and this operation is the one that reaches it without going near a push.
+
+\begin{schema}{SetDockState}
+  \Delta Sys \\
+  f? : FRAME \\
+  v? : VIS
+\where
+  f? \in frames \\
+  vis' = vis \oplus \{ f? \mapsto v? \} \\
+  frames' = frames \\
+  content' = content \\
+  sceneFrame' = sceneFrame \\
+  activeTab' = activeTab \\
+  focus' = focus \\
+  userClosed' = userClosed \\
+  closedScenes' = closedScenes \\
+  autoFocused' = autoFocused \\
+  tabStolen' = tabStolen
+\end{schema}
+
+% -------------------------------------------------------------------
+\subsection{Raise --- identical}
+% -------------------------------------------------------------------
+
+\begin{schema}{Raise}
+  \Delta Sys \\
+  f? : FRAME
+\where
+  f? \in frames \\
+  vis' = vis \oplus \{ f? \mapsto vOpen \} \\
+  focus' = \{ f? \} \\
+  userClosed' = userClosed \setminus \{ f? \} \\
+  closedScenes' = closedScenes \setminus \dom (sceneFrame \rres \{ f? \}) \\
+  frames' = frames \\
+  content' = content \\
+  sceneFrame' = sceneFrame \\
+  activeTab' = activeTab \\
+  autoFocused' = autoFocused \\
+  tabStolen' = tabStolen
+\end{schema}
+
+% -------------------------------------------------------------------
+\subsection{Select a Tab --- identical}
+% -------------------------------------------------------------------
+
+\begin{schema}{SelectTab}
+  \Delta Sys \\
+  f? : FRAME \\
+  s? : SCENE
+\where
+  f? \in frames \\
+  s? \in \dom (sceneFrame \rres \{ f? \}) \\
+  activeTab' = activeTab \oplus \{ f? \mapsto s? \} \\
+  frames' = frames \\
+  content' = content \\
+  sceneFrame' = sceneFrame \\
+  vis' = vis \\
+  focus' = focus \\
+  userClosed' = userClosed \\
+  closedScenes' = closedScenes \\
+  autoFocused' = autoFocused \\
+  tabStolen' = tabStolen
+\end{schema}
+
+% -------------------------------------------------------------------
+\subsection{Consume the Focus Request --- identical}
+% -------------------------------------------------------------------
+
+\begin{schema}{ConsumeFocus}
+  \Delta Sys \\
+  f? : FRAME
+\where
+  f? \in focus \\
+  focus' = \emptyset \\
+  frames' = frames \\
+  content' = content \\
+  sceneFrame' = sceneFrame \\
+  vis' = vis \\
+  activeTab' = activeTab \\
+  userClosed' = userClosed \\
+  closedScenes' = closedScenes \\
+  autoFocused' = autoFocused \\
+  tabStolen' = tabStolen
+\end{schema}
+
+% ============================================================
+\section{The States This Variant Reaches}
+% ============================================================
+
+Each goal below is the negation of one of the specification's invariants, and
+each must be reported \emph{found} here.  The specification reports every one
+of them \emph{not found}; that difference is the evidence the model sees the
+defects the code is being changed to remove.
+
+Every goal is written over state components and bound variables only.  A goal
+may not name an element of a given set --- \texttt{probcli} rejects
+\texttt{FRAME2 : frames} with a \texttt{type\_expression\_error} while
+happily printing \texttt{FRAME2} in its own traces, and a rejected goal makes
+the model-check report ``no counter example'' \emph{vacuously}.  Goal~5 exists
+in the form it does for exactly that reason.
+
+\paragraph{Goal 1 --- content took focus (Invariant 1 violated).}
+\begin{verbatim}
+  probcli docs/frame-visibility-lifecycle_buggy.tex -model_check -nodead \
+    -goal "autoFocused /= {}" -p DEFAULT_SETSIZE 2
+\end{verbatim}
+A single \texttt{PushNewFrame} leaves \texttt{autoFocused} $= \{f_1\}$.
+This is DES-025's auto-focus and DES-060's announce-on-arrival, both of which
+R8 retires.
+
+\paragraph{Goal 2 --- content stole the tab (Invariant 2 violated).}
+\begin{verbatim}
+  probcli docs/frame-visibility-lifecycle_buggy.tex -model_check -nodead \
+    -goal "tabStolen /= {}" -p DEFAULT_SETSIZE 2
+\end{verbatim}
+A \texttt{PushNewFrame} followed by a \texttt{PushNewScene} into the same
+frame.  The user is reading $s_1$; $s_2$ arrives and the selection moves under
+them.
+
+\paragraph{Goal 3 --- bug A: the closed frame cannot be raised (Invariant 3
+violated).}
+\begin{verbatim}
+  probcli docs/frame-visibility-lifecycle_buggy.tex -model_check -nodead \
+    -goal "userClosed /\ frames /= userClosed" -p DEFAULT_SETSIZE 2
+\end{verbatim}
+A \texttt{PushNewFrame} followed by a \texttt{Close} of the same frame.
+Afterwards \texttt{userClosed} $= \{f_1\}$ and $f_1 \notin frames$, so
+\texttt{Raise}$(f_1)$ is not enabled --- the precondition $f_1 \in frames$
+fails.  In the running system this is \texttt{raise\_frame} answering
+\texttt{raised: false} because \texttt{FrameBook} popped the frame, and it is
+why an applet's menu-entry click cannot bring back a frame the user closed.
+
+Note what this means for the two halves of the fix: retiring the
+\texttt{is\_new} side effect \emph{without} making \texttt{Close} keep the
+frame would leave the user with no way back at all.  Today the accidental
+recreation is the only reopen path there is.
+
+\paragraph{Goal 4 --- bug B: the closed frame reopens on a content push
+(Invariant 4 violated).}
+\begin{verbatim}
+  probcli docs/frame-visibility-lifecycle_buggy.tex -model_check -nodead \
+    -goal "card({f|f:FRAME & f:frames & f:userClosed & vis(f)=vOpen})>0" \
+    -p DEFAULT_SETSIZE 2
+\end{verbatim}
+Three steps, confirmed by replay rather than by search:
+\texttt{PushNewFrame}, \texttt{Close}, \texttt{PushNewFrame} --- the same
+frame id and the same scene id both times.  The third step is enabled only
+because the second returned $s_1$ to the unseen pool; the frame comes back
+\texttt{vOpen}, focused, while \texttt{userClosed} still holds $f_1$.  In the
+running system this is voxd's next track change reopening the music window the
+user shut.
+
+\paragraph{Goal 5 --- bug B in the shape the user meets it (Invariant 5
+violated).}
+\begin{verbatim}
+  probcli docs/frame-visibility-lifecycle_buggy.tex -model_check -nodead \
+    -goal "#s.(s:SCENE & s:content & s:closedScenes
+               & vis(sceneFrame(s))=vOpen)" \
+    -p DEFAULT_SETSIZE 2
+\end{verbatim}
+Goal~4 says \emph{a frame id the user closed is open}.  This one says
+\emph{the very scene the user shut is in front of them again}, which is the
+symptom vox reports.  The three steps that matter are the same as goal~4's ---
+\texttt{PushNewFrame}, \texttt{Close}, \texttt{PushNewFrame} on one frame id
+and one scene id --- and this goal is what makes the \emph{scene} identity part
+of the claim rather than just the frame's.
+
+\paragraph{Results.}  Run against ProB 1.15.1 (SICStus 4.8.0).  This control's
+reachable state space is \textbf{1030 states, 10309 transitions}, with
+\texttt{ALL OPERATIONS COVERED}.  Every goal is found, and the traces above
+are ProB's own:
+
+\begin{center}
+\begin{tabular}{lll}
+  \textbf{Goal} & \textbf{Defect} & \textbf{Result} \\
+  \hline
+  1 & focus steal & found \\
+  2 & tab steal & found \\
+  3 & bug A & found \\
+  4 & bug B & found \\
+  5 & bug B, same scene id & found \\
+\end{tabular}
+\end{center}
+
+The specification finds none of the five over its 95 states.  That difference,
+on the same carriers and the same initial state, is the evidence the model
+detects the defects the code is being changed to remove.
+
+The individual witness traces are \emph{not} quoted, because they are not
+stable: ProB's search order varies between runs, and repeated invocations of one
+goal return witnesses of different lengths.  The verdict and the state-space
+size are stable; the witness is not.  The two deterministic
+\texttt{probcli -t} replays in the specification's fidelity section are the
+citable artifact, and each names exactly one operation that is enabled in one
+design and not the other:
+
+\begin{center}
+\begin{tabular}{lll}
+  \textbf{Replay} & \textbf{This control} & \textbf{The specification} \\
+  \hline
+  \texttt{PushNewFrame; Close; PushNewFrame} & replays & fails at step 3 \\
+  \texttt{PushNewFrame; Close; Raise} & fails at step 3 & replays \\
+\end{tabular}
+\end{center}
+
+\end{document}

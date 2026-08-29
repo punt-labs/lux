@@ -139,7 +139,7 @@ checked against the reachable state space (see the verification section).
 \texttt{deadline} records its TTL token. I1 --- any frame with a future deadline is
 shown --- holds because the only operation that arms a future deadline
 (\texttt{ReShow}) installs the roots in the same step, and every operation that
-removes the roots (\texttt{Expire}, \texttt{ManualClose}, \texttt{Reclaim}) clears
+removes the roots (\texttt{Expire}, \texttt{Reclaim}) clears
 the deadline in the same step. That last clause is the general form of the property:
 \emph{every} removal path disarms, so no removal can leave a frame counting down with
 nothing shown. The verification proves this is more than an assertion: the negating
@@ -215,26 +215,24 @@ has genuinely passed --- never one bearing a future deadline.
   deadline' = deadline \oplus \{ f? \mapsto dnone \}
 \end{schema}
 
-\texttt{ManualClose} is the user closing the frame (or a clear): its roots are torn
-down and its deadline disarmed together, whatever the deadline was.
-
-\begin{schema}{ManualClose}
-  \Delta Frame \\
-  f? : FRAME
-\where
-  roots' = roots \oplus \{ f? \mapsto absent \} \\
-  deadline' = deadline \oplus \{ f? \mapsto dnone \}
-\end{schema}
+This model used to carry a third removal, \texttt{ManualClose}, for the user
+closing a frame or clearing the display. It is gone, and its absence is the
+point: where a window sits is the Display's own business and a close is never
+told to the Hub (DES-088), so there is no longer any Hub-side removal a *user*
+gesture can cause. Every removal here is the client taking its content away or
+a deadline passing. Its predicate was in any case identical to
+\texttt{Reclaim}'s, so dropping it changes no reachable state --- only the
+count of operations that have to be covered.
 
 \texttt{Reclaim} is the replicator retiring a frame after it has blanked an emptied
 scene: an \texttt{update} strips the scene's last root, or a session departs, and
 once the blank is delivered the replicator reclaims the now-rootless frame. Like a
-manual close it is a removal, so it tears the roots down and disarms the deadline
+an expiry it is a removal, so it tears the roots down and disarms the deadline
 together --- the disarm is the point. It models
 \texttt{SceneReader.reclaim\_if\_rootless} routing through
 \texttt{FrameLifecycle.forget}, which drops the presentation and disarms the TTL
-once the frame empties. It is a distinct removal path from \texttt{ManualClose} and
-\texttt{Expire}, and the invariant is that \emph{every} removal path disarms: a
+once the frame empties. It is a distinct removal path from \texttt{Expire},
+and the invariant is that \emph{every} removal path disarms: a
 reclaim that dropped the roots but left the deadline armed would strand a live
 deadline the sweep keeps waking to fire as a no-op (the defect
 Section~\ref{sec:fidelity} reproduces).
@@ -327,8 +325,8 @@ shown. Re-running the goal check with \texttt{ReclaimNoDisarmBAD} swapped in for
 \texttt{Reclaim} reports $B$ reachable and prints the one-step trace; the committed
 \texttt{Reclaim}, which disarms in the same step, keeps $B$ unreachable. This is the
 model-checked statement of the invariant that \emph{every} removal path disarms:
-each of \texttt{Expire}, \texttt{ManualClose}, and \texttt{Reclaim} clears the
-deadline as it clears the roots, and dropping the disarm from any one of them
+each of \texttt{Expire} and \texttt{Reclaim} clears the
+deadline as it clears the roots, and dropping the disarm from either of them
 reaches $B$.
 
 \end{document}

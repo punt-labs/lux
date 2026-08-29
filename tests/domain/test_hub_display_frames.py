@@ -46,6 +46,24 @@ class _WireLeaf:
         return cls(id=str(d["id"]))
 
 
+class _FakeClock:
+    """A settable monotonic clock: the test moves time by ``advance``."""
+
+    _now: float
+    __slots__ = ("_now",)
+
+    def __new__(cls, start: float = 0.0) -> Self:
+        self = super().__new__(cls)
+        self._now = start
+        return self
+
+    def __call__(self) -> float:
+        return self._now
+
+    def advance(self, seconds: float) -> None:
+        self._now += seconds
+
+
 def _seed_framed_scene() -> HubDisplay:
     """Install one owned root in ``_SCENE`` and record its custom frame."""
     hub_display = HubDisplay()
@@ -140,29 +158,33 @@ def test_drop_connection_leaves_the_scenes_standing() -> None:
     assert not hub_display.is_client(_OWNER)
 
 
-def test_remove_frame_tears_down_its_scenes() -> None:
-    """Closing a frame removes the scenes it held; both tiers agree it is gone."""
-    hub_display = _seed_framed_scene()
-    touched = hub_display.frames.remove_frame(_FRAME)
-    assert touched == frozenset({_SCENE})
-    assert hub_display.scene_roots(_SCENE) == []
+def test_the_ttl_sweep_tears_down_a_scene_whose_owner_departed() -> None:
+    """Teardown still works after the owning session left.
 
+    Scenes outlive their session; the sweep drops each root through the remover
+    regardless of the (now-departed) owner, so an orphaned frame still expires.
 
-def test_remove_frame_removes_a_scene_whose_owner_departed() -> None:
-    """A frame close still works after the owning session left.
-
-    Scenes outlive their session; the close tears down each root through the
-    remover regardless of the (now-departed) owner, so an orphaned frame closes.
+    This property used to be asserted against ``FrameLifecycle.remove_frame``,
+    the teardown a user's frame-close reached. That path is gone (DES-088):
+    where a window sits is the Display's business and the Hub is never told, so
+    the TTL sweep is the only teardown left to carry it.
     """
-    hub_display = _seed_framed_scene()
+    clock = _FakeClock()
+    hub_display = HubDisplay(clock)
+    hub_display.register_client(_OWNER)
+    hub_display.apply(
+        _OWNER,
+        AddElement(scene_id=_SCENE, element=_WireLeaf(id="root"), parent_id=None),
+    )
+    hub_display.frames.present(
+        _SCENE, ScenePresentation(frame_id=_FRAME), ttl_seconds=5.0
+    )
     hub_display.drop_connection(_OWNER)  # session gone, scene stands
-    touched = hub_display.frames.remove_frame(_FRAME)
-    assert touched == frozenset({_SCENE})
+
+    clock.advance(10.0)
+
+    assert hub_display.frames.expire_due() == frozenset({_SCENE})
     assert hub_display.scene_roots(_SCENE) == []
-
-
-def test_remove_frame_of_an_unknown_frame_touches_nothing() -> None:
-    assert HubDisplay().frames.remove_frame("ghost") == frozenset()
 
 
 def test_non_empty_replace_keeps_the_frame() -> None:

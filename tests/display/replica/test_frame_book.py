@@ -149,10 +149,161 @@ class TestMinimize:
         book = FrameBook()
         book.ensure(_scene(), "f1", owner_fd=10)
         book.minimize("f1")
-        assert book.frames["f1"].minimized is True
+        assert book.frames["f1"].is_docked is True
 
     def test_minimize_absent_frame_is_a_noop(self) -> None:
         FrameBook().minimize("ghost")  # no raise
+
+
+class TestBornOnScreen:
+    """A frame is born on screen, and that is the whole of the birth policy.
+
+    The one place a content event may set a visibility, sound because there is
+    no prior value to override. Being born on screen is not a raise: no focus is
+    asked for, and no other frame is disturbed (partition N1).
+    """
+
+    def test_a_new_frame_is_on_screen(self) -> None:
+        book = FrameBook()
+        frame = book.ensure(_scene(), "f1", owner_fd=10)
+        assert frame.is_on_screen is True
+
+    def test_a_new_frame_asks_for_no_focus(self) -> None:
+        book = FrameBook()
+        book.ensure(_scene(), "f1", owner_fd=10)
+        assert book.consume_focus("f1") is False
+
+    def test_a_new_frame_leaves_another_frames_visibility_alone(self) -> None:
+        book = FrameBook()
+        book.ensure(_scene(), "f1", owner_fd=10)
+        book.close("f1")
+
+        book.ensure(_scene(scene_id="s2"), "f2", owner_fd=10)
+
+        assert book.frames["f1"].is_closed is True
+
+    def test_ensure_leaves_an_existing_frames_visibility_alone(self) -> None:
+        """The policy is for frames being *born*; an existing one keeps its place."""
+        book = FrameBook()
+        book.ensure(_scene(), "f1", owner_fd=10)
+        book.minimize("f1")
+
+        book.ensure(_scene(), "f1", owner_fd=11)
+
+        assert book.frames["f1"].is_docked is True
+
+
+class TestClose:
+    """Closing writes visibility and nothing else — the split's visibility half."""
+
+    def test_a_closed_frame_stays_in_the_book(self) -> None:
+        book = FrameBook()
+        book.ensure(_scene(), "f1", owner_fd=10)
+
+        book.close("f1")
+
+        assert "f1" in book.frames
+        assert book.frames["f1"].is_closed is True
+
+    def test_closing_a_docked_frame_takes_away_its_pill(self) -> None:
+        book = FrameBook()
+        book.ensure(_scene(), "f1", owner_fd=10)
+        book.minimize("f1")
+
+        book.close("f1")
+
+        assert book.docked() == []
+        assert [f.frame_id for f in book.closed()] == ["f1"]
+
+    def test_closing_clears_a_focus_request_that_frame_held(self) -> None:
+        book = FrameBook()
+        book.ensure(_scene(), "f1", owner_fd=10)
+        book.request_focus("f1")
+
+        book.close("f1")
+
+        assert book.consume_focus("f1") is False
+
+    def test_closing_leaves_another_frames_focus_request_standing(self) -> None:
+        book = FrameBook()
+        book.ensure(_scene(), "f1", owner_fd=10)
+        book.ensure(_scene(scene_id="s2"), "f2", owner_fd=10)
+        book.request_focus("f2")
+
+        book.close("f1")
+
+        assert book.consume_focus("f2") is True
+
+    def test_closing_keeps_the_scene_placement_maps(self) -> None:
+        """The user shut a window; that says nothing about what it holds."""
+        book = FrameBook()
+        book.ensure(_scene(), "f1", owner_fd=10)
+        book.set_frame("s1", "f1")
+        book.record_owner("s1", 10)
+
+        book.close("f1")
+
+        assert book.scene_to_frame["s1"] == "f1"
+        assert book.scene_to_owner["s1"] == 10
+
+    def test_closing_an_absent_frame_is_an_answer_not_an_error(self) -> None:
+        assert FrameBook().close("ghost") is None
+
+
+class TestRestore:
+    """Restoring is one gesture, and it works from every visibility."""
+
+    def test_restores_a_docked_frame_and_asks_for_focus(self) -> None:
+        book = FrameBook()
+        book.ensure(_scene(), "f1", owner_fd=10)
+        book.minimize("f1")
+
+        assert book.restore("f1") is True
+        assert book.frames["f1"].is_on_screen is True
+        assert book.consume_focus("f1") is True
+
+    def test_restores_a_closed_frame_and_asks_for_focus(self) -> None:
+        """Bug A's partition: the close left something for the gesture to act on."""
+        book = FrameBook()
+        book.ensure(_scene(), "f1", owner_fd=10)
+        book.close("f1")
+
+        assert book.restore("f1") is True
+        assert book.frames["f1"].is_on_screen is True
+        assert book.consume_focus("f1") is True
+
+    def test_restores_a_frame_that_is_already_on_screen(self) -> None:
+        book = FrameBook()
+        book.ensure(_scene(), "f1", owner_fd=10)
+
+        assert book.restore("f1") is True
+        assert book.consume_focus("f1") is True
+
+    def test_restoring_a_frame_the_book_does_not_hold_is_false(self) -> None:
+        book = FrameBook()
+        assert book.restore("ghost") is False
+        assert book.consume_focus("ghost") is False
+
+
+class TestVisibilityQueries:
+    """The renderer and the menus ask the book, rather than testing a flag."""
+
+    def test_each_frame_appears_in_exactly_one_bucket(self) -> None:
+        book = FrameBook()
+        for fid, sid in (("f1", "s1"), ("f2", "s2"), ("f3", "s3")):
+            book.ensure(_scene(scene_id=sid), fid, owner_fd=10)
+        book.minimize("f2")
+        book.close("f3")
+
+        assert [f.frame_id for f in book.on_screen()] == ["f1"]
+        assert [f.frame_id for f in book.docked()] == ["f2"]
+        assert [f.frame_id for f in book.closed()] == ["f3"]
+
+    def test_the_buckets_are_empty_on_an_empty_book(self) -> None:
+        book = FrameBook()
+        assert book.on_screen() == []
+        assert book.docked() == []
+        assert book.closed() == []
 
 
 class TestReassignScenesOf:

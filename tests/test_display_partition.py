@@ -810,7 +810,9 @@ class TestCreateFramePartitions:
         frame = server._scenes.frames["f1"]
         assert len(frame.scenes) == 2
         assert frame.scene_order == ["s1", "s2"]
-        assert frame.active_tab == "s2"
+        # F2: the tab is a user-owned selection. A second scene joins the strip
+        # without pulling the user off what they were reading.
+        assert frame.active_tab == "s1"
         assert server._scenes.scene_to_frame["s1"] == "f1"
         assert server._scenes.scene_to_frame["s2"] == "f1"
 
@@ -853,8 +855,12 @@ class TestFrameCascadePartitions:
         assert server._scenes.frames["f2"].cascade_index == 1
         assert server._scenes.frames["f3"].cascade_index == 2
 
-    def test_cascade_index_reuses_after_close(self):
-        """Closing a frame frees its index for reuse by the next frame."""
+    def test_cascade_index_reuses_after_disposal(self):
+        """Disposing a frame frees its index for reuse by the next frame.
+
+        A *closed* frame keeps its index, along with everything else about it —
+        it is still there, waiting to be asked for.
+        """
         server = _server()
         sock = _sock(fd=10)
         _register(server, sock)
@@ -862,9 +868,9 @@ class TestFrameCascadePartitions:
 
         server._handle_scene(sock, _framed_scene("s1", "f1"))
         server._handle_scene(sock, _framed_scene("s2", "f2"))
-        server._close_frame("f1")
+        server._scenes.dispose_frame("f1")
 
-        # After closing f1 (index 0), f2 keeps index 1, so f3 gets index 0
+        # After disposing f1 (index 0), f2 keeps index 1, so f3 gets index 0
         server._handle_scene(sock, _framed_scene("s3", "f3"))
         assert server._scenes.frames["f3"].cascade_index == 0
 
@@ -917,11 +923,11 @@ class TestConnectMessagePartitions:
         assert server.client_name(10) is None
 
 
-class TestCloseFramePartitions:
-    """CloseFrame: removes frame and all its scenes."""
+class TestDisposeFramePartitions:
+    """DisposeFrame: the content half — the frame and all its scenes go."""
 
-    def test_close_frame_removes_scenes(self):
-        """Closing a frame removes all its scenes and widget state."""
+    def test_dispose_frame_removes_scenes(self):
+        """Disposing a frame removes all its scenes and widget state."""
         server = _server()
         sock = _sock(fd=10)
         _register(server, sock)
@@ -933,21 +939,38 @@ class TestCloseFramePartitions:
             sock, _framed_scene("s2", "f1", TextElement(id="t2", content="B"))
         )
 
-        server._close_frame("f1")
+        server._scenes.dispose_frame("f1")
 
         assert "f1" not in server._scenes.frames
         assert "s1" not in server._scenes.scene_to_frame
         assert "s2" not in server._scenes.scene_to_frame
         assert server._scenes.widget_state_for("s1") is None
         assert server._scenes.widget_state_for("s2") is None
-        # Close event sent directly to owner socket
-        calls = sock.send.call_args_list
-        # Last send should contain the frame_close interaction
-        last_payload = bytes(calls[-1][0][0])
-        assert b"frame_close" in last_payload
+
+    def test_dispose_nonexistent_frame_is_noop(self):
+        """Disposing a frame that doesn't exist is idempotent."""
+        server = _server()
+        server._scenes.dispose_frame("nonexistent")
+        assert len(server._event_queue) == 0
+
+    def test_user_close_keeps_the_frame_and_everything_in_it(self):
+        """The visibility half, beside the content one — the whole of the split."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._socket_listener._fd_to_client[10] = sock
+        server._handle_message(
+            sock, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
+        )
+
+        server._close_frame("f1")
+
+        assert server._scenes.frames["f1"].is_closed is True
+        assert server._scenes.scene_to_frame["s1"] == "f1"
+        assert server._scenes.widget_state_for("s1") is not None
 
     def test_close_nonexistent_frame_is_noop(self):
-        """Closing a frame that doesn't exist is idempotent."""
+        """Closing a frame that isn't up is an answer, not an error."""
         server = _server()
         server._close_frame("nonexistent")
         assert len(server._event_queue) == 0
@@ -1041,7 +1064,7 @@ class TestDisconnectFrameCleanupPartitions:
         assert server._scenes.scene_to_owner["s1"] == _ORPHAN_FD
 
     def test_orphaned_frame_closeable_by_user(self):
-        """An orphaned frame can be closed via _close_frame()."""
+        """An orphaned frame can be put away by the user like any other."""
         server = _server()
         sock = _sock(fd=10)
         _register(server, sock)
@@ -1053,7 +1076,7 @@ class TestDisconnectFrameCleanupPartitions:
 
         server._close_frame("f1")
 
-        assert "f1" not in server._scenes.frames
+        assert server._scenes.frames["f1"].is_closed is True
 
     def test_new_client_adopts_orphaned_frame(self):
         """After a frame is orphaned, a new client can adopt it."""
@@ -1138,10 +1161,10 @@ class TestFrameOwnershipPartitions:
 
 
 class TestFrameStaleEventDrainPartitions:
-    """Closing frames drains stale interaction events."""
+    """Closing a frame drops this Display's queued interactions for its elements."""
 
     def test_close_frame_drains_events(self):
-        """Events for elements in closed frame are removed from queue."""
+        """X6 — a button in a window the user just shut must not fire afterwards."""
         server = _server()
         sock = _sock(fd=10)
         _register(server, sock)
@@ -1151,7 +1174,9 @@ class TestFrameStaleEventDrainPartitions:
             _framed_scene("s1", "f1", ButtonElement(id="b1", label="X")),
         )
         server._event_queue.append(
-            RemoteEventHandlerInvocation(element_id="b1", action="clicked", ts=1.0)
+            RemoteEventHandlerInvocation(
+                element_id="b1", action="clicked", ts=1.0, scene_id="s1"
+            )
         )
 
         server._close_frame("f1")
@@ -1160,44 +1185,111 @@ class TestFrameStaleEventDrainPartitions:
         remaining = [e for e in server._event_queue if e.element_id == "b1"]
         assert len(remaining) == 0
 
+    def test_close_frame_leaves_a_shared_id_alone_in_a_frame_still_up(self):
+        """The drain is scoped by scene, because element ids are not unique.
 
-class TestFrameAutoFocusPartitions:
-    """Frames auto-focus and restore on scene creation only."""
+        Two frames can each hold a button called ``save``. Draining by element id
+        would cancel the click the user is waiting on in the frame that is still
+        painted --- the same reason the stale path subtracts its survivors.
+        """
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._socket_listener._fd_to_client[10] = sock
+        server._handle_message(
+            sock, _framed_scene("s1", "f1", ButtonElement(id="save", label="Save"))
+        )
+        server._handle_message(
+            sock, _framed_scene("s2", "f2", ButtonElement(id="save", label="Save"))
+        )
+        for scene_id in ("s1", "s2"):
+            server._event_queue.append(
+                RemoteEventHandlerInvocation(
+                    element_id="save", action="clicked", ts=1.0, scene_id=scene_id
+                )
+            )
 
-    def test_scene_sets_focus_frame_id(self):
-        """Receiving a framed scene requests focus for its frame."""
+        server._close_frame("f1")
+
+        surviving = [(e.element_id, e.scene_id) for e in server._event_queue]
+        assert surviving == [("save", "s2")]
+
+    def test_close_frame_leaves_a_menu_click_alone(self):
+        """A menu-bar click carries no scene, so it belongs to no frame."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_message(
+            sock, _framed_scene("s1", "f1", ButtonElement(id="b1", label="X"))
+        )
+        server._event_queue.append(
+            RemoteEventHandlerInvocation(element_id="leaf", action="menu", ts=1.0)
+        )
+
+        server._close_frame("f1")
+
+        assert [e.action for e in server._event_queue] == ["menu"]
+
+
+class TestNoPushEverTakesFocus:
+    """A push is a notification, not a window-raise — over the whole cross product."""
+
+    def test_a_new_frames_scene_asks_for_no_focus(self):
+        """N1 — being born on screen is not a raise."""
         server = _server()
         sock = _sock(fd=10)
         _register(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
-        assert server._scenes.consume_focus("f1") is True
+        assert server._scenes.consume_focus("f1") is False
 
-    def test_new_scene_restores_minimized_frame(self):
-        """A scene new to the frame un-minimizes it: the frame has something to say."""
+    def test_a_new_scene_leaves_a_docked_frame_docked(self):
+        """N3 — the partition that used to assert the opposite."""
         server = _server()
         sock = _sock(fd=10)
         _register(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
-        server._scenes.frames["f1"].minimized = True
+        server._scenes.minimize("f1")
         server._handle_message(sock, _framed_scene("s2", "f1"))
-        assert not server._scenes.frames["f1"].minimized
+        assert server._scenes.frames["f1"].is_docked is True
+        assert server._scenes.consume_focus("f1") is False
 
-    def test_repushed_scene_leaves_minimized_frame_minimized(self):
-        """Replacing a scene repaints in place: a frame put away stays away."""
+    def test_a_new_scene_leaves_a_closed_frame_closed(self):
+        """N4 — a second board arriving does not reopen the window the user shut."""
         server = _server()
         sock = _sock(fd=10)
         _register(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
-        server._scenes.frames["f1"].minimized = True
+        server._close_frame("f1")
+        server._handle_message(sock, _framed_scene("s2", "f1"))
+        assert server._scenes.frames["f1"].is_closed is True
+
+    def test_repushed_scene_leaves_a_docked_frame_docked(self):
+        """R2 — replacing a scene repaints in place: a frame put away stays away."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
-        assert server._scenes.frames["f1"].minimized
+        server._scenes.minimize("f1")
+        server._handle_message(sock, _framed_scene("s1", "f1"))
+        assert server._scenes.frames["f1"].is_docked is True
+
+    def test_repushed_scene_leaves_a_closed_frame_closed(self):
+        """R3 — bug B, through the socket path the user actually meets it on."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_message(sock, _framed_scene("s1", "f1"))
+        server._close_frame("f1")
+        server._handle_message(sock, _framed_scene("s1", "f1"))
+        assert server._scenes.frames["f1"].is_closed is True
 
     def test_close_frame_clears_focus(self):
-        """Closing a frame clears its pending focus request."""
+        """X7 — a frame that is not painted cannot take focus."""
         server = _server()
         sock = _sock(fd=10)
         _register(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
+        server._scenes.request_focus("f1")
         server._close_frame("f1")
         assert server._scenes.consume_focus("f1") is False
 
@@ -1208,6 +1300,7 @@ class TestFrameAutoFocusPartitions:
         _register(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
         server._handle_message(sock, _framed_scene("s2", "f2"))
+        server._scenes.request_focus("f2")
         server._close_frame("f1")
         assert server._scenes.consume_focus("f2") is True
 
@@ -1381,66 +1474,141 @@ class TestFrameLayoutPartitions:
         assert msg.frame_layout is None
 
 
-class TestFrameMinimizeDockPartitions:
-    """Frame minimize/restore and dock bar behavior."""
+class _TabBarClosingOneTab:
+    """A stand-in imgui whose tab bar reports ``close_id``'s ✕ as clicked.
 
-    def test_frame_starts_not_minimized(self):
-        """Frames are not minimized on creation."""
+    Only what ``_render_frame_tabs`` calls. Every tab reports *not selected*, so
+    the render branch (which needs a GL context) is never entered and the close
+    branch — the one this change re-routed — is what runs.
+    """
+
+    def __init__(self, close_id: str) -> None:
+        self._close_id = close_id
+
+    def begin_tab_bar(self, _label: str) -> bool:
+        return True
+
+    def begin_tab_item(self, label: str, _closable: bool) -> tuple[bool, bool]:
+        scene_id = label.split("##")[-1]
+        return False, scene_id != self._close_id
+
+    def end_tab_bar(self) -> None:
+        return
+
+
+class TestTabCloseDisposes:
+    """D6 — the tab ✕ is a content dismissal, so an emptied frame is disposed.
+
+    Not put away: the user said that *scene* is gone, and a frame with no
+    content is a husk. This is the one call site of the old ``close_frame`` most
+    easily mistaken for the frame ✕, and routing it to ``close`` would leave an
+    empty window that no push could ever refill.
+    """
+
+    def test_closing_the_last_tab_disposes_the_frame(self):
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_message(
+            sock, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
+        )
+        frame = server._scenes.frames["f1"]
+
+        server._render_frame_tabs(frame, _TabBarClosingOneTab("s1"))
+
+        assert "f1" not in server._scenes.frames
+        assert "s1" not in server._scenes.scene_to_frame
+
+    def test_closing_one_tab_of_several_keeps_the_frame(self):
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        for sid in ("s1", "s2"):
+            server._handle_message(
+                sock, _framed_scene(sid, "f1", TextElement(id=f"t-{sid}", content="A"))
+            )
+        frame = server._scenes.frames["f1"]
+
+        server._render_frame_tabs(frame, _TabBarClosingOneTab("s1"))
+
+        assert "f1" in server._scenes.frames
+        assert server._scenes.resolve_scene("s1") is None
+        assert server._scenes.resolve_scene("s2") is not None
+
+
+class TestFrameVisibilityPartitions:
+    """Where a frame is, and which gestures are entitled to move it."""
+
+    def test_frame_starts_on_screen(self):
+        """N1 — a frame is born on screen, and that is the whole birth policy."""
         server = _server()
         sock = _sock(fd=10)
         _register(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
-        assert not server._scenes.frames["f1"].minimized
+        assert server._scenes.frames["f1"].is_on_screen is True
 
-    def test_scene_receipt_restores_and_focuses(self):
-        """Receiving a scene for a minimized frame restores and focuses it."""
-        server = _server()
-        sock = _sock(fd=10)
-        _register(server, sock)
-        server._handle_message(sock, _framed_scene("s1", "f1"))
-        server._scenes.frames["f1"].minimized = True
-        server._scenes.consume_focus("f1")  # clear the pending focus
-        # New scene for the same frame triggers restore + focus.
-        server._handle_message(sock, _framed_scene("s2", "f1"))
-        assert not server._scenes.frames["f1"].minimized
-        assert server._scenes.consume_focus("f1") is True
-
-    def test_fit_all_restores_minimized_frames(self):
-        """_apply_fit_all() restores all minimized frames."""
+    def test_fit_all_undocks_every_docked_frame(self):
+        """_apply_fit_all() brings the dock back on screen to be tiled."""
         server = _server()
         sock = _sock(fd=10)
         _register(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
         server._handle_message(sock, _framed_scene("s2", "f2"))
-        server._scenes.frames["f1"].minimized = True
-        server._scenes.frames["f2"].minimized = True
+        server._scenes.minimize("f1")
+        server._scenes.minimize("f2")
         server._fit_all_frames = True
         result = server._apply_fit_all()
         assert result is True
-        assert not server._scenes.frames["f1"].minimized
-        assert not server._scenes.frames["f2"].minimized
+        assert server._scenes.frames["f1"].is_on_screen is True
+        assert server._scenes.frames["f2"].is_on_screen is True
+
+    def test_fit_all_leaves_a_closed_frame_closed(self):
+        """V4 — fitting lays out what is on screen; it is not a way to reopen.
+
+        Expand All and the Windows menu's closed list are the gestures that mean
+        "bring it back"; a tiling command must not smuggle that in.
+        """
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_message(sock, _framed_scene("s1", "f1"))
+        server._handle_message(sock, _framed_scene("s2", "f2"))
+        server._close_frame("f1")
+        server._scenes.minimize("f2")
+        server._fit_all_frames = True
+
+        assert server._apply_fit_all() is True
+        assert server._scenes.frames["f1"].is_closed is True
+        assert server._scenes.frames["f2"].is_on_screen is True
 
     def test_fit_all_noop_when_not_requested(self):
         """_apply_fit_all() returns False when no fit was requested."""
         server = _server()
         assert server._apply_fit_all() is False
 
-    def test_scene_receipt_restores_minimized_frame(self):
-        """A new scene for a minimized frame un-minimizes it."""
+    def test_closing_a_docked_frame_closes_it_rather_than_removing_it(self):
+        """X2 — closed is reachable from the dock, and it is still a visibility."""
         server = _server()
         sock = _sock(fd=10)
         _register(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
-        server._scenes.frames["f1"].minimized = True
-        server._handle_message(sock, _framed_scene("s2", "f1"))
-        assert not server._scenes.frames["f1"].minimized
-
-    def test_close_frame_removes_minimized_frame(self):
-        """Closing a minimized frame removes it entirely."""
-        server = _server()
-        sock = _sock(fd=10)
-        _register(server, sock)
-        server._handle_message(sock, _framed_scene("s1", "f1"))
-        server._scenes.frames["f1"].minimized = True
+        server._scenes.minimize("f1")
         server._close_frame("f1")
-        assert "f1" not in server._scenes.frames
+        assert server._scenes.frames["f1"].is_closed is True
+        assert server._scenes.docked_frames() == []
+
+    def test_clear_all_disposes_every_frame_whatever_its_visibility(self):
+        """D5 — Clear All means the content is gone, not that it was put away."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_message(sock, _framed_scene("s1", "f1"))
+        server._handle_message(sock, _framed_scene("s2", "f2"))
+        server._handle_message(sock, _framed_scene("s3", "f3"))
+        server._close_frame("f1")
+        server._scenes.minimize("f2")
+
+        server._clear_all()
+
+        assert len(server._scenes.frames) == 0
+        assert len(server._scenes.scene_to_frame) == 0

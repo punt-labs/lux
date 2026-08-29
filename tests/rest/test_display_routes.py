@@ -92,6 +92,43 @@ def test_set_window_settings_rejects_out_of_range_opacity_with_422() -> None:
     assert client.patch("/display/window", json={"opacity": 5.0}).status_code == 422
 
 
+def test_list_frames_reports_a_closed_frame_over_http() -> None:
+    # The whole point of the route: a frame the user closed is still listed, with
+    # its visibility, so the rule that it stays closed is verifiable from outside
+    # the display process.
+    reply = DisplayReplied(
+        {
+            "scenes": [],
+            "frames": [
+                {
+                    "frame_id": "f1",
+                    "title": "Music",
+                    "scene_count": 1,
+                    "scene_ids": ["s1"],
+                    "layout": "tab",
+                    "visibility": "closed",
+                }
+            ],
+        }
+    )
+    client = make_client(display_port=StubPort(reply))
+
+    resp = client.get("/display/frames")
+
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "kind": "ok",
+        "frames": [
+            {
+                "frame_id": "f1",
+                "title": "Music",
+                "visibility": "closed",
+                "scene_ids": ["s1"],
+            }
+        ],
+    }
+
+
 def test_close_frame() -> None:
     client = make_client(display_port=StubPort(DisplayReplied({})))
     resp = client.post("/display/frames/f1/close")

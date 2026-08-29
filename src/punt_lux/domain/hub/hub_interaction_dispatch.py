@@ -2,11 +2,15 @@
 
 The display wraps every handler in ``remote_dispatch`` and sends a
 :class:`RemoteEventHandlerInvocation` to the Hub. :class:`HubInteractionDispatch`
-is where that message lands: it routes a frame-close to frame removal, a menu
-launch to the owning session's callback hold, and everything else to the
-scene-element fire on the Hub's authoritative copy. Kept out of the connection
-registry so "own the display connection" and "dispatch a display interaction"
-are each one responsibility.
+is where that message lands: it routes a menu launch to the owning session's
+callback hold, and everything else to the scene-element fire on the Hub's
+authoritative copy. Kept out of the connection registry so "own the display
+connection" and "dispatch a display interaction" are each one responsibility.
+
+Closing a frame is not among them. Where a window sits is the Display's own
+business (DES-065 R8), so a close reaches the Hub not at all — it used to, and
+the Hub answered by deleting the frame's scenes, which is how a window the user
+shut came back blank one round trip later.
 """
 
 from __future__ import annotations
@@ -34,13 +38,10 @@ class HubInteractionDispatch:
     def dispatch(msg: RemoteEventHandlerInvocation) -> None:
         """Route one display interaction by its action to the right Hub handler.
 
-        A ``frame_close`` removes the frame's scenes; a ``menu`` launches the
-        owning session's callback; everything else fires the scene element on its
-        authoritative copy with the real ``HubPublishSink``.
+        A ``menu`` launches the owning session's callback; everything else fires
+        the scene element on its authoritative copy with the real
+        ``HubPublishSink``.
         """
-        if msg.action == "frame_close":
-            HubInteractionDispatch._close_frame(msg.element_id)
-            return
         if msg.action == "menu":
             HubInteractionDispatch._dispatch_menu_callback(msg.element_id)
             return
@@ -115,17 +116,3 @@ class HubInteractionDispatch:
             return
         logger.info("menu callback %r not delivered; re-pushing menu", menu_id)
         hub_replicator.mark_menus()
-
-    @staticmethod
-    def _close_frame(frame_id: str) -> None:
-        """Remove a display-closed frame's scenes on the Hub and repaint.
-
-        The Hub removes the scenes that frame held so the authoritative store
-        agrees the frame is gone, then marks each dirty; the replicator blanks
-        them, idempotent with the frame the user already closed.
-        """
-        from punt_lux.domain.hub import hub_display
-        from punt_lux.domain.hub.replicator_instance import hub_replicator
-
-        for scene_id in hub_display.frames.remove_frame(frame_id):
-            hub_replicator.mark_dirty(scene_id)

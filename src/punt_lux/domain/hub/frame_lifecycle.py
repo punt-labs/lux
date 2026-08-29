@@ -2,12 +2,22 @@
 
 Everything the store knows about a frame lives here: how each scene is framed for
 a resend (its :class:`ScenePresentation`), its optional TTL deadline, and the two
-ways it is torn down — a user closes it, or its time-to-live passes. All of it
-sits behind one lock discipline rather than scattered across the store facade,
-because a frame's presentation, its deadline, and its teardown must not be read or
-written half-applied. This component composes the presentation registry, the
-subtree remover (the teardown walk), the :class:`FrameExpiry` deadlines, and the
-store lock.
+ways it is torn down: an explicit close request, or its time-to-live passing. All
+of it sits behind one lock discipline rather than scattered across the store
+facade, because a frame's presentation, its deadline, and its teardown must not be
+read or written half-applied. This component composes the presentation registry,
+the subtree remover (the teardown walk), the :class:`FrameExpiry` deadlines, and
+the store lock.
+
+There used to be a *third* teardown — a user closing a frame on the Display sent
+a ``frame_close`` event the Hub answered by removing the frame's scenes. That is
+gone (DES-088). Where a window sits is the Display's own business and the Hub is
+not told, so a *user gesture on the Display* is no longer one of the ways a frame
+is torn down here. What remains is a caller *asking* to close a frame outright —
+:meth:`remove_frame`, reached through the ``frame_close``/``close_frame`` command,
+a deliberate teardown distinct from the retired auto-close. The client taking its
+content away is the third path: an empty push or a manifest purge goes through
+:meth:`forget`, and a deadline passing through :meth:`expire_due`.
 
 Recording a presentation, arming a deadline, and sweeping expiry all take the same
 lock every store write takes, so a frame re-armed with a fresh TTL is never torn
@@ -117,11 +127,14 @@ class FrameLifecycle:
             return self._frames.presentation_for(scene_id)
 
     def remove_frame(self, frame_id: str) -> frozenset[SceneId]:
-        """Close ``frame_id``: tear down its scenes, disarm its TTL, return them.
+        """Close ``frame_id`` outright: tear down scenes, disarm its TTL, return them.
 
-        Each scene's roots are dropped whatever the (possibly departed) owner, so
-        an orphaned frame still closes, and the deadline is disarmed so a closed
-        frame is never swept again.
+        Reached only by an explicit close request (the ``frame_close``/
+        ``close_frame`` command) — never by a Display-originated event, which
+        DES-088 retired (see the module docstring). Each scene's roots are
+        dropped whatever the (possibly departed) owner, so an orphaned frame
+        still closes, and the deadline is disarmed so a closed frame is never
+        swept again.
         """
         with self._lock.write():
             self._expiry.disarm(frame_id)
@@ -131,30 +144,39 @@ class FrameLifecycle:
         """Tear down every frame whose TTL has passed; return the scenes to repaint.
 
         The whole sweep runs under one write lock, so expiring a frame and tearing
-        down its scenes is atomic against a concurrent re-show. Frames are isolated
-        from one another the way ``Hub.publish`` isolates subscribers: each is torn
-        down and only then disarmed, and a frame whose tear-down raises is logged
-        and left armed to retry on the next sweep — it never consumes the frame nor
-        aborts the others. Every frame that *did* tear down is in the returned set
-        regardless, so the caller repaints it even when a later frame fails; a
-        returned frame is never stranded (torn down on the Hub but never blanked).
-        Tear-down work runs while the store lock is held, so it must stay bounded —
-        a scene-roots removal, nothing heavier.
+        down its scenes is atomic against a concurrent re-show. Tear-down work runs
+        while that lock is held, so it must stay bounded — a scene-roots removal,
+        nothing heavier. What one frame's failure costs the others is
+        :meth:`_sweep_one`'s business, not this loop's.
         """
         with self._lock.write():
             scenes: set[SceneId] = set()
             for frame_id in self._expiry.due_frames():
-                try:
-                    torn = self._tear_down(frame_id)
-                except Exception:
-                    logger.exception(
-                        "frame %s tear-down failed; leaving its TTL armed to retry",
-                        frame_id,
-                    )
-                    continue
-                scenes |= torn
-                self._expiry.disarm(frame_id)
+                scenes |= self._sweep_one(frame_id)
             return frozenset(scenes)
+
+    def _sweep_one(self, frame_id: str) -> frozenset[SceneId]:
+        """Retire one due frame; return its scenes, or none if it could not be. Locked.
+
+        Frames are isolated from one another the way ``Hub.publish`` isolates
+        subscribers: a frame whose tear-down raises is logged and left armed to
+        retry on the next sweep, and it neither consumes the frame nor aborts the
+        others. Tearing down comes first and disarming only after, so a frame is
+        never disarmed on the strength of a tear-down that did not happen. A frame
+        that *did* tear down is returned regardless of what a later one does, so
+        the caller repaints it and no frame is left stranded — retired on the Hub
+        but never blanked on the Display.
+        """
+        try:
+            torn = self._tear_down(frame_id)
+        except Exception:
+            logger.exception(
+                "frame %s tear-down failed; leaving its TTL armed to retry",
+                frame_id,
+            )
+            return frozenset()
+        self._expiry.disarm(frame_id)
+        return torn
 
     def seconds_until_next(self) -> float | None:
         """Return the wait until the soonest deadline, or None when none are armed."""

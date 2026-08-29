@@ -84,9 +84,12 @@ class DockPill:
         )
 
     def restore(self, scenes: SceneReplica) -> None:
-        """Take the frame out of the bar and bring it back to the front."""
-        self._frame.minimized = False
-        scenes.request_focus(self._frame.frame_id)
+        """Take the frame out of the bar and bring it back to the front.
+
+        A pill click is a user gesture like an applet's menu entry, so it goes
+        through the same raise — restoring and focusing in one step.
+        """
+        scenes.raise_frame(self._frame.frame_id)
 
     def _middle(self, height: float) -> float:
         """The y that centres something *height* tall inside the pill."""

@@ -151,6 +151,7 @@ class RenderLoop:
             get_frames=lambda: self._scenes.frames,
             on_clear_all=self._clear_all,
             on_fit_all=self._request_fit_all,
+            on_raise_frame=self._raise_frame,
             chrome=WindowChrome(),
         )
         # QueryRouter must be created before SocketListener so that
@@ -174,7 +175,6 @@ class RenderLoop:
         self._hub_reconciliation = HubReconciliation(
             socket_listener=self._socket_listener,
             scenes=self._scenes,
-            close_frame=lambda fid: self._close_frame(fid, notify=False),
             record_error=self._query_router.record_error,
         )
         # Bind a fail-loud decode factory to the shared container-dispatch
@@ -520,10 +520,23 @@ class RenderLoop:
         self._font_scale = scale
 
     def _clear_all(self) -> None:
-        """Callback for MenuReplica: close every frame, then clear scenes and state."""
+        """Callback for MenuReplica: throw every frame out, then clear scenes and state.
+
+        Clear All means the content is gone, not put away, so every frame is
+        disposed whatever visibility the user had left it in.
+        """
         for fid in list(self._scenes.frames):
-            self._close_frame(fid)
+            self._scenes.dispose_frame(fid)
         self._handle_clear()
+
+    def _raise_frame(self, frame_id: str) -> None:
+        """Callback for MenuReplica: bring one closed frame back on screen.
+
+        A menu entry has no use for whether the frame was held — it was composed
+        from the frames the display holds — so the answer the query surface reads
+        is dropped here.
+        """
+        self._scenes.raise_frame(frame_id)
 
     def _request_fit_all(self) -> None:
         """Callback for MenuReplica: request fit-all layout."""
@@ -875,17 +888,21 @@ class RenderLoop:
         return result
 
     def _apply_fit_all(self) -> bool:
-        """If fit-all was requested, restore all frames and compute tile layout.
+        """If fit-all was requested, undock every frame and compute tile layout.
 
         Returns True when fitting is active (callers should use
         ``Cond_.always`` for position/size).
+
+        A *closed* frame is left closed. Fitting is a layout command over the
+        frames the user has on screen; pulling back a window they deliberately
+        shut would be a raise wearing a tiling command's clothes. Expand All and
+        the Windows menu's closed list are the gestures that mean "bring it back".
         """
         if not self._fit_all_frames:
             return False
         self._fit_all_frames = False
-        frames = list(self._scenes.frames.values())
-        for f in frames:
-            f.minimized = False
+        for frame in self._scenes.docked_frames():
+            frame.restore()
         return True
 
     def _cascaded_frame_size(
@@ -957,9 +974,10 @@ class RenderLoop:
 
         sm = self._scenes
         fitting = self._apply_fit_all()
+        on_screen = sm.on_screen_frames()
         tile_layout: dict[str, tuple[float, float, float, float]] = {}
         if fitting:
-            tile_layout = FrameTiling(list(sm.frames.values())).cells(imgui, region)
+            tile_layout = FrameTiling(on_screen).cells(imgui, region)
         placement = FramePlacement(
             fitting=fitting, tile_layout=tile_layout, default_size=(frame_w, frame_h)
         )
@@ -967,9 +985,7 @@ class RenderLoop:
         closed_frames: list[str] = []
         minimized_frames: list[str] = []
         any_frame_hovered = False
-        for frame in list(sm.frames.values()):
-            if frame.minimized:
-                continue
+        for frame in on_screen:
             result, hovered = self._render_single_frame(frame, imgui, placement)
             any_frame_hovered = any_frame_hovered or hovered
             if result == "closed":
@@ -980,7 +996,7 @@ class RenderLoop:
             self._close_frame(fid)
         for fid in minimized_frames:
             sm.minimize(fid)
-        # Dock bar for minimized frames
+        # Dock bar for docked frames — a closed frame carries no pill.
         DockBar(imgui, self._scenes).render(any_frame_hovered=any_frame_hovered)
 
     def _render_frame_contents(self, frame: Frame, imgui: Any) -> None:
@@ -1022,7 +1038,7 @@ class RenderLoop:
             for sid in closed_tabs:
                 frame_empty = self._scenes.dismiss_framed_scene(frame, sid)
                 if frame_empty:
-                    self._close_frame(frame.frame_id)
+                    self._scenes.dispose_frame(frame.frame_id)
 
     def _render_frame_stack(self, frame: Frame, imgui: Any) -> None:
         """Render multi-scene frame as vertically stacked collapsing headers.
@@ -1059,29 +1075,37 @@ class RenderLoop:
         for elem in scene.elements:
             elem.render()
 
-    def _close_frame(self, frame_id: str, *, notify: bool = True) -> None:
-        """Remove a frame and all its scenes.
+    def _close_frame(self, frame_id: str) -> None:
+        """Put a frame away: the user clicked its ✕.
 
-        When *notify* is True, a ``frame_close`` event is sent to all
-        contributing clients (``owner_fds``).  Used for user-initiated
-        close and tab close.  When False, no events are emitted -- used
-        during disconnect cleanup where the departing client's fd is
-        already removed and surviving clients should not be notified.
+        Closing is the Display's own decision about where a window is, and it
+        tells the owning clients nothing. The frame keeps its scenes, its widget
+        state and its tab, so raising it later brings back what the user shut
+        rather than a blank rebuilt from the next push.
+
+        The one thing it does beyond the visibility write is drop this Display's
+        queued interactions that originated in the frame's scenes, so a button in
+        a window the user just shut cannot fire afterwards. That drain reaches no
+        one outside this process, and it is scoped by scene rather than by
+        element id: ids are shareable across scenes, so draining by id would
+        cancel a click the user is still waiting on in a frame that is up.
         """
-        # Capture owner_fds before SceneReplica removes the frame.
-        frame = self._scenes.frames.get(frame_id)
-        owner_fds = set(frame.owner_fds) if frame is not None else set()
-        self._scenes.close_frame(frame_id)
-        if notify and owner_fds:
-            close_event = RemoteEventHandlerInvocation(
-                element_id=frame_id,
-                action="frame_close",
-                ts=time.time(),
-            )
-            for ofd in owner_fds:
-                owner_sock = self._socket_listener.fd_to_client.get(ofd)
-                if owner_sock is not None:
-                    self._socket_listener.send_to_client(owner_sock, close_event)
+        self._drop_queued_interactions(self._scenes.close(frame_id))
+
+    def _drop_queued_interactions(self, scene_ids: list[str]) -> None:
+        """Drop queued and held interactions that came from ``scene_ids``.
+
+        The scene-scoped counterpart to :meth:`_drain_stale_events`. That one
+        answers "these elements are gone"; this one answers "this frame is not
+        on screen any more", and the two need different scopings because an
+        element id can be held by more than one scene at once.
+        """
+        scenes = set(scene_ids)
+        evicted = self._pending.discard_scenes(scenes)
+        self._event_queue = [
+            ev for ev in self._event_queue if ev.scene_id not in scenes
+        ]
+        self._interaction_delivery.compensate_evicted(evicted)
 
     # -- event flushing ----------------------------------------------------
 

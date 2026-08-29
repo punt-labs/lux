@@ -100,16 +100,24 @@ def test_render_without_a_frame_synthesizes_one_at_the_scene_id() -> None:
     assert presentation.frame_title == "s1"  # never composed — a human-facing label
 
 
-def test_synthesized_frame_is_a_lifecycle_citizen_a_close_removes_the_scene() -> None:
+def test_synthesized_frame_is_a_lifecycle_citizen_the_sweep_retires_it() -> None:
     # The synthesized frame participates in the dismissal machinery identically to
-    # an explicit one: closing frame "s1" tears down the scene's roots on the Hub.
-    store, recorder = HubDisplay(), _Recorder()
+    # an explicit one: armed with a TTL, it expires and its roots are torn down.
+    # Asserted against the sweep because that is the only Hub-side teardown left
+    # -- a user closing a frame on the Display no longer reaches the Hub (DES-088).
+    now = [1000.0]
+    store, recorder = HubDisplay(clock=lambda: now[0]), _Recorder()
     request = RenderRequest.parse(
         {"scene_id": "s1", "elements": [{"kind": "text", "id": "t1", "content": "Hi"}]}
     )
     _ops(store, recorder).render(request, scope=_LOCAL)
-    removed = store.frames.remove_frame(str(_scoped("s1")))
-    assert removed == frozenset({_scoped("s1")})
+    store.frames.present(
+        _scoped("s1"), store.frames.presentation_for(_scoped("s1")), ttl_seconds=5.0
+    )
+
+    now[0] += 10.0
+
+    assert store.frames.expire_due() == frozenset({_scoped("s1")})
     assert store.scene_roots(_scoped("s1")) == []
 
 

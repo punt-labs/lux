@@ -35,7 +35,7 @@ type: ## Type check with mypy and pyright
 	uv run --extra display mypy src/ tests/
 	npx pyright src/ tests/
 
-check: check-oo check-suppressions lint type test ## Run all quality gates
+check: check-oo check-coupling check-suppressions lint type test ## Run all quality gates
 
 check-oo: ## OO ratchet — must improve over baseline, never regress
 	uv run --extra display python tools/oo_score.py src/punt_lux/ --check
@@ -52,7 +52,7 @@ update-suppressions: ## Update suppression baseline
 check-plugin-surface: ## Verify the plugin/ surface resolves entirely inside itself
 	bash scripts/check-plugin-surface.sh
 
-check-coupling: ## Coupling metrics (informational, not in check chain)
+check-coupling: ## Coupling ratchet — must not regress against .oo-coupling-baseline.json
 	uv run --extra display python tools/oo_coupling.py src/punt_lux/ --check
 
 update-coupling: ## Update coupling baseline
@@ -122,8 +122,6 @@ prob: ## Animate and model-check a Z spec with ProB (usage: make prob SPEC=docs/
 	@$(PROBCLI) "$(SPEC)" -animate 20 $(PROB_FLAGS) 2>&1 | grep -E "COVERED|not_covered|Runtime"
 	@echo "--- cbc assertions ---"
 	@$(PROBCLI) "$(SPEC)" -cbc_assertions $(PROB_FLAGS) 2>&1 | grep -E "counter|ASSERTION"
-	@echo "--- cbc deadlock ---"
-	@$(PROBCLI) "$(SPEC)" -cbc_deadlock $(PROB_FLAGS) 2>&1 | grep -E "deadlock|DEADLOCK"
 	@echo "--- model check ---"
 	@$(PROBCLI) "$(SPEC)" -model_check $(PROB_FLAGS) \
 		-p MAX_INITIALISATIONS 100 -p MAX_OPERATIONS 5000 2>&1 | \

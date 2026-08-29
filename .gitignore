@@ -9,18 +9,18 @@ __pycache__/
 .coverage
 /htmlcov/
 
-# LaTeX build artifacts
+# LaTeX build artifacts (docs/ and any nested docs/ subdirectory, e.g. docs/architecture/)
 docs/fuzz.sty
-docs/*.mf
-docs/*.pk
-docs/*.tfm
-docs/*.aux
-docs/*.log
-docs/*.fuzz
-docs/*.toc
-docs/*.fdb_latexmk
-docs/*.fls
-docs/*.out
+docs/**/*.mf
+docs/**/*.pk
+docs/**/*.tfm
+docs/**/*.aux
+docs/**/*.log
+docs/**/*.fuzz
+docs/**/*.toc
+docs/**/*.fdb_latexmk
+docs/**/*.fls
+docs/**/*.out
 docs/*.pdf
 # Human-facing rendered spec (PDFs for people, source for tools) — tracked, linked from public writing
 !docs/display_lifecycle.pdf

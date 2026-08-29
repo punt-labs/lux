@@ -82,9 +82,12 @@ identify menu items and their nesting path in the World menu.
   ZBOOL ::= ztrue | zfalse
 \end{zed}
 
-Frame visibility state:
+Frame visibility state.  \texttt{fvClosed} is a value here, not the
+absence of the frame: the user putting a window away says nothing about
+what it holds, so a closed frame keeps its scenes, its owner and its
+place in \texttt{frames}, and is simply not painted (DES-088).
 \begin{zed}
-  FrameVis ::= fvNormal | fvMinimized
+  FrameVis ::= fvNormal | fvMinimized | fvClosed
 \end{zed}
 
 Menu target --- which menu surface an item belongs to:
@@ -337,11 +340,46 @@ is in the display-server spec).
 \subsection{Close Frame (User)}
 % -------------------------------------------------------------------
 
-The user clicks the close button on a frame.  The frame and all
-its scenes are removed.  An interaction event is sent to the
-owning client (modeled at the display-server level).
+The user clicks the close button on a frame.  It is a \emph{visibility}
+transition and nothing else (DES-088): the frame stays in \texttt{frames}
+with its owner and its scenes, so a later \texttt{RestoreFrame} has
+something to act on and a later push into it still reads as a repeat
+rather than an arrival.  No interaction event is sent to the owning
+client --- where a window sits is the Display's own business, and the
+event that used to carry a close is retired.
 
 \begin{schema}{CloseFrame}
+  \Delta Workspace \\
+  frameId? : FRAMEID
+  \where
+  frameId? \in frames \\
+  frameVis~frameId? \in \{ fvNormal, fvMinimized \} \\
+  frameVis' = frameVis \oplus \{ frameId? \mapsto fvClosed \} \\
+  frames' = frames \\
+  frameOwner' = frameOwner \\
+  frameScenes' = frameScenes \\
+  sceneFrame' = sceneFrame \\
+  clients' = clients \\
+  clientNames' = clientNames \\
+  menuItems' = menuItems \\
+  menuOwner' = menuOwner \\
+  menuTarget' = menuTarget \\
+  menuPath' = menuPath
+\end{schema}
+
+% -------------------------------------------------------------------
+\subsection{Dispose Frame (Content)}
+% -------------------------------------------------------------------
+
+The removal \texttt{CloseFrame} used to be, now under its own name and
+reached only by a \emph{content} event: an empty push, a manifest purge
+that disowns the last scene, a frame TTL, or Clear All.  The client is
+saying the content is gone, so the frame goes with it --- whatever
+visibility the user had left it in.  A frame with no content is a husk,
+and a closed one is no exception, which is what keeps a closed frame from
+being an unbounded leak.
+
+\begin{schema}{DisposeFrame}
   \Delta Workspace \\
   frameId? : FRAMEID
   \where
@@ -386,12 +424,16 @@ owning client (modeled at the display-server level).
 \subsection{Restore Frame}
 % -------------------------------------------------------------------
 
+Enabled from \emph{any} visibility, which is what makes a closed frame
+reachable again: an applet's menu-entry click, a dock pill, Expand All,
+or the Windows menu's list of closed frames all arrive here (DES-088).
+
 \begin{schema}{RestoreFrame}
   \Delta Workspace \\
   frameId? : FRAMEID
   \where
   frameId? \in frames \\
-  frameVis~frameId? = fvMinimized \\
+  frameVis~frameId? \in \{ fvMinimized, fvClosed \} \\
   frameVis' = frameVis \oplus \{ frameId? \mapsto fvNormal \} \\
   frames' = frames \\
   frameOwner' = frameOwner \\

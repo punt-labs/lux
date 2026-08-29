@@ -47,6 +47,7 @@ _EXPECTED_TOOLS = frozenset(
         "event_ls",
         "frame_close",
         "frame_raise",
+        "list_frames",
         "menu_ls",
         "menu_set",
         "ping",

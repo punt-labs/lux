@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Literal, Self, final
 
 from punt_lux.operations.models.query_scenes import FrameSummary
+from punt_lux.operations.models.query_visibility import FrameVisibilityState
 
 __all__ = ["FrameAccumulator"]
 
@@ -35,12 +36,18 @@ class FrameAccumulator:
         """Record a scene shown into this frame."""
         self._scene_ids.append(scene_id)
 
-    def summary(self, frame_id: str) -> FrameSummary:
-        """Build the frame's summary once every scene is gathered."""
+    def summary(self, frame_id: str, visibility: FrameVisibilityState) -> FrameSummary:
+        """Build the frame's summary once every scene is gathered.
+
+        ``visibility`` is proxied from the running display rather than read from
+        the store, so it arrives already narrowed — this accumulator does no
+        asking of its own.
+        """
         return FrameSummary(
             frame_id=frame_id,
             title=self._title,
             scene_count=len(self._scene_ids),
             scene_ids=self._scene_ids,
             layout=self._layout,
+            visibility=visibility,
         )

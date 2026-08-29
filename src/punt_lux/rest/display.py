@@ -29,6 +29,7 @@ from punt_lux.commands import (
 from punt_lux.operations import (
     DisplayInfo,
     FrameRaise,
+    FrameStates,
     Ok,
     Pong,
     RecentErrors,
@@ -83,6 +84,7 @@ class DisplayRoutes:
         router.add_api_route(
             "/display/window", self.set_window_settings, methods=["PATCH"]
         )
+        router.add_api_route("/display/frames", self.list_frames, methods=["GET"])
         f = "/display/frames/{frame_id}"
         router.add_api_route(
             f + "/raise",
@@ -142,6 +144,10 @@ class DisplayRoutes:
         return self._errors.respond(
             asyncio.run(display_window_set_command.execute(ctx, patch))
         )
+
+    def list_frames(self) -> FrameStates:
+        """List the display's frames and where each one is currently shown."""
+        return self._errors.respond(self._ops.list_frames())
 
     def raise_frame(self, frame_id: str) -> FrameRaise:
         """Bring a frame to the front, restoring it if it was minimized."""

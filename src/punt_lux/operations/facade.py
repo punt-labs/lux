@@ -49,6 +49,7 @@ if TYPE_CHECKING:
     from punt_lux.operations.models.callbacks import (
         RegisterCallbackRequest,
     )
+    from punt_lux.operations.models.display_frames import FrameStates
     from punt_lux.operations.models.display_info import DisplayInfo
     from punt_lux.operations.models.display_probe import Pong, Screenshot
     from punt_lux.operations.models.display_write import FrameRaise
@@ -251,6 +252,11 @@ class Operations:
         """Bring a frame to the front, restoring it if it was minimized."""
         return self._display.raise_frame(frame_id)
 
+    @Timed("list_frames")
+    def list_frames(self) -> FrameStates | OpError:
+        """List every frame the display holds and where it is showing each one."""
+        return self._display.list_frames()
+
     @Timed("close_frame")
     def close_frame(self, frame_id: str) -> Ok:
         """Close a frame; ``frame_close`` and ``frame_expire`` both call this."""
@@ -266,9 +272,9 @@ class Operations:
         """
         return self._queries.inspect_scene(scene_id, scope, facts)
 
-    def list_scenes(self) -> SceneList:
-        """List every live scene and frame from the authoritative store."""
-        return self._queries.list_scenes()
+    def list_scenes(self, facts: InspectScope = HUB_ONLY) -> SceneList:
+        """List every live scene and frame; ``facts`` adds proxied visibility."""
+        return self._queries.list_scenes(facts)
 
     def list_clients(self) -> ClientList:
         """List the Hub's sessions and their scopes."""

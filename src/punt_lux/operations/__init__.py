@@ -26,6 +26,7 @@ from punt_lux.operations.models import (
     Unsubscribed,
     UpdateRequest,
 )
+from punt_lux.operations.models.display_frames import FrameState, FrameStates
 from punt_lux.operations.models.display_info import DisplayInfo
 from punt_lux.operations.models.display_probe import Pong, Screenshot
 from punt_lux.operations.models.display_write import FrameRaise, FrameStatePatch
@@ -49,7 +50,9 @@ __all__ = [
     "DisplayModeRequest",
     "DisplayModeState",
     "FrameRaise",
+    "FrameState",
     "FrameStatePatch",
+    "FrameStates",
     "HubPorts",
     "Identified",
     "InspectScope",

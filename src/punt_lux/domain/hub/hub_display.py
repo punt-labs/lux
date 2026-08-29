@@ -210,7 +210,7 @@ class HubDisplay:
     def frames(self) -> FrameLifecycle:
         """Return the frame authority — presentations, TTL expiry, and teardown.
 
-        Callers reach ``presentation_for``, ``remove_frame``, and ``expire_due``
+        Callers reach ``presentation_for``, ``forget``, and ``expire_due``
         through this sub-object, exposed like ``reader``.
         """
         return self._frame_lifecycle

@@ -1,6 +1,6 @@
 # pyright: reportUnknownMemberType=false, reportUnknownArgumentType=false
 # pyright: reportMissingModuleSource=false
-"""The strip along the bottom edge holding one pill per minimized frame.
+"""The strip along the bottom edge holding one pill per docked frame.
 
 ``imgui`` is typed ``Any``: imgui_bundle ships no type stubs. It is handed in
 rather than imported so the bar paints into the caller's frame.
@@ -29,12 +29,16 @@ _PILL_GAP = 4.0
 
 @final
 class DockBar:
-    """Lay minimized frames out as pills, and restore the one that was clicked.
+    """Lay docked frames out as pills, and restore the one that was clicked.
 
     The bar is drawn on ImGui's foreground draw list so it stays visible whatever
     the window stacking is. What each pill looks like and where its edges are is
     :class:`~punt_lux.display.dock_pill.DockPill`'s; what the strip holds and in
     what order is here.
+
+    A *closed* frame gets no pill. The pill is the dock's affordance, and leaving
+    closed out of it is what makes closing a stronger statement than docking:
+    the Windows menu is where a closed frame is asked for by name.
     """
 
     _imgui: Any  # the caller's imgui module; imgui_bundle ships no type stubs
@@ -54,14 +58,14 @@ class DockBar:
         window, which suppresses pill clicks: a frame overlapping the bar would
         otherwise restore a different frame out from under the click.
         """
-        minimized = [f for f in self._scenes.frames.values() if f.minimized]
-        if not minimized:
+        docked = self._scenes.docked_frames()
+        if not docked:
             return
         viewport = self._imgui.get_main_viewport()
         top = viewport.pos.y + viewport.size.y - DOCK_BAR_HEIGHT
         self._paint_chrome(left=viewport.pos.x, top=top, width=viewport.size.x)
         self._paint_pills(
-            minimized,
+            docked,
             ImVec2(viewport.pos.x + _PILL_PAD, top + _PILL_PAD),
             viewport.pos.x + viewport.size.x - _PILL_PAD,
             clickable=self._clickable(any_frame_hovered=any_frame_hovered),
@@ -99,7 +103,7 @@ class DockBar:
         )
 
     def _paint_pills(
-        self, minimized: list[Frame], anchor: ImVec2, max_x: float, *, clickable: bool
+        self, docked: list[Frame], anchor: ImVec2, max_x: float, *, clickable: bool
     ) -> None:
         """Lay pills out left to right, ellipsizing once they run out of room."""
         imgui = self._imgui
@@ -107,7 +111,7 @@ class DockBar:
         height = DOCK_BAR_HEIGHT - _PILL_PAD * 2.0
         pill_x = anchor.x
 
-        for frame in minimized:
+        for frame in docked:
             pill = DockPill.at(imgui, frame, ImVec2(pill_x, anchor.y), height)
             if pill.right > max_x:
                 self._paint_ellipsis(draw, ImVec2(pill_x, anchor.y), height)

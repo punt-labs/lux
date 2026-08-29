@@ -13,6 +13,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from punt_lux.display.menus import MenuBar, MenuModel, MenuSurface, WorldPanel
+from punt_lux.display.replica.frame_visibility import FrameVisibility
 from punt_lux.protocol import RemoteEventHandlerInvocation
 
 from .menu_doubles import (
@@ -477,7 +478,9 @@ class TestWorldPanelOpening:
 
     def test_a_click_over_the_dock_bar_leaves_the_panel_shut(self) -> None:
         manager = make_menu_replica(
-            get_frames=lambda: {"f1": make_frame("f1", minimized=True)}
+            get_frames=lambda: {
+                "f1": make_frame("f1", visibility=FrameVisibility.DOCKED)
+            }
         )
         imgui = FakeImGui()
         imgui.click_background(Vec2(400.0, 790.0))  # inside the dock bar's strip

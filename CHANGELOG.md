@@ -2,6 +2,63 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **A frame the user closes stays closed, and can be opened again.** Closing a
+  frame used to remove it outright, which broke the same rule in both
+  directions: `raise_frame` had nothing left to act on and answered
+  `raised: false`, and because the close also forgot the frame's scene ids, the
+  next background push read as a brand-new scene and reopened the window — a
+  track change putting back a board the user had shut. Closing is now a
+  *visibility* state like collapsing. The frame keeps its scenes, its widget
+  state (scroll, selection, half-typed text), its active tab and its place in
+  the cascade; it is simply not painted. Asking for it back by name brings back
+  exactly what was shut. (`lux-mxvy.8`, DES-088; fixes the lux side of vox's
+  `vox-640w` and `vox-7l2d`.)
+- **A scene push no longer moves a window the user placed.** Whether the scene
+  is new to its frame or the tenth repaint of one already there, a push writes
+  content only: it never restores a docked or closed frame, never takes focus,
+  and never pulls the selection off the tab being read. A frame arriving where
+  none existed is created on screen and does nothing else — it takes no focus,
+  opens no window, and disturbs no other frame.
+- **The tab strip stops stealing the selection.** A second scene arriving in a
+  frame joins the strip; the tab the user is reading stays selected. Only a
+  frame's *first* scene takes the tab, having no selection to take.
+- **Closing a frame no longer deletes its scenes on the Hub.** The Display used
+  to send a `frame_close` event that the Hub answered by removing the frame's
+  scenes, which the replicator then pushed back empty — so a closed frame was
+  thrown out one round trip later regardless of what the Display did. Where a
+  window sits is the Display's business, and the event is retired.
+
+### Added
+
+- **The Windows menu lists the frames you have closed**, one entry each, and
+  clicking one brings that frame back and to the front. Without it, closing
+  would be a one-way door for any client that owns no menu entry of its own.
+  `Expand All` now restores closed frames alongside docked ones. The dock bar
+  deliberately shows no pill for a closed frame — that is what makes closing a
+  stronger statement than collapsing.
+- **`list_frames`** — a new read on the display-control surface (MCP tool,
+  `GET /display/frames`) listing every frame the display holds with its
+  `visibility`: `on_screen`, `docked`, or `closed`. A closed frame is listed
+  like any other, which is the point — closing is a visibility and not an
+  erasure, so a caller can no longer tell a window the user shut from one that
+  never existed by its absence. It reads the running display rather than the
+  Hub's store, because where a window sits belongs to the user and is never
+  replicated back.
+
+### Changed
+
+- **`set_frame_state` refuses a frame the user closed**, in both directions:
+  undocking one would put back a window they shut with no gesture behind it,
+  and docking one would give it a pill in the bar they never asked for.
+  `raise_frame` is the way back, and the refusal says so. Docking and undocking
+  a frame that is up are unaffected.
+- **An element with no id — a separator — is no longer collected as one.**
+  It cannot be addressed, so it can be neither stale to the Hub nor the target
+  of a queued interaction, and carrying an empty string through either path only
+  put a name on the wire that named nothing.
+
 ## [0.31.1] - 2026-08-25
 
 ### Fixed
