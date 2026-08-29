@@ -251,7 +251,10 @@ class TestHandleFramedScene:
         assert frame.scene_order == ["s1"]
         assert mgr.scene_to_frame["s1"] == "f1"
         assert mgr.scene_to_owner["s1"] == 10
-        assert mgr.consume_focus("f1") is True  # a fresh framed scene takes focus
+        # N1: born on screen, and that is all. A push is a notification, not a
+        # window-raise, so nothing asks for focus.
+        assert frame.is_on_screen is True
+        assert mgr.consume_focus("f1") is False
 
     def test_second_scene_joins_frame(self) -> None:
         """A second scene with the same frame_id is added to the frame."""
@@ -266,6 +269,11 @@ class TestHandleFramedScene:
         assert set(frame.scenes.keys()) == {"s1", "s2"}
         assert frame.scene_order == ["s1", "s2"]
         assert frame.owner_fds == {10, 11}
+        # N2: it joins the strip; the visibility, the focus and the user's tab
+        # are all left where they were.
+        assert frame.is_on_screen is True
+        assert frame.active_tab == "s1"
+        assert mgr.consume_focus("f1") is False
 
 
 # -------------------------------------------------------------------
@@ -329,13 +337,15 @@ class TestDismissScene:
 
 
 # -------------------------------------------------------------------
-# 5. test_close_frame
+# 5. dispose_frame and close — one method that was two operations
 # -------------------------------------------------------------------
 
 
-class TestCloseFrame:
+class TestDisposeFrame:
+    """The content half: the client says its content is gone, so it goes."""
+
     def test_frame_and_scene_state_cleaned(self) -> None:
-        """Closing a frame removes the frame and all its scenes."""
+        """Disposing a frame removes the frame and all its scenes."""
         mgr, _ = _make_manager()
         s1 = _make_scene(scene_id="s1", frame_id="f1", frame_title="Frame")
         s2 = _make_scene(scene_id="s2", frame_id="f1")
@@ -343,7 +353,7 @@ class TestCloseFrame:
         mgr.handle_framed_scene(s1, owner_fd=10)
         mgr.handle_framed_scene(s2, owner_fd=10)
 
-        stale_ids = mgr.close_frame("f1")
+        stale_ids = mgr.dispose_frame("f1")
 
         assert "f1" not in mgr.frames
         assert "s1" not in mgr.scene_to_frame
@@ -355,21 +365,212 @@ class TestCloseFrame:
         # stale_ids should include element ids from the dismissed scenes
         assert len(stale_ids) > 0
 
-    def test_close_nonexistent_frame(self) -> None:
-        """Closing a frame that doesn't exist returns empty stale list."""
+    def test_dispose_nonexistent_frame(self) -> None:
+        """Disposing a frame that doesn't exist returns empty stale list."""
         mgr, _ = _make_manager()
-        stale_ids = mgr.close_frame("no-such-frame")
+        stale_ids = mgr.dispose_frame("no-such-frame")
         assert stale_ids == []
 
     def test_focus_frame_cleared(self) -> None:
-        """If the closed frame was focused, its focus request is cleared."""
+        """If the disposed frame was focused, its focus request is cleared."""
         mgr, _ = _make_manager()
-        s1 = _make_scene(scene_id="s1", frame_id="f1", frame_title="Frame")
-        mgr.handle_framed_scene(s1, owner_fd=10)
+        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), owner_fd=10)
+        mgr.request_focus("f1")
 
-        mgr.close_frame("f1")
+        mgr.dispose_frame("f1")
 
         assert mgr.consume_focus("f1") is False
+
+    def test_a_closed_frame_is_disposed_like_any_other(self) -> None:
+        """D7 — the husk rule ignores visibility, so a closed frame is not a leak.
+
+        Putting a window away is not a claim on its content: when the client
+        takes that content back, the frame goes with it whatever the user had
+        made of it, and the ids return to never-seen.
+        """
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), owner_fd=10)
+        mgr.close("f1")
+
+        mgr.dispose_frame("f1")
+
+        assert "f1" not in mgr.frames
+        assert "s1" not in mgr.scene_to_frame
+        assert mgr.widget_state_for("s1") is None
+
+    def test_an_empty_push_disposes_a_closed_frames_last_scene(self) -> None:
+        """D7 through the real entry point: the Hub blanks a scene the user shut."""
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), owner_fd=10)
+        mgr.close("f1")
+
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s1", frame_id="f1", elements=[]), owner_fd=10
+        )
+
+        assert "f1" not in mgr.frames
+        assert mgr.resolve_scene("s1") is None
+
+    def test_a_frame_id_reused_after_a_disposal_is_genuinely_new(self) -> None:
+        """The user's close applied to a frame that no longer exists."""
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), owner_fd=10)
+        mgr.close("f1")
+        mgr.dispose_frame("f1")
+
+        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), owner_fd=10)
+
+        assert mgr.frames["f1"].is_on_screen is True
+
+
+class TestClose:
+    """The visibility half: the user shut a window, which says nothing about content.
+
+    Every assertion here is one half of the split — what closing does *not* do is
+    as much the point as what it does. It used to do all of it under one name,
+    which is how a track change came to reopen a window the user had shut.
+    """
+
+    def test_a_closed_frame_stays_in_the_book_holding_its_scenes(self) -> None:
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), owner_fd=10)
+
+        mgr.close("f1")
+
+        assert mgr.frames["f1"].is_closed is True
+        assert mgr.resolve_scene("s1") is not None
+
+    def test_closing_a_docked_frame_closes_it(self) -> None:
+        """X2 — closed is reachable from the dock as well as from the screen."""
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), owner_fd=10)
+        mgr.minimize("f1")
+
+        mgr.close("f1")
+
+        assert mgr.frames["f1"].is_closed is True
+        assert mgr.docked_frames() == []
+
+    def test_the_scene_ids_are_not_forgotten(self) -> None:
+        """X3 — "known" survives a close. This is bug B's mechanism, not its symptom.
+
+        If closing still called ``forget_scene`` the id would return to *unseen*
+        and the next background push would read as an arrival.
+        """
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), owner_fd=10)
+
+        mgr.close("f1")
+
+        assert mgr.scene_to_frame["s1"] == "f1"
+        assert mgr.scene_to_owner["s1"] == 10
+
+    def test_widget_state_survives_a_close(self) -> None:
+        """X4 — scroll, selection and half-typed text survive a close.
+
+        They survive a minimize today for exactly the same reason: the user put
+        the window away, they did not throw its contents out.
+        """
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), owner_fd=10)
+        ws = mgr.widget_state_for("s1")
+        assert ws is not None
+        ws.set("input_x", "half-typed")
+        ws.set("__tbl_sel_t1", 3)
+
+        mgr.close("f1")
+
+        assert mgr.widget_state_for("s1") is ws
+        assert ws.get("input_x") == "half-typed"
+        assert ws.get("__tbl_sel_t1") == 3
+
+    def test_closing_notifies_no_stale_element_ids(self) -> None:
+        """X5 — nothing was replaced, so nothing is stale to anyone but this Display."""
+        mgr, stale_calls = _make_manager()
+        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), owner_fd=10)
+        stale_calls.clear()
+
+        mgr.close("f1")
+
+        assert stale_calls == []
+
+    def test_closing_returns_the_element_ids_for_the_caller_to_drain(self) -> None:
+        """X6's half of the contract: a shut window's button must not fire later.
+
+        The ids come back unfiltered — the elements *do* survive, which is why
+        the survivor-aware stale path cannot be what drains them.
+        """
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), owner_fd=10)
+
+        assert mgr.close("f1") == ["b1", "t1"]
+
+    def test_closing_clears_a_focus_request_that_frame_held(self) -> None:
+        """X7 — a frame that is not painted cannot take focus."""
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), owner_fd=10)
+        mgr.request_focus("f1")
+
+        mgr.close("f1")
+
+        assert mgr.consume_focus("f1") is False
+
+    def test_closing_a_frame_that_is_not_up_is_a_noop(self) -> None:
+        """X9 — an answer, not an error."""
+        mgr, _ = _make_manager()
+        assert mgr.close("no-such-frame") == []
+
+    def test_closing_leaves_the_active_tab_and_cascade_index_alone(self) -> None:
+        """Nothing about a closed frame is destroyed; it is simply not painted."""
+        mgr, _ = _make_manager()
+        for sid in ("s1", "s2"):
+            mgr.handle_framed_scene(_make_scene(scene_id=sid, frame_id="f1"), 10)
+        frame = mgr.frames["f1"]
+        frame.active_tab = "s2"
+        cascade_index = frame.cascade_index
+
+        mgr.close("f1")
+
+        assert frame.active_tab == "s2"
+        assert frame.cascade_index == cascade_index
+
+
+class TestActiveSceneId:
+    """The display's single 'current' scene is one it is actually showing."""
+
+    def test_it_is_the_first_painted_frames_tab(self) -> None:
+        mgr, _ = _make_manager()
+        for fid, sid in (("f1", "s1"), ("f2", "s2")):
+            mgr.handle_framed_scene(_make_scene(scene_id=sid, frame_id=fid), 10)
+
+        assert mgr.active_scene_id == "s1"
+
+    def test_it_skips_a_closed_frame(self) -> None:
+        """V8 — a frame the user shut is not what the display is showing."""
+        mgr, _ = _make_manager()
+        for fid, sid in (("f1", "s1"), ("f2", "s2")):
+            mgr.handle_framed_scene(_make_scene(scene_id=sid, frame_id=fid), 10)
+
+        mgr.close("f1")
+
+        assert mgr.active_scene_id == "s2"
+
+    def test_it_skips_a_docked_frame(self) -> None:
+        mgr, _ = _make_manager()
+        for fid, sid in (("f1", "s1"), ("f2", "s2")):
+            mgr.handle_framed_scene(_make_scene(scene_id=sid, frame_id=fid), 10)
+
+        mgr.minimize("f1")
+
+        assert mgr.active_scene_id == "s2"
+
+    def test_it_is_none_when_nothing_is_painted(self) -> None:
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), 10)
+
+        mgr.close("f1")
+
+        assert mgr.active_scene_id is None
 
 
 # -------------------------------------------------------------------
@@ -397,38 +598,112 @@ class TestUpsertSceneDedup:
         assert "f1" not in mgr.frames
 
 
-class TestARepushLeavesThePresentationAlone:
-    """The user owns which frame is up and which tab is showing, not the agent.
+class TestAPushNeverWritesVisibility:
+    """A content event never writes visibility — the whole of DES-065 R8.
 
-    A brand-new scene announces itself: it raises its frame and asks for focus.
-    Every push after that repaints in place, so a poller refreshing its board
-    cannot pull a minimized frame back up, steal focus from the window the user
-    is working in, or move them off the tab they chose.
+    The user owns where a frame is and which tab is showing. A push is a
+    notification: whether the scene is brand new to the frame or the tenth
+    repaint of one already there, it may not pull a docked frame back up, reopen
+    a window the user shut, take focus from where they are working, or move them
+    off the tab they chose.
+
+    The cross product of *is the scene new* against *what the user made of the
+    frame* is written out rather than sampled, because the uniformity of the
+    answer --- nothing changes, in every cell --- is the rule itself.
     """
 
-    def test_a_replace_leaves_a_minimized_frame_minimized(self) -> None:
+    def test_a_replace_leaves_a_docked_frame_docked(self) -> None:
+        """R2."""
         mgr, _ = _make_manager()
         mgr.handle_framed_scene(_make_scene(frame_id="f1"), owner_fd=10)
         mgr.minimize("f1")
-        mgr.consume_focus("f1")  # the new scene's focus request, already served
 
         mgr.handle_framed_scene(_make_scene(frame_id="f1"), owner_fd=10)
 
-        assert mgr.frames["f1"].minimized is True
+        assert mgr.frames["f1"].is_docked is True
         assert mgr.consume_focus("f1") is False
 
+    def test_a_replace_leaves_a_closed_frame_closed(self) -> None:
+        """R3 — bug B's partition, in the shape voxd meets it on a track change."""
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(_make_scene(frame_id="f1"), owner_fd=10)
+        mgr.close("f1")
+
+        mgr.handle_framed_scene(_make_scene(frame_id="f1"), owner_fd=10)
+
+        assert mgr.frames["f1"].is_closed is True
+        assert mgr.consume_focus("f1") is False
+
+    def test_a_push_after_a_close_is_a_repeat_not_an_arrival(self) -> None:
+        """R5 — bug B's mechanism, and the one assertion that cannot pass by accident.
+
+        The close no longer forgets the scene, so the same id pushed again is a
+        repaint of something known rather than an arrival. If ``close`` still
+        called ``forget_scene``, this push would take the ``is_new`` branch and
+        the frame would come back on screen.
+        """
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), owner_fd=10)
+        frame = mgr.frames["f1"]
+        mgr.close("f1")
+
+        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), owner_fd=10)
+
+        assert frame.is_closed is True
+        assert frame.scene_order == ["s1"], "the id was re-added, so it read as new"
+        assert mgr.consume_focus("f1") is False
+
+    def test_a_new_scene_leaves_a_docked_frame_docked(self) -> None:
+        """N3 — the partition that used to assert the opposite by name."""
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), 10)
+        mgr.minimize("f1")
+
+        mgr.handle_framed_scene(_make_scene(scene_id="s2", frame_id="f1"), 10)
+
+        assert mgr.frames["f1"].is_docked is True
+        assert mgr.consume_focus("f1") is False
+        assert mgr.frames["f1"].active_tab == "s1"
+
+    def test_a_new_scene_leaves_a_closed_frame_closed(self) -> None:
+        """N4 — a second board arriving does not reopen the window the user shut."""
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), 10)
+        mgr.close("f1")
+
+        mgr.handle_framed_scene(_make_scene(scene_id="s2", frame_id="f1"), 10)
+
+        assert mgr.frames["f1"].is_closed is True
+        assert mgr.consume_focus("f1") is False
+        assert "s2" in mgr.frames["f1"].scenes, "the scene still arrived, unseen"
+
     def test_a_replace_leaves_the_foreground_frame_focused(self) -> None:
+        """F3 — no content event ever leaves a focus request, whoever held it."""
         mgr, _ = _make_manager()
         mgr.handle_framed_scene(_make_scene(scene_id="board", frame_id="f1"), 10)
         mgr.handle_framed_scene(_make_scene(scene_id="notes", frame_id="f2"), 10)
+        mgr.raise_frame("f2")  # the user put f2 in front
 
         mgr.handle_framed_scene(_make_scene(scene_id="board", frame_id="f1"), 10)
 
-        # f2 was the last frame to earn focus and a re-push of f1 cannot take it.
         assert mgr.consume_focus("f1") is False
         assert mgr.consume_focus("f2") is True
 
+    def test_no_push_ever_leaves_a_focus_request(self) -> None:
+        """F3 over the whole cross product: new frame, new scene, and repeat alike."""
+        mgr, _ = _make_manager()
+
+        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), 10)
+        assert mgr.consume_focus("f1") is False
+
+        mgr.handle_framed_scene(_make_scene(scene_id="s2", frame_id="f1"), 10)
+        assert mgr.consume_focus("f1") is False
+
+        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), 10)
+        assert mgr.consume_focus("f1") is False
+
     def test_a_replace_leaves_the_tab_the_user_picked(self) -> None:
+        """R4."""
         mgr, _ = _make_manager()
         for sid in ("s1", "s2"):
             mgr.handle_framed_scene(_make_scene(scene_id=sid, frame_id="f1"), 10)
@@ -439,17 +714,54 @@ class TestARepushLeavesThePresentationAlone:
 
         assert frame.active_tab == "s1"
 
-    def test_a_new_scene_still_raises_its_frame_and_takes_focus(self) -> None:
+    def test_a_new_scene_does_not_take_the_tab_from_the_user(self) -> None:
+        """N2 / F2 — a selection is user-owned, in the same category as visibility.
+
+        A second scene arriving in a frame the user is reading joins the strip;
+        it does not pull them off what they were looking at.
+        """
         mgr, _ = _make_manager()
         mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), 10)
-        mgr.minimize("f1")
-        mgr.consume_focus("f1")
+        frame = mgr.frames["f1"]
 
         mgr.handle_framed_scene(_make_scene(scene_id="s2", frame_id="f1"), 10)
 
-        assert mgr.frames["f1"].minimized is False
-        assert mgr.consume_focus("f1") is True
-        assert mgr.frames["f1"].active_tab == "s2"
+        assert frame.active_tab == "s1"
+        assert frame.scene_order == ["s1", "s2"]
+
+    def test_a_frames_first_scene_does_take_the_tab(self) -> None:
+        """N5 — the one legitimate tab write from content: there was no selection."""
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), 10)
+
+        assert mgr.frames["f1"].active_tab == "s1"
+
+    def test_a_scene_moving_frames_writes_neither_frames_visibility(self) -> None:
+        """R6 — a content-to-content relocation is still a content event."""
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(_make_scene(scene_id="keep", frame_id="f1"), 10)
+        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), 10)
+        mgr.handle_framed_scene(_make_scene(scene_id="other", frame_id="f2"), 10)
+        mgr.minimize("f1")
+        mgr.close("f2")
+
+        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f2"), 10)
+
+        assert mgr.frames["f1"].is_docked is True
+        assert mgr.frames["f2"].is_closed is True
+        assert mgr.consume_focus("f2") is False
+
+    def test_a_raise_survives_the_next_background_push(self) -> None:
+        """A6 — the push does not undo the gesture, in either direction."""
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), 10)
+        mgr.close("f1")
+        mgr.raise_frame("f1")
+        mgr.consume_focus("f1")
+
+        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), 10)
+
+        assert mgr.frames["f1"].is_on_screen is True
 
 
 # -------------------------------------------------------------------

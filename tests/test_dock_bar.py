@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, Self, cast, final
 
 from punt_lux.display.dock_bar import DOCK_BAR_HEIGHT, DockBar
 from punt_lux.display.replica.frame import Frame
+from punt_lux.display.replica.frame_visibility import FrameVisibility
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -165,18 +166,26 @@ class _FakeScenes:
         self.focused = []
         return self
 
-    def request_focus(self, frame_id: str) -> None:
+    def docked_frames(self) -> list[Frame]:
+        return [f for f in self.frames.values() if f.is_docked]
+
+    def raise_frame(self, frame_id: str) -> bool:
+        frame = self.frames.get(frame_id)
+        if frame is None:
+            return False
+        frame.restore()
         self.focused.append(frame_id)
+        return True
 
 
-def _frame(frame_id: str, title: str, *, minimized: bool) -> Frame:
+def _frame(frame_id: str, title: str, *, visibility: FrameVisibility) -> Frame:
     return Frame(
         frame_id=frame_id,
         title=title,
         owner_fds=set(),
         scenes={},
         scene_order=[],
-        minimized=minimized,
+        visibility=visibility,
     )
 
 
@@ -184,20 +193,70 @@ def _bar(scenes: _FakeScenes, imgui: _FakeImGui) -> DockBar:
     return DockBar(imgui, cast("SceneReplica", scenes))
 
 
-def test_nothing_is_painted_when_no_frame_is_minimized() -> None:
+def test_nothing_is_painted_when_no_frame_is_docked() -> None:
     """An empty bar is no bar — it must not eat the bottom of the viewport."""
     imgui = _FakeImGui()
-    scenes = _FakeScenes({"f1": _frame("f1", "Board", minimized=False)})
+    scenes = _FakeScenes(
+        {"f1": _frame("f1", "Board", visibility=FrameVisibility.ON_SCREEN)}
+    )
     _bar(scenes, imgui).render(any_frame_hovered=False)
 
     assert imgui.draw.rects == []
     assert imgui.draw.texts == []
 
 
+def test_a_closed_frame_gets_no_pill() -> None:
+    """Closing is a stronger statement than docking, and the bar is the difference.
+
+    A pill is the dock's affordance. Giving one to a frame the user shut would
+    make close and collapse the same gesture with two buttons; the Windows menu
+    is where a closed frame is asked for by name (partition V3).
+    """
+    imgui = _FakeImGui()
+    scenes = _FakeScenes(
+        {"f1": _frame("f1", "Board", visibility=FrameVisibility.CLOSED)}
+    )
+    _bar(scenes, imgui).render(any_frame_hovered=False)
+
+    assert imgui.draw.rects == []
+    assert imgui.draw.texts == []
+
+
+def test_a_workspace_of_only_closed_frames_shows_no_bar() -> None:
+    """Nothing is docked, so the strip must not eat the bottom of the viewport."""
+    imgui = _FakeImGui()
+    scenes = _FakeScenes(
+        {
+            "f1": _frame("f1", "First", visibility=FrameVisibility.CLOSED),
+            "f2": _frame("f2", "Second", visibility=FrameVisibility.CLOSED),
+        }
+    )
+    _bar(scenes, imgui).render(any_frame_hovered=False)
+
+    assert imgui.draw.rects == []
+
+
+def test_the_bar_holds_the_docked_frames_and_leaves_the_closed_ones_out() -> None:
+    """A mixed workspace paints one pill: the docked frame, not the closed one."""
+    imgui = _FakeImGui()
+    scenes = _FakeScenes(
+        {
+            "f1": _frame("f1", "Docked", visibility=FrameVisibility.DOCKED),
+            "f2": _frame("f2", "Closed", visibility=FrameVisibility.CLOSED),
+            "f3": _frame("f3", "Up", visibility=FrameVisibility.ON_SCREEN),
+        }
+    )
+    _bar(scenes, imgui).render(any_frame_hovered=False)
+
+    assert [text for _, _, text in imgui.draw.texts] == ["Docked"]
+
+
 def test_the_bar_spans_the_viewport_along_its_bottom_edge() -> None:
     """The chrome sits flush to the bottom and runs the full width."""
     imgui = _FakeImGui()
-    scenes = _FakeScenes({"f1": _frame("f1", "Board", minimized=True)})
+    scenes = _FakeScenes(
+        {"f1": _frame("f1", "Board", visibility=FrameVisibility.DOCKED)}
+    )
     _bar(scenes, imgui).render(any_frame_hovered=False)
 
     chrome = imgui.draw.rects[0]
@@ -213,8 +272,8 @@ def test_each_pill_sits_inside_the_bar_and_pills_do_not_overlap() -> None:
     imgui = _FakeImGui()
     scenes = _FakeScenes(
         {
-            "f1": _frame("f1", "First", minimized=True),
-            "f2": _frame("f2", "Second", minimized=True),
+            "f1": _frame("f1", "First", visibility=FrameVisibility.DOCKED),
+            "f2": _frame("f2", "Second", visibility=FrameVisibility.DOCKED),
         }
     )
     _bar(scenes, imgui).render(any_frame_hovered=False)
@@ -232,11 +291,11 @@ def test_clicking_a_pill_restores_its_frame_and_asks_for_focus() -> None:
     """The pill under the mouse is the frame that comes back."""
     on_pill = _Vec(20.0, _VIEWPORT_H - DOCK_BAR_HEIGHT / 2)
     imgui = _FakeImGui(mouse=on_pill, clicked=True)
-    frame = _frame("f1", "Board", minimized=True)
+    frame = _frame("f1", "Board", visibility=FrameVisibility.DOCKED)
     scenes = _FakeScenes({"f1": frame})
     _bar(scenes, imgui).render(any_frame_hovered=False)
 
-    assert not frame.minimized
+    assert frame.is_on_screen
     assert scenes.focused == ["f1"]
 
 
@@ -248,11 +307,11 @@ def test_a_click_over_a_visible_frame_leaves_the_pill_alone() -> None:
     """
     on_pill = _Vec(20.0, _VIEWPORT_H - DOCK_BAR_HEIGHT / 2)
     imgui = _FakeImGui(mouse=on_pill, clicked=True)
-    frame = _frame("f1", "Board", minimized=True)
+    frame = _frame("f1", "Board", visibility=FrameVisibility.DOCKED)
     scenes = _FakeScenes({"f1": frame})
     _bar(scenes, imgui).render(any_frame_hovered=True)
 
-    assert frame.minimized
+    assert frame.is_docked
     assert scenes.focused == []
 
 
@@ -260,11 +319,11 @@ def test_a_click_on_an_imgui_widget_leaves_the_pill_alone() -> None:
     """An ImGui item under the cursor owns the click before the bar does."""
     on_pill = _Vec(20.0, _VIEWPORT_H - DOCK_BAR_HEIGHT / 2)
     imgui = _FakeImGui(mouse=on_pill, clicked=True, item_hovered=True)
-    frame = _frame("f1", "Board", minimized=True)
+    frame = _frame("f1", "Board", visibility=FrameVisibility.DOCKED)
     scenes = _FakeScenes({"f1": frame})
     _bar(scenes, imgui).render(any_frame_hovered=False)
 
-    assert frame.minimized
+    assert frame.is_docked
     assert scenes.focused == []
 
 
@@ -273,7 +332,10 @@ def test_pills_that_run_out_of_room_end_in_an_ellipsis() -> None:
     imgui = _FakeImGui()
     wide = "W" * 40
     scenes = _FakeScenes(
-        {f"f{i}": _frame(f"f{i}", f"{wide}{i}", minimized=True) for i in range(8)}
+        {
+            f"f{i}": _frame(f"f{i}", f"{wide}{i}", visibility=FrameVisibility.DOCKED)
+            for i in range(8)
+        }
     )
     _bar(scenes, imgui).render(any_frame_hovered=False)
 

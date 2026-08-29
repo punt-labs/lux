@@ -45,20 +45,17 @@ class HubReconciliation:
 
     _socket_listener: SocketListener
     _scenes: SceneReplica
-    _close_frame: Callable[[str], None]
     _record_error: _RecordError
 
     def __new__(
         cls,
         socket_listener: SocketListener,
         scenes: SceneReplica,
-        close_frame: Callable[[str], None],
         record_error: _RecordError,
     ) -> Self:
         self = super().__new__(cls)
         self._socket_listener = socket_listener
         self._scenes = scenes
-        self._close_frame = close_frame
         self._record_error = record_error
         return self
 
@@ -92,7 +89,7 @@ class HubReconciliation:
         logger.info("Client fd=%d identified as %r (kind=%s)", fd, name, msg.kind)
 
     def handle_manifest(self, sock: socket.socket, msg: HubManifestMessage) -> None:
-        """Purge every scene the manifest disowns, closing any frame it empties.
+        """Purge every scene the manifest disowns, disposing any frame it empties.
 
         Only a ``kind="hub"`` fd may declare a manifest — a ``"test"`` fd or one
         that never identified is rejected and nothing is purged, since the whole
@@ -102,6 +99,10 @@ class HubReconciliation:
         A scene qualifies for purge when it is neither owned by the identifying
         fd nor named in the manifest — orphaned scenes from a prior Hub die are
         swept by the same rule, since their owner is never this fd.
+
+        A purge is a content event: the Hub is saying the scene is gone, so an
+        emptied frame is *disposed*, whatever visibility the user had left it in.
+        A frame with no content is a husk, and a closed one is no exception.
         """
         try:
             fd = sock.fileno()
@@ -119,7 +120,7 @@ class HubReconciliation:
             if frame is None:
                 continue
             if self._scenes.dismiss_framed_scene(frame, scene_id):
-                self._close_frame(frame_id)
+                self._scenes.dispose_frame(frame_id)
 
     def reject_scene_if_test_kind(self, sock: socket.socket, fd: int) -> bool:
         """Reject a ``SceneMessage`` from a ``kind="test"`` fd; close it.

@@ -441,13 +441,23 @@ def test_hub_interaction_dispatch_unknown_event_kind_returns_silently(
     assert fired == []
 
 
-def test_hub_interaction_dispatch_frame_close_removes_the_frames_scenes(
+def test_hub_interaction_dispatch_never_deletes_a_frames_scenes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A ``frame_close`` action removes the frame's scenes and marks them dirty.
+    """X8 — the Hub has no frame-close handler, because closing never reaches it.
 
-    The user closed the frame on the display; the Hub must remove the scenes that
-    frame held so both tiers agree, then mark them dirty for the replicator.
+    This is F4 of DES-065 R8, and it is the half of the fix that is invisible
+    from the Display alone. The Display used to send a ``frame_close`` when the
+    user clicked a frame's ✕; the Hub answered by removing the scenes that frame
+    held and marking them dirty, and the replicator pushed them back **empty** —
+    which is the dispose path. So even a Display that kept its closed frame
+    perfectly would have had it thrown out one round trip later, by the Hub, on
+    the user's own close.
+
+    Where a window sits is the Display's business. The Hub is told nothing, and
+    an action it does not recognise falls through to the element fire, where it
+    resolves to nothing and is dropped. ``FrameLifecycle.remove_frame`` stays —
+    the TTL sweep still uses it — but no interaction reaches it.
     """
     import punt_lux.domain.hub as hub_module
 
@@ -464,7 +474,6 @@ def test_hub_interaction_dispatch_frame_close_removes_the_frames_scenes(
             parent_id=None,
         ),
     )
-    # Arm a TTL too, so the close also proves remove_frame disarms the deadline.
     isolated_display.frames.present(
         scene_id, ScenePresentation(frame_id=frame_id), ttl_seconds=60.0
     )
@@ -484,9 +493,14 @@ def test_hub_interaction_dispatch_frame_close_removes_the_frames_scenes(
         )
     )
 
-    assert isolated_display.scene_roots(scene_id) == []
-    mock_replicator.mark_dirty.assert_called_once_with(scene_id)
-    assert isolated_display.frames.seconds_until_next() is None  # TTL disarmed
+    assert isolated_display.scene_roots(scene_id) != []  # the content is untouched
+    mock_replicator.mark_dirty.assert_not_called()
+    assert isolated_display.frames.seconds_until_next() is not None  # TTL still armed
+
+
+def test_frame_close_is_not_a_branch_of_the_dispatch() -> None:
+    """Retired, not aliased: no handler for the action remains to be reached."""
+    assert not hasattr(HubInteractionDispatch, "_close_frame")
 
 
 def test_hub_interaction_dispatch_value_changed_rejects_non_scalar(

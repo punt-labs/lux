@@ -6,9 +6,13 @@ built here rather than in the manager so that holding replicated state and
 offering the display's own commands are two objects with one job each: this one
 knows nothing about the Hub, and the manager knows nothing about opacity presets.
 
+The Windows menu is :class:`~punt_lux.display.menus.windows_menu.WindowsMenu`'s,
+composed here alongside the other two. Where a window sits has nothing to do
+with the theme it is painted in, so the two are not one object.
+
 Every item reads live state at the moment the menu is composed, so a preset shows
-as in effect, and a frame command goes dim, according to how the display is right
-now rather than how it was when the manager was built.
+as in effect according to how the display is right now rather than how it was
+when the manager was built.
 
 ``imgui`` is typed ``Any``: imgui_bundle ships no type stubs.
 """
@@ -20,6 +24,7 @@ from typing import TYPE_CHECKING, Any, Self, final
 from punt_lux import __version__
 from punt_lux.display.menus.entries import MenuItem, MenuSeparator
 from punt_lux.display.menus.model import Submenu
+from punt_lux.display.menus.windows_menu import WindowsMenu
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -53,23 +58,19 @@ class OwnMenus:
     _get_decorated: Callable[[], bool]
     _get_opacity: Callable[[], float]
     _get_font_scale: Callable[[], float]
-    _get_frames: Callable[[], Mapping[str, Frame]]
-    _on_clear_all: Callable[[], None]
-    _on_fit_all: Callable[[], None]
+    _windows: WindowsMenu
     _chrome: WindowChromeCommands
     __slots__ = (
         "_chrome",
         "_get_decorated",
         "_get_font_scale",
-        "_get_frames",
         "_get_opacity",
         "_get_themes",
-        "_on_clear_all",
         "_on_decorated_toggled",
-        "_on_fit_all",
         "_on_font_scale_changed",
         "_on_opacity_changed",
         "_on_theme_selected",
+        "_windows",
     )
 
     def __new__(
@@ -86,6 +87,7 @@ class OwnMenus:
         get_frames: Callable[[], Mapping[str, Frame]],
         on_clear_all: Callable[[], None],
         on_fit_all: Callable[[], None],
+        on_raise_frame: Callable[[str], None],
         chrome: WindowChromeCommands,
     ) -> Self:
         self = super().__new__(cls)
@@ -97,15 +99,19 @@ class OwnMenus:
         self._get_decorated = get_decorated
         self._get_opacity = get_opacity
         self._get_font_scale = get_font_scale
-        self._get_frames = get_frames
-        self._on_clear_all = on_clear_all
-        self._on_fit_all = on_fit_all
+        self._windows = WindowsMenu(
+            get_frames=get_frames,
+            on_clear_all=on_clear_all,
+            on_fit_all=on_fit_all,
+            on_raise_frame=on_raise_frame,
+            chrome=chrome,
+        )
         self._chrome = chrome
         return self
 
     def sections(self) -> list[Submenu]:
         """Return the display's own menus, in the order they appear on the bar."""
-        return [self._lux_menu(), self._windows_menu(), self._help_menu()]
+        return [self._lux_menu(), self._windows.section(), self._help_menu()]
 
     def _lux_menu(self) -> Submenu:
         """Build the Lux menu: settings, font size, quit."""
@@ -167,31 +173,6 @@ class OwnMenus:
             f"{percent}%", lambda: self._on_opacity_changed(value), checked=in_effect
         )
 
-    def _windows_menu(self) -> Submenu:
-        """Build the Windows menu: frame layout, then window chrome."""
-        frames = self._get_frames().values()
-        expanded = any(not frame.minimized for frame in frames)
-        minimized = any(frame.minimized for frame in frames)
-        return Submenu(
-            "Windows",
-            [
-                MenuItem(
-                    "Collapse All",
-                    lambda: self._minimize_all(minimized=True),
-                    enabled=expanded,
-                ),
-                MenuItem(
-                    "Expand All",
-                    lambda: self._minimize_all(minimized=False),
-                    enabled=minimized,
-                ),
-                MenuItem("Fit All", self._on_fit_all, enabled=bool(frames)),
-                MenuSeparator(),
-                MenuItem("Clear All", self._on_clear_all),
-                MenuItem("Reset Size", self._chrome.reset_size),
-            ],
-        )
-
     def _help_menu(self) -> Submenu:
         """Build the Help menu: the running version, as a line to read."""
         return Submenu("Help", [MenuItem.caption(f"Lux v{__version__}")])
@@ -204,8 +185,3 @@ class OwnMenus:
     def _toggle_top_most(self) -> None:
         """Flip whether the window floats above other applications."""
         self._chrome.set_top_most(on=not self._chrome.top_most())
-
-    def _minimize_all(self, *, minimized: bool) -> None:
-        """Minimize every frame, or restore every frame."""
-        for frame in self._get_frames().values():
-            frame.minimized = minimized

@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, Self, final
 from punt_lux.display.menus.wire import WireMenu
 from punt_lux.display.menus.wire_field import WireField
 from punt_lux.display.replica.frame import Frame
+from punt_lux.display.replica.frame_visibility import FrameVisibility
 from punt_lux.display.replica.menu_replica import MenuReplica
 
 if TYPE_CHECKING:
@@ -364,6 +365,7 @@ def make_menu_replica(**overrides: Any) -> MenuReplica:
         "get_frames": dict,
         "on_clear_all": ignore,
         "on_fit_all": ignore,
+        "on_raise_frame": ignore,
         "chrome": FakeChrome(),
     }
     defaults.update(overrides)
@@ -385,13 +387,18 @@ def checked_menu(payload: dict[str, Any]) -> WireMenu:
     return WireMenu.of_payload(payload, field=WireField("test"))
 
 
-def make_frame(frame_id: str, *, minimized: bool = False) -> Frame:
-    """Return an empty frame, minimized or not."""
+def make_frame(
+    frame_id: str,
+    *,
+    visibility: FrameVisibility = FrameVisibility.ON_SCREEN,
+    title: str | None = None,
+) -> Frame:
+    """Return an empty frame in the visibility named, on screen by default."""
     return Frame(
         frame_id=frame_id,
-        title=frame_id,
+        title=title if title is not None else frame_id,
         owner_fds=set(),
         scenes={},
         scene_order=[],
-        minimized=minimized,
+        visibility=visibility,
     )

@@ -6,18 +6,31 @@ from typing import Any
 
 from punt_lux.display.query_dispatcher import QueryRouter
 from punt_lux.display.replica import SceneReplica
-from punt_lux.protocol import QueryResponse
+from punt_lux.protocol import QueryResponse, SceneMessage, TextElement
 
 
-def _make_dispatcher() -> QueryRouter:
+def _make_dispatcher(scenes: SceneReplica | None = None) -> QueryRouter:
     """Build a QueryRouter with stub callables for testing."""
-    sm = SceneReplica(on_scene_replaced=lambda _ids: None)
+    sm = (
+        scenes
+        if scenes is not None
+        else SceneReplica(on_scene_replaced=lambda _i: None)
+    )
     return QueryRouter(
         scenes=sm,
         get_client_names=dict,
         get_client_connect_times=dict,
         get_agent_menus=list,
         get_callback_menus=list,
+    )
+
+
+def _scene(scene_id: str, frame_id: str) -> SceneMessage:
+    """A non-empty framed push — an empty one is a removal, not a scene."""
+    return SceneMessage(
+        id=scene_id,
+        elements=[TextElement(id=f"{scene_id}-t", content="x")],
+        frame_id=frame_id,
     )
 
 
@@ -95,3 +108,52 @@ class TestListRecentEventsWithCount:
         # Should return the last 5 events
         assert events[0]["index"] == 15
         assert events[-1]["index"] == 19
+
+
+class TestListScenesReportsVisibility:
+    """V7 — the payload says where each frame is, so the fix is observable.
+
+    Closing a frame stopped removing it, which means an observer outside the
+    Display can no longer tell "the user shut it" from "it is up" by the frame's
+    presence alone. The visibility is the distinction, so it rides the payload.
+    """
+
+    @staticmethod
+    def _frames(qd: QueryRouter) -> dict[str, str]:
+        """Return frame id → the visibility the payload reports for it."""
+        result = qd.handle_query("list_scenes", None).result
+        return {f["frame_id"]: f["visibility"] for f in result["frames"]}
+
+    def test_each_visibility_is_reported_by_name(self) -> None:
+        scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
+        qd = _make_dispatcher(scenes)
+        for fid, sid in (("f1", "s1"), ("f2", "s2"), ("f3", "s3")):
+            scenes.handle_framed_scene(_scene(sid, fid), owner_fd=10)
+        scenes.minimize("f2")
+        scenes.close("f3")
+
+        assert self._frames(qd) == {
+            "f1": "on_screen",
+            "f2": "docked",
+            "f3": "closed",
+        }
+
+    def test_a_closed_frame_still_reports_the_scenes_it_holds(self) -> None:
+        """Closed is not gone: the content behind the shut window is still listed."""
+        scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
+        qd = _make_dispatcher(scenes)
+        scenes.handle_framed_scene(_scene("s1", "f1"), owner_fd=10)
+
+        scenes.close("f1")
+
+        frames = qd.handle_query("list_scenes", None).result["frames"]
+        assert frames == [
+            {
+                "frame_id": "f1",
+                "title": "f1",
+                "scene_count": 1,
+                "scene_ids": ["s1"],
+                "layout": "tab",
+                "visibility": "closed",
+            }
+        ]

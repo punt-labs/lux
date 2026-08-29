@@ -120,7 +120,7 @@ class WorldPanel:
 
         The bar is painted after this test, so its region is rejected by hand.
         """
-        if not any(frame.minimized for frame in self._get_frames().values()):
+        if not any(frame.is_docked for frame in self._get_frames().values()):
             return False
         viewport = imgui.get_main_viewport()
         bar_top = viewport.pos.y + viewport.size.y - DOCK_BAR_HEIGHT

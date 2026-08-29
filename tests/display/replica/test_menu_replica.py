@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from punt_lux.display.menus import MenuModel
+from punt_lux.display.replica.frame_visibility import FrameVisibility
 from tests.menu_doubles import (
     SEPARATOR,
     FakeChrome,
@@ -203,23 +204,50 @@ class TestTheDisplaysOwnItems:
 
 
 class TestFrameItems:
-    """Collapse and expand act on every frame, and go dim when they cannot."""
+    """Collapse and expand act on every frame, and go dim when they cannot.
 
-    def test_collapse_all_minimizes_every_frame(self) -> None:
+    The three enablement states read the three visibilities (partition V5):
+    Collapse All wants something on screen to send away, Expand All wants
+    something away to bring back — docked or closed alike, since "everything
+    back on screen" is the whole meaning of the command.
+    """
+
+    def test_collapse_all_docks_every_frame_that_is_on_screen(self) -> None:
         frames = {"a": make_frame("a"), "b": make_frame("b")}
         manager = _manager(get_frames=lambda: frames)
 
         manager.render_bar(FakeImGui(("Collapse All",)))
 
-        assert all(frame.minimized for frame in frames.values())
+        assert all(frame.is_docked for frame in frames.values())
 
-    def test_expand_all_restores_every_frame(self) -> None:
-        frames = {"a": make_frame("a", minimized=True)}
+    def test_collapse_all_leaves_a_closed_frame_closed(self) -> None:
+        """Collapsing sends what is on screen to the dock; a closed frame is neither."""
+        frames = {"a": make_frame("a", visibility=FrameVisibility.CLOSED)}
+        manager = _manager(get_frames=lambda: frames)
+
+        manager.render_bar(FakeImGui(("Collapse All",)))
+
+        assert frames["a"].is_closed is True
+
+    def test_expand_all_restores_every_docked_frame(self) -> None:
+        frames = {"a": make_frame("a", visibility=FrameVisibility.DOCKED)}
         manager = _manager(get_frames=lambda: frames)
 
         manager.render_bar(FakeImGui(("Expand All",)))
 
-        assert not frames["a"].minimized
+        assert frames["a"].is_on_screen is True
+
+    def test_expand_all_restores_closed_frames_too(self) -> None:
+        """A8 — without this, the close button is a one-way door for bulk restore."""
+        frames = {
+            "a": make_frame("a", visibility=FrameVisibility.DOCKED),
+            "b": make_frame("b", visibility=FrameVisibility.CLOSED),
+        }
+        manager = _manager(get_frames=lambda: frames)
+
+        manager.render_bar(FakeImGui(("Expand All",)))
+
+        assert all(frame.is_on_screen for frame in frames.values())
 
     def test_the_frame_items_are_dim_with_no_frames(self) -> None:
         imgui = FakeImGui()
@@ -230,13 +258,23 @@ class TestFrameItems:
         assert imgui.line("Expand All").enabled is False
         assert imgui.line("Fit All").enabled is False
 
-    def test_expand_all_is_dim_while_every_frame_is_open(self) -> None:
+    def test_expand_all_is_dim_while_every_frame_is_on_screen(self) -> None:
         imgui = FakeImGui()
 
         _manager(get_frames=lambda: {"a": make_frame("a")}).render_bar(imgui)
 
         assert imgui.line("Collapse All").enabled is True
         assert imgui.line("Expand All").enabled is False
+
+    def test_expand_all_lights_up_for_a_closed_frame_alone(self) -> None:
+        """Closed counts as away: it is what Expand All exists to bring back."""
+        imgui = FakeImGui()
+        frames = {"a": make_frame("a", visibility=FrameVisibility.CLOSED)}
+
+        _manager(get_frames=lambda: frames).render_bar(imgui)
+
+        assert imgui.line("Expand All").enabled is True
+        assert imgui.line("Collapse All").enabled is False
 
     def test_the_windows_menu_separates_frames_from_window_chrome(self) -> None:
         imgui = FakeImGui()
@@ -251,3 +289,74 @@ class TestFrameItems:
             "Clear All",
             "Reset Size",
         )
+
+
+class TestTheClosedFrameList:
+    """F3 — the reopen affordance for a client that owns no menu of its own.
+
+    A closed frame carries no dock pill, deliberately. Without these entries an
+    ordinary ``show()`` scene's close button would become a one-way door the
+    moment the rest of this change lands, so the fix carries its own remedy.
+    """
+
+    def test_a_closed_frame_gets_an_entry_under_a_rule(self) -> None:
+        imgui = FakeImGui()
+        frames = {
+            "a": make_frame("a", visibility=FrameVisibility.CLOSED, title="Music")
+        }
+
+        _manager(get_frames=lambda: frames).render_bar(imgui)
+
+        assert imgui.labels_under("Windows") == (
+            "Collapse All",
+            "Expand All",
+            "Fit All",
+            SEPARATOR,
+            "Music",
+            SEPARATOR,
+            "Clear All",
+            "Reset Size",
+        )
+
+    def test_each_closed_frame_gets_its_own_entry_by_title(self) -> None:
+        imgui = FakeImGui()
+        frames = {
+            "a": make_frame("a", visibility=FrameVisibility.CLOSED, title="Music"),
+            "b": make_frame("b", visibility=FrameVisibility.CLOSED, title="Beads"),
+        }
+
+        _manager(get_frames=lambda: frames).render_bar(imgui)
+
+        assert imgui.labels_under("Windows")[4:6] == ("Music", "Beads")
+
+    def test_the_list_is_absent_when_nothing_is_closed(self) -> None:
+        """No closed frames, no rule and no entries — the menu does not grow."""
+        imgui = FakeImGui()
+        frames = {
+            "a": make_frame("a"),
+            "b": make_frame("b", visibility=FrameVisibility.DOCKED),
+        }
+
+        _manager(get_frames=lambda: frames).render_bar(imgui)
+
+        assert imgui.labels_under("Windows") == (
+            "Collapse All",
+            "Expand All",
+            "Fit All",
+            SEPARATOR,
+            "Clear All",
+            "Reset Size",
+        )
+
+    def test_clicking_an_entry_raises_that_one_frame(self) -> None:
+        """A9 — through the raise, so the frame comes back *and* to the front."""
+        raised: list[str] = []
+        frames = {
+            "a": make_frame("a", visibility=FrameVisibility.CLOSED, title="Music"),
+            "b": make_frame("b", visibility=FrameVisibility.CLOSED, title="Beads"),
+        }
+        manager = _manager(get_frames=lambda: frames, on_raise_frame=raised.append)
+
+        manager.render_bar(FakeImGui(("Music",)))
+
+        assert raised == ["a"]

@@ -67,6 +67,7 @@ class MenuReplica:
         get_frames: Callable[[], Mapping[str, Frame]],
         on_clear_all: Callable[[], None],
         on_fit_all: Callable[[], None],
+        on_raise_frame: Callable[[str], None],
         chrome: WindowChromeCommands,
     ) -> Self:
         self = super().__new__(cls)
@@ -83,6 +84,7 @@ class MenuReplica:
             get_frames=get_frames,
             on_clear_all=on_clear_all,
             on_fit_all=on_fit_all,
+            on_raise_frame=on_raise_frame,
             chrome=chrome,
         )
         self._agent_menus = ()
@@ -123,7 +125,7 @@ class MenuReplica:
         """Compose the menu: the display's own menus, agent bars, then clients.
 
         Rebuilt each frame, so every item reads live state — the theme in use,
-        which frames are minimized, which sessions still hold a callback lease.
+        where each frame is, which sessions still hold a callback lease.
         """
         return MenuModel(
             [
