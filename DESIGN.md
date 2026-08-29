@@ -5342,6 +5342,22 @@ borrowed.
    underneath regardless; an applet restarted against a live session is a
    succession the DES-058/listen-lifecycle rules already handle, because the
    identity follows the session, not the applet process.
+
+   **Amendment (lux-zrnd, 2026-08-29).** "The session-start hook spawns the
+   applet with the session's pid" was never actually true: Claude Code
+   invokes `SessionStart` hooks through a short-lived `sh` wrapper process,
+   and `$PPID` inside the hook is that wrapper, not the persistent `claude`
+   process. The wrapper reliably exits within seconds of the hook script
+   finishing, so a watch on raw `$PPID` saw its target vanish almost
+   immediately and left before ever registering — the applet never actually
+   bound to the session at all, on any session, since this ADR was written.
+   The decision above (poll-based binding, no hook) stands unchanged; the
+   fix is in *which* pid fulfills it: the hook resolves `$PPID`'s own
+   parent, verifies its `ps -o comm=` names Claude Code, and only then binds
+   the watch to it — falling back to the old (safe-but-broken) `$PPID`
+   behavior when that verification fails, so an unrecognized process-tree
+   shape degrades to today's behavior rather than risking a watch on an
+   unrelated long-lived ancestor.
 5. **Clicks are raise-first, and answer with a board rather than a word.**
    The applet's first act on a click is the visible response — `raise_frame`
    on the existing board (restore+focus, one gesture), or, when there is no
