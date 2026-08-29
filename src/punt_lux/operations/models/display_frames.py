@@ -7,10 +7,15 @@ coupling that design exists to sever. So it is read the way every other
 display-process fact is read, through :class:`DisplayControlOperations` over
 luxd's one connection, and not from the Hub's own store.
 
-That is also why it is not a field on ``list_scenes``' :class:`FrameSummary`.
-Hub-authoritative reads never reach around to the display --- a rule with a test
-of its own (``test_list_scenes_reads_the_hub_without_touching_the_display``) ---
-and a frame's visibility is not a fact the Hub has to give.
+``list_scenes``' :class:`FrameSummary` carries the same fact too, but only as an
+*opt-in* proxy: its ``visibility`` is the discriminated
+:data:`~punt_lux.operations.models.query_visibility.FrameVisibilityState`, off
+(``not_requested``) unless the caller passes ``want_visibility``, so a bare
+``list_scenes`` stays the one Hub-local read Hub-authoritative reads are meant to
+be. ``list_frames`` here is the unconditional cousin: reaching the display is the
+whole point of the read rather than an extra a caller opts into, so every frame
+reports a plain :data:`FrameVisibility` outright, with no "not requested" state
+to represent.
 """
 
 from __future__ import annotations
