@@ -67,12 +67,18 @@ class FrameStates(BaseModel):
 
         A reply this does not recognise is an ``OpError``, never a fabricated
         empty list: "the display answered with nothing I understand" and "the
-        display holds no frames" are different facts.
+        display holds no frames" are different facts. A reply missing the
+        ``"frames"`` key entirely is the same refusal, for the same reason --
+        it is indistinguishable from "the display holds no frames" only if the
+        key is defaulted away, which is exactly the conflation this method
+        exists to refuse.
         """
         if not isinstance(payload, Mapping):
-            return OpError(code="rejected", reason="display reply was not a mapping")
+            return OpError(code="fault", reason="display reply was not a mapping")
         block = cast("Mapping[str, object]", payload)
+        if "frames" not in block:
+            return OpError(code="fault", reason="display reply missing 'frames'")
         try:
-            return cls.model_validate({"frames": block.get("frames", [])})
+            return cls.model_validate({"frames": block["frames"]})
         except ValidationError as exc:
-            return OpError.from_validation(exc)
+            return OpError.from_reply(exc)
