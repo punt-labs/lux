@@ -5,19 +5,24 @@ Hub state directly: the element store, its presentations, and the session
 registry. This is the reach-around removal — asking the authority, not the
 display replica. ``list_recent_events`` and ``list_errors`` are facts about the
 running display's own ring buffers, so they proxy over luxd's one connection.
+
+Scene-summary grouping lives in :class:`~punt_lux.operations.scene_listing.SceneListing`
+and client-session facts in :class:`~punt_lux.operations.client_listing.ClientListing`
+(DES-065 OO paydown) — each is its own reason to change. This facade wires
+them to the one Hub connection every read shares, and owns directly the two
+concerns that don't fit either: the inspection tree and the two proxied
+display-fact reads.
 """
 
 from __future__ import annotations
 
-import logging
-import time
 from typing import TYPE_CHECKING, Self, cast, final
 
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.ids import SceneId
+from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.composition_boundary import CompositionBoundary
 from punt_lux.operations.display_facts import DisplayFactProxy
-from punt_lux.operations.frame_grouping import FrameAccumulator
 from punt_lux.operations.frame_visibility_proxy import FrameVisibilityProxy
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.inspect_scope import HUB_ONLY, InspectScope
@@ -28,29 +33,18 @@ from punt_lux.operations.models.query_inspection import (
     InspectedElement,
     SceneInspection,
 )
-from punt_lux.operations.models.query_ownership import SceneOwner
-from punt_lux.operations.models.query_quarantine import QuarantineInfo
-from punt_lux.operations.models.query_scenes import (
-    FrameSummary,
-    SceneList,
-    SceneSummary,
-)
+from punt_lux.operations.models.query_scenes import SceneList
+from punt_lux.operations.scene_listing import SceneListing
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.client_session import ClientSession
     from punt_lux.domain.hub.hub import Hub
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.hub.named_sessions import NamedSession
-    from punt_lux.domain.hub.quarantine_record import QuarantineRecord
-    from punt_lux.domain.hub.scene_presentation import ScenePresentation
-    from punt_lux.domain.ids import ConnectionId
     from punt_lux.operations.display_port import DisplayPort
     from punt_lux.operations.scope import Scope
     from punt_lux.protocol import Element as WireElement
 
 __all__ = ["QueryOperations"]
-
-logger = logging.getLogger(__name__)
 
 
 @final
@@ -58,19 +52,19 @@ class QueryOperations:
     """Answer read queries from the Hub, proxying only the display's own facts."""
 
     _display: HubDisplay
-    _hub: Hub
     _port: DisplayPort
     _facts: DisplayFactProxy
-    _seen: FrameVisibilityProxy
-    __slots__ = ("_display", "_facts", "_hub", "_port", "_seen")
+    _scenes: SceneListing
+    _clients: ClientListing
+    __slots__ = ("_clients", "_display", "_facts", "_port", "_scenes")
 
     def __new__(cls, display: HubDisplay, hub: Hub, port: DisplayPort) -> Self:
         self = super().__new__(cls)
         self._display = display
-        self._hub = hub
         self._port = port
         self._facts = DisplayFactProxy(port)
-        self._seen = FrameVisibilityProxy(port)
+        self._scenes = SceneListing(display, FrameVisibilityProxy(port))
+        self._clients = ClientListing(display, hub)
         return self
 
     # -- Hub-authoritative reads -------------------------------------------
@@ -109,151 +103,42 @@ class QueryOperations:
             scene_id=scene_id,
             elements=elements,
             geometry=geometry,
-            quarantine=self._quarantine_info(sid),
+            quarantine=self._scenes.quarantine_info(sid),
         )
 
     def list_scenes(self, facts: InspectScope = HUB_ONLY) -> SceneList:
         """List every scene and frame from the authoritative store.
 
-        Includes quarantined scenes alongside live ones — quarantine is a
-        replication decision, not a deletion, so introspection stays honest
-        about the scenes the store still holds. Each summary carries a
-        ``status`` discriminator (``"live"`` or ``"quarantined"``) and, when
-        quarantined, the :class:`QuarantineInfo` record explaining why.
-        Replication reads through :meth:`HubDisplay.live_scene_ids` instead,
-        which excludes quarantined scenes at the source.
-
-        ``facts`` may ask for each frame's visibility, which is the one thing
-        here the Hub does not hold: where a window sits belongs to the user and
-        is never replicated back (DES-088). It is proxied from the running
-        display only when asked, so a bare call stays a single Hub-local read and
-        never reaches around — the same bargain ``inspect_scene`` strikes for
-        painted geometry.
+        Delegates the grouping and summarizing to
+        :class:`~punt_lux.operations.scene_listing.SceneListing`; see its
+        :meth:`~punt_lux.operations.scene_listing.SceneListing.read` for the
+        quarantine and frame-visibility contract.
         """
-        scenes: list[SceneSummary] = []
-        frames: dict[str, FrameAccumulator] = {}
-        for sid in self._display.all_scene_ids():
-            presentation = self._display.frames.presentation_for(sid)
-            scenes.append(self._scene_summary(sid, presentation))
-            self._gather(frames, presentation).add(str(sid))
-        return SceneList(scenes=scenes, frames=self._frame_summaries(frames, facts))
-
-    def _scene_summary(
-        self, sid: SceneId, presentation: ScenePresentation
-    ) -> SceneSummary:
-        """Build one scene's summary, quarantined or live."""
-        quarantine = self._quarantine_info(sid)
-        return SceneSummary(
-            scene_id=str(sid),
-            local_id=self.local_id_of(sid),
-            element_count=self._display.element_count(sid),
-            frame_id=presentation.frame_id,
-            owners=self._owners_of(sid),
-            status="quarantined" if quarantine is not None else "live",
-            quarantine=quarantine,
-        )
-
-    @staticmethod
-    def _gather(
-        frames: dict[str, FrameAccumulator], presentation: ScenePresentation
-    ) -> FrameAccumulator:
-        """Return the accumulator for this scene's frame, starting one if needed."""
-        return frames.setdefault(
-            presentation.frame_id,
-            FrameAccumulator(
-                title=presentation.frame_title or presentation.frame_id,
-                layout=presentation.frame_layout or "tab",
-            ),
-        )
-
-    def _frame_summaries(
-        self, frames: dict[str, FrameAccumulator], facts: InspectScope
-    ) -> list[FrameSummary]:
-        """Close every accumulator, attaching the visibility ``facts`` asked for.
-
-        The display is asked once for the whole call rather than once per frame:
-        asking repeatedly would let the answer change mid-list.
-        """
-        seen = self._seen.of_frames(facts)
-        absent = self._seen.absent(facts)
-        return [acc.summary(fid, seen.get(fid, absent)) for fid, acc in frames.items()]
+        return self._scenes.read(facts)
 
     def list_clients(self) -> ClientList:
         """List the Hub's sessions with the identity each declared and its age.
 
-        Ages come off the monotonic clock the sessions were stamped with, so
-        ``connected_seconds`` never goes negative under a wall-clock step.
+        Delegates to :class:`~punt_lux.operations.client_listing.ClientListing`.
         """
-        now = time.monotonic()
-        return ClientList(
-            clients=[
-                self._client(connection_id, session, now)
-                for connection_id, session in self._display.client_sessions().items()
-            ]
-        )
+        return self._clients.read()
 
     def client_facts(self, named: NamedSession) -> HubClient:
         """Return one session's facts — the shape ``list_clients`` reports, for one.
 
-        What the Details command renders, so the menu and introspection agree.
-        Reads the session the caller already holds rather than re-reading the
-        registry, which sweeps lapsed sessions and could retire this client.
+        Delegates to :class:`~punt_lux.operations.client_listing.ClientListing`,
+        what the Details command renders.
         """
-        return self._client(named.connection_id, named.session, time.monotonic())
-
-    def _client(
-        self, connection_id: ConnectionId, session: ClientSession, now: float
-    ) -> HubClient:
-        """Build one session's read shape from the authoritative Hub state.
-
-        ``owned_scenes`` is stripped to each caller's own local id here, at
-        the introspection boundary — the same composed store key
-        ``inspect_scene``/``update``/``clear`` require callers to compose
-        themselves. Reporting the raw composed key would hand an agent a
-        value that separator-rejects on every write path that takes it back.
-        """
-        return HubClient(
-            connection_id=str(connection_id),
-            identity=session.identity,
-            connected_seconds=round(session.age(now), 1),
-            lease=session.lease_term,
-            subscribed_topics=sorted(
-                str(topic) for topic in self._hub.topics_for(connection_id)
-            ),
-            owned_scenes=sorted(
-                {
-                    self.local_id_of(s)
-                    for s, _ in self._display.elements_owned_by(connection_id)
-                }
-            ),
-        )
+        return self._clients.facts(named)
 
     @staticmethod
     def local_id_of(scene_id: SceneId | str) -> str:
         """Return the caller's own label for a store key, composed or not.
 
-        Every scene the ops-layer write path installs is composed (DES-086),
-        so this is the caller's raw name in the common case. A key installed
-        through a lower-level API directly carries no separator at all; it is
-        reported as-is rather than raising, but logged — a DES-086 invariant
-        violation worth knowing about, not silently absorbed.
+        Delegates to :class:`~punt_lux.operations.scene_listing.SceneListing`,
+        which every scene-summary read already shares this label with.
         """
-        try:
-            return ConnectionScopedId.from_composed(str(scene_id)).local_id
-        except ValueError:
-            logger.warning("non-composed store key at introspection: %r", scene_id)
-            return str(scene_id)
-
-    def _owners_of(self, scene_id: SceneId) -> list[SceneOwner]:
-        """Return the scene's distinct owners as introspection read shapes."""
-        return [SceneOwner.of(owner) for owner in self._display.scene_owners(scene_id)]
-
-    def _quarantine_info(self, scene_id: SceneId) -> QuarantineInfo | None:
-        """Return the scene's quarantine read shape, or None if not quarantined."""
-        record: QuarantineRecord | None = self._display.quarantine_record(scene_id)
-        if record is None:
-            return None
-        return QuarantineInfo.of(record)
+        return SceneListing.local_id_of(scene_id)
 
     # -- proxied display facts ---------------------------------------------
 

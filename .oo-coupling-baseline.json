@@ -2092,6 +2092,13 @@
     "max_lcom": 0.0,
     "avg_lcom": 0.0
   },
+  "src/punt_lux/operations/client_listing.py": {
+    "efferent_coupling": 2.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.333,
+    "avg_lcom": 0.333
+  },
   "src/punt_lux/operations/composition_boundary.py": {
     "efferent_coupling": 1.0,
     "public_names": 1.0,
@@ -2415,11 +2422,11 @@
     "avg_lcom": 0.1
   },
   "src/punt_lux/operations/queries.py": {
-    "efferent_coupling": 15.0,
+    "efferent_coupling": 14.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.564,
-    "avg_lcom": 0.564
+    "max_lcom": 0.643,
+    "avg_lcom": 0.643
   },
   "src/punt_lux/operations/scene_clearing.py": {
     "efferent_coupling": 6.0,
@@ -2434,6 +2441,13 @@
     "circular_imports": 0.0,
     "max_lcom": 0.0,
     "avg_lcom": 0.0
+  },
+  "src/punt_lux/operations/scene_listing.py": {
+    "efferent_coupling": 5.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.267,
+    "avg_lcom": 0.267
   },
   "src/punt_lux/operations/scene_submission.py": {
     "efferent_coupling": 2.0,

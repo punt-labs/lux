@@ -3886,6 +3886,19 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
+  "src/punt_lux/operations/client_listing.py": {
+    "method_ratio": 1.0,
+    "encapsulation_ratio": 1.0,
+    "avg_params": 1.5,
+    "max_complexity": 3.0,
+    "avg_complexity": 1.75,
+    "module_size": 74.0,
+    "classes_per_module": 1.0,
+    "class_to_func_ratio": 1.0,
+    "init_violations": 0.0,
+    "public_attr_violations": 0.0,
+    "future_annotations": 1.0
+  },
   "src/punt_lux/operations/composition_boundary.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
@@ -4487,10 +4500,10 @@
   "src/punt_lux/operations/queries.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
-    "avg_params": 1.53,
+    "avg_params": 1.33,
     "max_complexity": 4.0,
-    "avg_complexity": 2.07,
-    "module_size": 251.0,
+    "avg_complexity": 1.67,
+    "module_size": 145.0,
     "classes_per_module": 1.0,
     "class_to_func_ratio": 1.0,
     "init_violations": 0.0,
@@ -4517,6 +4530,19 @@
     "max_complexity": 3.0,
     "avg_complexity": 2.0,
     "module_size": 67.0,
+    "classes_per_module": 1.0,
+    "class_to_func_ratio": 1.0,
+    "init_violations": 0.0,
+    "public_attr_violations": 0.0,
+    "future_annotations": 1.0
+  },
+  "src/punt_lux/operations/scene_listing.py": {
+    "method_ratio": 1.0,
+    "encapsulation_ratio": 1.0,
+    "avg_params": 1.5,
+    "max_complexity": 3.0,
+    "avg_complexity": 1.88,
+    "module_size": 129.0,
     "classes_per_module": 1.0,
     "class_to_func_ratio": 1.0,
     "init_violations": 0.0,

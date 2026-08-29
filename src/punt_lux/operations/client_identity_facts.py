@@ -42,7 +42,7 @@ class ClientIdentityFacts:
 
         An unidentified session reports as exactly that, never left blank.
         ``owned_scenes`` already arrives stripped to local ids -- ``HubClient``
-        is built by ``QueryOperations._client``, which strips the composed
+        is built by ``ClientListing._client``, which strips the composed
         store key at the introspection boundary before this class ever sees
         it, so no second strip is needed here.
         """
