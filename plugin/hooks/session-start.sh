@@ -120,12 +120,18 @@ fi
 # wrapper vanish almost immediately and leaves before ever reaching the Hub — the
 # applet never registers in the menu. The genuinely persistent `claude` process
 # is the wrapper's *parent*, i.e. $PPID's grandparent from here. Resolve it, but
-# verify its command name looks like Claude Code before trusting it: a
-# differently-shaped process tree (a future Claude Code version with no wrapper,
-# a different OS's process model) must fail safe — an applet that exits too
-# early, same as today — rather than silently watching an unrelated long-lived
-# ancestor (a login shell, systemd) forever, which would leak the applet process
-# past the actual session's end.
+# verify its command name is exactly Claude Code's process name before trusting
+# it: `ps -o comm=` reports a process's basename (per execve/comm semantics),
+# and the real `claude` binary reports exactly "claude" — so the match is an
+# exact string, not a substring. A substring match (`*claude*`) would also
+# accept an unrelated process that merely has "claude" somewhere in its name
+# (`not-claude`, `claude-imposter`), which is exactly the untrustworthy
+# ancestor this check exists to reject. A differently-shaped process tree (a
+# future Claude Code version with no wrapper, a different OS's process model,
+# a renamed binary) must fail safe — an applet that exits too early, same as
+# today — rather than silently watching an unrelated long-lived ancestor (a
+# login shell, systemd) forever, which would leak the applet process past the
+# actual session's end.
 #
 # The applet watches $SESSION_WATCH_PID and exits when it goes, so an applet
 # never outlives its session — including when the session is killed rather than
@@ -149,7 +155,7 @@ if [[ -n "$_grandparent_pid" ]]; then
   _grandparent_comm="$(ps -o comm= -p "$_grandparent_pid" 2>/dev/null)" || true
 fi
 case "$_grandparent_comm" in
-*claude*) SESSION_WATCH_PID="$_grandparent_pid" ;;
+claude) SESSION_WATCH_PID="$_grandparent_pid" ;;
 *) SESSION_WATCH_PID="$PPID" ;;
 esac
 

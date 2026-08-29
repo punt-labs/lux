@@ -125,3 +125,19 @@ class TestResolvesTheRealSessionAcrossTheWrapper:
         )
         assert resolved == wrapper_pid
         assert resolved != claude_pid
+
+    def test_rejects_a_near_miss_name_that_merely_contains_claude(
+        self, tmp_path: Path
+    ) -> None:
+        """A substring match (`*claude*`) would wrongly trust this ancestor.
+
+        `not-claude` contains the literal string "claude" but is not the real
+        Claude Code process, so the exact-match check must reject it and fall
+        back to the wrapper — the same fail-safe outcome as any other
+        unrecognized ancestor.
+        """
+        claude_pid, wrapper_pid, resolved = _run_tree(
+            tmp_path, claude_comm="not-claude"
+        )
+        assert resolved == wrapper_pid
+        assert resolved != claude_pid
