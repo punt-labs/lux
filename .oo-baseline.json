@@ -5213,16 +5213,16 @@
     "public_attr_violations": 0
   },
   "src/punt_lux/operations/models/display_frames.py": {
-    "avg_complexity": 2.0,
+    "avg_complexity": 2.5,
     "avg_params": 0.5,
     "class_to_func_ratio": 1.0,
     "classes_per_module": 2,
     "encapsulation_ratio": 1.0,
     "future_annotations": 1,
     "init_violations": 0,
-    "max_complexity": 3,
+    "max_complexity": 4,
     "method_ratio": 1.0,
-    "module_size": 53,
+    "module_size": 64,
     "public_attr_violations": 0
   },
   "src/punt_lux/operations/models/display_info.py": {
