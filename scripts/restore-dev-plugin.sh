@@ -8,6 +8,13 @@ set -euo pipefail
 #
 # If no argument is given, auto-detects the last "prepare plugin for release"
 # commit and restores from its parent.
+#
+# CONTRACT (pkit-hsyi, punt-kit 462c65d): this script stages the restored
+# files but does NOT commit them. The caller (punt-kit's release Phase 9)
+# re-stamps plugin.json's version — the restored dev commit's version field
+# is stale — onto the same staged changes and commits the combined result
+# itself, with hooks running. The org bans --no-verify; committing here and
+# amending afterward is the pattern that flag existed to paper over.
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # Repo-relative, because every use below is a pathspec for a `git -C
@@ -61,4 +68,5 @@ if [[ -n "$commands_at_parent" ]]; then
 fi
 
 git -C "$REPO_ROOT" add "$PLUGIN_JSON"
-git -C "$REPO_ROOT" commit --no-verify -m "chore: restore dev plugin state [skip ci]"
+
+echo "Staged dev plugin state restore (not committed — see CONTRACT above)."
