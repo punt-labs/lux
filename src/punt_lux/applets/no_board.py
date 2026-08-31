@@ -64,10 +64,9 @@ class NoBoard:
     def answered(self, work: BoardWork) -> bool:
         """Raise the frame, and fill it only if there was nothing in it.
 
-        Whatever is in a frame already up — from an earlier run of this applet,
-        or from ``lux show beads`` — beats the word "Loading", and a raise that
-        could not be answered collapses the same way: the board may well be up,
-        and blanking a good one on a failed round trip is the worse mistake.
+        Whatever is in a frame already up beats the word "Loading". A raise
+        that could not be answered reads as *not* up -- it establishes
+        nothing about what is on screen, so the click fills the frame.
         """
         if work.showing():
             work.note(_RAISED)
