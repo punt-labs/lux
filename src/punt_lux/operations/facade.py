@@ -144,7 +144,7 @@ class Operations:
             conveniences=ConvenienceOperations(scenes),
             pubsub=PubSubOperations(hub, ports.ensure_writer, ports.next_event),
             config=DisplayModeOperations(client_registry),
-            display=DisplayControlOperations(ports.display_port),
+            display=DisplayControlOperations(ports.display_port, display.frames),
             queries=queries,
             menus=MenuOperations(menu_registry, replicator, callbacks),
             identity=IdentityOperations(display),

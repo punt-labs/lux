@@ -126,6 +126,15 @@ class FrameLifecycle:
         with self._lock.read():
             return self._frames.presentation_for(scene_id)
 
+    def frame_id_for_local(self, local_id: str) -> str | None:
+        """Return the one connection-scoped frame id named ``local_id``, under lock.
+
+        The read behind ``raise_frame``'s id resolution — see
+        :meth:`~punt_lux.domain.hub.scene_presentation.ScenePresentationRegistry.frame_id_for_local`.
+        """
+        with self._lock.read():
+            return self._frames.frame_id_for_local(local_id)
+
     def remove_frame(self, frame_id: str) -> frozenset[SceneId]:
         """Close ``frame_id`` outright: tear down scenes, disarm its TTL, return them.
 

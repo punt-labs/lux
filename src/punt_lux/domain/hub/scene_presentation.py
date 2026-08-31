@@ -150,3 +150,39 @@ class ScenePresentationRegistry:
         remove them all when a user closes the frame or a frame TTL expires.
         """
         return [s for s, p in self._presentations.items() if p.frame_id == frame_id]
+
+    def frame_id_for_local(self, local_id: str) -> str | None:
+        """Return the one connection-scoped frame id named ``local_id``, or None.
+
+        A caller — an applet, a CLI invocation — names a frame by the plain
+        local id it gave it when shown, with no idea which connection scoped
+        it or whether a reconnect since gave that connection a new id
+        (DES-086). This is where that local name is resolved back to the
+        composed id the display actually stores the frame under, from
+        whichever connection currently holds it — a lookup that survives a
+        reconnect precisely because it asks "who holds this now" rather than
+        recomputing "who held it when it was shown".
+
+        None both when no recorded frame carries that local id and when more
+        than one connection's frame does: an ambiguous local name is refused
+        rather than guessed at, the same refusal an unknown frame gets.
+        """
+        matches = {
+            p.frame_id
+            for p in self._presentations.values()
+            if self._local_id(p.frame_id) == local_id
+        }
+        return next(iter(matches)) if len(matches) == 1 else None
+
+    @staticmethod
+    def _local_id(frame_id: str) -> str:
+        """Return ``frame_id``'s local part, or itself when it carries none.
+
+        Every presentation this registry records is scoped by ``scoped()``
+        before it is remembered, so the not-composed branch is a defensive
+        default rather than a path live traffic takes.
+        """
+        try:
+            return ConnectionScopedId.from_composed(frame_id).local_id
+        except ValueError:
+            return frame_id

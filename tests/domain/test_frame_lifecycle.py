@@ -107,3 +107,15 @@ def test_a_failed_teardown_still_repaints_the_other_frames() -> None:
 
     remover.stop_failing()
     assert fl.expire_due() == frozenset({SceneId("bad")})  # bad retried, retired
+
+
+def test_frame_id_for_local_reads_through_to_the_registry() -> None:
+    # raise_frame's id resolution, exercised through the lock this class adds
+    # over the registry's own frame_id_for_local (see test_scene_presentation.py
+    # for the resolution behavior itself).
+    clock = FakeClock()
+    fl = _lifecycle(clock, _Remover())
+    fl.present(SceneId("c1\x1fboard"), ScenePresentation(frame_id="c1\x1fboard"), None)
+
+    assert fl.frame_id_for_local("board") == "c1\x1fboard"
+    assert fl.frame_id_for_local("never-shown") is None

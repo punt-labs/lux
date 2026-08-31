@@ -141,3 +141,46 @@ def test_push_resends_every_presentation_field() -> None:
     assert call["frame_flags"] == {"no_resize": True}
     assert call["frame_layout"] == "stack"
     assert call["title"] == "Board"
+
+
+def test_frame_id_for_local_resolves_a_recorded_scoped_frame() -> None:
+    # This is the read raise_frame needs: a caller names its frame by the
+    # plain local id it gave it, with no idea which connection scoped it.
+    reg = ScenePresentationRegistry()
+    scoped = ScenePresentation(frame_id="beads-lux").scoped(ConnectionId("c1"))
+    reg.record(SceneId("c1\x1fbeads-lux"), scoped)
+    assert reg.frame_id_for_local("beads-lux") == scoped.frame_id
+
+
+def test_frame_id_for_local_finds_the_current_owner_after_a_reconnect() -> None:
+    # The whole point of resolving from the registry rather than recomputing
+    # a scope: a session that reconnected under a new connection id still
+    # resolves, because this asks who holds the frame *now*.
+    reg = ScenePresentationRegistry()
+    first = ScenePresentation(frame_id="beads-lux").scoped(ConnectionId("c1"))
+    reg.record(SceneId("c1\x1fbeads-lux"), first)
+    reg.forget(SceneId("c1\x1fbeads-lux"))
+    second = ScenePresentation(frame_id="beads-lux").scoped(ConnectionId("c2"))
+    reg.record(SceneId("c2\x1fbeads-lux"), second)
+    assert reg.frame_id_for_local("beads-lux") == second.frame_id
+
+
+def test_frame_id_for_local_returns_none_for_an_unknown_name() -> None:
+    reg = ScenePresentationRegistry()
+    assert reg.frame_id_for_local("never-shown") is None
+
+
+def test_frame_id_for_local_refuses_to_guess_between_two_connections() -> None:
+    # Two connections both named a frame "issues" -- exactly the collision
+    # scoping exists to prevent. Resolving to either would raise the wrong
+    # one's frame, so an ambiguous name is refused like an unknown one.
+    reg = ScenePresentationRegistry()
+    reg.record(
+        SceneId("c1\x1fissues"),
+        ScenePresentation(frame_id="issues").scoped(ConnectionId("c1")),
+    )
+    reg.record(
+        SceneId("c2\x1fissues"),
+        ScenePresentation(frame_id="issues").scoped(ConnectionId("c2")),
+    )
+    assert reg.frame_id_for_local("issues") is None
