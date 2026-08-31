@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-08-31
+
 ### Fixed
 
 - **The lux-beads applet never registered in the Lux menu.** `session-start.sh`
