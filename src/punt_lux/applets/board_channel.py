@@ -43,14 +43,10 @@ class BoardChannel:
     def raised(self, frame_id: str) -> bool:
         """Bring a frame to the front; say whether the user has it already.
 
-        Only a real ``raised: true`` from the Hub says the board is in front of
-        the user. A round trip that could not be answered at all — no display, a
-        timed-out query, a stale id the Hub rejects — is reported and treated as
-        *not* raised: an errored raise establishes nothing about what is on
-        screen, so it must not be read as "the board is up" and used to skip the
-        push that would otherwise fill or refresh it. Silently trusting an error
-        was the failure mode behind lux-81t3.2: a raise that could not confirm
-        the frame let a closed one stay closed.
+        Only a real ``raised: true`` says the board is in front of the user. A
+        round trip that could not be answered at all establishes nothing about
+        what is on screen, so it is treated as *not* raised rather than assumed
+        — trusting it would skip the push that fills or refreshes the frame.
         """
         answer = self._client.raise_frame(frame_id)
         if isinstance(answer, OpError):
