@@ -3,23 +3,21 @@
 The Hub cannot own an ImGui theme, a window's opacity, a GPU backend string, or
 where a frame sits --- on screen, docked, or put away by the user. These
 operations reach the running display over luxd's one connection through the
-injected :class:`DisplayPort`. The caller
-still enters through a Hub operation, so there is one code path; the reach-around
-that is gone is a tool or a command-line tool talking to the display directly.
+injected :class:`DisplayPort`; the reach-around that is gone is a tool talking
+to the display directly, so there is still one code path.
 
-Every operation answers with a typed result. The getters (``get_display_info``,
-``get_theme``, ``get_window_settings``), the ``ping`` probe, and the setters
-(``set_theme`` → :class:`ThemeState`, ``set_window_settings`` →
-:class:`WindowSettings`, ``set_frame_state`` → :class:`Ok`) all narrow the
-display's reply into their result type; a reply the type does not recognize is
-an ``OpError(rejected)``, never a fabricated success. ``screenshot`` is the lone
-operation that never reaches the display — framebuffer capture is unsupported
-(DES-028), so it refuses with an ``OpError(rejected)`` up front.
+Every operation answers with a typed result: a reply the result type does not
+recognize is an ``OpError(rejected)``, never a fabricated success.
+``screenshot`` is the lone operation that never reaches the display —
+framebuffer capture is unsupported (DES-028), so it refuses up front.
+``raise_frame`` takes whatever id it is given as-is — resolving a caller's
+local name to the display's connection-scoped form (DES-086) happens once,
+in :meth:`Operations.raise_frame <punt_lux.operations.facade.Operations>`.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
+from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.display_frames import FrameStates
@@ -37,21 +35,7 @@ from punt_lux.operations.models.window import WindowSettings, WindowSettingsPatc
 if TYPE_CHECKING:
     from punt_lux.operations.display_port import DisplayPort
 
-__all__ = ["DisplayControlOperations", "FrameLocalLookup"]
-
-
-@runtime_checkable
-class FrameLocalLookup(Protocol):
-    """The one Hub-side read ``raise_frame`` needs to resolve a caller's frame name.
-
-    Structural, so this depends on the one read it uses
-    (:meth:`~punt_lux.domain.hub.frame_lifecycle.FrameLifecycle.frame_id_for_local`)
-    rather than the whole ``HubDisplay`` facade, and a test can drive it with a fake.
-    """
-
-    def frame_id_for_local(self, local_id: str) -> str | None:
-        """Return the one connection-scoped frame id named ``local_id``, or None."""
-        ...
+__all__ = ["DisplayControlOperations"]
 
 
 @final
@@ -59,13 +43,11 @@ class DisplayControlOperations:
     """Read and write display-process facts over luxd's one connection."""
 
     _port: DisplayPort
-    _frames: FrameLocalLookup
-    __slots__ = ("_frames", "_port")
+    __slots__ = ("_port",)
 
-    def __new__(cls, port: DisplayPort, frames: FrameLocalLookup) -> Self:
+    def __new__(cls, port: DisplayPort) -> Self:
         self = super().__new__(cls)
         self._port = port
-        self._frames = frames
         return self
 
     # -- getters: typed records --------------------------------------------
@@ -181,35 +163,20 @@ class DisplayControlOperations:
         """Bring a frame to the front, restoring it if it was minimized.
 
         The one focus change a client may ask for, and only because the user
-        asked: a menu click naming a frame is the user reaching for it. Nothing
-        here takes focus on its own initiative.
-
-        The display stores each frame under its connection-scoped id
-        (DES-086), never the plain local name a caller gave it — so
-        ``frame_id`` is resolved against the Hub's presentation registry
-        first, and the display is asked for whichever id that lookup finds.
-        A name the registry does not recognize, or recognizes for more than
-        one connection, is passed through unresolved rather than guessed at:
-        the display then answers ``raised`` false the same way it does for
-        any frame it does not hold.
+        asked. ``frame_id`` is taken as-is -- the caller has already resolved
+        a plain local name to the display's connection-scoped id (DES-086).
 
         A frame the display does not hold answers ``raised`` false rather than an
         error — the caller is expected to push one — so only a display that could
         not be reached, or that answered off-schema, yields an ``OpError``.
         """
-        display_frame_id = self._frames.frame_id_for_local(frame_id) or frame_id
-        payload = self._port.query(
-            "raise_frame", {"frame_id": display_frame_id}
-        ).resolve()
+        payload = self._port.query("raise_frame", {"frame_id": frame_id}).resolve()
         if isinstance(payload, OpError):
             return payload
         raised = FrameRaise.from_reply(payload)
         if isinstance(raised, OpError):
             return raised
-        if raised.frame_id != display_frame_id:
-            reason = (
-                f"raise_frame answered for {raised.frame_id!r}, "
-                f"not {display_frame_id!r}"
-            )
+        if raised.frame_id != frame_id:
+            reason = f"raise_frame answered for {raised.frame_id!r}, not {frame_id!r}"
             return OpError(code="fault", reason=reason)
-        return FrameRaise(frame_id=frame_id, raised=raised.raised)
+        return raised

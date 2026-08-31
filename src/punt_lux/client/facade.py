@@ -101,7 +101,7 @@ class LuxClient:
     @cached_property
     def frame(self) -> FrameAccessor:
         """The ``client.frame.*`` verbs."""
-        return FrameAccessor(self._transport, self._identity)
+        return FrameAccessor(self._transport, self._identity, self._scope)
 
     @cached_property
     def menu(self) -> MenuAccessor:

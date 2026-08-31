@@ -19,6 +19,7 @@ from punt_lux.cli._shared import (
     connect_client,
     identity_from_flags,
     run,
+    scope_for,
 )
 from punt_lux.commands import Ctx, FrameOps, frame_close, frame_raise
 
@@ -46,7 +47,7 @@ def raise_(
         as_=as_, kind=kind, name=name, repo=repo, agent=agent
     )
     ctx: Ctx[FrameOps] = Ctx(ops=connect_client(identity=identity), identity=identity)
-    run(frame_raise(ctx, frame_id), flags)
+    run(frame_raise(ctx, frame_id, scope=scope_for(identity)), flags)
 
 
 @frame_app.command("close")

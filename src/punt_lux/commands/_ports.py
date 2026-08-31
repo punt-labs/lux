@@ -107,7 +107,7 @@ class SceneOps(Protocol):
 class FrameOps(Protocol):
     """The ops surface the frame commands read."""
 
-    def raise_frame(self, frame_id: str) -> FrameRaise | OpError:
+    def raise_frame(self, frame_id: str, *, scope: Scope) -> FrameRaise | OpError:
         """Bring a frame to the front, restoring it if it was minimized."""
         ...
 

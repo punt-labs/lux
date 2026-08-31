@@ -144,7 +144,7 @@ class Operations:
             conveniences=ConvenienceOperations(scenes),
             pubsub=PubSubOperations(hub, ports.ensure_writer, ports.next_event),
             config=DisplayModeOperations(client_registry),
-            display=DisplayControlOperations(ports.display_port, display.frames),
+            display=DisplayControlOperations(ports.display_port),
             queries=queries,
             menus=MenuOperations(menu_registry, replicator, callbacks),
             identity=IdentityOperations(display),
@@ -248,9 +248,9 @@ class Operations:
         return self._display.set_window_settings(patch)
 
     @Timed("raise_frame")
-    def raise_frame(self, frame_id: str) -> FrameRaise | OpError:
-        """Bring a frame to the front, restoring it if it was minimized."""
-        return self._display.raise_frame(frame_id)
+    def raise_frame(self, frame_id: str, *, scope: Scope) -> FrameRaise | OpError:
+        """Bring a frame to the front, resolved within the caller's own connection."""
+        return self._queries.raise_frame(frame_id, scope=scope)
 
     @Timed("list_frames")
     def list_frames(self) -> FrameStates | OpError:

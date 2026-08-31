@@ -18,7 +18,7 @@ from punt_lux.domain.hub.scene_presentation import (
     ScenePresentationRegistry,
 )
 from punt_lux.domain.hub.store_lock import StoreLock
-from punt_lux.domain.ids import SceneId
+from punt_lux.domain.ids import ConnectionId, SceneId
 
 
 @final
@@ -117,5 +117,6 @@ def test_frame_id_for_local_reads_through_to_the_registry() -> None:
     fl = _lifecycle(clock, _Remover())
     fl.present(SceneId("c1\x1fboard"), ScenePresentation(frame_id="c1\x1fboard"), None)
 
-    assert fl.frame_id_for_local("board") == "c1\x1fboard"
-    assert fl.frame_id_for_local("never-shown") is None
+    c1 = ConnectionId("c1")
+    assert fl.frame_id_for_local("board", connection=c1) == "c1\x1fboard"
+    assert fl.frame_id_for_local("never-shown", connection=c1) is None

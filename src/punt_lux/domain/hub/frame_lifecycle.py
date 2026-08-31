@@ -35,7 +35,7 @@ if TYPE_CHECKING:
         ScenePresentationRegistry,
     )
     from punt_lux.domain.hub.store_lock import StoreLock
-    from punt_lux.domain.ids import SceneId
+    from punt_lux.domain.ids import ConnectionId, SceneId
 
 __all__ = ["FrameLifecycle", "SceneRootRemover"]
 
@@ -124,10 +124,12 @@ class FrameLifecycle:
         with self._lock.read():
             return self._frames.presentation_for(scene_id)
 
-    def frame_id_for_local(self, local_id: str) -> str | None:
-        """Resolve a caller's local frame name to its scoped id, read under lock."""
+    def frame_id_for_local(
+        self, local_id: str, *, connection: ConnectionId
+    ) -> str | None:
+        """Resolve ``connection``'s own local frame name to its scoped id, locked."""
         with self._lock.read():
-            return self._frames.frame_id_for_local(local_id)
+            return self._frames.frame_id_for_local(local_id, connection=connection)
 
     def remove_frame(self, frame_id: str) -> frozenset[SceneId]:
         """Close ``frame_id`` outright: tear down scenes, disarm its TTL, return them.

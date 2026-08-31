@@ -2,9 +2,9 @@
 
 Reproduces the bug end to end through the real production wiring — a real
 ``HubDisplay``/``FrameLifecycle``, a real ``SceneOperations`` install, and a
-real ``DisplayControlOperations`` — everything except the socket and the
-ImGui process. A stateful fake ``DisplayPort`` stands in for those, tracking
-each frame's visibility the way the real display does, so the test proves the
+real ``QueryOperations`` — everything except the socket and the ImGui
+process. A stateful fake ``DisplayPort`` stands in for those, tracking each
+frame's visibility the way the real display does, so the test proves the
 *resolution*, not just that a canned reply round-trips.
 
 Before the fix, ``raise_frame`` forwarded the caller's plain local frame name
@@ -13,7 +13,8 @@ connection-scoped id (DES-086) — so the raise silently found nothing, and a
 closed frame stayed closed. This drives the exact sequence a beads applet
 click takes: render the board into a frame, have the display report that
 frame closed (the user closed it), then raise it by the same local name the
-menu entry carries, and assert it comes back on screen.
+menu entry carries, and assert it comes back on screen — resolved within the
+caller's OWN connection, never a search across another session's frames.
 """
 
 from __future__ import annotations
@@ -33,10 +34,12 @@ from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.display_frames import FrameStates
 from punt_lux.operations.models.display_write import FrameRaise
 from punt_lux.operations.models.table import RenderTableRequest
+from punt_lux.operations.queries import QueryOperations
 from punt_lux.operations.scenes import SceneOperations
 from punt_lux.operations.scope import Scope
 
 _CONNECTION = ConnectionId("c1")
+_SCOPE = Scope(_CONNECTION)
 _LOCAL_FRAME = "beads-lux"
 
 
@@ -56,7 +59,7 @@ class _StatefulDisplay:
     Tracks visibility per (already-scoped) frame id, the same state a real
     display holds: ``list_scenes`` reports it, ``raise_frame`` flips a held
     frame to ``on_screen`` and refuses one it does not hold — exactly the
-    contract :class:`DisplayControlOperations` depends on.
+    contract the resolution logic depends on.
     """
 
     _visibility: dict[str, str]
@@ -103,6 +106,10 @@ class _StatefulDisplay:
         return DisplayReplied({"rtt_seconds": 0.0})
 
 
+def _queries(store: HubDisplay, display: _StatefulDisplay) -> QueryOperations:
+    return QueryOperations(store, Hub(), display)
+
+
 def test_raising_a_closed_beads_frame_by_its_local_name_restores_it() -> None:
     # Goes through the real SceneOperations/ConvenienceOperations install path,
     # not a lower-level store write, so the frame id resolved below is exactly
@@ -113,17 +120,18 @@ def test_raising_a_closed_beads_frame_by_its_local_name_restores_it() -> None:
     request = RenderTableRequest.parse(
         {"scene_id": _LOCAL_FRAME, "columns": ["issue"], "rows": [["beads-1"]]}
     )
-    ConvenienceOperations(scenes).render_table(request, scope=Scope(_CONNECTION))
-    scoped_frame_id = store.frames.frame_id_for_local(_LOCAL_FRAME)
+    ConvenienceOperations(scenes).render_table(request, scope=_SCOPE)
+    scoped_frame_id = store.frames.frame_id_for_local(
+        _LOCAL_FRAME, connection=_CONNECTION
+    )
     assert scoped_frame_id is not None
     assert scoped_frame_id == ConnectionScopedId.compose(_CONNECTION, _LOCAL_FRAME)
 
     # The user closed the frame -- the display's own fact, never told to the Hub.
     display = _StatefulDisplay({scoped_frame_id: "closed"})
-    ops = DisplayControlOperations(display, store.frames)
 
     # The menu entry re-clicked: the same plain local name it always carries.
-    result = ops.raise_frame(_LOCAL_FRAME)
+    result = _queries(store, display).raise_frame(_LOCAL_FRAME, scope=_SCOPE)
 
     assert isinstance(result, FrameRaise)
     assert result.raised is True
@@ -132,7 +140,7 @@ def test_raising_a_closed_beads_frame_by_its_local_name_restores_it() -> None:
     # this is the resolution the bug's fix adds.
     assert display.last_raise_params == {"frame_id": scoped_frame_id}
 
-    frames = ops.list_frames()
+    frames = DisplayControlOperations(display).list_frames()
     assert isinstance(frames, FrameStates)
     frame = next(f for f in frames.frames if f.frame_id == scoped_frame_id)
     assert frame.visibility == "on_screen"
@@ -140,16 +148,15 @@ def test_raising_a_closed_beads_frame_by_its_local_name_restores_it() -> None:
 
 
 def test_an_unresolvable_local_name_is_passed_through_and_refused() -> None:
-    """A name the registry never scoped -- no board was ever shown -- is refused.
+    """A name this connection never showed -- no board was ever shown -- is refused.
 
     Unresolved names must not be guessed at: the display then answers the same
     way it would for any frame it has never heard of.
     """
     store = HubDisplay()
     display = _StatefulDisplay({})
-    ops = DisplayControlOperations(display, store.frames)
 
-    result = ops.raise_frame("no-such-board")
+    result = _queries(store, display).raise_frame("no-such-board", scope=_SCOPE)
 
     assert isinstance(result, FrameRaise)
     assert result.raised is False
@@ -165,9 +172,49 @@ def test_raise_frame_reports_op_error_when_the_display_cannot_be_reached() -> No
             return DisplayFault(code="display_unavailable")
 
     store = HubDisplay()
-    ops = DisplayControlOperations(_DownDisplay(), store.frames)
+    ops = QueryOperations(store, Hub(), _DownDisplay())
 
-    result = ops.raise_frame(_LOCAL_FRAME)
+    result = ops.raise_frame(_LOCAL_FRAME, scope=_SCOPE)
 
     assert isinstance(result, OpError)
     assert result.code == "display_unavailable"
+
+
+def test_two_connections_sharing_a_local_name_each_raise_only_their_own() -> None:
+    """The gvr finding: ``beads-<repo>`` carries no session component.
+
+    Two Claude sessions in the same repo each install a frame whose local
+    part is identically ``"beads-lux"``, under two different connections.
+    Reopening one must raise that session's own frame -- never the other's,
+    and never a silent no-op from refusing to pick between them.
+    """
+    other = ConnectionId("c2")
+    store = HubDisplay()
+    scenes = SceneOperations(store, _Recorder(), hub_element_factory, Hub())
+    conveniences = ConvenienceOperations(scenes)
+    request = RenderTableRequest.parse(
+        {"scene_id": _LOCAL_FRAME, "columns": ["issue"], "rows": [["beads-1"]]}
+    )
+    conveniences.render_table(request, scope=_SCOPE)
+    conveniences.render_table(request, scope=Scope(other))
+
+    mine = store.frames.frame_id_for_local(_LOCAL_FRAME, connection=_CONNECTION)
+    theirs = store.frames.frame_id_for_local(_LOCAL_FRAME, connection=other)
+    assert mine is not None
+    assert theirs is not None
+    assert mine != theirs  # DES-086: never the same store key
+
+    # Both sessions' frames are closed; only mine gets reopened.
+    display = _StatefulDisplay({mine: "closed", theirs: "closed"})
+
+    result = _queries(store, display).raise_frame(_LOCAL_FRAME, scope=_SCOPE)
+
+    assert isinstance(result, FrameRaise)
+    assert result.raised is True
+    assert display.last_raise_params == {"frame_id": mine}  # never theirs
+
+    frames = DisplayControlOperations(display).list_frames()
+    assert isinstance(frames, FrameStates)
+    by_id = {f.frame_id: f.visibility for f in frames.frames}
+    assert by_id[mine] == "on_screen"
+    assert by_id[theirs] == "closed"  # untouched by my raise

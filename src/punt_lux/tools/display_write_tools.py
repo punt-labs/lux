@@ -124,7 +124,7 @@ def frame_raise(frame_id: str) -> FrameRaise | OpError:
     ctx: CommandCtx[FrameOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
     )
-    return asyncio.run(frame_raise_command.execute(ctx, frame_id))
+    return asyncio.run(frame_raise_command.execute(ctx, frame_id, scope=_core._scope()))
 
 
 @mcp.tool(name="frame_close")

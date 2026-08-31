@@ -10,34 +10,31 @@ from punt_lux.commands._ports import Ctx
 if TYPE_CHECKING:
     from punt_lux.commands._ports import FrameOps
     from punt_lux.domain.hub.client_identity import ClientIdentity
-    from punt_lux.operations import FrameRaise, Ok, OpError
+    from punt_lux.operations import FrameRaise, Ok, OpError, Scope
 
 
 @final
 class FrameAccessor:
-    """The ``client.frame.*`` verbs -- ``raise_`` and ``close`` this cycle.
-
-    ``lower`` and ``expire`` are tracked separately (``lux-01iw`` / ``lux-0qrw``);
-    those tools are not on the ABC path yet, so their accessor methods land
-    with the follow-on beads rather than as stubs here.
-    """
+    """The ``client.frame.*`` verbs -- ``raise_`` and ``close`` this cycle."""
 
     _ops: FrameOps
     _identity: ClientIdentity
-    __slots__ = ("_identity", "_ops")
+    _scope: Scope
+    __slots__ = ("_identity", "_ops", "_scope")
 
-    def __new__(cls, ops: FrameOps, identity: ClientIdentity) -> Self:
+    def __new__(cls, ops: FrameOps, identity: ClientIdentity, scope: Scope) -> Self:
         self = super().__new__(cls)
         self._ops = ops
         self._identity = identity
+        self._scope = scope
         return self
 
     def _ctx(self) -> Ctx[FrameOps]:
         return Ctx(ops=self._ops, identity=self._identity)
 
     async def raise_(self, frame_id: str) -> FrameRaise | OpError:
-        """Raise ``frame_id`` to the top of the display's z-order."""
-        return await frame_raise.execute(self._ctx(), frame_id)
+        """Raise ``frame_id`` -- resolved within this client's own connection."""
+        return await frame_raise.execute(self._ctx(), frame_id, scope=self._scope)
 
     async def close(self, frame_id: str) -> Ok | OpError:
         """Close ``frame_id`` and tear down its scenes on the Hub."""

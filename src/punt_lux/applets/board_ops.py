@@ -88,5 +88,5 @@ class ScopedBoardOps:
         return self._ops.render_table(request, scope=self._scope)
 
     def raise_frame(self, frame_id: str) -> FrameRaise | OpError:
-        """Bring a frame to the front (unscoped -- forwarded as-is)."""
-        return self._ops.raise_frame(frame_id)
+        """Bring a frame to the front, resolved within this adapter's own scope."""
+        return self._ops.raise_frame(frame_id, scope=self._scope)

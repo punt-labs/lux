@@ -82,30 +82,9 @@ class _FakePort:
         return self._last_wait
 
 
-class _FakeFrameLookup:
-    """A FrameLocalLookup with a fixed local-name-to-scoped-id mapping."""
-
-    _by_local: Mapping[str, str]
-
-    def __new__(cls, by_local: Mapping[str, str] | None = None) -> Self:
-        self = super().__new__(cls)
-        self._by_local = by_local if by_local is not None else {}
-        return self
-
-    def frame_id_for_local(self, local_id: str) -> str | None:
-        return self._by_local.get(local_id)
-
-
-def _ops(
-    port: _FakePort, by_local: Mapping[str, str] | None = None
-) -> DisplayControlOperations:
-    """Build a ``DisplayControlOperations`` whose lookup finds no local name.
-
-    Every test but the two exercising resolution itself wants the port's
-    ``_last_params`` to read exactly the id it passed in, so the default
-    lookup is empty and the id passes through unresolved.
-    """
-    return DisplayControlOperations(port, _FakeFrameLookup(by_local))
+def _ops(port: _FakePort) -> DisplayControlOperations:
+    """Build a ``DisplayControlOperations`` over a fake port."""
+    return DisplayControlOperations(port)
 
 
 def test_get_display_info_accepts_the_live_display_payload() -> None:
@@ -357,38 +336,6 @@ def test_raise_frame_reports_whether_the_display_held_the_frame() -> None:
     ).raise_frame("f1")
     assert isinstance(absent, FrameRaise)
     assert absent.raised is False
-
-
-def test_raise_frame_resolves_a_local_name_to_its_connection_scoped_id() -> None:
-    # The display never holds a frame under the plain name a caller gave it --
-    # DES-086 scopes every frame to the connection that shows it. The Hub's
-    # registry is asked first, and whatever it finds is what reaches the wire.
-    scoped_id = "c1--beads-lux"  # opaque to this test -- any composed form will do
-    port = _FakePort(query=DisplayReplied({"frame_id": scoped_id, "raised": True}))
-    ops = _ops(port, by_local={"beads-lux": scoped_id})
-
-    raised = ops.raise_frame("beads-lux")
-
-    assert isinstance(raised, FrameRaise)
-    assert raised.raised is True
-    # The port saw the scoped id; the caller gets its own local name back.
-    assert port.last_params == {"frame_id": scoped_id}
-    assert raised.frame_id == "beads-lux"
-
-
-def test_raise_frame_passes_the_raw_id_through_when_no_local_name_matches() -> None:
-    # No recorded frame answers to this name -- an unknown name (no bead board
-    # was ever shown) or an id that is already the display's own scoped form
-    # (e.g. copied from list_frames). Either way, nothing to translate: the id
-    # goes to the display exactly as given, the existing untranslated behavior.
-    port = _FakePort(query=DisplayReplied({"frame_id": "f1", "raised": False}))
-    ops = _ops(port)  # empty lookup -- frame_id_for_local always returns None
-
-    raised = ops.raise_frame("f1")
-
-    assert isinstance(raised, FrameRaise)
-    assert raised.raised is False
-    assert port.last_params == {"frame_id": "f1"}
 
 
 def test_raise_frame_faults_on_a_reply_about_a_different_frame() -> None:

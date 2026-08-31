@@ -44,10 +44,11 @@ from punt_lux.rest.identity import resolve_identity, resolve_scope
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.client_identity import ClientIdentity
-    from punt_lux.operations import Operations
+    from punt_lux.operations import Operations, Scope
     from punt_lux.rest.status import HttpErrorMap
 
 _CallerIdentity = Annotated["ClientIdentity", Depends(resolve_identity)]
+_OwningScope = Annotated["Scope", Depends(resolve_scope)]
 
 __all__ = ["DisplayRoutes"]
 
@@ -86,12 +87,7 @@ class DisplayRoutes:
         )
         router.add_api_route("/display/frames", self.list_frames, methods=["GET"])
         f = "/display/frames/{frame_id}"
-        router.add_api_route(
-            f + "/raise",
-            self.raise_frame,
-            methods=["POST"],
-            dependencies=[Depends(resolve_scope)],
-        )
+        router.add_api_route(f + "/raise", self.raise_frame, methods=["POST"])
         router.add_api_route(
             f + "/close",
             self.close_frame,
@@ -149,9 +145,9 @@ class DisplayRoutes:
         """List the display's frames and where each one is currently shown."""
         return self._errors.respond(self._ops.list_frames())
 
-    def raise_frame(self, frame_id: str) -> FrameRaise:
+    def raise_frame(self, frame_id: str, scope: _OwningScope) -> FrameRaise:
         """Bring a frame to the front, restoring it if it was minimized."""
-        return self._errors.respond(self._ops.raise_frame(frame_id))
+        return self._errors.respond(self._ops.raise_frame(frame_id, scope=scope))
 
     def close_frame(self, frame_id: str) -> Ok:
         """Close a frame: tear down its scenes; identity required (DES-057)."""

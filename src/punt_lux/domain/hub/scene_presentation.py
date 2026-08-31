@@ -9,9 +9,7 @@ overwritten only by a re-show.
 
 from __future__ import annotations
 
-from contextlib import suppress
 from dataclasses import dataclass, replace
-from operator import attrgetter
 from typing import TYPE_CHECKING, Literal, Protocol, Self, final, runtime_checkable
 
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
@@ -130,21 +128,17 @@ class ScenePresentationRegistry:
         """Return every recorded scene shown in ``frame_id`` -- for closing it."""
         return [s for s, p in self._presentations.items() if p.frame_id == frame_id]
 
-    def frame_id_for_local(self, local_id: str) -> str | None:
-        """Return the connection-scoped frame id named ``local_id``, or None.
+    def frame_id_for_local(
+        self, local_id: str, *, connection: ConnectionId
+    ) -> str | None:
+        """Return ``connection``'s own frame id named ``local_id``, or None.
 
-        A caller names a frame by its local id, not the connection that
-        scoped it (DES-086). None both for an unknown name and one two
-        connections share.
+        Composed deterministically from the caller's own connection
+        (DES-086): two connections can never collide on the composed id, so
+        there is no search across other connections' frames and no
+        ambiguity to refuse — only whether this connection ever recorded a
+        presentation under the id its own local name composes to.
         """
-        ids = map(attrgetter("frame_id"), self._presentations.values())
-        matches = set(filter(lambda i: self._local_id(i) == local_id, ids))
-        return next(iter(matches)) if len(matches) == 1 else None
-
-    @staticmethod
-    def _local_id(frame_id: str) -> str:
-        """Return ``frame_id``'s local part, or itself if it carries none."""
-        local = frame_id
-        with suppress(ValueError):
-            local = ConnectionScopedId.from_composed(frame_id).local_id
-        return local
+        scoped_id = ConnectionScopedId.compose(connection, local_id)
+        held = {p.frame_id for p in self._presentations.values()}
+        return scoped_id if scoped_id in held else None
