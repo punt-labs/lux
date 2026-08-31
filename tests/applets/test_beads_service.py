@@ -261,13 +261,14 @@ def test_a_click_with_no_board_up_opens_one_before_asking_bd_anything() -> None:
     assert client.scenes[0].frame.frame_id == client.tables[0].frame_id
 
 
-def test_a_raise_that_cannot_be_answered_leaves_a_good_board_alone() -> None:
-    """A failed round trip must not replace a board that is up with a placeholder.
+def test_a_raise_that_cannot_be_answered_degrades_to_the_cold_click() -> None:
+    """A failed round trip establishes nothing, so the click treats it as not up.
 
-    The raise can fail while the board is perfectly visible — no display, a
-    timed-out round trip. Pushing the placeholder on the strength of that would
-    blank a good board for as long as the load takes, so nothing is pushed and the
-    click degrades to what it did before it had an instant half at all.
+    The raise can fail for reasons that say nothing about what is on screen —
+    no display, a timed-out round trip. Trusting that as "the board is up" is
+    exactly what let a closed frame stay closed (lux-81t3.2): the click instead
+    degrades to the cold path and pushes a placeholder, the same as a genuine
+    ``raised: false``.
     """
     journal = Journal()
     client = UnraisableClient(journal)
@@ -275,7 +276,7 @@ def test_a_raise_that_cannot_be_answered_leaves_a_good_board_alone() -> None:
 
     _whole_click(service, client)
 
-    assert journal.steps == ("raise", "load", "render_table")
+    assert journal.steps == ("raise", "render", "load", "render_table")
 
 
 def test_a_prefetched_board_is_shown_before_the_fresh_load_begins() -> None:

@@ -1,10 +1,11 @@
 """The Hub end of a board: what each answer means, and where failures stop.
 
 Two contracts, and both are about not losing something expensive to a round trip
-that did not land. A raise nobody could answer counts as a yes, because blanking
-a board that is plainly up is worse than skipping a placeholder nobody needed. A
-push that could not be sent is logged rather than raised, because the board it
-carried has already cost a multi-second query and the caller is keeping it.
+that did not land. A raise nobody could answer counts as *not* up — an errored
+round trip establishes nothing about what is on screen, and trusting it as a yes
+is exactly what let a closed frame stay closed (lux-81t3.2). A push that could
+not be sent is logged rather than raised, because the board it carried has
+already cost a multi-second query and the caller is keeping it.
 """
 
 from __future__ import annotations
@@ -37,14 +38,14 @@ def test_a_frame_that_is_not_up_is_reported_as_not_up() -> None:
     assert _channel(RecordingClient(frame_is_up=False)).raised("beads-lux") is False
 
 
-def test_a_raise_nobody_could_answer_counts_as_up(
+def test_a_raise_nobody_could_answer_counts_as_not_up(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """The board may well be on screen; blanking it on a failed trip is worse."""
+    """An errored round trip establishes nothing, so it must not read as a yes."""
     with caplog.at_level(logging.WARNING):
         answer = _channel(UnraisableClient(Journal())).raised("beads-lux")
 
-    assert answer is True
+    assert answer is False
     assert "could not be raised" in caplog.text
 
 
