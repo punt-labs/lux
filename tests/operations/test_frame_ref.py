@@ -21,7 +21,7 @@ def test_for_identity_composes_from_a_declared_identity() -> None:
     assert ref == FrameRef(identity.connection_id, "beads-lux")
 
 
-def test_for_identity_matches_of_for_the_same_identitys_scope() -> None:
+def test_for_identity_matches_of_for_the_same_identity_scope() -> None:
     """The two constructors agree -- one identity resolves to one connection."""
     identity = ClientIdentity(kind="cli", name="lux-cli", repo="/w/lux")
     scope = Scope(identity.connection_id)

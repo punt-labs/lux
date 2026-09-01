@@ -148,7 +148,7 @@ class QueryOperations:
             ref.local_id, connection=ref.connection_id
         )
         if resolved is None:
-            logger.info(
+            logger.debug(
                 "raise_frame: %r never shown by connection %s; forwarding unresolved",
                 ref.local_id,
                 ref.connection_id,

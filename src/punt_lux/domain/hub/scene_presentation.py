@@ -141,5 +141,5 @@ class ScenePresentationRegistry:
         presentation under the id its own local name composes to.
         """
         scoped_id = ConnectionScopedId.compose(connection, local_id)
-        held = set(map(attrgetter("frame_id"), self._presentations.values()))
-        return scoped_id if scoped_id in held else None
+        frame_ids = map(attrgetter("frame_id"), self._presentations.values())
+        return scoped_id if scoped_id in frame_ids else None
