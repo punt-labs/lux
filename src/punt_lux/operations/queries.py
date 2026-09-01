@@ -1,7 +1,8 @@
 """QueryOperations — the read surface, Hub-authoritative where it can be.
 
 ``inspect_scene``/``list_scenes``/``list_clients`` read the authority
-directly; everything else proxies the display's own facts over one connection.
+directly -- the reach-around removal. ``list_recent_events``, ``list_errors``,
+and ``raise_frame`` proxy the display's own facts over the one connection.
 """
 
 from __future__ import annotations
@@ -14,7 +15,6 @@ from punt_lux.domain.ids import SceneId
 from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.composition_boundary import CompositionBoundary
 from punt_lux.operations.display_facts import DisplayFactProxy
-from punt_lux.operations.frame_raise_proxy import FrameRaiseProxy
 from punt_lux.operations.frame_visibility_proxy import FrameVisibilityProxy
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.inspect_scope import HUB_ONLY, InspectScope
@@ -132,7 +132,7 @@ class QueryOperations:
     def raise_frame(self, ref: FrameRef) -> FrameRaise | OpError:
         """Bring the frame ``ref`` names to the front, resolved within its scope."""
         display_id = self._resolved_frame_id(ref)
-        result = FrameRaiseProxy(self._port).raise_frame(display_id)
+        result = FrameVisibilityProxy(self._port).raise_frame(display_id)
         return self._named(result, ref.local_id)
 
     @staticmethod
