@@ -11,7 +11,7 @@ from punt_lux.operations import FrameRef
 if TYPE_CHECKING:
     from punt_lux.commands._ports import FrameOps
     from punt_lux.domain.hub.client_identity import ClientIdentity
-    from punt_lux.operations import FrameRaise, Ok, OpError, Scope
+    from punt_lux.operations import FrameRaise, Ok, OpError
 
 
 @final
@@ -20,14 +20,12 @@ class FrameAccessor:
 
     _ops: FrameOps
     _identity: ClientIdentity
-    _scope: Scope
-    __slots__ = ("_identity", "_ops", "_scope")
+    __slots__ = ("_identity", "_ops")
 
-    def __new__(cls, ops: FrameOps, identity: ClientIdentity, scope: Scope) -> Self:
+    def __new__(cls, ops: FrameOps, identity: ClientIdentity) -> Self:
         self = super().__new__(cls)
         self._ops = ops
         self._identity = identity
-        self._scope = scope
         return self
 
     def _ctx(self) -> Ctx[FrameOps]:
@@ -35,7 +33,7 @@ class FrameAccessor:
 
     async def raise_(self, frame_id: str) -> FrameRaise | OpError:
         """Raise ``frame_id`` -- resolved within this client's own connection."""
-        ref = FrameRef.of(frame_id, scope=self._scope)
+        ref = FrameRef.for_identity(frame_id, self._identity)
         return await frame_raise.execute(self._ctx(), ref)
 
     async def close(self, frame_id: str) -> Ok | OpError:

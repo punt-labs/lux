@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 
 if TYPE_CHECKING:
+    from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.domain.ids import ConnectionId
     from punt_lux.operations.scope import Scope
 
@@ -32,6 +33,11 @@ class FrameRef:
     def of(cls, local_id: str, *, scope: Scope) -> Self:
         """Build from a caller's local frame name and the scope naming it."""
         return cls(scope.connection_id, local_id)
+
+    @classmethod
+    def for_identity(cls, local_id: str, identity: ClientIdentity) -> Self:
+        """Build from a caller's local frame name and its own declared identity."""
+        return cls(identity.connection_id, local_id)
 
     def scoped(self) -> str:
         """Return the connection-scoped store key this ref composes to."""

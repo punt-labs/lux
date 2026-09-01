@@ -22,7 +22,6 @@ from pydantic import ValidationError
 from punt_lux.cli._identity_errors import describe_identity_error
 from punt_lux.cli_identity import CliIdentity
 from punt_lux.client.facade import LuxClient
-from punt_lux.connection_identity import connection_for
 from punt_lux.domain.hub.client_identity import ClientIdentity, ClientKind
 from punt_lux.operations import Scope
 from punt_lux.rest_transport import HubUnavailableError
@@ -195,16 +194,7 @@ def _parse_as(as_: str | None) -> dict[str, str]:
 
 def scope_for(identity: ClientIdentity) -> Scope:
     """Compose the :class:`Scope` the identity's writes are keyed under."""
-    return Scope(
-        connection_for(
-            {
-                "kind": identity.kind,
-                "name": identity.name,
-                "repo": identity.repo,
-                "agent": identity.agent,
-            }
-        )
-    )
+    return Scope(identity.connection_id)
 
 
 def read_json_payload(inline: str | None, from_file: Path | None) -> dict[str, object]:
