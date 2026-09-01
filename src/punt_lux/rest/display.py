@@ -35,7 +35,6 @@ from punt_lux.operations import (
     Pong,
     RecentErrors,
     RecentEvents,
-    Scope,
     Screenshot,
     SetThemeRequest,
     ThemeState,
@@ -46,11 +45,11 @@ from punt_lux.rest.identity import resolve_identity, resolve_scope
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.client_identity import ClientIdentity
-    from punt_lux.operations import Operations
+    from punt_lux.operations import Operations, Scope
     from punt_lux.rest.status import HttpErrorMap
 
 _CallerIdentity = Annotated["ClientIdentity", Depends(resolve_identity)]
-_OwningScope = Annotated[Scope, Depends(resolve_scope)]
+_OwningScope = Annotated["Scope", Depends(resolve_scope)]
 
 __all__ = ["DisplayRoutes"]
 
