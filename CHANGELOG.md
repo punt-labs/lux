@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.32.1] - 2026-09-01
+
 ### Fixed
 
 - **Reopening a closed frame from its menu entry now works.** After DES-088 made
