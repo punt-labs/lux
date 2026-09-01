@@ -11,13 +11,11 @@ the store lock.
 
 There used to be a *third* teardown — a user closing a frame on the Display sent
 a ``frame_close`` event the Hub answered by removing the frame's scenes. That is
-gone (DES-088). Where a window sits is the Display's own business and the Hub is
-not told, so a *user gesture on the Display* is no longer one of the ways a frame
-is torn down here. What remains is a caller *asking* to close a frame outright —
-:meth:`remove_frame`, reached through the ``frame_close``/``close_frame`` command,
-a deliberate teardown distinct from the retired auto-close. The client taking its
-content away is the third path: an empty push or a manifest purge goes through
-:meth:`forget`, and a deadline passing through :meth:`expire_due`.
+gone (DES-088): where a window sits is the Display's own business, so a *user
+gesture on the Display* is no longer one of the ways a frame is torn down here.
+What remains is a caller *asking* to close a frame outright — :meth:`remove_frame`
+— and the client taking its content away: an empty push or manifest purge through
+:meth:`forget`, a deadline passing through :meth:`expire_due`.
 
 Recording a presentation, arming a deadline, and sweeping expiry all take the same
 lock every store write takes, so a frame re-armed with a fresh TTL is never torn
@@ -37,7 +35,7 @@ if TYPE_CHECKING:
         ScenePresentationRegistry,
     )
     from punt_lux.domain.hub.store_lock import StoreLock
-    from punt_lux.domain.ids import SceneId
+    from punt_lux.domain.ids import ConnectionId, SceneId
 
 __all__ = ["FrameLifecycle", "SceneRootRemover"]
 
@@ -126,6 +124,13 @@ class FrameLifecycle:
         with self._lock.read():
             return self._frames.presentation_for(scene_id)
 
+    def frame_id_for_local(
+        self, local_id: str, *, connection: ConnectionId
+    ) -> str | None:
+        """Resolve ``connection``'s own local frame name to its scoped id, locked."""
+        with self._lock.read():
+            return self._frames.frame_id_for_local(local_id, connection=connection)
+
     def remove_frame(self, frame_id: str) -> frozenset[SceneId]:
         """Close ``frame_id`` outright: tear down scenes, disarm its TTL, return them.
 
@@ -158,14 +163,10 @@ class FrameLifecycle:
     def _sweep_one(self, frame_id: str) -> frozenset[SceneId]:
         """Retire one due frame; return its scenes, or none if it could not be. Locked.
 
-        Frames are isolated from one another the way ``Hub.publish`` isolates
-        subscribers: a frame whose tear-down raises is logged and left armed to
-        retry on the next sweep, and it neither consumes the frame nor aborts the
-        others. Tearing down comes first and disarming only after, so a frame is
-        never disarmed on the strength of a tear-down that did not happen. A frame
-        that *did* tear down is returned regardless of what a later one does, so
-        the caller repaints it and no frame is left stranded — retired on the Hub
-        but never blanked on the Display.
+        Frames are isolated the way ``Hub.publish`` isolates subscribers: a frame
+        whose tear-down raises is logged and left armed to retry, never aborting
+        the others. Tearing down comes before disarming, so a frame is never
+        disarmed on the strength of a tear-down that did not happen.
         """
         try:
             torn = self._tear_down(frame_id)

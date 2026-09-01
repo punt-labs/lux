@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.hub.menu_registry import HubMenuRegistry
     from punt_lux.domain.hub.session_callback import CallbackInvocation
+    from punt_lux.operations.frame_ref import FrameRef
     from punt_lux.operations.models import (
         Cleared,
         DisplayModeRequest,
@@ -132,9 +133,8 @@ class Operations:
     ) -> Self:
         """Wire every concern class from injected collaborators — no singletons.
 
-        ``callback_router`` is the one process-wide router shared by the MCP and
-        REST composition roots. The Hub's own Details command is not composed
-        here -- it is keyed by ``ConnectionId``, not a surface capability.
+        ``callback_router`` is the one process-wide router the MCP and REST
+        composition roots share.
         """
         scenes = SceneOperations(display, replicator, ports.element_factory, hub)
         callbacks = CallbackOperations(display.clients, callback_router, replicator)
@@ -248,9 +248,9 @@ class Operations:
         return self._display.set_window_settings(patch)
 
     @Timed("raise_frame")
-    def raise_frame(self, frame_id: str) -> FrameRaise | OpError:
-        """Bring a frame to the front, restoring it if it was minimized."""
-        return self._display.raise_frame(frame_id)
+    def raise_frame(self, ref: FrameRef) -> FrameRaise | OpError:
+        """Bring the frame ``ref`` names to the front, resolved within its scope."""
+        return self._queries.raise_frame(ref)
 
     @Timed("list_frames")
     def list_frames(self) -> FrameStates | OpError:

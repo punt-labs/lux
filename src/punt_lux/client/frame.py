@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.commands import frame_close, frame_raise
 from punt_lux.commands._ports import Ctx
+from punt_lux.operations import FrameRef
 
 if TYPE_CHECKING:
     from punt_lux.commands._ports import FrameOps
@@ -15,12 +16,7 @@ if TYPE_CHECKING:
 
 @final
 class FrameAccessor:
-    """The ``client.frame.*`` verbs -- ``raise_`` and ``close`` this cycle.
-
-    ``lower`` and ``expire`` are tracked separately (``lux-01iw`` / ``lux-0qrw``);
-    those tools are not on the ABC path yet, so their accessor methods land
-    with the follow-on beads rather than as stubs here.
-    """
+    """The ``client.frame.*`` verbs -- ``raise_`` and ``close`` this cycle."""
 
     _ops: FrameOps
     _identity: ClientIdentity
@@ -36,8 +32,9 @@ class FrameAccessor:
         return Ctx(ops=self._ops, identity=self._identity)
 
     async def raise_(self, frame_id: str) -> FrameRaise | OpError:
-        """Raise ``frame_id`` to the top of the display's z-order."""
-        return await frame_raise.execute(self._ctx(), frame_id)
+        """Raise ``frame_id`` -- resolved within this client's own connection."""
+        ref = FrameRef.for_identity(frame_id, self._identity)
+        return await frame_raise.execute(self._ctx(), ref)
 
     async def close(self, frame_id: str) -> Ok | OpError:
         """Close ``frame_id`` and tear down its scenes on the Hub."""

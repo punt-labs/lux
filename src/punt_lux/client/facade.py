@@ -26,7 +26,6 @@ from punt_lux.client.scene import SceneAccessor
 from punt_lux.client.session import SessionAccessor
 from punt_lux.commands import ping as ping_command
 from punt_lux.commands._ports import Ctx
-from punt_lux.connection_identity import connection_for
 from punt_lux.operations import Scope
 
 if TYPE_CHECKING:
@@ -63,13 +62,7 @@ class LuxClient:
         self = super().__new__(cls)
         self._transport = transport
         self._identity = identity
-        declared = {
-            "kind": identity.kind,
-            "name": identity.name,
-            "repo": identity.repo,
-            "agent": identity.agent,
-        }
-        self._scope = Scope(connection_for(declared))
+        self._scope = Scope(identity.connection_id)
         return self
 
     @classmethod

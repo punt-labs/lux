@@ -18,6 +18,7 @@ if TYPE_CHECKING:
         DisplayModeRequest,
         DisplayModeState,
         FrameRaise,
+        FrameRef,
         FrameStatePatch,
         MenuList,
         OpError,
@@ -62,8 +63,8 @@ class StubFrameOps:
         self.last_call = {"frame_id": frame_id, "patch": patch}
         return cast("Ok | OpError", self._result)
 
-    def raise_frame(self, frame_id: str) -> FrameRaise | OpError:
-        self.last_call = {"frame_id": frame_id, "op": "raise"}
+    def raise_frame(self, ref: FrameRef) -> FrameRaise | OpError:
+        self.last_call = {"ref": ref, "op": "raise"}
         return cast("FrameRaise | OpError", self._result)
 
     def close_frame(self, frame_id: str) -> Ok:

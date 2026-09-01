@@ -16,7 +16,7 @@ connection's connect time with the identity it later declares.
 from __future__ import annotations
 
 from pathlib import PurePath
-from typing import Annotated, Literal, Self
+from typing import TYPE_CHECKING, Annotated, Literal, Self
 
 from pydantic import (
     BaseModel,
@@ -27,7 +27,11 @@ from pydantic import (
     model_validator,
 )
 
+from punt_lux.connection_identity import connection_for
 from punt_lux.domain.hub.applet_name_format import APPLET_NAME_RE
+
+if TYPE_CHECKING:
+    from punt_lux.domain.ids import ConnectionId
 
 __all__ = ["ClientIdentity", "ClientKind"]
 
@@ -145,20 +149,17 @@ class ClientIdentity(BaseModel):
         return self
 
     @property
+    def connection_id(self) -> ConnectionId:
+        """This identity's stable connection id (DES-086), derived deterministically."""
+        return connection_for(self.model_dump())
+
+    @property
     def menu_label(self) -> str:
         """The name a human calls this client where a menu has to name it.
 
-        A person names a client after the place it works: *the lux session*,
-        *the quarry session*. So a client that declared a repository is called
-        by that repository's directory, and one that declared none — a headless
-        command, a machine-wide daemon like voxd — is called what it calls
-        itself. One rule for every kind; the roster settles a collision between
-        two clients that read the same way.
-
-        This is deliberately not the declared ``name``: an applet's name carries
-        the process id that keeps two sessions on the same repository from
-        collapsing onto one connection, which is a distinctness token and not
-        something to read aloud.
+        A repo-declared client is named by its repository's directory; a
+        headless one (a command, voxd) is called what it calls itself. Not the
+        declared ``name`` -- an applet's name carries a distinctness pid.
         """
         return self._repo_name or self.name
 

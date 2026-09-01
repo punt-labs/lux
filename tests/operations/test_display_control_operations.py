@@ -82,10 +82,15 @@ class _FakePort:
         return self._last_wait
 
 
+def _ops(port: _FakePort) -> DisplayControlOperations:
+    """Build a ``DisplayControlOperations`` over a fake port."""
+    return DisplayControlOperations(port)
+
+
 def test_get_display_info_accepts_the_live_display_payload() -> None:
     # The drift defect: the display's real 8-field payload must validate against
     # the model the MCP output schema is derived from.
-    ops = DisplayControlOperations(_FakePort(query=DisplayReplied(_LIVE_DISPLAY_INFO)))
+    ops = _ops(_FakePort(query=DisplayReplied(_LIVE_DISPLAY_INFO)))
     result = ops.get_display_info()
     assert isinstance(result, DisplayInfo)
     assert result.backend == "OpenGL3"
@@ -93,16 +98,14 @@ def test_get_display_info_accepts_the_live_display_payload() -> None:
 
 
 def test_get_display_info_maps_unavailable_to_op_error() -> None:
-    ops = DisplayControlOperations(
-        _FakePort(query=DisplayFault(code="display_unavailable"))
-    )
+    ops = _ops(_FakePort(query=DisplayFault(code="display_unavailable")))
     result = ops.get_display_info()
     assert isinstance(result, OpError)
     assert result.code == "display_unavailable"
 
 
 def test_get_display_info_maps_timeout_to_op_error() -> None:
-    ops = DisplayControlOperations(_FakePort(query=DisplayFault(code="timeout")))
+    ops = _ops(_FakePort(query=DisplayFault(code="timeout")))
     result = ops.get_display_info()
     assert isinstance(result, OpError)
     assert result.code == "timeout"
@@ -115,7 +118,7 @@ def test_get_theme_passes_the_bare_theme_names_through() -> None:
         "current": "darcula",
         "available": ["imgui_colors_light", "darcula", "gray_variations"],
     }
-    ops = DisplayControlOperations(_FakePort(query=DisplayReplied(payload)))
+    ops = _ops(_FakePort(query=DisplayReplied(payload)))
     result = ops.get_theme()
     assert isinstance(result, ThemeState)
     assert result.theme == "darcula"
@@ -126,7 +129,7 @@ def test_get_theme_faults_on_an_unknown_theme_name() -> None:
     # A reply the model cannot narrow is a malformed display reply — an
     # engine-side fault, not a caller error — and fails loudly, not silently.
     payload = {"current": "not_a_theme", "available": []}
-    ops = DisplayControlOperations(_FakePort(query=DisplayReplied(payload)))
+    ops = _ops(_FakePort(query=DisplayReplied(payload)))
     result = ops.get_theme()
     assert isinstance(result, OpError)
     assert result.code == "fault"
@@ -140,7 +143,7 @@ def test_get_window_settings_reads_all_four_fields() -> None:
         "decorated": False,
         "fps_idle": 30.0,
     }
-    ops = DisplayControlOperations(_FakePort(query=DisplayReplied(payload)))
+    ops = _ops(_FakePort(query=DisplayReplied(payload)))
     result = ops.get_window_settings()
     assert isinstance(result, WindowSettings)
     assert result.opacity == 0.9
@@ -154,7 +157,7 @@ def test_screenshot_reports_unsupported_without_touching_the_display() -> None:
     # operation refuses cleanly and never routes a request the display would
     # reject with an internal message (nor returns a blank PNG).
     port = _FakePort()
-    result = DisplayControlOperations(port).screenshot()
+    result = _ops(port).screenshot()
     assert isinstance(result, OpError)
     assert result.code == "rejected"
     assert "not supported" in result.reason
@@ -165,7 +168,7 @@ def test_screenshot_reports_unsupported_without_touching_the_display() -> None:
 def test_ping_returns_elapsed_time() -> None:
     # The port measures rtt; this operation narrows the reply into a Pong.
     port = _FakePort(ping=DisplayReplied({"rtt_seconds": 0.05}))
-    ops = DisplayControlOperations(port)
+    ops = _ops(port)
     result = ops.ping()
     assert isinstance(result, Pong)
     assert result.rtt_seconds == 0.05
@@ -177,7 +180,7 @@ def test_ping_forwards_the_wait_to_the_port() -> None:
     # A bounded wait is not swallowed: it reaches the port as the display-leg
     # budget, so the REST timeout query param genuinely shortens the wait.
     port = _FakePort(ping=DisplayReplied({"rtt_seconds": 0.02}))
-    DisplayControlOperations(port).ping(1.5)
+    _ops(port).ping(1.5)
     assert port.last_wait == 1.5
 
 
@@ -186,7 +189,7 @@ def test_set_theme_returns_the_new_theme_state_and_rejects_unknown() -> None:
     # setter narrows it into a ThemeState, never a fabricated success.
     reply = {"current": "darcula", "available": ["imgui_colors_light", "darcula"]}
     port = _FakePort(query=DisplayReplied(reply))
-    ops = DisplayControlOperations(port)
+    ops = _ops(port)
     state = ops.set_theme(SetThemeRequest.parse("darcula"))
     assert isinstance(state, ThemeState)
     assert state.theme == "darcula"
@@ -202,14 +205,14 @@ def test_set_theme_faults_on_a_malformed_reply_instead_of_fabricating_success() 
     # A reply the ThemeState model does not recognize is an OpError(fault) — a
     # malformed display reply — never a success carrying the requested value.
     port = _FakePort(query=DisplayReplied({"current": "not_a_theme", "available": []}))
-    ops = DisplayControlOperations(port)
+    ops = _ops(port)
     result = ops.set_theme(SetThemeRequest.parse("darcula"))
     assert isinstance(result, OpError)
     assert result.code == "fault"
 
 
 def test_set_window_settings_rejects_empty_patch() -> None:
-    ops = DisplayControlOperations(_FakePort())
+    ops = _ops(_FakePort())
     result = ops.set_window_settings(WindowSettingsPatch.parse({}))
     assert isinstance(result, OpError)
     assert result.code == "invalid_request"
@@ -218,7 +221,7 @@ def test_set_window_settings_rejects_empty_patch() -> None:
 
 def test_set_window_settings_rejects_out_of_range_opacity() -> None:
     # The patch validates against the documented bounds before any round-trip.
-    ops = DisplayControlOperations(_FakePort())
+    ops = _ops(_FakePort())
     result = ops.set_window_settings(WindowSettingsPatch.parse({"opacity": 5.0}))
     assert isinstance(result, OpError)
     assert result.code == "invalid_request"
@@ -232,7 +235,7 @@ def test_set_window_settings_returns_the_new_settings() -> None:
         "fps_idle": 10.0,
     }
     port = _FakePort(query=DisplayReplied(reply))
-    ops = DisplayControlOperations(port)
+    ops = _ops(port)
     result = ops.set_window_settings(WindowSettingsPatch.parse({"opacity": 0.5}))
     assert isinstance(result, WindowSettings)
     assert result.opacity == 0.5
@@ -244,7 +247,7 @@ def test_set_frame_state_returns_ok_and_rejects_empty_patch() -> None:
     port = _FakePort(
         query=DisplayReplied({"frame_id": "f1", "changed": {"minimized": True}})
     )
-    ops = DisplayControlOperations(port)
+    ops = _ops(port)
     result = ops.set_frame_state("f1", FrameStatePatch.parse({"minimized": True}))
     assert isinstance(result, Ok)
     assert port.last_params == {"frame_id": "f1", "minimized": True}
@@ -286,7 +289,7 @@ def test_list_frames_reports_where_each_frame_is_shown() -> None:
         )
     )
 
-    result = DisplayControlOperations(port).list_frames()
+    result = _ops(port).list_frames()
 
     assert isinstance(result, FrameStates)
     assert [(f.frame_id, f.visibility) for f in result.frames] == [
@@ -303,7 +306,7 @@ def test_list_frames_refuses_a_reply_it_does_not_recognise() -> None:
     # holds no frames" are different facts, and an empty list would conflate them.
     port = _FakePort(query=DisplayReplied({"frames": [{"frame_id": "f1"}]}))
 
-    result = DisplayControlOperations(port).list_frames()
+    result = _ops(port).list_frames()
 
     assert isinstance(result, OpError)
 
@@ -312,7 +315,7 @@ def test_list_frames_passes_a_display_failure_through() -> None:
     """No display running is a fault the caller sees, never an empty frame list."""
     port = _FakePort(query=DisplayFault(code="display_unavailable"))
 
-    result = DisplayControlOperations(port).list_frames()
+    result = _ops(port).list_frames()
 
     assert isinstance(result, OpError)
     assert result.code == "display_unavailable"
@@ -322,13 +325,13 @@ def test_raise_frame_reports_whether_the_display_held_the_frame() -> None:
     # The two ordinary answers, neither of them an error: the frame was raised, or
     # there was none to raise and the caller now knows to push one.
     port = _FakePort(query=DisplayReplied({"frame_id": "f1", "raised": True}))
-    ops = DisplayControlOperations(port)
+    ops = _ops(port)
     raised = ops.raise_frame("f1")
     assert isinstance(raised, FrameRaise)
     assert raised.raised is True
     assert port.last_params == {"frame_id": "f1"}
 
-    absent = DisplayControlOperations(
+    absent = _ops(
         _FakePort(query=DisplayReplied({"frame_id": "f1", "raised": False}))
     ).raise_frame("f1")
     assert isinstance(absent, FrameRaise)
@@ -338,7 +341,7 @@ def test_raise_frame_reports_whether_the_display_held_the_frame() -> None:
 def test_raise_frame_faults_on_a_reply_about_a_different_frame() -> None:
     # Schema drift must not be read as an answer about the frame that was asked for.
     port = _FakePort(query=DisplayReplied({"frame_id": "other", "raised": True}))
-    result = DisplayControlOperations(port).raise_frame("f1")
+    result = _ops(port).raise_frame("f1")
     assert isinstance(result, OpError)
     assert result.code == "fault"
     assert "f1" in result.reason
@@ -348,7 +351,7 @@ def test_raise_frame_passes_a_display_failure_through() -> None:
     # No display, or a round trip that never answered: the caller must not read
     # that as "there was no frame", which would blank a board that is fine.
     port = _FakePort(query=DisplayFault(code="display_unavailable"))
-    result = DisplayControlOperations(port).raise_frame("f1")
+    result = _ops(port).raise_frame("f1")
     assert isinstance(result, OpError)
     assert result.code == "display_unavailable"
 
@@ -358,7 +361,7 @@ def test_set_frame_state_faults_on_a_reply_missing_the_frame_id() -> None:
     # the frame is a malformed display reply (fault), not an Ok. Both this and the
     # wrong-frame_id case below are faults, so the two ack failures are unified.
     port = _FakePort(query=DisplayReplied({"changed": {"minimized": True}}))
-    ops = DisplayControlOperations(port)
+    ops = _ops(port)
     result = ops.set_frame_state("f1", FrameStatePatch.parse({"minimized": True}))
     assert isinstance(result, OpError)
     assert result.code == "fault"
@@ -368,7 +371,7 @@ def test_set_frame_state_faults_on_a_reply_acknowledging_a_different_frame() -> 
     # The display acked a different frame than asked: the display did the wrong
     # thing, so this is a backend fault, not the engine refusing a caller write.
     port = _FakePort(query=DisplayReplied({"frame_id": "other", "changed": {}}))
-    ops = DisplayControlOperations(port)
+    ops = _ops(port)
     result = ops.set_frame_state("f1", FrameStatePatch.parse({"minimized": True}))
     assert isinstance(result, OpError)
     assert result.code == "fault"

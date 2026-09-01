@@ -43,17 +43,15 @@ class BoardChannel:
     def raised(self, frame_id: str) -> bool:
         """Bring a frame to the front; say whether the user has it already.
 
-        Three outcomes collapse into two, and which way they collapse is the
-        point. A frame that was raised means the board is in front of the user
-        and nothing should be pushed over it. A raise that could not be answered
-        at all — no display, a timed-out round trip — is reported and treated the
-        same way: the board may well be up, and blanking a good board on the
-        strength of a failed round trip is the worse of the two mistakes.
+        Only a real ``raised: true`` says the board is in front of the user. A
+        round trip that could not be answered at all establishes nothing about
+        what is on screen, so it is treated as *not* raised rather than assumed
+        — trusting it would skip the push that fills or refreshes the frame.
         """
         answer = self._client.raise_frame(frame_id)
         if isinstance(answer, OpError):
             logger.warning("the board could not be raised: %s", answer.reason)
-            return True
+            return False
         return answer.raised
 
     def send(self, request: BoardRequest) -> None:

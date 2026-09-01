@@ -1,15 +1,14 @@
 """The operations layer — the single home of every capability's logic.
 
-Each capability is one typed operation on a concern class. The :class:`Operations`
-facade (in :mod:`punt_lux.operations.facade`) composes those classes so one caller
-— an MCP adapter, a REST route, or a test — has one object to call. This package
-surface re-exports the facade, the caller scope, the injected ports, and the
-request and result models a surface needs to build and read a call.
+Each capability is one typed operation on a concern class; :class:`Operations`
+composes those classes so one caller has one object to call. This package
+re-exports the facade, scope, ports, and the models a surface needs to build a call.
 """
 
 from __future__ import annotations
 
 from punt_lux.operations.facade import Operations
+from punt_lux.operations.frame_ref import FrameRef
 from punt_lux.operations.models import (
     Cleared,
     DisplayModeRequest,
@@ -50,6 +49,7 @@ __all__ = [
     "DisplayModeRequest",
     "DisplayModeState",
     "FrameRaise",
+    "FrameRef",
     "FrameState",
     "FrameStatePatch",
     "FrameStates",

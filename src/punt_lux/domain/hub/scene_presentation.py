@@ -1,20 +1,16 @@
 """ScenePresentation — the full presentation a scene is resent with.
 
-The Hub is authoritative and the Display is a replica: every resend is a whole
-copy of the scene, not a diff. A scene is more than its element roots — it is
-also shown into a frame, with a title, a size hint, window flags, and a layout.
-The Hub remembers that presentation so the background replicator can repaint the
-scene from scratch after a coalesced change, a reconnect, or a display respawn,
-and the frame keeps the title and geometry the caller asked for.
-
-``ScenePresentationRegistry`` keeps one presentation per scene for the scene's
-lifetime, overwritten only by a re-show, so an emptied scene can still be blanked
-into the frame it was shown in.
+Every resend is a whole copy of the scene, not a diff. A scene is more than
+its element roots — it is also shown into a frame, with a title, a size hint,
+window flags, and a layout — remembered so the replicator can repaint from
+scratch after a reconnect. ``ScenePresentationRegistry`` keeps one per scene,
+overwritten only by a re-show.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from operator import attrgetter
 from typing import TYPE_CHECKING, Literal, Protocol, Self, final, runtime_checkable
 
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
@@ -40,8 +36,8 @@ type SceneLayout = Literal["single", "rows", "columns", "grid"]
 class ScenePusher(Protocol):
     """The one operation the replicator needs from the display connection.
 
-    Structural, so the presentation owns how it is sent without the domain
-    layer naming the concrete ``DisplayLink``.
+    Structural, so the presentation owns how it is sent without naming the
+    concrete ``DisplayLink``.
     """
 
     def show_async(
@@ -63,11 +59,7 @@ class ScenePusher(Protocol):
 @final
 @dataclass(frozen=True, slots=True)
 class ScenePresentation:
-    """How a scene is shown: its frame, title, size hint, flags, and layout.
-
-    Instances are never used as dict keys (``frame_flags`` is a mapping), so the
-    unhashable field is immaterial — equality and immutability are what matter.
-    """
+    """How a scene is shown: its frame, title, size hint, flags, and layout."""
 
     frame_id: str
     title: str | None = None
@@ -108,13 +100,8 @@ class ScenePresentationRegistry:
     """``SceneId → ScenePresentation`` — where and how each scene was shown.
 
     ``presentation_for`` is total: an unrecorded scene falls back to a
-    presentation framed by its own id — the same default the ``show`` front door
-    applies when no ``frame_id`` is given — so a resend of a never-explicitly-framed
-    scene lands exactly where it always did.
-
-    A presentation is kept until the scene is blanked away or re-shown: an emptied
-    scene can still be blanked into the frame it was shown in, and once that blank
-    lands the replicator ``forget``s it, so the map does not grow without bound.
+    presentation framed by its own id, so a resend of a never-explicitly-framed
+    scene lands where it always did. Kept until blanked away or re-shown.
     """
 
     _presentations: dict[SceneId, ScenePresentation]
@@ -130,23 +117,29 @@ class ScenePresentationRegistry:
         self._presentations[scene_id] = presentation
 
     def forget(self, scene_id: SceneId) -> None:
-        """Drop a scene's presentation after it has been blanked away.
-
-        Idempotent: forgetting an unrecorded scene is a no-op, so a blank of a
-        never-explicitly-framed scene reclaims nothing and does not raise.
-        """
+        """Drop a scene's presentation; a no-op if it was never recorded."""
         self._presentations.pop(scene_id, None)
 
     def presentation_for(self, scene_id: SceneId) -> ScenePresentation:
         """Return the scene's recorded presentation, or a self-framed default."""
-        return self._presentations.get(
-            scene_id, ScenePresentation(frame_id=str(scene_id))
-        )
+        default = ScenePresentation(frame_id=str(scene_id))
+        return self._presentations.get(scene_id, default)
 
     def scenes_in_frame(self, frame_id: str) -> list[SceneId]:
-        """Return every recorded scene currently shown in ``frame_id``.
-
-        The Hub's answer to "which scenes does this display frame hold?" — used to
-        remove them all when a user closes the frame or a frame TTL expires.
-        """
+        """Return every recorded scene shown in ``frame_id`` -- for closing it."""
         return [s for s, p in self._presentations.items() if p.frame_id == frame_id]
+
+    def frame_id_for_local(
+        self, local_id: str, *, connection: ConnectionId
+    ) -> str | None:
+        """Return ``connection``'s own frame id named ``local_id``, or None.
+
+        Composed deterministically from the caller's own connection
+        (DES-086): two connections can never collide on the composed id, so
+        there is no search across other connections' frames and no
+        ambiguity to refuse — only whether this connection ever recorded a
+        presentation under the id its own local name composes to.
+        """
+        scoped_id = ConnectionScopedId.compose(connection, local_id)
+        frame_ids = map(attrgetter("frame_id"), self._presentations.values())
+        return scoped_id if scoped_id in frame_ids else None

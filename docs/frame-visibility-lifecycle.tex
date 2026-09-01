@@ -870,6 +870,17 @@ does not mistake silence for a claim.
     element tree, and replacing one retires the element ids it dropped.  That
     is modelled in \texttt{docs/patch\_application.tex} and is orthogonal to
     visibility.
+  \item \textbf{Resolving a caller's name to a store key.}  \texttt{Raise}
+    takes \texttt{f? : FRAME} as already a well-formed member of the
+    carrier --- the schema has no notion of a caller naming a frame by a
+    plain local id distinct from the connection-scoped key the Display
+    actually stores it under.  That resolution (a Hub-side registry lookup,
+    not a Display-side visibility transition) is a missing method call, not
+    a new interleaving: no operation here reads or writes the mapping from a
+    caller's name to \texttt{FRAME}, so a defect in that mapping cannot
+    surface as a violated invariant of this model, and fixing it changes no
+    schema above.  The empirical regression coverage for that resolution
+    lives beside the fix, not here.
 \end{itemize}
 
 \end{document}

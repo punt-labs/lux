@@ -141,3 +141,61 @@ def test_push_resends_every_presentation_field() -> None:
     assert call["frame_flags"] == {"no_resize": True}
     assert call["frame_layout"] == "stack"
     assert call["title"] == "Board"
+
+
+def test_frame_id_for_local_resolves_a_recorded_scoped_frame() -> None:
+    # This is the read raise_frame needs: a caller names its frame by the
+    # plain local id it gave it, resolved within its OWN connection.
+    reg = ScenePresentationRegistry()
+    scoped = ScenePresentation(frame_id="beads-lux").scoped(ConnectionId("c1"))
+    reg.record(SceneId("c1\x1fbeads-lux"), scoped)
+    assert (
+        reg.frame_id_for_local("beads-lux", connection=ConnectionId("c1"))
+        == scoped.frame_id
+    )
+
+
+def test_frame_id_for_local_resolves_again_after_a_forget_and_reshow() -> None:
+    # The connection id is a stable function of identity (DES-086), so the
+    # same connection re-showing under its own name resolves the same way
+    # a fresh lookup would -- no search across other connections needed.
+    reg = ScenePresentationRegistry()
+    reg.record(
+        SceneId("c1\x1fbeads-lux"),
+        ScenePresentation(frame_id="beads-lux").scoped(ConnectionId("c1")),
+    )
+    reg.forget(SceneId("c1\x1fbeads-lux"))
+    reshown = ScenePresentation(frame_id="beads-lux").scoped(ConnectionId("c1"))
+    reg.record(SceneId("c1\x1fbeads-lux"), reshown)
+    assert (
+        reg.frame_id_for_local("beads-lux", connection=ConnectionId("c1"))
+        == reshown.frame_id
+    )
+
+
+def test_frame_id_for_local_returns_none_for_an_unknown_name() -> None:
+    reg = ScenePresentationRegistry()
+    assert reg.frame_id_for_local("never-shown", connection=ConnectionId("c1")) is None
+
+
+def test_frame_id_for_local_is_scoped_to_the_callers_own_connection() -> None:
+    # Two connections both named a frame "issues" -- unambiguous by
+    # construction, since each connection's own lookup only ever composes
+    # its own scoped id and never searches the other's.
+    reg = ScenePresentationRegistry()
+    reg.record(
+        SceneId("c1\x1fissues"),
+        ScenePresentation(frame_id="issues").scoped(ConnectionId("c1")),
+    )
+    reg.record(
+        SceneId("c2\x1fissues"),
+        ScenePresentation(frame_id="issues").scoped(ConnectionId("c2")),
+    )
+    assert (
+        reg.frame_id_for_local("issues", connection=ConnectionId("c1"))
+        == "c1\x1fissues"
+    )
+    assert (
+        reg.frame_id_for_local("issues", connection=ConnectionId("c2"))
+        == "c2\x1fissues"
+    )

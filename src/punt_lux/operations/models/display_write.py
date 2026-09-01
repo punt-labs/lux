@@ -37,10 +37,8 @@ class FrameStatePatch(BaseModel):
 class FrameStateAck(BaseModel):
     """The display's acknowledgment that it acted on a frame's state.
 
-    Pins the real ``set_frame_state`` reply shape: the ``frame_id`` acted on and
-    the ``changed`` map of fields the display actually flipped. A reply missing
-    either, or carrying the wrong types, is a ``fault`` — never a fabricated
-    success — so schema drift is caught instead of silently acknowledged.
+    A reply missing ``frame_id`` or ``changed``, or carrying the wrong types,
+    is a ``fault`` — never a fabricated success.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -60,10 +58,8 @@ class FrameStateAck(BaseModel):
 class FrameRaise(BaseModel):
     """Whether the display brought the named frame to the front.
 
-    ``raised`` false is the answer for a frame the display does not hold, and it
-    is a fact, not a failure: a caller asking for a frame by name is normally
-    finding out whether it has to push one. Reporting it as an error would make
-    the ordinary cold start an exception the caller has to catch.
+    ``raised`` false is a fact, not a failure: it just means the caller has
+    to push a board rather than an exception to catch.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -78,3 +74,7 @@ class FrameRaise(BaseModel):
             return cls.model_validate(payload)
         except ValidationError as exc:
             return OpError.from_reply(exc)
+
+    def with_frame_id(self, frame_id: str) -> FrameRaise:
+        """Return this answer renamed to ``frame_id`` -- the caller's own name."""
+        return self.model_copy(update={"frame_id": frame_id})

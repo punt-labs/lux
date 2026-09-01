@@ -26,6 +26,19 @@ def test_headless_identity_has_no_repo_or_agent() -> None:
     assert identity.agent is None
 
 
+def test_connection_id_is_stable_across_equivalent_identities() -> None:
+    """Two constructions of the same declared fields resolve to one connection."""
+    first = ClientIdentity(kind="cli", name="lux-cli", repo="/w/lux")
+    second = ClientIdentity(kind="cli", name="lux-cli", repo="/w/lux")
+    assert first.connection_id == second.connection_id
+
+
+def test_connection_id_differs_across_distinct_identities() -> None:
+    a = ClientIdentity(kind="cli", name="lux-cli", repo="/w/lux")
+    b = ClientIdentity(kind="cli", name="lux-cli", repo="/w/vox")
+    assert a.connection_id != b.connection_id
+
+
 def test_a_client_is_named_for_the_repository_it_works_in() -> None:
     """The menu calls a client after where it works, not what it declared."""
     identity = ClientIdentity(

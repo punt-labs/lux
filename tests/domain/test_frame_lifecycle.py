@@ -18,7 +18,7 @@ from punt_lux.domain.hub.scene_presentation import (
     ScenePresentationRegistry,
 )
 from punt_lux.domain.hub.store_lock import StoreLock
-from punt_lux.domain.ids import SceneId
+from punt_lux.domain.ids import ConnectionId, SceneId
 
 
 @final
@@ -107,3 +107,16 @@ def test_a_failed_teardown_still_repaints_the_other_frames() -> None:
 
     remover.stop_failing()
     assert fl.expire_due() == frozenset({SceneId("bad")})  # bad retried, retired
+
+
+def test_frame_id_for_local_reads_through_to_the_registry() -> None:
+    # raise_frame's id resolution, exercised through the lock this class adds
+    # over the registry's own frame_id_for_local (see test_scene_presentation.py
+    # for the resolution behavior itself).
+    clock = FakeClock()
+    fl = _lifecycle(clock, _Remover())
+    fl.present(SceneId("c1\x1fboard"), ScenePresentation(frame_id="c1\x1fboard"), None)
+
+    c1 = ConnectionId("c1")
+    assert fl.frame_id_for_local("board", connection=c1) == "c1\x1fboard"
+    assert fl.frame_id_for_local("never-shown", connection=c1) is None

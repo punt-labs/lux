@@ -21,6 +21,7 @@ from punt_lux.cli._shared import (
     run,
 )
 from punt_lux.commands import Ctx, FrameOps, frame_close, frame_raise
+from punt_lux.operations import FrameRef
 
 frame_app = typer.Typer(name="frame", help="Raise/close a frame.", no_args_is_help=True)
 
@@ -46,7 +47,7 @@ def raise_(
         as_=as_, kind=kind, name=name, repo=repo, agent=agent
     )
     ctx: Ctx[FrameOps] = Ctx(ops=connect_client(identity=identity), identity=identity)
-    run(frame_raise(ctx, frame_id), flags)
+    run(frame_raise(ctx, FrameRef.for_identity(frame_id, identity)), flags)
 
 
 @frame_app.command("close")

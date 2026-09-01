@@ -14,6 +14,7 @@ if TYPE_CHECKING:
         DisplayInfo,
         DisplayModeRequest,
         DisplayModeState,
+        FrameRef,
         InspectScope,
         MenuList,
         Ok,
@@ -107,8 +108,8 @@ class SceneOps(Protocol):
 class FrameOps(Protocol):
     """The ops surface the frame commands read."""
 
-    def raise_frame(self, frame_id: str) -> FrameRaise | OpError:
-        """Bring a frame to the front, restoring it if it was minimized."""
+    def raise_frame(self, ref: FrameRef) -> FrameRaise | OpError:
+        """Bring the frame ``ref`` names to the front, restoring it if minimized."""
         ...
 
     def close_frame(self, frame_id: str) -> Ok | OpError:
@@ -148,11 +149,9 @@ class SessionOps(Protocol):
 class CallbackRegisterOps(Protocol):
     """The ops surface :mod:`punt_lux.commands.callback_register` reads.
 
-    Split from the pending-invocations read (below) because the two have
-    different reachable transports: ``register_callback`` has a REST route
-    and a REST-backed client can implement it; ``pending_callbacks`` does
-    not (its delivery is the listen leg's ``take`` drain, which a stateless
-    REST request cannot bind to) -- see :class:`CallbackPendingOps`.
+    Split from the pending-invocations read (below): ``register_callback``
+    has a REST route, but ``pending_callbacks``'s delivery is the listen
+    leg's ``take`` drain, which a stateless REST request cannot bind to.
     """
 
     def register_callback(

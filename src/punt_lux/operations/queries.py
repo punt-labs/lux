@@ -1,21 +1,13 @@
 """QueryOperations — the read surface, Hub-authoritative where it can be.
 
-``inspect_scene``, ``list_scenes``, and ``list_clients`` read the authoritative
-Hub state directly: the element store, its presentations, and the session
-registry. This is the reach-around removal — asking the authority, not the
-display replica. ``list_recent_events`` and ``list_errors`` are facts about the
-running display's own ring buffers, so they proxy over luxd's one connection.
-
-Scene-summary grouping lives in :class:`~punt_lux.operations.scene_listing.SceneListing`
-and client-session facts in :class:`~punt_lux.operations.client_listing.ClientListing`
-(DES-065 OO paydown) — each is its own reason to change. This facade wires
-them to the one Hub connection every read shares, and owns directly the two
-concerns that don't fit either: the inspection tree and the two proxied
-display-fact reads.
+``inspect_scene``/``list_scenes``/``list_clients`` read the authority
+directly -- the reach-around removal. ``list_recent_events``, ``list_errors``,
+and ``raise_frame`` proxy the display's own facts over the one connection.
 """
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Self, cast, final
 
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
@@ -41,10 +33,14 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.hub.named_sessions import NamedSession
     from punt_lux.operations.display_port import DisplayPort
+    from punt_lux.operations.frame_ref import FrameRef
+    from punt_lux.operations.models.display_write import FrameRaise
     from punt_lux.operations.scope import Scope
     from punt_lux.protocol import Element as WireElement
 
 __all__ = ["QueryOperations"]
+
+logger = logging.getLogger(__name__)
 
 
 @final
@@ -75,15 +71,9 @@ class QueryOperations:
         """Return a scene's element tree read from the authoritative store.
 
         Reads ``HubDisplay`` — never the display replica. ``scene_id`` is
-        composed against the caller's own connection before the lookup, the
-        same way ``update``/``clear`` compose their own targets — a caller can
-        only ever inspect a scene it owns, with no override (DES-086,
-        Decision 5: "you can only inspect what you put into the
-        hub/display"). An unknown or unowned scene is a ``not_found``, never
-        distinguished from each other — the composed key either resolves to a
-        scene this caller installed, or it resolves to nothing at all. The
-        display-side painted geometry is proxied only when ``facts`` asks and
-        is never treated as Hub authority.
+        composed against the caller's own connection first, so a caller can
+        only ever inspect a scene it owns (DES-086, Decision 5); an unknown
+        or unowned scene is indistinguishably ``not_found``.
         """
         sid = CompositionBoundary.compose_or_reject(
             lambda: SceneId(ConnectionScopedId.compose(scope.connection_id, scene_id))
@@ -107,37 +97,20 @@ class QueryOperations:
         )
 
     def list_scenes(self, facts: InspectScope = HUB_ONLY) -> SceneList:
-        """List every scene and frame from the authoritative store.
-
-        Delegates the grouping and summarizing to
-        :class:`~punt_lux.operations.scene_listing.SceneListing`; see its
-        :meth:`~punt_lux.operations.scene_listing.SceneListing.read` for the
-        quarantine and frame-visibility contract.
-        """
+        """List every scene and frame; delegates to :class:`SceneListing`."""
         return self._scenes.read(facts)
 
     def list_clients(self) -> ClientList:
-        """List the Hub's sessions with the identity each declared and its age.
-
-        Delegates to :class:`~punt_lux.operations.client_listing.ClientListing`.
-        """
+        """List Hub sessions with each declared identity and age."""
         return self._clients.read()
 
     def client_facts(self, named: NamedSession) -> HubClient:
-        """Return one session's facts — the shape ``list_clients`` reports, for one.
-
-        Delegates to :class:`~punt_lux.operations.client_listing.ClientListing`,
-        what the Details command renders.
-        """
+        """Return one session's facts — the shape ``list_clients`` reports, for one."""
         return self._clients.facts(named)
 
     @staticmethod
     def local_id_of(scene_id: SceneId | str) -> str:
-        """Return the caller's own label for a store key, composed or not.
-
-        Delegates to :class:`~punt_lux.operations.scene_listing.SceneListing`,
-        which every scene-summary read already shares this label with.
-        """
+        """Return the caller's own label for a store key, composed or not."""
         return SceneListing.local_id_of(scene_id)
 
     # -- proxied display facts ---------------------------------------------
@@ -155,6 +128,32 @@ class QueryOperations:
         if isinstance(payload, OpError):
             return payload
         return RecentErrors.from_payload(payload)
+
+    def raise_frame(self, ref: FrameRef) -> FrameRaise | OpError:
+        """Bring the frame ``ref`` names to the front, resolved within its scope."""
+        display_id = self._resolved_frame_id(ref)
+        result = FrameVisibilityProxy(self._port).raise_frame(display_id)
+        return self._named(result, ref.local_id)
+
+    @staticmethod
+    def _named(result: FrameRaise | OpError, local_id: str) -> FrameRaise | OpError:
+        """Answer under the caller's own local name, passing an ``OpError`` through."""
+        if isinstance(result, OpError):
+            return result
+        return result.with_frame_id(local_id)
+
+    def _resolved_frame_id(self, ref: FrameRef) -> str:
+        """Return ``ref``'s scoped id, or its bare local name if never shown."""
+        resolved = self._display.frames.frame_id_for_local(
+            ref.local_id, connection=ref.connection_id
+        )
+        if resolved is None:
+            logger.debug(
+                "raise_frame: %r never shown by connection %s; forwarding unresolved",
+                ref.local_id,
+                ref.connection_id,
+            )
+        return ref.local_id if resolved is None else resolved
 
     # -- inspection tree ----------------------------------------------------
 

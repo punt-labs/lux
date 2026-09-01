@@ -3,18 +3,16 @@
 The Hub cannot own an ImGui theme, a window's opacity, a GPU backend string, or
 where a frame sits --- on screen, docked, or put away by the user. These
 operations reach the running display over luxd's one connection through the
-injected :class:`DisplayPort`. The caller
-still enters through a Hub operation, so there is one code path; the reach-around
-that is gone is a tool or a command-line tool talking to the display directly.
+injected :class:`DisplayPort`; the reach-around that is gone is a tool talking
+to the display directly, so there is still one code path.
 
-Every operation answers with a typed result. The getters (``get_display_info``,
-``get_theme``, ``get_window_settings``), the ``ping`` probe, and the setters
-(``set_theme`` → :class:`ThemeState`, ``set_window_settings`` →
-:class:`WindowSettings`, ``set_frame_state`` → :class:`Ok`) all narrow the
-display's reply into their result type; a reply the type does not recognize is
-an ``OpError(rejected)``, never a fabricated success. ``screenshot`` is the lone
-operation that never reaches the display — framebuffer capture is unsupported
-(DES-028), so it refuses with an ``OpError(rejected)`` up front.
+Every operation answers with a typed result: a reply the result type does not
+recognize is an ``OpError(rejected)``, never a fabricated success.
+``screenshot`` is the lone operation that never reaches the display —
+framebuffer capture is unsupported (DES-028), so it refuses up front.
+``raise_frame`` takes whatever id it is given as-is — resolving a caller's
+local name to the display's connection-scoped form (DES-086) happens once,
+in :meth:`Operations.raise_frame <punt_lux.operations.facade.Operations>`.
 """
 
 from __future__ import annotations
@@ -165,8 +163,8 @@ class DisplayControlOperations:
         """Bring a frame to the front, restoring it if it was minimized.
 
         The one focus change a client may ask for, and only because the user
-        asked: a menu click naming a frame is the user reaching for it. Nothing
-        here takes focus on its own initiative.
+        asked. ``frame_id`` is taken as-is -- the caller has already resolved
+        a plain local name to the display's connection-scoped id (DES-086).
 
         A frame the display does not hold answers ``raised`` false rather than an
         error — the caller is expected to push one — so only a display that could

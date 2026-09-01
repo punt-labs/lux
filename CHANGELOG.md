@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Reopening a closed frame from its menu entry now works.** After DES-088 made
+  "closed" a visibility the user owns, a client's `raise_frame` — the gesture
+  behind clicking a menu entry to bring a board back — could not restore a
+  closed frame: the caller raised a *local* frame name (`beads-<repo>`), but the
+  Hub holds frames under their connection-scoped id, so the raise targeted an id
+  the display had never heard of and answered `raised: false` (and DES-088's
+  content push correctly refuses to reopen a closed frame, so the click was a
+  silent no-op). The Hub now resolves a caller's local frame name to *its own
+  connection's* scoped id before raising — unambiguous by construction even when
+  two sessions in one repo share the same local name — and a failed raise no
+  longer masquerades as "the board is up." Frame identity is now carried as one
+  `FrameRef` value (connection + local name) rather than a bare string threaded
+  beside a scope. (`lux-81t3.2`, DES-089.)
+
 ## [0.32.0] - 2026-08-31
 
 ### Fixed

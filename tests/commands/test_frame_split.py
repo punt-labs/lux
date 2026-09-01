@@ -7,11 +7,13 @@ from typing import cast
 
 from punt_lux.commands import Ctx, FrameOps, frame_close, frame_raise
 from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.operations import FrameRaise, Ok, OpError
+from punt_lux.domain.ids import ConnectionId
+from punt_lux.operations import FrameRaise, FrameRef, Ok, OpError, Scope
 
 from ._family_stubs import StubFrameOps
 
 _WHO = ClientIdentity(kind="cli", name="test")
+_REF = FrameRef.of("f1", scope=Scope(ConnectionId("c1")))
 
 
 def _stub(result: object) -> StubFrameOps:
@@ -23,7 +25,7 @@ def _stub(result: object) -> StubFrameOps:
 def test_frame_raise_returns_ok_envelope_when_raised() -> None:
     ops = _stub(FrameRaise(frame_id="f1", raised=True))
     ctx: Ctx[FrameOps] = Ctx(ops=ops, identity=_WHO)
-    result = asyncio.run(frame_raise(ctx, "f1"))
+    result = asyncio.run(frame_raise(ctx, _REF))
     assert not result.error
     assert result.text == "raised:True"
 
@@ -31,7 +33,7 @@ def test_frame_raise_returns_ok_envelope_when_raised() -> None:
 def test_frame_raise_renders_fault_on_op_error() -> None:
     ops = _stub(OpError(code="display_unavailable", reason="down"))
     ctx: Ctx[FrameOps] = Ctx(ops=ops, identity=_WHO)
-    result = asyncio.run(frame_raise(ctx, "f1"))
+    result = asyncio.run(frame_raise(ctx, _REF))
     assert result.error
     assert result.text == "not running"
 
