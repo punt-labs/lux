@@ -88,9 +88,9 @@ class FrameVisibilityProxy:
     def raise_frame(self, frame_id: str) -> FrameRaise | OpError:
         """Bring ``frame_id`` -- already the display's own id -- to the front."""
         payload = self._port.query("raise_frame", {"frame_id": frame_id}).resolve()
-        if isinstance(payload, OpError):
-            return payload
-        raised = FrameRaise.from_reply(payload)
+        raised = (
+            payload if isinstance(payload, OpError) else FrameRaise.from_reply(payload)
+        )
         if isinstance(raised, OpError):
             return raised
         reason = f"raise_frame answered for {raised.frame_id!r}, not {frame_id!r}"

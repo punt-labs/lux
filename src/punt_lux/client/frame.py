@@ -30,11 +30,6 @@ class FrameAccessor:
         self._scope = scope
         return self
 
-    @property
-    def scope(self) -> Scope:
-        """The connection ``raise_`` resolves frame names within."""
-        return self._scope
-
     def _ctx(self) -> Ctx[FrameOps]:
         return Ctx(ops=self._ops, identity=self._identity)
 

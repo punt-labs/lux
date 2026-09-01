@@ -7,11 +7,10 @@ from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.commands._faults import render_fault
 from punt_lux.commands._result import CommandResult
-from punt_lux.operations import FrameRaise, OpError
+from punt_lux.operations import FrameRaise, FrameRef, OpError
 
 if TYPE_CHECKING:
     from punt_lux.commands._ports import Ctx, FrameOps
-    from punt_lux.operations import FrameRef
 
 
 @final
