@@ -23,6 +23,7 @@ from punt_lux.commands import (
 from punt_lux.operations import (
     DisplayModeRequest,
     FrameRaise,
+    FrameRef,
     Ok,
     OpError,
     SetMenuRequest,
@@ -57,10 +58,8 @@ def set_menu(menus: list[dict[str, Any]]) -> str:
     """Add custom menus to the Lux display menu bar; clicks arrive via recv().
 
     Each menu: {"label": "Tools", "items": [{"label": "Run", "id": "run_btn"},
-    {"label": "---"}]}  — a ``"---"`` label is a separator.
-
-    The menu bar is Hub-owned: this writes the Hub menu registry and the
-    background replicator pushes the bar to the display.
+    {"label": "---"}]}  — a ``"---"`` label is a separator. Hub-owned: this
+    writes the Hub menu registry and the replicator pushes the bar down.
     """
     ctx: CommandCtx[MenuOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
@@ -124,7 +123,8 @@ def frame_raise(frame_id: str) -> FrameRaise | OpError:
     ctx: CommandCtx[FrameOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
     )
-    return asyncio.run(frame_raise_command.execute(ctx, frame_id, scope=_core._scope()))
+    ref = FrameRef.of(frame_id, scope=_core._scope())
+    return asyncio.run(frame_raise_command.execute(ctx, ref))
 
 
 @mcp.tool(name="frame_close")
@@ -138,10 +138,9 @@ def frame_close(frame_id: str) -> Ok | OpError:
 
 @mcp.tool(name="display_mode_get")
 def display_mode(repo: str) -> str:
-    """Read the current display mode.
+    """Read the current display mode: "display:on" or "display:off".
 
-    Returns "display:on" or "display:off". ``repo`` must be the
-    absolute path of the caller's project; the config is read from
+    ``repo`` must be the caller's absolute project path; read from
     ``<repo>/.punt-labs/lux.md``.
     """
     ctx: CommandCtx[DisplayModeOps] = CommandCtx(

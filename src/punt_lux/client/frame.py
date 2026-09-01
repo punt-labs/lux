@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.commands import frame_close, frame_raise
 from punt_lux.commands._ports import Ctx
+from punt_lux.operations import FrameRef
 
 if TYPE_CHECKING:
     from punt_lux.commands._ports import FrameOps
@@ -29,12 +30,18 @@ class FrameAccessor:
         self._scope = scope
         return self
 
+    @property
+    def scope(self) -> Scope:
+        """The connection ``raise_`` resolves frame names within."""
+        return self._scope
+
     def _ctx(self) -> Ctx[FrameOps]:
         return Ctx(ops=self._ops, identity=self._identity)
 
     async def raise_(self, frame_id: str) -> FrameRaise | OpError:
         """Raise ``frame_id`` -- resolved within this client's own connection."""
-        return await frame_raise.execute(self._ctx(), frame_id, scope=self._scope)
+        ref = FrameRef.of(frame_id, scope=self._scope)
+        return await frame_raise.execute(self._ctx(), ref)
 
     async def close(self, frame_id: str) -> Ok | OpError:
         """Close ``frame_id`` and tear down its scenes on the Hub."""

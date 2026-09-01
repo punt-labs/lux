@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
 
+from punt_lux.operations import FrameRef
+
 if TYPE_CHECKING:
     from punt_lux.client._sync_ops import SyncOps
     from punt_lux.client.facade import LuxClient
@@ -25,12 +27,8 @@ class BoardOps(Protocol):
 
     Deliberately narrow -- every applet-internal class collectively calls
     exactly these three methods, not the full ``SceneOps``/``FrameOps``
-    families they belong to Hub-side. ``scope`` is optional here (REST
-    composes it from identity headers; an applet's board layer never owns
-    one). Reached through :class:`ScopedBoardOps`, never through
-    ``LuxClient.sync`` directly -- ``SyncOps`` inherits ``SceneOps``'s
-    mandatory-``scope`` signature verbatim and does not structurally satisfy
-    this narrower shape on its own.
+    families they belong to Hub-side. Reached through :class:`ScopedBoardOps`,
+    never through ``LuxClient.sync`` directly.
     """
 
     def render(
@@ -89,4 +87,4 @@ class ScopedBoardOps:
 
     def raise_frame(self, frame_id: str) -> FrameRaise | OpError:
         """Bring a frame to the front, resolved within this adapter's own scope."""
-        return self._ops.raise_frame(frame_id, scope=self._scope)
+        return self._ops.raise_frame(FrameRef.of(frame_id, scope=self._scope))

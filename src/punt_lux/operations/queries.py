@@ -1,13 +1,8 @@
 """QueryOperations — the read surface, Hub-authoritative where it can be.
 
-``inspect_scene``, ``list_scenes``, and ``list_clients`` read the authoritative
-Hub state directly — the reach-around removal, asking the authority, not the
-display replica. ``list_recent_events``, ``list_errors``, and ``raise_frame``
-proxy the display's own facts over luxd's one connection.
-
-Scene grouping lives in :class:`~punt_lux.operations.scene_listing.SceneListing`,
-client facts in :class:`~punt_lux.operations.client_listing.ClientListing` —
-this wires both to the one Hub connection, owning directly what fits neither.
+``inspect_scene``/``list_scenes``/``list_clients`` read the authority
+directly -- the reach-around removal. ``list_recent_events``, ``list_errors``,
+and ``raise_frame`` proxy the display's own facts over the one connection.
 """
 
 from __future__ import annotations
@@ -38,6 +33,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.hub.named_sessions import NamedSession
     from punt_lux.operations.display_port import DisplayPort
+    from punt_lux.operations.frame_ref import FrameRef
     from punt_lux.operations.models.display_write import FrameRaise
     from punt_lux.operations.scope import Scope
     from punt_lux.protocol import Element as WireElement
@@ -75,10 +71,9 @@ class QueryOperations:
         """Return a scene's element tree read from the authoritative store.
 
         Reads ``HubDisplay`` — never the display replica. ``scene_id`` is
-        composed against the caller's own connection before the lookup, so a
-        caller can only ever inspect a scene it owns (DES-086, Decision 5).
-        An unknown or unowned scene is a ``not_found``, indistinguishable
-        from each other. Painted geometry is proxied only when ``facts`` asks.
+        composed against the caller's own connection first, so a caller can
+        only ever inspect a scene it owns (DES-086, Decision 5); an unknown
+        or unowned scene is indistinguishably ``not_found``.
         """
         sid = CompositionBoundary.compose_or_reject(
             lambda: SceneId(ConnectionScopedId.compose(scope.connection_id, scene_id))
@@ -134,26 +129,31 @@ class QueryOperations:
             return payload
         return RecentErrors.from_payload(payload)
 
-    def raise_frame(self, frame_id: str, *, scope: Scope) -> FrameRaise | OpError:
-        """Bring a frame to the front, resolved within the caller's own connection.
+    def raise_frame(self, ref: FrameRef) -> FrameRaise | OpError:
+        """Bring the frame ``ref`` names to the front, resolved within its scope."""
+        display_id = self._resolved_frame_id(ref)
+        result = FrameVisibilityProxy(self._port).raise_frame(display_id)
+        return self._named(result, ref.local_id)
 
-        Composed deterministically from ``scope`` alone (DES-086), so the
-        resolution is unambiguous by construction -- never a cross-connection
-        search. A name this connection never showed is forwarded unresolved.
-        """
+    @staticmethod
+    def _named(result: FrameRaise | OpError, local_id: str) -> FrameRaise | OpError:
+        """Answer under the caller's own local name, passing an ``OpError`` through."""
+        if isinstance(result, OpError):
+            return result
+        return result.with_frame_id(local_id)
+
+    def _resolved_frame_id(self, ref: FrameRef) -> str:
+        """Return ``ref``'s scoped id, or its bare local name if never shown."""
         resolved = self._display.frames.frame_id_for_local(
-            frame_id, connection=scope.connection_id
+            ref.local_id, connection=ref.connection_id
         )
         if resolved is None:
             logger.info(
                 "raise_frame: %r never shown by connection %s; forwarding unresolved",
-                frame_id,
-                scope.connection_id,
+                ref.local_id,
+                ref.connection_id,
             )
-        result = FrameVisibilityProxy(self._port).raise_frame(resolved or frame_id)
-        if isinstance(result, OpError):
-            return result
-        return result.with_frame_id(frame_id)
+        return ref.local_id if resolved is None else resolved
 
     # -- inspection tree ----------------------------------------------------
 

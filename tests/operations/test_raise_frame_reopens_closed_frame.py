@@ -30,6 +30,7 @@ from punt_lux.domain.ids import ConnectionId
 from punt_lux.operations.conveniences import ConvenienceOperations
 from punt_lux.operations.display_control import DisplayControlOperations
 from punt_lux.operations.display_reply import DisplayFault, DisplayReplied, DisplayReply
+from punt_lux.operations.frame_ref import FrameRef
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.display_frames import FrameStates
 from punt_lux.operations.models.display_write import FrameRaise
@@ -41,6 +42,7 @@ from punt_lux.operations.scope import Scope
 _CONNECTION = ConnectionId("c1")
 _SCOPE = Scope(_CONNECTION)
 _LOCAL_FRAME = "beads-lux"
+_REF = FrameRef.of(_LOCAL_FRAME, scope=_SCOPE)
 
 
 class _Recorder:
@@ -131,7 +133,7 @@ def test_raising_a_closed_beads_frame_by_its_local_name_restores_it() -> None:
     display = _StatefulDisplay({scoped_frame_id: "closed"})
 
     # The menu entry re-clicked: the same plain local name it always carries.
-    result = _queries(store, display).raise_frame(_LOCAL_FRAME, scope=_SCOPE)
+    result = _queries(store, display).raise_frame(_REF)
 
     assert isinstance(result, FrameRaise)
     assert result.raised is True
@@ -156,7 +158,8 @@ def test_an_unresolvable_local_name_is_passed_through_and_refused() -> None:
     store = HubDisplay()
     display = _StatefulDisplay({})
 
-    result = _queries(store, display).raise_frame("no-such-board", scope=_SCOPE)
+    ref = FrameRef.of("no-such-board", scope=_SCOPE)
+    result = _queries(store, display).raise_frame(ref)
 
     assert isinstance(result, FrameRaise)
     assert result.raised is False
@@ -174,7 +177,7 @@ def test_raise_frame_reports_op_error_when_the_display_cannot_be_reached() -> No
     store = HubDisplay()
     ops = QueryOperations(store, Hub(), _DownDisplay())
 
-    result = ops.raise_frame(_LOCAL_FRAME, scope=_SCOPE)
+    result = ops.raise_frame(_REF)
 
     assert isinstance(result, OpError)
     assert result.code == "display_unavailable"
@@ -207,7 +210,7 @@ def test_two_connections_sharing_a_local_name_each_raise_only_their_own() -> Non
     # Both sessions' frames are closed; only mine gets reopened.
     display = _StatefulDisplay({mine: "closed", theirs: "closed"})
 
-    result = _queries(store, display).raise_frame(_LOCAL_FRAME, scope=_SCOPE)
+    result = _queries(store, display).raise_frame(_REF)
 
     assert isinstance(result, FrameRaise)
     assert result.raised is True

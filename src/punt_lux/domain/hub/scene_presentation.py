@@ -10,6 +10,7 @@ overwritten only by a re-show.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from operator import attrgetter
 from typing import TYPE_CHECKING, Literal, Protocol, Self, final, runtime_checkable
 
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
@@ -140,5 +141,5 @@ class ScenePresentationRegistry:
         presentation under the id its own local name composes to.
         """
         scoped_id = ConnectionScopedId.compose(connection, local_id)
-        held = {p.frame_id for p in self._presentations.values()}
+        held = set(map(attrgetter("frame_id"), self._presentations.values()))
         return scoped_id if scoped_id in held else None

@@ -26,6 +26,7 @@ from punt_lux.operations import (
     RenderTableRequest,
     SceneShown,
 )
+from punt_lux.operations.frame_ref import FrameRef
 from punt_lux.operations.scope import Scope
 from punt_lux.rest_transport import HttpResponse, HubUnavailableError
 from tests.rest._fakes import make_client
@@ -40,6 +41,7 @@ if TYPE_CHECKING:
 _TEXT: dict[str, object] = {"kind": "text", "id": "t1", "content": "hi"}
 _IDENTITY = ClientIdentity(kind="cli", name="rest-test", repo="/w/lux")
 _SCOPE = Scope(ConnectionId("c1"))
+_FRAME = FrameRef.of("beads lux", scope=_SCOPE)
 
 
 class CannedTransport:
@@ -160,7 +162,7 @@ def test_raise_frame_posts_to_the_frame_with_no_body() -> None:
     transport = CannedTransport(
         HttpResponse(status=200, body=b'{"frame_id":"beads lux","raised":true}')
     )
-    result = _client_over(transport).raise_frame("beads lux", scope=_SCOPE)
+    result = _client_over(transport).raise_frame(_FRAME)
     assert result == FrameRaise(frame_id="beads lux", raised=True)
     call = _sent(transport)
     assert call.method == "POST"

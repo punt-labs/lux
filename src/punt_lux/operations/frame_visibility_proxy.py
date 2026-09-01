@@ -93,7 +93,9 @@ class FrameVisibilityProxy:
         raised = FrameRaise.from_reply(payload)
         if isinstance(raised, OpError):
             return raised
-        if raised.frame_id != frame_id:
-            reason = f"raise_frame answered for {raised.frame_id!r}, not {frame_id!r}"
-            return OpError(code="fault", reason=reason)
-        return raised
+        reason = f"raise_frame answered for {raised.frame_id!r}, not {frame_id!r}"
+        return (
+            raised
+            if raised.frame_id == frame_id
+            else OpError(code="fault", reason=reason)
+        )

@@ -11,7 +11,7 @@ from punt_lux.__main__ import app
 from punt_lux.operations import FrameRaise, Ok, OpError
 
 if TYPE_CHECKING:
-    from punt_lux.operations import Scope
+    from punt_lux.operations import FrameRef
 
 runner = CliRunner()
 
@@ -32,9 +32,8 @@ class _FrameClient:
     def sync(self) -> _FrameClient:
         return self
 
-    def raise_frame(self, frame_id: str, *, scope: Scope) -> FrameRaise | OpError:
-        del scope
-        self.calls.append(("raise_frame", frame_id))
+    def raise_frame(self, ref: FrameRef) -> FrameRaise | OpError:
+        self.calls.append(("raise_frame", ref.local_id))
         assert self._raise_result is not None
         return self._raise_result
 

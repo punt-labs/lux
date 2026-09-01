@@ -54,6 +54,7 @@ if TYPE_CHECKING:
         DisplayInfo,
         DisplayModeRequest,
         DisplayModeState,
+        FrameRef,
         InspectScope,
         RenderDashboardRequest,
         SceneInspection,
@@ -184,14 +185,14 @@ class _RestTransport:
         call = HttpCall.post("/menus/callbacks", request, self._headers)
         return RestReply(self._transport.request(call)).read(Ok)
 
-    def raise_frame(self, frame_id: str, *, scope: Scope) -> FrameRaise | OpError:
-        """Bring a frame to the front through ``POST /display/frames/{id}/raise``.
+    def raise_frame(self, ref: FrameRef) -> FrameRaise | OpError:
+        """Bring the frame ``ref`` names to the front through the raise route.
 
         A frame the display does not hold answers ``raised`` false rather than
-        an error. ``scope`` is unused -- REST resolves it from the headers.
+        an error. ``ref.connection_id`` is unused -- REST resolves the caller's
+        connection from the headers; only ``ref.local_id`` names the frame.
         """
-        del scope
-        segment = quote(frame_id, safe="")
+        segment = quote(ref.local_id, safe="")
         call = HttpCall.command(f"/display/frames/{segment}/raise", self._headers)
         return RestReply(self._transport.request(call)).read(FrameRaise)
 

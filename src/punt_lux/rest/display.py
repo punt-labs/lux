@@ -29,6 +29,7 @@ from punt_lux.commands import (
 from punt_lux.operations import (
     DisplayInfo,
     FrameRaise,
+    FrameRef,
     FrameStates,
     Ok,
     Pong,
@@ -147,7 +148,8 @@ class DisplayRoutes:
 
     def raise_frame(self, frame_id: str, scope: _OwningScope) -> FrameRaise:
         """Bring a frame to the front, restoring it if it was minimized."""
-        return self._errors.respond(self._ops.raise_frame(frame_id, scope=scope))
+        ref = FrameRef.of(frame_id, scope=scope)
+        return self._errors.respond(self._ops.raise_frame(ref))
 
     def close_frame(self, frame_id: str) -> Ok:
         """Close a frame: tear down its scenes; identity required (DES-057)."""
