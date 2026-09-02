@@ -191,13 +191,13 @@ class Landings:
 
 @final
 class SteppedClient:
-    """A client that can be stopped inside a raise or inside a push.
+    """A client that can be stopped inside a push.
 
-    Every property here is about what happens *during* a round trip, so a round
-    trip is where a test has to be able to stand. Which of the two is gated is
-    which race the test is about: a raise that hangs is a click that has read the
-    applet's state and not yet shown anything, and a push that hangs is a write
-    in flight with the display not yet changed.
+    Every property here is about what happens *during* the socket write, so
+    that is where a test has to be able to stand: a push that hangs is a
+    write in flight with the display not yet changed. Raising the frame
+    moved Display-local and synchronous (DES-088), so there is no longer a
+    round trip on this client's own thread to gate before the push.
     """
 
     _landings: Landings

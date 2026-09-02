@@ -1,9 +1,10 @@
 """``client.display.*`` -- the noun-grouped Display accessor.
 
-``mode_get``/``mode_set`` stay split rather than fused: the display fuse is
-deferred to ``lux-5pwu``. Theme and window are read-only here -- setting
-either is the user's own gesture at the Display's own Lux ▸ Settings menu,
-never a client op (DES-088).
+Theme, window, and mode are all read-only here -- setting theme or window is
+the user's own gesture at the Display's own Lux ▸ Settings menu, never a
+client op (DES-088); setting mode is the CLI's own direct
+``DisplayModeStore`` write (``cli/display.py``), bypassing this accessor and
+the Hub entirely.
 """
 
 from __future__ import annotations
