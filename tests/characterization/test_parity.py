@@ -56,9 +56,6 @@ STRUCTURED_TOOLS = frozenset(
         "list_recent_events",
         "list_scenes",
         "frame_close",
-        "frame_raise",
-        "set_theme",
-        "set_window_settings",
     }
 )
 # Tools whose response is a typed Pydantic model rather than a text envelope.
