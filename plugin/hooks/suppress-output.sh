@@ -64,18 +64,7 @@ if [[ "$TOOL_NAME" == "set_menu" ]]; then
   exit 0
 fi
 
-if [[ "$TOOL_NAME" == "display_theme_set" ]]; then
-  THEME=$(echo "$RESULT" | sed -n 's/^theme://p')
-  emit "◻ theme:${THEME}" "$RESULT"
-  exit 0
-fi
-
 if [[ "$TOOL_NAME" == "display_mode_get" ]]; then
-  emit "◻ ${RESULT}" "$RESULT"
-  exit 0
-fi
-
-if [[ "$TOOL_NAME" == "display_mode_set" ]]; then
   emit "◻ ${RESULT}" "$RESULT"
   exit 0
 fi

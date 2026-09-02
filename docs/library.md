@@ -61,11 +61,11 @@ The library facade exposes nine accessors this cycle:
 | Accessor | Verbs |
 |----------|-------|
 | `client.scene` | `show`, `update`, `clear`, `clear_all`, `inspect`, `ls`, `table`, `dashboard` |
-| `client.frame` | `raise_`, `close` |
+| `client.frame` | `close` |
 | `client.menu` | `ls`, `set` |
 | `client.session` | `ls`, `identify` |
 | `client.callback` | `register` |
-| `client.display` | `info`, `get_theme`, `set_theme`, `get_window`, `set_window`, `get_mode`, `set_mode`, `screenshot` |
+| `client.display` | `info`, `get_theme`, `get_window`, `get_mode`, `screenshot` |
 | `client.event` | `ls` |
 | `client.error` | `ls` |
 
@@ -230,7 +230,6 @@ public for callers that hold the listen leg directly.
 | `client.clear()` | `await client.scene.clear_all()` |
 | `client.list_scenes()` | `await client.scene.ls()` |
 | `client.inspect_scene(sid, facts=...)` | `await client.scene.inspect(sid, facts=...)` |
-| `client.raise_frame(fid)` | `await client.frame.raise_(fid)` |
 | `client.close_frame(fid)` | `await client.frame.close(fid)` |
 | `client.list_menus()` | `await client.menu.ls()` |
 | `client.set_menu(req)` | `await client.menu.set(req)` |
@@ -238,9 +237,9 @@ public for callers that hold the listen leg directly.
 | `client.identify(decl, scope=...)` | `await client.session.identify(decl)` |
 | `client.register_callback(id, label)` | `await client.callback.register(id, label)` |
 | `client.get_display_info()` | `await client.display.info()` |
-| `client.get_theme()` / `set_theme(req)` | `await client.display.get_theme()` / `set_theme(req)` |
-| `client.get_window_settings()` / `set_window_settings(patch)` | `await client.display.get_window()` / `set_window(patch)` |
-| `client.read_display_mode(repo)` / `write_display_mode(req)` | `await client.display.get_mode(repo)` / `set_mode(req)` |
+| `client.get_theme()` | `await client.display.get_theme()` |
+| `client.get_window_settings()` | `await client.display.get_window()` |
+| `client.read_display_mode(repo)` | `await client.display.get_mode(repo)` |
 | `client.screenshot()` | `await client.display.screenshot()` |
 | `client.list_recent_events(count)` | `await client.event.ls(count)` |
 | `client.list_errors(count)` | `await client.error.ls(count)` |

@@ -11,17 +11,14 @@ allowed-tools:
   - mcp__plugin_lux_lux__scene_table
   - mcp__plugin_lux_lux__scene_update
   - mcp__plugin_lux_lux__topic_recv
-  - mcp__plugin_lux_lux__display_theme_set
   - mcp__plugin_lux-dev_lux__scene_show
   - mcp__plugin_lux-dev_lux__scene_table
   - mcp__plugin_lux-dev_lux__scene_update
   - mcp__plugin_lux-dev_lux__topic_recv
-  - mcp__plugin_lux-dev_lux__display_theme_set
   - mcp__lux__scene_show
   - mcp__lux__scene_table
   - mcp__lux__scene_update
   - mcp__lux__topic_recv
-  - mcp__lux__display_theme_set
 ---
 
 # /lux:scene.data-explorer — Interactive Data Explorer
@@ -154,7 +151,7 @@ scene_table(
 
 ## Phase 4: Display
 
-Call `display_theme_set("imgui_colors_light")` before showing — light themes work best for data-dense views. Then call `scene_show()` with the composed element tree.
+Call `scene_show()` with the composed element tree.
 
 ## Phase 5: Interaction
 
