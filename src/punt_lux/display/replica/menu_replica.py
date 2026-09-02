@@ -36,6 +36,7 @@ class MenuReplica:
     """Own the replicated menu state and compose the menu every surface renders."""
 
     _emit_event: Callable[[RemoteEventHandlerInvocation], None]
+    _on_raise_frame: Callable[[str], None]
     _own: OwnMenus
     _agent_menus: tuple[WireMenu, ...]
     _callback_menus: tuple[WireMenu, ...]
@@ -47,6 +48,7 @@ class MenuReplica:
         "_bar",
         "_callback_menus",
         "_emit_event",
+        "_on_raise_frame",
         "_own",
         "_panel",
         "_world",
@@ -72,6 +74,7 @@ class MenuReplica:
     ) -> Self:
         self = super().__new__(cls)
         self._emit_event = emit_event
+        self._on_raise_frame = on_raise_frame
         self._own = OwnMenus(
             on_theme_selected=on_theme_selected,
             on_decorated_toggled=on_decorated_toggled,
@@ -132,8 +135,14 @@ class MenuReplica:
         return MenuModel(
             [
                 self._own.lux_section(),
-                *(Submenu.from_wire(m, self._emit_event) for m in self._callback_menus),
-                *(Submenu.from_wire(m, self._emit_event) for m in self._agent_menus),
+                *(
+                    Submenu.from_wire(m, self._emit_event, self._on_raise_frame)
+                    for m in self._callback_menus
+                ),
+                *(
+                    Submenu.from_wire(m, self._emit_event, self._on_raise_frame)
+                    for m in self._agent_menus
+                ),
                 *self._own.chrome_sections(),
             ]
         )

@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 __all__ = ["MenuModel", "Submenu"]
 
 type EmitEvent = Callable[[RemoteEventHandlerInvocation], None]
+type RaiseFrame = Callable[[str], None]
 
 
 @final
@@ -54,14 +55,18 @@ class Submenu:
         return self
 
     @classmethod
-    def from_wire(cls, menu: WireMenu, emit: EmitEvent) -> Self:
+    def from_wire(
+        cls, menu: WireMenu, emit: EmitEvent, raise_frame: RaiseFrame
+    ) -> Self:
         """Return the menu a checked replicated menu describes.
 
         An agent bar, the ``Clients`` menu, and a client's submenu inside it all
         arrive in the same shape, so all become menus here and a click on any
-        leaf emits the same ``action="menu"`` invocation back to the Hub.
+        leaf emits the same ``action="menu"`` invocation back to the Hub. A leaf
+        carrying a ``frame_id`` also raises that frame Display-locally, before
+        the invocation is even sent (DES-088: only the Display moves a frame).
         """
-        return cls(menu.label, list(cls._wire_entries(menu, emit)))
+        return cls(menu.label, list(cls._wire_entries(menu, emit, raise_frame)))
 
     @property
     def label(self) -> str:
@@ -94,7 +99,9 @@ class Submenu:
         return activated
 
     @classmethod
-    def _wire_entries(cls, menu: WireMenu, emit: EmitEvent) -> Iterator[MenuEntry]:
+    def _wire_entries(
+        cls, menu: WireMenu, emit: EmitEvent, raise_frame: RaiseFrame
+    ) -> Iterator[MenuEntry]:
         """Yield one entry per entry of the checked menu, in order.
 
         A nested menu is decoded as a menu, so a menu the Hub nested — the
@@ -104,31 +111,55 @@ class Submenu:
         """
         for entry in menu.entries:
             if isinstance(entry, WireMenu):
-                yield cls.from_wire(entry, emit)
+                yield cls.from_wire(entry, emit, raise_frame)
             elif isinstance(entry, WireSeparator):
                 yield MenuSeparator()
             else:
-                yield cls._wire_item(menu.label, entry, emit)
+                yield cls._wire_item(menu.label, entry, emit, raise_frame)
 
     @classmethod
     def _wire_item(
-        cls, menu_label: str, action: WireAction, emit: EmitEvent
+        cls,
+        menu_label: str,
+        action: WireAction,
+        emit: EmitEvent,
+        raise_frame: RaiseFrame,
     ) -> MenuItem:
         """Return the clickable line one checked action describes."""
         return MenuItem(
             action.label,
-            cls._invoke(menu_label, action.label, action.item_id, emit),
+            cls._invoke(
+                menu_label,
+                action.label,
+                action.item_id,
+                action.frame_id,
+                emit,
+                raise_frame,
+            ),
             shortcut=action.shortcut,
             enabled=action.enabled,
         )
 
     @staticmethod
     def _invoke(
-        menu_label: str, item_label: str, item_id: str, emit: EmitEvent
+        menu_label: str,
+        item_label: str,
+        item_id: str,
+        frame_id: str | None,
+        emit: EmitEvent,
+        raise_frame: RaiseFrame,
     ) -> Callable[[], None]:
-        """Return the action that sends this item's click back to the Hub."""
+        """Return the action that raises this item's frame, then reports the click.
+
+        The raise runs first and Display-locally, so the frame is already on
+        screen by the time the Hub is even told the click happened — DES-088:
+        only the Display moves a frame, and only a real click at the Display
+        moves it.
+        """
 
         def activate() -> None:
+            if frame_id is not None:
+                raise_frame(frame_id)
             emit(
                 RemoteEventHandlerInvocation(
                     element_id=item_id,
