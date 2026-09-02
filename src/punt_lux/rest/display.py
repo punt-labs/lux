@@ -28,8 +28,6 @@ from punt_lux.commands import (
 )
 from punt_lux.operations import (
     DisplayInfo,
-    FrameRaise,
-    FrameRef,
     FrameStates,
     Ok,
     Pong,
@@ -88,7 +86,6 @@ class DisplayRoutes:
         )
         router.add_api_route("/display/frames", self.list_frames, methods=["GET"])
         f = "/display/frames/{frame_id}"
-        router.add_api_route(f + "/raise", self.raise_frame, methods=["POST"])
         router.add_api_route(
             f + "/close",
             self.close_frame,
@@ -145,11 +142,6 @@ class DisplayRoutes:
     def list_frames(self) -> FrameStates:
         """List the display's frames and where each one is currently shown."""
         return self._errors.respond(self._ops.list_frames())
-
-    def raise_frame(self, frame_id: str, scope: _OwningScope) -> FrameRaise:
-        """Bring a frame to the front, restoring it if it was minimized."""
-        ref = FrameRef.of(frame_id, scope=scope)
-        return self._errors.respond(self._ops.raise_frame(ref))
 
     def close_frame(self, frame_id: str) -> Ok:
         """Close a frame: tear down its scenes; identity required (DES-057)."""

@@ -229,7 +229,6 @@ class RenderLoop:
         router.register_handler("set_window_settings", self._query_set_window_settings)
         frames = FrameCommands(self._scenes)
         router.register_handler("set_frame_state", frames.set_state)
-        router.register_handler("raise_frame", frames.raise_it)
         router.register_handler("set_theme", self._query_set_theme)
         return self
 

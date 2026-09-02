@@ -14,7 +14,6 @@ if TYPE_CHECKING:
         DisplayInfo,
         DisplayModeRequest,
         DisplayModeState,
-        FrameRef,
         InspectScope,
         MenuList,
         Ok,
@@ -35,7 +34,6 @@ if TYPE_CHECKING:
     )
     from punt_lux.operations.models.callbacks import RegisterCallbackRequest
     from punt_lux.operations.models.display_probe import Screenshot
-    from punt_lux.operations.models.display_write import FrameRaise
     from punt_lux.operations.models.identity import Identified
     from punt_lux.operations.models.menu_results import SetMenuRequest
     from punt_lux.operations.models.pubsub import PublishRequest, Received
@@ -107,10 +105,6 @@ class SceneOps(Protocol):
 @runtime_checkable
 class FrameOps(Protocol):
     """The ops surface the frame commands read."""
-
-    def raise_frame(self, ref: FrameRef) -> FrameRaise | OpError:
-        """Bring the frame ``ref`` names to the front, restoring it if minimized."""
-        ...
 
     def close_frame(self, frame_id: str) -> Ok | OpError:
         """Close a frame: tear down its scenes on the Hub."""

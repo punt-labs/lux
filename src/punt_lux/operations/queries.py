@@ -1,13 +1,12 @@
 """QueryOperations — the read surface, Hub-authoritative where it can be.
 
 ``inspect_scene``/``list_scenes``/``list_clients`` read the authority
-directly -- the reach-around removal. ``list_recent_events``, ``list_errors``,
-and ``raise_frame`` proxy the display's own facts over the one connection.
+directly -- the reach-around removal. ``list_recent_events`` and
+``list_errors`` proxy the display's own facts over the one connection.
 """
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Self, cast, final
 
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
@@ -33,14 +32,10 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.hub.named_sessions import NamedSession
     from punt_lux.operations.display_port import DisplayPort
-    from punt_lux.operations.frame_ref import FrameRef
-    from punt_lux.operations.models.display_write import FrameRaise
     from punt_lux.operations.scope import Scope
     from punt_lux.protocol import Element as WireElement
 
 __all__ = ["QueryOperations"]
-
-logger = logging.getLogger(__name__)
 
 
 @final
@@ -128,32 +123,6 @@ class QueryOperations:
         if isinstance(payload, OpError):
             return payload
         return RecentErrors.from_payload(payload)
-
-    def raise_frame(self, ref: FrameRef) -> FrameRaise | OpError:
-        """Bring the frame ``ref`` names to the front, resolved within its scope."""
-        display_id = self._resolved_frame_id(ref)
-        result = FrameVisibilityProxy(self._port).raise_frame(display_id)
-        return self._named(result, ref.local_id)
-
-    @staticmethod
-    def _named(result: FrameRaise | OpError, local_id: str) -> FrameRaise | OpError:
-        """Answer under the caller's own local name, passing an ``OpError`` through."""
-        if isinstance(result, OpError):
-            return result
-        return result.with_frame_id(local_id)
-
-    def _resolved_frame_id(self, ref: FrameRef) -> str:
-        """Return ``ref``'s scoped id, or its bare local name if never shown."""
-        resolved = self._display.frames.frame_id_for_local(
-            ref.local_id, connection=ref.connection_id
-        )
-        if resolved is None:
-            logger.debug(
-                "raise_frame: %r never shown by connection %s; forwarding unresolved",
-                ref.local_id,
-                ref.connection_id,
-            )
-        return ref.local_id if resolved is None else resolved
 
     # -- inspection tree ----------------------------------------------------
 

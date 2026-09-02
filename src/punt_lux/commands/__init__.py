@@ -34,7 +34,6 @@ from punt_lux.commands.display_window_set import display_window_set
 from punt_lux.commands.error_ls import error_ls
 from punt_lux.commands.event_ls import event_ls
 from punt_lux.commands.frame_close import frame_close
-from punt_lux.commands.frame_raise import frame_raise
 from punt_lux.commands.menu_ls import menu_ls
 from punt_lux.commands.menu_set import menu_set
 from punt_lux.commands.ping import ping
@@ -84,7 +83,6 @@ __all__ = [
     "error_ls",
     "event_ls",
     "frame_close",
-    "frame_raise",
     "menu_ls",
     "menu_set",
     "ping",

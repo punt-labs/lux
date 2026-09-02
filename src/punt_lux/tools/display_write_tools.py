@@ -17,13 +17,10 @@ from punt_lux.commands import (
     display_set_theme as display_set_theme_command,
     display_window_set as display_window_set_command,
     frame_close as frame_close_command,
-    frame_raise as frame_raise_command,
     menu_set as menu_set_command,
 )
 from punt_lux.operations import (
     DisplayModeRequest,
-    FrameRaise,
-    FrameRef,
     Ok,
     OpError,
     SetMenuRequest,
@@ -45,7 +42,6 @@ from punt_lux.tools.server import mcp
 __all__ = [
     "display_mode",
     "frame_close",
-    "frame_raise",
     "set_display_mode",
     "set_menu",
     "set_theme",
@@ -115,16 +111,6 @@ def set_window_settings(
         }
     )
     return asyncio.run(display_window_set_command.execute(ctx, patch))
-
-
-@mcp.tool(name="frame_raise")
-def frame_raise(frame_id: str) -> FrameRaise | OpError:
-    """Bring ``frame_id`` to the front, restoring it if minimized."""
-    ctx: CommandCtx[FrameOps] = CommandCtx(
-        ops=_core.OPERATIONS, identity=_core._identity()
-    )
-    ref = FrameRef.of(frame_id, scope=_core._scope())
-    return asyncio.run(frame_raise_command.execute(ctx, ref))
 
 
 @mcp.tool(name="frame_close")

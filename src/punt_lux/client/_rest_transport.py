@@ -29,7 +29,6 @@ from punt_lux.hub_paths import HubPaths
 from punt_lux.identity_headers import ClientHeaders
 from punt_lux.operations import (
     ClientList,
-    FrameRaise,
     MenuList,
     Ok,
     OpError,
@@ -54,7 +53,6 @@ if TYPE_CHECKING:
         DisplayInfo,
         DisplayModeRequest,
         DisplayModeState,
-        FrameRef,
         InspectScope,
         RenderDashboardRequest,
         SceneInspection,
@@ -189,17 +187,6 @@ class _RestTransport:
             return request
         call = HttpCall.post("/menus/callbacks", request, self._headers)
         return RestReply(self._transport.request(call)).read(Ok)
-
-    def raise_frame(self, ref: FrameRef) -> FrameRaise | OpError:
-        """Bring the frame ``ref`` names to the front through the raise route.
-
-        A frame the display does not hold answers ``raised`` false rather than
-        an error. ``ref.connection_id`` is unused -- REST resolves the caller's
-        connection from the headers; only ``ref.local_id`` names the frame.
-        """
-        segment = quote(ref.local_id, safe="")
-        call = HttpCall.command(f"/display/frames/{segment}/raise", self._headers)
-        return RestReply(self._transport.request(call)).read(FrameRaise)
 
     def ping(self, wait: float | None = None) -> Pong | OpError:
         """Round-trip a display ping through ``GET /display/ping``.

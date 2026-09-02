@@ -30,7 +30,6 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.hub.menu_registry import HubMenuRegistry
     from punt_lux.domain.hub.session_callback import CallbackInvocation
-    from punt_lux.operations.frame_ref import FrameRef
     from punt_lux.operations.models import (
         Cleared,
         DisplayModeRequest,
@@ -53,7 +52,6 @@ if TYPE_CHECKING:
     from punt_lux.operations.models.display_frames import FrameStates
     from punt_lux.operations.models.display_info import DisplayInfo
     from punt_lux.operations.models.display_probe import Pong, Screenshot
-    from punt_lux.operations.models.display_write import FrameRaise
     from punt_lux.operations.models.identity import Identified
     from punt_lux.operations.models.menu_results import MenuList, Ok, SetMenuRequest
     from punt_lux.operations.models.query_clients import ClientList
@@ -246,11 +244,6 @@ class Operations:
     ) -> WindowSettings | OpError:
         """Change the provided window settings and return the new settings."""
         return self._display.set_window_settings(patch)
-
-    @Timed("raise_frame")
-    def raise_frame(self, ref: FrameRef) -> FrameRaise | OpError:
-        """Bring the frame ``ref`` names to the front, resolved within its scope."""
-        return self._queries.raise_frame(ref)
 
     @Timed("list_frames")
     def list_frames(self) -> FrameStates | OpError:

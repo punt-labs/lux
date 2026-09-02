@@ -130,7 +130,8 @@ def list_frames() -> FrameStates | OpError:
     Each frame reports a ``visibility`` of ``on_screen``, ``docked`` (collapsed
     to the dock bar), or ``closed`` (the user shut it). A closed frame is still
     listed and still holds its scenes --- closing puts a window away, it does not
-    throw its contents out --- and ``raise_frame`` brings it back.
+    throw its contents out --- and only the user, at the Display's own Windows
+    menu, can bring it back (DES-088: visibility is never a client op).
 
     Read from the running display rather than the Hub's store, because where a
     window sits belongs to the user and is never replicated back.

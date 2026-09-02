@@ -9,10 +9,10 @@ to the display directly, so there is still one code path.
 Every operation answers with a typed result: a reply the result type does not
 recognize is an ``OpError(rejected)``, never a fabricated success.
 ``screenshot`` is the lone operation that never reaches the display —
-framebuffer capture is unsupported (DES-028), so it refuses up front.
-``raise_frame`` takes whatever id it is given as-is — resolving a caller's
-local name to the display's connection-scoped form (DES-086) happens once,
-in :meth:`Operations.raise_frame <punt_lux.operations.facade.Operations>`.
+framebuffer capture is unsupported (DES-028), so it refuses up front. Frame
+visibility (raising a frame) is never one of these operations at all — that
+is a Display-local, user-gesture-only concern (DES-088); no client op reaches
+around to move a frame.
 """
 
 from __future__ import annotations
@@ -24,7 +24,6 @@ from punt_lux.operations.models.display_frames import FrameStates
 from punt_lux.operations.models.display_info import DisplayInfo
 from punt_lux.operations.models.display_probe import Pong, Screenshot
 from punt_lux.operations.models.display_write import (
-    FrameRaise,
     FrameStateAck,
     FrameStatePatch,
 )
@@ -151,32 +150,10 @@ class DisplayControlOperations:
 
         Not a field on ``list_scenes``: that read is Hub-authoritative and never
         reaches around to the display, and where a window sits is not a fact the
-        Hub has. Here it sits beside :meth:`set_frame_state` and
-        :meth:`raise_frame`, the other two operations over the same state.
+        Hub has. Here it sits beside :meth:`set_frame_state`, the other
+        operation over the same state.
         """
         payload = self._port.query("list_scenes", {}).resolve()
         if isinstance(payload, OpError):
             return payload
         return FrameStates.from_payload(payload)
-
-    def raise_frame(self, frame_id: str) -> FrameRaise | OpError:
-        """Bring a frame to the front, restoring it if it was minimized.
-
-        The one focus change a client may ask for, and only because the user
-        asked. ``frame_id`` is taken as-is -- the caller has already resolved
-        a plain local name to the display's connection-scoped id (DES-086).
-
-        A frame the display does not hold answers ``raised`` false rather than an
-        error — the caller is expected to push one — so only a display that could
-        not be reached, or that answered off-schema, yields an ``OpError``.
-        """
-        payload = self._port.query("raise_frame", {"frame_id": frame_id}).resolve()
-        if isinstance(payload, OpError):
-            return payload
-        raised = FrameRaise.from_reply(payload)
-        if isinstance(raised, OpError):
-            return raised
-        if raised.frame_id != frame_id:
-            reason = f"raise_frame answered for {raised.frame_id!r}, not {frame_id!r}"
-            return OpError(code="fault", reason=reason)
-        return raised

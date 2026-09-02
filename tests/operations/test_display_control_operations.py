@@ -22,7 +22,7 @@ from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.display_frames import FrameStates
 from punt_lux.operations.models.display_info import DisplayInfo
 from punt_lux.operations.models.display_probe import Pong
-from punt_lux.operations.models.display_write import FrameRaise, FrameStatePatch
+from punt_lux.operations.models.display_write import FrameStatePatch
 from punt_lux.operations.models.menu_results import Ok
 from punt_lux.operations.models.theme import SetThemeRequest, ThemeState
 from punt_lux.operations.models.window import WindowSettings, WindowSettingsPatch
@@ -317,41 +317,6 @@ def test_list_frames_passes_a_display_failure_through() -> None:
 
     result = _ops(port).list_frames()
 
-    assert isinstance(result, OpError)
-    assert result.code == "display_unavailable"
-
-
-def test_raise_frame_reports_whether_the_display_held_the_frame() -> None:
-    # The two ordinary answers, neither of them an error: the frame was raised, or
-    # there was none to raise and the caller now knows to push one.
-    port = _FakePort(query=DisplayReplied({"frame_id": "f1", "raised": True}))
-    ops = _ops(port)
-    raised = ops.raise_frame("f1")
-    assert isinstance(raised, FrameRaise)
-    assert raised.raised is True
-    assert port.last_params == {"frame_id": "f1"}
-
-    absent = _ops(
-        _FakePort(query=DisplayReplied({"frame_id": "f1", "raised": False}))
-    ).raise_frame("f1")
-    assert isinstance(absent, FrameRaise)
-    assert absent.raised is False
-
-
-def test_raise_frame_faults_on_a_reply_about_a_different_frame() -> None:
-    # Schema drift must not be read as an answer about the frame that was asked for.
-    port = _FakePort(query=DisplayReplied({"frame_id": "other", "raised": True}))
-    result = _ops(port).raise_frame("f1")
-    assert isinstance(result, OpError)
-    assert result.code == "fault"
-    assert "f1" in result.reason
-
-
-def test_raise_frame_passes_a_display_failure_through() -> None:
-    # No display, or a round trip that never answered: the caller must not read
-    # that as "there was no frame", which would blank a board that is fine.
-    port = _FakePort(query=DisplayFault(code="display_unavailable"))
-    result = _ops(port).raise_frame("f1")
     assert isinstance(result, OpError)
     assert result.code == "display_unavailable"
 
