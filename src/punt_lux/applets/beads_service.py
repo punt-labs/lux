@@ -103,9 +103,10 @@ class BeadsService:
         """Put something on screen now, before any issue has been read.
 
         A click has to launch in the time a user reads as instant, and reading
-        the issues cannot promise that. So the click's first act is not the
-        query: it is raising the board's frame — the visible half of every click
-        here — and filling it with the board held, or the blank held instead.
+        the issues cannot promise that. The frame is already on screen by the
+        time this runs -- the Display raised it locally at the moment of the
+        click -- so the click's first act is filling it with the board held,
+        or the blank held instead.
         """
         self._board.answers(self._board.work(client, latency))
 

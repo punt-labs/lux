@@ -164,7 +164,7 @@ def test_a_click_from_a_state_that_last_failed_says_so_on_its_line(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Every answer is a few milliseconds; only the line says which was given."""
-    client = RecordingClient(frame_is_up=False)
+    client = RecordingClient()
     bench = Bench.against(Source(BeadsRows.of([ISSUE])), client)
 
     with bench.answering():
@@ -192,7 +192,7 @@ def test_a_board_that_built_is_held_even_though_its_push_never_landed() -> None:
 
     # And what it holds is the board that was built, ready to be the next
     # click's answer rather than a placeholder.
-    client = RecordingClient(frame_is_up=False)
+    client = RecordingClient()
     bench.also(Source(), client).answered()
     assert _rows(client.tables[0]) == ["lux-1"]
 
@@ -214,7 +214,7 @@ def test_a_push_that_never_landed_says_so_rather_than_vanishing(
 def test_a_refresh_that_fails_keeps_the_board_already_held() -> None:
     """A board a few minutes old beats a red message where the board was."""
     journal = Journal()
-    client = RecordingClient(journal=journal, frame_is_up=False)
+    client = RecordingClient(journal=journal)
     source = ThenFails(BeadsRows.of([ISSUE]), journal)
     bench = Bench.against(source, client)
     load = BoardLoad(BeadsBoard.for_project("lux"), source)
@@ -231,7 +231,7 @@ def test_a_refresh_that_fails_keeps_the_board_already_held() -> None:
 
 def test_a_click_holding_a_board_answers_with_that_board() -> None:
     """The click the whole warm-up is for: the answer is a board, not a word."""
-    client = RecordingClient(frame_is_up=False)
+    client = RecordingClient()
     load = BoardLoad(BeadsBoard.for_project("lux"), Source(BeadsRows.of([ISSUE])))
     bench = Bench.against(Source(), client).kept(HeldBoard(load.fresh()))
 
@@ -241,45 +241,18 @@ def test_a_click_holding_a_board_answers_with_that_board() -> None:
     assert client.scenes == []
 
 
-def test_a_board_held_is_pushed_even_when_the_frame_is_already_up() -> None:
-    """A raised frame says a board is up; it does not say which board.
-
-    The frame can be standing over issues older than the ones held here — a
-    refresh whose push did not land leaves exactly that, since the board is kept
-    whatever became of the round trip behind it. Answering such a click with the
-    raise alone would leave the older board in front of the user and the newer
-    one held but never seen, and the click after it would do the same.
-    """
-    client = RecordingClient(frame_is_up=True)
-    load = BoardLoad(BeadsBoard.for_project("lux"), Source(BeadsRows.of([ISSUE])))
-    bench = Bench.against(Source(), client).kept(HeldBoard(load.fresh()))
-
-    bench.answered()
-
-    assert _rows(client.tables[0]) == ["lux-1"]
-
-
 def test_a_click_holding_nothing_opens_with_the_placeholder() -> None:
-    """The cold click: there is no board yet, so the window says what it is doing."""
-    client = RecordingClient(frame_is_up=False)
+    """The cold click: there is no board yet, so the window says what it is doing.
+
+    The placeholder is pushed unconditionally now (lux-81t3.5): the applet has
+    no round trip left to ask the display whether a frame was already up, since
+    the raise moved Display-local and synchronous. The cost is a cosmetic
+    flicker on repeated cold clicks; see ``NoBoard.answered``'s own docstring.
+    """
+    client = RecordingClient()
     bench = Bench.against(Source(BeadsRows.of([ISSUE])), client)
 
     bench.answered()
 
     assert client.tables == []
     assert "Loading issues" in str(client.scenes[0].elements)
-
-
-def test_a_click_holding_nothing_leaves_a_frame_that_is_up_alone() -> None:
-    """Whatever is in a frame already up is older than nothing at all.
-
-    Holding no board, this state has nothing to put in that frame, and the word
-    "Loading" over a board somebody is reading is a loss rather than an answer.
-    """
-    client = RecordingClient(frame_is_up=True)
-    bench = Bench.against(Source(BeadsRows.of([ISSUE])), client)
-
-    bench.answered()
-
-    assert client.scenes == []
-    assert client.tables == []

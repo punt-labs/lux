@@ -4,13 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
 
-from punt_lux.operations import FrameRef
-
 if TYPE_CHECKING:
     from punt_lux.client._sync_ops import SyncOps
     from punt_lux.client.facade import LuxClient
     from punt_lux.operations import (
-        FrameRaise,
         OpError,
         RenderRequest,
         RenderTableRequest,
@@ -23,12 +20,12 @@ __all__ = ["BoardOps", "ScopedBoardOps"]
 
 @runtime_checkable
 class BoardOps(Protocol):
-    """The Hub-write surface a board push needs: raise a frame, install a scene.
+    """The Hub-write surface a board push needs: install a scene.
 
     Deliberately narrow -- every applet-internal class collectively calls
-    exactly these three methods, not the full ``SceneOps``/``FrameOps``
-    families they belong to Hub-side. Reached through :class:`ScopedBoardOps`,
-    never through ``LuxClient.sync`` directly.
+    exactly these two methods, not the full ``SceneOps`` family they belong
+    to Hub-side. Reached through :class:`ScopedBoardOps`, never through
+    ``LuxClient.sync`` directly.
     """
 
     def render(
@@ -43,17 +40,13 @@ class BoardOps(Protocol):
         """Install a composed table scene."""
         ...
 
-    def raise_frame(self, frame_id: str) -> FrameRaise | OpError:
-        """Bring a frame to the front, restoring it if it was minimized."""
-        ...
-
 
 @final
 class ScopedBoardOps:
     """A ``BoardOps`` binding one fixed :class:`Scope` to a ``SyncOps`` transport.
 
     Binds the scope once, at the one place the identity is known, and
-    forwards every call with it filled in; ``raise_frame`` needs no scope.
+    forwards every call with it filled in.
     """
 
     _ops: SyncOps
@@ -84,7 +77,3 @@ class ScopedBoardOps:
         """Install a composed table scene under this adapter's bound scope."""
         del scope
         return self._ops.render_table(request, scope=self._scope)
-
-    def raise_frame(self, frame_id: str) -> FrameRaise | OpError:
-        """Bring a frame to the front, resolved within this adapter's own scope."""
-        return self._ops.raise_frame(FrameRef.of(frame_id, scope=self._scope))

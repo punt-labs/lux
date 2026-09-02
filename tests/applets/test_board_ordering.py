@@ -29,11 +29,8 @@ from punt_lux.applets.board_load import BoardLoad
 from punt_lux.applets.board_slot import BoardSlot
 from punt_lux.applets.board_work import BoardWork
 from punt_lux.applets.latency import ClickLatency
-from punt_lux.applets.serviced_click import ServicedClick
-from punt_lux.applets.single_flight import SingleFlight
 from punt_lux.apps.beads_board import BeadsBoard
 from punt_lux.apps.beads_result import BeadsFailure, BeadsRows
-from punt_lux.operations import FrameRaise
 from punt_lux.operations.models.scene_results import SceneShown
 
 from .board_doubles import GATE_SECONDS, ISSUE, Gated, loaded
@@ -203,31 +200,20 @@ class SteppedClient:
     in flight with the display not yet changed.
     """
 
-    _frame_is_up: bool
     _landings: Landings
     _pushes: Crossing
-    _raises: Crossing
-    __slots__ = ("_frame_is_up", "_landings", "_pushes", "_raises")
+    __slots__ = ("_landings", "_pushes")
 
     def __new__(
         cls,
         landings: Landings,
         *,
-        frame_is_up: bool = False,
-        raises: Crossing = _OPEN,
         pushes: Crossing = _OPEN,
     ) -> Self:
         self = super().__new__(cls)
         self._landings = landings
-        self._frame_is_up = frame_is_up
-        self._raises = raises
         self._pushes = pushes
         return self
-
-    def raise_frame(self, frame_id: str) -> FrameRaise:
-        """Bring the frame forward — slowly enough, here, to be overtaken."""
-        self._raises.cross()
-        return FrameRaise(frame_id=frame_id, raised=self._frame_is_up)
 
     def render_table(self, request: RenderTableRequest) -> SceneShown:
         """Land a board, after however long this client's write is made to take."""
@@ -293,15 +279,6 @@ class Applet:
         """Drive both halves of a click, exactly as the leg drives them."""
         latency = self.answer(client)
         self._service.service(client, latency)  # type: ignore[arg-type]  # structural stand-in
-
-    def clicked_through(self, running: SingleFlight, client: object) -> None:
-        """Drive a whole click the way the runner does, standing down if it must."""
-        ServicedClick(
-            self._service,
-            running,
-            lambda: client,  # type: ignore[arg-type,return-value]  # structural stand-in
-            ClickLatency("beads"),
-        ).served()
 
     def holds(self) -> str:
         """What the applet is holding, named as a landing on the display is."""
@@ -416,73 +393,32 @@ def test_two_pushes_land_in_the_order_they_were_taken() -> None:
 
 # --- P2 -------------------------------------------------------------------
 
-
-def test_a_click_shows_the_board_held_now_not_the_one_it_read() -> None:
-    """A click's answer must not put back a board that has since been replaced.
-
-    The click reads what the applet holds, raises the frame, and pushes. The
-    raise is a round trip, so a refresh can store *and show* a newer board
-    inside it — and a click that pushed the board it had read before the raise
-    would land the older one over the newer, on a screen nothing then repairs.
-    """
-    landings = Landings()
-    raises = Gate()
-    applet = Applet(InTurn(_STALE, _FRESH))
-    applet.prefetch()
-
-    answering = _thread(lambda: applet.answer(SteppedClient(landings, raises=raises)))
-    raises.reached()  # the click has read the applet's state and shown nothing
-    applet.service(SteppedClient(landings))  # a refresh stores and shows a newer board
-    raises.release()
-    _joined(answering)
-
-    assert landings.shown == (_FRESH_ID, _FRESH_ID)
-    assert _STALE_ID not in landings.shown
+# P2's own scenario -- a click's acknowledge observes the slot, then a refresh
+# on another thread stores and shows a newer board, then the first click
+# reaches its push -- described an interleaving that ran *inside the raise
+# round trip*: the raise was the only I/O between "observe" and "push" a test
+# could gate. lux-81t3.5 (DES-088) removed that round trip: acknowledge no
+# longer performs any I/O between reading the slot and calling
+# BoardGlass.shows, which itself re-reads the slot fresh, under its own lock,
+# immediately before every push (see BoardGlass.shows's docstring). There is
+# no longer a gateable point between "observe" and "push" on the click's own
+# thread, so this partition of the interleaving space is no longer
+# constructible -- not merely untested, structurally absent. The invariant it
+# protected (I2: the display never shows what a pusher captured before a
+# newer board landed) still holds, now by construction, and the interleaving
+# that remains reachable -- two writers both inside BoardGlass's lock -- is
+# P1's test above.
 
 
 # --- P3 -------------------------------------------------------------------
 
-
-def test_a_click_that_stands_down_leaves_the_newer_board_on_screen() -> None:
-    """Standing down is what would make a regressed display permanent.
-
-    A click arriving while a query is in flight is answered and then stands
-    down, because the load already running reads the same issues. Nothing runs
-    after it, so whatever its answer put on the screen is what the user is left
-    with — and if that answer were the board it read before its raise, the
-    screen would stay a generation behind until somebody clicked again.
-    """
-    landings = Landings()
-    raises = Gate()
-    running = SingleFlight()
-    applet = Applet(InTurn(_STALE, _FRESH))
-    applet.prefetch()
-
-    standing_down = _thread(
-        lambda: applet.clicked_through(running, SteppedClient(landings, raises=raises))
-    )
-    raises.reached()  # this click has read the applet's state: the older board
-    applet.service(SteppedClient(landings))  # a refresh stores and shows the newer
-
-    held = threading.Event()
-
-    def waiting() -> None:
-        """A query that is still running, as far as the one flight is concerned."""
-        held.wait(GATE_SECONDS)
-
-    def occupy() -> None:
-        """Hold the one flight, so the click released below has to stand down."""
-        running.ran(waiting)
-
-    occupied = _thread(occupy)
-    _until(lambda: not running.ran(lambda: None), "took the one flight")
-    raises.release()  # only now does the stood-down click get to push
-    _until(lambda: len(landings.shown) == 2, "landed its answer")
-    held.set()
-    _joined(standing_down, occupied)
-
-    assert landings.last == _FRESH_ID
-    assert _STALE_ID not in landings.shown
+# P3's scenario gated a stood-down click's *acknowledge* phase at its raise, so
+# a refresh could land a newer board while the stood-down click still held an
+# older one it had read. Like P2, that gate is gone: acknowledge does no I/O
+# now, so a click's one push (made during acknowledge, before it stands down
+# or not) always carries what BoardGlass reads fresh at that instant --
+# there is no captured board left for a later, un-gateable stand-down to push
+# stale. See P2's note above; the same elimination applies here.
 
 
 # --- P4 -------------------------------------------------------------------
@@ -538,27 +474,15 @@ def test_a_board_the_slot_refused_never_reaches_the_display() -> None:
 
 # --- P6 -------------------------------------------------------------------
 
-
-def test_the_placeholder_never_lands_over_a_board() -> None:
-    """ "Loading issues…" over a board somebody can read is a loss, not an answer.
-
-    A cold click settles on the placeholder because the applet holds nothing —
-    and then spends a round trip raising the frame, which is long enough for a
-    board to arrive and be shown. The placeholder is offered rather than pushed:
-    inside the region it loses to whatever the slot is holding by then.
-    """
-    landings = Landings()
-    raises = Gate()
-    applet = Applet(InTurn(_FRESH))
-
-    answering = _thread(lambda: applet.answer(SteppedClient(landings, raises=raises)))
-    raises.reached()  # the click holds nothing and has not shown anything yet
-    applet.service(SteppedClient(landings))  # a board arrives and goes up
-    raises.release()
-    _joined(answering)
-
-    assert _LOADING not in landings.shown
-    assert landings.shown == (_FRESH_ID, _FRESH_ID)
+# P6's scenario gated the placeholder-pushing click at its raise, so a board
+# could arrive and be shown while the cold click's own round trip was still in
+# flight, then have the placeholder land over it once released. The raise is
+# gone (same elimination as P2), and the placeholder is now pushed
+# immediately, inside BoardGlass's lock, with no I/O beforehand -- there is no
+# window left in which a board could arrive between "the click decided to
+# offer the placeholder" and "the placeholder is offered." Offered rather than
+# pushed still means BoardGlass.shows's newer_of always wins for whichever
+# board actually reaches the slot first; P1 and P4 exercise that ordering.
 
 
 # --- P7 -------------------------------------------------------------------

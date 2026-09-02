@@ -800,7 +800,7 @@ def test_a_click_arriving_mid_query_does_not_start_a_second_one(
     fetching, and a user drumming on the entry would start one per click.
     """
     source = _held_query()
-    client = RecordingClient(frame_is_up=False)
+    client = RecordingClient()
     _patch_rest(monkeypatch, client)
     leg = AppletLeg(_IDENTITY, _beads(source))
 
@@ -822,7 +822,7 @@ def test_a_click_that_stood_down_reports_no_figures_for_a_query_it_never_ran(
     that started it.
     """
     source = _held_query()
-    _patch_rest(monkeypatch, RecordingClient(frame_is_up=False))
+    _patch_rest(monkeypatch, RecordingClient())
     leg = AppletLeg(_IDENTITY, _beads(source))
 
     with caplog.at_level(logging.INFO):

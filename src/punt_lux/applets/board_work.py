@@ -45,14 +45,6 @@ class BoardWork:
         """Say what the stage now being timed did, beside its figure."""
         self._latency.note(said)
 
-    def raise_frame(self) -> None:
-        """Bring the board's frame forward, for a click that pushes either way."""
-        self._load.showing(self._client)
-
-    def showing(self) -> bool:
-        """Raise the board's frame; say whether a board is up already."""
-        return self._load.showing(self._client)
-
     def issues(self) -> BoardRead:
         """Read the issues, noting where the run's time went, or raise."""
         self.note((read := self._load.issues()).summary())

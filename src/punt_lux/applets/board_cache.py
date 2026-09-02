@@ -44,7 +44,7 @@ class CachedBoard(Protocol):
         ...
 
     def answered(self, work: BoardWork) -> bool:
-        """Raise the board's frame; say whether this state belongs in it."""
+        """Say whether this state's board belongs in the frame."""
         ...
 
     def refreshed(self, work: BoardWork) -> CachedBoard:

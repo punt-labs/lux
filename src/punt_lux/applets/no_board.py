@@ -29,11 +29,6 @@ if TYPE_CHECKING:
 
 __all__ = ["NoBoard"]
 
-# What the line says when a frame was already up: this state had nothing better
-# to put in it, so the raise was the whole click. Its other answers are named by
-# the blank it holds.
-_RAISED = "frame already up"
-
 
 @final
 class NoBoard:
@@ -62,15 +57,19 @@ class NoBoard:
         return held
 
     def answered(self, work: BoardWork) -> bool:
-        """Raise the frame, and fill it only if there was nothing in it.
+        """Say there is nothing held yet, so the placeholder goes up.
 
-        Whatever is in a frame already up beats the word "Loading". A raise
-        that could not be answered reads as *not* up -- it establishes
-        nothing about what is on screen, so the click fills the frame.
+        Every cold click pushes the placeholder now. The earlier "leave a
+        standing error alone across repeat clicks" optimisation depended on
+        asking the display whether the frame was already visible *before*
+        this click's raise -- a fact only the display may report about
+        itself, and one that would always read "yes" post-raise now that the
+        raise is synchronous and Display-local (querying it after the fact
+        tells the applet nothing the raise didn't already guarantee). The
+        cost is a cosmetic flicker on repeated clicks while ``bd`` stays
+        unavailable; ``HeldBoard`` -- the case that matters -- is unaffected.
         """
-        if work.showing():
-            work.note(_RAISED)
-            return False
+        del work  # kept for CachedBoard Protocol conformance
         return True
 
     def refreshed(self, work: BoardWork) -> CachedBoard:
