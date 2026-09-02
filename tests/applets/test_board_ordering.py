@@ -483,6 +483,29 @@ def test_a_board_the_slot_refused_never_reaches_the_display() -> None:
 # offer the placeholder" and "the placeholder is offered." Offered rather than
 # pushed still means BoardGlass.shows's newer_of always wins for whichever
 # board actually reaches the slot first; P1 and P4 exercise that ordering.
+#
+# Reconsidered for round 2 (lux-81t3.5): could P6 still be constructed by
+# gating on `pushes` -- the socket write itself, inside BoardGlass._lock --
+# rather than the deleted `raises` gate? No, and the reason is the region's
+# own lock discipline, not the raise: BoardGlass._lock fully serialises every
+# call to `shows`, read-then-write, so at most one push is ever in flight.
+# For P6 to hold, a board's own `shows` call would have to complete and land
+# BEFORE the placeholder's `shows` call reads the slot -- but a completed push
+# can only be observed by a later reader (the lock guarantees it), so a
+# placeholder-click that reads an empty slot proves no board's push has
+# landed yet, and any push still holding the lock blocks every other caller,
+# including a real board's, until it releases. A store landing mid-push (via
+# BoardSlot.store, which does not take this lock) cannot retroactively change
+# what a push already in flight sends -- that is exactly the gap P12 measures
+# and names as accepted staleness, not a P6-shaped violation: gating `pushes`
+# this way reconstructs P12's scenario
+# (test_a_store_landing_during_a_push_leaves_the_display_one_behind, which
+# proves the earlier-decided value lands and the later store does not
+# retroactively pre-empt it), not a new one. P6 is therefore unconstructable
+# for a distinct, stronger reason than P2/P3 (which lost their gateable point
+# entirely): here the gateable point still exists, but the lock's
+# full-serialisation and fresh-read-at-decision-time design prove no
+# ordering it permits can ever blank an already-landed board.
 
 
 # --- P7 -------------------------------------------------------------------
