@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.menu_models import Menu, MenuAction, MenuSeparator
 from punt_lux.domain.hub.session_callback import CallbackInvocation
 
@@ -62,12 +63,24 @@ class ClientSubmenu:
         return Menu(label=self._label, items=entries)
 
     def _leaves(self) -> list[MenuAction]:
-        """Every command any member of this group registered."""
+        """Every command any member of this group registered.
+
+        A callback's ``frame_id`` is the member's own local name for its
+        frame (e.g. ``"beads-lux"``); scoped here to that member's own
+        connection before it reaches the wire, the same composition the Hub
+        uses for every scene push (DES-086) -- FrameBook keys frames by the
+        connection-scoped id, never the raw local one, so an unscoped
+        frame_id would raise nothing.
+        """
         return [
             MenuAction(
                 id=CallbackInvocation(member.connection_id, callback.id).menu_id,
                 label=callback.label,
-                frame_id=callback.frame_id,
+                frame_id=(
+                    ConnectionScopedId.compose(member.connection_id, callback.frame_id)
+                    if callback.frame_id is not None
+                    else None
+                ),
             )
             for member in self._members
             for callback in member.callbacks
