@@ -52,6 +52,11 @@ class AppletBoard:
         """The state a click answers from, as it stands now."""
         return self._slot.held
 
+    @property
+    def frame_id(self) -> str:
+        """The frame this board's issues render into."""
+        return self._load.frame_id
+
     def fresh(self) -> BuiltBoard:
         """Read the issues and build the board they make — the warm-up's load."""
         return self._load.fresh()

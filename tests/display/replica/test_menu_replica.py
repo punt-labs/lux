@@ -104,6 +104,22 @@ class TestMenuModelComposition:
 
         assert imgui.labels_under("Help") == (f"Lux v{__version__}",)
 
+    def test_a_callback_leafs_frame_raises_through_on_raise_frame(self) -> None:
+        raised: list[str] = []
+        manager = _manager(on_raise_frame=raised.append)
+        manager.replace_callback_menus(
+            [
+                wire_menu(
+                    "lux",
+                    [{"label": "Beads", "id": "c\x1fbeads", "frame_id": "beads-lux"}],
+                )
+            ]
+        )
+
+        manager.render_bar(FakeImGui(("Beads",)))
+
+        assert raised == ["beads-lux"]
+
 
 class TestTheDisplaysOwnItems:
     """Each built-in item does what its label says when it is clicked."""

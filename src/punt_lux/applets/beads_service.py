@@ -78,6 +78,11 @@ class BeadsService:
         """The entry the display shows under this session's submenu."""
         return _LABEL
 
+    @property
+    def frame_id(self) -> str:
+        """The frame a click on this entry raises Display-locally."""
+        return self._board.frame_id
+
     def prefetch(self) -> None:
         """Load a board before anyone clicks, so the first click has one to show.
 

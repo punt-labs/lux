@@ -99,6 +99,7 @@ def test_the_entry_is_named_for_what_it_shows() -> None:
     service = BeadsService.for_repo()
     assert service.callback_id == "beads"
     assert service.label == "Beads"
+    assert service.frame_id == "beads-lux"
 
 
 def test_issues_are_pushed_through_the_table_route() -> None:

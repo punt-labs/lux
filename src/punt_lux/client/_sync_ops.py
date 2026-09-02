@@ -39,8 +39,13 @@ class CallbackConvenienceOps(Protocol):
     one place that needs the Protocol shape over REST.
     """
 
-    def register_callback(self, callback_id: str, label: str) -> Ok | OpError:
-        """Register a menu callback for this identity."""
+    def register_callback(
+        self, callback_id: str, label: str, frame_id: str | None = None
+    ) -> Ok | OpError:
+        """Register a menu callback for this identity.
+
+        ``frame_id`` is applet-only -- see :meth:`CallbackAccessor.register`.
+        """
         ...
 
 

@@ -105,6 +105,10 @@ class _SlowService:
     def label(self) -> str:
         return "Beads"
 
+    @property
+    def frame_id(self) -> str:
+        return "beads-test"
+
     def prefetch(self) -> None:
         """Nothing to warm: this service exists to exercise the click."""
 
@@ -145,6 +149,10 @@ class _WarmingService:
     def label(self) -> str:
         return "Beads"
 
+    @property
+    def frame_id(self) -> str:
+        return "beads-test"
+
     def prefetch(self) -> None:
         self._started.set()
         self._release.wait(timeout=5)
@@ -175,6 +183,10 @@ class _ExplodingWarmUp:
     def label(self) -> str:
         return "Beads"
 
+    @property
+    def frame_id(self) -> str:
+        return "beads-test"
+
     def prefetch(self) -> None:
         raise RuntimeError("something nobody modelled")
 
@@ -191,7 +203,9 @@ class _RefusingClient:
 
     __slots__ = ()
 
-    def register_callback(self, callback_id: str, label: str) -> OpError:
+    def register_callback(
+        self, callback_id: str, label: str, frame_id: str | None = None
+    ) -> OpError:
         return OpError(code="push_required", reason="no listen leg")
 
 
@@ -201,8 +215,33 @@ class _AcceptingClient:
 
     __slots__ = ()
 
-    def register_callback(self, callback_id: str, label: str) -> Ok:
+    def register_callback(
+        self, callback_id: str, label: str, frame_id: str | None = None
+    ) -> Ok:
         return Ok()
+
+
+@final
+class _RecordingRegistration:
+    """A REST client stand-in recording exactly what registration sent it."""
+
+    _calls: list[tuple[str, str, str | None]]
+    __slots__ = ("_calls",)
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._calls = []
+        return self
+
+    def register_callback(
+        self, callback_id: str, label: str, frame_id: str | None = None
+    ) -> Ok:
+        self._calls.append((callback_id, label, frame_id))
+        return Ok()
+
+    @property
+    def calls(self) -> tuple[tuple[str, str, str | None], ...]:
+        return tuple(self._calls)
 
 
 def _patch_rest(monkeypatch: pytest.MonkeyPatch, client: object) -> None:
@@ -286,6 +325,21 @@ def test_a_refused_registration_is_reported_and_the_session_continues(
         asyncio.run(leg._register())
 
     assert "menu entry was refused" in caplog.text
+
+
+def test_registration_carries_the_services_frame(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The frame a click should raise Display-locally travels with registration."""
+    started, release = threading.Event(), threading.Event()
+    release.set()
+    recording = _RecordingRegistration()
+    _patch_rest(monkeypatch, recording)
+    leg = AppletLeg(_IDENTITY, _SlowService(started, release))
+
+    asyncio.run(leg._register())
+
+    assert recording.calls == (("beads", "Beads", "beads-test"),)
 
 
 def test_registration_does_not_wait_for_the_warm_up_behind_it(
@@ -374,6 +428,10 @@ class _PushingService:
     def label(self) -> str:
         return "Beads"
 
+    @property
+    def frame_id(self) -> str:
+        return "beads-test"
+
     def prefetch(self) -> None:
         """Nothing to warm: this service exists to exercise the push."""
 
@@ -397,6 +455,10 @@ class _ExplodingService:
     @property
     def label(self) -> str:
         return "Beads"
+
+    @property
+    def frame_id(self) -> str:
+        return "beads-test"
 
     def prefetch(self) -> None:
         """Nothing to warm: the failure under test is in the click's work."""
@@ -482,6 +544,10 @@ class _OrderedService:
     @property
     def label(self) -> str:
         return "Beads"
+
+    @property
+    def frame_id(self) -> str:
+        return "beads-test"
 
     def prefetch(self) -> None:
         self._steps.append("prefetch")
@@ -580,6 +646,10 @@ class _ParkedService:
     @property
     def label(self) -> str:
         return "Beads"
+
+    @property
+    def frame_id(self) -> str:
+        return "beads-test"
 
     def prefetch(self) -> None:
         """Nothing to warm: this service exists to exercise two clicks at once."""
