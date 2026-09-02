@@ -67,6 +67,7 @@ class ClientSubmenu:
             MenuAction(
                 id=CallbackInvocation(member.connection_id, callback.id).menu_id,
                 label=callback.label,
+                frame_id=callback.frame_id,
             )
             for member in self._members
             for callback in member.callbacks

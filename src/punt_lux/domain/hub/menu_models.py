@@ -36,6 +36,7 @@ class MenuAction(BaseModel):
     label: str = Field(min_length=1)  # a label-less action is not a real state
     shortcut: str | None = None  # None when the item has no accelerator
     icon: str | None = None  # None when the item has no icon
+    frame_id: str | None = None  # None when the action owns no frame to raise
 
     def to_wire(self) -> dict[str, object]:
         """Render as the untyped menu-item payload the display consumes."""
@@ -44,6 +45,8 @@ class MenuAction(BaseModel):
             item["shortcut"] = self.shortcut
         if self.icon is not None:
             item["icon"] = self.icon
+        if self.frame_id is not None:
+            item["frame_id"] = self.frame_id
         return item
 
 

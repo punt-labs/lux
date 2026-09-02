@@ -71,6 +71,19 @@ class WireField:
             raise self.rejected("a string", value)
         return value
 
+    def optional_text_or_none(self, value: object) -> str | None:
+        """Return a present string, or ``None`` when the field is genuinely absent.
+
+        Unlike :meth:`optional_text`, absence here has no in-band default to
+        fall back to -- a genuinely-optional field needs a genuinely-optional
+        return type, not a stand-in value.
+        """
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise self.rejected("a string", value)
+        return value
+
     def flag(self, value: object, *, default: bool) -> bool:
         """Return a present boolean, or *default* when the field is absent."""
         if value is None:

@@ -102,6 +102,19 @@ class TestTheClientsMenu:
             id=CallbackInvocation(conn, "beads").menu_id, label="Beads"
         )
 
+    def test_a_callbacks_frame_id_threads_onto_its_leaf(self) -> None:
+        conn = ConnectionId("lux")
+        callback = SessionCallback(id="beads", label="Beads", frame_id="beads-lux")
+
+        menus = _menus(("lux", _session("claude", "/w/lux", callback)))
+
+        client = _submenu(menus, "lux")
+        assert client.items[0] == MenuAction(
+            id=CallbackInvocation(conn, "beads").menu_id,
+            label="Beads",
+            frame_id="beads-lux",
+        )
+
     def test_a_many_command_client_has_the_same_shape(self) -> None:
         session = _session(
             "claude",

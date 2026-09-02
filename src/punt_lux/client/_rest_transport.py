@@ -171,15 +171,20 @@ class _RestTransport:
         """Install a composed table scene through ``PUT /scenes/{scene_id}/table``."""
         return self._scenes.render_table(request, scope=scope)
 
-    def register_callback(self, callback_id: str, label: str) -> Ok | OpError:
+    def register_callback(
+        self, callback_id: str, label: str, frame_id: str | None = None
+    ) -> Ok | OpError:
         """Register a menu callback for this identity through ``POST /menus/callbacks``.
 
         The daemon path: a client registers the callback it wants on the menu here,
         then receives the user's clicks on it over its :meth:`listener` stream — both
         under this client's identity, so the click routes back to the same session. A
         malformed id or label is reported as an ``OpError`` without a round-trip.
+        ``frame_id`` is applet-only -- see :meth:`CallbackAccessor.register`.
         """
-        request = RegisterCallbackRequest.parse(callback_id=callback_id, label=label)
+        request = RegisterCallbackRequest.parse(
+            callback_id=callback_id, label=label, frame_id=frame_id
+        )
         if isinstance(request, OpError):
             return request
         call = HttpCall.post("/menus/callbacks", request, self._headers)

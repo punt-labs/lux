@@ -25,6 +25,9 @@ from punt_lux.display.menus.wire import (
     WireSeparator,
 )
 from punt_lux.display.menus.wire_field import WireField
+from punt_lux.domain.hub.menu_models import MenuAction
+from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
+from punt_lux.domain.ids import ConnectionId
 
 _BAR: dict[str, Any] = {
     "label": "File",
@@ -89,6 +92,20 @@ class TestWhatIsAccepted:
 
         assert [entry.label for entry in menu.entries] == ["Open"]
 
+    def test_an_action_may_carry_the_frame_it_owns(self) -> None:
+        item = {"label": "Beads", "id": "beads", "frame_id": "beads-lux"}
+        action = _checked({"label": "Clients", "items": [item]}).entries[0]
+
+        assert isinstance(action, WireAction)
+        assert action.frame_id == "beads-lux"
+
+    def test_an_action_with_no_frame_owns_none(self) -> None:
+        item = {"label": "Details", "id": "d"}
+        action = _checked({"label": "Clients", "items": [item]}).entries[0]
+
+        assert isinstance(action, WireAction)
+        assert action.frame_id is None
+
 
 class TestWhatIsRefused:
     """A malformed payload is refused where it lands, and says where it was."""
@@ -127,6 +144,13 @@ class TestWhatIsRefused:
                     "items": [{"label": "Open", "id": "o", "enabled": 1}],
                 },
                 "menus.items.0.enabled",
+            ),
+            (
+                {
+                    "label": "voxd",
+                    "items": [{"label": "Open", "id": "o", "frame_id": 7}],
+                },
+                "menus.items.0.frame_id",
             ),
         ],
     )
@@ -192,3 +216,35 @@ class TestWalkingTheLines:
 
     def test_a_menu_with_no_entries_walks_to_nothing(self) -> None:
         assert list(_checked({"label": "File"}).lines()) == []
+
+
+class TestTheFrameIdRoundTrip:
+    """A callback's frame ownership survives Hub → wire → Display, or is absent."""
+
+    def test_a_registered_frame_survives_the_hub_to_wire_boundary(self) -> None:
+        callback = SessionCallback(id="beads", label="Beads", frame_id="beads-lux")
+        action = MenuAction(
+            id=CallbackInvocation(ConnectionId("lux"), callback.id).menu_id,
+            label=callback.label,
+            frame_id=callback.frame_id,
+        )
+
+        menu = _checked({"label": "Clients", "items": [action.to_wire()]})
+
+        (wire_action,) = menu.entries
+        assert isinstance(wire_action, WireAction)
+        assert wire_action.frame_id == "beads-lux"
+
+    def test_no_registered_frame_survives_as_none(self) -> None:
+        callback = SessionCallback(id="details", label="Details")
+        action = MenuAction(
+            id=CallbackInvocation(ConnectionId("lux"), callback.id).menu_id,
+            label=callback.label,
+            frame_id=callback.frame_id,
+        )
+
+        menu = _checked({"label": "Clients", "items": [action.to_wire()]})
+
+        (wire_action,) = menu.entries
+        assert isinstance(wire_action, WireAction)
+        assert wire_action.frame_id is None

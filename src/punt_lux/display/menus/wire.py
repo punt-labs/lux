@@ -94,16 +94,24 @@ class WireAction:
     _item_id: str
     _shortcut: str
     _enabled: bool
-    __slots__ = ("_enabled", "_item_id", "_label", "_shortcut")
+    _frame_id: str | None
+    __slots__ = ("_enabled", "_frame_id", "_item_id", "_label", "_shortcut")
 
     def __new__(
-        cls, label: str, item_id: str, *, shortcut: str = "", enabled: bool = True
+        cls,
+        label: str,
+        item_id: str,
+        *,
+        shortcut: str = "",
+        enabled: bool = True,
+        frame_id: str | None = None,
     ) -> Self:
         self = super().__new__(cls)
         self._label = label
         self._item_id = item_id
         self._shortcut = shortcut
         self._enabled = enabled
+        self._frame_id = frame_id
         return self
 
     @classmethod
@@ -114,6 +122,7 @@ class WireAction:
             field.at("id").text(entry.get("id")),
             shortcut=field.at("shortcut").optional_text(entry.get("shortcut"), ""),
             enabled=field.at("enabled").flag(entry.get("enabled"), default=True),
+            frame_id=field.at("frame_id").optional_text_or_none(entry.get("frame_id")),
         )
 
     @property
@@ -135,6 +144,11 @@ class WireAction:
     def enabled(self) -> bool:
         """Return whether the user may activate this line."""
         return self._enabled
+
+    @property
+    def frame_id(self) -> str | None:
+        """Return the frame this action owns, or ``None`` if it owns none."""
+        return self._frame_id
 
     def lines(self, path: tuple[str, ...]) -> Iterator[WireLineAt]:
         """Yield this line and the menus it sits under."""

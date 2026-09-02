@@ -23,12 +23,12 @@ if TYPE_CHECKING:
 class CallbackAccessor:
     """The ``client.callback.*`` verbs -- ``register`` this cycle.
 
-    ``register`` reaches REST directly rather than dispatching through the
-    :mod:`punt_lux.commands.callback_register` singleton because the
-    transport's two-arg ``register_callback(callback_id, label)`` already
-    validates and posts the request without going through the command's
-    request-model layer. Wiring them through the singleton is bead
-    ``lux-0shg.7-follow-on``.
+    ``register`` reaches REST directly rather than the
+    :mod:`punt_lux.commands.callback_register` singleton because the transport
+    already validates and posts. Wiring it through the singleton is bead
+    ``lux-0shg.7-follow-on``. ``frame_id`` is applet-only -- it names the frame a
+    click should raise Display-locally, before the click reaches the Hub; agents
+    never pass it.
     """
 
     _rest: _RestTransport
@@ -41,6 +41,10 @@ class CallbackAccessor:
         self._identity = identity
         return self
 
-    async def register(self, callback_id: str, label: str) -> Ok | OpError:
+    async def register(
+        self, callback_id: str, label: str, frame_id: str | None = None
+    ) -> Ok | OpError:
         """Register a menu callback for this session."""
-        return await asyncio.to_thread(self._rest.register_callback, callback_id, label)
+        return await asyncio.to_thread(
+            self._rest.register_callback, callback_id, label, frame_id
+        )

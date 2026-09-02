@@ -40,6 +40,9 @@ class SessionCallback(BaseModel):
 
     id: str = Field(min_length=1)  # an id-less callback is not a real state
     label: str = Field(min_length=1)  # a label-less callback is not a real state
+    # absence means this callback owns no frame -- e.g. the Hub's own Details
+    # command, or a future applet action with no board
+    frame_id: str | None = None
 
     @field_validator("id")
     @classmethod
