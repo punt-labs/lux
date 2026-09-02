@@ -28,6 +28,7 @@ from punt_lux.operations import (
     SceneList,
 )
 from punt_lux.operations.display_connection import HubDisplayConnection
+from punt_lux.operations.display_mode_store import DisplayModeStore
 from punt_lux.operations.ports import HubPorts
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
@@ -62,7 +63,6 @@ from punt_lux.tools import (
     ping,
     recv,
     screenshot,
-    set_display_mode,
     set_menu,
     show,
     show_dashboard,
@@ -951,7 +951,6 @@ def _bind_store(monkeypatch: pytest.MonkeyPatch, store: HubDisplay) -> MagicMock
         store,
         spy,
         hub=hub,
-        client_registry=client_registry,
         menu_registry=HubMenuRegistry(),
         callback_router=CallbackRouter(store.clients),
         ports=HubPorts(
@@ -987,7 +986,6 @@ def _bind_pubsub(
         display,
         _ReplicatorSpy(),
         hub=hub,
-        client_registry=client_registry,
         menu_registry=HubMenuRegistry(),
         callback_router=CallbackRouter(display.clients),
         ports=HubPorts(
@@ -1661,39 +1659,21 @@ class TestDisplayModeTool:
         assert display_mode(repo=str(tmp_path)) == "display:off"
 
 
-class TestSetDisplayModeTool:
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    def test_set_display_mode_y(self, mock_get: MagicMock, tmp_path: Path) -> None:
-        mock_get.return_value = _mock_client()
-        assert set_display_mode("y", repo=str(tmp_path)) == "display:on"
-        content = (tmp_path / ".punt-labs" / "lux.md").read_text()
-        assert 'display: "y"' in content
-
-    def test_set_display_mode_n(self, tmp_path: Path) -> None:
-        assert set_display_mode("n", repo=str(tmp_path)) == "display:off"
-        content = (tmp_path / ".punt-labs" / "lux.md").read_text()
-        assert 'display: "n"' in content
-
-    def test_set_display_mode_invalid(self, tmp_path: Path) -> None:
-        with pytest.raises(ValueError, match="Invalid mode"):
-            set_display_mode("bogus", repo=str(tmp_path))
-
-
 class TestDisplayModeRepoArg:
+    """Setting the display mode moved out of the Hub entirely (DES-088) --
+    the CLI writes ``DisplayModeStore`` directly (``cli/display.py``), so
+    there is no ``set_display_mode`` MCP tool left to drive from here. These
+    tests seed state the same way that write path does -- a direct
+    ``DisplayModeStore`` write -- and exercise the surviving ``display_mode``
+    read tool against it.
+    """
+
     def test_set_then_read_roundtrip_in_repo(self, tmp_path: Path) -> None:
-        with patch(
-            "punt_lux.domain.hub.clients.client_registry.get",
-            return_value=_mock_client(),
-        ):
-            assert set_display_mode("y", repo=str(tmp_path)) == "display:on"
+        assert DisplayModeStore(str(tmp_path)).write("y") is None
         assert (tmp_path / ".punt-labs" / "lux.md").exists()
         assert display_mode(repo=str(tmp_path)) == "display:on"
 
-        with patch(
-            "punt_lux.domain.hub.clients.client_registry.get",
-            return_value=_mock_client(),
-        ):
-            assert set_display_mode("n", repo=str(tmp_path)) == "display:off"
+        assert DisplayModeStore(str(tmp_path)).write("n") is None
         assert display_mode(repo=str(tmp_path)) == "display:off"
 
     def test_repo_paths_are_isolated(self, tmp_path: Path) -> None:
@@ -1701,12 +1681,8 @@ class TestDisplayModeRepoArg:
         repo_b = tmp_path / "b"
         repo_a.mkdir()
         repo_b.mkdir()
-        with patch(
-            "punt_lux.domain.hub.clients.client_registry.get",
-            return_value=_mock_client(),
-        ):
-            set_display_mode("y", repo=str(repo_a))
-        set_display_mode("n", repo=str(repo_b))
+        DisplayModeStore(str(repo_a)).write("y")
+        DisplayModeStore(str(repo_b)).write("n")
         assert display_mode(repo=str(repo_a)) == "display:on"
         assert display_mode(repo=str(repo_b)) == "display:off"
 

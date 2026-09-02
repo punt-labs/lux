@@ -14,7 +14,6 @@ from punt_lux.commands import (
     display_get_theme,
     display_info,
     display_mode_get,
-    display_mode_set,
     display_screenshot,
     display_window_get,
 )
@@ -31,7 +30,6 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.operations import (
         DisplayInfo,
-        DisplayModeRequest,
         DisplayModeState,
         OpError,
         ThemeState,
@@ -96,13 +94,6 @@ class DisplayAccessor:
         """Read the display mode for ``repo``."""
         ctx: Ctx[DisplayModeOps] = Ctx(ops=self._mode_ops, identity=self._identity)
         return await display_mode_get.execute(ctx, repo)
-
-    async def set_mode(
-        self, request: DisplayModeRequest | OpError
-    ) -> DisplayModeState | OpError:
-        """Persist a new display mode for the requested repo."""
-        ctx: Ctx[DisplayModeOps] = Ctx(ops=self._mode_ops, identity=self._identity)
-        return await display_mode_set.execute(ctx, request)
 
     async def screenshot(self) -> Screenshot | OpError:
         """Capture the display framebuffer and return the image path."""

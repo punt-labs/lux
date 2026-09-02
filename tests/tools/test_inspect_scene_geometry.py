@@ -116,7 +116,6 @@ def test_inspect_scene_tool_carries_z_order_geometry(
         store,
         _NullReplicator(),
         hub=hub,
-        client_registry=client_registry,
         menu_registry=HubMenuRegistry(),
         callback_router=CallbackRouter(store.clients),
         ports=HubPorts(

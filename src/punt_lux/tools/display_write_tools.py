@@ -11,11 +11,10 @@ from punt_lux.commands import (
     FrameOps,
     MenuOps,
     display_mode_get as display_mode_get_command,
-    display_mode_set as display_mode_set_command,
     frame_close as frame_close_command,
     menu_set as menu_set_command,
 )
-from punt_lux.operations import DisplayModeRequest, Ok, OpError, SetMenuRequest
+from punt_lux.operations import Ok, OpError, SetMenuRequest
 from punt_lux.tools import tools as _core
 from punt_lux.tools._signal import signal
 from punt_lux.tools.server import mcp
@@ -23,7 +22,6 @@ from punt_lux.tools.server import mcp
 __all__ = [
     "display_mode",
     "frame_close",
-    "set_display_mode",
     "set_menu",
 ]
 
@@ -63,19 +61,3 @@ def display_mode(repo: str) -> str:
         ops=_core.OPERATIONS, identity=_core._identity()
     )
     return asyncio.run(display_mode_get_command(ctx, repo)).text
-
-
-@mcp.tool(name="display_mode_set")
-def set_display_mode(mode: str, repo: str) -> str:
-    """Set the display mode to "y" (on) or "n" (off).
-
-    ``repo`` must be the absolute path of the caller's project; the
-    config is written to ``<repo>/.punt-labs/lux.md``.
-    When ``y``, eagerly connects to the display server.
-    """
-    ctx: CommandCtx[DisplayModeOps] = CommandCtx(
-        ops=_core.OPERATIONS, identity=_core._identity()
-    )
-    return asyncio.run(
-        display_mode_set_command(ctx, DisplayModeRequest.parse(mode, repo))
-    ).text

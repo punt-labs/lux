@@ -15,9 +15,8 @@ from punt_lux.commands import (
     Ctx as CommandCtx,
     DisplayModeOps,
     display_mode_get as display_mode_get_command,
-    display_mode_set as display_mode_set_command,
 )
-from punt_lux.operations import DisplayModeRequest, DisplayModeState
+from punt_lux.operations import DisplayModeState
 from punt_lux.rest.identity import resolve_identity
 
 if TYPE_CHECKING:
@@ -50,12 +49,6 @@ class DisplayModeRoutes:
             methods=["GET"],
             name="read_display_mode",
         )
-        router.add_api_route(
-            "/display-mode",
-            self.write_display_mode,
-            methods=["PUT"],
-            name="write_display_mode",
-        )
         self._router = router
         return self
 
@@ -71,13 +64,4 @@ class DisplayModeRoutes:
         ctx: CommandCtx[DisplayModeOps] = CommandCtx(ops=self._ops, identity=identity)
         return self._errors.respond(
             asyncio.run(display_mode_get_command.execute(ctx, repo))
-        )
-
-    def write_display_mode(
-        self, request: DisplayModeRequest, identity: _CallerIdentity
-    ) -> DisplayModeState:
-        """Write a project's display mode."""
-        ctx: CommandCtx[DisplayModeOps] = CommandCtx(ops=self._ops, identity=identity)
-        return self._errors.respond(
-            asyncio.run(display_mode_set_command.execute(ctx, request))
         )

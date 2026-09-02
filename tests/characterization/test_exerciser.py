@@ -139,18 +139,10 @@ class TestPassthroughAllowlist:
             client.show()
 
 
-class TestToolExceptionPropagates:
-    def test_invalid_mode_raises_value_error_not_tool_call_error(
-        self, tmp_path: object
-    ) -> None:
-        # set_display_mode raises ValueError on bad input. The exerciser
-        # must not wrap that — production code's traceback is what callers
-        # need to see.
-        import pytest as _pytest
-
-        with _pytest.raises(ValueError, match="Invalid mode"):
-            ToolExerciser.call(
-                "set_display_mode",
-                {"mode": "bogus", "repo": str(tmp_path)},  # pyright: ignore[reportUnknownArgumentType]
-                {"display_running": False, "client": {}},
-            )
+# The exerciser's contract that exceptions raised inside a tool function
+# propagate unwrapped (see exerciser.py's module docstring) was characterized
+# here against set_display_mode, the one tool that raised a bare ValueError
+# on bad input. Setting the display mode moved out of the Hub entirely
+# (DES-088) to a CLI-local DisplayModeStore write with no MCP tool behind it,
+# and no other tool in the corpus raises unwrapped -- there is nothing left
+# to characterize this contract against.

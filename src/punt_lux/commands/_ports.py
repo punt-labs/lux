@@ -12,7 +12,6 @@ if TYPE_CHECKING:
         Cleared,
         ClientList,
         DisplayInfo,
-        DisplayModeRequest,
         DisplayModeState,
         InspectScope,
         MenuList,
@@ -241,12 +240,6 @@ class DisplayModeOps(Protocol):
 
     def read_display_mode(self, repo: str) -> DisplayModeState | OpError:
         """Read a project's display mode."""
-        ...
-
-    def write_display_mode(
-        self, request: DisplayModeRequest | OpError
-    ) -> DisplayModeState | OpError:
-        """Write a project's display mode."""
         ...
 
 

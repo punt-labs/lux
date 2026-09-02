@@ -21,6 +21,7 @@ from punt_lux.cli._shared import (
     run,
 )
 from punt_lux.commands import (
+    CommandResult,
     Ctx,
     DisplayInfoOps,
     DisplayModeOps,
@@ -30,11 +31,11 @@ from punt_lux.commands import (
     display_get_theme,
     display_info,
     display_mode_get,
-    display_mode_set,
     display_screenshot,
     display_window_get,
 )
-from punt_lux.operations import DisplayModeRequest, OpError
+from punt_lux.operations import DisplayModeRequest
+from punt_lux.operations.display_mode_store import DisplayModeStore
 
 display_app = typer.Typer(
     name="display",
@@ -87,6 +88,18 @@ def theme(
     run(display_get_theme(ctx), flags)
 
 
+async def _local_mode_result(value: str) -> CommandResult:
+    """Wrap a completed local mode write in the shared command envelope.
+
+    Byte-for-byte the same shape ``display_mode_set``'s deleted Hub round trip
+    produced (``commands/display_mode_get.py``/the deleted
+    ``display_mode_set.py`` both used ``text=f"display:{result.mode}"``) --
+    ``value`` is already the CLI's own ``"on"``/``"off"`` literal, the same
+    value ``DisplayModeState.mode`` would have carried.
+    """
+    return CommandResult(text=f"display:{value}", json_data={"mode": value})
+
+
 @display_app.command("mode")
 def mode(
     value: _ModeValue = None,
@@ -96,29 +109,34 @@ def mode(
     verbose: VerboseFlag = False,
     quiet: QuietFlag = False,
 ) -> None:
-    """Get or set a project's display mode. --repo is always required."""
+    """Get or set a project's display mode. --repo is always required.
+
+    Setting writes the per-repo marker file directly (``DisplayModeStore``)
+    rather than routing through the Hub -- a user path to per-repo
+    enable/disable belongs to the enablement/install flow, not a client
+    setter (DES-088). Getting is unchanged: still Hub-routed.
+    """
     flags = OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet)
-    identity = identity_from_flags(
-        as_=None, kind=None, name=None, repo=None, agent=None
-    )
-    ctx: Ctx[DisplayModeOps] = Ctx(
-        ops=connect_client(identity=identity), identity=identity
-    )
     if value is None:
+        identity = identity_from_flags(
+            as_=None, kind=None, name=None, repo=None, agent=None
+        )
+        ctx: Ctx[DisplayModeOps] = Ctx(
+            ops=connect_client(identity=identity), identity=identity
+        )
         run(display_mode_get(ctx, repo), flags)
         return
-    # DisplayModeRequest.parse speaks the shared y/n toggle vocabulary (the
-    # same one set_display_mode's MCP tool takes); on/off is this verb's
-    # own human-readable spelling, translated here rather than widening the
-    # shared model's vocabulary.
     if value not in ("on", "off"):
         raise typer.BadParameter("mode must be 'on' or 'off'")
-    toggle = "y" if value == "on" else "n"
-    request = DisplayModeRequest.parse(toggle, repo)
-    if isinstance(request, OpError):
-        typer.echo(f"error: {request.reason}", err=True)
+    repo_error = DisplayModeRequest.check_repo(repo)
+    if repo_error is not None:
+        typer.echo(f"error: {repo_error.reason}", err=True)
         raise typer.Exit(code=1)
-    run(display_mode_set(ctx, request), flags)
+    fault = DisplayModeStore(repo).write("y" if value == "on" else "n")
+    if fault is not None:
+        typer.echo(f"error: {fault.reason}", err=True)
+        raise typer.Exit(code=1)
+    run(_local_mode_result(value), flags)
 
 
 @display_app.command("window")

@@ -30,7 +30,6 @@ from punt_lux.tools.write_tools import clear, clear_scene, identify, show, updat
 from punt_lux.tools.display_write_tools import (
     display_mode,
     frame_close,
-    set_display_mode,
     set_menu,
 )
 from punt_lux.tools.composite_tools import show_dashboard, show_table
@@ -65,7 +64,6 @@ __all__ = [
     "recv",
     "register_callback",
     "screenshot",
-    "set_display_mode",
     "set_menu",
     "show",
     "show_dashboard",

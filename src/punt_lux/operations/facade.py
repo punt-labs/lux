@@ -25,14 +25,12 @@ from punt_lux.operations.timing import Timed
 if TYPE_CHECKING:
     from punt_lux.domain.hub.callback_hold import CallbackRouter
     from punt_lux.domain.hub.client_identity import ClientIdentity
-    from punt_lux.domain.hub.clients import ClientRegistry
     from punt_lux.domain.hub.hub import Hub
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.hub.menu_registry import HubMenuRegistry
     from punt_lux.domain.hub.session_callback import CallbackInvocation
     from punt_lux.operations.models import (
         Cleared,
-        DisplayModeRequest,
         DisplayModeState,
         OpError,
         Published,
@@ -124,7 +122,6 @@ class Operations:
         replicator: DirtyMarker,
         *,
         hub: Hub,
-        client_registry: ClientRegistry,
         menu_registry: HubMenuRegistry,
         callback_router: CallbackRouter,
         ports: HubPorts,
@@ -141,7 +138,7 @@ class Operations:
             scenes=scenes,
             conveniences=ConvenienceOperations(scenes),
             pubsub=PubSubOperations(hub, ports.ensure_writer, ports.next_event),
-            config=DisplayModeOperations(client_registry),
+            config=DisplayModeOperations(),
             display=DisplayControlOperations(ports.display_port),
             queries=queries,
             menus=MenuOperations(menu_registry, replicator, callbacks),
@@ -208,12 +205,6 @@ class Operations:
     def read_display_mode(self, repo: str) -> DisplayModeState | OpError:
         """Read a project's display mode."""
         return self._config.read_display_mode(repo)
-
-    def write_display_mode(
-        self, request: DisplayModeRequest | OpError
-    ) -> DisplayModeState | OpError:
-        """Write a project's display mode."""
-        return self._config.write_display_mode(request)
 
     def get_display_info(self) -> DisplayInfo | OpError:
         """Return the display's backend, geometry, frame rate, and identity."""

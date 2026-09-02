@@ -126,6 +126,8 @@ class TestDisplayModeFused:
         assert client.calls == [("read_display_mode", "/tmp/proj")]
 
     def test_a_value_sets_the_mode(self, tmp_path: Path) -> None:
+        # Setting the mode moved out of the Hub entirely (DES-088): the CLI
+        # writes DisplayModeStore directly and never touches the client.
         client = _DisplayClient()
         with patch(
             "punt_lux.client.facade.LuxClient.for_identity", return_value=client
@@ -134,7 +136,10 @@ class TestDisplayModeFused:
                 app, ["display", "mode", "off", "--repo", str(tmp_path)]
             )
         assert result.exit_code == 0
-        assert client.calls[0][0] == "write_display_mode"
+        assert result.output.strip() == "display:off"
+        assert client.calls == []
+        content = (tmp_path / ".punt-labs" / "lux.md").read_text()
+        assert 'display: "n"' in content
 
     def test_an_invalid_mode_value_is_rejected_before_any_network_call(
         self, tmp_path: Path

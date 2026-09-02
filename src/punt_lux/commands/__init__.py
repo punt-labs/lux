@@ -26,7 +26,6 @@ from punt_lux.commands.callback_register import callback_register
 from punt_lux.commands.display_get_theme import display_get_theme
 from punt_lux.commands.display_info import display_info
 from punt_lux.commands.display_mode_get import display_mode_get
-from punt_lux.commands.display_mode_set import display_mode_set
 from punt_lux.commands.display_screenshot import display_screenshot
 from punt_lux.commands.display_window_get import display_window_get
 from punt_lux.commands.error_ls import error_ls
@@ -73,7 +72,6 @@ __all__ = [
     "display_get_theme",
     "display_info",
     "display_mode_get",
-    "display_mode_set",
     "display_screenshot",
     "display_window_get",
     "error_ls",
