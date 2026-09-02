@@ -23,7 +23,6 @@ from punt_lux.rest_http_call import HttpCall
 from punt_lux.rest_reply import RestReply
 
 if TYPE_CHECKING:
-    from punt_lux.operations import DisplayModeRequest
     from punt_lux.rest_transport import HttpTransport
 
 __all__ = ["_DisplayRestOps"]
@@ -62,15 +61,6 @@ class _DisplayRestOps:
         """Read a project's display mode through ``GET /display-mode``."""
         query = urlencode({"repo": repo})
         call = HttpCall.read(f"/display-mode?{query}", self._headers)
-        return RestReply(self._transport.request(call)).read(DisplayModeState)
-
-    def write_display_mode(
-        self, request: DisplayModeRequest | OpError
-    ) -> DisplayModeState | OpError:
-        """Write a project's display mode through ``PUT /display-mode``."""
-        if isinstance(request, OpError):
-            return request
-        call = HttpCall.write("/display-mode", request, self._headers)
         return RestReply(self._transport.request(call)).read(DisplayModeState)
 
     def screenshot(self) -> Screenshot | OpError:

@@ -51,7 +51,6 @@ if TYPE_CHECKING:
     from punt_lux.operations import (
         Cleared,
         DisplayInfo,
-        DisplayModeRequest,
         DisplayModeState,
         InspectScope,
         RenderDashboardRequest,
@@ -281,12 +280,6 @@ class _RestTransport:
     def read_display_mode(self, repo: str) -> DisplayModeState | OpError:
         """Read a project's display mode through ``GET /display-mode``."""
         return self._display.read_display_mode(repo)
-
-    def write_display_mode(
-        self, request: DisplayModeRequest | OpError
-    ) -> DisplayModeState | OpError:
-        """Write a project's display mode through ``PUT /display-mode``."""
-        return self._display.write_display_mode(request)
 
     def screenshot(self) -> Screenshot | OpError:
         """Capture the display framebuffer through ``GET /display/screenshot``."""

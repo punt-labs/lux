@@ -50,10 +50,6 @@ class _DisplayClient:
         self.calls.append(("read_display_mode", repo))
         return DisplayModeState(mode="on")
 
-    def write_display_mode(self, request: object) -> DisplayModeState:
-        self.calls.append(("write_display_mode", request))
-        return DisplayModeState(mode="off")
-
 
 class TestDisplayInfo:
     def test_info_reads_display_metadata(self) -> None:

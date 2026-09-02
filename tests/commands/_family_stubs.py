@@ -15,7 +15,6 @@ if TYPE_CHECKING:
     from punt_lux.operations import (
         ClientList,
         DisplayInfo,
-        DisplayModeRequest,
         DisplayModeState,
         FrameStatePatch,
         MenuList,
@@ -315,30 +314,21 @@ class StubDisplayModeOps:
     """``DisplayModeOps`` stub returning one preset outcome per method."""
 
     _read: DisplayModeState | OpError | None
-    _write: DisplayModeState | OpError | None
     last_call: dict[str, object]
-    __slots__ = ("_read", "_write", "last_call")
+    __slots__ = ("_read", "last_call")
 
     def __new__(
         cls,
         read_result: DisplayModeState | OpError | None = None,
-        write_result: DisplayModeState | OpError | None = None,
     ) -> Self:
         self = super().__new__(cls)
         self._read = read_result
-        self._write = write_result
         self.last_call = {}
         return self
 
     def read_display_mode(self, repo: str) -> DisplayModeState | OpError:
         self.last_call = {"method": "read_display_mode", "repo": repo}
         return cast("DisplayModeState | OpError", self._read)
-
-    def write_display_mode(
-        self, request: DisplayModeRequest | OpError
-    ) -> DisplayModeState | OpError:
-        self.last_call = {"method": "write_display_mode", "request": request}
-        return cast("DisplayModeState | OpError", self._write)
 
 
 @final
