@@ -32,8 +32,6 @@ from punt_lux.tools.display_write_tools import (
     frame_close,
     set_display_mode,
     set_menu,
-    set_theme,
-    set_window_settings,
 )
 from punt_lux.tools.composite_tools import show_dashboard, show_table
 from punt_lux.tools.subscribe_tools import (
@@ -69,8 +67,6 @@ __all__ = [
     "screenshot",
     "set_display_mode",
     "set_menu",
-    "set_theme",
-    "set_window_settings",
     "show",
     "show_dashboard",
     "show_table",

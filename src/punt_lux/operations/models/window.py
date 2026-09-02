@@ -1,4 +1,4 @@
-"""Window settings — the current-settings result and the change request."""
+"""Window settings — the current-settings result."""
 
 from __future__ import annotations
 
@@ -11,20 +11,11 @@ from punt_lux.operations.models.common import OpError
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-__all__ = [
-    "FONT_SCALE_RANGE",
-    "FPS_IDLE_RANGE",
-    "OPACITY_RANGE",
-    "WindowSettings",
-    "WindowSettingsPatch",
-]
+__all__ = ["WindowSettings"]
 
-# The one source for each field's accepted range — the patch validates against
-# these and the tool description is generated from them, so the accepted bounds
-# and the advertised bounds cannot drift.
-OPACITY_RANGE = (0.1, 1.0)
-FONT_SCALE_RANGE = (0.5, 3.0)
-FPS_IDLE_RANGE = (1.0, 120.0)
+# The reported font_scale range -- the display's own bound on the field, kept
+# beside the result type it validates rather than duplicated by a caller.
+_FONT_SCALE_RANGE = (0.5, 3.0)
 
 
 class WindowSettings(BaseModel):
@@ -34,9 +25,9 @@ class WindowSettings(BaseModel):
 
     kind: Literal["ok"] = "ok"
     opacity: float
-    # Bounded like the patch: a reply outside the scale range (e.g. a raw pixel
-    # size echoed by mistake) is malformed, not a settings value.
-    font_scale: float = Field(ge=FONT_SCALE_RANGE[0], le=FONT_SCALE_RANGE[1])
+    # Bounded: a reply outside the scale range (e.g. a raw pixel size echoed by
+    # mistake) is malformed, not a settings value.
+    font_scale: float = Field(ge=_FONT_SCALE_RANGE[0], le=_FONT_SCALE_RANGE[1])
     decorated: bool
     fps_idle: float
 
@@ -52,33 +43,3 @@ class WindowSettings(BaseModel):
             return cls.model_validate(payload)
         except ValidationError as exc:
             return OpError.from_reply(exc)
-
-
-class WindowSettingsPatch(BaseModel):
-    """Only the provided fields change; a ``None`` field is left untouched."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    # None leaves the field unchanged; a provided value must be in range.
-    opacity: float | None = Field(
-        default=None, ge=OPACITY_RANGE[0], le=OPACITY_RANGE[1]
-    )
-    font_scale: float | None = Field(
-        default=None, ge=FONT_SCALE_RANGE[0], le=FONT_SCALE_RANGE[1]
-    )
-    decorated: bool | None = None  # None leaves the decoration unchanged
-    fps_idle: float | None = Field(
-        default=None, ge=FPS_IDLE_RANGE[0], le=FPS_IDLE_RANGE[1]
-    )
-
-    @classmethod
-    def parse(cls, raw: Mapping[str, object]) -> WindowSettingsPatch | OpError:
-        """Validate raw arguments, or return an ``OpError`` instead of raising."""
-        try:
-            return cls.model_validate(raw)
-        except ValidationError as exc:
-            return OpError.from_validation(exc)
-
-    def provided(self) -> dict[str, object]:
-        """Return only the fields the caller set, in the display's param shape."""
-        return self.model_dump(exclude_none=True)

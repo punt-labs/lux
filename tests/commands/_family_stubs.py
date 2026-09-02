@@ -22,10 +22,8 @@ if TYPE_CHECKING:
         OpError,
         Scope,
         SetMenuRequest,
-        SetThemeRequest,
         ThemeState,
         WindowSettings,
-        WindowSettingsPatch,
     )
     from punt_lux.operations.models.callbacks import RegisterCallbackRequest
     from punt_lux.operations.models.display_probe import Screenshot
@@ -279,18 +277,12 @@ class StubThemeOps:
     """``ThemeOps`` stub returning one preset outcome per method."""
 
     _get: ThemeState | OpError | None
-    _set: ThemeState | OpError | None
     last_call: dict[str, object]
-    __slots__ = ("_get", "_set", "last_call")
+    __slots__ = ("_get", "last_call")
 
-    def __new__(
-        cls,
-        get_result: ThemeState | OpError | None = None,
-        set_result: ThemeState | OpError | None = None,
-    ) -> Self:
+    def __new__(cls, get_result: ThemeState | OpError | None = None) -> Self:
         self = super().__new__(cls)
         self._get = get_result
-        self._set = set_result
         self.last_call = {}
         return self
 
@@ -298,40 +290,24 @@ class StubThemeOps:
         self.last_call = {"method": "get_theme"}
         return cast("ThemeState | OpError", self._get)
 
-    def set_theme(self, request: SetThemeRequest | OpError) -> ThemeState | OpError:
-        self.last_call = {"method": "set_theme", "request": request}
-        return cast("ThemeState | OpError", self._set)
-
 
 @final
 class StubWindowOps:
     """``WindowOps`` stub returning one preset outcome per method."""
 
     _get: WindowSettings | OpError | None
-    _set: WindowSettings | OpError | None
     last_call: dict[str, object]
-    __slots__ = ("_get", "_set", "last_call")
+    __slots__ = ("_get", "last_call")
 
-    def __new__(
-        cls,
-        get_result: WindowSettings | OpError | None = None,
-        set_result: WindowSettings | OpError | None = None,
-    ) -> Self:
+    def __new__(cls, get_result: WindowSettings | OpError | None = None) -> Self:
         self = super().__new__(cls)
         self._get = get_result
-        self._set = set_result
         self.last_call = {}
         return self
 
     def get_window_settings(self) -> WindowSettings | OpError:
         self.last_call = {"method": "get_window_settings"}
         return cast("WindowSettings | OpError", self._get)
-
-    def set_window_settings(
-        self, patch: WindowSettingsPatch | OpError
-    ) -> WindowSettings | OpError:
-        self.last_call = {"method": "set_window_settings", "patch": patch}
-        return cast("WindowSettings | OpError", self._set)
 
 
 @final

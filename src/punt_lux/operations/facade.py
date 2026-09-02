@@ -59,8 +59,8 @@ if TYPE_CHECKING:
     from punt_lux.operations.models.query_events import RecentEvents
     from punt_lux.operations.models.query_inspection import SceneInspection
     from punt_lux.operations.models.query_scenes import SceneList
-    from punt_lux.operations.models.theme import SetThemeRequest, ThemeState
-    from punt_lux.operations.models.window import WindowSettings, WindowSettingsPatch
+    from punt_lux.operations.models.theme import ThemeState
+    from punt_lux.operations.models.window import WindowSettings
     from punt_lux.operations.ports import DirtyMarker, HubPorts
     from punt_lux.operations.scope import Scope
 
@@ -234,16 +234,6 @@ class Operations:
     def ping(self, wait: float | None = None) -> Pong | OpError:
         """Round-trip a ping bounded by ``wait`` seconds (``None`` uses the budget)."""
         return self._display.ping(wait)
-
-    def set_theme(self, request: SetThemeRequest | OpError) -> ThemeState | OpError:
-        """Switch the display theme and return the new theme state."""
-        return self._display.set_theme(request)
-
-    def set_window_settings(
-        self, patch: WindowSettingsPatch | OpError
-    ) -> WindowSettings | OpError:
-        """Change the provided window settings and return the new settings."""
-        return self._display.set_window_settings(patch)
 
     @Timed("list_frames")
     def list_frames(self) -> FrameStates | OpError:

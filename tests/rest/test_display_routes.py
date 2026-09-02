@@ -52,20 +52,6 @@ def test_get_theme() -> None:
     assert resp.json()["theme"] == "darcula"
 
 
-def test_set_theme_happy() -> None:
-    reply = DisplayReplied({"current": "cherry", "available": ["darcula", "cherry"]})
-    client = make_client(display_port=StubPort(reply))
-    resp = client.put("/display/theme", json={"theme": "cherry"})
-    assert resp.status_code == 200
-    assert resp.json()["theme"] == "cherry"
-
-
-def test_set_theme_rejects_an_unknown_name_with_422() -> None:
-    client = make_client(display_port=StubPort(DisplayReplied({})))
-    resp = client.put("/display/theme", json={"theme": "not_a_theme"})
-    assert resp.status_code == 422
-
-
 def test_get_window_settings() -> None:
     reply = DisplayReplied(
         {"opacity": 0.9, "font_scale": 1.0, "decorated": True, "fps_idle": 10.0}
@@ -74,22 +60,6 @@ def test_get_window_settings() -> None:
     resp = client.get("/display/window")
     assert resp.status_code == 200
     assert resp.json()["opacity"] == 0.9
-
-
-def test_set_window_settings_patch() -> None:
-    reply = DisplayReplied(
-        {"opacity": 0.5, "font_scale": 1.0, "decorated": True, "fps_idle": 10.0}
-    )
-    client = make_client(display_port=StubPort(reply))
-    resp = client.patch("/display/window", json={"opacity": 0.5})
-    assert resp.status_code == 200
-    assert resp.json()["opacity"] == 0.5
-
-
-def test_set_window_settings_rejects_out_of_range_opacity_with_422() -> None:
-    # WindowSettingsPatch range-checks opacity at bind time, before any proxy.
-    client = make_client(display_port=StubPort(DisplayReplied({})))
-    assert client.patch("/display/window", json={"opacity": 5.0}).status_code == 422
 
 
 def test_list_frames_reports_a_closed_frame_over_http() -> None:

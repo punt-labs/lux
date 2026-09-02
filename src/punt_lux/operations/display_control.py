@@ -28,8 +28,8 @@ from punt_lux.operations.models.display_write import (
     FrameStatePatch,
 )
 from punt_lux.operations.models.menu_results import Ok
-from punt_lux.operations.models.theme import SetThemeRequest, ThemeState
-from punt_lux.operations.models.window import WindowSettings, WindowSettingsPatch
+from punt_lux.operations.models.theme import ThemeState
+from punt_lux.operations.models.window import WindowSettings
 
 if TYPE_CHECKING:
     from punt_lux.operations.display_port import DisplayPort
@@ -92,31 +92,6 @@ class DisplayControlOperations:
         if not isinstance(rtt, int | float):
             return OpError(code="fault", reason="ping reply carried no rtt")
         return Pong(rtt_seconds=float(rtt))
-
-    # -- setters: narrow the reply into the write's own result type --------
-
-    def set_theme(self, request: SetThemeRequest | OpError) -> ThemeState | OpError:
-        """Switch the display theme and return the new theme state."""
-        if isinstance(request, OpError):
-            return request
-        payload = self._port.query("set_theme", {"theme": request.theme}).resolve()
-        if isinstance(payload, OpError):
-            return payload
-        return ThemeState.from_payload(payload)
-
-    def set_window_settings(
-        self, patch: WindowSettingsPatch | OpError
-    ) -> WindowSettings | OpError:
-        """Change the provided window settings and return the new settings."""
-        if isinstance(patch, OpError):
-            return patch
-        provided = patch.provided()
-        if not provided:
-            return OpError(code="invalid_request", reason="no settings provided")
-        payload = self._port.query("set_window_settings", provided).resolve()
-        if isinstance(payload, OpError):
-            return payload
-        return WindowSettings.from_payload(payload)
 
     def set_frame_state(
         self, frame_id: str, patch: FrameStatePatch | OpError

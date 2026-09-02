@@ -60,11 +60,9 @@ if TYPE_CHECKING:
         Scope,
         Screenshot,
         SetMenuRequest,
-        SetThemeRequest,
         ThemeState,
         UpdateRequest,
         WindowSettings,
-        WindowSettingsPatch,
     )
 
 __all__ = ["_RestTransport"]
@@ -276,19 +274,9 @@ class _RestTransport:
         """Return the active theme through ``GET /display/theme``."""
         return self._display.get_theme()
 
-    def set_theme(self, request: SetThemeRequest | OpError) -> ThemeState | OpError:
-        """Switch the display theme through ``PUT /display/theme``."""
-        return self._display.set_theme(request)
-
     def get_window_settings(self) -> WindowSettings | OpError:
         """Return the window's settings through ``GET /display/window``."""
         return self._display.get_window_settings()
-
-    def set_window_settings(
-        self, patch: WindowSettingsPatch | OpError
-    ) -> WindowSettings | OpError:
-        """Change window settings through ``PATCH /display/window``."""
-        return self._display.set_window_settings(patch)
 
     def read_display_mode(self, repo: str) -> DisplayModeState | OpError:
         """Read a project's display mode through ``GET /display-mode``."""

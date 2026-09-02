@@ -3,38 +3,19 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, get_args
+from typing import Any
 
 from punt_lux.commands import (
     Ctx as CommandCtx,
     DisplayModeOps,
     FrameOps,
     MenuOps,
-    ThemeOps,
-    WindowOps,
     display_mode_get as display_mode_get_command,
     display_mode_set as display_mode_set_command,
-    display_set_theme as display_set_theme_command,
-    display_window_set as display_window_set_command,
     frame_close as frame_close_command,
     menu_set as menu_set_command,
 )
-from punt_lux.operations import (
-    DisplayModeRequest,
-    Ok,
-    OpError,
-    SetMenuRequest,
-    SetThemeRequest,
-    ThemeName,
-    ThemeState,
-    WindowSettings,
-    WindowSettingsPatch,
-)
-from punt_lux.operations.models.window import (
-    FONT_SCALE_RANGE,
-    FPS_IDLE_RANGE,
-    OPACITY_RANGE,
-)
+from punt_lux.operations import DisplayModeRequest, Ok, OpError, SetMenuRequest
 from punt_lux.tools import tools as _core
 from punt_lux.tools._signal import signal
 from punt_lux.tools.server import mcp
@@ -44,8 +25,6 @@ __all__ = [
     "frame_close",
     "set_display_mode",
     "set_menu",
-    "set_theme",
-    "set_window_settings",
 ]
 
 
@@ -62,55 +41,6 @@ def set_menu(menus: list[dict[str, Any]]) -> str:
     )
     result = asyncio.run(menu_set_command(ctx, SetMenuRequest.parse(menus)))
     return signal(result)
-
-
-# One source for the theme names — description and accepted set cannot drift.
-_SET_THEME_DESCRIPTION = "Set the Lux display theme. Valid names (snake_case): " + (
-    ", ".join(get_args(ThemeName))
-)
-
-
-# Bounds come from the WindowSettingsPatch ranges — one source, no drift.
-_SET_WINDOW_DESCRIPTION = (
-    "Modify display window settings. Only provided fields change. "
-    f"Fields: opacity ({OPACITY_RANGE[0]}-{OPACITY_RANGE[1]}), "
-    f"font_scale ({FONT_SCALE_RANGE[0]}-{FONT_SCALE_RANGE[1]}), "
-    "decorated (title bar/borders), "
-    f"fps_idle (target idle FPS, {FPS_IDLE_RANGE[0]}-{FPS_IDLE_RANGE[1]})."
-)
-
-
-@mcp.tool(name="display_theme_set", description=_SET_THEME_DESCRIPTION)
-def set_theme(theme: str) -> ThemeState | OpError:
-    """Set the display theme; returns the new theme state or an error."""
-    ctx: CommandCtx[ThemeOps] = CommandCtx(
-        ops=_core.OPERATIONS, identity=_core._identity()
-    )
-    return asyncio.run(
-        display_set_theme_command.execute(ctx, SetThemeRequest.parse(theme))
-    )
-
-
-@mcp.tool(name="display_window_set", description=_SET_WINDOW_DESCRIPTION)
-def set_window_settings(
-    opacity: float | None = None,
-    font_scale: float | None = None,
-    decorated: bool | None = None,  # noqa: FBT001
-    fps_idle: float | None = None,
-) -> WindowSettings | OpError:
-    """Change the provided window settings; returns the new settings or an error."""
-    ctx: CommandCtx[WindowOps] = CommandCtx(
-        ops=_core.OPERATIONS, identity=_core._identity()
-    )
-    patch = WindowSettingsPatch.parse(
-        {
-            "opacity": opacity,
-            "font_scale": font_scale,
-            "decorated": decorated,
-            "fps_idle": fps_idle,
-        }
-    )
-    return asyncio.run(display_window_set_command.execute(ctx, patch))
 
 
 @mcp.tool(name="frame_close")

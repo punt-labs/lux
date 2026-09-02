@@ -76,28 +76,31 @@ class TestRaisesOnBadSetup:
             ToolExerciser.call("ping", {}, {"display_running": True, "client": 7})
 
     def test_unexpected_query_method_raises(self) -> None:
-        # set_theme calls client.query("set_theme", ...). If the setup
+        # get_theme calls client.query("get_theme", ...). If the setup
         # spec advertises a different method, the stub raises rather than
         # silently returning the wrong result.
         with pytest.raises(ToolCallError, match="stub query called"):
             ToolExerciser.call(
-                "set_theme",
-                {"theme": "darcula"},
+                "get_theme",
+                {},
                 {
                     "display_running": True,
-                    "client": {"query": {"method": "get_theme", "result": {}}},
+                    "client": {
+                        "query": {"method": "get_window_settings", "result": {}}
+                    },
                 },
             )
 
     def test_missing_stub_spec_raises(self) -> None:
         # A scenario that forgets to declare client.query but calls a query tool
         # would silently see None on the old contract. The stub raises instead so
-        # the missing declaration surfaces. set_theme reaches client.query once the
-        # theme parses, so an empty client spec surfaces the missing declaration.
+        # the missing declaration surfaces. get_theme reaches client.query
+        # unconditionally, so an empty client spec surfaces the missing
+        # declaration.
         with pytest.raises(ToolCallError, match="stub 'query' called"):
             ToolExerciser.call(
-                "set_theme",
-                {"theme": "darcula"},
+                "get_theme",
+                {},
                 {"display_running": True, "client": {}},
             )
 
@@ -106,19 +109,19 @@ class TestPassthroughAllowlist:
     def test_query_tool_runs_without_declaring_setup_apps_side_effects(self) -> None:
         # on_event is in _PASSTHROUGH_METHODS, so a query-path tool that declares
         # only its own query gets past a stray click-callback registration.
-        # set_theme then returns a typed ThemeState; the exerciser's str-only
+        # get_theme then returns a typed ThemeState; the exerciser's str-only
         # contract surfaces that as "returned non-string" — reaching it proves
         # the passthrough method and the query both ran without a missing-spec
         # ToolCallError.
         with pytest.raises(ToolCallError, match="returned non-string"):
             ToolExerciser.call(
-                "set_theme",
-                {"theme": "darcula"},
+                "get_theme",
+                {},
                 {
                     "display_running": True,
                     "client": {
                         "query": {
-                            "method": "set_theme",
+                            "method": "get_theme",
                             "result": {"current": "darcula", "available": ["darcula"]},
                         }
                     },

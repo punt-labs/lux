@@ -226,10 +226,8 @@ class RenderLoop:
         router.register_handler("get_display_info", self._query_get_display_info)
         router.register_handler("get_window_settings", self._query_get_window_settings)
         router.register_handler("get_theme", self._query_get_theme)
-        router.register_handler("set_window_settings", self._query_set_window_settings)
         frames = FrameCommands(self._scenes)
         router.register_handler("set_frame_state", frames.set_state)
-        router.register_handler("set_theme", self._query_set_theme)
         return self
 
     @property
@@ -740,38 +738,6 @@ class RenderLoop:
             event.scene_id,
         )
         self._event_queue.append(event)
-
-    # -- Tier 3 write handlers ------------------------------------------------
-
-    def _query_set_window_settings(self, **kwargs: Any) -> dict[str, Any]:
-        """Apply the provided window settings and return the full new settings."""
-        if "opacity" in kwargs:
-            val = max(0.1, min(1.0, float(kwargs["opacity"])))
-            self._opacity = val
-            self._glfw_window().set_opacity(opacity=val)
-
-        if "font_scale" in kwargs:
-            self._font_scale = max(0.5, min(3.0, round(float(kwargs["font_scale"]), 1)))
-
-        if "decorated" in kwargs:
-            self._decorated = bool(kwargs["decorated"])
-            self._glfw_window().set_decorated(decorated=self._decorated)
-
-        if "fps_idle" in kwargs:
-            from imgui_bundle import hello_imgui
-
-            fps = max(1.0, min(120.0, float(kwargs["fps_idle"])))
-            hello_imgui.get_runner_params().fps_idling.fps_idle = fps
-
-        return self._query_get_window_settings()
-
-    def _query_set_theme(self, theme: str = "", **_kwargs: Any) -> dict[str, Any]:
-        """Apply the display theme and return the new theme state."""
-        if not theme:
-            msg = "theme name is required"
-            raise ValueError(msg)
-        self._apply_theme(theme)
-        return self._query_get_theme()
 
     def client_name(self, fd: int) -> str | None:
         """Return the display name for a connected client, or ``None``."""

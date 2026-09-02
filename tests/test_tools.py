@@ -64,7 +64,6 @@ from punt_lux.tools import (
     screenshot,
     set_display_mode,
     set_menu,
-    set_theme,
     show,
     show_dashboard,
     show_table,
@@ -456,53 +455,6 @@ class TestSetMenuTool:
             assert any(m.label == "Tools" for m in listed.menus)
         finally:
             set_menu([])
-
-
-class TestSetThemeTool:
-    @patch.object(DisplayPaths, "is_running", return_value=True)
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    def test_set_theme_returns_the_new_theme_state(
-        self, mock_get: MagicMock, _mock_running: MagicMock
-    ) -> None:
-        from punt_lux.operations import ThemeState
-
-        client = _mock_client()
-        mock_response = MagicMock()
-        mock_response.error = None
-        # The display now replies with the full theme state (current + available).
-        mock_response.result = {
-            "current": "imgui_colors_light",
-            "available": ["imgui_colors_light", "darcula"],
-        }
-        client.query.return_value = mock_response
-        mock_get.return_value = client
-
-        result = set_theme("imgui_colors_light")
-        assert isinstance(result, ThemeState)
-        assert result.theme == "imgui_colors_light"
-        client.query.assert_called_once_with(
-            "set_theme", {"theme": "imgui_colors_light"}
-        )
-
-    @patch("punt_lux.domain.hub.clients.client_registry.drop")
-    @patch.object(DisplayPaths, "is_running", return_value=True)
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    def test_set_theme_timeout_drops_the_dead_connection(
-        self, mock_get: MagicMock, _mock_running: MagicMock, mock_drop: MagicMock
-    ) -> None:
-        # A wedged or dead display makes the bounded round-trip raise OSError.
-        # The setter returns an OpError(timeout) and drops the connection so the
-        # next set_* reconnects, instead of reusing the dead fd forever.
-        from punt_lux.operations import OpError
-
-        client = _mock_client()
-        client.query.side_effect = OSError("EPIPE")
-        mock_get.return_value = client
-
-        result = set_theme("imgui_colors_light")
-        assert isinstance(result, OpError)
-        assert result.code == "timeout"
-        mock_drop.assert_called_once()
 
 
 class TestShowTool:

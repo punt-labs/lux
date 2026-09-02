@@ -16,7 +16,7 @@ from punt_lux.operations.models.common import OpError
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-__all__ = ["SetThemeRequest", "ThemeName", "ThemeState"]
+__all__ = ["ThemeName", "ThemeState"]
 
 # The display renderer's real theme enumeration (hello_imgui.ImGuiTheme_), minus
 # the trailing "count" sentinel. The get_theme handler returns these bare names,
@@ -68,19 +68,3 @@ class ThemeState(BaseModel):
             )
         except ValidationError as exc:
             return OpError.from_reply(exc)
-
-
-class SetThemeRequest(BaseModel):
-    """A request to switch the display to a named theme."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    theme: ThemeName
-
-    @classmethod
-    def parse(cls, theme: str) -> SetThemeRequest | OpError:
-        """Validate the theme name, or return an ``OpError`` instead of raising."""
-        try:
-            return cls.model_validate({"theme": theme})
-        except ValidationError as exc:
-            return OpError.from_validation(exc)

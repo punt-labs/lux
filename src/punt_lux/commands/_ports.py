@@ -26,11 +26,9 @@ if TYPE_CHECKING:
         SceneList,
         SceneShown,
         Scope,
-        SetThemeRequest,
         ThemeState,
         UpdateRequest,
         WindowSettings,
-        WindowSettingsPatch,
     )
     from punt_lux.operations.models.callbacks import RegisterCallbackRequest
     from punt_lux.operations.models.display_probe import Screenshot
@@ -227,10 +225,6 @@ class ThemeOps(Protocol):
         """Return the active theme and the themes available to switch to."""
         ...
 
-    def set_theme(self, request: SetThemeRequest | OpError) -> ThemeState | OpError:
-        """Switch the display theme and return the new theme state."""
-        ...
-
 
 @runtime_checkable
 class WindowOps(Protocol):
@@ -238,12 +232,6 @@ class WindowOps(Protocol):
 
     def get_window_settings(self) -> WindowSettings | OpError:
         """Return the window's opacity, font scale, decoration, and idle rate."""
-        ...
-
-    def set_window_settings(
-        self, patch: WindowSettingsPatch | OpError
-    ) -> WindowSettings | OpError:
-        """Change the provided window settings and return the new settings."""
         ...
 
 

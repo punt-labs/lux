@@ -19,9 +19,7 @@ from punt_lux.commands import (
     display_get_theme as display_get_theme_command,
     display_info as display_info_command,
     display_screenshot as display_screenshot_command,
-    display_set_theme as display_set_theme_command,
     display_window_get as display_window_get_command,
-    display_window_set as display_window_set_command,
     error_ls as error_ls_command,
     event_ls as event_ls_command,
     ping as ping_command,
@@ -34,10 +32,8 @@ from punt_lux.operations import (
     RecentErrors,
     RecentEvents,
     Screenshot,
-    SetThemeRequest,
     ThemeState,
     WindowSettings,
-    WindowSettingsPatch,
 )
 from punt_lux.rest.identity import resolve_identity, resolve_scope
 
@@ -77,12 +73,8 @@ class DisplayRoutes:
         router = APIRouter(tags=["display"])
         router.add_api_route("/display", self.get_display_info, methods=["GET"])
         router.add_api_route("/display/theme", self.get_theme, methods=["GET"])
-        router.add_api_route("/display/theme", self.set_theme, methods=["PUT"])
         router.add_api_route(
             "/display/window", self.get_window_settings, methods=["GET"]
-        )
-        router.add_api_route(
-            "/display/window", self.set_window_settings, methods=["PATCH"]
         )
         router.add_api_route("/display/frames", self.list_frames, methods=["GET"])
         f = "/display/frames/{frame_id}"
@@ -114,29 +106,11 @@ class DisplayRoutes:
         ctx: CommandCtx[ThemeOps] = CommandCtx(ops=self._ops, identity=identity)
         return self._errors.respond(asyncio.run(display_get_theme_command.execute(ctx)))
 
-    def set_theme(
-        self, request: SetThemeRequest, identity: _CallerIdentity
-    ) -> ThemeState:
-        """Switch the display theme and return the new theme state."""
-        ctx: CommandCtx[ThemeOps] = CommandCtx(ops=self._ops, identity=identity)
-        return self._errors.respond(
-            asyncio.run(display_set_theme_command.execute(ctx, request))
-        )
-
     def get_window_settings(self, identity: _CallerIdentity) -> WindowSettings:
         """Return the window's opacity, font scale, decoration, and idle rate."""
         ctx: CommandCtx[WindowOps] = CommandCtx(ops=self._ops, identity=identity)
         return self._errors.respond(
             asyncio.run(display_window_get_command.execute(ctx))
-        )
-
-    def set_window_settings(
-        self, patch: WindowSettingsPatch, identity: _CallerIdentity
-    ) -> WindowSettings:
-        """Change the provided window settings and return the new settings."""
-        ctx: CommandCtx[WindowOps] = CommandCtx(ops=self._ops, identity=identity)
-        return self._errors.respond(
-            asyncio.run(display_window_set_command.execute(ctx, patch))
         )
 
     def list_frames(self) -> FrameStates:

@@ -1,10 +1,9 @@
 """``client.display.*`` -- the noun-grouped Display accessor.
 
-The display verbs stay split (``get_theme``/``set_theme``, ``get_window``/
-``set_window``, ``mode_get``/``mode_set``) rather than fused: the display fuse
-is deferred to ``lux-5pwu``. When the fuse ships, this accessor swaps the
-paired methods for a single ``theme(name=None)``-style verb; consumers of the
-split shape update in one train per PL-PP-1.
+``mode_get``/``mode_set`` stay split rather than fused: the display fuse is
+deferred to ``lux-5pwu``. Theme and window are read-only here -- setting
+either is the user's own gesture at the Display's own Lux ▸ Settings menu,
+never a client op (DES-088).
 """
 
 from __future__ import annotations
@@ -17,9 +16,7 @@ from punt_lux.commands import (
     display_mode_get,
     display_mode_set,
     display_screenshot,
-    display_set_theme,
     display_window_get,
-    display_window_set,
 )
 from punt_lux.commands._ports import Ctx
 
@@ -37,10 +34,8 @@ if TYPE_CHECKING:
         DisplayModeRequest,
         DisplayModeState,
         OpError,
-        SetThemeRequest,
         ThemeState,
         WindowSettings,
-        WindowSettingsPatch,
     )
     from punt_lux.operations.models.display_probe import Screenshot
 
@@ -92,24 +87,10 @@ class DisplayAccessor:
         ctx: Ctx[ThemeOps] = Ctx(ops=self._theme_ops, identity=self._identity)
         return await display_get_theme.execute(ctx)
 
-    async def set_theme(
-        self, request: SetThemeRequest | OpError
-    ) -> ThemeState | OpError:
-        """Switch the display theme and return the new theme state."""
-        ctx: Ctx[ThemeOps] = Ctx(ops=self._theme_ops, identity=self._identity)
-        return await display_set_theme.execute(ctx, request)
-
     async def get_window(self) -> WindowSettings | OpError:
         """Return the window's opacity, font scale, decoration, and idle rate."""
         ctx: Ctx[WindowOps] = Ctx(ops=self._window_ops, identity=self._identity)
         return await display_window_get.execute(ctx)
-
-    async def set_window(
-        self, patch: WindowSettingsPatch | OpError
-    ) -> WindowSettings | OpError:
-        """Change the provided window settings and return the new settings."""
-        ctx: Ctx[WindowOps] = Ctx(ops=self._window_ops, identity=self._identity)
-        return await display_window_set.execute(ctx, patch)
 
     async def get_mode(self, repo: str) -> DisplayModeState | OpError:
         """Read the display mode for ``repo``."""

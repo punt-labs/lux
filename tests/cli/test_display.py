@@ -42,17 +42,9 @@ class _DisplayClient:
         self.calls.append(("get_theme", None))
         return ThemeState(theme="imgui_colors_dark", available=["imgui_colors_dark"])
 
-    def set_theme(self, request: object) -> ThemeState:
-        self.calls.append(("set_theme", request))
-        return ThemeState(theme="darcula", available=["darcula"])
-
     def get_window_settings(self) -> WindowSettings:
         self.calls.append(("get_window_settings", None))
         return WindowSettings(opacity=1.0, font_scale=1.0, decorated=True, fps_idle=5.0)
-
-    def set_window_settings(self, patch: object) -> WindowSettings:
-        self.calls.append(("set_window_settings", patch))
-        return WindowSettings(opacity=0.5, font_scale=1.0, decorated=True, fps_idle=5.0)
 
     def read_display_mode(self, repo: str) -> DisplayModeState:
         self.calls.append(("read_display_mode", repo))
@@ -73,7 +65,10 @@ class TestDisplayInfo:
         assert result.exit_code == 0
 
 
-class TestDisplayThemeFused:
+class TestDisplayThemeReadOnly:
+    """``lux display theme`` is a read -- setting is the user's own gesture at
+    the Display's own Lux ▸ Settings menu, never a client op (DES-088)."""
+
     def test_no_argument_reads_the_theme(self) -> None:
         client = _DisplayClient()
         with patch(
@@ -83,26 +78,22 @@ class TestDisplayThemeFused:
         assert result.exit_code == 0
         assert client.calls == [("get_theme", None)]
 
-    def test_an_argument_sets_the_theme(self) -> None:
+    def test_an_argument_is_rejected_before_any_network_call(self) -> None:
+        # The verb takes no argument any more; typer's own usage error fires
+        # before the client is ever touched.
         client = _DisplayClient()
         with patch(
             "punt_lux.client.facade.LuxClient.for_identity", return_value=client
         ):
             result = runner.invoke(app, ["display", "theme", "darcula"])
-        assert result.exit_code == 0
-        assert client.calls[0][0] == "set_theme"
-
-    def test_an_invalid_theme_name_is_rejected_before_any_network_call(self) -> None:
-        client = _DisplayClient()
-        with patch(
-            "punt_lux.client.facade.LuxClient.for_identity", return_value=client
-        ):
-            result = runner.invoke(app, ["display", "theme", "not-a-real-theme"])
-        assert result.exit_code == 1
+        assert result.exit_code == 2
         assert client.calls == []
 
 
-class TestDisplayWindowFused:
+class TestDisplayWindowReadOnly:
+    """``lux display window`` is a read -- setting is the user's own gesture at
+    the Display's own Lux ▸ Settings menu, never a client op (DES-088)."""
+
     def test_no_options_reads_window_settings(self) -> None:
         client = _DisplayClient()
         with patch(
@@ -112,14 +103,16 @@ class TestDisplayWindowFused:
         assert result.exit_code == 0
         assert client.calls == [("get_window_settings", None)]
 
-    def test_an_option_sets_window_settings(self) -> None:
+    def test_an_option_is_rejected_before_any_network_call(self) -> None:
+        # The verb takes no options any more; typer's own usage error fires
+        # before the client is ever touched.
         client = _DisplayClient()
         with patch(
             "punt_lux.client.facade.LuxClient.for_identity", return_value=client
         ):
             result = runner.invoke(app, ["display", "window", "--opacity", "0.5"])
-        assert result.exit_code == 0
-        assert client.calls[0][0] == "set_window_settings"
+        assert result.exit_code == 2
+        assert client.calls == []
 
 
 class TestDisplayModeFused:
