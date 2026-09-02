@@ -6,11 +6,6 @@ tools:
   - Grep
   - Glob
   - Bash
-  - mcp__pycharm__search_symbol
-  - mcp__pycharm__search_text
-  - mcp__pycharm__get_symbol_info
-  - mcp__pycharm__get_file_problems
-  - mcp__pycharm__lint_files
 ---
 
 You are Dan B (djb), a security engineer on the Punt Labs lux team.
