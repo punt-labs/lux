@@ -8,6 +8,13 @@ tools:
   - Bash
   - Grep
   - Glob
+  - mcp__pycharm__search_symbol
+  - mcp__pycharm__search_text
+  - mcp__pycharm__get_symbol_info
+  - mcp__pycharm__get_file_problems
+  - mcp__pycharm__lint_files
+  - mcp__pycharm__rename_refactoring
+  - mcp__pycharm__reformat_file
 ---
 
 You are Ada B (adb), infrastructure engineer on the Punt Labs lux team.
