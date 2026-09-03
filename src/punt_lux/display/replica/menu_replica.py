@@ -1,14 +1,9 @@
 """MenuReplica — the display's menu state and the model both surfaces render.
 
-The menu bar and the World panel are two projections of one :class:`MenuModel`.
-This class holds the menu state the Hub replicates — the agent bars and the
-Hub-composed ``Clients`` menu — composes the model from it alongside the
-display's own menus, and hands that one model to each surface. An entry can
-therefore never appear on one surface and not the other.
-
-The display's own menus are built by :class:`OwnMenus`; what this class adds to
-them is everything to do with the Hub: taking a replicated payload, holding what
-was well-formed, and decoding it into menus whose clicks route back.
+The menu bar and World panel are two projections of one :class:`MenuModel`,
+composed from the Hub-replicated agent bars and ``Clients`` menu alongside
+:class:`OwnMenus` (the display's own menus) -- an entry can never appear on
+one surface and not the other.
 
 ``imgui`` is typed ``Any``: imgui_bundle ships no type stubs.
 """
@@ -105,11 +100,9 @@ class MenuReplica:
         return self._agent_menus
 
     def replace_agent_menus(self, payloads: Sequence[object]) -> None:
-        """Take the replicated agent bar, keeping the menus that are well-formed.
+        """Take the replicated agent bar, keeping only well-formed menus.
 
-        The socket is the boundary, so this is where a payload becomes a menu: a
-        malformed one is rejected and logged here, by name, and never reaches the
-        model the surfaces render or the inventory the display reports.
+        The socket is the boundary; a malformed payload is rejected and logged here.
         """
         self._agent_menus = WireMenu.accepted(payloads, origin="agent_menus")
 
@@ -127,10 +120,7 @@ class MenuReplica:
     def menu_model(self) -> MenuModel:
         """Compose the menu: Lux, then Clients, then agent bars, then chrome.
 
-        ``Clients`` (the callback menus) sits second-from-left so users can reach
-        it without scanning past window-chrome menus. Rebuilt each frame, so every
-        item reads live state — the theme in use, where each frame is, which
-        sessions still hold a callback lease.
+        Rebuilt each frame so every item reads live state.
         """
         return MenuModel(
             [
