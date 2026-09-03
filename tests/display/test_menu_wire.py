@@ -162,6 +162,13 @@ class TestWhatIsRefused:
                 },
                 "menus.items.0.frame_id",
             ),
+            (
+                {
+                    "label": "voxd",
+                    "items": [{"label": "Open", "id": "o", "frame_id": " "}],
+                },
+                "menus.items.0.frame_id",
+            ),
         ],
     )
     def test_a_malformed_field_is_refused_by_name(

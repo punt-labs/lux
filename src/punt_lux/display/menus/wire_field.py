@@ -72,16 +72,22 @@ class WireField:
         return value
 
     def optional_text_or_none(self, value: object) -> str | None:
-        """Return a present string, or ``None`` when the field is genuinely absent.
+        """Return a present non-blank string, or ``None`` when genuinely absent.
 
         Unlike :meth:`optional_text`, absence here has no in-band default to
         fall back to -- a genuinely-optional field needs a genuinely-optional
-        return type, not a stand-in value.
+        return type, not a stand-in value. The sole caller of this reader is
+        ``frame_id``, an id-like field the Hub already rejects as malformed
+        when it is blank
+        (:meth:`~punt_lux.domain.hub.session_callback.SessionCallback._reject_malformed_frame_id`).
+        Mirroring that rule here means a blank ``frame_id`` that somehow
+        reaches the wire fails loudly at decode instead of raising a
+        Display-local ``""``/whitespace id that silently does nothing.
         """
         if value is None:
             return None
-        if not isinstance(value, str):
-            raise self.rejected("a string", value)
+        if not isinstance(value, str) or not value.strip():
+            raise self.rejected("a non-blank string", value)
         return value
 
     def flag(self, value: object, *, default: bool) -> bool:
