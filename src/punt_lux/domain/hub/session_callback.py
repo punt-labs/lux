@@ -1,16 +1,10 @@
 """A session's menu callback, and the invocation a click on it fires.
 
-A menu item is a callback a session registers: an id the session chose and a
-label the user reads. :class:`SessionCallback` is that registration. A click on
-the rendered leaf fires a :class:`CallbackInvocation` — the owning session and
-the callback within it — which the Hub routes back to that session.
-
-The menu leaf carries one wire id, but a click must name both the session and the
-callback, because the display cannot know which of many sessions a click belongs
-to (menu-capability-model.md). ``CallbackInvocation`` owns that composite id: it
-renders the leaf id a session's callback gets and parses a clicked leaf id back
-into the session-and-callback pair. The two live on one class so the encoding has
-a single home.
+:class:`SessionCallback` is a session's callback registration: an id it chose
+plus a label. A click fires a :class:`CallbackInvocation` naming the owning
+session and the callback, because the display can't infer which session a
+leaf id belongs to (menu-capability-model.md). Both the leaf-id rendering and
+its parse live on ``CallbackInvocation`` so the encoding has one home.
 """
 
 from __future__ import annotations
@@ -32,6 +26,10 @@ __all__ = ["CallbackInvocation", "SessionCallback"]
 # separator and this id is the remainder.
 _DETAILS_CALLBACK_ID = f"{ID_SEPARATOR}details"
 
+# Mirrors ConnectionScopedId.compose's non-blank, separator-free rule (regex,
+# not lookahead -- unsupported by pydantic-core) so a bad id fails here.
+_NONBLANK_FRAME_ID = rf"^[^{ID_SEPARATOR}]*[^{ID_SEPARATOR}\s][^{ID_SEPARATOR}]*$"
+
 
 class SessionCallback(BaseModel):
     """A named action a session registers so a click fires back to that session."""
@@ -40,42 +38,19 @@ class SessionCallback(BaseModel):
 
     id: str = Field(min_length=1)  # an id-less callback is not a real state
     label: str = Field(min_length=1)  # a label-less callback is not a real state
-    # absence means this callback owns no frame -- e.g. the Hub's own Details
-    # command, or a future applet action with no board
-    frame_id: str | None = None
+    # absent = no owned frame (e.g. the Hub's own Details); present must be
+    # non-blank and separator-free, same as ConnectionScopedId.compose.
+    frame_id: str | None = Field(default=None, pattern=_NONBLANK_FRAME_ID)
 
     @field_validator("id")
     @classmethod
     def _reject_separator(cls, value: str) -> str:
-        """Reject an id carrying the leaf-id separator so the wire id round-trips.
+        """Reject an id carrying the leaf-id separator.
 
-        The composite menu-leaf id joins the connection and this id on the unit
-        separator; an id that itself carried the separator would split ambiguously
-        at dispatch, so it is malformed at registration, not silently accepted.
+        It would split ambiguously in the composite leaf id at dispatch.
         """
         if ID_SEPARATOR in value:
             msg = "callback id must not contain the unit separator"
-            raise ValueError(msg)
-        return value
-
-    @field_validator("frame_id")
-    @classmethod
-    def _reject_malformed_frame_id(cls, value: str | None) -> str | None:
-        """Reject a blank or separator-carrying frame id at registration.
-
-        ``frame_id`` is later composed with the owning connection via
-        :meth:`~punt_lux.domain.hub.connection_scoped_id.ConnectionScopedId.compose`
-        during menu composition, which enforces this identical rule. Mirroring
-        it here means a malformed registration fails at the boundary instead of
-        raising deep inside menu composition.
-        """
-        if value is None:
-            return value
-        if not value.strip():
-            msg = "frame id must be a non-empty, non-blank id"
-            raise ValueError(msg)
-        if ID_SEPARATOR in value:
-            msg = "frame id must not contain the unit separator"
             raise ValueError(msg)
         return value
 
@@ -85,9 +60,8 @@ class SessionCallback(BaseModel):
 class CallbackInvocation:
     """The session-and-callback a menu click fires, and the leaf id it round-trips.
 
-    ``connection_id`` names the owning session and ``callback_id`` the callback
-    within it. The Hub routes the invocation to that session; the display never
-    infers the session from who clicked, because at the screen there is no "who".
+    The Hub routes by ``connection_id``; the display never infers the session
+    from who clicked, since there is no "who" at the screen.
     """
 
     connection_id: ConnectionId
@@ -97,9 +71,8 @@ class CallbackInvocation:
     def details(cls, connection_id: ConnectionId) -> Self:
         """The invocation the Hub's own Details command on *connection_id* fires.
 
-        Every client's submenu carries this command, and the Hub answers it
-        itself rather than routing it: it renders the state of that connection,
-        which is the Hub's own to report.
+        Every submenu carries this command; the Hub answers it itself,
+        reporting that connection's own state rather than routing to a session.
         """
         return cls(connection_id, _DETAILS_CALLBACK_ID)
 
@@ -117,10 +90,8 @@ class CallbackInvocation:
     def from_menu_id(cls, menu_id: str) -> Self:
         """Parse a clicked leaf id back into its session and callback, or reject it.
 
-        A leaf id is the connection and callback joined on the unit separator; an
-        id lacking the separator, or with an empty connection or callback segment,
-        never named a callback leaf and is rejected rather than routed to a
-        nonexistent session or callback.
+        A leaf id joins connection and callback on the unit separator; one
+        lacking the separator or an empty segment never named a real leaf.
         """
         connection, separator, callback = menu_id.partition(ID_SEPARATOR)
         if not separator or not connection or not callback:
