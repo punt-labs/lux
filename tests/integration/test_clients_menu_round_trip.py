@@ -19,7 +19,8 @@ from typing import TYPE_CHECKING, Self, final
 
 import pytest
 
-from punt_lux.display.menus import MenuHandlers, Submenu
+from punt_lux.display.menus import Submenu
+from punt_lux.display.menus.menu_click import MenuHandlers
 from punt_lux.display.menus.wire import WireMenu
 from punt_lux.display.menus.wire_field import WireField
 from punt_lux.domain.hub.callback_hold import CallbackRouter

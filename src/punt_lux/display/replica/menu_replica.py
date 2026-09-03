@@ -12,14 +12,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Self, final
 
-from punt_lux.display.menus import (
-    GuardedMenu,
-    MenuBar,
-    MenuHandlers,
-    MenuModel,
-    Submenu,
-    WorldPanel,
-)
+from punt_lux.display.menus import GuardedMenu, MenuBar, MenuModel, Submenu, WorldPanel
+from punt_lux.display.menus.menu_click import MenuHandlers
 from punt_lux.display.menus.own_menus import OwnMenus
 from punt_lux.display.menus.wire import WireMenu
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from punt_lux.display.menus.entries import MenuEntry, MenuItem, MenuSeparator
 from punt_lux.display.menus.inventory import MenuInventory, MenuLeaf, MenuSource
-from punt_lux.display.menus.menu_click import MenuHandlers
 from punt_lux.display.menus.model import MenuModel, Submenu
 from punt_lux.display.menus.projections import MenuBar, WorldPanel
 from punt_lux.display.menus.surface import GuardedMenu, MenuSurface
@@ -13,7 +12,6 @@ __all__ = [
     "GuardedMenu",
     "MenuBar",
     "MenuEntry",
-    "MenuHandlers",
     "MenuInventory",
     "MenuItem",
     "MenuLeaf",
