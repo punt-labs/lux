@@ -19,6 +19,7 @@ from typing import Any
 
 import pytest
 
+from punt_lux.display.menus.menu_click import MenuHandlers
 from punt_lux.display.menus.model import Submenu
 from punt_lux.display.menus.wire import (
     WireAction,
@@ -300,7 +301,7 @@ class TestTheFrameIdRoundTrip:
 
         wire_menu = _checked(lux_submenu.to_wire())
         raised: list[str] = []
-        display_menu = Submenu.from_wire(wire_menu, ignore, raised.append)
+        display_menu = Submenu.from_wire(wire_menu, MenuHandlers(ignore, raised.append))
         display_menu.render(FakeImGui(("Beads",)))
         (raised_id,) = raised
 

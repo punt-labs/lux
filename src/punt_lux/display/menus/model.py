@@ -1,20 +1,16 @@
 """The menu model — the one description of the menu the display renders.
 
 A :class:`MenuModel` is the whole menu: the display's own menus, the bars an
-agent submitted with ``set_menu``, and the ``Clients`` menu the Hub
-composes — one submenu per live client, holding that client's commands — in
-that order. Every surface that shows menus renders
-this one object, so no surface can hold a menu another surface does not.
+agent submitted with ``set_menu``, and the ``Clients`` menu the Hub composes
+— one submenu per live client — in that order. Every surface that shows
+menus renders this one object, so no surface can hold a menu another cannot.
 
-A menu is a menu at any depth: :class:`Submenu` holds entries, and an entry may
-itself be a :class:`Submenu`, so the Hub's nesting arrives without a second
-type.
-
-A replicated menu becomes a :class:`Submenu` through
-:meth:`Submenu.from_wire`, which takes the checked :class:`WireMenu` rather than
-the payload it came from: the fields were narrowed at the boundary
-(:mod:`punt_lux.display.menus.wire`), so nothing here re-checks a type or
-invents a value for a field that was not sent.
+A menu is a menu at any depth: :class:`Submenu` holds entries, and an entry
+may itself be a :class:`Submenu`, so the Hub's nesting arrives without a
+second type. A replicated menu becomes a :class:`Submenu` through
+:meth:`Submenu.from_wire`, which takes the checked :class:`WireMenu` rather
+than the payload it came from -- fields were narrowed at the boundary
+(:mod:`punt_lux.display.menus.wire`), so nothing here re-checks a type.
 
 ``imgui`` is typed ``Any``: imgui_bundle ships no type stubs.
 """
@@ -25,6 +21,7 @@ import time
 from typing import TYPE_CHECKING, Any, Self, final
 
 from punt_lux.display.menus.entries import MenuItem, MenuSeparator
+from punt_lux.display.menus.menu_click import ClickTarget, MenuHandlers
 from punt_lux.display.menus.wire import WireMenu, WireSeparator
 from punt_lux.protocol import RemoteEventHandlerInvocation
 
@@ -35,9 +32,6 @@ if TYPE_CHECKING:
     from punt_lux.display.menus.wire import WireAction
 
 __all__ = ["MenuModel", "Submenu"]
-
-type EmitEvent = Callable[[RemoteEventHandlerInvocation], None]
-type RaiseFrame = Callable[[str], None]
 
 
 @final
@@ -55,9 +49,7 @@ class Submenu:
         return self
 
     @classmethod
-    def from_wire(
-        cls, menu: WireMenu, emit: EmitEvent, raise_frame: RaiseFrame
-    ) -> Self:
+    def from_wire(cls, menu: WireMenu, handlers: MenuHandlers) -> Self:
         """Return the menu a checked replicated menu describes.
 
         An agent bar, the ``Clients`` menu, and a client's submenu inside it all
@@ -66,7 +58,7 @@ class Submenu:
         carrying a ``frame_id`` also raises that frame Display-locally, before
         the invocation is even sent (DES-088: only the Display moves a frame).
         """
-        return cls(menu.label, list(cls._wire_entries(menu, emit, raise_frame)))
+        return cls(menu.label, list(cls._wire_entries(menu, handlers)))
 
     @property
     def label(self) -> str:
@@ -93,79 +85,59 @@ class Submenu:
 
     def _render_entries(self, imgui: Any) -> bool:
         """Render every entry — all of them, whatever an earlier one returned."""
-        activated = False
+        fired = False
         for entry in self._entries:
-            activated = entry.render(imgui) or activated
-        return activated
+            fired = entry.render(imgui) or fired
+        return fired
 
     @classmethod
     def _wire_entries(
-        cls, menu: WireMenu, emit: EmitEvent, raise_frame: RaiseFrame
+        cls, menu: WireMenu, handlers: MenuHandlers
     ) -> Iterator[MenuEntry]:
         """Yield one entry per entry of the checked menu, in order.
 
         A nested menu is decoded as a menu, so a menu the Hub nested — the
-        clients under ``Clients`` — renders as a nested menu here rather than as
-        a line of its parent. The fork is on the type the boundary produced, not
-        on a key of an untyped payload.
+        clients under ``Clients`` — renders as a nested menu here rather than
+        a line of its parent, forking on the boundary's type, not a key.
         """
         for entry in menu.entries:
             if isinstance(entry, WireMenu):
-                yield cls.from_wire(entry, emit, raise_frame)
+                yield cls.from_wire(entry, handlers)
             elif isinstance(entry, WireSeparator):
                 yield MenuSeparator()
             else:
-                yield cls._wire_item(menu.label, entry, emit, raise_frame)
+                yield cls._wire_item(menu.label, entry, handlers)
 
     @classmethod
     def _wire_item(
-        cls,
-        menu_label: str,
-        action: WireAction,
-        emit: EmitEvent,
-        raise_frame: RaiseFrame,
+        cls, menu_label: str, action: WireAction, handlers: MenuHandlers
     ) -> MenuItem:
         """Return the clickable line one checked action describes."""
+        target = ClickTarget(menu_label, action.label, action.item_id, action.frame_id)
         return MenuItem(
             action.label,
-            cls._invoke(
-                menu_label,
-                action.label,
-                action.item_id,
-                action.frame_id,
-                emit,
-                raise_frame,
-            ),
+            cls._invoke(target, handlers),
             shortcut=action.shortcut,
             enabled=action.enabled,
         )
 
     @staticmethod
-    def _invoke(
-        menu_label: str,
-        item_label: str,
-        item_id: str,
-        frame_id: str | None,
-        emit: EmitEvent,
-        raise_frame: RaiseFrame,
-    ) -> Callable[[], None]:
+    def _invoke(target: ClickTarget, handlers: MenuHandlers) -> Callable[[], None]:
         """Return the action that raises this item's frame, then reports the click.
 
-        The raise runs first and Display-locally, so the frame is already on
-        screen by the time the Hub is even told the click happened — DES-088:
-        only the Display moves a frame, and only a real click at the Display
-        moves it.
+        The raise runs first and Display-locally, before the Hub is even told
+        the click happened — DES-088: only the Display moves a frame.
         """
 
         def activate() -> None:
-            if frame_id is not None:
-                raise_frame(frame_id)
-            emit(
+            if target.frame_id is not None:
+                handlers.raise_frame(target.frame_id)
+            handlers.emit(
                 RemoteEventHandlerInvocation(
-                    element_id=item_id,
+                    element_id=target.item_id,
                     action="menu",
                     ts=time.time(),
-                    value={"menu": menu_label, "item": item_label},
+                    value={"menu": target.menu_label, "item": target.item_label},
                 )
             )
 
@@ -191,7 +163,7 @@ class MenuModel:
 
     def render(self, imgui: Any, id_suffix: str = "") -> bool:
         """Render every menu, returning whether any item was activated."""
-        activated = False
+        fired = False
         for section in self._sections:
-            activated = section.render(imgui, id_suffix) or activated
-        return activated
+            fired = section.render(imgui, id_suffix) or fired
+        return fired

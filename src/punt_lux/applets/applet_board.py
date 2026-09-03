@@ -1,16 +1,12 @@
 """AppletBoard — the one board an applet owns: loading it, keeping it, showing it.
 
-Three things belong to the board rather than to the menu entry above it: what
-produces a board (:class:`~punt_lux.applets.board_load.BoardLoad`), what keeps
-the one the applet is holding (:class:`~punt_lux.applets.board_slot.BoardSlot`),
-and what writes it to the display
-(:class:`~punt_lux.applets.board_glass.BoardGlass`). They travel together through
-every phase of every click, so they are one object; what is left above is a
-service that knows only the three phases of a click.
+Three things belong to the board rather than the menu entry above it: what
+produces one (:class:`~punt_lux.applets.board_load.BoardLoad`), what keeps it
+(:class:`~punt_lux.applets.board_slot.BoardSlot`), and what writes it to the
+display (:class:`~punt_lux.applets.board_glass.BoardGlass`) -- one object.
 
-The order between the last two is the whole of this module's contract: what
-loaded is *kept* and then *shown*, never the other way round, and what is shown
-is read from the slot inside the region that writes it.
+What loaded is *kept* and then *shown*, never the other way round, and what
+is shown is read from the slot inside the region that writes it.
 """
 
 from __future__ import annotations
@@ -54,7 +50,7 @@ class AppletBoard:
 
     @property
     def frame_id(self) -> str:
-        """The frame this board's issues render into."""
+        """The frame this board renders into."""
         return self._load.frame_id
 
     def fresh(self) -> BuiltBoard:
@@ -62,18 +58,15 @@ class AppletBoard:
         return self._load.fresh()
 
     def kept(self, loaded: CachedBoard) -> None:
-        """Keep *loaded*, unless a board whose load began later is already here."""
+        """Keep *loaded*, unless a later-started load is already here."""
         self._slot.store(loaded)
 
     def answers(self, work: BoardWork) -> None:
         """Fill the frame if the state holding it has anything to add.
 
-        The frame is already on screen by the time this runs — the Display
-        raised it locally, synchronously, at the click, before the Hub ever
-        routed this invocation here (DES-088). What the state read here
-        decides is only whether to fill the frame; what goes *in* it is read
-        again inside the push region, because a newer board can land between
-        this read and the push.
+        The Display already raised the frame locally at the click (DES-088);
+        what is read here only decides whether to fill it, and is read again
+        inside the push region, since a newer board can land between reads.
         """
         held = self._slot.held
         if held.answered(work):

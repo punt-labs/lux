@@ -1,18 +1,14 @@
 """BeadsService — the Beads menu entry a session owns, and what its click does.
 
-luxd cannot run ``bd``: launchd starts it with no ``PATH``, no repository
-credentials and no working directory. The session has all three, so it owns the
-entry and services its own clicks — loading the issues from its shell and
-pushing the board to the Hub under its own identity.
+luxd cannot run ``bd``: launchd starts it with no ``PATH``, credentials, or
+working directory. The session has all three, so it owns the entry and
+services its own clicks — loading issues from its shell, pushing the board
+to the Hub under its own identity.
 
-Reading those issues is a query to a hosted database and it is the whole wait, so
-the service never makes a user sit through one it could have run already: it
-loads a board when it registers and answers every click after that with the one
-it holds, moving the wait behind a real board.
-
-A click renders something either way, and always in one order: whatever it loaded
-is kept, and then the display is shown what the applet holds. A push before the
-store would show issues the applet had not kept, or a board the slot refused.
+Reading issues is a hosted-database query and the whole wait, so the service
+loads a board on registration and answers every click with the one it holds,
+moving the wait behind a real board. A click always renders in one order:
+what loaded is kept, then shown -- never the reverse.
 """
 
 from __future__ import annotations
@@ -102,11 +98,9 @@ class BeadsService:
     def acknowledge(self, client: BoardOps, latency: ClickLatency) -> None:
         """Put something on screen now, before any issue has been read.
 
-        A click has to launch in the time a user reads as instant, and reading
-        the issues cannot promise that. The frame is already on screen by the
-        time this runs -- the Display raised it locally at the moment of the
-        click -- so the click's first act is filling it with the board held,
-        or the blank held instead.
+        The frame is already on screen by the time this runs -- the Display
+        raised it locally at the click -- so the first act is filling it with
+        the board held, or the blank held instead.
         """
         self._board.answers(self._board.work(client, latency))
 

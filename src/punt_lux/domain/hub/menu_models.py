@@ -41,12 +41,12 @@ class MenuAction(BaseModel):
     def to_wire(self) -> dict[str, object]:
         """Render as the untyped menu-item payload the display consumes."""
         item: dict[str, object] = {"label": self.label, "id": self.id}
-        if self.shortcut is not None:
-            item["shortcut"] = self.shortcut
-        if self.icon is not None:
-            item["icon"] = self.icon
-        if self.frame_id is not None:
-            item["frame_id"] = self.frame_id
+        optional = {
+            "shortcut": self.shortcut,
+            "icon": self.icon,
+            "frame_id": self.frame_id,
+        }
+        item.update((k, v) for k, v in optional.items() if v is not None)
         return item
 
 
@@ -148,11 +148,7 @@ class Menu(BaseModel):
 
     @staticmethod
     def _optional_str(value: object, *, loc: str) -> str | None:
-        """Return a present string or ``None`` when absent; reject a non-string.
-
-        ``None`` is the documented absence (no accelerator, no icon), not a
-        give-up: a present-but-non-string value is rejected by name.
-        """
+        """Return a present string, ``None`` when absent, or reject a non-string."""
         if value is None:
             return None
         if not isinstance(value, str):

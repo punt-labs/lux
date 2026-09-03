@@ -27,24 +27,22 @@ __all__ = ["CallbackConvenienceOps", "SyncOps"]
 
 @runtime_checkable
 class CallbackConvenienceOps(Protocol):
-    """The two-arg ``register_callback`` shape every production caller depends on.
+    """The bare-args ``register_callback`` shape every production caller depends on.
 
     Distinct from :class:`~punt_lux.commands._ports.CallbackRegisterOps`, whose
-    Protocol shape is ``register_callback(request, *, scope)`` -- what the
-    in-process ``Operations`` facade needs. ``_RestTransport`` carries this
-    convenience shape instead, because ``applets/leg.py`` already depends on
-    calling it with a bare ``(callback_id, label)`` pair. The two signatures
-    do not unify without either breaking that caller or adapting one shape to
-    the other -- see ``cli/callback.py``'s ``_CallbackRegisterAdapter``, the
-    one place that needs the Protocol shape over REST.
+    Protocol shape is ``register_callback(request, *, scope)`` for the
+    in-process ``Operations`` facade. ``_RestTransport`` carries this shape
+    instead, since ``applets/leg.py`` already calls it bare; see
+    ``cli/callback.py``'s ``_CallbackRegisterAdapter`` for the one adapter
+    between the two.
     """
 
     def register_callback(
         self, callback_id: str, label: str, frame_id: str | None = None
     ) -> Ok | OpError:
-        """Register a menu callback for this identity.
+        """Register a menu callback; ``frame_id`` is applet-only.
 
-        ``frame_id`` is applet-only -- see :meth:`CallbackAccessor.register`.
+        See :meth:`CallbackAccessor.register`.
         """
         ...
 
@@ -70,10 +68,7 @@ class SyncOps(
 
     A Protocol extending every per-family Ops Protocol in ``commands/_ports.py``
     plus :class:`CallbackConvenienceOps` -- satisfied structurally by
-    ``_RestTransport`` purely because that class already has every one of
-    these methods; extending this Protocol adds no new requirement on it. Its
-    purpose is narrower than "expose the transport": it lets a caller's
-    ``Ctx[SceneOps]`` (or ``Ctx[MenuOps]``, or a narrower composite like
-    ``applets.board_ops.BoardOps``) accept ``client.sync`` without that caller
-    ever importing ``_RestTransport``.
+    ``_RestTransport``, adding no new requirement on it. Lets a caller's
+    ``Ctx[SceneOps]`` (or narrower) accept ``client.sync`` without ever
+    importing ``_RestTransport``.
     """

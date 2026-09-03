@@ -1,17 +1,10 @@
 """The replicated menu tree, checked where it arrives.
 
-The Hub composes menus and sends them over the socket. The socket is a boundary,
-so a payload is not a menu until it has been through here: a malformed one is
-rejected whole and named at the point it lands, and everything downstream — the
-model both surfaces render, the inventory ``list_menus`` reports — works on
-objects already known to be well-formed. Nothing further down re-checks a field,
-and nothing further down can be brought down by a payload that was never a menu.
-
-The shapes accepted are the shapes the Hub sends: a menu of entries, an action
-carrying the id a click routes back to, and the ``"---"`` separator. An entry
-without an id that is not that separator is malformed — the same rule the Hub
-applies to what an agent submits, so what the Hub accepts is what the display
-renders and neither tier quietly repairs the other's payload.
+The socket is a boundary: a Hub-sent payload is not a menu until it has
+passed here, rejected whole and named if malformed, so nothing downstream
+re-checks a field. Accepted shapes match the Hub's own: a menu of entries,
+an action carrying the id a click routes to, and the ``"---"`` separator;
+an id-less entry that isn't that separator is malformed.
 """
 
 from __future__ import annotations
@@ -58,12 +51,7 @@ class WireSeparator:
 
     @classmethod
     def of_payload(cls, entry: Mapping[str, object], *, field: WireField) -> Self:
-        """Return the separator *entry* describes, or reject an id-less line.
-
-        Every id-less entry the Hub sends is this sentinel. One that is not is a
-        line the display could draw but never route a click from, so it is
-        rejected here rather than rendered as something dead to click.
-        """
+        """Return the separator *entry* describes, or reject an id-less line."""
         label = entry.get("label")
         if label != SEPARATOR_LABEL:
             raise field.at("label").rejected(
@@ -173,11 +161,9 @@ class WireMenu:
     def accepted(cls, payloads: Sequence[object], *, origin: str) -> tuple[Self, ...]:
         """Return the menus of *payloads* that are well-formed, logging the rest.
 
-        Rejection is per menu: one malformed payload costs its own menu and
-        nothing else, so a bad entry the Hub sent cannot take the whole bar —
-        or the introspection query that reports it — down with it. *origin*
-        names the payload the menus arrived in, so the logged rejection locates
-        the menu as well as the field.
+        Rejection is per menu: one malformed payload costs its own menu, not
+        the whole bar. *origin* names where the menus arrived, so the logged
+        rejection locates the menu as well as the field.
         """
         menus: list[Self] = []
         for index, payload in enumerate(payloads):
@@ -192,9 +178,8 @@ class WireMenu:
     def of_payload(cls, payload: object, *, field: WireField) -> Self:
         """Return the menu *payload* describes, or reject it by field name.
 
-        A missing ``items`` key is the one absence that reads as a menu with no
-        entries; a present one must be a list, and every entry in it must be a
-        nested menu, an action, or the separator.
+        A missing ``items`` key reads as no entries; a present one must be a
+        list of nested menus, actions, or separators.
         """
         menu = field.mapping(payload)
         items = field.at(_ITEMS).sequence(menu.get(_ITEMS, ()))
@@ -226,9 +211,9 @@ class WireMenu:
     def _entry_of(cls, item: object, *, field: WireField) -> WireEntry:
         """Return the entry *item* describes: a nested menu, an action, or a rule.
 
-        An entry carrying ``items`` of its own is a menu — that is how the Hub
-        nests a client under ``Clients`` — and one carrying an id is an action.
-        Anything else must be the separator.
+        An entry carrying its own ``items`` is a menu (how the Hub nests a
+        client under ``Clients``); one carrying an id is an action; else it
+        must be the separator.
         """
         entry = field.mapping(item)
         if _ITEMS in entry:

@@ -53,6 +53,8 @@ from punt_lux.send_timeout import set_send_timeout
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
+
     from punt_lux.protocol import Element, Message
 
 logger = logging.getLogger(__name__)
@@ -358,12 +360,12 @@ class DisplayLink:
         """Route a message to its typed destination.
 
         ``RemoteEventHandlerInvocation`` runs the registered callback for its
-        ``(element_id, action)`` pair; unmatched interactions are
-        dropped with a debug log.  ``ObserverMessage`` payloads queue
-        for :meth:`poll_event`.  ``AckMessage``, ``PongMessage``, and
-        ``QueryResponse`` route to the per-type queues consumed by
-        :meth:`show`, :meth:`ping`, and :meth:`query`.  Other message
-        kinds are dropped with a debug log.
+        ``(element_id, action)`` pair, falling back to
+        :attr:`_fallback_interaction_handler` and then to a debug-logged
+        drop.  ``ObserverMessage`` payloads queue for :meth:`poll_event`.
+        ``AckMessage``, ``PongMessage``, and ``QueryResponse`` route to the
+        per-type queues consumed by :meth:`show`, :meth:`ping`, and
+        :meth:`query`.  Other message kinds are dropped with a debug log.
         """
         if isinstance(msg, RemoteEventHandlerInvocation):
             key = (msg.element_id, msg.action)
@@ -378,14 +380,10 @@ class DisplayLink:
                         msg.action,
                         msg.scene_id,
                     )
-                    try:
+                    with self._safely(
+                        "Fallback handler error for %s:%s", msg.element_id, msg.action
+                    ):
                         fallback(msg)
-                    except Exception:
-                        logger.exception(
-                            "Fallback handler error for %s:%s",
-                            msg.element_id,
-                            msg.action,
-                        )
                 else:
                     logger.debug(
                         "Dropping interaction with no callback: %s:%s",
@@ -393,14 +391,10 @@ class DisplayLink:
                         msg.action,
                     )
                 return
-            try:
+            with self._safely(
+                "Callback error for %s:%s (event consumed)", msg.element_id, msg.action
+            ):
                 cb(msg)
-            except Exception:
-                logger.exception(
-                    "Callback error for %s:%s (event consumed)",
-                    msg.element_id,
-                    msg.action,
-                )
             return
         if isinstance(msg, ObserverMessage):
             self._event_queue.put(PolledEvent(topic=msg.topic, payload=msg.payload))
@@ -415,6 +409,15 @@ class DisplayLink:
             self._query_queue.put(msg)
             return
         logger.debug("Dropping unhandled message: %s", type(msg).__name__)
+
+    @staticmethod
+    @contextlib.contextmanager
+    def _safely(error_fmt: str, *log_args: object) -> Generator[None]:
+        """Suppress and log any exception raised in the block, per *error_fmt*."""
+        try:
+            yield
+        except Exception:
+            logger.exception(error_fmt, *log_args)
 
     # -- sending -----------------------------------------------------------
 

@@ -1,11 +1,8 @@
 """WireField — one named place in a replicated payload, and how it is read.
 
-A menu arrives from the Hub as untyped JSON, so nothing read out of it is
-trusted until it has been checked. A field carries the name of the place being
-read — ``callback_menus.0.items.2.id`` — and every reader either returns the
-value at the type it promises or raises naming that place, so a rejection says
-which field of which menu was wrong instead of leaving a ``TypeError`` to
-surface somewhere downstream.
+A menu arrives from the Hub as untyped JSON; every reader here returns the
+value at its promised type or raises naming the place, so a bad payload
+points at ``callback_menus.0.items.2.id`` instead of a bare ``TypeError``.
 """
 
 from __future__ import annotations
@@ -44,11 +41,7 @@ class WireField:
         return cast("Mapping[str, object]", value)
 
     def sequence(self, value: object) -> tuple[object, ...]:
-        """Return *value* as a tuple, or reject it by name.
-
-        A string is a sequence to Python and a scalar to a reader, so it is
-        rejected here rather than iterated one character at a time.
-        """
+        """Return *value* as a tuple, or reject it (a string here is scalar)."""
         if isinstance(value, str) or not isinstance(value, Sequence):
             raise self.rejected("a list", value)
         return tuple(cast("Sequence[object]", value))
@@ -60,11 +53,7 @@ class WireField:
         return value
 
     def optional_text(self, value: object, default: str) -> str:
-        """Return a present string, or *default* when the field is absent.
-
-        Absence is a documented shape — an item with no accelerator — while a
-        present value of the wrong type is a malformed payload and is rejected.
-        """
+        """Return a present string, or *default* when absent; wrong type is rejected."""
         if value is None:
             return default
         if not isinstance(value, str):
@@ -72,23 +61,14 @@ class WireField:
         return value
 
     def optional_text_or_none(self, value: object) -> str | None:
-        """Return a present non-blank string, or ``None`` when genuinely absent.
+        """Present non-blank string, or None if absent (mirrors the Hub blank rule)."""
+        return None if value is None else self._nonblank_text(value)
 
-        Unlike :meth:`optional_text`, absence here has no in-band default to
-        fall back to -- a genuinely-optional field needs a genuinely-optional
-        return type, not a stand-in value. The sole caller of this reader is
-        ``frame_id``, an id-like field the Hub already rejects as malformed
-        when it is blank
-        (:meth:`~punt_lux.domain.hub.session_callback.SessionCallback._reject_malformed_frame_id`).
-        Mirroring that rule here means a blank ``frame_id`` that somehow
-        reaches the wire fails loudly at decode instead of raising a
-        Display-local ``""``/whitespace id that silently does nothing.
-        """
-        if value is None:
-            return None
-        if not isinstance(value, str) or not value.strip():
-            raise self.rejected("a non-blank string", value)
-        return value
+    def _nonblank_text(self, value: object) -> str:
+        """Return *value* as a non-blank string, or reject it by name."""
+        if isinstance(value, str) and value.strip():
+            return value
+        raise self.rejected("a non-blank string", value)
 
     def flag(self, value: object, *, default: bool) -> bool:
         """Return a present boolean, or *default* when the field is absent."""

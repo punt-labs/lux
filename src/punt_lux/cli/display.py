@@ -1,8 +1,7 @@
 """``lux display`` — display info, theme, mode, window settings, screenshot.
 
-``theme``/``mode``/``window`` are fused verbs: no argument reads, an argument
-(or any option) writes. Under the hood that dispatches to the paired
-Get/Set command singletons per the design vocabulary's fused Display group.
+``mode`` is the one fused verb left: no argument reads, an argument writes.
+Theme and window are user-only gestures at the Display itself (DES-088).
 """
 
 from __future__ import annotations
@@ -75,11 +74,7 @@ def theme(
     verbose: VerboseFlag = False,
     quiet: QuietFlag = False,
 ) -> None:
-    """Get the active theme.
-
-    Setting the theme is the user's own gesture at the Display's own
-    Lux ▸ Settings menu -- never a client op (DES-088).
-    """
+    """Get the active theme; setting it is a user gesture at Lux ▸ Settings."""
     flags = OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet)
     identity = identity_from_flags(
         as_=None, kind=None, name=None, repo=None, agent=None
@@ -89,14 +84,7 @@ def theme(
 
 
 async def _local_mode_result(value: str) -> CommandResult:
-    """Wrap a completed local mode write in the shared command envelope.
-
-    Byte-for-byte the same shape ``display_mode_set``'s deleted Hub round trip
-    produced (``commands/display_mode_get.py``/the deleted
-    ``display_mode_set.py`` both used ``text=f"display:{result.mode}"``) --
-    ``value`` is already the CLI's own ``"on"``/``"off"`` literal, the same
-    value ``DisplayModeState.mode`` would have carried.
-    """
+    """Wrap a completed local write; same shape the deleted Hub round trip produced."""
     return CommandResult(text=f"display:{value}", json_data={"mode": value})
 
 
@@ -111,10 +99,8 @@ def mode(
 ) -> None:
     """Get or set a project's display mode. --repo is always required.
 
-    Setting writes the per-repo marker file directly (``DisplayModeStore``)
-    rather than routing through the Hub -- a user path to per-repo
-    enable/disable belongs to the enablement/install flow, not a client
-    setter (DES-088). Getting is unchanged: still Hub-routed.
+    Setting writes the per-repo marker file directly (DES-088); getting is
+    still Hub-routed.
     """
     flags = OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet)
     if value is None:
@@ -126,6 +112,11 @@ def mode(
         )
         run(display_mode_get(ctx, repo), flags)
         return
+    _set_mode(value, repo, flags)
+
+
+def _set_mode(value: str, repo: str, flags: OutputFlags) -> None:
+    """Write the per-repo mode marker directly, or exit 1 naming the fault."""
     if value not in ("on", "off"):
         raise typer.BadParameter("mode must be 'on' or 'off'")
     repo_error = DisplayModeRequest.check_repo(repo)
@@ -146,11 +137,7 @@ def window(
     verbose: VerboseFlag = False,
     quiet: QuietFlag = False,
 ) -> None:
-    """Get window settings (opacity, font scale, decoration, idle rate).
-
-    Changing them is the user's own gesture at the Display's own
-    Lux ▸ Settings menu -- never a client op (DES-088).
-    """
+    """Get window settings; changing them is a user gesture at Lux ▸ Settings."""
     flags = OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet)
     identity = identity_from_flags(
         as_=None, kind=None, name=None, repo=None, agent=None
@@ -168,8 +155,7 @@ def screenshot(
 ) -> None:
     """Capture the display framebuffer and return the image path.
 
-    Capture is currently unsupported (DES-028, bead lux-olgj) -- the
-    command reaches the Hub and returns its real error until that closes.
+    Currently unsupported (DES-028, lux-olgj) -- returns the Hub's real error.
     """
     flags = OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet)
     identity = identity_from_flags(
@@ -193,9 +179,8 @@ def serve(
     """Start the Lux display server (the ImGui render loop process).
 
     Interactive/manual entry point onto
-    :meth:`punt_lux.luxd_display.DisplayEntryPoint.serve` — the process
-    launchd/systemd runs directly is the top-level ``luxd-display`` executable,
-    not this subcommand.
+    :meth:`punt_lux.luxd_display.DisplayEntryPoint.serve` — launchd/systemd
+    runs the top-level ``luxd-display`` executable directly, not this.
     """
     try:
         from punt_lux.luxd_display import DisplayEntryPoint

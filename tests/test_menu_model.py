@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from punt_lux.display.menus import MenuItem, MenuModel, MenuSeparator, Submenu
+from punt_lux.display.menus.menu_click import MenuHandlers
 from punt_lux.protocol import RemoteEventHandlerInvocation
 
 from .menu_doubles import SEPARATOR, FakeImGui, checked_menu, ignore, wire_menu
@@ -113,8 +114,7 @@ class TestSubmenuFromWire:
                     ],
                 )
             ),
-            ignore,
-            ignore,
+            MenuHandlers(ignore, ignore),
         )
 
         menu.render(imgui)
@@ -129,8 +129,7 @@ class TestSubmenuFromWire:
             checked_menu(
                 wire_menu("voxd", [{"label": "Music", "id": "conn\x1fmusic"}])
             ),
-            sent.append,
-            ignore,
+            MenuHandlers(sent.append, ignore),
         )
 
         menu.render(FakeImGui(("Music",)))
@@ -149,8 +148,7 @@ class TestSubmenuFromWire:
                     [wire_menu("lux", [{"label": "Beads", "id": "c\x1fb"}])],
                 )
             ),
-            ignore,
-            ignore,
+            MenuHandlers(ignore, ignore),
         )
 
         menu.render(imgui)
@@ -166,8 +164,7 @@ class TestSubmenuFromWire:
                     "File", [{"label": "Close", "id": "file.close", "enabled": False}]
                 )
             ),
-            sent.append,
-            ignore,
+            MenuHandlers(sent.append, ignore),
         )
 
         imgui = FakeImGui(("Close",))
@@ -185,8 +182,10 @@ class TestSubmenuFromWire:
                     [{"label": "Beads", "id": "c\x1fbeads", "frame_id": "beads-lux"}],
                 )
             ),
-            lambda _event: calls.append("emit"),
-            lambda frame_id: calls.append(f"raise:{frame_id}"),
+            MenuHandlers(
+                lambda _event: calls.append("emit"),
+                lambda frame_id: calls.append(f"raise:{frame_id}"),
+            ),
         )
 
         menu.render(FakeImGui(("Beads",)))
@@ -199,8 +198,7 @@ class TestSubmenuFromWire:
             checked_menu(
                 wire_menu("Clients", [{"label": "Details", "id": "c\x1fdetails"}])
             ),
-            ignore,
-            raised.append,
+            MenuHandlers(ignore, raised.append),
         )
 
         menu.render(FakeImGui(("Details",)))
@@ -210,7 +208,8 @@ class TestSubmenuFromWire:
     def test_a_menu_without_items_renders_as_an_empty_menu(self) -> None:
         imgui = FakeImGui()
 
-        Submenu.from_wire(checked_menu({"label": "File"}), ignore, ignore).render(imgui)
+        menu = checked_menu({"label": "File"})
+        Submenu.from_wire(menu, MenuHandlers(ignore, ignore)).render(imgui)
 
         assert imgui.labels_under() == ("File",)
         assert imgui.labels_under("File") == ()
