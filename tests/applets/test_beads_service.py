@@ -37,7 +37,6 @@ from .board_doubles import (
     RecordingClient,
     Source,
     ThenFails,
-    UnraisableClient,
 )
 
 if TYPE_CHECKING:
@@ -99,6 +98,7 @@ def test_the_entry_is_named_for_what_it_shows() -> None:
     service = BeadsService.for_repo()
     assert service.callback_id == "beads"
     assert service.label == "Beads"
+    assert service.frame_id == "beads-lux"
 
 
 def test_issues_are_pushed_through_the_table_route() -> None:
@@ -197,7 +197,7 @@ def test_the_refresh_behind_a_standing_board_is_decomposed_too(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """The reload nobody waits on still says where it went; it is the same query."""
-    client = RecordingClient(frame_is_up=False)
+    client = RecordingClient()
     service = _service(Source(BeadsRows.of([ISSUE])))
 
     service.prefetch()
@@ -229,54 +229,39 @@ def test_a_load_that_fails_times_the_stage_it_failed_in_and_no_later_one(
     assert "pushed" in line  # but the failure message reached the window
 
 
-def test_a_click_on_a_board_already_up_raises_it_before_asking_bd_anything() -> None:
+def test_a_click_on_a_board_already_held_pushes_it_immediately() -> None:
     """The common click, and the one the response budget is written for.
 
     Reading the issues is a query to a hosted database and takes as long as it
-    takes. Running it first is what made a click look like nothing had happened:
-    the board was already on screen, and the user waited on a database to be told
-    so. The frame is raised first, and the load runs behind it.
+    takes. Running it first is what made a click look like nothing had
+    happened. The frame is already on screen by the time this runs — the
+    Display raised it locally, before the Hub even routed this click here
+    (DES-088) — so the click's first act is filling it with the board already
+    held, and the load runs behind it.
     """
     journal = Journal()
-    client = RecordingClient(journal=journal, frame_is_up=True)
+    client = RecordingClient(journal=journal)
     service = _service(Source(BeadsRows.of([ISSUE]), journal=journal))
+    service.prefetch()
 
-    _whole_click(service, client)
+    _answer(service, client)
 
-    assert journal.steps == ("raise", "load", "render_table")
-    assert client.scenes == []  # a board that is up needs no placeholder
+    assert journal.steps == ("load", "render_table")
+    assert client.scenes == []  # a board that is held needs no placeholder
 
 
-def test_a_click_with_no_board_up_opens_one_before_asking_bd_anything() -> None:
-    """The cold click: there is no frame to raise, so one is put up immediately."""
+def test_a_click_with_no_board_held_opens_one_before_asking_bd_anything() -> None:
+    """The cold click: there is no board yet, so one is put up immediately."""
     journal = Journal()
-    client = RecordingClient(journal=journal, frame_is_up=False)
+    client = RecordingClient(journal=journal)
     service = _service(Source(BeadsRows.of([ISSUE]), journal=journal))
 
     _whole_click(service, client)
 
-    assert journal.steps == ("raise", "render", "load", "render_table")
+    assert journal.steps == ("render", "load", "render_table")
     assert "Loading issues" in str(client.scenes[0].elements)
     assert client.scenes[0].frame is not None
     assert client.scenes[0].frame.frame_id == client.tables[0].frame_id
-
-
-def test_a_raise_that_cannot_be_answered_degrades_to_the_cold_click() -> None:
-    """A failed round trip establishes nothing, so the click treats it as not up.
-
-    The raise can fail for reasons that say nothing about what is on screen —
-    no display, a timed-out round trip. Trusting that as "the board is up" is
-    exactly what let a closed frame stay closed (lux-81t3.2): the click instead
-    degrades to the cold path and pushes a placeholder, the same as a genuine
-    ``raised: false``.
-    """
-    journal = Journal()
-    client = UnraisableClient(journal)
-    service = _service(Source(BeadsRows.of([ISSUE]), journal=journal))
-
-    _whole_click(service, client)
-
-    assert journal.steps == ("raise", "render", "load", "render_table")
 
 
 def test_a_prefetched_board_is_shown_before_the_fresh_load_begins() -> None:
@@ -288,87 +273,57 @@ def test_a_prefetched_board_is_shown_before_the_fresh_load_begins() -> None:
     before the fresh query starts rather than after it returns.
     """
     journal = Journal()
-    client = RecordingClient(journal=journal, frame_is_up=False)
+    client = RecordingClient(journal=journal)
     service = _service(Source(BeadsRows.of([ISSUE]), journal=journal))
 
     service.prefetch()
     _whole_click(service, client)
 
-    # The board is pushed between the raise and the click's own load — the two
-    # facts that make it an answer rather than a result.
-    assert journal.steps == ("load", "raise", "render_table", "load", "render_table")
+    assert journal.steps == ("load", "render_table", "load", "render_table")
     assert client.scenes == []  # and no placeholder was shown at any point
 
 
-def test_a_click_pushes_the_board_it_holds_onto_a_frame_already_up() -> None:
-    """A frame that is up is not a promise about what is in it.
+def test_a_click_pushes_the_board_it_holds_whatever_the_prior_push_did() -> None:
+    """A refused push is not a promise about what is in the frame.
 
-    The board is kept whatever became of the push behind it — the query has been
-    paid for either way — so a push the Hub refused leaves the applet holding
-    issues the screen never got, with the frame still standing over the older
-    ones. A click that stopped at the raise would bring that older board forward
-    and keep the newer one to itself, and so would every click after it: the
-    screen would never catch up. The held board therefore goes up whatever the
-    raise answered.
+    The board is kept whatever became of the push behind it — the query has
+    been paid for either way — so a push the Hub refused leaves the applet
+    holding issues the screen never got. Every click after it still answers
+    with the board it holds.
     """
     service = _service(Source(BeadsRows.of([ISSUE])))
-    _whole_click(service, RecordingClient(refuse=True, frame_is_up=False))
+    _whole_click(service, RecordingClient(refuse=True))
 
-    client = RecordingClient(frame_is_up=True)
+    client = RecordingClient()
     _answer(service, client)
 
-    assert len(client.tables) == 1  # the answer was the board, not the raise alone
+    assert len(client.tables) == 1  # the answer was the board it holds
     assert [row[0] for row in client.tables[0].rows] == ["lux-1"]
     assert client.scenes == []
 
 
-def test_a_raise_that_cannot_be_answered_still_shows_the_board_held() -> None:
-    """A failed round trip must not cost the click the board it already had.
-
-    The raise can fail while the display is perfectly alive — a timed-out trip,
-    a display that came up after luxd. Reading that as "the board is up" and
-    stopping there hands the user a click that did nothing visible and then
-    makes them wait out the whole query anyway, which is the one wait the held
-    board exists to spare them.
-    """
-    journal = Journal()
-    client = UnraisableClient(journal)
-    service = _service(Source(BeadsRows.of([ISSUE]), journal=journal))
-
-    service.prefetch()
-    _whole_click(service, client)
-
-    # The cached push sits between the raise and the click's own load: it is the
-    # answer, not the result.
-    assert journal.steps == ("load", "raise", "render_table", "load", "render_table")
-
-
 @pytest.mark.parametrize(
-    ("prefetched", "frame_is_up", "said"),
+    ("prefetched", "said"),
     [
-        (True, False, "cached board"),
-        (True, True, "cached board"),
-        (False, True, "frame already up"),
-        (False, False, "loading placeholder"),
+        (True, "cached board"),
+        (False, "loading placeholder"),
     ],
 )
 def test_the_line_says_which_of_its_answers_the_click_gave(
     caplog: pytest.LogCaptureFixture,
     *,
     prefetched: bool,
-    frame_is_up: bool,
     said: str,
 ) -> None:
     """Every answer a click can give is fast; only the line tells them apart.
 
-    Pushing a board the applet already had, pushing "Loading issues…", and
-    finding a frame up with nothing better to put in it are all a few
-    milliseconds, so the figure is the same and what the user got is not. The
-    line names what was pushed — and it has to keep naming it, because a click
-    that reported a cached board while pushing nothing would hide exactly the
-    case where the screen and the applet disagree.
+    Pushing a board the applet already had and pushing "Loading issues…" are
+    both a few milliseconds, so the figure is the same and what the user got is
+    not. The line names what was pushed — and it has to keep naming it, because
+    a click that reported a cached board while pushing nothing would hide
+    exactly the case where the screen and the applet disagree.
     """
-    client = RecordingClient(frame_is_up=frame_is_up)
+    client = RecordingClient()
     service = _service(Source(BeadsRows.of([ISSUE])))
     if prefetched:
         service.prefetch()
@@ -390,7 +345,7 @@ def test_a_click_says_when_its_answer_was_a_board_it_already_had(
     not in the other. The line says which, and times the load as one figure
     because no stage of it is the user's problem.
     """
-    client = RecordingClient(frame_is_up=False)
+    client = RecordingClient()
     service = _service(Source(BeadsRows.of([ISSUE])))
 
     service.prefetch()
@@ -418,7 +373,7 @@ def test_a_load_that_fails_leaves_the_board_on_screen_standing(
     display is read from the slot and the slot never let go of it.
     """
     journal = Journal()
-    client = RecordingClient(journal=journal, frame_is_up=False)
+    client = RecordingClient(journal=journal)
     service = _service(ThenFails(BeadsRows.of([ISSUE]), journal))
 
     service.prefetch()
@@ -449,7 +404,7 @@ def test_a_board_that_arrives_mid_click_outlives_the_click_that_failed() -> None
     """
     source = Gated(BeadsRows.of([ISSUE]))
     service = _service(source)
-    failing = RecordingClient(frame_is_up=False)
+    failing = RecordingClient()
     click = threading.Thread(
         target=service.service, args=(failing, ClickLatency("beads"))
     )
@@ -465,7 +420,7 @@ def test_a_board_that_arrives_mid_click_outlives_the_click_that_failed() -> None
     assert [_ids(table) for table in failing.tables] == [["lux-1"]]
 
     # And the next click answers with the board that arrived, not a placeholder.
-    answering = RecordingClient(frame_is_up=False)
+    answering = RecordingClient()
     _answer(service, answering)
     assert len(answering.tables) == 1
     assert answering.scenes == []
@@ -486,14 +441,14 @@ def test_the_board_from_the_load_that_began_last_is_the_one_kept() -> None:
 
     warm.start()
     source.reached()  # the warm-up's query began first and is in flight
-    _click(service, RecordingClient(frame_is_up=False))  # a later query returns first
+    _click(service, RecordingClient())  # a later query returns first
     source.release()  # and only now does the warm-up return, with older issues
     warm.join(timeout=GATE_SECONDS)
 
     assert not warm.is_alive()
 
     # The next click answers with the issues read last, not the board stored last.
-    answering = RecordingClient(frame_is_up=False)
+    answering = RecordingClient()
     _answer(service, answering)
     assert [row[0] for row in answering.tables[0].rows] == ["lux-fresh"]
 
@@ -503,7 +458,7 @@ def test_a_board_that_could_not_be_prefetched_leaves_the_click_cold(
 ) -> None:
     """A failed warm-up holds nothing: the next click must not answer with it."""
     journal = Journal()
-    client = RecordingClient(journal=journal, frame_is_up=False)
+    client = RecordingClient(journal=journal)
     service = _service(Source(BeadsFailure("bd: command not found"), journal=journal))
 
     with caplog.at_level(logging.WARNING):
@@ -511,6 +466,6 @@ def test_a_board_that_could_not_be_prefetched_leaves_the_click_cold(
     _whole_click(service, client)
 
     assert "ahead of the first click" in caplog.text
-    assert journal.steps == ("load", "raise", "render", "load", "render")
+    assert journal.steps == ("load", "render", "load", "render")
     assert "Loading issues" in str(client.scenes[0].elements)  # the cold answer
     assert "bd: command not found" in str(client.scenes[1].elements)

@@ -38,6 +38,11 @@ class AppletService(Protocol):
         """The entry the display shows under this session's submenu."""
         ...
 
+    @property
+    def frame_id(self) -> str:
+        """The frame a click on this entry raises Display-locally."""
+        ...
+
     def prefetch(self) -> None:
         """Do now what a click would otherwise wait for, so the first one does not.
 

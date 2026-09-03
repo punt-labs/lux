@@ -37,7 +37,7 @@ from punt_lux.operations.client_details_port import ClientDetailsPort
 from punt_lux.operations.queries import QueryOperations
 from punt_lux.operations.scene_installer import SceneInstaller
 from punt_lux.protocol.elements.table import TableElement
-from tests.menu_doubles import FakeImGui
+from tests.menu_doubles import FakeImGui, ignore
 
 if TYPE_CHECKING:
     from punt_lux.protocol import RemoteEventHandlerInvocation
@@ -142,7 +142,7 @@ class _Wired:
         field = WireField("callback_menus")
         for wire in CallbackMenuReplica(self._store.clients).callback_menu_wire():
             menu = WireMenu.of_payload(wire, field=field)
-            Submenu.from_wire(menu, self._sent.append).render(imgui)
+            Submenu.from_wire(menu, self._sent.append, ignore).render(imgui)
         return imgui
 
     def dispatch_sent(self, monkeypatch: pytest.MonkeyPatch) -> None:

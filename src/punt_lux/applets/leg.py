@@ -135,7 +135,7 @@ class AppletLeg:
     def _register_now(self) -> Ok | OpError:
         """Register the session's callback over REST — the blocking half."""
         return self._rest().register_callback(
-            self._service.callback_id, self._service.label
+            self._service.callback_id, self._service.label, self._service.frame_id
         )
 
     def _start_prefetch(self) -> None:

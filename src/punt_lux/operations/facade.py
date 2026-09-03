@@ -25,15 +25,12 @@ from punt_lux.operations.timing import Timed
 if TYPE_CHECKING:
     from punt_lux.domain.hub.callback_hold import CallbackRouter
     from punt_lux.domain.hub.client_identity import ClientIdentity
-    from punt_lux.domain.hub.clients import ClientRegistry
     from punt_lux.domain.hub.hub import Hub
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.hub.menu_registry import HubMenuRegistry
     from punt_lux.domain.hub.session_callback import CallbackInvocation
-    from punt_lux.operations.frame_ref import FrameRef
     from punt_lux.operations.models import (
         Cleared,
-        DisplayModeRequest,
         DisplayModeState,
         OpError,
         Published,
@@ -53,7 +50,6 @@ if TYPE_CHECKING:
     from punt_lux.operations.models.display_frames import FrameStates
     from punt_lux.operations.models.display_info import DisplayInfo
     from punt_lux.operations.models.display_probe import Pong, Screenshot
-    from punt_lux.operations.models.display_write import FrameRaise
     from punt_lux.operations.models.identity import Identified
     from punt_lux.operations.models.menu_results import MenuList, Ok, SetMenuRequest
     from punt_lux.operations.models.query_clients import ClientList
@@ -61,8 +57,8 @@ if TYPE_CHECKING:
     from punt_lux.operations.models.query_events import RecentEvents
     from punt_lux.operations.models.query_inspection import SceneInspection
     from punt_lux.operations.models.query_scenes import SceneList
-    from punt_lux.operations.models.theme import SetThemeRequest, ThemeState
-    from punt_lux.operations.models.window import WindowSettings, WindowSettingsPatch
+    from punt_lux.operations.models.theme import ThemeState
+    from punt_lux.operations.models.window import WindowSettings
     from punt_lux.operations.ports import DirtyMarker, HubPorts
     from punt_lux.operations.scope import Scope
 
@@ -126,7 +122,6 @@ class Operations:
         replicator: DirtyMarker,
         *,
         hub: Hub,
-        client_registry: ClientRegistry,
         menu_registry: HubMenuRegistry,
         callback_router: CallbackRouter,
         ports: HubPorts,
@@ -143,7 +138,7 @@ class Operations:
             scenes=scenes,
             conveniences=ConvenienceOperations(scenes),
             pubsub=PubSubOperations(hub, ports.ensure_writer, ports.next_event),
-            config=DisplayModeOperations(client_registry),
+            config=DisplayModeOperations(),
             display=DisplayControlOperations(ports.display_port),
             queries=queries,
             menus=MenuOperations(menu_registry, replicator, callbacks),
@@ -211,12 +206,6 @@ class Operations:
         """Read a project's display mode."""
         return self._config.read_display_mode(repo)
 
-    def write_display_mode(
-        self, request: DisplayModeRequest | OpError
-    ) -> DisplayModeState | OpError:
-        """Write a project's display mode."""
-        return self._config.write_display_mode(request)
-
     def get_display_info(self) -> DisplayInfo | OpError:
         """Return the display's backend, geometry, frame rate, and identity."""
         return self._display.get_display_info()
@@ -236,21 +225,6 @@ class Operations:
     def ping(self, wait: float | None = None) -> Pong | OpError:
         """Round-trip a ping bounded by ``wait`` seconds (``None`` uses the budget)."""
         return self._display.ping(wait)
-
-    def set_theme(self, request: SetThemeRequest | OpError) -> ThemeState | OpError:
-        """Switch the display theme and return the new theme state."""
-        return self._display.set_theme(request)
-
-    def set_window_settings(
-        self, patch: WindowSettingsPatch | OpError
-    ) -> WindowSettings | OpError:
-        """Change the provided window settings and return the new settings."""
-        return self._display.set_window_settings(patch)
-
-    @Timed("raise_frame")
-    def raise_frame(self, ref: FrameRef) -> FrameRaise | OpError:
-        """Bring the frame ``ref`` names to the front, resolved within its scope."""
-        return self._queries.raise_frame(ref)
 
     @Timed("list_frames")
     def list_frames(self) -> FrameStates | OpError:

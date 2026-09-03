@@ -20,6 +20,15 @@ def test_a_callback_carries_a_non_empty_id_and_label() -> None:
     assert (callback.id, callback.label) == ("beads", "Beads")
 
 
+def test_a_callback_owns_no_frame_by_default() -> None:
+    assert SessionCallback(id="beads", label="Beads").frame_id is None
+
+
+def test_a_callback_may_name_the_frame_it_owns() -> None:
+    callback = SessionCallback(id="beads", label="Beads", frame_id="beads-lux")
+    assert callback.frame_id == "beads-lux"
+
+
 @pytest.mark.parametrize("field", ["id", "label"])
 def test_an_empty_field_is_rejected(field: str) -> None:
     values = {"id": "beads", "label": "Beads", field: ""}
@@ -32,6 +41,20 @@ def test_an_id_with_the_separator_is_rejected() -> None:
     # carried it would split ambiguously at dispatch.
     with pytest.raises(ValidationError):
         SessionCallback(id="be\x1fads", label="Beads")
+
+
+def test_a_blank_frame_id_is_rejected() -> None:
+    # ConnectionScopedId.compose applies this identical rule; registration must
+    # fail here rather than deep inside menu composition.
+    with pytest.raises(ValidationError):
+        SessionCallback(id="beads", label="Beads", frame_id=" ")
+
+
+def test_a_frame_id_with_the_separator_is_rejected() -> None:
+    # frame_id is later composed with the owning connection via
+    # ConnectionScopedId.compose, which splits on this same separator.
+    with pytest.raises(ValidationError):
+        SessionCallback(id="beads", label="Beads", frame_id="beads\x1flux")
 
 
 def test_the_leaf_id_round_trips_through_the_invocation() -> None:

@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import pytest
-
-from punt_lux.operations import DisplayModeState, OpError, SceneShown
-from punt_lux.tools.tools import _format_display_mode, _format_render, _format_update
+from punt_lux.operations import OpError, SceneShown
+from punt_lux.tools.tools import _format_render, _format_update
 
 
 def test_format_render_renders_success() -> None:
@@ -31,14 +29,3 @@ def test_format_update_renders_success() -> None:
 def test_format_update_prefixes_a_rejection_with_scene_not_updated() -> None:
     error = OpError(code="rejected", reason="unknown element")
     assert _format_update(error) == "error: scene not updated — unknown element"
-
-
-def test_format_display_mode_renders_the_mode() -> None:
-    assert _format_display_mode(DisplayModeState(mode="on")) == "display:on"
-    assert _format_display_mode(DisplayModeState(mode="off")) == "display:off"
-
-
-def test_format_display_mode_reraises_an_error_as_valueerror() -> None:
-    error = OpError(code="invalid_request", reason="Invalid mode 'x'. Use 'y' or 'n'.")
-    with pytest.raises(ValueError, match="Invalid mode"):
-        _format_display_mode(error)

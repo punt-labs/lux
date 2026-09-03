@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+### Removed
+
+- **`raise_frame`, `display_theme_set`, `display_window_set`, and
+  `display_mode_set` are gone from every client surface** (MCP tools, CLI,
+  REST, library, commands) — a client/agent may read the display but never
+  modify it (DES-088, operator ruling). Reopening a closed board from its
+  menu entry keeps working: the applet's click now raises the frame
+  Display-locally instead of through a client round trip. Setting the theme
+  or window is now exclusively the user's own gesture at the Display's own
+  Lux ▸ Settings menu. `lux display theme|window|mode` remain as reads;
+  `lux display mode on|off` still writes, but locally — see Changed below.
+
+### Changed
+
+- **`lux display mode on|off` no longer routes through the Hub.** The CLI
+  writes the per-repo `.punt-labs/lux.md` marker file directly instead of
+  making a round trip to luxd — the same "committed marker, not a client
+  setter" shape vox's `.punt-labs/vox/enabled` already uses. Output is
+  unchanged (`display:on` / `display:off`); `lux display mode` (the read) is
+  still Hub-routed and unaffected.
+
 ## [0.32.1] - 2026-09-01
 
 ### Fixed

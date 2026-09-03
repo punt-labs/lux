@@ -51,9 +51,10 @@ class BoardLoad:
         self._source = source
         return self
 
-    def showing(self, client: BoardOps) -> bool:
-        """Ask for this board's frame; say whether the user has it already."""
-        return BoardChannel(client).raised(self._board.frame_id)
+    @property
+    def frame_id(self) -> str:
+        """The frame this board's issues render into."""
+        return self._board.frame_id
 
     def issues(self) -> BoardRead:
         """Return the run ``bd`` completed, or raise the reason it could not.

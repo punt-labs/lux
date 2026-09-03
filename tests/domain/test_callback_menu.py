@@ -17,6 +17,7 @@ from punt_lux.domain.hub.callback_menu import CallbackMenu
 from punt_lux.domain.hub.client_identity import ClientIdentity, ClientKind
 from punt_lux.domain.hub.client_roster import ClientRoster
 from punt_lux.domain.hub.client_session import ClientSession
+from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.menu_models import Menu, MenuAction, MenuSeparator
 from punt_lux.domain.hub.named_sessions import NamedSessions
 from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
@@ -100,6 +101,24 @@ class TestTheClientsMenu:
         assert _labels_under(client) == ["Beads", "Details"]
         assert client.items[0] == MenuAction(
             id=CallbackInvocation(conn, "beads").menu_id, label="Beads"
+        )
+
+    def test_a_callbacks_frame_id_threads_onto_its_leaf_scoped_to_its_connection(
+        self,
+    ) -> None:
+        # The leaf's frame_id must be the connection-scoped id -- the same
+        # composition FrameBook keys frames by (DES-086) -- never the raw
+        # local name, or a Display-local raise finds nothing to restore.
+        conn = ConnectionId("lux")
+        callback = SessionCallback(id="beads", label="Beads", frame_id="beads-lux")
+
+        menus = _menus(("lux", _session("claude", "/w/lux", callback)))
+
+        client = _submenu(menus, "lux")
+        assert client.items[0] == MenuAction(
+            id=CallbackInvocation(conn, "beads").menu_id,
+            label="Beads",
+            frame_id=ConnectionScopedId.compose(conn, "beads-lux"),
         )
 
     def test_a_many_command_client_has_the_same_shape(self) -> None:

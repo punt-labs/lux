@@ -15,19 +15,14 @@ if TYPE_CHECKING:
     from punt_lux.operations import (
         ClientList,
         DisplayInfo,
-        DisplayModeRequest,
         DisplayModeState,
-        FrameRaise,
-        FrameRef,
         FrameStatePatch,
         MenuList,
         OpError,
         Scope,
         SetMenuRequest,
-        SetThemeRequest,
         ThemeState,
         WindowSettings,
-        WindowSettingsPatch,
     )
     from punt_lux.operations.models.callbacks import RegisterCallbackRequest
     from punt_lux.operations.models.display_probe import Screenshot
@@ -62,10 +57,6 @@ class StubFrameOps:
     ) -> Ok | OpError:
         self.last_call = {"frame_id": frame_id, "patch": patch}
         return cast("Ok | OpError", self._result)
-
-    def raise_frame(self, ref: FrameRef) -> FrameRaise | OpError:
-        self.last_call = {"ref": ref, "op": "raise"}
-        return cast("FrameRaise | OpError", self._result)
 
     def close_frame(self, frame_id: str) -> Ok:
         self.last_call = {"frame_id": frame_id, "op": "close"}
@@ -285,18 +276,12 @@ class StubThemeOps:
     """``ThemeOps`` stub returning one preset outcome per method."""
 
     _get: ThemeState | OpError | None
-    _set: ThemeState | OpError | None
     last_call: dict[str, object]
-    __slots__ = ("_get", "_set", "last_call")
+    __slots__ = ("_get", "last_call")
 
-    def __new__(
-        cls,
-        get_result: ThemeState | OpError | None = None,
-        set_result: ThemeState | OpError | None = None,
-    ) -> Self:
+    def __new__(cls, get_result: ThemeState | OpError | None = None) -> Self:
         self = super().__new__(cls)
         self._get = get_result
-        self._set = set_result
         self.last_call = {}
         return self
 
@@ -304,28 +289,18 @@ class StubThemeOps:
         self.last_call = {"method": "get_theme"}
         return cast("ThemeState | OpError", self._get)
 
-    def set_theme(self, request: SetThemeRequest | OpError) -> ThemeState | OpError:
-        self.last_call = {"method": "set_theme", "request": request}
-        return cast("ThemeState | OpError", self._set)
-
 
 @final
 class StubWindowOps:
     """``WindowOps`` stub returning one preset outcome per method."""
 
     _get: WindowSettings | OpError | None
-    _set: WindowSettings | OpError | None
     last_call: dict[str, object]
-    __slots__ = ("_get", "_set", "last_call")
+    __slots__ = ("_get", "last_call")
 
-    def __new__(
-        cls,
-        get_result: WindowSettings | OpError | None = None,
-        set_result: WindowSettings | OpError | None = None,
-    ) -> Self:
+    def __new__(cls, get_result: WindowSettings | OpError | None = None) -> Self:
         self = super().__new__(cls)
         self._get = get_result
-        self._set = set_result
         self.last_call = {}
         return self
 
@@ -333,42 +308,27 @@ class StubWindowOps:
         self.last_call = {"method": "get_window_settings"}
         return cast("WindowSettings | OpError", self._get)
 
-    def set_window_settings(
-        self, patch: WindowSettingsPatch | OpError
-    ) -> WindowSettings | OpError:
-        self.last_call = {"method": "set_window_settings", "patch": patch}
-        return cast("WindowSettings | OpError", self._set)
-
 
 @final
 class StubDisplayModeOps:
     """``DisplayModeOps`` stub returning one preset outcome per method."""
 
     _read: DisplayModeState | OpError | None
-    _write: DisplayModeState | OpError | None
     last_call: dict[str, object]
-    __slots__ = ("_read", "_write", "last_call")
+    __slots__ = ("_read", "last_call")
 
     def __new__(
         cls,
         read_result: DisplayModeState | OpError | None = None,
-        write_result: DisplayModeState | OpError | None = None,
     ) -> Self:
         self = super().__new__(cls)
         self._read = read_result
-        self._write = write_result
         self.last_call = {}
         return self
 
     def read_display_mode(self, repo: str) -> DisplayModeState | OpError:
         self.last_call = {"method": "read_display_mode", "repo": repo}
         return cast("DisplayModeState | OpError", self._read)
-
-    def write_display_mode(
-        self, request: DisplayModeRequest | OpError
-    ) -> DisplayModeState | OpError:
-        self.last_call = {"method": "write_display_mode", "request": request}
-        return cast("DisplayModeState | OpError", self._write)
 
 
 @final

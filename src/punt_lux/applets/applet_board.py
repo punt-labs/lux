@@ -52,6 +52,11 @@ class AppletBoard:
         """The state a click answers from, as it stands now."""
         return self._slot.held
 
+    @property
+    def frame_id(self) -> str:
+        """The frame this board's issues render into."""
+        return self._load.frame_id
+
     def fresh(self) -> BuiltBoard:
         """Read the issues and build the board they make — the warm-up's load."""
         return self._load.fresh()
@@ -61,11 +66,14 @@ class AppletBoard:
         self._slot.store(loaded)
 
     def answers(self, work: BoardWork) -> None:
-        """Raise the frame, and fill it if the state holding it has anything to add.
+        """Fill the frame if the state holding it has anything to add.
 
-        What the state read here decides is only whether to fill the frame; what
-        goes *in* it is read again inside the region, because the raise is a
-        round trip and a newer board can land inside one.
+        The frame is already on screen by the time this runs — the Display
+        raised it locally, synchronously, at the click, before the Hub ever
+        routed this invocation here (DES-088). What the state read here
+        decides is only whether to fill the frame; what goes *in* it is read
+        again inside the push region, because a newer board can land between
+        this read and the push.
         """
         held = self._slot.held
         if held.answered(work):

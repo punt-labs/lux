@@ -52,20 +52,6 @@ def test_get_theme() -> None:
     assert resp.json()["theme"] == "darcula"
 
 
-def test_set_theme_happy() -> None:
-    reply = DisplayReplied({"current": "cherry", "available": ["darcula", "cherry"]})
-    client = make_client(display_port=StubPort(reply))
-    resp = client.put("/display/theme", json={"theme": "cherry"})
-    assert resp.status_code == 200
-    assert resp.json()["theme"] == "cherry"
-
-
-def test_set_theme_rejects_an_unknown_name_with_422() -> None:
-    client = make_client(display_port=StubPort(DisplayReplied({})))
-    resp = client.put("/display/theme", json={"theme": "not_a_theme"})
-    assert resp.status_code == 422
-
-
 def test_get_window_settings() -> None:
     reply = DisplayReplied(
         {"opacity": 0.9, "font_scale": 1.0, "decorated": True, "fps_idle": 10.0}
@@ -74,22 +60,6 @@ def test_get_window_settings() -> None:
     resp = client.get("/display/window")
     assert resp.status_code == 200
     assert resp.json()["opacity"] == 0.9
-
-
-def test_set_window_settings_patch() -> None:
-    reply = DisplayReplied(
-        {"opacity": 0.5, "font_scale": 1.0, "decorated": True, "fps_idle": 10.0}
-    )
-    client = make_client(display_port=StubPort(reply))
-    resp = client.patch("/display/window", json={"opacity": 0.5})
-    assert resp.status_code == 200
-    assert resp.json()["opacity"] == 0.5
-
-
-def test_set_window_settings_rejects_out_of_range_opacity_with_422() -> None:
-    # WindowSettingsPatch range-checks opacity at bind time, before any proxy.
-    client = make_client(display_port=StubPort(DisplayReplied({})))
-    assert client.patch("/display/window", json={"opacity": 5.0}).status_code == 422
 
 
 def test_list_frames_reports_a_closed_frame_over_http() -> None:
@@ -134,24 +104,6 @@ def test_close_frame() -> None:
     resp = client.post("/display/frames/f1/close")
     assert resp.status_code == 200
     assert resp.json() == {"kind": "ok"}
-
-
-def test_raise_frame() -> None:
-    reply = DisplayReplied({"frame_id": "f1", "raised": True})
-    client = make_client(display_port=StubPort(reply))
-    resp = client.post("/display/frames/f1/raise")
-    assert resp.status_code == 200
-    assert resp.json() == {"frame_id": "f1", "raised": True}
-
-
-def test_raise_frame_reports_an_absent_frame_as_a_200_not_an_error() -> None:
-    # A frame that is not up is the caller's cue to push one, not a failure: it
-    # must be readable from the body rather than caught from a status code.
-    reply = DisplayReplied({"frame_id": "f1", "raised": False})
-    client = make_client(display_port=StubPort(reply))
-    resp = client.post("/display/frames/f1/raise")
-    assert resp.status_code == 200
-    assert resp.json() == {"frame_id": "f1", "raised": False}
 
 
 def test_screenshot_unsupported_is_409() -> None:

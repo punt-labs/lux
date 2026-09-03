@@ -18,7 +18,6 @@ from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.hub_composition import HubComposition
 from punt_lux.operations import (
-    DisplayModeState,
     OpError,
     SceneShown,
     Scope,
@@ -28,7 +27,6 @@ from punt_lux.tools.server import _session_key
 __all__ = [
     "OPERATIONS",
     "_fault_or",
-    "_format_display_mode",
     "_format_render",
     "_format_update",
     "_identity",
@@ -88,17 +86,6 @@ def _format_update(result: SceneShown | OpError) -> str:
     if isinstance(result, SceneShown):
         return f"shown:{result.scene_id}"
     return f"error: scene not updated — {result.reason}"
-
-
-def _format_display_mode(result: DisplayModeState | OpError) -> str:
-    """Render a display-mode result, reproducing the legacy ValueError on error.
-
-    The operation never raises; the MCP tools historically raised ``ValueError``
-    for a bad mode or repo, so the adapter re-raises with the same message.
-    """
-    if isinstance(result, OpError):
-        raise ValueError(result.reason)
-    return f"display:{result.mode}"
 
 
 def _fault_line(err: OpError) -> str:

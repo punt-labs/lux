@@ -30,11 +30,7 @@ from punt_lux.tools.write_tools import clear, clear_scene, identify, show, updat
 from punt_lux.tools.display_write_tools import (
     display_mode,
     frame_close,
-    frame_raise,
-    set_display_mode,
     set_menu,
-    set_theme,
-    set_window_settings,
 )
 from punt_lux.tools.composite_tools import show_dashboard, show_table
 from punt_lux.tools.subscribe_tools import (
@@ -51,7 +47,6 @@ __all__ = [
     "clear_scene",
     "display_mode",
     "frame_close",
-    "frame_raise",
     "get_display_info",
     "get_theme",
     "get_window_settings",
@@ -69,10 +64,7 @@ __all__ = [
     "recv",
     "register_callback",
     "screenshot",
-    "set_display_mode",
     "set_menu",
-    "set_theme",
-    "set_window_settings",
     "show",
     "show_dashboard",
     "show_table",

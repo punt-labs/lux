@@ -9,7 +9,6 @@ from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.operations import Cleared, OpError, RenderRequest, SceneShown
 from punt_lux.operations.display_reply import DisplayReplied
-from punt_lux.operations.models.display_write import FrameRaise
 from punt_lux.operations.scope import Scope
 from punt_lux.operations.timing import OperationSubject, Timed
 from tests.rest._fakes import StubPort, make_facade
@@ -68,10 +67,9 @@ def test_timed_returns_the_operations_own_result() -> None:
     assert _run(21, doubled=True) == 42
 
 
-def test_subject_names_the_scene_the_frame_and_the_failure() -> None:
+def test_subject_names_the_scene_and_the_failure() -> None:
     subject = OperationSubject()
     assert subject.of(SceneShown(scene_id="s1")) == "scene=s1"
-    assert subject.of(FrameRaise(frame_id="f1", raised=True)) == "frame=f1"
     assert subject.of(OpError(code="not_found", reason="gone")) == "error=not_found"
     assert subject.of(Cleared()) == "-"
 

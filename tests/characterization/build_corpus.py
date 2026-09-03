@@ -87,9 +87,12 @@ class Scenario:
 
 
 # ---------------------------------------------------------------------------
-# Display lifecycle scenarios — display_mode, set_display_mode, clear, show,
-# update. These are the tools that mutate or observe the display's
-# session/scene state without going through the introspection query path.
+# Display lifecycle scenarios — display_mode, clear, show, update. These are
+# the tools that mutate or observe the display's session/scene state
+# without going through the introspection query path. Setting the display
+# mode moved out of the Hub entirely (DES-088) to a CLI-local
+# ``DisplayModeStore`` write with no MCP tool behind it, so there is no
+# set_display_mode scenario here any more.
 # ---------------------------------------------------------------------------
 
 
@@ -143,18 +146,6 @@ LIFECYCLE_SCENARIOS: tuple[Scenario, ...] = (
         name="display_mode-unset",
         tool="display_mode",
         inputs={"repo": _repo_unset()},
-        setup={"display_running": False},
-    ),
-    Scenario(
-        name="set_display_mode-y",
-        tool="set_display_mode",
-        inputs={"mode": "y", "repo": _repo_with_display_y()},
-        setup={"display_running": False, "client": {}},
-    ),
-    Scenario(
-        name="set_display_mode-n",
-        tool="set_display_mode",
-        inputs={"mode": "n", "repo": _repo_with_display_n()},
         setup={"display_running": False},
     ),
     Scenario(

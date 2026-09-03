@@ -114,6 +114,7 @@ class TestSubmenuFromWire:
                 )
             ),
             ignore,
+            ignore,
         )
 
         menu.render(imgui)
@@ -129,6 +130,7 @@ class TestSubmenuFromWire:
                 wire_menu("voxd", [{"label": "Music", "id": "conn\x1fmusic"}])
             ),
             sent.append,
+            ignore,
         )
 
         menu.render(FakeImGui(("Music",)))
@@ -148,6 +150,7 @@ class TestSubmenuFromWire:
                 )
             ),
             ignore,
+            ignore,
         )
 
         menu.render(imgui)
@@ -164,6 +167,7 @@ class TestSubmenuFromWire:
                 )
             ),
             sent.append,
+            ignore,
         )
 
         imgui = FakeImGui(("Close",))
@@ -172,10 +176,41 @@ class TestSubmenuFromWire:
         assert imgui.line("Close").enabled is False
         assert sent == []
 
+    def test_a_frame_owning_leaf_raises_locally_before_emitting(self) -> None:
+        calls: list[str] = []
+        menu = Submenu.from_wire(
+            checked_menu(
+                wire_menu(
+                    "Clients",
+                    [{"label": "Beads", "id": "c\x1fbeads", "frame_id": "beads-lux"}],
+                )
+            ),
+            lambda _event: calls.append("emit"),
+            lambda frame_id: calls.append(f"raise:{frame_id}"),
+        )
+
+        menu.render(FakeImGui(("Beads",)))
+
+        assert calls == ["raise:beads-lux", "emit"]
+
+    def test_a_leaf_with_no_frame_never_raises(self) -> None:
+        raised: list[str] = []
+        menu = Submenu.from_wire(
+            checked_menu(
+                wire_menu("Clients", [{"label": "Details", "id": "c\x1fdetails"}])
+            ),
+            ignore,
+            raised.append,
+        )
+
+        menu.render(FakeImGui(("Details",)))
+
+        assert raised == []
+
     def test_a_menu_without_items_renders_as_an_empty_menu(self) -> None:
         imgui = FakeImGui()
 
-        Submenu.from_wire(checked_menu({"label": "File"}), ignore).render(imgui)
+        Submenu.from_wire(checked_menu({"label": "File"}), ignore, ignore).render(imgui)
 
         assert imgui.labels_under() == ("File",)
         assert imgui.labels_under("File") == ()

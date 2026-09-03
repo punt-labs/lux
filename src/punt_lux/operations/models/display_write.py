@@ -11,7 +11,7 @@ from punt_lux.operations.models.common import OpError
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-__all__ = ["FrameRaise", "FrameStateAck", "FrameStatePatch"]
+__all__ = ["FrameStateAck", "FrameStatePatch"]
 
 
 class FrameStatePatch(BaseModel):
@@ -53,28 +53,3 @@ class FrameStateAck(BaseModel):
             return cls.model_validate(payload)
         except ValidationError as exc:
             return OpError.from_reply(exc)
-
-
-class FrameRaise(BaseModel):
-    """Whether the display brought the named frame to the front.
-
-    ``raised`` false is a fact, not a failure: it just means the caller has
-    to push a board rather than an exception to catch.
-    """
-
-    model_config = ConfigDict(frozen=True)
-
-    frame_id: str
-    raised: bool
-
-    @classmethod
-    def from_reply(cls, payload: Mapping[str, object]) -> FrameRaise | OpError:
-        """Build from the display's ``raise_frame`` reply, or reject it."""
-        try:
-            return cls.model_validate(payload)
-        except ValidationError as exc:
-            return OpError.from_reply(exc)
-
-    def with_frame_id(self, frame_id: str) -> FrameRaise:
-        """Return this answer renamed to ``frame_id`` -- the caller's own name."""
-        return self.model_copy(update={"frame_id": frame_id})

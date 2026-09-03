@@ -1,8 +1,8 @@
 """Duration attestation for the Hub's mutating operations.
 
-Every mutation a client asks for — a scene installed, a frame raised, the menu
-replaced — is timed by the process that performs it and logged at INFO with the
-operation's name, what it acted on, and how long it took::
+Every mutation a client asks for — a scene installed, the menu replaced — is
+timed by the process that performs it and logged at INFO with the operation's
+name, what it acted on, and how long it took::
 
     op render scene=beads-lux 14 ms
 
@@ -22,7 +22,6 @@ import time
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.operations.models.common import OpError
-from punt_lux.operations.models.display_write import FrameRaise
 from punt_lux.operations.models.scene_results import SceneShown
 
 if TYPE_CHECKING:
@@ -49,8 +48,6 @@ class OperationSubject:
         """Return the log token for ``result``."""
         if isinstance(result, SceneShown):
             return f"scene={result.scene_id}"
-        if isinstance(result, FrameRaise):
-            return f"frame={result.frame_id}"
         if isinstance(result, OpError):
             return f"error={result.code}"
         return "-"

@@ -317,7 +317,6 @@ class ToolExerciser:
             display,
             _StubReplicator(),
             hub=hub,
-            client_registry=client_registry,
             menu_registry=HubMenuRegistry(),
             callback_router=CallbackRouter(display.clients),
             ports=cls._hub_ports(setup),

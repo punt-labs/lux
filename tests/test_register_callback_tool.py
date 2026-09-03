@@ -127,13 +127,11 @@ def _isolated_ops(*, listening: bool = True) -> Generator[tuple[Operations, _Rig
         ),
     )
     # ``display.clients`` is the fresh registry the identity and callback concerns
-    # read and write, keeping this store isolated; the singleton passed as
-    # ``client_registry`` feeds only the config concern, unused here.
+    # read and write, keeping this store isolated from the process singletons.
     ops = Operations.for_store(
         display,
         _StubReplicator(),
         hub=hub,
-        client_registry=client_registry,
         menu_registry=HubMenuRegistry(),
         callback_router=router,
         ports=ports,

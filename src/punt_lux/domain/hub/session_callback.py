@@ -40,6 +40,9 @@ class SessionCallback(BaseModel):
 
     id: str = Field(min_length=1)  # an id-less callback is not a real state
     label: str = Field(min_length=1)  # a label-less callback is not a real state
+    # absence means this callback owns no frame -- e.g. the Hub's own Details
+    # command, or a future applet action with no board
+    frame_id: str | None = None
 
     @field_validator("id")
     @classmethod
@@ -52,6 +55,27 @@ class SessionCallback(BaseModel):
         """
         if ID_SEPARATOR in value:
             msg = "callback id must not contain the unit separator"
+            raise ValueError(msg)
+        return value
+
+    @field_validator("frame_id")
+    @classmethod
+    def _reject_malformed_frame_id(cls, value: str | None) -> str | None:
+        """Reject a blank or separator-carrying frame id at registration.
+
+        ``frame_id`` is later composed with the owning connection via
+        :meth:`~punt_lux.domain.hub.connection_scoped_id.ConnectionScopedId.compose`
+        during menu composition, which enforces this identical rule. Mirroring
+        it here means a malformed registration fails at the boundary instead of
+        raising deep inside menu composition.
+        """
+        if value is None:
+            return value
+        if not value.strip():
+            msg = "frame id must be a non-empty, non-blank id"
+            raise ValueError(msg)
+        if ID_SEPARATOR in value:
+            msg = "frame id must not contain the unit separator"
             raise ValueError(msg)
         return value
 

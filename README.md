@@ -130,9 +130,9 @@ Demos are in `demos/` --- each connects as a client and drives the display:
 - **Session menus** --- the menu bar shows one submenu per live session. A session registers a menu entry via `register_callback` from the connection it holds open to the Hub, and a click on that entry is pushed straight down that connection for the session to service from its own shell. The "Beads" entry each lux-enabled session's `lux-beads` applet registers is how the beads board reopens from the menu
 - **Interaction handling** --- button clicks, slider changes, and menu clicks fire their handlers on the Hub (D21 remote dispatch); the raw event log is readable via `list_recent_events`. Hub handlers can `publish` app events that the agent reads via `recv`
 - **A push is a notification, not a window-raise** --- a scene arriving where no frame exists yet gets one, on screen, and that is all it does. It takes no focus and disturbs no other frame; a docked frame stays docked, a frame the user closed stays closed, and the selected tab stays selected. Where a window sits is the user's decision, and no update overrides it
-- **Closed is a place, not an erasure** --- the close button puts a frame away with its scenes, widget state and active tab intact. `raise_frame`, the dock pill, Expand All and the Windows menu's closed-frame list all bring it back as it was; only the client taking its content away disposes of it
+- **Closed is a place, not an erasure** --- the close button puts a frame away with its scenes, widget state and active tab intact. The dock pill, Expand All and the Windows menu's closed-frame list all bring it back as it was --- raising a frame is the user's own gesture at the Display (DES-088), never a client operation; only the client taking its content away disposes of it
 - **Persistent tabs** --- each `show()` call opens a dismissable tab; same `scene_id` replaces content in-place. Users can close individual tabs
-- **Themes** --- 11 themes via `set_theme`: `imgui_colors_dark`, `imgui_colors_light`, `imgui_colors_classic`, `darcula`, `darcula_darker`, `material_flat`, `photoshop_style`, `grey_flat`, `cherry`, `light_rounded`, `microsoft_style`
+- **Themes** --- 11 built-in themes, chosen by the user from the display's Settings menu (agents read the active theme via `display_theme_get` but never set it, per DES-088): `imgui_colors_dark`, `imgui_colors_light`, `imgui_colors_classic`, `darcula`, `darcula_darker`, `material_flat`, `photoshop_style`, `grey_flat`, `cherry`, `light_rounded`, `microsoft_style`
 - **Auto-spawn** --- the Hub (luxd) starts the display renderer on first use if it isn't already running
 - **Unix socket IPC** --- length-prefixed JSON frames, no HTTP overhead, no threads
 
@@ -143,38 +143,37 @@ Agents interact with Lux through the MCP tools `luxd` serves over its streamable
 | Tool | What it does |
 |------|-------------|
 | **Scene management** | |
-| `show(scene_id, elements)` | Replace the display with a new element tree. Supports `frame_id`, `frame_size`, `frame_flags` for windowed frames |
-| `show_table(scene_id, columns, rows)` | Display a filterable data table with optional detail panel |
-| `show_dashboard(scene_id, ...)` | Display a dashboard with metric cards, charts, and a table |
-| `update(scene_id, patches)` | Patch elements by ID (set fields or remove) |
-| `clear()` | Remove the caller's scenes from the display |
-| `clear_scene(scene_id)` | Clear one scene and blank its frame; unknown or unowned scenes are named errors, never a false "cleared" |
-| **Communication** | |
-| `ping()` | Round-trip latency check |
-| `identify(kind, name, repo, agent)` | Declare who this session is so the Hub attributes the UI it installs |
-| `recv()` | Take the next queued app event for this session (pub/sub) without blocking; returns `event:<topic>:<payload>` or `none` immediately. Poll on your own schedule. UI interactions are handled Hub-side, not delivered here |
-| `set_menu(menus)` | Add custom menus to the menu bar |
-| `register_callback(callback_id, label)` | Register a menu entry the calling connection owns; refused unless that connection holds luxd's listen leg, since clicks are delivered by push |
-| `set_theme(theme)` | Switch display theme |
-| **Configuration** | |
-| `display_mode(repo)` | Read current display mode (`y`/`n`) for the caller's project --- pass the absolute project path |
-| `set_display_mode(mode, repo)` | Set display mode for the caller's project --- pass the absolute project path |
-| `set_window_settings(...)` | Configure opacity, font scale, decoration, idle FPS |
-| `set_frame_state(frame_id, ...)` | Minimize or restore a frame |
+| `scene_show(scene_id, elements)` | Replace the display with a new element tree. Supports `frame_id`, `frame_size`, `frame_flags` for windowed frames |
+| `scene_table(scene_id, columns, rows)` | Display a filterable data table with optional detail panel |
+| `scene_dashboard(scene_id, ...)` | Display a dashboard with metric cards, charts, and a table |
+| `scene_update(scene_id, patches)` | Patch elements by ID (set fields or remove) |
+| `scene_clear(scene_id)` | Clear one scene and blank its frame; unknown or unowned scenes are named errors, never a false "cleared" |
+| `scene_clear_all()` | Remove all of the caller's scenes from the display |
+| **Frames & menus** | |
+| `frame_close(frame_id)` | Close a frame and tear down its scenes on the Hub |
+| `menu_set(menus)` | Replace the caller's agent-defined menus on the menu bar |
+| `menu_ls()` | List the Hub-owned menu bar and its items |
+| `callback_register(callback_id, label)` | Register a menu entry the calling connection owns; refused unless that connection holds luxd's listen leg, since clicks are delivered by push |
+| `callback_pending()` | Peek at the caller's held callback invocations without draining them |
+| **Display --- read-only (the user owns the display's visual state, per DES-088)** | |
+| `display_info()` | Backend, resolution, frame rate, PID, uptime |
+| `display_theme_get()` | Current theme name (set from the display's Settings menu, not by a client) |
+| `display_window_get()` | Current window settings (opacity, font scale, decoration, idle FPS) |
+| `display_mode_get(repo)` | Read the display mode (`y`/`n`) for the caller's project --- pass the absolute project path (set it via the `lux display mode on\|off` CLI) |
+| `display_screenshot()` | Capture the display framebuffer |
 | **Introspection** | |
-| `inspect_scene(scene_id)` | Return element tree for a scene |
-| `list_scenes()` | List all active scenes with metadata |
-| `get_display_info()` | Display dimensions, frame count, client count |
-| `get_window_settings()` | Current window configuration |
-| `get_theme()` | Current theme name |
-| `list_clients()` | Connected clients with names and scene counts |
-| `list_menus()` | The menu bar, including the per-session callback submenus |
-| `list_recent_events(count)` | Recent interaction events |
-| `list_errors(count)` | Recent error log entries |
-| **Pub/Sub (Agent Subscribe)** | |
-| `subscribe(topic)` | Subscribe to a Hub-scoped app topic; delivered via `recv` |
-| `unsubscribe(topic)` | Stop receiving a topic |
-| `publish(topic, payload)` | Publish an app event to a Hub topic (separate from the UI observer mechanism) |
+| `scene_inspect(scene_id)` | Return the element tree for a scene the caller owns |
+| `scene_ls()` | List active scenes and frames from the Hub's store |
+| `session_ls()` | The Hub's sessions --- connections and their scopes |
+| `event_ls(count)` | Recent display interaction events |
+| `error_ls(count)` | Recent display errors and warnings |
+| **Session & pub/sub** | |
+| `ping()` | Round-trip latency check |
+| `session_identify(kind, name, repo, agent)` | Declare who this session is so the Hub attributes the UI it installs |
+| `topic_subscribe(topic)` | Subscribe to a Hub-scoped app topic; delivered via `topic_recv` |
+| `topic_unsubscribe(topic)` | Stop receiving a topic |
+| `topic_publish(topic, payload)` | Publish an app event to a Hub topic (separate from the UI observer mechanism) |
+| `topic_recv()` | Take the next queued app event for this session without blocking; returns `event:<topic>:<payload>` or `none`. UI interactions are handled Hub-side, not delivered here |
 
 ## What It Looks Like
 

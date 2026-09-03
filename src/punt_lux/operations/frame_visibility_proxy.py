@@ -1,10 +1,10 @@
-"""FrameVisibilityProxy — where the running display shows and raises each frame.
+"""FrameVisibilityProxy — where the running display shows each frame.
 
 Where a window sits is not the Hub's to give (DES-088) — it is fetched from
 the running display when asked, the same bargain :class:`DisplayFactProxy`
 strikes for painted geometry. ``of_frames`` narrows into the discriminated
-states of :mod:`punt_lux.operations.models.query_visibility`; ``raise_frame``
-is the one write over the same connection.
+states of :mod:`punt_lux.operations.models.query_visibility` -- a read-only
+proxy; no client, including this one, writes a frame's visibility.
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Self, cast, final
 
 from punt_lux.operations.models.common import OpError
-from punt_lux.operations.models.display_write import FrameRaise
 from punt_lux.operations.models.query_visibility import (
     FrameVisibilityState,
     VisibilityNotRequested,
@@ -84,18 +83,3 @@ class FrameVisibilityProxy:
         if not scope.want_visibility:
             return VisibilityNotRequested()
         return VisibilityUnavailable(reason="the display did not report this frame")
-
-    def raise_frame(self, frame_id: str) -> FrameRaise | OpError:
-        """Bring ``frame_id`` -- already the display's own id -- to the front."""
-        payload = self._port.query("raise_frame", {"frame_id": frame_id}).resolve()
-        raised = (
-            payload if isinstance(payload, OpError) else FrameRaise.from_reply(payload)
-        )
-        if isinstance(raised, OpError):
-            return raised
-        reason = f"raise_frame answered for {raised.frame_id!r}, not {frame_id!r}"
-        return (
-            raised
-            if raised.frame_id == frame_id
-            else OpError(code="fault", reason=reason)
-        )

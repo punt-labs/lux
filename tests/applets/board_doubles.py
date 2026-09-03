@@ -19,7 +19,7 @@ from typing import Self, final
 from punt_lux.apps.bd_command import BdOutput
 from punt_lux.apps.beads_load import BeadsLoad
 from punt_lux.apps.beads_result import BeadsFailure, BeadsResult, BeadsRows
-from punt_lux.operations import FrameRaise, OpError, RenderRequest, RenderTableRequest
+from punt_lux.operations import OpError, RenderRequest, RenderTableRequest
 from punt_lux.operations.models.scene_results import SceneShown
 from punt_lux.rest_transport import HubUnavailableError
 
@@ -34,7 +34,6 @@ __all__ = [
     "RecordingClient",
     "Source",
     "ThenFails",
-    "UnraisableClient",
     "loaded",
 ]
 
@@ -216,33 +215,23 @@ class Gated:
 class RecordingClient:
     """A ``BoardOps`` stand-in recording the scene writes a service makes.
 
-    Its three failure modes are the three a real client has, and they are not
-    interchangeable: a refusal is a Hub that answered no, an unreachable Hub is
-    a push that raised before any answer, and a frame that is not up is neither
-    — it is the ordinary cold click.
+    Its two failure modes are the two a real client has, and they are not
+    interchangeable: a refusal is a Hub that answered no, and an unreachable
+    Hub is a push that raised before any answer.
     """
 
     _tables: list[RenderTableRequest]
     _scenes: list[RenderRequest]
     _refuse: bool
     _unreachable: bool
-    _raises_frame: bool
     _journal: Journal
-    __slots__ = (
-        "_journal",
-        "_raises_frame",
-        "_refuse",
-        "_scenes",
-        "_tables",
-        "_unreachable",
-    )
+    __slots__ = ("_journal", "_refuse", "_scenes", "_tables", "_unreachable")
 
     def __new__(
         cls,
         *,
         refuse: bool = False,
         unreachable: bool = False,
-        frame_is_up: bool = True,
         journal: Journal | None = None,
     ) -> Self:
         self = super().__new__(cls)
@@ -250,23 +239,9 @@ class RecordingClient:
         self._scenes = []
         self._refuse = refuse
         self._unreachable = unreachable
-        self._raises_frame = frame_is_up
         # Absent means a test that does not care about ordering; it still records.
         self._journal = journal if journal is not None else Journal()
         return self
-
-    def raise_frame(self, frame_id: str) -> FrameRaise:
-        """Answer the raise — unless there is no Hub to answer it.
-
-        A Hub that cannot be reached cannot be reached for a raise either, so an
-        unreachable client fails this call the way it fails a push. The frame
-        flag is about a display holding the frame, which is a different question
-        and only reachable when there is a Hub to ask.
-        """
-        self._journal.note("raise")
-        if self._unreachable:
-            raise HubUnavailableError("luxd is not running on port 8430")
-        return FrameRaise(frame_id=frame_id, raised=self._raises_frame)
 
     def render_table(self, request: RenderTableRequest) -> SceneShown | OpError:
         self._journal.note("render_table")
@@ -292,28 +267,3 @@ class RecordingClient:
     @property
     def scenes(self) -> list[RenderRequest]:
         return self._scenes
-
-
-@final
-class UnraisableClient:
-    """A client whose raise cannot be answered — no display, or a timed-out trip."""
-
-    _journal: Journal
-    __slots__ = ("_journal",)
-
-    def __new__(cls, journal: Journal) -> Self:
-        self = super().__new__(cls)
-        self._journal = journal
-        return self
-
-    def raise_frame(self, frame_id: str) -> OpError:
-        self._journal.note("raise")
-        return OpError(code="display_unavailable", reason="no display is running")
-
-    def render_table(self, request: RenderTableRequest) -> SceneShown:
-        self._journal.note("render_table")
-        return SceneShown(scene_id=request.scene_id)
-
-    def render(self, request: RenderRequest) -> SceneShown:
-        self._journal.note("render")
-        return SceneShown(scene_id=request.scene_id)

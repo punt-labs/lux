@@ -23,11 +23,6 @@ from punt_lux.rest_http_call import HttpCall
 from punt_lux.rest_reply import RestReply
 
 if TYPE_CHECKING:
-    from punt_lux.operations import (
-        DisplayModeRequest,
-        SetThemeRequest,
-        WindowSettingsPatch,
-    )
     from punt_lux.rest_transport import HttpTransport
 
 __all__ = ["_DisplayRestOps"]
@@ -57,40 +52,15 @@ class _DisplayRestOps:
         call = HttpCall.read("/display/theme", self._headers)
         return RestReply(self._transport.request(call)).read(ThemeState)
 
-    def set_theme(self, request: SetThemeRequest | OpError) -> ThemeState | OpError:
-        """Switch the display theme through ``PUT /display/theme``."""
-        if isinstance(request, OpError):
-            return request
-        call = HttpCall.write("/display/theme", request, self._headers)
-        return RestReply(self._transport.request(call)).read(ThemeState)
-
     def get_window_settings(self) -> WindowSettings | OpError:
         """Return the window's settings through ``GET /display/window``."""
         call = HttpCall.read("/display/window", self._headers)
-        return RestReply(self._transport.request(call)).read(WindowSettings)
-
-    def set_window_settings(
-        self, patch: WindowSettingsPatch | OpError
-    ) -> WindowSettings | OpError:
-        """Change window settings through ``PATCH /display/window``."""
-        if isinstance(patch, OpError):
-            return patch
-        call = HttpCall.patch("/display/window", patch, self._headers)
         return RestReply(self._transport.request(call)).read(WindowSettings)
 
     def read_display_mode(self, repo: str) -> DisplayModeState | OpError:
         """Read a project's display mode through ``GET /display-mode``."""
         query = urlencode({"repo": repo})
         call = HttpCall.read(f"/display-mode?{query}", self._headers)
-        return RestReply(self._transport.request(call)).read(DisplayModeState)
-
-    def write_display_mode(
-        self, request: DisplayModeRequest | OpError
-    ) -> DisplayModeState | OpError:
-        """Write a project's display mode through ``PUT /display-mode``."""
-        if isinstance(request, OpError):
-            return request
-        call = HttpCall.write("/display-mode", request, self._headers)
         return RestReply(self._transport.request(call)).read(DisplayModeState)
 
     def screenshot(self) -> Screenshot | OpError:

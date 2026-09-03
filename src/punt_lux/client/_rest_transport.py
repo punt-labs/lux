@@ -29,7 +29,6 @@ from punt_lux.hub_paths import HubPaths
 from punt_lux.identity_headers import ClientHeaders
 from punt_lux.operations import (
     ClientList,
-    FrameRaise,
     MenuList,
     Ok,
     OpError,
@@ -52,9 +51,7 @@ if TYPE_CHECKING:
     from punt_lux.operations import (
         Cleared,
         DisplayInfo,
-        DisplayModeRequest,
         DisplayModeState,
-        FrameRef,
         InspectScope,
         RenderDashboardRequest,
         SceneInspection,
@@ -62,11 +59,9 @@ if TYPE_CHECKING:
         Scope,
         Screenshot,
         SetMenuRequest,
-        SetThemeRequest,
         ThemeState,
         UpdateRequest,
         WindowSettings,
-        WindowSettingsPatch,
     )
 
 __all__ = ["_RestTransport"]
@@ -171,30 +166,24 @@ class _RestTransport:
         """Install a composed table scene through ``PUT /scenes/{scene_id}/table``."""
         return self._scenes.render_table(request, scope=scope)
 
-    def register_callback(self, callback_id: str, label: str) -> Ok | OpError:
+    def register_callback(
+        self, callback_id: str, label: str, frame_id: str | None = None
+    ) -> Ok | OpError:
         """Register a menu callback for this identity through ``POST /menus/callbacks``.
 
         The daemon path: a client registers the callback it wants on the menu here,
         then receives the user's clicks on it over its :meth:`listener` stream — both
         under this client's identity, so the click routes back to the same session. A
         malformed id or label is reported as an ``OpError`` without a round-trip.
+        ``frame_id`` is applet-only -- see :meth:`CallbackAccessor.register`.
         """
-        request = RegisterCallbackRequest.parse(callback_id=callback_id, label=label)
+        request = RegisterCallbackRequest.parse(
+            callback_id=callback_id, label=label, frame_id=frame_id
+        )
         if isinstance(request, OpError):
             return request
         call = HttpCall.post("/menus/callbacks", request, self._headers)
         return RestReply(self._transport.request(call)).read(Ok)
-
-    def raise_frame(self, ref: FrameRef) -> FrameRaise | OpError:
-        """Bring the frame ``ref`` names to the front through the raise route.
-
-        A frame the display does not hold answers ``raised`` false rather than
-        an error. ``ref.connection_id`` is unused -- REST resolves the caller's
-        connection from the headers; only ``ref.local_id`` names the frame.
-        """
-        segment = quote(ref.local_id, safe="")
-        call = HttpCall.command(f"/display/frames/{segment}/raise", self._headers)
-        return RestReply(self._transport.request(call)).read(FrameRaise)
 
     def ping(self, wait: float | None = None) -> Pong | OpError:
         """Round-trip a display ping through ``GET /display/ping``.
@@ -284,29 +273,13 @@ class _RestTransport:
         """Return the active theme through ``GET /display/theme``."""
         return self._display.get_theme()
 
-    def set_theme(self, request: SetThemeRequest | OpError) -> ThemeState | OpError:
-        """Switch the display theme through ``PUT /display/theme``."""
-        return self._display.set_theme(request)
-
     def get_window_settings(self) -> WindowSettings | OpError:
         """Return the window's settings through ``GET /display/window``."""
         return self._display.get_window_settings()
 
-    def set_window_settings(
-        self, patch: WindowSettingsPatch | OpError
-    ) -> WindowSettings | OpError:
-        """Change window settings through ``PATCH /display/window``."""
-        return self._display.set_window_settings(patch)
-
     def read_display_mode(self, repo: str) -> DisplayModeState | OpError:
         """Read a project's display mode through ``GET /display-mode``."""
         return self._display.read_display_mode(repo)
-
-    def write_display_mode(
-        self, request: DisplayModeRequest | OpError
-    ) -> DisplayModeState | OpError:
-        """Write a project's display mode through ``PUT /display-mode``."""
-        return self._display.write_display_mode(request)
 
     def screenshot(self) -> Screenshot | OpError:
         """Capture the display framebuffer through ``GET /display/screenshot``."""

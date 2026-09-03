@@ -19,12 +19,25 @@ from typing import Any
 
 import pytest
 
+from punt_lux.display.menus.model import Submenu
 from punt_lux.display.menus.wire import (
     WireAction,
     WireMenu,
     WireSeparator,
 )
 from punt_lux.display.menus.wire_field import WireField
+from punt_lux.display.replica.frame_book import FrameBook
+from punt_lux.domain.hub.callback_menu import CallbackMenu
+from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.domain.hub.client_roster import ClientRoster
+from punt_lux.domain.hub.client_session import ClientSession
+from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
+from punt_lux.domain.hub.menu_models import Menu, MenuAction
+from punt_lux.domain.hub.named_sessions import NamedSessions
+from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
+from punt_lux.domain.ids import ConnectionId
+from punt_lux.protocol import SceneMessage, TextElement
+from tests.menu_doubles import FakeImGui, ignore
 
 _BAR: dict[str, Any] = {
     "label": "File",
@@ -89,6 +102,20 @@ class TestWhatIsAccepted:
 
         assert [entry.label for entry in menu.entries] == ["Open"]
 
+    def test_an_action_may_carry_the_frame_it_owns(self) -> None:
+        item = {"label": "Beads", "id": "beads", "frame_id": "beads-lux"}
+        action = _checked({"label": "Clients", "items": [item]}).entries[0]
+
+        assert isinstance(action, WireAction)
+        assert action.frame_id == "beads-lux"
+
+    def test_an_action_with_no_frame_owns_none(self) -> None:
+        item = {"label": "Details", "id": "d"}
+        action = _checked({"label": "Clients", "items": [item]}).entries[0]
+
+        assert isinstance(action, WireAction)
+        assert action.frame_id is None
+
 
 class TestWhatIsRefused:
     """A malformed payload is refused where it lands, and says where it was."""
@@ -127,6 +154,20 @@ class TestWhatIsRefused:
                     "items": [{"label": "Open", "id": "o", "enabled": 1}],
                 },
                 "menus.items.0.enabled",
+            ),
+            (
+                {
+                    "label": "voxd",
+                    "items": [{"label": "Open", "id": "o", "frame_id": 7}],
+                },
+                "menus.items.0.frame_id",
+            ),
+            (
+                {
+                    "label": "voxd",
+                    "items": [{"label": "Open", "id": "o", "frame_id": " "}],
+                },
+                "menus.items.0.frame_id",
             ),
         ],
     )
@@ -192,3 +233,97 @@ class TestWalkingTheLines:
 
     def test_a_menu_with_no_entries_walks_to_nothing(self) -> None:
         assert list(_checked({"label": "File"}).lines()) == []
+
+
+class TestTheFrameIdRoundTrip:
+    """A callback's frame ownership survives Hub → wire → Display, or is absent."""
+
+    def test_a_registered_frame_survives_the_hub_to_wire_boundary(self) -> None:
+        callback = SessionCallback(id="beads", label="Beads", frame_id="beads-lux")
+        action = MenuAction(
+            id=CallbackInvocation(ConnectionId("lux"), callback.id).menu_id,
+            label=callback.label,
+            frame_id=callback.frame_id,
+        )
+
+        menu = _checked({"label": "Clients", "items": [action.to_wire()]})
+
+        (wire_action,) = menu.entries
+        assert isinstance(wire_action, WireAction)
+        assert wire_action.frame_id == "beads-lux"
+
+    def test_no_registered_frame_survives_as_none(self) -> None:
+        callback = SessionCallback(id="details", label="Details")
+        action = MenuAction(
+            id=CallbackInvocation(ConnectionId("lux"), callback.id).menu_id,
+            label=callback.label,
+            frame_id=callback.frame_id,
+        )
+
+        menu = _checked({"label": "Clients", "items": [action.to_wire()]})
+
+        (wire_action,) = menu.entries
+        assert isinstance(wire_action, WireAction)
+        assert wire_action.frame_id is None
+
+    def test_a_click_raises_the_exact_id_a_real_frame_book_keys_the_frame_by(
+        self,
+    ) -> None:
+        """The regression this whole change exists to prevent: the id a
+        Display-local click raises must be byte-for-byte the connection-scoped
+        id a real ``FrameBook`` keys the frame under, or reopening a closed
+        board from its menu entry is a silent no-op (lux-81t3.2/DES-089).
+
+        Builds the Hub's real submenu-composition path (``ClientSubmenu`` via
+        ``CallbackMenu``) from a session carrying a callback with a raw local
+        ``frame_id`` — exactly what a real applet registers — serializes it to
+        the wire, decodes it on the display side, and drives a real click.
+        Constructing the ``MenuAction``/``WireAction`` by hand (as the two
+        tests above do) would skip ``ClientSubmenu``'s scoping and could not
+        catch this class of bug.
+        """
+        conn = ConnectionId("lux")
+        callback = SessionCallback(id="beads", label="Beads", frame_id="beads-lux")
+        session = (
+            ClientSession(0.0)
+            .with_identity(
+                ClientIdentity(kind="mcp-session", name="claude", repo="/w/lux")
+            )
+            .attached(_NullLeg())
+            .with_callback(callback)
+        )
+        named = NamedSessions.over({conn: session}, ClientRoster())
+        (clients_menu,) = CallbackMenu.from_named(named)
+        (lux_submenu,) = [
+            entry for entry in clients_menu.items if isinstance(entry, Menu)
+        ]
+
+        wire_menu = _checked(lux_submenu.to_wire())
+        raised: list[str] = []
+        display_menu = Submenu.from_wire(wire_menu, ignore, raised.append)
+        display_menu.render(FakeImGui(("Beads",)))
+        (raised_id,) = raised
+
+        # The exact key a real scene push establishes for this connection's
+        # frame (DES-086) -- and the exact reopen-a-closed-board scenario.
+        real_key = ConnectionScopedId.compose(conn, "beads-lux")
+        book = FrameBook()
+        book.ensure(_scene(frame_id=real_key), real_key, owner_fd=1)
+        book.close(real_key)
+
+        assert raised_id == real_key
+        assert book.restore(raised_id) is True
+
+
+class _NullLeg:
+    """A listen leg stand-in: the menu needs a client to hold one, not to push."""
+
+    def wake(self) -> None:
+        """No delivery here — this test is about what the click raises."""
+
+
+def _scene(*, frame_id: str) -> SceneMessage:
+    """A minimal scene naming the frame a ``FrameBook`` entry is recorded under."""
+    return SceneMessage(
+        id="s1", elements=[TextElement(id="t1", content="Hi")], frame_id=frame_id
+    )

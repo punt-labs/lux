@@ -45,7 +45,6 @@ from punt_lux.protocol import (
     ReadyMessage,
     RemoteEventHandlerInvocation,
     SceneMessage,
-    ThemeMessage,
     encode_message,
     recv_message,
     send_message,
@@ -496,10 +495,6 @@ class DisplayLink:
     def set_menu(self, menus: list[dict[str, Any]]) -> None:
         """Set custom menu bar entries."""
         self._send(MenuMessage(menus=menus))
-
-    def set_theme(self, theme: str) -> None:
-        """Set the display theme by name (e.g. 'imgui_colors_light')."""
-        self._send(ThemeMessage(theme=theme))
 
     def set_callback_menus(self, submenus: list[dict[str, Any]]) -> None:
         """Replace the display's Clients menu (Hub-composed)."""

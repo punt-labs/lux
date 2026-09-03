@@ -40,20 +40,6 @@ class BoardChannel:
         self._client = client
         return self
 
-    def raised(self, frame_id: str) -> bool:
-        """Bring a frame to the front; say whether the user has it already.
-
-        Only a real ``raised: true`` says the board is in front of the user. A
-        round trip that could not be answered at all establishes nothing about
-        what is on screen, so it is treated as *not* raised rather than assumed
-        — trusting it would skip the push that fills or refreshes the frame.
-        """
-        answer = self._client.raise_frame(frame_id)
-        if isinstance(answer, OpError):
-            logger.warning("the board could not be raised: %s", answer.reason)
-            return False
-        return answer.raised
-
     def send(self, request: BoardRequest) -> None:
         """Install a board, or log why it did not land.
 

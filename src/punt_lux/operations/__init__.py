@@ -8,7 +8,6 @@ re-exports the facade, scope, ports, and the models a surface needs to build a c
 from __future__ import annotations
 
 from punt_lux.operations.facade import Operations
-from punt_lux.operations.frame_ref import FrameRef
 from punt_lux.operations.models import (
     Cleared,
     DisplayModeRequest,
@@ -28,7 +27,7 @@ from punt_lux.operations.models import (
 from punt_lux.operations.models.display_frames import FrameState, FrameStates
 from punt_lux.operations.models.display_info import DisplayInfo
 from punt_lux.operations.models.display_probe import Pong, Screenshot
-from punt_lux.operations.models.display_write import FrameRaise, FrameStatePatch
+from punt_lux.operations.models.display_write import FrameStatePatch
 from punt_lux.operations.models.identity import Identified
 from punt_lux.operations.models.inspect_scope import InspectScope
 from punt_lux.operations.models.menu_results import MenuList, Ok, SetMenuRequest
@@ -37,8 +36,8 @@ from punt_lux.operations.models.query_errors import RecentErrors
 from punt_lux.operations.models.query_events import RecentEvents
 from punt_lux.operations.models.query_inspection import SceneInspection
 from punt_lux.operations.models.query_scenes import SceneList
-from punt_lux.operations.models.theme import SetThemeRequest, ThemeName, ThemeState
-from punt_lux.operations.models.window import WindowSettings, WindowSettingsPatch
+from punt_lux.operations.models.theme import ThemeName, ThemeState
+from punt_lux.operations.models.window import WindowSettings
 from punt_lux.operations.ports import HubPorts
 from punt_lux.operations.scope import Scope
 
@@ -48,8 +47,6 @@ __all__ = [
     "DisplayInfo",
     "DisplayModeRequest",
     "DisplayModeState",
-    "FrameRaise",
-    "FrameRef",
     "FrameState",
     "FrameStatePatch",
     "FrameStates",
@@ -75,12 +72,10 @@ __all__ = [
     "Scope",
     "Screenshot",
     "SetMenuRequest",
-    "SetThemeRequest",
     "Subscribed",
     "ThemeName",
     "ThemeState",
     "Unsubscribed",
     "UpdateRequest",
     "WindowSettings",
-    "WindowSettingsPatch",
 ]

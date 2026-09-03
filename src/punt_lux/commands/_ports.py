@@ -12,9 +12,7 @@ if TYPE_CHECKING:
         Cleared,
         ClientList,
         DisplayInfo,
-        DisplayModeRequest,
         DisplayModeState,
-        FrameRef,
         InspectScope,
         MenuList,
         Ok,
@@ -27,15 +25,12 @@ if TYPE_CHECKING:
         SceneList,
         SceneShown,
         Scope,
-        SetThemeRequest,
         ThemeState,
         UpdateRequest,
         WindowSettings,
-        WindowSettingsPatch,
     )
     from punt_lux.operations.models.callbacks import RegisterCallbackRequest
     from punt_lux.operations.models.display_probe import Screenshot
-    from punt_lux.operations.models.display_write import FrameRaise
     from punt_lux.operations.models.identity import Identified
     from punt_lux.operations.models.menu_results import SetMenuRequest
     from punt_lux.operations.models.pubsub import PublishRequest, Received
@@ -107,10 +102,6 @@ class SceneOps(Protocol):
 @runtime_checkable
 class FrameOps(Protocol):
     """The ops surface the frame commands read."""
-
-    def raise_frame(self, ref: FrameRef) -> FrameRaise | OpError:
-        """Bring the frame ``ref`` names to the front, restoring it if minimized."""
-        ...
 
     def close_frame(self, frame_id: str) -> Ok | OpError:
         """Close a frame: tear down its scenes on the Hub."""
@@ -233,10 +224,6 @@ class ThemeOps(Protocol):
         """Return the active theme and the themes available to switch to."""
         ...
 
-    def set_theme(self, request: SetThemeRequest | OpError) -> ThemeState | OpError:
-        """Switch the display theme and return the new theme state."""
-        ...
-
 
 @runtime_checkable
 class WindowOps(Protocol):
@@ -246,12 +233,6 @@ class WindowOps(Protocol):
         """Return the window's opacity, font scale, decoration, and idle rate."""
         ...
 
-    def set_window_settings(
-        self, patch: WindowSettingsPatch | OpError
-    ) -> WindowSettings | OpError:
-        """Change the provided window settings and return the new settings."""
-        ...
-
 
 @runtime_checkable
 class DisplayModeOps(Protocol):
@@ -259,12 +240,6 @@ class DisplayModeOps(Protocol):
 
     def read_display_mode(self, repo: str) -> DisplayModeState | OpError:
         """Read a project's display mode."""
-        ...
-
-    def write_display_mode(
-        self, request: DisplayModeRequest | OpError
-    ) -> DisplayModeState | OpError:
-        """Write a project's display mode."""
         ...
 
 

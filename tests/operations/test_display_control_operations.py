@@ -22,10 +22,10 @@ from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.display_frames import FrameStates
 from punt_lux.operations.models.display_info import DisplayInfo
 from punt_lux.operations.models.display_probe import Pong
-from punt_lux.operations.models.display_write import FrameRaise, FrameStatePatch
+from punt_lux.operations.models.display_write import FrameStatePatch
 from punt_lux.operations.models.menu_results import Ok
-from punt_lux.operations.models.theme import SetThemeRequest, ThemeState
-from punt_lux.operations.models.window import WindowSettings, WindowSettingsPatch
+from punt_lux.operations.models.theme import ThemeState
+from punt_lux.operations.models.window import WindowSettings
 
 # The exact payload the display's ``_query_get_display_info`` returns today.
 _LIVE_DISPLAY_INFO: dict[str, object] = {
@@ -184,64 +184,6 @@ def test_ping_forwards_the_wait_to_the_port() -> None:
     assert port.last_wait == 1.5
 
 
-def test_set_theme_returns_the_new_theme_state_and_rejects_unknown() -> None:
-    # The display replies with the new theme state (current + available); the
-    # setter narrows it into a ThemeState, never a fabricated success.
-    reply = {"current": "darcula", "available": ["imgui_colors_light", "darcula"]}
-    port = _FakePort(query=DisplayReplied(reply))
-    ops = _ops(port)
-    state = ops.set_theme(SetThemeRequest.parse("darcula"))
-    assert isinstance(state, ThemeState)
-    assert state.theme == "darcula"
-    assert port.last_method == "set_theme"
-    assert port.last_params == {"theme": "darcula"}
-
-    rejected = ops.set_theme(SetThemeRequest.parse("no_such_theme"))
-    assert isinstance(rejected, OpError)
-    assert rejected.code == "invalid_request"
-
-
-def test_set_theme_faults_on_a_malformed_reply_instead_of_fabricating_success() -> None:
-    # A reply the ThemeState model does not recognize is an OpError(fault) — a
-    # malformed display reply — never a success carrying the requested value.
-    port = _FakePort(query=DisplayReplied({"current": "not_a_theme", "available": []}))
-    ops = _ops(port)
-    result = ops.set_theme(SetThemeRequest.parse("darcula"))
-    assert isinstance(result, OpError)
-    assert result.code == "fault"
-
-
-def test_set_window_settings_rejects_empty_patch() -> None:
-    ops = _ops(_FakePort())
-    result = ops.set_window_settings(WindowSettingsPatch.parse({}))
-    assert isinstance(result, OpError)
-    assert result.code == "invalid_request"
-    assert result.reason == "no settings provided"
-
-
-def test_set_window_settings_rejects_out_of_range_opacity() -> None:
-    # The patch validates against the documented bounds before any round-trip.
-    ops = _ops(_FakePort())
-    result = ops.set_window_settings(WindowSettingsPatch.parse({"opacity": 5.0}))
-    assert isinstance(result, OpError)
-    assert result.code == "invalid_request"
-
-
-def test_set_window_settings_returns_the_new_settings() -> None:
-    reply = {
-        "opacity": 0.5,
-        "font_scale": 1.0,
-        "decorated": True,
-        "fps_idle": 10.0,
-    }
-    port = _FakePort(query=DisplayReplied(reply))
-    ops = _ops(port)
-    result = ops.set_window_settings(WindowSettingsPatch.parse({"opacity": 0.5}))
-    assert isinstance(result, WindowSettings)
-    assert result.opacity == 0.5
-    assert port.last_params == {"opacity": 0.5}
-
-
 def test_set_frame_state_returns_ok_and_rejects_empty_patch() -> None:
     # The live reply shape: the frame acted on plus the fields the display flipped.
     port = _FakePort(
@@ -317,41 +259,6 @@ def test_list_frames_passes_a_display_failure_through() -> None:
 
     result = _ops(port).list_frames()
 
-    assert isinstance(result, OpError)
-    assert result.code == "display_unavailable"
-
-
-def test_raise_frame_reports_whether_the_display_held_the_frame() -> None:
-    # The two ordinary answers, neither of them an error: the frame was raised, or
-    # there was none to raise and the caller now knows to push one.
-    port = _FakePort(query=DisplayReplied({"frame_id": "f1", "raised": True}))
-    ops = _ops(port)
-    raised = ops.raise_frame("f1")
-    assert isinstance(raised, FrameRaise)
-    assert raised.raised is True
-    assert port.last_params == {"frame_id": "f1"}
-
-    absent = _ops(
-        _FakePort(query=DisplayReplied({"frame_id": "f1", "raised": False}))
-    ).raise_frame("f1")
-    assert isinstance(absent, FrameRaise)
-    assert absent.raised is False
-
-
-def test_raise_frame_faults_on_a_reply_about_a_different_frame() -> None:
-    # Schema drift must not be read as an answer about the frame that was asked for.
-    port = _FakePort(query=DisplayReplied({"frame_id": "other", "raised": True}))
-    result = _ops(port).raise_frame("f1")
-    assert isinstance(result, OpError)
-    assert result.code == "fault"
-    assert "f1" in result.reason
-
-
-def test_raise_frame_passes_a_display_failure_through() -> None:
-    # No display, or a round trip that never answered: the caller must not read
-    # that as "there was no frame", which would blank a board that is fine.
-    port = _FakePort(query=DisplayFault(code="display_unavailable"))
-    result = _ops(port).raise_frame("f1")
     assert isinstance(result, OpError)
     assert result.code == "display_unavailable"
 

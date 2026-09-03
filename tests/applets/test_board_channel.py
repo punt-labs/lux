@@ -1,11 +1,9 @@
-"""The Hub end of a board: what each answer means, and where failures stop.
+"""The Hub end of a board: where a push failure stops.
 
-Two contracts, and both are about not losing something expensive to a round trip
-that did not land. A raise nobody could answer counts as *not* up — an errored
-round trip establishes nothing about what is on screen, and trusting it as a yes
-is exactly what let a closed frame stay closed (lux-81t3.2). A push that could
-not be sent is logged rather than raised, because the board it carried has
-already cost a multi-second query and the caller is keeping it.
+A push that could not be sent is logged rather than raised, because the board
+it carried has already cost a multi-second query and the caller is keeping it.
+Visibility -- raising a frame -- is no longer this channel's concern: DES-088
+makes that a Display-local gesture, never a client round trip (lux-81t3.5).
 """
 
 from __future__ import annotations
@@ -17,7 +15,7 @@ from punt_lux.applets.board_channel import BoardChannel
 from punt_lux.apps.beads_board import BeadsBoard
 from punt_lux.apps.beads_result import BeadsRows
 
-from .board_doubles import ISSUE, Journal, RecordingClient, UnraisableClient
+from .board_doubles import ISSUE, RecordingClient
 
 if TYPE_CHECKING:
     import pytest
@@ -28,25 +26,6 @@ _BOARD = BeadsBoard.for_project("lux")
 def _channel(client: object) -> BoardChannel:
     """A channel over a stand-in client, which is structural rather than typed."""
     return BoardChannel(client)  # type: ignore[arg-type]  # structural stand-in
-
-
-def test_a_frame_that_is_up_is_reported_as_up() -> None:
-    assert _channel(RecordingClient(frame_is_up=True)).raised("beads-lux") is True
-
-
-def test_a_frame_that_is_not_up_is_reported_as_not_up() -> None:
-    assert _channel(RecordingClient(frame_is_up=False)).raised("beads-lux") is False
-
-
-def test_a_raise_nobody_could_answer_counts_as_not_up(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """An errored round trip establishes nothing, so it must not read as a yes."""
-    with caplog.at_level(logging.WARNING):
-        answer = _channel(UnraisableClient(Journal())).raised("beads-lux")
-
-    assert answer is False
-    assert "could not be raised" in caplog.text
 
 
 def test_a_board_with_issues_goes_down_the_table_route() -> None:

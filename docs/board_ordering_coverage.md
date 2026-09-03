@@ -44,11 +44,11 @@ unless the table says otherwise. The mapping:
 | Partition | Test |
 |---|---|
 | P1 | `test_two_pushes_land_in_the_order_they_were_taken` |
-| P2 | `test_a_click_shows_the_board_held_now_not_the_one_it_read` |
-| P3 | `test_a_click_that_stands_down_leaves_the_newer_board_on_screen` |
+| P2 | structurally unconstructable since lux-81t3.5 (DES-088) removed the client-side raise -- see "P2 and P3" below |
+| P3 | structurally unconstructable since lux-81t3.5 (DES-088) -- see "P2 and P3" below |
 | P4 | `test_a_refresh_stores_its_board_before_it_shows_it` |
 | P5 | `test_a_board_the_slot_refused_never_reaches_the_display` |
-| P6 | `test_the_placeholder_never_lands_over_a_board` |
+| P6 | structurally unconstructable, for a distinct reason from P2/P3 -- see "P6" below |
 | P7 | `test_the_first_placeholder_of_a_session_still_appears` |
 | P8 | `test_the_failure_message_never_lands_over_a_board`, and at the service level `test_a_board_that_arrives_mid_click_outlives_the_click_that_failed` in [`test_beads_service.py`](../tests/applets/test_beads_service.py) |
 | P9 | `test_the_failure_message_appears_when_there_is_nothing_to_lose` |
@@ -94,26 +94,25 @@ they began. The test must show the display ends at the newer board.
 - Failing form (the defect): the older write lands last and stays.
 - This is the partition the four review rounds kept re-finding.
 
-### P2 — A captured board versus a stored one (I2, obligation 1)
+### P2 and P3 — structurally unconstructable since lux-81t3.5 (DES-088)
 
-A click's `acknowledge` observes the slot, then a refresh on another thread
-stores and pushes a newer board, then the first click reaches its push.
-
-- Assertion: the first click pushes the *newer* board, or pushes nothing. It
-  must never push what it observed before the raise.
-- What must be real: `HeldBoard.answer` must be driven through its actual
-  acknowledge-then-raise-then-push sequence, with the store landing in the
-  window. A test that calls `answer` on a board handed to it directly cannot
-  distinguish the fixed design from the broken one.
-
-### P3 — A click that stands down (I2)
-
-P2, and then the second click finds `SingleFlight` held and stands down.
-
-- Assertion: the display still shows the newer board.
-- Why it is its own partition: standing down is what makes the regression
-  permanent. Without it a following refresh masks the defect, and the test
-  passes for the wrong reason.
+P2 ("a captured board versus a stored one", I2, obligation 1) and P3 ("a click
+that stands down", I2) both gated a stood-down or in-flight click's
+`acknowledge` phase at its **raise** — the client-side round trip to the
+display that used to sit between "observe the slot" and "push." lux-81t3.5
+(DES-088) removed that round trip: raising a frame is now a Display-local act
+with no Hub client op, so `acknowledge` performs no I/O between reading the
+slot and calling `BoardGlass.shows`, which itself re-reads the slot fresh,
+under its own lock, immediately before every push. There is no longer a
+gateable point between "observe" and "push" on a click's own thread, so both
+partitions are no longer constructible — not merely untested, structurally
+absent. The invariant they protected (I2: the display never shows what a
+pusher captured before a newer board landed) still holds, now by
+construction; the interleaving that remains reachable — two writers both
+inside `BoardGlass`'s lock — is P1's test. See the `# --- P2 ---` /
+`# --- P3 ---` comment blocks in
+[`test_board_ordering.py`](../tests/applets/test_board_ordering.py) for the
+full reasoning kept beside the code it concerns.
 
 ### P4 — Refresh: store before push (I4, obligation 2)
 
@@ -138,13 +137,37 @@ warm-up's load begins later and stores first; the click's load returns.
   stores and does not push. A test that also pushes from the warm-up removes
   the asymmetry the partition is about.
 
-### P6 — Placeholder must not blank a board (I2)
+### P6 — Placeholder must not blank a board (I2) — structurally unconstructable
 
 The slot holds no board, a click settles on the placeholder, and a board lands
 on the display before the placeholder does.
 
-- Assertion: the placeholder does not reach the display.
+- Assertion (as originally stated): the placeholder does not reach the
+  display.
 - Boundary partner of P7: the *first* placeholder of a session must reach it.
+
+**Reconsidered for round 2 (lux-81t3.5).** Unlike P2/P3, P6 does not lose its
+gateable point — `BoardGlass.shows`'s socket write (the `pushes` gate
+`test_a_store_landing_during_a_push_leaves_the_display_one_behind` already
+exercises) is untouched by this change. The question is whether gating there,
+rather than at the deleted raise, still constructs the race. It does not,
+for a stronger, distinct reason: `BoardGlass._lock` fully serialises every
+call to `shows` — read-then-write, one writer at a time — so for P6 to hold, a
+board's own `shows` call would have to complete and land *before* the
+placeholder's `shows` call reads the slot. But a completed push can only be
+observed by a later reader (the lock guarantees it), so a placeholder-click
+that reads an empty slot proves no board's push has landed yet, and any push
+still holding the lock blocks every other caller — including a real board's —
+until it releases. A store landing mid-push (`BoardSlot.store` does not take
+this lock) cannot retroactively change what a push already in flight sends;
+that is exactly the gap P12 measures and names as accepted staleness, not a
+P6-shaped violation. Gating `pushes` this way reconstructs P12's scenario
+(`test_a_store_landing_during_a_push_leaves_the_display_one_behind`, which
+proves the earlier-decided value lands and a later store does not
+retroactively pre-empt it) — not a new one. See the `# --- P6 ---` comment
+block in
+[`test_board_ordering.py`](../tests/applets/test_board_ordering.py) for the
+full reasoning kept beside the code it concerns.
 
 ### P7 — The first placeholder still appears (liveness of the cold click)
 

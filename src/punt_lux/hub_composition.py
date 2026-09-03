@@ -47,7 +47,6 @@ class HubComposition:
             hub_display,
             hub_replicator,
             hub=hub,
-            client_registry=client_registry,
             menu_registry=hub_menu_registry,
             callback_router=hub_callback_router,
             ports=cls.ports(),

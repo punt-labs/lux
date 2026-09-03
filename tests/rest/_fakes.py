@@ -17,7 +17,6 @@ from fastapi.testclient import TestClient
 from punt_lux.connection_identity import connection_for
 from punt_lux.domain.hub.callback_hold import CallbackRouter
 from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.domain.hub.clients import ClientRegistry
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
@@ -132,7 +131,6 @@ def make_facade(
         display,
         Recorder(),
         hub=Hub(),
-        client_registry=ClientRegistry(),
         menu_registry=HubMenuRegistry(),
         callback_router=router or CallbackRouter(display.clients),
         ports=HubPorts(

@@ -63,16 +63,14 @@ class HeldBoard:
         return held if held.began_at.after(self.began_at) else self
 
     def answered(self, work: BoardWork) -> bool:
-        """Raise the frame, and fill it whatever the raise said was in it.
+        """Say this state's board belongs in the frame — always, unconditionally.
 
-        The raise brings the frame forward, which is the gesture behind asking
-        for a board by name. What it cannot say is what is *in* that frame: a
-        refresh whose push did not land leaves it standing over issues older
-        than these, so a click that stopped at the raise would show the older
-        board and keep the newer to itself — and so would every click after it.
-        Filling it costs milliseconds against a query that costs seconds.
+        The frame is already on screen by the time this runs: the Display
+        raised it locally, synchronously, at the moment of the click, before
+        the Hub ever routed this invocation here. A held board always beats
+        whatever was on screen before, so there is nothing left to check.
         """
-        work.raise_frame()
+        del work  # kept for CachedBoard Protocol conformance
         return True
 
     def refreshed(self, work: BoardWork) -> CachedBoard:

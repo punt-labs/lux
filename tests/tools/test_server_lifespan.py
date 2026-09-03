@@ -13,7 +13,6 @@ from mcp.shared.message import SessionMessage
 import punt_lux.tools.server as server_module
 from punt_lux.mcp_session import SessionRegistry, SessionScopedServer
 from punt_lux.mcp_transport import McpHttpTransport
-from punt_lux.tools import set_display_mode
 from punt_lux.tools.server import bind_session, unbind_session
 
 if TYPE_CHECKING:
@@ -124,11 +123,10 @@ class TestServerImport:
 
 
 class TestExplicitEnable:
-    """Only explicit set_display_mode(y) eager-connects — startup does not."""
-
-    def test_set_display_mode_y_eager_connects(self, tmp_path: Path) -> None:
-        """Enabling display connects immediately, unlike daemon startup."""
-        with patch("punt_lux.domain.hub.clients.client_registry.get") as connect:
-            assert set_display_mode("y", repo=str(tmp_path)) == "display:on"
-
-        connect.assert_called_once()
+    """The eager-connect-on-enable side effect was dropped (DES-088), not
+    replaced -- setting the display mode moved out of the Hub entirely to a
+    direct CLI-local ``DisplayModeStore`` write, which has no live
+    ``ClientRegistry`` to eagerly connect through. The display now always
+    connects lazily on the first real tool/REST call after mode is turned
+    on -- the same fallback path the dropped eager-connect already treated
+    as the documented, always-correct behavior."""

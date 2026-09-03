@@ -29,10 +29,12 @@ class RegisterCallbackRequest(BaseModel):
 
     @classmethod
     def parse(
-        cls, *, callback_id: str, label: str
+        cls, *, callback_id: str, label: str, frame_id: str | None = None
     ) -> RegisterCallbackRequest | OpError:
         """Validate the callback, or return an ``OpError`` instead of raising."""
         try:
-            return cls(callback=SessionCallback(id=callback_id, label=label))
+            return cls(
+                callback=SessionCallback(id=callback_id, label=label, frame_id=frame_id)
+            )
         except ValidationError as exc:
             return OpError.from_validation(exc)
