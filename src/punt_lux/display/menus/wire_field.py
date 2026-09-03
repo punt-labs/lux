@@ -68,7 +68,7 @@ class WireField:
         """Return *value* as a non-blank string, or reject it by name."""
         if isinstance(value, str) and value.strip():
             return value
-        raise ValueError(f"{self._loc}: expected a non-blank string, got {value!r}")
+        raise self.rejected("a non-blank string", value)
 
     def flag(self, value: object, *, default: bool) -> bool:
         """Return a present boolean, or *default* when the field is absent."""
