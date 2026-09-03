@@ -46,28 +46,23 @@ class AppletService(Protocol):
     def prefetch(self) -> None:
         """Do now what a click would otherwise wait for, so the first one does not.
 
-        Run once the entry is registered, off the loop and off any click. It
-        renders nothing and reports nothing to the user: a failure means only
-        that the first click pays the wait, which is what it did before there was
-        a prefetch at all.
+        Runs once the entry is registered, off any click; a failure means only
+        that the first click pays the wait it always paid without a prefetch.
         """
         ...
 
     def acknowledge(self, client: BoardOps, latency: ClickLatency) -> None:
         """Show the user their click landed — the fastest visible thing there is.
 
-        The clock is passed rather than only wrapped around the call because what
-        the answer *was* belongs on the line beside how long it took: a click
-        answered with a board already loaded is a different click from one
-        answered with a placeholder.
+        The clock is passed rather than wrapped around the call because what
+        the answer *was* belongs beside how long it took.
         """
         ...
 
     def service(self, client: BoardOps, latency: ClickLatency) -> None:
         """Do the work a click asks for, pushing whatever it produces via ``client``.
 
-        The stages of that work are timed into ``latency`` and reported with the
-        answer, because a click that was answered in 97 ms and produced a board
-        two seconds later is a different problem from either number alone.
+        The stages are timed into ``latency`` and reported with the answer,
+        since a fast acknowledge and a slow push are different problems.
         """
         ...
