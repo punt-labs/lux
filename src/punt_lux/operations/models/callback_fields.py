@@ -22,4 +22,4 @@ class CallbackFields:
 
     callback_id: str
     label: str
-    frame_id: str | None = None
+    frame_id: str | None = None  # absent for non-applet callbacks; applet-only, DES-063

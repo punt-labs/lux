@@ -29,11 +29,15 @@ from punt_lux.commands._ports import Ctx
 from punt_lux.operations import Scope
 
 if TYPE_CHECKING:
-    from punt_lux.client._listen_handlers import ListenHandlers
     from punt_lux.client._sync_ops import SyncOps
     from punt_lux.commands._ports import PingOps
     from punt_lux.domain.hub.client_identity import ClientIdentity
-    from punt_lux.hub_client import LuxHubClient
+    from punt_lux.hub_client import (
+        CallbackHandler,
+        ConnectHandler,
+        EventHandler,
+        LuxHubClient,
+    )
     from punt_lux.operations import OpError, Pong
 
 
@@ -138,6 +142,14 @@ class LuxClient:
         ctx: Ctx[PingOps] = Ctx(ops=self._transport, identity=self._identity)
         return await ping_command.execute(ctx, wait)
 
-    def listener(self, handlers: ListenHandlers) -> LuxHubClient:
+    def listener(
+        self,
+        *,
+        on_callback: CallbackHandler,
+        on_event: EventHandler,
+        on_connect: ConnectHandler | None = None,
+    ) -> LuxHubClient:
         """Build a persistent listen client that shares this client's identity."""
-        return self._transport.listener(handlers)
+        return self._transport.listener(
+            on_callback=on_callback, on_event=on_event, on_connect=on_connect
+        )
