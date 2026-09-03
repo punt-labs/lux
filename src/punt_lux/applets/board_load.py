@@ -7,10 +7,9 @@ first and the rest behind it, a board held gets a reload underneath it, and the
 prefetch stops at the build, having no click to push anything for.
 
 The reading raises rather than returning a reason, so no caller can push a
-failure as though it were a board. That is the whole difference between the two
-states in :mod:`punt_lux.applets.board_cache`: one shows the reason, the other
-keeps the board it has and logs it. How a board reaches luxd is a different job
-again, and lives in :class:`~punt_lux.applets.board_channel.BoardChannel`.
+failure as though it were a board — the whole difference between the two
+states in :mod:`punt_lux.applets.board_cache`. How a board reaches luxd is a
+different job, and lives in :class:`~punt_lux.applets.board_channel.BoardChannel`.
 """
 
 from __future__ import annotations
