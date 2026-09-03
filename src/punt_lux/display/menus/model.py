@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Self, final
 
-from punt_lux.display.menus.wire_decode import wire_entries
+from punt_lux.display.menus.wire_decode import WireMenuDecoder
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -57,7 +57,8 @@ class Submenu:
         carrying a ``frame_id`` also raises that frame Display-locally, before
         the invocation is even sent (DES-088: only the Display moves a frame).
         """
-        return cls(menu.label, list(wire_entries(menu, handlers, cls.from_wire)))
+        decoder = WireMenuDecoder(handlers, cls.from_wire)
+        return cls(menu.label, list(decoder.entries(menu)))
 
     @property
     def label(self) -> str:
