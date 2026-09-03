@@ -1,11 +1,8 @@
 """``client.callback.*`` -- the Callback accessor over the REST transport.
 
-Only ``register`` ships in this cycle. ``client.callback.pending()`` requires
-the listen-leg drain (see :class:`~punt_lux.commands._ports.CallbackPendingOps`
--- "No REST route exists or can exist for this read; delivery is the listen
-leg's drain, which only the in-process ``Operations`` facade can serve"), so
-it lands with a follow-on bead that either wires it through the WebSocket
-listener or grows an in-process transport variant.
+Only ``register`` ships in this cycle; ``pending()`` needs the listen-leg
+drain (:class:`~punt_lux.commands._ports.CallbackPendingOps`) and lands with
+a follow-on bead wiring it through the WebSocket listener.
 """
 
 from __future__ import annotations
@@ -25,9 +22,8 @@ class CallbackAccessor:
 
     ``register`` reaches REST directly rather than the
     :mod:`punt_lux.commands.callback_register` singleton because the transport
-    already validates and posts. Wiring it through the singleton is bead
-    ``lux-0shg.7-follow-on``. ``frame_id`` is applet-only -- it names the frame a
-    click should raise Display-locally, before the click reaches the Hub; agents
+    already validates and posts (bead ``lux-0shg.7-follow-on``). ``frame_id``
+    is applet-only, naming the frame a click raises Display-locally; agents
     never pass it.
     """
 
