@@ -43,6 +43,20 @@ def test_an_id_with_the_separator_is_rejected() -> None:
         SessionCallback(id="be\x1fads", label="Beads")
 
 
+def test_a_blank_frame_id_is_rejected() -> None:
+    # ConnectionScopedId.compose applies this identical rule; registration must
+    # fail here rather than deep inside menu composition.
+    with pytest.raises(ValidationError):
+        SessionCallback(id="beads", label="Beads", frame_id=" ")
+
+
+def test_a_frame_id_with_the_separator_is_rejected() -> None:
+    # frame_id is later composed with the owning connection via
+    # ConnectionScopedId.compose, which splits on this same separator.
+    with pytest.raises(ValidationError):
+        SessionCallback(id="beads", label="Beads", frame_id="beads\x1flux")
+
+
 def test_the_leaf_id_round_trips_through_the_invocation() -> None:
     invocation = CallbackInvocation(ConnectionId("vox-session"), "beads")
     parsed = CallbackInvocation.from_menu_id(invocation.menu_id)
