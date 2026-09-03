@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Self, final
 
 import pytest
 
-from punt_lux.display.menus import Submenu
+from punt_lux.display.menus import MenuHandlers, Submenu
 from punt_lux.display.menus.wire import WireMenu
 from punt_lux.display.menus.wire_field import WireField
 from punt_lux.domain.hub.callback_hold import CallbackRouter
@@ -142,7 +142,8 @@ class _Wired:
         field = WireField("callback_menus")
         for wire in CallbackMenuReplica(self._store.clients).callback_menu_wire():
             menu = WireMenu.of_payload(wire, field=field)
-            Submenu.from_wire(menu, self._sent.append, ignore).render(imgui)
+            handlers = MenuHandlers(self._sent.append, ignore)
+            Submenu.from_wire(menu, handlers).render(imgui)
         return imgui
 
     def dispatch_sent(self, monkeypatch: pytest.MonkeyPatch) -> None:

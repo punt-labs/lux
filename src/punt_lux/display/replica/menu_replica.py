@@ -12,7 +12,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Self, final
 
-from punt_lux.display.menus import GuardedMenu, MenuBar, MenuModel, Submenu, WorldPanel
+from punt_lux.display.menus import (
+    GuardedMenu,
+    MenuBar,
+    MenuHandlers,
+    MenuModel,
+    Submenu,
+    WorldPanel,
+)
 from punt_lux.display.menus.own_menus import OwnMenus
 from punt_lux.display.menus.wire import WireMenu
 
@@ -100,10 +107,7 @@ class MenuReplica:
         return self._agent_menus
 
     def replace_agent_menus(self, payloads: Sequence[object]) -> None:
-        """Take the replicated agent bar, keeping only well-formed menus.
-
-        The socket is the boundary; a malformed payload is rejected and logged here.
-        """
+        """Take the replicated agent bar; the socket boundary drops malformed menus."""
         self._agent_menus = WireMenu.accepted(payloads, origin="agent_menus")
 
     @property
@@ -122,17 +126,12 @@ class MenuReplica:
 
         Rebuilt each frame so every item reads live state.
         """
+        handlers = MenuHandlers(self._emit_event, self._on_raise_frame)
         return MenuModel(
             [
                 self._own.lux_section(),
-                *(
-                    Submenu.from_wire(m, self._emit_event, self._on_raise_frame)
-                    for m in self._callback_menus
-                ),
-                *(
-                    Submenu.from_wire(m, self._emit_event, self._on_raise_frame)
-                    for m in self._agent_menus
-                ),
+                *(Submenu.from_wire(m, handlers) for m in self._callback_menus),
+                *(Submenu.from_wire(m, handlers) for m in self._agent_menus),
                 *self._own.chrome_sections(),
             ]
         )
