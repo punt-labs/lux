@@ -1,17 +1,7 @@
 """ClientSubmenu — one client's place in the Clients menu.
 
-A submenu is one group's name over the callbacks its members registered, with
-the Hub's ``Details`` command at the foot under a rule. A group is usually one
-session, but two applets in one session share a name and share one submenu, so
-the entries can come from several connections — every callback carries the
-connection it belongs to, and a click routes to whichever applet registered
-that callback.
-
-The Details entry sits in the same place for every submenu, because it is the
-Hub's line rather than the client's, and a command that moves is a command a
-user has to look for. When several sessions share the submenu, Details points
-at the senior — the first-registered member — because two identical Details
-entries would ask a user to guess.
+A submenu is one group's name over its members' callbacks, then the Hub's own
+``Details`` command, aimed at the senior member (never two identical Details).
 """
 
 from __future__ import annotations
@@ -25,6 +15,7 @@ from punt_lux.domain.hub.session_callback import CallbackInvocation
 if TYPE_CHECKING:
     from punt_lux.domain.hub.menu_models import MenuEntry
     from punt_lux.domain.hub.named_sessions import NamedGroup, NamedSession
+    from punt_lux.domain.hub.session_callback import SessionCallback
 
 __all__ = ["ClientSubmenu"]
 
@@ -63,28 +54,23 @@ class ClientSubmenu:
         return Menu(label=self._label, items=entries)
 
     def _leaves(self) -> list[MenuAction]:
-        """Every command any member of this group registered.
-
-        A callback's ``frame_id`` is the member's own local name for its
-        frame (e.g. ``"beads-lux"``); scoped here to that member's own
-        connection before it reaches the wire, the same composition the Hub
-        uses for every scene push (DES-086) -- FrameBook keys frames by the
-        connection-scoped id, never the raw local one, so an unscoped
-        frame_id would raise nothing.
-        """
+        """Every command a member registered; frame_id scoped to its owner (DES-086)."""
         return [
             MenuAction(
                 id=CallbackInvocation(member.connection_id, callback.id).menu_id,
                 label=callback.label,
-                frame_id=(
-                    ConnectionScopedId.compose(member.connection_id, callback.frame_id)
-                    if callback.frame_id is not None
-                    else None
-                ),
+                frame_id=self._scoped(member, callback),
             )
             for member in self._members
             for callback in member.callbacks
         ]
+
+    @staticmethod
+    def _scoped(member: NamedSession, callback: SessionCallback) -> str | None:
+        """Scope *callback*'s frame id to *member*'s connection, or pass ``None``."""
+        if callback.frame_id is None:
+            return None
+        return ConnectionScopedId.compose(member.connection_id, callback.frame_id)
 
     def _details(self) -> MenuAction:
         """The Hub's own command, aimed at the senior member of this group."""

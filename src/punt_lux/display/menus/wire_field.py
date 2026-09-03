@@ -65,10 +65,10 @@ class WireField:
         return None if value is None else self._nonblank_text(value)
 
     def _nonblank_text(self, value: object) -> str:
-        """Return *value* as a non-blank string, or reject it."""
-        if not isinstance(value, str) or not value.strip():
-            raise self.rejected("a non-blank string", value)
-        return value
+        """Return *value* as a non-blank string, or reject it by name."""
+        if isinstance(value, str) and value.strip():
+            return value
+        raise ValueError(f"{self._loc}: expected a non-blank string, got {value!r}")
 
     def flag(self, value: object, *, default: bool) -> bool:
         """Return a present boolean, or *default* when the field is absent."""
