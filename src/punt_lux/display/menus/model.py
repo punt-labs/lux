@@ -85,8 +85,10 @@ class Submenu:
 
     def _render_entries(self, imgui: Any) -> bool:
         """Render every entry — all of them, whatever an earlier one returned."""
-        activated = [entry.render(imgui) for entry in self._entries]
-        return any(activated)
+        fired = False
+        for entry in self._entries:
+            fired = entry.render(imgui) or fired
+        return fired
 
     @classmethod
     def _wire_entries(
@@ -161,5 +163,7 @@ class MenuModel:
 
     def render(self, imgui: Any, id_suffix: str = "") -> bool:
         """Render every menu, returning whether any item was activated."""
-        activated = [section.render(imgui, id_suffix) for section in self._sections]
-        return any(activated)
+        fired = False
+        for section in self._sections:
+            fired = section.render(imgui, id_suffix) or fired
+        return fired
