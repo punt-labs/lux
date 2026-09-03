@@ -44,7 +44,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from punt_lux.applets.service import AppletService
-    from punt_lux.client._sync_ops import CallbackConvenienceOps
+    from punt_lux.client._callback_ops import CallbackConvenienceOps
     from punt_lux.domain.hub.client_identity import ClientIdentity
 
 logger = logging.getLogger(__name__)

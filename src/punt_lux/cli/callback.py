@@ -31,10 +31,11 @@ from punt_lux.cli._shared import (
 )
 from punt_lux.commands import CallbackRegisterOps, Ctx, callback_register
 from punt_lux.operations import OpError
+from punt_lux.operations.models.callback_fields import CallbackFields
 from punt_lux.operations.models.callbacks import RegisterCallbackRequest
 
 if TYPE_CHECKING:
-    from punt_lux.client._sync_ops import CallbackConvenienceOps
+    from punt_lux.client._callback_ops import CallbackConvenienceOps
     from punt_lux.operations import Ok, Scope
 
 callback_app = typer.Typer(
@@ -95,7 +96,7 @@ def register(
     identity = identity_from_flags(
         as_=as_, kind=kind, name=name, repo=repo, agent=agent
     )
-    request = RegisterCallbackRequest.parse(callback_id=callback_id, label=label)
+    request = RegisterCallbackRequest.parse(CallbackFields(callback_id, label))
     ops = _CallbackRegisterAdapter(connect_client(identity=identity))
     ctx: Ctx[CallbackRegisterOps] = Ctx(ops=ops, identity=identity)
     run(callback_register(ctx, request, scope=scope_for(identity)), flags)

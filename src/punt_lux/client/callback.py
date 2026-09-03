@@ -14,17 +14,17 @@ if TYPE_CHECKING:
     from punt_lux.client._rest_transport import _RestTransport
     from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.operations import Ok, OpError
+    from punt_lux.operations.models.callbacks import RegisterCallbackRequest
 
 
 @final
 class CallbackAccessor:
     """The ``client.callback.*`` verbs -- ``register`` this cycle.
 
-    ``register`` reaches REST directly rather than the
-    :mod:`punt_lux.commands.callback_register` singleton because the transport
-    already validates and posts (bead ``lux-0shg.7-follow-on``). ``frame_id``
-    is applet-only, naming the frame a click raises Display-locally; agents
-    never pass it.
+    Reaches REST directly (bead ``lux-0shg.7-follow-on``), not the
+    :mod:`punt_lux.commands.callback_register` singleton. Takes a request
+    object like every other accessor -- unlike the transport's bare-args
+    ``CallbackConvenienceOps`` kept for ``applets/leg.py``.
     """
 
     _rest: _RestTransport
@@ -38,9 +38,10 @@ class CallbackAccessor:
         return self
 
     async def register(
-        self, callback_id: str, label: str, frame_id: str | None = None
+        self, request: RegisterCallbackRequest | OpError
     ) -> Ok | OpError:
-        """Register a menu callback for this session."""
-        return await asyncio.to_thread(
-            self._rest.register_callback, callback_id, label, frame_id
-        )
+        """Register a menu callback for this session; ``frame_id`` is applet-only.
+
+        Forwards an invalid ``request`` unchecked; see :meth:`_RestTransport.register`.
+        """
+        return await asyncio.to_thread(self._rest.register, request)

@@ -7,6 +7,7 @@ import asyncio
 from punt_lux.commands import CallbackRegisterOps, Ctx, callback_register
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.operations import Ok, OpError, Scope
+from punt_lux.operations.models.callback_fields import CallbackFields
 from punt_lux.operations.models.callbacks import RegisterCallbackRequest
 from tests.commands._family_stubs import StubCallbackOps
 from tests.commands._scene_stub import identity
@@ -15,7 +16,7 @@ _SCOPE = Scope(ConnectionId("test-conn"))
 
 
 def _request() -> RegisterCallbackRequest | OpError:
-    return RegisterCallbackRequest.parse(callback_id="cb1", label="Open Ticket")
+    return RegisterCallbackRequest.parse(CallbackFields("cb1", "Open Ticket"))
 
 
 def test_success_renders_registered_with_callers_id() -> None:

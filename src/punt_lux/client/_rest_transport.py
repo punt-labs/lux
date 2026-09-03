@@ -39,6 +39,7 @@ from punt_lux.operations import (
     RenderTableRequest,
     SceneShown,
 )
+from punt_lux.operations.models.callback_fields import CallbackFields
 from punt_lux.operations.models.callbacks import RegisterCallbackRequest
 from punt_lux.operations.models.identity import Identified
 from punt_lux.rest_http_call import HttpCall
@@ -178,8 +179,12 @@ class _RestTransport:
         ``frame_id`` is applet-only -- see :meth:`CallbackAccessor.register`.
         """
         request = RegisterCallbackRequest.parse(
-            callback_id=callback_id, label=label, frame_id=frame_id
+            CallbackFields(callback_id, label, frame_id)
         )
+        return self.register(request)
+
+    def register(self, request: RegisterCallbackRequest | OpError) -> Ok | OpError:
+        """Post an already-validated callback -- :class:`CallbackAccessor`'s shape."""
         if isinstance(request, OpError):
             return request
         call = HttpCall.post("/menus/callbacks", request, self._headers)

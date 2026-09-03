@@ -20,6 +20,7 @@ from punt_lux.domain.hub.menu_models import Menu
 from punt_lux.domain.hub.session_callback import CallbackInvocation
 from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.operations.callbacks import CallbackOperations
+from punt_lux.operations.models.callback_fields import CallbackFields
 from punt_lux.operations.models.callbacks import RegisterCallbackRequest
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.menu_results import Ok
@@ -138,7 +139,7 @@ class _Wired:
         self._clients.detach_listener(conn, listener)
 
     def register(self, conn: ConnectionId, callback_id: str = "beads") -> Ok | OpError:
-        request = RegisterCallbackRequest.parse(callback_id=callback_id, label="Beads")
+        request = RegisterCallbackRequest.parse(CallbackFields(callback_id, "Beads"))
         return self._ops.register_callback(request, scope=Scope(conn))
 
     def click(self, conn: ConnectionId, callback_id: str = "beads") -> Ok | OpError:
