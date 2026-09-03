@@ -48,7 +48,7 @@ from punt_lux.rest_reply import RestReply
 from punt_lux.rest_transport import HttpTransport, HubUnavailableError
 
 if TYPE_CHECKING:
-    from punt_lux.hub_client import CallbackHandler, ConnectHandler, EventHandler
+    from punt_lux.client._listen_handlers import ListenHandlers
     from punt_lux.operations import (
         Cleared,
         DisplayInfo,
@@ -125,28 +125,23 @@ class _RestTransport:
             )
         return cls(LoopbackTransport(port, timeout), identity)
 
-    def listener(
-        self,
-        *,
-        on_callback: CallbackHandler,
-        on_event: EventHandler,
-        on_connect: ConnectHandler | None = None,
-    ) -> LuxHubClient:
+    def listener(self, handlers: ListenHandlers) -> LuxHubClient:
         """Build a persistent listen client that shares this client's identity.
 
         Scene pushes stay on this REST client; the returned :class:`LuxHubClient`
         holds the WebSocket listen connection. Both carry one identity, so a callback
         this client registers over REST is delivered on the listener's stream.
 
-        Pass ``on_connect`` to re-register those callbacks (and re-push scenes) after
-        every handshake — the listener's internal reconnect restores subscriptions
-        but not lease-expired callbacks, so the register-fresh work belongs here.
+        ``handlers.on_connect`` re-registers those callbacks (and re-pushes scenes)
+        after every handshake — the listener's internal reconnect restores
+        subscriptions but not lease-expired callbacks, so the register-fresh work
+        belongs here.
         """
         return LuxHubClient.connect(
             self._identity,
-            on_callback=on_callback,
-            on_event=on_event,
-            on_connect=on_connect,
+            on_callback=handlers.on_callback,
+            on_event=handlers.on_event,
+            on_connect=handlers.on_connect,
         )
 
     def render(
@@ -181,10 +176,6 @@ class _RestTransport:
         request = RegisterCallbackRequest.parse(
             CallbackFields(callback_id, label, frame_id)
         )
-        return self.register(request)
-
-    def register(self, request: RegisterCallbackRequest | OpError) -> Ok | OpError:
-        """Post an already-validated callback -- :class:`CallbackAccessor`'s shape."""
         if isinstance(request, OpError):
             return request
         call = HttpCall.post("/menus/callbacks", request, self._headers)
@@ -306,15 +297,15 @@ class _RestTransport:
         parsed = ClientIdentity.model_validate(
             {**declaration, "kind": declaration.get("kind", self._identity.kind)}
         )
-        if parsed != self._identity:
-            return OpError(
-                code="invalid_request",
-                reason=(
-                    "declared identity does not match this REST client's "
-                    "identity headers"
-                ),
-            )
-        return Identified(identity=self._identity)
+        mismatch = OpError(
+            code="invalid_request",
+            reason="declared identity does not match this REST client's headers",
+        )
+        return (
+            Identified(identity=self._identity)
+            if parsed == self._identity
+            else mismatch
+        )
 
     def list_recent_events(self, count: int) -> RecentEvents | OpError:
         """Return recent interactions through ``GET /events``."""

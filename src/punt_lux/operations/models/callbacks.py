@@ -16,15 +16,15 @@ __all__ = ["RegisterCallbackRequest"]
 
 
 class RegisterCallbackRequest(BaseModel):
-    """A request to register one menu callback for the caller's session.
-
-    Holds the already-validated :class:`SessionCallback`; ``parse`` builds it
-    and returns an ``OpError`` instead of raising past the adapter.
-    """
+    """One callback registration; ``parse`` builds it or returns an ``OpError``."""
 
     model_config = ConfigDict(frozen=True)
 
     callback: SessionCallback
+
+    def rest_args(self) -> tuple[str, str, str | None]:
+        """Return this callback's fields as the low-level transport's bare args."""
+        return self.callback.id, self.callback.label, self.callback.frame_id
 
     @classmethod
     def parse(cls, raw: CallbackFields) -> RegisterCallbackRequest | OpError:

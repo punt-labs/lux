@@ -114,8 +114,7 @@ def pending_callbacks() -> str:
 def register_callback(callback_id: str, label: str) -> str:
     """Register a menu callback; requires the caller to hold a listen leg + identify.
 
-    On success returns ``"registered:<callback_id>"`` and the replicator pushes
-    the updated bar; the callback dies with the session's lease.
+    Returns ``"registered:<callback_id>"``; dies with the session's lease.
     """
     ctx: CommandCtx[CallbackRegisterOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
