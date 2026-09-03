@@ -15,7 +15,6 @@ from punt_lux.domain.hub.session_callback import CallbackInvocation
 if TYPE_CHECKING:
     from punt_lux.domain.hub.menu_models import MenuEntry
     from punt_lux.domain.hub.named_sessions import NamedGroup, NamedSession
-    from punt_lux.domain.hub.session_callback import SessionCallback
 
 __all__ = ["ClientSubmenu"]
 
@@ -59,18 +58,15 @@ class ClientSubmenu:
             MenuAction(
                 id=CallbackInvocation(member.connection_id, callback.id).menu_id,
                 label=callback.label,
-                frame_id=self._scoped(member, callback),
+                frame_id=(
+                    ConnectionScopedId.compose(member.connection_id, callback.frame_id)
+                    if callback.frame_id is not None
+                    else None
+                ),
             )
             for member in self._members
             for callback in member.callbacks
         ]
-
-    @staticmethod
-    def _scoped(member: NamedSession, callback: SessionCallback) -> str | None:
-        """Scope *callback*'s frame id to *member*'s connection, or pass ``None``."""
-        if callback.frame_id is None:
-            return None
-        return ConnectionScopedId.compose(member.connection_id, callback.frame_id)
 
     def _details(self) -> MenuAction:
         """The Hub's own command, aimed at the senior member of this group."""
