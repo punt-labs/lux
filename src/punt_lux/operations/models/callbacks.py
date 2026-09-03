@@ -17,10 +17,8 @@ __all__ = ["RegisterCallbackRequest"]
 class RegisterCallbackRequest(BaseModel):
     """A request to register one menu callback for the caller's session.
 
-    Holds the already-validated :class:`SessionCallback`; ``parse`` builds it and
-    returns an ``OpError`` instead of raising past the adapter — the never-raising
-    contract every request model holds. A malformed id (empty, or carrying the
-    leaf-id separator) or label is reported by field name.
+    Holds the already-validated :class:`SessionCallback`; ``parse`` builds it
+    and returns an ``OpError`` instead of raising past the adapter.
     """
 
     model_config = ConfigDict(frozen=True)
