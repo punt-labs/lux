@@ -697,3 +697,16 @@ name is the `hub_id` wire field itself (addressing.md's net-new bead 1),
 which vox and z-spec must adopt regardless of whether either ever runs
 cross-host; this document adds no independent cross-repo requirement
 beyond that one.
+
+## Related target docs
+
+- [target.md](./target.md)
+- [topology.md](./topology.md) — deployment allows Hub and Display on
+  different machines; this document specifies how that connection is
+  established safely.
+- [addressing.md](./addressing.md) — DES-089, the identity ladder this
+  document delivers a verified `HubId` into. Read its "Dependencies on the
+  cross-host transport layer" section first; this document is that
+  section's answer.
+- [element-contract.md](./element-contract.md)
+- [introspection-api.md](./introspection-api.md)
