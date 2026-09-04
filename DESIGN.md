@@ -6199,3 +6199,146 @@ the guardrail exists to produce.
 producer. Future perf work in the epic (or any successor) is expected
 to update the docstring numbers in `test_scale_budget.py` as its
 before/after evidence.
+
+## DES-089: Identity Is a Path — the Full Addressing Ladder, and Multi-Hub Aggregation
+
+**Status:** SETTLED (design mission m-2026-09-04-001, worker gvr, evaluator
+dna, operator directive 2026-09-04). Full specification:
+`docs/architecture/target/addressing.md`. This entry supersedes every
+prior citation of "DES-089" as a bead-note working title (`lux-whb9`,
+`lux-81t3`, the `FrameRef` docstring, CHANGELOG 0.32.1) — those citations
+pointed at a name with no design behind it; this entry and its linked
+document are that design.
+
+**Problem.** The Display aggregates content it did not produce, from a Hub
+that may itself aggregate many agents — and, per the operator's ruling,
+may itself be more than one Hub. Two failures follow when a lower layer's
+identity is used unqualified at a higher layer that can see more than one
+of it: a *visible* one (Dear ImGui's "conflicting ID" when two widgets
+share a label — `lux-whb9`) and a *silent* one, already shipped and fixed
+once at the layer below this: DES-086 found that `HubDisplay` stored every
+scene under the bare string a client submitted, so two connections
+choosing the same `scene_id` silently clobbered one another. The Display's
+own storage (`FrameBook._scene_to_frame`/`_scene_to_owner`,
+`MenuReplica._callback_menus`) has the identical shape of bug today,
+because `ConnectionId` (`connection_identity.py`) is a hash computed
+independently per Hub process, with no cross-Hub coordination — two
+different Hubs can mint the identical id for two different real clients.
+The operator, asked whether the `lux-whb9` menu-identity bug was "the whole
+addressing solution," ruled it was not, and directed that the complete
+model — including first-class support for 1..n Hubs per Display, not a
+reserved-and-deferred dimension — be designed once, correctly, before any
+of the scattered beads under it dispatch.
+
+**Decision.** Identity is a path, composed top-down by the layer that can
+see ambiguity, never bottom-up by concatenating a string. Three rungs:
+
+1. **Rung 1 — producer label.** Unscoped; an applet's `register_callback`
+   label, a caller's `scene_id`. Freely reused by every producer.
+2. **Rung 2 — Hub-connection scope.** Unique within one Hub's own
+   registry, not globally. Already shipped, in two mechanisms sharing one
+   shape: `ConnectionScopedId` (scenes/frames, DES-086) and
+   `CallbackInvocation` (menu leaves, DES-058) — both
+   `{connection_id}\x1f{local_id}`.
+3. **Rung 3 — Hub-of-origin scope.** Unique across every Hub connection
+   the Display currently holds. Does not exist in code; this design adds
+   it. Carried by a new composed value type, `LuxAddress` (three `Rung`
+   values: hub, connection, leaf), never round-tripped over the wire —
+   Display-side bookkeeping only. `HubId` (hostname + pid, mirroring
+   `AppletIdentity`'s own `#{session_pid}` disambiguation precedent,
+   DES-067) is a Hub connection's own stable identity.
+
+Every surface the Display aggregates — menus, frames/windows, scenes, and
+(once `lux-kob7` lands) tree nodes — renders the same two things from one
+`LuxAddress`: a **hidden** ImGui id (`LuxAddress.hidden_id`, joining every
+rung's key — never a label, never a bare Rung-2 id alone) and a **visible**
+title (`LuxAddress.title(...)`, hostname-anchored, a rung elided the
+moment it is unambiguous: `"Vox"` when solo, `"lux (2) :: Vox"` under one
+ambiguous Hub, `"pembroke :: lux (2) :: Vox"` under two). A single
+Display-side `AddressBook` component computes rung ambiguity once per
+frame/menu build and is the one construction path every leaf renderer
+must use — mirroring DES-059's "one `MenuModel`, two projections" shape:
+one source of truth, not a second one to drift.
+
+**Multi-Hub topology — same-host, no transport change.** The Hub-to-Display
+leg is already an `AF_UNIX` domain socket accepting an unbounded number of
+connections, and several pieces of the multi-Hub story are already built
+for an unrelated reason (DES-068's reconnect/purge story): per-connection
+scene ownership (`FrameBook.scene_to_owner`, already fd-scoped),
+per-connection manifest purge, and preemption keyed by *declared name*, not
+by "the" Hub (`SocketListener.hub_fd_for(name)` already evicts only a
+connection sharing the *identical* declared identity — it reads as
+singleton today only because every Hub process declares the identical
+hardcoded constant, `_DISPLAY_CLIENT_NAME = "lux-mcp"`). What changes: (1)
+a Hub declares a real `HubId` instead of that constant; (2) every
+Display-side store currently keyed by a bare Rung-2 string gains the Hub
+dimension; (3) `InteractionDelivery`'s scene-less broadcast fallback —
+which today sends every menu-bar click to every connected client on the
+documented assumption that exactly one Hub is listening — is retired in
+favor of routing by the originating `HubId`, since a stray broadcast to a
+second Hub is a real misrouting risk once two Hubs' `connection_id`
+spaces can collide, not merely wasted work. Connect and disconnect need no
+new mechanism — the accept loop and per-fd cleanup already generalize.
+Discovery is deliberately nothing new: a second `luxd` connects to the
+identical, already-published Unix socket path the first one did.
+
+**Governing invariant.** For any item the Display renders as part of a
+collection it aggregates, that item's storage key and its ImGui widget id
+both derive from its full `LuxAddress`, never from a bare human label nor
+from a Rung-2-or-lower id alone, once more than one Hub can contribute to
+that collection. Structural, not behavioral — checkable as a type
+discipline (a `str`-keyed store cannot carry the Hub dimension) plus one
+collision-regression test (two Hubs independently producing an identical
+Rung-2 string must land as two distinct entries, never one clobbering the
+other). Not a z-spec candidate: no shared mutable resource, no
+interleaving, no lock discipline — a naming/keying convention, not a
+concurrency property.
+
+**Reconciliation.** DES-088 (visibility) is orthogonal — content identity
+versus paint state, no overlap. DES-064/DES-067 (Clients-menu grouping and
+`(n)` numbering) are *reused*, not superseded: the identical
+collision-numbering algorithm applies one rung higher, to Hub-of-origin
+collisions on one host, rather than being reinvented. DES-086
+(`ConnectionScopedId`) is unchanged — Rung 2 keeps its own
+"collision-unrepresentable" property exactly as shipped; this design
+extends the identical discipline one layer up. DES-058
+(`CallbackInvocation`) is unchanged and wrapped, not altered. `FrameRef`
+(`lux-81t3.2`, introduced `bec389c3`) was a call-site ergonomic bundling of
+Rung 2 for the now-removed client-facing `raise_frame` (deleted in PR #446
+under DES-088); it carried no rung this design does not already have in
+`ConnectionScopedId`, no longer exists in the tree, and this design does
+not revive it.
+
+**Open — needs an operator ruling before implementation dispatches.**
+
+1. **Same-host versus cross-host multi-Hub.** Every mechanism above is
+   same-host: the `AF_UNIX` transport cannot be reached across machines —
+   a transport fact, not a policy choice. `HubId`'s hostname component
+   reads, in the originating bead notes, as though cross-host aggregation
+   was the intended future (hostname framed as "network-unique"), but
+   realizing that would need a network transport and an authentication
+   story beyond the current same-user-loopback trust model
+   (`transport_policy.py` refuses any off-loopback bind today) — a
+   materially larger, separate mission, not an extension of this design.
+   Recommendation: rule same-host in scope now (matches the operator's
+   "not much complexity" framing and needs zero transport change);
+   cross-host stays explicitly out of scope until a separate mission
+   rules on the transport question.
+2. **`ConnectMessage` wire encoding for `HubId`.** Reuse the existing
+   `name: str` field (no wire-version bump, no cross-repo coordination —
+   every consumer already treats it as an opaque attribution string) or
+   add a dedicated typed field (cleaner separation of "what a human calls
+   this" from "which Hub process this is," at the cost of a wire bump
+   every Hub-running repo — vox, z-spec — must observe). Recommendation:
+   follow the identical precedent DES-067 already set for the same shape
+   of tradeoff — reuse the existing field now, add the first-class field
+   only when the next real reason to bump the wire arrives.
+
+**Implementation map.** `lux-whb9` (hidden id, menus), `lux-pgkp` (visible
+title, frames and menus), and `lux-kob7` (TreeNode id + selection, must
+land Rung-3-ready) become children of this one ratified design. Net-new
+work the multi-Hub topology requires — `HubId` on the wire, per-Hub-keyed
+Display storage, the `AddressBook` component, the collision-regression
+test, and the menu-click routing fix — is listed, not yet filed, in
+`docs/architecture/target/addressing.md`'s bead map; the leader files
+beads against it.
