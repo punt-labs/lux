@@ -6372,5 +6372,143 @@ Display storage, the `AddressBook` component, the collision-regression
 test, and the menu-click routing fix — is listed, not yet filed, in
 `docs/architecture/target/addressing.md`'s bead map; the leader files
 beads against it. The cross-host transport-and-trust design itself is not
-a bead under this ADR — it is a separate, forthcoming design mission in
+a bead under this ADR — it is DES-090, a separate design mission in
 `djb`'s domain.
+
+## DES-090: Cross-Host Hub-to-Display Transport and Trust — mTLS Against a Personal CA
+
+**Status:** PROPOSED — pending operator ratification (design mission
+m-2026-09-04-003, worker djb). Companion to DES-089
+(`docs/architecture/target/addressing.md`), which states the five-point
+contract this design satisfies in its "Dependencies on the cross-host
+transport layer" section. Full specification:
+`docs/architecture/target/cross-host-transport.md`.
+
+**Problem.** The Hub-to-Display leg is, today, an `AF_UNIX` socket whose
+entire trust model is a filesystem permission: mode `0700` means "whoever
+can open this path already is this OS user." `transport_policy.py` states
+the analogous refusal explicitly for luxd's other leg
+(`LoopbackTransportPolicy.allows_bind_host` rejects any off-loopback bind)
+— the Hub-to-Display leg has never needed an equivalent policy, because it
+has never left one machine. DES-089's cross-host ruling breaks that
+assumption: once a Display aggregates Hubs on other machines, anyone who
+can route a packet to its port can attempt to speak the Hub protocol, and
+nothing about the `AF_UNIX` trust argument survives the crossing.
+
+**Decision.** TLS 1.3 with mutual certificate authentication, against a
+small per-user personal Certificate Authority, is the transport and trust
+mechanism — recommended over plain-TCP-plus-token, server-only-TLS with a
+bearer token, SSH tunneling, and a public CA (comparison table in
+`cross-host-transport.md`), because one mechanism supplies both
+confidentiality/integrity and authentication from a single already-hardened
+protocol rather than composing two mechanisms to do jobs TLS already does
+together. The CA is created on the Display's machine on first
+cross-host-enable; its private key never leaves that machine. Enrolling an
+additional Hub machine is a manual, offline CSR-signing exchange — the
+operator moves a CSR and its signed certificate between their own machines
+however they already move files, no live enrollment protocol, no registry.
+This is device-pairing for one person's own hardware, not a multi-tenant
+service authenticating unrelated principals — the threat model
+(`cross-host-transport.md`'s threat-model table, T1–T6) is scoped
+accordingly: the adversary is a party on the network who is *not* the
+user, never the user's own other machines.
+
+**The trust fork DES-089 deferred is resolved: option (a).**
+`HubId.hostname` stays a transport-verified network name; no third `HubId`
+field. The transport does not trust the self-reported `hostname` half of
+`ConnectMessage.hub_id` — it derives the verified hostname from the mTLS
+peer certificate's Subject Alternative Name (bound to that certificate at
+enrollment) and rejects the connection outright on any mismatch between
+the two. This closes the actual gap option (b) worried about — "is this
+hostname string genuine" — at its root: verifying the credential *is*
+verifying the hostname, because enrollment is what bound the name to the
+credential in the first place. `pid` continues to be trusted as
+self-reported and unverified, exactly as DES-089's own `HubId` docstring
+already treats it, since it only ever breaks a tie within one
+already-identified host.
+
+**Transport mechanics.** Additive and opt-in: the `AF_UNIX` leg and its
+`0700` trust argument are unchanged; the Display gains a second, opt-in TLS
+listener. `ssl.SSLSocket` is a `socket.socket` subtype, so
+`SocketListener`'s existing `select`/`recv`/fd-keyed bookkeeping needs no
+change — the one correctness-critical detail is that a connection's TLS
+handshake, including client-certificate verification, must complete before
+its fd is ever added to `_clients`/`_readers`, or a content-bearing message
+could in principle race an unverified connection. Direction is preserved:
+the Hub dials the Display in both the same-host and cross-host cases, never
+the reverse — keeping the network attack surface to exactly one opt-in
+listener rather than one accept loop per Hub. Endpoint discovery is
+pragmatic, per the operator's own instruction: a per-user config file
+naming the Display's `host:port` and CA fingerprint, populated at
+enrollment, no registry, no service discovery.
+
+**Reconnect and preemption — a stated coordination point, not resolved
+here.** `HubId.hostname` is stable across any reconnect, including a
+process restart, because the enrolled certificate lives on disk; `pid` is
+not, because a genuine process restart gets a new one, which is DES-089's
+own `HubId` field choice, not a defect this design introduces or can fix.
+Separately: today's preemption (`SocketListener.hub_fd_for(name)`) keys on
+`ConnectMessage.name`, which DES-089 keeps meaning "what a human calls
+this" — not a per-process identity — so preemption re-keyed onto `HubId`
+is an explicit, named coordination point for implementation, shared with
+DES-089's own net-new "per-Hub-keyed Display storage" bead, not decided
+unilaterally by either design.
+
+**A finding against the current same-host code, load-bearing for
+cross-host.** `render_loop.py`'s `_handle_scene` /
+`hub_reconciliation.py`'s `reject_scene_if_test_kind` reject a
+`SceneMessage` only when the sending fd has already declared
+`kind="test"`; an fd that never sent any `ConnectMessage` at all
+(`kind_of(fd) is None`) is not rejected today. Harmless on `AF_UNIX` only
+because the socket's `0700` permission already vouches for an unidentified
+fd; unsafe the moment storage is keyed by `HubId`, since there is no
+`HubId` to key an unidentified connection's content under. This design
+requires closing the gap — reject on `kind_of(fd) is None`, not only
+`== "test"` — as a prerequisite for cross-host, listed first in the bead
+map below.
+
+**Invariants and z-spec.** Four invariants stated precisely in
+`cross-host-transport.md`: no content before verification; at most one
+live connection per `HubId`; hostname verification is fail-closed; the
+`AF_UNIX` leg's trust argument is untouched. The first two are marked
+**z-spec-REQUIRED for implementation** — not modeled by this design
+mission, per its own instruction to flag rather than model now. Invariant
+1 is a stateful-protocol safety property with a concrete interleaving (a
+non-blocking accept adding an unverified fd to the readable set before its
+handshake or `ConnectMessage` completes); invariant 2 generalizes DES-068's
+own single-owner preemption argument from one Hub to N concurrently
+reconnecting Hubs, which is exactly WORKFLOW.md's recurrence trigger for a
+state machine that must be formalized rather than tested by sampling. Both
+carry a stated fidelity requirement: the eventual model must reproduce the
+defect when the relevant ordering/keying is removed. Invariants 3 and 4 are
+boundary checks and a non-interference statement, not concurrency
+properties, and are verified by regression tests instead.
+
+**Reconciliation.** DES-086 (connection-scoped read/write security
+boundary) is preserved verbatim — this design gates *who may connect and
+as which `HubId`*; DES-086 continues to govern *what a connected Hub may
+read or write*, transport-agnostically, exactly as it does today. All five
+of DES-089's cross-host dependency-contract points are satisfied point for
+point (`cross-host-transport.md`'s "Reconciliation" section). Rejected
+alternatives, stated with reasons in the full design: distributing the
+CA's private key to every machine (multiplies the blast radius of the
+single most sensitive secret); a pre-shared/derived token (still needs TLS
+for confidentiality, at which point mTLS supersedes it outright); reusing
+the org's ethos/GPG identity infrastructure (identifies a person or agent,
+not a machine — the wrong entity for `HubId`); and a live CRL/OCSP
+revocation service (disproportionate machinery for a personal, small-N
+deployment — accepted trade-off: revocation is whole-CA regeneration and
+re-enrollment, an explicit, bounded, rare operator action).
+
+**Implementation map.** Eight net-new beads, listed (not filed) in
+dependency order in `cross-host-transport.md`: (1) close the
+pre-identification content gap — prerequisite, ships independently of
+cross-host; (2) personal CA and enrollment tooling; (3) the cross-host TLS
+listener; (4) hostname verification at `ConnectMessage` time — shared
+touchpoint with DES-089's `hub_id` wire-field bead; (5) the cross-host
+`DisplayLink` client path; (6) preemption re-keyed onto `HubId` — shared
+touchpoint with DES-089's per-Hub-keyed-storage bead; (7) the two z-spec
+models; (8) threat-model regression tests, one per threat-model row with a
+"No" answer. Neither vox nor z-spec run a Display, so this design's
+transport work is Display-side only; the only cross-repo touchpoint is the
+`hub_id` wire field DES-089 already names.
