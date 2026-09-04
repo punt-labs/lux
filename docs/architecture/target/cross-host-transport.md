@@ -157,3 +157,99 @@ protocol.** None. `ConnectMessage.hub_id` still carries the full
 `HubId.wire_token` (`{hostname}\x1f{pid}`) exactly as addressing.md
 specifies; cross-host adds a rejection rule at the transport boundary, not
 a new field.
+
+## Transport specification
+
+### Options considered
+
+| Option | Confidentiality + integrity | Authentication | New moving parts | Verdict |
+|---|---|---|---|---|
+| **TLS 1.3, mutual auth (client + server certs)** | Built in | Built in — the same handshake that encrypts also authenticates both sides | One cert/key pair per enrolled machine; a personal CA | **Recommended** |
+| Plain TCP + application-level HMAC/token | None on the wire — content is readable in transit | A shared secret can authenticate, but only after the fact (the content already crossed the wire before any check runs at the application layer) | A token-issuance and rotation story, *and* still need TLS separately for confidentiality — this option ends up needing everything TLS already provides plus its own mechanism | Rejected — see below |
+| TLS with server-only cert (like ordinary HTTPS) + bearer token | Built in, one direction verified | Server authenticated to Hub; Hub authenticated to server only by the bearer token, sent *after* the encrypted channel is already open to an unverified peer... no, the server is verified, the client is not, until the token arrives | Token issuance/rotation, self-signed cert pinning (TOFU) for the server | Rejected — see below |
+| SSH port-forward / SSH tunnel | Built in (SSH's own transport) | Built in (SSH's own key auth) | A dependency on the system SSH client/agent, and a tunnel process to keep alive per connection | Rejected — see below |
+| Public CA (Let's Encrypt-style) | Built in | Built in | Requires public DNS + inbound internet exposure for domain validation | Rejected — wrong shape for a LAN/VPN-scoped personal tool |
+
+**Recommendation: TLS 1.3, mutual authentication, against a small
+per-user personal Certificate Authority.** One mechanism supplies both
+confidentiality/integrity (T2 in the threat model) and authentication
+(T1, T3, T4) from a single, well-understood, already-hardened protocol —
+Lux does not implement its own cryptography anywhere in this design; it
+configures `ssl.SSLContext` with `verify_mode=ssl.CERT_REQUIRED` on both
+ends and `minimum_version=ssl.TLSVersion.TLSv1_3`, and everything else is
+the standard library and OpenSSL's problem, not lux's. That is the
+minimize-trusted-code argument in concrete form: the amount of new code
+this design adds is a certificate-issuance script and a socket-listener
+change, not a hand-rolled auth protocol.
+
+**Why plain TCP + a token is rejected.** A bearer token authenticates the
+holder but does nothing for the wire itself — Lux's replicated UI state is
+exactly the kind of content DES-086 already treats as sensitive enough to
+scope per connection (T2 in the threat model), so shipping it in the clear
+across a network the moment cross-host is enabled is not proportionate,
+token or no token. And once TLS is added back in for confidentiality, the
+token is authenticating a channel that TLS could have authenticated
+directly with a client certificate — the token becomes pure overhead, a
+second mechanism doing a job the first one already does more completely.
+
+**Why server-only TLS + bearer token is rejected.** This is the ordinary
+HTTPS-with-an-API-key shape, and it is tempting because it needs no
+client-side certificate machinery. It fails T3 more subtly than plain TCP
+does: the token is a single shared secret, so revoking *one* compromised
+machine means rotating the token *everywhere*, and there is no way to tell
+which enrolled machine actually sent the request — `HubId.hostname` would
+have nothing cryptographic to derive from (this reopens exactly the trust
+fork "Resolving the trust fork" just closed, pushing back toward option
+(b)'s cosmetic-hostname shape for no good reason). Mutual TLS gives every
+enrolled machine its own credential and its own verifiable name for free;
+a shared token gives neither.
+
+**Why SSH tunneling is rejected.** It solves the same problem and solves
+it well, but it makes the transport depend on an external program (the
+`ssh` client, an agent, a `known_hosts` file) that lux does not control and
+would need to spawn, supervise, and reconnect as a subprocess — trading a
+library-level TLS configuration for a process-management problem. If a
+future operator wants to run Lux over an SSH tunnel or a VPN mesh (Tailscale,
+WireGuard) instead of this document's mTLS, nothing here prevents it — the
+Hub-to-Display wire protocol underneath is transport-agnostic exactly the
+way addressing.md's identity model is, per "Coexistence with the local
+fast path," below — but lux does not build that integration itself.
+
+### Coexistence with the local fast path
+
+The `AF_UNIX` leg is unchanged and stays the default. A same-host Hub keeps
+connecting to `DisplayPaths.socket_path` exactly as it does today —
+`0700`, no TLS, no certificate, the identical trust argument addressing.md
+already documents. Cross-host is **additive and opt-in**: the Display gains
+a *second* listening socket, bound only when the operator explicitly
+enables it (mirroring `LoopbackTransportPolicy`'s fail-closed default — no
+network listener exists until asked for, and the default bind, if
+unconfigured, remains loopback-only so "enabled but misconfigured" degrades
+to "still local," never to "silently reachable from the network").
+
+Both legs feed the *same* `SocketListener` machinery. `ssl.SSLSocket` is a
+subtype of `socket.socket` — `select.select`, `.recv`, and `.send` behave
+identically to a plain `AF_UNIX` socket once the TLS handshake has
+completed — so `poll_clients`, `_read_from_client`, `remove_client`, and
+every fd-keyed dict in `socket_server.py` need no change at all. The one
+change is in `accept_connections`: it must poll a second listening socket
+(bound `AF_INET`/`AF_INET6`, wrapped with the server's `ssl.SSLContext`),
+and it must not hand a freshly-accepted TLS connection to the ordinary
+accept path until the handshake — including client-certificate
+verification — has fully completed. This is the one place a naive
+implementation could reopen "authenticate before content": if a
+non-blocking accept adds the raw, unhandshaked socket to `_clients`
+immediately (as today's `accept_connections` does for `AF_UNIX`, where
+there is no handshake to wait for), a `SceneMessage` could in principle
+race the handshake. The specialist mission implementing this must drive
+the TLS handshake to completion (blocking is acceptable here — it is a
+one-time per-connection cost, not a per-frame one) before the fd ever
+enters `_clients`/`_readers`.
+
+The wire protocol itself — message framing, `ConnectMessage`,
+`SceneMessage`, everything in `protocol/` — does not change. This is the
+architectural payoff of treating TLS as a socket-layer concern: the
+Hub-to-Display application protocol addressing.md builds on is identical
+on both legs, and a Hub process's own code (`DisplayLink.connect`) differs
+only in which socket family and `ssl` wrapping it uses to reach the
+Display, not in what it sends once connected.
