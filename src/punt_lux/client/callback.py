@@ -1,8 +1,7 @@
 """``client.callback.*`` -- the Callback accessor over the REST transport.
 
-Only ``register`` ships in this cycle; ``pending()`` needs the listen-leg
-drain (:class:`~punt_lux.commands._ports.CallbackPendingOps`) and lands with
-a follow-on bead wiring it through the WebSocket listener.
+Only ``register`` ships this cycle; ``pending()`` needs the listen-leg drain
+and lands with a follow-on bead.
 """
 
 from __future__ import annotations

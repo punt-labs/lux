@@ -39,6 +39,7 @@ from punt_lux.operations import (
     RenderTableRequest,
     SceneShown,
 )
+from punt_lux.operations.models.callback_fields import CallbackFields
 from punt_lux.operations.models.callbacks import RegisterCallbackRequest
 from punt_lux.operations.models.identity import Identified
 from punt_lux.rest_http_call import HttpCall
@@ -178,7 +179,7 @@ class _RestTransport:
         ``frame_id`` is applet-only -- see :meth:`CallbackAccessor.register`.
         """
         request = RegisterCallbackRequest.parse(
-            callback_id=callback_id, label=label, frame_id=frame_id
+            CallbackFields(callback_id, label, frame_id)
         )
         if isinstance(request, OpError):
             return request
@@ -301,15 +302,15 @@ class _RestTransport:
         parsed = ClientIdentity.model_validate(
             {**declaration, "kind": declaration.get("kind", self._identity.kind)}
         )
-        if parsed != self._identity:
-            return OpError(
-                code="invalid_request",
-                reason=(
-                    "declared identity does not match this REST client's "
-                    "identity headers"
-                ),
-            )
-        return Identified(identity=self._identity)
+        mismatch = OpError(
+            code="invalid_request",
+            reason="declared identity does not match this REST client's headers",
+        )
+        return (
+            Identified(identity=self._identity)
+            if parsed == self._identity
+            else mismatch
+        )
 
     def list_recent_events(self, count: int) -> RecentEvents | OpError:
         """Return recent interactions through ``GET /events``."""

@@ -1,11 +1,9 @@
 """``lux callback register`` — register a menu callback for the caller's session.
 
 ``callback pending`` has no REST route by ratified design
-(``tests/rest/test_app.py`` ``_MCP_ONLY``): it is a session-scoped observe of
-one connection's held invocations, delivered through the listen leg's
-``take`` drain — a stateless REST request cannot bind to that listener, so a
-REST route (and therefore a REST-backed CLI verb) has no way to be useful.
-Not shipped here; not a gap in this mission's scope.
+(``tests/rest/test_app.py`` ``_MCP_ONLY``): a stateless REST request cannot
+bind to the listen leg's ``take`` drain that delivers it, so no REST-backed
+CLI verb can exist. Not shipped here; not a gap in this mission's scope.
 """
 
 from __future__ import annotations
@@ -31,10 +29,11 @@ from punt_lux.cli._shared import (
 )
 from punt_lux.commands import CallbackRegisterOps, Ctx, callback_register
 from punt_lux.operations import OpError
+from punt_lux.operations.models.callback_fields import CallbackFields
 from punt_lux.operations.models.callbacks import RegisterCallbackRequest
 
 if TYPE_CHECKING:
-    from punt_lux.client._sync_ops import CallbackConvenienceOps
+    from punt_lux.client._callback_ops import CallbackConvenienceOps
     from punt_lux.operations import Ok, Scope
 
 callback_app = typer.Typer(
@@ -95,7 +94,7 @@ def register(
     identity = identity_from_flags(
         as_=as_, kind=kind, name=name, repo=repo, agent=agent
     )
-    request = RegisterCallbackRequest.parse(callback_id=callback_id, label=label)
+    request = RegisterCallbackRequest.parse(CallbackFields(callback_id, label))
     ops = _CallbackRegisterAdapter(connect_client(identity=identity))
     ctx: Ctx[CallbackRegisterOps] = Ctx(ops=ops, identity=identity)
     run(callback_register(ctx, request, scope=scope_for(identity)), flags)

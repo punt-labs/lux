@@ -19,6 +19,7 @@ from punt_lux.commands import (
 from punt_lux.domain.hub.inbox import drain_inbox, inbox_for, next_event
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.operations import PublishRequest, Scope
+from punt_lux.operations.models.callback_fields import CallbackFields
 from punt_lux.operations.models.callbacks import RegisterCallbackRequest
 from punt_lux.tools import tools as _core
 from punt_lux.tools._signal import signal
@@ -113,12 +114,11 @@ def pending_callbacks() -> str:
 def register_callback(callback_id: str, label: str) -> str:
     """Register a menu callback; requires the caller to hold a listen leg + identify.
 
-    On success returns ``"registered:<callback_id>"`` and the replicator pushes
-    the updated bar; the callback dies with the session's lease.
+    Returns ``"registered:<callback_id>"``; dies with the session's lease.
     """
     ctx: CommandCtx[CallbackRegisterOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
     )
-    request = RegisterCallbackRequest.parse(callback_id=callback_id, label=label)
+    request = RegisterCallbackRequest.parse(CallbackFields(callback_id, label))
     result = asyncio.run(callback_register_command(ctx, request, scope=_scope()))
     return signal(result)

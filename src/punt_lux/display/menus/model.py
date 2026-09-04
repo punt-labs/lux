@@ -11,25 +11,24 @@ second type. A replicated menu becomes a :class:`Submenu` through
 :meth:`Submenu.from_wire`, which takes the checked :class:`WireMenu` rather
 than the payload it came from -- fields were narrowed at the boundary
 (:mod:`punt_lux.display.menus.wire`), so nothing here re-checks a type.
+Turning that wire data into entries is :mod:`punt_lux.display.menus.wire_decode`'s
+job (PY-IC-6): this module holds a label and renders entries, nothing more.
 
 ``imgui`` is typed ``Any``: imgui_bundle ships no type stubs.
 """
 
 from __future__ import annotations
 
-import time
 from typing import TYPE_CHECKING, Any, Self, final
 
-from punt_lux.display.menus.entries import MenuItem, MenuSeparator
-from punt_lux.display.menus.menu_click import ClickTarget, MenuHandlers
-from punt_lux.display.menus.wire import WireMenu, WireSeparator
-from punt_lux.protocol import RemoteEventHandlerInvocation
+from punt_lux.display.menus.wire_decode import WireMenuDecoder
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator, Sequence
+    from collections.abc import Sequence
 
     from punt_lux.display.menus.entries import MenuEntry
-    from punt_lux.display.menus.wire import WireAction
+    from punt_lux.display.menus.menu_click import MenuHandlers
+    from punt_lux.display.menus.wire import WireMenu
 
 __all__ = ["MenuModel", "Submenu"]
 
@@ -58,7 +57,8 @@ class Submenu:
         carrying a ``frame_id`` also raises that frame Display-locally, before
         the invocation is even sent (DES-088: only the Display moves a frame).
         """
-        return cls(menu.label, list(cls._wire_entries(menu, handlers)))
+        decoder = WireMenuDecoder(handlers, cls.from_wire)
+        return cls(menu.label, list(decoder.entries(menu)))
 
     @property
     def label(self) -> str:
@@ -89,59 +89,6 @@ class Submenu:
         for entry in self._entries:
             fired = entry.render(imgui) or fired
         return fired
-
-    @classmethod
-    def _wire_entries(
-        cls, menu: WireMenu, handlers: MenuHandlers
-    ) -> Iterator[MenuEntry]:
-        """Yield one entry per entry of the checked menu, in order.
-
-        A nested menu is decoded as a menu, so a menu the Hub nested — the
-        clients under ``Clients`` — renders as a nested menu here rather than
-        a line of its parent, forking on the boundary's type, not a key.
-        """
-        for entry in menu.entries:
-            if isinstance(entry, WireMenu):
-                yield cls.from_wire(entry, handlers)
-            elif isinstance(entry, WireSeparator):
-                yield MenuSeparator()
-            else:
-                yield cls._wire_item(menu.label, entry, handlers)
-
-    @classmethod
-    def _wire_item(
-        cls, menu_label: str, action: WireAction, handlers: MenuHandlers
-    ) -> MenuItem:
-        """Return the clickable line one checked action describes."""
-        target = ClickTarget(menu_label, action.label, action.item_id, action.frame_id)
-        return MenuItem(
-            action.label,
-            cls._invoke(target, handlers),
-            shortcut=action.shortcut,
-            enabled=action.enabled,
-        )
-
-    @staticmethod
-    def _invoke(target: ClickTarget, handlers: MenuHandlers) -> Callable[[], None]:
-        """Return the action that raises this item's frame, then reports the click.
-
-        The raise runs first and Display-locally, before the Hub is even told
-        the click happened — DES-088: only the Display moves a frame.
-        """
-
-        def activate() -> None:
-            if target.frame_id is not None:
-                handlers.raise_frame(target.frame_id)
-            handlers.emit(
-                RemoteEventHandlerInvocation(
-                    element_id=target.item_id,
-                    action="menu",
-                    ts=time.time(),
-                    value={"menu": target.menu_label, "item": target.item_label},
-                )
-            )
-
-        return activate
 
 
 @final
