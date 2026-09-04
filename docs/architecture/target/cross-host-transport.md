@@ -1,6 +1,6 @@
 # Lux Cross-Host Transport and Trust
 
-**Status:** canonical target for the cross-host Hub&harr;Display transport
+**Status:** canonical target for the cross-host Hub-to-Display transport
 and trust model.
 **Ratifies:** DES-090 in `DESIGN.md`.
 **Depends on:** [addressing.md](./addressing.md) (DES-089) — that document
