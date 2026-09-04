@@ -437,6 +437,11 @@ introduced in "Dependencies on the cross-host transport layer," below.
 
 ### What already works, unmodified
 
+> **Superseded on this section specifically:** the manifest-purge and
+> preemption claims below were found to be wrong against the code — see
+> `docs/architecture/system.tex` §"Multi-Hub Topology" and bead `W14` in
+> `docs/architecture/multi-hub-addressing-work.md`.
+
 The Hub-to-Display leg is, today, a Unix domain socket
 (`display/socket_server.py`, `AF_UNIX`, mode `0700`) — the Display is
 already a multi-connection server, accepting an arbitrary number of client
