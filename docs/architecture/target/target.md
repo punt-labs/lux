@@ -233,3 +233,5 @@ An agent should be able to:
 - [ui-model.md](./ui-model.md)
 - [element-contract.md](./element-contract.md)
 - [introspection-api.md](./introspection-api.md)
+- [addressing.md](./addressing.md) — identity ladder and multi-Hub
+  aggregation (DES-089)

@@ -197,5 +197,14 @@ The architecture should not depend on co-location.
 - A single Hub may aggregate many independent clients.
 - A Display may aggregate 1..n Hubs; see [addressing.md](./addressing.md)
   for how content from each stays distinct.
+
+## Related Target Docs
+
+- [target.md](./target.md)
+- [ui-model.md](./ui-model.md)
+- [element-contract.md](./element-contract.md)
+- [introspection-api.md](./introspection-api.md)
+- [addressing.md](./addressing.md) — identity ladder and multi-Hub
+  aggregation (DES-089)
 - Malformed UI is rejected at the Hub, before install and before replication;
   an invalid tree never becomes authoritative and never crosses to the Display.
