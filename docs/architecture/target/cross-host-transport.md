@@ -182,6 +182,22 @@ minimize-trusted-code argument in concrete form: the amount of new code
 this design adds is a certificate-issuance script and a socket-listener
 change, not a hand-rolled auth protocol.
 
+**Session resumption.** `ssl.SSLContext` enables TLS session tickets by
+default on both the client and server sides, and this design does not
+disable them. That is deliberately left as-is rather than hardened
+away: under TLS 1.3, session resumption is not a new, unauthenticated
+handshake — the resumption ticket is cryptographically bound to the
+original full handshake, including the mutual certificate exchange
+this document requires, so a resumed connection still carries the
+*same* verified identity the original handshake established, not a
+fresh or weaker claim. Python's `ssl` module also exposes no public
+API for TLS 1.3 0-RTT/early data — the one property of session
+resumption with a well-known replay weakness — so that risk does not
+arise here at all. Nothing in "Resolving the trust fork," above, or
+its SAN/`hub_id` cross-check needs to re-run per resumed connection:
+the identity a resumption ticket carries is exactly the identity the
+handshake it resumed already proved.
+
 **Why plain TCP + a token is rejected.** A bearer token authenticates the
 holder but does nothing for the wire itself — Lux's replicated UI state is
 exactly the kind of content DES-086 already treats as sensitive enough to
