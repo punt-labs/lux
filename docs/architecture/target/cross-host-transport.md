@@ -253,3 +253,141 @@ Hub-to-Display application protocol addressing.md builds on is identical
 on both legs, and a Hub process's own code (`DisplayLink.connect`) differs
 only in which socket family and `ssl` wrapping it uses to reach the
 Display, not in what it sends once connected.
+
+## Discovery and connection lifecycle
+
+### Endpoint discovery — pragmatic, no registry
+
+The Hub is the connecting party, and the operator's own instruction is not
+to over-engineer discovery. There is no Hub registry, no broadcast, no
+service-discovery protocol (mDNS/DNS-SD), and no rendezvous server. A
+remote Hub's machine holds a small, per-user config file naming the
+Display's `host:port` and the fingerprint of the CA it should trust — the
+network equivalent of `DisplayPaths.socket_path` being "one well-known
+filesystem location per user." Populating that file is part of enrollment
+(see "Authentication and enrollment," below), a one-time, explicit,
+user-driven step, not a live discovery protocol.
+
+**What this deliberately does not solve.** If the Display's reachable
+address changes (a laptop's DHCP lease renews, a home server's public IP
+rotates), the remote Hub's config goes stale until the user updates it, or
+until it is superseded by whatever stable-addressing mechanism the user
+already relies on for that network (a static LAN reservation, a VPN mesh
+with its own stable hostnames such as Tailscale, a dynamic-DNS record).
+Lux does not attempt to solve address stability itself — that would be
+exactly the "heavy registry" the operator ruled out, and the tools that
+already solve it well are outside Lux's scope to reinvent.
+
+### Who initiates, and why that direction is kept
+
+The Hub dials the Display in both the same-host and cross-host cases. This
+is not a new choice — it is the same direction the `AF_UNIX` leg already
+uses — and cross-host keeps it for two reasons. First, symmetry:
+preserving the existing direction means the Display keeps being the
+listener/server side it already is, and a Hub's connect path
+(`DisplayLink.connect`) changes only in socket family and TLS wrapping, not
+in which end initiates. Second, and more directly a security argument: if
+the Display initiated connections *to* Hubs instead, it would need to
+discover Hub endpoints itself — which reintroduces the registry the
+operator ruled out — and it would need Hub-side listeners bound and
+reachable, multiplying the number of network-facing accept loops in the
+system from one (the Display's) to one per Hub. Keeping the Display as the
+sole listener keeps the network attack surface to exactly one opt-in,
+authenticated port, everywhere.
+
+### Connect, cross-host
+
+1. The Hub opens a TCP connection to the Display's configured `host:port`.
+2. Both sides perform the TLS 1.3 handshake with mutual certificate
+   verification (`CERT_REQUIRED` on both ends). A connection whose peer
+   cannot present a certificate signed by the trusted CA is rejected at
+   this step — no application byte is ever read from it (T1 in the threat
+   model).
+3. Once the handshake completes, the Display sends `ReadyMessage` — the
+   identical first frame the `AF_UNIX` leg sends today, unchanged.
+4. The Hub responds with `ConnectMessage(kind="hub", hub_id=...)`, the
+   identical second frame the `AF_UNIX` leg sends today, unchanged.
+5. The Display extracts the verified hostname from the peer certificate's
+   SAN, compares it against the `hostname` half of the self-reported
+   `hub_id`, and rejects (closes the connection, logs server-side) on any
+   mismatch — see "Resolving the trust fork," above. On a match, `HubId` is
+   now verified and enters `AddressBook`'s live set exactly as the
+   same-host case does.
+6. From this point forward, everything in addressing.md's model — per-Hub
+   store keying, ambiguity computation, title elision — applies
+   identically to this connection and to a same-host one. This document's
+   job ends here; addressing.md's begins.
+
+**A cross-host connection never declares `kind="test"`.** The test-kind
+backdoor (`DisplayLink`'s own docstring: "a deliberately wrong-looking
+name... the display logs and rejects a `SceneMessage` sent under it")
+exists for local development, and its safety today rests on the same
+`0700`-socket trust the rest of the `AF_UNIX` leg relies on. The cross-host
+listener refuses `kind="test"` outright — closing the connection rather
+than accepting a read-only backdoor whose entire safety argument does not
+carry across a network (T6 in the threat model).
+
+### Reconnect
+
+A dropped TCP connection (network blip, the Hub process itself restarting)
+reconnects through the identical five-step sequence above — a fresh TLS
+handshake, a fresh `ConnectMessage`. Whether the resulting `HubId` is
+treated as "the same Hub reconnecting" (addressing.md's requirement 3) or
+"a new, distinct Hub" depends entirely on whether `HubId`'s two fields
+compare equal to the prior connection's, which is `addressing.md`'s own
+type-level question, not this document's:
+
+- **`hostname`** is stable across any reconnect, including a full process
+  restart, because the enrolled certificate (see "Authentication and
+  enrollment") lives on disk on the Hub's machine and does not change
+  between runs. This document's contribution to requirement 3 is exactly
+  this: the transport-verified half of `HubId` survives everything short of
+  re-enrollment.
+- **`pid`** does not survive a genuine OS process restart — a crash-respawn
+  gets a new pid, like any other process. This is not a defect this
+  document introduces; it is a property of `HubId`'s own field choice in
+  addressing.md, which this document neither can nor should paper over.
+  Flagged here as a coordination point: a Hub process that restarts (not
+  merely reconnects its socket after a network blip) will present a
+  `HubId` differing only in `pid`, which addressing.md's own
+  same-host-duplicate path already handles correctly (`pembroke`,
+  `pembroke (2)`, re-eliding once the stale entry is reaped) — the
+  behavior is *correct*, just worth naming explicitly so nobody reads
+  requirement 3's "(network blip, restart)" parenthetical as a promise
+  this document cannot make for the `pid` field.
+
+### Preemption — a coordination point, not resolved here
+
+`SocketListener.hub_fd_for(name)` and `HubReconciliation._preempt_stale_hub`
+key single-owner preemption on the connection's declared `name`
+(`ConnectMessage.name`), not on `HubId`. addressing.md keeps `name`'s
+meaning as "what a human calls this connection" and states explicitly that
+`hub_id` is the separate, dedicated identity field — it does not say `name`
+becomes a real per-process value. Read literally, that means preemption
+today (and after addressing.md's own changes land) still keys on whatever
+string populates `name`, which several Hub processes may legitimately
+share (`_DISPLAY_CLIENT_NAME`, the existing hardcoded constant). For a
+single same-host Hub this is harmless — there was only ever one Hub to
+preempt. Once cross-host makes two independently-legitimate, simultaneously
+live Hubs possible, name-keyed preemption risks a reconnecting Hub on one
+machine evicting a live, unrelated Hub on a different machine that happens
+to share the same declared `name`.
+
+This document does not resolve it, because the fix touches `name`'s own
+semantics, which is addressing.md's territory, not this document's transport
+boundary. It is recorded here as an explicit **coordination point** for
+implementation: whichever bead reworks preemption should key it on `HubId`
+(the value this document guarantees is both verified and, per
+"Reconnect" above, hostname-stable) rather than `name`, and that choice
+should be made once, consistently, referenced from both documents rather
+than decided twice.
+
+### Disconnect
+
+No new mechanism. A dropped cross-host connection is, from `SocketListener`
+and `HubReconciliation`'s point of view, an ordinary fd closing — the
+existing per-fd scene reaping, `AddressBook` live-set removal, and lease
+sweep apply exactly as addressing.md already specifies for the same-host
+case (its "Disconnect needs no new logic" point). Nothing about the TLS
+layer needs its own teardown path beyond closing the underlying socket,
+which tears down the TLS session with it.
