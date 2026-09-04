@@ -6202,13 +6202,16 @@ before/after evidence.
 
 ## DES-089: Identity Is a Path — the Full Addressing Ladder, and Multi-Hub Aggregation
 
-**Status:** SETTLED (design mission m-2026-09-04-001, worker gvr, evaluator
-dna, operator directive 2026-09-04). Full specification:
+**Status:** SETTLED (design mission m-2026-09-04-001, round 2, worker gvr,
+evaluator dna, operator ruling 2026-09-04). Full specification:
 `docs/architecture/target/addressing.md`. This entry supersedes every
 prior citation of "DES-089" as a bead-note working title (`lux-whb9`,
 `lux-81t3`, the `FrameRef` docstring, CHANGELOG 0.32.1) — those citations
 pointed at a name with no design behind it; this entry and its linked
-document are that design.
+document are that design. Round 1's addressing model (identity is a path,
+the three rungs, the value types, per-surface treatment) stands unchanged;
+round 2 folds in two operator rulings that expand scope — cross-host
+aggregation and a dedicated `hub_id` wire field — without altering it.
 
 **Problem.** The Display aggregates content it did not produce, from a Hub
 that may itself aggregate many agents — and, per the operator's ruling,
@@ -6244,9 +6247,10 @@ see ambiguity, never bottom-up by concatenating a string. Three rungs:
    the Display currently holds. Does not exist in code; this design adds
    it. Carried by a new composed value type, `LuxAddress` (three `Rung`
    values: hub, connection, leaf), never round-tripped over the wire —
-   Display-side bookkeeping only. `HubId` (hostname + pid, mirroring
+   Display-side bookkeeping only. `HubId` (FQDN hostname + pid, mirroring
    `AppletIdentity`'s own `#{session_pid}` disambiguation precedent,
-   DES-067) is a Hub connection's own stable identity.
+   DES-067) is a Hub connection's own stable identity — `hostname`
+   disambiguates machines, `pid` disambiguates same-host duplicates.
 
 Every surface the Display aggregates — menus, frames/windows, scenes, and
 (once `lux-kob7` lands) tree nodes — renders the same two things from one
@@ -6260,27 +6264,44 @@ frame/menu build and is the one construction path every leaf renderer
 must use — mirroring DES-059's "one `MenuModel`, two projections" shape:
 one source of truth, not a second one to drift.
 
-**Multi-Hub topology — same-host, no transport change.** The Hub-to-Display
-leg is already an `AF_UNIX` domain socket accepting an unbounded number of
-connections, and several pieces of the multi-Hub story are already built
-for an unrelated reason (DES-068's reconnect/purge story): per-connection
-scene ownership (`FrameBook.scene_to_owner`, already fd-scoped),
-per-connection manifest purge, and preemption keyed by *declared name*, not
-by "the" Hub (`SocketListener.hub_fd_for(name)` already evicts only a
-connection sharing the *identical* declared identity — it reads as
-singleton today only because every Hub process declares the identical
-hardcoded constant, `_DISPLAY_CLIENT_NAME = "lux-mcp"`). What changes: (1)
-a Hub declares a real `HubId` instead of that constant; (2) every
-Display-side store currently keyed by a bare Rung-2 string gains the Hub
-dimension; (3) `InteractionDelivery`'s scene-less broadcast fallback —
-which today sends every menu-bar click to every connected client on the
-documented assumption that exactly one Hub is listening — is retired in
-favor of routing by the originating `HubId`, since a stray broadcast to a
-second Hub is a real misrouting risk once two Hubs' `connection_id`
-spaces can collide, not merely wasted work. Connect and disconnect need no
-new mechanism — the accept loop and per-fd cleanup already generalize.
-Discovery is deliberately nothing new: a second `luxd` connects to the
-identical, already-published Unix socket path the first one did.
+**Multi-Hub topology — transport-agnostic model, same-host built now,
+cross-host delegated to a companion design.** The addressing model itself
+(rungs, `LuxAddress`, `AddressBook`, the per-surface treatment, the
+invariant) applies identically whether a Hub reaches the Display over a
+Unix socket or a network socket — nothing in it assumes `AF_UNIX`. The
+Hub-to-Display leg is, today, an `AF_UNIX` domain socket accepting an
+unbounded number of connections, and several pieces of the multi-Hub story
+are already built for an unrelated reason (DES-068's reconnect/purge
+story), each written against "a connection" in the abstract and so
+surviving a transport change unmodified: per-connection scene ownership
+(`FrameBook.scene_to_owner`, already fd-scoped), per-connection manifest
+purge, and preemption keyed by *declared name*, not by "the" Hub
+(`SocketListener.hub_fd_for(name)` already evicts only a connection
+sharing the *identical* declared identity — it reads as singleton today
+only because every Hub process declares the identical hardcoded constant,
+`_DISPLAY_CLIENT_NAME = "lux-mcp"`). What changes for same-host, no
+transport work required: (1) a Hub declares a real `HubId` instead of
+that constant, carried on `ConnectMessage`'s dedicated `hub_id` field (see
+below); (2) every Display-side store currently keyed by a bare Rung-2
+string gains the Hub dimension; (3) `InteractionDelivery`'s scene-less
+broadcast fallback — which today sends every menu-bar click to every
+connected client on the documented assumption that exactly one Hub is
+listening — is retired in favor of routing by the originating `HubId`,
+since a stray broadcast to a second Hub is a real misrouting risk once two
+Hubs' `connection_id` spaces can collide, not merely wasted work. Connect
+and disconnect need no new mechanism for same-host — the accept loop and
+per-fd cleanup already generalize; discovery is deliberately nothing new
+there, a second `luxd` connects to the identical, already-published Unix
+socket path the first one did. **Cross-host connection establishment —
+how a remote Hub finds the Display's network endpoint, initiates the
+connection, and is authenticated — is explicitly out of this design's
+scope**, delegated to a forthcoming companion transport-and-trust design
+(`docs/architecture/target/cross-host-transport.md`, `djb`'s domain,
+dispatched separately). `addressing.md`'s "Dependencies on the cross-host
+transport layer" states precisely what that layer must supply — a
+connection with an authenticated, reconnect-stable `HubId` delivered
+before any content is accepted — so the two designs compose without
+overlap.
 
 **Governing invariant.** For any item the Display renders as part of a
 collection it aggregates, that item's storage key and its ImGui widget id
@@ -6309,36 +6330,43 @@ under DES-088); it carried no rung this design does not already have in
 `ConnectionScopedId`, no longer exists in the tree, and this design does
 not revive it.
 
-**Open — needs an operator ruling before implementation dispatches.**
+**Resolved forks (operator ruling, 2026-09-04).** Round 1 of this design
+left two either/or decisions open rather than resolve them silently. Both
+are now ruled:
 
-1. **Same-host versus cross-host multi-Hub.** Every mechanism above is
-   same-host: the `AF_UNIX` transport cannot be reached across machines —
-   a transport fact, not a policy choice. `HubId`'s hostname component
-   reads, in the originating bead notes, as though cross-host aggregation
-   was the intended future (hostname framed as "network-unique"), but
-   realizing that would need a network transport and an authentication
-   story beyond the current same-user-loopback trust model
-   (`transport_policy.py` refuses any off-loopback bind today) — a
-   materially larger, separate mission, not an extension of this design.
-   Recommendation: rule same-host in scope now (matches the operator's
-   "not much complexity" framing and needs zero transport change);
-   cross-host stays explicitly out of scope until a separate mission
-   rules on the transport question.
-2. **`ConnectMessage` wire encoding for `HubId`.** Reuse the existing
-   `name: str` field (no wire-version bump, no cross-repo coordination —
-   every consumer already treats it as an opaque attribution string) or
-   add a dedicated typed field (cleaner separation of "what a human calls
-   this" from "which Hub process this is," at the cost of a wire bump
-   every Hub-running repo — vox, z-spec — must observe). Recommendation:
-   follow the identical precedent DES-067 already set for the same shape
-   of tradeoff — reuse the existing field now, add the first-class field
-   only when the next real reason to bump the wire arrives.
+1. **Same-host versus cross-host multi-Hub.** Round 1 recommended
+   same-host only, cross-host deferred. **Ruled: cross-host is in scope
+   now** — the operator chose this knowing it needs a network transport
+   and an authentication story beyond the current same-host trust
+   boundary (`transport_policy.py`'s off-loopback refusal governs only
+   luxd's separate MCP/REST leg, not the Hub-to-Display leg, which has no
+   analogous policy today). The addressing model itself is unchanged by
+   this ruling — see "Multi-Hub topology," above.
+2. **`ConnectMessage` wire encoding for `HubId`.** Round 1 recommended
+   reusing `name`, following DES-067's precedent for an analogous
+   tradeoff. **Ruled: add a dedicated `hub_id` field** — the operator
+   judged the precedent-driven reuse traded away the separation this
+   design argues for elsewhere ("what a human calls this" versus "which
+   Hub process this is"), and cross-host was a second, independent reason
+   the wire needed to change regardless. This is a **cross-repo
+   commitment**: vox and z-spec both run Hub processes and must adopt the
+   field in the same release window, per the org's cross-repo
+   breaking-change protocol.
+
+`addressing.md` also flags, without resolving, one genuine new fork the
+cross-host ruling surfaces: whether `HubId.hostname` stays a
+transport-verified network name, or becomes a cosmetic label beside a new
+opaque transport-assigned uniqueness key — a question for the cross-host
+transport design to answer, not this one.
 
 **Implementation map.** `lux-whb9` (hidden id, menus), `lux-pgkp` (visible
 title, frames and menus), and `lux-kob7` (TreeNode id + selection, must
 land Rung-3-ready) become children of this one ratified design. Net-new
-work the multi-Hub topology requires — `HubId` on the wire, per-Hub-keyed
+work the multi-Hub topology requires — `HubId` on the wire (dedicated
+`hub_id` field, with vox/z-spec cross-repo coordination), per-Hub-keyed
 Display storage, the `AddressBook` component, the collision-regression
 test, and the menu-click routing fix — is listed, not yet filed, in
 `docs/architecture/target/addressing.md`'s bead map; the leader files
-beads against it.
+beads against it. The cross-host transport-and-trust design itself is not
+a bead under this ADR — it is a separate, forthcoming design mission in
+`djb`'s domain.
