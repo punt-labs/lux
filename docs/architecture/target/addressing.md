@@ -164,6 +164,17 @@ class LuxAddress:
         return " :: ".join(shown)
 ```
 
+`title()` joins on `" :: "` rather than `"/"`, even though "identity is a
+path" is this document's own governing metaphor. The reason is audience,
+not a rejection of the metaphor: `/` reads as a filesystem or URL
+segment — plausibly clickable, parseable, or navigable — to the
+developer/agent audience this title is shown to, and no part of a
+`LuxAddress` title is any of those things; nothing round-trips it back
+into rungs (see `LuxAddress`'s docstring, above). `::` is the
+namespace-qualification notation that same audience already reads as
+"scope, not a route" (C++ scope resolution, Python module paths in
+prose), which is the truer signal here.
+
 `hidden_id` is exactly the mission's literal requirement — "derive from
 (source-Hub, Hub item id)" — decomposed one level further for OO clarity:
 `connection.key` joined with `leaf.key` on `ID_SEPARATOR` *is* the "Hub item
@@ -279,6 +290,21 @@ class ConnectMessage:
             d["hub_id"] = self.hub_id
         return d
 ```
+
+**A note on `hub_id: str | None` and the OO stance (python.md Rule 5).**
+This is precisely the shape Rule 5 asks a discriminated type to replace —
+`hub_id`'s presence is not genuinely "absent," it is fully determined by
+`kind`: `kind="hub"` always carries it, `kind="test"` never does. This
+document keeps the plain Optional as a deliberate, scoped exception rather
+than splitting `ConnectMessage` into `HubConnectMessage` /
+`TestConnectMessage`, for two reasons: `kind`'s discriminating role is
+already load-bearing today, so the coupling is not new; and a full
+message-type split is a materially larger wire change than the
+single-field addition this section otherwise commits to, out of proportion
+to this mission's scope. The discriminated-type split is the correct
+long-term shape and is noted here as an explicit follow-on, to be taken up
+if `kind`'s branching grows beyond this one field — not passed over
+silently.
 
 `ClientRegistry.get()` (`domain/hub/clients.py`) is the one production
 writer of a `kind="hub"` `ConnectMessage`; it constructs
