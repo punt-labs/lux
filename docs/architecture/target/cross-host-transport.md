@@ -492,3 +492,89 @@ operator action — not a hidden footgun, because nothing silently trusts a
 revoked key in the meantime; the operator's own next action (regenerate,
 re-enroll) is what closes the window, same as rotating a leaked SSH host
 key today.
+
+## Invariants
+
+Stated precisely, so the implementation and its tests have a checkable
+target rather than prose to interpret:
+
+1. **No content before verification.** No `SceneMessage`,
+   `CallbackMenuMessage`, `HubManifestMessage`, or any other content-bearing
+   frame is processed from a connection until that connection's `HubId` has
+   been both transport-verified (TLS handshake with client-cert
+   verification complete) and cross-checked (self-reported `hub_id`
+   hostname matches the certificate SAN). This is addressing.md's
+   requirement 1, restated as a transport-side obligation.
+2. **At most one live connection per `HubId`.** Once preemption is
+   re-keyed onto `HubId` (see "Preemption — a coordination point," above),
+   a second connection presenting the identical verified `HubId` evicts the
+   first, never coexists with it — the same single-owner guarantee DES-068
+   already established for the (today, single) same-host Hub, generalized
+   to N verified Hubs.
+3. **Hostname verification is fail-closed.** A SAN/`hub_id` mismatch, an
+   untrusted or expired certificate, or a `kind="test"` declaration on the
+   cross-host listener all result in connection rejection, never a
+   degraded-trust fallback (no "accept but flag," no "accept and log a
+   warning"). Fail closed, not open.
+4. **The `AF_UNIX` leg's trust argument is untouched.** Nothing in this
+   design weakens, bypasses, or shares state with the local socket's
+   `0700`-permission trust boundary; a same-host Hub's connection carries
+   exactly the same guarantees after this document ships as before it.
+
+### z-spec assessment
+
+**Two of the invariants above are z-spec-REQUIRED for the implementation
+phase.** This document does not model them now — per the mission's
+instruction, flagging is the deliverable here, not the model — but the
+reasoning for *why* they clear WORKFLOW.md's z-spec trigger list is stated
+precisely so the implementation mission cannot reasonably skip it:
+
+- **Invariant 1 (no content before verification) is a stateful-protocol
+  safety property with a real interleaving.** The connection's own state —
+  "TCP connected," "TLS handshaking," "TLS verified, awaiting
+  `ConnectMessage`," "identified, `HubId` verified," "receiving content" —
+  is exactly the shape WORKFLOW.md names as a z-spec trigger ("a defined
+  set of states and transitions" with a safety invariant of the form
+  "never X while Y"). The concrete race a model-check should exhibit and
+  then exclude: a non-blocking accept path that adds a socket to
+  `_clients`/`_readers` before its TLS handshake — or before its
+  `ConnectMessage` — has actually completed, letting a `SceneMessage`
+  arrive and be processed against an unverified or not-yet-identified
+  connection. "Coexistence with the local fast path," above, already names
+  this as the one place a naive implementation could reopen the gap; a
+  z-spec model is what proves the chosen implementation closes it
+  exhaustively rather than merely "in the cases tested."
+- **Invariant 2 (at most one live connection per `HubId`) is a lock/ownership
+  discipline across a reconnect race, with multiple remote Hubs
+  interleaving.** This is the same shape DES-068's own single-owner
+  preemption already needed a careful sequential argument for (see
+  `_preempt_stale_hub`'s docstring: "closing the interleaving where a
+  straggling message from a superseded connection could re-materialize a
+  scene a fresh manifest just purged") — generalizing it from one Hub to N
+  concurrently-reconnecting Hubs is precisely the class of change
+  WORKFLOW.md's recurrence signal calls out: "the MOMENT the same class of
+  defect surfaces across two or more fix/review rounds — stop... formalize
+  the state machine." A reconnect racing its own predecessor's teardown,
+  under network jitter, with more than one remote Hub doing it
+  simultaneously, is exactly the kind of interleaving that testing samples
+  and model-checking proves exhaustively.
+
+**Not z-spec candidates:** invariants 3 and 4 above are boundary checks and
+a non-interference statement, not concurrency properties — the same
+distinction addressing.md's own governing invariant draws for its
+Rung-3 keying discipline ("a naming/keying convention, not a concurrency
+property"). A rejection-path unit test (bad SAN, expired cert, `kind="test"`
+over the network leg) and a code-level audit that no cross-host code path
+touches `AF_UNIX`'s socket, permissions, or state are the right-sized
+verification for those two.
+
+**Fidelity requirement, stated in advance per WORKFLOW.md's own rule:** the
+eventual z-spec model for invariant 1 must reproduce the defect when the
+handshake-before-accept ordering is removed (the model exhibits a state
+where content is processed against an unverified connection), and the
+model for invariant 2 must reproduce a double-owner state when preemption
+is re-keyed incorrectly (e.g., kept on `name` per the coordination point
+above, with two same-named-but-different-`HubId` connections both live). A
+model that cannot reproduce the bug it guards against is too abstract to
+trust — this document states that requirement now so the implementation
+mission does not have to rediscover it.
