@@ -6518,8 +6518,10 @@ revocation service (disproportionate machinery for a personal, small-N
 deployment — accepted trade-off: revocation is whole-CA regeneration and
 re-enrollment, an explicit, bounded, rare operator action).
 
-**Implementation map.** Eight net-new beads, listed (not filed) in
-dependency order in `cross-host-transport.md`: (1) close the
+**Implementation map.** Eight net-new beads, now consolidated with
+DES-089's into the single implementation plan
+`docs/architecture/multi-hub-addressing-work.md` (beads W1–W13, in
+dependency order): (1) close the
 pre-identification content gap — prerequisite, ships independently of
 cross-host; (2) personal CA and enrollment tooling; (3) the cross-host TLS
 listener; (4) hostname verification at `ConnectMessage` time — shared
