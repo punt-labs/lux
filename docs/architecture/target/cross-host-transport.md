@@ -93,3 +93,67 @@ DES-086's scoping (per T5, it never gains cross-Hub reach, but it is fully
 trusted for its own scope, same as today); and physical or OS-level
 compromise of an enrolled machine is out of scope for the reason stated
 under "Adversary," above.
+
+## Resolving the trust fork: `HubId.hostname` is transport-verified
+
+addressing.md flags, without resolving, whether `HubId.hostname` stays a
+transport-verified network name (its option **a**) or becomes a cosmetic
+label beside a new opaque uniqueness key (its option **b**). **Decision:
+option (a).** `HubId` keeps exactly the two fields addressing.md specifies
+— `hostname: str`, `pid: int` — no third field. Justification, as a
+security call rather than a convenience call:
+
+**The real question is not "which option is more defensive," it is "what
+does 'verified' mean if the transport authenticates the connection but not
+the field."** Requirement 1 of addressing.md's dependency contract is that
+the transport delivers a *verified* `HubId`, not merely that it delivers
+*a* `HubId` over an authenticated channel. If the transport authenticates
+the TLS session (proves "this is a legitimate credential this user
+enrolled") and then passes through whatever `hostname` string the Hub
+happens to self-report in `ConnectMessage.hub_id` unchecked, `HubId` is not
+actually verified — it is merely carried over a verified pipe. A
+misconfigured or buggy Hub process (no malice required) could self-report a
+`hostname` that collides with a different, legitimately distinct Hub's
+already-live entry, reintroducing the exact silent-collision failure mode
+DES-086 and addressing.md both exist to close, just moved past the
+transport boundary instead of solved by it.
+
+Option (a) closes that gap directly, with a mechanism, not a preference: the
+transport does not trust the self-reported `hostname` half of
+`ConnectMessage.hub_id` at all. It derives the verified hostname from the
+mTLS peer certificate's own Subject Alternative Name (see "Authentication
+and enrollment," below — the enrollment step is what binds a certificate to
+a specific machine's name in the first place) and **rejects the connection
+outright if the self-reported hostname does not match the certificate's
+SAN.** `pid` is passed through as self-reported, unverified, exactly as
+addressing.md's own docstring already treats it: "`pid` is not
+network-meaningful and never needs to be... it only ever breaks a tie
+*within* one already-identified host" — there is no security property lost
+by trusting a same-host tie-breaker the transport has already anchored to a
+verified machine identity.
+
+This resolves cleanly against option (b)'s own stated case for itself.
+Option (b) exists because "this hostname string is unique and genuine" felt
+like a harder claim to verify than "this credential is unique and genuine."
+Deriving the hostname from the certificate's SAN collapses that gap to
+nothing — verifying the credential *is* verifying the hostname, because the
+enrollment step (not a live DNS lookup, not a reverse-DNS trick) is what
+attached the name to the credential in the first place. Option (b)'s cost —
+a third `HubId` field, a real/cosmetic split addressing.md does not
+currently carry, and a second uniqueness axis every per-`HubId` store and
+every `AddressBook` title-elision computation would need to reason about —
+buys nothing option (a) does not already deliver once verification is
+anchored at the certificate rather than the wire field.
+
+**Consequence for `HubId`.** None beyond what addressing.md already
+specifies. `HubId.hostname` continues to mean "a real, verified network
+name" exactly as its docstring states today; this document supplies the
+verification mechanism cross-host was missing, cross-checked against the
+same-host case's own trust argument (the `0700` socket directory already
+prevents a hostile process from lying about its identity by preventing it
+from connecting at all) so the two cases are verified by different
+mechanisms but make the identical claim. **Consequence for the wire
+protocol.** None. `ConnectMessage.hub_id` still carries the full
+`HubId.wire_token` (`{hostname}\x1f{pid}`) exactly as addressing.md
+specifies; cross-host adds a rejection rule at the transport boundary, not
+a new field.
