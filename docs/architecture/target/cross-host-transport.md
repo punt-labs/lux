@@ -578,3 +578,60 @@ above, with two same-named-but-different-`HubId` connections both live). A
 model that cannot reproduce the bug it guards against is too abstract to
 trust — this document states that requirement now so the implementation
 mission does not have to rediscover it.
+
+## Reconciliation with existing design
+
+**DES-086 (scene inspection is a per-connection security boundary).**
+Preserved verbatim, not weakened. DES-086's invariant operates on Rung 2
+(`ConnectionId`) — a connection reads and writes only content composed on
+its own `ConnectionId`, with no admin/superuser surface anywhere ("Absence
+of any admin-tier operation on any surface other than the CLI is itself a
+security invariant," `client-surface-parity-design.md`). This document
+operates one layer below that — it decides whether a connection is allowed
+to exist and speak at all, and what `HubId` it is bound to once it does. An
+authenticated, verified remote Hub gains exactly the same DES-086 scoping a
+same-host Hub already has: it can read and write its own `ConnectionId`-scoped
+content, and nothing belonging to a different connection, whether that
+connection is local or on another verified machine. Cross-host adds a gate
+in front of DES-086's boundary; it does not move, widen, or bypass the
+boundary itself (T5 in the threat model states this as a concrete
+non-goal for an attacker, but it is equally true for a legitimate remote
+Hub — mTLS authentication is not privilege escalation).
+
+**addressing.md (DES-089).** This document satisfies, point for point, the
+five requirements addressing.md's "Dependencies on the cross-host transport
+layer" states: (1) authenticate before content — "Invariants," above, and
+the five-step connect sequence; (2) the addressing layer performs no
+authentication of its own and trusts `HubId` once delivered — nothing in
+this document asks `AddressBook` or any per-store keying to re-verify
+anything, verification is entirely this document's job, ending at the point
+`HubId` is handed off; (3) `HubId` stability across reconnects — "Reconnect,"
+above, with the `hostname`-stable/`pid`-unstable distinction stated
+precisely rather than glossed over; (4) the transport owns endpoint
+resolution and connection initiation — "Discovery and connection
+lifecycle," above; (5) `hub_id` frame ordering — step 4 of "Connect,
+cross-host," unchanged from the same-host wire sequence. The one place this
+document does not resolve a question addressing.md's own text raises —
+preemption's `name`-versus-`HubId` keying — is named explicitly as a
+coordination point rather than silently assumed away in either direction.
+
+**A finding against the current same-host code, surfaced because
+cross-host depends on it.** `render_loop.py:757`'s
+`_handle_scene`/`hub_reconciliation.py:125-141`'s
+`reject_scene_if_test_kind` rejects a `SceneMessage` only when the sending
+fd has already declared `kind="test"`. An fd that has **not yet sent any
+`ConnectMessage` at all** — `kind_of(fd)` returns `None`, which is `!=
+"test"` — is not rejected today; its `SceneMessage` is processed and
+installed. This is harmless on the `AF_UNIX` leg only because the socket's
+`0700` permission already means an unidentified fd is still a same-user
+process, so there is no content-authenticity question to ask. It is not
+harmless once a store is keyed by `HubId` (addressing.md's own bead 2):
+there is no `HubId` to key an unidentified connection's content under at
+all, and a cross-host connection's TLS handshake having succeeded says
+nothing yet about whether `ConnectMessage` — the frame that actually
+carries `hub_id` — has arrived. **This document requires closing this gap
+as a prerequisite for cross-host, not an optional hardening**: every
+content-bearing message handler (`_handle_scene` and its equivalents for
+menus and manifests) must reject a message from any fd where `kind_of(fd)
+is None`, not only `kind_of(fd) == "test"`, uniformly across both
+transports. Listed as a net-new bead below.
