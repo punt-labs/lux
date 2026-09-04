@@ -1,11 +1,25 @@
 # Lux Target Addressing Model
 
+> **Archived 2026-09-04 — superseded; retained for history.**
+> This was the evaluator-accepted design draft for DES-089. Per operator
+> direction (2026-09-04), its architecture content was restructured into
+> `docs/architecture/system.tex` §"Identity, Addressing, and Multi-Hub
+> Topology," and its implementation plan into
+> `docs/architecture/multi-hub-addressing-work.md`. DES-089 in
+> `DESIGN.md` remains Status: PROPOSED, pending operator ratification,
+> and now points at those two documents instead of this one. This draft
+> is kept for the reasoning trail only — do not use it to guide
+> implementation. See `docs/archive/README.md` for why this was
+> archived.
+
 **Status:** canonical target for identity and multi-Hub aggregation.
 **Ratifies:** DES-089 ("identity is a path") in `DESIGN.md`.
 
-Start with [target.md](./target.md). This document is a sibling to
-[ui-model.md](./ui-model.md) (what the UI objects are) and
-[topology.md](./topology.md) (how the processes connect). It answers a
+Start with [target.md](../architecture/target/target.md). This document
+is a sibling to [ui-model.md](../architecture/target/ui-model.md) (what
+the UI objects are) and
+[topology.md](../architecture/target/topology.md) (how the processes
+connect). It answers a
 question those two do not: when the Display renders something it did not
 produce, how is that thing identified — uniquely enough that ImGui never
 collides, legibly enough that a human can tell two things apart, and safely
@@ -15,7 +29,8 @@ another?
 ## Problem
 
 The Display is an aggregator. It renders content it did not create, from
-producers it does not control, and — per [topology.md](./topology.md) — from
+producers it does not control, and — per
+[topology.md](../architecture/target/topology.md) — from
 a Hub that may itself aggregate many agents and many users. Today it
 aggregates from exactly one Hub connection in practice, but nothing in the
 transport enforces that, and the operator has ruled that supporting more
@@ -801,12 +816,16 @@ way it does rather than the other plausible way.
 
 ## Related target docs
 
-- [target.md](./target.md)
-- [topology.md](./topology.md)
-- [ui-model.md](./ui-model.md)
-- [element-contract.md](./element-contract.md)
-- [introspection-api.md](./introspection-api.md)
+(Paths below are relative to this archived document's location,
+`docs/archive/`; both moved here together, so the archived
+cross-host-transport.md link is unchanged.)
+
+- [../architecture/target/target.md](../architecture/target/target.md)
+- [../architecture/target/topology.md](../architecture/target/topology.md)
+- [../architecture/target/ui-model.md](../architecture/target/ui-model.md)
+- [../architecture/target/element-contract.md](../architecture/target/element-contract.md)
+- [../architecture/target/introspection-api.md](../architecture/target/introspection-api.md)
 - [cross-host-transport.md](./cross-host-transport.md) — the
   transport-and-trust design this document depends on (see
   "Dependencies on the cross-host transport layer," above); DES-090,
-  `djb`'s domain, dispatched separately.
+  `djb`'s domain, dispatched separately. Also archived here.

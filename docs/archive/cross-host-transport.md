@@ -1,5 +1,17 @@
 # Lux Cross-Host Transport and Trust
 
+> **Archived 2026-09-04 — superseded; retained for history.**
+> This was the evaluator-accepted design draft for DES-090. Per operator
+> direction (2026-09-04), its architecture content was restructured into
+> `docs/architecture/system.tex` §"Cross-Host Transport and Trust," and
+> its implementation plan into
+> `docs/architecture/multi-hub-addressing-work.md`. DES-090 in
+> `DESIGN.md` remains Status: PROPOSED, pending operator ratification,
+> and now points at those two documents instead of this one. This draft
+> is kept for the reasoning trail only — do not use it to guide
+> implementation. See `docs/archive/README.md` for why this was
+> archived.
+
 **Status:** canonical target for the cross-host Hub-to-Display transport
 and trust model.
 **Ratifies:** DES-090 in `DESIGN.md`.
@@ -841,13 +853,17 @@ beyond that one.
 
 ## Related target docs
 
-- [target.md](./target.md)
-- [topology.md](./topology.md) — deployment allows Hub and Display on
-  different machines; this document specifies how that connection is
-  established safely.
+(Paths below are relative to this archived document's location,
+`docs/archive/`; addressing.md moved here together with this document, so
+that link is unchanged.)
+
+- [../architecture/target/target.md](../architecture/target/target.md)
+- [../architecture/target/topology.md](../architecture/target/topology.md)
+  — deployment allows Hub and Display on different machines; this
+  document specifies how that connection is established safely.
 - [addressing.md](./addressing.md) — DES-089, the identity ladder this
   document delivers a verified `HubId` into. Read its "Dependencies on the
   cross-host transport layer" section first; this document is that
-  section's answer.
-- [element-contract.md](./element-contract.md)
-- [introspection-api.md](./introspection-api.md)
+  section's answer. Also archived here.
+- [../architecture/target/element-contract.md](../architecture/target/element-contract.md)
+- [../architecture/target/introspection-api.md](../architecture/target/introspection-api.md)
