@@ -1089,7 +1089,13 @@ class HubId:
     machine, the same shape of fix AppletIdentity already uses for two
     applets sharing one session (DES-067's #{session_pid} token).
     ``pid`` is not network-meaningful and only ever breaks a tie
-    within one already-identified host."""
+    within one already-identified host.  Self-reporting its own FQDN is
+    as far as this class goes, and it is trustworthy on the AF_UNIX
+    leg only because the socket directory's 0700 permission already
+    bounds who can open a connection to declare a HubId in the first
+    place -- that argument does not carry across a network, which is
+    exactly why cross-host needs mTLS (see Cross-Host Transport and
+    Trust)."""
     hostname: str
     pid: int
 
@@ -1249,9 +1255,6 @@ was already written against ``a connection'' in the abstract:
     be ``the'' Hub.  This path is multi-Hub-safe today, unmodified,
     because it was already written per-connection for DES-068's
     reconnect/purge story.
-  \item \textbf{Per-connection manifest purge.}  Manifest handling already
-    scopes purge to the identifying fd's own scenes.  A second Hub's
-    manifest cannot purge a first Hub's scenes.
 \end{itemize}
 
 \textbf{Preemption is a required change, not something already correct.}
@@ -1298,6 +1301,24 @@ code already has.
     \texttt{HubId} threads through to interaction delivery so it names its
     one target fd, and the broadcast fallback is dropped for menu-sourced
     events.
+  \item \textbf{Manifest purge is a required change, not something already
+    correct.}  \texttt{SceneReplica.scenes\_to\_purge} disowns any scene
+    that is neither owned by the identifying fd nor named in the sending
+    manifest --- a rule written to sweep an orphaned scene left behind by a
+    \emph{prior} connection's death, since that orphan's owner is never the
+    identifying fd either.  Under real multi-Hub, the identical predicate
+    just as readily disowns a \emph{second, live} Hub's own scenes: Hub
+    B's manifest names only Hub B's scenes, so every scene Hub A owns is,
+    from Hub B's manifest handling's point of view, ``neither owned by the
+    identifying fd nor named in the manifest'' --- exactly the purge
+    condition, and exactly a cross-Hub data-loss hazard, not the
+    orphan-sweep it was written for.  \textbf{Resolution: the purge
+    predicate must be scoped by the sending Hub's own \texttt{HubId}, so a
+    manifest disowns only scenes that Hub itself previously owned and no
+    longer names, never another live Hub's.}  This is a required
+    implementation step, coordinated with point 2's per-Hub-keyed storage
+    and listed as \texttt{W14} in the increment-of-work document, not a
+    property the current code already has.
   \item \textbf{Connect, same-host: no new logic.}  A new same-host Hub
     process opens a new socket connection and sends its own
     \msg{ConnectMessage}; the accept loop requires no change.  Connect,
@@ -1628,10 +1649,19 @@ deadline pattern rather than inventing a new one:
   \item A pending connection whose deadline has passed is closed and
     dropped unconditionally, mid-handshake if need be --- the fail-closed
     backstop.
-  \item Only once \field{do\_handshake()} returns successfully, and the
-    SAN/\field{hub\_id} cross-check (\S\ref{sec:crosshost-fork}) also
-    passes once \msg{ConnectMessage} arrives, does the connection move
-    into the ordinary client set.
+  \item \textbf{Two distinct gates, not one.}  \emph{Gate 1:} once
+    \field{do\_handshake()} returns successfully, the fd leaves the
+    pending-handshake set and enters the ordinary reader set, where it can
+    exchange \msg{ConnectMessage}/\msg{ReadyMessage} like any other
+    connection --- TLS-verified, but not yet \texttt{HubId}-verified.
+    \emph{Gate 2:} only once the SAN/\field{hub\_id} cross-check
+    (\S\ref{sec:crosshost-fork}) passes, after \msg{ConnectMessage} has
+    arrived, is the connection's content accepted and its \texttt{HubId}
+    entered into \texttt{AddressBook}'s live set.  A connection sits
+    between the two gates --- readable, but not yet content-trusted --- for
+    exactly the span of the five-step connect sequence below; no
+    \msg{SceneMessage} or other content-bearing message is honored from it
+    until Gate 2 passes (Invariant 1, \S\ref{sec:crosshost-invariants}).
 \end{enumerate}
 
 This keeps the entire cross-host listener on the same single render thread
@@ -1849,7 +1879,7 @@ event.
     because nothing silently trusts a revoked key in the meantime.
 \end{itemize}
 
-\subsection{Invariants}
+\subsection{Invariants}\label{sec:crosshost-invariants}
 
 Stated precisely, so the implementation and its tests have a checkable
 target:
@@ -1933,7 +1963,7 @@ initiation; and \field{hub\_id} frame ordering (step 4 of the connect
 sequence).
 
 \textbf{A finding against the current same-host code, surfaced because
-cross-host depends on it.}  The Hub-side scene-message handler rejects a
+cross-host depends on it.}  The Display-side scene-message handler rejects a
 \msg{SceneMessage} only when the sending fd has already declared
 \texttt{kind="test"}.  An fd that has not yet sent any \msg{ConnectMessage}
 at all --- \field{kind\_of(fd)} returns \texttt{None}, which is not equal
@@ -1990,7 +2020,9 @@ transport rejects a foreign \texttt{Host} header (DNS-rebinding) or
 \texttt{Origin} header (cross-site).  Off-loopback access needs
 authentication that is not built yet; the multi-machine future in
 \texttt{target.md} arrives together with a bearer token and a
-bind-derived origin policy.
+bind-derived origin policy --- a different leg (MCP/REST), not the
+Hub\textendash{}Display socket, whose own off-loopback story is mTLS
+(\S\ref{sec:crosshost}, DES-090), not a bearer token.
 
 \subsection{The Display Socket Is Hub-Internal}
 
