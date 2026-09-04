@@ -6207,9 +6207,14 @@ m-2026-09-04-001, worker gvr; two design forks within it already ruled by
 the operator on 2026-09-04, see "Resolved forks," below). This ADR is not
 SETTLED until the operator ratifies the design as a whole; a mission's
 internal evaluator sign-off is not itself ratification and is not cited
-here as though it were. Full specification:
-`docs/architecture/target/addressing.md`. This entry supersedes every
-prior citation of "DES-089" as a bead-note working title (`lux-whb9`,
+here as though it were. Full specification: the architecture lives in
+`docs/architecture/system.tex` §"Identity, Addressing, and Multi-Hub
+Topology"; the implementation plan lives in
+`docs/architecture/multi-hub-addressing-work.md`. (The original design
+draft, `docs/architecture/target/addressing.md`, is archived at
+`docs/archive/addressing.md` — its content was restructured into those
+two documents per operator direction, 2026-09-04.) This entry supersedes
+every prior citation of "DES-089" as a bead-note working title (`lux-whb9`,
 `lux-81t3`, the `FrameRef` docstring, CHANGELOG 0.32.1) — those citations
 pointed at a name with no design behind it; this entry and its linked
 document are that design. Round 1's addressing model (identity is a path,
@@ -6299,10 +6304,13 @@ there, a second `luxd` connects to the identical, already-published Unix
 socket path the first one did. **Cross-host connection establishment —
 how a remote Hub finds the Display's network endpoint, initiates the
 connection, and is authenticated — is explicitly out of this design's
-scope**, delegated to a forthcoming companion transport-and-trust design
-(`docs/architecture/target/cross-host-transport.md`, `djb`'s domain,
-dispatched separately). `addressing.md`'s "Dependencies on the cross-host
-transport layer" states precisely what that layer must supply — a
+scope**, delegated to a companion transport-and-trust design, DES-090
+below (`djb`'s domain; original draft archived at
+`docs/archive/cross-host-transport.md`, restructured into
+`docs/architecture/system.tex` §"Cross-Host Transport and Trust" and
+`docs/architecture/multi-hub-addressing-work.md`). The source draft's
+"Dependencies on the cross-host transport layer" section states precisely
+what that layer must supply — a
 connection with an authenticated, reconnect-stable `HubId` delivered
 before any content is accepted — so the two designs compose without
 overlap.
@@ -6357,11 +6365,11 @@ are now ruled:
    field in the same release window, per the org's cross-repo
    breaking-change protocol.
 
-`addressing.md` also flags, without resolving, one genuine new fork the
-cross-host ruling surfaces: whether `HubId.hostname` stays a
+The original design draft also flagged, without resolving, one genuine new
+fork the cross-host ruling surfaces: whether `HubId.hostname` stays a
 transport-verified network name, or becomes a cosmetic label beside a new
-opaque transport-assigned uniqueness key — a question for the cross-host
-transport design to answer, not this one.
+opaque transport-assigned uniqueness key.  DES-090, below, resolves it
+(option a: transport-verified).
 
 **Implementation map.** `lux-whb9` (hidden id, menus), `lux-pgkp` (visible
 title, frames and menus), and `lux-kob7` (TreeNode id + selection, must
@@ -6369,20 +6377,23 @@ land Rung-3-ready) become children of this one ratified design. Net-new
 work the multi-Hub topology requires — `HubId` on the wire (dedicated
 `hub_id` field, with vox/z-spec cross-repo coordination), per-Hub-keyed
 Display storage, the `AddressBook` component, the collision-regression
-test, and the menu-click routing fix — is listed, not yet filed, in
-`docs/architecture/target/addressing.md`'s bead map; the leader files
-beads against it. The cross-host transport-and-trust design itself is not
-a bead under this ADR — it is DES-090, a separate design mission in
-`djb`'s domain.
+test, and the menu-click routing fix — is listed, in dependency order, in
+the increment-of-work document,
+`docs/architecture/multi-hub-addressing-work.md`; the leader files beads
+against it. The cross-host transport-and-trust design itself is not a bead
+under this ADR — it is DES-090, a separate design mission in `djb`'s
+domain.
 
 ## DES-090: Cross-Host Hub-to-Display Transport and Trust — mTLS Against a Personal CA
 
 **Status:** PROPOSED — pending operator ratification (design mission
-m-2026-09-04-003, worker djb). Companion to DES-089
-(`docs/architecture/target/addressing.md`), which states the five-point
-contract this design satisfies in its "Dependencies on the cross-host
-transport layer" section. Full specification:
-`docs/architecture/target/cross-host-transport.md`.
+m-2026-09-04-003, worker djb). Companion to DES-089, above, whose source
+draft states the five-point contract this design satisfies in its
+"Dependencies on the cross-host transport layer" section. Full
+specification: the architecture lives in `docs/architecture/system.tex`
+§"Cross-Host Transport and Trust"; the implementation plan lives in
+`docs/architecture/multi-hub-addressing-work.md`. (The original design
+draft is archived at `docs/archive/cross-host-transport.md`.)
 
 **Problem.** The Hub-to-Display leg is, today, an `AF_UNIX` socket whose
 entire trust model is a filesystem permission: mode `0700` means "whoever
@@ -6442,17 +6453,24 @@ pragmatic, per the operator's own instruction: a per-user config file
 naming the Display's `host:port` and CA fingerprint, populated at
 enrollment, no registry, no service discovery.
 
-**Reconnect and preemption — a stated coordination point, not resolved
-here.** `HubId.hostname` is stable across any reconnect, including a
-process restart, because the enrolled certificate lives on disk; `pid` is
-not, because a genuine process restart gets a new one, which is DES-089's
-own `HubId` field choice, not a defect this design introduces or can fix.
+**Reconnect and preemption — a stated coordination point, since resolved.**
+`HubId.hostname` is stable across any reconnect, including a process
+restart, because the enrolled certificate lives on disk; `pid` is not,
+because a genuine process restart gets a new one, which is DES-089's own
+`HubId` field choice, not a defect this design introduces or can fix.
 Separately: today's preemption (`SocketListener.hub_fd_for(name)`) keys on
 `ConnectMessage.name`, which DES-089 keeps meaning "what a human calls
 this" — not a per-process identity — so preemption re-keyed onto `HubId`
-is an explicit, named coordination point for implementation, shared with
-DES-089's own net-new "per-Hub-keyed Display storage" bead, not decided
-unilaterally by either design.
+was named, at the time this design mission closed, as an explicit
+coordination point shared with DES-089's own net-new "per-Hub-keyed
+Display storage" bead, decided by neither design unilaterally.
+**Resolution (restructuring mission, 2026-09-04):** preemption keys on
+`HubId`, never `ConnectMessage.name`. The owning bead (`W11`) and its
+dependency on the per-Hub-keyed-storage bead (`W3`) are recorded in
+`docs/architecture/multi-hub-addressing-work.md` §"The resolved
+coordination point," and `docs/architecture/system.tex`'s own preemption
+description has been corrected to state this as a required change rather
+than something the current code already gets right.
 
 **A finding against the current same-host code, load-bearing for
 cross-host.** `render_loop.py`'s `_handle_scene` /
