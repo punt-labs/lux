@@ -242,6 +242,74 @@ identically because they are, in fact, the same machine) disambiguate by
 Nothing about that visible-title behavior changes; only the *source* of
 the `hostname` field's trustworthiness does, and only cross-host.
 
+## Hub identity on the wire
+
+Round 1 left this as an open fork — reuse `ConnectMessage.name`, or add a
+dedicated field — and recommended reuse, following DES-067's precedent for
+the same shape of tradeoff. **The operator ruled the opposite way
+(2026-09-04): a dedicated `hub_id` field.** `name` keeps its existing,
+narrower meaning — "what a human calls this connection," the string a
+frame title or a menu already attributes content to — and does not also
+carry the Hub's own machine-and-process identity. The two concerns were
+never actually the same concern; round 1's reuse recommendation traded
+away exactly the separation the rest of this document argues for
+everywhere else, to save one field.
+
+```python
+@dataclass(frozen=True, slots=True)
+class ConnectMessage:
+    """Client identifies itself to the display server.
+
+    ``name`` is display attribution — unchanged, still the string frame
+    titles and menu namespaces read. ``hub_id`` is a separate concern: a
+    ``kind="hub"`` connection's own ``HubId.wire_token``, absent for
+    ``kind="test"`` connections because a test backdoor is not a real Hub
+    and has no ``HubId`` to declare.
+    """
+
+    name: str
+    kind: Literal["hub", "test"]
+    hub_id: str | None = None  # absent for kind="test"; HubId.wire_token for kind="hub"
+    type: Literal["connect"] = "connect"
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to the wire dict, omitting an absent hub_id."""
+        d: dict[str, Any] = {"type": self.type, "name": self.name, "kind": self.kind}
+        if self.hub_id is not None:
+            d["hub_id"] = self.hub_id
+        return d
+```
+
+`ClientRegistry.get()` (`domain/hub/clients.py`) is the one production
+writer of a `kind="hub"` `ConnectMessage`; it constructs
+`hub_id=HubId.current().wire_token` in place of today's hardcoded
+`_DISPLAY_CLIENT_NAME` passed as `name`. `name` itself does not disappear
+— it keeps carrying whatever human-facing label the Hub process wants
+attributed (today, still a fixed string; nothing in this document requires
+that to become more elaborate).
+
+**Wire compatibility versus feature completeness — these are not the same
+question.** `ConnectMessage.from_dict` treats `hub_id` as optional, so an
+old sender's dict (no `hub_id` key) still decodes without error — parsing
+is backward-compatible by construction, no `PROTOCOL_VERSION` bump forced
+by the shape of the change alone. But *multi-Hub correctness* is not
+backward-compatible in the same sense: a real `kind="hub"` connection that
+omits `hub_id` cannot be safely disambiguated at Rung 3, so every
+Display-side store keyed by `HubId` (see "What must change," below) must
+treat a missing `hub_id` on a `kind="hub"` connection as a hard error, not
+a silent single-Hub fallback — silently tolerating it would resurrect
+exactly the "collision passes unnoticed" failure mode this whole document
+exists to close.
+
+**This is a cross-repo commitment.** `topology.md` and the DES-063 applet
+model both name vox and z-spec as processes that run their own Hub
+connections (`applets/README`). Both must add `hub_id` to the
+`ConnectMessage` they send, in lockstep with this change landing here —
+per the org's cross-repo breaking-change protocol (`CLAUDE.md` §"Cross-repo
+breaking changes": notify, agree, land together, verify end-to-end,
+release together). This is listed explicitly as a coordination requirement
+on net-new bead 1, below, not left implicit.
+
 ## Every aggregated surface, uniformly
 
 The mission is explicit that this cannot be solved per-surface, ad hoc, one
