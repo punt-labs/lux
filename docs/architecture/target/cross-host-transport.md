@@ -635,3 +635,65 @@ content-bearing message handler (`_handle_scene` and its equivalents for
 menus and manifests) must reject a message from any fd where `kind_of(fd)
 is None`, not only `kind_of(fd) == "test"`, uniformly across both
 transports. Listed as a net-new bead below.
+
+## Implementation bead map
+
+Net-new beads this document's design requires, listed for the leader to
+file — not created here, per this mission's contract. Ordered by
+dependency.
+
+1. **Close the pre-identification content gap (prerequisite, blocks
+   everything below).** Reject `SceneMessage`/`CallbackMenuMessage`/
+   `HubManifestMessage` from any fd where `kind_of(fd) is None`, not only
+   `kind_of(fd) == "test"` — see "A finding against the current same-host
+   code," above. Ships independently of cross-host and should land first;
+   it is a real gap today, cross-host only raises its stakes.
+2. **Personal CA + enrollment tooling.** CA creation on first
+   cross-host-enable, the Display's own leaf cert, and the manual
+   CSR-signing enrollment flow ("Authentication and enrollment," above) —
+   likely a small `lux display enable-remote` / `lux hub enroll` CLI
+   surface. No dependency on addressing.md's beads.
+3. **The cross-host TLS listener.** A second, opt-in, off-loopback-capable
+   listening socket in `socket_server.py`, wired through `ssl.SSLContext`
+   with `CERT_REQUIRED` both directions and `TLSVersion.TLSv1_3` minimum;
+   the handshake-before-accept ordering ("Coexistence with the local fast
+   path," above) is the one correctness-critical detail. Depends on bead 2
+   for certificate material to configure against.
+4. **Hostname verification at `ConnectMessage` time.** The SAN-extraction
+   and `hub_id`-hostname cross-check from "Resolving the trust fork,"
+   above, plus the fail-closed rejection path. Depends on bead 3 (needs a
+   TLS peer certificate to read) and on **addressing.md's net-new bead 1**
+   (`hub_id` wire field) — this is the shared touchpoint between the two
+   documents' bead maps, and the two beads should coordinate on the exact
+   `ConnectMessage` shape rather than land independently.
+5. **Cross-host `DisplayLink` client path.** `DisplayLink.connect`'s
+   remote-endpoint variant — reading the per-user config named in
+   "Endpoint discovery," dialing TCP, wrapping in TLS with the enrolled
+   client certificate. Depends on bead 2 (needs enrollment material) and 3
+   (needs a listener to dial).
+6. **Preemption re-keyed onto `HubId`.** The coordination point named
+   under "Preemption," above — resolved jointly with whichever bead
+   implements addressing.md's per-Hub-keyed storage (**addressing.md's
+   net-new bead 2**), since both touch the same dedup/ownership question
+   from different angles. Should not land as two independent, possibly
+   conflicting fixes.
+7. **z-spec models for invariants 1 and 2.** Per "z-spec assessment,"
+   above — the no-content-before-verification handshake race and the
+   at-most-one-live-connection-per-`HubId` reconnect race, each with a
+   fidelity control per WORKFLOW.md's requirement. Depends on beads 3, 4,
+   and 6 existing to model against.
+8. **Threat-model regression tests.** One test per threat-model row with a
+   "No" answer under "Without valid credentials" (T1, T3, T4, T6): connect
+   with no client cert, connect with a cert signed by a different CA,
+   connect with a `hub_id` hostname that disagrees with the cert SAN,
+   attempt `kind="test"` on the cross-host listener. Each must observe
+   rejection, not a degraded-trust acceptance. Depends on bead 3 and 4.
+
+**Cross-repo coordination.** Neither vox nor z-spec run a Display — both
+run Hub-side connections only (`applets/README`, DES-063) — so this
+document's transport work is Display-side only and does not, by itself,
+require a vox/z-spec change. The shared touchpoint both documents already
+name is the `hub_id` wire field itself (addressing.md's net-new bead 1),
+which vox and z-spec must adopt regardless of whether either ever runs
+cross-host; this document adds no independent cross-repo requirement
+beyond that one.
