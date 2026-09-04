@@ -565,8 +565,9 @@ filesystem-permission trust boundary (`LoopbackTransportPolicy` already
 refuses any off-loopback bind for luxd's *other* leg, the MCP/REST surface
 — the Hub-to-Display leg has no analogous policy today because it has
 never needed one; cross-host is exactly what gives it a reason to). That
-design is forthcoming, tracked as **`docs/architecture/target/cross-host-transport.md`**,
-and is not part of this mission's write-set.
+design is specified in
+[cross-host-transport.md](./cross-host-transport.md), and was not part of
+this mission's write-set.
 
 What *is* this document's job is to state, precisely, what the addressing
 layer requires from that transport — so the two documents compose without
@@ -805,7 +806,7 @@ way it does rather than the other plausible way.
 - [ui-model.md](./ui-model.md)
 - [element-contract.md](./element-contract.md)
 - [introspection-api.md](./introspection-api.md)
-- [cross-host-transport.md](./cross-host-transport.md) — **forthcoming.**
-  The transport-and-trust design this document depends on (see
-  "Dependencies on the cross-host transport layer," above); not yet
-  written, `djb`'s domain, dispatched separately.
+- [cross-host-transport.md](./cross-host-transport.md) — the
+  transport-and-trust design this document depends on (see
+  "Dependencies on the cross-host transport layer," above); DES-090,
+  `djb`'s domain, dispatched separately.
