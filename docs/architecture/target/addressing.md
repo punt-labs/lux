@@ -497,6 +497,96 @@ boundary is deliberate and exact: **endpoint resolution and connection
 initiation are the transport layer's job; everything from "a connection
 with a verified identity exists" onward is this document's job.**
 
+## Dependencies on the cross-host transport layer
+
+This document does not design a network transport or an authentication
+mechanism — that is `djb`'s domain, and it is a materially larger, separate
+design: a network transport in place of (or alongside) the current
+`AF_UNIX` leg, and a trust model beyond the current same-host,
+filesystem-permission trust boundary (`LoopbackTransportPolicy` already
+refuses any off-loopback bind for luxd's *other* leg, the MCP/REST surface
+— the Hub-to-Display leg has no analogous policy today because it has
+never needed one; cross-host is exactly what gives it a reason to). That
+design is forthcoming, tracked as **`docs/architecture/target/cross-host-transport.md`**,
+and is not part of this mission's write-set.
+
+What *is* this document's job is to state, precisely, what the addressing
+layer requires from that transport — so the two documents compose without
+overlap, and so `djb`'s design has a contract to satisfy rather than a
+blank page. Five requirements:
+
+1. **Authenticate before content.** The transport MUST authenticate a
+   connecting Hub and deliver its *verified* `HubId` to the Display before
+   any scene, menu, or other content-bearing message from that connection
+   is accepted. A `SceneMessage` or `CallbackMenuMessage` arriving ahead of
+   a verified identity has nowhere safe to be filed — every per-surface
+   store in "What must change," above, is keyed by `HubId` from the first
+   write.
+2. **The addressing layer trusts `HubId` as authenticated, and performs no
+   authentication of its own.** Once the transport hands `HubId` to the
+   Display, this document's mechanisms — `AddressBook`, the per-store Hub
+   dimension, the collision-numbering rule — treat it as ground truth.
+   Verifying that the claimed identity is genuine is entirely the
+   transport's responsibility; nothing in this document re-checks it, and
+   nothing in this document should have to.
+3. **`HubId` MUST be stable across reconnects.** The same Hub process
+   presenting a new connection after a drop (network blip, restart) must
+   receive back the identical `HubId` it held before, not a fresh one —
+   otherwise every per-`HubId`-keyed store fragments across the
+   reconnect, and `AddressBook`'s live-set bookkeeping (`Multi-Hub
+   topology`, point 5) sees a disconnect-then-connect pair instead of one
+   continuous Hub. How the transport achieves that stability — a
+   reissued credential bound to the same identity, a reconnect token, a
+   certificate the Hub retains across restarts — is the transport's
+   design choice; the *stability property itself* is this document's
+   requirement.
+4. **The transport owns endpoint/address resolution and connection
+   initiation.** DNS, static configuration, a discovery protocol, a
+   registry — whichever mechanism a remote Hub uses to find the Display's
+   network endpoint and open the connection is entirely outside this
+   document's model, exactly as stated in "Discovery and connection,
+   cross-host," above.
+5. **`ConnectMessage.hub_id` (see "Hub identity on the wire," above) is
+   the wire carrier for the verified identity, sent as the first frame
+   after the transport's own handshake completes.** The addressing
+   layer's per-`HubId` storage keying is inert until this frame arrives;
+   ordering matters, and the transport's handshake MUST complete, including
+   authentication, before this frame is trusted.
+
+**A genuine new fork this expansion surfaces — flagged, not resolved
+here.** `HubId.hostname` (see "Value types," above) is today a
+self-reported string the Hub computes locally (`socket.getfqdn()`) and
+declares on the wire; the same-host trust argument for accepting it
+at face value is that the `AF_UNIX` socket directory's `0700` permission
+already keeps a hostile process from reaching the socket to lie. That
+argument does not extend to a network connection. Requirement 1, above,
+only says the transport must deliver a *verified* `HubId` — it does not
+settle *what the transport verifies*, and there are two materially
+different answers:
+
+- **(a) Verify the self-reported hostname is truthful** — the transport
+  authenticates the connecting process and additionally attests that its
+  claimed FQDN is not forged (e.g., cross-checked against a certificate's
+  subject name or a reverse-DNS lookup), and `HubId.hostname` keeps
+  meaning exactly what it means today: a real, verified network name.
+- **(b) Treat the human-readable hostname as a cosmetic label only, and
+  make the true uniqueness key an opaque transport-assigned credential**
+  (a certificate identity, an mTLS SPIFFE-style ID, a connection-scoped
+  token) that `HubId` would need a third field to carry, with `hostname`
+  demoted to "whatever the Hub claims, shown to a human, never trusted for
+  uniqueness."
+
+(a) keeps `HubId` exactly as specified in this document and matches the
+existing precedent of trusting a declared field once a connection is
+authenticated (DES-086, DES-058). (b) is more defensive — it asks the
+transport to guarantee "this credential is unique and genuine," a
+narrower and more tractable claim than "this hostname string is unique
+and genuine" — at the cost of a third `HubId` field and a real/cosmetic
+split this document does not currently have. This document takes no
+position between them; both satisfy requirement 1 as stated, and the
+choice belongs to the cross-host transport design, informed by whatever
+authentication mechanism it selects.
+
 ## Governing invariant
 
 > For any item the Display renders as part of a collection it aggregates —
