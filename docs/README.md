@@ -55,6 +55,8 @@ policy and ratchet enforcement live. It is not an architecture document.
 - [architecture/target/introspection-api.md](./architecture/target/introspection-api.md)
 - [architecture/target/addressing.md](./architecture/target/addressing.md) —
   identity ladder and multi-Hub aggregation (DES-089)
+- [architecture/target/cross-host-transport.md](./architecture/target/cross-host-transport.md) —
+  cross-host Hub-to-Display transport and trust model (DES-090)
 
 These documents describe the intended Hub-authoritative architecture.
 
