@@ -391,3 +391,104 @@ sweep apply exactly as addressing.md already specifies for the same-host
 case (its "Disconnect needs no new logic" point). Nothing about the TLS
 layer needs its own teardown path beyond closing the underlying socket,
 which tears down the TLS session with it.
+
+## Authentication and enrollment
+
+### The trust root is the user, not a service
+
+Per the threat model, the person enrolling a second machine already has
+authenticated access to both machines — they are not proving their identity
+to Lux, they are telling Lux "these two machines are both mine." Enrollment
+is therefore a manual, explicit, out-of-band act, not a live network
+protocol Lux implements and must then defend on its own. This mirrors SSH's
+own `known_hosts` model more than a corporate PKI's.
+
+### Mechanism
+
+1. **CA creation (once, on the Display's machine).** The first time cross-host
+   is enabled, the Display generates a small personal Certificate Authority
+   — a private key and self-signed root certificate — stored under
+   `~/.punt-labs/lux/ca/` with the same discipline the socket directory
+   already uses (`0700` directory, `0600` private key). This CA signs only
+   Lux's own leaf certificates; it is not a general-purpose trust root and
+   is never installed into the OS or browser trust store.
+2. **The Display's own leaf certificate.** The Display issues itself a leaf
+   certificate (SAN = the hostname it will present as) signed by that CA,
+   for the server side of the mTLS handshake.
+3. **Per-machine enrollment (once per additional Hub machine).** On the
+   machine that will run a Hub, the operator generates a local keypair and
+   a certificate signing request naming that machine's own hostname as the
+   SAN. The CSR is signed by the Display's CA — **the CA's private key
+   never leaves the Display's machine.** The signing step itself is a
+   manual, offline exchange: the operator copies the CSR to the Display
+   (however they already move files between their own machines — `scp`, a
+   USB drive, a password manager's file attachment) and copies the signed
+   certificate back. This is the "no heavy registry" instruction taken
+   literally: enrollment needs no running service, no listening enrollment
+   port, and no protocol beyond the operator's own file-transfer of choice.
+4. **Result.** Each enrolled machine holds its own private key and a
+   certificate binding it to its own hostname, signed by one shared CA both
+   sides already trust. This is exactly the material "Resolving the trust
+   fork" needs: the certificate's SAN *is* the verified hostname the
+   transport hands to `HubId`.
+
+**A convenience path is deliberately not specified here.** A future,
+friendlier enrollment flow — a short-lived pairing code exchanged over the
+LAN during the bootstrap step, closer to Tailscale's `authkey` or
+Syncthing's device-ID pairing — is a real usability improvement over
+copy/paste CSR signing, but it is its own protocol with its own threat
+model (a pairing code is a bearer credential with a race between
+generation and use) and deserves its own design pass rather than being
+folded into this one under time pressure. The manual CSR-signing path above
+is deliberately the whole of what this document commits to; a convenience
+layer on top is noted as a rejected-for-now alternative below, not a gap.
+
+### Rejected alternatives
+
+**Distribute the CA's private key to every machine.** Simpler than CSR
+signing — each Hub machine could mint its own leaf certificate locally
+without a round trip to the Display. Rejected because it multiplies the
+number of places the single most sensitive secret in this design lives:
+every enrolled machine becomes capable of impersonating *any* Hub, not just
+itself, which fails T3 and T4 more broadly than a leaked leaf key does. The
+CSR-signing flow costs one extra manual round trip at enrollment time in
+exchange for keeping the CA key on exactly one machine.
+
+**A pre-shared/derived token instead of mTLS.** Addressed in "Transport
+specification," above — rejected there because it needs TLS added back for
+confidentiality regardless, at which point mutual TLS supplies both
+properties from one mechanism rather than two, and because a shared token
+cannot give `HubId.hostname` anything cryptographic to anchor to without
+falling back to option (b) of the trust fork this document just closed.
+
+**Leveraging the org's ethos/GPG identity infrastructure.** Considered
+directly, because the org already has a working per-identity ed25519 GPG
+key story (`CLAUDE.md`'s own Claude Agento identity, `C48E101AB522FB17`).
+Rejected for a mismatch of what is being identified: ethos identities are
+bound to a *person or agent* (a human, or an agent acting on a repo), while
+`HubId` needs to identify a *machine* — the same person's two laptops need
+two distinct, independently-revocable identities, not one shared identity
+authenticating both. Reusing ethos's GPG keys here would either issue one
+key per machine anyway (in which case it is a parallel, second PKI doing
+the same job this document's CA already does, with none of the tooling
+built for it) or authenticate by *person* and leave machine disambiguation
+to the self-reported `hostname` field again — precisely the unverified-field
+problem "Resolving the trust fork" closes. GPG-signed challenge/response is
+also simply a different cryptographic mechanism for proving key possession
+than TLS's own handshake already is, without adding a property TLS lacks.
+The org's ethos infrastructure remains the right tool for what it already
+does — signing commits, authenticating agents to `git`/`gh` — and this
+document does not ask it to do a second, structurally different job.
+
+**Revocation via a live CRL/OCSP responder.** A textbook PKI would run a
+certificate-revocation service so a stolen leaf key can be invalidated
+without touching every other certificate. Rejected for this deployment's
+scale: running a CRL/OCSP responder is exactly the "heavy" infrastructure
+the operator ruled against, for a threat this document already scopes to a
+handful of machines one person owns. The accepted trade-off instead:
+revoking one compromised machine means regenerating the CA and
+re-enrolling every machine, an explicit, bounded, rare, fully manual
+operator action — not a hidden footgun, because nothing silently trusts a
+revoked key in the meantime; the operator's own next action (regenerate,
+re-enroll) is what closes the window, same as rotating a leaked SSH host
+key today.
