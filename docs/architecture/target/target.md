@@ -233,5 +233,6 @@ An agent should be able to:
 - [ui-model.md](./ui-model.md)
 - [element-contract.md](./element-contract.md)
 - [introspection-api.md](./introspection-api.md)
-- [addressing.md](./addressing.md) — identity ladder and multi-Hub
-  aggregation (DES-089)
+- [../system.tex](../system.tex) §"Identity, Addressing, and Multi-Hub
+  Topology" and §"Cross-Host Transport and Trust" — identity ladder,
+  multi-Hub aggregation, and cross-host transport/trust (DES-089, DES-090)

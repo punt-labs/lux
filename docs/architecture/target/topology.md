@@ -42,8 +42,9 @@ Display
 
 The diagram above draws one Hub for clarity. A Display may aggregate
 replicas from more than one Hub at once — see
-[addressing.md](./addressing.md) for how the Display keeps each Hub's
-content distinct once more than one is connected.
+[system.tex](../system.tex) §"Identity, Addressing, and Multi-Hub
+Topology" (DES-089) for how the Display keeps each Hub's content distinct
+once more than one is connected.
 
 ## Clients
 
@@ -195,8 +196,9 @@ The architecture should not depend on co-location.
 - The Display is a full replica, not an incremental state owner.
 - Full-tree resend is acceptable until proven otherwise.
 - A single Hub may aggregate many independent clients.
-- A Display may aggregate 1..n Hubs; see [addressing.md](./addressing.md)
-  for how content from each stays distinct.
+- A Display may aggregate 1..n Hubs; see [system.tex](../system.tex)
+  §"Identity, Addressing, and Multi-Hub Topology" for how content from
+  each stays distinct.
 
 ## Related Target Docs
 
@@ -204,7 +206,8 @@ The architecture should not depend on co-location.
 - [ui-model.md](./ui-model.md)
 - [element-contract.md](./element-contract.md)
 - [introspection-api.md](./introspection-api.md)
-- [addressing.md](./addressing.md) — identity ladder and multi-Hub
-  aggregation (DES-089)
+- [system.tex](../system.tex) §"Identity, Addressing, and Multi-Hub
+  Topology" and §"Cross-Host Transport and Trust" — identity ladder,
+  multi-Hub aggregation, and cross-host transport/trust (DES-089, DES-090)
 - Malformed UI is rejected at the Hub, before install and before replication;
   an invalid tree never becomes authoritative and never crosses to the Display.

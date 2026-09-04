@@ -53,12 +53,16 @@ policy and ratchet enforcement live. It is not an architecture document.
 - [architecture/target/ui-model.md](./architecture/target/ui-model.md)
 - [architecture/target/element-contract.md](./architecture/target/element-contract.md)
 - [architecture/target/introspection-api.md](./architecture/target/introspection-api.md)
-- [architecture/target/addressing.md](./architecture/target/addressing.md) —
-  identity ladder and multi-Hub aggregation (DES-089)
-- [architecture/target/cross-host-transport.md](./architecture/target/cross-host-transport.md) —
-  cross-host Hub-to-Display transport and trust model (DES-090)
 
-These documents describe the intended Hub-authoritative architecture.
+These documents describe the intended Hub-authoritative architecture. The
+identity ladder, multi-Hub aggregation, and cross-host transport and trust
+model (DES-089, DES-090) are specified directly in
+[architecture/system.tex](./architecture/system.tex) — it now covers
+multi-Hub/cross-host in addition to the current/intermediate
+implementation, per operator direction (2026-09-04) that an
+evaluator-accepted architecture design folds into `system.tex` rather than
+staying a standalone target markdown. The implementation plan for both is
+[architecture/multi-hub-addressing-work.md](./architecture/multi-hub-addressing-work.md).
 
 ## Delivered Designs
 
