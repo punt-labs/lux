@@ -344,13 +344,30 @@ A single Display-side component — call it `AddressBook`, composed wherever
   connections (generalizing what `SocketListener`/`HubReconciliation`
   already track per fd — see below, this is mostly relabeling existing
   bookkeeping, not new bookkeeping);
-- computes rung ambiguity **once per frame or per menu build**, the same
-  cadence `MenuReplica.menu_model()` already rebuilds every frame so every
-  item reads live state;
-- reuses DES-064's collision-numbering rule and DES-067's `(repo,
-  session_pid)` grouping verbatim for the *connection* rung's ambiguity and
-  label, and applies the identical numbering algorithm one level up for the
-  *hub* rung — same mechanism, two call sites, not two mechanisms;
+- computes each rung's **ambiguity** — a pure cardinality test, not a label
+  comparison — **once per frame or per menu build**, the same cadence
+  `MenuReplica.menu_model()` already rebuilds every frame so every item
+  reads live state. A rung is ambiguous, and therefore shown, exactly when
+  more than one live value exists for that rung right now — this is the
+  whole of `LuxAddress.title`'s docstring, restated here so the two never
+  drift apart again;
+- separately, once a rung *is* shown, reuses DES-064's collision-numbering
+  rule and DES-067's `(repo, session_pid)` grouping verbatim to compute
+  that rung's own **label text** — whether two shown siblings' own names
+  happen to read as the identical string (`"lux"` and `"lux"` becoming
+  `"lux"` / `"lux (2)"`) — for both the *connection* rung (as shipped) and
+  the *hub* rung (this document, one level up). **This is a second, later
+  job, not the same job as elision.** Ambiguity decides *whether* a rung
+  shows at all; DES-064/067 numbering decides *what a shown rung's label
+  reads as*. Two Hubs named `pembroke` and `walnut`, each aggregating a
+  connection that produces a leaf named `Vox`: the hub rung's cardinality
+  is 2, so it shows on *both* — `pembroke :: Vox` and `walnut :: Vox` —
+  regardless of the fact that `pembroke` and `walnut` do not collide as
+  strings and so never touch the DES-064/067 numbering path at all. Reading
+  the reused-mechanism note below as license to skip a rung whenever its
+  own label happens to be unique reintroduces the exact bare-title
+  collision (`"Vox"` shown twice, unqualified) this document exists to
+  close — see "Problem," above;
 - exposes exactly one construction path: `address_for(hub, connection_key,
   connection_label, leaf_key, leaf_label) -> LuxAddress`.
 
@@ -629,13 +646,17 @@ protocol.
   content-identity concern exclusively, and touches nothing DES-088 owns.
   A closed frame keeps its `LuxAddress` exactly as an on-screen one does.
 - **DES-064 / DES-067 (Clients-menu grouping and `(n)` collision
-  numbering).** Reused, not superseded, not duplicated. The *connection*
-  rung's ambiguity and label computation is the identical mechanism
-  DES-064/067 already ship for grouping applet connections by `(repo,
-  session_pid)` and numbering same-repo collisions. This document applies
-  that same algorithm one rung higher, to Hub-of-origin collisions on one
-  host — the deployment `lux-whb9`'s own notes already anticipated
-  ("`pembroke`, `pembroke (2)`").
+  numbering).** Reused for **labeling**, not for **elision** — the two are
+  different jobs, kept distinct in "The shared helper every leaf renderer
+  must use," above. Whether the *connection* or *hub* rung shows at all is
+  a pure cardinality test (`LuxAddress.title`'s ambiguity flags); DES-064/
+  067's collision-numbering rule only decides what a rung's own label
+  reads as once it is already shown, when two shown siblings happen to
+  share a name. This document reuses that same numbering algorithm one
+  rung higher, for Hub-of-origin label collisions on one host — the
+  deployment `lux-whb9`'s own notes already anticipated ("`pembroke`,
+  `pembroke (2)`") — without touching the separate cardinality test that
+  decides whether the hub rung shows at all.
 - **DES-086 (scenes and frames cannot alias across connections).** Rung 2
   is unchanged by this document. `ConnectionScopedId` and its "collision
   unrepresentable, not merely checked" property continue to hold exactly
