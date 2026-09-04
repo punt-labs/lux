@@ -6403,7 +6403,7 @@ against it. The cross-host transport-and-trust design itself is not a bead
 under this ADR — it is DES-090, a separate design mission in `djb`'s
 domain.
 
-## DES-090: Cross-Host Hub-to-Display Transport and Trust — mTLS Against a Personal CA
+## DES-090: Cross-Host Hub-to-Display Transport and Trust — mTLS Against a Pluggable Trust Anchor
 
 **Status:** PROPOSED — pending operator ratification (design mission
 m-2026-09-04-003, worker djb). Companion to DES-089, above, whose source
@@ -6426,22 +6426,58 @@ can route a packet to its port can attempt to speak the Hub protocol, and
 nothing about the `AF_UNIX` trust argument survives the crossing.
 
 **Decision.** TLS 1.3 with mutual certificate authentication, against a
-small per-user personal Certificate Authority, is the transport and trust
-mechanism — recommended over plain-TCP-plus-token, server-only-TLS with a
-bearer token, SSH tunneling, and a public CA (comparison table in
-`cross-host-transport.md`), because one mechanism supplies both
-confidentiality/integrity and authentication from a single already-hardened
-protocol rather than composing two mechanisms to do jobs TLS already does
-together. The CA is created on the Display's machine on first
-cross-host-enable; its private key never leaves that machine. Enrolling an
-additional Hub machine is a manual, offline CSR-signing exchange — the
-operator moves a CSR and its signed certificate between their own machines
-however they already move files, no live enrollment protocol, no registry.
-This is device-pairing for one person's own hardware, not a multi-tenant
-service authenticating unrelated principals — the threat model
+trust anchor, is the transport and trust mechanism — recommended over
+plain-TCP-plus-token, server-only-TLS with a bearer token, SSH tunneling,
+and a public CA (comparison table in `cross-host-transport.md`), because
+one mechanism supplies both confidentiality/integrity and authentication
+from a single already-hardened protocol rather than composing two
+mechanisms to do jobs TLS already does together. **Who operates the
+trust anchor is a separate, pluggable decision, not a property of the
+mTLS mechanism** (restructuring mission, 2026-09-04): the default is
+Provider 1, a small per-user personal Certificate Authority, created on
+the Display's machine on first cross-host-enable, whose private key never
+leaves that machine; enrolling an additional Hub machine under Provider 1
+is a manual, offline CSR-signing exchange — the operator moves a CSR and
+its signed certificate between their own machines however they already
+move files, no live enrollment protocol, no registry. An optional
+Provider 2, AWS Private CA, is specified alongside it below. This is
+device-pairing for one person's own hardware, not a multi-tenant service
+authenticating unrelated principals — the threat model
 (`cross-host-transport.md`'s threat-model table, T1–T6) is scoped
 accordingly: the adversary is a party on the network who is *not* the
-user, never the user's own other machines.
+user, never the user's own other machines, and this scoping holds
+identically under either provider.
+
+**The trust anchor is pluggable; the mTLS mechanism is not.**
+(`system.tex` §"Trust Anchor Providers: Pluggable, Not Fixed",
+§"Authentication and Enrollment".) mTLS authenticates a Hub from its
+client certificate and derives the verified `HubId.hostname` from that
+certificate's own SAN — nothing in that verification rule, in the four
+invariants below, or in the T1–T6 threat model depends on whose private
+key signed the leaf. An AWS-issued leaf is trusted by the identical
+SAN-verification rule as a personally-signed one. Only certificate
+provenance and the enrollment path that produced the leaf differ between
+providers. Two providers ship: **Provider 1 (default)** is the
+self-managed personal CA specified above — free, zero external
+dependency, single-machine key custody, manual CSR enrollment, coarse
+whole-CA revocation. **Provider 2 (optional)** is AWS Private CA
+(formerly ACM Private CA), a managed private-CA service: the Display
+trusts the AWS Private CA root/intermediate instead of a locally
+generated one, a Hub obtains its leaf via ACM Private CA issuance — an
+API call the operator can gate with IAM policy — instead of an offline
+CSR exchange, and revocation is proper CRL/OCSP instead of whole-CA
+regeneration. The trade-off is stated plainly, not pinned to a specific
+figure: AWS Private CA is paid, managed, enterprise-tier pricing (see
+AWS's current pricing), and adds an AWS/IAM dependency, in exchange for
+issuance and revocation that scale to an organization with many machines
+and users — it suits an enterprise adopter, not the single-user default
+this design otherwise targets, which is why Provider 1 stays the default
+and Provider 2 stays opt-in. **This is not the public CA this design
+rejects below** (Let's Encrypt-style, domain-validated, requiring public
+DNS and inbound exposure): AWS Private CA is a managed *private* CA,
+never installed into any browser or OS trust store, trusted the same
+explicit, non-public way Provider 1's self-signed root is. The two are
+different questions with different answers; they are not in tension.
 
 **The trust fork DES-089 deferred is resolved: option (a).**
 `HubId.hostname` stays a transport-verified network name; no third `HubId`
@@ -6469,8 +6505,8 @@ the Hub dials the Display in both the same-host and cross-host cases, never
 the reverse — keeping the network attack surface to exactly one opt-in
 listener rather than one accept loop per Hub. Endpoint discovery is
 pragmatic, per the operator's own instruction: a per-user config file
-naming the Display's `host:port` and CA fingerprint, populated at
-enrollment, no registry, no service discovery.
+naming the Display's `host:port` and the active provider's trust-anchor
+fingerprint, populated at enrollment, no registry, no service discovery.
 
 **Reconnect and preemption — a stated coordination point, since resolved.**
 `HubId.hostname` is stable across any reconnect, including a process
@@ -6535,7 +6571,13 @@ the org's ethos/GPG identity infrastructure (identifies a person or agent,
 not a machine — the wrong entity for `HubId`); and a live CRL/OCSP
 revocation service (disproportionate machinery for a personal, small-N
 deployment — accepted trade-off: revocation is whole-CA regeneration and
-re-enrollment, an explicit, bounded, rare operator action).
+re-enrollment, an explicit, bounded, rare operator action). The transport
+table separately rejects a *public*, domain-validated web-PKI CA
+(Let's Encrypt-style) for needing public DNS and inbound internet
+exposure — a rejection of web PKI's shape, not of managed CAs in
+general; AWS Private CA is a managed *private* CA and is not that
+rejected option (`system.tex` §"Rejected Alternatives," the
+reconciliation paragraph added alongside Provider 2).
 
 **Implementation map.** Eight net-new beads, now consolidated with
 DES-089's into the single implementation plan
@@ -6550,4 +6592,8 @@ touchpoint with DES-089's per-Hub-keyed-storage bead; (7) the two z-spec
 models; (8) threat-model regression tests, one per threat-model row with a
 "No" answer. Neither vox nor z-spec run a Display, so this design's
 transport work is Display-side only; the only cross-repo touchpoint is the
-`hub_id` wire field DES-089 already names.
+`hub_id` wire field DES-089 already names. A ninth bead, **W15 (optional,
+opt-in)**, adds the AWS Private CA trust-anchor provider on top of (2) and
+(3) — it is not required to ship the design and nothing else in the bead
+map depends on it; see `multi-hub-addressing-work.md`'s bead map for its
+own dependency detail.

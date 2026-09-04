@@ -22,7 +22,7 @@ inferred, from the two source design missions — m-2026-09-04-001 for
 addressing, m-2026-09-04-003 for cross-host transport), and whether it
 is z-spec-REQUIRED. Three beads already exist and become children of
 DES-089 rather than independent one-offs: `lux-whb9`, `lux-pgkp`,
-`lux-kob7`. Every other bead (`W1`–`W13`) is net-new and not yet filed
+`lux-kob7`. Every other bead (`W1`–`W15`) is net-new and not yet filed
 — the leader files these against this document, per the design
 missions' own contracts.
 
@@ -54,6 +54,7 @@ missions' own contracts.
 | **W12** | z-spec models, invariants 1 and 2 | cross-host-transport §"z-spec assessment" | W8, W9, W11 |
 | **W13** | Threat-model regression tests (T1, T3, T4, T6) | cross-host-transport §"Threat model" | W8, W9 |
 | **W14** | Scope manifest purge to the sending Hub's own scenes | addressing §"What must change" (manifest-purge correction) | W3 |
+| **W15** | AWS Private CA trust-anchor provider (optional, opt-in) | cross-host-transport §"Provider 2 (Optional): AWS Private CA (Managed)" | W7, W8 |
 
 ### Dependency graph
 
@@ -67,9 +68,11 @@ W2 ─┬─> W3 ─┬─> W5
     │                │
     └─> W9 <─ W8 <─ W7    W12 <── W9, W11
               │
-              └─> W10
+              ├─> W10
               │
-              └─> W13 <── W9
+              ├─> W13 <── W9
+              │
+              └─> W15 (optional, opt-in — alternative provider)
 
 lux-whb9, lux-pgkp, lux-kob7 ──> W4 <── W2
 ```
@@ -80,7 +83,10 @@ real gap in the current same-host code today, not merely a
 cross-host prerequisite. Everything else forks into two mostly-parallel
 tracks after W2: the addressing track (W3 → W4/W5/W6/W14, feeding the
 three existing beads) and the cross-host track (W7 → W8 → W9/W10/W13),
-which rejoin at **W11** and finish at **W12**.
+which rejoin at **W11** and finish at **W12**. **W15** hangs off the same
+W7/W8 pair but is not part of that critical path — it is an optional,
+opt-in alternative to Provider 1 and ships (or doesn't) independent of
+W9–W13 and the W11/W12 gate.
 
 **W14** is the manifest-purge correction: `SceneReplica.scenes_to_purge`
 disowns any scene neither owned by the identifying fd nor named in the
@@ -93,6 +99,24 @@ on the other) and carries no z-spec requirement of its own — it is a
 naming/keying discipline like the governing invariant it extends, not a
 concurrency property, and is verified by the same collision-regression
 style test as W5.
+
+**W15** is the AWS Private CA trust-anchor provider
+(`system.tex` §"Provider 2 (Optional): AWS Private CA (Managed)"): an
+alternative to, not a replacement for, W7's self-managed personal CA. It
+depends on W7 and W8 existing first, because it plugs into the same mTLS
+transport and the same non-blocking TLS listener W7/W8 already built —
+the trust-anchor abstraction (`system.tex` §"Trust Anchor Providers:
+Pluggable, Not Fixed") means W15 swaps which root the Display's
+`ssl.SSLContext` verifies against and how a Hub obtains its leaf; it does
+not touch the handshake, the SAN check, or any invariant W8/W9 already
+established. It carries no z-spec requirement of its own for the same
+reason invariants 3 and 4 don't (`system.tex` §"Invariants" — all four
+hold identically under either provider); it is a boundary/configuration
+concern, verified by a regression test that the AWS-backed trust anchor
+is loaded and enforced identically to W7's, not a new interleaving. W15
+is optional and opt-in: Provider 1 (W7) remains sufficient to ship the
+whole cross-host design end to end, and nothing else in this document
+depends on W15 existing.
 
 ## The resolved coordination point: preemption keys on `HubId`, not `name`
 
@@ -182,10 +206,11 @@ end-to-end, release together).
 
 This applies **regardless of whether either repo ever runs
 cross-host.** Neither vox nor z-spec runs a Display — both are
-Hub-side-only connections — so W7–W13 (the cross-host transport track)
-add no *additional* cross-repo requirement beyond the one W2 already
-names. The `hub_id` field is a same-host wire change first; cross-host
-is what makes verifying it matter, not what makes adding it necessary.
+Hub-side-only connections — so W7–W13 and W15 (the cross-host transport
+track, including the optional AWS Private CA provider) add no
+*additional* cross-repo requirement beyond the one W2 already names. The
+`hub_id` field is a same-host wire change first; cross-host is what makes
+verifying it matter, not what makes adding it necessary.
 
 **Sequencing:** before W2 merges in this repo, notify the vox and
 z-spec agents, get their explicit agreement on the field shape (a
