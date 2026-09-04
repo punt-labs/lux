@@ -6279,25 +6279,44 @@ cross-host delegated to a companion design.** The addressing model itself
 invariant) applies identically whether a Hub reaches the Display over a
 Unix socket or a network socket — nothing in it assumes `AF_UNIX`. The
 Hub-to-Display leg is, today, an `AF_UNIX` domain socket accepting an
-unbounded number of connections, and several pieces of the multi-Hub story
-are already built for an unrelated reason (DES-068's reconnect/purge
-story), each written against "a connection" in the abstract and so
-surviving a transport change unmodified: per-connection scene ownership
-(`FrameBook.scene_to_owner`, already fd-scoped), per-connection manifest
-purge, and preemption keyed by *declared name*, not by "the" Hub
+unbounded number of connections, and one piece of the multi-Hub story is
+already built for an unrelated reason (DES-068's reconnect/purge story)
+and survives a transport change unmodified because it was already written
+against "a connection" in the abstract: per-connection scene ownership
+(`FrameBook.scene_to_owner`, already fd-scoped). **Two adjacent
+mechanisms read as multi-Hub-safe for the same reason but are not, and
+both are required changes, not properties the current code already
+has.** `SceneReplica.scenes_to_purge` disowns any scene that is neither
+owned by the identifying fd nor named in the sending manifest — a rule
+written to sweep an orphaned scene left behind by a *prior* connection's
+death, since that orphan's owner is never the identifying fd either.
+Under real multi-Hub the identical predicate just as readily disowns a
+*second, live* Hub's own scenes, since Hub B's manifest names only Hub
+B's scenes and every scene Hub A owns meets the identical purge
+condition from Hub B's manifest's point of view — a cross-Hub data-loss
+hazard, not the orphan-sweep it was written for; the fix scopes the
+purge predicate by the sending Hub's own `HubId` (`W14`, below).
+Preemption is keyed by *declared name*, not by "the" Hub
 (`SocketListener.hub_fd_for(name)` already evicts only a connection
 sharing the *identical* declared identity — it reads as singleton today
 only because every Hub process declares the identical hardcoded constant,
-`_DISPLAY_CLIENT_NAME = "lux-mcp"`). What changes for same-host, no
-transport work required: (1) a Hub declares a real `HubId` instead of
-that constant, carried on `ConnectMessage`'s dedicated `hub_id` field (see
-below); (2) every Display-side store currently keyed by a bare Rung-2
-string gains the Hub dimension; (3) `InteractionDelivery`'s scene-less
-broadcast fallback — which today sends every menu-bar click to every
-connected client on the documented assumption that exactly one Hub is
-listening — is retired in favor of routing by the originating `HubId`,
-since a stray broadcast to a second Hub is a real misrouting risk once two
-Hubs' `connection_id` spaces can collide, not merely wasted work. Connect
+`_DISPLAY_CLIENT_NAME = "lux-mcp"`); once real, distinct `HubId`s exist,
+name-keyed preemption is unsafe, and it must be re-keyed onto `HubId`
+(see "Resolved forks," below, and DES-090's own coordination point).
+What changes for same-host, no transport work required: (1) a Hub
+declares a real `HubId` instead of that constant, carried on
+`ConnectMessage`'s dedicated `hub_id` field (see below); (2) every
+Display-side store currently keyed by a bare Rung-2 string gains the Hub
+dimension; (3) `InteractionDelivery`'s scene-less broadcast fallback —
+which today sends every menu-bar click to every connected client on the
+documented assumption that exactly one Hub is listening — is retired in
+favor of routing by the originating `HubId`, since a stray broadcast to a
+second Hub is a real misrouting risk once two Hubs' `connection_id`
+spaces can collide, not merely wasted work; (4) `HubManifestMessage`
+handling is corrected to purge only the sending Hub's own
+previously-owned-but-now-absent scenes, never another live Hub's, by
+scoping the purge predicate on the sender's `HubId` rather than fd/owner
+alone (`W14`, depends on (2)'s per-Hub-keyed storage). Connect
 and disconnect need no new mechanism for same-host — the accept loop and
 per-fd cleanup already generalize; discovery is deliberately nothing new
 there, a second `luxd` connects to the identical, already-published Unix
