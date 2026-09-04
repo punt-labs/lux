@@ -241,10 +241,70 @@ implementation could reopen "authenticate before content": if a
 non-blocking accept adds the raw, unhandshaked socket to `_clients`
 immediately (as today's `accept_connections` does for `AF_UNIX`, where
 there is no handshake to wait for), a `SceneMessage` could in principle
-race the handshake. The specialist mission implementing this must drive
-the TLS handshake to completion (blocking is acceptable here — it is a
-one-time per-connection cost, not a per-frame one) before the fd ever
-enters `_clients`/`_readers`.
+race the handshake.
+
+**The handshake itself must never block the render thread.**
+`accept_connections` and `poll_clients` both already run synchronously
+inline on the single render thread, once per frame (`render_loop.py`'s
+`_on_frame`) — the reason `SocketListener` already carries
+`_frame_deadline`, `set_frame_deadline`, and `_ONE_OFF_SEND_BUDGET`,
+bounding every other network wait this module performs on that thread.
+A blocking `do_handshake()` call has no such bound: a peer that
+completes the TCP handshake and then stalls or trickles its
+`ClientHello` would hang that one call for as long as it likes,
+freezing rendering *and* the same-host `AF_UNIX` leg for every Hub,
+with no credential required — exactly T1's "opportunistic scanner,"
+and exactly the render-loop-freezing denial of service this document's
+own threat model exists to rule out. Fail closed, not hung.
+
+The specialist mission implementing this must instead drive the TLS
+handshake the same way `SocketListener` already drives every other
+bounded, per-frame network operation: **non-blocking, pumped through
+the existing accept/poll cadence, under a bounded per-connection
+deadline**, mirroring `set_frame_deadline`'s own monotonic-timestamp
+pattern rather than inventing a new one:
+
+1. Wrap each newly-accepted `AF_INET`/`AF_INET6` socket in the server
+   `ssl.SSLContext` with `do_handshake_on_connect=False`, set it
+   non-blocking, and hold it in a new *pending-handshake* set keyed by
+   fd — kept separate from `_clients`/`_readers`, so no fd reaches
+   either dict, and therefore no message is ever read from it, before
+   its handshake is verified complete. Record a deadline
+   (`time.monotonic() + _HANDSHAKE_BUDGET`, a small constant on the
+   order of a few seconds: generous for a legitimate peer's round
+   trip, tight enough that an attacker cannot hold the socket open
+   indefinitely) alongside the pending entry.
+2. Each frame, `accept_connections` calls `do_handshake()` once per
+   pending connection. `ssl.SSLWantReadError`/`ssl.SSLWantWriteError`
+   are the expected non-blocking retry signals — on either, leave the
+   connection pending and retry next frame; any other `ssl.SSLError`
+   (untrusted CA, bad cert, protocol failure) closes the socket and
+   drops it immediately, the same as a hard reject.
+3. A pending connection whose deadline has passed is closed and
+   dropped unconditionally, mid-handshake if need be. This is the
+   fail-closed backstop: a stalled or slow-rolled handshake costs the
+   Display at most one bounded, per-connection budget of wall-clock
+   time, never an unbounded block.
+4. Only once `do_handshake()` returns successfully does the connection
+   move from the pending set into `_clients`/`_readers` — and only
+   after the SAN/`hub_id` cross-check in "Resolving the trust fork"
+   also passes, once `ConnectMessage` arrives.
+
+This keeps the entire cross-host listener on the same single render
+thread as everything else in `socket_server.py` — no new thread, no
+lock, no cross-thread handoff of `_clients` or any other
+render-thread-owned state, which is not a `SocketListener`
+responsibility today and stays that way. A bounded background thread
+performing accept+handshake off-thread and enqueueing only the
+completed, verified socket was considered as the alternative and is
+rejected here: it would be the first thread ever introduced into
+`SocketListener`'s otherwise single-threaded, lock-free design, and
+the queue handoff becomes a second interleaving surface needing its
+own correctness argument — for a problem the module's existing
+per-frame-budget pattern already solves without one. Minimizing new
+concurrent machinery is the security argument here, not merely a
+style preference: fewer interleavings is less attack surface to
+reason about, model, and get wrong.
 
 The wire protocol itself — message framing, `ConnectMessage`,
 `SceneMessage`, everything in `protocol/` — does not change. This is the
@@ -655,10 +715,15 @@ dependency.
    surface. No dependency on addressing.md's beads.
 3. **The cross-host TLS listener.** A second, opt-in, off-loopback-capable
    listening socket in `socket_server.py`, wired through `ssl.SSLContext`
-   with `CERT_REQUIRED` both directions and `TLSVersion.TLSv1_3` minimum;
-   the handshake-before-accept ordering ("Coexistence with the local fast
-   path," above) is the one correctness-critical detail. Depends on bead 2
-   for certificate material to configure against.
+   with `CERT_REQUIRED` both directions and `TLSVersion.TLSv1_3` minimum.
+   The handshake is **non-blocking and bounded** — driven through the
+   existing per-frame `accept_connections` cadence via a pending-handshake
+   set and a per-connection deadline, never a blocking `do_handshake()`
+   call on the render thread (see the corrected "Coexistence with the
+   local fast path" guidance, above). This is the one correctness-critical
+   detail: a naive blocking implementation reopens a render-loop-freezing
+   denial of service inside this document's own threat model (T1).
+   Depends on bead 2 for certificate material to configure against.
 4. **Hostname verification at `ConnectMessage` time.** The SAN-extraction
    and `hub_id`-hostname cross-check from "Resolving the trust fork,"
    above, plus the fail-closed rejection path. Depends on bead 3 (needs a
