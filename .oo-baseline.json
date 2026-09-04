@@ -1081,7 +1081,7 @@
   "src/punt_lux/client/callback.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
-    "avg_params": 1.5,
+    "avg_params": 2.5,
     "max_complexity": 1.0,
     "avg_complexity": 1.0,
     "module_size": 35.0,
