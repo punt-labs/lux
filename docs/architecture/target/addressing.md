@@ -174,23 +174,47 @@ re-deriving it.
 
 `HubId` is the value type a Hub's own identity resolves to. It answers the
 question Rung 3 needs settled before anything else can be built on it: what
-makes one Hub connection distinct from another.
+makes one Hub connection distinct from another — and, per the operator's
+ruling that cross-host aggregation is in scope, distinct from a Hub on a
+*different machine*, not merely a different process on the same one.
 
 ```python
 @final
 @dataclass(frozen=True, slots=True)
 class HubId:
-    """A Hub connection's own stable identity — hostname plus process.
+    """A Hub connection's own stable identity — network host plus process.
 
-    Hostname alone is the natural *visible* identity (DES-089's original
-    framing: it is what the user would call "which machine"), but it is not
-    enough for the *hidden* key, because more than one Hub process can run
-    on one host — a same-host development duplicate is exactly the
-    deployment `lux-whb9`'s own notes call "nonsense but must work." Process
-    id closes that gap the same way ``AppletIdentity`` already closes the
-    analogous gap for two applets sharing one session (DES-067's
-    ``#{session_pid}`` token) — same shape of problem, same shape of fix,
-    reused rather than reinvented.
+    Two independent uniqueness axes, kept as two fields rather than folded
+    into one, because they are disambiguated by two different mechanisms:
+
+    - ``hostname`` distinguishes one *machine* from another. Once
+      cross-host aggregation is real, this can no longer mean "whatever
+      ``socket.gethostname()`` happens to return" — a bare hostname is not
+      guaranteed unique across a network the way it is trivially unique on
+      one box (two laptops both named ``"laptop"`` is a real, common case,
+      not a hypothetical one). ``HubId.current()`` below uses
+      ``socket.getfqdn()`` rather than ``socket.gethostname()`` for exactly
+      this reason — a fully-qualified name is unique wherever DNS makes it
+      so, which a bare hostname is not.
+    - ``pid`` distinguishes one *process* from another **on the same
+      machine** — a same-host development duplicate is exactly the
+      deployment `lux-whb9`'s own notes call "nonsense but must work."
+      Process id closes that gap the same way ``AppletIdentity`` already
+      closes the analogous gap for two applets sharing one session
+      (DES-067's ``#{session_pid}`` token) — same shape of problem, same
+      shape of fix, reused rather than reinvented. ``pid`` is not
+      network-meaningful and never needs to be — the ``hostname`` field is
+      the whole of the cross-host uniqueness claim; ``pid`` only ever
+      breaks a tie *within* one already-identified host.
+
+    Self-reporting its own FQDN is as far as ``HubId`` itself goes, and it
+    is enough for the same-host case, where the Unix-socket directory's
+    ``0700`` permission already bounds who can even open a connection to
+    declare a ``HubId`` in the first place — a hostile process cannot
+    reach the socket to lie about its identity. That trust argument does
+    not carry across a network: see "Dependencies on the cross-host
+    transport layer," below, for what changes once a connection is not
+    already scoped to one trusted user on one machine.
     """
 
     hostname: str
@@ -199,7 +223,7 @@ class HubId:
     @classmethod
     def current(cls) -> Self:
         """This process's own HubId, as it will declare itself to the Display."""
-        return cls(socket.gethostname(), os.getpid())
+        return cls(socket.getfqdn(), os.getpid())
 
     @property
     def wire_token(self) -> str:
@@ -210,6 +234,13 @@ class HubId:
         """
         return f"{self.hostname}{ID_SEPARATOR}{self.pid}"
 ```
+
+Same-host duplicates keep the DES-064-style `(n)` numbering exactly as
+round 1 specified — two Hubs sharing one `hostname` (their FQDN resolves
+identically because they are, in fact, the same machine) disambiguate by
+`pid`, then render as `pembroke`, `pembroke (2)`, precisely as before.
+Nothing about that visible-title behavior changes; only the *source* of
+the `hostname` field's trustworthiness does, and only cross-host.
 
 ## Every aggregated surface, uniformly
 
