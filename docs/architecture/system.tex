@@ -1544,8 +1544,8 @@ transport boundary, not a new field.
 \textbf{Option} & \textbf{Confidentiality + integrity} & \textbf{Authentication} & \textbf{New moving parts} & \textbf{Verdict} \\
 \midrule
 TLS 1.3, mutual auth (client + server certs) & Built in & Built in --- one
-  handshake does both & One cert/key pair per machine; a personal CA &
-  \textbf{Recommended} \\
+  handshake does both & One cert/key pair per machine; a trust anchor
+  (\S\ref{sec:crosshost-providers}) & \textbf{Recommended} \\
 Plain TCP + application-level HMAC/token & None on the wire &
   Authenticates only after content already crossed the wire & Token
   issuance/rotation, plus still need TLS for confidentiality & Rejected \\
@@ -1560,16 +1560,19 @@ Public CA (Let's Encrypt-style) & Built in & Built in & Requires public
 \end{tabular}
 \end{center}
 
-\textbf{Recommendation: TLS 1.3, mutual authentication, against a small
-per-user personal Certificate Authority.}  One mechanism supplies both
+\textbf{Recommendation: TLS 1.3, mutual authentication, against a
+trusted certificate authority.}  One mechanism supplies both
 confidentiality/integrity (T2) and authentication (T1, T3, T4) from a
 single, already-hardened protocol --- Lux does not implement its own
 cryptography; it configures \field{ssl.SSLContext} with
 \field{verify\_mode=ssl.CERT\_REQUIRED} on both ends and
 \field{minimum\_version=ssl.TLSVersion.TLSv1\_3}, and everything else is
-the standard library's and OpenSSL's problem.  The new code this design
-adds is a certificate-issuance script and a socket-listener change, not a
-hand-rolled auth protocol.
+the standard library's and OpenSSL's problem.  \textbf{Who operates that
+certificate authority is a separate, pluggable decision, not a property of
+the mTLS mechanism itself} --- \S\ref{sec:crosshost-providers}, below,
+defines the two supported trust-anchor providers.  The new code this
+design adds is a certificate-issuance/enrollment path and a
+socket-listener change, not a hand-rolled auth protocol.
 
 \textbf{Session resumption} is left enabled on both sides, deliberately
 not hardened away: under TLS 1.3 a resumption ticket is cryptographically
@@ -1595,7 +1598,85 @@ operator from running Lux over an SSH tunnel or a VPN mesh instead, since
 the underlying wire protocol is transport-agnostic, but lux does not build
 that integration itself.  A public CA needs public DNS and inbound
 internet exposure for domain validation, the wrong shape for a
-LAN/VPN-scoped personal tool.
+LAN/VPN-scoped personal tool --- this row means a publicly-trusted,
+domain-validated web-PKI CA specifically, not a managed \emph{private} CA
+an adopter operates for itself; \S\ref{sec:crosshost-providers} and
+\S\ref{sec:crosshost-rejected} keep the two distinct.
+
+\subsection{Trust Anchor Providers: Pluggable, Not Fixed}\label{sec:crosshost-providers}
+
+\textbf{The mTLS mechanism does not care who signs the certificate.}  It
+authenticates a Hub from its client certificate and derives the verified
+\field{HubId.hostname} from that certificate's own Subject Alternative
+Name (\S\ref{sec:crosshost-fork}).  Nothing in that verification rule, in
+the four invariants (\S\ref{sec:crosshost-invariants}), or in the T1--T6
+threat model above depends on whose private key signed the leaf --- an
+AWS-issued leaf is trusted by the identical SAN-verification rule as a
+personally-signed one.  Only two things vary by provider: the trust
+anchor the Display verifies a leaf certificate's chain against, and the
+enrollment path by which a Hub obtains a correctly-SAN'd leaf in the
+first place.
+
+\textbf{The provider interface, stated minimally, is two obligations:}
+
+\begin{enumerate}
+  \item \textbf{Trust anchor.}  The root (and any intermediate)
+    certificate(s) the Display loads into its \field{ssl.SSLContext} as
+    the verification set for an incoming client certificate.  Swapping
+    providers means swapping what this set contains; nothing else in
+    \S\ref{sec:crosshost-fork}'s verification path changes.
+  \item \textbf{Enrollment path.}  The procedure that, given a machine's
+    hostname, produces a private key and a leaf certificate whose SAN
+    equals that hostname and whose chain terminates at the trust anchor
+    above.  \S\ref{sec:crosshost-enroll} specifies the enrollment
+    mechanics for each provider; only the identity of the signer and the
+    issuance channel differ.
+\end{enumerate}
+
+Any implementation satisfying both obligations is a valid trust-anchor
+provider.  The mTLS transport code itself never branches on which one is
+configured --- it loads \field{ssl.SSLContext}'s verification set and
+serves whatever leaf the active provider issued, and the handshake, the
+SAN check, and every T1--T6 row hold identically past that point.  Which
+provider is active is a per-Display configuration choice made once, at
+cross-host-enable time, not a per-connection or per-Hub choice --- every
+Hub a given Display enrolls trusts the same anchor.
+
+\textbf{Two providers ship with this design:}
+
+\begin{itemize}
+  \item \textbf{Provider 1 (default): self-managed personal CA.}  Exactly
+    what \S\ref{sec:crosshost-enroll} specifies: free, the CA's private
+    key never leaves the Display's own machine, enrollment is a manual
+    offline CSR exchange, and revocation is coarse --- whole-CA
+    regeneration and re-enrollment (\S\ref{sec:crosshost-rejected}).
+    Zero external dependency, single-machine key custody: the correct
+    default for the deployment this design targets, a handful of
+    machines one person owns.
+  \item \textbf{Provider 2 (optional): AWS Private CA (managed).}  The
+    Display trusts the AWS Private CA root, or an intermediate issued
+    under it, instead of a locally-generated root.  A Hub obtains its
+    leaf certificate through ACM Private CA issuance --- an API call the
+    operator can gate with IAM policy --- rather than an offline CSR
+    exchange, and revocation is proper CRL/OCSP rather than whole-CA
+    regeneration.  The trade-off is explicit, not hidden: paid and
+    managed, with an AWS account and IAM as a new external dependency,
+    in exchange for issuance and revocation that scale cleanly to an
+    organization with many machines and users.  This suits an enterprise
+    adopter, not the single-user default this design otherwise targets;
+    consult AWS Private CA's current pricing before adopting it --- it is
+    an enterprise-tier, monthly-per-CA-plus-per-certificate cost, and
+    this design pins no specific figure that would go stale.
+\end{itemize}
+
+\textbf{This is not the rejected public CA.}  \S\ref{sec:crosshost-rejected}
+and the Transport Specification table above reject a \emph{public},
+domain-validated web-PKI CA (Let's Encrypt-style) for needing public DNS
+and inbound internet exposure.  AWS Private CA is a managed \emph{private}
+CA --- its root is never in any browser or OS trust store, exactly like
+Provider 1's self-signed root, and it requires no public DNS or inbound
+exposure.  The two are different animals answering different questions;
+\S\ref{sec:crosshost-rejected} keeps them distinct explicitly.
 
 \subsection{Coexistence with the Local Fast Path}
 
@@ -1687,7 +1768,8 @@ the connecting party, and the instruction is not to over-engineer
 discovery.  There is no Hub registry, no broadcast, no service-discovery
 protocol, and no rendezvous server.  A remote Hub's machine holds a small,
 per-user config file naming the Display's \field{host:port} and the
-fingerprint of the CA it should trust --- the network equivalent of the
+fingerprint of the trust anchor it should trust
+(\S\ref{sec:crosshost-providers}) --- the network equivalent of the
 Display's socket path being one well-known filesystem location per user.
 Populating that file is part of enrollment (\S\ref{sec:crosshost-enroll}),
 a one-time, explicit, user-driven step, not a live discovery protocol.  If
@@ -1775,6 +1857,21 @@ TLS session with it.
 
 \subsection{Authentication and Enrollment}\label{sec:crosshost-enroll}
 
+\textbf{The trust anchor is pluggable; the verification rule it feeds is
+not.}  Both providers below produce the identical material
+\S\ref{sec:crosshost-fork} needs: a leaf certificate whose SAN is the
+enrolled machine's hostname, chaining to one trust anchor the Display
+verifies against.  What differs is only where that anchor lives and how a
+Hub gets its leaf.  \textbf{Provider 1 is the default} for every
+deployment this design targets, and the rest of this design (the threat
+model, the invariants, the connect sequence) is specified against it
+without further qualification.  Provider 2 is an optional alternative,
+detailed in its own subsection below, for an adopter who already operates
+AWS infrastructure and wants managed issuance and revocation instead of
+self-managed key custody.
+
+\subsubsection{Provider 1 (Default): Self-Managed Personal CA}
+
 \textbf{The trust root is the user, not a service.}  The person enrolling
 a second machine already has authenticated access to both machines ---
 they are not proving their identity to Lux, they are telling Lux ``these
@@ -1847,6 +1944,78 @@ protocol would be new standing machinery to save an operation this design
 already keeps deliberately rare and manual for every other lifecycle
 event.
 
+\subsubsection{Provider 2 (Optional): AWS Private CA (Managed)}\label{sec:crosshost-enroll-aws}
+
+\textbf{What AWS Private CA is, at design level.}  AWS Private CA
+(formerly ACM Private CA) is a managed private-certificate-authority
+service: it operates a root and, optionally, subordinate CAs on the
+operator's behalf, issues private X.509 certificates, supports CRL
+and OCSP for revocation, and gates issuance with IAM
+policy.  It is mTLS-compatible in the ordinary sense --- a leaf it issues
+is an X.509 certificate like any other and needs nothing special from
+Lux's \field{ssl.SSLContext} configuration beyond pointing the
+verification set at its root.  This design states AWS Private CA's
+capabilities at this level deliberately; it does not pin a specific
+feature claim beyond what is stated here without independent
+verification against AWS's own current documentation before
+implementation.
+
+\textbf{Mechanism.}
+
+\begin{enumerate}
+  \item \textbf{CA creation (once, in the operator's AWS account).}  The
+    operator provisions a root, and optionally a subordinate, CA in AWS
+    Private CA under their own AWS account and billing.  Lux does not
+    create or manage this AWS resource itself --- provisioning is an
+    out-of-band AWS console/CLI/infrastructure-as-code step the operator
+    performs once, the same way Provider 1's CA creation is a local
+    script the operator runs once, just against a different substrate.
+  \item \textbf{The Display's own leaf certificate.}  The Display
+    requests a leaf certificate from AWS Private CA (SAN = the hostname
+    it presents as) via ACM Private CA issuance, and installs the issued
+    certificate for the server side of the mTLS handshake.  The code
+    path that loads a server-side leaf into \field{ssl.SSLContext} does
+    not change between providers --- only where the leaf came from does.
+  \item \textbf{Per-machine enrollment (once per additional Hub machine).}
+    On each machine that will run a Hub, the operator requests a leaf
+    certificate from AWS Private CA naming that machine's own hostname as
+    the SAN --- an ACM Private CA issuance API call, gated by whatever
+    IAM policy the operator attaches to the calling principal,
+    rather than Provider 1's offline CSR exchange with the Display.
+  \item \textbf{Result.}  Identical in shape to Provider 1's: each
+    enrolled machine holds a private key and a SAN-bound leaf, chaining
+    to one trust anchor --- here, AWS Private CA's root or intermediate
+    --- both sides already trust, exactly the material
+    \S\ref{sec:crosshost-fork} needs.
+\end{enumerate}
+
+\textbf{Revocation is the concrete capability difference.}  Provider 1
+accepts coarse, whole-CA revocation as a proportionate trade-off for a
+personal, small-N deployment (\S\ref{sec:crosshost-rejected}).  AWS
+Private CA supports proper per-certificate revocation via CRL
+and OCSP: revoking one compromised machine's leaf does not
+require regenerating the CA or re-enrolling every other machine.  This is
+not a contradiction of \S\ref{sec:crosshost-rejected}'s rejection of ``a
+live CRL/OCSP responder'' --- that entry rejects \emph{Lux running its
+own} CRL/OCSP infrastructure as disproportionate for a personal
+deployment.  Provider 2 does not ask Lux to run one; it uses AWS's
+already-running one.  That is exactly why Provider 2 is scoped to an
+adopter who already carries an AWS/IAM dependency rather than
+being the default.
+
+\textbf{Cost and dependency, stated plainly.}  AWS Private CA is
+enterprise-tier pricing --- see AWS Private CA's current pricing for
+figures this design deliberately does not pin, since they are AWS's to
+change; at the time of writing the shape is a monthly per-CA charge plus
+a per-certificate-issued charge.  It also adds an AWS account and
+IAM as a new external dependency Provider 1 has none of.  The
+trade this design states without hedging: Provider 2 buys
+IAM-gated issuance, proper revocation, and a path that scales
+cleanly to an organization with many machines and users, at the cost of
+money and an AWS dependency.  It suits an enterprise adopter, not a
+single user running Lux on a laptop and a home server --- which is why
+Provider 1 stays the default and Provider 2 stays opt-in.
+
 \subsection{Rejected Alternatives}\label{sec:crosshost-rejected}
 
 \begin{itemize}
@@ -1879,6 +2048,21 @@ event.
     because nothing silently trusts a revoked key in the meantime.
 \end{itemize}
 
+\textbf{Reconciliation: a managed private CA is not the rejected public
+CA.}  The Transport Specification table, above, rejects a \emph{public},
+domain-validated web-PKI CA (Let's Encrypt-style) for needing public DNS
+and inbound internet exposure for domain validation --- a mismatch with a
+LAN/VPN-scoped personal tool, not a judgment against managed CAs in
+general.  AWS Private CA (\S\ref{sec:crosshost-enroll-aws}) is a managed
+\emph{private} CA: its root is never installed into any browser or OS
+trust store, it needs no public DNS record and no inbound internet
+exposure, and it is trusted by Lux the same way Provider 1's self-signed
+root is --- as an explicitly-configured, non-public trust anchor.  It is
+listed here as a distinction, not a contradiction: this design still
+rejects the public/web-PKI option; it separately \emph{accepts} a managed
+private CA as an optional, non-default provider
+(\S\ref{sec:crosshost-providers}).
+
 \subsection{Invariants}\label{sec:crosshost-invariants}
 
 Stated precisely, so the implementation and its tests have a checkable
@@ -1905,6 +2089,19 @@ target:
     Nothing in this design weakens, bypasses, or shares state with the
     local socket's \texttt{0700}-permission trust boundary.
 \end{enumerate}
+
+\textbf{All four invariants hold identically under either trust-anchor
+provider} (\S\ref{sec:crosshost-providers}).  None of the four is stated
+in terms of who signed a certificate --- they are stated in terms of the
+TLS handshake, the SAN/\field{hub\_id} cross-check, and connection
+state, all of which are provider-agnostic by construction.  An
+AWS-issued leaf satisfies Invariant~1 and Invariant~3 by the identical
+verification code path a self-signed leaf does; Invariant~2's
+\texttt{HubId}-keyed preemption and Invariant~4's untouched
+\field{AF\_UNIX} boundary do not reference the certificate provider at
+all.  Only certificate \emph{provenance} and the \emph{enrollment} flow
+that produced the leaf differ between providers --- never the mechanism
+these invariants govern.
 
 \subsection{z-spec Assessment}
 
