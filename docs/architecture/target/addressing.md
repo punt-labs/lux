@@ -483,6 +483,21 @@ transport change unmodified, not merely by coincidence:
    layer up to Hubs, reusing the identical mechanism rather than a new
    one). Every other disconnect concern — per-fd scene reaping, lease
    sweep — is already fd-scoped and needs no change, on any transport.
+6. **Elision churn under connect/disconnect is an accepted trade-off, not
+   a defect.** Because ambiguity is recomputed live (see "The shared
+   helper," above), a title that was bare a moment ago can silently gain a
+   `hub ::` prefix the instant an unrelated second Hub connects, and lose
+   it again the instant that Hub disconnects — driven by an event that has
+   nothing to do with the item itself. This is a different case from the
+   renaming churn point 5 already handles (a base name being reassigned
+   between existing siblings); here, an item's own identity never
+   changes, only how much of its address is worth showing. This document
+   accepts the churn rather than mitigating it: `LuxAddress.title()` is
+   always an accurate answer for the population that exists right now, a
+   user who has learned to read it once is never shown a *wrong* title,
+   and a mitigation (a sticky prefix once ever seen, a transient
+   highlight) is real complexity purchased for a case the operator's own
+   scope note already treats as simple.
 
 ### Discovery — same-host
 
