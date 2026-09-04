@@ -81,8 +81,8 @@ Tailscale's own key exchange, a personal CA) rather than the latter
 machine lets the attacker act as *that* machine's Hub — read and write
 exactly the content the real Hub would have, until the credential is
 revoked. This is symmetric with SSH: a stolen host key compromises that
-host's identity, not the whole fleet's. Revocation is "Rejected
-alternatives," below, addresses directly: this design accepts coarse,
+host's identity, not the whole fleet's. Revocation itself is addressed
+directly in "Rejected alternatives," below: this design accepts coarse,
 whole-CA revocation as a proportionate trade-off for a personal, small-N
 deployment, and states the cost plainly rather than hiding it.
 
