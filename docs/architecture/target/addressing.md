@@ -678,10 +678,14 @@ Net-new beads this document's multi-Hub topology requires, not yet filed
 (the leader files these, per this mission's contract — listed, not
 created):
 
-1. **Hub identity on the wire.** `ConnectMessage` carries a real `HubId`
-   instead of the hardcoded `_DISPLAY_CLIENT_NAME`; `ClientRegistry`
-   constructs it from `HubId.current()`. Depends on the wire-encoding fork
-   below being ruled on first.
+1. **Hub identity on the wire.** `ConnectMessage` gains the dedicated
+   `hub_id` field specified in "Hub identity on the wire," above;
+   `ClientRegistry` constructs it from `HubId.current().wire_token`.
+   **Cross-repo coordination required before this bead closes**: vox and
+   z-spec both run Hub processes (`applets/README`, DES-063) and must add
+   `hub_id` to their own `ConnectMessage` sends in the same release window,
+   per the org's cross-repo breaking-change protocol — notify both repos'
+   agents, get explicit agreement, land together, verify end-to-end.
 2. **Per-Hub-keyed Display storage.** `FrameBook`'s scene/frame maps and
    `MenuReplica`'s callback/agent-menu tuples gain the Hub dimension —
    Multi-Hub topology, point 2, above.
@@ -699,53 +703,38 @@ created):
    `HubId` must already be attached to each stored callback menu before a
    click can be routed by it).
 
-## Open questions — need an operator ruling before implementation dispatches
+## Resolved design forks
 
-This document does not silently resolve either of these; both are real
-either/or decisions the design mission's contract does not settle.
+Round 1 of this design surfaced two either/or decisions rather than
+resolve them silently. The operator has since ruled on both
+(2026-09-04); this section is the record of what was asked, what was
+decided, and why — the design-doc equivalent of a PEP's "Rejected
+Alternatives," kept for the reader who wonders why the document reads the
+way it does rather than the other plausible way.
 
-1. **Same-host multi-Hub versus cross-host multi-Hub.** Every mechanism
-   this document specifies is same-host: the Hub-to-Display transport is
-   an `AF_UNIX` domain socket (`display/socket_server.py`), which cannot
-   be reached from a different machine — this is a transport-level fact,
-   not a policy choice. `HubId`'s hostname component reads, in the
-   originating bead notes, as though cross-host aggregation was the
-   mental model ("network-unique, no registry — makes the address
-   literally X's host:display.screen"), but the current wire cannot carry
-   a Hub's traffic across hosts at all. This document designs and
-   specifies the same-host case in full — multiple `luxd` processes on
-   one machine, one Display, which is the case the operator's "not much
-   complexity" ruling actually matches, since it needs zero transport
-   change. **Ruling needed:** is cross-host Hub aggregation in scope for
-   this epic at all, now or later? If yes, it needs a materially larger
-   follow-on design — a network transport, an authentication story beyond
-   the current same-user-localhost trust model (`transport_policy.py`
-   refuses any off-loopback bind today), and is a different mission, not
-   an extension of this one. If no (recommended, given the operator's own
-   framing of the scope as "not much complexity"), that should be stated
-   explicitly so `HubId`'s hostname component is understood as "which
-   machine, for a human reading the title" rather than "the network
-   address a second Hub connects across."
+1. **Same-host multi-Hub versus cross-host multi-Hub.** Round 1 specified
+   only the same-host case in full and recommended cross-host stay
+   explicitly out of scope, noting the transport-level fact that an
+   `AF_UNIX` socket cannot be reached from a different machine. **Ruled:
+   cross-host is in scope, now.** The operator chose this knowing it
+   needs a network transport and an authentication story beyond the
+   current same-host, filesystem-permission trust boundary — see
+   "Multi-Hub topology" and "Dependencies on the cross-host transport
+   layer," above, for how this document accommodates that without
+   redesigning the addressing model itself, which remains
+   transport-agnostic and unchanged by this ruling.
 2. **Hub identity on the wire: reuse `ConnectMessage.name`, or add a new
-   field.** `ConnectMessage` has exactly two fields today, `name: str` and
-   `kind: Literal["hub", "test"]`. Populating `name` with
-   `HubId.current().wire_token` needs no wire-protocol version bump and no
-   cross-repo coordination — every consumer of `ConnectMessage` already
-   treats `name` as an opaque display-attribution string. Adding a
-   dedicated typed field (`hub_id: str | None`) is cleaner in intent —
-   `name` keeps meaning "what a human calls this connection," a genuinely
-   separate concern from "which Hub process this is" — at the cost of a
-   wire-format bump every Hub-side writer must observe (vox and z-spec
-   both run Hub processes per `applets/README` and the DES-063 applet
-   model). This is the identical shape of tradeoff DES-067 already ruled
-   on for an analogous problem (parse a token out of an existing field
-   versus add a first-class field to `ClientIdentity`) and settled on
-   "parse from the existing field now; add the first-class field only
-   when the next real reason to bump the wire arrives." **Recommendation:**
-   follow that precedent — reuse `name`, encode `HubId.wire_token` into
-   it, parse it back where the Hub dimension is needed. **Ruling
-   needed:** confirm before `lux-whb9`/net-new bead 1 dispatch, since it
-   is a wire-format commitment other repos' Hub-running code depends on.
+   field.** Round 1 recommended reuse, following DES-067's precedent for
+   an analogous tradeoff ("parse from the existing field now; add the
+   first-class field only when the next real reason to bump the wire
+   arrives"). **Ruled: add a dedicated `hub_id` field.** The operator
+   judged that the precedent-driven minimalism traded away exactly the
+   separation this document argues for everywhere else — "what a human
+   calls this" and "which Hub process this is" are different concerns,
+   and cross-host aggregation is a second, independent reason the wire
+   needed to change regardless of which way this fork was decided. See
+   "Hub identity on the wire," above, for the field and its cross-repo
+   coordination requirement.
 
 ## Related target docs
 
@@ -754,3 +743,7 @@ either/or decisions the design mission's contract does not settle.
 - [ui-model.md](./ui-model.md)
 - [element-contract.md](./element-contract.md)
 - [introspection-api.md](./introspection-api.md)
+- [cross-host-transport.md](./cross-host-transport.md) — **forthcoming.**
+  The transport-and-trust design this document depends on (see
+  "Dependencies on the cross-host transport layer," above); not yet
+  written, `djb`'s domain, dispatched separately.
