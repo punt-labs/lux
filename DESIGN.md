@@ -6202,8 +6202,12 @@ before/after evidence.
 
 ## DES-089: Identity Is a Path — the Full Addressing Ladder, and Multi-Hub Aggregation
 
-**Status:** SETTLED (design mission m-2026-09-04-001, round 2, worker gvr,
-evaluator dna, operator ruling 2026-09-04). Full specification:
+**Status:** PROPOSED — pending operator ratification (design mission
+m-2026-09-04-001, worker gvr; two design forks within it already ruled by
+the operator on 2026-09-04, see "Resolved forks," below). This ADR is not
+SETTLED until the operator ratifies the design as a whole; a mission's
+internal evaluator sign-off is not itself ratification and is not cited
+here as though it were. Full specification:
 `docs/architecture/target/addressing.md`. This entry supersedes every
 prior citation of "DES-089" as a bead-note working title (`lux-whb9`,
 `lux-81t3`, the `FrameRef` docstring, CHANGELOG 0.32.1) — those citations
