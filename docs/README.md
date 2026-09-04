@@ -53,6 +53,8 @@ policy and ratchet enforcement live. It is not an architecture document.
 - [architecture/target/ui-model.md](./architecture/target/ui-model.md)
 - [architecture/target/element-contract.md](./architecture/target/element-contract.md)
 - [architecture/target/introspection-api.md](./architecture/target/introspection-api.md)
+- [architecture/target/addressing.md](./architecture/target/addressing.md) —
+  identity ladder and multi-Hub aggregation (DES-089)
 
 These documents describe the intended Hub-authoritative architecture.
 

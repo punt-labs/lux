@@ -7,5 +7,6 @@ These documents describe the architecture Lux is being rewritten toward.
 - [ui-model.md](./ui-model.md): authoritative UI object model
 - [element-contract.md](./element-contract.md): draft normative Element contract
 - [introspection-api.md](./introspection-api.md): verification surface
+- [addressing.md](./addressing.md): identity ladder and multi-Hub aggregation (DES-089)
 
 For the current/intermediate implementation, use [system.tex](../system.tex).
