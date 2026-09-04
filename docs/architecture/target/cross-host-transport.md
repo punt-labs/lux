@@ -487,7 +487,14 @@ own `known_hosts` model more than a corporate PKI's.
    `~/.punt-labs/lux/ca/` with the same discipline the socket directory
    already uses (`0700` directory, `0600` private key). This CA signs only
    Lux's own leaf certificates; it is not a general-purpose trust root and
-   is never installed into the OS or browser trust store.
+   is never installed into the OS or browser trust store. The private key
+   should additionally be passphrase-protected at rest, and
+   `~/.punt-labs/lux/ca/` kept out of any dotfile-sync or cloud-backup tool
+   the operator runs elsewhere on that machine — this exact user population
+   runs that kind of tooling, and syncing this design's single most
+   sensitive secret to a second location defeats the "the CA's private key
+   never leaves the Display's machine" guarantee "Rejected alternatives,"
+   below, relies on.
 2. **The Display's own leaf certificate.** The Display issues itself a leaf
    certificate (SAN = the hostname it will present as) signed by that CA,
    for the server side of the mTLS handshake.
