@@ -53,6 +53,7 @@ missions' own contracts.
 | **W11** | Preemption re-keyed onto `HubId` — **the resolved coordination point** | both documents — see below | W3 |
 | **W12** | z-spec models, invariants 1 and 2 | cross-host-transport §"z-spec assessment" | W8, W9, W11 |
 | **W13** | Threat-model regression tests (T1, T3, T4, T6) | cross-host-transport §"Threat model" | W8, W9 |
+| **W14** | Scope manifest purge to the sending Hub's own scenes | addressing §"What must change" (manifest-purge correction) | W3 |
 
 ### Dependency graph
 
@@ -61,7 +62,8 @@ W1 (prerequisite, no dependency — land first regardless of everything else)
 
 W2 ─┬─> W3 ─┬─> W5
     │       ├─> W6
-    │       └─> W11 ─┐
+    │       ├─> W11 ─┐
+    │       └─> W14  │
     │                │
     └─> W9 <─ W8 <─ W7    W12 <── W9, W11
               │
@@ -76,9 +78,21 @@ W1 has no dependency on anything else in this document and should
 land independent of both the addressing and cross-host work — it is a
 real gap in the current same-host code today, not merely a
 cross-host prerequisite. Everything else forks into two mostly-parallel
-tracks after W2: the addressing track (W3 → W4/W5/W6, feeding the
+tracks after W2: the addressing track (W3 → W4/W5/W6/W14, feeding the
 three existing beads) and the cross-host track (W7 → W8 → W9/W10/W13),
 which rejoin at **W11** and finish at **W12**.
+
+**W14** is the manifest-purge correction: `SceneReplica.scenes_to_purge`
+disowns any scene neither owned by the identifying fd nor named in the
+sending manifest — orphan-sweep logic that, unscoped, just as readily
+disowns a second, live Hub's own scenes once more than one Hub can send a
+manifest. It depends on W3 for the same reason W11 does: there is no
+`HubId` to scope the purge predicate on until per-Hub-keyed storage
+exists. It is independent of W11 (both depend on W3, but neither depends
+on the other) and carries no z-spec requirement of its own — it is a
+naming/keying discipline like the governing invariant it extends, not a
+concurrency property, and is verified by the same collision-regression
+style test as W5.
 
 ## The resolved coordination point: preemption keys on `HubId`, not `name`
 
