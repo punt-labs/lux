@@ -366,19 +366,27 @@ class of drift this repo keeps re-solving one way.
 
 ## Multi-Hub topology
 
-The operator's belief that multi-Hub support is "not much complexity" is
-correct for the case the current transport can actually support, and this
-section makes that case concrete enough to implement. It is also precise
-about the one case the transport cannot support without a larger change —
-see the open question below.
+**Operator ruling (2026-09-04): cross-host is in scope now.** One Display
+aggregates Hubs across multiple machines, not only multiple `luxd`
+processes on one host. This section covers both cases, and is precise
+about where the line between them falls: the addressing model below —
+rungs, `LuxAddress`, `AddressBook`, per-store keying — is transport-agnostic
+and applies identically whether a Hub reaches the Display over a Unix
+socket or a network socket. What is *not* transport-agnostic, and does not
+belong in this document, is how a remote Hub establishes that connection
+in the first place — that is a separate transport-and-trust design,
+introduced in "Dependencies on the cross-host transport layer," below.
 
 ### What already works, unmodified
 
-The Hub-to-Display leg is a Unix domain socket
+The Hub-to-Display leg is, today, a Unix domain socket
 (`display/socket_server.py`, `AF_UNIX`, mode `0700`) — the Display is
 already a multi-connection server, accepting an arbitrary number of client
-fds. Several pieces of the multi-Hub story are, concretely, *already built*,
-for a reason unrelated to multi-Hub:
+fds. Several pieces of the multi-Hub story are, concretely, *already
+built*, for a reason unrelated to multi-Hub, and — because every one of
+them is written against "a connection" in the abstract, not against
+`AF_UNIX` specifically — every one of them survives a same-host-to-network
+transport change unmodified, not merely by coincidence:
 
 - **Per-connection scene ownership.** `FrameBook.scene_to_owner` already
   maps `scene_id -> fd`, and `InteractionDelivery._deliver_one` already
@@ -407,8 +415,9 @@ for a reason unrelated to multi-Hub:
 
 1. **A Hub declares a real `HubId`, not a constant.** `ClientRegistry.get()`
    constructs `DisplayLink(name=_DISPLAY_CLIENT_NAME, kind="hub", ...)`
-   unconditionally; `_DISPLAY_CLIENT_NAME` becomes `HubId.current().wire_token`
-   (or an equivalent, see the wire-encoding fork below).
+   unconditionally; `_DISPLAY_CLIENT_NAME` becomes `HubId.current().wire_token`,
+   carried on the dedicated `hub_id` field — see "Hub identity on the wire,"
+   above.
 2. **Every Display-side store keyed by a Rung-2 string gains the Hub
    dimension.** `FrameBook._scene_to_frame`, `_scene_to_owner`,
    `MenuReplica._callback_menus`, `_agent_menus` — each currently a flat
@@ -439,30 +448,54 @@ for a reason unrelated to multi-Hub:
    (`display/menus/menu_click.py`) so `InteractionDelivery.deliver`
    receives an event that already names its one target fd, and drop the
    broadcast fallback entirely for menu-sourced events.
-4. **Connect needs no new logic.** A new Hub process opens a new socket
-   connection and sends its own `ConnectMessage`; the Display's existing
-   accept loop requires no change to accept it — it already accepts an
-   unbounded number of fds.
+4. **Connect, same-host: no new logic.** A new same-host Hub process opens
+   a new socket connection and sends its own `ConnectMessage`; the
+   Display's existing accept loop requires no change to accept it — it
+   already accepts an unbounded number of fds. **Connect, cross-host: out
+   of this document's scope by design** — see "Dependencies on the
+   cross-host transport layer," below. Once a remote Hub's connection is
+   established and authenticated by that layer, everything from this point
+   forward (points 1–3, 5, and the per-surface treatment) applies
+   identically; this document does not need a second version of the
+   addressing model for the cross-host case, only a second version of how
+   the connection got there.
 5. **Disconnect needs no new logic beyond dropping the departed `HubId`
    from `AddressBook`'s live set,** so a solo survivor's rung re-elides
    (the DES-064-amendment rule, "when a name is released the base it frees
    goes to the senior client still numbered against it," generalized one
    layer up to Hubs, reusing the identical mechanism rather than a new
    one). Every other disconnect concern — per-fd scene reaping, lease
-   sweep — is already fd-scoped and needs no change.
+   sweep — is already fd-scoped and needs no change, on any transport.
 
-### Discovery — deliberately none
+### Discovery — same-host
 
 Per the operator's instruction not to over-engineer this: there is no Hub
 registry, no discovery protocol, no broadcast, no new authentication
-handshake. A Hub connects to the Display's already-published Unix socket
-path exactly as it does today — `DisplayPaths.socket_path`, one
-well-known filesystem location per user. "Discovery" is unlocking the door
-that is already open: a second `luxd` process finds and connects to the
-identical socket the first one did, because nothing about the socket path
-is Hub-specific today. Nothing new needs to be built for a Hub to *find*
-the Display; the entire multi-Hub design is about what happens *after*
-that already-working connect.
+handshake, for the same-host case. A Hub connects to the Display's
+already-published Unix socket path exactly as it does today —
+`DisplayPaths.socket_path`, one well-known filesystem location per user.
+"Discovery" is unlocking the door that is already open: a second `luxd`
+process finds and connects to the identical socket the first one did,
+because nothing about the socket path is Hub-specific today. Nothing new
+needs to be built for a same-host Hub to *find* the Display; the entire
+same-host multi-Hub design is about what happens *after* that
+already-working connect.
+
+### Discovery and connection, cross-host — delegated, not designed here
+
+A remote Hub cannot reach an `AF_UNIX` socket; "connect to the same
+socket" is not a framing that survives crossing a machine boundary, and
+this document does not attempt to supply one. How a remote Hub learns the
+Display's network endpoint, how that connection is initiated, and how it
+is authenticated are questions for the companion transport-and-trust
+design named in "Dependencies on the cross-host transport layer," below —
+`djb`'s domain, dispatched separately. What this document commits to is
+narrower and is stated precisely there: once that layer hands the
+addressing layer a connection with a verified `HubId` attached, this
+document's model takes over identically to the same-host case. The
+boundary is deliberate and exact: **endpoint resolution and connection
+initiation are the transport layer's job; everything from "a connection
+with a verified identity exists" onward is this document's job.**
 
 ## Governing invariant
 
