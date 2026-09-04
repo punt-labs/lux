@@ -503,6 +503,59 @@ folded into this one under time pressure. The manual CSR-signing path above
 is deliberately the whole of what this document commits to; a convenience
 layer on top is noted as a rejected-for-now alternative below, not a gap.
 
+### Certificate lifetime, expiry, and rotation
+
+**Validity periods.** The CA's self-signed root certificate is issued
+with a long validity (10 years) — it is regenerated only on a full
+re-enrollment event ("Rejected alternatives," below), not on a
+schedule, so a short CA lifetime would just force premature,
+unmotivated re-enrollment of every machine. Each leaf certificate (the
+Display's own and every enrolled Hub's) is issued with a much shorter
+validity (1 year), matching the general TLS-ecosystem posture that a
+short-lived leaf bounds the damage window of a leaked leaf key without
+adding the operational cost of a leaked CA key — one leaf expiring
+touches one machine; the CA does not need to be short-lived to get
+that benefit, because it is never the credential presented on the wire
+(only leaves are).
+
+**The operator-facing failure mode today: silent and indistinguishable
+from network failure.** An expired leaf fails the TLS handshake with a
+certificate-verification error (`ssl.SSLCertVerificationError`,
+`certificate has expired`) on both sides — this is correct,
+fail-closed behavior per "Invariants," below, and no different in kind
+from any other handshake rejection. What is *not* yet solved is
+diagnosis: `DisplayLink`'s reconnect loop treats every connection
+failure alike, so an expired leaf looks identical to "Display
+unreachable," "network partition," or "wrong endpoint configured" —
+the Hub retries forever, and the operator has no signal pointing at
+"your certificate expired, re-enroll" specifically. This document
+requires that the implementation close that diagnosability gap, not
+the security gap (there is none — expiry already fails closed): the
+Display's server-side log must record the specific rejection reason
+(never surfaced to an unauthenticated peer, per the error-message
+discipline threat modeling already implies — revealing "expired" versus
+"wrong CA" versus "bad SAN" to an unauthenticated network peer would
+be an oracle), and the Hub-side `DisplayLink` client, which *does* hold
+a legitimate identity and is not an adversary, should surface a
+distinct, actionable message ("certificate expired — re-enroll this
+machine") rather than a generic connection-failure retry loop.
+
+**The explicit trade-off, stated rather than left silent.** Exactly as
+"Rejected alternatives" states plainly for CRL/OCSP below: there is no
+automatic renewal in this design. A leaf's expiry is a fully manual
+event — the operator re-runs the same CSR-signing enrollment flow
+described in "Mechanism," above, for the one affected machine. For a
+handful of personally-owned machines, a yearly manual touch per
+machine is a proportionate cost; an automatic-renewal protocol would be
+new standing machinery (a renewal endpoint, a renewal credential, a
+second thing that can be attacked) to save an operation this document
+already keeps deliberately rare and manual for every other lifecycle
+event (initial enrollment, revocation). The cost is bounded and
+foreseeable, not a hidden footgun: an expiring leaf gives ample advance
+warning in practice (the certificate's own `notAfter` field), and nothing
+about this document prevents an operator from checking it proactively
+before the reconnect loop ever has to discover it the hard way.
+
 ### Rejected alternatives
 
 **Distribute the CA's private key to every machine.** Simpler than CSR
