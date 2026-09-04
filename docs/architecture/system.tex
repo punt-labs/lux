@@ -1475,9 +1475,11 @@ machine.
 
 \S\ref{sec:addressing-types} flags, without resolving, whether
 \field{HubId.hostname} stays a transport-verified network name (option
-\textbf{a}) or becomes a cosmetic label beside a new opaque uniqueness key
-(option \textbf{b}).  \textbf{Decision: option (a).}  \texttt{HubId} keeps
-exactly the two fields already specified --- no third field.
+\textbf{a}) or becomes a cosmetic label beside a new opaque, transport-assigned
+uniqueness key --- a certificate identity, an mTLS SPIFFE-style id, a
+connection-scoped token (option \textbf{b}).  \textbf{Decision: option
+(a).}  \texttt{HubId} keeps exactly the two fields already specified ---
+no third field.
 
 The real question is not which option is more defensive, it is what
 ``verified'' means if the transport authenticates the connection but not
