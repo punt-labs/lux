@@ -1889,7 +1889,7 @@ deadline pattern rather than inventing a new one:
     arrived, is the connection's content accepted and its \texttt{HubId}
     entered into \texttt{AddressBook}'s live set.  A connection sits
     between the two gates --- readable, but not yet content-trusted --- for
-    exactly the span of the five-step connect sequence below; no
+    exactly the span of the connect sequence below; no
     \msg{SceneMessage} or other content-bearing message is honored from it
     until Gate 2 passes (Invariant 1, \S\ref{sec:crosshost-invariants}).
 \end{enumerate}
@@ -1970,7 +1970,7 @@ accepting a read-only backdoor whose entire safety argument does not carry
 across a network (T6).
 
 \textbf{Reconnect.}  A dropped TCP connection (network blip, process
-restart) reconnects through the identical five-step sequence above.
+restart) reconnects through the identical connect sequence above.
 \field{hostname} is stable across any reconnect, including a full process
 restart, because the enrolled certificate lives on disk on the Hub's
 machine and does not change between runs.  \field{pid} does not survive a
@@ -2302,7 +2302,7 @@ a same-host Hub already has.
 
 This design satisfies, point for point, the five requirements
 \S\ref{sec:addressing} states for the cross-host transport layer:
-authenticate before content (Invariants, above, and the five-step connect
+authenticate before content (Invariants, above, and the connect
 sequence); the addressing layer performs no authentication of its own and
 trusts \texttt{HubId} once delivered; \texttt{HubId} stability across
 reconnects (the hostname-stable/pid-unstable distinction, stated
