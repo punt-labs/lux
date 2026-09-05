@@ -6202,7 +6202,7 @@ before/after evidence.
 
 ## DES-089: Identity Is a Path — the Full Addressing Ladder, and Multi-Hub Aggregation
 
-**Status:** PROPOSED — pending operator ratification (design mission
+**Status:** ACCEPTED — ratified by the operator 2026-09-05 (design mission
 m-2026-09-04-001, worker gvr; two design forks within it already ruled by
 the operator on 2026-09-04, see "Resolved forks," below). This ADR is not
 SETTLED until the operator ratifies the design as a whole; a mission's
@@ -6441,7 +6441,7 @@ domain.
 
 ## DES-090: Cross-Host Hub-to-Display Transport and Trust — mTLS Against a Pluggable Trust Anchor
 
-**Status:** PROPOSED — pending operator ratification (design mission
+**Status:** ACCEPTED — ratified by the operator 2026-09-05 (design mission
 m-2026-09-04-003, worker djb). Companion to DES-089, above, whose source
 draft states the five-point contract this design satisfies in its
 "Dependencies on the cross-host transport layer" section. Full

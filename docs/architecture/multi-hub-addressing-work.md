@@ -2,10 +2,9 @@
 
 **Status:** implementation plan for DES-089 (Identity Is a Path) and
 DES-090 (Cross-Host Hub-to-Display Transport and Trust), both
-`DESIGN.md`, both **Status: PROPOSED — pending operator ratification**.
-Do not dispatch any bead below until the operator has ratified the
-design as a whole; an evaluator's mission-internal sign-off is not
-itself ratification (`DESIGN.md`'s own language for both entries).
+`DESIGN.md`, both **ACCEPTED — ratified by the operator 2026-09-05**.
+The beads below are cleared for filing and dispatch; the build order is
+the leader's to own.
 
 This is the bead map and dependency order an implementer builds from.
 It is not a second architecture document — for the "why," read
@@ -260,6 +259,6 @@ epic.
 - `docs/architecture/system.tex` §"Identity, Addressing, and Multi-Hub
   Topology" and §"Cross-Host Transport and Trust" — the architecture
   this plan implements.
-- `DESIGN.md` — DES-089, DES-090 (decision record, both PROPOSED).
+- `DESIGN.md` — DES-089, DES-090 (decision record, both ACCEPTED 2026-09-05).
 - `docs/architecture/target/topology.md`, `ui-model.md`, `target.md` —
   the broader target-architecture context these two designs sit inside.
