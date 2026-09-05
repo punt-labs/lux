@@ -41,7 +41,7 @@ missions' own contracts.
 | ID | Bead | Source | Depends on |
 |---|---|---|---|
 | **W1** | Close the pre-identification content gap | cross-host-transport §"A finding against the current same-host code" | none — prerequisite, ships first |
-| **W2** | Hub identity on the wire (`hub_id` field + `HubId` value type) | addressing §"Hub identity on the wire" | none |
+| **W2** | Hub identity on the wire (required `hub_id` field, populated by every connecting `kind` including `test`, + `HubId` value type) | addressing §"Hub identity on the wire" | none |
 | **W3** | Per-Hub-keyed Display storage | addressing §"What must change," point 2 | W2 |
 | **W4** | `AddressBook` component | addressing §"Every aggregated surface, uniformly" | W2 |
 | **W5** | Scene storage collision regression test | addressing §"Governing invariant" | W3 |
@@ -212,12 +212,27 @@ track, including the optional AWS Private CA provider) add no
 `hub_id` field is a same-host wire change first; cross-host is what makes
 verifying it matter, not what makes adding it necessary.
 
+**`hub_id` is required, not optional, on every connecting `kind`** —
+including `kind="test"`, which carries a stub `HubId` rather than
+omitting the field (operator ruling, 2026-09-05; `system.tex` §"Hub
+identity on the wire"). This raises the lockstep bar rather than lowering
+it: because the field is required, a sender that has not yet adopted
+`hub_id` will fail at `ConnectMessage` **decode**, not at some later
+validation check, the moment W2 lands here. That is the intended
+consequence of the ordinary cross-repo breaking-change protocol applied
+to a required field, not a new risk this ruling introduces — it is exactly
+why the sequencing below lands all three repos together rather than
+allowing this repo's decoder to move ahead of its callers.
+
 **Sequencing:** before W2 merges in this repo, notify the vox and
 z-spec agents, get their explicit agreement on the field shape (a
-plain `str` carrying `HubId.wire_token`, optional, present only for
-`kind="hub"` — see `system.tex` §"Hub identity on the wire"), land the
+plain, required `str` carrying `HubId.wire_token`, populated by every
+`kind` — a real Hub's own token for `kind="hub"`, a stub token for
+`kind="test"` — see `system.tex` §"Hub identity on the wire"), land the
 three repos' changes together, and verify end-to-end before any of the
-three releases.
+three releases. Landing this repo's change first, ahead of vox or
+z-spec adopting `hub_id`, is not a soft failure to catch later — it is a
+hard decode failure on the very next connection either makes.
 
 ## Prerequisite bead detail (W1)
 

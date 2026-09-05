@@ -6390,6 +6390,36 @@ transport-verified network name, or becomes a cosmetic label beside a new
 opaque transport-assigned uniqueness key.  DES-090, below, resolves it
 (option a: transport-verified).
 
+**Correction (operator ruling, 2026-09-05): `hub_id` is required, not
+`Optional[str]`.** Round 2 (immediately above) shipped `hub_id` as
+`str | None`, present for `kind="hub"` and absent for `kind="test"`, with
+every `HubId`-keyed store hard-failing at runtime if a `kind="hub"`
+connection omitted it. The operator's correction: a `kind="test"`
+connection is a stand-in for a Hub on the Hub↔Display leg — same accept
+path, same `ConnectMessage` exchange, same `AddressBook` bookkeeping — so
+it should present a `HubId` exactly as a real Hub does, via a stub token,
+rather than decline to. Once every connecting `kind` populates `hub_id`,
+no connection on that socket legitimately lacks one, so both the
+`Optional` and the runtime discriminated hard-fail behind it are
+withdrawn; `hub_id` becomes a plain required `str` field on the one
+`ConnectMessage` class. This **retires**, rather than defers, the
+standing finding that the `Optional[str]` was a discriminated state
+substituting for a type the design had not yet given it (Rule 5 of the OO
+standard): the corrected shape has no discriminated behavior left for a
+`HubConnectMessage`/`TestConnectMessage` split to earn — every kind now
+carries an identical required-field set, and `kind` remains a plain
+`Literal` tag governing only its one existing job
+(`reject_scene_if_test_kind`), orthogonal to identity. The one honest
+residual: an un-adopted external sender (a pre-`W2` vox or z-spec process)
+omitting `hub_id` now fails at *decode* rather than at a post-decode
+validation check — acceptable, and preferable, because `W2` is already a
+lockstep cross-repo change (notify, agree, land together, verify
+end-to-end, release together, per the org's breaking-change protocol), a
+Hub connection missing `hub_id` was already invalid under this design
+either way, and failing loudly at decode beats decoding successfully and
+silently degrading. Full rationale: `system.tex` §"Hub Identity on the
+Wire"; cross-repo sequencing: the increment-of-work document.
+
 **Implementation map.** `lux-whb9` (hidden id, menus), `lux-pgkp` (visible
 title, frames and menus), and `lux-kob7` (TreeNode id + selection, must
 land Rung-3-ready) become children of this one ratified design. Net-new
