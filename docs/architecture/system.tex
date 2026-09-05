@@ -619,9 +619,10 @@ registry without touching the module default.
 \msg{ClearMessage}  & Remove scenes and reset state. \\
 \msg{PingMessage}   & Heartbeat.  Field: \field{ts}. \\
 \msg{ConnectMessage} & Client identity handshake.  Fields: \field{name},
-  \field{kind} (\texttt{"hub"} or \texttt{"test"}).  A dedicated
-  \field{hub\_id} field is designed but not yet shipped --- Section
-  \S\ref{sec:addressing}. \\
+  \field{kind} (\texttt{"hub"} or \texttt{"test"}).  A dedicated,
+  \emph{required} \field{hub\_id} field --- populated by every connecting
+  kind, including \texttt{"test"} --- is designed but not yet shipped ---
+  Section \S\ref{sec:addressing}. \\
 \msg{MenuMessage}   & Set the menu bar. \\
 \msg{RegisterMenuMessage} & Register per-connection menu items. \\
 \msg{ThemeMessage}  & Apply a theme by name. \\
@@ -1128,48 +1129,86 @@ narrower meaning --- ``what a human calls this connection,'' the string a
 frame title or a menu already attributes content to --- and does not also
 carry the Hub's own machine-and-process identity.
 
+\textbf{Second ruling (2026-09-05): \field{hub\_id} is required, every
+connecting kind populates it, and the earlier \texttt{Optional} is
+withdrawn.}  The first round of this field made \field{hub\_id} an
+\texttt{Optional[str]}: present for \texttt{kind="hub"}, absent for
+\texttt{kind="test"}, with a runtime hard-fail standing in at every
+Display-side store for the type-level guarantee the \texttt{Optional}
+declined to make.  The operator's correction: a \texttt{kind="test"}
+connection is a stand-in for a Hub on this leg --- it runs the identical
+accept path, the identical \msg{ReadyMessage}/\msg{ConnectMessage}
+exchange, and the identical eventual \texttt{AddressBook} bookkeeping a
+real Hub does --- so it should present a \texttt{HubId} exactly as a real
+Hub does, not decline to.  A \emph{stub} \texttt{HubId} (a synthetic
+localhost/test token, built the same way \S\ref{sec:addressing-types}
+already builds a real one) satisfies the identical contract.  Once every
+connecting \field{kind} populates \field{hub\_id}, there is no connection
+on this socket that legitimately lacks one, and both the \texttt{Optional}
+and the runtime discriminated check that used to stand behind it go away:
+
 \begin{lstlisting}
 @dataclass(frozen=True, slots=True)
 class ConnectMessage:
     """Client identifies itself to the display server.  ``name`` is
     display attribution -- unchanged, still the string frame titles
-    and menu namespaces read.  ``hub_id`` is a separate concern: a
-    kind="hub" connection's own HubId.wire_token, absent for
-    kind="test" connections because a test backdoor is not a real Hub
-    and has no HubId to declare."""
+    and menu namespaces read.  ``hub_id`` is a separate concern: this
+    connection's own HubId.wire_token.  Every kind populates it,
+    including "test" -- a test connection is a stand-in for a Hub on
+    this leg and carries a stub HubId, never an absence of one."""
     name: str
     kind: Literal["hub", "test"]
-    hub_id: str | None = None  # absent for "test"; HubId.wire_token for "hub"
+    hub_id: str
     type: Literal["connect"] = "connect"
 \end{lstlisting}
 
-\field{hub\_id}'s presence is fully determined by \field{kind} --- a case
-Rule 5 of the OO standard (\path{punt-labs/.claude/rules}) would ordinarily
-ask a discriminated type to replace.  This design keeps the plain
-\texttt{Optional} as a deliberate, scoped exception rather than splitting
-\msg{ConnectMessage} into \texttt{HubConnectMessage}/\texttt{TestConnectMessage}:
-\field{kind}'s discriminating role is already load-bearing today, and a
-full message-type split is materially larger than the single-field
-addition this section otherwise commits to.  The split is noted as an
-explicit follow-on if \field{kind}'s branching grows beyond this one
-field.
+\field{kind} keeps exactly its existing, narrower job ---
+\field{reject\_scene\_if\_test\_kind} still rejects test-origin content ---
+and nothing else.  Identity and that one behavioral gate are orthogonal:
+\field{hub\_id} no longer varies by \field{kind} at all, so there is no
+discriminated shape left for \field{kind} to encode.  \textbf{This retires,
+rather than defers, the earlier finding that the \texttt{Optional[str]}
+was a discriminated state standing in for a type the design had not yet
+given it} (Rule 5 of the OO standard, \path{punt-labs/.claude/rules}).  The
+fix is not a \texttt{HubConnectMessage}/\texttt{TestConnectMessage} split
+held in reserve as a follow-on: a message-type split earns its keep only
+when the variants' \emph{required fields} genuinely differ, and after this
+change they do not --- every connecting kind carries the identical field
+set, and \field{kind} is a plain \texttt{Literal} tag selecting later
+behavior, exactly the ordinary case a \texttt{Literal} field exists for.
+Splitting the message here would buy two classes serializing an identical
+shape, for no discriminated behavior gained.  The smell Rule 5 warns
+against is not the presence of a \field{kind} field; it is a field whose
+\emph{meaning} silently changes what else is required or permitted.  With
+\field{hub\_id} required across the board, \field{kind} no longer has that
+shape, so a single \msg{ConnectMessage} is the cleaner --- and now the
+only motivated --- expression.
 
-Wire compatibility and multi-Hub correctness are not the same question.
-\msg{ConnectMessage.from\_dict} treats \field{hub\_id} as optional, so an
-old sender's dict still decodes without error --- no
-\field{PROTOCOL\_VERSION} bump forced by the shape of the change alone.
-But a real \texttt{kind="hub"} connection that omits \field{hub\_id} cannot
-be safely disambiguated at Rung 3, so every Display-side store keyed by
-\texttt{HubId} must treat a missing \field{hub\_id} on a \texttt{kind="hub"}
-connection as a hard error, never a silent single-Hub fallback ---
-silently tolerating it would resurrect the exact ``collision passes
-unnoticed'' failure mode this design closes.
-
-This is a cross-repo commitment.  Vox and z-spec both run their own Hub
-connections (DES-063's applet model) and must add \field{hub\_id} to the
-\msg{ConnectMessage} they send, in lockstep with this change landing here,
-per the org's cross-repo breaking-change protocol.  See the
-increment-of-work document for the coordination sequence.
+Wire compatibility and multi-Hub correctness are not the same question,
+and making \field{hub\_id} required at the type level moves the failure
+mode earlier rather than removing it.  A sender's dict that omits
+\field{hub\_id} now fails at \emph{decode} ---
+\msg{ConnectMessage.from\_dict} raises constructing the dataclass ---
+rather than decoding successfully and being caught by a separate runtime
+check.  This is the one honest residual of this design, and it is
+acceptable, in fact preferable: an un-adopted external sender (a
+pre-\texttt{W2} vox or z-spec process that has not yet added \field{hub\_id}
+to the \msg{ConnectMessage} it sends) fails loudly at connect time once
+this change lands, rather than decoding and then silently degrading.  A
+Hub connection missing \field{hub\_id} was already invalid under this
+design before this ruling --- only the \emph{point} at which it is caught
+moves, from a validation check after decode to the decode itself.  Failing
+loudly with a message that amounts to ``adopt \field{hub\_id}'' is a
+clearer signal than decoding successfully and failing a validation check
+three lines later, and there is no silent-degradation path being traded
+away to get it.  \field{hub\_id}'s adoption was never going to be a change
+one repo rolls out ahead of the others regardless of this ruling: vox and
+z-spec both run their own Hub connections (DES-063's applet model) and
+must add \field{hub\_id} to the \msg{ConnectMessage} they send in lockstep
+with this change landing here, per the org's cross-repo breaking-change
+protocol (notify, agree, land together, verify end-to-end, release
+together).  See the increment-of-work document for the coordination
+sequence.
 
 \subsection{Every Aggregated Surface, Uniformly}
 
