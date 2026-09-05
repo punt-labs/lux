@@ -618,11 +618,11 @@ registry without touching the module default.
   \field{patches[]} (each: \field{id}, \field{set}, \field{remove}). \\
 \msg{ClearMessage}  & Remove scenes and reset state. \\
 \msg{PingMessage}   & Heartbeat.  Field: \field{ts}. \\
-\msg{ConnectMessage} & Client identity handshake.  Fields: \field{name},
-  \field{kind} (\texttt{"hub"} or \texttt{"test"}).  A dedicated,
-  \emph{required} \field{hub\_id} field --- populated by every connecting
-  kind, including \texttt{"test"} --- is designed but not yet shipped ---
-  Section \S\ref{sec:addressing}. \\
+\msg{ConnectMessage} & Client identity handshake.  \textbf{Current fields:}
+  \field{name}, \field{kind} (\texttt{"hub"} or \texttt{"test"}).
+  \textbf{Designed, not yet shipped:} a dedicated, required
+  \field{hub\_id} field, populated by every connecting kind including
+  \texttt{"test"} --- Section \S\ref{sec:addressing}. \\
 \msg{MenuMessage}   & Set the menu bar. \\
 \msg{RegisterMenuMessage} & Register per-connection menu items. \\
 \msg{ThemeMessage}  & Apply a theme by name. \\
@@ -1872,7 +1872,7 @@ deadline pattern rather than inventing a new one:
     handshake is verified complete.  Record a deadline (a small constant,
     on the order of a few seconds) alongside the pending entry.
   \item Each frame, the accept path calls \field{do\_handshake()} once per
-    pending connection.  \field{ssl.SSLWantReadError}/\field{SSLWantWriteError}
+    pending connection.  \field{ssl.SSLWantReadError}/\field{ssl.SSLWantWriteError}
     are the expected non-blocking retry signals; any other
     \field{ssl.SSLError} (untrusted CA, bad cert, protocol failure) closes
     the socket and drops it immediately.
