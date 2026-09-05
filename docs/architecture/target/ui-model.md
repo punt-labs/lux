@@ -242,3 +242,13 @@ alternatives are [DES-039](../../../DESIGN.md).
 - View logic (built-in, may be automatic) is distinct from business logic
   (agent-wired); a missing business handler surfaces as a validation error,
   not a silent no-op.
+
+## Related Target Docs
+
+- [target.md](./target.md)
+- [topology.md](./topology.md)
+- [element-contract.md](./element-contract.md)
+- [introspection-api.md](./introspection-api.md)
+- [../system.tex](../system.tex) §"Identity, Addressing, and Multi-Hub
+  Topology" and §"Cross-Host Transport and Trust" — identity ladder,
+  multi-Hub aggregation, and cross-host transport/trust (DES-089, DES-090)

@@ -6199,3 +6199,448 @@ the guardrail exists to produce.
 producer. Future perf work in the epic (or any successor) is expected
 to update the docstring numbers in `test_scale_budget.py` as its
 before/after evidence.
+
+## DES-089: Identity Is a Path — the Full Addressing Ladder, and Multi-Hub Aggregation
+
+**Status:** ACCEPTED — ratified by the operator 2026-09-05 (design mission
+m-2026-09-04-001, worker gvr; two design forks within it already ruled by
+the operator on 2026-09-04, see "Resolved forks," below). The mission's
+internal evaluator sign-off preceded this and was not itself ratification;
+the operator's own ratification of the design as a whole, above, is what
+settles this ADR. Full specification: the architecture lives in
+`docs/architecture/system.tex` §"Identity, Addressing, and Multi-Hub
+Topology"; the implementation plan lives in
+`docs/architecture/multi-hub-addressing-work.md`. (The original design
+draft was drafted at `docs/architecture/target/addressing.md` and is now
+archived at `docs/archive/addressing.md` — its content was restructured
+into those two documents per operator direction, 2026-09-04.) This entry supersedes
+every prior citation of "DES-089" as a bead-note working title (`lux-whb9`,
+`lux-81t3`, the `FrameRef` docstring, CHANGELOG 0.32.1) — those citations
+pointed at a name with no design behind it; this entry and its linked
+document are that design. Round 1's addressing model (identity is a path,
+the three rungs, the value types, per-surface treatment) stands unchanged;
+round 2 folds in two operator rulings that expand scope — cross-host
+aggregation and a dedicated `hub_id` wire field — without altering it.
+
+**Problem.** The Display aggregates content it did not produce, from a Hub
+that may itself aggregate many agents — and, per the operator's ruling,
+may itself be more than one Hub. Two failures follow when a lower layer's
+identity is used unqualified at a higher layer that can see more than one
+of it: a *visible* one (Dear ImGui's "conflicting ID" when two widgets
+share a label — `lux-whb9`) and a *silent* one, already shipped and fixed
+once at the layer below this: DES-086 found that `HubDisplay` stored every
+scene under the bare string a client submitted, so two connections
+choosing the same `scene_id` silently clobbered one another. The Display's
+own storage (`FrameBook._scene_to_frame`/`_scene_to_owner`,
+`MenuReplica._callback_menus`) has the identical shape of bug today,
+because `ConnectionId` (`connection_identity.py`) is a hash computed
+independently per Hub process, with no cross-Hub coordination — two
+different Hubs can mint the identical id for two different real clients.
+The operator, asked whether the `lux-whb9` menu-identity bug was "the whole
+addressing solution," ruled it was not, and directed that the complete
+model — including first-class support for 1..n Hubs per Display, not a
+reserved-and-deferred dimension — be designed once, correctly, before any
+of the scattered beads under it dispatch.
+
+**Decision.** Identity is a path, composed top-down by the layer that can
+see ambiguity, never bottom-up by concatenating a string. Three rungs:
+
+1. **Rung 1 — producer label.** Unscoped; an applet's `register_callback`
+   label, a caller's `scene_id`. Freely reused by every producer.
+2. **Rung 2 — Hub-connection scope.** Unique within one Hub's own
+   registry, not globally. Already shipped, in two mechanisms sharing one
+   shape: `ConnectionScopedId` (scenes/frames, DES-086) and
+   `CallbackInvocation` (menu leaves, DES-058) — both
+   `{connection_id}\x1f{local_id}`.
+3. **Rung 3 — Hub-of-origin scope.** Unique across every Hub connection
+   the Display currently holds. Does not exist in code; this design adds
+   it. Carried by a new composed value type, `LuxAddress` (three `Rung`
+   values: hub, connection, leaf), never round-tripped over the wire —
+   Display-side bookkeeping only. `HubId` (FQDN hostname + pid, mirroring
+   `AppletIdentity`'s own `#{session_pid}` disambiguation precedent,
+   DES-067) is a Hub connection's own stable identity — `hostname`
+   disambiguates machines, `pid` disambiguates same-host duplicates.
+
+Every surface the Display aggregates — menus, frames/windows, scenes, and
+(once `lux-kob7` lands) tree nodes — renders the same two things from one
+`LuxAddress`: a **hidden** ImGui id (`LuxAddress.hidden_id`, joining every
+rung's key — never a label, never a bare Rung-2 id alone) and a **visible**
+title (`LuxAddress.title(...)`, hostname-anchored, a rung elided the
+moment it is unambiguous: `"Vox"` when solo, `"lux (2) :: Vox"` under one
+ambiguous Hub, `"pembroke :: lux (2) :: Vox"` under two). A single
+Display-side `AddressBook` component computes rung ambiguity once per
+frame/menu build and is the one construction path every leaf renderer
+must use — mirroring DES-059's "one `MenuModel`, two projections" shape:
+one source of truth, not a second one to drift.
+
+**Multi-Hub topology — transport-agnostic model, same-host built now,
+cross-host delegated to a companion design.** The addressing model itself
+(rungs, `LuxAddress`, `AddressBook`, the per-surface treatment, the
+invariant) applies identically whether a Hub reaches the Display over a
+Unix socket or a network socket — nothing in it assumes `AF_UNIX`. The
+Hub-to-Display leg is, today, an `AF_UNIX` domain socket accepting an
+unbounded number of connections, and one piece of the multi-Hub story is
+already built for an unrelated reason (DES-068's reconnect/purge story)
+and survives a transport change unmodified because it was already written
+against "a connection" in the abstract: per-connection scene ownership
+(`FrameBook.scene_to_owner`, already fd-scoped). **Two adjacent
+mechanisms read as multi-Hub-safe for the same reason but are not, and
+both are required changes, not properties the current code already
+has.** `SceneReplica.scenes_to_purge` disowns any scene that is neither
+owned by the identifying fd nor named in the sending manifest — a rule
+written to sweep an orphaned scene left behind by a *prior* connection's
+death, since that orphan's owner is never the identifying fd either.
+Under real multi-Hub the identical predicate just as readily disowns a
+*second, live* Hub's own scenes, since Hub B's manifest names only Hub
+B's scenes and every scene Hub A owns meets the identical purge
+condition from Hub B's manifest's point of view — a cross-Hub data-loss
+hazard, not the orphan-sweep it was written for; the fix scopes the
+purge predicate by the sending Hub's own `HubId` (`W14`, below).
+Preemption is keyed by *declared name*, not by "the" Hub
+(`SocketListener.hub_fd_for(name)` already evicts only a connection
+sharing the *identical* declared identity — it reads as singleton today
+only because every Hub process declares the identical hardcoded constant,
+`_DISPLAY_CLIENT_NAME = "lux-mcp"`); once real, distinct `HubId`s exist,
+name-keyed preemption is unsafe, and it must be re-keyed onto `HubId`
+(see "Resolved forks," below, and DES-090's own coordination point).
+What changes for same-host, no transport work required: (1) a Hub
+declares a real `HubId` instead of that constant, carried on
+`ConnectMessage`'s dedicated `hub_id` field (see below); (2) every
+Display-side store currently keyed by a bare Rung-2 string is replaced by
+a `HubScopedStore` keyed by `HubScopedKey` (`hub: HubId`, `local: str`) —
+a typed class, not a dict, that owns its own put/get, per-Hub
+enumeration, and per-Hub purge/drop (`system.tex`
+§"Aggregated Storage: `HubScopedStore`"); (3) `InteractionDelivery`'s
+scene-less broadcast fallback —
+which today sends every menu-bar click to every connected client on the
+documented assumption that exactly one Hub is listening — is retired in
+favor of routing by the originating `HubId`, since a stray broadcast to a
+second Hub is a real misrouting risk once two Hubs' `connection_id`
+spaces can collide, not merely wasted work; (4) `HubManifestMessage`
+handling is corrected to purge only the sending Hub's own
+previously-owned-but-now-absent scenes, never another live Hub's, by
+scoping the purge predicate on the sender's `HubId` rather than fd/owner
+alone (`W14`, depends on (2)'s per-Hub-keyed storage). Connect
+and disconnect need no new mechanism for same-host — the accept loop and
+per-fd cleanup already generalize; discovery is deliberately nothing new
+there, a second `luxd` connects to the identical, already-published Unix
+socket path the first one did. **Cross-host connection establishment —
+how a remote Hub finds the Display's network endpoint, initiates the
+connection, and is authenticated — is explicitly out of this design's
+scope**, delegated to a companion transport-and-trust design, DES-090
+below (`djb`'s domain; original draft archived at
+`docs/archive/cross-host-transport.md`, restructured into
+`docs/architecture/system.tex` §"Cross-Host Transport and Trust" and
+`docs/architecture/multi-hub-addressing-work.md`). What that layer must
+supply — a connection with an authenticated, reconnect-stable `HubId`
+delivered before any content is accepted — is stated precisely in
+`docs/architecture/system.tex` §"Reconciliation with Existing Design"
+under §"Cross-Host Transport and Trust" (originally drafted in the
+now-archived `cross-host-transport.md`'s own "Dependencies on the
+cross-host transport layer" section), so the two designs compose without
+overlap.
+
+**Governing invariant.** For any item the Display renders as part of a
+collection it aggregates, that item's storage key and its ImGui widget id
+both derive from its full `LuxAddress`, never from a bare human label nor
+from a Rung-2-or-lower id alone, once more than one Hub can contribute to
+that collection. Structural, not behavioral — checkable as a type
+discipline once `HubScopedKey` is the actual key type of every aggregated
+store, composed inside a `HubScopedStore` rather than passed around as a
+bare `dict` — plus one collision-regression test (two Hubs independently
+producing an identical Rung-2 string must land as two distinct entries,
+never one clobbering the other). Not a z-spec candidate: no shared
+mutable resource, no interleaving, no lock discipline — a naming/keying
+convention, not a concurrency property.
+
+**Reconciliation.** DES-088 (visibility) is orthogonal — content identity
+versus paint state, no overlap. DES-064/DES-067 (Clients-menu grouping and
+`(n)` numbering) are *reused*, not superseded: the identical
+collision-numbering algorithm applies one rung higher, to Hub-of-origin
+collisions on one host, rather than being reinvented. DES-086
+(`ConnectionScopedId`) is unchanged — Rung 2 keeps its own
+"collision-unrepresentable" property exactly as shipped; this design
+extends the identical discipline one layer up. DES-058
+(`CallbackInvocation`) is unchanged and wrapped, not altered. `FrameRef`
+(`lux-81t3.2`, introduced `bec389c3`) was a call-site ergonomic bundling of
+Rung 2 for the now-removed client-facing `raise_frame` (deleted in PR #446
+under DES-088); it carried no rung this design does not already have in
+`ConnectionScopedId`, no longer exists in the tree, and this design does
+not revive it.
+
+**Resolved forks (operator ruling, 2026-09-04).** Round 1 of this design
+left two either/or decisions open rather than resolve them silently. Both
+are now ruled:
+
+1. **Same-host versus cross-host multi-Hub.** Round 1 recommended
+   same-host only, cross-host deferred. **Ruled: cross-host is in scope
+   now** — the operator chose this knowing it needs a network transport
+   and an authentication story beyond the current same-host trust
+   boundary (`transport_policy.py`'s off-loopback refusal governs only
+   luxd's separate MCP/REST leg, not the Hub-to-Display leg, which has no
+   analogous policy today). The addressing model itself is unchanged by
+   this ruling — see "Multi-Hub topology," above.
+2. **`ConnectMessage` wire encoding for `HubId`.** Round 1 recommended
+   reusing `name`, following DES-067's precedent for an analogous
+   tradeoff. **Ruled: add a dedicated `hub_id` field** — the operator
+   judged the precedent-driven reuse traded away the separation this
+   design argues for elsewhere ("what a human calls this" versus "which
+   Hub process this is"), and cross-host was a second, independent reason
+   the wire needed to change regardless. This is a **cross-repo
+   commitment**: vox and z-spec both run Hub processes and must adopt the
+   field in the same release window, per the org's cross-repo
+   breaking-change protocol.
+
+The original design draft also flagged, without resolving, one genuine new
+fork the cross-host ruling surfaces: whether `HubId.hostname` stays a
+transport-verified network name, or becomes a cosmetic label beside a new
+opaque transport-assigned uniqueness key.  DES-090, below, resolves it
+(option a: transport-verified).
+
+**Correction (operator ruling, 2026-09-05): `hub_id` is required, not
+`Optional[str]`.** Round 2 (immediately above) shipped `hub_id` as
+`str | None`, present for `kind="hub"` and absent for `kind="test"`, with
+every `HubId`-keyed store hard-failing at runtime if a `kind="hub"`
+connection omitted it. The operator's correction: a `kind="test"`
+connection is a stand-in for a Hub on the Hub↔Display leg — same accept
+path, same `ConnectMessage` exchange, same `AddressBook` bookkeeping — so
+it should present a `HubId` exactly as a real Hub does, via a stub token,
+rather than decline to. Once every connecting `kind` populates `hub_id`,
+no connection on that socket legitimately lacks one, so both the
+`Optional` and the runtime discriminated hard-fail behind it are
+withdrawn; `hub_id` becomes a plain required `str` field on the one
+`ConnectMessage` class. This **retires**, rather than defers, the
+standing finding that the `Optional[str]` was a discriminated state
+substituting for a type the design had not yet given it (Rule 5 of the OO
+standard): the corrected shape has no discriminated behavior left for a
+`HubConnectMessage`/`TestConnectMessage` split to earn — every kind now
+carries an identical required-field set, and `kind` remains a plain
+`Literal` tag governing only its one existing job
+(`reject_scene_if_test_kind`), orthogonal to identity. The one honest
+residual: an un-adopted external sender (a pre-`W2` vox or z-spec process)
+omitting `hub_id` now fails at *decode* rather than at a post-decode
+validation check — acceptable, and preferable, because `W2` is already a
+lockstep cross-repo change (notify, agree, land together, verify
+end-to-end, release together, per the org's breaking-change protocol), a
+Hub connection missing `hub_id` was already invalid under this design
+either way, and failing loudly at decode beats decoding successfully and
+silently degrading. Full rationale: `system.tex` §"Hub Identity on the
+Wire"; cross-repo sequencing: the increment-of-work document.
+
+**Implementation map.** `lux-whb9` (hidden id, menus), `lux-pgkp` (visible
+title, frames and menus), and `lux-kob7` (TreeNode id + selection, must
+land Rung-3-ready) become children of this one ratified design. Net-new
+work the multi-Hub topology requires — `HubId` on the wire (dedicated
+`hub_id` field, with vox/z-spec cross-repo coordination), the
+`HubScopedStore`/`HubScopedKey`-backed Display storage, the `AddressBook`
+component, the collision-regression
+test, and the menu-click routing fix — is listed, in dependency order, in
+the increment-of-work document,
+`docs/architecture/multi-hub-addressing-work.md`; the leader files beads
+against it. The cross-host transport-and-trust design itself is not a bead
+under this ADR — it is DES-090, a separate design mission in `djb`'s
+domain.
+
+## DES-090: Cross-Host Hub-to-Display Transport and Trust — mTLS Against a Pluggable Trust Anchor
+
+**Status:** ACCEPTED — ratified by the operator 2026-09-05 (design mission
+m-2026-09-04-003, worker djb). Companion to DES-089, above, whose source
+draft states the five-point contract this design satisfies in its
+"Dependencies on the cross-host transport layer" section. Full
+specification: the architecture lives in `docs/architecture/system.tex`
+§"Cross-Host Transport and Trust"; the implementation plan lives in
+`docs/architecture/multi-hub-addressing-work.md`. (The original design
+draft is archived at `docs/archive/cross-host-transport.md`.)
+
+**Problem.** The Hub-to-Display leg is, today, an `AF_UNIX` socket whose
+entire trust model is a filesystem permission: mode `0700` means "whoever
+can open this path already is this OS user." `transport_policy.py` states
+the analogous refusal explicitly for luxd's other leg
+(`LoopbackTransportPolicy.allows_bind_host` rejects any off-loopback bind)
+— the Hub-to-Display leg has never needed an equivalent policy, because it
+has never left one machine. DES-089's cross-host ruling breaks that
+assumption: once a Display aggregates Hubs on other machines, anyone who
+can route a packet to its port can attempt to speak the Hub protocol, and
+nothing about the `AF_UNIX` trust argument survives the crossing.
+
+**Decision.** TLS 1.3 with mutual certificate authentication, against a
+trust anchor, is the transport and trust mechanism — recommended over
+plain-TCP-plus-token, server-only-TLS with a bearer token, SSH tunneling,
+and a public CA (comparison table in `docs/architecture/system.tex`
+§"Transport Specification", originally drafted in the now-archived
+`cross-host-transport.md`), because
+one mechanism supplies both confidentiality/integrity and authentication
+from a single already-hardened protocol rather than composing two
+mechanisms to do jobs TLS already does together. **Who operates the
+trust anchor is a separate, pluggable decision, not a property of the
+mTLS mechanism** (restructuring mission, 2026-09-04): the default is
+Provider 1, a small per-user personal Certificate Authority, created on
+the Display's machine on first cross-host-enable, whose private key never
+leaves that machine; enrolling an additional Hub machine under Provider 1
+is a manual, offline CSR-signing exchange — the operator moves a CSR and
+its signed certificate between their own machines however they already
+move files, no live enrollment protocol, no registry. An optional
+Provider 2, AWS Private CA, is specified alongside it below. This is
+device-pairing for one person's own hardware, not a multi-tenant service
+authenticating unrelated principals — the threat model
+(`docs/architecture/system.tex` §"Threat Model", T1–T6, originally
+drafted in the now-archived `cross-host-transport.md`) is scoped
+accordingly: the adversary is a party on the network who is *not* the
+user, never the user's own other machines, and this scoping holds
+identically under either provider.
+
+**The trust anchor is pluggable; the mTLS mechanism is not.**
+(`system.tex` §"Trust Anchor Providers: Pluggable, Not Fixed",
+§"Authentication and Enrollment".) mTLS authenticates a Hub from its
+client certificate and derives the verified `HubId.hostname` from that
+certificate's own SAN — nothing in that verification rule, in the four
+invariants below, or in the T1–T6 threat model depends on whose private
+key signed the leaf. An AWS-issued leaf is trusted by the identical
+SAN-verification rule as a personally-signed one. Only certificate
+provenance and the enrollment path that produced the leaf differ between
+providers. Two providers ship: **Provider 1 (default)** is the
+self-managed personal CA specified above — free, zero external
+dependency, single-machine key custody, manual CSR enrollment, coarse
+whole-CA revocation. **Provider 2 (optional)** is AWS Private CA
+(formerly ACM Private CA), a managed private-CA service: the Display
+trusts the AWS Private CA root/intermediate instead of a locally
+generated one, a Hub obtains its leaf via ACM Private CA issuance — an
+API call the operator can gate with IAM policy — instead of an offline
+CSR exchange, and revocation is proper CRL/OCSP instead of whole-CA
+regeneration. The trade-off is stated plainly, not pinned to a specific
+figure: AWS Private CA is paid, managed, enterprise-tier pricing (see
+AWS's current pricing), and adds an AWS/IAM dependency, in exchange for
+issuance and revocation that scale to an organization with many machines
+and users — it suits an enterprise adopter, not the single-user default
+this design otherwise targets, which is why Provider 1 stays the default
+and Provider 2 stays opt-in. **This is not the public CA this design
+rejects below** (Let's Encrypt-style, domain-validated, requiring public
+DNS and inbound exposure): AWS Private CA is a managed *private* CA,
+never installed into any browser or OS trust store, trusted the same
+explicit, non-public way Provider 1's self-signed root is. The two are
+different questions with different answers; they are not in tension.
+
+**The trust fork DES-089 deferred is resolved: option (a).**
+`HubId.hostname` stays a transport-verified network name; no third `HubId`
+field. The transport does not trust the self-reported `hostname` half of
+`ConnectMessage.hub_id` — it derives the verified hostname from the mTLS
+peer certificate's Subject Alternative Name (bound to that certificate at
+enrollment) and rejects the connection outright on any mismatch between
+the two. This closes the actual gap option (b) worried about — "is this
+hostname string genuine" — at its root: verifying the credential *is*
+verifying the hostname, because enrollment is what bound the name to the
+credential in the first place. `pid` continues to be trusted as
+self-reported and unverified, exactly as DES-089's own `HubId` docstring
+already treats it, since it only ever breaks a tie within one
+already-identified host.
+
+**Transport mechanics.** Additive and opt-in: the `AF_UNIX` leg and its
+`0700` trust argument are unchanged; the Display gains a second, opt-in TLS
+listener. `ssl.SSLSocket` is a `socket.socket` subtype, so
+`SocketListener`'s existing `select`/`recv`/fd-keyed bookkeeping needs no
+change — the one correctness-critical detail is that a connection's TLS
+handshake, including client-certificate verification, must complete before
+its fd is ever added to `_clients`/`_readers`, or a content-bearing message
+could in principle race an unverified connection. Direction is preserved:
+the Hub dials the Display in both the same-host and cross-host cases, never
+the reverse — keeping the network attack surface to exactly one opt-in
+listener rather than one accept loop per Hub. Endpoint discovery is
+pragmatic, per the operator's own instruction: a per-user config file
+naming the Display's `host:port` and the active provider's trust-anchor
+fingerprint, populated at enrollment, no registry, no service discovery.
+
+**Reconnect and preemption — a stated coordination point, since resolved.**
+`HubId.hostname` is stable across any reconnect, including a process
+restart, because the enrolled certificate lives on disk; `pid` is not,
+because a genuine process restart gets a new one, which is DES-089's own
+`HubId` field choice, not a defect this design introduces or can fix.
+Separately: today's preemption (`SocketListener.hub_fd_for(name)`) keys on
+`ConnectMessage.name`, which DES-089 keeps meaning "what a human calls
+this" — not a per-process identity — so preemption re-keyed onto `HubId`
+was named, at the time this design mission closed, as an explicit
+coordination point shared with DES-089's own net-new "per-Hub-keyed
+Display storage" bead, decided by neither design unilaterally.
+**Resolution (restructuring mission, 2026-09-04):** preemption keys on
+`HubId`, never `ConnectMessage.name`. The owning bead (`W11`) and its
+dependency on the per-Hub-keyed-storage bead (`W3`) are recorded in
+`docs/architecture/multi-hub-addressing-work.md` §"The resolved
+coordination point," and `docs/architecture/system.tex`'s own preemption
+description has been corrected to state this as a required change rather
+than something the current code already gets right.
+
+**A finding against the current same-host code, load-bearing for
+cross-host.** `render_loop.py`'s `_handle_scene` /
+`hub_reconciliation.py`'s `reject_scene_if_test_kind` reject a
+`SceneMessage` only when the sending fd has already declared
+`kind="test"`; an fd that never sent any `ConnectMessage` at all
+(`kind_of(fd) is None`) is not rejected today. Harmless on `AF_UNIX` only
+because the socket's `0700` permission already vouches for an unidentified
+fd; unsafe the moment storage is keyed by `HubId`, since there is no
+`HubId` to key an unidentified connection's content under. This design
+requires closing the gap — reject on `kind_of(fd) is None`, not only
+`== "test"` — as a prerequisite for cross-host, listed first in the bead
+map below.
+
+**Invariants and z-spec.** Four invariants stated precisely in
+`docs/architecture/system.tex` §"Invariants" under §"Cross-Host Transport
+and Trust", originally drafted in the now-archived
+`cross-host-transport.md`: no content before verification; at most one
+live connection per `HubId`; hostname verification is fail-closed; the
+`AF_UNIX` leg's trust argument is untouched. The first two are marked
+**z-spec-REQUIRED for implementation** — not modeled by this design
+mission, per its own instruction to flag rather than model now. Invariant
+1 is a stateful-protocol safety property with a concrete interleaving (a
+non-blocking accept adding an unverified fd to the readable set before its
+handshake or `ConnectMessage` completes); invariant 2 generalizes DES-068's
+own single-owner preemption argument from one Hub to N concurrently
+reconnecting Hubs, which is exactly WORKFLOW.md's recurrence trigger for a
+state machine that must be formalized rather than tested by sampling. Both
+carry a stated fidelity requirement: the eventual model must reproduce the
+defect when the relevant ordering/keying is removed. Invariants 3 and 4 are
+boundary checks and a non-interference statement, not concurrency
+properties, and are verified by regression tests instead.
+
+**Reconciliation.** DES-086 (connection-scoped read/write security
+boundary) is preserved verbatim — this design gates *who may connect and
+as which `HubId`*; DES-086 continues to govern *what a connected Hub may
+read or write*, transport-agnostically, exactly as it does today. All five
+of DES-089's cross-host dependency-contract points are satisfied point for
+point (`docs/architecture/system.tex` §"Reconciliation with Existing
+Design" under §"Cross-Host Transport and Trust", originally drafted in
+the now-archived `cross-host-transport.md`'s "Reconciliation" section).
+Rejected
+alternatives, stated with reasons in the full design: distributing the
+CA's private key to every machine (multiplies the blast radius of the
+single most sensitive secret); a pre-shared/derived token (still needs TLS
+for confidentiality, at which point mTLS supersedes it outright); reusing
+the org's ethos/GPG identity infrastructure (identifies a person or agent,
+not a machine — the wrong entity for `HubId`); and a live CRL/OCSP
+revocation service (disproportionate machinery for a personal, small-N
+deployment — accepted trade-off: revocation is whole-CA regeneration and
+re-enrollment, an explicit, bounded, rare operator action). The transport
+table separately rejects a *public*, domain-validated web-PKI CA
+(Let's Encrypt-style) for needing public DNS and inbound internet
+exposure — a rejection of web PKI's shape, not of managed CAs in
+general; AWS Private CA is a managed *private* CA and is not that
+rejected option (`system.tex` §"Rejected Alternatives," the
+reconciliation paragraph added alongside Provider 2).
+
+**Implementation map.** Eight net-new beads, now consolidated with
+DES-089's into the single implementation plan
+`docs/architecture/multi-hub-addressing-work.md` (beads W1–W15, in
+dependency order): (1) close the
+pre-identification content gap — prerequisite, ships independently of
+cross-host; (2) personal CA and enrollment tooling; (3) the cross-host TLS
+listener; (4) hostname verification at `ConnectMessage` time — shared
+touchpoint with DES-089's `hub_id` wire-field bead; (5) the cross-host
+`DisplayLink` client path; (6) preemption re-keyed onto `HubId` — shared
+touchpoint with DES-089's per-Hub-keyed-storage bead; (7) the two z-spec
+models; (8) threat-model regression tests — one per threat-model row with
+a "No" answer under "Without valid credentials" (T1, T3, T4, T6; T2 and T5
+are not rejection tests). Neither vox nor z-spec run a Display, so this design's
+transport work is Display-side only; the only cross-repo touchpoint is the
+`hub_id` wire field DES-089 already names. A ninth bead, **W15 (optional,
+opt-in)**, adds the AWS Private CA trust-anchor provider on top of (2) and
+(3) — it is not required to ship the design and nothing else in the bead
+map depends on it; see `multi-hub-addressing-work.md`'s bead map for its
+own dependency detail.

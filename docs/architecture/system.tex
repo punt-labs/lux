@@ -111,6 +111,15 @@ transition:
     render loop, its themes and window settings, and its diagnostic ring
     buffers.  The Hub reaches those facts by proxying a read or write over
     its one connection to the Display (Section \S\ref{sec:tools}).
+  \item \textbf{Multi-Hub addressing and cross-host transport.}  Sections
+    \S\ref{sec:addressing} and \S\ref{sec:crosshost} specify a design ---
+    ACCEPTED, ratified by the operator 2026-09-05 (DES-089, DES-090) ---
+    for a Display aggregating more than one Hub, including Hubs on
+    other machines.  None of it is implemented yet: the code today assumes
+    exactly one Hub connection, though nothing in the transport enforces
+    that.  The full bead map and dependency order are in the companion
+    increment-of-work document,
+    \path{docs/architecture/multi-hub-addressing-work.md}.
 \end{itemize}
 
 \subsection{Companion Documents}
@@ -609,7 +618,11 @@ registry without touching the module default.
   \field{patches[]} (each: \field{id}, \field{set}, \field{remove}). \\
 \msg{ClearMessage}  & Remove scenes and reset state. \\
 \msg{PingMessage}   & Heartbeat.  Field: \field{ts}. \\
-\msg{ConnectMessage} & Client identity handshake.  Field: \field{name}. \\
+\msg{ConnectMessage} & Client identity handshake.  \textbf{Current fields:}
+  \field{name}, \field{kind} (\texttt{"hub"} or \texttt{"test"}).
+  \textbf{Designed, not yet shipped:} a dedicated, required
+  \field{hub\_id} field, populated by every connecting kind including
+  \texttt{"test"} --- Section \S\ref{sec:addressing}. \\
 \msg{MenuMessage}   & Set the menu bar. \\
 \msg{RegisterMenuMessage} & Register per-connection menu items. \\
 \msg{ThemeMessage}  & Apply a theme by name. \\
@@ -882,6 +895,1439 @@ minimized frame appears as a button in a bottom dock bar; clicking it
 restores the frame.
 
 % ===================================================================
+\section{Identity, Addressing, and Multi-Hub Topology}\label{sec:addressing}
+% ===================================================================
+
+\begin{quote}
+\small\textit{Design status: DES-089 in \texttt{DESIGN.md}, Status:
+ACCEPTED --- ratified by the operator 2026-09-05.  The addressing model
+below is evaluator-accepted design, not yet implemented; the code today
+runs a single Hub connection to the Display in practice, though nothing in
+the transport enforces that.  The implementation plan and bead map live in
+the companion increment-of-work document,
+\path{docs/architecture/multi-hub-addressing-work.md}.}
+\end{quote}
+
+\subsection{Problem}
+
+The Display is an aggregator: it renders content it did not produce, from
+producers it does not control, from a Hub that may itself aggregate many
+agents and many users --- and, per the operator's ruling, may itself be
+more than one Hub.  Two failures follow when a lower layer's identity is
+used, unqualified, at a higher layer that can see more than one of that
+lower layer.
+
+The first is visible: Dear ImGui raises ``N visible items with conflicting
+ID'' when two rendered widgets share a label, because ImGui uses the label
+as both display text and identity unless told otherwise.  Four session
+panels all titled ``Vox'' collide the moment a second one exists.
+
+The second is silent, and it is not hypothetical --- it already happened
+once, at the layer below this one.  \texttt{HubDisplay} used to store every
+scene and frame under the literal string a client submitted; two
+connections choosing the same \field{scene\_id} did not error, the second
+silently evicted the first's root.  The fix was \texttt{ConnectionScopedId}:
+compose the store key from the writing connection's own id, so collision
+becomes unrepresentable rather than merely checked.
+
+The Display's own storage has the identical shape of bug, one layer up, and
+it is live in the tree today.  \texttt{FrameBook} holds
+\field{\_scene\_to\_frame} and \field{\_scene\_to\_owner} as flat
+dictionaries keyed by the bare Rung-2 scene id string, spanning every
+connection the Display has ever seen.  \texttt{MenuReplica} holds
+\field{\_callback\_menus}, replaced wholesale on every push.  Neither
+carries a dimension for ``which Hub sent this.''  \texttt{ConnectionId} is
+a deterministic hash of a client's self-declared fields, computed
+independently by each Hub process with no cross-Hub coordination --- two
+different Hubs can and eventually will mint the identical
+\texttt{ConnectionId} for two different real clients.  The day a second Hub
+connects, its scene push can silently clobber the first Hub's scene under
+the identical key, by the same mechanism DES-086 already found and fixed
+once.
+
+\subsection{Identity Is a Path}
+
+Each layer that aggregates content knows only what it itself produced.
+Only the layer above a given aggregator can see that there might be more
+than one of it: an applet knows its own label and nothing else; a Hub
+knows its own live connections and nothing about other Hubs; the Display
+is the one layer that can see more than one Hub.  The consequence is
+structural, not a style preference: \textbf{each layer must namespace what
+is below it, blind to what is above it.}  Applied recursively down the
+stack, an item's true identity is not a label --- it is the path from the
+outermost aggregator that can see it, down to the producer's own name for
+it.  That is DES-089's governing phrase.
+
+\subsection{The Three-Rung Ladder}
+
+Three rungs exist.  The first two are already shipped, in two different
+mechanisms that share one shape.  The third does not exist in code today.
+
+\begin{lstlisting}
+Rung 1 -- Producer label            unscoped, freely reused
+  "Vox", "Beads", "music-player"
+        |
+        |  namespaced by the Hub that owns the connection (DES-058, DES-086)
+        v
+Rung 2 -- Hub-connection scope       unique within ONE Hub's own registry
+  ConnectionScopedId / CallbackInvocation: {connection_id}\x1f{local_id}
+        |
+        |  namespaced by the Display, across every Hub it holds (this design)
+        v
+Rung 3 -- Hub-of-origin scope         unique across every Hub the Display holds
+  LuxAddress: {hub}\x1f{connection_id}\x1f{local_id}
+\end{lstlisting}
+
+\begin{center}
+\begin{tabular}{p{2.6cm}p{2.9cm}p{4.0cm}p{4.3cm}}
+\toprule
+\textbf{Rung} & \textbf{Owned by} & \textbf{Scope of uniqueness} & \textbf{Shipped mechanism} \\
+\midrule
+1. Producer label & The applet/agent itself & None --- every producer may
+  reuse any string & \texttt{register\_callback(id, label)}; a caller's
+  \field{scene\_id}/\field{frame\_id} \\
+2. Hub-connection scope & The Hub, over its own live connections & Unique
+  within one Hub process's registry, not globally & \texttt{ConnectionScopedId}
+  (scenes/frames, DES-086); \texttt{CallbackInvocation} (menu leaves,
+  DES-058) \\
+3. Hub-of-origin scope & The Display, over every Hub it holds & Unique
+  across every Hub connection the Display currently holds & Does not exist
+  yet --- this design specifies it \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Rung 2's own scope claim is the load-bearing fact Rung 3 rests on:
+\texttt{ConnectionId} is computed independently, per Hub process, from
+fields the client declares to that Hub.  Nothing makes it globally unique
+--- a single Hub has no way to know about, let alone coordinate with, any
+other Hub.  That is exactly why Rung 3 must exist: the one layer that can
+see more than one Hub is the one layer obligated to disambiguate them.
+
+\subsection{Value Types}\label{sec:addressing-types}
+
+Identity is an object, not a concatenated string.  Two small value classes
+compose into the one type that answers ``what is this, uniquely and
+legibly'': \texttt{Rung} (one level's key and label) and \texttt{LuxAddress}
+(the three rungs, composed).
+
+\begin{lstlisting}
+@final
+@dataclass(frozen=True, slots=True)
+class Rung:
+    """One level of a LuxAddress: a stable uniqueness key and a human
+    label.  ``key`` is opaque and never elided from the hidden id -- two
+    Rungs with the same ``key`` are the same thing by construction.
+    ``label`` is what a human reads, shown only when this rung's
+    ambiguity requires it."""
+    key: str
+    label: str
+
+
+@final
+@dataclass(frozen=True, slots=True)
+class LuxAddress:
+    """The Display's complete identity for one item it aggregates.
+    Composed of the three rungs, outermost first.  Never round-tripped:
+    nothing parses a LuxAddress back into its parts.  It exists only on
+    the Display side of the wire, purely to answer "is this the same
+    item" and "how do I show it."""
+    hub: Rung          # Rung 3 -- which Hub connection produced this
+    connection: Rung   # Rung 2 -- which connection on that Hub produced this
+    leaf: Rung          # Rung 1 -- the producer's own name for the item
+
+    @property
+    def hidden_id(self) -> str:
+        """The ImGui identity: every rung's key, joined, never elided."""
+        return ID_SEPARATOR.join(
+            (self.hub.key, self.connection.key, self.leaf.key)
+        )
+
+    def title(self, *, hub_ambiguous: bool, connection_ambiguous: bool) -> str:
+        """The visible title: only genuinely ambiguous rungs are shown.
+        The leaf is always shown; higher rungs join it, outermost
+        first, only when more than one live value exists right now."""
+        shown = [
+            rung.label
+            for rung, ambiguous in (
+                (self.hub, hub_ambiguous),
+                (self.connection, connection_ambiguous),
+            )
+            if ambiguous
+        ]
+        shown.append(self.leaf.label)
+        return " :: ".join(shown)
+\end{lstlisting}
+
+\texttt{title()} joins on \texttt{" :: "} rather than \texttt{"/"}: a slash
+reads as a filesystem or URL segment --- plausibly clickable, parseable,
+navigable --- to the developer/agent audience this title is shown to, and
+no part of a \texttt{LuxAddress} title is any of those things.
+\texttt{"::"} is the namespace-qualification notation that audience already
+reads as ``scope, not a route.''  \field{hidden\_id} is
+\field{connection.key} joined with \field{leaf.key} on
+\texttt{ID\_SEPARATOR} --- exactly the string
+\texttt{ConnectionScopedId.compose} or \texttt{CallbackInvocation.menu\_id}
+already produce --- with the Hub dimension prepended on top, rather than
+re-derived.
+
+\texttt{HubId} is the value type a Hub's own identity resolves to: what
+makes one Hub connection distinct from another, and, per the operator's
+cross-host ruling, distinct from a Hub on a different machine, not merely a
+different process on the same one.
+
+\begin{lstlisting}
+@final
+@dataclass(frozen=True, slots=True)
+class HubId:
+    """A Hub connection's own stable identity -- network host plus
+    process.  Two independent uniqueness axes, kept as two fields
+    because they are disambiguated by two different mechanisms:
+    ``hostname`` distinguishes one machine from another (FQDN via
+    socket.getfqdn(), not socket.gethostname() -- a bare hostname is
+    not guaranteed unique across a network the way it is on one box);
+    ``pid`` distinguishes one process from another on the same
+    machine, the same shape of fix AppletIdentity already uses for two
+    applets sharing one session (DES-067's #{session_pid} token).
+    ``pid`` is not network-meaningful and only ever breaks a tie
+    within one already-identified host.  Self-reporting its own FQDN is
+    as far as this class goes, and it is trustworthy on the AF_UNIX
+    leg only because the socket directory's 0700 permission already
+    bounds who can open a connection to declare a HubId in the first
+    place -- that argument does not carry across a network, which is
+    exactly why cross-host needs mTLS (see Cross-Host Transport and
+    Trust)."""
+    hostname: str
+    pid: int
+
+    @classmethod
+    def current(cls) -> Self:
+        """This process's own HubId, as declared to the Display."""
+        return cls(socket.getfqdn(), os.getpid())
+
+    @property
+    def wire_token(self) -> str:
+        """The string this identity declares on the wire -- compared
+        for equality only, never parsed."""
+        return f"{self.hostname}{ID_SEPARATOR}{self.pid}"
+\end{lstlisting}
+
+Same-host duplicates keep the DES-064-style \texttt{(n)} numbering: two
+Hubs sharing one \field{hostname} (the same machine) disambiguate by
+\field{pid}, then render as \texttt{pembroke}, \texttt{pembroke (2)}.  Only
+the \emph{source} of the \field{hostname} field's trustworthiness changes,
+and only cross-host --- see \S\ref{sec:crosshost}.
+
+\subsection{Hub Identity on the Wire}
+
+The addressing design's own first round left this as an open fork ---
+reuse \msg{ConnectMessage}.\field{name}, or add a dedicated field --- and
+recommended reuse, following DES-067's precedent for the same shape of
+tradeoff.  \textbf{The operator ruled the opposite way (2026-09-04): a
+dedicated \field{hub\_id} field.}  \field{name} keeps its existing,
+narrower meaning --- ``what a human calls this connection,'' the string a
+frame title or a menu already attributes content to --- and does not also
+carry the Hub's own machine-and-process identity.
+
+\textbf{Second ruling (2026-09-05): \field{hub\_id} is required, every
+connecting kind populates it, and the earlier \texttt{Optional} is
+withdrawn.}  The first round of this field made \field{hub\_id} an
+\texttt{Optional[str]}: present for \texttt{kind="hub"}, absent for
+\texttt{kind="test"}, with a runtime hard-fail standing in at every
+Display-side store for the type-level guarantee the \texttt{Optional}
+declined to make.  The operator's correction: a \texttt{kind="test"}
+connection is a stand-in for a Hub on this leg --- it runs the identical
+accept path, the identical \msg{ReadyMessage}/\msg{ConnectMessage}
+exchange, and the identical eventual \texttt{AddressBook} bookkeeping a
+real Hub does --- so it should present a \texttt{HubId} exactly as a real
+Hub does, not decline to.  ``This leg'' is the same-host \field{AF\_UNIX}
+leg specifically, the only leg \texttt{kind="test"} is ever sent on;
+\S\ref{sec:crosshost} rejects \texttt{kind="test"} outright on the
+cross-host listener.  A \emph{stub} \texttt{HubId} (a synthetic
+localhost/test token, built the same way \S\ref{sec:addressing-types}
+already builds a real one) satisfies the identical contract.  Once every
+connecting \field{kind} populates \field{hub\_id}, there is no connection
+on the same-host \field{AF\_UNIX} socket that legitimately lacks one, and
+both the \texttt{Optional} and the runtime discriminated check that used
+to stand behind it go away:
+
+\begin{lstlisting}
+@dataclass(frozen=True, slots=True)
+class ConnectMessage:
+    """Client identifies itself to the display server.  ``name`` is
+    display attribution -- unchanged, still the string frame titles
+    and menu namespaces read.  ``hub_id`` is a separate concern: this
+    connection's own HubId.wire_token.  Every kind populates it,
+    including "test" -- a test connection is a same-host-only stand-in
+    for a Hub on the AF_UNIX leg and carries a stub HubId, never an
+    absence of one.  The cross-host listener never accepts kind="test"."""
+    name: str
+    kind: Literal["hub", "test"]
+    hub_id: str
+    type: Literal["connect"] = "connect"
+\end{lstlisting}
+
+\field{kind} keeps exactly its existing, narrower job ---
+\field{reject\_scene\_if\_test\_kind} still rejects test-origin content ---
+and nothing else.  Identity and that one behavioral gate are orthogonal:
+\field{hub\_id} no longer varies by \field{kind} at all, so there is no
+discriminated shape left for \field{kind} to encode.  \textbf{This retires,
+rather than defers, the earlier finding that the \texttt{Optional[str]}
+was a discriminated state standing in for a type the design had not yet
+given it} (Rule 5 of the OO standard, \path{punt-labs/.claude/rules}).  The
+fix is not a \texttt{HubConnectMessage}/\texttt{TestConnectMessage} split
+held in reserve as a follow-on: a message-type split earns its keep only
+when the variants' \emph{required fields} genuinely differ, and after this
+change they do not --- every connecting kind carries the identical field
+set, and \field{kind} is a plain \texttt{Literal} tag selecting later
+behavior, exactly the ordinary case a \texttt{Literal} field exists for.
+Splitting the message here would buy two classes serializing an identical
+shape, for no discriminated behavior gained.  The smell Rule 5 warns
+against is not the presence of a \field{kind} field; it is a field whose
+\emph{meaning} silently changes what else is required or permitted.  With
+\field{hub\_id} required across the board, \field{kind} no longer has that
+shape, so a single \msg{ConnectMessage} is the cleaner --- and now the
+only motivated --- expression.
+
+Wire compatibility and multi-Hub correctness are not the same question,
+and making \field{hub\_id} required at the type level moves the failure
+mode earlier rather than removing it.  A sender's dict that omits
+\field{hub\_id} now fails at \emph{decode} ---
+\msg{ConnectMessage.from\_dict} raises constructing the dataclass ---
+rather than decoding successfully and being caught by a separate runtime
+check.  This is the one honest residual of this design, and it is
+acceptable, in fact preferable: an un-adopted external sender (a
+pre-\texttt{W2} vox or z-spec process that has not yet added \field{hub\_id}
+to the \msg{ConnectMessage} it sends) fails loudly at connect time once
+this change lands, rather than decoding and then silently degrading.  A
+Hub connection missing \field{hub\_id} was already invalid under this
+design before this ruling --- only the \emph{point} at which it is caught
+moves, from a validation check after decode to the decode itself.  Failing
+loudly with a message that amounts to ``adopt \field{hub\_id}'' is a
+clearer signal than decoding successfully and failing a validation check
+three lines later, and there is no silent-degradation path being traded
+away to get it.  \field{hub\_id}'s adoption was never going to be a change
+one repo rolls out ahead of the others regardless of this ruling: vox and
+z-spec both run their own Hub connections (DES-063's applet model) and
+must add \field{hub\_id} to the \msg{ConnectMessage} they send in lockstep
+with this change landing here, per the org's cross-repo breaking-change
+protocol (notify, agree, land together, verify end-to-end, release
+together).  See the increment-of-work document for the coordination
+sequence.
+
+\subsection{Every Aggregated Surface, Uniformly}
+
+The failure mode is not per-surface; the same mistake recurs at the next
+surface unless one mechanism owns it.  Four surfaces the Display aggregates
+today or imminently:
+
+\begin{longtable}{p{1.9cm}p{2.3cm}p{2.3cm}p{2.1cm}p{4.1cm}}
+\toprule
+\textbf{Surface} & \textbf{Rung 1 (today)} & \textbf{Rung 2 (today)} & \textbf{Rung 3 (design)} & \textbf{Current leaf renderer} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Surface} & \textbf{Rung 1 (today)} & \textbf{Rung 2 (today)} & \textbf{Rung 3 (design)} & \textbf{Current leaf renderer} \\
+\midrule
+\endhead
+Menus (Clients, Windows) & \field{register\_callback}'s \field{label} &
+  \texttt{CallbackInvocation.menu\_id} & \field{hidden\_id} on
+  \texttt{MenuItem} & \texttt{MenuItem(label, activate)} --- keys on the
+  bare label today \\
+Frames/windows & a caller-named \field{frame\_title}/\field{frame\_id} &
+  \texttt{ConnectionScopedId} & \field{hidden\_id} on the ImGui window id &
+  \field{Frame.title} used directly as the ImGui window label \\
+Scenes & a caller-named \field{scene\_id} & \texttt{ConnectionScopedId} &
+  \texttt{HubScopedKey} in a \texttt{HubScopedStore} (\S\ref{sec:hubscopedstore})
+  & Flat \texttt{dict[str, ...]}
+  keyed by the bare Rung-2 string --- the silent-collision surface \\
+Tree nodes & none --- \elem{tree} carries no id today & none --- inert per
+  its own docstring & \field{hidden\_id} once a node has one & N/A --- no
+  selection model yet \\
+\bottomrule
+\end{longtable}
+
+For every one of these, the same two renderings apply, from the one
+\texttt{LuxAddress}: the \textbf{hidden ImGui id} (\field{hidden\_id} ---
+never the label, never the bare Rung-2 string alone) and the \textbf{visible
+title} (\texttt{title(...)} --- hostname-anchored, a rung elided the moment
+it is unambiguous).  One Hub, one connection aggregated: \texttt{"Vox"}.
+Two connections sharing a repo, one Hub: \texttt{"lux (2) :: Vox"}.  Two
+Hubs: \texttt{"pembroke :: lux (2) :: Vox"}.
+
+A single Display-side component, \texttt{AddressBook} --- composed
+wherever \texttt{MenuReplica} and \texttt{SceneReplica} already live --- is
+the one place that: tracks the live set of connected \texttt{HubId}s and,
+per Hub, the live set of connections; computes each rung's
+\textbf{ambiguity} (a pure cardinality test) once per frame or menu build,
+the same cadence \texttt{MenuReplica.menu\_model()} already rebuilds every
+frame; and, once a rung \emph{is} shown, reuses DES-064's
+collision-numbering rule and DES-067's \field{(repo, session\_pid)}
+grouping to compute that rung's own \textbf{label text}.  Ambiguity and
+labeling are two different jobs on two different cadences: ambiguity
+decides \emph{whether} a rung shows at all; DES-064/067 numbering decides
+\emph{what} a shown rung's label reads as.  \texttt{AddressBook} exposes
+exactly one construction path, \field{address\_for(hub, connection\_key,
+connection\_label, leaf\_key, leaf\_label) -> LuxAddress}; no leaf renderer
+may construct a \texttt{MenuItem}, a frame title, a scene entry, or a
+tree-node row directly from a bare label ever again.
+
+\subsection{Aggregated Storage: \texttt{HubScopedStore}}\label{sec:hubscopedstore}
+
+An aggregated store is an object, not a dictionary passed between
+functions.  \texttt{FrameBook}'s \field{\_scene\_to\_frame} and
+\field{\_scene\_to\_owner}, and \texttt{MenuReplica}'s
+\field{\_callback\_menus}, are today flat \texttt{dict[str, ...]}
+mappings spanning every connection the Display has ever seen --- a
+primitive collection standing in for a domain type, with the keying and
+purge logic living in whichever caller happens to touch the dict rather
+than on the collection itself.  That is exactly what PY-OO-5 (behavior
+lives with its data) and PY-IC-1 (composition over primitives) in
+\path{punt-labs/.claude/rules} forbid, and what \path{punt-kit/standards/oo.md}
+names as the same mistake at the language-agnostic level.
+\textbf{This design specifies the replacement as a class, not a shape
+left to the implementer:} \texttt{HubScopedKey} is the key type, and
+\texttt{HubScopedStore} is the container every aggregator composes in
+place of its bare dict.
+
+\begin{lstlisting}
+@final
+@dataclass(frozen=True, slots=True)
+class HubScopedKey:
+    """An aggregated store's real key -- a Hub's own HubId, paired
+    with the Rung-2 id that Hub already minted
+    (ConnectionScopedId.compose's result, or
+    CallbackInvocation.menu_id).  Composed as a value type, never
+    concatenated into one string and never a bare tuple: two
+    independently-meaningful fields, kept as two fields, the same
+    argument HubId itself makes for keeping hostname and pid apart.
+    Carries no label -- LuxAddress carries this identical pair again
+    for display, but a store's key answers "is this the same slot,"
+    never "what should this be called." """
+    hub: HubId
+    local: str
+
+
+@final
+class HubScopedStore[V]:
+    """The one aggregated-storage shape every Display-side collection
+    that spans more than one Hub composes, in place of a bare dict.
+    Owns its own keying discipline -- a caller never reaches past this
+    class into a bare mapping -- and exposes only the operations an
+    aggregator actually needs: assign, look up, enumerate one Hub's own
+    entries, and retire one Hub's entries either wholesale (disconnect)
+    or selectively (a manifest naming which of that Hub's own entries
+    still exist).  What structure backs this class is this class's own
+    business and nobody else's; that encapsulation -- not any specific
+    backing structure -- is the design-time commitment."""
+
+    def __init__(self) -> None:
+        self._entries: dict[HubScopedKey, V] = {}
+
+    def put(self, key: HubScopedKey, value: V) -> None:
+        """Assign one entry.  Two entries collide only when they share
+        the identical (hub, local) pair -- never across Hubs, by
+        construction of the key type."""
+        self._entries[key] = value
+
+    def get(self, key: HubScopedKey) -> V | None:
+        """Look up one entry.  None answers a genuine "not present" --
+        there is no discriminated state hiding behind it."""
+        return self._entries.get(key)
+
+    def for_hub(self, hub: HubId) -> Iterator[tuple[str, V]]:
+        """Every entry a given Hub currently owns, local id and value
+        -- the routing primitive a scene-less interaction or a menu
+        click resolves its one target Hub through."""
+        for key, value in self._entries.items():
+            if key.hub == hub:
+                yield key.local, value
+
+    def purge_hub_not_in(
+        self, hub: HubId, still_named: frozenset[str]
+    ) -> list[V]:
+        """Drop every entry this Hub owns whose local id is absent
+        from ``still_named`` -- the manifest-purge operation, scoped to
+        one Hub's own entries by construction, so a second live Hub's
+        entries are never candidates."""
+        stale = [
+            key
+            for key in self._entries
+            if key.hub == hub and key.local not in still_named
+        ]
+        return [self._entries.pop(key) for key in stale]
+
+    def drop_hub(self, hub: HubId) -> list[V]:
+        """Retire every entry a Hub owned, on disconnect."""
+        stale = [key for key in self._entries if key.hub == hub]
+        return [self._entries.pop(key) for key in stale]
+\end{lstlisting}
+
+\texttt{FrameBook} composes two \texttt{HubScopedStore} instances in
+place of \field{\_scene\_to\_frame} and \field{\_scene\_to\_owner};
+\texttt{MenuReplica} composes one in place of \field{\_callback\_menus};
+the eventual \texttt{TreeSelectionModel} (\texttt{lux-kob7}) composes its
+own from the start, Rung-3-ready.  No aggregator keeps a bare
+\texttt{dict[str, ...]} alongside its \texttt{HubScopedStore} as a
+second, competing source of truth for the same collection.
+
+\subsection{Multi-Hub Topology}
+
+\textbf{Operator ruling (2026-09-04): cross-host is in scope now.}  One
+Display aggregates Hubs across multiple machines, not only multiple
+\tool{luxd} processes on one host.  The addressing model above --- rungs,
+\texttt{LuxAddress}, \texttt{AddressBook}, per-store keying --- is
+transport-agnostic and applies identically whether a Hub reaches the
+Display over a Unix socket or a network socket.  How a remote Hub
+establishes that connection in the first place is a separate
+transport-and-trust design, \S\ref{sec:crosshost}.
+
+\subsubsection{What Already Works, Unmodified}
+
+The Hub-to-Display leg is, today, a Unix domain socket (mode
+\texttt{0700}) --- the Display is already a multi-connection server,
+accepting an arbitrary number of client fds.  Several pieces of the
+multi-Hub story are already built, for a reason unrelated to multi-Hub, and
+survive a same-host-to-network transport change unmodified because each
+was already written against ``a connection'' in the abstract:
+
+\begin{itemize}
+  \item \textbf{Per-connection scene ownership.}
+    \texttt{FrameBook.scene\_to\_owner} already maps \field{scene\_id} to
+    an fd, and interaction delivery already routes a scene-bearing
+    interaction to its owning fd, not to whichever connection happens to
+    be ``the'' Hub.  This path is multi-Hub-safe today, unmodified,
+    because it was already written per-connection for DES-068's
+    reconnect/purge story.
+\end{itemize}
+
+\textbf{Preemption is a required change, not something already correct.}
+\texttt{SocketListener.hub\_fd\_for(name)} and its stale-hub eviction look
+up and evict a connection sharing the identical \emph{declared name} ---
+\field{ConnectMessage.name}, which this design keeps meaning ``what a
+human calls this connection,'' never a per-process identity.  Today every
+Hub process declares the identical hardcoded name, so single-Hub
+preemption reads correctly by accident.  Once real, distinct
+\texttt{HubId}s exist, name-keyed preemption is unsafe: two
+independently-legitimate Hubs that happen to share a declared
+\field{name} would preempt each other, and a reconnecting Hub could evict
+an unrelated live one.  \textbf{Resolution (this design, coordinated with
+\S\ref{sec:crosshost}): preemption must be re-keyed onto \texttt{HubId},
+never \field{name}.}  This is a required implementation step, listed as a
+shared bead in the increment-of-work document, not a property the current
+code already has.
+
+\subsubsection{What Must Change}
+
+\begin{enumerate}
+  \item \textbf{A Hub declares a real \texttt{HubId}, not a constant.}
+    \texttt{ClientRegistry.get()} constructs its \texttt{DisplayLink} with
+    a hardcoded name today; that becomes \field{HubId.current().wire\_token},
+    carried on the dedicated \field{hub\_id} field.
+  \item \textbf{Every Display-side store keyed by a Rung-2 string becomes
+    a \texttt{HubScopedStore}.}  \texttt{FrameBook}'s scene/frame maps and
+    \texttt{MenuReplica}'s callback/agent-menu tuples --- each currently a
+    flat \texttt{dict[str, ...]} spanning every connection --- are
+    replaced by \texttt{HubScopedStore} instances
+    (\S\ref{sec:hubscopedstore}), keyed by \texttt{HubScopedKey} rather
+    than a bare Rung-2 string.  This is the design-time commitment, stated
+    as a type, not left open as an implementation choice: no aggregated
+    store may be a raw dict keyed by a bare Rung-2 string, or by anything
+    less than a \texttt{HubScopedKey}, once more than one Hub can write to
+    it.
+  \item \textbf{Scene-less interaction dispatch must stop broadcasting.}  A
+    menu-bar or World-panel click carries no \field{scene\_id} and today
+    broadcasts to every connected client, on the assumption that exactly
+    one Hub is listening.  With more than one Hub connected, a broadcast
+    delivers every Hub's menu click to every Hub, and because
+    \texttt{CallbackInvocation}'s connection id is only unique within the
+    originating Hub, a stray click is a live misrouting risk, not merely
+    wasted work.  Once callback menus are stored per-\texttt{HubId} (point
+    2), the Display already knows which Hub contributed a given
+    \texttt{CallbackInvocation} at menu-composition time; that
+    \texttt{HubId} threads through to interaction delivery so it names its
+    one target fd, and the broadcast fallback is dropped for menu-sourced
+    events.
+  \item \textbf{Manifest purge is a required change, not something already
+    correct.}  \texttt{SceneReplica.scenes\_to\_purge} disowns any scene
+    that is neither owned by the identifying fd nor named in the sending
+    manifest --- a rule written to sweep an orphaned scene left behind by a
+    \emph{prior} connection's death, since that orphan's owner is never the
+    identifying fd either.  Under real multi-Hub, the identical predicate
+    just as readily disowns a \emph{second, live} Hub's own scenes: Hub
+    B's manifest names only Hub B's scenes, so every scene Hub A owns is,
+    from Hub B's manifest handling's point of view, ``neither owned by the
+    identifying fd nor named in the manifest'' --- exactly the purge
+    condition, and exactly a cross-Hub data-loss hazard, not the
+    orphan-sweep it was written for.  \textbf{Resolution: the purge
+    predicate must be scoped by the sending Hub's own \texttt{HubId}, so a
+    manifest disowns only scenes that Hub itself previously owned and no
+    longer names, never another live Hub's.}  This is a required
+    implementation step, coordinated with point 2's per-Hub-keyed storage
+    and listed as \texttt{W14} in the increment-of-work document, not a
+    property the current code already has.
+  \item \textbf{Connect, same-host: no new logic.}  A new same-host Hub
+    process opens a new socket connection and sends its own
+    \msg{ConnectMessage}; the accept loop requires no change.  Connect,
+    cross-host, is out of this section's scope --- \S\ref{sec:crosshost}.
+    Once a remote Hub's connection is established and authenticated there,
+    points 1--3 and the per-surface treatment above apply identically;
+    there is no second version of the addressing model for the cross-host
+    case.
+  \item \textbf{Disconnect} needs no new logic beyond dropping the
+    departed \texttt{HubId} from \texttt{AddressBook}'s live set, so a
+    solo survivor's rung re-elides.  Every other disconnect concern ---
+    per-fd scene reaping, lease sweep --- is already fd-scoped.
+  \item \textbf{Elision churn under connect/disconnect is an accepted
+    trade-off}, not a defect: because ambiguity is recomputed live, a
+    title that was bare a moment ago can gain a \texttt{hub ::} prefix the
+    instant an unrelated second Hub connects, and lose it again the
+    instant that Hub disconnects.  \texttt{LuxAddress.title()} is always
+    an accurate answer for the population that exists right now; a
+    mitigation (a sticky prefix, a transient highlight) is complexity
+    purchased for a case the operator's own scope note treats as simple.
+\end{enumerate}
+
+\subsubsection{Discovery, Same-Host}
+
+There is no Hub registry, no discovery protocol, no broadcast, and no new
+authentication handshake for the same-host case.  A Hub connects to the
+Display's already-published Unix socket path exactly as it does today.
+``Discovery'' is unlocking a door that is already open: a second
+\tool{luxd} process finds and connects to the identical socket the first
+one did, because nothing about the socket path is Hub-specific.  Discovery
+and connection establishment for the cross-host case are delegated to
+\S\ref{sec:crosshost}.
+
+\subsection{Governing Invariant}
+
+\begin{quote}
+For any item the Display renders as part of a collection it aggregates ---
+a menu entry, a frame or window, a scene, a tree node --- that item's
+storage key and its ImGui widget id both derive from the item's full
+\texttt{LuxAddress} (hub, connection, leaf).  Neither may derive from a
+bare human label, nor from a Rung-2-or-lower id alone, once more than one
+Hub can contribute to that collection.
+\end{quote}
+
+This is checkable and structural rather than behavioral: it becomes a type
+discipline once \texttt{HubScopedKey} is the actual key type of every
+aggregated store, composed inside a \texttt{HubScopedStore}
+(\S\ref{sec:hubscopedstore}) rather than passed around as a bare
+\texttt{dict}.  A store typed \texttt{dict[str, Frame]} for something more
+than one Hub can populate is the violation, visible at the type signature
+--- not merely at review time.  Concretely, one regression test is the
+load-bearing check: two synthetic Hub connections independently producing
+colliding Rung-2 strings must produce two distinct entries in the
+Display's storage, never one clobbering the other.
+
+\textbf{Not a z-spec candidate.}  This invariant is a naming/keying
+discipline, not a concurrency property: there is no shared mutable
+resource two threads race over here, since each Hub's fd is handled by the
+existing single-threaded socket-callback dispatch, serially.  A structural
+test plus a code-level check that every aggregated store's key type
+carries \texttt{HubId} is the right-sized verification.
+
+\subsection{Reconciliation with Existing Design}
+
+DES-088 (visibility is the Display's own axis) is orthogonal:
+\texttt{LuxAddress} answers ``which storage slot, which widget id'';
+\texttt{FrameVisibility} answers ``is it painted.''  DES-064/DES-067
+(Clients-menu grouping and \texttt{(n)} numbering) are reused for
+labeling, not for elision --- the two are different jobs, kept distinct
+above.  DES-086 (scenes and frames cannot alias across connections) is
+unchanged at Rung 2; this design extends the identical discipline one
+layer up.  DES-058 (\texttt{CallbackInvocation}) is unchanged and wrapped,
+not altered --- a click still resolves against the originating Hub's own
+registry, which is exactly why misrouting a stray broadcast to the wrong
+Hub is a real risk this design closes.
+
+% ===================================================================
+\section{Cross-Host Transport and Trust}\label{sec:crosshost}
+% ===================================================================
+
+\begin{quote}
+\small\textit{Design status: DES-090 in \texttt{DESIGN.md}, Status:
+ACCEPTED --- ratified by the operator 2026-09-05.  Companion to
+\S\ref{sec:addressing} (DES-089), which states the five-point contract
+this design satisfies.  Not yet implemented; the bead map and dependency
+order live in \path{docs/architecture/multi-hub-addressing-work.md}.}
+\end{quote}
+
+Today the Hub-to-Display leg is a single mechanism doing two jobs at once:
+\field{AF\_UNIX}, mode \texttt{0700}, one well-known path per user.  The
+socket's filesystem permission \emph{is} the entire trust model --- anything
+that can open the path is, by construction, a process the same OS user
+already controls.  \S\ref{sec:ipc}'s loopback policy states the analogous
+refusal explicitly for luxd's other leg (MCP/REST); the Hub-to-Display leg
+has never had an equivalent policy, because it has never needed one.
+Cross-host is exactly what gives it a reason to: the operator ruled
+(2026-09-04) that a single user's Display may aggregate Hubs running on
+other machines, now, not deferred, which breaks the one assumption the
+whole trust model rests on.  A network socket has no equivalent free
+lunch --- anyone who can route a packet to the Display's port can attempt
+to speak the Hub protocol to it.
+
+\textbf{Scope boundary.}  This design owns the network transport, who
+initiates a connection and how the endpoint is known, the authentication
+and trust mechanism, and how connect/reconnect/disconnect map onto the
+Display's existing fd-scoped ownership and preemption machinery.  It does
+\emph{not} own the addressing model (\S\ref{sec:addressing}), and it does
+not own DES-086's connection-scoped read/write security boundary --- it
+extends that boundary to a new transport, it does not alter it.
+
+\textbf{One direction only.}  The Hub is, in both the same-host and
+cross-host cases, the connecting party --- it dials the Display, never the
+reverse.
+
+\subsection{Threat Model}
+
+\textbf{Adversary.}  Lux's cross-host case is a single user's own multiple
+machines --- a laptop, a desktop, a home server --- not a multi-tenant
+service with mutually distrusting principals.  The realistic adversary is
+someone or something on the network path who is \emph{not} that user:
+another device on the same LAN or Wi-Fi, a compromised machine elsewhere on
+the network, or an opportunistic scanner.  It is explicitly \emph{not} a
+threat model against the user's own other machines --- if the user's own
+laptop is compromised, no transport policy protects the Display from it,
+because the laptop already holds legitimate credentials.  This is
+device-pairing for one person's own hardware, closer to SSH
+\texttt{known\_hosts} or a personal CA than to a public PKI or an OAuth
+tenant model.
+
+\begin{longtable}{p{0.5cm}p{4.0cm}p{4.4cm}p{4.4cm}}
+\toprule
+\textbf{\#} & \textbf{Can the adversary...} & \textbf{Without valid credentials} & \textbf{With a stolen/leaked credential} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{\#} & \textbf{Can the adversary...} & \textbf{Without valid credentials} & \textbf{With a stolen/leaked credential} \\
+\midrule
+\endhead
+T1 & Connect and speak the Hub protocol at all & \textbf{No} --- TLS
+  handshake fails closed before any application byte is read & Yes ---
+  the credential is the authorization \\
+T2 & Read another Hub's or the user's scene/menu content over the wire &
+  No --- TLS provides confidentiality; a passive eavesdropper sees
+  ciphertext only & N/A --- this axis is about eavesdropping, not
+  impersonation \\
+T3 & Inject content attributed to a real, already-connected Hub & No ---
+  cannot present that Hub's private key & No --- a stolen credential
+  impersonates only the credential's own Hub \\
+T4 & Cause a collision in the Display's per-\texttt{HubId} stores by
+  claiming an already-live hostname & No --- hostname is cert-verified,
+  not self-reported (\S\ref{sec:crosshost-fork}) & Only the same machine
+  the credential was issued to \\
+T5 & Bypass DES-086's per-connection read/write scoping once connected as
+  a legitimate Hub & No --- DES-086 is transport-agnostic & No ---
+  credential theft grants that Hub's own scope only \\
+T6 & Downgrade the connection to an unauthenticated or unencrypted one &
+  No --- the cross-host listener never accepts \texttt{kind="test"} and
+  never falls back to plaintext & N/A \\
+\bottomrule
+\end{longtable}
+
+\textbf{Consequences of credential loss.}  A stolen private key for one
+enrolled machine lets the attacker act as that machine's Hub --- read and
+write exactly the content the real Hub would have, until the credential is
+revoked.  This is symmetric with SSH: a stolen host key compromises that
+host's identity, not the whole fleet's.  This design accepts coarse,
+whole-CA revocation as a proportionate trade-off for a personal, small-N
+deployment (\S\ref{sec:crosshost-rejected}).
+
+\textbf{Out of scope, explicitly.}  Denial of service beyond what TCP/TLS
+already provide; a malicious already-enrolled Hub process beyond DES-086's
+scoping (it never gains cross-Hub reach, but is fully trusted for its own
+scope, same as today); and physical or OS-level compromise of an enrolled
+machine.
+
+\subsection{Resolving the Trust Fork: \texttt{HubId.hostname} Is Transport-Verified}\label{sec:crosshost-fork}
+
+\S\ref{sec:addressing-types} flags, without resolving, whether
+\field{HubId.hostname} stays a transport-verified network name (option
+\textbf{a}) or becomes a cosmetic label beside a new opaque, transport-assigned
+uniqueness key --- a certificate identity, an mTLS SPIFFE-style id, a
+connection-scoped token (option \textbf{b}).  \textbf{Decision: option
+(a).}  \texttt{HubId} keeps exactly the two fields already specified ---
+no third field.
+
+The real question is not which option is more defensive, it is what
+``verified'' means if the transport authenticates the connection but not
+the field.  If the transport authenticates the TLS session and then passes
+through whatever \field{hostname} string the Hub self-reports in
+\field{hub\_id} unchecked, \texttt{HubId} is not actually verified --- it is
+merely carried over a verified pipe.  A misconfigured Hub (no malice
+required) could self-report a \field{hostname} colliding with a different,
+legitimately distinct Hub's already-live entry, reintroducing the
+silent-collision failure mode \S\ref{sec:addressing} exists to close, just
+moved past the transport boundary.
+
+Option (a) closes the gap directly: the transport does not trust the
+self-reported \field{hostname} half of \field{hub\_id} at all.  It derives
+the verified hostname from the mTLS peer certificate's own Subject
+Alternative Name (bound to that certificate at enrollment,
+\S\ref{sec:crosshost-enroll}) and \textbf{rejects the connection outright
+if the self-reported hostname does not match the certificate's SAN.}
+\field{pid} is passed through as self-reported, unverified, exactly as
+\texttt{HubId}'s own docstring already treats it --- it only ever breaks a
+tie within one already-identified host.
+
+Option (b)'s own case for itself --- ``this hostname string is unique and
+genuine'' is a harder claim to verify than ``this credential is unique and
+genuine'' --- collapses once the hostname is derived from the certificate's
+SAN: verifying the credential \emph{is} verifying the hostname, because
+enrollment is what attached the name to the credential in the first place.
+Option (b)'s cost --- a third \texttt{HubId} field and a real/cosmetic
+split --- buys nothing option (a) does not already deliver.
+\textbf{Consequence for \texttt{HubId}:} none beyond what
+\S\ref{sec:addressing-types} already specifies.  \textbf{Consequence for
+the wire protocol:} none --- \field{hub\_id} still carries the full
+\field{HubId.wire\_token}; cross-host adds a rejection rule at the
+transport boundary, not a new field.
+
+\subsection{Transport Specification}
+
+\begin{center}
+\begin{tabular}{p{3.2cm}p{2.4cm}p{2.4cm}p{2.3cm}p{1.5cm}}
+\toprule
+\textbf{Option} & \textbf{Confidentiality + integrity} & \textbf{Authentication} & \textbf{New moving parts} & \textbf{Verdict} \\
+\midrule
+TLS 1.3, mutual auth (client + server certs) & Built in & Built in --- one
+  handshake does both & One cert/key pair per machine; a trust anchor
+  (\S\ref{sec:crosshost-providers}) & \textbf{Recommended} \\
+Plain TCP + application-level HMAC/token & None on the wire &
+  Authenticates only after content already crossed the wire & Token
+  issuance/rotation, plus still need TLS for confidentiality & Rejected \\
+Server-only TLS + bearer token & Built in, one direction & Server
+  authenticated; Hub authenticated only by the token & Token
+  issuance/rotation, TOFU cert pinning & Rejected \\
+SSH port-forward/tunnel & Built in & Built in & A dependency on the
+  system SSH client/agent and a supervised tunnel process & Rejected \\
+Public CA (Let's Encrypt-style) & Built in & Built in & Requires public
+  DNS + inbound internet exposure for domain validation & Rejected \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Recommendation: TLS 1.3, mutual authentication, against a
+trusted certificate authority.}  One mechanism supplies both
+confidentiality/integrity (T2) and authentication (T1, T3, T4) from a
+single, already-hardened protocol --- Lux does not implement its own
+cryptography; it configures \field{ssl.SSLContext} with
+\field{verify\_mode=ssl.CERT\_REQUIRED} on both ends and
+\field{minimum\_version=ssl.TLSVersion.TLSv1\_3}, and everything else is
+the standard library's and OpenSSL's problem.  \textbf{Who operates that
+certificate authority is a separate, pluggable decision, not a property of
+the mTLS mechanism itself} --- \S\ref{sec:crosshost-providers}, below,
+defines the two supported trust-anchor providers.  The new code this
+design adds is a certificate-issuance/enrollment path and a
+socket-listener change, not a hand-rolled auth protocol.
+
+\textbf{Session resumption} is left enabled on both sides, deliberately
+not hardened away: under TLS 1.3 a resumption ticket is cryptographically
+bound to the original full handshake --- including the mutual certificate
+exchange --- so a resumed connection carries the same verified identity,
+not a fresh or weaker claim.  Python's \field{ssl} module exposes no
+public API for 0-RTT/early data, the one property of session resumption
+with a known replay weakness, so that risk does not arise here.
+
+\textbf{Why the rejected options lose.}  Plain TCP plus a token
+authenticates the holder but does nothing for the wire itself, and once
+TLS is added back for confidentiality the token becomes pure overhead ---
+a second mechanism doing a job TLS already does more completely.
+Server-only TLS plus a bearer token is ordinary HTTPS-with-an-API-key and
+fails T3 more subtly: the token is a single shared secret, so revoking one
+compromised machine means rotating the token everywhere, and
+\field{HubId.hostname} would have nothing cryptographic to derive from ---
+reopening the trust fork \S\ref{sec:crosshost-fork} just closed.  SSH
+tunneling solves the problem well but makes the transport depend on an
+external program lux does not control, trading a library-level TLS
+configuration for a process-management problem; nothing prevents an
+operator from running Lux over an SSH tunnel or a VPN mesh instead, since
+the underlying wire protocol is transport-agnostic, but lux does not build
+that integration itself.  A public CA needs public DNS and inbound
+internet exposure for domain validation, the wrong shape for a
+LAN/VPN-scoped personal tool --- this row means a publicly-trusted,
+domain-validated web-PKI CA specifically, not a managed \emph{private} CA
+an adopter operates for itself; \S\ref{sec:crosshost-providers} and
+\S\ref{sec:crosshost-rejected} keep the two distinct.
+
+\subsection{Trust Anchor Providers: Pluggable, Not Fixed}\label{sec:crosshost-providers}
+
+\textbf{The mTLS mechanism does not care who signs the certificate.}  It
+authenticates a Hub from its client certificate and derives the verified
+\field{HubId.hostname} from that certificate's own Subject Alternative
+Name (\S\ref{sec:crosshost-fork}).  Nothing in that verification rule, in
+the four invariants (\S\ref{sec:crosshost-invariants}), or in the T1--T6
+threat model above depends on whose private key signed the leaf --- an
+AWS-issued leaf is trusted by the identical SAN-verification rule as a
+personally-signed one.  Only two things vary by provider: the trust
+anchor the Display verifies a leaf certificate's chain against, and the
+enrollment path by which a Hub obtains a correctly-SAN'd leaf in the
+first place.
+
+\textbf{The provider interface, stated minimally, is two obligations:}
+
+\begin{enumerate}
+  \item \textbf{Trust anchor.}  The root (and any intermediate)
+    certificate(s) the Display loads into its \field{ssl.SSLContext} as
+    the verification set for an incoming client certificate.  Swapping
+    providers means swapping what this set contains; nothing else in
+    \S\ref{sec:crosshost-fork}'s verification path changes.
+  \item \textbf{Enrollment path.}  The procedure that, given a machine's
+    hostname, produces a private key and a leaf certificate whose SAN
+    equals that hostname and whose chain terminates at the trust anchor
+    above.  \S\ref{sec:crosshost-enroll} specifies the enrollment
+    mechanics for each provider; only the identity of the signer and the
+    issuance channel differ.
+\end{enumerate}
+
+Any implementation satisfying both obligations is a valid trust-anchor
+provider.  The mTLS transport code itself never branches on which one is
+configured --- it loads \field{ssl.SSLContext}'s verification set and
+serves whatever leaf the active provider issued, and the handshake, the
+SAN check, and every T1--T6 row hold identically past that point.  Which
+provider is active is a per-Display configuration choice made once, at
+cross-host-enable time, not a per-connection or per-Hub choice --- every
+Hub a given Display enrolls trusts the same anchor.
+
+\textbf{Two providers ship with this design:}
+
+\begin{itemize}
+  \item \textbf{Provider 1 (default): self-managed personal CA.}  Exactly
+    what \S\ref{sec:crosshost-enroll} specifies: free, the CA's private
+    key never leaves the Display's own machine, enrollment is a manual
+    offline CSR exchange, and revocation is coarse --- whole-CA
+    regeneration and re-enrollment (\S\ref{sec:crosshost-rejected}).
+    Zero external dependency, single-machine key custody: the correct
+    default for the deployment this design targets, a handful of
+    machines one person owns.
+  \item \textbf{Provider 2 (optional): AWS Private CA (managed).}  The
+    Display trusts the AWS Private CA root, or an intermediate issued
+    under it, instead of a locally-generated root.  A Hub obtains its
+    leaf certificate through ACM Private CA issuance --- an API call the
+    operator can gate with IAM policy --- rather than an offline CSR
+    exchange, and revocation is proper CRL/OCSP rather than whole-CA
+    regeneration.  The trade-off is explicit, not hidden: paid and
+    managed, with an AWS account and IAM as a new external dependency,
+    in exchange for issuance and revocation that scale cleanly to an
+    organization with many machines and users.  This suits an enterprise
+    adopter, not the single-user default this design otherwise targets;
+    consult AWS Private CA's current pricing before adopting it --- it is
+    an enterprise-tier, monthly-per-CA-plus-per-certificate cost, and
+    this design pins no specific figure that would go stale.
+\end{itemize}
+
+\textbf{This is not the rejected public CA.}  \S\ref{sec:crosshost-rejected}
+and the Transport Specification table above reject a \emph{public},
+domain-validated web-PKI CA (Let's Encrypt-style) for needing public DNS
+and inbound internet exposure.  AWS Private CA is a managed \emph{private}
+CA --- its root is never in any browser or OS trust store, exactly like
+Provider 1's self-signed root, and it requires no public DNS or inbound
+exposure.  The two are different animals answering different questions;
+\S\ref{sec:crosshost-rejected} keeps them distinct explicitly.
+
+\subsection{Coexistence with the Local Fast Path}
+
+The \field{AF\_UNIX} leg is unchanged and stays the default.  Cross-host is
+additive and opt-in: the Display gains a second listening socket, bound
+only when the operator explicitly enables it, mirroring the loopback
+policy's fail-closed default --- no network listener exists until asked
+for, and an unconfigured bind stays loopback-only, so ``enabled but
+misconfigured'' degrades to ``still local,'' never to ``silently reachable
+from the network.''
+
+Both legs feed the same socket-listener machinery: \field{ssl.SSLSocket}
+is a subtype of \field{socket.socket}, so \field{select}, \field{recv},
+and \field{send} behave identically once the TLS handshake has completed,
+and every fd-keyed dict in the socket server needs no change.  The one
+change is in the accept path: it must poll a second listening socket and
+must not hand a freshly-accepted TLS connection to the ordinary accept
+path until the handshake --- including client-certificate verification ---
+has fully completed.
+
+\textbf{The handshake itself must never block the render thread.}  Accept
+and poll both already run synchronously inline on the single render
+thread, once per frame --- the reason the socket listener already carries
+a per-frame deadline bounding every other network wait it performs.  A
+blocking \field{do\_handshake()} call has no such bound: a peer that
+completes the TCP handshake and then stalls or trickles its
+\field{ClientHello} would hang that call for as long as it likes, freezing
+rendering \emph{and} the same-host \field{AF\_UNIX} leg for every Hub,
+with no credential required --- exactly T1's opportunistic scanner, and
+exactly the render-loop-freezing denial of service this threat model rules
+out.  Fail closed, not hung.
+
+The implementation must instead drive the TLS handshake
+\textbf{non-blocking, pumped through the existing accept/poll cadence,
+under a bounded per-connection deadline}, mirroring the existing per-frame
+deadline pattern rather than inventing a new one:
+
+\begin{enumerate}
+  \item Wrap each newly-accepted \field{AF\_INET}/\field{AF\_INET6} socket
+    in the server's \field{ssl.SSLContext} with
+    \field{do\_handshake\_on\_connect=False}, set it non-blocking, and
+    hold it in a new pending-handshake set keyed by fd --- kept separate
+    from the client/reader dicts, so no fd reaches either before its
+    handshake is verified complete.  Record a deadline (a small constant,
+    on the order of a few seconds) alongside the pending entry.
+  \item Each frame, the accept path calls \field{do\_handshake()} once per
+    pending connection.  \field{ssl.SSLWantReadError}/\field{ssl.SSLWantWriteError}
+    are the expected non-blocking retry signals; any other
+    \field{ssl.SSLError} (untrusted CA, bad cert, protocol failure) closes
+    the socket and drops it immediately.
+  \item A pending connection whose deadline has passed is closed and
+    dropped unconditionally, mid-handshake if need be --- the fail-closed
+    backstop.
+  \item \textbf{Two distinct gates, not one.}  \emph{Gate 1:} once
+    \field{do\_handshake()} returns successfully, the fd leaves the
+    pending-handshake set and enters the ordinary reader set, where it can
+    exchange \msg{ConnectMessage}/\msg{ReadyMessage} like any other
+    connection --- TLS-verified, but not yet \texttt{HubId}-verified.
+    \emph{Gate 2:} only once the SAN/\field{hub\_id} cross-check
+    (\S\ref{sec:crosshost-fork}) passes, after \msg{ConnectMessage} has
+    arrived, is the connection's content accepted and its \texttt{HubId}
+    entered into \texttt{AddressBook}'s live set.  A connection sits
+    between the two gates --- readable, but not yet content-trusted --- for
+    exactly the span of the connect sequence below; no
+    \msg{SceneMessage} or other content-bearing message is honored from it
+    until Gate 2 passes (Invariant 1, \S\ref{sec:crosshost-invariants}).
+\end{enumerate}
+
+This keeps the entire cross-host listener on the same single render thread
+as everything else in the socket layer --- no new thread, no lock, no
+cross-thread handoff of any render-thread-owned state.  A bounded
+background thread performing accept-plus-handshake off-thread was
+considered and rejected: it would be the first thread ever introduced into
+the socket listener's otherwise single-threaded, lock-free design, and the
+queue handoff becomes a second interleaving surface needing its own
+correctness argument, for a problem the existing per-frame-budget pattern
+already solves without one.  Minimizing new concurrent machinery is the
+security argument here, not a style preference: fewer interleavings is
+less attack surface to reason about, model, and get wrong.
+
+The wire protocol itself does not change.  A Hub process's own connection
+code differs only in which socket family and \field{ssl} wrapping it uses
+to reach the Display, not in what it sends once connected.
+
+\subsection{Discovery and Connection Lifecycle}
+
+\textbf{Endpoint discovery is pragmatic, with no registry.}  The Hub is
+the connecting party, and the instruction is not to over-engineer
+discovery.  There is no Hub registry, no broadcast, no service-discovery
+protocol, and no rendezvous server.  A remote Hub's machine holds a small,
+per-user config file naming the Display's \field{host:port} and the
+fingerprint of the trust anchor it should trust
+(\S\ref{sec:crosshost-providers}) --- the network equivalent of the
+Display's socket path being one well-known filesystem location per user.
+Populating that file is part of enrollment (\S\ref{sec:crosshost-enroll}),
+a one-time, explicit, user-driven step, not a live discovery protocol.  If
+the Display's reachable address changes (a DHCP lease renews, a public IP
+rotates), the remote Hub's config goes stale until updated, or until
+superseded by whatever stable-addressing mechanism the user already relies
+on (a static LAN reservation, a VPN mesh, dynamic DNS) --- Lux does not
+attempt to solve address stability itself.
+
+\textbf{Who initiates, and why that direction is kept.}  The Hub dials the
+Display in both cases, the same direction the \field{AF\_UNIX} leg already
+uses.  If the Display initiated connections to Hubs instead, it would need
+to discover Hub endpoints itself --- reintroducing the registry ruled out
+above --- and it would need Hub-side listeners bound and reachable,
+multiplying the number of network-facing accept loops from one to one per
+Hub.  Keeping the Display as the sole listener keeps the network attack
+surface to exactly one opt-in, authenticated port, everywhere.
+
+\textbf{Connect, cross-host:}
+
+\begin{enumerate}
+  \item The Hub opens a TCP connection to the Display's configured
+    \field{host:port}.
+  \item Both sides perform the TLS 1.3 handshake with mutual certificate
+    verification.  A connection whose peer cannot present a certificate
+    signed by the trusted CA is rejected at this step --- no application
+    byte is ever read from it (T1).
+  \item Once the handshake completes, the Display sends \msg{ReadyMessage}
+    --- the identical first frame the \field{AF\_UNIX} leg sends today,
+    unchanged.
+  \item The Hub responds with \texttt{ConnectMessage(kind="hub",
+    hub\_id=...)}, the identical second frame, unchanged.
+  \item The Display extracts the verified hostname from the peer
+    certificate's SAN, compares it against the \field{hostname} half of
+    the self-reported \field{hub\_id}, and rejects (closes the connection,
+    logs server-side) on any mismatch.  On a match, \texttt{HubId} is now
+    verified and enters \texttt{AddressBook}'s live set exactly as the
+    same-host case does.
+  \item From this point forward, everything in \S\ref{sec:addressing}'s
+    model applies identically to this connection and to a same-host one.
+\end{enumerate}
+
+\textbf{A cross-host connection never declares \texttt{kind="test"}.}  The
+test-kind backdoor exists for local development, and its safety today
+rests on the same \texttt{0700}-socket trust the rest of the
+\field{AF\_UNIX} leg relies on.  The cross-host listener refuses
+\texttt{kind="test"} outright --- closing the connection rather than
+accepting a read-only backdoor whose entire safety argument does not carry
+across a network (T6).
+
+\textbf{Reconnect.}  A dropped TCP connection (network blip, process
+restart) reconnects through the identical connect sequence above.
+\field{hostname} is stable across any reconnect, including a full process
+restart, because the enrolled certificate lives on disk on the Hub's
+machine and does not change between runs.  \field{pid} does not survive a
+genuine OS process restart --- a crash-respawn gets a new pid, a property
+of \texttt{HubId}'s own field choice (\S\ref{sec:addressing-types}), not a
+defect this design introduces.  The same-host-duplicate path already
+handles it correctly (\texttt{pembroke}, \texttt{pembroke (2)}, re-eliding
+once the stale entry is reaped).
+
+\textbf{Preemption --- resolved.}  \S\ref{sec:addressing}'s ``What Already
+Works'' subsection states the resolution: single-owner preemption must key
+on \texttt{HubId} --- the value this design guarantees is both verified
+and hostname-stable across reconnects --- never on
+\field{ConnectMessage.name}, which stays a human label that several Hub
+processes may legitimately share.  For a single same-host Hub this was
+harmless, because there was only ever one Hub to preempt; once cross-host
+makes two independently-legitimate, simultaneously live Hubs possible,
+name-keyed preemption risks a reconnecting Hub on one machine evicting a
+live, unrelated Hub on a different machine that happens to share the same
+declared name.  This is one coordination point between the two designs,
+resolved once rather than decided twice: whichever bead reworks preemption
+keys it on \texttt{HubId}, shared between \S\ref{sec:addressing}'s
+per-Hub-keyed-storage work and this design's own connection lifecycle.
+See the increment-of-work document for the owning bead.
+
+\textbf{Disconnect.}  No new mechanism.  A dropped cross-host connection
+is, from the socket listener's point of view, an ordinary fd closing ---
+the existing per-fd scene reaping, \texttt{AddressBook} live-set removal,
+and lease sweep apply exactly as \S\ref{sec:addressing} already specifies
+for the same-host case.  Nothing about the TLS layer needs its own
+teardown path beyond closing the underlying socket, which tears down the
+TLS session with it.
+
+\subsection{Authentication and Enrollment}\label{sec:crosshost-enroll}
+
+\textbf{The trust anchor is pluggable; the verification rule it feeds is
+not.}  Both providers below produce the identical material
+\S\ref{sec:crosshost-fork} needs: a leaf certificate whose SAN is the
+enrolled machine's hostname, chaining to one trust anchor the Display
+verifies against.  What differs is only where that anchor lives and how a
+Hub gets its leaf.  \textbf{Provider 1 is the default} for every
+deployment this design targets, and the rest of this design (the threat
+model, the invariants, the connect sequence) is specified against it
+without further qualification.  Provider 2 is an optional alternative,
+detailed in its own subsection below, for an adopter who already operates
+AWS infrastructure and wants managed issuance and revocation instead of
+self-managed key custody.
+
+\subsubsection{Provider 1 (Default): Self-Managed Personal CA}
+
+\textbf{The trust root is the user, not a service.}  The person enrolling
+a second machine already has authenticated access to both machines ---
+they are not proving their identity to Lux, they are telling Lux ``these
+two machines are both mine.''  Enrollment is a manual, explicit,
+out-of-band act, not a live network protocol Lux implements and must then
+defend on its own.  This mirrors SSH's own \texttt{known\_hosts} model
+more than a corporate PKI's.
+
+\textbf{Mechanism.}
+
+\begin{enumerate}
+  \item \textbf{CA creation (once, on the Display's machine).}  The first
+    time cross-host is enabled, the Display generates a small personal
+    Certificate Authority --- a private key and self-signed root
+    certificate --- stored under
+    \texttt{\textasciitilde{}/.punt-labs/lux/ca/} with the same discipline
+    the socket directory already uses (\texttt{0700} directory,
+    \texttt{0600} private key).  This CA signs only Lux's own leaf
+    certificates; it is never installed into the OS or browser trust
+    store.  The private key should additionally be passphrase-protected at
+    rest, and the CA directory kept out of any dotfile-sync or
+    cloud-backup tool the operator runs elsewhere.
+  \item \textbf{The Display's own leaf certificate.}  The Display issues
+    itself a leaf certificate (SAN = the hostname it will present as)
+    signed by that CA, for the server side of the mTLS handshake.
+  \item \textbf{Per-machine enrollment (once per additional Hub machine).}
+    On the machine that will run a Hub, the operator generates a local
+    keypair and a certificate signing request naming that machine's own
+    hostname as the SAN.  The CSR is signed by the Display's CA ---
+    \textbf{the CA's private key never leaves the Display's machine.}  The
+    signing step is a manual, offline exchange: the operator copies the
+    CSR to the Display however they already move files between their own
+    machines, and copies the signed certificate back.
+  \item \textbf{Result.}  Each enrolled machine holds its own private key
+    and a certificate binding it to its own hostname, signed by one shared
+    CA both sides already trust --- exactly the material
+    \S\ref{sec:crosshost-fork} needs.
+\end{enumerate}
+
+A friendlier enrollment flow --- a short-lived pairing code exchanged over
+the LAN, closer to a device-pairing UX --- is a real usability improvement
+over copy/paste CSR signing, but it is its own protocol with its own
+threat model (a pairing code is a bearer credential with a race between
+generation and use) and is deliberately out of scope for this design,
+noted as a rejected-for-now alternative rather than a gap.
+
+\textbf{Certificate lifetime, expiry, and rotation.}  The CA's self-signed
+root is issued with a long validity (10 years), regenerated only on a full
+re-enrollment event, not on a schedule.  Each leaf certificate is issued
+with a much shorter validity (1 year), bounding the damage window of a
+leaked leaf key without adding the operational cost of a leaked CA key.
+An expired leaf fails the TLS handshake with a certificate-verification
+error on both sides --- correct, fail-closed behavior, no different in
+kind from any other handshake rejection.  What is not yet solved is
+diagnosis: today's reconnect loop treats every connection failure alike,
+so an expired leaf looks identical to ``Display unreachable'' or ``wrong
+endpoint configured.''  This design requires the implementation to close
+that diagnosability gap: the Display's server-side log must record the
+specific rejection reason (never surfaced to an unauthenticated peer, to
+avoid an oracle), and the Hub-side client, which does hold a legitimate
+identity, should surface a distinct, actionable message (``certificate
+expired --- re-enroll this machine'') rather than a generic
+connection-failure retry loop.
+
+There is no automatic renewal in this design.  A leaf's expiry is a fully
+manual event --- the operator re-runs the enrollment flow for the one
+affected machine.  For a handful of personally-owned machines, a yearly
+manual touch per machine is a proportionate cost; an automatic-renewal
+protocol would be new standing machinery to save an operation this design
+already keeps deliberately rare and manual for every other lifecycle
+event.
+
+\subsubsection{Provider 2 (Optional): AWS Private CA (Managed)}\label{sec:crosshost-enroll-aws}
+
+\textbf{What AWS Private CA is, at design level.}  AWS Private CA
+(formerly ACM Private CA) is a managed private-certificate-authority
+service: it operates a root and, optionally, subordinate CAs on the
+operator's behalf, issues private X.509 certificates, supports CRL
+and OCSP for revocation, and gates issuance with IAM
+policy.  It is mTLS-compatible in the ordinary sense --- a leaf it issues
+is an X.509 certificate like any other and needs nothing special from
+Lux's \field{ssl.SSLContext} configuration beyond pointing the
+verification set at its root.  This design states AWS Private CA's
+capabilities at this level deliberately; it does not pin a specific
+feature claim beyond what is stated here without independent
+verification against AWS's own current documentation before
+implementation.
+
+\textbf{Mechanism.}
+
+\begin{enumerate}
+  \item \textbf{CA creation (once, in the operator's AWS account).}  The
+    operator provisions a root, and optionally a subordinate, CA in AWS
+    Private CA under their own AWS account and billing.  Lux does not
+    create or manage this AWS resource itself --- provisioning is an
+    out-of-band AWS console/CLI/infrastructure-as-code step the operator
+    performs once, the same way Provider 1's CA creation is a local
+    script the operator runs once, just against a different substrate.
+  \item \textbf{The Display's own leaf certificate.}  The Display
+    requests a leaf certificate from AWS Private CA (SAN = the hostname
+    it presents as) via ACM Private CA issuance, and installs the issued
+    certificate for the server side of the mTLS handshake.  The code
+    path that loads a server-side leaf into \field{ssl.SSLContext} does
+    not change between providers --- only where the leaf came from does.
+  \item \textbf{Per-machine enrollment (once per additional Hub machine).}
+    On each machine that will run a Hub, the operator requests a leaf
+    certificate from AWS Private CA naming that machine's own hostname as
+    the SAN --- an ACM Private CA issuance API call, gated by whatever
+    IAM policy the operator attaches to the calling principal,
+    rather than Provider 1's offline CSR exchange with the Display.
+  \item \textbf{Result.}  Identical in shape to Provider 1's: each
+    enrolled machine holds a private key and a SAN-bound leaf, chaining
+    to one trust anchor --- here, AWS Private CA's root or intermediate
+    --- both sides already trust, exactly the material
+    \S\ref{sec:crosshost-fork} needs.
+\end{enumerate}
+
+\textbf{Revocation is the concrete capability difference.}  Provider 1
+accepts coarse, whole-CA revocation as a proportionate trade-off for a
+personal, small-N deployment (\S\ref{sec:crosshost-rejected}).  AWS
+Private CA supports proper per-certificate revocation via CRL
+and OCSP: revoking one compromised machine's leaf does not
+require regenerating the CA or re-enrolling every other machine.  This is
+not a contradiction of \S\ref{sec:crosshost-rejected}'s rejection of ``a
+live CRL/OCSP responder'' --- that entry rejects \emph{Lux running its
+own} CRL/OCSP infrastructure as disproportionate for a personal
+deployment.  Provider 2 does not ask Lux to run one; it uses AWS's
+already-running one.  That is exactly why Provider 2 is scoped to an
+adopter who already carries an AWS/IAM dependency rather than
+being the default.
+
+\textbf{Cost and dependency, stated plainly.}  AWS Private CA is
+enterprise-tier pricing --- see AWS Private CA's current pricing for
+figures this design deliberately does not pin, since they are AWS's to
+change; at the time of writing the shape is a monthly per-CA charge plus
+a per-certificate-issued charge.  It also adds an AWS account and
+IAM as a new external dependency Provider 1 has none of.  The
+trade this design states without hedging: Provider 2 buys
+IAM-gated issuance, proper revocation, and a path that scales
+cleanly to an organization with many machines and users, at the cost of
+money and an AWS dependency.  It suits an enterprise adopter, not a
+single user running Lux on a laptop and a home server --- which is why
+Provider 1 stays the default and Provider 2 stays opt-in.
+
+\subsection{Rejected Alternatives}\label{sec:crosshost-rejected}
+
+\begin{itemize}
+  \item \textbf{Distribute the CA's private key to every machine.}
+    Simpler than CSR signing, but multiplies the number of places the
+    single most sensitive secret in this design lives --- every enrolled
+    machine becomes capable of impersonating any Hub, not just itself,
+    failing T3 and T4 more broadly than a leaked leaf key does.
+  \item \textbf{A pre-shared/derived token instead of mTLS.}  Rejected
+    because it needs TLS added back for confidentiality regardless, at
+    which point mutual TLS supplies both properties from one mechanism,
+    and because a shared token cannot give \field{HubId.hostname} anything
+    cryptographic to anchor to.
+  \item \textbf{Leveraging the org's ethos/GPG identity infrastructure.}
+    Rejected for a mismatch of what is being identified: ethos identities
+    are bound to a person or agent, while \texttt{HubId} needs to identify
+    a machine --- the same person's two laptops need two distinct,
+    independently-revocable identities, not one shared identity
+    authenticating both.  Reusing ethos's GPG keys would either issue one
+    key per machine anyway (a parallel, second PKI with none of this
+    design's tooling) or authenticate by person and leave machine
+    disambiguation to the unverified \field{hostname} field again.
+  \item \textbf{Revocation via a live CRL/OCSP responder.}  Rejected for
+    this deployment's scale: running a CRL/OCSP responder is exactly the
+    heavy infrastructure the operator ruled against, for a threat this
+    design already scopes to a handful of machines one person owns.  The
+    accepted trade-off instead: revoking one compromised machine means
+    regenerating the CA and re-enrolling every machine, an explicit,
+    bounded, rare, fully manual operator action --- not a hidden footgun,
+    because nothing silently trusts a revoked key in the meantime.
+\end{itemize}
+
+\textbf{Reconciliation: a managed private CA is not the rejected public
+CA.}  The Transport Specification table, above, rejects a \emph{public},
+domain-validated web-PKI CA (Let's Encrypt-style) for needing public DNS
+and inbound internet exposure for domain validation --- a mismatch with a
+LAN/VPN-scoped personal tool, not a judgment against managed CAs in
+general.  AWS Private CA (\S\ref{sec:crosshost-enroll-aws}) is a managed
+\emph{private} CA: its root is never installed into any browser or OS
+trust store, it needs no public DNS record and no inbound internet
+exposure, and it is trusted by Lux the same way Provider 1's self-signed
+root is --- as an explicitly-configured, non-public trust anchor.  It is
+listed here as a distinction, not a contradiction: this design still
+rejects the public/web-PKI option; it separately \emph{accepts} a managed
+private CA as an optional, non-default provider
+(\S\ref{sec:crosshost-providers}).
+
+\subsection{Invariants}\label{sec:crosshost-invariants}
+
+Stated precisely, so the implementation and its tests have a checkable
+target:
+
+\begin{enumerate}
+  \item \textbf{No content before verification.}  No \msg{SceneMessage},
+    callback-menu message, or manifest message is processed from a
+    connection until that connection's \texttt{HubId} has been both
+    transport-verified (TLS handshake with client-cert verification
+    complete) and cross-checked (self-reported \field{hub\_id} hostname
+    matches the certificate SAN).
+  \item \textbf{At most one live connection per \texttt{HubId}.}  Once
+    preemption is re-keyed onto \texttt{HubId} (above), a second
+    connection presenting the identical verified \texttt{HubId} evicts
+    the first, never coexists with it --- the same single-owner guarantee
+    DES-068 already established for the (today, single) same-host Hub,
+    generalized to N verified Hubs.
+  \item \textbf{Hostname verification is fail-closed.}  A SAN/\field{hub\_id}
+    mismatch, an untrusted or expired certificate, or a
+    \texttt{kind="test"} declaration on the cross-host listener all result
+    in connection rejection, never a degraded-trust fallback.
+  \item \textbf{The \field{AF\_UNIX} leg's trust argument is untouched.}
+    Nothing in this design weakens, bypasses, or shares state with the
+    local socket's \texttt{0700}-permission trust boundary.
+\end{enumerate}
+
+\textbf{All four invariants hold identically under either trust-anchor
+provider} (\S\ref{sec:crosshost-providers}).  None of the four is stated
+in terms of who signed a certificate --- they are stated in terms of the
+TLS handshake, the SAN/\field{hub\_id} cross-check, and connection
+state, all of which are provider-agnostic by construction.  An
+AWS-issued leaf satisfies Invariant~1 and Invariant~3 by the identical
+verification code path a self-signed leaf does; Invariant~2's
+\texttt{HubId}-keyed preemption and Invariant~4's untouched
+\field{AF\_UNIX} boundary do not reference the certificate provider at
+all.  Only certificate \emph{provenance} and the \emph{enrollment} flow
+that produced the leaf differ between providers --- never the mechanism
+these invariants govern.
+
+\subsection{z-spec Assessment}
+
+Invariants 1 and 2 above are \textbf{z-spec-REQUIRED for the
+implementation phase.}  This design does not model them now --- flagging
+is the deliverable here, not the model:
+
+\begin{itemize}
+  \item \textbf{Invariant 1} is a stateful-protocol safety property with a
+    real interleaving.  The connection's own state --- TCP connected, TLS
+    handshaking, TLS verified awaiting \msg{ConnectMessage}, identified
+    with \texttt{HubId} verified, receiving content --- is exactly the
+    shape a z-spec trigger names.  The concrete race a model-check should
+    exhibit and then exclude: a non-blocking accept path that adds a
+    socket to the client set before its TLS handshake or its
+    \msg{ConnectMessage} has actually completed, letting a
+    \msg{SceneMessage} arrive against an unverified or not-yet-identified
+    connection.
+  \item \textbf{Invariant 2} is a lock/ownership discipline across a
+    reconnect race, with multiple remote Hubs interleaving --- the same
+    shape DES-068's own single-owner preemption already needed a careful
+    sequential argument for, generalized from one Hub to N
+    concurrently-reconnecting Hubs.  This is precisely the recurrence
+    signal that calls for a formalized state machine rather than another
+    empirical round.
+\end{itemize}
+
+Invariants 3 and 4 are boundary checks and a non-interference statement,
+not concurrency properties, and are verified by a rejection-path
+regression test per threat-model row with a ``No'' answer under ``Without
+valid credentials'' (T1, T3, T4, T6 --- T2 and T5 are not rejection tests)
+and a code-level audit instead.  The
+fidelity requirement, stated in advance: the eventual model for invariant
+1 must reproduce the defect when the handshake-before-accept ordering is
+removed, and the model for invariant 2 must reproduce a double-owner state
+when preemption is re-keyed incorrectly (kept on \field{name}, with two
+same-named-but-different-\texttt{HubId} connections both live).
+
+\subsection{Reconciliation with Existing Design}
+
+DES-086 (scene inspection is a per-connection security boundary) is
+preserved verbatim, not weakened: it operates on Rung 2
+(\texttt{ConnectionId}) --- a connection reads and writes only content
+composed on its own \texttt{ConnectionId}.  This design operates one layer
+below that: it decides whether a connection is allowed to exist and speak
+at all, and what \texttt{HubId} it is bound to once it does.  An
+authenticated, verified remote Hub gains exactly the same DES-086 scoping
+a same-host Hub already has.
+
+This design satisfies, point for point, the five requirements
+\S\ref{sec:addressing} states for the cross-host transport layer:
+authenticate before content (Invariants, above, and the connect
+sequence); the addressing layer performs no authentication of its own and
+trusts \texttt{HubId} once delivered; \texttt{HubId} stability across
+reconnects (the hostname-stable/pid-unstable distinction, stated
+precisely); the transport owns endpoint resolution and connection
+initiation; and \field{hub\_id} frame ordering (step 4 of the connect
+sequence).
+
+\textbf{A finding against the current same-host code, surfaced because
+cross-host depends on it.}  The Display-side scene-message handler rejects a
+\msg{SceneMessage} only when the sending fd has already declared
+\texttt{kind="test"}.  An fd that has not yet sent any \msg{ConnectMessage}
+at all --- \field{kind\_of(fd)} returns \texttt{None}, which is not equal
+to \texttt{"test"} --- is not rejected today; its \msg{SceneMessage} is
+processed and installed.  This is harmless on the \field{AF\_UNIX} leg
+only because the socket's \texttt{0700} permission already means an
+unidentified fd is still a same-user process.  It is not harmless once a
+store is keyed by \texttt{HubId}: there is no \texttt{HubId} to key an
+unidentified connection's content under at all.  \textbf{This design
+requires closing this gap as a prerequisite for cross-host, not an
+optional hardening}: every content-bearing message handler must reject a
+message from any fd where \field{kind\_of(fd) is None}, not only
+\field{kind\_of(fd) == "test"}, uniformly across both transports.  Listed
+first in the increment-of-work document's bead map.
+
+% ===================================================================
 \section{Transport and Process}\label{sec:ipc}
 % ===================================================================
 
@@ -922,7 +2368,9 @@ transport rejects a foreign \texttt{Host} header (DNS-rebinding) or
 \texttt{Origin} header (cross-site).  Off-loopback access needs
 authentication that is not built yet; the multi-machine future in
 \texttt{target.md} arrives together with a bearer token and a
-bind-derived origin policy.
+bind-derived origin policy --- a different leg (MCP/REST), not the
+Hub\textendash{}Display socket, whose own off-loopback story is mTLS
+(\S\ref{sec:crosshost}, DES-090), not a bearer token.
 
 \subsection{The Display Socket Is Hub-Internal}
 
@@ -1211,13 +2659,21 @@ bounding the rendered rows.
 
 \subsection{Trust Boundaries}
 
-There are two.  The first is luxd's HTTP surface: it binds loopback, refuses
-a non-loopback bind at startup, and rejects a foreign \texttt{Host} or
-\texttt{Origin} header (Section \S\ref{sec:ipc}).  The second is the
-Display's Unix socket: luxd is its only client, filesystem permissions
-protect the socket directory (user-only, mode \texttt{0700}), and an
-oversize or malformed frame disconnects the peer rather than crashing the
-Display.
+There are two boundaries in the code as shipped today.  The first is
+luxd's HTTP surface: it binds loopback, refuses a non-loopback bind at
+startup, and rejects a foreign \texttt{Host} or \texttt{Origin} header
+(Section \S\ref{sec:ipc}).  The second is the Display's Unix socket: luxd
+is its only client, filesystem permissions protect the socket directory
+(user-only, mode \texttt{0700}), and an oversize or malformed frame
+disconnects the peer rather than crashing the Display.
+
+A third boundary is designed but not yet implemented: an opt-in, mutually
+authenticated TLS listener alongside the Unix socket, for the cross-host
+case where a Display aggregates Hubs on other machines.  Section
+\S\ref{sec:crosshost} (DES-090) specifies its threat model, its transport
+choice (TLS 1.3 against a per-user personal CA), and its invariants in
+full; it does not weaken, bypass, or share state with the two boundaries
+above.
 
 \subsection{Render Function Consent}
 
@@ -1316,6 +2772,15 @@ and partition tests in \texttt{tests/test\_display\_partition.py} derive
 cases from its operation schemas.  The legacy model predates multi-scene
 tabs and the Hub/Display split; its abstraction maps multi-scene state to
 the active tab.
+
+\textbf{Pending, not yet built.}  DES-090's cross-host design
+(\S\ref{sec:crosshost}) names two invariants as z-spec-REQUIRED once
+implementation starts --- no content before verification, and at most one
+live connection per \texttt{HubId} --- with the concrete race each model
+must exhibit and exclude, and a fidelity requirement for each.  Neither is
+modeled yet; the design mission's own instruction was to flag, not model,
+ahead of implementation.  Tracked in the increment-of-work document,
+\path{docs/architecture/multi-hub-addressing-work.md}.
 
 % ===================================================================
 \section{Test Architecture}

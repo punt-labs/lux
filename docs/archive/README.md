@@ -26,3 +26,17 @@ you need the current architecture, read
   element coverage audit taken at Lux v0.5.x (23 element types). The catalog
   has since grown to 25 kinds, so the tallies are stale. The living ImGui API
   reference is [`../imgui/primitive-catalog.md`](../imgui/primitive-catalog.md).
+- [`addressing.md`](./addressing.md) — the evaluator-accepted design draft
+  for DES-089 (identity ladder, multi-Hub aggregation). Restructured
+  (2026-09-04) into `../architecture/system.tex` §"Identity, Addressing,
+  and Multi-Hub Topology" (architecture) and
+  `../architecture/multi-hub-addressing-work.md` (implementation plan).
+  DES-089 is Status: ACCEPTED in `DESIGN.md`, ratified by the operator
+  2026-09-05.
+- [`cross-host-transport.md`](./cross-host-transport.md) — the
+  evaluator-accepted design draft for DES-090 (cross-host Hub-to-Display
+  transport and trust). Restructured (2026-09-04) into
+  `../architecture/system.tex` §"Cross-Host Transport and Trust"
+  (architecture) and `../architecture/multi-hub-addressing-work.md`
+  (implementation plan). DES-090 is Status: ACCEPTED in `DESIGN.md`,
+  ratified by the operator 2026-09-05.
