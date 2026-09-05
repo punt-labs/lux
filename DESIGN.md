@@ -6306,8 +6306,12 @@ name-keyed preemption is unsafe, and it must be re-keyed onto `HubId`
 What changes for same-host, no transport work required: (1) a Hub
 declares a real `HubId` instead of that constant, carried on
 `ConnectMessage`'s dedicated `hub_id` field (see below); (2) every
-Display-side store currently keyed by a bare Rung-2 string gains the Hub
-dimension; (3) `InteractionDelivery`'s scene-less broadcast fallback —
+Display-side store currently keyed by a bare Rung-2 string is replaced by
+a `HubScopedStore` keyed by `HubScopedKey` (`hub: HubId`, `local: str`) —
+a typed class, not a dict, that owns its own put/get, per-Hub
+enumeration, and per-Hub purge/drop (`system.tex`
+§"Aggregated Storage: `HubScopedStore`"); (3) `InteractionDelivery`'s
+scene-less broadcast fallback —
 which today sends every menu-bar click to every connected client on the
 documented assumption that exactly one Hub is listening — is retired in
 favor of routing by the originating `HubId`, since a stray broadcast to a
@@ -6339,12 +6343,13 @@ collection it aggregates, that item's storage key and its ImGui widget id
 both derive from its full `LuxAddress`, never from a bare human label nor
 from a Rung-2-or-lower id alone, once more than one Hub can contribute to
 that collection. Structural, not behavioral — checkable as a type
-discipline (a `str`-keyed store cannot carry the Hub dimension) plus one
-collision-regression test (two Hubs independently producing an identical
-Rung-2 string must land as two distinct entries, never one clobbering the
-other). Not a z-spec candidate: no shared mutable resource, no
-interleaving, no lock discipline — a naming/keying convention, not a
-concurrency property.
+discipline once `HubScopedKey` is the actual key type of every aggregated
+store, composed inside a `HubScopedStore` rather than passed around as a
+bare `dict` — plus one collision-regression test (two Hubs independently
+producing an identical Rung-2 string must land as two distinct entries,
+never one clobbering the other). Not a z-spec candidate: no shared
+mutable resource, no interleaving, no lock discipline — a naming/keying
+convention, not a concurrency property.
 
 **Reconciliation.** DES-088 (visibility) is orthogonal — content identity
 versus paint state, no overlap. DES-064/DES-067 (Clients-menu grouping and
@@ -6424,8 +6429,9 @@ Wire"; cross-repo sequencing: the increment-of-work document.
 title, frames and menus), and `lux-kob7` (TreeNode id + selection, must
 land Rung-3-ready) become children of this one ratified design. Net-new
 work the multi-Hub topology requires — `HubId` on the wire (dedicated
-`hub_id` field, with vox/z-spec cross-repo coordination), per-Hub-keyed
-Display storage, the `AddressBook` component, the collision-regression
+`hub_id` field, with vox/z-spec cross-repo coordination), the
+`HubScopedStore`/`HubScopedKey`-backed Display storage, the `AddressBook`
+component, the collision-regression
 test, and the menu-click routing fix — is listed, in dependency order, in
 the increment-of-work document,
 `docs/architecture/multi-hub-addressing-work.md`; the leader files beads

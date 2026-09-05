@@ -42,7 +42,7 @@ missions' own contracts.
 |---|---|---|---|
 | **W1** | Close the pre-identification content gap | cross-host-transport §"A finding against the current same-host code" | none — prerequisite, ships first |
 | **W2** | Hub identity on the wire (required `hub_id` field, populated by every connecting `kind` including `test`, + `HubId` value type) | addressing §"Hub identity on the wire" | none |
-| **W3** | Per-Hub-keyed Display storage | addressing §"What must change," point 2 | W2 |
+| **W3** | Replace `FrameBook`'s and `MenuReplica`'s bare `dict[str, ...]` maps with `HubScopedStore` instances keyed by `HubScopedKey` | addressing §"Aggregated Storage: `HubScopedStore`," §"What must change," point 2 | W2 |
 | **W4** | `AddressBook` component | addressing §"Every aggregated surface, uniformly" | W2 |
 | **W5** | Scene storage collision regression test | addressing §"Governing invariant" | W3 |
 | **W6** | Menu-click routing fix (retire scene-less broadcast) | addressing §"What must change," point 3 | W3 |
@@ -93,7 +93,7 @@ disowns any scene neither owned by the identifying fd nor named in the
 sending manifest — orphan-sweep logic that, unscoped, just as readily
 disowns a second, live Hub's own scenes once more than one Hub can send a
 manifest. It depends on W3 for the same reason W11 does: there is no
-`HubId` to scope the purge predicate on until per-Hub-keyed storage
+`HubScopedStore.purge_hub_not_in` to call until W3's typed storage
 exists. It is independent of W11 (both depend on W3, but neither depends
 on the other) and carries no z-spec requirement of its own — it is a
 naming/keying discipline like the governing invariant it extends, not a
