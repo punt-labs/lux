@@ -6204,16 +6204,16 @@ before/after evidence.
 
 **Status:** ACCEPTED — ratified by the operator 2026-09-05 (design mission
 m-2026-09-04-001, worker gvr; two design forks within it already ruled by
-the operator on 2026-09-04, see "Resolved forks," below). This ADR is not
-SETTLED until the operator ratifies the design as a whole; a mission's
-internal evaluator sign-off is not itself ratification and is not cited
-here as though it were. Full specification: the architecture lives in
+the operator on 2026-09-04, see "Resolved forks," below). The mission's
+internal evaluator sign-off preceded this and was not itself ratification;
+the operator's own ratification of the design as a whole, above, is what
+settles this ADR. Full specification: the architecture lives in
 `docs/architecture/system.tex` §"Identity, Addressing, and Multi-Hub
 Topology"; the implementation plan lives in
 `docs/architecture/multi-hub-addressing-work.md`. (The original design
-draft, `docs/architecture/target/addressing.md`, is archived at
-`docs/archive/addressing.md` — its content was restructured into those
-two documents per operator direction, 2026-09-04.) This entry supersedes
+draft was drafted at `docs/architecture/target/addressing.md` and is now
+archived at `docs/archive/addressing.md` — its content was restructured
+into those two documents per operator direction, 2026-09-04.) This entry supersedes
 every prior citation of "DES-089" as a bead-note working title (`lux-whb9`,
 `lux-81t3`, the `FrameRef` docstring, CHANGELOG 0.32.1) — those citations
 pointed at a name with no design behind it; this entry and its linked
@@ -6331,11 +6331,13 @@ scope**, delegated to a companion transport-and-trust design, DES-090
 below (`djb`'s domain; original draft archived at
 `docs/archive/cross-host-transport.md`, restructured into
 `docs/architecture/system.tex` §"Cross-Host Transport and Trust" and
-`docs/architecture/multi-hub-addressing-work.md`). The source draft's
-"Dependencies on the cross-host transport layer" section states precisely
-what that layer must supply — a
-connection with an authenticated, reconnect-stable `HubId` delivered
-before any content is accepted — so the two designs compose without
+`docs/architecture/multi-hub-addressing-work.md`). What that layer must
+supply — a connection with an authenticated, reconnect-stable `HubId`
+delivered before any content is accepted — is stated precisely in
+`docs/architecture/system.tex` §"Reconciliation with Existing Design"
+under §"Cross-Host Transport and Trust" (originally drafted in the
+now-archived `cross-host-transport.md`'s own "Dependencies on the
+cross-host transport layer" section), so the two designs compose without
 overlap.
 
 **Governing invariant.** For any item the Display renders as part of a
@@ -6464,7 +6466,9 @@ nothing about the `AF_UNIX` trust argument survives the crossing.
 **Decision.** TLS 1.3 with mutual certificate authentication, against a
 trust anchor, is the transport and trust mechanism — recommended over
 plain-TCP-plus-token, server-only-TLS with a bearer token, SSH tunneling,
-and a public CA (comparison table in `cross-host-transport.md`), because
+and a public CA (comparison table in `docs/architecture/system.tex`
+§"Transport Specification", originally drafted in the now-archived
+`cross-host-transport.md`), because
 one mechanism supplies both confidentiality/integrity and authentication
 from a single already-hardened protocol rather than composing two
 mechanisms to do jobs TLS already does together. **Who operates the
@@ -6479,7 +6483,8 @@ move files, no live enrollment protocol, no registry. An optional
 Provider 2, AWS Private CA, is specified alongside it below. This is
 device-pairing for one person's own hardware, not a multi-tenant service
 authenticating unrelated principals — the threat model
-(`cross-host-transport.md`'s threat-model table, T1–T6) is scoped
+(`docs/architecture/system.tex` §"Threat Model", T1–T6, originally
+drafted in the now-archived `cross-host-transport.md`) is scoped
 accordingly: the adversary is a party on the network who is *not* the
 user, never the user's own other machines, and this scoping holds
 identically under either provider.
@@ -6577,6 +6582,8 @@ requires closing the gap — reject on `kind_of(fd) is None`, not only
 map below.
 
 **Invariants and z-spec.** Four invariants stated precisely in
+`docs/architecture/system.tex` §"Invariants" under §"Cross-Host Transport
+and Trust", originally drafted in the now-archived
 `cross-host-transport.md`: no content before verification; at most one
 live connection per `HubId`; hostname verification is fail-closed; the
 `AF_UNIX` leg's trust argument is untouched. The first two are marked
@@ -6598,7 +6605,10 @@ boundary) is preserved verbatim — this design gates *who may connect and
 as which `HubId`*; DES-086 continues to govern *what a connected Hub may
 read or write*, transport-agnostically, exactly as it does today. All five
 of DES-089's cross-host dependency-contract points are satisfied point for
-point (`cross-host-transport.md`'s "Reconciliation" section). Rejected
+point (`docs/architecture/system.tex` §"Reconciliation with Existing
+Design" under §"Cross-Host Transport and Trust", originally drafted in
+the now-archived `cross-host-transport.md`'s "Reconciliation" section).
+Rejected
 alternatives, stated with reasons in the full design: distributing the
 CA's private key to every machine (multiplies the blast radius of the
 single most sensitive secret); a pre-shared/derived token (still needs TLS
@@ -6617,7 +6627,7 @@ reconciliation paragraph added alongside Provider 2).
 
 **Implementation map.** Eight net-new beads, now consolidated with
 DES-089's into the single implementation plan
-`docs/architecture/multi-hub-addressing-work.md` (beads W1–W13, in
+`docs/architecture/multi-hub-addressing-work.md` (beads W1–W15, in
 dependency order): (1) close the
 pre-identification content gap — prerequisite, ships independently of
 cross-host; (2) personal CA and enrollment tooling; (3) the cross-host TLS
@@ -6625,8 +6635,9 @@ listener; (4) hostname verification at `ConnectMessage` time — shared
 touchpoint with DES-089's `hub_id` wire-field bead; (5) the cross-host
 `DisplayLink` client path; (6) preemption re-keyed onto `HubId` — shared
 touchpoint with DES-089's per-Hub-keyed-storage bead; (7) the two z-spec
-models; (8) threat-model regression tests, one per threat-model row with a
-"No" answer. Neither vox nor z-spec run a Display, so this design's
+models; (8) threat-model regression tests — one per threat-model row with
+a "No" answer under "Without valid credentials" (T1, T3, T4, T6; T2 and T5
+are not rejection tests). Neither vox nor z-spec run a Display, so this design's
 transport work is Display-side only; the only cross-repo touchpoint is the
 `hub_id` wire field DES-089 already names. A ninth bead, **W15 (optional,
 opt-in)**, adds the AWS Private CA trust-anchor provider on top of (2) and

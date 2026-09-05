@@ -2275,7 +2275,9 @@ is the deliverable here, not the model:
 
 Invariants 3 and 4 are boundary checks and a non-interference statement,
 not concurrency properties, and are verified by a rejection-path
-regression test per threat-model row and a code-level audit instead.  The
+regression test per threat-model row with a ``No'' answer under ``Without
+valid credentials'' (T1, T3, T4, T6 --- T2 and T5 are not rejection tests)
+and a code-level audit instead.  The
 fidelity requirement, stated in advance: the eventual model for invariant
 1 must reproduce the defect when the handshake-before-accept ordering is
 removed, and the model for invariant 2 must reproduce a double-owner state
