@@ -31,12 +31,12 @@ you need the current architecture, read
   (2026-09-04) into `../architecture/system.tex` §"Identity, Addressing,
   and Multi-Hub Topology" (architecture) and
   `../architecture/multi-hub-addressing-work.md` (implementation plan).
-  DES-089 stays Status: PROPOSED in `DESIGN.md`, pending operator
-  ratification.
+  DES-089 is Status: ACCEPTED in `DESIGN.md`, ratified by the operator
+  2026-09-05.
 - [`cross-host-transport.md`](./cross-host-transport.md) — the
   evaluator-accepted design draft for DES-090 (cross-host Hub-to-Display
   transport and trust). Restructured (2026-09-04) into
   `../architecture/system.tex` §"Cross-Host Transport and Trust"
   (architecture) and `../architecture/multi-hub-addressing-work.md`
-  (implementation plan). DES-090 stays Status: PROPOSED in `DESIGN.md`,
-  pending operator ratification.
+  (implementation plan). DES-090 is Status: ACCEPTED in `DESIGN.md`,
+  ratified by the operator 2026-09-05.

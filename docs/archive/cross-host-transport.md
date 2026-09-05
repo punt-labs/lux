@@ -6,7 +6,7 @@
 > `docs/architecture/system.tex` §"Cross-Host Transport and Trust," and
 > its implementation plan into
 > `docs/architecture/multi-hub-addressing-work.md`. DES-090 in
-> `DESIGN.md` remains Status: PROPOSED, pending operator ratification,
+> `DESIGN.md` is Status: ACCEPTED, ratified by the operator 2026-09-05,
 > and now points at those two documents instead of this one. This draft
 > is kept for the reasoning trail only — do not use it to guide
 > implementation. See `docs/archive/README.md` for why this was
