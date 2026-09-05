@@ -1233,7 +1233,8 @@ Frames/windows & a caller-named \field{frame\_title}/\field{frame\_id} &
   \texttt{ConnectionScopedId} & \field{hidden\_id} on the ImGui window id &
   \field{Frame.title} used directly as the ImGui window label \\
 Scenes & a caller-named \field{scene\_id} & \texttt{ConnectionScopedId} &
-  Storage key in \texttt{FrameBook}'s maps & Flat \texttt{dict[str, ...]}
+  \texttt{HubScopedKey} in a \texttt{HubScopedStore} (\S\ref{sec:hubscopedstore})
+  & Flat \texttt{dict[str, ...]}
   keyed by the bare Rung-2 string --- the silent-collision surface \\
 Tree nodes & none --- \elem{tree} carries no id today & none --- inert per
   its own docstring & \field{hidden\_id} once a node has one & N/A --- no
@@ -1265,6 +1266,105 @@ exactly one construction path, \field{address\_for(hub, connection\_key,
 connection\_label, leaf\_key, leaf\_label) -> LuxAddress}; no leaf renderer
 may construct a \texttt{MenuItem}, a frame title, a scene entry, or a
 tree-node row directly from a bare label ever again.
+
+\subsection{Aggregated Storage: \texttt{HubScopedStore}}\label{sec:hubscopedstore}
+
+An aggregated store is an object, not a dictionary passed between
+functions.  \texttt{FrameBook}'s \field{\_scene\_to\_frame} and
+\field{\_scene\_to\_owner}, and \texttt{MenuReplica}'s
+\field{\_callback\_menus}, are today flat \texttt{dict[str, ...]}
+mappings spanning every connection the Display has ever seen --- a
+primitive collection standing in for a domain type, with the keying and
+purge logic living in whichever caller happens to touch the dict rather
+than on the collection itself.  That is exactly what PY-OO-5 (behavior
+lives with its data) and PY-IC-1 (composition over primitives) in
+\path{punt-labs/.claude/rules} forbid, and what \path{punt-kit/standards/oo.md}
+names as the same mistake at the language-agnostic level.
+\textbf{This design specifies the replacement as a class, not a shape
+left to the implementer:} \texttt{HubScopedKey} is the key type, and
+\texttt{HubScopedStore} is the container every aggregator composes in
+place of its bare dict.
+
+\begin{lstlisting}
+@final
+@dataclass(frozen=True, slots=True)
+class HubScopedKey:
+    """An aggregated store's real key -- a Hub's own HubId, paired
+    with the Rung-2 id that Hub already minted
+    (ConnectionScopedId.compose's result, or
+    CallbackInvocation.menu_id).  Composed as a value type, never
+    concatenated into one string and never a bare tuple: two
+    independently-meaningful fields, kept as two fields, the same
+    argument HubId itself makes for keeping hostname and pid apart.
+    Carries no label -- LuxAddress carries this identical pair again
+    for display, but a store's key answers "is this the same slot,"
+    never "what should this be called." """
+    hub: HubId
+    local: str
+
+
+@final
+class HubScopedStore[V]:
+    """The one aggregated-storage shape every Display-side collection
+    that spans more than one Hub composes, in place of a bare dict.
+    Owns its own keying discipline -- a caller never reaches past this
+    class into a bare mapping -- and exposes only the operations an
+    aggregator actually needs: assign, look up, enumerate one Hub's own
+    entries, and retire one Hub's entries either wholesale (disconnect)
+    or selectively (a manifest naming which of that Hub's own entries
+    still exist).  What structure backs this class is this class's own
+    business and nobody else's; that encapsulation -- not any specific
+    backing structure -- is the design-time commitment."""
+
+    def __init__(self) -> None:
+        self._entries: dict[HubScopedKey, V] = {}
+
+    def put(self, key: HubScopedKey, value: V) -> None:
+        """Assign one entry.  Two entries collide only when they share
+        the identical (hub, local) pair -- never across Hubs, by
+        construction of the key type."""
+        self._entries[key] = value
+
+    def get(self, key: HubScopedKey) -> V | None:
+        """Look up one entry.  None answers a genuine "not present" --
+        there is no discriminated state hiding behind it."""
+        return self._entries.get(key)
+
+    def for_hub(self, hub: HubId) -> Iterator[tuple[str, V]]:
+        """Every entry a given Hub currently owns, local id and value
+        -- the routing primitive a scene-less interaction or a menu
+        click resolves its one target Hub through."""
+        for key, value in self._entries.items():
+            if key.hub == hub:
+                yield key.local, value
+
+    def purge_hub_not_in(
+        self, hub: HubId, still_named: frozenset[str]
+    ) -> list[V]:
+        """Drop every entry this Hub owns whose local id is absent
+        from ``still_named`` -- the manifest-purge operation, scoped to
+        one Hub's own entries by construction, so a second live Hub's
+        entries are never candidates."""
+        stale = [
+            key
+            for key in self._entries
+            if key.hub == hub and key.local not in still_named
+        ]
+        return [self._entries.pop(key) for key in stale]
+
+    def drop_hub(self, hub: HubId) -> list[V]:
+        """Retire every entry a Hub owned, on disconnect."""
+        stale = [key for key in self._entries if key.hub == hub]
+        return [self._entries.pop(key) for key in stale]
+\end{lstlisting}
+
+\texttt{FrameBook} composes two \texttt{HubScopedStore} instances in
+place of \field{\_scene\_to\_frame} and \field{\_scene\_to\_owner};
+\texttt{MenuReplica} composes one in place of \field{\_callback\_menus};
+the eventual \texttt{TreeSelectionModel} (\texttt{lux-kob7}) composes its
+own from the start, Rung-3-ready.  No aggregator keeps a bare
+\texttt{dict[str, ...]} alongside its \texttt{HubScopedStore} as a
+second, competing source of truth for the same collection.
 
 \subsection{Multi-Hub Topology}
 
@@ -1319,14 +1419,17 @@ code already has.
     \texttt{ClientRegistry.get()} constructs its \texttt{DisplayLink} with
     a hardcoded name today; that becomes \field{HubId.current().wire\_token},
     carried on the dedicated \field{hub\_id} field.
-  \item \textbf{Every Display-side store keyed by a Rung-2 string gains
-    the Hub dimension.}  \texttt{FrameBook}'s scene/frame maps and
+  \item \textbf{Every Display-side store keyed by a Rung-2 string becomes
+    a \texttt{HubScopedStore}.}  \texttt{FrameBook}'s scene/frame maps and
     \texttt{MenuReplica}'s callback/agent-menu tuples --- each currently a
-    flat structure spanning every connection --- must key or partition by
-    \texttt{HubId} as well as the Rung-2 string.  The exact data-structure
-    shape is an implementation decision; the requirement --- no aggregated
-    store may be keyed by a bare Rung-2 string once more than one Hub can
-    write to it --- is the design-time commitment.
+    flat \texttt{dict[str, ...]} spanning every connection --- are
+    replaced by \texttt{HubScopedStore} instances
+    (\S\ref{sec:hubscopedstore}), keyed by \texttt{HubScopedKey} rather
+    than a bare Rung-2 string.  This is the design-time commitment, stated
+    as a type, not left open as an implementation choice: no aggregated
+    store may be a raw dict keyed by a bare Rung-2 string, or by anything
+    less than a \texttt{HubScopedKey}, once more than one Hub can write to
+    it.
   \item \textbf{Scene-less interaction dispatch must stop broadcasting.}  A
     menu-bar or World-panel click carries no \field{scene\_id} and today
     broadcasts to every connected client, on the assumption that exactly
@@ -1403,13 +1506,15 @@ Hub can contribute to that collection.
 \end{quote}
 
 This is checkable and structural rather than behavioral: it becomes a type
-discipline once \texttt{LuxAddress} (or an equivalent triple carrying
-\texttt{HubId}) is the actual key type of every aggregated store.  A store
-typed \texttt{dict[str, Frame]} for something more than one Hub can
-populate is the violation, visible at the type signature.  Concretely, one
-regression test is the load-bearing check: two synthetic Hub connections
-independently producing colliding Rung-2 strings must produce two distinct
-entries in the Display's storage, never one clobbering the other.
+discipline once \texttt{HubScopedKey} is the actual key type of every
+aggregated store, composed inside a \texttt{HubScopedStore}
+(\S\ref{sec:hubscopedstore}) rather than passed around as a bare
+\texttt{dict}.  A store typed \texttt{dict[str, Frame]} for something more
+than one Hub can populate is the violation, visible at the type signature
+--- not merely at review time.  Concretely, one regression test is the
+load-bearing check: two synthetic Hub connections independently producing
+colliding Rung-2 strings must produce two distinct entries in the
+Display's storage, never one clobbering the other.
 
 \textbf{Not a z-spec candidate.}  This invariant is a naming/keying
 discipline, not a concurrency property: there is no shared mutable
