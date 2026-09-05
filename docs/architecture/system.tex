@@ -1140,12 +1140,16 @@ connection is a stand-in for a Hub on this leg --- it runs the identical
 accept path, the identical \msg{ReadyMessage}/\msg{ConnectMessage}
 exchange, and the identical eventual \texttt{AddressBook} bookkeeping a
 real Hub does --- so it should present a \texttt{HubId} exactly as a real
-Hub does, not decline to.  A \emph{stub} \texttt{HubId} (a synthetic
+Hub does, not decline to.  ``This leg'' is the same-host \field{AF\_UNIX}
+leg specifically, the only leg \texttt{kind="test"} is ever sent on;
+\S\ref{sec:crosshost} rejects \texttt{kind="test"} outright on the
+cross-host listener.  A \emph{stub} \texttt{HubId} (a synthetic
 localhost/test token, built the same way \S\ref{sec:addressing-types}
 already builds a real one) satisfies the identical contract.  Once every
 connecting \field{kind} populates \field{hub\_id}, there is no connection
-on this socket that legitimately lacks one, and both the \texttt{Optional}
-and the runtime discriminated check that used to stand behind it go away:
+on the same-host \field{AF\_UNIX} socket that legitimately lacks one, and
+both the \texttt{Optional} and the runtime discriminated check that used
+to stand behind it go away:
 
 \begin{lstlisting}
 @dataclass(frozen=True, slots=True)
@@ -1154,8 +1158,9 @@ class ConnectMessage:
     display attribution -- unchanged, still the string frame titles
     and menu namespaces read.  ``hub_id`` is a separate concern: this
     connection's own HubId.wire_token.  Every kind populates it,
-    including "test" -- a test connection is a stand-in for a Hub on
-    this leg and carries a stub HubId, never an absence of one."""
+    including "test" -- a test connection is a same-host-only stand-in
+    for a Hub on the AF_UNIX leg and carries a stub HubId, never an
+    absence of one.  The cross-host listener never accepts kind="test"."""
     name: str
     kind: Literal["hub", "test"]
     hub_id: str
