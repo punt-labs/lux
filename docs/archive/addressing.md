@@ -12,8 +12,11 @@
 > implementation. See `docs/archive/README.md` for why this was
 > archived.
 
-**Status:** canonical target for identity and multi-Hub aggregation.
-**Ratifies:** DES-089 ("identity is a path") in `DESIGN.md`.
+**Status:** SUPERSEDED — the canonical text is now
+`docs/architecture/system.tex` §"Identity, Addressing, and Multi-Hub
+Topology"; this draft is retained for history.
+**Ratifies:** originally drafted the design ratified as DES-089
+("identity is a path", now ACCEPTED — see `DESIGN.md`).
 
 Start with [target.md](../architecture/target/target.md). This document
 is a sibling to [ui-model.md](../architecture/target/ui-model.md) (what

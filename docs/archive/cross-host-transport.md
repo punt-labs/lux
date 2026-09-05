@@ -12,9 +12,11 @@
 > implementation. See `docs/archive/README.md` for why this was
 > archived.
 
-**Status:** canonical target for the cross-host Hub-to-Display transport
-and trust model.
-**Ratifies:** DES-090 in `DESIGN.md`.
+**Status:** SUPERSEDED — the canonical text is now
+`docs/architecture/system.tex` §"Cross-Host Transport and Trust"; this
+draft is retained for history.
+**Ratifies:** originally drafted the design ratified as DES-090 (now
+ACCEPTED — see `DESIGN.md`).
 **Depends on:** [addressing.md](./addressing.md) (DES-089) — that document
 specifies the identity ladder and states, in its "Dependencies on the
 cross-host transport layer" section, the five-point contract this document
