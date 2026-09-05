@@ -151,9 +151,9 @@ class LuxAddress:
     "is this the same item" and "how do I show it."
     """
 
-    hub: Rung         # Rung 3 — which Hub connection produced this
+    hub: Rung  # Rung 3 — which Hub connection produced this
     connection: Rung  # Rung 2 — which connection on that Hub produced this
-    leaf: Rung         # Rung 1 — the producer's own name for the item
+    leaf: Rung  # Rung 1 — the producer's own name for the item
 
     @property
     def hidden_id(self) -> str:
