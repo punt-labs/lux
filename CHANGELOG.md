@@ -2,6 +2,31 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **`make check-oo` now scores a branch's whole cumulative diff, not just its
+  last commit** (lux-83ig). `tools/oo_score.py`'s touched-file window was
+  `HEAD~1..HEAD`, so on a multi-commit branch only the last commit's files
+  ever counted — if that commit touched no Python (a closing docs commit,
+  say), the gate printed "No Python files touched" and trivially passed even
+  though an earlier commit on the same branch regressed a real metric. That
+  gap is what let ~10 files regress onto `main` invisibly before PR #446
+  squash-merged. The window now diffs against `git merge-base <target>
+  HEAD` — local `main`, falling back to `origin/main` — matching exactly
+  what a squash-merge lands: the branch's whole diff, not one commit.
+  `GitDiffWindow.select(scored)` is the single entry point: it normalizes
+  both git's repo-root-relative diff output and the scorer's own paths to
+  absolute form before intersecting, so an absolute `SRC` or a subdirectory
+  invocation still matches correctly, and it fails SAFE — scoring every
+  file `--check` was given, never an empty, falsely-passing set — whenever
+  the window itself can't be resolved (no target ref, detached HEAD, no
+  common ancestor, git unavailable). Every `--check` now prints one stderr
+  diagnostic naming the resolved target, base commit, and touched/scored
+  file counts, explicit about when the score-everything fallback fired.
+  `GitDiffWindow` now lives in its own module, `tools/git_diff_window.py`,
+  keeping `tools/oo_score.py` under the module-size and classes-per-module
+  limits the ratchet itself enforces.
+
 ### Removed
 
 - **`raise_frame`, `display_theme_set`, `display_window_set`, and

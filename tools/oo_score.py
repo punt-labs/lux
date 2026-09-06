@@ -32,6 +32,8 @@ import sys
 from pathlib import Path
 from typing import ClassVar, Self
 
+from git_diff_window import GitDiffWindow
+
 
 def _writeln(text: str = "") -> None:
     """Write a line to stdout."""
@@ -418,6 +420,7 @@ class Ratchet:
     _baseline_path: Path
     _audit_path: Path
     _baseline: dict[str, dict[str, float]]
+    _git_diff: GitDiffWindow
 
     BASELINE_FILE: ClassVar[str] = ".oo-baseline.json"
     AUDIT_FILE: ClassVar[str] = ".oo-audit.jsonl"
@@ -431,6 +434,7 @@ class Ratchet:
         self._baseline_path = base / cls.BASELINE_FILE
         self._audit_path = base / cls.AUDIT_FILE
         self._baseline = self._load_baseline()
+        self._git_diff = GitDiffWindow(base)
         return self
 
     @property
@@ -475,25 +479,7 @@ class Ratchet:
             )
             if result.returncode == 0:
                 return result.stdout.strip()
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            pass
-        return None
-
-    @staticmethod
-    def _git_touched_files() -> list[str] | None:
-        """Return repo-relative paths changed in the latest commit."""
-        try:
-            # Compare HEAD against its parent — works in CI (clean checkout)
-            result = subprocess.run(
-                ["git", "diff", "--name-only", "HEAD~1..HEAD"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if result.returncode == 0:
-                return [line for line in result.stdout.strip().splitlines() if line]
-            # HEAD~1 may not exist (initial commit) — fall through to None
-        except (FileNotFoundError, subprocess.TimeoutExpired):
+        except (OSError, subprocess.SubprocessError):
             pass
         return None
 
@@ -573,16 +559,8 @@ class Ratchet:
             return 0
 
         current_by_file = self._results_by_file(scorer.results)
-
-        # Determine which files are "touched"
-        git_touched = self._git_touched_files()
         scored_files = set(current_by_file)
-
-        if git_touched is not None:
-            touched = scored_files & set(git_touched)
-        else:
-            # Git unavailable — compare all scored files against baseline
-            touched = scored_files
+        touched = self._git_diff.select(scored_files)
 
         # Filter to only Python files
         touched = {f for f in touched if f.endswith(".py")}
