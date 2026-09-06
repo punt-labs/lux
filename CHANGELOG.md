@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **`make check-oo` now scores a branch's whole cumulative diff, not just its
+  last commit** (lux-83ig). `tools/oo_score.py`'s touched-file window was
+  `HEAD~1..HEAD`, so on a multi-commit branch only the last commit's files
+  ever counted — if that commit touched no Python (a closing docs commit,
+  say), the gate printed "No Python files touched" and trivially passed even
+  though an earlier commit on the same branch regressed a real metric. That
+  gap is what let ~10 files regress onto `main` invisibly before PR #446
+  squash-merged. The window now diffs against `git merge-base <target>
+  HEAD` — local `main`, falling back to `origin/main` — matching exactly
+  what a squash-merge lands: the branch's whole diff, not one commit. The
+  new `GitDiffWindow` class fails SAFE on any resolution failure (no target
+  ref, detached HEAD, no common ancestor), returning `None` — "compare every
+  scored file against baseline" — never an empty, falsely-passing set.
+
 ### Removed
 
 - **`raise_frame`, `display_theme_set`, `display_window_set`, and
