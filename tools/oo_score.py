@@ -412,12 +412,103 @@ class Scorer:
         return json.dumps(output, indent=2)
 
 
+class GitDiffWindow:
+    """The touched-file set for the ratchet: the branch's whole diff.
+
+    Windows against ``git merge-base <target> HEAD`` — the target being local
+    ``main``, falling back to ``origin/main`` — so the window matches what a
+    squash-merge actually lands on the target branch: every commit on this
+    branch, not the last one. A ``HEAD~1..HEAD`` window hides a regression an
+    earlier commit left whenever the branch's final commit doesn't touch the
+    regressed file (a closing docs commit, say) — that gap is what let ~10
+    files regress onto ``main`` invisibly before this class existed.
+
+    Fails SAFE, never open: any resolution failure (no target ref, detached
+    HEAD, no common ancestor) reports ``None``. Callers must treat ``None``
+    as "compare every scored file against baseline" — never as the empty set,
+    which is exactly the false "nothing touched" signal this class exists to
+    stop producing.
+    """
+
+    _root: Path
+
+    _TIMEOUT: ClassVar[float] = 5
+    _CANDIDATE_TARGETS: ClassVar[tuple[str, ...]] = ("main", "origin/main")
+
+    def __new__(cls, root: Path) -> Self:
+        self = super().__new__(cls)
+        self._root = root
+        return self
+
+    def touched_files(self) -> list[str] | None:
+        """Return repo-relative paths touched since diverging from the target.
+
+        Falls back to the single-commit window when HEAD already IS the
+        target ref (e.g. running directly on ``main``) — there is no branch
+        to diff there, but a direct commit to the target should still be
+        scored against its own parent.
+        """
+        try:
+            return self._touched_files()
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return None
+
+    def _touched_files(self) -> list[str] | None:
+        target = self._resolve_target()
+        if target is None:
+            return None
+        head_sha = self._rev_parse("HEAD")
+        target_sha = self._rev_parse(target)
+        if head_sha is None or target_sha is None:
+            return None
+        if head_sha == target_sha:
+            return self._diff("HEAD~1", "HEAD")
+        base = self._merge_base(target)
+        if base is None:
+            return None
+        return self._diff(base, "HEAD")
+
+    def _resolve_target(self) -> str | None:
+        for ref in self._CANDIDATE_TARGETS:
+            result = self._run(["git", "rev-parse", "--verify", "--quiet", ref])
+            if result.returncode == 0:
+                return ref
+        return None
+
+    def _rev_parse(self, ref: str) -> str | None:
+        result = self._run(["git", "rev-parse", ref])
+        return result.stdout.strip() if result.returncode == 0 else None
+
+    def _merge_base(self, target: str) -> str | None:
+        result = self._run(["git", "merge-base", target, "HEAD"])
+        if result.returncode != 0:
+            return None
+        base = result.stdout.strip()
+        return base or None
+
+    def _diff(self, base: str, head: str) -> list[str] | None:
+        result = self._run(["git", "diff", "--name-only", f"{base}..{head}"])
+        if result.returncode != 0:
+            return None
+        return [line for line in result.stdout.strip().splitlines() if line]
+
+    def _run(self, argv: list[str]) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            argv,
+            capture_output=True,
+            text=True,
+            timeout=self._TIMEOUT,
+            cwd=self._root,
+        )
+
+
 class Ratchet:
     """Baseline persistence, regression checking, and audit logging."""
 
     _baseline_path: Path
     _audit_path: Path
     _baseline: dict[str, dict[str, float]]
+    _git_diff: GitDiffWindow
 
     BASELINE_FILE: ClassVar[str] = ".oo-baseline.json"
     AUDIT_FILE: ClassVar[str] = ".oo-audit.jsonl"
@@ -431,6 +522,7 @@ class Ratchet:
         self._baseline_path = base / cls.BASELINE_FILE
         self._audit_path = base / cls.AUDIT_FILE
         self._baseline = self._load_baseline()
+        self._git_diff = GitDiffWindow(base)
         return self
 
     @property
@@ -475,24 +567,6 @@ class Ratchet:
             )
             if result.returncode == 0:
                 return result.stdout.strip()
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            pass
-        return None
-
-    @staticmethod
-    def _git_touched_files() -> list[str] | None:
-        """Return repo-relative paths changed in the latest commit."""
-        try:
-            # Compare HEAD against its parent — works in CI (clean checkout)
-            result = subprocess.run(
-                ["git", "diff", "--name-only", "HEAD~1..HEAD"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if result.returncode == 0:
-                return [line for line in result.stdout.strip().splitlines() if line]
-            # HEAD~1 may not exist (initial commit) — fall through to None
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
         return None
@@ -575,7 +649,7 @@ class Ratchet:
         current_by_file = self._results_by_file(scorer.results)
 
         # Determine which files are "touched"
-        git_touched = self._git_touched_files()
+        git_touched = self._git_diff.touched_files()
         scored_files = set(current_by_file)
 
         if git_touched is not None:
