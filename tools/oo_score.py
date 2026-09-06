@@ -441,11 +441,11 @@ class GitDiffWindow:
     files regress onto ``main`` invisibly before this class existed.
 
     ``select()`` is the sole public entry point. It fails SAFE, never open:
-    to the FULL scored set, never the empty one, whenever the window can't
-    be resolved (no target ref, detached HEAD, no common ancestor, git
-    unavailable) OR resolves to a non-empty diff that doesn't overlap the
-    scored files at all (a path-format mismatch, not "nothing touched" —
-    see ``select()``). Every call emits one auditable diagnostic to stderr.
+    to the FULL scored set, never the empty one, whenever the window
+    itself can't be resolved (no target ref, detached HEAD, no common
+    ancestor, git unavailable). A resolved window's intersection with the
+    scored files is trusted as-is, empty or not — see ``select()`` for why.
+    Every call emits one auditable diagnostic to stderr.
     """
 
     _root: Path
@@ -489,7 +489,7 @@ class GitDiffWindow:
             touched, window = self._select(scored)
         except (OSError, subprocess.SubprocessError):
             touched, window = scored, _Window(None, None, None)
-        self._diagnose(window, scored, touched, used_fallback=window.files is None)
+        self._diagnose(window, scored, touched)
         return touched
 
     def _select(self, scored: set[str]) -> tuple[set[str], _Window]:
@@ -594,14 +594,8 @@ class GitDiffWindow:
         )
 
     @staticmethod
-    def _diagnose(
-        window: _Window,
-        scored: set[str],
-        touched: set[str],
-        *,
-        used_fallback: bool,
-    ) -> None:
-        note = " -- SCORE-EVERYTHING FALLBACK" if used_fallback else ""
+    def _diagnose(window: _Window, scored: set[str], touched: set[str]) -> None:
+        note = " -- SCORE-EVERYTHING FALLBACK" if window.files is None else ""
         sys.stderr.write(
             f"oo_score: git window target={window.target} base={window.base_sha} "
             f"touched={len(touched)}/{len(scored)} scored{note}\n",
