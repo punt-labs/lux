@@ -17,7 +17,7 @@ the FULL scored set — never the empty one — whenever the window itself
 can't be resolved.
 
 Every environment-sensitive fixture here runs git through an isolated
-environment (``_GIT_ENV``): a private ``HOME`` and both config layers
+environment (``_isolated_git_env``): a private ``HOME`` and both config layers
 pointed at ``/dev/null``, so a global gitconfig, credential helper, commit
 template, or non-``main`` ``init.defaultBranch`` on the host can never leak
 into what these tests observe. Branch names are always passed explicitly to
@@ -138,6 +138,7 @@ def _probe(repo: Path, scored: set[str]) -> subprocess.CompletedProcess[str]:
     )
     return subprocess.run(
         [sys.executable, "-c", code],
+        cwd=repo,
         capture_output=True,
         text=True,
         check=True,
