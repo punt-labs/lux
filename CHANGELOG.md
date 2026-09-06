@@ -2,31 +2,6 @@
 
 ## [Unreleased]
 
-### Fixed
-
-- **`make check-oo` now scores a branch's whole cumulative diff, not just its
-  last commit** (lux-83ig). `tools/oo_score.py`'s touched-file window was
-  `HEAD~1..HEAD`, so on a multi-commit branch only the last commit's files
-  ever counted — if that commit touched no Python (a closing docs commit,
-  say), the gate printed "No Python files touched" and trivially passed even
-  though an earlier commit on the same branch regressed a real metric. That
-  gap is what let ~10 files regress onto `main` invisibly before PR #446
-  squash-merged. The window now diffs against `git merge-base <target>
-  HEAD` — local `main`, falling back to `origin/main` — matching exactly
-  what a squash-merge lands: the branch's whole diff, not one commit.
-  `GitDiffWindow.select(scored)` is the single entry point: it normalizes
-  both git's repo-root-relative diff output and the scorer's own paths to
-  absolute form before intersecting, so an absolute `SRC` or a subdirectory
-  invocation still matches correctly, and it fails SAFE — scoring every
-  file `--check` was given, never an empty, falsely-passing set — whenever
-  the window itself can't be resolved (no target ref, detached HEAD, no
-  common ancestor, git unavailable). Every `--check` now prints one stderr
-  diagnostic naming the resolved target, base commit, and touched/scored
-  file counts, explicit about when the score-everything fallback fired.
-  `GitDiffWindow` now lives in its own module, `tools/git_diff_window.py`,
-  keeping `tools/oo_score.py` under the module-size and classes-per-module
-  limits the ratchet itself enforces.
-
 ### Removed
 
 - **`raise_frame`, `display_theme_set`, `display_window_set`, and
@@ -42,22 +17,25 @@
 ### Changed
 
 - **`make check-oo` now runs on the shared `oo_ratchet` package, vendored from
-  vox (bead punt-5aj), replacing lux's monolithic `tools/oo_score.py` +
-  `tools/git_diff_window.py`.** The ratchet now compares HEAD's touched-file
-  scores against the baseline committed at the immutable merge-base ancestor
-  (`git show <merge-base>:.oo-baseline.json`), rather than the mutable
-  in-tree file — closing the grade-your-own-homework loophole where a branch
+  vox (bead punt-5aj), replacing lux's monolithic `tools/oo_score.py`.** The
+  ratchet now scores a branch's whole cumulative diff — `git merge-base
+  <target> HEAD`, preferring `origin/main` — against the baseline committed at
+  that immutable ancestor (`git show <merge-base>:.oo-baseline.json`), not a
+  `HEAD~1..HEAD` window against the mutable in-tree file. This closes two gaps
+  at once: the hidden-regression gap where a multi-commit branch whose last
+  commit touched no Python trivially passed while an earlier commit regressed a
+  metric (what let ~10 files drift onto `main` before PR #446 squash-merged;
+  tracked as lux-83ig), and the grade-your-own-homework loophole where a branch
   could rewrite its own baseline and pass against it. Renamed files inherit
-  their predecessor's baseline entry instead of scoring as new. A
-  known-owed regression can be waived per file via an audited `--relax
-  FILE --justify "..."`, recorded in `.oo-audit.jsonl` rather than silently
-  dropped. `lux/tools/oo_score.py` is now a 17-line shim
-  (`from oo_ratchet.cli import main`) so the `python tools/oo_score.py <src>
-  [flags]` invocation the Makefile uses is unchanged. The existing
-  `.oo-baseline.json` and `.oo-audit.jsonl` are preserved as-is — the
-  package's schema matches lux's byte for byte, so no rebaseline was
-  needed. This is an interim vendor: lux will re-point to a `punt-kit`-hosted
-  package once that promotion (bead punt-bxl) lands.
+  their predecessor's baseline entry instead of scoring as new. A known-owed
+  regression can be waived per file via an audited `--relax FILE --justify
+  "..."`, recorded in `.oo-audit.jsonl` rather than silently dropped.
+  `tools/oo_score.py` is now a 17-line shim (`from oo_ratchet.cli import main`)
+  so the `python tools/oo_score.py <src> [flags]` invocation the Makefile uses
+  is unchanged. The existing `.oo-baseline.json` and `.oo-audit.jsonl` are
+  preserved as-is — the package's schema matches lux's byte for byte, so no
+  rebaseline was needed. This is an interim vendor: lux will re-point to a
+  `punt-kit`-hosted package once that promotion (bead punt-bxl) lands.
 - **`lux display mode on|off` no longer routes through the Hub.** The CLI
   writes the per-repo `.punt-labs/lux.md` marker file directly instead of
   making a round trip to luxd — the same "committed marker, not a client
