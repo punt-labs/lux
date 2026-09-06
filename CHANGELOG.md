@@ -41,6 +41,23 @@
 
 ### Changed
 
+- **`make check-oo` now runs on the shared `oo_ratchet` package, vendored from
+  vox (bead punt-5aj), replacing lux's monolithic `tools/oo_score.py` +
+  `tools/git_diff_window.py`.** The ratchet now compares HEAD's touched-file
+  scores against the baseline committed at the immutable merge-base ancestor
+  (`git show <merge-base>:.oo-baseline.json`), rather than the mutable
+  in-tree file — closing the grade-your-own-homework loophole where a branch
+  could rewrite its own baseline and pass against it. Renamed files inherit
+  their predecessor's baseline entry instead of scoring as new. A
+  known-owed regression can be waived per file via an audited `--relax
+  FILE --justify "..."`, recorded in `.oo-audit.jsonl` rather than silently
+  dropped. `lux/tools/oo_score.py` is now a 17-line shim
+  (`from oo_ratchet.cli import main`) so the `python tools/oo_score.py <src>
+  [flags]` invocation the Makefile uses is unchanged. The existing
+  `.oo-baseline.json` and `.oo-audit.jsonl` are preserved as-is — the
+  package's schema matches lux's byte for byte, so no rebaseline was
+  needed. This is an interim vendor: lux will re-point to a `punt-kit`-hosted
+  package once that promotion (bead punt-bxl) lands.
 - **`lux display mode on|off` no longer routes through the Hub.** The CLI
   writes the per-repo `.punt-labs/lux.md` marker file directly instead of
   making a round trip to luxd — the same "committed marker, not a client
