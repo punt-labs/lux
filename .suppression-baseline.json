@@ -1,11 +1,11 @@
 {
-  "total": 119,
+  "total": 118,
   "by_category": {
     "noqa": 19,
     "type_ignore": 4,
     "pylint_disable": 2,
     "pyright_ignore": 5,
-    "per_file_ignores": 89
+    "per_file_ignores": 88
   },
   "by_file": {
     "src/punt_lux/__main__.py": {
@@ -77,5 +77,5 @@
       "noqa": 1
     }
   },
-  "updated_at": "2026-09-06T17:39:16Z"
+  "updated_at": "2026-09-06T17:45:32Z"
 }
