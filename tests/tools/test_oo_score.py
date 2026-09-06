@@ -333,6 +333,97 @@ def test_select_fails_safe_when_head_and_target_share_no_history(
     assert result.stdout.strip() == "['a.py', 'b.py']"
 
 
+def test_branch_diff_entirely_outside_scored_subtree_trivially_passes(
+    tmp_path: Path,
+) -> None:
+    """A branch whose whole diff lies outside the scored subtree must pass.
+
+    Round 1 briefly carried a "fail-unsafe" heuristic: any non-empty
+    window with an empty scored intersection fell back to scoring the
+    FULL tree, on the theory that an empty intersection was suspicious.
+    Evaluator gvr independently reproduced that this repo's own
+    ``make check-oo`` goes red under that heuristic -- every out-of-scope
+    PR (tools/tests/docs-only) becomes a spurious full-tree regression
+    report -- and confirmed reverting it is correct. This test pins the
+    revert: the branch here touches only ``other/unrelated.py``, entirely
+    outside the ``pkg`` subtree being checked, so the resolved window's
+    intersection with ``pkg``'s scored files is genuinely empty, and
+    ``--check pkg`` must trivially pass rather than fall back to scoring
+    every file in ``pkg`` against the baseline.
+    """
+    repo = _init_repo_with_committed_baseline(tmp_path)
+    _git(repo, "checkout", "-b", "feature")
+
+    (repo / "other").mkdir()
+    (repo / "other" / "unrelated.py").write_text("x = 1\n")
+    _commit_all(repo, "touch a file entirely outside pkg/")
+
+    result = _run_check_oo(repo, "pkg", "--check")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "No Python files touched -- trivial pass" in result.stdout
+
+
+def test_check_from_subdirectory_with_relative_target_still_catches_regression(
+    tmp_path: Path,
+) -> None:
+    """A --check run from inside the scored directory still catches a regression.
+
+    ``git diff --name-only`` always reports repo-root-relative paths
+    (``pkg/mod.py``) no matter what ``cwd`` the diff is run from. But when
+    ``--check`` itself is invoked with ``cwd=pkg`` and a relative target
+    of ``.``, the scorer's own touched-file keys come out relative to
+    THAT cwd -- ``mod.py``, not ``pkg/mod.py``. Before ``_normalize``,
+    ``GitDiffWindow._select`` intersected these two path spaces directly
+    and the intersection was always empty for a subdirectory invocation,
+    silently trivial-passing every regression underneath it. This is the
+    exact seam ``_normalize`` exists to close: both sides resolve to the
+    same absolute path (scored anchored at ``Path.cwd()``, git's output
+    anchored at the repo root), so the intersection is non-empty and the
+    regression is caught. A relative (not absolute) target keeps this
+    test clear of the separate, pre-existing Ratchet baseline-key bug
+    that an absolute-target invocation would trip (raw-string baseline
+    keys, tracked as a follow-up).
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-b", "main")
+    _git(repo, "config", "user.email", _AUTHOR_EMAIL)
+    _git(repo, "config", "user.name", _AUTHOR_NAME)
+
+    pkg = repo / "pkg"
+    pkg.mkdir()
+    (pkg / "mod.py").write_text(_BASELINE_MODULE)
+
+    # --update runs with cwd=pkg and target="." -- the baseline is keyed
+    # "mod.py" (no "pkg/" prefix) and lives at pkg/.oo-baseline.json.
+    update = subprocess.run(
+        [sys.executable, str(_OO_SCORE), ".", "--update"],
+        cwd=pkg,
+        capture_output=True,
+        text=True,
+        env=_isolated_git_env(repo),
+    )
+    assert update.returncode == 0, update.stdout + update.stderr
+    _commit_all(repo, "commit A: baseline")
+
+    _git(repo, "checkout", "-b", "feature")
+    (pkg / "mod.py").write_text(_BASELINE_MODULE + _EXTRA_METHODS)
+    _commit_all(repo, "commit 1: regress module_size")
+
+    result = subprocess.run(
+        [sys.executable, str(_OO_SCORE), ".", "--check"],
+        cwd=pkg,
+        capture_output=True,
+        text=True,
+        env=_isolated_git_env(repo),
+    )
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "module_size" in result.stdout
+    assert "REGRESSED" in result.stdout
+
+
 def test_select_fails_safe_when_git_is_unavailable(tmp_path: Path) -> None:
     """``git`` missing from ``PATH`` must fail safe, not crash.
 
