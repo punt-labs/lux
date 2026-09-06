@@ -13,10 +13,16 @@
   gap is what let ~10 files regress onto `main` invisibly before PR #446
   squash-merged. The window now diffs against `git merge-base <target>
   HEAD` — local `main`, falling back to `origin/main` — matching exactly
-  what a squash-merge lands: the branch's whole diff, not one commit. The
-  new `GitDiffWindow` class fails SAFE on any resolution failure (no target
-  ref, detached HEAD, no common ancestor), returning `None` — "compare every
-  scored file against baseline" — never an empty, falsely-passing set.
+  what a squash-merge lands: the branch's whole diff, not one commit.
+  `GitDiffWindow.select(scored)` is the single entry point: it normalizes
+  both git's repo-root-relative diff output and the scorer's own paths to
+  absolute form before intersecting, so an absolute `SRC` or a subdirectory
+  invocation still matches correctly, and it fails SAFE — scoring every
+  file `--check` was given, never an empty, falsely-passing set — whenever
+  the window itself can't be resolved (no target ref, detached HEAD, no
+  common ancestor, git unavailable). Every `--check` now prints one stderr
+  diagnostic naming the resolved target, base commit, and touched/scored
+  file counts, explicit about when the score-everything fallback fired.
 
 ### Removed
 
