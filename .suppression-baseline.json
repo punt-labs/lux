@@ -1,11 +1,11 @@
 {
-  "total": 118,
+  "total": 119,
   "by_category": {
-    "noqa": 20,
+    "noqa": 19,
     "type_ignore": 4,
     "pylint_disable": 2,
     "pyright_ignore": 5,
-    "per_file_ignores": 87
+    "per_file_ignores": 89
   },
   "by_file": {
     "src/punt_lux/__main__.py": {
@@ -75,10 +75,7 @@
     },
     "src/punt_lux/protocol/messages/unknown_message.py": {
       "noqa": 1
-    },
-    "src/punt_lux/tools/display_write_tools.py": {
-      "noqa": 1
     }
   },
-  "updated_at": "2026-08-22T08:35:04Z"
+  "updated_at": "2026-09-06T17:39:16Z"
 }

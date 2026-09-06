@@ -133,7 +133,10 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tools/*" = ["T20", "S603", "S607", "C901", "PERF403"]
-"tests/*" = ["S101", "S105", "S106", "S108", "S603", "S607", "T20", "SLF001", "ARG", "FBT", "PLC0415", "A002"]
+"tests/*" = ["S101", "S105", "S106", "S108", "S603", "T20", "SLF001", "ARG", "FBT", "PLC0415", "A002"]
+"tests/oo_ratchet/*" = ["S607"]
+"tests/e2e/test_legacy_sweep.py" = ["S101", "S603", "S607"]
+"tests/e2e/test_no_luxrestclient.py" = ["S607"]
 "demos/*" = ["T20", "S311", "C901"]
 "scripts/*" = ["T20", "S108", "S603", "S607", "PLC0415"]
 "src/punt_lux/__main__.py" = ["T20", "FBT", "PLC0415"]
@@ -248,15 +251,11 @@ pythonVersion = "3.13"
 typeCheckingMode = "strict"
 venvPath = "."
 venv = ".venv"
-include = ["src", "tests", "tools"]
+include = ["src", "tests"]
 reportMissingTypeStubs = false
 
 [[tool.pyright.executionEnvironments]]
 root = "src/punt_lux/tools"
-reportPrivateUsage = false
-
-[[tool.pyright.executionEnvironments]]
-root = "tools"
 reportPrivateUsage = false
 
 [[tool.pyright.executionEnvironments]]
