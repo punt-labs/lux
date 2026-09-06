@@ -496,6 +496,54 @@ def test_diagnose_omits_fallback_marker_on_a_resolved_window(tmp_path: Path) -> 
     assert "SCORE-EVERYTHING FALLBACK" not in result.stderr
 
 
+def test_prefers_origin_main_over_stale_local_main_as_merge_base_target(
+    tmp_path: Path,
+) -> None:
+    """A stale local ``main`` must not widen the window past ``origin/main``.
+
+    GitHub's PR diff is ``origin/main...HEAD``, so the remote-tracking ref is
+    the faithful merge target. When local ``main`` lags behind ``origin/main``,
+    ``git merge-base main HEAD`` sits too far back and pulls unrelated upstream
+    commits into the window -- an upstream-only regression then gets wrongly
+    attributed to the feature branch. ``origin/main`` is preferred so the
+    window is the branch's real divergence point.
+
+    ``origin/main`` here carries a ``module_size`` regression on
+    ``pkg/mod.py`` (upstream commit B); local ``main`` is left pointing at the
+    healthy baseline (commit A). The feature branch forks from ``origin/main``
+    and adds only a healthy, in-scope module (``pkg/extra.py``). Windowing
+    against ``origin/main`` (=B) sees just that healthy addition and passes;
+    windowing against stale local ``main`` (=A) would drag the upstream
+    regression in and fail. Passing proves the remote-tracking target won.
+    """
+    repo = _init_repo_with_committed_baseline(tmp_path)
+
+    origin = tmp_path / "origin.git"
+    _git(repo, "init", "--bare", str(origin))
+    _git(repo, "remote", "add", "origin", str(origin))
+    _git(repo, "push", "origin", "main")
+
+    # Advance origin/main with an upstream regression, leaving local main at A.
+    _git(repo, "checkout", "-b", "upstream")
+    (repo / "pkg" / "mod.py").write_text(_BASELINE_MODULE + _EXTRA_METHODS)
+    _commit_all(repo, "upstream commit B: regress module_size")
+    _git(repo, "push", "origin", "upstream:main")
+    _git(repo, "fetch", "origin")
+
+    # Fork the feature from the up-to-date origin/main and add a healthy,
+    # in-scope module. Local main is still the stale baseline (commit A).
+    _git(repo, "checkout", "-b", "feature", "origin/main")
+    (repo / "pkg" / "extra.py").write_text(_BASELINE_MODULE.replace("Widget", "Gadget"))
+    _commit_all(repo, "feature commit C: add a healthy in-scope module")
+
+    result = _run_check_oo(repo, "pkg", "--check")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "pkg/extra.py" in result.stdout
+    assert "pkg/mod.py" not in result.stdout
+    assert "REGRESSED" not in result.stdout
+
+
 def test_check_scores_new_baseline_absent_file_against_absolute_thresholds(
     tmp_path: Path,
 ) -> None:

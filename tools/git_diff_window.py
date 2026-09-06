@@ -2,9 +2,10 @@
 
 ``GitDiffWindow.select()`` answers one question for ``tools/oo_score.py``: of
 the files the scorer is looking at, which ones did this branch actually touch?
-It windows against ``git merge-base <target> HEAD`` -- the target being local
-``main``, falling back to ``origin/main`` -- so the window matches what a
-squash-merge actually lands on the target branch: every commit on this branch,
+It windows against ``git merge-base <target> HEAD`` -- the target being
+``origin/main`` (the remote-tracking merge target), falling back to local
+``main`` -- so the window matches what a squash-merge actually lands on the
+target branch: every commit on this branch,
 not the last one. A ``HEAD~1..HEAD`` window hides a regression an earlier
 commit left whenever the branch's final commit doesn't touch the regressed
 file (a closing docs commit, say) -- that gap let regressions reach ``main``
@@ -34,7 +35,7 @@ class _FailedWindow:
     """A git diff window that could not resolve -- diagnostic fields only.
 
     ``target`` is ``None`` when no candidate target ref could be resolved
-    -- either none exists (no local ``main``, no ``origin/main``) or a git
+    -- either none exists (no ``origin/main``, no local ``main``) or a git
     call raised before one was found. Either way there is nothing to name.
     ``base_sha`` is ``None`` whenever a base commit was never found: either
     ``target`` itself is ``None``, or ``target`` resolved but shares no
@@ -64,7 +65,7 @@ class GitDiffWindow:
     _root: Path
 
     _TIMEOUT: ClassVar[float] = 5
-    _CANDIDATE_TARGETS: ClassVar[tuple[str, ...]] = ("main", "origin/main")
+    _CANDIDATE_TARGETS: ClassVar[tuple[str, ...]] = ("origin/main", "main")
 
     def __new__(cls, root: Path) -> Self:
         self = super().__new__(cls)
