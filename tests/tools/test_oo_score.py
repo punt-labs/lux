@@ -453,3 +453,69 @@ def test_select_fails_safe_when_git_is_unavailable(tmp_path: Path) -> None:
     )
 
     assert result.stdout.strip() == "['a.py']"
+
+
+def test_diagnose_marks_score_everything_fallback_on_unresolvable_window(
+    tmp_path: Path,
+) -> None:
+    """The stderr diagnostic must name the fallback when the window fails.
+
+    ``select()``'s fail-safe path is silent to stdout by design -- a
+    passing ``--check`` looks identical whether it resolved a real window
+    or fell back to scoring everything. The stderr diagnostic is the only
+    place that distinction is visible, and it must say so explicitly.
+    """
+    repo = tmp_path / "lonely"
+    repo.mkdir()
+    _git(repo, "init", "-b", "trunk")  # not "main"/"origin/main" -- unresolvable
+    _git(repo, "config", "user.email", _AUTHOR_EMAIL)
+    _git(repo, "config", "user.name", _AUTHOR_NAME)
+    (repo / "a.py").write_text("x = 1\n")
+    _commit_all(repo, "only commit")
+
+    result = _probe(repo, {"a.py"})
+
+    assert "SCORE-EVERYTHING FALLBACK" in result.stderr
+
+
+def test_diagnose_omits_fallback_marker_on_a_resolved_window(tmp_path: Path) -> None:
+    """A resolved window's diagnostic must not claim the fallback fired.
+
+    The counterpart to the fallback-marker test above: a window that DID
+    resolve against a real merge-base must not carry the same "score
+    everything" note, or the marker would be meaningless noise on every
+    run rather than a genuine signal of the unresolvable-window path.
+    """
+    repo = _init_repo_with_committed_baseline(tmp_path)
+    _git(repo, "checkout", "-b", "feature")
+    (repo / "pkg" / "mod.py").write_text(_BASELINE_MODULE + _EXTRA_METHODS)
+    _commit_all(repo, "regress module_size")
+
+    result = _probe(repo, {"pkg/mod.py"})
+
+    assert "SCORE-EVERYTHING FALLBACK" not in result.stderr
+
+
+def test_check_scores_new_baseline_absent_file_against_absolute_thresholds(
+    tmp_path: Path,
+) -> None:
+    """A touched .py file with no baseline entry is scored as NEW.
+
+    The touched-file rework changed which files even reach ``check()``'s
+    per-file loop, so the NEW-file branch (a touched file the baseline has
+    never seen) needs its own coverage here: a second module added on the
+    feature branch, with the same healthy shape as the baseline fixture,
+    must show up as a NEW row graded against ``Scorer.THRESHOLDS``
+    directly -- there is no baseline entry to diff it against.
+    """
+    repo = _init_repo_with_committed_baseline(tmp_path)
+    _git(repo, "checkout", "-b", "feature")
+
+    (repo / "pkg" / "extra.py").write_text(_BASELINE_MODULE.replace("Widget", "Gadget"))
+    _commit_all(repo, "add a second module absent from the baseline")
+
+    result = _run_check_oo(repo, "pkg", "--check")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "pkg/extra.py" in result.stdout
+    assert "NEW" in result.stdout
