@@ -61,7 +61,8 @@ def test_luxrestclient_does_not_appear_anywhere_in_the_swept_tree() -> None:
         if not target.is_dir():
             continue
         result = subprocess.run(
-            ["grep", "-rn", "--exclude-dir=__pycache__", "LuxRestClient", str(target)],  # noqa: S607 -- resolved via PATH; a test-time sweep, not untrusted input
+            # grep is resolved via PATH; a test-time sweep, not untrusted input.
+            ["grep", "-rn", "--exclude-dir=__pycache__", "LuxRestClient", str(target)],
             capture_output=True,
             text=True,
             check=False,
