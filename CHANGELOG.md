@@ -23,6 +23,9 @@
   common ancestor, git unavailable). Every `--check` now prints one stderr
   diagnostic naming the resolved target, base commit, and touched/scored
   file counts, explicit about when the score-everything fallback fired.
+  `GitDiffWindow` now lives in its own module, `tools/git_diff_window.py`,
+  keeping `tools/oo_score.py` under the module-size and classes-per-module
+  limits the ratchet itself enforces.
 
 ### Removed
 
