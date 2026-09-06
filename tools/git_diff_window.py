@@ -7,8 +7,8 @@ It windows against ``git merge-base <target> HEAD`` -- the target being local
 squash-merge actually lands on the target branch: every commit on this branch,
 not the last one. A ``HEAD~1..HEAD`` window hides a regression an earlier
 commit left whenever the branch's final commit doesn't touch the regressed
-file (a closing docs commit, say) -- that gap is what let ~10 files regress
-onto ``main`` invisibly before this module existed.
+file (a closing docs commit, say) -- that gap let regressions reach ``main``
+invisibly, which is the failure this window closes.
 """
 
 from __future__ import annotations
@@ -33,8 +33,9 @@ class _ResolvedWindow:
 class _FailedWindow:
     """A git diff window that could not resolve -- diagnostic fields only.
 
-    ``target`` is ``None`` only when no candidate target ref exists at all
-    (no local ``main``, no ``origin/main``) -- there is nothing to name.
+    ``target`` is ``None`` when no candidate target ref could be resolved
+    -- either none exists (no local ``main``, no ``origin/main``) or a git
+    call raised before one was found. Either way there is nothing to name.
     ``base_sha`` is ``None`` whenever a base commit was never found: either
     ``target`` itself is ``None``, or ``target`` resolved but shares no
     common ancestor with ``HEAD`` (an orphan branch). Both are genuinely
@@ -91,11 +92,11 @@ class GitDiffWindow:
         intersection under a *scoped* ``--check`` (e.g. ``src/punt_lux/``)
         is not a mismatch to distrust -- it is the ordinary, frequent, and
         correct case where a branch's real diff lies entirely outside the
-        scored subtree (a tools/tests/docs-only change, this very PR
-        included). Treating that as untrustworthy and falling back to
-        scoring the FULL tree, as an earlier draft of this method did, was
-        verified wrong against this repo's own `make check-oo`: it turned
-        every out-of-scope PR into a spurious full-tree regression report.
+        scored subtree (a tools-, tests-, or docs-only change, for
+        example). Falling back to the FULL tree on an empty scoped
+        intersection would be wrong: it reclassifies every out-of-scope
+        change as a full-tree regression. An empty *scoped* intersection
+        is trusted; only an unresolved window falls back.
         """
         try:
             touched, window = self._select(scored)
