@@ -208,22 +208,26 @@ class SocketListener:
         if sock not in self._clients:
             return  # already removed -- make idempotent
         self._clients.remove(sock)
-        try:
-            fd = sock.fileno()
-        except OSError:
-            fd = None
-            logger.warning("Client socket fd unavailable -- skipping cleanup")
+        fd = self._live_fd(sock)
         if fd is not None:
             self._readers.pop(fd, None)
             self._fd_to_client.pop(fd, None)
             self._client_names.pop(fd, None)
             self._client_kinds.pop(fd, None)
             self._client_connect_times.pop(fd, None)
-            # Let the owner handle domain-specific cleanup
-            self._on_client_disconnected(fd)
+            self._on_client_disconnected(fd)  # domain-specific cleanup
         with contextlib.suppress(OSError):
             sock.close()
         logger.debug("Client disconnected (remaining: %d)", len(self._clients))
+
+    @staticmethod
+    def _live_fd(sock: socket.socket) -> int | None:
+        """Return sock's fd if live, else None (a closed sock's is -1, not a raise)."""
+        try:
+            fd = sock.fileno()
+        except OSError:
+            fd = -1
+        return fd if fd >= 0 else None
 
     def send_to_client(
         self, sock: socket.socket, msg: Message, deadline: float | None = None
@@ -293,7 +297,8 @@ class SocketListener:
 
     def _read_from_client(self, sock: socket.socket) -> None:
         """Read available data from a client and dispatch complete messages."""
-        reader = self._readers.get(sock.fileno())
+        fd = sock.fileno()
+        reader = self._readers.get(fd)
         if reader is None:
             return
         try:
@@ -303,23 +308,19 @@ class SocketListener:
                 return
             reader.feed(data)
             if reader.buffer_size > MAX_MESSAGE_SIZE + HEADER_SIZE:
-                logger.warning("Buffer overflow from fd %d", sock.fileno())
+                logger.warning("Buffer overflow from fd %d", fd)
                 self.remove_client(sock)
                 return
-            # Deserialize all complete frames -- KeyError/TypeError/ValueError
-            # here means malformed wire data, not a handler bug.
+            # malformed wire data (Key/Type/ValueError), not a handler bug
             try:
                 messages = reader.drain_typed()
             except (ValueError, KeyError, TypeError) as exc:
-                fd = sock.fileno()
                 logger.warning("Malformed message from fd %d", fd)
                 self._on_error("error", str(exc), "message_parse")
                 self.remove_client(sock)
                 return
             for msg in messages:
-                logger.debug(
-                    "Received %s from fd=%s", type(msg).__name__, sock.fileno()
-                )
+                logger.debug("Received %s from fd=%s", type(msg).__name__, fd)
                 self._on_message(sock, msg)
                 if sock not in self._clients:
                     return  # removed during handle (e.g. send failed)
