@@ -1,4 +1,4 @@
-"""The fail-closed content-message identity guard (bead lux-2kv9 / W1).
+"""The fail-closed content-message identity guard.
 
 An unidentified fd -- ``kind_of(fd) is None``, no ``ConnectMessage`` sent at
 all -- has no attribution to install content under. This is a strictly worse
@@ -7,11 +7,11 @@ content-bearing handler already knew to distrust. Before this guard existed,
 only ``SceneMessage`` handling checked kind at all, and even there it checked
 for ``"test"`` and let ``None`` straight through -- harmless only because the
 ``AF_UNIX`` socket's ``0700`` permission already vouches for same-user
-attribution. It stops being harmless once storage is keyed by ``HubId``
-(epic lux-37zg, W3): there is no key to store an unidentified connection's
-content under at all. One predicate -- "is this fd identified?" -- backs
-every content-bearing handler's rejection, so the gap can never again open in
-just one of them.
+attribution. That stops holding the moment content is stored under a key
+derived from the sender's declared identity: an unidentified connection has
+no such key to store anything under. One predicate -- "is this fd
+identified?" -- backs every content-bearing handler's rejection, so the gap
+can never again open in just one of them.
 """
 
 from __future__ import annotations

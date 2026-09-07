@@ -128,14 +128,14 @@ class HubReconciliation:
     def reject_scene_unless_hub(self, sock: socket.socket, fd: int) -> bool:
         """Reject a ``SceneMessage`` unless the fd has identified as ``"hub"``.
 
-        Delegates to the shared :class:`IdentityGuard` (bead lux-2kv9 / W1).
+        Delegates to the shared :class:`IdentityGuard`.
         """
         return self._identity.reject_scene_unless_hub(sock, fd)
 
     def reject_if_unidentified(self, fd: int, message_kind: str) -> bool:
         """Reject a content-bearing message from a never-identified fd.
 
-        Delegates to the shared :class:`IdentityGuard` (bead lux-2kv9 / W1).
+        Delegates to the shared :class:`IdentityGuard`.
         """
         return self._identity.reject_if_unidentified(fd, message_kind)
 

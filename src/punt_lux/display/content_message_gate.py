@@ -1,4 +1,4 @@
-"""Fail-closed gate for menu/callback-menu/theme content (bead lux-2kv9 / W1).
+"""Fail-closed gate for menu/callback-menu/theme content.
 
 An unidentified fd -- one that never sent a ``ConnectMessage`` -- has no
 attribution to install content under and is rejected uniformly, the same
