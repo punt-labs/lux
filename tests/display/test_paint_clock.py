@@ -46,9 +46,18 @@ def _sock(fd: int = 42) -> MagicMock:
 
 
 def _register(server: RenderLoop, sock: MagicMock) -> None:
+    """Attach ``sock`` as a client identified as ``kind="hub"``.
+
+    A scene installs only from an identified ``"hub"`` fd (bead lux-2kv9 /
+    W1); every test in this module installs a scene, so the identify step
+    lives here rather than at each call site.
+    """
     server._socket_listener.clients.append(sock)
     server._socket_listener._readers[sock.fileno()] = FrameReader()
     server._socket_listener._fd_to_client[sock.fileno()] = sock
+    server._socket_listener.register_client_identity(
+        sock.fileno(), kind="hub", name="test-hub", connect_time=0.0
+    )
 
 
 def test_a_received_scene_is_attested_at_the_swap_that_painted_it(

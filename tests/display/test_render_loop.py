@@ -14,16 +14,23 @@ so it is gone too.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 from punt_lux.display import RenderLoop
 from punt_lux.protocol import (
+    CallbackMenuMessage,
     ConnectMessage,
     HubManifestMessage,
+    MenuMessage,
     RemoteEventHandlerInvocation,
     SceneMessage,
     TextElement,
+    ThemeMessage,
 )
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def _make_server() -> RenderLoop:
@@ -78,6 +85,9 @@ class TestHandleManifestDispatch:
     def test_a_manifest_purges_a_ghost_scene_through_the_real_dispatch(self) -> None:
         server = _make_server()
         owner_sock = _mock_sock(10)
+        server._socket_listener.register_client_identity(
+            10, kind="hub", name="owner", connect_time=0.0
+        )
         server._handle_message(owner_sock, _make_scene("s1"))
         assert server._scenes.resolve_scene("s1") is not None
 
@@ -95,6 +105,9 @@ class TestAClosePassesNoWord:
     def test_a_manifest_driven_purge_sends_no_frame_close_event(self) -> None:
         server = _make_server()
         owner_sock = _mock_sock(10)
+        server._socket_listener.register_client_identity(
+            10, kind="hub", name="owner", connect_time=0.0
+        )
         server._socket_listener.clients.append(owner_sock)
         server._socket_listener.fd_to_client[10] = owner_sock
         server._handle_scene(owner_sock, _make_scene("s1", "f1"))
@@ -121,6 +134,9 @@ class TestAClosePassesNoWord:
         """
         server = _make_server()
         owner_sock = _mock_sock(10)
+        server._socket_listener.register_client_identity(
+            10, kind="hub", name="owner", connect_time=0.0
+        )
         server._socket_listener.clients.append(owner_sock)
         server._socket_listener.fd_to_client[10] = owner_sock
         server._handle_scene(owner_sock, _make_scene("s1", "f1"))
@@ -134,6 +150,9 @@ class TestAClosePassesNoWord:
         """The user shut a window; the content behind it is untouched."""
         server = _make_server()
         owner_sock = _mock_sock(10)
+        server._socket_listener.register_client_identity(
+            10, kind="hub", name="owner", connect_time=0.0
+        )
         server._handle_scene(owner_sock, _make_scene("s1", "f1"))
 
         server._close_frame("f1")
@@ -149,6 +168,9 @@ class TestAClosePassesNoWord:
         """
         server = _make_server()
         owner_sock = _mock_sock(10)
+        server._socket_listener.register_client_identity(
+            10, kind="hub", name="owner", connect_time=0.0
+        )
         server._handle_scene(owner_sock, _make_scene("s1", "f1"))
         server._event_queue.append(
             RemoteEventHandlerInvocation(
@@ -164,6 +186,9 @@ class TestAClosePassesNoWord:
         """The drain is for the frame that was shut, not for the workspace."""
         server = _make_server()
         owner_sock = _mock_sock(10)
+        server._socket_listener.register_client_identity(
+            10, kind="hub", name="owner", connect_time=0.0
+        )
         server._handle_scene(owner_sock, _make_scene("s1", "f1"))
         server._handle_scene(owner_sock, _make_scene("s2", "f2"))
         server._event_queue.append(
@@ -242,11 +267,133 @@ class TestSceneRejectionFromTestKind:
         assert server._scenes.resolve_scene("s1") is not None
         assert sock in server._socket_listener.clients
 
-    def test_a_scene_from_an_unidentified_fd_still_installs_normally(self) -> None:
-        """No ConnectMessage at all is unaffected -- only a declared 'test' rejects."""
+    def test_a_scene_from_an_unidentified_fd_is_rejected_and_closed(self) -> None:
+        """No ConnectMessage at all fails closed too (bead lux-2kv9 / W1).
+
+        Distinct from ``kind="test"``: this fd never identified at all, so it
+        has no attribution to install a scene under -- a strictly worse case
+        than the declared observer, and rejected the same way.
+        """
         server = _make_server()
         sock = _mock_sock(10)
+        server._socket_listener.clients.append(sock)
+        server._socket_listener.fd_to_client[10] = sock
 
         server._handle_message(sock, _make_scene("s1"))
 
-        assert server._scenes.resolve_scene("s1") is not None
+        assert server._scenes.resolve_scene("s1") is None
+        sock.close.assert_called_once()
+        assert sock not in server._socket_listener.clients
+
+    def test_the_unidentified_rejection_surfaces_via_list_errors(self) -> None:
+        server = _make_server()
+        sock = _mock_sock(10)
+        server._socket_listener.clients.append(sock)
+        server._socket_listener.fd_to_client[10] = sock
+
+        server._handle_message(sock, _make_scene("s1"))
+
+        errors = server._query_router.handle_query("list_errors", None)
+        assert errors.result is not None
+        messages = [e["message"] for e in errors.result["errors"]]
+        assert any("unidentified connection" in m for m in messages)
+
+
+class TestContentRejectionFromUnidentifiedFd:
+    """Menu/callback-menu/theme also fail closed on an unidentified fd (lux-2kv9 / W1).
+
+    Unlike scene, these were never restricted to ``kind="hub"`` -- an
+    identified ``"test"`` fd may still install them; only a fd that never
+    sent a ``ConnectMessage`` at all is new-rejected here.
+    """
+
+    def test_agent_menus_from_an_unidentified_fd_are_rejected(self) -> None:
+        server = _make_server()
+        sock = _mock_sock(10)
+
+        server._handle_message(
+            sock, MenuMessage(menus=[{"label": "File", "items": []}])
+        )
+
+        assert server._menus.agent_menus == ()
+
+    def test_agent_menus_from_a_hub_kind_fd_still_install(self) -> None:
+        server = _make_server()
+        sock = _mock_sock(10)
+        server._handle_message(sock, ConnectMessage(name="lux-mcp", kind="hub"))
+
+        server._handle_message(
+            sock, MenuMessage(menus=[{"label": "File", "items": []}])
+        )
+
+        assert len(server._menus.agent_menus) == 1
+
+    def test_agent_menus_from_a_test_kind_fd_still_install(self) -> None:
+        server = _make_server()
+        sock = _mock_sock(10)
+        server._handle_message(sock, ConnectMessage(name="probe", kind="test"))
+
+        server._handle_message(
+            sock, MenuMessage(menus=[{"label": "File", "items": []}])
+        )
+
+        assert len(server._menus.agent_menus) == 1
+
+    def test_callback_menus_from_an_unidentified_fd_are_rejected(self) -> None:
+        server = _make_server()
+        sock = _mock_sock(10)
+
+        server._handle_message(
+            sock, CallbackMenuMessage(submenus=[{"label": "Clients", "items": []}])
+        )
+
+        assert server._menus.callback_menus == ()
+
+    def test_callback_menus_from_a_hub_kind_fd_still_install(self) -> None:
+        server = _make_server()
+        sock = _mock_sock(10)
+        server._handle_message(sock, ConnectMessage(name="lux-mcp", kind="hub"))
+
+        server._handle_message(
+            sock, CallbackMenuMessage(submenus=[{"label": "Clients", "items": []}])
+        )
+
+        assert len(server._menus.callback_menus) == 1
+
+    def test_theme_from_an_unidentified_fd_is_rejected(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """An empty ``_themes`` list makes an applied theme log 'Unknown theme'."""
+        server = _make_server()
+        sock = _mock_sock(10)
+
+        with caplog.at_level("WARNING"):
+            server._handle_message(sock, ThemeMessage(theme="imgui_colors_light"))
+
+        assert not any("Unknown theme" in r.message for r in caplog.records)
+        assert server._current_theme == "imgui_colors_dark"
+
+    def test_theme_from_a_hub_kind_fd_still_applies(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        server = _make_server()
+        sock = _mock_sock(10)
+        server._handle_message(sock, ConnectMessage(name="lux-mcp", kind="hub"))
+
+        with caplog.at_level("WARNING"):
+            server._handle_message(sock, ThemeMessage(theme="imgui_colors_light"))
+
+        assert any("Unknown theme" in r.message for r in caplog.records)
+
+    def test_the_unidentified_menu_rejection_surfaces_via_list_errors(self) -> None:
+        server = _make_server()
+        sock = _mock_sock(10)
+
+        server._handle_message(
+            sock, MenuMessage(menus=[{"label": "File", "items": []}])
+        )
+
+        errors = server._query_router.handle_query("list_errors", None)
+        assert errors.result is not None
+        messages = [e["message"] for e in errors.result["errors"]]
+        assert any("unidentified" in m and "MenuMessage" in m for m in messages)

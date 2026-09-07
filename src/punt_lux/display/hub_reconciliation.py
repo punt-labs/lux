@@ -16,6 +16,7 @@ import socket
 import time
 from typing import TYPE_CHECKING, Self
 
+from punt_lux.display.identity_guard import IdentityGuard
 from punt_lux.socket_owner import SocketOwner
 
 if TYPE_CHECKING:
@@ -46,6 +47,7 @@ class HubReconciliation:
     _socket_listener: SocketListener
     _scenes: SceneReplica
     _record_error: _RecordError
+    _identity: IdentityGuard
 
     def __new__(
         cls,
@@ -57,6 +59,7 @@ class HubReconciliation:
         self._socket_listener = socket_listener
         self._scenes = scenes
         self._record_error = record_error
+        self._identity = IdentityGuard(socket_listener, record_error)
         return self
 
     def handle_connect(self, sock: socket.socket, msg: ConnectMessage) -> None:
@@ -122,23 +125,19 @@ class HubReconciliation:
             if self._scenes.dismiss_framed_scene(frame, scene_id):
                 self._scenes.dispose_frame(frame_id)
 
-    def reject_scene_if_test_kind(self, sock: socket.socket, fd: int) -> bool:
-        """Reject a ``SceneMessage`` from a ``kind="test"`` fd; close it.
+    def reject_scene_unless_hub(self, sock: socket.socket, fd: int) -> bool:
+        """Reject a ``SceneMessage`` unless the fd has identified as ``"hub"``.
 
-        A ``"test"`` connection may observe, never install. Returns ``True``
-        when the caller must stop processing this message (rejected and the
-        fd is gone); ``False`` for every ordinary fd, identified or not.
+        Delegates to the shared :class:`IdentityGuard` (bead lux-2kv9 / W1).
         """
-        if self._socket_listener.kind_of(fd) != "test":
-            return False
-        logger.warning(
-            "test-kind fd=%d attempted SceneMessage; rejecting and closing", fd
-        )
-        self._record_error(
-            "error", f"test-kind connection (fd={fd}) attempted a SceneMessage", ""
-        )
-        self._socket_listener.remove_client(sock)
-        return True
+        return self._identity.reject_scene_unless_hub(sock, fd)
+
+    def reject_if_unidentified(self, fd: int, message_kind: str) -> bool:
+        """Reject a content-bearing message from a never-identified fd.
+
+        Delegates to the shared :class:`IdentityGuard` (bead lux-2kv9 / W1).
+        """
+        return self._identity.reject_if_unidentified(fd, message_kind)
 
     def _preempt_stale_hub(self, fd: int, name: str) -> None:
         """Force-disconnect any other live connection already declaring this identity.

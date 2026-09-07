@@ -278,3 +278,121 @@ class TestHandleManifest:
         reconciliation.handle_manifest(sock, HubManifestMessage(scene_ids=()))
 
         assert any("HubManifestMessage" in m for m in errors)
+
+
+class TestRejectSceneUnlessHub:
+    """A ``SceneMessage`` installs only once the fd has identified as ``"hub"``.
+
+    Fail closed (bead lux-2kv9 / W1): an fd that never sent a
+    ``ConnectMessage`` (``kind_of(fd) is None``) is rejected exactly like the
+    already-rejected ``kind="test"`` observer.
+    """
+
+    def test_an_unidentified_fd_is_rejected_and_closed(self) -> None:
+        listener = _make_listener()
+        scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
+        reconciliation = _make_reconciliation(listener, scenes)
+        sock = _mock_sock(10)
+        listener.clients.append(sock)
+        listener.fd_to_client[10] = sock
+
+        rejected = reconciliation.reject_scene_unless_hub(sock, 10)
+
+        assert rejected is True
+        sock.close.assert_called_once()
+        assert sock not in listener.clients
+
+    def test_a_test_kind_fd_is_rejected_and_closed(self) -> None:
+        listener = _make_listener()
+        scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
+        reconciliation = _make_reconciliation(listener, scenes)
+        sock = _mock_sock(10)
+        listener.clients.append(sock)
+        listener.fd_to_client[10] = sock
+        listener.register_client_identity(
+            10, kind="test", name="probe", connect_time=0.0
+        )
+
+        rejected = reconciliation.reject_scene_unless_hub(sock, 10)
+
+        assert rejected is True
+        sock.close.assert_called_once()
+
+    def test_a_hub_kind_fd_is_not_rejected(self) -> None:
+        listener = _make_listener()
+        scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
+        reconciliation = _make_reconciliation(listener, scenes)
+        sock = _mock_sock(10)
+        listener.register_client_identity(
+            10, kind="hub", name="lux-mcp", connect_time=0.0
+        )
+
+        rejected = reconciliation.reject_scene_unless_hub(sock, 10)
+
+        assert rejected is False
+        sock.close.assert_not_called()
+
+    def test_an_unidentified_rejection_surfaces_via_the_injected_record_error(
+        self,
+    ) -> None:
+        listener = _make_listener()
+        scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
+        errors: list[str] = []
+        reconciliation = HubReconciliation(
+            listener, scenes, lambda _sev, msg, _ctx: errors.append(msg)
+        )
+        sock = _mock_sock(10)
+        listener.clients.append(sock)
+        listener.fd_to_client[10] = sock
+
+        reconciliation.reject_scene_unless_hub(sock, 10)
+
+        assert any("unidentified" in m and "SceneMessage" in m for m in errors)
+
+
+class TestRejectIfUnidentified:
+    """The shared identity guard every content-bearing handler calls (lux-2kv9 / W1).
+
+    Unlike :class:`TestRejectSceneUnlessHub`, this guard lets an identified
+    ``"test"`` fd through -- it closes only the pre-identification gap, not
+    the narrower per-kind policy scene layers on top of it.
+    """
+
+    def test_an_unidentified_fd_is_rejected(self) -> None:
+        listener = _make_listener()
+        scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
+        reconciliation = _make_reconciliation(listener, scenes)
+
+        assert reconciliation.reject_if_unidentified(10, "MenuMessage") is True
+
+    def test_a_test_kind_fd_is_not_rejected(self) -> None:
+        listener = _make_listener()
+        scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
+        reconciliation = _make_reconciliation(listener, scenes)
+        listener.register_client_identity(
+            10, kind="test", name="probe", connect_time=0.0
+        )
+
+        assert reconciliation.reject_if_unidentified(10, "MenuMessage") is False
+
+    def test_a_hub_kind_fd_is_not_rejected(self) -> None:
+        listener = _make_listener()
+        scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
+        reconciliation = _make_reconciliation(listener, scenes)
+        listener.register_client_identity(
+            10, kind="hub", name="lux-mcp", connect_time=0.0
+        )
+
+        assert reconciliation.reject_if_unidentified(10, "MenuMessage") is False
+
+    def test_a_rejection_surfaces_via_the_injected_record_error(self) -> None:
+        listener = _make_listener()
+        scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
+        errors: list[str] = []
+        reconciliation = HubReconciliation(
+            listener, scenes, lambda _sev, msg, _ctx: errors.append(msg)
+        )
+
+        reconciliation.reject_if_unidentified(10, "ThemeMessage")
+
+        assert any("ThemeMessage" in m for m in errors)

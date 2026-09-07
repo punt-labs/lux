@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+### Security
+
+- **Content-bearing display messages now reject an unidentified fd, not just
+  a declared `kind="test"` observer.** `render_loop.py`'s scene handling and
+  `hub_reconciliation.py`'s `reject_scene_if_test_kind` previously rejected a
+  `SceneMessage` only when the sending fd had already declared
+  `kind="test"` — an fd that had sent **no** `ConnectMessage` at all
+  (`kind_of(fd) is None`) fell through and had its scene installed. Harmless
+  today only because the `AF_UNIX` socket's `0700` permission already
+  vouches for same-user attribution; it stops being harmless once storage is
+  keyed by `HubId` (epic lux-37zg, W3), which has no key to store an
+  unidentified connection's content under at all. A new `IdentityGuard`
+  (`display/identity_guard.py`) is the one shared predicate every
+  content-bearing handler now calls: scene installs only from a fd
+  identified as `kind="hub"` (`reject_scene_unless_hub`, closing the fd like
+  the existing test-kind rejection already did); menu, callback-menu, and
+  theme messages install from any identified fd (`reject_if_unidentified`,
+  matching their prior, unrestricted-by-kind behavior — only the
+  pre-identification gap is new-closed). Extracted alongside a new
+  `ContentMessageGate` (`display/content_message_gate.py`) so
+  `RenderLoop._handle_message` stays a pure dispatch table. (bead lux-2kv9,
+  DES-090.)
+
 ### Removed
 
 - **`raise_frame`, `display_theme_set`, `display_window_set`, and

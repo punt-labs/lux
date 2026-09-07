@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Self, cast
 from PIL import Image
 
 from punt_lux.display.auto_click import AutoClicker
+from punt_lux.display.content_message_gate import ContentMessageGate
 from punt_lux.display.dock_bar import DockBar
 from punt_lux.display.exit_signal import ExitSignal
 from punt_lux.display.frame_commands import FrameCommands
@@ -117,6 +118,7 @@ class RenderLoop:
     _imgui_renderer_factory: ImGuiRendererFactory
     _luxd_factory: Any  # JsonElementFactory, declared Any to avoid an import cycle
     _hub_reconciliation: HubReconciliation
+    _content_gate: ContentMessageGate
     _exit_signal: ExitSignal
 
     def __new__(
@@ -176,6 +178,11 @@ class RenderLoop:
             socket_listener=self._socket_listener,
             scenes=self._scenes,
             record_error=self._query_router.record_error,
+        )
+        self._content_gate = ContentMessageGate(
+            menus=self._menus,
+            apply_theme=self._apply_theme,
+            hub_reconciliation=self._hub_reconciliation,
         )
         # Bind a fail-loud decode factory to the shared container-dispatch
         # target. Inbound scenes cross as pickles (SceneCodec), so the display
@@ -248,6 +255,11 @@ class RenderLoop:
     def socket_listener(self) -> SocketListener:
         """Return the socket server for external inspection."""
         return self._socket_listener
+
+    @property
+    def content_gate(self) -> ContentMessageGate:
+        """Return the menu/theme identity gate for external inspection."""
+        return self._content_gate
 
     def _drain_stale_events(self, stale_ids: list[str]) -> None:
         """Drop queued and held interactions for removed elements -- both queues."""
@@ -590,11 +602,11 @@ class RenderLoop:
         if isinstance(msg, SceneMessage):
             self._handle_scene(sock, msg)
         elif isinstance(msg, MenuMessage):
-            self._menus.replace_agent_menus(msg.menus)
+            self._content_gate.handle_agent_menus(sock, msg)
         elif isinstance(msg, CallbackMenuMessage):
-            self._menus.replace_callback_menus(msg.submenus)
+            self._content_gate.handle_callback_menus(sock, msg)
         elif isinstance(msg, ThemeMessage):
-            self._apply_theme(msg.theme)
+            self._content_gate.handle_theme(sock, msg)
         elif isinstance(msg, ConnectMessage):
             self._handle_connect(sock, msg)
         elif isinstance(msg, HubManifestMessage):
@@ -754,7 +766,7 @@ class RenderLoop:
             fd = sock.fileno()
         except OSError:
             return
-        if self._hub_reconciliation.reject_scene_if_test_kind(sock, fd):
+        if self._hub_reconciliation.reject_scene_unless_hub(sock, fd):
             return
         self._paint_clock.received(msg.id)
         self._wrap_abc_elements(msg)
