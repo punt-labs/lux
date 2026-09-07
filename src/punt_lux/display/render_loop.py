@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Self, cast
 from PIL import Image
 
 from punt_lux.display.auto_click import AutoClicker
+from punt_lux.display.content_message_gate import ContentMessageGate
 from punt_lux.display.dock_bar import DockBar
 from punt_lux.display.exit_signal import ExitSignal
 from punt_lux.display.frame_commands import FrameCommands
@@ -31,6 +32,7 @@ from punt_lux.display.frame_placement import FramePlacement
 from punt_lux.display.frame_tiling import FrameTiling
 from punt_lux.display.glfw_window import GlfwWindow
 from punt_lux.display.hub_reconciliation import HubReconciliation
+from punt_lux.display.identity_guard import IdentityGuard
 from punt_lux.display.idle_screen import render_idle
 from punt_lux.display.interaction_delivery import InteractionDelivery
 from punt_lux.display.macos import set_regular_activation_policy
@@ -116,7 +118,9 @@ class RenderLoop:
     _display_paths: DisplayPaths
     _imgui_renderer_factory: ImGuiRendererFactory
     _luxd_factory: Any  # JsonElementFactory, declared Any to avoid an import cycle
+    _identity: IdentityGuard
     _hub_reconciliation: HubReconciliation
+    _content_gate: ContentMessageGate
     _exit_signal: ExitSignal
 
     def __new__(
@@ -172,10 +176,20 @@ class RenderLoop:
             socket_listener=self._socket_listener,
             scenes=self._scenes,
         )
+        self._identity = IdentityGuard(
+            socket_listener=self._socket_listener,
+            record_error=self._query_router.record_error,
+        )
         self._hub_reconciliation = HubReconciliation(
             socket_listener=self._socket_listener,
             scenes=self._scenes,
             record_error=self._query_router.record_error,
+            identity=self._identity,
+        )
+        self._content_gate = ContentMessageGate(
+            menus=self._menus,
+            apply_theme=self._apply_theme,
+            identity=self._identity,
         )
         # Bind a fail-loud decode factory to the shared container-dispatch
         # target. Inbound scenes cross as pickles (SceneCodec), so the display
@@ -590,11 +604,11 @@ class RenderLoop:
         if isinstance(msg, SceneMessage):
             self._handle_scene(sock, msg)
         elif isinstance(msg, MenuMessage):
-            self._menus.replace_agent_menus(msg.menus)
+            self._content_gate.handle_agent_menus(sock, msg)
         elif isinstance(msg, CallbackMenuMessage):
-            self._menus.replace_callback_menus(msg.submenus)
+            self._content_gate.handle_callback_menus(sock, msg)
         elif isinstance(msg, ThemeMessage):
-            self._apply_theme(msg.theme)
+            self._content_gate.handle_theme(sock, msg)
         elif isinstance(msg, ConnectMessage):
             self._handle_connect(sock, msg)
         elif isinstance(msg, HubManifestMessage):
@@ -617,7 +631,7 @@ class RenderLoop:
         elif isinstance(msg, IntrospectRequest):
             self._handle_introspect(sock, msg)
         elif isinstance(msg, ListScenesRequest):
-            self._handle_list_scenes(sock, msg)
+            self._handle_list_scenes(sock)
         elif isinstance(msg, ScreenshotRequest):
             self._screenshot_pending = sock
         elif isinstance(msg, QueryRequest):
@@ -652,7 +666,7 @@ class RenderLoop:
             )
         self._socket_listener.send_to_client(sock, resp)
 
-    def _handle_list_scenes(self, sock: socket.socket, _msg: ListScenesRequest) -> None:
+    def _handle_list_scenes(self, sock: socket.socket) -> None:
         """Return the list of active scenes and frames."""
         qr = self._query_router.handle_query("list_scenes", None)
         if qr.error is not None:
@@ -750,15 +764,11 @@ class RenderLoop:
         boundary when the caller names none (frame_id = scene_id), so the display
         has a single, always-framed install path.
         """
-        try:
-            fd = sock.fileno()
-        except OSError:
-            return
-        if self._hub_reconciliation.reject_scene_if_test_kind(sock, fd):
+        if self._hub_reconciliation.reject_scene_unless_hub(sock):
             return
         self._paint_clock.received(msg.id)
         self._wrap_abc_elements(msg)
-        self._scenes.handle_framed_scene(msg, fd)
+        self._scenes.handle_framed_scene(msg, sock.fileno())
         ack = AckMessage(scene_id=msg.id, ts=time.time())
         self._socket_listener.send_to_client(sock, ack)
         if self._test_auto_click:

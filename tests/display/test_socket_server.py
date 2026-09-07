@@ -184,6 +184,43 @@ class TestRemoveClient:
             server.shutdown()
 
 
+class TestRemoveClientDeadFd:
+    """remove_client treats a closed socket's fileno()==-1 like an unavailable fd.
+
+    A closed socket returns -1 from ``fileno()`` rather than raising, so keying
+    cleanup on it would hit whatever happens to be registered under the -1
+    sentinel instead of the real fd (lux-2kv9).
+    """
+
+    def test_negative_fileno_skips_disconnect_callback(self) -> None:
+        disconnected_fds: list[int] = []
+        server = SocketListener(
+            on_message=_noop_message,
+            on_client_disconnected=disconnected_fds.append,
+            on_error=_noop_error,
+        )
+        dead = _FakeClient(fd=-1)
+        sock = _inject_client(server, dead)
+
+        server.remove_client(sock)
+
+        assert sock not in server.clients
+        assert disconnected_fds == []
+
+    def test_negative_fileno_does_not_pop_an_unrelated_real_fd(self) -> None:
+        server = _make_server()
+        server.register_client_identity(
+            42, kind="hub", name="lux-mcp", connect_time=1.0
+        )
+        dead = _FakeClient(fd=-1)
+        sock = _inject_client(server, dead)
+
+        server.remove_client(sock)
+
+        assert server.hub_fd_for("lux-mcp") == 42
+        assert 42 in server.client_names
+
+
 class TestHubIdentity:
     """(kind, name) tracking and hub_fd_for — the DES-068 preemption lookup."""
 

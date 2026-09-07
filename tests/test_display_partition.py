@@ -70,6 +70,33 @@ def _register(server: RenderLoop, sock: MagicMock) -> None:
     server._socket_listener._readers[sock.fileno()] = FrameReader()
 
 
+def _hub_sock(server: RenderLoop, fd: int = 42) -> MagicMock:
+    """Create a mock socket already identified as ``kind="hub"``.
+
+    A scene installs only from an identified ``"hub"`` fd (bead lux-2kv9 /
+    W1); tests that only need one scene-installing client use this instead
+    of a bare :func:`_sock` plus a separate registration step.
+    """
+    sock = _sock(fd)
+    server._socket_listener.register_client_identity(
+        fd, kind="hub", name="test-hub", connect_time=0.0
+    )
+    return sock
+
+
+def _register_hub(server: RenderLoop, sock: MagicMock) -> None:
+    """Attach ``sock`` as a client identified as ``kind="hub"``.
+
+    A scene installs only from an identified ``"hub"`` fd (bead lux-2kv9 /
+    W1); every scene-installing test in this module uses this helper instead
+    of the identity-free :func:`_register`.
+    """
+    _register(server, sock)
+    server._socket_listener.register_client_identity(
+        sock.fileno(), kind="hub", name="test-hub", connect_time=0.0
+    )
+
+
 def _scene_with(
     scene_id: str, *elems: TextElement | ButtonElement | SeparatorElement
 ) -> SceneMessage:
@@ -100,16 +127,16 @@ class TestAcceptConnectionPartitions:
         server = _server()
         sock = _sock(fd=10)
         assert len(server._socket_listener.clients) == 0
-        _register(server, sock)
+        _register_hub(server, sock)
         assert len(server._socket_listener.clients) == 1
         assert 10 in server._socket_listener._readers
 
     def test_accept_2_one_existing_client(self):
         """P2: Accept second client when one already connected."""
         server = _server()
-        _register(server, _sock(fd=10))
+        _register_hub(server, _sock(fd=10))
         sock2 = _sock(fd=20)
-        _register(server, sock2)
+        _register_hub(server, sock2)
         assert len(server._socket_listener.clients) == 2
         assert {10, 20} == set(server._socket_listener._readers.keys())
 
@@ -117,10 +144,10 @@ class TestAcceptConnectionPartitions:
         """P3: Accept client when at maxClients-1 (reaches capacity).
         maxClients=3 in spec, so accept 3rd into server with 2."""
         server = _server()
-        _register(server, _sock(fd=10))
-        _register(server, _sock(fd=20))
+        _register_hub(server, _sock(fd=10))
+        _register_hub(server, _sock(fd=20))
         sock3 = _sock(fd=30)
-        _register(server, sock3)
+        _register_hub(server, sock3)
         assert len(server._socket_listener.clients) == 3
 
     def test_accept_4_rejected_not_listening(self):
@@ -138,10 +165,10 @@ class TestAcceptConnectionPartitions:
         that reader dict is keyed by fd (duplicate would overwrite)."""
         server = _server()
         sock1 = _sock(fd=10)
-        _register(server, sock1)
+        _register_hub(server, sock1)
         reader1 = server._socket_listener._readers[10]
         # Re-registering same fd overwrites the reader
-        _register(server, _sock(fd=10))
+        _register_hub(server, _sock(fd=10))
         assert server._socket_listener._readers[10] is not reader1
 
     def test_accept_6_rejected_at_capacity(self):
@@ -150,7 +177,7 @@ class TestAcceptConnectionPartitions:
         documents the spec constraint for awareness."""
         server = _server()
         for fd in range(10, 13):
-            _register(server, _sock(fd=fd))
+            _register_hub(server, _sock(fd=fd))
         assert len(server._socket_listener.clients) == 3  # at max
 
 
@@ -169,7 +196,7 @@ class TestDisconnectClientPartitions:
         """P1: Disconnect sole client -> empty server."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._socket_listener.remove_client(sock)
         assert len(server._socket_listener.clients) == 0
         assert 10 not in server._socket_listener._readers
@@ -178,8 +205,8 @@ class TestDisconnectClientPartitions:
         """P2: Disconnect one of two clients -> one remains."""
         server = _server()
         sock1, sock2 = _sock(fd=10), _sock(fd=20)
-        _register(server, sock1)
-        _register(server, sock2)
+        _register_hub(server, sock1)
+        _register_hub(server, sock2)
         server._socket_listener.remove_client(sock1)
         assert len(server._socket_listener.clients) == 1
         assert 20 in server._socket_listener._readers
@@ -189,7 +216,7 @@ class TestDisconnectClientPartitions:
         """P3: Disconnect does not affect current scene or events."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         _inject_scene(server, _scene_with("s1", TextElement(id="t1", content="A")))
         server._event_queue.append(
             RemoteEventHandlerInvocation(element_id="t1", action="click", ts=1.0)
@@ -222,7 +249,7 @@ class TestReceiveScenePartitions:
     def test_scene_1_happy_path_first_scene(self):
         """P1: Receive first scene with 1 element."""
         server = _server()
-        sock = _sock()
+        sock = _hub_sock(server)
         scene = _scene_with("s1", TextElement(id="t1", content="Hi"))
         server._handle_message(sock, scene)
         assert _scene_count(server) > 0
@@ -232,7 +259,7 @@ class TestReceiveScenePartitions:
     def test_scene_2_boundary_max_elements(self):
         """P2: Receive scene with maxElements(3) elements."""
         server = _server()
-        sock = _sock()
+        sock = _hub_sock(server)
         scene = _scene_with(
             "s1",
             TextElement(id="t1", content="A"),
@@ -246,7 +273,7 @@ class TestReceiveScenePartitions:
     def test_scene_3_new_id_preserves_events(self):
         """P3: New scene (different ID) preserves existing events."""
         server = _server()
-        sock = _sock()
+        sock = _hub_sock(server)
         old_scene = _scene_with("s1", ButtonElement(id="b1", label="Old"))
         server._handle_message(sock, old_scene)
         server._event_queue.append(
@@ -267,7 +294,7 @@ class TestReceiveScenePartitions:
         disappear together — an empty push never lingers as a husk scene.
         """
         server = _server()
-        sock = _sock()
+        sock = _hub_sock(server)
         server._handle_message(sock, SceneMessage(id="s1", elements=[], frame_id="s1"))
         assert server._scenes.resolve_scene("s1") is None
 
@@ -275,7 +302,7 @@ class TestReceiveScenePartitions:
         """P5: Scene with all 4 element kinds (text, button, separator, image).
         Exercises elemKinds coverage invariant (I6)."""
         server = _server()
-        sock = _sock()
+        sock = _hub_sock(server)
         # Note: only 3 elements fit in maxElements for spec, but
         # concrete code doesn't enforce the bound
         scene = _scene_with(
@@ -292,7 +319,7 @@ class TestReceiveScenePartitions:
     def test_scene_6_idempotent_same_scene_id(self):
         """P6: Receive scene with same ID as current (full replacement)."""
         server = _server()
-        sock = _sock()
+        sock = _hub_sock(server)
         scene1 = _scene_with("s1", TextElement(id="t1", content="V1"))
         server._handle_message(sock, scene1)
         scene2 = _scene_with("s1", TextElement(id="t1", content="V2"))
@@ -314,7 +341,7 @@ class TestClearScenePartitions:
     def test_clear_1_with_scene(self):
         """P1: Clear existing scene."""
         server = _server()
-        sock = _sock()
+        sock = _hub_sock(server)
         server._handle_message(
             sock, _scene_with("s1", TextElement(id="t1", content="A"))
         )
@@ -330,7 +357,7 @@ class TestClearScenePartitions:
     def test_clear_3_clears_event_queue(self):
         """P3: Clear also drains the event queue (I7 preservation)."""
         server = _server()
-        sock = _sock()
+        sock = _hub_sock(server)
         server._handle_message(
             sock,
             _scene_with("s1", ButtonElement(id="b1", label="X")),
@@ -479,7 +506,7 @@ class TestFlushEventsPartitions:
         """P1: Flush non-empty queue -> queue emptied."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         _inject_scene(server, _scene_with("s1", ButtonElement(id="b1", label="X")))
         server._event_queue.append(
             RemoteEventHandlerInvocation(element_id="b1", action="click", ts=1.0)
@@ -491,7 +518,7 @@ class TestFlushEventsPartitions:
         """P2: Flush empty queue -> no-op."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._flush_events()
         assert len(server._event_queue) == 0
         sock.send.assert_not_called()
@@ -624,8 +651,8 @@ class TestShutdownPartitions:
     def test_shutdown_1_with_clients_and_scene(self):
         """P1: Shutdown server with active clients and scene."""
         server = _server()
-        _register(server, _sock(fd=10))
-        _register(server, _sock(fd=20))
+        _register_hub(server, _sock(fd=10))
+        _register_hub(server, _sock(fd=20))
         _inject_scene(server, _scene_with("s1", TextElement(id="t1", content="A")))
         server._event_queue.append(
             RemoteEventHandlerInvocation(element_id="t1", action="click", ts=1.0)
@@ -670,8 +697,8 @@ class TestInvariantPartitions:
         """I1: readers = clients after connect/disconnect sequence."""
         server = _server()
         s1, s2 = _sock(fd=10), _sock(fd=20)
-        _register(server, s1)
-        _register(server, s2)
+        _register_hub(server, s1)
+        _register_hub(server, s2)
         ss = server._socket_listener
         assert set(ss._readers.keys()) == {s.fileno() for s in ss.clients}
 
@@ -681,7 +708,7 @@ class TestInvariantPartitions:
     def test_inv_i6_elem_kinds_coverage(self):
         """I6: elemIds ⊆ dom elemKinds — all elements have a kind."""
         server = _server()
-        sock = _sock()
+        sock = _hub_sock(server)
         scene = _scene_with(
             "s1",
             TextElement(id="t1", content="A"),
@@ -700,7 +727,7 @@ class TestInvariantPartitions:
         After receiving a scene with button, queueing an event should
         reference an element that exists in the scene."""
         server = _server()
-        sock = _sock()
+        sock = _hub_sock(server)
         scene = _scene_with("s1", ButtonElement(id="b1", label="X"))
         server._handle_message(sock, scene)
         assert _scene_count(server) > 0
@@ -715,7 +742,7 @@ class TestInvariantPartitions:
     def test_inv_i7_same_id_replace_drains_stale_events(self):
         """I7: Same-ID scene replace drains events for removed elements."""
         server = _server()
-        sock = _sock()
+        sock = _hub_sock(server)
         server._handle_message(
             sock, _scene_with("s1", ButtonElement(id="b1", label="Old"))
         )
@@ -765,7 +792,7 @@ class TestCreateFramePartitions:
         """New frame created with one scene."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         msg = _framed_scene("s1", "frame-beads", TextElement(id="t1", content="A"))
         server._handle_message(sock, msg)
 
@@ -784,7 +811,7 @@ class TestCreateFramePartitions:
         """Frame title comes from frame_title field."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         msg = _framed_scene(
             "s1",
             "frame-beads",
@@ -799,7 +826,7 @@ class TestCreateFramePartitions:
         """Second scene added to same frame creates a tab."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._handle_message(
             sock, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
         )
@@ -820,7 +847,7 @@ class TestCreateFramePartitions:
         """Replacing a scene in a frame drains stale events."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._handle_message(
             sock,
             _framed_scene("s1", "f1", ButtonElement(id="b1", label="Old")),
@@ -844,7 +871,7 @@ class TestFrameCascadePartitions:
         """Each new frame gets a higher cascade index."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._socket_listener._fd_to_client[10] = sock
 
         server._handle_scene(sock, _framed_scene("s1", "f1"))
@@ -863,7 +890,7 @@ class TestFrameCascadePartitions:
         """
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._socket_listener._fd_to_client[10] = sock
 
         server._handle_scene(sock, _framed_scene("s1", "f1"))
@@ -882,7 +909,7 @@ class TestConnectMessagePartitions:
         """ConnectMessage stores the client's display name."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._socket_listener._fd_to_client[10] = sock
 
         server._handle_connect(sock, ConnectMessage(name="quarry", kind="test"))
@@ -893,7 +920,7 @@ class TestConnectMessagePartitions:
         """Sending ConnectMessage again updates the name (idempotent)."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._socket_listener._fd_to_client[10] = sock
 
         server._handle_connect(sock, ConnectMessage(name="quarry", kind="test"))
@@ -905,7 +932,7 @@ class TestConnectMessagePartitions:
         """Disconnecting a client removes its name."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._socket_listener._fd_to_client[10] = sock
 
         server._handle_connect(sock, ConnectMessage(name="quarry", kind="test"))
@@ -930,7 +957,7 @@ class TestDisposeFramePartitions:
         """Disposing a frame removes all its scenes and widget state."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._socket_listener._fd_to_client[10] = sock
         server._handle_message(
             sock, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
@@ -957,7 +984,7 @@ class TestDisposeFramePartitions:
         """The visibility half, beside the content one — the whole of the split."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._socket_listener._fd_to_client[10] = sock
         server._handle_message(
             sock, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
@@ -984,8 +1011,8 @@ class TestDisconnectFrameCleanupPartitions:
         server = _server()
         s1 = _sock(fd=10)
         s2 = _sock(fd=20)
-        _register(server, s1)
-        _register(server, s2)
+        _register_hub(server, s1)
+        _register_hub(server, s2)
         server._handle_message(
             s1, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
         )
@@ -1007,7 +1034,7 @@ class TestDisconnectFrameCleanupPartitions:
         """Disconnecting the only client orphans the frame, not removes it."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._handle_message(
             sock, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
         )
@@ -1022,8 +1049,8 @@ class TestDisconnectFrameCleanupPartitions:
         server = _server()
         s1 = _sock(fd=10)
         s2 = _sock(fd=20)
-        _register(server, s1)
-        _register(server, s2)
+        _register_hub(server, s1)
+        _register_hub(server, s2)
         server._handle_message(
             s1, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
         )
@@ -1041,7 +1068,7 @@ class TestDisconnectFrameCleanupPartitions:
         """Disconnecting a client with no frames is clean."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
 
         server._socket_listener.remove_client(sock)
 
@@ -1051,7 +1078,7 @@ class TestDisconnectFrameCleanupPartitions:
         """One client sends a framed scene and disconnects — scene persists."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._handle_message(
             sock, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
         )
@@ -1067,7 +1094,7 @@ class TestDisconnectFrameCleanupPartitions:
         """An orphaned frame can be put away by the user like any other."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._handle_message(
             sock, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
         )
@@ -1082,7 +1109,7 @@ class TestDisconnectFrameCleanupPartitions:
         """After a frame is orphaned, a new client can adopt it."""
         server = _server()
         s1 = _sock(fd=10)
-        _register(server, s1)
+        _register_hub(server, s1)
         server._handle_message(
             s1, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
         )
@@ -1090,7 +1117,7 @@ class TestDisconnectFrameCleanupPartitions:
         assert "f1" in server._scenes.frames
 
         s2 = _sock(fd=20)
-        _register(server, s2)
+        _register_hub(server, s2)
         server._handle_message(
             s2, _framed_scene("s2", "f1", TextElement(id="t2", content="B"))
         )
@@ -1103,8 +1130,8 @@ class TestDisconnectFrameCleanupPartitions:
         server = _server()
         s1 = _sock(fd=10)
         s2 = _sock(fd=20)
-        _register(server, s1)
-        _register(server, s2)
+        _register_hub(server, s1)
+        _register_hub(server, s2)
         server._handle_message(
             s1, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
         )
@@ -1126,8 +1153,8 @@ class TestFrameOwnershipPartitions:
         server = _server()
         s1 = _sock(fd=10)
         s2 = _sock(fd=20)
-        _register(server, s1)
-        _register(server, s2)
+        _register_hub(server, s1)
+        _register_hub(server, s2)
         server._handle_message(
             s1, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
         )
@@ -1147,8 +1174,8 @@ class TestFrameOwnershipPartitions:
         server = _server()
         s1 = _sock(fd=10)
         s2 = _sock(fd=20)
-        _register(server, s1)
-        _register(server, s2)
+        _register_hub(server, s1)
+        _register_hub(server, s2)
         server._handle_message(
             s1, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
         )
@@ -1167,7 +1194,7 @@ class TestFrameStaleEventDrainPartitions:
         """X6 — a button in a window the user just shut must not fire afterwards."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._socket_listener._fd_to_client[10] = sock
         server._handle_message(
             sock,
@@ -1194,7 +1221,7 @@ class TestFrameStaleEventDrainPartitions:
         """
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._socket_listener._fd_to_client[10] = sock
         server._handle_message(
             sock, _framed_scene("s1", "f1", ButtonElement(id="save", label="Save"))
@@ -1218,7 +1245,7 @@ class TestFrameStaleEventDrainPartitions:
         """A menu-bar click carries no scene, so it belongs to no frame."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._handle_message(
             sock, _framed_scene("s1", "f1", ButtonElement(id="b1", label="X"))
         )
@@ -1238,7 +1265,7 @@ class TestNoPushEverTakesFocus:
         """N1 — being born on screen is not a raise."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
         assert server._scenes.consume_focus("f1") is False
 
@@ -1246,7 +1273,7 @@ class TestNoPushEverTakesFocus:
         """N3 — the partition that used to assert the opposite."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
         server._scenes.minimize("f1")
         server._handle_message(sock, _framed_scene("s2", "f1"))
@@ -1257,7 +1284,7 @@ class TestNoPushEverTakesFocus:
         """N4 — a second board arriving does not reopen the window the user shut."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
         server._close_frame("f1")
         server._handle_message(sock, _framed_scene("s2", "f1"))
@@ -1267,7 +1294,7 @@ class TestNoPushEverTakesFocus:
         """R2 — replacing a scene repaints in place: a frame put away stays away."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
         server._scenes.minimize("f1")
         server._handle_message(sock, _framed_scene("s1", "f1"))
@@ -1277,7 +1304,7 @@ class TestNoPushEverTakesFocus:
         """R3 — bug B, through the socket path the user actually meets it on."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
         server._close_frame("f1")
         server._handle_message(sock, _framed_scene("s1", "f1"))
@@ -1287,7 +1314,7 @@ class TestNoPushEverTakesFocus:
         """X7 — a frame that is not painted cannot take focus."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
         server._scenes.request_focus("f1")
         server._close_frame("f1")
@@ -1297,7 +1324,7 @@ class TestNoPushEverTakesFocus:
         """Closing a different frame leaves the focus request standing."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
         server._handle_message(sock, _framed_scene("s2", "f2"))
         server._scenes.request_focus("f2")
@@ -1312,7 +1339,7 @@ class TestFrameSizeAndFlagsPartitions:
         """frame_size from SceneMessage is stored on the _Frame."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._handle_scene(sock, _framed_scene("s1", "f1", frame_size=(400, 200)))
         assert server._scenes.frames["f1"].initial_size == (400, 200)
 
@@ -1320,7 +1347,7 @@ class TestFrameSizeAndFlagsPartitions:
         """Frames without frame_size have initial_size=None."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._handle_scene(sock, _framed_scene("s1", "f1"))
         assert server._scenes.frames["f1"].initial_size is None
 
@@ -1328,7 +1355,7 @@ class TestFrameSizeAndFlagsPartitions:
         """frame_flags from SceneMessage are stored on the _Frame."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         flags = {"no_resize": True, "auto_resize": False}
         server._handle_scene(sock, _framed_scene("s1", "f1", frame_flags=flags))
         assert server._scenes.frames["f1"].flags == flags
@@ -1337,7 +1364,7 @@ class TestFrameSizeAndFlagsPartitions:
         """Frames without frame_flags have flags=None."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._handle_scene(sock, _framed_scene("s1", "f1"))
         assert server._scenes.frames["f1"].flags is None
 
@@ -1345,7 +1372,7 @@ class TestFrameSizeAndFlagsPartitions:
         """Subsequent scenes to the same frame don't overwrite initial_size."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._handle_scene(sock, _framed_scene("s1", "f1", frame_size=(400, 200)))
         server._handle_scene(sock, _framed_scene("s2", "f1", frame_size=(800, 600)))
         # initial_size is set at frame creation time, not updated
@@ -1355,7 +1382,7 @@ class TestFrameSizeAndFlagsPartitions:
         """Subsequent scenes to the same frame update flags."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._handle_scene(
             sock, _framed_scene("s1", "f1", frame_flags={"no_resize": True})
         )
@@ -1370,7 +1397,7 @@ class TestFrameSizeAndFlagsPartitions:
         """Subsequent scenes without frame_flags preserve existing flags."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._handle_scene(
             sock, _framed_scene("s1", "f1", frame_flags={"no_resize": True})
         )
@@ -1385,7 +1412,7 @@ class TestFrameLayoutPartitions:
         """Frames default to tab layout."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._handle_scene(sock, _framed_scene("s1", "f1"))
         assert server._scenes.frames["f1"].layout == "tab"
 
@@ -1393,7 +1420,7 @@ class TestFrameLayoutPartitions:
         """frame_layout='stack' sets layout on frame creation."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._handle_scene(sock, _framed_scene("s1", "f1", frame_layout="stack"))
         assert server._scenes.frames["f1"].layout == "stack"
 
@@ -1401,7 +1428,7 @@ class TestFrameLayoutPartitions:
         """Subsequent scene with frame_layout updates the frame layout."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._handle_scene(sock, _framed_scene("s1", "f1", frame_layout="tab"))
         server._handle_scene(sock, _framed_scene("s2", "f1", frame_layout="stack"))
         assert server._scenes.frames["f1"].layout == "stack"
@@ -1410,7 +1437,7 @@ class TestFrameLayoutPartitions:
         """Subsequent scene without frame_layout preserves existing layout."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._handle_scene(sock, _framed_scene("s1", "f1", frame_layout="stack"))
         server._handle_scene(sock, _framed_scene("s2", "f1"))
         assert server._scenes.frames["f1"].layout == "stack"
@@ -1508,7 +1535,7 @@ class TestTabCloseDisposes:
     def test_closing_the_last_tab_disposes_the_frame(self):
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._handle_message(
             sock, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
         )
@@ -1522,7 +1549,7 @@ class TestTabCloseDisposes:
     def test_closing_one_tab_of_several_keeps_the_frame(self):
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         for sid in ("s1", "s2"):
             server._handle_message(
                 sock, _framed_scene(sid, "f1", TextElement(id=f"t-{sid}", content="A"))
@@ -1543,7 +1570,7 @@ class TestFrameVisibilityPartitions:
         """N1 — a frame is born on screen, and that is the whole birth policy."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
         assert server._scenes.frames["f1"].is_on_screen is True
 
@@ -1551,7 +1578,7 @@ class TestFrameVisibilityPartitions:
         """_apply_fit_all() brings the dock back on screen to be tiled."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
         server._handle_message(sock, _framed_scene("s2", "f2"))
         server._scenes.minimize("f1")
@@ -1570,7 +1597,7 @@ class TestFrameVisibilityPartitions:
         """
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
         server._handle_message(sock, _framed_scene("s2", "f2"))
         server._close_frame("f1")
@@ -1590,7 +1617,7 @@ class TestFrameVisibilityPartitions:
         """X2 — closed is reachable from the dock, and it is still a visibility."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
         server._scenes.minimize("f1")
         server._close_frame("f1")
@@ -1601,7 +1628,7 @@ class TestFrameVisibilityPartitions:
         """D5 — Clear All means the content is gone, not that it was put away."""
         server = _server()
         sock = _sock(fd=10)
-        _register(server, sock)
+        _register_hub(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
         server._handle_message(sock, _framed_scene("s2", "f2"))
         server._handle_message(sock, _framed_scene("s3", "f3"))

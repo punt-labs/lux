@@ -58,9 +58,16 @@ def _mock_sock(fd: int = 42) -> MagicMock:
 
 
 def _register_client(server: RenderLoop, sock: MagicMock) -> None:
-    """Manually register a mock client (bypasses socket accept)."""
+    """Manually register a mock client (bypasses socket accept).
+
+    Identified as ``kind="hub"`` -- a scene installs only from an
+    identified ``"hub"`` fd (bead lux-2kv9 / W1).
+    """
     server._socket_listener.clients.append(sock)
     server._socket_listener._readers[sock.fileno()] = FrameReader()
+    server._socket_listener.register_client_identity(
+        sock.fileno(), kind="hub", name="test-hub", connect_time=0.0
+    )
 
 
 def _inject_scene(server: RenderLoop, scene: SceneMessage) -> None:
@@ -110,6 +117,10 @@ class TestRefinementReceiveScene:
     def test_receive_scene_commutes(self):
         server = _make_server()
         sock = _mock_sock()
+        # A scene installs only from an identified 'hub' fd (bead lux-2kv9 / W1).
+        server._socket_listener.register_client_identity(
+            sock.fileno(), kind="hub", name="test-hub", connect_time=0.0
+        )
         abs_before = abstract(server)
 
         scene = SceneMessage(
@@ -134,6 +145,10 @@ class TestRefinementReceiveScene:
         """Same-ID replacement drains stale events and updates active scene."""
         server = _make_server()
         sock = _mock_sock()
+        # A scene installs only from an identified 'hub' fd (bead lux-2kv9 / W1).
+        server._socket_listener.register_client_identity(
+            sock.fileno(), kind="hub", name="test-hub", connect_time=0.0
+        )
         _set_scene(server, "s1")
         server._event_queue.append(
             RemoteEventHandlerInvocation(
@@ -160,6 +175,10 @@ class TestRefinementReceiveScene:
     def test_receive_scene_with_all_element_kinds(self):
         server = _make_server()
         sock = _mock_sock()
+        # A scene installs only from an identified 'hub' fd (bead lux-2kv9 / W1).
+        server._socket_listener.register_client_identity(
+            sock.fileno(), kind="hub", name="test-hub", connect_time=0.0
+        )
         abs_before = abstract(server)
 
         scene = SceneMessage(
@@ -193,6 +212,10 @@ class TestRefinementReceiveScene:
         """
         server = _make_server()
         sock = _mock_sock()
+        # A scene installs only from an identified 'hub' fd (bead lux-2kv9 / W1).
+        server._socket_listener.register_client_identity(
+            sock.fileno(), kind="hub", name="test-hub", connect_time=0.0
+        )
         scene = SceneMessage(
             id="s1",
             elements=[
@@ -220,6 +243,10 @@ class TestRefinementReceiveScene:
         """
         server = _make_server()
         sock = _mock_sock()
+        # A scene installs only from an identified 'hub' fd (bead lux-2kv9 / W1).
+        server._socket_listener.register_client_identity(
+            sock.fileno(), kind="hub", name="test-hub", connect_time=0.0
+        )
         server._handle_message(
             sock,
             SceneMessage(

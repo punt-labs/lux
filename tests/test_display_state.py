@@ -64,6 +64,20 @@ def _mock_sock_fd(fd: int) -> MagicMock:
     return sock
 
 
+def _hub_sock(server: RenderLoop) -> MagicMock:
+    """Create a mock socket already identified as ``kind="hub"``.
+
+    A scene/menu/theme message installs only from an identified ``"hub"``
+    fd (bead lux-2kv9 / W1); tests that install content use this instead of
+    the identity-free :func:`_mock_sock`.
+    """
+    sock = _mock_sock()
+    server._socket_listener.register_client_identity(
+        sock.fileno(), kind="hub", name="test-hub", connect_time=0.0
+    )
+    return sock
+
+
 # -----------------------------------------------------------------------
 # P.1: _emit_event stamps scene_id and appends to queue (not recursion)
 # -----------------------------------------------------------------------
@@ -209,7 +223,7 @@ class TestEmitEvent:
 class TestEventQueueOnSceneChange:
     def test_new_scene_preserves_existing_events(self) -> None:
         server = _make_server()
-        sock = _mock_sock()
+        sock = _hub_sock(server)
 
         # Set up a scene via handle_message
         server._handle_message(sock, _make_scene())
@@ -229,7 +243,7 @@ class TestEventQueueOnSceneChange:
 
     def test_same_scene_id_drains_stale_events(self) -> None:
         server = _make_server()
-        sock = _mock_sock()
+        sock = _hub_sock(server)
 
         # First scene has t1, b1, separator, and an extra button b2
         first = _make_scene(
@@ -262,7 +276,7 @@ class TestEventQueueOnSceneChange:
 
     def test_clear_message_clears_event_queue(self) -> None:
         server = _make_server()
-        sock = _mock_sock()
+        sock = _hub_sock(server)
 
         server._handle_message(sock, _make_scene())
         server._event_queue.append(
@@ -278,7 +292,7 @@ class TestEventQueueOnSceneChange:
 
     def test_ping_does_not_clear_events(self) -> None:
         server = _make_server()
-        sock = _mock_sock()
+        sock = _hub_sock(server)
 
         server._handle_message(sock, _make_scene())
         server._event_queue.append(
@@ -294,7 +308,7 @@ class TestEventQueueOnSceneChange:
 
     def test_menu_message_stores_agent_menus(self) -> None:
         server = _make_server()
-        sock = _mock_sock()
+        sock = _hub_sock(server)
         menus = [{"label": "Tools", "items": [{"label": "Run", "id": "run"}]}]
 
         server._handle_message(sock, MenuMessage(menus=menus))
@@ -305,7 +319,7 @@ class TestEventQueueOnSceneChange:
 
     def test_menu_message_replaces_previous_menus(self) -> None:
         server = _make_server()
-        sock = _mock_sock()
+        sock = _hub_sock(server)
         server._menus.replace_agent_menus([{"label": "Old", "items": []}])
 
         new_menus = [{"label": "New", "items": [{"label": "Go", "id": "go"}]}]
@@ -315,7 +329,7 @@ class TestEventQueueOnSceneChange:
 
     def test_a_malformed_menu_message_leaves_the_display_holding_nothing(self) -> None:
         server = _make_server()
-        sock = _mock_sock()
+        sock = _hub_sock(server)
 
         malformed: list[dict[str, Any]] = [{"label": "Tools", "items": 7}]
 
@@ -779,7 +793,7 @@ class TestMultiScene:
     def test_second_scene_creates_a_second_frame(self) -> None:
         """Two scenes with different ids self-frame into two separate frames."""
         server = _make_server()
-        sock = _mock_sock()
+        sock = _hub_sock(server)
 
         server._handle_message(sock, _make_scene(scene_id="s1"))
         server._handle_message(sock, _make_scene(scene_id="s2"))
@@ -791,7 +805,7 @@ class TestMultiScene:
     def test_same_scene_id_replaces_content(self) -> None:
         """Re-sending the same scene_id replaces content in its frame."""
         server = _make_server()
-        sock = _mock_sock()
+        sock = _hub_sock(server)
 
         server._handle_message(
             sock,
@@ -818,7 +832,7 @@ class TestMultiScene:
     def test_clear_removes_all_scenes(self) -> None:
         """The World-menu clear removes all scenes and resets tab state."""
         server = _make_server()
-        sock = _mock_sock()
+        sock = _hub_sock(server)
 
         server._handle_message(sock, _make_scene(scene_id="s1"))
         server._handle_message(sock, _make_scene(scene_id="s2"))
@@ -831,7 +845,7 @@ class TestMultiScene:
     def test_widget_state_isolated_per_scene(self) -> None:
         """Each scene gets its own WidgetState instance."""
         server = _make_server()
-        sock = _mock_sock()
+        sock = _hub_sock(server)
 
         server._handle_message(sock, _make_scene(scene_id="s1"))
         server._handle_message(sock, _make_scene(scene_id="s2"))
@@ -848,7 +862,7 @@ class TestMultiScene:
     def test_empty_push_removes_a_scene_and_its_frame(self) -> None:
         """An empty push removes the scene from its frame and closes the frame."""
         server = _make_server()
-        sock = _mock_sock()
+        sock = _hub_sock(server)
 
         server._handle_message(sock, _make_scene(scene_id="s1"))
         server._handle_message(sock, _make_scene(scene_id="s2"))
@@ -863,7 +877,7 @@ class TestMultiScene:
     def test_each_scene_is_its_frames_active_tab(self) -> None:
         """A self-framed scene is the active tab of the frame it creates."""
         server = _make_server()
-        sock = _mock_sock()
+        sock = _hub_sock(server)
 
         server._handle_message(sock, _make_scene(scene_id="s1"))
         assert server._scenes.frames["s1"].active_tab == "s1"
@@ -874,7 +888,7 @@ class TestMultiScene:
     def test_dismiss_drains_events_for_dismissed_scene(self) -> None:
         """Dismissing a scene removes its unique events from the queue."""
         server = _make_server()
-        sock = _mock_sock()
+        sock = _hub_sock(server)
 
         # s1 has unique elements not shared with s2
         server._handle_message(
@@ -917,7 +931,7 @@ class TestMultiScene:
     def test_dismiss_preserves_events_from_other_scenes(self) -> None:
         """Dismissing one scene does not drain events from other scenes."""
         server = _make_server()
-        sock = _mock_sock()
+        sock = _hub_sock(server)
 
         server._handle_message(
             sock,
@@ -956,7 +970,7 @@ class TestMultiScene:
     def test_dismiss_preserves_events_for_shared_element_ids(self) -> None:
         """Dismissing a scene with shared IDs keeps events alive for survivors."""
         server = _make_server()
-        sock = _mock_sock()
+        sock = _hub_sock(server)
 
         # Both scenes share element ID "shared_btn"
         server._handle_message(

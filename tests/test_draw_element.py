@@ -70,6 +70,10 @@ def _mock_sock() -> MagicMock:
 
 
 def _inspect(server: RenderLoop, *elements: Element) -> QueryResponse:
+    # A scene installs only from an identified 'hub' fd (bead lux-2kv9 / W1).
+    server._socket_listener.register_client_identity(
+        7, kind="hub", name="test-hub", connect_time=0.0
+    )
     server._handle_message(
         _mock_sock(), SceneMessage(id="s1", elements=list(elements), frame_id="s1")
     )
