@@ -79,11 +79,16 @@ class IdentityGuard:
 
         An unidentified fd -- including a closed or torn-down ``sock``,
         whose ``fileno()`` returns ``-1`` rather than raising -- is rejected
-        and closed exactly like the already-rejected ``"test"`` observer;
-        neither has attribution to install a scene under. Returns ``True``
-        when the caller must stop processing this message (rejected and the
-        fd is gone); ``False`` only once the fd has identified as
-        ``kind="hub"``.
+        exactly like the already-rejected ``"test"`` observer; neither has
+        attribution to install a scene under. Only a *live* rejected fd
+        (``fd >= 0``) is also closed via ``remove_client``: a closed socket
+        has no live connection to close, and ``remove_client`` keys its
+        cleanup on ``fileno()``, so calling it with ``-1`` would clean up
+        whatever (nonexistent) entry happens to be registered under that
+        sentinel key instead of the real fd -- fd-reuse identity
+        inheritance. Returns ``True`` when the caller must stop processing
+        this message (rejected, whether or not the fd was live to close);
+        ``False`` only once the fd has identified as ``kind="hub"``.
         """
         fd = sock.fileno()
         kind = self._socket_listener.kind_of(fd)
@@ -96,5 +101,6 @@ class IdentityGuard:
         self._record_error(
             "error", f"{reason} connection (fd={fd}) attempted a SceneMessage", ""
         )
-        self._socket_listener.remove_client(sock)
+        if fd >= 0:
+            self._socket_listener.remove_client(sock)
         return True

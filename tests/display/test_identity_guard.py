@@ -130,14 +130,46 @@ class TestRejectSceneUnlessHub:
         sock.close.assert_not_called()
 
     def test_a_dead_socket_fails_closed_and_is_observable(self) -> None:
-        """The same ``fileno() == -1`` case, for scene's closing policy."""
+        """The same ``fileno() == -1`` case, for scene's closing policy.
+
+        A closed socket has no live connection to remove: ``remove_client``
+        keys its cleanup on ``fileno()``, so calling it with ``-1`` would
+        clean up whatever happens to be registered under that sentinel key
+        instead of the real fd. The rejection is still observed via
+        ``record_error`` -- only the close-the-live-fd side effect is
+        skipped.
+        """
         listener = _make_listener()
         errors: list[str] = []
         guard = IdentityGuard(listener, lambda _sev, msg, _ctx: errors.append(msg))
         sock = _mock_sock(-1)
         listener.clients.append(sock)
+        listener.remove_client = MagicMock(wraps=listener.remove_client)  # type: ignore[method-assign]
 
         rejected = guard.reject_scene_unless_hub(sock)
 
         assert rejected is True
         assert any("unidentified" in m and "SceneMessage" in m for m in errors)
+        listener.remove_client.assert_not_called()
+
+    def test_a_live_test_kind_socket_is_still_removed(self) -> None:
+        """A live wrong-kind fd still triggers ``remove_client`` (unweakened).
+
+        The fix only withholds ``remove_client`` for the dead-socket
+        (``fileno() == -1``) case; an identified ``"test"`` observer with a
+        real fd is rejected and closed exactly as before.
+        """
+        listener = _make_listener()
+        listener.register_client_identity(
+            10, kind="test", name="probe", connect_time=0.0
+        )
+        guard = IdentityGuard(listener, lambda _sev, _msg, _ctx: None)
+        sock = _mock_sock(10)
+        listener.clients.append(sock)
+        listener.fd_to_client[10] = sock
+        listener.remove_client = MagicMock(wraps=listener.remove_client)  # type: ignore[method-assign]
+
+        rejected = guard.reject_scene_unless_hub(sock)
+
+        assert rejected is True
+        listener.remove_client.assert_called_once_with(sock)
