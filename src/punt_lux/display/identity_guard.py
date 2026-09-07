@@ -55,12 +55,18 @@ class IdentityGuard:
         self._record_error = record_error
         return self
 
-    def reject_if_unidentified(self, fd: int, message_kind: str) -> bool:
+    def reject_if_unidentified(self, sock: socket.socket, message_kind: str) -> bool:
         """Reject a message from an fd that never sent a ``ConnectMessage``.
 
-        Returns ``True`` when the caller must drop the message; never closes
-        the fd -- an identified ``"test"`` fd is let through here.
+        A closed or torn-down ``sock`` fails closed too: ``fileno()`` returns
+        ``-1`` rather than raising, ``kind_of(-1)`` is ``None`` the same as
+        any other never-identified fd, and the ordinary reject path below
+        logs and records it -- there is no separate dead-socket case to
+        special-case. Returns ``True`` when the caller must drop the
+        message; never closes the fd -- an identified ``"test"`` fd is let
+        through here.
         """
+        fd = sock.fileno()
         if self._socket_listener.kind_of(fd) is not None:
             return False
         logger.warning("unidentified fd=%d attempted %s; rejecting", fd, message_kind)
@@ -68,15 +74,18 @@ class IdentityGuard:
         self._record_error("error", msg, "")
         return True
 
-    def reject_scene_unless_hub(self, sock: socket.socket, fd: int) -> bool:
+    def reject_scene_unless_hub(self, sock: socket.socket) -> bool:
         """Reject a ``SceneMessage`` from any fd not identified as ``kind="hub"``.
 
-        An unidentified fd is rejected and closed exactly like the
-        already-rejected ``"test"`` observer -- neither has attribution to
-        install a scene under. Returns ``True`` when the caller must stop
-        processing this message (rejected and the fd is gone); ``False``
-        only once the fd has identified as ``kind="hub"``.
+        An unidentified fd -- including a closed or torn-down ``sock``,
+        whose ``fileno()`` returns ``-1`` rather than raising -- is rejected
+        and closed exactly like the already-rejected ``"test"`` observer;
+        neither has attribution to install a scene under. Returns ``True``
+        when the caller must stop processing this message (rejected and the
+        fd is gone); ``False`` only once the fd has identified as
+        ``kind="hub"``.
         """
+        fd = sock.fileno()
         kind = self._socket_listener.kind_of(fd)
         if kind == "hub":
             return False

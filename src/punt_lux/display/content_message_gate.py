@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Self
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from punt_lux.display.hub_reconciliation import HubReconciliation
+    from punt_lux.display.identity_guard import IdentityGuard
     from punt_lux.display.replica.menu_replica import MenuReplica
     from punt_lux.protocol import CallbackMenuMessage, MenuMessage, ThemeMessage
 
@@ -29,40 +29,33 @@ class ContentMessageGate:
 
     _menus: MenuReplica
     _apply_theme: Callable[[str], None]
-    _hub_reconciliation: HubReconciliation
+    _identity: IdentityGuard
 
     def __new__(
         cls,
         menus: MenuReplica,
         apply_theme: Callable[[str], None],
-        hub_reconciliation: HubReconciliation,
+        identity: IdentityGuard,
     ) -> Self:
         self = super().__new__(cls)
         self._menus = menus
         self._apply_theme = apply_theme
-        self._hub_reconciliation = hub_reconciliation
+        self._identity = identity
         return self
 
     def handle_agent_menus(self, sock: socket.socket, msg: MenuMessage) -> None:
         """Install the Hub's agent-menu tree; reject an unidentified sender."""
-        if not self._reject_if_unidentified(sock, "MenuMessage"):
+        if not self._identity.reject_if_unidentified(sock, type(msg).__name__):
             self._menus.replace_agent_menus(msg.menus)
 
     def handle_callback_menus(
         self, sock: socket.socket, msg: CallbackMenuMessage
     ) -> None:
         """Install the Hub's callback-menu tree; reject an unidentified sender."""
-        if not self._reject_if_unidentified(sock, "CallbackMenuMessage"):
+        if not self._identity.reject_if_unidentified(sock, type(msg).__name__):
             self._menus.replace_callback_menus(msg.submenus)
 
     def handle_theme(self, sock: socket.socket, msg: ThemeMessage) -> None:
         """Apply the Hub's theme selection; reject an unidentified sender."""
-        if not self._reject_if_unidentified(sock, "ThemeMessage"):
+        if not self._identity.reject_if_unidentified(sock, type(msg).__name__):
             self._apply_theme(msg.theme)
-
-    def _reject_if_unidentified(self, sock: socket.socket, message_kind: str) -> bool:
-        try:
-            fd = sock.fileno()
-        except OSError:
-            return True
-        return self._hub_reconciliation.reject_if_unidentified(fd, message_kind)

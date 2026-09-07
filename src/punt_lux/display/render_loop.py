@@ -32,6 +32,7 @@ from punt_lux.display.frame_placement import FramePlacement
 from punt_lux.display.frame_tiling import FrameTiling
 from punt_lux.display.glfw_window import GlfwWindow
 from punt_lux.display.hub_reconciliation import HubReconciliation
+from punt_lux.display.identity_guard import IdentityGuard
 from punt_lux.display.idle_screen import render_idle
 from punt_lux.display.interaction_delivery import InteractionDelivery
 from punt_lux.display.macos import set_regular_activation_policy
@@ -117,6 +118,7 @@ class RenderLoop:
     _display_paths: DisplayPaths
     _imgui_renderer_factory: ImGuiRendererFactory
     _luxd_factory: Any  # JsonElementFactory, declared Any to avoid an import cycle
+    _identity: IdentityGuard
     _hub_reconciliation: HubReconciliation
     _content_gate: ContentMessageGate
     _exit_signal: ExitSignal
@@ -174,15 +176,20 @@ class RenderLoop:
             socket_listener=self._socket_listener,
             scenes=self._scenes,
         )
+        self._identity = IdentityGuard(
+            socket_listener=self._socket_listener,
+            record_error=self._query_router.record_error,
+        )
         self._hub_reconciliation = HubReconciliation(
             socket_listener=self._socket_listener,
             scenes=self._scenes,
             record_error=self._query_router.record_error,
+            identity=self._identity,
         )
         self._content_gate = ContentMessageGate(
             menus=self._menus,
             apply_theme=self._apply_theme,
-            hub_reconciliation=self._hub_reconciliation,
+            identity=self._identity,
         )
         # Bind a fail-loud decode factory to the shared container-dispatch
         # target. Inbound scenes cross as pickles (SceneCodec), so the display
@@ -255,11 +262,6 @@ class RenderLoop:
     def socket_listener(self) -> SocketListener:
         """Return the socket server for external inspection."""
         return self._socket_listener
-
-    @property
-    def content_gate(self) -> ContentMessageGate:
-        """Return the menu/theme identity gate for external inspection."""
-        return self._content_gate
 
     def _drain_stale_events(self, stale_ids: list[str]) -> None:
         """Drop queued and held interactions for removed elements -- both queues."""
@@ -629,7 +631,7 @@ class RenderLoop:
         elif isinstance(msg, IntrospectRequest):
             self._handle_introspect(sock, msg)
         elif isinstance(msg, ListScenesRequest):
-            self._handle_list_scenes(sock, msg)
+            self._handle_list_scenes(sock)
         elif isinstance(msg, ScreenshotRequest):
             self._screenshot_pending = sock
         elif isinstance(msg, QueryRequest):
@@ -664,7 +666,7 @@ class RenderLoop:
             )
         self._socket_listener.send_to_client(sock, resp)
 
-    def _handle_list_scenes(self, sock: socket.socket, _msg: ListScenesRequest) -> None:
+    def _handle_list_scenes(self, sock: socket.socket) -> None:
         """Return the list of active scenes and frames."""
         qr = self._query_router.handle_query("list_scenes", None)
         if qr.error is not None:
@@ -762,15 +764,11 @@ class RenderLoop:
         boundary when the caller names none (frame_id = scene_id), so the display
         has a single, always-framed install path.
         """
-        try:
-            fd = sock.fileno()
-        except OSError:
-            return
-        if self._hub_reconciliation.reject_scene_unless_hub(sock, fd):
+        if self._hub_reconciliation.reject_scene_unless_hub(sock):
             return
         self._paint_clock.received(msg.id)
         self._wrap_abc_elements(msg)
-        self._scenes.handle_framed_scene(msg, fd)
+        self._scenes.handle_framed_scene(msg, sock.fileno())
         ack = AckMessage(scene_id=msg.id, ts=time.time())
         self._socket_listener.send_to_client(sock, ack)
         if self._test_auto_click:

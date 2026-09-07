@@ -16,12 +16,12 @@ import socket
 import time
 from typing import TYPE_CHECKING, Self
 
-from punt_lux.display.identity_guard import IdentityGuard
 from punt_lux.socket_owner import SocketOwner
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from punt_lux.display.identity_guard import IdentityGuard
     from punt_lux.display.replica import SceneReplica
     from punt_lux.display.socket_server import SocketListener
     from punt_lux.protocol import ConnectMessage, HubManifestMessage
@@ -54,12 +54,13 @@ class HubReconciliation:
         socket_listener: SocketListener,
         scenes: SceneReplica,
         record_error: _RecordError,
+        identity: IdentityGuard,
     ) -> Self:
         self = super().__new__(cls)
         self._socket_listener = socket_listener
         self._scenes = scenes
         self._record_error = record_error
-        self._identity = IdentityGuard(socket_listener, record_error)
+        self._identity = identity
         return self
 
     def handle_connect(self, sock: socket.socket, msg: ConnectMessage) -> None:
@@ -125,19 +126,12 @@ class HubReconciliation:
             if self._scenes.dismiss_framed_scene(frame, scene_id):
                 self._scenes.dispose_frame(frame_id)
 
-    def reject_scene_unless_hub(self, sock: socket.socket, fd: int) -> bool:
+    def reject_scene_unless_hub(self, sock: socket.socket) -> bool:
         """Reject a ``SceneMessage`` unless the fd has identified as ``"hub"``.
 
         Delegates to the shared :class:`IdentityGuard`.
         """
-        return self._identity.reject_scene_unless_hub(sock, fd)
-
-    def reject_if_unidentified(self, fd: int, message_kind: str) -> bool:
-        """Reject a content-bearing message from a never-identified fd.
-
-        Delegates to the shared :class:`IdentityGuard`.
-        """
-        return self._identity.reject_if_unidentified(fd, message_kind)
+        return self._identity.reject_scene_unless_hub(sock)
 
     def _preempt_stale_hub(self, fd: int, name: str) -> None:
         """Force-disconnect any other live connection already declaring this identity.
