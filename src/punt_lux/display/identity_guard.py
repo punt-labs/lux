@@ -95,12 +95,12 @@ class IdentityGuard:
         if kind == "hub":
             return False
         reason = "unidentified" if kind is None else "test-kind"
-        logger.warning(
-            "%s fd=%d attempted SceneMessage; rejecting and closing", reason, fd
-        )
+        closing = fd >= 0
+        action = "rejecting and closing" if closing else "rejecting"
+        logger.warning("%s fd=%d attempted SceneMessage; %s", reason, fd, action)
         self._record_error(
             "error", f"{reason} connection (fd={fd}) attempted a SceneMessage", ""
         )
-        if fd >= 0:
+        if closing:
             self._socket_listener.remove_client(sock)
         return True
