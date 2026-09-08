@@ -13,6 +13,7 @@ from typing import Literal, Self
 
 import pytest
 
+from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.owner import Owner
 from punt_lux.domain.hub.ownership_error import HubOwnershipError
@@ -23,6 +24,29 @@ _SCENE = SceneId("ownership-scene")
 _OWNER = ConnectionId("owner-conn")
 _STRANGER = ConnectionId("stranger-conn")
 _ELEMENT_ID = ElementId("element")
+
+
+class _Clock:
+    """A hand-advanced monotonic clock, so lease expiry is deterministic."""
+
+    def __init__(self, now: float = 0.0) -> None:
+        self._now = now
+
+    def __call__(self) -> float:
+        return self._now
+
+    def advance(self, seconds: float) -> None:
+        self._now += seconds
+
+
+def _cli(name: str) -> ClientIdentity:
+    """A ``cli``-kind identity — the 90s lease the reaping tests advance past."""
+    return ClientIdentity(kind="cli", name=name, repo="/w/lux")
+
+
+def _mcp(name: str) -> ClientIdentity:
+    """An ``mcp-session``-kind identity — the 1800s lease that outlives a cli's."""
+    return ClientIdentity(kind="mcp-session", name=name, repo="/w/lux")
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,3 +260,174 @@ def test_clear_leaves_a_root_another_connection_owns_in_a_shared_scene() -> None
     HubSceneWriter(hub_display).clear(_OWNER)
 
     assert {e.id for e in hub_display.scene_roots(_SCENE)} == {"theirs"}
+
+
+# -- reap-and-release (lux-d84d): a lapsed connection's ownership is released --
+
+
+def test_reap_of_a_dead_connection_releases_its_scenes() -> None:
+    """KT1: a lapsed connection is dropped and every scene it owned unowned.
+
+    Nobody has renewed ``dead``'s lease; once it has lapsed, a write from any
+    other live connection triggers the sweep-and-release, and ``dead``'s
+    scene is left with no owner at all.
+    """
+    clock = _Clock()
+    hub_display = HubDisplay(clock)
+    dead = ConnectionId("dead-conn")
+    live = ConnectionId("live-conn")
+    hub_display.identify_client(dead, _cli("dead"))
+    hub_display.apply(
+        dead,
+        AddElement(scene_id=_SCENE, element=_WireLeaf(id="track"), parent_id=None),
+    )
+    assert hub_display.scene_owners(_SCENE) == (Owner(dead, _cli("dead")),)
+
+    clock.advance(91.0)  # past the 90s cli lease; dead never renews again
+    hub_display.register_client(live)
+    other_scene = SceneId("unrelated-scene")
+    hub_display.apply(
+        live,
+        AddElement(scene_id=other_scene, element=_WireLeaf(id="x"), parent_id=None),
+    )  # any ownership-gated write triggers the pull-based sweep
+
+    assert hub_display.elements_owned_by(dead) == ()
+    assert hub_display.scene_owners(_SCENE) == ()
+
+
+def test_a_reconnect_before_reap_is_blocked_from_the_predecessors_scene() -> None:
+    """RB1: a predecessor still inside its lease keeps blocking a claim.
+
+    Reap-and-release must never release a connection whose lease has not
+    lapsed — a live successor sharing its identity is blocked exactly as any
+    other stranger would be, until the predecessor is actually reaped.
+    """
+    clock = _Clock()
+    hub_display = HubDisplay(clock)
+    predecessor = ConnectionId("voxd-old")
+    successor = ConnectionId("voxd-new")
+    hub_display.identify_client(predecessor, _cli("voxd"))
+    hub_display.apply(
+        predecessor,
+        AddElement(scene_id=_SCENE, element=_WireLeaf(id="track"), parent_id=None),
+    )
+    hub_display.identify_client(successor, _cli("voxd"))
+
+    with pytest.raises(HubOwnershipError):
+        hub_display.apply(
+            successor,
+            SetProperty(
+                scene_id=_SCENE,
+                element_id=ElementId("track"),
+                field="label",
+                value="now playing",
+            ),
+        )
+
+
+def test_a_reconnect_after_reap_claims_the_released_scene() -> None:
+    """RA1, and the fail-first reconnect-shadowing regression this bead reports.
+
+    On the pre-fix behaviour this raised ``HubOwnershipError`` forever: nothing
+    ever released ``predecessor``'s ownership once it left the client
+    registry, so ``successor`` — a live connection sharing its identity — was
+    shadowed by a corpse for good. Verified fail-first: with
+    ``HubDisplay._reap_and_release`` stubbed to a no-op, the ``apply`` call
+    below raises ``HubOwnershipError``; with the fix wired, the
+    reap-and-release runs before the ownership check and the removal succeeds.
+    """
+    clock = _Clock()
+    hub_display = HubDisplay(clock)
+    predecessor = ConnectionId("voxd-old")
+    successor = ConnectionId("voxd-new")
+    hub_display.identify_client(predecessor, _cli("voxd"))
+    hub_display.apply(
+        predecessor,
+        AddElement(scene_id=_SCENE, element=_WireLeaf(id="track"), parent_id=None),
+    )
+
+    clock.advance(91.0)  # past the 90s cli lease; predecessor never renews again
+    hub_display.identify_client(successor, _cli("voxd"))
+
+    # No HubOwnershipError: the reap-and-release ran before this check, so the
+    # scene predecessor left behind is unowned by the time successor acts on it.
+    hub_display.apply(
+        successor,
+        RemoveElement(scene_id=_SCENE, element_id=ElementId("track")),
+    )
+
+    assert {e.id for e in hub_display.scene_roots(_SCENE)} == set()
+    assert hub_display.elements_owned_by(predecessor) == ()
+
+
+def test_reaping_one_identitys_connection_never_blocks_an_unrelated_identity() -> None:
+    """MI1: reaping one identity's dead connection leaves another's scene alone.
+
+    I3's identity comparison must genuinely distinguish connections rather
+    than benefit from there being only one identity in play — ``live``'s own
+    write triggers the sweep that reaps ``dead``, and ``live``'s scene is
+    untouched by it.
+    """
+    clock = _Clock()
+    hub_display = HubDisplay(clock)
+    dead = ConnectionId("voxd-old")
+    live = ConnectionId("claude-mcp")
+    other_scene = SceneId("claude-scene")
+    hub_display.identify_client(dead, _cli("voxd"))
+    hub_display.identify_client(live, _mcp("claude"))
+    hub_display.apply(
+        dead,
+        AddElement(scene_id=_SCENE, element=_WireLeaf(id="track"), parent_id=None),
+    )
+    hub_display.apply(
+        live,
+        AddElement(scene_id=other_scene, element=_WireLeaf(id="panel"), parent_id=None),
+    )
+
+    clock.advance(91.0)  # past the cli lease; the mcp-session lease (1800s) survives
+    # live's own write is the trigger: it must reap dead without disturbing
+    # anything live already owns, including the untouched "panel" root.
+    hub_display.apply(
+        live,
+        AddElement(
+            scene_id=other_scene, element=_WireLeaf(id="panel2"), parent_id=None
+        ),
+    )
+
+    assert hub_display.owner_of(other_scene, ElementId("panel")) == live
+    assert hub_display.owner_of(other_scene, ElementId("panel2")) == live
+    assert hub_display.elements_owned_by(dead) == ()
+
+
+def test_continuous_renewal_keeps_ownership_through_repeated_reap_triggers() -> None:
+    """LR1: a connection that keeps renewing is never reaped, so it keeps its scene.
+
+    Every ``apply`` call is itself an opportunity to reap a lapsed lease.
+    ``steady`` renews before its 90s cli lease would lapse on every one of
+    five such opportunities, so it must never be swept and must keep its
+    scene throughout — the property the pure-registry
+    ``test_hub_clients.py::test_any_contact_renews_the_lease`` already proves
+    for the lease, extended here to prove ownership survives it too.
+    """
+    clock = _Clock()
+    hub_display = HubDisplay(clock)
+    steady = ConnectionId("steady-conn")
+    hub_display.identify_client(steady, _cli("steady"))
+    hub_display.apply(
+        steady,
+        AddElement(scene_id=_SCENE, element=_WireLeaf(id="a"), parent_id=None),
+    )
+
+    for i in range(5):
+        clock.advance(60.0)  # inside the 90s cli lease if renewed each time
+        hub_display.register_client(steady)  # a bare contact renews the lease
+        # Each apply is itself a reap opportunity; the write's own content
+        # (a fresh element) is incidental — the point is that "a" survives it.
+        hub_display.apply(
+            steady,
+            AddElement(
+                scene_id=_SCENE, element=_WireLeaf(id=f"extra-{i}"), parent_id=None
+            ),
+        )
+
+    assert hub_display.owner_of(_SCENE, ElementId("a")) == steady

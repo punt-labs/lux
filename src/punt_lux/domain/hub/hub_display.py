@@ -14,12 +14,11 @@ responsibility:
   re-show and an expiry never race.
 - ``SubtreeInstaller`` / ``SubtreeRemover`` — the install and teardown walks.
 
-A scene's presentation is kept until the scene is blanked away or re-shown, so an
-emptied scene can still be blanked into the frame it was shown in; once the
-replicator delivers that blank it reclaims the presentation. ``drop_connection``
-forgets a departing connection as a Hub client but leaves its scenes standing:
-a session's UI survives the session, to be removed later by a frame close, a
-clear, or a TTL — never by the disconnect itself.
+A scene's presentation is kept until blanked away or re-shown, so an emptied
+scene can still be blanked into its frame; the replicator reclaims it after.
+``drop_connection`` leaves an ordinary departure's scenes standing — a
+session's UI survives its session — while ``_reap_and_release`` is what
+actually releases a connection whose lease has lapsed.
 
 Every write runs under ``StoreLock`` so a snapshot never reads a half-applied
 scene. Every read takes the lock in read mode too — the replicator's crossing
@@ -87,13 +86,11 @@ __all__ = [
 class HubDisplay:
     """Hub-side authoritative store of Elements, owners, and clients.
 
-    Facade over typed collaborators. Invariants established at ``apply`` time,
-    trusted thereafter: every installed Element has a known owner; a scene-root ABC
-    Element carries a HubDisplay-owned observer that routes its ``_removed`` back
-    through ``apply``, while a child Element is observed by its parent composite.
-
-    Tests construct their own ``HubDisplay()``; the module exposes
-    ``hub_display`` as the production singleton.
+    Facade over typed collaborators: invariants are established at ``apply``
+    time and trusted thereafter (every installed Element has a known owner;
+    a scene-root ABC Element's observer routes ``_removed`` back through
+    ``apply``). Tests construct their own ``HubDisplay()``; the module also
+    exposes ``hub_display`` as the production singleton.
     """
 
     _index: ElementIndex
@@ -157,12 +154,7 @@ class HubDisplay:
         return self._seam
 
     def write_lock(self) -> AbstractContextManager[bool]:
-        """Hold the store lock across an external mutation batch.
-
-        ``HubSceneWriter`` takes this so its whole parse-guard-commit-remove batch
-        commits under one lock and the replicator's snapshot never lands mid-batch;
-        reentrant, so nested ``apply`` / ``replace_scene`` re-enter it freely.
-        """
+        """Hold the store lock across an external mutation batch; reentrant."""
         return self._lock.write()
 
     # -- clients registry --------------------------------------------------
@@ -183,12 +175,7 @@ class HubDisplay:
 
     @property
     def clients(self) -> HubClientRegistry:
-        """Return the session registry — the identity, lease, and callback authority.
-
-        Exposed like ``reader`` and ``frames`` so the callback operations can
-        register a session's callbacks and read the live sessions through the one
-        registry, rather than each holding a duplicate of its lease and identity.
-        """
+        """Return the session registry — identity, lease, and callback authority."""
         return self._clients
 
     # -- index access ------------------------------------------------------
@@ -417,8 +404,12 @@ class HubDisplay:
         ``SetProperty`` and ``RemoveElement`` mutate an already-installed element and
         require the caller to own it, mirroring ``Display.apply``'s ownership
         enforcement so a misbehaving client cannot evict another client's state.
+
+        Reaps and releases first, before the ownership check: a reconnecting
+        client must never stay shadowed by a departed predecessor's grip.
         """
         with self._lock.write():
+            self._reap_and_release()
             match update:
                 case AddElement(scene_id=sid, parent_id=pid, element=elem):
                     session = self._clients.session_of(connection_id)
@@ -450,8 +441,15 @@ class HubDisplay:
         installed and stay owned by its id (so a later frame close, clear, or TTL
         can still remove them). Only the client registration is dropped, so the
         session no longer appears among the live Hub clients.
+
+        This is the ordinary in-session return, not a departure — an actually
+        lapsed lease is :meth:`_reap_and_release`'s job instead.
         """
         self._clients.discard(connection_id)
+
+    def _reap_and_release(self) -> None:
+        """Sweep every lapsed client lease and release what each one owned."""
+        self._owners.release_departed(self._clients.reap())
 
 
 hub_display = HubDisplay()
