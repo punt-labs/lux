@@ -76,6 +76,66 @@ def test_hub_interaction_dispatch_runs_grouped_button_handlers_once(
     mock_replicator.mark_dirty.assert_called_once_with(scene_id)
 
 
+def test_an_owner_literally_named_unowned_is_distinct_from_a_genuinely_unowned_element(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A ConnectionId that spells "unowned" must not collide with the sentinel.
+
+    The attribution sentinel for a genuinely unowned element (a departure
+    released it) has to be a string no real ConnectionId can equal --
+    otherwise a session literally named "unowned" would be indistinguishable
+    from "no owner at all".
+    """
+    isolated_display = HubDisplay()
+    scene_id = SceneId("scene")
+    mischievous_owner = ConnectionId("unowned")  # a real, live owner named that
+    departed_owner = ConnectionId("departed")
+    isolated_display.register_client(mischievous_owner)
+    isolated_display.register_client(departed_owner)
+
+    live_owned = ButtonElement(id="live-owned", label="Owned")
+    genuinely_unowned = ButtonElement(id="unowned-elem", label="Unowned")
+    seen: dict[str, str] = {}
+    live_owned.add_handler(
+        ButtonClicked, lambda e: seen.__setitem__("live", str(e.owner_id))
+    )
+    genuinely_unowned.add_handler(
+        ButtonClicked, lambda e: seen.__setitem__("genuine", str(e.owner_id))
+    )
+    isolated_display.apply(
+        mischievous_owner,
+        AddElement(scene_id=scene_id, element=live_owned, parent_id=None),
+    )
+    isolated_display.apply(
+        departed_owner,
+        AddElement(scene_id=scene_id, element=genuinely_unowned, parent_id=None),
+    )
+    isolated_display.drop_connection(departed_owner)  # releases it; content stays
+
+    import punt_lux.domain.hub as hub_module
+
+    monkeypatch.setattr(hub_module, "hub_display", isolated_display)
+    monkeypatch.setattr(
+        "punt_lux.domain.hub.replicator_instance.hub_replicator", MagicMock()
+    )
+
+    for element_id in ("live-owned", "unowned-elem"):
+        HubInteractionDispatch.dispatch(
+            RemoteEventHandlerInvocation(
+                scene_id=str(scene_id),
+                element_id=element_id,
+                action="confirm",
+                event_kind="button_clicked",
+                ts=1.0,
+                value=True,
+            )
+        )
+
+    assert seen["live"] == "unowned"  # the real owner's own name, verbatim
+    assert seen["genuine"] == "__unowned__"  # the sentinel, not a real name
+    assert seen["live"] != seen["genuine"]
+
+
 def _isolated_router(
     monkeypatch: pytest.MonkeyPatch,
 ) -> tuple[HubClientRegistry, CallbackRouter, MagicMock]:

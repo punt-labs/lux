@@ -26,8 +26,8 @@ logger = logging.getLogger(__name__)
 __all__ = ["HubInteractionDispatch"]
 
 # A fired event's attribution when its element is unowned (a departure
-# released it) -- distinct from the display-local "__display__" sentinel.
-_UNOWNED = "unowned"
+# released it) -- shaped like "__display__", never a real ConnectionId.
+_UNOWNED = "__unowned__"
 
 
 class HubInteractionDispatch:
