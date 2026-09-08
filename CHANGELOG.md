@@ -5,18 +5,29 @@
 ### Fixed
 
 - **A departed connection's dead lease no longer shadows a live reconnect
-  under the same identity.** The Hub's client-lease sweep dropped a lapsed
-  connection from the registry but never touched `OwnerTracker`, so a scene
-  the departed connection had installed stayed attributed to it forever —
-  a live sibling reconnecting under the same identity (e.g. `voxd` restarting)
-  found the scene it needed to write into still, on paper, somebody else's,
-  and every write to it raised `HubOwnershipError` for good. `HubDisplay`
-  now reaps and releases before evaluating ownership on every write
-  (`HubClientRegistry.reap()` reports which connections just left
-  `registered`; `OwnerTracker.release_departed` clears everything each one
-  owned) — pull-based, no new background timer, and a still-live connection
-  keeps its scenes exactly as before. (bead lux-d84d; model
-  `docs/connection_lease_reaping.tex`.)
+  under the same identity, on any departure path — including an idle Hub
+  with nobody reading or writing.** The first pass fixed only the
+  write-triggered sweep and left three gaps a refined, ProB-verified model
+  (`docs/connection_lease_reaping.tex`) caught: (1) reads
+  (`named_sessions`/`live_sessions`/`repos`) destructively swept lapsed
+  sessions out of the registry mid-read, ownership-blind — reads are now
+  pure filters that remove no one (`HubClientRegistry.lapsed_ids` is the
+  non-destructive question the departure coordinator asks); (2) graceful
+  disconnect (`drop_connection`) discarded a connection's registration
+  without releasing what it owned, so a scene it installed stayed
+  attributed to it forever — it now deregisters and releases in the same
+  atomic step every departure path funnels through
+  (`HubDisplay._depart`); (3) a long-lived, patch-only writer never
+  renewed its own lease on `apply`, so it could self-reap out from under
+  its own write — `apply` now renews the caller's lease first,
+  unconditionally, before sweeping every *other* lapsed connection. A
+  fourth gap — an idle Hub with a lease-lapsed connection and no read,
+  write, or disconnect to trigger anything — is closed by a new
+  background sweep (`LeaseReapSweep`, mirroring the existing
+  `ExpirySweep` wait-sweep-repeat shape) that fires the same atomic
+  deregister-and-release path on a timer, independent of any client
+  activity. A still-live connection keeps its scenes exactly as before.
+  (bead lux-d84d; model `docs/connection_lease_reaping.tex`.)
 
 ### Security
 
