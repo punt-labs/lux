@@ -1,0 +1,601 @@
+%
+% connection_lease_reaping.tex
+%
+% A Z specification of the Hub's client-connection lease/reap lifecycle and
+% its coupling (or, in the shipped code, its ABSENCE of coupling) to scene and
+% element ownership.
+%
+% Models the ACTUAL current code: the lease/session bookkeeping in
+% src/punt_lux/domain/hub/client_session.py, session_lease.py, and
+% hub_clients.py (HubClientRegistry: record/named_sessions/live_sessions/
+% discard), and the ownership store in src/punt_lux/domain/hub/owner_tracker.py
+% and owner.py, joined at src/punt_lux/domain/hub/hub_display.py
+% (HubDisplay.drop_connection, HubDisplay.apply's OwnerTracker.record /
+% require_ownership) and lifecycle.py (disconnect_connection). The committed
+% spec below encodes the FIX -- Reap releases every scene the departing
+% connection owned; the shipped behaviour, which does not, is the fidelity
+% variant in connection_lease_reaping_no_release_buggy.tex.
+%
+% Type-check:  fuzz docs/connection_lease_reaping.tex
+% Model-check (see the Verification section for the exact goal predicates):
+%   probcli docs/connection_lease_reaping.tex -model_check -p DEFAULT_SETSIZE 3
+%
+% Formatting follows the fuzz house rules: schema lines under 80 columns,
+% predicates broken at \land/\lor/\implies.
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{lux Connection-Lease Reaping: a Z Specification}
+\author{Formal model of the Hub client registry's lease sweep and its
+  coupling to scene ownership}
+\date{September 2026}
+\maketitle
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+Two connections were once found registered under the identity \texttt{voxd}
+at once: one 25.79 hours old, still recorded as owning the \texttt{vox.music}
+scene, and one 0.18 hours old, owning nothing. The 30-second lease the older
+connection should have been swept against never evicted it. A client that
+reconnects under the same identity as a connection whose transport is long
+gone finds itself shadowed: the scene it wants to draw into is still, as far
+as the Hub's bookkeeping is concerned, somebody else's.
+
+The Hub's client registry (\texttt{HubClientRegistry}) already carries a
+lease: every session records a renewal time and a length, contact renews it,
+and \texttt{live\_sessions}/\texttt{named\_sessions} sweep a lapsed session
+out of the registry the next time anyone asks for the live set. That
+mechanism is sound as far as it goes -- a lapsed session does leave
+\texttt{registered}. What it does not do, because nothing wires it to, is
+touch \texttt{OwnerTracker}, the separate table that records which connection
+installed which scene and element. \texttt{HubDisplay.drop\_connection} --
+the one place that \emph{is} wired to both -- says so in its own docstring:
+``a session's UI survives the session: the connection's roots stay installed
+and stay owned by its id.'' That is a deliberate design for the ordinary
+case (an agent's dashboard should not vanish when the agent's tool call
+returns), and a defect for the case this model exists to close: a
+\emph{departed} connection whose identity a live reconnecting client shares.
+
+Four properties must hold across every interleaving:
+
+\begin{description}
+  \item[I1 --- transport-gone implies eventually reaped.] A connection
+    whose transport has died cannot renew its lease, and once its lease has
+    lapsed nothing can stop it leaving \texttt{registered}. No state traps a
+    dead-transport connection registered forever.
+  \item[I2 --- reap releases ownership.] The damaging property. Once a
+    connection has left \texttt{registered} it owns nothing: no scene stays
+    attributed to an absent connection.
+  \item[I3 --- at most one live owner per identity.] A live (registered)
+    connection is never blocked from claiming a scene by a dead predecessor
+    of the same declared identity that still, on paper, owns it.
+  \item[I4 --- reconnect inherits nothing special (settled).] A fresh
+    \texttt{Connect} never transfers, preempts, or reassigns another
+    connection's ownership. Correctness comes from I2 reaping the corpse,
+    not from any reconnect-time transfer.
+\end{description}
+
+I2 is the one this model exists to prove, and it is the one the shipped code
+gets wrong: Section~\ref{sec:fidelity}'s \texttt{\_buggy} variant is not a
+hypothetical weakening but the literal committed behaviour of
+\texttt{HubDisplay.drop\_connection} and \texttt{HubClientRegistry
+.named\_sessions}'s sweep today. I3 and I4 are stated separately because the
+mission that produced this model asked for them by name, but I3 is a
+corollary of I2 restricted to same-identity pairs (Section~\ref{sec:inv}),
+and I4 is a structural fact about \texttt{Connect}'s definition, not a
+separate mechanism.
+
+A scene and the elements a connection installed into it share one lifecycle
+for the purposes of this model -- both are ``content a connection owns'' in
+\texttt{OwnerTracker}'s sense, and a frame's ownership question reduces to
+the ownership of the scene it presents (frames themselves carry no
+independent per-connection ownership in the code; see
+\texttt{docs/architecture/target/target.md}'s frame-visibility-versus-content
+split). The carrier \texttt{SCENE} below stands for both.
+
+% ============================================================
+\section{Basic Types}
+% ============================================================
+
+\begin{zed}
+  [CONN, IDENT, SCENE]
+\end{zed}
+
+\texttt{CONN} is the set of connection keys the registry can hold --
+\texttt{ConnectionId} values in the code. Three suffice to model an old and
+a new connection sharing one identity plus one connection of a second,
+unrelated identity. \texttt{IDENT} is the set of declared identities --
+\texttt{ClientIdentity} values, or more precisely the connection-id-bearing
+projection of one (\texttt{connection\_for}); two suffice to exhibit the
+same-identity and cross-identity cases side by side. \texttt{SCENE} is the
+set of scenes/elements a connection can own; two suffice to show one scene
+surviving a reap intact (never touched) beside one that does not. All three
+carriers are bounded by ProB's \texttt{DEFAULT\_SETSIZE}.
+
+A single \texttt{CONN} value can be reused across a reconnect: the same
+key models the case where a client's re-declared identity fields hash back
+to the same \texttt{ConnectionId} (\texttt{connection\_for} is deterministic
+in the declared fields), the way \texttt{HubClientRegistry.record}'s upsert
+already treats a fresh \texttt{Connect} on an existing key as a renewal, not
+a new session. A \emph{different} \texttt{CONN} value sharing the same
+\texttt{IDENT} models the case this bead's evidence actually showed --
+two connection keys, one identity, because some declared field (an
+applet's embedded process id, for instance) differed between the old and
+new process. Both shapes are the same model; \texttt{Connect} does not
+distinguish them.
+
+% ============================================================
+\section{Free Types}
+% ============================================================
+
+\begin{zed}
+  TSTATE ::= tup | tdown
+\end{zed}
+
+Whether a connection's transport is still alive. \texttt{tup}: the socket
+or session leg is live and can still deliver a contact. \texttt{tdown}: the
+peer is gone -- a process died, a socket closed -- so no further contact
+from this connection can arrive until (if ever) a fresh \texttt{Connect}
+re-establishes it.
+
+\begin{zed}
+  LSTATE ::= llive | llapsed
+\end{zed}
+
+A connection's lease, abstracted to whether it has lapsed. \texttt{llive}:
+within its length since the last renewal (\texttt{SessionLease.is\_live}).
+\texttt{llapsed}: the length has passed with no renewing contact.
+
+\begin{zed}
+  OWNER ::= unowned | conn \ldata CONN \rdata
+\end{zed}
+
+The attribution of one scene. \texttt{unowned}: no connection has installed
+into it, or its former owner's ownership has been released (the state I2
+requires after a reap). \texttt{conn(c)}: currently attributed to \texttt{c}
+-- live or not, exactly as \texttt{OwnerTracker}'s dict carries no liveness
+check of its own; that is the gap this model closes one layer up, in
+\texttt{Reap}.
+
+% ============================================================
+\section{State}
+% ============================================================
+
+The state is flat: one schema. Its predicate carries only \emph{structural}
+coherence -- the domains of the three per-connection maps always coincide,
+because \texttt{Connect} is the only operation that extends any of them and
+it always extends all three together, exactly as \texttt{ClientSession}
+bundles connect time, identity, and lease into one record. \texttt{registered}
+is a subset of that shared domain: a connection cannot be live without
+having connected at least once. The safety properties (I1--I4,
+Section~\ref{sec:inv}) are deliberately \emph{absent} from this schema: were
+I2 stated here as a state invariant, ProB would treat any operation that
+broke it as \emph{disabled} rather than a violation, and the fidelity check
+(Section~\ref{sec:fidelity}) could no longer reach the bad state.
+
+\begin{schema}{ConnReg}
+  registered : \power CONN \\
+  identity : CONN \pfun IDENT \\
+  transport : CONN \pfun TSTATE \\
+  lease : CONN \pfun LSTATE \\
+  owner : SCENE \fun OWNER
+\where
+  registered \subseteq \dom identity \\
+  \dom identity = \dom transport \\
+  \dom transport = \dom lease
+\end{schema}
+
+\texttt{identity} is kept for \emph{every} connection that has ever
+connected, including one long since reaped: I3's ``same declared identity''
+comparison needs a departed connection's identity exactly as
+\texttt{Owner.identity} captures a session's declared identity at install
+time so it survives the session that installed it. No operation below ever
+shrinks \texttt{dom identity} -- reaping removes a connection from
+\texttt{registered}, never from \texttt{identity}'s domain -- mirroring the
+code: \texttt{HubClientRegistry.discard} drops the session record, but the
+identity an \texttt{Owner} already captured on an installed element is a
+value snapshot, untouched by any registry change. \texttt{owner} is total
+over \texttt{SCENE}: every scene starts \texttt{unowned}, matching
+\texttt{OwnerTracker}'s dict starting empty (an absent entry and an explicit
+\texttt{unowned} carry the same meaning here, chosen total for the same
+reason \texttt{frame\_expiry.tex}'s \texttt{roots}/\texttt{deadline} are
+total rather than partial: it keeps every predicate below a plain
+function application instead of a domain-membership guard).
+
+% ============================================================
+\section{Initialization}
+% ============================================================
+
+\begin{schema}{Init}
+  ConnReg'
+\where
+  registered' = \emptyset \\
+  identity' = \emptyset \\
+  transport' = \emptyset \\
+  lease' = \emptyset \\
+  owner' = (\lambda s : SCENE @ unowned)
+\end{schema}
+
+No connection has ever registered; every scene is unowned -- the cold-start
+condition before any client has ever reached the Hub.
+
+% ============================================================
+\section{Operations}
+% ============================================================
+
+\subsection{Connect --- arrival and reconnect, undifferentiated (I4)}
+
+A connection \texttt{c?} declares identity \texttt{i?}: this is
+\texttt{HubClientRegistry.record}'s upsert, ``any contact is a renewal.''
+\texttt{Connect} carries no precondition at all -- it is exactly as
+available to a \texttt{c?} that has never been seen as to one that is
+currently registered, lapsed, or long reaped. This absence of a guard
+\emph{is} I4: nothing here inspects \texttt{owner}, and nothing here treats
+a \texttt{c?} that shares \texttt{i?} with some other connection any
+differently from one that does not. A reconnecting client gets a live,
+freshly-leased slot and nothing else -- no scene is reassigned to it, no
+predecessor is evicted. (Contrast \texttt{hub\_display\_reconciliation
+.tex}'s \texttt{HubIdentify}, which \emph{does} evict a predecessor by
+design, for a different connection -- the Hub-Display socket leg, where
+DES-068 deliberately chose single-owner preemption. This registry makes the
+opposite, equally deliberate choice for client identities, which is why I4
+is stated as settled rather than modeled as a gap.)
+
+\begin{schema}{Connect}
+  \Delta ConnReg \\
+  c? : CONN \\
+  i? : IDENT
+\where
+  registered' = registered \cup \{ c? \} \\
+  identity' = identity \oplus \{ c? \mapsto i? \} \\
+  transport' = transport \oplus \{ c? \mapsto tup \} \\
+  lease' = lease \oplus \{ c? \mapsto llive \} \\
+  owner' = owner
+\end{schema}
+
+\subsection{Renew --- contact while the transport is alive}
+
+Any authenticated contact renews the lease (\texttt{ClientSession.renewed}).
+Guarded on \texttt{transport~c? = tup}: a connection whose transport has
+already died cannot make contact, so it cannot renew -- this is the
+half of I1 that holds by construction rather than by a sweep. A registered
+connection with a live transport can renew indefinitely, which is exactly
+why a live connection's lease never lapses in this model: only a
+dead-transport connection can ever reach \texttt{LeaseLapse}.
+
+\begin{schema}{Renew}
+  \Delta ConnReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  transport~c? = tup \\
+  lease' = lease \oplus \{ c? \mapsto llive \} \\
+  registered' = registered \\
+  identity' = identity \\
+  transport' = transport \\
+  owner' = owner
+\end{schema}
+
+\subsection{TransportDies --- the environment, not the Hub}
+
+Models the peer going away -- a process crash, a socket close -- something
+the Hub does not decide and does not always observe directly. Once
+\texttt{tdown}, \texttt{Renew} is disabled for \texttt{c?} for as long as
+this model runs (no operation here ever sets a died transport back to
+\texttt{tup} for the same \texttt{c?}; a revival is a fresh \texttt{Connect},
+modelled as a distinct event even when it reuses the same key).
+
+\begin{schema}{TransportDies}
+  \Delta ConnReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  transport~c? = tup \\
+  transport' = transport \oplus \{ c? \mapsto tdown \} \\
+  registered' = registered \\
+  identity' = identity \\
+  lease' = lease \\
+  owner' = owner
+\end{schema}
+
+\subsection{LeaseLapse --- time passes with nothing to renew it}
+
+Abstracts the passage of the lease's length with no contact. Guarded on
+\texttt{transport~c? = tdown}: while the transport is alive, contact keeps
+renewing the lease (\texttt{Renew} above), so in this model the only route
+to a lapsed lease is a transport that has already died -- exactly the
+premise I1 is about.
+
+\begin{schema}{LeaseLapse}
+  \Delta ConnReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  transport~c? = tdown \\
+  lease~c? = llive \\
+  lease' = lease \oplus \{ c? \mapsto llapsed \} \\
+  registered' = registered \\
+  identity' = identity \\
+  transport' = transport \\
+  owner' = owner
+\end{schema}
+
+\subsection{Reap --- the fix: leaving the registry releases ownership}
+
+The lease sweep drops a lapsed connection from \texttt{registered} --
+\texttt{HubClientRegistry.named\_sessions}'s ``a departure is something this
+registry states.'' In the committed, fixed model \texttt{Reap} also
+releases every scene \texttt{c?} owned back to \texttt{unowned}, in the same
+step: this is I2, and it is the one line the shipped code does not have
+(Section~\ref{sec:fidelity}).
+
+\begin{schema}{Reap}
+  \Delta ConnReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  lease~c? = llapsed \\
+  registered' = registered \setminus \{ c? \} \\
+  owner' = owner \oplus \\
+  \quad~ (\{ s : SCENE | owner~s = conn(c?) \} \cross \{ unowned \}) \\
+  identity' = identity \\
+  transport' = transport \\
+  lease' = lease
+\end{schema}
+
+\subsection{Claim --- the ownership-gated write path}
+
+Models \texttt{HubDisplay.apply}'s \texttt{SetProperty}/\texttt{RemoveElement}
+path, which calls \texttt{OwnerTracker.require\_ownership} and raises
+\texttt{HubOwnershipError} for anyone but the recorded owner, and (folded
+into the same guard for this model) \texttt{AddElement}'s
+\texttt{Owner.from\_session} grant onto a not-yet-owned scene. A live
+connection may claim a scene that is currently \texttt{unowned}, or
+reaffirm one it already owns; it is disabled -- the write is refused,
+matching the real \texttt{HubOwnershipError} -- against a scene some
+\emph{other} connection's name is still attached to, live or not. This is
+exactly where the damage in I2's absence surfaces: a scene left attributed
+to a departed connection blocks every live connection's \texttt{Claim},
+including the reconnecting one that shares its identity, forever, because
+nothing here ever un-sticks it except \texttt{Reap}.
+
+\begin{schema}{Claim}
+  \Delta ConnReg \\
+  c? : CONN \\
+  s? : SCENE
+\where
+  c? \in registered \\
+  owner~s? = unowned \lor owner~s? = conn(c?) \\
+  owner' = owner \oplus \{ s? \mapsto conn(c?) \} \\
+  registered' = registered \\
+  identity' = identity \\
+  transport' = transport \\
+  lease' = lease
+\end{schema}
+
+% ============================================================
+\section{Invariants}
+\label{sec:inv}
+% ============================================================
+
+None of the four properties is placed in the \texttt{ConnReg} schema: a
+predicate placed there would be enforced as a guard on every successor,
+silently disabling any operation that would break it and masking the
+defect this model exists to catch (the same reasoning
+\texttt{hub\_display\_reconciliation.tex} and \texttt{frame\_expiry.tex}
+give for the same choice).
+
+\paragraph{I1 --- transport-gone implies eventually reaped.}
+Two structural facts together rule out a dead-transport connection staying
+registered forever. First, \texttt{Renew}'s own guard
+(\texttt{transport~c? = tup}) means a connection can never re-arm its lease
+once its transport has died -- there is no successor state in which
+\texttt{transport~c? = tdown} and \texttt{lease} is renewed back to
+\texttt{llive} for that \texttt{c?} without an intervening \texttt{Connect}.
+Second, once \texttt{transport~c? = tdown \land lease~c? = llive} holds,
+\texttt{LeaseLapse}\texttt{(c?)} is enabled, and once
+\texttt{lease~c? = llapsed} holds, \texttt{Reap}\texttt{(c?)} is enabled --
+neither guard depends on any other connection's state or any lock, so
+nothing can indefinitely block either step once its precondition is met.
+The chain \texttt{TransportDies}; \texttt{LeaseLapse}; \texttt{Reap} is
+therefore always available to run to completion once a transport dies, and
+Section~\ref{sec:verify} confirms by reachability that the chain is not
+vacuous -- the state it ends in (\texttt{c? \notin registered} with
+\texttt{transport~c? = tdown}) is actually reached from \texttt{Init}.
+
+\paragraph{I2 --- reap releases ownership (the damaging property).}
+\[
+  \lnot\, \exists\, s : SCENE; c : CONN @
+    owner~s = conn(c) \land c \notin registered.
+\]
+No reachable state has a scene owned by a connection outside
+\texttt{registered}. \texttt{Reap} is the only operation that removes a
+connection from \texttt{registered}, and it clears every scene that
+connection owned in the same step (its domain-restricted override,
+$\{ s : SCENE \mathbin{|} owner~s = conn(c?) \} \cross \{ unowned \}$,
+covers every scene \texttt{c?} owns, not a subset), so the moment a
+connection leaves \texttt{registered} it is already \texttt{unowned}
+everywhere it had been \texttt{conn(c?)}. No other operation ever assigns
+\texttt{owner} to a connection that is not currently in \texttt{registered}
+(\texttt{Claim}'s own guard, \texttt{c? \in registered}, rules that out at
+the point of assignment). The conjunction of those two facts is exactly
+this invariant.
+
+\paragraph{I3 --- at most one live owner per identity.}
+\[
+  \lnot\, \exists\, s : SCENE; c, c' : CONN @ \\
+  \quad~ c \in registered \land c' \notin registered \land \\
+  \quad~ c' \in \dom identity \land identity~c = identity~c' \land \\
+  \quad~ c \neq c' \land owner~s = conn(c').
+\]
+This is I2's negation specialised to a pair of connections that share a
+declared identity -- exactly the shape of the bead's evidence, two
+\texttt{voxd} connections, one live and one not. Because I2 already rules
+out \emph{any} scene being owned by a connection outside
+\texttt{registered}, regardless of identity, I3 holds as an immediate
+corollary; it is stated here as its own invariant, and checked as its own
+reachability goal in Section~\ref{sec:verify}, because it is the
+user-visible shape of the defect the bead reports, and a model that proved
+only the general I2 without ever exhibiting the same-identity instance
+would not have demonstrated it closes \emph{this} bug.
+
+\paragraph{I4 --- reconnect inherits nothing special (settled).}
+\texttt{Connect} never reads \texttt{owner}, never reads \texttt{identity}
+for any connection but the one it is registering, and never removes or
+reassigns another connection's entry in any of the five state components.
+There is therefore no successor of \texttt{Connect} in which some other
+connection's ownership, lease, or transport state has changed. A
+reconnecting client's only route to owning a scene is the same
+\texttt{Claim} every connection uses, and \texttt{Claim}'s guard treats a
+scene that is \texttt{unowned} (including one \texttt{Reap} has just
+released) exactly as it treats a scene the caller already owns -- there is
+no third case for ``a scene my predecessor used to own.'' This is a
+structural fact about the two schemas' definitions, not a property that
+needs its own reachability check.
+
+% ============================================================
+\section{Verification}
+\label{sec:verify}
+% ============================================================
+
+Type-checking is a \texttt{fuzz} pass:
+\begin{verbatim}
+  fuzz docs/connection_lease_reaping.tex
+\end{verbatim}
+
+I2 and I3 are safety properties, checked by asking ProB whether their
+negation is \emph{reachable}. A goal reported \emph{not found} means the
+invariant holds on every reachable state.
+
+\begin{verbatim}
+  # I2 (goal NOT found in this, the fixed, spec)
+  probcli docs/connection_lease_reaping.tex -model_check -nodead \
+    -goal "#s.(#c.(s:SCENE & c:CONN & owner(s) = conn(c) &
+                   not(c : registered)))" \
+    -p DEFAULT_SETSIZE 3
+
+  # I3 (goal NOT found in this, the fixed, spec)
+  probcli docs/connection_lease_reaping.tex -model_check -nodead \
+    -goal "#s.(#c.(#c2.(s:SCENE & c:CONN & c2:CONN &
+                        c : registered & not(c2 : registered) &
+                        c2 : dom(identity) & identity(c) = identity(c2) &
+                        not(c = c2) & owner(s) = conn(c2))))" \
+    -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+I1's mechanism is confirmed by reachability of its positive outcome -- the
+chain runs to completion and is not vacuously unsatisfiable:
+
+\begin{verbatim}
+  # I1's chain completes (goal FOUND): a connection that connected, died,
+  # lapsed, and was reaped is outside registered with a dead transport
+  probcli docs/connection_lease_reaping.tex -model_check -nodead \
+    -goal "#c.(c:CONN & c : dom(identity) & not(c : registered) &
+               transport(c) = tdown)" \
+    -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+The fix's positive outcome -- a live connection successfully claims a scene
+its dead, same-identity predecessor used to own -- is also confirmed
+reachable, so I2/I3 hold because the recovery path works, not because the
+scenario they guard against is unreachable in the first place:
+
+\begin{verbatim}
+  # A live connection owns a scene a dead same-identity predecessor
+  # used to own (goal FOUND)
+  probcli docs/connection_lease_reaping.tex -model_check -nodead \
+    -goal "#s.(#c.(#c2.(s:SCENE & c:CONN & c2:CONN & not(c = c2) &
+                        identity(c) = identity(c2) &
+                        not(c : registered) & c2 : registered &
+                        owner(s) = conn(c2))))" \
+    -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+\paragraph{Deadlock.} \texttt{Connect} carries no precondition beyond its
+two arguments' types, so it is enabled in every reachable state -- the
+model can always act, exactly as \texttt{frame\_expiry.tex}'s
+\texttt{ReShow} and \texttt{hub\_display\_reconciliation.tex}'s
+\texttt{HubIdentify} are always enabled for the same reason. The full
+model-check confirms no deadlock over the bounded carrier:
+
+\begin{verbatim}
+  probcli docs/connection_lease_reaping.tex -model_check -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+% ============================================================
+\section{Fidelity: reproducing the shipped defect}
+\label{sec:fidelity}
+% ============================================================
+
+A model that cannot reproduce the known defect proves nothing. The buggy
+variant, kept as
+\texttt{docs/connection\_lease\_reaping\_no\_release\_buggy.tex}, changes
+only \texttt{Reap}: it still removes \texttt{c?} from \texttt{registered},
+but it leaves \texttt{owner} untouched. This is not a hypothetical
+weakening for the sake of the fidelity check -- it is the literal current
+behaviour of \texttt{HubDisplay.drop\_connection} (``the connection's roots
+stay installed and stay owned by its id'') composed with
+\texttt{HubClientRegistry.named\_sessions}'s sweep, neither of which today
+calls into \texttt{OwnerTracker} at all:
+
+\begin{verbatim}
+  % fixed (Reap in connection_lease_reaping.tex):
+  registered' = registered \ {c?}
+  owner' = owner (+) ({s : SCENE | owner(s) = conn(c?)} * {unowned})
+
+  % buggy (this variant, the shipped behaviour):
+  registered' = registered \ {c?}
+  owner' = owner                          % no release at all
+\end{verbatim}
+
+\paragraph{The trace.}
+\begin{enumerate}
+  \item \texttt{Connect}(c1, i1): \texttt{registered = \{c1\}},
+    \texttt{identity(c1) = i1}, \texttt{transport(c1) = tup},
+    \texttt{lease(c1) = llive}.
+  \item \texttt{Claim}(c1, s1): guarded on \texttt{owner(s1) = unowned},
+    which holds -- \texttt{owner(s1) = conn(c1)}.
+  \item \texttt{TransportDies}(c1): \texttt{transport(c1) = tdown}.
+  \item \texttt{LeaseLapse}(c1): guarded on \texttt{transport(c1) = tdown},
+    which holds -- \texttt{lease(c1) = llapsed}.
+  \item \texttt{Reap}(c1) -- buggy: \texttt{registered = \{\}} (c1
+    removed), but \texttt{owner(s1) = conn(c1)} is left exactly as it was
+    -- the fixed spec's step 5 would instead set \texttt{owner(s1) =
+    unowned} here.
+  \item \texttt{Connect}(c2, i1): a live reconnect under the \emph{same}
+    identity, \texttt{registered = \{c2\}}.
+  \item \texttt{Claim}(c2, s1): guarded on
+    \texttt{owner(s1) = unowned \lor owner(s1) = conn(c2)}. Under the buggy
+    variant \texttt{owner(s1) = conn(c1)} and \texttt{c1 \neq c2}, so
+    neither disjunct holds -- \texttt{Claim} is \emph{disabled}. The live
+    reconnecting client cannot take the scene its dead predecessor left
+    behind. This is the shadowing the bead reports.
+\end{enumerate}
+
+At the end of step 5, \texttt{owner(s1) = conn(c1)} and
+\texttt{c1 \notin registered}: I2's negation is satisfied, and because
+\texttt{identity(c1) = identity(c2) = i1} with \texttt{c2 \in registered}
+once step 6 runs, I3's negation is satisfied too. Re-running the I2 goal
+of Section~\ref{sec:verify} against the buggy variant reports it
+\emph{found}; against the committed fixed spec it remains \emph{not found}
+-- \texttt{Reap}'s domain-restricted release in step 5 sets
+\texttt{owner(s1) = unowned}, so step 7's \texttt{Claim}(c2, s1) is enabled
+under the fixed spec, and the trace instead ends with c2 owning s1 cleanly.
+
+\begin{verbatim}
+  # must be NOT found for the fixed spec, FOUND for the buggy variant
+  probcli <spec>.tex -model_check -nodead \
+    -goal "#s.(#c.(s:SCENE & c:CONN & owner(s) = conn(c) &
+                   not(c : registered)))" \
+    -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+\end{document}
