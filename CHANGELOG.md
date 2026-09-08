@@ -11,22 +11,30 @@
   (`docs/connection_lease_reaping.tex`) caught: (1) reads
   (`named_sessions`/`live_sessions`/`repos`) destructively swept lapsed
   sessions out of the registry mid-read, ownership-blind — reads are now
-  pure filters that remove no one (`HubClientRegistry.lapsed_ids` is the
-  non-destructive question the departure coordinator asks); (2) graceful
-  disconnect (`drop_connection`) discarded a connection's registration
-  without releasing what it owned, so a scene it installed stayed
-  attributed to it forever — it now deregisters and releases in the same
-  atomic step every departure path funnels through
-  (`HubDisplay._depart`); (3) a long-lived, patch-only writer never
-  renewed its own lease on `apply`, so it could self-reap out from under
-  its own write — `apply` now renews the caller's lease first,
-  unconditionally, before sweeping every *other* lapsed connection. A
-  fourth gap — an idle Hub with a lease-lapsed connection and no read,
-  write, or disconnect to trigger anything — is closed by a new
-  background sweep (`LeaseReapSweep`, mirroring the existing
-  `ExpirySweep` wait-sweep-repeat shape) that fires the same atomic
-  deregister-and-release path on a timer, independent of any client
-  activity. A still-live connection keeps its scenes exactly as before.
+  pure filters that remove no one; (2) graceful disconnect
+  (`drop_connection`) discarded a connection's registration without
+  releasing what it owned, so a scene it installed stayed attributed to it
+  forever — it now deregisters and releases in the same atomic step every
+  departure path funnels through (`HubDisplay._depart`); (3) a
+  long-lived, patch-only writer never renewed its own lease on `apply`,
+  so it could self-reap out from under its own write — `apply` now
+  renews the caller's lease first, unconditionally, before sweeping every
+  *other* lapsed connection. A fourth gap — an idle Hub with a
+  lease-lapsed connection and no read, write, or disconnect to trigger
+  anything — is closed by a new background sweep (`LeaseReapSweep`,
+  mirroring the existing `ExpirySweep` wait-sweep-repeat shape) that
+  fires the same atomic deregister-and-release path on a timer,
+  independent of any client activity. A still-live connection keeps its
+  scenes exactly as before. A third pass closed a concurrency regression
+  the second introduced: the departure sweep had computed the lapsed set
+  and removed each id as two separate lock holds on
+  `HubClientRegistry`, leaving a gap where a renewal on an ordinary
+  MCP-call thread (`register_client`, `identify_client`, or a `/ws`
+  frame — none of which take the Hub's own `StoreLock`) could land
+  between them and get silently evicted anyway.
+  `HubClientRegistry.reap_lapsed_locked` now finds and removes the
+  lapsed set in one lock hold, so a racing renewal is strictly ordered
+  before or after the sweep and is never wiped out mid-flight.
   (bead lux-d84d; model `docs/connection_lease_reaping.tex`.)
 
 ### Security
