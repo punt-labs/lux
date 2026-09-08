@@ -4,9 +4,8 @@ The scene-element leg of ``HubInteractionDispatch`` guards a handful of ways
 a click can be stale or malformed before it may fire: a missing scene id, an
 element the Hub no longer indexes, a non-ABC (legacy) element, or a click on
 a descendant of an ancestor the Hub already dismissed. Each guard is a
-distinct reason to drop the invocation and never fire it; bundling the walk
-here keeps the dispatch's own method to the fire-or-drop decision, not the
-resolution mechanics.
+distinct reason to drop the invocation, keeping the dispatch's own method to
+the fire-or-drop decision, not the resolution mechanics.
 """
 
 from __future__ import annotations
@@ -33,7 +32,9 @@ class ResolvedInteraction:
     """A display invocation resolved to a fireable Element and its owner."""
 
     element: AbcElement
-    owner: ConnectionId
+    # None is a departure having released ownership, not a lookup failure --
+    # an unowned element still fires; nothing here required an owner check.
+    owner: ConnectionId | None
     scene_id: SceneId
 
 
@@ -50,11 +51,7 @@ class ElementInvocationResolver:
         return self
 
     def resolve(self, msg: RemoteEventHandlerInvocation) -> ResolvedInteraction | None:
-        """Return the fireable element for ``msg``, or ``None`` to drop it.
-
-        Every drop reason is logged here, so the dispatch's own method reads
-        as the fire-or-drop decision, not the guard chain.
-        """
+        """Return the fireable element for ``msg``, or ``None`` to drop it, logged."""
         scene_id = msg.scene_id
         element_id = msg.element_id
         if scene_id is None:

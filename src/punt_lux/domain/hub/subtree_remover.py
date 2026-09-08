@@ -19,6 +19,8 @@ Two entry points, one shared walk:
 from __future__ import annotations
 
 import logging
+from collections import deque
+from itertools import repeat
 from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
@@ -75,7 +77,9 @@ class SubtreeRemover:
         self,
         scene_id: SceneId,
         element_id: ElementId,
-        connection_id: ConnectionId,
+        # Attribution for the failure log only -- an unowned root (a departure
+        # already released it) tears down exactly the same way as an owned one.
+        connection_id: ConnectionId | None = None,
     ) -> None:
         """Tear down one scene-root; logs and swallows per-root failures.
 
@@ -98,20 +102,15 @@ class SubtreeRemover:
             )
 
     def drop_scene_roots(self, scene_id: SceneId) -> None:
-        """Tear down every root of a scene, whatever connection owns it.
+        """Tear down every root of a scene, owned or not; a rootless scene is a no-op.
 
-        The whole-scene removal a frame close or a TTL needs. The owner may have
-        departed — a scene outlives its session — so each root drops on its
-        recorded owner; a rootless scene is a no-op. Roots are snapshotted first
-        because ``drop_root`` mutates the index as the cascade unwinds.
+        The whole-scene removal a frame close or a TTL needs. Snapshotted
+        first because ``drop_root`` mutates the index as the cascade unwinds.
         """
-        roots = [
-            (element_id, self._owners.get(scene_id, element_id))
-            for element_id, _ in self._index.scene_root_items(scene_id)
+        element_ids = [
+            element_id for element_id, _ in self._index.scene_root_items(scene_id)
         ]
-        for element_id, owner in roots:
-            if owner is not None:
-                self.drop_root(scene_id, element_id, owner.connection_id)
+        deque(map(self.drop_root, repeat(scene_id), element_ids), maxlen=0)
 
     def _drop_storage(self, scene_id: SceneId, element_id: ElementId) -> None:
         """Drop one element from every storage collaborator. Idempotent."""

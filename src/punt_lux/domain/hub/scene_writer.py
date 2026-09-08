@@ -41,7 +41,7 @@ _log = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class SceneScope:
-    """The ``(connection, scene)`` pair every ``update`` mutation is scoped to."""
+    """The ``(connection, scene)`` pair an ``update`` mutation is scoped to."""
 
     connection_id: ConnectionId
     scene_id: SceneId
@@ -77,8 +77,7 @@ class HubSceneWriter:
         Stage a realization per field patch, guard every removal, check every
         rejection, and — only if all pass — commit the fields atomically (a
         mid-commit raise rolls all back), then apply removals post-commit
-        (idempotent, see :meth:`_apply_removals`). Any rejection leaves the store
-        untouched.
+        (idempotent). Any rejection leaves the store untouched.
         """
         # One store-lock hold spans the whole batch so the replicator never
         # snapshots it half-applied; reentrant, so nested writes re-enter freely.
@@ -189,12 +188,13 @@ class HubSceneWriter:
             self._display.apply(scope.connection_id, scope.removal(element_id))
 
     def _require_owner(self, scope: SceneScope, element_id: ElementId) -> None:
-        """Raise unless the scope's connection owns an installed ``element_id``.
+        """Raise unless the scope's connection may write an installed ``element_id``.
 
-        ``owner_of`` raises ``UnknownElementError`` for a never-installed element.
+        ``None`` (installed but unowned, e.g. a departure released it) is
+        writable by anyone, matching ``OwnerTracker.require_ownership``.
         """
         owner = self._display.owner_of(scope.scene_id, element_id)
-        if owner != scope.connection_id:
+        if owner not in (None, scope.connection_id):
             raise HubOwnershipError(
                 scene_id=scope.scene_id,
                 element_id=element_id,

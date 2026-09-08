@@ -16,9 +16,8 @@ responsibility:
 
 A scene's presentation is kept until blanked away or re-shown, so an emptied
 scene can still be blanked into its frame; the replicator reclaims it after.
-``drop_connection`` leaves an ordinary departure's scenes standing — a
-session's UI survives its session — while ``_reap_and_release`` is what
-actually releases a connection whose lease has lapsed.
+Departure (``drop_connection``, a lapsed lease, or ``apply``'s own sweep of
+others) releases a connection's ownership but never tears its content down.
 
 Every write runs under ``StoreLock`` so a snapshot never reads a half-applied
 scene. Every read takes the lock in read mode too — the replicator's crossing
@@ -30,6 +29,7 @@ own behavior and never escapes to the caller.
 from __future__ import annotations
 
 import time
+from collections import deque
 from typing import TYPE_CHECKING, Self
 
 from punt_lux.domain.element import Element as WireElement
@@ -186,43 +186,33 @@ class HubDisplay:
 
     @property
     def reader(self) -> SceneReader:
-        """Return the replicator-facing read side — locked snapshots and live ids.
-
-        Wired in by the composition root so the replicator never reaches through
-        the facade to take a lock.
-        """
+        """Return the replicator-facing read side — locked snapshots and live ids."""
         return self._reader
 
     @property
     def frames(self) -> FrameLifecycle:
-        """Return the frame authority — presentations, TTL expiry, and teardown.
-
-        Callers reach ``presentation_for``, ``forget``, and ``expire_due``
-        through this sub-object, exposed like ``reader``.
-        """
+        """Return the frame authority — presentations, TTL expiry, and teardown."""
         return self._frame_lifecycle
 
     def resolve(self, scene_id: SceneId, element_id: ElementId) -> WireElement:
         """Return the indexed Element or raise ``UnknownElementError``."""
         return self._index.lookup(scene_id, element_id)
 
-    def owner_of(self, scene_id: SceneId, element_id: ElementId) -> ConnectionId:
-        """Return the connection that installed the Element, or raise if absent.
+    def owner_of(self, scene_id: SceneId, element_id: ElementId) -> ConnectionId | None:
+        """Return the element's owner, or ``None`` if installed but unowned.
 
-        ``UnknownElementError`` — ownership of an unindexed element is meaningless.
+        ``None`` is a distinct, valid state (a departure released it), not an
+        error; ``UnknownElementError`` is for an element the index never held.
         """
-        owner = self._owners.get(scene_id, element_id)
-        if owner is None:
-            raise UnknownElementError(scene_id=scene_id, element_id=element_id)
-        return owner.connection_id
+        with self._lock.read():
+            if not self._index.contains(scene_id, element_id):
+                raise UnknownElementError(scene_id=scene_id, element_id=element_id)
+            owner = self._owners.get(scene_id, element_id)
+            return owner.connection_id if owner is not None else None
 
     @property
     def dismissal(self) -> DismissalWalk:
-        """Return the ancestor-dismissal walk over the index and child edges.
-
-        Exposed like ``frames``, ``reader``, and ``clients`` — a sub-object
-        callers reach through the facade rather than a method per query.
-        """
+        """Return the ancestor-dismissal walk over the index and child edges."""
         return self._dismissal
 
     def elements_owned_by(
@@ -230,23 +220,19 @@ class HubDisplay:
         connection_id: ConnectionId,
     ) -> tuple[tuple[SceneId, ElementId], ...]:
         """Return every ``(scene, element)`` pair this connection installed."""
-        return self._owners.keys_for(connection_id)
+        with self._lock.read():
+            return self._owners.keys_for(connection_id)
 
     # -- authoritative reads (introspection) -------------------------------
 
     def live_scene_ids(self) -> tuple[SceneId, ...]:
         """Return every non-quarantined scene still holding a non-removed root.
 
-        The replication-facing read: quarantined scenes are excluded here at
-        the source, so every caller of this method — the reconnect
-        reconciliation hook (``ClientRegistry._connect_and_reconcile``)
-        included — never re-marks a quarantined scene for a fresh Display to
-        crash on again. Introspection, which must still see a quarantined
-        scene, uses :meth:`all_scene_ids` instead.
-
-        Read under the store lock, paired with the ``quarantine`` writers
-        below: a scene toggled quarantined between the reader's
-        ``live_scene_ids`` and this filter can never leak past the guard.
+        The replication-facing read: quarantined scenes are excluded at the
+        source, so no caller — including the reconnect reconciliation hook —
+        re-marks one for a fresh Display to crash on again. Introspection
+        uses :meth:`all_scene_ids` instead, which keeps a quarantined scene
+        visible.
         """
         with self._lock.read():
             quarantined = self._quarantine.quarantined_ids()
@@ -257,10 +243,8 @@ class HubDisplay:
     def all_scene_ids(self) -> tuple[SceneId, ...]:
         """Return every scene still holding a non-removed root, quarantined or not.
 
-        The introspection-facing read: ``list_scenes`` and ``inspect_scene``
-        keep a quarantined scene visible — quarantine is a replication
-        decision, not a deletion — while :meth:`live_scene_ids` is the
-        replication-facing read that excludes it.
+        The introspection-facing read — quarantine is a replication decision,
+        not a deletion, unlike :meth:`live_scene_ids`.
         """
         return self._reader.live_scene_ids()
 
@@ -313,24 +297,12 @@ class HubDisplay:
     def add_quarantine_cleared_observer(
         self, observer: QuarantineClearedObserver
     ) -> None:
-        """Register a callback fired whenever a scene's quarantine is lifted.
-
-        The observer runs synchronously under the store lock, so it must not
-        block on I/O. :meth:`CrashAttribution.clear_tally` is the intended
-        subscriber — a lifted quarantine also resets the scene's tally, so a
-        re-crashed scene needs the full threshold again rather than falling
-        off one fresh death straight back into quarantine.
-        """
+        """Register a callback for quarantine-lift; runs under the lock, no I/O."""
         with self._lock.write():
             self._quarantine_cleared_observers.append(observer)
 
     def _lift_quarantine(self, scene_id: SceneId) -> None:
-        """Clear ``scene_id``'s quarantine and notify observers, if it had one.
-
-        The one place every quarantine-clear path (owner re-show, empty-scene
-        removal, frame close, TTL expiry) funnels through, so the observer
-        cascade never misses a lift. Caller holds the store write lock.
-        """
+        """Clear ``scene_id``'s quarantine and notify observers. Caller locks."""
         if not self._quarantine.is_quarantined(scene_id):
             return
         self._quarantine.clear(scene_id)
@@ -405,11 +377,17 @@ class HubDisplay:
         require the caller to own it, mirroring ``Display.apply``'s ownership
         enforcement so a misbehaving client cannot evict another client's state.
 
-        Reaps and releases first, before the ownership check: a reconnecting
-        client must never stay shadowed by a departed predecessor's grip.
+        Three things happen in order, one atomic step: the caller's own lease
+        renews first if it already holds one (a write still registers
+        nobody — an unregistered or already-departed caller proceeds
+        unregistered, as always). Every *other* lapsed connection is then
+        departed and released. Only then does the ownership check run — so
+        any live claimant is never blocked by a grip this same step just let
+        go of.
         """
         with self._lock.write():
-            self._reap_and_release()
+            self._clients.renew_if_registered(connection_id)
+            self._depart_lapsed(exclude=frozenset({connection_id}))
             match update:
                 case AddElement(scene_id=sid, parent_id=pid, element=elem):
                     session = self._clients.session_of(connection_id)
@@ -432,24 +410,43 @@ class HubDisplay:
                         # exactly as on any other quarantine-clear path.
                         self._lift_quarantine(sid)
 
-    # -- cleanup trigger ---------------------------------------------------
+    # -- departure: the single deregister-and-release coordinator -----------
 
     def drop_connection(self, connection_id: ConnectionId) -> None:
-        """Forget a departing connection as a Hub client, leaving its scenes.
+        """Depart ``connection_id`` unconditionally, releasing what it owned.
 
-        A session's UI survives the session: the connection's roots stay
-        installed and stay owned by its id (so a later frame close, clear, or TTL
-        can still remove them). Only the client registration is dropped, so the
-        session no longer appears among the live Hub clients.
+        The graceful-disconnect and SDK-idle-reap path — no lease condition
+        gates it, unlike a lapse-triggered departure.
+        """
+        with self._lock.write():
+            self._depart(connection_id)
 
-        This is the ordinary in-session return, not a departure — an actually
-        lapsed lease is :meth:`_reap_and_release`'s job instead.
+    def reap_lapsed_leases(self) -> frozenset[ConnectionId]:
+        """Depart every connection whose lease has lapsed; return who left.
+
+        The background timer's hook — independent of any read, any other
+        connection's write, and any disconnect signal.
+        """
+        return self._depart_lapsed(exclude=frozenset())
+
+    def _depart_lapsed(
+        self, *, exclude: frozenset[ConnectionId]
+    ) -> frozenset[ConnectionId]:
+        """Depart every lapsed connection except ``exclude``; return who left."""
+        with self._lock.write():
+            lapsed = self._clients.lapsed_ids() - exclude
+            deque(map(self._clients.discard, lapsed), maxlen=0)
+            self._owners.release_departed(lapsed)
+            return lapsed
+
+    def _depart(self, connection_id: ConnectionId) -> None:
+        """Atomically deregister and release everything ``connection_id`` owned.
+
+        The one step every departure trigger funnels through. Caller holds
+        the store write lock.
         """
         self._clients.discard(connection_id)
-
-    def _reap_and_release(self) -> None:
-        """Sweep every lapsed client lease and release what each one owned."""
-        self._owners.release_departed(self._clients.reap())
+        self._owners.release_all(connection_id)
 
 
 hub_display = HubDisplay()

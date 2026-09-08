@@ -1,30 +1,30 @@
 """HubClientRegistry — the Hub sessions, each with its connect time, identity, lease.
 
 The one identity store, keyed by ``ConnectionId`` and serialized by ``_lock``.
-Each session carries a lease; any recorded contact renews it, and the live reads
-(:meth:`live_sessions`, :meth:`repos`) return only sessions still in lease,
-sweeping the lapsed as they pass so a departed caller cannot accrue forever. The
-clock is injected so a test can drive expiry deterministically.
+Each session carries a lease; the live reads (:meth:`live_sessions`,
+:meth:`repos`) filter to sessions still in lease without removing anyone —
+a read changes nothing here. Departure is the province of ``HubDisplay``'s
+single atomic deregister-and-release coordinator, which reaches
+:meth:`discard` once it has decided; :meth:`lapsed_ids` is the non-destructive
+question that coordinator asks. The clock is injected for deterministic tests.
 
-The registry also holds each connection's listen leg, because the leg and the
-callbacks registered against it must be written under one lock. One connection is
-shared by successive sessions of one identity, so every write to that state is a
-compare against the session occupying the slot: :meth:`attach_listener` installs a
-new occupant and clears what the last one owned, :meth:`register_callback` commits
-only if the leg the caller was gated against still holds the slot, and
-:meth:`detach_listener` removes nothing unless the caller is the occupant. Each is one
-critical section; a comparison that is not atomic with its write is the gap it closes.
+The registry also holds each connection's listen leg, so the leg and its
+callbacks are written under this same lock. One connection is shared by
+successive sessions of one identity, so every write is a compare against the
+session occupying the slot: :meth:`attach_listener`, :meth:`register_callback`,
+and :meth:`detach_listener` each make that compare-and-write one critical
+section.
 
-The menu names live here for the same reason: the roster is private to this
-registry and reached only under this lock, so a name is assigned only to a
-session live at that instant and released only by the step that removes it.
+The menu names live here too, reached only under this lock, so a name is
+assigned only to a session live at that instant and released only by the
+step that removes it.
 """
 
 from __future__ import annotations
 
 import threading
 import time
-from operator import attrgetter
+from operator import attrgetter, itemgetter
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.client_roster import ClientRoster
@@ -80,6 +80,15 @@ class HubClientRegistry:
                 base.with_identity(identity) if identity is not None else base
             )
 
+    def renew_if_registered(self, connection_id: ConnectionId) -> None:
+        """Renew the lease iff already registered; a write must never register."""
+        with self._lock:
+            existing = self._sessions.get(connection_id)
+            # Merging an empty update is a true no-op -- never a `None`-valued
+            # insert -- so "renew" and "absent" are one write, not a branch.
+            renewed = None if existing is None else existing.renewed(self._clock())
+            self._sessions.update({connection_id: renewed} if renewed else {})
+
     def attach_listener(
         self,
         connection_id: ConnectionId,
@@ -88,12 +97,9 @@ class HubClientRegistry:
     ) -> ListenerAttachment:
         """Install ``listener`` as the connection's leg, recording ``identity`` with it.
 
-        Records and takes the slot in one step, so no thread ever sees it
-        identified-but-unreachable or reachable-but-anonymous. Taking the slot
-        clears the previous occupant's callbacks — deliverable only to a leg
-        it no longer holds — and tells the caller so via
-        ``attached_over_callbacks``, since nothing else is guaranteed to
-        correct a bar left showing a now-dead entry.
+        Records and takes the slot in one step. Taking the slot clears the
+        previous occupant's callbacks and reports ``attached_over_callbacks``,
+        since nothing else is guaranteed to correct a bar showing a dead entry.
         """
         with self._lock:
             base = self._renewed(connection_id)
@@ -131,15 +137,10 @@ class HubClientRegistry:
     ) -> CallbackRegistration:
         """Register ``callback`` if ``expected`` still holds the connection's slot.
 
-        The caller reads the leg through :meth:`listener_of` to decide what to tell
-        an unreachable connection, and hands that leg back here; between those two
-        moments the leg may have torn down or been replaced, and committing anyway
-        would leave an entry with no listener and nothing left that would ever
-        withdraw it. The slot and the callbacks are one value under this lock, so the
-        comparison and the write are one critical section, not a re-read that races.
-
-        The session itself decides whether it accepts the callback at all — an
-        anonymous or lapsed session declines — so identity and lease stay its own.
+        The gate and the write are one critical section — a re-read would race
+        a leg that tore down or was replaced in between. The session itself
+        decides whether it accepts the callback: an anonymous or lapsed one
+        declines.
         """
         with self._lock:
             now = self._clock()
@@ -164,11 +165,7 @@ class HubClientRegistry:
             return session.listener if session is not None else None
 
     def session_of(self, connection_id: ConnectionId) -> ClientSession | None:
-        """Return the connection's raw session, or ``None``, with no lease filter.
-
-        The read behind membership (``is not None``) and identity (``.identity``);
-        ownership and cleanup address a session by its bare connection key.
-        """
+        """Return the connection's raw session, or ``None``, with no lease filter."""
         with self._lock:
             return self._sessions.get(connection_id)
 
@@ -186,34 +183,36 @@ class HubClientRegistry:
     def named_sessions(self) -> NamedSessions:
         """Return the live sessions and the menu name each identified one holds.
 
-        The reap and the naming of the survivors are one critical section.
+        A pure read: filters to the live set without removing a lapsed one from
+        the registry.
         """
         with self._lock:
-            self._sweep_locked()
-            return NamedSessions.over(self._sessions, self._roster)
+            return NamedSessions.over(self._live_locked(), self._roster)
 
     def live_sessions(self) -> Mapping[ConnectionId, ClientSession]:
-        """Return the sessions whose lease has not lapsed, sweeping the expired."""
+        """Return the sessions whose lease has not lapsed. Sweeps no one."""
         return self.named_sessions().sessions
 
-    def reap(self) -> frozenset[ConnectionId]:
-        """Sweep out every lapsed session; return who left, not who stayed."""
+    def lapsed_ids(self) -> frozenset[ConnectionId]:
+        """Return every registered connection whose lease has lapsed.
+
+        A pure read — the departure coordinator turns this answer into a
+        removal, excluding whichever ids it chooses.
+        """
         with self._lock:
-            return self._sweep_locked()
+            now = self._clock()
+            stale = filter(lambda kv: not kv[1].is_live(now), self._sessions.items())
+            return frozenset(map(itemgetter(0), stale))
 
     def repos(self) -> frozenset[str]:
         """Return the distinct repositories the live identified sessions declared."""
         declared = map(attrgetter("declared_repo"), self.live_sessions().values())
         return frozenset(filter(None, declared))
 
-    def _sweep_locked(self) -> frozenset[ConnectionId]:
-        """Drop every lapsed session and its name; return what left. Caller locks."""
+    def _live_locked(self) -> dict[ConnectionId, ClientSession]:
+        """The sessions whose lease has not lapsed, as of now. Caller locks."""
         now = self._clock()
-        live = dict(filter(lambda kv: kv[1].is_live(now), self._sessions.items()))
-        reaped = frozenset(self._sessions.keys() - live.keys())
-        self._roster.release(reaped)
-        self._sessions = live
-        return reaped
+        return dict(filter(lambda kv: kv[1].is_live(now), self._sessions.items()))
 
     def _renewed(self, connection_id: ConnectionId) -> ClientSession:
         """The connection's session, renewed now, or a fresh one; caller locks.
