@@ -386,10 +386,10 @@ is pure time arithmetic and never inspects transport state.
 
 Models \texttt{HubClientRegistry.named\_sessions},
 \texttt{live\_sessions}, and \texttt{repos} \emph{as this fix requires
-them to behave}: a read changes nothing. \texttt{\Xi ConnReg} is the
+them to behave}: a read changes nothing. \texttt{$\Xi$ ConnReg} is the
 whole schema -- there is no parameter and no predicate beyond the
 implicit \texttt{registered' = registered} (and every other component
-held) that \texttt{\Xi} carries. This is I5's second half stated as a
+held) that \texttt{$\Xi$} carries. This is I5's second half stated as a
 structural fact about \texttt{Read}'s own definition, the same way I4 was
 argued structurally in round~1: no reachability check is needed to show a
 schema with no successor-changing predicate cannot change
@@ -411,7 +411,7 @@ stands for both triggers the ruling names as ``graceful'' and
 \texttt{session\_cleanup.py}'s teardown leg and
 \texttt{lifecycle.disconnect\_connection} -- there is exactly one code
 path, so there is exactly one schema. The guard is only
-\texttt{c? \in registered}: no lease condition, because a session ending
+\texttt{$c? \in registered$}: no lease condition, because a session ending
 cleanly or being idle-reaped by the SDK happens regardless of whether the
 Hub's own lease has separately lapsed it. Removal and release are one
 predicate, one step: there is no state in which \texttt{c?} has left
@@ -492,8 +492,8 @@ scene. \textbf{Three things happen in one atomic step, in this order,
 exactly matching \texttt{apply}'s own docstring:}
 
 \begin{enumerate}
-  \item \textbf{Renew the caller.} \texttt{lease' = lease \oplus
-    \{c? \mapsto llive\}} happens unconditionally, before anything else is
+  \item \textbf{Renew the caller.} \texttt{$lease' = lease \oplus
+    \{c? \mapsto llive\}$} happens unconditionally, before anything else is
     computed. This is the ruling's third decision -- an authenticated
     write is contact, and contact renews -- and it is the one line the
     shipped code is missing (\texttt{apply} never calls
@@ -569,7 +569,7 @@ operator of its own, so the claim is: for any \texttt{c?} with
 already released. \texttt{Renew}'s guard
 means a connection can never re-arm its lease once its transport has died
 without an intervening \texttt{Connect}. Once
-\texttt{transport~c? = tdown \land lease~c? = llive}, \texttt{LeaseLapse}
+\texttt{$transport~c? = tdown \land lease~c? = llive$}, \texttt{LeaseLapse}
 is enabled and depends on nothing but \texttt{c?}'s own state; once
 \texttt{lease~c? = llapsed}, \texttt{TimedReap} (Section
 \ref{sec:timedreap}) is enabled and \emph{also} depends on nothing but
@@ -577,8 +577,8 @@ is enabled and depends on nothing but \texttt{c?}'s own state; once
 any read ever running, not on any disconnect ever being detected. This is
 the strengthening this addendum makes, and it is worth being exact about
 what was actually wrong with the previous round's argument, because it is
-not a reachability gap. \texttt{Depart}'s guard, \texttt{c? \in
-registered}, was \emph{already} satisfiable with no second connection and
+not a reachability gap. \texttt{Depart}'s guard, \texttt{$c? \in
+registered$}, was \emph{already} satisfiable with no second connection and
 no \texttt{Read} in the picture -- a \texttt{fuzz} reachability check
 alone cannot distinguish ``this operation's formal precondition holds''
 from ``something in the real system will actually invoke it,'' because Z
@@ -659,12 +659,12 @@ releases every scene each swept \texttt{c2} owned in the same step it
 removes \texttt{c2} from \texttt{registered} (Section~\ref{sec:claim}'s
 step 2). No other operation ever assigns \texttt{owner} to a connection
 outside \texttt{registered} -- \texttt{Claim}'s own guard,
-\texttt{c? \in registered}, and its postcondition,
-\texttt{c? \in registered'} always (Section~\ref{sec:claim}'s
+\texttt{$c? \in registered$}, and its postcondition,
+\texttt{$c? \in registered'$} always (Section~\ref{sec:claim}'s
 \(c2 \neq c?\) exclusion guarantees the caller is never among the
 connections it removes), rule that out at the point of assignment. The
 second conjunct is \texttt{Read}'s own definition
-(Section~\ref{sec:read}): \texttt{\Xi ConnReg} carries
+(Section~\ref{sec:read}): \texttt{$\Xi$ ConnReg} carries
 \texttt{registered' = registered} by construction, so this half needs no
 reachability check, exactly as I4 needed none.
 
@@ -758,7 +758,7 @@ deadlock) is what confirms none of them is merely assumed:
     removes \texttt{c?} from \texttt{registered} and releases every scene
     it owned -- the two predicates differ only in \texttt{TimedReap}'s
     extra guard, never in their effect. The second operation, whichever
-    it is, is then simply disabled: its guard, \texttt{c? \in registered},
+    it is, is then simply disabled: its guard, \texttt{$c? \in registered$},
     fails, because the first one already removed \texttt{c?}. There is no
     state in which both fire on the same \texttt{c?} and no state in
     which their effects could conflict, because they compute the
@@ -874,7 +874,7 @@ search order is not obliged to return the same trace on every run, and a
 run of this exact check returned a 4-step \texttt{Depart}-based trace on
 one invocation and a 6-step one passing through \texttt{Claim} and
 \texttt{LeaseLapse} on another, because \texttt{Depart}'s guard,
-\texttt{c? \in registered} alone, was already satisfiable the moment
+\texttt{$c? \in registered$} alone, was already satisfiable the moment
 \texttt{TransportDies} fires and does not require the lease to have
 lapsed at all. What is reproducible, and what actually proves the
 strengthening, is the structural argument already given above: at any
@@ -925,7 +925,7 @@ the fixed spec attributes the defect to that one change and no other.
 \label{sec:fidelity-h1}
 
 \texttt{docs/connection\_lease\_reaping\_destructive\_read\_buggy.tex}
-changes only \texttt{Read}: instead of \texttt{\Xi ConnReg}, it sweeps a
+changes only \texttt{Read}: instead of \texttt{$\Xi$ ConnReg}, it sweeps a
 lapsed connection out of \texttt{registered} exactly as
 \texttt{HubClientRegistry.\_sweep\_locked} does today, and leaves
 \texttt{owner} untouched -- \texttt{named\_sessions} discards the swept
@@ -950,12 +950,12 @@ what it just removed.
   \item \texttt{LeaseLapse}(c1): \texttt{lease(c1) = llapsed}.
   \item \texttt{Read} -- buggy: \texttt{registered = \{\}} (c1 swept), but
     \texttt{owner(s1) = conn(c1)} is left exactly as it was. In the fixed
-    spec, \texttt{Read} is \texttt{\Xi ConnReg} and this step does
+    spec, \texttt{Read} is \texttt{$\Xi$ ConnReg} and this step does
     nothing at all -- \texttt{registered} still holds \texttt{c1}.
   \item \texttt{Connect}(c2, i1): a live reconnect under the same
     identity.
   \item \texttt{Claim}(c2, s1): under the buggy variant,
-    \texttt{owner(s1) = conn(c1)} and \texttt{c1 \neq c2}, so
+    \texttt{owner(s1) = conn(c1)} and \texttt{$c1 \neq c2$}, so
     \texttt{Claim} is disabled -- the reconnecting client is shadowed by
     a connection a read, not even a write, silently removed. Worse than
     round 1's shape: no operation in this variant can ever release
@@ -1066,12 +1066,12 @@ die. It is reaped purely because its own writes never renew it.
     \texttt{identify}, in between.
   \item \texttt{Claim}(c1, s1) again -- a later patch, buggy: the sweep
     set is \(\{c2 \mathbin{|} c2 \in registered \land lease~c2 = llapsed\}
-    = \{c1\}\), since nothing excludes the caller. \texttt{registered' =
-    registered \setminus \{c1\} = \emptyset}: \emph{c1 removes itself.}
+    = \{c1\}\), since nothing excludes the caller. \texttt{$registered' =
+    registered \setminus \{c1\} = \emptyset$}: \emph{c1 removes itself.}
     \texttt{owner} is first released for every scene c1 owned
-    (\texttt{owner(s1) \mapsto unowned}), then the claim in this same
+    (\texttt{$owner(s1) \mapsto unowned$}), then the claim in this same
     call re-grants \texttt{s1} to \texttt{conn(c1)} -- so \texttt{owner(s1)
-    = conn(c1)} again, but \texttt{c1 \notin registered}: I5/I6's
+    = conn(c1)} again, but \texttt{$c1 \notin registered$}: I5/I6's
     negation is satisfied by this single step. Under the fixed spec, the
     same step's sweep set excludes \texttt{c1} by construction, so
     \texttt{registered' = \{c1\}} -- c1 stays registered, and the renewal
