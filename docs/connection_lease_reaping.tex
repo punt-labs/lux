@@ -853,13 +853,11 @@ I1's mechanism is confirmed by reachability of its positive outcome:
 The state a witness ends in does not, by itself, say which operation
 produced it: \texttt{Depart} and \texttt{TimedReap} compute the identical
 postcondition (Section~\ref{sec:timedreap}), so a reachability goal alone
-cannot certify that \texttt{TimedReap} specifically was exercised --
-re-running the same goal at \texttt{DEFAULT\_SETSIZE 1}, which bounds
-\texttt{CONN} to a single element and so rules out any second connection
-appearing anywhere in the witness by construction of the carrier, still
-returns a \texttt{Depart}-based trace, because \texttt{Depart}'s guard is
-at least as permissive as \texttt{TimedReap}'s and ProB is free to choose
-either once both are enabled:
+cannot certify that \texttt{TimedReap} specifically was exercised. The
+same goal remains \emph{FOUND} at \texttt{DEFAULT\_SETSIZE 1}, which
+bounds \texttt{CONN} to a single element and so rules out any second
+connection appearing anywhere in the witness by construction of the
+carrier:
 
 \begin{verbatim}
   # goal FOUND even with only one connection in the whole carrier
@@ -867,27 +865,26 @@ either once both are enabled:
     -goal "#c.(c:CONN & c : dom(identity) & not(c : registered) &
                transport(c) = tdown)" \
     -p DEFAULT_SETSIZE 1
-  # *** TRACE (length=6):
-  #  1: INITIALISATION(...)
-  #  2: Connect(CONN1,IDENT1)
-  #  3: Claim(CONN1,SCENE1)
-  #  4: TransportDies(CONN1)
-  #  5: LeaseLapse(CONN1)
-  #  6: Depart(CONN1)
 \end{verbatim}
 
-What proves the unconditional strengthening is not a different goal but
-the state this trace's own step 5 leaves behind: \texttt{LeaseLapse}'s
-postcondition (Section~\ref{sec:leaselapse}) sets
-\texttt{lease(CONN1) = llapsed} unconditionally, and \texttt{CONN1} is
-still in \texttt{registered} (nothing in steps 1--5 removes it) --
-exactly \texttt{TimedReap}'s guard, satisfied at that same point, by
-inspection of the schema, with no further step needed to establish it.
-\texttt{Depart(CONN1)} in step 6 is the trace ProB happened to print;
-\texttt{TimedReap(CONN1)} was equally enabled in the identical state and
-would have produced the identical \texttt{registered}/\texttt{owner}
-values, because their predicates differ only in a guard both this state
-already satisfies.
+The printed witness is not reproducible evidence on its own -- ProB's
+search order is not obliged to return the same trace on every run, and a
+run of this exact check returned a 4-step \texttt{Depart}-based trace on
+one invocation and a 6-step one passing through \texttt{Claim} and
+\texttt{LeaseLapse} on another, because \texttt{Depart}'s guard,
+\texttt{c? \in registered} alone, was already satisfiable the moment
+\texttt{TransportDies} fires and does not require the lease to have
+lapsed at all. What is reproducible, and what actually proves the
+strengthening, is the structural argument already given above: at any
+point where \texttt{lease~c? = llapsed} holds for a registered \texttt{c?}
+-- which \texttt{LeaseLapse}'s postcondition establishes unconditionally,
+independent of any other connection -- \texttt{TimedReap(c?)} is enabled
+by inspection of its own guard, whether or not the same state also
+happens to enable \texttt{Depart}. A search tool that reports \emph{some}
+witness cannot be asked to prefer one enabled operation over another
+that produces the identical effect; the schema's own precondition is
+what the proof rests on, not which branch a particular run's search
+order happened to take.
 
 The fix's positive outcome -- a live connection successfully claims a
 scene its departed, same-identity predecessor used to own -- is also
