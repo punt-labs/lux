@@ -17,7 +17,7 @@ from collections.abc import AsyncGenerator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from pathlib import Path
 from socket import socket
-from typing import Protocol, runtime_checkable
+from typing import Protocol
 
 import uvicorn
 from fastapi import FastAPI
@@ -101,7 +101,6 @@ def _remove_port_file(port_path: Path) -> None:
         logger.warning("Could not remove port file: %s", port_path)
 
 
-@runtime_checkable
 class _PeriodicSweep(Protocol):
     """A wait-sweep-repeat background task — ``ExpirySweep`` and ``LeaseReapSweep``."""
 
