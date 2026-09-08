@@ -1,0 +1,273 @@
+%
+% connection_lease_reaping_destructive_read_buggy.tex
+%
+% FIDELITY CONTROL for H1 (destructive-read-sweep), not the design. Changes
+% only Read: instead of Xi ConnReg (no change), it sweeps a lapsed
+% connection out of `registered` -- exactly what HubClientRegistry
+% ._sweep_locked does today on every call through named_sessions/
+% live_sessions/repos -- and leaves `owner` untouched, because none of
+% those six read call sites forwards the swept set to OwnerTracker. See
+% docs/connection_lease_reaping.tex, Section "H1 --- destructive-read-sweep",
+% for the full trace and the goal that must return FOUND against this
+% variant and NOT found against the fixed spec.
+%
+% Type-check:  fuzz docs/connection_lease_reaping_destructive_read_buggy.tex
+% Model-check:
+%   probcli docs/connection_lease_reaping_destructive_read_buggy.tex \
+%       -model_check -nodead -goal "..." -p DEFAULT_SETSIZE 3
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{lux Connection-Lease Reaping --- Fidelity Control (Destructive Read)}
+\author{Buggy variant: a read sweeps a lapsed connection without releasing it}
+\date{September 2026}
+\maketitle
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+This is the fidelity control for H1 in
+\texttt{docs/connection\_lease\_reaping.tex}, not the design. It removes
+only \texttt{Read}'s non-destructiveness: a lapsed connection is still
+correctly dropped from \texttt{registered} the moment some caller reads
+through it, but every scene it owned is left exactly as it was --
+matching \texttt{HubClientRegistry.named\_sessions}, which calls
+\texttt{\_sweep\_locked} on every read and discards the swept set the
+moment it returns, because none of its six callers
+(\texttt{HubReads.client\_sessions}, \texttt{CallbackMenu.from\_named},
+\texttt{client\_details.py}, \texttt{callback\_hold.py}, and the rest)
+forwards that set to \texttt{OwnerTracker}. Read the main specification
+first; this document states only what differs, in
+Section~\ref{sec:read}.
+
+% ============================================================
+\section{Basic Types}
+% ============================================================
+
+\begin{zed}
+  [CONN, IDENT, SCENE]
+\end{zed}
+
+Unchanged from the main specification.
+
+% ============================================================
+\section{Free Types}
+% ============================================================
+
+\begin{zed}
+  TSTATE ::= tup | tdown
+\end{zed}
+
+\begin{zed}
+  LSTATE ::= llive | llapsed
+\end{zed}
+
+\begin{zed}
+  OWNER ::= unowned | conn \ldata CONN \rdata
+\end{zed}
+
+Unchanged from the main specification.
+
+% ============================================================
+\section{State}
+% ============================================================
+
+\begin{schema}{ConnReg}
+  registered : \power CONN \\
+  identity : CONN \pfun IDENT \\
+  transport : CONN \pfun TSTATE \\
+  lease : CONN \pfun LSTATE \\
+  owner : SCENE \fun OWNER
+\where
+  registered \subseteq \dom identity \\
+  \dom identity = \dom transport \\
+  \dom transport = \dom lease
+\end{schema}
+
+Unchanged from the main specification.
+
+% ============================================================
+\section{Initialization}
+% ============================================================
+
+\begin{schema}{Init}
+  ConnReg'
+\where
+  registered' = \emptyset \\
+  identity' = \emptyset \\
+  transport' = \emptyset \\
+  lease' = \emptyset \\
+  owner' = (\lambda s : SCENE @ unowned)
+\end{schema}
+
+Unchanged from the main specification.
+
+% ============================================================
+\section{Operations}
+% ============================================================
+
+\subsection{Read --- BUGGY: sweeps without releasing}
+\label{sec:read}
+
+\textbf{This is the one operation that differs from the design.} A
+lapsed connection is still correctly dropped from \texttt{registered} --
+the sweep itself is not the defect, and \texttt{Depart}/\texttt{Claim}'s
+release mechanisms are deliberately left intact by this variant,
+isolating the H1 finding from H2 and H3. But this happens from a query,
+not the coordinator, and \texttt{owner} is left completely unchanged: no
+scene the swept connection owned is released, and because the connection
+is now outside \texttt{registered}, neither \texttt{Depart} nor
+\texttt{Claim}'s sweep can ever find it again to release it later.
+
+\begin{schema}{Read}
+  \Delta ConnReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  lease~c? = llapsed \\
+  registered' = registered \setminus \{ c? \} \\
+  owner' = owner \\
+  identity' = identity \\
+  transport' = transport \\
+  lease' = lease
+\end{schema}
+
+\subsection{Connect, Renew, TransportDies, LeaseLapse, Depart, Claim --- unchanged}
+
+Identical to the main specification: only \texttt{Read} is no longer a
+pure query.
+
+\begin{schema}{Connect}
+  \Delta ConnReg \\
+  c? : CONN \\
+  i? : IDENT
+\where
+  registered' = registered \cup \{ c? \} \\
+  identity' = identity \oplus \{ c? \mapsto i? \} \\
+  transport' = transport \oplus \{ c? \mapsto tup \} \\
+  lease' = lease \oplus \{ c? \mapsto llive \} \\
+  owner' = owner
+\end{schema}
+
+\begin{schema}{Renew}
+  \Delta ConnReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  transport~c? = tup \\
+  lease' = lease \oplus \{ c? \mapsto llive \} \\
+  registered' = registered \\
+  identity' = identity \\
+  transport' = transport \\
+  owner' = owner
+\end{schema}
+
+\begin{schema}{TransportDies}
+  \Delta ConnReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  transport~c? = tup \\
+  transport' = transport \oplus \{ c? \mapsto tdown \} \\
+  registered' = registered \\
+  identity' = identity \\
+  lease' = lease \\
+  owner' = owner
+\end{schema}
+
+\begin{schema}{LeaseLapse}
+  \Delta ConnReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  lease~c? = llive \\
+  lease' = lease \oplus \{ c? \mapsto llapsed \} \\
+  registered' = registered \\
+  identity' = identity \\
+  transport' = transport \\
+  owner' = owner
+\end{schema}
+
+\begin{schema}{Depart}
+  \Delta ConnReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  registered' = registered \setminus \{ c? \} \\
+  owner' = owner \oplus \\
+  \quad~ (\{ s : SCENE | owner~s = conn(c?) \} \cross \{ unowned \}) \\
+  identity' = identity \\
+  transport' = transport \\
+  lease' = lease
+\end{schema}
+
+\begin{schema}{Claim}
+  \Delta ConnReg \\
+  c? : CONN \\
+  s? : SCENE
+\where
+  c? \in registered \\
+  transport~c? = tup \\
+  lease' = lease \oplus \{ c? \mapsto llive \} \\
+  registered' = registered \setminus \\
+  \quad~ \{ c2 : CONN | c2 \in registered \land c2 \neq c? \land
+    lease~c2 = llapsed \} \\
+  (owner \oplus (\{ s : SCENE | \exists c2 : CONN @ \\
+    \qquad c2 \in registered \land c2 \neq c? \land lease~c2 = llapsed
+    \land owner~s = conn(c2) \} \\
+    \qquad \cross \{ unowned \}))~s? = unowned \\
+  \lor \\
+  (owner \oplus (\{ s : SCENE | \exists c2 : CONN @ \\
+    \qquad c2 \in registered \land c2 \neq c? \land lease~c2 = llapsed
+    \land owner~s = conn(c2) \} \\
+    \qquad \cross \{ unowned \}))~s? = conn(c?) \\
+  owner' = (owner \oplus (\{ s : SCENE | \exists c2 : CONN @ \\
+    \qquad c2 \in registered \land c2 \neq c? \land lease~c2 = llapsed
+    \land owner~s = conn(c2) \} \\
+    \qquad \cross \{ unowned \})) \oplus \{ s? \mapsto conn(c?) \} \\
+  identity' = identity \\
+  transport' = transport
+\end{schema}
+
+% ============================================================
+\section{Verification: the goal that must flip}
+% ============================================================
+
+Against this variant, I2/I5's negation must be \emph{found} --- the trace
+in \texttt{connection\_lease\_reaping.tex}, Section H1, reaches it
+directly: \texttt{Connect}(c1, i1); \texttt{Claim}(c1, s1);
+\texttt{TransportDies}(c1); \texttt{LeaseLapse}(c1); \texttt{Read}(c1).
+
+\begin{verbatim}
+  # must be FOUND against this variant (NOT found against the fixed spec)
+  probcli docs/connection_lease_reaping_destructive_read_buggy.tex \
+    -model_check -nodead \
+    -goal "#s.(#c.(s:SCENE & c:CONN & owner(s) = conn(c) &
+                   not(c : registered)))" \
+    -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+I1 must stay unaffected --- this variant leaves \texttt{Depart} and
+\texttt{TransportDies} untouched, so the chain
+\texttt{TransportDies};\texttt{Depart} still completes exactly as in the
+fixed spec:
+
+\begin{verbatim}
+  # must remain FOUND -- this variant does not touch Depart or
+  # TransportDies, only what a read does to a lapsed connection's
+  # registration
+  probcli docs/connection_lease_reaping_destructive_read_buggy.tex \
+    -model_check -nodead \
+    -goal "#c.(c:CONN & c : dom(identity) & not(c : registered) &
+               transport(c) = tdown)" \
+    -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+\end{document}
