@@ -140,6 +140,7 @@ Current and authoritative:
 | [commit_on_idle_reconciliation.tex](./commit_on_idle_reconciliation.tex) → [pdf](./commit_on_idle_reconciliation.pdf) | — | Continuous-edit commit-on-idle reconciliation for non-atomic inputs |
 | [reconciliation_hub_reject.tex](./reconciliation_hub_reject.tex) → [pdf](./reconciliation_hub_reject.pdf) | — | Hub rejection of a reconciliation commit: the display converges to the Hub's value |
 | [display_crash_loop.tex](./display_crash_loop.tex) | — | Crash-respawn quarantine (deferred design, `lux-88ka`); the `_buggy` variants ([1](./display_crash_loop_buggy.tex), [2](./display_crash_loop_earlyexit_buggy.tex)) are fidelity controls that reproduce the defect the design closes |
+| [connection_lease_reaping.tex](./connection_lease_reaping.tex) | [connection_lease_reaping_coverage.md](./connection_lease_reaping_coverage.md) | Hub client-registry lease reaping (`lux-d84d`): a transport-gone connection is eventually reaped, reaping releases every scene it owned, and a live reconnect under the same identity is never shadowed by a dead predecessor's ownership. Design-phase model (no implementation yet) — the `_buggy` variant ([no-release](./connection_lease_reaping_no_release_buggy.tex)) reproduces the shipped defect: `HubDisplay.drop_connection` and the lease sweep both leave ownership untouched today |
 
 Legacy (model the pre-Hub/Display single-process design):
 
