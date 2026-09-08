@@ -210,7 +210,7 @@ def test_no_read_ever_removes_a_lapsed_session() -> None:
     assert conn in reg.sessions()
 
 
-def test_lapsed_ids_returns_who_lapsed_not_the_survivors() -> None:
+def test_reap_lapsed_locked_returns_who_lapsed_and_removes_only_them() -> None:
     clock = _Clock()
     reg = HubClientRegistry(clock)
     lapsing, staying = ConnectionId("cli"), ConnectionId("mcp")
@@ -219,27 +219,84 @@ def test_lapsed_ids_returns_who_lapsed_not_the_survivors() -> None:
 
     clock.advance(91.0)  # past the cli lease; the mcp lease (1800s) survives
 
-    assert reg.lapsed_ids() == frozenset({lapsing})
-    assert lapsing in reg.sessions()  # a read; still registered until departed
+    assert reg.reap_lapsed_locked() == frozenset({lapsing})
+    assert lapsing not in reg.sessions()  # actually removed, not just filtered
     assert staying in reg.sessions()
 
 
-def test_lapsed_ids_is_empty_when_nothing_has_lapsed() -> None:
+def test_reap_lapsed_locked_is_empty_and_a_no_op_when_nothing_has_lapsed() -> None:
     reg = HubClientRegistry()
-    reg.record(ConnectionId("conn"), _cli())
-    assert reg.lapsed_ids() == frozenset()
+    conn = ConnectionId("conn")
+    reg.record(conn, _cli())
+    assert reg.reap_lapsed_locked() == frozenset()
+    assert conn in reg.sessions()
 
 
-def test_lapsed_ids_honors_its_exclusion() -> None:
-    """The exclusion ``apply``'s renewed caller needs — applied by the caller."""
+def test_reap_lapsed_locked_honors_its_exclusion() -> None:
+    """The exclusion ``apply``'s renewed caller needs, at the registry layer."""
     clock = _Clock()
     reg = HubClientRegistry(clock)
     conn = ConnectionId("cli")
     reg.record(conn, _cli())
     clock.advance(91.0)  # past the 90s cli lease
 
-    assert reg.lapsed_ids() == frozenset({conn})
-    assert reg.lapsed_ids() - frozenset({conn}) == frozenset()
+    assert reg.reap_lapsed_locked(exclude=frozenset({conn})) == frozenset()
+    assert conn in reg.sessions()  # excluded, so left alone
+    assert reg.reap_lapsed_locked() == frozenset({conn})
+    assert conn not in reg.sessions()
+
+
+def test_reap_lapsed_locked_cannot_wipe_a_renewal_that_races_it() -> None:
+    """The TOCTOU a split compute-then-discard leaves open, closed by one lock.
+
+    A round-1-era renewal path (``record``/``renew_if_registered``/
+    ``attach_listener``) takes only the registry's own lock, not the Hub's
+    ``StoreLock`` a departure sweep holds. A sweep that computes the lapsed
+    set in one lock hold and discards each id in a second, separate hold
+    leaves a gap: a renewal landing in that gap makes the connection live
+    again, and the second hold discards it anyway -- a live client silently
+    wiped under ordinary threaded load. ``reap_lapsed_locked`` closes the
+    gap by construction: nothing else can touch the registry while it
+    holds the lock, so a concurrent renewal is strictly serialized before
+    or after the sweep, never straddling it.
+    """
+    clock = _Clock()
+    reg = HubClientRegistry(clock)
+    conn = ConnectionId("cli")
+    reg.record(conn, _cli())
+    clock.advance(91.0)  # past the 90s cli lease
+
+    renewal_attempted = threading.Event()
+    renewal_done = threading.Event()
+
+    def _renew_concurrently() -> None:
+        renewal_attempted.set()
+        reg.record(conn)  # blocks on the registry's own lock until reap yields
+        renewal_done.set()
+
+    real_now = reg._clock
+
+    def _now_that_races_a_renewal() -> float:
+        # Fires from inside reap_lapsed_locked's one critical section: start
+        # the renewal thread and prove it is genuinely locked out (blocked on
+        # the same lock, not just "hasn't run yet") before the sweep proceeds.
+        if not renewal_attempted.is_set():
+            threading.Thread(target=_renew_concurrently, daemon=True).start()
+            assert renewal_attempted.wait(timeout=2.0)
+            time.sleep(0.05)  # give the renewal thread time to reach lock.acquire()
+            assert not renewal_done.is_set()
+        return real_now()
+
+    reg._clock = _now_that_races_a_renewal
+
+    reaped = reg.reap_lapsed_locked()
+    assert renewal_done.wait(timeout=2.0)
+
+    # conn was lapsed at the one instant the atomic sweep decided -- reaping
+    # it is correct. The renewal, locked out until the sweep released the
+    # lock, then lands as an ordinary fresh contact -- never silently lost.
+    assert conn in reaped
+    assert conn in reg.sessions()
 
 
 def test_continuous_renewal_prevents_lease_lapse() -> None:
@@ -253,7 +310,7 @@ def test_continuous_renewal_prevents_lease_lapse() -> None:
         clock.advance(60.0)  # inside the 90s cli lease if renewed each time
         reg.record(conn)  # a bare contact renews
 
-    assert reg.lapsed_ids() == frozenset()
+    assert reg.reap_lapsed_locked() == frozenset()
     assert conn in reg.sessions()
 
 
@@ -531,7 +588,6 @@ def test_a_declared_ttl_lapses_an_app_session_that_would_be_permanent() -> None:
 
     clock.advance(31.0)  # past the declared 30s lease, no contact in between
     assert reg.live_sessions() == {}  # filtered out of the live view
-    assert reg.lapsed_ids() == frozenset({conn})  # the timer's own question
     assert conn in reg.sessions()  # still registered until actually departed
 
 
