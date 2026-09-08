@@ -51,18 +51,19 @@ def test_orphan_handler_publish_after_disconnect_is_safe_noop() -> None:
     assert received == []
 
 
-def test_dropped_connection_keeps_its_elements_and_their_clicks(
+def test_dropped_connection_keeps_its_elements_but_releases_ownership(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A session's UI outlives the session, clicks included.
+    """A session's UI outlives the session, clicks included; ownership does not.
 
-    ``drop_connection`` deregisters the client and nothing else: the elements it
-    installed stay indexed and still owned by its id, so a later frame close,
-    clear, or TTL can remove them. A click that arrives afterwards still fires,
-    because the invocation carries no caller identity — the Hub has no caller to
-    compare against the owner. That is the documented state of the dispatch
-    path, recorded here so a future identity gate has a test to change rather
-    than a silent gap to discover.
+    ``drop_connection`` atomically deregisters the client and departs it: the
+    elements it installed stay indexed (so a later frame close, clear, or TTL
+    can remove them, or a live connection can reclaim them), but they are no
+    longer attributed to it. A click that arrives afterwards still fires,
+    because the invocation carries no caller identity — the Hub has no caller
+    to compare against the owner. That is the documented state of the
+    dispatch path, recorded here so a future identity gate has a test to
+    change rather than a silent gap to discover.
     """
     hub = IsolatedHub(monkeypatch)
     connection_id = hub.connect("lifecycle-agent")
@@ -78,7 +79,7 @@ def test_dropped_connection_keeps_its_elements_and_their_clicks(
     hub.display.drop_connection(connection_id)
 
     assert not hub.display.is_client(connection_id)
-    assert hub.display.elements_owned_by(connection_id) != ()
+    assert hub.display.elements_owned_by(connection_id) == ()
     assert hub.display.resolve(scene_id, element_id) is button
 
     hub.click(scene_id, element_id)

@@ -210,12 +210,13 @@ def test_show_scene_snapshots_the_identity_onto_every_owner() -> None:
     assert owners == (Owner(_OWNER, identity),)  # one connection, its identity
 
 
-def test_owner_identity_outlives_the_connection_that_installed_it() -> None:
-    """A durable root keeps its declared identity after the connection drops.
+def test_departing_a_connection_releases_ownership_but_keeps_the_content() -> None:
+    """Depart releases ownership to unowned; it does not tear the content down.
 
-    The board a departed ``cli`` command installed must still name its repository:
-    the identity is snapshotted on the owner record at install, not resolved from
-    the live session registry, so dropping the connection keeps the attribution.
+    A departed connection's installed content stays standing — a later frame
+    close, clear, or TTL removes it, or a live connection reclaims it through
+    the ordinary unowned-claim path — but nobody is attributed to it the
+    moment it departs, identity declared or not.
     """
     from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.domain.hub.scene_presentation import ScenePresentation
@@ -230,10 +231,11 @@ def test_owner_identity_outlives_the_connection_that_installed_it() -> None:
         ScenePresentation(frame_id=str(_SCENE)),
     )
 
-    hub_display.drop_connection(_OWNER)  # the command exits, its board stands
+    hub_display.drop_connection(_OWNER)  # the command exits and departs
 
     assert _OWNER not in hub_display.client_sessions()  # gone from the live registry
-    assert hub_display.scene_owners(_SCENE) == (Owner(_OWNER, identity),)  # still named
+    assert [e.id for e in hub_display.scene_roots(_SCENE)] == ["a"]  # content stands
+    assert hub_display.scene_owners(_SCENE) == ()  # but ownership is released
 
 
 def test_clear_leaves_a_root_another_connection_owns_in_a_shared_scene() -> None:
@@ -262,7 +264,7 @@ def test_clear_leaves_a_root_another_connection_owns_in_a_shared_scene() -> None
     assert {e.id for e in hub_display.scene_roots(_SCENE)} == {"theirs"}
 
 
-# -- reap-and-release (lux-d84d): a lapsed connection's ownership is released --
+# -- reap-and-release: a departed connection's ownership is released -------
 
 
 def test_reap_of_a_dead_connection_releases_its_scenes() -> None:
@@ -326,15 +328,15 @@ def test_a_reconnect_before_reap_is_blocked_from_the_predecessors_scene() -> Non
 
 
 def test_a_reconnect_after_reap_claims_the_released_scene() -> None:
-    """RA1, and the fail-first reconnect-shadowing regression this bead reports.
+    """RA1: reconnect-after-departure claims the scene the predecessor left.
 
-    On the pre-fix behaviour this raised ``HubOwnershipError`` forever: nothing
-    ever released ``predecessor``'s ownership once it left the client
-    registry, so ``successor`` — a live connection sharing its identity — was
-    shadowed by a corpse for good. Verified fail-first: with
-    ``HubDisplay._reap_and_release`` stubbed to a no-op, the ``apply`` call
-    below raises ``HubOwnershipError``; with the fix wired, the
-    reap-and-release runs before the ownership check and the removal succeeds.
+    Without the reap-and-release wiring this raises ``HubOwnershipError``
+    forever: nothing ever releases ``predecessor``'s ownership once its lease
+    lapses, so ``successor`` — a live connection sharing its identity — stays
+    shadowed by a corpse for good. Verified fail-first by stubbing the sweep
+    step ``apply`` runs to a no-op: the removal below then raises
+    ``HubOwnershipError``; with the fix wired, the sweep runs before the
+    ownership check and the removal succeeds.
     """
     clock = _Clock()
     hub_display = HubDisplay(clock)
@@ -431,3 +433,125 @@ def test_continuous_renewal_keeps_ownership_through_repeated_reap_triggers() -> 
         )
 
     assert hub_display.owner_of(_SCENE, ElementId("a")) == steady
+
+
+def test_a_read_alone_never_releases_or_strands_a_lapsed_connection() -> None:
+    """RD1/RD2: a read filters what it shows; the atomic write path is what departs.
+
+    Reading through a lapsed connection any number of times, with no
+    intervening write from any connection, must change nothing — the
+    connection stays registered on paper and keeps every scene it owned.
+    Only the live connection's own write (the atomic sweep-and-release path)
+    actually departs it.
+    """
+    clock = _Clock()
+    hub_display = HubDisplay(clock)
+    dead = ConnectionId("dead-conn")
+    live = ConnectionId("live-conn")
+    hub_display.identify_client(dead, _cli("dead"))
+    hub_display.apply(
+        dead,
+        AddElement(scene_id=_SCENE, element=_WireLeaf(id="track"), parent_id=None),
+    )
+    clock.advance(91.0)  # past the 90s cli lease; dead never renews again
+
+    # RD2: reading repeatedly strands nothing — same answer every time.
+    for _ in range(3):
+        assert dead not in hub_display.client_sessions()  # filtered from the live view
+        assert dead in hub_display.clients.sessions()  # still registered on paper
+        assert hub_display.elements_owned_by(dead) == ((_SCENE, ElementId("track")),)
+        assert hub_display.scene_owners(_SCENE) == (Owner(dead, _cli("dead")),)
+
+    # The atomic path: a live connection's own write, and nothing else, departs it.
+    hub_display.register_client(live)
+    hub_display.apply(
+        live,
+        AddElement(scene_id=_SCENE, element=_WireLeaf(id="other"), parent_id=None),
+    )
+
+    assert not hub_display.is_client(dead)
+    assert hub_display.elements_owned_by(dead) == ()  # only now released
+
+
+def test_a_lapsed_writer_survives_its_own_next_apply() -> None:
+    """SR1: a long-lived writer's own write renews it before anything can sweep.
+
+    ``writer``'s only contact is ``apply`` itself, with no explicit
+    ``identify``/``register_client`` in between — the exact shape of a
+    connection that shows once, then only ever patches. The self-exclusion
+    in ``apply``'s sweep means this single call can never catch its own
+    caller; the renewal that same call performs is what protects it from a
+    *later*, separate sweep (the background timer, or another connection's
+    own write) that would otherwise still find it lapsed.
+    """
+    clock = _Clock()
+    hub_display = HubDisplay(clock)
+    writer = ConnectionId("long-lived-writer")
+    hub_display.identify_client(writer, _cli("writer"))
+    hub_display.apply(
+        writer,
+        AddElement(scene_id=_SCENE, element=_WireLeaf(id="track"), parent_id=None),
+    )
+
+    clock.advance(91.0)  # past the 90s cli lease; nothing else ever renews it
+
+    # The self-reap regression: this write must renew writer and succeed
+    # against its own scene, not raise HubOwnershipError against a corpse
+    # its own sweep just made of itself.
+    hub_display.apply(
+        writer,
+        AddElement(scene_id=_SCENE, element=_WireLeaf(id="track2"), parent_id=None),
+    )
+    assert hub_display.is_client(writer)
+    assert hub_display.owner_of(_SCENE, ElementId("track")) == writer
+    assert hub_display.owner_of(_SCENE, ElementId("track2")) == writer
+
+    # Renewal, not just self-exclusion: a later, independent sweep (the
+    # background timer) must not catch writer either, since its own write
+    # just renewed it.
+    reaped = hub_display.reap_lapsed_leases()
+    assert writer not in reaped
+    assert hub_display.is_client(writer)
+    assert hub_display.owner_of(_SCENE, ElementId("track")) == writer
+
+
+def test_a_lapsed_connection_is_reaped_by_the_timer_alone_on_an_idle_hub() -> None:
+    """TR1: the round-2 regression — the bead's own reported scenario.
+
+    Kill the connection's transport (simulated: nothing ever renews it
+    again), wait one lease interval, and do nothing else — no read, no
+    other connection's write, no explicit disconnect. The only thing that
+    runs is the timer's own sweep, and it alone must reap and release.
+    """
+    clock = _Clock()
+    hub_display = HubDisplay(clock)
+    dead = ConnectionId("dead-conn")
+    hub_display.identify_client(dead, _cli("dead"))
+    hub_display.apply(
+        dead,
+        AddElement(scene_id=_SCENE, element=_WireLeaf(id="track"), parent_id=None),
+    )
+
+    clock.advance(91.0)  # past the 90s cli lease; transport is gone, nobody renews
+
+    reaped = hub_display.reap_lapsed_leases()  # the timer's own sweep, nothing else
+
+    assert reaped == frozenset({dead})
+    assert not hub_display.is_client(dead)
+    assert hub_display.elements_owned_by(dead) == ()
+
+
+def test_reap_lapsed_leases_touches_no_scene_when_nothing_has_lapsed() -> None:
+    """TR3: the timer's sweep is a no-op on a Hub with no lapsed connection."""
+    clock = _Clock()
+    hub_display = HubDisplay(clock)
+    live = ConnectionId("live-conn")
+    hub_display.identify_client(live, _cli("live"))
+    hub_display.apply(
+        live,
+        AddElement(scene_id=_SCENE, element=_WireLeaf(id="track"), parent_id=None),
+    )
+
+    assert hub_display.reap_lapsed_leases() == frozenset()
+    assert hub_display.is_client(live)
+    assert hub_display.owner_of(_SCENE, ElementId("track")) == live
