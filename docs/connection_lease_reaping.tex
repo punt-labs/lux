@@ -791,11 +791,13 @@ deadlock) is what confirms none of them is merely assumed:
 
 None of this needs a fourth invariant: it is I5 and I6, reread as claims
 about \emph{any} pair of the four registry-mutating operations rather
-than about \texttt{Claim} alone, and Section~\ref{sec:verify}'s full
-model-check checks it the same way it checks everything else -- by
-visiting every reachable state over the bounded carrier and confirming
-no deadlock, which a genuine race manifesting as an inconsistent
-intermediate state would show up as.
+than about \texttt{Claim} alone, and both are already checked exhaustively
+over every reachable state, from every reachable ordering of the four,
+by Section~\ref{sec:verify}'s I5/I6 goal checks. A genuine race producing
+an inconsistent intermediate state would surface there directly, as a
+\texttt{FOUND} counterexample naming the offending trace -- not merely as
+a deadlock, which Section~\ref{sec:verify}'s separate full model-check
+also confirms absent, so neither failure mode is left unchecked.
 
 % ============================================================
 \section{Verification}
