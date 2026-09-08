@@ -367,8 +367,8 @@ def test_an_unregistered_connection_still_owns_what_it_installs() -> None:
 # -- Disconnect -------------------------------------------------------------
 
 
-def test_dropping_a_connection_leaves_its_elements_installed_and_owned() -> None:
-    """A session's UI survives the session — only the client registration goes."""
+def test_dropping_a_connection_releases_ownership_but_keeps_its_elements() -> None:
+    """A session's UI survives the session; departing it releases ownership."""
     display, (alice,) = _store("alice")
     _install(display, alice, ButtonElement(id="b1", label="hi"))
     _install(display, alice, ButtonElement(id="b2", label="bye"))
@@ -376,11 +376,8 @@ def test_dropping_a_connection_leaves_its_elements_installed_and_owned() -> None
     display.drop_connection(alice)
 
     assert not display.is_client(alice)
-    assert display.element_count(_SCENE) == 2
-    assert {eid for _scene, eid in display.elements_owned_by(alice)} == {
-        ElementId("b1"),
-        ElementId("b2"),
-    }
+    assert display.element_count(_SCENE) == 2  # content stands
+    assert display.elements_owned_by(alice) == ()  # ownership released
 
 
 def test_dropping_an_unknown_connection_is_a_no_op() -> None:

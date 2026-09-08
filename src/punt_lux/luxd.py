@@ -17,12 +17,9 @@ from collections.abc import AsyncGenerator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from pathlib import Path
 from socket import socket
-from typing import TYPE_CHECKING
+from typing import Protocol
 
 import uvicorn
-
-if TYPE_CHECKING:
-    from punt_lux.domain.hub.expiry_sweep import ExpirySweep
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
@@ -49,13 +46,11 @@ def build_app(
 ) -> FastAPI:
     """Build the FastAPI application luxd serves.
 
-    A factory so tests can construct the app without uvicorn, via ``TestClient``.
-    The streamable-HTTP MCP leg, the typed REST surface, and the persistent
+    A factory so tests can construct the app without uvicorn. The
+    streamable-HTTP MCP leg, the typed REST surface, and the persistent
     WebSocket listen leg (``/ws``) all mount beside each other on one app.
-
-    The caller's lifespan (replicator, port file) is the outer scope on purpose:
-    the inner transport scope unwinds first on shutdown, so a session's cleanup
-    cascade still reaches the display through the caller's still-live replicator.
+    The caller's lifespan is the outer scope, so a session's cleanup
+    cascade still reaches the display through the still-live replicator.
     """
     transport = McpHttpTransport()
 
@@ -106,16 +101,22 @@ def _remove_port_file(port_path: Path) -> None:
         logger.warning("Could not remove port file: %s", port_path)
 
 
-@asynccontextmanager
-async def _expiry_sweep_running(
-    sweep: ExpirySweep,
-) -> AsyncGenerator[asyncio.Task[None]]:
-    """Run the frame-TTL sweep for the block, cancelled and awaited on exit.
+class _PeriodicSweep(Protocol):
+    """A wait-sweep-repeat background task — ``ExpirySweep`` and ``LeaseReapSweep``."""
 
-    On exit the task is cancelled and awaited so none survives shutdown. A task
-    that died with an exception re-raises it on await; that is logged and swallowed
-    here so the caller's own shutdown always continues (``CancelledError`` from the
-    normal cancel is expected and ignored).
+    async def run(self) -> None:
+        """Run until cancelled."""
+        ...
+
+
+@asynccontextmanager
+async def _periodic_sweep_running(
+    sweep: _PeriodicSweep, *, name: str
+) -> AsyncGenerator[asyncio.Task[None]]:
+    """Run one periodic sweep for the block, cancelled and awaited on exit.
+
+    A task that died with an exception re-raises it on await; that is logged
+    and swallowed so the caller's own shutdown always continues.
     """
     task = asyncio.create_task(sweep.run())
     try:
@@ -127,7 +128,7 @@ async def _expiry_sweep_running(
         except asyncio.CancelledError:
             pass
         except Exception:
-            logger.exception("frame-expiry sweep task failed before shutdown")
+            logger.exception("%s sweep task failed before shutdown", name)
 
 
 # ---------------------------------------------------------------------------
@@ -142,9 +143,7 @@ def serve(
     """Start the luxd hub. Blocks until shutdown.
 
     A non-loopback ``host`` is refused before any bind: luxd is loopback-only
-    until authentication and a bind-derived origin policy exist, so it fails
-    fast with one line rather than binding a wider interface than its transport
-    guards trust.
+    until authentication and a bind-derived origin policy exist.
     """
     if not LoopbackTransportPolicy().allows_bind_host(host):
         print(  # noqa: T201 — startup refusal must reach the operator's console
@@ -162,18 +161,24 @@ def serve(
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
-        # The display-connection workers and the frame-TTL sweep start and stop
-        # with luxd. Imported lazily to keep the Hub singletons out of module import.
+        # Workers and sweeps start/stop with luxd; imported lazily to keep the
+        # Hub singletons out of module import.
         from punt_lux.domain.hub import hub_display
         from punt_lux.domain.hub.display_workers import display_workers
         from punt_lux.domain.hub.expiry_sweep import ExpirySweep
+        from punt_lux.domain.hub.lease_reap_sweep import LeaseReapSweep
 
         display_workers.start()
-        sweep = ExpirySweep(hub_display.frames, display_workers.replicator)
+        expiry = ExpirySweep(hub_display.frames, display_workers.replicator)
+        lease_reap = LeaseReapSweep(hub_display)
         try:
-            # The sweep is cancelled and awaited when this block exits — before the
-            # replicator stops — so no pending task survives shutdown.
-            async with _expiry_sweep_running(sweep):
+            # Both sweeps are cancelled and awaited on exit, before the
+            # replicator stops; the lease reap has no dependency on it, so
+            # the two nest in either order.
+            async with (
+                _periodic_sweep_running(expiry, name="frame-expiry"),
+                _periodic_sweep_running(lease_reap, name="lease-reap"),
+            ):
                 yield
         finally:
             display_workers.stop()
@@ -189,18 +194,14 @@ def serve(
         log_config=None,
         log_level="warning",
         access_log=False,
-        # Unset, uvicorn waits forever for every open connection to close
-        # before a SIGTERM-triggered shutdown completes -- and an MCP
-        # streamable-HTTP session is a long-lived connection by design, so a
-        # healthy luxd (one with agents attached) would never exit on its
-        # own (lux-94p0). Bounded here so a supervisor-issued restart or
-        # bootout always completes.
+        # Unset, uvicorn waits forever for every open connection to close on
+        # SIGTERM -- an MCP streamable-HTTP session is long-lived by design,
+        # so a healthy luxd would never exit. Bounded so a restart completes.
         timeout_graceful_shutdown=10,
     )
     server = uvicorn.Server(config)
 
-    # Write the port file after bind so callers see the real (maybe ephemeral) port.
-    original_startup = server.startup
+    original_startup = server.startup  # write the port file after the real bind
 
     async def _startup_with_port_file(
         sockets: list[socket] | None = None,
@@ -209,11 +210,10 @@ def serve(
         if server.servers and server.servers[0].sockets:
             actual_port = server.servers[0].sockets[0].getsockname()[1]
             _write_port_file(port_path, actual_port)
+            pid = os.getpid()
             pid_path.parent.mkdir(parents=True, exist_ok=True)
-            pid_path.write_text(str(os.getpid()))
-            logger.info(
-                "luxd listening on %s:%d (pid %d)", host, actual_port, os.getpid()
-            )
+            pid_path.write_text(str(pid))
+            logger.info("luxd listening on %s:%d (pid %d)", host, actual_port, pid)
         else:
             logger.error("Server started but no bound sockets; port file not written")
 

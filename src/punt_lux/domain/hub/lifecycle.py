@@ -1,15 +1,14 @@
 """Connection-lifecycle cleanup — single entry point for disconnect.
 
 The transport layer (``luxd``) calls ``disconnect_connection`` when an MCP
-session ends. The function forgets the connection as a Hub client, tears down
-its subscription scope and writer binding, and invokes the caller's
-``on_disconnect`` sink so transport-layer state (e.g. the MCP inbox queue) is
-released in the same cascade.
+session ends. The function departs the connection as a Hub client —
+atomically deregistering it and releasing every scene it owned to
+``unowned`` — tears down its subscription scope and writer binding, and
+invokes the caller's ``on_disconnect`` sink so transport-layer state (e.g.
+the MCP inbox queue) is released in the same cascade.
 
-It deliberately does NOT remove the scenes the connection installed: a session's
-UI survives the session. The scenes stay standing, still owned by the departed
-connection id, until a later explicit removal — a user closing the frame, an
-agent clearing, or a frame TTL expiring.
+The scenes themselves are never torn down, only released: they stay
+standing until a later explicit removal or an unowned-claim reclaim.
 """
 
 from __future__ import annotations

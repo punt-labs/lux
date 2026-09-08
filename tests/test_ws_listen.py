@@ -484,15 +484,18 @@ def test_a_superseded_leg_takes_the_subscriptions_it_made_when_it_goes() -> None
         }
 
 
-def test_a_swept_session_still_has_its_writer_and_subscriptions_released() -> None:
+def test_a_departed_session_still_has_its_writer_and_subscriptions_released() -> None:
     """Nothing holds the slot, so nothing else will ever clean up after this leg.
 
-    A short-lease session whose socket lingers past its lease is swept out of the
-    registry by the next live read. Its teardown then finds no session at all —
-    neither its own nor a successor's — and skipping the release there strands
-    the writer binding and its subscriptions with nobody left to withdraw them.
-    The bar is re-pushed for the same reason: whatever entries the session showed
-    went with it.
+    A short-lease session whose socket lingers past its lease is departed —
+    deregistered and released — by the registry's single atomic coordinator
+    while the socket is still open, exactly as the background reap timer would
+    on an idle Hub. Its teardown then finds no session at all — neither its
+    own nor a successor's — and skipping the release there strands the writer
+    binding and its subscriptions with nobody left to withdraw them. The bar
+    is re-pushed for the same reason: whatever entries the session showed went
+    with it. A mere read (``live_sessions``) is deliberately not what departs
+    it — reads change nothing here (see ``HubClientRegistry``'s own reads).
     """
     clock = _Clock()
     wired = _wired(clock)
@@ -505,11 +508,13 @@ def test_a_swept_session_still_has_its_writer_and_subscriptions_released() -> No
         _eventually(lambda: Topic("music.play") in hub.topics_for(_CONN))
 
         clock.advance(6.0)  # past the declared 5s lease
-        assert clients.live_sessions() == {}  # the read sweeps it as it passes
+        assert clients.live_sessions() == {}  # a read: still just a filter
+        assert _CONN in clients.sessions()  # unchanged — reads never depart
+        clients.discard(_CONN)  # the coordinator's atomic removal, run directly
 
     _eventually(lambda: not hub.has_writer(_CONN))
     assert hub.topics_for(_CONN) == frozenset()
-    assert menus.pushes == 1  # the bar loses the swept session's entries
+    assert menus.pushes == 1  # the bar loses the departed session's entries
 
 
 def test_the_teardown_contains_no_await() -> None:

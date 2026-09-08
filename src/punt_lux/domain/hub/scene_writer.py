@@ -41,7 +41,7 @@ _log = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class SceneScope:
-    """The ``(connection, scene)`` pair every ``update`` mutation is scoped to."""
+    """The ``(connection, scene)`` pair an ``update`` mutation is scoped to."""
 
     connection_id: ConnectionId
     scene_id: SceneId
@@ -77,12 +77,12 @@ class HubSceneWriter:
         Stage a realization per field patch, guard every removal, check every
         rejection, and — only if all pass — commit the fields atomically (a
         mid-commit raise rolls all back), then apply removals post-commit
-        (idempotent, see :meth:`_apply_removals`). Any rejection leaves the store
-        untouched.
+        (idempotent). Any rejection leaves the store untouched.
         """
         # One store-lock hold spans the whole batch so the replicator never
         # snapshots it half-applied; reentrant, so nested writes re-enter freely.
         with self._display.write_lock():
+            self._display.renew_contact(scope.connection_id)
             try:
                 batch = PatchBatch.from_wire(patches)
                 realizations = self._field_realizations(scope, batch)
@@ -115,6 +115,7 @@ class HubSceneWriter:
         """
         touched: set[SceneId] = set()
         with self._display.write_lock():
+            self._display.renew_contact(connection_id)
             for owned_scene, element_id in self._display.elements_owned_by(
                 connection_id
             ):
@@ -141,9 +142,8 @@ class HubSceneWriter:
     def _guard_removals(self, scope: SceneScope, removals: Sequence[ElementId]) -> None:
         """Owner-check each present removal.
 
-        An absent target is skipped, not rejected, because ``RemoveElement`` is
-        idempotent — but the skip is logged so a mistyped id (``submit-buton``
-        for ``submit-button``) leaves a diagnosable trace rather than vanishing.
+        An absent target is skipped, not rejected -- ``RemoveElement`` is
+        idempotent -- but logged, so a mistyped id leaves a diagnosable trace.
         """
         seam = self._display.write_seam
         for element_id in removals:
@@ -180,21 +180,20 @@ class HubSceneWriter:
         drops the child, so the child's own removal reaches an absent id. The apply
         path stays safe by idempotency, not by staging — ``_owners.get`` returns
         ``None`` so the ownership check returns without raising, and ``discard``
-        no-ops on already-dropped storage.
-
-        Removing the last root empties the scene; the scene's presentation is kept
-        so a later resend blanks it into the frame it was shown in.
+        no-ops on already-dropped storage. Removing the last root empties the
+        scene; its presentation is kept so a later resend blanks it into its frame.
         """
         for element_id in removals:
             self._display.apply(scope.connection_id, scope.removal(element_id))
 
     def _require_owner(self, scope: SceneScope, element_id: ElementId) -> None:
-        """Raise unless the scope's connection owns an installed ``element_id``.
+        """Raise unless the scope's connection may write an installed ``element_id``.
 
-        ``owner_of`` raises ``UnknownElementError`` for a never-installed element.
+        ``None`` (installed but unowned, e.g. a departure released it) is
+        writable by anyone, matching ``OwnerTracker.require_ownership``.
         """
         owner = self._display.owner_of(scope.scene_id, element_id)
-        if owner != scope.connection_id:
+        if owner not in (None, scope.connection_id):
             raise HubOwnershipError(
                 scene_id=scope.scene_id,
                 element_id=element_id,

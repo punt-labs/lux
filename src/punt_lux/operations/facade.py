@@ -94,7 +94,6 @@ class Operations:
         cls,
         *,
         scenes: SceneOperations,
-        conveniences: ConvenienceOperations,
         pubsub: PubSubOperations,
         config: DisplayModeOperations,
         display: DisplayControlOperations,
@@ -105,7 +104,7 @@ class Operations:
     ) -> Self:
         self = super().__new__(cls)
         self._scenes = scenes
-        self._conveniences = conveniences
+        self._conveniences = ConvenienceOperations(scenes)
         self._pubsub = pubsub
         self._config = config
         self._display = display
@@ -136,8 +135,7 @@ class Operations:
         queries = QueryOperations(display, hub, ports.display_port)
         return cls(
             scenes=scenes,
-            conveniences=ConvenienceOperations(scenes),
-            pubsub=PubSubOperations(hub, ports.ensure_writer, ports.next_event),
+            pubsub=PubSubOperations(hub, display.clients, ports),
             config=DisplayModeOperations(),
             display=DisplayControlOperations(ports.display_port),
             queries=queries,

@@ -69,5 +69,5 @@ class HubReads:
             return tuple(dict.fromkeys(filter(None, owned)))
 
     def client_sessions(self) -> Mapping[ConnectionId, ClientSession]:
-        """Return each live Hub session, sweeping any whose lease has lapsed."""
+        """Return each live Hub session -- a pure filter, sweeping nobody."""
         return self._clients.live_sessions()

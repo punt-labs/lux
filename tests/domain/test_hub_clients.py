@@ -155,7 +155,8 @@ def _cli(name: str = "lux") -> ClientIdentity:
     return ClientIdentity(kind="cli", name=name, repo="/w/lux")
 
 
-def test_live_sessions_filters_and_sweeps_an_expired_session() -> None:
+def test_live_sessions_filters_an_expired_session_without_sweeping_it() -> None:
+    """RD1: a read filters the live view; it never removes the registry entry."""
     clock = _Clock()
     reg = HubClientRegistry(clock)
     conn = ConnectionId("cli")
@@ -163,8 +164,8 @@ def test_live_sessions_filters_and_sweeps_an_expired_session() -> None:
     assert conn in reg.live_sessions()
 
     clock.advance(91.0)  # past the 90s cli lease
-    assert reg.live_sessions() == {}  # filtered out
-    assert reg.sessions() == {}  # and swept from the store on the live read
+    assert reg.live_sessions() == {}  # filtered out of the live view
+    assert conn in reg.sessions()  # still registered — the read removed no one
 
 
 def test_any_contact_renews_the_lease() -> None:
@@ -195,16 +196,122 @@ def test_an_mcp_session_outlives_a_cli_session() -> None:
     assert mcp in live
 
 
-def test_sessions_read_does_not_sweep_until_a_live_read() -> None:
+def test_no_read_ever_removes_a_lapsed_session() -> None:
+    """RD1: neither the raw read nor the live read sweeps a lapsed entry."""
     clock = _Clock()
     reg = HubClientRegistry(clock)
     conn = ConnectionId("cli")
     reg.record(conn, _cli())
     clock.advance(91.0)
-    # The raw read carries no lease filter, so the lapsed entry is still present.
     assert conn in reg.sessions()
-    reg.live_sessions()  # the live read is what reaps it
+    reg.live_sessions()  # a read; still non-destructive
+    assert conn in reg.sessions()
+    reg.named_sessions()  # a read; still non-destructive
+    assert conn in reg.sessions()
+
+
+def test_reap_lapsed_locked_returns_who_lapsed_and_removes_only_them() -> None:
+    clock = _Clock()
+    reg = HubClientRegistry(clock)
+    lapsing, staying = ConnectionId("cli"), ConnectionId("mcp")
+    reg.record(lapsing, _cli())
+    reg.record(staying, _mcp())
+
+    clock.advance(91.0)  # past the cli lease; the mcp lease (1800s) survives
+
+    assert reg.reap_lapsed_locked() == frozenset({lapsing})
+    assert lapsing not in reg.sessions()  # actually removed, not just filtered
+    assert staying in reg.sessions()
+
+
+def test_reap_lapsed_locked_is_empty_and_a_no_op_when_nothing_has_lapsed() -> None:
+    reg = HubClientRegistry()
+    conn = ConnectionId("conn")
+    reg.record(conn, _cli())
+    assert reg.reap_lapsed_locked() == frozenset()
+    assert conn in reg.sessions()
+
+
+def test_reap_lapsed_locked_honors_its_exclusion() -> None:
+    """The exclusion ``apply``'s renewed caller needs, at the registry layer."""
+    clock = _Clock()
+    reg = HubClientRegistry(clock)
+    conn = ConnectionId("cli")
+    reg.record(conn, _cli())
+    clock.advance(91.0)  # past the 90s cli lease
+
+    assert reg.reap_lapsed_locked(exclude=frozenset({conn})) == frozenset()
+    assert conn in reg.sessions()  # excluded, so left alone
+    assert reg.reap_lapsed_locked() == frozenset({conn})
     assert conn not in reg.sessions()
+
+
+def test_reap_lapsed_locked_cannot_wipe_a_renewal_that_races_it() -> None:
+    """The TOCTOU a split compute-then-discard leaves open, closed by one lock.
+
+    A round-1-era renewal path (``record``/``renew_if_registered``/
+    ``attach_listener``) takes only the registry's own lock, not the Hub's
+    ``StoreLock`` a departure sweep holds. A sweep that computes the lapsed
+    set in one lock hold and discards each id in a second, separate hold
+    leaves a gap: a renewal landing in that gap makes the connection live
+    again, and the second hold discards it anyway -- a live client silently
+    wiped under ordinary threaded load. ``reap_lapsed_locked`` closes the
+    gap by construction: nothing else can touch the registry while it
+    holds the lock, so a concurrent renewal is strictly serialized before
+    or after the sweep, never straddling it.
+    """
+    clock = _Clock()
+    reg = HubClientRegistry(clock)
+    conn = ConnectionId("cli")
+    reg.record(conn, _cli())
+    clock.advance(91.0)  # past the 90s cli lease
+
+    renewal_attempted = threading.Event()
+    renewal_done = threading.Event()
+
+    def _renew_concurrently() -> None:
+        renewal_attempted.set()
+        reg.record(conn)  # blocks on the registry's own lock until reap yields
+        renewal_done.set()
+
+    real_now = reg._clock
+
+    def _now_that_races_a_renewal() -> float:
+        # Fires from inside reap_lapsed_locked's one critical section: start
+        # the renewal thread and prove it is genuinely locked out (blocked on
+        # the same lock, not just "hasn't run yet") before the sweep proceeds.
+        if not renewal_attempted.is_set():
+            threading.Thread(target=_renew_concurrently, daemon=True).start()
+            assert renewal_attempted.wait(timeout=2.0)
+            time.sleep(0.05)  # give the renewal thread time to reach lock.acquire()
+            assert not renewal_done.is_set()
+        return real_now()
+
+    reg._clock = _now_that_races_a_renewal
+
+    reaped = reg.reap_lapsed_locked()
+    assert renewal_done.wait(timeout=2.0)
+
+    # conn was lapsed at the one instant the atomic sweep decided -- reaping
+    # it is correct. The renewal, locked out until the sweep released the
+    # lock, then lands as an ordinary fresh contact -- never silently lost.
+    assert conn in reaped
+    assert conn in reg.sessions()
+
+
+def test_continuous_renewal_prevents_lease_lapse() -> None:
+    """LR1: a connection that keeps renewing is never a candidate for lapsing."""
+    clock = _Clock()
+    reg = HubClientRegistry(clock)
+    conn = ConnectionId("cli")
+    reg.record(conn, _cli())
+
+    for _ in range(5):
+        clock.advance(60.0)  # inside the 90s cli lease if renewed each time
+        reg.record(conn)  # a bare contact renews
+
+    assert reg.reap_lapsed_locked() == frozenset()
+    assert conn in reg.sessions()
 
 
 def test_repos_excludes_a_session_whose_lease_lapsed() -> None:
@@ -379,15 +486,17 @@ def test_a_teardown_releases_the_leg_and_its_callbacks_together() -> None:
     assert session.identity is not None  # the session itself survives the leg
 
 
-def test_a_teardown_after_the_sweep_is_a_release_not_a_keep() -> None:
+def test_a_teardown_after_a_departure_is_a_release_not_a_keep() -> None:
     """The two ways to not hold the slot are not the same answer.
 
-    A lapsed lease takes the session, its slot, and its entries while its socket
-    is still winding down. When that socket's teardown finally runs there is
-    nothing of anyone's left in the registry to remove — but nobody holds the
-    connection either, and the bar is still showing entries whose owner was swept
-    away. Answering ``kept`` there says a successor's entries are live, which is
-    false, and leaves them on screen.
+    A departure (the atomic deregister-and-release coordinator, run here
+    directly as ``discard``) takes the session, its slot, and its entries
+    while its socket is still winding down — a lapsed lease alone, merely
+    read, never does this (reads remove no one). When that socket's teardown
+    finally runs there is nothing of anyone's left in the registry to
+    remove — but nobody holds the connection either, and the bar is still
+    showing entries whose owner departed. Answering ``kept`` there says a
+    successor's entries are live, which is false, and leaves them on screen.
     """
     clock = _Clock()
     reg = HubClientRegistry(clock)
@@ -395,7 +504,8 @@ def test_a_teardown_after_the_sweep_is_a_release_not_a_keep() -> None:
     leg = _attached(reg, conn, _cli())
     reg.register_callback(conn, _beads(), leg)
     clock.advance(91.0)  # past the 90s cli lease
-    assert reg.live_sessions() == {}  # the read sweeps it as it passes
+    assert reg.live_sessions() == {}  # a read: filtered, not removed
+    reg.discard(conn)  # the departure the background reap timer performs
 
     assert reg.detach_listener(conn, leg) == "released_with_session"
 
@@ -448,16 +558,20 @@ def test_the_leg_and_its_callbacks_are_written_under_one_lock() -> None:
     assert all(held_during)  # and every write it caught was inside the lock
 
 
-def test_a_lapsed_lease_sweeps_the_session_and_its_callbacks_together() -> None:
+def test_a_lapsed_lease_departs_the_session_and_its_callbacks_together() -> None:
     clock = _Clock()
     reg = HubClientRegistry(clock)
     conn = ConnectionId("cli")
     leg = _attached(reg, conn, _cli())
     reg.register_callback(conn, _beads(), leg)
     clock.advance(91.0)  # past the cli lease
-    # The live read sweeps the session; its callbacks leave in the same motion.
+    # A read only filters -- the session and its callbacks are still on paper.
     assert reg.live_sessions() == {}
-    assert reg.sessions() == {}
+    assert conn in reg.sessions()
+
+    reg.discard(conn)  # the coordinator's atomic departure
+
+    assert reg.sessions() == {}  # session and callbacks left in the same motion
 
 
 def test_a_declared_ttl_lapses_an_app_session_that_would_be_permanent() -> None:
@@ -473,8 +587,8 @@ def test_a_declared_ttl_lapses_an_app_session_that_would_be_permanent() -> None:
     assert conn in reg.live_sessions()
 
     clock.advance(31.0)  # past the declared 30s lease, no contact in between
-    assert reg.live_sessions() == {}  # the session and its callback withdrew
-    assert reg.sessions() == {}
+    assert reg.live_sessions() == {}  # filtered out of the live view
+    assert conn in reg.sessions()  # still registered until actually departed
 
 
 def test_an_undeclared_app_lease_stays_permanent() -> None:
@@ -582,16 +696,37 @@ def test_an_unidentified_session_is_live_but_unnamed() -> None:
     assert named.name_of(conn, "client") == "client"
 
 
-def test_the_sweep_releases_the_name_it_reaps() -> None:
-    """A lapsed session is removed in one place, so its name goes in that place."""
+def test_a_lapsed_but_undeparted_session_keeps_its_name_reserved() -> None:
+    """RD2: a read never frees a name — only an actual departure does.
+
+    A lapsed lease alone does not release the roster entry: departure is
+    told to the roster, never inferred by it, and a read tells it nothing.
+    """
     clock = _Clock()
     reg = HubClientRegistry(clock)
     lapsing, arrival = ConnectionId("cli"), ConnectionId("later")
     reg.record(lapsing, _cli())
     assert reg.named_sessions().name_of(lapsing, "client") == "lux"
 
+    clock.advance(91.0)  # past the 90s cli lease; nobody has departed lapsing
+    reg.record(arrival, _cli())
+
+    # lapsing still holds the base name — arrival is numbered against it.
+    assert reg.named_sessions().name_of(arrival, "client") == "lux (2)"
+
+
+def test_departing_a_lapsed_session_frees_its_name() -> None:
+    """Once the coordinator actually departs the lapsed session, its name frees."""
+    clock = _Clock()
+    reg = HubClientRegistry(clock)
+    lapsing, arrival = ConnectionId("cli"), ConnectionId("later")
+    reg.record(lapsing, _cli())
+    assert reg.named_sessions().name_of(lapsing, "client") == "lux"  # claims "lux"
     clock.advance(91.0)  # past the 90s cli lease
     reg.record(arrival, _cli())
+    assert reg.named_sessions().name_of(arrival, "client") == "lux (2)"
+
+    reg.discard(lapsing)  # the coordinator's atomic departure
 
     assert reg.named_sessions().name_of(arrival, "client") == "lux"  # the freed name
 
@@ -608,13 +743,13 @@ def test_discard_releases_the_name_with_the_session() -> None:
     assert reg.named_sessions().name_of(arrival, "client") == "lux"
 
 
-def test_the_survivor_takes_the_plain_name_when_the_first_is_swept() -> None:
-    """The sweep frees a base, and the release that frees it hands it on.
+def test_the_survivor_keeps_its_number_until_the_first_actually_departs() -> None:
+    """A lapse alone does not free the base name — only a departure does.
 
-    The reap, the release, and the survivors' naming are one critical section, so
-    the very read that discovers the lapse already reports the new name — the menu
-    and a details frame composed from it can never disagree about which client is
-    ``lux``.
+    A mere read discovering the lapse changes nothing (RD2): the survivor
+    stays ``lux (2)`` until the coordinator (``discard``, here standing in
+    for a graceful disconnect or the background reap timer) actually departs
+    the lapsed connection, at which point the base name is theirs to inherit.
     """
     clock = _Clock()
     reg = HubClientRegistry(clock)
@@ -624,6 +759,9 @@ def test_the_survivor_takes_the_plain_name_when_the_first_is_swept() -> None:
     assert reg.named_sessions().name_of(staying, "client") == "lux (2)"
 
     clock.advance(91.0)  # the cli lease lapses; the mcp session's has 1800s
+    assert reg.named_sessions().name_of(staying, "client") == "lux (2)"  # unchanged
+
+    reg.discard(lapsing)  # the departure the timer or a disconnect performs
 
     assert reg.named_sessions().name_of(staying, "client") == "lux"
 

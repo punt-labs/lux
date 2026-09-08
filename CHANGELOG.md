@@ -2,6 +2,53 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **A departed connection's dead lease no longer shadows a live reconnect
+  under the same identity, on any departure path — including an idle Hub
+  with nobody reading or writing.** The first pass fixed only the
+  write-triggered sweep and left three gaps a refined, ProB-verified model
+  (`docs/connection_lease_reaping.tex`) caught: (1) reads
+  (`named_sessions`/`live_sessions`/`repos`) destructively swept lapsed
+  sessions out of the registry mid-read, ownership-blind — reads are now
+  pure filters that remove no one; (2) graceful disconnect
+  (`drop_connection`) discarded a connection's registration without
+  releasing what it owned, so a scene it installed stayed attributed to it
+  forever — it now deregisters and releases in the same atomic step every
+  departure path funnels through (`HubDisplay._depart`); (3) a
+  long-lived, patch-only writer never renewed its own lease on `apply`,
+  so it could self-reap out from under its own write — `apply` now
+  renews the caller's lease first, unconditionally, before sweeping every
+  *other* lapsed connection. A fourth gap — an idle Hub with a
+  lease-lapsed connection and no read, write, or disconnect to trigger
+  anything — is closed by a new background sweep (`LeaseReapSweep`,
+  mirroring the existing `ExpirySweep` wait-sweep-repeat shape) that
+  fires the same atomic deregister-and-release path on a timer,
+  independent of any client activity. A still-live connection keeps its
+  scenes exactly as before. A third pass closed a concurrency regression
+  the second introduced: the departure sweep had computed the lapsed set
+  and removed each id as two separate lock holds on
+  `HubClientRegistry`, leaving a gap where a renewal on an ordinary
+  MCP-call thread (`register_client`, `identify_client`, or a `/ws`
+  frame — none of which take the Hub's own `StoreLock`) could land
+  between them and get silently evicted anyway.
+  `HubClientRegistry.reap_lapsed_locked` now finds and removes the
+  lapsed set in one lock hold, so a racing renewal is strictly ordered
+  before or after the sweep and is never wiped out mid-flight. A fourth
+  pass closed two path-multiplicity completeness gaps the model exposed
+  but the fix had not yet reached: the `update` patch path
+  (`HubSceneWriter.apply`/`clear`, and `register_callback`) never
+  renewed its caller's lease, so a client that showed once and then only
+  patched or registered callbacks could still self-reap — every
+  authenticated write now renews contact first
+  (`HubDisplay.renew_contact`, the choke point `apply` already used).
+  And `drop_root` routed every ABC scene-root through the
+  ownership-gated `RootRemovalRouter.route`, which silently no-ops for
+  an unowned root — a state a departure or a lease reap now makes
+  ordinary — so a frame close or TTL on such a scene left its content
+  installed forever; an unowned root is now torn down directly instead.
+  (bead lux-d84d; model `docs/connection_lease_reaping.tex`.)
+
 ### Security
 
 - **Content-bearing display messages now reject an unidentified fd, not just

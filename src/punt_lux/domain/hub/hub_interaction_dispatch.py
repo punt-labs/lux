@@ -8,9 +8,7 @@ authoritative copy. Kept out of the connection registry so "own the display
 connection" and "dispatch a display interaction" are each one responsibility.
 
 Closing a frame is not among them. Where a window sits is the Display's own
-business (DES-065 R8), so a close reaches the Hub not at all — it used to, and
-the Hub answered by deleting the frame's scenes, which is how a window the user
-shut came back blank one round trip later.
+business (DES-065 R8), so a close never reaches the Hub.
 """
 
 from __future__ import annotations
@@ -27,6 +25,10 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["HubInteractionDispatch"]
 
+# A fired event's attribution when its element is unowned (a departure
+# released it) -- shaped like "__display__", never a real ConnectionId.
+_UNOWNED = "__unowned__"
+
 
 class HubInteractionDispatch:
     """Route a display-originated interaction to its Hub-side handler."""
@@ -38,9 +40,8 @@ class HubInteractionDispatch:
     def dispatch(msg: RemoteEventHandlerInvocation) -> None:
         """Route one display interaction by its action to the right Hub handler.
 
-        A ``menu`` launches the owning session's callback; everything else fires
-        the scene element on its authoritative copy with the real
-        ``HubPublishSink``.
+        A ``menu`` launches the owning session's callback; everything else
+        fires the scene element on its authoritative copy.
         """
         if msg.action == "menu":
             HubInteractionDispatch._dispatch_menu_callback(msg.element_id)
@@ -70,11 +71,13 @@ class HubInteractionDispatch:
         resolved = ElementInvocationResolver(hub_display).resolve(msg)
         if resolved is None:
             return
+        raw_owner = str(resolved.owner) if resolved.owner is not None else _UNOWNED
+        owner_id = ClientId(raw_owner)
         try:
             event = resolved.element.build_remote_event(
                 event_kind=msg.event_kind,
                 scene_id=resolved.scene_id,
-                owner_id=ClientId(str(resolved.owner)),
+                owner_id=owner_id,
                 value=msg.value,
             )
         except WrongKindError as exc:
@@ -89,13 +92,11 @@ class HubInteractionDispatch:
     def _dispatch_menu_callback(menu_id: str) -> None:
         """Answer a clicked menu leaf: the Hub's own command, or the client's.
 
-        A menu launch carries no scene id and must never be resolved against the
-        element index (the drop that made launching fail). The leaf id names the
-        owning connection and the command within it. ``Details`` is the Hub's own
-        and is answered here; every other command belongs to the client that
-        registered it, and the router holds the invocation for that client's
-        delivery leg. A malformed or non-callback id, or a click for a departed
-        client, is logged, never crashes, and the menu re-pushes.
+        The leaf id names the owning connection and the command within it.
+        ``Details`` is the Hub's own and is answered here; every other
+        command belongs to the client that registered it. A malformed or
+        non-callback id, or a click for a departed client, is logged, never
+        crashes, and the menu re-pushes.
         """
         from punt_lux.domain.hub.details_instance import hub_client_details
         from punt_lux.domain.hub.replicator_instance import (

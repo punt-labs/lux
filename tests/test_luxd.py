@@ -255,19 +255,24 @@ class _RaisingWaitFrames:
         return frozenset()
 
 
-class TestExpirySweepLifespan:
-    """The lifespan helper cancels AND awaits the sweep, which survives a bad cycle."""
+class TestPeriodicSweepLifespan:
+    """The lifespan helper cancels AND awaits a sweep, which survives a bad cycle.
+
+    Exercised against ``ExpirySweep`` as one concrete ``_PeriodicSweep`` — the
+    same helper drives ``LeaseReapSweep`` in production, by the identical
+    contract (an async ``run()`` that only returns on cancellation).
+    """
 
     def test_cancels_and_awaits_the_task_on_exit(self) -> None:
         import asyncio
 
         from punt_lux.domain.hub.expiry_sweep import ExpirySweep
-        from punt_lux.luxd import _expiry_sweep_running
+        from punt_lux.luxd import _periodic_sweep_running
 
         sweep = ExpirySweep(_IdleFrames(), _SpyMarker())
 
         async def drive() -> None:
-            async with _expiry_sweep_running(sweep) as task:
+            async with _periodic_sweep_running(sweep, name="frame-expiry") as task:
                 assert not task.done()  # running for the block's duration
             assert task.done()  # cancelled and awaited on exit — no pending task
             assert task.cancelled()
@@ -278,7 +283,7 @@ class TestExpirySweepLifespan:
         import asyncio
 
         from punt_lux.domain.hub.expiry_sweep import ExpirySweep
-        from punt_lux.luxd import _expiry_sweep_running
+        from punt_lux.luxd import _periodic_sweep_running
 
         sweep = ExpirySweep(_RaisingWaitFrames(), _SpyMarker())
 
@@ -286,7 +291,7 @@ class TestExpirySweepLifespan:
             # A raising wait query no longer kills the loop: it backs off the idle
             # poll and keeps running, so the task is alive for the block and the
             # lifespan helper cancels and awaits it cleanly on exit.
-            async with _expiry_sweep_running(sweep) as task:
+            async with _periodic_sweep_running(sweep, name="frame-expiry") as task:
                 await asyncio.sleep(0.02)
                 assert not task.done()  # survived the raising wait, did not die
             assert task.done()  # cancelled and awaited on exit

@@ -96,11 +96,11 @@ class CallbackOperations:
         same leg still holds the connection. Reading and writing are separate
         moments — this runs on an MCP or REST thread, and the leg lives on the
         loop — so between them it may tear down or be replaced by a reconnect.
-        Committing anyway would leave a menu item with no listener and nothing
-        that would ever withdraw it, which is precisely what the gate is for.
+        Committing anyway would leave a menu item with no listener to withdraw it.
         """
         if isinstance(request, OpError):
             return request
+        self._clients.renew_if_registered(scope.connection_id)
         expected = self._clients.listener_of(scope.connection_id)
         if expected is None:
             return _PUSH_REQUIRED

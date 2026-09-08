@@ -9,11 +9,9 @@ carrying the teardown mechanics itself.
 
 Two entry points, one shared walk:
 
-- ``remove_subtree`` — the storage-only path. The ``update`` remove tool and
-  the ABC observer cascade both land here through ``HubDisplay.apply``.
-- ``drop_root`` — the explicit-removal path for one scene-root. An ABC root is
-  flipped ``mark_removed`` so its observer cascade drives removal; a wire-only
-  root has no observer, so it is torn down directly through ``remove_subtree``.
+- ``remove_subtree`` — storage-only. The ``update`` remove tool and the
+  ABC observer cascade both land here through ``HubDisplay.apply``.
+- ``drop_root`` — one scene-root, owned or not (see its own docstring).
 """
 
 from __future__ import annotations
@@ -60,12 +58,9 @@ class SubtreeRemover:
     def remove_subtree(self, scene_id: SceneId, element_id: ElementId) -> None:
         """Clear the element and every descendant from storage.
 
-        Walks the ``ChildIndex`` to enumerate descendants in install order,
-        then drops each in turn. For ABC subtrees the Observer cascade has
-        already pruned the parent composite's children tuple; for wire-only
-        subtrees no cascade exists, so this walk is the sole removal path.
-        Either way, storage cleanup runs here so future ``resolve`` calls fail
-        loud.
+        Walks the ``ChildIndex`` in install order and drops each descendant,
+        then the element itself, so a later ``resolve`` fails loud rather
+        than finding an orphan.
         """
         for descendant_id in self._children.descendants(scene_id, element_id):
             self._drop_storage(scene_id, descendant_id)
@@ -75,20 +70,22 @@ class SubtreeRemover:
         self,
         scene_id: SceneId,
         element_id: ElementId,
-        connection_id: ConnectionId,
+        # Attribution for the failure log only.
+        connection_id: ConnectionId | None = None,
     ) -> None:
         """Tear down one scene-root; logs and swallows per-root failures.
 
-        Per-root cleanup is best-effort: a failure on one root is logged and
-        the caller continues so a single misbehaving subtree cannot strand the
-        rest of a disconnecting connection's state.
+        An owned root flips ``mark_removed``; an unowned one is torn down
+        directly -- its observer cascade would have no owner to route to.
         """
         try:
             root = self._roots.get(scene_id, element_id)
-            if root is not None:
+            is_owned = self._owners.get(scene_id, element_id) is not None
+            (
                 root.mark_removed()
-            else:
-                self.remove_subtree(scene_id, element_id)
+                if root is not None and is_owned
+                else self.remove_subtree(scene_id, element_id)
+            )
         except Exception:  # noqa: BLE001 — fan-out cleanup boundary; continue past failure
             _log.exception(
                 "drop_root: cleanup failed for root %s in scene %s (conn %s)",
@@ -98,20 +95,16 @@ class SubtreeRemover:
             )
 
     def drop_scene_roots(self, scene_id: SceneId) -> None:
-        """Tear down every root of a scene, whatever connection owns it.
-
-        The whole-scene removal a frame close or a TTL needs. The owner may have
-        departed — a scene outlives its session — so each root drops on its
-        recorded owner; a rootless scene is a no-op. Roots are snapshotted first
-        because ``drop_root`` mutates the index as the cascade unwinds.
-        """
-        roots = [
-            (element_id, self._owners.get(scene_id, element_id))
-            for element_id, _ in self._index.scene_root_items(scene_id)
+        """Tear down every root of a scene; snapshotted since drop_root mutates it."""
+        element_ids = [
+            element_id for element_id, _ in self._index.scene_root_items(scene_id)
         ]
-        for element_id, owner in roots:
-            if owner is not None:
-                self.drop_root(scene_id, element_id, owner.connection_id)
+        # Attribution for drop_root's failure log only.
+        owned_by = self._owners.get
+        for element_id in element_ids:
+            owner = owned_by(scene_id, element_id)
+            connection_id = owner.connection_id if owner else None
+            self.drop_root(scene_id, element_id, connection_id)
 
     def _drop_storage(self, scene_id: SceneId, element_id: ElementId) -> None:
         """Drop one element from every storage collaborator. Idempotent."""

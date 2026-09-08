@@ -1,0 +1,299 @@
+%
+% connection_lease_reaping_no_release_buggy.tex
+%
+% FIDELITY CONTROL for H2 (graceful-departure-without-release), not the
+% design. Round 1 kept this filename for a variant of the lease-lapse
+% path; this round retargets it to the operation the four-way review
+% actually found broken -- Depart, the coordinator behind
+% HubDisplay.drop_connection -- because that is the code path an ordinary
+% clean session end or the SDK's own idle-reap takes today, lapsed lease
+% or not. Changes only Depart: it still drops the departing connection
+% from `registered`, but it never releases the scenes that connection
+% owned. This is not a hypothetical weakening -- it is the literal current
+% behaviour of HubDisplay.drop_connection, whose own docstring says the
+% departing connection's roots "stay owned by its id." See
+% docs/connection_lease_reaping.tex, Section "H2 ---
+% graceful-departure-without-release", for the full trace and the goal
+% that must return FOUND against this variant and NOT found against the
+% fixed spec.
+%
+% Type-check:  fuzz docs/connection_lease_reaping_no_release_buggy.tex
+% Model-check:
+%   probcli docs/connection_lease_reaping_no_release_buggy.tex \
+%       -model_check -nodead -goal "..." -p DEFAULT_SETSIZE 3
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{lux Connection-Lease Reaping --- Fidelity Control (No Release on Departure)}
+\author{Buggy variant: Depart never releases the departing connection's scenes}
+\date{September 2026}
+\maketitle
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+This is the fidelity control for H2 in
+\texttt{docs/connection\_lease\_reaping.tex}, not the design. It removes
+only the release half of \texttt{Depart}: a departing connection --
+graceful disconnect or SDK idle-reap, no lease condition required -- is
+still correctly dropped from \texttt{registered}, but every scene it
+owned is left exactly as it was. This models
+\texttt{HubDisplay.drop\_connection}'s own docstring verbatim: ``a
+session's UI survives the session: the connection's roots stay installed
+and stay owned by its id.'' Read the main specification first; this
+document states only what differs, in Section~\ref{sec:depart}.
+
+% ============================================================
+\section{Basic Types}
+% ============================================================
+
+\begin{zed}
+  [CONN, IDENT, SCENE]
+\end{zed}
+
+Unchanged from the main specification.
+
+% ============================================================
+\section{Free Types}
+% ============================================================
+
+\begin{zed}
+  TSTATE ::= tup | tdown
+\end{zed}
+
+\begin{zed}
+  LSTATE ::= llive | llapsed
+\end{zed}
+
+\begin{zed}
+  OWNER ::= unowned | conn \ldata CONN \rdata
+\end{zed}
+
+Unchanged from the main specification.
+
+% ============================================================
+\section{State}
+% ============================================================
+
+\begin{schema}{ConnReg}
+  registered : \power CONN \\
+  identity : CONN \pfun IDENT \\
+  transport : CONN \pfun TSTATE \\
+  lease : CONN \pfun LSTATE \\
+  owner : SCENE \fun OWNER
+\where
+  registered \subseteq \dom identity \\
+  \dom identity = \dom transport \\
+  \dom transport = \dom lease
+\end{schema}
+
+Unchanged from the main specification.
+
+% ============================================================
+\section{Initialization}
+% ============================================================
+
+\begin{schema}{Init}
+  ConnReg'
+\where
+  registered' = \emptyset \\
+  identity' = \emptyset \\
+  transport' = \emptyset \\
+  lease' = \emptyset \\
+  owner' = (\lambda s : SCENE @ unowned)
+\end{schema}
+
+Unchanged from the main specification.
+
+% ============================================================
+\section{Operations}
+% ============================================================
+
+\subsection{Depart --- BUGGY: no ownership release}
+\label{sec:depart}
+
+\textbf{This is the one operation that differs from the design.} The
+departing connection \texttt{c?} still correctly leaves
+\texttt{registered} -- no lease condition guards it, matching the real
+\texttt{drop\_connection}, which fires on an ordinary clean disconnect
+regardless of lease state -- but \texttt{owner} is left completely
+unchanged: no scene \texttt{c?} owned is released. Compare against the
+correct \texttt{Depart} in \texttt{connection\_lease\_reaping.tex}: the
+correct version clears every scene owned by \texttt{c?} to
+\texttt{unowned} in the same step this one only drops \texttt{c?} from
+\texttt{registered}.
+
+\begin{schema}{Depart}
+  \Delta ConnReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  registered' = registered \setminus \{ c? \} \\
+  owner' = owner \\
+  identity' = identity \\
+  transport' = transport \\
+  lease' = lease
+\end{schema}
+
+\subsection{Connect, Renew, TransportDies, LeaseLapse, Read, TimedReap, Claim --- unchanged}
+
+Identical to the main specification: only \texttt{Depart}'s
+ownership-release step is removed. \texttt{TimedReap} in particular is
+the \emph{correct}, releasing coordinator -- this control isolates the
+H2 finding to \texttt{Depart}'s own graceful-disconnect path, so the
+background backstop must stay intact here exactly as it is in the fixed
+spec.
+
+\begin{schema}{Connect}
+  \Delta ConnReg \\
+  c? : CONN \\
+  i? : IDENT
+\where
+  registered' = registered \cup \{ c? \} \\
+  identity' = identity \oplus \{ c? \mapsto i? \} \\
+  transport' = transport \oplus \{ c? \mapsto tup \} \\
+  lease' = lease \oplus \{ c? \mapsto llive \} \\
+  owner' = owner
+\end{schema}
+
+\begin{schema}{Renew}
+  \Delta ConnReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  transport~c? = tup \\
+  lease' = lease \oplus \{ c? \mapsto llive \} \\
+  registered' = registered \\
+  identity' = identity \\
+  transport' = transport \\
+  owner' = owner
+\end{schema}
+
+\begin{schema}{TransportDies}
+  \Delta ConnReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  transport~c? = tup \\
+  transport' = transport \oplus \{ c? \mapsto tdown \} \\
+  registered' = registered \\
+  identity' = identity \\
+  lease' = lease \\
+  owner' = owner
+\end{schema}
+
+\begin{schema}{LeaseLapse}
+  \Delta ConnReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  lease~c? = llive \\
+  lease' = lease \oplus \{ c? \mapsto llapsed \} \\
+  registered' = registered \\
+  identity' = identity \\
+  transport' = transport \\
+  owner' = owner
+\end{schema}
+
+\begin{schema}{Read}
+  \Xi ConnReg
+\end{schema}
+
+\begin{schema}{TimedReap}
+  \Delta ConnReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  lease~c? = llapsed \\
+  registered' = registered \setminus \{ c? \} \\
+  owner' = owner \oplus \\
+  \quad~ (\{ s : SCENE | owner~s = conn(c?) \} \cross \{ unowned \}) \\
+  identity' = identity \\
+  transport' = transport \\
+  lease' = lease
+\end{schema}
+
+\begin{schema}{Claim}
+  \Delta ConnReg \\
+  c? : CONN \\
+  s? : SCENE
+\where
+  c? \in registered \\
+  transport~c? = tup \\
+  lease' = lease \oplus \{ c? \mapsto llive \} \\
+  registered' = registered \setminus \\
+  \quad~ \{ c2 : CONN | c2 \in registered \land c2 \neq c? \land
+    lease~c2 = llapsed \} \\
+  (owner \oplus (\{ s : SCENE | \exists c2 : CONN @ \\
+    \qquad c2 \in registered \land c2 \neq c? \land lease~c2 = llapsed
+    \land owner~s = conn(c2) \} \\
+    \qquad \cross \{ unowned \}))~s? = unowned \\
+  \lor \\
+  (owner \oplus (\{ s : SCENE | \exists c2 : CONN @ \\
+    \qquad c2 \in registered \land c2 \neq c? \land lease~c2 = llapsed
+    \land owner~s = conn(c2) \} \\
+    \qquad \cross \{ unowned \}))~s? = conn(c?) \\
+  owner' = (owner \oplus (\{ s : SCENE | \exists c2 : CONN @ \\
+    \qquad c2 \in registered \land c2 \neq c? \land lease~c2 = llapsed
+    \land owner~s = conn(c2) \} \\
+    \qquad \cross \{ unowned \})) \oplus \{ s? \mapsto conn(c?) \} \\
+  identity' = identity \\
+  transport' = transport
+\end{schema}
+
+% ============================================================
+\section{Verification: the goal that must flip}
+% ============================================================
+
+Against this variant, I2/I5's negation must be \emph{found} --- the trace
+in \texttt{connection\_lease\_reaping.tex}, Section H2, reaches it
+directly, and never lapses a lease at all:
+\texttt{Connect}(c1, i1); \texttt{Claim}(c1, s1); \texttt{Depart}(c1).
+
+\begin{verbatim}
+  # must be FOUND against this variant (NOT found against the fixed spec)
+  probcli docs/connection_lease_reaping_no_release_buggy.tex \
+    -model_check -nodead \
+    -goal "#s.(#c.(s:SCENE & c:CONN & owner(s) = conn(c) &
+                   not(c : registered)))" \
+    -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+I3's negation must also be \emph{found}, continuing the same trace one
+step further with a live reconnect under the same identity --
+\texttt{Connect}(c2, i1):
+
+\begin{verbatim}
+  # must be FOUND against this variant (NOT found against the fixed spec)
+  probcli docs/connection_lease_reaping_no_release_buggy.tex \
+    -model_check -nodead \
+    -goal "#s.(#c.(#c2.(s:SCENE & c:CONN & c2:CONN &
+                        c : registered & not(c2 : registered) &
+                        c2 : dom(identity) & identity(c) = identity(c2) &
+                        not(c = c2) & owner(s) = conn(c2))))" \
+    -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+I1 must stay unaffected --- this variant does not touch
+\texttt{TransportDies} or \texttt{LeaseLapse}, so the chain
+\texttt{TransportDies};\texttt{Depart} still completes exactly as in the
+fixed spec (this variant does not remove \texttt{Depart}'s own guard, only
+what happens to \texttt{owner} afterward):
+
+\begin{verbatim}
+  # must remain FOUND
+  probcli docs/connection_lease_reaping_no_release_buggy.tex \
+    -model_check -nodead \
+    -goal "#c.(c:CONN & c : dom(identity) & not(c : registered) &
+               transport(c) = tdown)" \
+    -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+\end{document}

@@ -1,0 +1,294 @@
+%
+% connection_lease_reaping_self_reap_buggy.tex
+%
+% FIDELITY CONTROL for H3 (self-reap-without-renew), not the design.
+% Changes only Claim: it omits the self-renewal step and the c2 /= c?
+% exclusion from the sweep it performs before granting the write, so the
+% caller is swept by its own sweep exactly as HubDisplay._reap_and_release
+% sweeps every session -- caller included -- because HubDisplay.apply
+% never calls anything that renews the caller's own lease before it does.
+% See docs/connection_lease_reaping.tex, Section "H3 ---
+% self-reap-without-renew", for the full trace and the goal that must
+% return FOUND against this variant and NOT found against the fixed spec.
+%
+% Type-check:  fuzz docs/connection_lease_reaping_self_reap_buggy.tex
+% Model-check:
+%   probcli docs/connection_lease_reaping_self_reap_buggy.tex \
+%       -model_check -nodead -goal "..." -p DEFAULT_SETSIZE 3
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{lux Connection-Lease Reaping --- Fidelity Control (Self-Reap on Write)}
+\author{Buggy variant: Claim sweeps its own caller, never renewing it first}
+\date{September 2026}
+\maketitle
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+This is the fidelity control for H3 in
+\texttt{docs/connection\_lease\_reaping.tex}, not the design. It removes
+only the self-protection \texttt{Claim} otherwise gives its own caller: no
+renewal before the sweep, and no exclusion of the caller from the set the
+sweep releases. \texttt{HubDisplay.apply} calls
+\texttt{self.\_reap\_and\_release()} -- an unconditional sweep of
+\emph{every} lapsed session under \texttt{HubClientRegistry.reap} --
+before it does anything else, and never calls anything that would renew
+the calling connection's own lease first. A connection that only ever
+contacts the Hub through writes (an initial \texttt{show}, then only
+patches) never renews outside that first call; once its lease's length
+has passed, its own next write sweeps and releases itself before
+performing the very write that should have kept it alive. Read the main
+specification first; this document states only what differs, in
+Section~\ref{sec:claim}.
+
+% ============================================================
+\section{Basic Types}
+% ============================================================
+
+\begin{zed}
+  [CONN, IDENT, SCENE]
+\end{zed}
+
+Unchanged from the main specification.
+
+% ============================================================
+\section{Free Types}
+% ============================================================
+
+\begin{zed}
+  TSTATE ::= tup | tdown
+\end{zed}
+
+\begin{zed}
+  LSTATE ::= llive | llapsed
+\end{zed}
+
+\begin{zed}
+  OWNER ::= unowned | conn \ldata CONN \rdata
+\end{zed}
+
+Unchanged from the main specification.
+
+% ============================================================
+\section{State}
+% ============================================================
+
+\begin{schema}{ConnReg}
+  registered : \power CONN \\
+  identity : CONN \pfun IDENT \\
+  transport : CONN \pfun TSTATE \\
+  lease : CONN \pfun LSTATE \\
+  owner : SCENE \fun OWNER
+\where
+  registered \subseteq \dom identity \\
+  \dom identity = \dom transport \\
+  \dom transport = \dom lease
+\end{schema}
+
+Unchanged from the main specification.
+
+% ============================================================
+\section{Initialization}
+% ============================================================
+
+\begin{schema}{Init}
+  ConnReg'
+\where
+  registered' = \emptyset \\
+  identity' = \emptyset \\
+  transport' = \emptyset \\
+  lease' = \emptyset \\
+  owner' = (\lambda s : SCENE @ unowned)
+\end{schema}
+
+Unchanged from the main specification.
+
+% ============================================================
+\section{Operations}
+% ============================================================
+
+\subsection{Claim --- BUGGY: no self-renewal, no self-exclusion from the sweep}
+\label{sec:claim}
+
+\textbf{This is the one operation that differs from the design.} The
+ownership-gated write itself is unchanged -- the claim guard and the
+grant are exactly as in the fixed spec. What is missing is the special
+treatment the fixed \texttt{Claim} gives its own caller: \texttt{lease'}
+is left unchanged instead of renewing \texttt{c?} to \texttt{llive}
+first, and the sweep set drops the \(c2 \neq c?\) exclusion, so it reads
+\emph{every} registered connection whose lease has lapsed --
+\texttt{c?} included, exactly as
+\texttt{HubClientRegistry.\_sweep\_locked} sweeps every session in
+\texttt{\_sessions}, caller or not, when \texttt{HubDisplay
+.\_reap\_and\_release} invokes it unconditionally at the top of
+\texttt{apply}.
+
+\begin{schema}{Claim}
+  \Delta ConnReg \\
+  c? : CONN \\
+  s? : SCENE
+\where
+  c? \in registered \\
+  transport~c? = tup \\
+  lease' = lease \\
+  registered' = registered \setminus \\
+  \quad~ \{ c2 : CONN | c2 \in registered \land lease~c2 = llapsed \} \\
+  (owner \oplus (\{ s : SCENE | \exists c2 : CONN @ \\
+    \qquad c2 \in registered \land lease~c2 = llapsed
+    \land owner~s = conn(c2) \} \\
+    \qquad \cross \{ unowned \}))~s? = unowned \\
+  \lor \\
+  (owner \oplus (\{ s : SCENE | \exists c2 : CONN @ \\
+    \qquad c2 \in registered \land lease~c2 = llapsed
+    \land owner~s = conn(c2) \} \\
+    \qquad \cross \{ unowned \}))~s? = conn(c?) \\
+  owner' = (owner \oplus (\{ s : SCENE | \exists c2 : CONN @ \\
+    \qquad c2 \in registered \land lease~c2 = llapsed
+    \land owner~s = conn(c2) \} \\
+    \qquad \cross \{ unowned \})) \oplus \{ s? \mapsto conn(c?) \} \\
+  identity' = identity \\
+  transport' = transport
+\end{schema}
+
+\subsection{Connect, Renew, TransportDies, LeaseLapse, Read, Depart, TimedReap --- unchanged}
+
+Identical to the main specification: only \texttt{Claim}'s
+self-protection is removed.
+
+\begin{schema}{Connect}
+  \Delta ConnReg \\
+  c? : CONN \\
+  i? : IDENT
+\where
+  registered' = registered \cup \{ c? \} \\
+  identity' = identity \oplus \{ c? \mapsto i? \} \\
+  transport' = transport \oplus \{ c? \mapsto tup \} \\
+  lease' = lease \oplus \{ c? \mapsto llive \} \\
+  owner' = owner
+\end{schema}
+
+\begin{schema}{Renew}
+  \Delta ConnReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  transport~c? = tup \\
+  lease' = lease \oplus \{ c? \mapsto llive \} \\
+  registered' = registered \\
+  identity' = identity \\
+  transport' = transport \\
+  owner' = owner
+\end{schema}
+
+\begin{schema}{TransportDies}
+  \Delta ConnReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  transport~c? = tup \\
+  transport' = transport \oplus \{ c? \mapsto tdown \} \\
+  registered' = registered \\
+  identity' = identity \\
+  lease' = lease \\
+  owner' = owner
+\end{schema}
+
+\begin{schema}{LeaseLapse}
+  \Delta ConnReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  lease~c? = llive \\
+  lease' = lease \oplus \{ c? \mapsto llapsed \} \\
+  registered' = registered \\
+  identity' = identity \\
+  transport' = transport \\
+  owner' = owner
+\end{schema}
+
+\begin{schema}{Read}
+  \Xi ConnReg
+\end{schema}
+
+\begin{schema}{Depart}
+  \Delta ConnReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  registered' = registered \setminus \{ c? \} \\
+  owner' = owner \oplus \\
+  \quad~ (\{ s : SCENE | owner~s = conn(c?) \} \cross \{ unowned \}) \\
+  identity' = identity \\
+  transport' = transport \\
+  lease' = lease
+\end{schema}
+
+\begin{schema}{TimedReap}
+  \Delta ConnReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  lease~c? = llapsed \\
+  registered' = registered \setminus \{ c? \} \\
+  owner' = owner \oplus \\
+  \quad~ (\{ s : SCENE | owner~s = conn(c?) \} \cross \{ unowned \}) \\
+  identity' = identity \\
+  transport' = transport \\
+  lease' = lease
+\end{schema}
+
+% ============================================================
+\section{Verification: the goal that must flip}
+% ============================================================
+
+Against this variant, I5/I6's negation must be \emph{found} --- the
+trace in \texttt{connection\_lease\_reaping.tex}, Section H3, reaches it
+in four steps and never calls \texttt{TransportDies} at all:
+\texttt{Connect}(c1, i1); \texttt{Claim}(c1, s1); \texttt{LeaseLapse}(c1);
+\texttt{Claim}(c1, s1) again.
+
+\begin{verbatim}
+  # must be FOUND against this variant (NOT found against the fixed spec)
+  probcli docs/connection_lease_reaping_self_reap_buggy.tex \
+    -model_check -nodead \
+    -goal "#s.(#c.(s:SCENE & c:CONN & owner(s) = conn(c) &
+                   not(c : registered) & transport(c) = tup))" \
+    -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+The same trace also satisfies the more general I2/I5 goal, since a
+transport that never died is one instance of a connection that is
+absent from \texttt{registered} while still owning a scene:
+
+\begin{verbatim}
+  # must be FOUND against this variant (NOT found against the fixed spec)
+  probcli docs/connection_lease_reaping_self_reap_buggy.tex \
+    -model_check -nodead \
+    -goal "#s.(#c.(s:SCENE & c:CONN & owner(s) = conn(c) &
+                   not(c : registered)))" \
+    -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+I1 must stay unaffected --- this variant does not touch
+\texttt{TransportDies} or \texttt{Depart}, so the chain
+\texttt{TransportDies};\texttt{Depart} still completes exactly as in the
+fixed spec:
+
+\begin{verbatim}
+  # must remain FOUND
+  probcli docs/connection_lease_reaping_self_reap_buggy.tex \
+    -model_check -nodead \
+    -goal "#c.(c:CONN & c : dom(identity) & not(c : registered) &
+               transport(c) = tdown)" \
+    -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+\end{document}
