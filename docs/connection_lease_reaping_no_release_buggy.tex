@@ -1,15 +1,21 @@
 %
 % connection_lease_reaping_no_release_buggy.tex
 %
-% FIDELITY CONTROL, not the design. Changes only Reap: it still drops the
-% lapsed connection from `registered`, but it never releases the scenes
-% that connection owned. This is not a hypothetical weakening -- it is the
-% literal current behaviour of HubDisplay.drop_connection and
-% HubClientRegistry.named_sessions's sweep, neither of which today calls
-% into OwnerTracker at all. See docs/connection_lease_reaping.tex, Section
-% "Fidelity: reproducing the shipped defect", for the full trace and the
-% invariant checks that must return FOUND against this variant (and NOT
-% found against the correct spec).
+% FIDELITY CONTROL for H2 (graceful-departure-without-release), not the
+% design. Round 1 kept this filename for a variant of the lease-lapse
+% path; this round retargets it to the operation the four-way review
+% actually found broken -- Depart, the coordinator behind
+% HubDisplay.drop_connection -- because that is the code path an ordinary
+% clean session end or the SDK's own idle-reap takes today, lapsed lease
+% or not. Changes only Depart: it still drops the departing connection
+% from `registered`, but it never releases the scenes that connection
+% owned. This is not a hypothetical weakening -- it is the literal current
+% behaviour of HubDisplay.drop_connection, whose own docstring says the
+% departing connection's roots "stay owned by its id." See
+% docs/connection_lease_reaping.tex, Section "H2 ---
+% graceful-departure-without-release", for the full trace and the goal
+% that must return FOUND against this variant and NOT found against the
+% fixed spec.
 %
 % Type-check:  fuzz docs/connection_lease_reaping_no_release_buggy.tex
 % Model-check:
@@ -24,8 +30,8 @@
 
 \begin{document}
 
-\title{lux Connection-Lease Reaping --- Fidelity Control (No Release)}
-\author{Buggy variant: Reap never releases the departing connection's scenes}
+\title{lux Connection-Lease Reaping --- Fidelity Control (No Release on Departure)}
+\author{Buggy variant: Depart never releases the departing connection's scenes}
 \date{September 2026}
 \maketitle
 
@@ -33,17 +39,16 @@
 \section{Introduction}
 % ============================================================
 
-This is the fidelity control for \texttt{docs/connection\_lease\_reaping
-.tex}, not the design. It removes only the ownership-release half of
-\texttt{Reap}: a lapsed connection still correctly leaves
-\texttt{registered} (I1's mechanism is untouched), but every scene it
-owned is left exactly as it was --- this models
-\texttt{HubClientRegistry.named\_sessions}'s sweep, which drops a session
-from its own dict and never calls into \texttt{OwnerTracker}, composed
-with \texttt{HubDisplay.drop\_connection}, whose own docstring says the
-departing connection's roots ``stay owned by its id.'' Read the main
-specification first; this document states only what differs, in
-Section~\ref{sec:reap}.
+This is the fidelity control for H2 in
+\texttt{docs/connection\_lease\_reaping.tex}, not the design. It removes
+only the release half of \texttt{Depart}: a departing connection --
+graceful disconnect or SDK idle-reap, no lease condition required -- is
+still correctly dropped from \texttt{registered}, but every scene it
+owned is left exactly as it was. This models
+\texttt{HubDisplay.drop\_connection}'s own docstring verbatim: ``a
+session's UI survives the session: the connection's roots stay installed
+and stay owned by its id.'' Read the main specification first; this
+document states only what differs, in Section~\ref{sec:depart}.
 
 % ============================================================
 \section{Basic Types}
@@ -53,8 +58,7 @@ Section~\ref{sec:reap}.
   [CONN, IDENT, SCENE]
 \end{zed}
 
-Unchanged from the main specification: three connections, two identities,
-and three scenes, bounded by ProB's \texttt{DEFAULT\_SETSIZE}.
+Unchanged from the main specification.
 
 % ============================================================
 \section{Free Types}
@@ -90,8 +94,7 @@ Unchanged from the main specification.
   \dom transport = \dom lease
 \end{schema}
 
-Unchanged from the main specification --- see there for the full
-description of each field.
+Unchanged from the main specification.
 
 % ============================================================
 \section{Initialization}
@@ -113,25 +116,25 @@ Unchanged from the main specification.
 \section{Operations}
 % ============================================================
 
-\subsection{Reap --- BUGGY: no ownership release}
-\label{sec:reap}
+\subsection{Depart --- BUGGY: no ownership release}
+\label{sec:depart}
 
 \textbf{This is the one operation that differs from the design.} The
-lapsed connection \texttt{c?} still correctly leaves \texttt{registered}
---- the lease sweep itself is not the defect, and I1's mechanism is
-deliberately left intact by this variant, isolating the I2/I3 finding from
-an I1 one. But \texttt{owner} is left completely unchanged: no scene
-\texttt{c?} owned is released. Compare against the correct \texttt{Reap}
-in \texttt{connection\_lease\_reaping.tex}: the correct version clears
-every scene owned by \texttt{c?} to \texttt{unowned} in the same step this
-one only drops \texttt{c?} from \texttt{registered}.
+departing connection \texttt{c?} still correctly leaves
+\texttt{registered} -- no lease condition guards it, matching the real
+\texttt{drop\_connection}, which fires on an ordinary clean disconnect
+regardless of lease state -- but \texttt{owner} is left completely
+unchanged: no scene \texttt{c?} owned is released. Compare against the
+correct \texttt{Depart} in \texttt{connection\_lease\_reaping.tex}: the
+correct version clears every scene owned by \texttt{c?} to
+\texttt{unowned} in the same step this one only drops \texttt{c?} from
+\texttt{registered}.
 
-\begin{schema}{Reap}
+\begin{schema}{Depart}
   \Delta ConnReg \\
   c? : CONN
 \where
   c? \in registered \\
-  lease~c? = llapsed \\
   registered' = registered \setminus \{ c? \} \\
   owner' = owner \\
   identity' = identity \\
@@ -139,9 +142,9 @@ one only drops \texttt{c?} from \texttt{registered}.
   lease' = lease
 \end{schema}
 
-\subsection{Connect, Renew, TransportDies, LeaseLapse, Claim --- unchanged}
+\subsection{Connect, Renew, TransportDies, LeaseLapse, Read, Claim --- unchanged}
 
-Identical to the main specification: only \texttt{Reap}'s
+Identical to the main specification: only \texttt{Depart}'s
 ownership-release step is removed.
 
 \begin{schema}{Connect}
@@ -187,7 +190,6 @@ ownership-release step is removed.
   c? : CONN
 \where
   c? \in registered \\
-  transport~c? = tdown \\
   lease~c? = llive \\
   lease' = lease \oplus \{ c? \mapsto llapsed \} \\
   registered' = registered \\
@@ -196,32 +198,49 @@ ownership-release step is removed.
   owner' = owner
 \end{schema}
 
+\begin{schema}{Read}
+  \Xi ConnReg
+\end{schema}
+
 \begin{schema}{Claim}
   \Delta ConnReg \\
   c? : CONN \\
   s? : SCENE
 \where
   c? \in registered \\
-  owner~s? = unowned \lor owner~s? = conn(c?) \\
-  owner' = owner \oplus \{ s? \mapsto conn(c?) \} \\
-  registered' = registered \\
+  transport~c? = tup \\
+  lease' = lease \oplus \{ c? \mapsto llive \} \\
+  registered' = registered \setminus \\
+  \quad~ \{ c2 : CONN | c2 \in registered \land c2 \neq c? \land
+    lease~c2 = llapsed \} \\
+  (owner \oplus (\{ s : SCENE | \exists c2 : CONN @ \\
+    \qquad c2 \in registered \land c2 \neq c? \land lease~c2 = llapsed
+    \land owner~s = conn(c2) \} \\
+    \qquad \cross \{ unowned \}))~s? = unowned \\
+  \lor \\
+  (owner \oplus (\{ s : SCENE | \exists c2 : CONN @ \\
+    \qquad c2 \in registered \land c2 \neq c? \land lease~c2 = llapsed
+    \land owner~s = conn(c2) \} \\
+    \qquad \cross \{ unowned \}))~s? = conn(c?) \\
+  owner' = (owner \oplus (\{ s : SCENE | \exists c2 : CONN @ \\
+    \qquad c2 \in registered \land c2 \neq c? \land lease~c2 = llapsed
+    \land owner~s = conn(c2) \} \\
+    \qquad \cross \{ unowned \})) \oplus \{ s? \mapsto conn(c?) \} \\
   identity' = identity \\
-  transport' = transport \\
-  lease' = lease
+  transport' = transport
 \end{schema}
 
 % ============================================================
-\section{Verification: the goals that must flip}
+\section{Verification: the goal that must flip}
 % ============================================================
 
-Against this variant, I2's negation must be \emph{found} --- the trace in
-\texttt{connection\_lease\_reaping.tex}, Section ``Fidelity: reproducing
-the shipped defect,'' reaches it directly:
-\texttt{Connect}(c1, i1); \texttt{Claim}(c1, s1); \texttt{TransportDies}(c1);
-\texttt{LeaseLapse}(c1); \texttt{Reap}(c1).
+Against this variant, I2/I5's negation must be \emph{found} --- the trace
+in \texttt{connection\_lease\_reaping.tex}, Section H2, reaches it
+directly, and never lapses a lease at all:
+\texttt{Connect}(c1, i1); \texttt{Claim}(c1, s1); \texttt{Depart}(c1).
 
 \begin{verbatim}
-  # must be FOUND against this variant (NOT found against the correct spec)
+  # must be FOUND against this variant (NOT found against the fixed spec)
   probcli docs/connection_lease_reaping_no_release_buggy.tex \
     -model_check -nodead \
     -goal "#s.(#c.(s:SCENE & c:CONN & owner(s) = conn(c) &
@@ -234,7 +253,7 @@ step further with a live reconnect under the same identity --
 \texttt{Connect}(c2, i1):
 
 \begin{verbatim}
-  # must be FOUND against this variant (NOT found against the correct spec)
+  # must be FOUND against this variant (NOT found against the fixed spec)
   probcli docs/connection_lease_reaping_no_release_buggy.tex \
     -model_check -nodead \
     -goal "#s.(#c.(#c2.(s:SCENE & c:CONN & c2:CONN &
@@ -244,15 +263,14 @@ step further with a live reconnect under the same identity --
     -p DEFAULT_SETSIZE 3
 \end{verbatim}
 
-I1 must stay unaffected --- this variant deliberately leaves the lease
-sweep's own removal from \texttt{registered} intact, so it proves nothing
-about I1 on its own and must not be mistaken for a stuck-registration
-counterexample:
+I1 must stay unaffected --- this variant does not touch
+\texttt{TransportDies} or \texttt{LeaseLapse}, so the chain
+\texttt{TransportDies};\texttt{Depart} still completes exactly as in the
+fixed spec (this variant does not remove \texttt{Depart}'s own guard, only
+what happens to \texttt{owner} afterward):
 
 \begin{verbatim}
-  # must remain FOUND (the chain still completes -- this variant does not
-  # touch the lease sweep's own removal from `registered`, only what
-  # happens to `owner` afterward)
+  # must remain FOUND
   probcli docs/connection_lease_reaping_no_release_buggy.tex \
     -model_check -nodead \
     -goal "#c.(c:CONN & c : dom(identity) & not(c : registered) &
