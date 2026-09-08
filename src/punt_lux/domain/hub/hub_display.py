@@ -172,6 +172,10 @@ class HubDisplay:
         """Return True if the connection is currently registered."""
         return self._clients.session_of(connection_id) is not None
 
+    def renew_contact(self, connection_id: ConnectionId) -> None:
+        """Renew the lease iff registered -- the write-contact choke point."""
+        self._clients.renew_if_registered(connection_id)
+
     @property
     def clients(self) -> HubClientRegistry:
         """Return the session registry — identity, lease, and callback authority."""
@@ -228,10 +232,8 @@ class HubDisplay:
         """Return every non-quarantined scene still holding a non-removed root.
 
         The replication-facing read: quarantined scenes are excluded at the
-        source, so no caller — including the reconnect reconciliation hook —
-        re-marks one for a fresh Display to crash on again. Introspection
-        uses :meth:`all_scene_ids` instead, which keeps a quarantined scene
-        visible.
+        source, so no caller re-marks one for a fresh Display to crash on
+        again. Introspection uses :meth:`all_scene_ids`, which keeps one visible.
         """
         with self._lock.read():
             quarantined = self._quarantine.quarantined_ids()
@@ -240,11 +242,7 @@ class HubDisplay:
             )
 
     def all_scene_ids(self) -> tuple[SceneId, ...]:
-        """Return every scene still holding a non-removed root, quarantined or not.
-
-        The introspection-facing read — quarantine is a replication decision,
-        not a deletion, unlike :meth:`live_scene_ids`.
-        """
+        """Return every scene still holding a non-removed root, quarantined or not."""
         return self._reader.live_scene_ids()
 
     def element_count(self, scene_id: SceneId) -> int:

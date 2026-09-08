@@ -13,6 +13,7 @@ after the write.
 from __future__ import annotations
 
 import logging
+from typing import final
 
 import pytest
 
@@ -28,6 +29,20 @@ _OWNER = ConnectionId("owner-conn")
 _OTHER = ConnectionId("other-conn")
 _ELEM_ID = ElementId("t1")
 _SECOND_ID = ElementId("t2")
+
+
+@final
+class _Clock:
+    """A hand-advanced monotonic clock, so lease expiry is deterministic."""
+
+    def __init__(self, now: float = 0.0) -> None:
+        self._now = now
+
+    def __call__(self) -> float:
+        return self._now
+
+    def advance(self, seconds: float) -> None:
+        self._now += seconds
 
 
 def _seed_one_text() -> HubDisplay:
@@ -150,6 +165,40 @@ def test_remove_absent_element_is_idempotent_no_op() -> None:
     assert isinstance(stored, TextElement)
     with pytest.raises(UnknownElementError):
         hub_display.resolve(_SCENE, ElementId("ghost"))
+
+
+def test_a_patch_only_client_keeps_its_lease_and_ownership_past_its_ttl() -> None:
+    """A show-once-then-patch-only client must not self-reap mid-write.
+
+    ``HubSceneWriter.apply`` is the ``update`` tool's write path; before
+    this fix it never renewed its own caller, so a client that shows once
+    and then only patches stopped renewing entirely -- the next lease-
+    lapsed sweep (the background timer, or another connection's write)
+    reaped it and released its scene ownership out from under an active
+    writer. Each patch here advances the clock past the unidentified
+    session's lease and is followed by a live reap sweep, matching a
+    timer tick between calls; the client must survive every one.
+    """
+    clock = _Clock()
+    hub_display = HubDisplay(clock)
+    hub_display.register_client(_OWNER)
+    text = TextElement(id=str(_ELEM_ID), content="hello")
+    hub_display.apply(_OWNER, AddElement(scene_id=_SCENE, element=text, parent_id=None))
+    writer = HubSceneWriter(hub_display)
+
+    for i in range(3):
+        clock.advance(1801.0)  # past the 1800s unidentified-session lease
+        result = writer.apply(
+            SceneScope(_OWNER, _SCENE),
+            [{"id": str(_ELEM_ID), "set": {"content": f"patch-{i}"}}],
+        )
+        assert isinstance(result, WriteAccepted)
+        assert hub_display.reap_lapsed_leases() == frozenset()
+
+    assert hub_display.is_client(_OWNER)
+    patched = hub_display.resolve(_SCENE, _ELEM_ID)
+    assert isinstance(patched, TextElement)
+    assert patched.content == "patch-2"
 
 
 def test_remove_owned_by_another_connection_is_rejected() -> None:

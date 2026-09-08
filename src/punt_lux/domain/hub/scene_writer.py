@@ -82,6 +82,7 @@ class HubSceneWriter:
         # One store-lock hold spans the whole batch so the replicator never
         # snapshots it half-applied; reentrant, so nested writes re-enter freely.
         with self._display.write_lock():
+            self._display.renew_contact(scope.connection_id)
             try:
                 batch = PatchBatch.from_wire(patches)
                 realizations = self._field_realizations(scope, batch)
@@ -114,6 +115,7 @@ class HubSceneWriter:
         """
         touched: set[SceneId] = set()
         with self._display.write_lock():
+            self._display.renew_contact(connection_id)
             for owned_scene, element_id in self._display.elements_owned_by(
                 connection_id
             ):
@@ -140,9 +142,8 @@ class HubSceneWriter:
     def _guard_removals(self, scope: SceneScope, removals: Sequence[ElementId]) -> None:
         """Owner-check each present removal.
 
-        An absent target is skipped, not rejected, because ``RemoveElement`` is
-        idempotent — but the skip is logged so a mistyped id (``submit-buton``
-        for ``submit-button``) leaves a diagnosable trace rather than vanishing.
+        An absent target is skipped, not rejected -- ``RemoveElement`` is
+        idempotent -- but logged, so a mistyped id leaves a diagnosable trace.
         """
         seam = self._display.write_seam
         for element_id in removals:
@@ -179,10 +180,8 @@ class HubSceneWriter:
         drops the child, so the child's own removal reaches an absent id. The apply
         path stays safe by idempotency, not by staging — ``_owners.get`` returns
         ``None`` so the ownership check returns without raising, and ``discard``
-        no-ops on already-dropped storage.
-
-        Removing the last root empties the scene; the scene's presentation is kept
-        so a later resend blanks it into the frame it was shown in.
+        no-ops on already-dropped storage. Removing the last root empties the
+        scene; its presentation is kept so a later resend blanks it into its frame.
         """
         for element_id in removals:
             self._display.apply(scope.connection_id, scope.removal(element_id))

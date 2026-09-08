@@ -180,15 +180,13 @@ def test_push_reachability_is_answered_before_identity() -> None:
     assert result.code == "push_required"
 
 
-def test_a_session_whose_lease_lapsed_is_challenged_rather_than_registered() -> None:
-    """Holding a leg is not enough; the session must still be one the Hub knows.
+def test_registering_a_callback_renews_a_lapsed_but_still_reachable_session() -> None:
+    """Registration is itself authenticated contact, so it renews before it checks.
 
-    This is now the only way a session with a leg can be refused on its own
-    account. Identity and the leg arrive in one registry write, so a connection
-    cannot hold a leg anonymously — the route that serves it refuses an unnamed
-    handshake, and attaching records the identity in the same step. What remains
-    is a session that stopped renewing, and re-identifying answers that, because
-    declaring an identity is itself a renewal.
+    A session that stopped renewing (no show/update since) but still holds
+    its listen leg is not stuck behind an identification challenge: the
+    call renews the lease first, so the liveness check that follows sees a
+    live session and accepts.
     """
     clock = _Clock()
     wired = _Wired(clock=clock)
@@ -196,10 +194,8 @@ def test_a_session_whose_lease_lapsed_is_challenged_rather_than_registered() -> 
     wired.connect(conn, _identity())
     clock.advance(1801.0)  # past the 1800s mcp-session lease, no contact since
 
-    result = wired.register(conn)
-    assert isinstance(result, OpError)
-    assert result.code == "identification_required"
-    assert wired.pushed == 0
+    assert isinstance(wired.register(conn), Ok)
+    assert wired.pushed == 1
 
 
 def test_an_identified_listening_session_registers_and_the_menu_is_pushed() -> None:
