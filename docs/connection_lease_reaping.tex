@@ -17,6 +17,16 @@
 % sweeps anyone else -- and adds the two invariants (I5, I6) that state, in
 % general form, why each hole is now closed.
 %
+% ADDENDUM within round 2: the first cut of this round made every departure
+% pull-based -- discharged only by another connection's Claim or an external
+% Depart signal. The leader ruled that pull-based reaping cannot satisfy the
+% bead's own premise ("the 30s lease exists for this and is NOT firing" --
+% the connection persisted 25.79h with nobody else ever writing or
+% disconnecting it). TimedReap is added below: the same atomic
+% deregister-and-release step, but guarded only on a lapsed lease, so the
+% lease is a genuine background backstop and I1 no longer depends on any
+% other party's activity.
+%
 % Read first: src/punt_lux/domain/hub/hub_clients.py (HubClientRegistry --
 % named_sessions/live_sessions/repos as READS that must become
 % non-destructive; reap/_sweep_locked; record/_renewed; discard),
@@ -121,7 +131,22 @@ decisions this model encodes and does not re-open:
     1 left uncovered.
 \end{enumerate}
 
-Six operations realize this: \texttt{Connect} and \texttt{Renew} are
+The first cut of this round realized ``a lease lapsing'' entirely as a
+\emph{side effect} of some other party's activity -- \texttt{Depart}'s
+external signal, or \texttt{Claim}'s embedded sweep of others. The leader's
+ruling on that cut's own surfaced gap adds a fourth decision:
+
+\begin{enumerate}
+  \setcounter{enumi}{3}
+  \item \textbf{The lease is a real backstop, not just a bookkeeping
+    field.} A lapsed lease must eventually discharge on its own, with no
+    read, no other connection's write, and no detected disconnect required
+    -- exactly what ``the 30-second lease exists for this'' promises, and
+    exactly what a purely pull-based design cannot deliver for a killed
+    process on an otherwise idle Hub.
+\end{enumerate}
+
+Eight operations realize this: \texttt{Connect} and \texttt{Renew} are
 unchanged from round 1. \texttt{TransportDies} is unchanged.
 \texttt{LeaseLapse} drops the transport-death precondition it carried in
 round 1 -- H3 is exactly the case of a lease lapsing under a transport
@@ -135,14 +160,27 @@ lease state. \texttt{Claim} models \texttt{apply}: it renews the caller's
 own lease first, then sweeps every \emph{other} lapsed connection and
 releases what each owned, then performs the ownership-gated write against
 the result -- one atomic step, matching \texttt{apply}'s own docstring,
-``reaps and releases first, before the ownership check.''
+``reaps and releases first, before the ownership check.'' \texttt{TimedReap}
+is this addendum's addition: the identical atomic deregister-and-release
+predicate \texttt{Depart} and \texttt{Claim}'s sweep already perform,
+guarded only on \texttt{lease~c? = llapsed} -- no other connection, no read,
+and no external signal is a precondition of it firing.
 
-Four properties survive from round 1, unchanged in statement:
+Four properties survive from round 1, one strengthened:
 
 \begin{description}
-  \item[I1 --- transport-gone implies eventually reaped.] A connection
-    whose transport has died cannot renew, and nothing can indefinitely
-    block \texttt{Depart} once it applies.
+  \item[I1 --- transport-gone implies \emph{unconditionally} eventually
+    reaped.] Strengthened by this addendum. A connection whose transport
+    has died cannot renew, and nothing can indefinitely block
+    \texttt{TimedReap} once its lease lapses -- not even the presence of
+    every \emph{other} connection idle, every read absent, and no
+    disconnect ever detected. Round 1's version of this property read
+    ``nothing can indefinitely block \texttt{Depart} once it applies,''
+    which is true but was silently relying on \emph{something} eventually
+    triggering \texttt{Depart} or a peer's \texttt{Claim} -- exactly the
+    dependency the bead's own evidence (a connection persisting 25.79
+    hours with nobody else ever writing or disconnecting it) shows cannot
+    be assumed.
   \item[I2 --- reap releases ownership.] Once a connection has left
     \texttt{registered} it owns nothing.
   \item[I3 --- at most one live owner per identity.] A live connection is
@@ -152,7 +190,8 @@ Four properties survive from round 1, unchanged in statement:
     from round 1; \texttt{Connect}'s definition has not changed.
 \end{description}
 
-Two are new, and are the reason this round exists:
+Two are new as of the multi-path refinement, and remain the reason that
+round exists:
 
 \begin{description}
   \item[I5 --- leaving the registry iff released, however triggered.] The
@@ -392,6 +431,57 @@ reflecting the release.
   lease' = lease
 \end{schema}
 
+\subsection{TimedReap --- the lease as a real background backstop}
+\label{sec:timedreap}
+
+\texttt{Depart} and \texttt{Claim}'s embedded sweep are both
+\emph{pull-based}: each fires only because some party -- a disconnecting
+client, the SDK's idle-reap, or a peer's write -- happened to act.
+Neither fires on its own. The bead this model exists to close reports a
+connection that persisted 25.79 hours: no peer ever wrote again, and
+nothing ever disconnected it, so neither pull-based path ever ran, and a
+purely pull-based fix would have reproduced exactly that silence.
+\texttt{TimedReap} is the same atomic deregister-and-release predicate as
+\texttt{Depart}, but with \texttt{Depart}'s permissive guard narrowed to
+the one condition a background timer can act on without any other
+party's help: the lease has lapsed. No other connection needs to exist,
+act, or have ever existed, for \texttt{TimedReap(c?)} to become and stay
+enabled.
+
+\begin{schema}{TimedReap}
+  \Delta ConnReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  lease~c? = llapsed \\
+  registered' = registered \setminus \{ c? \} \\
+  owner' = owner \oplus \\
+  \quad~ (\{ s : SCENE | owner~s = conn(c?) \} \cross \{ unowned \}) \\
+  identity' = identity \\
+  transport' = transport \\
+  lease' = lease
+\end{schema}
+
+The predicate is line-for-line \texttt{Depart}'s, with one added
+conjunct in the guard. That repetition is deliberate, not an oversight:
+Section~\ref{sec:inv}'s two-lock argument depends on every
+registry-mutating operation sharing exactly this shape, and stating
+\texttt{TimedReap} as ``\texttt{Depart} restricted to a lapsed lease''
+in prose, without restating its predicate in full, would leave a reader
+unable to check by inspection that the restriction is the \emph{only}
+difference. \texttt{TimedReap} is, in fact, round 1's original
+\texttt{Reap} operation, reinstated verbatim: round 1 was right that a
+lapsed lease alone should be enough to trigger release, and this
+addendum's ruling is that round 1 was also right to make it a
+freestanding, unconditional operation rather than something this round's
+first cut folded away entirely into \texttt{Depart} and \texttt{Claim}.
+The difference from round 1 is only what it now stands \emph{beside}: an
+explicit non-destructive \texttt{Read}, an explicit external-signal
+\texttt{Depart}, and a \texttt{Claim} that also renews and sweeps -- so
+the model no longer has to choose between ``the lease fires on its own''
+and ``leaving the registry always releases ownership, however
+triggered''; it has both.
+
 \subsection{Claim --- the ownership-gated write, renewing itself first}
 \label{sec:claim}
 
@@ -469,30 +559,39 @@ the same reason round 1 gave: a predicate there would be enforced as a
 guard on every successor, silently disabling the very operation that
 would break it.
 
-\paragraph{I1 --- transport-gone implies eventually reaped.}
-\texttt{Renew}'s guard means a connection can never re-arm its lease once
-its transport has died without an intervening \texttt{Connect}, as in
-round 1. \texttt{Depart}'s guard (Section~\ref{sec:depart}) is weaker
-than round 1's \texttt{Reap} was -- \texttt{c? \in registered} alone, no
-lease condition at all -- so \texttt{Depart(c?)} is available the moment
-\texttt{TransportDies(c?)} fires, without waiting on
-\texttt{LeaseLapse} first. The chain \texttt{TransportDies}; \texttt{Depart}
-is two steps, always available, and Section~\ref{sec:verify} confirms it
-is not vacuous. This is not a weakening of I1; \texttt{Depart}'s
-guard is a strict generalization of round 1's \texttt{Reap} guard, so
-everything round 1 could reach, this round can still reach, by the same
-or a shorter route. \texttt{LeaseLapse} remains meaningful independently:
-it is what makes a \emph{different} connection's \texttt{Claim} able to
-sweep \texttt{c?} on \texttt{c?}'s behalf (Section~\ref{sec:claim}'s step
-2) even before any \texttt{Depart} for \texttt{c?} occurs. The coverage
-audit, \texttt{docs/connection\_lease\_reaping\_coverage.md}, carries
-forward, unresolved, the design gap round 1 already surfaced: a
-connection with neither a graceful-disconnect signal (a killed process,
-no clean shutdown) nor any live peer ever writing again has no operation
-in this model that reaps it. \texttt{Depart}'s trigger (a real disconnect
-or idle-reap signal) and \texttt{Claim}'s embedded sweep (another
-connection's write) are the model's only two dischargers of a lapsed
-lease; neither is a periodic, unconditional guarantee.
+\paragraph{I1 --- transport-gone implies \emph{unconditionally} eventually
+reaped.}
+As in round 1, this is a liveness property argued over enabledness and
+reachability, not a single-state safety formula -- Z has no temporal
+operator of its own, so the claim is: for any \texttt{c?} with
+\texttt{transport~c? = tdown}, no reachable state traps \texttt{c?} in
+\texttt{registered} forever, and once it leaves, every scene it owned is
+already released. \texttt{Renew}'s guard
+means a connection can never re-arm its lease once its transport has died
+without an intervening \texttt{Connect}. Once
+\texttt{transport~c? = tdown \land lease~c? = llive}, \texttt{LeaseLapse}
+is enabled and depends on nothing but \texttt{c?}'s own state; once
+\texttt{lease~c? = llapsed}, \texttt{TimedReap} (Section
+\ref{sec:timedreap}) is enabled and \emph{also} depends on nothing but
+\texttt{c?}'s own state -- not on any other connection existing, not on
+any read ever running, not on any disconnect ever being detected. This is
+the strengthening this addendum makes: round 1's statement of I1 read
+``nothing can indefinitely block \texttt{Depart} once it applies,'' which
+depended on \emph{something} eventually triggering \texttt{Depart} or a
+peer's \texttt{Claim} -- exactly the dependency the bead's own evidence
+refutes (a connection persisting 25.79 hours with no peer ever writing or
+disconnecting it). \texttt{TimedReap} removes that dependency: the chain
+\texttt{TransportDies}\,;\,\texttt{LeaseLapse}\,;\,\texttt{TimedReap},
+run against a carrier holding only \texttt{c?} itself -- no second
+connection, no \texttt{Read}, no \texttt{Depart} -- is a complete,
+self-contained witness that \texttt{c?} leaves \texttt{registered} with
+every scene it owned released, and Section~\ref{sec:verify} confirms this
+trace by reachability with \texttt{CONN} instantiated to a single element.
+\texttt{Depart} and \texttt{Claim}'s embedded sweep remain additional,
+faster dischargers of a lapsed lease when their own triggers happen to
+fire first (Section~\ref{sec:serialize} shows the three do not race); they
+are no longer I1's \emph{only} route, which is what round 1's original
+coverage audit named as an open gap and this addendum closes.
 
 \paragraph{I2 --- reap releases ownership.}
 \[
@@ -502,9 +601,10 @@ lease; neither is a periodic, unconditional guarantee.
 Restated verbatim from round 1. It remains true, but it is no longer the
 whole of the argument, because there are now three operations that can
 remove a connection from \texttt{registered}
-(\texttt{Depart}, and \texttt{Claim}'s embedded sweep of others) instead
-of one, plus one that must never remove anyone (\texttt{Read}). I5, below,
-is the version of this argument that actually accounts for all three.
+(\texttt{Depart}, \texttt{TimedReap}, and \texttt{Claim}'s embedded sweep
+of others) instead of one, plus one that must never remove anyone
+(\texttt{Read}). I5, below, is the version of this argument that
+actually accounts for all four.
 
 \paragraph{I3 --- at most one live owner per identity.}
 \[
@@ -532,16 +632,18 @@ ownership is the same \texttt{Claim} every connection uses.
 \emph{together with:} no operation whose only effect is a read (that is,
 \texttt{Read} itself) ever changes \texttt{registered}.
 
-The first conjunct is I2's formula, now proven against three removal
-paths instead of one: \texttt{Depart} releases every scene \texttt{c?}
-owned in the same step it removes \texttt{c?}
-(Section~\ref{sec:depart}'s single predicate), and \texttt{Claim}'s
-embedded sweep releases every scene each swept \texttt{c2} owned in the
-same step it removes \texttt{c2} from \texttt{registered}
-(Section~\ref{sec:claim}'s step 2). No other operation ever assigns
-\texttt{owner} to a connection outside \texttt{registered} --
-\texttt{Claim}'s own guard, \texttt{c? \in registered}, and its
-postcondition, \texttt{c? \in registered'} always (Section~\ref{sec:claim}'s
+The first conjunct is I2's formula, now proven against four removal
+paths instead of one: \texttt{Depart} and \texttt{TimedReap} each release
+every scene \texttt{c?} owned in the same step they remove \texttt{c?}
+(Sections~\ref{sec:depart} and~\ref{sec:timedreap} -- the two predicates
+are identical apart from \texttt{TimedReap}'s added lease guard, so this
+argument covers both at once), and \texttt{Claim}'s embedded sweep
+releases every scene each swept \texttt{c2} owned in the same step it
+removes \texttt{c2} from \texttt{registered} (Section~\ref{sec:claim}'s
+step 2). No other operation ever assigns \texttt{owner} to a connection
+outside \texttt{registered} -- \texttt{Claim}'s own guard,
+\texttt{c? \in registered}, and its postcondition,
+\texttt{c? \in registered'} always (Section~\ref{sec:claim}'s
 \(c2 \neq c?\) exclusion guarantees the caller is never among the
 connections it removes), rule that out at the point of assignment. The
 second conjunct is \texttt{Read}'s own definition
@@ -557,7 +659,10 @@ the registry and releasing ownership are the same event, no matter which
 of the model's removing operations produced it, and a non-removing
 operation produces neither} -- so that a fourth departure trigger
 appearing later in the code would have to be checked against the same
-general property, not against a fourth ad hoc patch.
+general property, not against a fourth ad hoc patch. \texttt{TimedReap}
+\emph{is} that fourth trigger, added within this same round, and I5's
+statement did not need to change at all to absorb it -- only its proof
+gained one more, textually near-identical, case.
 
 \paragraph{I6 --- a live writer keeps its ownership.}
 \[
@@ -566,20 +671,29 @@ general property, not against a fourth ad hoc patch.
 \]
 I5's negation, specialized to the case where the departing connection's
 transport never died. Every witness to I5's general formula that
-\texttt{Depart} or \texttt{Read} could produce requires either
-\texttt{c?}'s own graceful/idle-reap trigger (Section~\ref{sec:depart},
-which is orthogonal to transport state and so does not distinguish this
-case) or, for a \texttt{TransportDies}-anchored I1 witness, a connection
-whose transport is already \texttt{tdown} by construction -- so a state
-satisfying I6's formula, if reachable at all in a spec where \texttt{Depart}
-and \texttt{Read} behave correctly, could only arise from \texttt{Claim}'s
-own sweep catching its caller: the one mechanism H3 names. In this,
-the fixed spec, that cannot happen, because \texttt{Claim}'s
+\texttt{Depart} could produce requires nothing of transport state at all
+(Section~\ref{sec:depart}'s guard is orthogonal to it), so it does not
+distinguish this case on its own -- but that is exactly why \texttt{c?}'s
+own \texttt{transport} being \texttt{tup} throughout a trace is a
+meaningful discriminator elsewhere: a \texttt{TimedReap}-produced witness
+\emph{also} requires nothing of transport state, so a witness confined to
+\texttt{transport~c? = tup} could still, in principle, come from either
+\texttt{Depart} or \texttt{TimedReap} acting on a connection that never
+crashed at all -- an ordinary graceful departure or a lease that
+genuinely lapsed from real inactivity, neither of which is a bug. What I6
+rules out is narrower and sharper: that \texttt{Claim}'s own sweep, not
+\texttt{Depart} or \texttt{TimedReap}, ever catches its \emph{own caller}
+on the very call that caller is making -- the one mechanism H3 names, and
+the one no legitimate departure operation is even attempting to perform
+mid-write. In the fixed spec that cannot happen, because \texttt{Claim}'s
 \(c2 \neq c?\) exclusion (Section~\ref{sec:claim}, step 2) means the
 caller can never appear in the set it sweeps, regardless of what its own
 \texttt{lease} showed on entry. Section~\ref{sec:fidelity-h3}'s control
 removes exactly that exclusion and shows the formula above becomes
-reachable in four steps that never call \texttt{TransportDies} at all.
+reachable in three steps that never call \texttt{TransportDies},
+\texttt{Depart}, or \texttt{TimedReap} at all -- isolating the claim to
+\texttt{Claim} alone, exactly as the fidelity-control discipline
+requires.
 
 \paragraph{The two-lock concern is moot by construction.}
 The current, unfixed code holds \texttt{HubClientRegistry}'s own lock
@@ -589,15 +703,82 @@ locks, held by two different objects, and H1/H2 are exactly what happens
 when a caller updates one without the other under one critical section.
 This model does not need a second lock in its own terms, because it does
 not need coordinating in the first place: \texttt{Read} never mutates
-\texttt{registered} (Section~\ref{sec:read}), so the only two operations
-that ever do -- \texttt{Depart} and \texttt{Claim} -- are also, by their
-own single predicate, the only two operations that ever mutate
-\texttt{owner} on a departure. There is no interleaving in which one
-without the other could be observed, because in this model, as the fix
-requires of the real \texttt{HubDisplay} (the one object holding both
-\texttt{\_clients} and \texttt{\_owners}), removing-from-the-registry and
-releasing-ownership are not two updates that a lock discipline keeps in
-step; they are one update.
+\texttt{registered} (Section~\ref{sec:read}), so the only three
+operations that ever do -- \texttt{Depart}, \texttt{TimedReap}, and
+\texttt{Claim} -- are also, by their own single predicate, the only
+three operations that ever mutate \texttt{owner} on a departure. There
+is no interleaving in which one without the other could be observed,
+because in this model, as the fix requires of the real
+\texttt{HubDisplay} (the one object holding both \texttt{\_clients} and
+\texttt{\_owners}), removing-from-the-registry and releasing-ownership
+are not two updates that a lock discipline keeps in step; they are one
+update.
+
+\paragraph{The three coordinators serialize; none of them races.}
+\label{sec:serialize}
+Round 2's implementation-facing question is whether a background timer
+firing \texttt{TimedReap} can race \texttt{Depart} (an external disconnect
+arriving at the same moment) or \texttt{Claim} (a write arriving at the
+same moment) on the \emph{same} connection, and land the registry or the
+ownership table in a state neither operation intended. In this model the
+question has a structural answer, not merely an empirical one: a Z
+operation schema denotes a single, indivisible relation between a
+before-state and an after-state, and \texttt{DEFAULT\_SETSIZE}-bounded
+model-checking with ProB explores every possible \emph{interleaving} of
+enabled operations, never a partial or torn application of one. There is
+no notion in this model of two operations executing ``at once'' and
+observing each other mid-update -- only of one full step happening, then
+the next full step choosing among whatever is enabled in the resulting
+state. Three consequences follow, and Section~\ref{sec:verify}'s full
+\texttt{-model\_check} (which visits every reachable state and reports no
+deadlock) is what confirms none of them is merely assumed:
+
+\begin{enumerate}
+  \item \textbf{Whichever fires first wins, and correctly.} If
+    \texttt{TimedReap(c?)} and \texttt{Depart(c?)} are \emph{both} enabled
+    in some state (a lapsed lease and a live, graceful-disconnect-eligible
+    connection are not mutually exclusive conditions), firing either one
+    removes \texttt{c?} from \texttt{registered} and releases every scene
+    it owned -- the two predicates differ only in \texttt{TimedReap}'s
+    extra guard, never in their effect. The second operation, whichever
+    it is, is then simply disabled: its guard, \texttt{c? \in registered},
+    fails, because the first one already removed \texttt{c?}. There is no
+    state in which both fire on the same \texttt{c?} and no state in
+    which their effects could conflict, because they compute the
+    identical postcondition.
+  \item \textbf{A write is never stranded behind a timer, or vice versa.}
+    \texttt{Claim(c2, s?)} for a \emph{different} connection \texttt{c2}
+    and \texttt{TimedReap(c1)} for a lapsed \texttt{c1} are independent:
+    neither's guard reads the other's parameter, and \texttt{Claim}'s own
+    embedded sweep (Section~\ref{sec:claim}, step 2) would perform the
+    identical release on \texttt{c1} if \texttt{TimedReap} had not already
+    done so first. Whichever fires first, the reachable state after both
+    have run (in either order) is the same: \texttt{c1} departed and
+    released, \texttt{c2}'s claim resolved against a registry that no
+    longer shows \texttt{c1} as a candidate to be swept. Reachability is
+    monotonic under adding \texttt{TimedReap} to a spec that already had
+    \texttt{Depart} and \texttt{Claim}: every state and trace reachable
+    before this addendum remains reachable after it, because no existing
+    operation's guard or effect changed.
+  \item \textbf{A connection can never claim while being timed-reaped
+    out from under itself.} \texttt{Claim(c?, s?)} renews \texttt{c?}'s
+    own lease to \texttt{llive} as its first effect
+    (Section~\ref{sec:claim}, step 1), and \texttt{TimedReap(c?)}
+    requires \texttt{lease~c? = llapsed}. Because both are whole,
+    indivisible steps, there is no state in which \texttt{Claim(c?, s?)}
+    is ``in progress'' for \texttt{TimedReap(c?)} to observe a stale
+    lease during: either \texttt{Claim} has already completed, in which
+    case \texttt{c?}'s lease is \texttt{llive} and \texttt{TimedReap(c?)}
+    is disabled, or it has not yet run at all.
+\end{enumerate}
+
+None of this needs a fourth invariant: it is I5 and I6, reread as claims
+about \emph{any} pair of the four registry-mutating operations rather
+than about \texttt{Claim} alone, and Section~\ref{sec:verify}'s full
+model-check checks it the same way it checks everything else -- by
+visiting every reachable state over the bounded carrier and confirming
+no deadlock, which a genuine race manifesting as an inconsistent
+intermediate state would show up as.
 
 % ============================================================
 \section{Verification}
