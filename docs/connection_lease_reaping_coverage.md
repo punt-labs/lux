@@ -23,6 +23,26 @@ graceful-departure-releases, read-is-non-destructive, write-renews-lease)
 and revises every partition whose underlying operation changed shape
 (`Reap` is gone; `Read`, `Depart`, and `Claim` replace it).
 
+## Round 2 addendum: TimedReap, and the gap below is now closed
+
+The first cut of round 2 made every departure pull-based: discharged only by
+`Depart`'s external signal or `Claim`'s embedded sweep of others. The design
+gap that section originally surfaced — "a connection with neither signal has
+no operation in the refined model that reaps it" — turned out to be the
+reported bug itself, not a residual edge case: the bead's own evidence is a
+connection that persisted 25.79 hours with the 30-second lease never firing,
+because nothing pull-based ever ran for it. The leader ruled the earlier
+"reads and writes are the only triggers" decision reversed on this evidence
+and added `TimedReap`: the identical atomic deregister-and-release predicate
+`Depart` performs, guarded only on `lease~c? = llapsed` — no read, no other
+connection's write, and no detected disconnect is a precondition of it
+firing. I1 is strengthened accordingly, from "reaped, assuming something
+eventually triggers it" to unconditional. The design-gap writeup immediately
+below is retained rather than deleted, because the mechanism it correctly
+diagnosed (pull-based reaping cannot promise a bound independent of other
+parties' activity) is exactly what the ruling was made from; a superseding
+note follows it rather than erasing it.
+
 ## Spec-operation → design-element mapping
 
 The design is the fix `docs/connection_lease_reaping.tex`'s `Read`,
@@ -47,8 +67,13 @@ disconnect and the SDK's idle-reap take).
 | `Depart` (**H2-buggy**, i.e. current code) | `HubDisplay.drop_connection` exactly as shipped: `self._clients.discard(connection_id)`, ownership untouched — this is the behaviour `connection_lease_reaping_no_release_buggy.tex` now models (retargeted from round 1's lease-lapse framing) |
 | `Claim` (**fixed**) | `HubDisplay.apply`, changed to (1) renew the caller's own lease first, (2) then sweep every *other* lapsed connection via `HubClientRegistry.reap`-equivalent and release what each owned, (3) then perform the existing `SetProperty`/`RemoveElement`/`AddElement` ownership check against the result |
 | `Claim` (**H3-buggy**, i.e. current code) | `HubDisplay.apply` exactly as shipped: calls `self._reap_and_release()` — an unconditional sweep of every lapsed session including the caller's own — before doing anything else, and never calls anything that renews the caller |
+| `TimedReap` (**new, round 2 addendum**) | Does not exist yet in any form. Must be built: a periodic background task (interval no longer than the shortest `SessionLease` TTL in use, `SessionLease._TTL_BY_KIND`'s `cli` at 90s today) that calls the same release path `HubDisplay._reap_and_release` already has, for every session `HubClientRegistry` reports as lapsed, independent of any read or write ever occurring |
 
-## A design gap this model surfaces (not settled by the operator ruling)
+## A design gap this model surfaced — now resolved by the round-2 ruling
+
+**Superseded by the addendum above; retained for the record.** The
+diagnosis below was correct and is exactly what produced the ruling that
+added `TimedReap`. It no longer describes an open gap.
 
 The operator's ruling settles the *shape* of the fix: one coordinator, one
 atomic step, reads non-destructive, writes renewing. It does not settle
@@ -75,14 +100,16 @@ surfaced:
    client keeps drawing), and `Depart` answers it for any client kind with
    an explicit disconnect signal (an MCP session end, an SDK idle-reap).
    Neither answers it for a killed connection on an otherwise-idle Hub.
-3. **Recommendation for the implementation mission:** this is not a defect
-   to fix in this round — the ruling is settled and this model encodes it
-   faithfully — but the implementation mission should confirm whether a
-   periodic background sweep (independent of both reads and writes) is
-   worth adding as a follow-on bead, or whether the operator judges the
-   residual exposure (an idle Hub, a killed connection, no other writer)
-   rare enough to accept. This is the leader's decision to ratify, not
-   something this model has authority to settle on its own.
+3. **Resolved (round 2 addendum).** The leader ruled on exactly this
+   evidence: a purely pull-based design cannot promise the bead's own
+   premise, so the lease needed a real, periodic backstop. `TimedReap`
+   (Section~\ref{sec:timedreap} of `docs/connection_lease_reaping.tex`) is
+   that backstop — the identical release predicate, guarded only on
+   `lease~c? = llapsed`, with no read, write, or disconnect signal as a
+   precondition. I1 is now unconditional. The implementation mission's
+   task is no longer "decide whether to add a periodic sweep" but "build
+   the one this model specifies," at an interval no longer than the
+   shortest `SessionLease` TTL in use (partition TR1, below).
 
 ## Operation partitions and their tests
 
@@ -101,6 +128,10 @@ surfaced:
 | **SR1 (self-reap-on-write, the H3 regression)** | a connection whose lease has lapsed under a transport that never died still succeeds at its own next `apply` call, keeps its registration, and keeps every scene it owned — it is never swept by its own write | `test_hub_display_ownership.py::test_a_connection_with_a_lapsed_lease_survives_its_own_next_apply` — the direct regression test for H3 |
 | SR2 | interleaving one connection's repeated `apply` calls with a second connection's `apply` calls (which each also sweep lapsed others) never reaps the first as long as the first's own calls keep renewing it | `test_hub_display_ownership.py::test_interleaved_writers_never_reap_each_other_while_both_stay_live` |
 | SR3 | `apply`'s embedded sweep *does* release a genuinely different, lapsed connection's scenes as a side effect of some other connection's write — the sweep-of-others mechanism itself, isolated from the self-exclusion SR1 tests | `test_hub_display_ownership.py::test_apply_releases_a_different_lapsed_connections_scenes_as_a_side_effect` |
+| **TR1 (timed-reap-on-idle, the round-2 regression)** | kill the connection's transport, wait one lease interval, and do *nothing else* — no read, no other connection's write, no explicit disconnect — the connection is still, eventually, dropped from the live set **and** every scene it owned becomes unowned. This is the clean run-and-prove the implementation exercises: no other client, no poll, no introspection call, just the timer | `test_hub_display_ownership.py::test_a_killed_connection_is_reaped_by_the_timer_alone_on_an_idle_hub` — the direct regression test for the bead itself (25.79h persistence with the 30s lease never firing) |
+| TR2 | `TimedReap` and `Depart` firing on the same connection at the same instant (a race between the background timer and an arriving disconnect signal) leave the registry and ownership table in the identical state either order runs — same predicate, same postcondition | `test_hub_display_ownership.py::test_timed_reap_racing_a_graceful_disconnect_converges` |
+| TR3 | `TimedReap` on a connection that owns no scenes is a no-op on `owner`, same as `Depart` and `Claim`'s embedded sweep | `test_hub_display_ownership.py::test_timed_reap_of_an_ownerless_connection_touches_no_scene` |
+| TR4 | `TimedReap` never fires on a connection whose lease is still live, however long the timer has been running — the periodic check is a filter, not an unconditional sweep | `test_hub_clients.py::test_timed_reap_never_touches_a_connection_with_a_live_lease` |
 | KT1 (kill-transport-then-depart) | a connection whose transport has died, once disconnected (gracefully or via the SDK's idle-reap) is dropped from the live set **and** every scene it owned becomes unowned in the same step | `test_hub_display_ownership.py::test_depart_of_a_dead_transport_connection_releases_its_scenes` |
 | KT2 | a connection making continuous, renewing contact (`Renew` or `Claim`) is never a candidate for `LeaseLapse`, however long it has been actively used | `test_session_lease.py::test_continuous_renewal_prevents_lease_lapse` |
 | KT3 | departing (gracefully or by lapse) a connection that owns *no* scenes is a no-op on `owner` | `test_hub_display_ownership.py::test_departing_an_ownerless_connection_touches_no_scene` |
@@ -113,22 +144,42 @@ surfaced:
 | CL3 | `Claim` on a scene owned by a *different, still-live* connection is refused (`HubOwnershipError`), independent of this bead's fix — existing, correct behaviour the fix must not weaken | `test_owner_tracker.py::test_claiming_another_live_connections_scene_raises` |
 
 Partitions in **bold** are new or substantially reframed in this round; they
-are the direct coverage requirement for H1 (RD1, RD2), H2 (GD1, GD3), and H3
-(WR1, SR1, SR2, SR3). A test suite covering only the round-1 partitions
-(`KT1`–`RA1` under their old `Reap`-based names) would have looked complete
-and still missed all three holes — this is precisely what happened.
+are the direct coverage requirement for H1 (RD1, RD2), H2 (GD1, GD3), H3
+(WR1, SR1, SR2, SR3), and the addendum's own regression, TR1 (the bead's
+own reported scenario: kill, wait, and touch nothing else). A test suite
+covering only the round-1 partitions (`KT1`–`RA1` under their old
+`Reap`-based names) would have looked complete and still missed all three
+holes — this is precisely what happened. A suite covering H1/H2/H3 but not
+TR1 would look complete a second time and still miss the bead itself, since
+none of H1/H2/H3 exercises an otherwise-idle Hub.
+
+Trace lengths quoted below (and in `docs/connection_lease_reaping.tex`'s
+own Fidelity section) are illustrative witnesses from a specific run, not a
+guaranteed reproducible artifact: ProB's search order is not obliged to
+return the same trace on every invocation, and the shortest available
+witness sometimes differs run to run once more than one operation is
+enabled at the same state (`Depart` and `TimedReap` are the clearest
+case — see the unconditional-I1 discussion in the main spec's Verification
+section). The `FOUND`/`NOT found` verdict itself is deterministic and is
+what the gate actually checks.
 
 ## The invariants, and how they are checked
 
-- **I1** — transport-gone implies eventually reaped. Checked by
-  reachability of the positive outcome: `TransportDies`;`Depart` completes
-  in two steps (`Depart`'s guard, unlike round 1's `Reap`, carries no lease
-  condition at all, so this chain is shorter than round 1's) — `probcli`
-  goal `FOUND`, confirmed at `DEFAULT_SETSIZE 2` and `3`.
+- **I1** — transport-gone implies *unconditionally* eventually reaped.
+  Strengthened in this round's addendum. Checked by reachability of the
+  positive outcome (`TransportDies`;`Depart` or `TransportDies`;
+  `LeaseLapse`;`TimedReap` both complete — `probcli` goal `FOUND`,
+  confirmed at `DEFAULT_SETSIZE 1`, `2`, and `3`) and, for the
+  *unconditional* half specifically, by inspection: `TimedReap`'s guard —
+  `c? \in registered \land lease~c? = llapsed` — mentions no other
+  connection and no read, so it is satisfiable by a periodic caller with
+  no external signal at all. Confirmed even with `CONN` bounded to a
+  single element (`DEFAULT_SETSIZE 1`), which rules out any second
+  connection appearing in the model at all.
 - **I2** — reap releases ownership. Checked by reachability of the
   negation: `NOT found` against the fixed spec at `DEFAULT_SETSIZE 2`
-  (1,233 states) and `3` (313,093 states, all 8 operations covered, no
-  deadlock).
+  (1,233 states, 9 operations covered including `TimedReap`) and `3`
+  (313,093 states, no deadlock).
 - **I3** — at most one live owner per identity. Checked the same way:
   `NOT found` against the fixed spec, `FOUND` against
   `connection_lease_reaping_no_release_buggy.tex` (5-step trace).
@@ -137,20 +188,29 @@ and still missed all three holes — this is precisely what happened.
   reads `owner` or another connection's `identity`.
 - **I5** — leaving the registry iff released, however triggered. Checked
   in two parts: the same reachability goal as I2 (`NOT found` against the
-  fixed spec; `FOUND` against both `connection_lease_reaping
-  _destructive_read_buggy.tex`, a 7-step trace, and
-  `connection_lease_reaping_no_release_buggy.tex`, a 4-step trace) plus the
-  structural fact that `Read` is `\Xi ConnReg` and so cannot change
-  `registered` by construction.
+  fixed spec; `FOUND` against all three controls) plus the structural fact
+  that `Read` is `\Xi ConnReg` and so cannot change `registered` by
+  construction. `TimedReap` is the fourth removal path this round adds to
+  the proof — its predicate is `Depart`'s verbatim with one added guard
+  conjunct, so it needs no separate argument beyond the one `Depart`
+  already has.
 - **I6** — a live writer keeps its ownership. Checked by reachability of a
   goal that adds `transport(c) = tup` to I5's formula: `NOT found` against
-  the fixed spec; `FOUND` (a 3-step minimal witness —
-  `Connect`;`LeaseLapse`;`Claim` — shorter than the 4-step scenario named in
-  the review) against `connection_lease_reaping_self_reap_buggy.tex`.
-- **Deadlock-freedom.** `Connect` carries no guard, so it is enabled in
-  every reachable state of the fixed spec and all three controls; full
-  `-model_check` over `DEFAULT_SETSIZE 2` and `3` reports no deadlock and
-  100% operation coverage for the fixed spec.
+  the fixed spec; `FOUND` against `connection_lease_reaping_self_reap
+  _buggy.tex` (a minimal witness through `Connect`;`LeaseLapse`;`Claim`
+  alone, never calling `TransportDies`, `Depart`, or `TimedReap`).
+- **Deadlock-freedom and no cross-operation race.** `Connect` carries no
+  guard, so it is enabled in every reachable state of the fixed spec and
+  all three controls; full `-model_check` over `DEFAULT_SETSIZE 2` and `3`
+  reports no deadlock and full operation coverage (9 operations) for the
+  fixed spec, unchanged after `TimedReap`'s addition. Because
+  `TimedReap`, `Depart`, and `Claim`'s embedded sweep compute the same
+  postcondition wherever more than one is simultaneously enabled on the
+  same connection, the model has no reachable state in which their
+  effects could conflict — whichever fires first disables the others'
+  guard on that connection (`c? \in registered` fails once any one of
+  them has removed it), which the full model-check's absence of any
+  invariant violation or deadlock confirms rather than merely assumes.
 
 Re-run `fuzz` and the `probcli` goal checks in
 `docs/connection_lease_reaping.tex`'s Verification section, and the
