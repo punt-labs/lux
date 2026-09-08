@@ -1,4 +1,4 @@
-.PHONY: help test test-integration test-e2e test-e2e-gui test-slow snapshot-parity snapshot-record lint type check check-oo update-oo check-suppressions update-suppressions check-coupling update-coupling check-plugin-surface report format build install clean depot fuzz prob prfaq clean-tex font-test restart reload
+.PHONY: help test test-integration test-e2e test-e2e-gui test-slow snapshot-parity snapshot-record lint type check check-oo update-oo check-suppressions update-suppressions check-coupling update-coupling check-plugin-surface report format build install clean depot fuzz prob prfaq clean-tex font-test restart reload prove-reaping
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -87,6 +87,22 @@ restart: install ## Install + restart luxd AND display through the service super
 reload: install ## Install + restart luxd only (display keeps running)
 	@lux hub restart || { echo "error: 'lux hub restart' failed — see output above" >&2; exit 1; }
 	@echo "luxd restarted through the service supervisor"
+
+prove-reaping: ## Manual regression demo for dead-connection reaping (lux-d84d) — needs a running luxd on branch code (`lux hub restart`); takes ~2 minutes
+	@echo "prove-reaping: requires luxd already running the branch's code — run 'lux hub restart' first if unsure"
+	@uv run --extra display python scripts/prove_reaping.py & \
+	victim=$$!; \
+	echo "victim pid=$$victim -- waiting 105s (90s cli-kind lease + 15s poll cycle) for the reap sweep"; \
+	sleep 105; \
+	echo; \
+	echo "--- lux session ls --json (victim connection should be gone) ---"; \
+	lux session ls --json; \
+	echo; \
+	echo "--- lux scene ls --json (reap-proof-victim scene should show owners: []) ---"; \
+	lux scene ls --json; \
+	echo; \
+	kill "$$victim" 2>/dev/null || true; \
+	echo "prove-reaping: victim process cleaned up"
 
 clean: ## Remove build artifacts
 	rm -rf dist/ .tmp/
