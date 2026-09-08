@@ -29,7 +29,6 @@ own behavior and never escapes to the caller.
 from __future__ import annotations
 
 import time
-from collections import deque
 from typing import TYPE_CHECKING, Self
 
 from punt_lux.domain.element import Element as WireElement
@@ -434,8 +433,7 @@ class HubDisplay:
     ) -> frozenset[ConnectionId]:
         """Depart every lapsed connection except ``exclude``; return who left."""
         with self._lock.write():
-            lapsed = self._clients.lapsed_ids() - exclude
-            deque(map(self._clients.discard, lapsed), maxlen=0)
+            lapsed = self._clients.reap_lapsed_locked(exclude)
             self._owners.release_departed(lapsed)
             return lapsed
 
