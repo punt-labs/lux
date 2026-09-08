@@ -88,17 +88,12 @@ class HubClientRegistry:
     ) -> ListenerAttachment:
         """Install ``listener`` as the connection's leg, recording ``identity`` with it.
 
-        A connecting session records itself and takes the slot in one step, so no
-        thread can see it identified but unreachable, or reachable but anonymous.
-        Taking the slot clears the callbacks the previous occupant owned: they were
-        deliverable only to it, and it has lost the connection they were registered on.
-        The arriving app re-registers from its connect hook.
-
-        Whether entries were cleared is the caller's, because clearing them is what
-        makes the bar wrong. The events that would correct it are not guaranteed — the
-        arriving app may register nothing, and a click on a dead entry only finds the
-        fault rather than fixing it — so the caller marks the menu on
-        ``attached_over_callbacks`` and the bar never shows a withdrawn entry.
+        Records and takes the slot in one step, so no thread ever sees it
+        identified-but-unreachable or reachable-but-anonymous. Taking the slot
+        clears the previous occupant's callbacks — deliverable only to a leg
+        it no longer holds — and tells the caller so via
+        ``attached_over_callbacks``, since nothing else is guaranteed to
+        correct a bar left showing a now-dead entry.
         """
         with self._lock:
             base = self._renewed(connection_id)
@@ -112,16 +107,11 @@ class HubClientRegistry:
     ) -> ListenerDetachment:
         """Release the slot and its callbacks if ``listener`` still holds it.
 
-        The comparison and the removal are one critical section, so no registration
-        can land between them and no successor's state can be taken.
-
-        Two different situations leave a session not holding the slot, and calling them
-        both ``kept`` is a defect of its own. A session superseded while suspended is
-        genuinely kept: a successor holds the connection, its entries are live, and the
-        bar is right. A session the lease sweep already took is not — nobody holds the
-        connection, the sweep carried off its slot and its entries, and the bar is still
-        showing them. That is a release, and it is told so, because a caller reading it
-        as a keep leaves orphan entries on screen.
+        The comparison and the removal are one critical section. A session
+        superseded while suspended is genuinely ``kept`` — a successor holds
+        the connection and the bar is right — but a session the lease sweep
+        already took is not: nobody holds the connection, and calling that
+        ``kept`` too would leave the sweep's orphan entries on screen.
         """
         with self._lock:
             session = self._sessions.get(connection_id)
@@ -196,25 +186,34 @@ class HubClientRegistry:
     def named_sessions(self) -> NamedSessions:
         """Return the live sessions and the menu name each identified one holds.
 
-        The reap, the release of the names it reaps, and the naming of the
-        survivors are one critical section, so a departure is something this
-        registry states rather than something a reader infers.
+        The reap and the naming of the survivors are one critical section.
         """
         with self._lock:
-            now = self._clock()
-            live = dict(filter(lambda kv: kv[1].is_live(now), self._sessions.items()))
-            self._roster.release(self._sessions.keys() - live.keys())
-            self._sessions = live
-            return NamedSessions.over(live, self._roster)
+            self._sweep_locked()
+            return NamedSessions.over(self._sessions, self._roster)
 
     def live_sessions(self) -> Mapping[ConnectionId, ClientSession]:
         """Return the sessions whose lease has not lapsed, sweeping the expired."""
         return self.named_sessions().sessions
 
+    def reap(self) -> frozenset[ConnectionId]:
+        """Sweep out every lapsed session; return who left, not who stayed."""
+        with self._lock:
+            return self._sweep_locked()
+
     def repos(self) -> frozenset[str]:
         """Return the distinct repositories the live identified sessions declared."""
         declared = map(attrgetter("declared_repo"), self.live_sessions().values())
         return frozenset(filter(None, declared))
+
+    def _sweep_locked(self) -> frozenset[ConnectionId]:
+        """Drop every lapsed session and its name; return what left. Caller locks."""
+        now = self._clock()
+        live = dict(filter(lambda kv: kv[1].is_live(now), self._sessions.items()))
+        reaped = frozenset(self._sessions.keys() - live.keys())
+        self._roster.release(reaped)
+        self._sessions = live
+        return reaped
 
     def _renewed(self, connection_id: ConnectionId) -> ClientSession:
         """The connection's session, renewed now, or a fresh one; caller locks.

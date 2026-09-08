@@ -207,6 +207,42 @@ def test_sessions_read_does_not_sweep_until_a_live_read() -> None:
     assert conn not in reg.sessions()
 
 
+def test_reap_returns_the_ids_it_swept_not_the_survivors() -> None:
+    clock = _Clock()
+    reg = HubClientRegistry(clock)
+    lapsing, staying = ConnectionId("cli"), ConnectionId("mcp")
+    reg.record(lapsing, _cli())
+    reg.record(staying, _mcp())
+
+    clock.advance(91.0)  # past the cli lease; the mcp lease (1800s) survives
+    reaped = reg.reap()
+
+    assert reaped == frozenset({lapsing})
+    assert lapsing not in reg.sessions()
+    assert staying in reg.sessions()
+
+
+def test_reap_is_empty_when_nothing_has_lapsed() -> None:
+    reg = HubClientRegistry()
+    reg.record(ConnectionId("conn"), _cli())
+    assert reg.reap() == frozenset()
+
+
+def test_continuous_renewal_prevents_lease_lapse() -> None:
+    """LR1: a connection that keeps renewing is never a candidate ``reap`` reaps."""
+    clock = _Clock()
+    reg = HubClientRegistry(clock)
+    conn = ConnectionId("cli")
+    reg.record(conn, _cli())
+
+    for _ in range(5):
+        clock.advance(60.0)  # inside the 90s cli lease if renewed each time
+        reg.record(conn)  # a bare contact renews
+
+    assert reg.reap() == frozenset()
+    assert conn in reg.sessions()
+
+
 def test_repos_excludes_a_session_whose_lease_lapsed() -> None:
     clock = _Clock()
     reg = HubClientRegistry(clock)
