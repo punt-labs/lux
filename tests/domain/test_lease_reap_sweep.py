@@ -2,10 +2,9 @@
 
 The real logic is one synchronous method — ``sweep`` — driven against a real
 ``HubDisplay`` on a controllable clock, with no read, no other connection's
-write, and no disconnect signal anywhere in the picture (TR1, the bead's own
-reported scenario). One async case proves ``run`` keeps sweeping until
-cancelled, mirroring ``test_expiry_sweep.py``'s pattern for the sibling
-periodic task.
+write, and no disconnect signal anywhere in the picture. One async case
+proves ``run`` keeps sweeping until cancelled, mirroring
+``test_expiry_sweep.py``'s pattern for the sibling periodic task.
 """
 
 from __future__ import annotations

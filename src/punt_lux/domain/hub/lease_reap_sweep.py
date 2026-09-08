@@ -26,9 +26,9 @@ __all__ = ["LeaseReapSweep", "LeaseReaper"]
 logger = logging.getLogger(__name__)
 
 # Comfortably under every kind's default TTL (SessionLease._TTL_BY_KIND's
-# shortest, "cli", is 90s) and under the bead's own declared-TTL example
-# (30s) -- close enough that a lapsed lease discharges promptly without
-# polling the registry needlessly often.
+# shortest, "cli", is 90s) and under a typical short declared TTL (30s) --
+# close enough that a lapsed lease discharges promptly without polling the
+# registry needlessly often.
 _POLL_SECONDS = 15.0
 
 
