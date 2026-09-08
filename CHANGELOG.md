@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **A departed connection's dead lease no longer shadows a live reconnect
+  under the same identity.** The Hub's client-lease sweep dropped a lapsed
+  connection from the registry but never touched `OwnerTracker`, so a scene
+  the departed connection had installed stayed attributed to it forever —
+  a live sibling reconnecting under the same identity (e.g. `voxd` restarting)
+  found the scene it needed to write into still, on paper, somebody else's,
+  and every write to it raised `HubOwnershipError` for good. `HubDisplay`
+  now reaps and releases before evaluating ownership on every write
+  (`HubClientRegistry.reap()` reports which connections just left
+  `registered`; `OwnerTracker.release_departed` clears everything each one
+  owned) — pull-based, no new background timer, and a still-live connection
+  keeps its scenes exactly as before. (bead lux-d84d; model
+  `docs/connection_lease_reaping.tex`.)
+
 ### Security
 
 - **Content-bearing display messages now reject an unidentified fd, not just
