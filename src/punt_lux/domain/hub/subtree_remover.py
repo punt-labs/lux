@@ -101,15 +101,13 @@ class SubtreeRemover:
         element_ids = [
             element_id for element_id, _ in self._index.scene_root_items(scene_id)
         ]
-        owners = map(self._owner_connection_id, repeat(scene_id), element_ids)
+        # Attribution for drop_root's failure log only.
+        owned_by = self._owners.get
+        owners = (
+            owner.connection_id if (owner := owned_by(scene_id, eid)) else None
+            for eid in element_ids
+        )
         deque(map(self.drop_root, repeat(scene_id), element_ids, owners), maxlen=0)
-
-    def _owner_connection_id(
-        self, scene_id: SceneId, element_id: ElementId
-    ) -> ConnectionId | None:
-        """The owner's connection, or ``None`` -- log attribution only."""
-        owner = self._owners.get(scene_id, element_id)
-        return owner.connection_id if owner is not None else None
 
     def _drop_storage(self, scene_id: SceneId, element_id: ElementId) -> None:
         """Drop one element from every storage collaborator. Idempotent."""

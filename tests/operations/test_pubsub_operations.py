@@ -3,19 +3,25 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from typing import final
 
 import pytest
 
-from punt_lux.domain.hub import hub
+from punt_lux.domain.hub import hub, hub_display
+from punt_lux.domain.hub.hub import Hub
+from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.inbox import drop_session, ensure_writer, next_event
-from punt_lux.domain.ids import ConnectionId
+from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
+from punt_lux.domain.update import AddElement
 from punt_lux.operations import PublishRequest
 from punt_lux.operations.pubsub import PubSubOperations
 from punt_lux.operations.scope import Scope
+from punt_lux.protocol.elements.text import TextElement
+from punt_lux.protocol.messages.observer import ObserverMessage
 
 
 def _ops() -> PubSubOperations:
-    return PubSubOperations(hub, ensure_writer, next_event)
+    return PubSubOperations(hub, hub_display.clients, ensure_writer, next_event)
 
 
 @pytest.fixture
@@ -61,6 +67,56 @@ def test_receive_drains_without_blocking(scope: Scope) -> None:
         seen.append(timeout)
         return
 
-    result = PubSubOperations(hub, ensure_writer, _record).receive(scope=scope)
+    ops = PubSubOperations(hub, hub_display.clients, ensure_writer, _record)
+    result = ops.receive(scope=scope)
     assert result.event is None
     assert seen == [0.0]
+
+
+@final
+class _Clock:
+    """A hand-advanced monotonic clock, so lease expiry is deterministic."""
+
+    def __init__(self, now: float = 0.0) -> None:
+        self._now = now
+
+    def __call__(self) -> float:
+        return self._now
+
+    def advance(self, seconds: float) -> None:
+        self._now += seconds
+
+
+def _no_event(_connection_id: ConnectionId, _timeout: float) -> ObserverMessage | None:
+    return None
+
+
+def test_a_pubsub_only_client_keeps_its_scene_ownership_past_its_ttl() -> None:
+    """A client that shows once then only unsubscribes must not self-reap.
+
+    Every pubsub operation is authenticated, connection-scoped contact --
+    unsubscribe included, even though it is the one call here with no
+    writer to touch. Advancing the clock past the lease and running the
+    reap sweep between calls mirrors the background timer ticking while
+    the client sits between two ordinary unsubscribe calls.
+    """
+    clock = _Clock()
+    display = HubDisplay(clock)
+    owner = ConnectionId("pubsub-only")
+    display.register_client(owner)
+    scene_id = SceneId("pubsub-scene")
+    display.apply(
+        owner,
+        AddElement(
+            scene_id=scene_id, element=TextElement(id="t", content="x"), parent_id=None
+        ),
+    )
+    ops = PubSubOperations(Hub(), display.clients, lambda _c: None, _no_event)
+
+    for _ in range(3):
+        clock.advance(1801.0)  # past the 1800s unidentified-session lease
+        ops.unsubscribe("some.topic", scope=Scope(owner))
+        assert display.reap_lapsed_leases() == frozenset()
+
+    assert display.is_client(owner)
+    assert display.owner_of(scene_id, ElementId("t")) == owner

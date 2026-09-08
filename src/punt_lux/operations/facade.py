@@ -137,7 +137,9 @@ class Operations:
         return cls(
             scenes=scenes,
             conveniences=ConvenienceOperations(scenes),
-            pubsub=PubSubOperations(hub, ports.ensure_writer, ports.next_event),
+            pubsub=PubSubOperations(
+                hub, display.clients, ports.ensure_writer, ports.next_event
+            ),
             config=DisplayModeOperations(),
             display=DisplayControlOperations(ports.display_port),
             queries=queries,
