@@ -9,11 +9,9 @@ carrying the teardown mechanics itself.
 
 Two entry points, one shared walk:
 
-- ``remove_subtree`` — the storage-only path. The ``update`` remove tool and
-  the ABC observer cascade both land here through ``HubDisplay.apply``.
-- ``drop_root`` — one scene-root, explicitly. Owned ABC roots flip
-  ``mark_removed`` to drive that cascade; unowned roots go straight
-  through ``remove_subtree`` instead.
+- ``remove_subtree`` — storage-only. The ``update`` remove tool and the
+  ABC observer cascade both land here through ``HubDisplay.apply``.
+- ``drop_root`` — one scene-root, owned or not (see its own docstring).
 """
 
 from __future__ import annotations
@@ -79,10 +77,8 @@ class SubtreeRemover:
     ) -> None:
         """Tear down one scene-root; logs and swallows per-root failures.
 
-        An owned ABC root is flipped ``mark_removed`` to drive its observer
-        cascade; an unowned root -- wire-only, or a departure's leftover --
-        has no owner for that cascade to route to, so it is torn down
-        directly instead. Best effort: a logged failure never strands the rest.
+        An owned root flips ``mark_removed``; an unowned one is torn down
+        directly -- its observer cascade would have no owner to route to.
         """
         try:
             root = self._roots.get(scene_id, element_id)
@@ -101,15 +97,19 @@ class SubtreeRemover:
             )
 
     def drop_scene_roots(self, scene_id: SceneId) -> None:
-        """Tear down every root of a scene, owned or not; a rootless scene is a no-op.
-
-        The whole-scene removal a frame close or a TTL needs. Snapshotted
-        first because ``drop_root`` mutates the index as the cascade unwinds.
-        """
+        """Tear down every root of a scene; snapshotted since drop_root mutates it."""
         element_ids = [
             element_id for element_id, _ in self._index.scene_root_items(scene_id)
         ]
-        deque(map(self.drop_root, repeat(scene_id), element_ids), maxlen=0)
+        owners = map(self._owner_connection_id, repeat(scene_id), element_ids)
+        deque(map(self.drop_root, repeat(scene_id), element_ids, owners), maxlen=0)
+
+    def _owner_connection_id(
+        self, scene_id: SceneId, element_id: ElementId
+    ) -> ConnectionId | None:
+        """The owner's connection, or ``None`` -- log attribution only."""
+        owner = self._owners.get(scene_id, element_id)
+        return owner.connection_id if owner is not None else None
 
     def _drop_storage(self, scene_id: SceneId, element_id: ElementId) -> None:
         """Drop one element from every storage collaborator. Idempotent."""

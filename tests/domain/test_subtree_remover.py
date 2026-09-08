@@ -10,7 +10,8 @@ down directly through the walk.
 
 from __future__ import annotations
 
-from typing import Self
+import logging
+from typing import TYPE_CHECKING, Self
 
 from punt_lux.domain.hub.child_index import ChildIndex
 from punt_lux.domain.hub.element_index import ElementIndex
@@ -20,6 +21,9 @@ from punt_lux.domain.hub.root_registry import RootRegistry
 from punt_lux.domain.hub.subtree_remover import SubtreeRemover
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.protocol.elements.text import TextElement
+
+if TYPE_CHECKING:
+    import pytest
 
 _SCENE = SceneId("remover-scene")
 _CONN = ConnectionId("owner-conn")
@@ -143,3 +147,32 @@ def test_drop_scene_roots_tears_down_an_unowned_abc_root() -> None:
     store.remover.drop_scene_roots(_SCENE)
 
     assert not store.index.contains(_SCENE, _ROOT)
+
+
+def test_drop_scene_roots_attributes_a_failure_to_its_real_owner(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A failure tearing down an OWNED root logs its real owner, not None.
+
+    drop_scene_roots resolves each root's owner before calling drop_root, so
+    the diagnostic stays useful instead of always reading "(conn None)".
+    ``mark_removed`` itself is replaced so the raise reaches ``drop_root``
+    directly -- the observer cascade isolates a callback's own failures and
+    would never let one escape to be caught here.
+    """
+    store = _Store()
+    root = TextElement(id=str(_ROOT), content="root")
+    store.index.install_root(_SCENE, _ROOT, root)
+    store.owners.record(_SCENE, _ROOT, _OWNER)
+    store.roots.register(_SCENE, _ROOT, root)
+
+    def _raise() -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(root, "mark_removed", _raise)
+
+    with caplog.at_level(logging.ERROR, logger="punt_lux.domain.hub.subtree_remover"):
+        store.remover.drop_scene_roots(_SCENE)
+
+    assert any(str(_CONN) in r.getMessage() for r in caplog.records)
