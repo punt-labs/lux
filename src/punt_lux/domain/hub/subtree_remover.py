@@ -11,9 +11,9 @@ Two entry points, one shared walk:
 
 - ``remove_subtree`` — the storage-only path. The ``update`` remove tool and
   the ABC observer cascade both land here through ``HubDisplay.apply``.
-- ``drop_root`` — the explicit-removal path for one scene-root. An ABC root is
-  flipped ``mark_removed`` so its observer cascade drives removal; a wire-only
-  root has no observer, so it is torn down directly through ``remove_subtree``.
+- ``drop_root`` — one scene-root, explicitly. Owned ABC roots flip
+  ``mark_removed`` to drive that cascade; unowned roots go straight
+  through ``remove_subtree`` instead.
 """
 
 from __future__ import annotations
@@ -62,12 +62,9 @@ class SubtreeRemover:
     def remove_subtree(self, scene_id: SceneId, element_id: ElementId) -> None:
         """Clear the element and every descendant from storage.
 
-        Walks the ``ChildIndex`` to enumerate descendants in install order,
-        then drops each in turn. For ABC subtrees the Observer cascade has
-        already pruned the parent composite's children tuple; for wire-only
-        subtrees no cascade exists, so this walk is the sole removal path.
-        Either way, storage cleanup runs here so future ``resolve`` calls fail
-        loud.
+        Walks the ``ChildIndex`` in install order and drops each descendant,
+        then the element itself, so a later ``resolve`` fails loud rather
+        than finding an orphan.
         """
         for descendant_id in self._children.descendants(scene_id, element_id):
             self._drop_storage(scene_id, descendant_id)
@@ -77,22 +74,24 @@ class SubtreeRemover:
         self,
         scene_id: SceneId,
         element_id: ElementId,
-        # Attribution for the failure log only -- an unowned root (a departure
-        # already released it) tears down exactly the same way as an owned one.
+        # Attribution for the failure log only.
         connection_id: ConnectionId | None = None,
     ) -> None:
         """Tear down one scene-root; logs and swallows per-root failures.
 
-        Per-root cleanup is best-effort: a failure on one root is logged and
-        the caller continues so a single misbehaving subtree cannot strand the
-        rest of a disconnecting connection's state.
+        An owned ABC root is flipped ``mark_removed`` to drive its observer
+        cascade; an unowned root -- wire-only, or a departure's leftover --
+        has no owner for that cascade to route to, so it is torn down
+        directly instead. Best effort: a logged failure never strands the rest.
         """
         try:
             root = self._roots.get(scene_id, element_id)
-            if root is not None:
+            is_owned = self._owners.get(scene_id, element_id) is not None
+            (
                 root.mark_removed()
-            else:
-                self.remove_subtree(scene_id, element_id)
+                if root is not None and is_owned
+                else self.remove_subtree(scene_id, element_id)
+            )
         except Exception:  # noqa: BLE001 — fan-out cleanup boundary; continue past failure
             _log.exception(
                 "drop_root: cleanup failed for root %s in scene %s (conn %s)",

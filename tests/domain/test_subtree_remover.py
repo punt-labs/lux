@@ -112,3 +112,34 @@ def test_drop_root_of_abc_root_marks_removed_and_lets_the_cascade_run() -> None:
 
     assert root.removed
     assert not store.index.contains(_SCENE, _ROOT)
+
+
+def test_drop_scene_roots_tears_down_an_unowned_abc_root() -> None:
+    """An unowned ABC root must not survive ``drop_scene_roots``.
+
+    ``mark_removed``'s observer cascade only tears down storage when the
+    owner-gated router finds someone to route to (mirrored here, matching
+    ``RootRemovalRouter.route``'s real "no owner, no teardown" shape) — so
+    an unowned ABC root, the ordinary state a departure or a lease reap
+    now leaves behind, would silently linger installed if ``drop_root``
+    routed it through that same cascade regardless of ownership. The
+    whole-scene teardown a frame close or a TTL runs must actually clear
+    such a root, not leave it standing forever.
+    """
+    store = _Store()
+    root = TextElement(id=str(_ROOT), content="root")
+    store.index.install_root(_SCENE, _ROOT, root)
+    store.roots.register(_SCENE, _ROOT, root)
+    # No owners.record call: installed but unowned. The observer mirrors
+    # RootRemovalRouter.route's real owner-gated no-op.
+    root.add_observer(
+        lambda prop: (
+            store.remover.remove_subtree(_SCENE, _ROOT)
+            if prop == "removed" and store.owners.get(_SCENE, _ROOT) is not None
+            else None
+        )
+    )
+
+    store.remover.drop_scene_roots(_SCENE)
+
+    assert not store.index.contains(_SCENE, _ROOT)
