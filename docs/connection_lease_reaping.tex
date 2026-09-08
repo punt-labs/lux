@@ -510,10 +510,14 @@ scenario they guard against is unreachable in the first place:
 
 \begin{verbatim}
   # A live connection owns a scene a dead same-identity predecessor
-  # used to own (goal FOUND)
+  # used to own (goal FOUND). c : dom(identity) is required explicitly --
+  # c is only known to have connected via "not(c : registered)", which
+  # alone does not put c in identity's domain (a c that never connected
+  # at all also satisfies it), and identity(c) is undefined outside its
+  # domain.
   probcli docs/connection_lease_reaping.tex -model_check -nodead \
-    -goal "#s.(#c.(#c2.(s:SCENE & c:CONN & c2:CONN & not(c = c2) &
-                        identity(c) = identity(c2) &
+    -goal "#s.(#c.(#c2.(s:SCENE & c:CONN & c2:CONN & c : dom(identity) &
+                        not(c = c2) & identity(c) = identity(c2) &
                         not(c : registered) & c2 : registered &
                         owner(s) = conn(c2))))" \
     -p DEFAULT_SETSIZE 3
