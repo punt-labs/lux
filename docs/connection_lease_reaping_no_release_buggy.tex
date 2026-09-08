@@ -142,10 +142,14 @@ correct version clears every scene owned by \texttt{c?} to
   lease' = lease
 \end{schema}
 
-\subsection{Connect, Renew, TransportDies, LeaseLapse, Read, Claim --- unchanged}
+\subsection{Connect, Renew, TransportDies, LeaseLapse, Read, TimedReap, Claim --- unchanged}
 
 Identical to the main specification: only \texttt{Depart}'s
-ownership-release step is removed.
+ownership-release step is removed. \texttt{TimedReap} in particular is
+the \emph{correct}, releasing coordinator -- this control isolates the
+H2 finding to \texttt{Depart}'s own graceful-disconnect path, so the
+background backstop must stay intact here exactly as it is in the fixed
+spec.
 
 \begin{schema}{Connect}
   \Delta ConnReg \\
@@ -200,6 +204,20 @@ ownership-release step is removed.
 
 \begin{schema}{Read}
   \Xi ConnReg
+\end{schema}
+
+\begin{schema}{TimedReap}
+  \Delta ConnReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  lease~c? = llapsed \\
+  registered' = registered \setminus \{ c? \} \\
+  owner' = owner \oplus \\
+  \quad~ (\{ s : SCENE | owner~s = conn(c?) \} \cross \{ unowned \}) \\
+  identity' = identity \\
+  transport' = transport \\
+  lease' = lease
 \end{schema}
 
 \begin{schema}{Claim}

@@ -139,7 +139,7 @@ is now outside \texttt{registered}, neither \texttt{Depart} nor
   lease' = lease
 \end{schema}
 
-\subsection{Connect, Renew, TransportDies, LeaseLapse, Depart, Claim --- unchanged}
+\subsection{Connect, Renew, TransportDies, LeaseLapse, Depart, TimedReap, Claim --- unchanged}
 
 Identical to the main specification: only \texttt{Read} is no longer a
 pure query.
@@ -200,6 +200,20 @@ pure query.
   c? : CONN
 \where
   c? \in registered \\
+  registered' = registered \setminus \{ c? \} \\
+  owner' = owner \oplus \\
+  \quad~ (\{ s : SCENE | owner~s = conn(c?) \} \cross \{ unowned \}) \\
+  identity' = identity \\
+  transport' = transport \\
+  lease' = lease
+\end{schema}
+
+\begin{schema}{TimedReap}
+  \Delta ConnReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  lease~c? = llapsed \\
   registered' = registered \setminus \{ c? \} \\
   owner' = owner \oplus \\
   \quad~ (\{ s : SCENE | owner~s = conn(c?) \} \cross \{ unowned \}) \\

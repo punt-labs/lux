@@ -158,7 +158,7 @@ first, and the sweep set drops the \(c2 \neq c?\) exclusion, so it reads
   transport' = transport
 \end{schema}
 
-\subsection{Connect, Renew, TransportDies, LeaseLapse, Read, Depart --- unchanged}
+\subsection{Connect, Renew, TransportDies, LeaseLapse, Read, Depart, TimedReap --- unchanged}
 
 Identical to the main specification: only \texttt{Claim}'s
 self-protection is removed.
@@ -223,6 +223,20 @@ self-protection is removed.
   c? : CONN
 \where
   c? \in registered \\
+  registered' = registered \setminus \{ c? \} \\
+  owner' = owner \oplus \\
+  \quad~ (\{ s : SCENE | owner~s = conn(c?) \} \cross \{ unowned \}) \\
+  identity' = identity \\
+  transport' = transport \\
+  lease' = lease
+\end{schema}
+
+\begin{schema}{TimedReap}
+  \Delta ConnReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  lease~c? = llapsed \\
   registered' = registered \setminus \{ c? \} \\
   owner' = owner \oplus \\
   \quad~ (\{ s : SCENE | owner~s = conn(c?) \} \cross \{ unowned \}) \\

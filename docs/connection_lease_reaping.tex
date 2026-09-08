@@ -575,12 +575,29 @@ is enabled and depends on nothing but \texttt{c?}'s own state; once
 \ref{sec:timedreap}) is enabled and \emph{also} depends on nothing but
 \texttt{c?}'s own state -- not on any other connection existing, not on
 any read ever running, not on any disconnect ever being detected. This is
-the strengthening this addendum makes: round 1's statement of I1 read
-``nothing can indefinitely block \texttt{Depart} once it applies,'' which
-depended on \emph{something} eventually triggering \texttt{Depart} or a
-peer's \texttt{Claim} -- exactly the dependency the bead's own evidence
-refutes (a connection persisting 25.79 hours with no peer ever writing or
-disconnecting it). \texttt{TimedReap} removes that dependency: the chain
+the strengthening this addendum makes, and it is worth being exact about
+what was actually wrong with the previous round's argument, because it is
+not a reachability gap. \texttt{Depart}'s guard, \texttt{c? \in
+registered}, was \emph{already} satisfiable with no second connection and
+no \texttt{Read} in the picture -- a \texttt{fuzz} reachability check
+alone cannot distinguish ``this operation's formal precondition holds''
+from ``something in the real system will actually invoke it,'' because Z
+enabledness is silent on triggers. The error in trusting that chain as
+\emph{unconditional} was informal, not formal: this document's own prose
+already restricted \texttt{Depart} to modelling a real disconnect signal
+or the SDK's idle-reap (Section~\ref{sec:depart}), and for a killed
+process neither ever arrives -- so \texttt{Depart}'s formal availability
+was never in question, only whether anything in the real system would
+ever exercise it. \texttt{TimedReap} closes that informal gap by being an
+operation whose intended trigger -- time passing -- genuinely requires
+nothing external, which is a claim about what invokes it in the real
+\texttt{HubClientRegistry}, not one \texttt{fuzz} or \texttt{probcli}
+can check for either operation. What \emph{is} newly, formally checkable
+is that this reading is now backed by an operation whose guard depends
+on nothing but \texttt{c?}'s own recorded state, so a periodic caller
+with no reference to any other connection's identity, and no external
+signal delivered to it at all, could implement exactly this guard: the
+chain
 \texttt{TransportDies}\,;\,\texttt{LeaseLapse}\,;\,\texttt{TimedReap},
 run against a carrier holding only \texttt{c?} itself -- no second
 connection, no \texttt{Read}, no \texttt{Depart} -- is a complete,
@@ -832,6 +849,45 @@ I1's mechanism is confirmed by reachability of its positive outcome:
                transport(c) = tdown)" \
     -p DEFAULT_SETSIZE 3
 \end{verbatim}
+
+The state a witness ends in does not, by itself, say which operation
+produced it: \texttt{Depart} and \texttt{TimedReap} compute the identical
+postcondition (Section~\ref{sec:timedreap}), so a reachability goal alone
+cannot certify that \texttt{TimedReap} specifically was exercised --
+re-running the same goal at \texttt{DEFAULT\_SETSIZE 1}, which bounds
+\texttt{CONN} to a single element and so rules out any second connection
+appearing anywhere in the witness by construction of the carrier, still
+returns a \texttt{Depart}-based trace, because \texttt{Depart}'s guard is
+at least as permissive as \texttt{TimedReap}'s and ProB is free to choose
+either once both are enabled:
+
+\begin{verbatim}
+  # goal FOUND even with only one connection in the whole carrier
+  probcli docs/connection_lease_reaping.tex -model_check -nodead \
+    -goal "#c.(c:CONN & c : dom(identity) & not(c : registered) &
+               transport(c) = tdown)" \
+    -p DEFAULT_SETSIZE 1
+  # *** TRACE (length=6):
+  #  1: INITIALISATION(...)
+  #  2: Connect(CONN1,IDENT1)
+  #  3: Claim(CONN1,SCENE1)
+  #  4: TransportDies(CONN1)
+  #  5: LeaseLapse(CONN1)
+  #  6: Depart(CONN1)
+\end{verbatim}
+
+What proves the unconditional strengthening is not a different goal but
+the state this trace's own step 5 leaves behind: \texttt{LeaseLapse}'s
+postcondition (Section~\ref{sec:leaselapse}) sets
+\texttt{lease(CONN1) = llapsed} unconditionally, and \texttt{CONN1} is
+still in \texttt{registered} (nothing in steps 1--5 removes it) --
+exactly \texttt{TimedReap}'s guard, satisfied at that same point, by
+inspection of the schema, with no further step needed to establish it.
+\texttt{Depart(CONN1)} in step 6 is the trace ProB happened to print;
+\texttt{TimedReap(CONN1)} was equally enabled in the identical state and
+would have produced the identical \texttt{registered}/\texttt{owner}
+values, because their predicates differ only in a guard both this state
+already satisfies.
 
 The fix's positive outcome -- a live connection successfully claims a
 scene its departed, same-identity predecessor used to own -- is also
