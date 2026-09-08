@@ -246,7 +246,7 @@ in four steps and never calls \texttt{TransportDies} at all:
   probcli docs/connection_lease_reaping_self_reap_buggy.tex \
     -model_check -nodead \
     -goal "#s.(#c.(s:SCENE & c:CONN & owner(s) = conn(c) &
-                   not(c : registered) & transport(c) = tup)))" \
+                   not(c : registered) & transport(c) = tup))" \
     -p DEFAULT_SETSIZE 3
 \end{verbatim}
 

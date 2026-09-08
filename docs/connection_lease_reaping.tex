@@ -484,8 +484,9 @@ everything round 1 could reach, this round can still reach, by the same
 or a shorter route. \texttt{LeaseLapse} remains meaningful independently:
 it is what makes a \emph{different} connection's \texttt{Claim} able to
 sweep \texttt{c?} on \texttt{c?}'s behalf (Section~\ref{sec:claim}'s step
-2) even before any \texttt{Depart} for \texttt{c?} occurs. Docs/connection\_lease\_reaping\_coverage.md
-carries forward, unresolved, the design gap round 1 already surfaced: a
+2) even before any \texttt{Depart} for \texttt{c?} occurs. The coverage
+audit, \texttt{docs/connection\_lease\_reaping\_coverage.md}, carries
+forward, unresolved, the design gap round 1 already surfaced: a
 connection with neither a graceful-disconnect signal (a killed process,
 no clean shutdown) nor any live peer ever writing again has no operation
 in this model that reaps it. \texttt{Depart}'s trigger (a real disconnect
@@ -636,7 +637,7 @@ the invariant holds on every reachable state.
   # I6 (goal NOT found in this, the fixed, spec)
   probcli docs/connection_lease_reaping.tex -model_check -nodead \
     -goal "#s.(#c.(s:SCENE & c:CONN & owner(s) = conn(c) &
-                   not(c : registered) & transport(c) = tup)))" \
+                   not(c : registered) & transport(c) = tup))" \
     -p DEFAULT_SETSIZE 3
 \end{verbatim}
 
@@ -857,7 +858,7 @@ whichever step first exposes a lapsed lease at the caller's own next
   # must be FOUND against the H3 control, NOT found against the fixed spec
   probcli <spec>.tex -model_check -nodead \
     -goal "#s.(#c.(s:SCENE & c:CONN & owner(s) = conn(c) &
-                   not(c : registered) & transport(c) = tup)))" \
+                   not(c : registered) & transport(c) = tup))" \
     -p DEFAULT_SETSIZE 3
 \end{verbatim}
 
