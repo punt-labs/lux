@@ -79,14 +79,14 @@ build: ## Build wheel and sdist
 install: build ## Build and install locally (with display extras)
 	uv tool install --force "$$(ls dist/punt_lux-*.whl)[display]"
 
-restart: install ## Install + restart luxd (via launchd) and display
-	@lux hub install || { echo "error: 'lux hub install' failed — see output above" >&2; exit 1; }
-	@lux display install || { echo "error: 'lux display install' failed — see output above" >&2; exit 1; }
-	@echo "luxd + luxd-display restarted via launchd"
+restart: install ## Install + restart luxd AND display through the service supervisor (picks up code changes)
+	@lux hub restart || { echo "error: 'lux hub restart' failed — see output above" >&2; exit 1; }
+	@lux display restart || { echo "error: 'lux display restart' failed — see output above" >&2; exit 1; }
+	@echo "luxd + luxd-display restarted through the service supervisor"
 
 reload: install ## Install + restart luxd only (display keeps running)
-	@lux hub install || { echo "error: 'lux hub install' failed — see output above" >&2; exit 1; }
-	@echo "luxd restarted via launchd"
+	@lux hub restart || { echo "error: 'lux hub restart' failed — see output above" >&2; exit 1; }
+	@echo "luxd restarted through the service supervisor"
 
 clean: ## Remove build artifacts
 	rm -rf dist/ .tmp/
