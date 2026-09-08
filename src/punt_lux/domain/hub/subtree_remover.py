@@ -17,8 +17,6 @@ Two entry points, one shared walk:
 from __future__ import annotations
 
 import logging
-from collections import deque
-from itertools import repeat
 from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
@@ -103,11 +101,10 @@ class SubtreeRemover:
         ]
         # Attribution for drop_root's failure log only.
         owned_by = self._owners.get
-        owners = (
-            owner.connection_id if (owner := owned_by(scene_id, eid)) else None
-            for eid in element_ids
-        )
-        deque(map(self.drop_root, repeat(scene_id), element_ids, owners), maxlen=0)
+        for element_id in element_ids:
+            owner = owned_by(scene_id, element_id)
+            connection_id = owner.connection_id if owner else None
+            self.drop_root(scene_id, element_id, connection_id)
 
     def _drop_storage(self, scene_id: SceneId, element_id: ElementId) -> None:
         """Drop one element from every storage collaborator. Idempotent."""

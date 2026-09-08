@@ -1076,3 +1076,6 @@
 {"ts":"2026-09-08T15:05:24Z","commit":"f397df56","source":null,"files_scored":613,"files_improved":1,"files_regressed":2,"verdict":"fail","reason":null,"deltas":{"src/punt_lux/domain/hub/subtree_remover.py":{"avg_params":[2.4,2.33],"avg_complexity":[1.8,1.67]}}}
 {"ts":"2026-09-08T15:10:34Z","commit":"4f88674b","source":null,"files_scored":613,"files_improved":0,"files_regressed":1,"verdict":"fail","reason":null,"deltas":{}}
 {"ts":"2026-09-08T15:35:14Z","commit":"7eac9e85","source":null,"files_scored":613,"files_improved":2,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{"src/punt_lux/operations/facade.py":{"avg_params":[1.59,1.56],"module_size":[262.0,258.0]},"src/punt_lux/operations/pubsub.py":{"avg_params":[2.17,2.0],"module_size":[64.0,54.0]}}}
+{"ts":"2026-09-08T16:03:48Z","commit":"20aed75f","source":null,"files_scored":613,"files_improved":0,"files_regressed":2,"verdict":"fail","reason":null,"deltas":{}}
+{"ts":"2026-09-08T16:06:32Z","commit":"20aed75f","source":null,"files_scored":613,"files_improved":1,"files_regressed":1,"verdict":"fail","reason":null,"deltas":{"src/punt_lux/domain/hub/subtree_remover.py":{"module_size":[99.0,96.0]}}}
+{"ts":"2026-09-08T16:15:29Z","commit":"20aed75f","source":null,"files_scored":613,"files_improved":0,"files_regressed":1,"verdict":"fail","reason":null,"deltas":{}}
