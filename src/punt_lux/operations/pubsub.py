@@ -1,7 +1,4 @@
-"""PubSubOperations — the Agent Subscribe / Publish surface over the Hub.
-
-Registers a session's writer, fans out to subscribers, drains its inbox.
-"""
+"""PubSubOperations — the Agent Subscribe / Publish surface over the Hub."""
 
 from __future__ import annotations
 
@@ -15,7 +12,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.hub import Hub
     from punt_lux.domain.hub.hub_clients import HubClientRegistry
     from punt_lux.operations.models.pubsub import PublishRequest
-    from punt_lux.operations.ports import EnsureWriter, NextEvent
+    from punt_lux.operations.ports import HubPorts
     from punt_lux.operations.scope import Scope
 
 __all__ = ["PubSubOperations"]
@@ -27,20 +24,12 @@ class PubSubOperations:
 
     _hub: Hub
     _clients: HubClientRegistry
-    _ensure_writer: EnsureWriter
-    _next_event: NextEvent
-    __slots__ = ("_clients", "_ensure_writer", "_hub", "_next_event")
+    _ports: HubPorts
+    __slots__ = ("_clients", "_hub", "_ports")
 
-    def __new__(
-        cls,
-        hub: Hub,
-        clients: HubClientRegistry,
-        ensure_writer: EnsureWriter,
-        next_event: NextEvent,
-    ) -> Self:
+    def __new__(cls, hub: Hub, clients: HubClientRegistry, ports: HubPorts) -> Self:
         self = super().__new__(cls)
-        self._hub, self._clients = hub, clients
-        self._ensure_writer, self._next_event = ensure_writer, next_event
+        self._hub, self._clients, self._ports = hub, clients, ports
         return self
 
     def subscribe(self, topic: str, *, scope: Scope) -> Subscribed:
@@ -67,7 +56,7 @@ class PubSubOperations:
     def receive(self, *, scope: Scope) -> Received:
         """Take the next business event for the caller's session, or none."""
         self._contact(scope)
-        message = self._next_event(scope.connection_id, 0.0)
+        message = self._ports.next_event(scope.connection_id, 0.0)
         if message is None:
             return Received(event=None)
         event = BusEvent(topic=message.topic, payload=dict(message.payload))
@@ -76,4 +65,4 @@ class PubSubOperations:
     def _contact(self, scope: Scope) -> None:
         """Renew the caller's lease and ensure its writer: authenticated contact."""
         self._clients.renew_if_registered(scope.connection_id)
-        self._ensure_writer(scope.connection_id)
+        self._ports.ensure_writer(scope.connection_id)

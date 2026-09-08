@@ -3,25 +3,56 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from typing import final
+from typing import TYPE_CHECKING, cast, final
 
 import pytest
 
 from punt_lux.domain.hub import hub, hub_display
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.inbox import drop_session, ensure_writer, next_event
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.domain.update import AddElement
 from punt_lux.operations import PublishRequest
+from punt_lux.operations.ports import HubPorts
 from punt_lux.operations.pubsub import PubSubOperations
 from punt_lux.operations.scope import Scope
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.messages.observer import ObserverMessage
 
+if TYPE_CHECKING:
+    from punt_lux.operations.display_port import DisplayPort
+    from punt_lux.operations.ports import EnsureWriter, NextEvent
+
+
+class _ForbiddenDisplayPort:
+    """A DisplayPort that fails the test if pubsub ever reaches around to it."""
+
+    def query(self, method: str, params: object) -> object:
+        msg = f"PubSub reached around to the display: query({method!r})"
+        raise AssertionError(msg)
+
+    def ping(self, wait: float | None) -> object:
+        msg = f"PubSub reached around to the display: ping({wait!r})"
+        raise AssertionError(msg)
+
+
+def _ports(
+    ensure_writer_fn: EnsureWriter = ensure_writer,
+    next_event_fn: NextEvent = next_event,
+) -> HubPorts:
+    """The one Hub-ports collaborator pubsub needs, with the rest stubbed off."""
+    return HubPorts(
+        element_factory=hub_element_factory,
+        ensure_writer=ensure_writer_fn,
+        next_event=next_event_fn,
+        display_port=cast("DisplayPort", _ForbiddenDisplayPort()),
+    )
+
 
 def _ops() -> PubSubOperations:
-    return PubSubOperations(hub, hub_display.clients, ensure_writer, next_event)
+    return PubSubOperations(hub, hub_display.clients, _ports())
 
 
 @pytest.fixture
@@ -67,7 +98,7 @@ def test_receive_drains_without_blocking(scope: Scope) -> None:
         seen.append(timeout)
         return
 
-    ops = PubSubOperations(hub, hub_display.clients, ensure_writer, _record)
+    ops = PubSubOperations(hub, hub_display.clients, _ports(next_event_fn=_record))
     result = ops.receive(scope=scope)
     assert result.event is None
     assert seen == [0.0]
@@ -111,7 +142,7 @@ def test_a_pubsub_only_client_keeps_its_scene_ownership_past_its_ttl() -> None:
             scene_id=scene_id, element=TextElement(id="t", content="x"), parent_id=None
         ),
     )
-    ops = PubSubOperations(Hub(), display.clients, lambda _c: None, _no_event)
+    ops = PubSubOperations(Hub(), display.clients, _ports(lambda _c: None, _no_event))
 
     for _ in range(3):
         clock.advance(1801.0)  # past the 1800s unidentified-session lease
