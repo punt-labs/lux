@@ -6,21 +6,34 @@
 # titled "Lux", client instance/class ("Lux" "Lux") — distinct from the
 # window manager's decoration frame, which is also titled "Lux" but carries
 # the WM's own PID, not luxd-display's. We resolve the real client window by
-# matching _NET_WM_PID to the running luxd-display process, so a same-titled
-# decoration frame or an unrelated window never gets captured by accident.
+# matching _NET_WM_PID to the running luxd-display process. Unlike a title
+# match, PID match cannot be fooled by a same-titled decoration frame or an
+# unrelated window — this is a verification tool, so there is no fallback
+# that trades correctness for convenience: if the client window can't be
+# resolved, we die rather than risk capturing (and validating) the wrong
+# window.
 #
 # `import -window <id>` reads the window's composited pixmap directly (the
 # X server's copy of the last-rendered frame), not a live re-render, so an
 # occluding window on top of Lux does not blank the capture. The raise step
 # below is a safety net for the rare case a compositor withholds the pixmap
-# of a fully-obscured window, not a requirement for correctness.
+# of a fully-obscured window, not a requirement for correctness. Because
+# that pixmap can still be black on a *locked* session (systemd-inhibit only
+# blocks a new idle transition — it does not un-blank a session already
+# locked when this script runs), the post-capture stddev check is what
+# actually makes the evidence trustworthy, not the inhibit.
 #
 # Usage: screenshot.sh [output-path]
 #        screenshot.sh --out <output-path>
+# Default output path is $SCREENSHOT_OUT if set, else .tmp/lux-screenshot.png.
 #
-# Prereqs: imagemagick (import), x11-utils (xwininfo, xprop), xdotool,
-#          systemd (systemd-inhibit)
+# Prereqs: imagemagick (import, convert), x11-utils (xwininfo, xprop),
+#          xdotool, systemd (systemd-inhibit)
 set -euo pipefail
+
+# Below this stddev, the capture is treated as a uniform (black/blank)
+# buffer rather than real rendered content.
+BLACK_STDDEV_THRESHOLD="0.005"
 
 die() {
     echo "screenshot.sh: error: $*" >&2
@@ -32,12 +45,13 @@ require() {
 }
 
 require import
+require convert
 require xwininfo
 require xprop
 require xdotool
 require systemd-inhibit
 
-OUT="${OUT_DEFAULT:-.tmp/lux-screenshot.png}"
+OUT="${SCREENSHOT_OUT:-.tmp/lux-screenshot.png}"
 case "${1:-}" in
     --out)
         OUT="${2:?--out requires a path}"
@@ -51,9 +65,22 @@ esac
 
 [[ -n "${DISPLAY:-}" ]] || die "DISPLAY is not set — no X server to capture from"
 
+mkdir -p "$(dirname "$OUT")"
+ABS_OUT="$(cd "$(dirname "$OUT")" && pwd)/$(basename "$OUT")"
+
+# Never leave a prior run's image at the stable output path: every exit
+# from here on must be either a fresh, verified capture or no file at all.
+rm -f "$ABS_OUT"
+
+# Fail loud, immediately, if the X server itself is unreachable — under
+# `set -euo pipefail` a failing xwininfo inside the pipeline below would
+# otherwise abort mid-pipe without ever reaching a die() call. The tree is
+# queried once here and reused by find_lux_window below, rather than
+# queried twice, so the window list can't shift between the reachability
+# check and the search.
 window_tree() {
     xwininfo -root -tree 2>/dev/null \
-        || die "cannot query the X server on DISPLAY=$DISPLAY — check XWayland/Xauthority access"
+        || die "cannot reach the X server on DISPLAY=$DISPLAY (XWayland running?)"
 }
 
 WINDOW_TREE="$(window_tree)"
@@ -78,8 +105,15 @@ find_lux_window() {
     return 1
 }
 
+# `|| true` matters under `set -e`: find_lux_window returns 1 when no
+# match is found, and without it the script would exit right here on the
+# not-found case instead of reaching the die() below with a clear message.
 WIN_ID="$(find_lux_window "$DISPLAY_PID" || true)"
-[[ -n "$WIN_ID" ]] || die "no Lux window owned by luxd-display pid $DISPLAY_PID found on DISPLAY=$DISPLAY — refusing an unsafe title-only fallback"
+
+# No title-only fallback: a window merely titled "Lux" can be the window
+# manager's decoration frame or an unrelated window, and silently capturing
+# it would produce false verification evidence — worse than failing here.
+[[ -n "$WIN_ID" ]] || die "luxd-display (pid $DISPLAY_PID) is running but its client window could not be resolved via _NET_WM_PID — is it still starting up, or did it just exit?"
 
 # Safety net: raise/activate in case the compositor won't hand back a
 # pixmap for a fully-obscured window. import -window reads the composited
@@ -87,15 +121,25 @@ WIN_ID="$(find_lux_window "$DISPLAY_PID" || true)"
 xdotool windowactivate --sync "$WIN_ID" >/dev/null 2>&1 || true
 xdotool windowraise "$WIN_ID" >/dev/null 2>&1 || true
 
-mkdir -p "$(dirname "$OUT")"
-ABS_OUT="$(cd "$(dirname "$OUT")" && pwd)/$(basename "$OUT")"
-
 # Wrap the capture so a locked/idle screen (which can blank the composited
-# pixmap on some compositors) doesn't corrupt the shot.
+# pixmap on some compositors) doesn't corrupt the shot going forward — this
+# blocks a NEW idle transition during the capture; it cannot un-blank a
+# session that was already locked when the script started, which is exactly
+# why the stddev check below exists.
 systemd-inhibit --what=idle --why="lux screenshot capture" \
     import -window "$WIN_ID" "$ABS_OUT" \
     || die "import -window $WIN_ID failed — window may have closed mid-capture"
 
 [[ -s "$ABS_OUT" ]] || die "capture produced an empty file at $ABS_OUT"
+
+# A nonempty PNG is not proof of real content: a locked/blanked session can
+# still yield a valid, nonempty, uniformly black image. Reject it so a
+# false-positive capture never reaches the caller as trustworthy evidence.
+STDDEV="$(convert "$ABS_OUT" -format '%[fx:standard_deviation]' info: 2>/dev/null)" \
+    || { rm -f "$ABS_OUT"; die "could not measure capture content at $ABS_OUT"; }
+if (($(awk -v s="$STDDEV" -v t="$BLACK_STDDEV_THRESHOLD" 'BEGIN { print (s < t) }'))); then
+    rm -f "$ABS_OUT"
+    die "capture is blank/black (stddev=$STDDEV) — is the session locked or the window off-screen?"
+fi
 
 echo "$ABS_OUT"

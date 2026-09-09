@@ -6674,21 +6674,46 @@ That window's composited pixmap — the X server's copy of the
 already-rendered frame, populated after `SwapBuffers()`, unlike anything
 DES-028 could reach from inside the render loop — is readable from a
 wholly external process with `import -window <id>` (ImageMagick). The
-window is resolved by `xwininfo -root -tree` (title match on `"Lux"`)
-narrowed to the real client window via `xprop -id <id> _NET_WM_PID`
-matched against the running `luxd-display` process, so the window
-manager's same-titled decoration frame is never captured by mistake.
-`xdotool windowactivate`/`windowraise` runs first as a safety net for
-compositors that decline to hand back a pixmap for a fully-obscured
-window; it is not load-bearing, since `import -window` reads the pixmap
-regardless of occlusion.
+window is resolved via `xwininfo -root -tree` narrowed to the real client
+window by `xprop -id <id> _NET_WM_PID` matched against the running
+`luxd-display` process — PID match only, with no title-only fallback: a
+window merely titled "Lux" can be the window manager's decoration frame
+or an unrelated window, and this is a verification tool, so a resolution
+failure dies loud rather than risk capturing (and certifying) the wrong
+window. `xdotool windowactivate`/`windowraise` runs first as a safety
+net for compositors that decline to hand back a pixmap for a
+fully-obscured window; it is not load-bearing, since `import -window`
+reads the pixmap regardless of occlusion.
+
+Two integrity fixes landed after the initial PR review (Copilot + qodo,
+PR #460), both closing gaps where the tool could produce false
+verification evidence rather than fail:
+
+1. **`systemd-inhibit --what=idle` only blocks a *new* idle transition
+   during the capture — it does not un-blank a session that was already
+   locked when the script started.** A locked session can still yield a
+   valid, nonempty, uniformly black PNG that a bare `[[ -s ]]` check
+   would accept. The script now measures
+   `convert <out> -format '%[fx:standard_deviation]' info:` after every
+   capture and dies (removing the file) if it is below a near-zero
+   threshold — this check, not the inhibit, is what actually makes a
+   returned path trustworthy.
+2. **A failed run must never leave a stale prior capture sitting at the
+   stable output path.** The script now `rm -f`s the output path before
+   attempting anything, and again on the black-image rejection above, so
+   every non-success exit leaves no file at all rather than an old
+   image a caller could mistake for current evidence.
 
 Verified end to end: a captured PNG at the live window's exact
 dimensions, with `identify` confirming a valid image and a nonzero
-stddev (`convert ... -format '%[fx:mean] %[fx:standard_deviation]'`)
-ruling out a blank/black buffer — proof the capture holds real widget
-content, not just chrome. The failure path (`luxd-display` not running)
-fails loud with a clear message and nonzero exit, writing no file.
+stddev ruling out a blank/black buffer — proof the capture holds real
+widget content, not just chrome. Three failure paths verified
+separately: `luxd-display` not running, the X server unreachable
+(checked explicitly before the `xwininfo | awk | while` pipeline, since
+under `set -euo pipefail` a failure inside that pipeline would otherwise
+exit mid-pipe without reaching `die()`), and a simulated black capture —
+each fails loud with a clear message, nonzero exit, and no file left
+behind (including no *stale* file from a prior run).
 
 ### Scope and what remains open
 
