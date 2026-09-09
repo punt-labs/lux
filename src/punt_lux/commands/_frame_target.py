@@ -23,5 +23,5 @@ __all__ = ["FrameTarget"]
 class FrameTarget:
     """The frame to close, and the scope closing it."""
 
-    frame_id: str
+    frame_id: str  # caller's local name; FrameCloser resolves it against ownership
     scope: Scope
