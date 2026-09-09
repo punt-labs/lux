@@ -38,6 +38,7 @@ _EXPECTED_TOOLS = frozenset(
         "display_info",
         "display_mode_get",
         "display_screenshot",
+        "display_state_get",
         "display_theme_get",
         "display_window_get",
         "error_ls",
