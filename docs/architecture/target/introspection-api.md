@@ -28,6 +28,7 @@ The core read-only surface includes:
 - `list_clients`
 - `list_menus`
 - `get_display_info`
+- `get_display_state`
 - `screenshot`
 
 Together these let an agent confirm things like:

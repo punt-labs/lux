@@ -849,9 +849,9 @@ class RenderLoop:
     def _resolve_frame_flags(self, frame: Frame, imgui: Any) -> int:
         """Map frame flag names to an ImGui window flags bitmask."""
         result = 0
-        if not frame.flags:
+        if not frame.hints.flags:
             return result
-        for key, enabled in frame.flags.items():
+        for key, enabled in frame.hints.flags.items():
             if not enabled:
                 continue
             attr = self._FLAG_MAP.get(key)
@@ -987,7 +987,7 @@ class RenderLoop:
             scene_id = frame.scene_order[0]
             self._render_framed_scene(frame, scene_id)
             return
-        if frame.layout == "stack":
+        if frame.hints.layout == "stack":
             self._render_frame_stack(frame, imgui)
         else:
             self._render_frame_tabs(frame, imgui)

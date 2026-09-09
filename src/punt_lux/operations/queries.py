@@ -1,9 +1,4 @@
-"""QueryOperations — the read surface, Hub-authoritative where it can be.
-
-``inspect_scene``/``list_scenes``/``list_clients`` read the authority
-directly -- the reach-around removal. ``list_recent_events`` and
-``list_errors`` proxy the display's own facts over the one connection.
-"""
+"""QueryOperations — Hub-authoritative reads plus proxied display facts."""
 
 from __future__ import annotations
 
@@ -14,6 +9,7 @@ from punt_lux.domain.ids import SceneId
 from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.composition_boundary import CompositionBoundary
 from punt_lux.operations.display_facts import DisplayFactProxy
+from punt_lux.operations.display_state_proxy import DisplayStateProxy
 from punt_lux.operations.frame_visibility_proxy import FrameVisibilityProxy
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.inspect_scope import HUB_ONLY, InspectScope
@@ -28,10 +24,10 @@ from punt_lux.operations.models.query_scenes import SceneList
 from punt_lux.operations.scene_listing import SceneListing
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.hub import Hub
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.hub.named_sessions import NamedSession
     from punt_lux.operations.display_port import DisplayPort
+    from punt_lux.operations.models.display_state import DisplayStateSnapshot
     from punt_lux.operations.scope import Scope
     from punt_lux.protocol import Element as WireElement
 
@@ -49,27 +45,21 @@ class QueryOperations:
     _clients: ClientListing
     __slots__ = ("_clients", "_display", "_facts", "_port", "_scenes")
 
-    def __new__(cls, display: HubDisplay, hub: Hub, port: DisplayPort) -> Self:
+    def __new__(
+        cls, display: HubDisplay, port: DisplayPort, clients: ClientListing
+    ) -> Self:
         self = super().__new__(cls)
         self._display = display
         self._port = port
         self._facts = DisplayFactProxy(port)
         self._scenes = SceneListing(display, FrameVisibilityProxy(port))
-        self._clients = ClientListing(display, hub)
+        self._clients = clients
         return self
-
-    # -- Hub-authoritative reads -------------------------------------------
 
     def inspect_scene(
         self, scene_id: str, scope: Scope, facts: InspectScope = HUB_ONLY
     ) -> SceneInspection | OpError:
-        """Return a scene's element tree read from the authoritative store.
-
-        Reads ``HubDisplay`` — never the display replica. ``scene_id`` is
-        composed against the caller's own connection first, so a caller can
-        only ever inspect a scene it owns (DES-086, Decision 5); an unknown
-        or unowned scene is indistinguishably ``not_found``.
-        """
+        """Return a scene's element tree read from ``HubDisplay``, never the replica."""
         sid = CompositionBoundary.compose_or_reject(
             lambda: SceneId(ConnectionScopedId.compose(scope.connection_id, scene_id))
         )
@@ -77,8 +67,7 @@ class QueryOperations:
             return sid
         if sid not in self._display.all_scene_ids():
             return OpError(code="not_found", reason=f"scene {scene_id!r} not found")
-        # The store hands back domain elements; they are structurally the wire
-        # Element the codec and the ABC checks read (PY-TS-12 domain/wire bridge).
+        # Domain elements are structurally the wire Element (PY-TS-12 bridge).
         elements = [
             self._inspect(cast("WireElement", root))
             for root in self._display.scene_roots(sid)
@@ -100,15 +89,13 @@ class QueryOperations:
         return self._clients.read()
 
     def client_facts(self, named: NamedSession) -> HubClient:
-        """Return one session's facts — the shape ``list_clients`` reports, for one."""
+        """Return one session's facts, the shape ``list_clients`` reports for one."""
         return self._clients.facts(named)
 
     @staticmethod
     def local_id_of(scene_id: SceneId | str) -> str:
         """Return the caller's own label for a store key, composed or not."""
         return SceneListing.local_id_of(scene_id)
-
-    # -- proxied display facts ---------------------------------------------
 
     def list_recent_events(self, count: int) -> RecentEvents | OpError:
         """Return the display's recent interactions, proxied over one connection."""
@@ -124,7 +111,9 @@ class QueryOperations:
             return payload
         return RecentErrors.from_payload(payload)
 
-    # -- inspection tree ----------------------------------------------------
+    def display_state(self, scope: Scope) -> DisplayStateSnapshot | OpError:
+        """Return the caller's own widget/frame state, proxied over one connection."""
+        return DisplayStateProxy(self._port).snapshot(scope)
 
     def _inspect(self, element: WireElement) -> InspectedElement:
         """Return an element's resolved state and recurse into its children."""

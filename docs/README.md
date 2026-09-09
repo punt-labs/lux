@@ -89,6 +89,9 @@ the reference for how their subsystem is built.
 - [architecture/scene-display-packaging-design.md](./architecture/scene-display-packaging-design.md)
   — the `scene/` → `display/replica/` dissolution and the N1/N2/N3 naming
   convention (operator-ratified 2026-08-08; PRs #318-#319).
+- [architecture/display-introspection.md](./architecture/display-introspection.md)
+  — the `display_state_get` operation: a Hub-mediated, connection-scoped
+  proxy to the Display's own widget/frame state (bead `lux-221j`).
 
 ## Deferred Designs
 

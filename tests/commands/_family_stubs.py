@@ -16,6 +16,7 @@ if TYPE_CHECKING:
         ClientList,
         DisplayInfo,
         DisplayModeState,
+        DisplayStateSnapshot,
         FrameStatePatch,
         MenuList,
         OpError,
@@ -307,6 +308,25 @@ class StubWindowOps:
     def get_window_settings(self) -> WindowSettings | OpError:
         self.last_call = {"method": "get_window_settings"}
         return cast("WindowSettings | OpError", self._get)
+
+
+@final
+class StubDisplayStateOps:
+    """``DisplayStateOps`` stub returning one preset outcome per method."""
+
+    _get: DisplayStateSnapshot | OpError | None
+    last_call: dict[str, object]
+    __slots__ = ("_get", "last_call")
+
+    def __new__(cls, get_result: DisplayStateSnapshot | OpError | None = None) -> Self:
+        self = super().__new__(cls)
+        self._get = get_result
+        self.last_call = {}
+        return self
+
+    def get_display_state(self, *, scope: Scope) -> DisplayStateSnapshot | OpError:
+        self.last_call = {"method": "get_display_state", "scope": scope}
+        return cast("DisplayStateSnapshot | OpError", self._get)
 
 
 @final

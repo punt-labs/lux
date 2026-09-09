@@ -137,9 +137,9 @@ class FrameBook:
         if msg.frame_title:
             frame.title = msg.frame_title
         if msg.frame_flags is not None:
-            frame.flags = msg.frame_flags
+            frame.hints.flags = msg.frame_flags
         if msg.frame_layout is not None:
-            frame.layout = msg.frame_layout
+            frame.hints.layout = msg.frame_layout
 
     def request_focus(self, frame_id: str) -> None:
         """Mark ``frame_id`` to take window focus on its next render."""

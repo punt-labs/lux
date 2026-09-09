@@ -1,10 +1,8 @@
 """ClientListing — build the session facts ``list_clients`` and Details report.
 
-Split out of ``queries`` (DES-065 OO paydown): reading the Hub's session
-registry into introspection shapes is one cohesive concern, distinct from
-summarizing scenes and frames
-(:class:`~punt_lux.operations.scene_listing.SceneListing`) or walking one
-scene's element tree (``QueryOperations._inspect``).
+Reading the Hub's session registry into introspection shapes is one cohesive
+concern, distinct from :class:`~punt_lux.operations.scene_listing.SceneListing`
+or walking one scene's element tree (``QueryOperations._inspect``).
 """
 
 from __future__ import annotations
@@ -21,6 +19,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.hub.named_sessions import NamedSession
     from punt_lux.domain.ids import ConnectionId
+    from punt_lux.operations.hub_collaborators import InboxDepth
 
 __all__ = ["ClientListing"]
 
@@ -31,12 +30,14 @@ class ClientListing:
 
     _display: HubDisplay
     _hub: Hub
-    __slots__ = ("_display", "_hub")
+    _inbox_depth: InboxDepth
+    __slots__ = ("_display", "_hub", "_inbox_depth")
 
-    def __new__(cls, display: HubDisplay, hub: Hub) -> Self:
+    def __new__(cls, display: HubDisplay, hub: Hub, inbox_depth: InboxDepth) -> Self:
         self = super().__new__(cls)
         self._display = display
         self._hub = hub
+        self._inbox_depth = inbox_depth
         return self
 
     def read(self) -> ClientList:
@@ -48,22 +49,17 @@ class ClientListing:
         now = time.monotonic()
         return ClientList(
             clients=[
-                self._client(connection_id, session, now)
-                for connection_id, session in self._display.client_sessions().items()
+                self._client(entry, now)
+                for entry in self._display.client_sessions().items()
             ]
         )
 
     def facts(self, named: NamedSession) -> HubClient:
-        """Return one session's facts — the shape :meth:`list` reports, for one.
-
-        What the Details command renders, so the menu and introspection agree.
-        Reads the session the caller already holds rather than re-reading the
-        registry, which sweeps lapsed sessions and could retire this client.
-        """
-        return self._client(named.connection_id, named.session, time.monotonic())
+        """Return one session's facts — what Details renders and :meth:`read` lists."""
+        return self._client((named.connection_id, named.session), time.monotonic())
 
     def _client(
-        self, connection_id: ConnectionId, session: ClientSession, now: float
+        self, entry: tuple[ConnectionId, ClientSession], now: float
     ) -> HubClient:
         """Build one session's read shape from the authoritative Hub state.
 
@@ -73,6 +69,7 @@ class ClientListing:
         themselves. Reporting the raw composed key would hand an agent a
         value that separator-rejects on every write path that takes it back.
         """
+        connection_id, session = entry
         return HubClient(
             connection_id=str(connection_id),
             identity=session.identity,
@@ -87,4 +84,6 @@ class ClientListing:
                     for s, _ in self._display.elements_owned_by(connection_id)
                 }
             ),
+            writer_bound=self._hub.has_writer(connection_id),
+            inbox_depth=self._inbox_depth(connection_id),
         )

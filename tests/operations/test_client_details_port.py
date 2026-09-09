@@ -19,6 +19,7 @@ from punt_lux.domain.hub.details_renderer import ClientDetailsRenderer
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
+from punt_lux.domain.hub.inbox import inbox_depth_for
 from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.operations.client_details_port import ClientDetailsPort
 from punt_lux.operations.ports import HubPorts
@@ -66,6 +67,7 @@ def _ports() -> HubPorts:
         element_factory=hub_element_factory,
         ensure_writer=lambda _connection: None,
         next_event=lambda _connection, _timeout: None,
+        inbox_depth=inbox_depth_for,
         display_port=cast("DisplayPort", _ForbiddenPort()),
     )
 

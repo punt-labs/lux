@@ -35,6 +35,7 @@ from punt_lux.domain.hub.session_callback import SessionCallback
 from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.operations.client_details import ClientDetailsOperations
 from punt_lux.operations.client_details_port import ClientDetailsPort
+from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.queries import QueryOperations
 from punt_lux.operations.scene_installer import SceneInstaller
 from punt_lux.protocol.elements.table import TableElement
@@ -47,6 +48,11 @@ pytestmark = pytest.mark.integration
 
 _BEADS = ConnectionId("beads-session")
 _VOXD = ConnectionId("voxd")
+
+
+def _zero_inbox_depth(_connection_id: ConnectionId) -> int:
+    """Report every connection's inbox empty; this test doesn't exercise it."""
+    return 0
 
 
 @final
@@ -108,9 +114,14 @@ class _Wired:
         self = super().__new__(cls)
         self._store = HubDisplay()
         marks = _Marks()
+        clients = ClientListing(self._store, Hub(), _zero_inbox_depth)
         self._details = ClientDetailsPort(
             ClientDetailsOperations(
-                QueryOperations(self._store, Hub(), _Port()),  # type: ignore[arg-type]  # structural port
+                QueryOperations(
+                    self._store,
+                    _Port(),  # type: ignore[arg-type]  # structural port
+                    clients,
+                ),
                 SceneInstaller(self._store, marks),
                 self._store.clients,
             )
