@@ -275,7 +275,9 @@ class DisplayStateProxy:
         payload = self._port.query("display_state", {}).resolve()
         if isinstance(payload, OpError):
             return payload
-        return DisplayStateSnapshot.from_payload(payload)  # raises ValueError on malformed
+        return DisplayStateSnapshot.from_payload(
+            payload
+        )  # raises ValueError on malformed
 ```
 
 `QueryOperations` (`operations/queries.py:41-59`) gains a `_state:
@@ -390,18 +392,20 @@ def inbox_depth_for(connection_id: ConnectionId) -> int:
 # operations/ports.py — one more port, same shape as EnsureWriter/NextEvent
 type InboxDepth = Callable[[ConnectionId], int]
 
+
 @dataclass(frozen=True, slots=True)
 class HubPorts:
     element_factory: ElementFactoryFor
     ensure_writer: EnsureWriter
     next_event: NextEvent
-    inbox_depth: InboxDepth          # new
+    inbox_depth: InboxDepth  # new
     display_port: DisplayPort
 ```
 
 ```python
 # hub_composition.py:20,73-78 — wire the new port the same way as the other two
 from punt_lux.domain.hub.inbox import ensure_writer, inbox_depth_for, next_event
+
 ...
 return HubPorts(
     element_factory=hub_element_factory,
@@ -433,8 +437,8 @@ class HubClient(BaseModel):
     lease: LeaseTerm
     subscribed_topics: list[str]
     owned_scenes: list[str]
-    writer_bound: bool          # new
-    inbox_depth: int            # new
+    writer_bound: bool  # new
+    inbox_depth: int  # new
 ```
 
 populated in `ClientListing._client` (`operations/client_listing.py:76-90`):
@@ -502,6 +506,7 @@ def _query_display_state(self, **_kwargs: Any) -> dict[str, Any]:
 # AFTER — the class that owns the suffix vocabulary owns the projection.
 class WidgetState:
     ...
+
     def observable_snapshot(self) -> dict[str, WireScalar]:
         """The curated, comparison-worthy subset of this scene's widget state.
 
@@ -511,19 +516,22 @@ class WidgetState:
         gesture, never a steady-state fact worth reporting.
         """
         return {
-            key: value
-            for key, value in self._state.items()
-            if self._is_observable(key)
+            key: value for key, value in self._state.items() if self._is_observable(key)
         }
 
     @classmethod
     def _is_observable(cls, key: str) -> bool:
-        return not key.endswith((
-            cls.OPEN_SUFFIX, cls.DISMISS_SUFFIX,
-            cls.PENDING_SUFFIX, cls.HEADER_OPEN_PENDING_SUFFIX,
-            cls.CONTINUOUS_EDIT_BUFFER_SUFFIX, cls.CONTINUOUS_EDIT_EDITING_SUFFIX,
-            cls.ROW_SELECTION_PENDING_SUFFIX,
-        ))
+        return not key.endswith(
+            (
+                cls.OPEN_SUFFIX,
+                cls.DISMISS_SUFFIX,
+                cls.PENDING_SUFFIX,
+                cls.HEADER_OPEN_PENDING_SUFFIX,
+                cls.CONTINUOUS_EDIT_BUFFER_SUFFIX,
+                cls.CONTINUOUS_EDIT_EDITING_SUFFIX,
+                cls.ROW_SELECTION_PENDING_SUFFIX,
+            )
+        )
 ```
 
 `display/query_dispatcher.py`'s new handler then only calls

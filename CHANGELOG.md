@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`get_display_state` — a standalone, curated read of the Display's own
+  widget/frame state, for Hub-vs-Display comparison.** Proxied over luxd's
+  one display connection like `get_display_info`/`get_theme`; excludes every
+  gesture-window slot (an open latch, a pending selection, an in-progress
+  edit) since those hold true only for the width of one click, and reports
+  facts only — no Hub-computed agreement verdict. Available on all four
+  surfaces: the MCP tool `display_state_get`, `lux display state`, `GET
+  /display/state`, and the library client's `get_display_state()`.
+- **`session_ls`/`list_clients` now report `writer_bound` and
+  `inbox_depth` per session** — whether the Hub holds a registered pub-sub
+  writer for the connection, and how many messages are queued but
+  undelivered in its inbox.
+
 ### Fixed
 
 - **A departed connection's dead lease no longer shadows a live reconnect
