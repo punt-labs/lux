@@ -14,6 +14,7 @@ from punt_lux.operations import (
     SceneShown,
 )
 from punt_lux.operations.conveniences import ConvenienceOperations
+from punt_lux.operations.scene_deps import SceneOperationsDeps
 from punt_lux.operations.scenes import SceneOperations
 from punt_lux.operations.scope import Scope
 
@@ -38,8 +39,8 @@ class _Recorder:
 
 
 def _conveniences(store: HubDisplay) -> ConvenienceOperations:
-    scenes = SceneOperations(store, _Recorder(), hub_element_factory, Hub())
-    return ConvenienceOperations(scenes)
+    deps = SceneOperationsDeps(store, _Recorder(), hub_element_factory, Hub())
+    return ConvenienceOperations(SceneOperations(deps))
 
 
 def test_render_table_installs_a_table_element() -> None:

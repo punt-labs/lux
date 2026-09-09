@@ -29,7 +29,6 @@ from punt_lux.operations import (
     DisplayInfo,
     DisplayStateSnapshot,
     FrameStates,
-    Ok,
     Pong,
     RecentErrors,
     RecentEvents,
@@ -44,6 +43,7 @@ if TYPE_CHECKING:
     from punt_lux.commands.display_state_get import DisplayStateOps
     from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.operations import Operations
+    from punt_lux.rest.route_deps import RouteDeps
     from punt_lux.rest.status import HttpErrorMap
 
 _CallerIdentity = Annotated["ClientIdentity", Depends(resolve_identity)]
@@ -69,10 +69,10 @@ class DisplayRoutes:
     _router: APIRouter
     __slots__ = ("_errors", "_ops", "_router")
 
-    def __new__(cls, ops: Operations, errors: HttpErrorMap) -> Self:
+    def __new__(cls, deps: RouteDeps) -> Self:
         self = super().__new__(cls)
-        self._ops = ops
-        self._errors = errors
+        self._ops = deps.ops
+        self._errors = deps.errors
         # Route names default to each endpoint's own name, so they are omitted.
         router = APIRouter(tags=["display"])
         router.add_api_route("/display", self.get_display_info, methods=["GET"])
@@ -81,12 +81,6 @@ class DisplayRoutes:
             "/display/window", self.get_window_settings, methods=["GET"]
         )
         router.add_api_route("/display/frames", self.list_frames, methods=["GET"])
-        router.add_api_route(
-            "/display/frames/{frame_id}/close",
-            self.close_frame,
-            methods=["POST"],
-            dependencies=[Depends(resolve_scope)],
-        )
         router.add_api_route("/display/screenshot", self.screenshot, methods=["GET"])
         router.add_api_route("/display/state", self.get_display_state, methods=["GET"])
         router.add_api_route("/display/ping", self.ping, methods=["GET"])
@@ -119,10 +113,6 @@ class DisplayRoutes:
     def list_frames(self) -> FrameStates:
         """List the display's frames and where each one is currently shown."""
         return self._errors.respond(self._ops.list_frames())
-
-    def close_frame(self, frame_id: str) -> Ok:
-        """Close a frame: tear down its scenes; identity required (DES-057)."""
-        return self._errors.respond(self._ops.close_frame(frame_id))
 
     def screenshot(self, identity: _CallerIdentity) -> Screenshot:
         """Refuse the screenshot: framebuffer capture is unsupported (DES-028)."""

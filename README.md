@@ -150,7 +150,7 @@ Agents interact with Lux through the MCP tools `luxd` serves over its streamable
 | `scene_clear(scene_id)` | Clear one scene and blank its frame; unknown or unowned scenes are named errors, never a false "cleared" |
 | `scene_clear_all()` | Remove all of the caller's scenes from the display |
 | **Frames & menus** | |
-| `frame_close(frame_id)` | Close a frame and tear down its scenes on the Hub |
+| `frame_close(frame_id)` | Close a frame and tear down its scenes on the Hub; a foreign or nonexistent `frame_id` is a named `not_found` error, never a false "closed", and a malformed `frame_id` is `invalid_request` |
 | `menu_set(menus)` | Replace the caller's agent-defined menus on the menu bar |
 | `menu_ls()` | List the Hub-owned menu bar and its items |
 | `callback_register(callback_id, label)` | Register a menu entry the calling connection owns; refused unless that connection holds luxd's listen leg, since clicks are delivered by push |

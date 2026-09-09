@@ -129,6 +129,58 @@ def test_snapshot_never_drops_a_scene_when_two_connections_share_a_local_name() 
     assert as_c2.scenes["chart"].values == {"who": "c2"}
 
 
+def test_snapshot_normalizes_the_callers_own_frame_id_to_its_local_name() -> None:
+    # lux-p3i8: every scene install composes its frame id against the owning
+    # connection (DES-086), so the display's real reply carries the composed
+    # form -- not the bare "f1" the other tests in this file use as a
+    # simplified stand-in. A caller comparing its own local frame name
+    # ("vox.music") against this reply must see that same local name back,
+    # or it wrongly concludes the frame does not exist while the display
+    # is raising it just fine under the composed id it consistently uses.
+    composed = ConnectionScopedId.compose(_C1, "vox.music")
+    payload = {
+        "scenes": {},
+        "frames": [
+            {
+                "frame_id": composed,
+                "visibility": "on_screen",
+                "active_tab": None,
+                "cascade_index": 0,
+            }
+        ],
+    }
+    proxy = DisplayStateProxy(_StubPort(DisplayReplied(payload=payload)))
+
+    result = proxy.snapshot(_SCOPE_1)
+
+    assert not isinstance(result, OpError)
+    assert result.frames[0].frame_id == "vox.music"
+
+
+def test_snapshot_leaves_another_connections_frame_id_composed() -> None:
+    # The frame itself still stays reported (list_frames' "every frame"
+    # contract) -- only the caller's OWN frame gets its local name back; a
+    # foreign frame's id is not something this caller has a local name for.
+    theirs = ConnectionScopedId.compose(_C2, "vox.music")
+    payload = {
+        "scenes": {},
+        "frames": [
+            {
+                "frame_id": theirs,
+                "visibility": "on_screen",
+                "active_tab": None,
+                "cascade_index": 0,
+            }
+        ],
+    }
+    proxy = DisplayStateProxy(_StubPort(DisplayReplied(payload=payload)))
+
+    result = proxy.snapshot(_SCOPE_1)
+
+    assert not isinstance(result, OpError)
+    assert result.frames[0].frame_id == theirs
+
+
 def test_snapshot_hides_an_active_tab_owned_by_another_connection() -> None:
     theirs = ConnectionScopedId.compose(_C2, "theirs")
     payload = {

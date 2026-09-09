@@ -19,6 +19,7 @@ from punt_lux.operations import (
     SceneShown,
     UpdateRequest,
 )
+from punt_lux.operations.scene_deps import SceneOperationsDeps
 from punt_lux.operations.scene_installer import SceneInstaller
 from punt_lux.operations.scene_submission import SceneSubmission
 from punt_lux.operations.scenes import SceneOperations
@@ -50,7 +51,8 @@ class _Recorder:
 def _ops(
     store: HubDisplay, recorder: _Recorder, hub: Hub | None = None
 ) -> SceneOperations:
-    return SceneOperations(store, recorder, hub_element_factory, hub or Hub())
+    deps = SceneOperationsDeps(store, recorder, hub_element_factory, hub or Hub())
+    return SceneOperations(deps)
 
 
 def _submitted(scene_id: str) -> SceneSubmission:

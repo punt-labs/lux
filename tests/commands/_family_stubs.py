@@ -59,8 +59,8 @@ class StubFrameOps:
         self.last_call = {"frame_id": frame_id, "patch": patch}
         return cast("Ok | OpError", self._result)
 
-    def close_frame(self, frame_id: str) -> Ok:
-        self.last_call = {"frame_id": frame_id, "op": "close"}
+    def close_frame(self, frame_id: str, *, scope: Scope) -> Ok:
+        self.last_call = {"frame_id": frame_id, "op": "close", "scope": scope}
         return Ok()
 
 

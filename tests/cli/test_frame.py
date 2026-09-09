@@ -23,7 +23,8 @@ class _FrameClient:
     def sync(self) -> _FrameClient:
         return self
 
-    def close_frame(self, frame_id: str) -> Ok | OpError:
+    def close_frame(self, frame_id: str, *, scope: object) -> Ok | OpError:
+        del scope  # the fake asserts routing by call args, not the scope value
         self.calls.append(("close_frame", frame_id))
         assert self._close_result is not None
         return self._close_result

@@ -8,7 +8,12 @@ import anyio
 import pytest
 from mcp.shared.message import SessionMessage
 
+from punt_lux.domain.hub import disconnect_connection
+from punt_lux.domain.hub.hub import Hub
+from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.ids import ConnectionId, Topic
 from punt_lux.mcp_session import SessionRegistry, SessionScopedServer
+from punt_lux.operations.client_listing import ClientListing
 from punt_lux.tools.server import bind_session, unbind_session
 
 if TYPE_CHECKING:
@@ -215,3 +220,101 @@ class TestSharedKeyCleanup:
 
         assert registry.count == 0
         assert legs == ["menu", "disconnect"]  # cleanup ran once, on the last exit
+
+
+class TestSharedKeyDisconnectPreservesSubscriptions:
+    def test_first_disconnect_leaves_the_survivors_subscription_and_writer(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Two same-key sessions share one connection's Hub subscription state.
+
+        This drives the real ``disconnect_connection`` (not a recording stub)
+        against an isolated ``Hub``/``HubDisplay`` pair, then reads the outcome
+        back through :class:`ClientListing` -- the same read ``session_ls``
+        serves -- so the proof is in ``subscribed_topics``/``writer_bound``,
+        not in which functions got called (lux-95zt).
+        """
+        hub = Hub()
+        display = HubDisplay(hub=hub)
+        conn = ConnectionId("sess-shared")
+
+        def _writer(_message: object) -> None:
+            """The shared connection's one Hub-side outbound writer."""
+
+        display.register_client(conn)
+        hub.register_writer(conn, _writer)
+        hub.subscribe(conn, Topic("work.saved"))
+
+        def _disconnect(connection_id: object) -> None:
+            disconnect_connection(
+                cast("ConnectionId", connection_id), hub_display=display
+            )
+
+        monkeypatch.setattr("punt_lux.session_cleanup.OPERATIONS", _NoopMenu())
+        monkeypatch.setattr(
+            "punt_lux.session_cleanup.disconnect_connection", _disconnect
+        )
+
+        registry = SessionRegistry()
+
+        def _reads() -> tuple[bool, list[str]]:
+            client = next(
+                c
+                for c in ClientListing(display, hub, lambda _c: 0).read().clients
+                if c.connection_id == str(conn)
+            )
+            return client.writer_bound, client.subscribed_topics
+
+        async def _session(server: SessionScopedServer) -> None:
+            _send_read, recv_read = anyio.create_memory_object_stream[
+                SessionMessage | Exception
+            ](0)
+            send_write, _recv_write = anyio.create_memory_object_stream[SessionMessage](
+                0
+            )
+            token = bind_session("sess-shared")
+            try:
+                await server.run(
+                    recv_read, send_write, server.create_initialization_options()
+                )
+            finally:
+                unbind_session(token)
+
+        async def _drive() -> None:
+            gate_first = anyio.Event()
+            gate_last = anyio.Event()
+            first = SessionScopedServer(
+                cast("MCPServer[object, object]", _GatedInner(gate_first)), registry
+            )
+            last = SessionScopedServer(
+                cast("MCPServer[object, object]", _GatedInner(gate_last)), registry
+            )
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(_session, first)
+                tg.start_soon(_session, last)
+                while registry.count < 2:
+                    await anyio.sleep(0)
+                gate_first.set()  # first same-key session leaves
+                while registry.count > 1:
+                    await anyio.sleep(0)
+                # The survivor's subscription and writer must still be live.
+                writer_bound, topics = _reads()
+                assert writer_bound is True
+                assert topics == ["work.saved"]
+                gate_last.set()  # last same-key session leaves
+
+        anyio.run(_drive)
+
+        # Now that the last same-key session has left, the shared connection's
+        # Hub state is truly gone -- and session_ls no longer lists it at all.
+        assert hub.has_writer(conn) is False
+        assert hub.topics_for(conn) == frozenset()
+        clients = ClientListing(display, hub, lambda _c: 0).read().clients
+        assert all(c.connection_id != str(conn) for c in clients)
+
+
+class _NoopMenu:
+    """A menu-leg stub that does nothing; this test only asserts Hub state."""
+
+    def drop_session(self) -> None:
+        """No menu state is exercised here."""

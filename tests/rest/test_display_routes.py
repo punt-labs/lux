@@ -99,13 +99,6 @@ def test_list_frames_reports_a_closed_frame_over_http() -> None:
     }
 
 
-def test_close_frame() -> None:
-    client = make_client(display_port=StubPort(DisplayReplied({})))
-    resp = client.post("/display/frames/f1/close")
-    assert resp.status_code == 200
-    assert resp.json() == {"kind": "ok"}
-
-
 def test_screenshot_unsupported_is_409() -> None:
     # DES-028: framebuffer capture is unsolved, so the operation refuses up front
     # with a rejection (409); the display is never reached (StubPort is inert).

@@ -88,22 +88,29 @@ class DisplayStateProxy:
 
     @staticmethod
     def _scoped(snapshot: DisplayStateSnapshot, scope: Scope) -> DisplayStateSnapshot:
-        """Narrow to ``scope``'s own scenes, then normalize composed ids to local ones.
+        """Narrow to ``scope``'s own scenes; normalize its own frame/tab/scene ids.
 
-        Frame positioning (visibility, cascade index) is not scene content and
-        stays reported for every frame, same as ``list_frames``; only the one
-        field that names a scene -- ``active_tab`` -- is hidden when it names a
-        scene this caller does not own, so the identity of another connection's
-        scene never rides an otherwise-unscoped read.
+        Every frame stays reported, same as ``list_frames``; only this
+        caller's own ``frame_id``/``active_tab`` get localized (lux-p3i8).
         """
         scenes = DisplayStateProxy._owned_scenes(snapshot.scenes, scope)
         frames = [
-            frame.model_copy(
-                update={"active_tab": DisplayStateProxy._owned_tab(frame, scope)}
-            )
-            for frame in snapshot.frames
+            DisplayStateProxy._localized(frame, scope) for frame in snapshot.frames
         ]
         return DisplayStateSnapshot(scenes=scenes, frames=frames)
+
+    @staticmethod
+    def _localized(frame: FramePresentation, scope: Scope) -> FramePresentation:
+        """Return ``frame`` with its own id and active tab localized to ``scope``."""
+        # A composed local id is never blank (DES-086), so `or` safely falls
+        # back to the original composed value when this caller owns neither.
+        by, tab = DisplayStateProxy._local_id_if_owned, frame.active_tab
+        return frame.model_copy(
+            update={
+                "frame_id": by(frame.frame_id, scope) or frame.frame_id,
+                "active_tab": by(tab, scope) if tab is not None else None,
+            }
+        )
 
     @staticmethod
     def _owned_scenes(
@@ -130,14 +137,6 @@ class DisplayStateProxy:
             if local_id is not None:
                 owned[local_id] = widget
         return owned
-
-    @staticmethod
-    def _owned_tab(frame: FramePresentation, scope: Scope) -> str | None:
-        """Normalize the frame's active tab, hiding one owned by another connection."""
-        active_tab = frame.active_tab
-        if active_tab is None:
-            return None
-        return DisplayStateProxy._local_id_if_owned(active_tab, scope)
 
     @staticmethod
     def _local_id_if_owned(scene_id: str, scope: Scope) -> str | None:

@@ -5,31 +5,30 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.commands import frame_close
+from punt_lux.commands._frame_close_request import FrameCloseRequest
 from punt_lux.commands._ports import Ctx
 
 if TYPE_CHECKING:
+    from punt_lux.client.frame_deps import FrameAccessorDeps
     from punt_lux.commands._ports import FrameOps
-    from punt_lux.domain.hub.client_identity import ClientIdentity
-    from punt_lux.operations import Ok, OpError
+    from punt_lux.operations import Ok, OpError, Scope
 
 
 @final
 class FrameAccessor:
     """The ``client.frame.*`` verbs -- ``close`` this cycle."""
 
-    _ops: FrameOps
-    _identity: ClientIdentity
-    __slots__ = ("_identity", "_ops")
+    _ctx: Ctx[FrameOps]
+    _scope: Scope
+    __slots__ = ("_ctx", "_scope")
 
-    def __new__(cls, ops: FrameOps, identity: ClientIdentity) -> Self:
+    def __new__(cls, deps: FrameAccessorDeps) -> Self:
         self = super().__new__(cls)
-        self._ops = ops
-        self._identity = identity
+        self._ctx = Ctx(ops=deps.ops, identity=deps.identity)
+        self._scope = deps.scope
         return self
 
-    def _ctx(self) -> Ctx[FrameOps]:
-        return Ctx(ops=self._ops, identity=self._identity)
-
     async def close(self, frame_id: str) -> Ok | OpError:
-        """Close ``frame_id`` and tear down its scenes on the Hub."""
-        return await frame_close.execute(self._ctx(), frame_id)
+        """Close the caller's own ``frame_id`` and tear down its scenes on the Hub."""
+        request = FrameCloseRequest(self._ctx, frame_id, self._scope)
+        return await frame_close.execute(request)

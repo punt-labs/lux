@@ -38,6 +38,25 @@
 
 ### Fixed
 
+- **`frame_close` no longer reports success for a frame the caller does not
+  own or that does not exist.** The old path operated on the raw local id
+  without resolving it against the caller's connection, so it silently
+  no-op'd yet returned `Ok()` regardless of ownership or existence. It now
+  resolves the caller's local id and returns `not_found` (HTTP 404 on the
+  REST leg) for a foreign or absent frame, across every surface. See
+  lux-03k6.
+- **`get_display_state` no longer disagrees with the Display over the
+  caller's own frames.** The proxy normalized scene ids but left each
+  frame's `frame_id` in its connection-composed form, so a caller comparing
+  the snapshot against its own local frame name (e.g. `vox.music`) never
+  matched its own frame — even as the Display raised that frame correctly
+  under the composed id. An owned frame's `frame_id` is now localized to the
+  caller's local name, matching how scene ids and `active_tab` were already
+  handled; a foreign connection's frame stays reported with its composed id.
+  See lux-p3i8.
+- **Regression test:** a same-identity MCP twin disconnect provably spares
+  the surviving session's subscriptions (reference-counted teardown fires
+  only on the last same-key leg). See lux-95zt.
 - **A departed connection's dead lease no longer shadows a live reconnect
   under the same identity, on any departure path — including an idle Hub
   with nobody reading or writing.** The first pass fixed only the

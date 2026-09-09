@@ -8,8 +8,8 @@ test without the process.
 
 Every operation here is scoped: the caller owns what it writes, and reaching the
 Hub at all is that connection's contact, so a show registers the caller's session
-and renews its lease. ``close_frame`` is the one unscoped write -- a frame is
-shared UI, not one caller's own.
+and renews its lease. Closing a frame is a distinct concern, not one of the
+caller's own scenes -- see :class:`~punt_lux.operations.frame_closing.FrameCloser`.
 
 A patch-style ``update`` against a quarantined scene is refused: the scene is
 unchanged, so nothing about it has become safe to render
@@ -29,7 +29,6 @@ from punt_lux.domain.hub.write_result import WriteRejected
 from punt_lux.domain.ids import SceneId, Topic
 from punt_lux.operations.composition_boundary import CompositionBoundary
 from punt_lux.operations.models.common import OpError
-from punt_lux.operations.models.menu_results import Ok
 from punt_lux.operations.models.scene_results import Cleared, SceneShown
 from punt_lux.operations.scene_clearing import SceneClearer
 from punt_lux.operations.scene_installer import SceneInstaller
@@ -42,7 +41,8 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.quarantine_record import QuarantineRecord
     from punt_lux.operations.models.patches import UpdateRequest
     from punt_lux.operations.models.render import RenderRequest
-    from punt_lux.operations.ports import DirtyMarker, ElementFactoryFor
+    from punt_lux.operations.ports import DirtyMarker
+    from punt_lux.operations.scene_deps import SceneOperationsDeps
     from punt_lux.operations.scope import Scope
 
 __all__ = ["SceneOperations"]
@@ -67,20 +67,14 @@ class SceneOperations:
         "_replicator",
     )
 
-    def __new__(
-        cls,
-        display: HubDisplay,
-        replicator: DirtyMarker,
-        element_factory: ElementFactoryFor,
-        hub: Hub,
-    ) -> Self:
+    def __new__(cls, deps: SceneOperationsDeps) -> Self:
         self = super().__new__(cls)
-        self._display = display
-        self._replicator = replicator
-        self._hub = hub
-        self._decoder = WireTreeDecoder(element_factory)
-        self._installer = SceneInstaller(display, replicator)
-        self._clearer = SceneClearer(display, replicator)
+        self._display = deps.display
+        self._replicator = deps.replicator
+        self._hub = deps.hub
+        self._decoder = WireTreeDecoder(deps.element_factory)
+        self._installer = SceneInstaller(deps.display, deps.replicator)
+        self._clearer = SceneClearer(deps.display, deps.replicator)
         return self
 
     def render(
@@ -183,9 +177,3 @@ class SceneOperations:
         ``cleared``.
         """
         return self._clearer.clear(scope.connection_id, scene_id)
-
-    def close_frame(self, frame_id: str) -> Ok:
-        """Tear down a frame's scenes and mark them dirty for repaint."""
-        for scene_id in self._display.frames.remove_frame(frame_id):
-            self._replicator.mark_dirty(scene_id)
-        return Ok()
