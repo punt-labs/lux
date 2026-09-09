@@ -29,6 +29,7 @@ from punt_lux.operations import (
     SceneShown,
     UpdateRequest,
 )
+from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.queries import QueryOperations
 from punt_lux.operations.scenes import SceneOperations
 from punt_lux.operations.scope import Scope
@@ -70,12 +71,18 @@ class _ForbiddenPort:
         raise AssertionError(msg)
 
 
+def _zero_inbox_depth(_connection_id: ConnectionId) -> int:
+    """Report every connection's inbox empty; these tests don't exercise it."""
+    return 0
+
+
 def _stack() -> tuple[HubDisplay, SceneOperations, QueryOperations]:
     """One shared store, two independent connections' worth of operations."""
     store = HubDisplay()
     hub = Hub()
     scenes = SceneOperations(store, _Recorder(), hub_element_factory, hub)
-    queries = QueryOperations(store, hub, _ForbiddenPort())
+    clients = ClientListing(store, hub, _zero_inbox_depth)
+    queries = QueryOperations(store, _ForbiddenPort(), clients)
     return store, scenes, queries
 
 

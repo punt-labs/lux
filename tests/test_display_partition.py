@@ -1358,7 +1358,7 @@ class TestFrameSizeAndFlagsPartitions:
         _register_hub(server, sock)
         flags = {"no_resize": True, "auto_resize": False}
         server._handle_scene(sock, _framed_scene("s1", "f1", frame_flags=flags))
-        assert server._scenes.frames["f1"].flags == flags
+        assert server._scenes.frames["f1"].hints.flags == flags
 
     def test_frame_flags_none_by_default(self):
         """Frames without frame_flags have flags=None."""
@@ -1366,7 +1366,7 @@ class TestFrameSizeAndFlagsPartitions:
         sock = _sock(fd=10)
         _register_hub(server, sock)
         server._handle_scene(sock, _framed_scene("s1", "f1"))
-        assert server._scenes.frames["f1"].flags is None
+        assert server._scenes.frames["f1"].hints.flags is None
 
     def test_frame_size_only_set_on_creation(self):
         """Subsequent scenes to the same frame don't overwrite initial_size."""
@@ -1386,12 +1386,12 @@ class TestFrameSizeAndFlagsPartitions:
         server._handle_scene(
             sock, _framed_scene("s1", "f1", frame_flags={"no_resize": True})
         )
-        assert server._scenes.frames["f1"].flags == {"no_resize": True}
+        assert server._scenes.frames["f1"].hints.flags == {"no_resize": True}
         server._handle_scene(
             sock,
             _framed_scene("s2", "f1", frame_flags={"auto_resize": True}),
         )
-        assert server._scenes.frames["f1"].flags == {"auto_resize": True}
+        assert server._scenes.frames["f1"].hints.flags == {"auto_resize": True}
 
     def test_frame_flags_unchanged_when_not_provided(self):
         """Subsequent scenes without frame_flags preserve existing flags."""
@@ -1402,7 +1402,7 @@ class TestFrameSizeAndFlagsPartitions:
             sock, _framed_scene("s1", "f1", frame_flags={"no_resize": True})
         )
         server._handle_scene(sock, _framed_scene("s2", "f1"))
-        assert server._scenes.frames["f1"].flags == {"no_resize": True}
+        assert server._scenes.frames["f1"].hints.flags == {"no_resize": True}
 
 
 class TestFrameLayoutPartitions:
@@ -1414,7 +1414,7 @@ class TestFrameLayoutPartitions:
         sock = _sock(fd=10)
         _register_hub(server, sock)
         server._handle_scene(sock, _framed_scene("s1", "f1"))
-        assert server._scenes.frames["f1"].layout == "tab"
+        assert server._scenes.frames["f1"].hints.layout == "tab"
 
     def test_stack_layout_on_creation(self):
         """frame_layout='stack' sets layout on frame creation."""
@@ -1422,7 +1422,7 @@ class TestFrameLayoutPartitions:
         sock = _sock(fd=10)
         _register_hub(server, sock)
         server._handle_scene(sock, _framed_scene("s1", "f1", frame_layout="stack"))
-        assert server._scenes.frames["f1"].layout == "stack"
+        assert server._scenes.frames["f1"].hints.layout == "stack"
 
     def test_layout_updated_by_subsequent_scene(self):
         """Subsequent scene with frame_layout updates the frame layout."""
@@ -1431,7 +1431,7 @@ class TestFrameLayoutPartitions:
         _register_hub(server, sock)
         server._handle_scene(sock, _framed_scene("s1", "f1", frame_layout="tab"))
         server._handle_scene(sock, _framed_scene("s2", "f1", frame_layout="stack"))
-        assert server._scenes.frames["f1"].layout == "stack"
+        assert server._scenes.frames["f1"].hints.layout == "stack"
 
     def test_layout_unchanged_when_not_provided(self):
         """Subsequent scene without frame_layout preserves existing layout."""
@@ -1440,7 +1440,7 @@ class TestFrameLayoutPartitions:
         _register_hub(server, sock)
         server._handle_scene(sock, _framed_scene("s1", "f1", frame_layout="stack"))
         server._handle_scene(sock, _framed_scene("s2", "f1"))
-        assert server._scenes.frames["f1"].layout == "stack"
+        assert server._scenes.frames["f1"].hints.layout == "stack"
 
     def test_frame_layout_in_protocol_round_trip(self):
         """frame_layout survives serialization and deserialization."""

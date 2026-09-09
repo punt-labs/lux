@@ -1,10 +1,4 @@
-"""The Hub collaborators the operations layer is given at construction.
-
-The operations layer is pure engine core: it imports domain state, never the MCP
-transport. The presentation layer wires the Hub-side helpers it needs — element
-decode, the session inbox, the display connection — in as :class:`HubPorts`, so
-nothing in ``operations/`` reaches back up into ``tools/``.
-"""
+"""Hub collaborators the operations layer is given at construction, via HubPorts."""
 
 from __future__ import annotations
 
@@ -19,6 +13,7 @@ from punt_lux.protocol.messages.observer import ObserverMessage
 if TYPE_CHECKING:
     from punt_lux.domain.ids import SceneId
     from punt_lux.operations.display_port import DisplayPort
+    from punt_lux.operations.hub_collaborators import InboxDepth
 
 __all__ = ["DirtyMarker", "ElementFactoryFor", "EnsureWriter", "HubPorts", "NextEvent"]
 
@@ -48,4 +43,5 @@ class HubPorts:
     element_factory: ElementFactoryFor
     ensure_writer: EnsureWriter
     next_event: NextEvent
+    inbox_depth: InboxDepth
     display_port: DisplayPort

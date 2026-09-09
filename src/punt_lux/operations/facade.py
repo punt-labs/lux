@@ -1,9 +1,8 @@
 """The Operations facade — one object exposing every capability.
 
-The facade composes the concern classes so a single caller — an MCP adapter, a
-REST route, or a test — has one object to call. Every collaborator is injected
-into ``for_store`` by the presentation-layer composition root, so nothing here
-binds the running process at import time.
+Composes the concern classes so a single caller — MCP, REST, or a test — has
+one object to call. Every collaborator is injected into ``for_store``, so
+nothing here binds the running process at import time.
 """
 
 from __future__ import annotations
@@ -11,6 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.operations.callbacks import CallbackOperations
+from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.config import DisplayModeOperations
 from punt_lux.operations.conveniences import ConvenienceOperations
 from punt_lux.operations.display_control import DisplayControlOperations
@@ -50,6 +50,7 @@ if TYPE_CHECKING:
     from punt_lux.operations.models.display_frames import FrameStates
     from punt_lux.operations.models.display_info import DisplayInfo
     from punt_lux.operations.models.display_probe import Pong, Screenshot
+    from punt_lux.operations.models.display_state import DisplayStateSnapshot
     from punt_lux.operations.models.identity import Identified
     from punt_lux.operations.models.menu_results import MenuList, Ok, SetMenuRequest
     from punt_lux.operations.models.query_clients import ClientList
@@ -125,14 +126,11 @@ class Operations:
         callback_router: CallbackRouter,
         ports: HubPorts,
     ) -> Self:
-        """Wire every concern class from injected collaborators — no singletons.
-
-        ``callback_router`` is the one process-wide router the MCP and REST
-        composition roots share.
-        """
+        """Wire every concern class from injected collaborators — no singletons."""
         scenes = SceneOperations(display, replicator, ports.element_factory, hub)
         callbacks = CallbackOperations(display.clients, callback_router, replicator)
-        queries = QueryOperations(display, hub, ports.display_port)
+        clients = ClientListing(display, hub, ports.inbox_depth)
+        queries = QueryOperations(display, ports.display_port, clients)
         return cls(
             scenes=scenes,
             pubsub=PubSubOperations(hub, display.clients, ports),
@@ -237,11 +235,8 @@ class Operations:
     def inspect_scene(
         self, scene_id: str, *, scope: Scope, facts: InspectScope = HUB_ONLY
     ) -> SceneInspection | OpError:
-        """Return the caller's own scene tree; ``facts`` adds proxied geometry.
-
-        Composed against ``scope.connection_id`` — a caller can only ever
-        inspect a scene it owns (DES-086, no admin path).
-        """
+        """Return the caller's own scene tree (DES-086, no admin path); ``facts`` adds
+        proxied geometry."""
         return self._queries.inspect_scene(scene_id, scope, facts)
 
     def list_scenes(self, facts: InspectScope = HUB_ONLY) -> SceneList:
@@ -259,6 +254,10 @@ class Operations:
     def list_errors(self, count: int) -> RecentErrors | OpError:
         """Return the display's recent errors, proxied."""
         return self._queries.list_errors(count)
+
+    def get_display_state(self, *, scope: Scope) -> DisplayStateSnapshot | OpError:
+        """Return the caller's own widget/frame state, proxied."""
+        return self._queries.display_state(scope)
 
     @Timed("set_menu")
     def set_menu(self, request: SetMenuRequest | OpError) -> Ok | OpError:

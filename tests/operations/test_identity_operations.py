@@ -15,6 +15,7 @@ from collections.abc import Mapping
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.ids import ConnectionId
+from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.display_reply import DisplayReply
 from punt_lux.operations.identity import IdentityOperations
 from punt_lux.operations.models.common import OpError
@@ -37,6 +38,11 @@ class _ForbiddenPort:
 
 def _scope(connection: str) -> Scope:
     return Scope(ConnectionId(connection))
+
+
+def _zero_inbox_depth(_connection_id: ConnectionId) -> int:
+    """Report every connection's inbox empty; this test doesn't exercise it."""
+    return 0
 
 
 def test_identify_records_the_identity_and_echoes_it() -> None:
@@ -100,7 +106,9 @@ def test_list_clients_shows_the_record_only_for_identified_sessions() -> None:
         {"kind": "cli", "name": "lux", "repo": "/w/lux"}, scope=_scope("identified")
     )
     store.register_client(ConnectionId("anonymous"))
-    reader = QueryOperations(store, Hub(), _ForbiddenPort())
+    reader = QueryOperations(
+        store, _ForbiddenPort(), ClientListing(store, Hub(), _zero_inbox_depth)
+    )
 
     by_id = {c.connection_id: c for c in reader.list_clients().clients}
 

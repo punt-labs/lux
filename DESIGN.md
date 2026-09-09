@@ -6645,6 +6645,90 @@ opt-in)**, adds the AWS Private CA trust-anchor provider on top of (2) and
 map depends on it; see `multi-hub-addressing-work.md`'s bead map for its
 own dependency detail.
 
+## DES-092: `get_display_state` — a Standalone, Curated, Facts-Only Display-State Read
+
+**Status:** SETTLED (bead `lux-221j`)
+
+**Problem.** An agent verifying a rendered scene can inspect the Hub's
+authoritative store (`inspect_scene`, `list_scenes`) but has no way to read
+the Display's own steady-state widget bookkeeping — selection, an open
+header, a committed slider value — to confirm the two sides actually agree.
+Every field that bookkeeping holds is renderer-private (`WidgetState`'s
+`_state` dict), and a chunk of it is true only for the width of one click
+(a modal's open latch, a pending tab selection, an in-flight text edit) —
+exposing it raw would hand an agent a snapshot that is stale before the
+response finishes serializing.
+
+**Decision — three forks resolved.**
+
+1. **A standalone `get_display_state` operation, not a flag on
+   `inspect_scene`/`list_scenes`.** Those two answer from the Hub's
+   authoritative store with no display round-trip (`docs/architecture/one-code-path.md`);
+   folding a display-proxied read behind a flag on either would put a
+   network round-trip behind a call that today never makes one, and would
+   conflate two different authorities (Hub content vs. Display-owned
+   bookkeeping, DES-088) behind one tool. A fourth proxied fact joins
+   `get_display_info`/`get_theme`/`get_window_settings` on their own
+   `DisplayFactProxy`-shaped door (`operations/display_state_proxy.py`).
+2. **A curated `WidgetState.observable_snapshot()`, not a raw `_state`
+   dump.** Every gesture-window slot named by `_GESTURE_SUFFIXES`
+   (`OPEN_SUFFIX`, `DISMISS_SUFFIX`, `PENDING_SUFFIX`,
+   `HEADER_OPEN_PENDING_SUFFIX`, `CONTINUOUS_EDIT_BUFFER_SUFFIX`,
+   `CONTINUOUS_EDIT_EDITING_SUFFIX`, `ROW_SELECTION_PENDING_SUFFIX`) is
+   true only for the width of one in-flight click; an agent reading one
+   would observe a coin flip, not a fact. Durable commit-echo and
+   honoured-state slots (`HONOURED_SUFFIX`,
+   `CONTINUOUS_EDIT_COMMITTED_SUFFIX`,
+   `CONTINUOUS_EDIT_COMMIT_HUB_SUFFIX`, `ROW_SELECTION_HONOURED_SUFFIX`,
+   `FOCUS_SEEN_SUFFIX`, `SPLIT_RATIO_SUFFIX`) stay in.
+3. **A facts-only proxy — no Hub-computed agreement verdict.** The proxy
+   reports what the Display holds; it does not compare that against the
+   Hub's own view and render a verdict ("agree"/"disagree"). Computing
+   that comparison is a caller decision — the two snapshots
+   (`inspect_scene` and `get_display_state`) are both available for a
+   caller to diff itself, and baking a verdict into the Hub would require
+   the Hub to reconstruct what every element kind's Display-side state
+   *should* look like, duplicating the renderer's own bookkeeping rules on
+   the wrong side of the DES-088 authority split.
+
+**Shape.** `SceneReplica.widget_snapshot`/`all_widget_snapshots`/
+`frame_presentations` compose the curated view; `display/query_dispatcher.py`
+answers a `"display_state"` query with `{scenes, frames}` on the existing
+single render-loop thread (no new lock, no z-spec — sequential read, not an
+interleaving). Hub-side, `DisplayStateSnapshot`/`WidgetSnapshot`/
+`FramePresentation` (frozen pydantic) narrow the reply and
+`DisplayStateProxy.snapshot()` strips each composed scene id — and each
+frame's `active_tab` — back to the caller's own local id via
+`SceneListing.local_id_of`, the same normalization `list_clients`'
+`owned_scenes` already applies, so a value read here round-trips straight
+into `inspect_scene` (DES-086). `Operations.get_display_state()` wires it
+into the facade.
+
+**Four-surface parity.** One vocabulary across all four client surfaces
+(`architecture.md`'s Projection Model): the MCP tool `display_state_get`,
+`lux display state`, `GET /display/state`, and the library facade's
+`get_display_state()` — all four routed through the shared
+`commands.display_state_get` Humble Object command, verified by a
+surface-parity test driving all four against one shared `Operations`
+instance and asserting the parsed payload matches field-for-field.
+
+**Alternatives rejected.**
+
+- *A flag on `inspect_scene`/`list_scenes`.* Rejected per fork 1 above —
+  wrong authority, wrong round-trip cost, on the wrong door.
+- *Raw `WidgetState._state` dump.* Rejected per fork 2 — gesture-window
+  slots are noise at best and a race condition at worst; a caller reading
+  a `PENDING_SUFFIX` slot mid-click would observe transient state as if it
+  were steady.
+- *Hub-computed agreement verdict.* Rejected per fork 3 — moves a caller
+  decision into the Hub and requires duplicating per-kind Display
+  bookkeeping rules on the Hub side of the DES-088 split.
+
+**Related.** DES-088 (frame content/visibility authority split) is the
+model this design extends to widget-level state. `docs/architecture/target/introspection-api.md`
+lists `get_display_state` alongside the other read-only introspection
+operations.
+
 ## DES-091: Screenshot Capture on Linux — External Window Capture, Not Framebuffer Access
 
 **Date:** 2026-09-08

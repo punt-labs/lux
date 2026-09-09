@@ -24,7 +24,7 @@ from punt_lux.domain.hub.callback_hold import CallbackRouter
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
-from punt_lux.domain.hub.inbox import ensure_writer, next_event
+from punt_lux.domain.hub.inbox import ensure_writer, inbox_depth_for, next_event
 from punt_lux.domain.hub.menu_models import Menu, MenuAction
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.hub.session_callback import CallbackInvocation
@@ -122,6 +122,7 @@ def _isolated_ops(*, listening: bool = True) -> Generator[tuple[Operations, _Rig
         element_factory=hub_element_factory,
         ensure_writer=ensure_writer,
         next_event=next_event,
+        inbox_depth=inbox_depth_for,
         display_port=HubDisplayConnection(
             is_running=lambda: False, clients=client_registry
         ),

@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, final
 from punt_lux.domain.hub import client_registry, hub, hub_display
 from punt_lux.domain.hub.details_instance import hub_client_details
 from punt_lux.domain.hub.hub_factory import hub_element_factory
-from punt_lux.domain.hub.inbox import ensure_writer, next_event
+from punt_lux.domain.hub.inbox import ensure_writer, inbox_depth_for, next_event
 from punt_lux.domain.hub.replicator_instance import (
     hub_callback_router,
     hub_menu_registry,
@@ -57,9 +57,7 @@ class HubComposition:
         """Bind the Details command the Hub's interaction dispatch runs.
 
         A click lands in the domain layer, which may not call operations, so the
-        process binds the renderer here. Details is not a facade capability — it
-        is keyed by a ``ConnectionId`` and writes a scene owned by another
-        connection — so it is built from the store and ports directly.
+        process binds the renderer here, built from the store and ports directly.
         """
         hub_client_details.bind(
             ClientDetailsPort.for_store(
@@ -74,6 +72,7 @@ class HubComposition:
             element_factory=hub_element_factory,
             ensure_writer=ensure_writer,
             next_event=next_event,
+            inbox_depth=inbox_depth_for,
             display_port=cls.display_port(),
         )
 

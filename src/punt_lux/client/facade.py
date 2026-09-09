@@ -114,8 +114,7 @@ class LuxClient:
     @cached_property
     def display(self) -> DisplayAccessor:
         """The ``client.display.*`` verbs."""
-        t = self._transport
-        return DisplayAccessor(t, t, t, t, t, self._identity)
+        return DisplayAccessor(self._transport, self._identity, self._scope)
 
     @cached_property
     def event(self) -> EventAccessor:

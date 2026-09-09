@@ -8,6 +8,7 @@ isolated store; the pattern is shared with ``composite_tools``.
 from __future__ import annotations
 
 import asyncio
+from typing import TYPE_CHECKING
 
 from fastmcp.exceptions import ToolError
 
@@ -34,9 +35,13 @@ from punt_lux.commands import (
     scene_inspect as scene_inspect_command,
     session_ls as session_ls_command,
 )
+from punt_lux.commands.display_state_get import (
+    display_state_get as display_state_get_command,
+)
 from punt_lux.operations import (
     ClientList,
     DisplayInfo,
+    DisplayStateSnapshot,
     FrameStates,
     InspectScope,
     MenuList,
@@ -52,8 +57,12 @@ from punt_lux.tools import tools as _core
 from punt_lux.tools._signal import signal
 from punt_lux.tools.server import mcp
 
+if TYPE_CHECKING:
+    from punt_lux.commands.display_state_get import DisplayStateOps
+
 __all__ = [
     "get_display_info",
+    "get_display_state",
     "get_theme",
     "get_window_settings",
     "inspect_scene",
@@ -138,14 +147,7 @@ def list_frames() -> FrameStates | OpError:
 
 @mcp.tool(name="display_screenshot")
 def screenshot() -> str:
-    """Report that display screenshot capture is unsupported (DES-028).
-
-    Framebuffer capture is unresolved below the message layer, so every call
-    returns ``"error: screenshot capture is not supported by the display; see
-    DES-028"`` rather than an image path. The tool remains so the refusal is
-    explicit rather than a missing verb; it will produce an image once DES-028 is
-    resolved.
-    """
+    """Report that display screenshot capture is unsupported (DES-028)."""
     ctx: CommandCtx[ScreenshotOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
     )
@@ -155,12 +157,7 @@ def screenshot() -> str:
 
 @mcp.tool(name="display_info")
 def get_display_info() -> DisplayInfo | OpError:
-    """Return display server metadata: backend, resolution, FPS, PID, uptime.
-
-    The result is a typed record; its MCP output schema is derived from that
-    record, so the display's own reply can never be rejected by a schema that
-    drifted from it.
-    """
+    """Return display server metadata: backend, resolution, FPS, PID, uptime."""
     ctx: CommandCtx[DisplayInfoOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
     )
@@ -183,6 +180,15 @@ def get_theme() -> ThemeState | OpError:
         ops=_core.OPERATIONS, identity=_core._identity()
     )
     return asyncio.run(display_get_theme_command.execute(ctx))
+
+
+@mcp.tool(name="display_state_get")
+def get_display_state() -> DisplayStateSnapshot | OpError:
+    """Return your own widget/frame state, scoped to scenes you own."""
+    ctx: CommandCtx[DisplayStateOps] = CommandCtx(
+        ops=_core.OPERATIONS, identity=_core._identity()
+    )
+    return asyncio.run(display_state_get_command.execute(ctx, scope=_core._scope()))
 
 
 @mcp.tool(name="session_ls")
@@ -209,11 +215,7 @@ def list_menus() -> MenuList | OpError:
 
 @mcp.tool(name="event_ls")
 def list_recent_events(count: int = 50) -> RecentEvents | OpError:
-    """Return the last N interaction events from the display.
-
-    Events include button clicks, slider changes, combo selections, and other
-    user interactions. Default 50, max 200. Proxied over luxd's one connection.
-    """
+    """Return the last N interaction events. Default 50, max 200, proxied."""
     ctx: CommandCtx[EventOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
     )
@@ -222,11 +224,7 @@ def list_recent_events(count: int = 50) -> RecentEvents | OpError:
 
 @mcp.tool(name="error_ls")
 def list_errors(count: int = 20) -> RecentErrors | OpError:
-    """Return the last N display-side errors and warnings.
-
-    Each entry includes timestamp, severity, message, and context. Default 20,
-    max 100. Proxied over luxd's one connection.
-    """
+    """Return the last N display-side errors. Default 20, max 100, proxied."""
     ctx: CommandCtx[ErrorOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
     )

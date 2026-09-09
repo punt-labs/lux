@@ -21,6 +21,7 @@ from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.ids import ConnectionId, SceneId, Topic
 from punt_lux.operations.client_details import ClientDetailsOperations
+from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.scene_results import SceneShown
 from punt_lux.operations.queries import QueryOperations
@@ -79,10 +80,20 @@ class _ForbiddenPort:
         raise AssertionError(msg)
 
 
+def _zero_inbox_depth(_connection_id: ConnectionId) -> int:
+    """Report every connection's inbox empty; these tests don't exercise it."""
+    return 0
+
+
 def _wired(store: HubDisplay, hub: Hub) -> tuple[ClientDetailsOperations, _Marks]:
     """Build the details operation over real stores, with no display in reach."""
     marks = _Marks()
-    queries = QueryOperations(store, hub, cast("object", _ForbiddenPort()))  # type: ignore[arg-type]  # structural port
+    clients = ClientListing(store, hub, _zero_inbox_depth)
+    queries = QueryOperations(
+        store,
+        cast("object", _ForbiddenPort()),  # type: ignore[arg-type]  # structural port
+        clients,
+    )
     installer = SceneInstaller(store, marks)
     return ClientDetailsOperations(queries, installer, store.clients), marks
 

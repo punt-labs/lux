@@ -8,7 +8,7 @@ from typing import Self
 from punt_lux.display.replica.frame import Frame
 from punt_lux.display.replica.frame_book import FrameBook
 from punt_lux.display.replica.stale_ids import OnSceneReplacedFn, StaleIds
-from punt_lux.display.replica.widget_state import WidgetState
+from punt_lux.display.replica.widget_state import WidgetState, WireScalar
 from punt_lux.display.replica.widget_state_store import WidgetStateStore
 from punt_lux.protocol import SceneMessage
 
@@ -18,17 +18,13 @@ __all__ = ["OnSceneReplacedFn", "SceneReplica"]
 class SceneReplica:
     """Own the scene graph — framed scenes, widget state, stale-id notification.
 
-    Every scene lives in a frame: the Hub synthesizes one at the render boundary
-    when the caller names none, so there is no unframed scene storage. Frames and
-    the scene→frame/owner maps belong to a composed :class:`FrameBook`, the
-    per-scene widget state to a composed :class:`WidgetStateStore`, and the
-    element-id bookkeeping and stale-id notification to a composed
+    Every scene lives in a frame — the Hub synthesizes one when the caller
+    names none. Frames belong to a composed :class:`FrameBook`, widget state
+    to a composed :class:`WidgetStateStore`, id bookkeeping to a composed
     :class:`StaleIds`. Pure state machine: no ImGui, socket, or OpenGL.
 
-    Two authorities write here and they must not write to each other's fields.
-    A client owns *content* — which scene ids exist. The user owns *visibility* —
-    where each frame is, which is why ``close`` and ``dispose_frame`` are two
-    methods rather than one with a flag (DES-065 R8).
+    Two authorities write here: a client owns *content*, the user owns
+    *visibility* — why ``close`` and ``dispose_frame`` are two methods.
     """
 
     _book: FrameBook
@@ -172,11 +168,7 @@ class SceneReplica:
             self._replace_scene_state(msg, old_scene)
 
     def _vacate_other_frame(self, frame: Frame, scene_id: str) -> None:
-        """Take ``scene_id`` out of any frame but this one: it lives in one at a time.
-
-        The frame it leaves is disposed if that emptied it — a frame with no
-        content is a husk, whatever the user had made of it.
-        """
+        """Take ``scene_id`` out of any other frame, disposing it if that empties it."""
         old_frame = self._book.frame_of_scene(scene_id)
         if old_frame is None or old_frame.frame_id == frame.frame_id:
             return
@@ -184,12 +176,10 @@ class SceneReplica:
             self.dispose_frame(old_frame.frame_id)
 
     def _admit_new_scene(self, frame: Frame, scene_id: str) -> None:
-        """Place a scene the frame did not hold, writing content and nothing else.
+        """Place a scene the frame did not hold, writing content only.
 
-        The active tab is the one thing here that could be called presentation,
-        and it is written only when the frame has none — its first scene, which
-        has no selection to take. A later arrival joins the strip and leaves the
-        user reading what they were reading.
+        The active tab is set only for the frame's first scene; a later
+        arrival joins the strip without moving what the user is reading.
         """
         frame.scene_order.append(scene_id)
         self._widget_state.open(scene_id)
@@ -221,19 +211,11 @@ class SceneReplica:
     def close(self, frame_id: str) -> list[str]:
         """Put a frame away, returning the scene ids the caller should drain.
 
-        The visibility half of the old ``close_frame``: the user shut a window,
-        which says nothing about its content. The frame keeps its place in the
-        book, its scenes stay *known*, its widget state and active tab survive,
-        and the Hub is told nothing — no element was replaced, so nothing is
-        stale to anyone but this Display.
-
-        What comes back is the frame's *scenes*, not their element ids, and the
-        distinction is load-bearing. The caller drops its own queued interactions
-        for them, so a button in a window the user just shut cannot fire
-        afterwards — but an element id is shareable across scenes, so draining by
-        id would reach into a frame still on screen and cancel a click the user
-        is waiting on there. Scene ids identify the frame's own work and nothing
-        else. Empty for a frame the book does not hold.
+        The visibility half of the old ``close_frame``: content, widget state,
+        and active tab all survive, and the Hub is told nothing. Scene ids, not
+        element ids, come back — an element id is shareable across scenes, so
+        draining by id could cancel a click in a frame still on screen. Empty
+        for a frame the book does not hold.
         """
         frame = self._book.close(frame_id)
         if frame is None:
@@ -244,11 +226,9 @@ class SceneReplica:
         """Throw a frame out with all its scenes, returning the stale element IDs.
 
         The content half of the old ``close_frame``: the client says its content
-        is gone — an empty push, a manifest purge, a TTL sweep, Clear All — so the
-        frame leaves the book, its scene ids return to *unseen*, its widget state
-        goes, and the ids no surviving scene holds are reported stale. It applies
-        whatever visibility the user had left the frame in: a frame with no
-        content is a husk, and a closed one is no exception.
+        is gone (an empty push, a manifest purge, a TTL sweep, Clear All), so
+        the frame, its scenes, and its widget state all go, whatever visibility
+        the user had left it in.
         """
         frame = self._book.pop_frame(frame_id)
         if frame is None:
@@ -267,6 +247,19 @@ class SceneReplica:
     def widget_state_for(self, scene_id: str) -> WidgetState | None:
         """Return the WidgetState for a scene, or None."""
         return self._widget_state.get(scene_id)
+
+    def widget_snapshot(self, scene_id: str) -> dict[str, WireScalar] | None:
+        """Return the scene's curated widget-state snapshot, or None if untracked."""
+        state = self.widget_state_for(scene_id)
+        return state.observable_snapshot() if state is not None else None
+
+    def all_widget_snapshots(self) -> dict[str, dict[str, WireScalar]]:
+        """Return every tracked scene's curated widget-state snapshot, keyed by id."""
+        return self._widget_state.snapshots()
+
+    def frame_presentations(self) -> list[dict[str, object]]:
+        """Return every frame's Display-owned facts: visibility, active tab, cascade."""
+        return [frame.presentation() for frame in self._book.frames.values()]
 
     @property
     def widget_state_count(self) -> int:

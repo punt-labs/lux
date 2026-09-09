@@ -54,7 +54,7 @@ from punt_lux.domain.hub import client_registry, hub
 from punt_lux.domain.hub.callback_hold import CallbackRouter
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
-from punt_lux.domain.hub.inbox import ensure_writer, next_event
+from punt_lux.domain.hub.inbox import ensure_writer, inbox_depth_for, next_event
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.operations import Operations
@@ -257,6 +257,7 @@ class ToolExerciser:
                 element_factory=hub_element_factory,
                 ensure_writer=ensure_writer,
                 next_event=next_event,
+                inbox_depth=inbox_depth_for,
                 display_port=display_port,
             )
         message = cls._inbox_message(inbox_event) if inbox_event is not None else None
@@ -273,6 +274,7 @@ class ToolExerciser:
             element_factory=hub_element_factory,
             ensure_writer=_no_writer,
             next_event=_stub_next,
+            inbox_depth=inbox_depth_for,
             display_port=display_port,
         )
 

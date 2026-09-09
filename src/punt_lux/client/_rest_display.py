@@ -1,10 +1,4 @@
-"""The display-family wire methods :class:`_RestTransport` composes and delegates to.
-
-Splits the display-info/theme/window/mode cluster out of ``_rest_transport.py``
-so that module stays under its size target. Shares one
-:class:`~punt_lux.rest_transport.HttpTransport` and one identity header set
-with the composing client; :class:`_DisplayRestOps` never constructs its own.
-"""
+"""The display-family wire methods :class:`_RestTransport` composes and delegates to."""
 
 from __future__ import annotations
 
@@ -14,6 +8,7 @@ from urllib.parse import urlencode
 from punt_lux.operations import (
     DisplayInfo,
     DisplayModeState,
+    DisplayStateSnapshot,
     OpError,
     Screenshot,
     ThemeState,
@@ -46,6 +41,11 @@ class _DisplayRestOps:
         """Return the display's backend/geometry through ``GET /display``."""
         call = HttpCall.read("/display", self._headers)
         return RestReply(self._transport.request(call)).read(DisplayInfo)
+
+    def get_display_state(self) -> DisplayStateSnapshot | OpError:
+        """Return the Display's widget/frame state through ``GET /display/state``."""
+        call = HttpCall.read("/display/state", self._headers)
+        return RestReply(self._transport.request(call)).read(DisplayStateSnapshot)
 
     def get_theme(self) -> ThemeState | OpError:
         """Return the active theme through ``GET /display/theme``."""

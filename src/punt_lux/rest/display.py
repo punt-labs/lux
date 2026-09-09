@@ -24,13 +24,16 @@ from punt_lux.commands import (
     event_ls as event_ls_command,
     ping as ping_command,
 )
+from punt_lux.commands.display_state_get import display_state_get as state_get_command
 from punt_lux.operations import (
     DisplayInfo,
+    DisplayStateSnapshot,
     FrameStates,
     Ok,
     Pong,
     RecentErrors,
     RecentEvents,
+    Scope,
     Screenshot,
     ThemeState,
     WindowSettings,
@@ -38,12 +41,14 @@ from punt_lux.operations import (
 from punt_lux.rest.identity import resolve_identity, resolve_scope
 
 if TYPE_CHECKING:
+    from punt_lux.commands.display_state_get import DisplayStateOps
     from punt_lux.domain.hub.client_identity import ClientIdentity
-    from punt_lux.operations import Operations, Scope
+    from punt_lux.operations import Operations
     from punt_lux.rest.status import HttpErrorMap
 
 _CallerIdentity = Annotated["ClientIdentity", Depends(resolve_identity)]
-_OwningScope = Annotated["Scope", Depends(resolve_scope)]
+# A scoped read (e.g. display state) gets the same 401 challenge a write gets.
+_OwningScope = Annotated[Scope, Depends(resolve_scope)]
 
 __all__ = ["DisplayRoutes"]
 
@@ -68,8 +73,7 @@ class DisplayRoutes:
         self = super().__new__(cls)
         self._ops = ops
         self._errors = errors
-        # Route names default to each endpoint's own name, which is what the
-        # explicit names here always were — so they are omitted.
+        # Route names default to each endpoint's own name, so they are omitted.
         router = APIRouter(tags=["display"])
         router.add_api_route("/display", self.get_display_info, methods=["GET"])
         router.add_api_route("/display/theme", self.get_theme, methods=["GET"])
@@ -77,14 +81,14 @@ class DisplayRoutes:
             "/display/window", self.get_window_settings, methods=["GET"]
         )
         router.add_api_route("/display/frames", self.list_frames, methods=["GET"])
-        f = "/display/frames/{frame_id}"
         router.add_api_route(
-            f + "/close",
+            "/display/frames/{frame_id}/close",
             self.close_frame,
             methods=["POST"],
             dependencies=[Depends(resolve_scope)],
         )
         router.add_api_route("/display/screenshot", self.screenshot, methods=["GET"])
+        router.add_api_route("/display/state", self.get_display_state, methods=["GET"])
         router.add_api_route("/display/ping", self.ping, methods=["GET"])
         router.add_api_route("/events", self.list_recent_events, methods=["GET"])
         router.add_api_route("/errors", self.list_errors, methods=["GET"])
@@ -109,9 +113,8 @@ class DisplayRoutes:
     def get_window_settings(self, identity: _CallerIdentity) -> WindowSettings:
         """Return the window's opacity, font scale, decoration, and idle rate."""
         ctx: CommandCtx[WindowOps] = CommandCtx(ops=self._ops, identity=identity)
-        return self._errors.respond(
-            asyncio.run(display_window_get_command.execute(ctx))
-        )
+        result = asyncio.run(display_window_get_command.execute(ctx))
+        return self._errors.respond(result)
 
     def list_frames(self) -> FrameStates:
         """List the display's frames and where each one is currently shown."""
@@ -119,27 +122,28 @@ class DisplayRoutes:
 
     def close_frame(self, frame_id: str) -> Ok:
         """Close a frame: tear down its scenes; identity required (DES-057)."""
-        result = self._ops.close_frame(frame_id)
-        return self._errors.respond(result)
+        return self._errors.respond(self._ops.close_frame(frame_id))
 
     def screenshot(self, identity: _CallerIdentity) -> Screenshot:
         """Refuse the screenshot: framebuffer capture is unsupported (DES-028)."""
         ctx: CommandCtx[ScreenshotOps] = CommandCtx(ops=self._ops, identity=identity)
-        return self._errors.respond(
-            asyncio.run(display_screenshot_command.execute(ctx))
-        )
+        result = asyncio.run(display_screenshot_command.execute(ctx))
+        return self._errors.respond(result)
+
+    def get_display_state(
+        self, identity: _CallerIdentity, scope: _OwningScope
+    ) -> DisplayStateSnapshot:
+        """Return the caller's own widget/frame state, proxied (DES-086 scoped)."""
+        ctx: CommandCtx[DisplayStateOps] = CommandCtx(ops=self._ops, identity=identity)
+        result = asyncio.run(state_get_command.execute(ctx, scope=scope))
+        return self._errors.respond(result)
 
     async def ping(
         self, identity: _CallerIdentity, timeout: _PingTimeout = None
     ) -> Pong:
-        """Round-trip a ping and return the typed result.
-
-        A ping never owns Hub state, so an unidentified caller resolves to
-        ``ANONYMOUS_REST`` rather than being challenged the way a write is.
-        """
+        """Round-trip a ping; an unidentified caller resolves to ``ANONYMOUS_REST``."""
         ctx: CommandCtx[PingOps] = CommandCtx(ops=self._ops, identity=identity)
-        result = await ping_command.execute(ctx, timeout)
-        return self._errors.respond(result)
+        return self._errors.respond(await ping_command.execute(ctx, timeout))
 
     def list_recent_events(
         self, identity: _CallerIdentity, count: _EventCount = 50
