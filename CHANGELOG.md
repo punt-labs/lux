@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`make screenshot`** — captures the running lux-display window to a PNG
+  for agent-driven visual verification at the demo gate. On Linux
+  (Ubuntu/Wayland with XWayland, the box this was verified on),
+  `scripts/screenshot.sh` resolves the lux-display window by matching
+  `_NET_WM_PID` to the running `luxd-display` process (distinguishing it
+  from the window manager's same-titled decoration frame), then reads its
+  composited pixmap with ImageMagick's `import -window` — a read that
+  survives occlusion, with `xdotool` raise/activate as a belt-and-suspenders
+  fallback for compositors that withhold the pixmap of a fully-obscured
+  window. Not part of `make check`; it is a dev/verification target.
+  DES-028's "no screenshot mechanism" finding was scoped to macOS and does
+  not hold here.
+
 ### Fixed
 
 - **A departed connection's dead lease no longer shadows a live reconnect
