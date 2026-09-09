@@ -8,12 +8,10 @@ display fact this codebase reports (see ``operations/display_facts.py`` and
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict
 
-from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.query_visibility import FrameVisibility
 
 __all__ = ["DisplayStateSnapshot", "FramePresentation", "WidgetSnapshot"]
@@ -48,21 +46,6 @@ class FramePresentation(BaseModel):
     cascade_index: int
 
 
-class _RawDisplayState(BaseModel):
-    """The wire shape a ``display_state`` reply is validated against.
-
-    Scenes arrive keyed by whatever id the display holds them under; the
-    caller normalizes each key to its own local id afterward
-    (``DisplayStateProxy.snapshot``), so this stage only needs to know each
-    scene's value is a curated widget-state mapping.
-    """
-
-    model_config = ConfigDict(frozen=True)
-
-    scenes: dict[str, dict[str, WireScalar]] = Field(default_factory=dict)
-    frames: list[FramePresentation] = Field(default_factory=list[FramePresentation])
-
-
 class DisplayStateSnapshot(BaseModel):
     """The Display's own state, read once, for Hub-vs-Display comparison."""
 
@@ -71,18 +54,3 @@ class DisplayStateSnapshot(BaseModel):
     kind: Literal["ok"] = "ok"
     scenes: dict[str, WidgetSnapshot]
     frames: list[FramePresentation]
-
-    @classmethod
-    def from_payload(
-        cls, payload: Mapping[str, object]
-    ) -> DisplayStateSnapshot | OpError:
-        """Build from the display's ``display_state`` reply, or reject it."""
-        try:
-            raw = _RawDisplayState.model_validate(payload)
-        except ValidationError as exc:
-            return OpError.from_reply(exc)
-        scenes = {
-            scene_id: WidgetSnapshot(values=values)
-            for scene_id, values in raw.scenes.items()
-        }
-        return cls(scenes=scenes, frames=raw.frames)

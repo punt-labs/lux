@@ -2,22 +2,54 @@
 
 Structurally identical in shape to ``DisplayFactProxy``: one proxied round trip
 over ``DisplayLink.query``, narrowed to a typed result or an ``OpError`` —
-never installed as Hub state.
+never installed as Hub state. The wire reply's scenes arrive as bare scalar
+mappings, not the ``{"values": ...}`` shape :class:`WidgetSnapshot` wants, so
+``_RawDisplayState`` validates that wire shape here, at the decode boundary
+this proxy owns, before ``DisplayStateSnapshot`` is assembled.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
 from punt_lux.operations.models.common import OpError
-from punt_lux.operations.models.display_state import DisplayStateSnapshot
+from punt_lux.operations.models.display_state import (
+    DisplayStateSnapshot,
+    FramePresentation,
+    WidgetSnapshot,
+    WireScalar,
+)
 from punt_lux.operations.scene_listing import SceneListing
 
 if TYPE_CHECKING:
     from punt_lux.operations.display_port import DisplayPort
-    from punt_lux.operations.models.display_state import FramePresentation
 
 __all__ = ["DisplayStateProxy"]
+
+
+class _RawDisplayState(BaseModel):
+    """The wire shape a ``display_state`` reply is validated against.
+
+    Scenes arrive keyed by whatever id the display holds them under; the
+    caller normalizes each key to its own local id afterward
+    (``DisplayStateProxy.snapshot``), so this stage only needs to know each
+    scene's value is a curated widget-state mapping.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    scenes: dict[str, dict[str, WireScalar]] = Field(default_factory=dict)
+    frames: list[FramePresentation] = Field(default_factory=list[FramePresentation])
+
+    def to_snapshot(self) -> DisplayStateSnapshot:
+        """Assemble the curated snapshot this validated wire shape describes."""
+        scenes = {
+            scene_id: WidgetSnapshot(values=values)
+            for scene_id, values in self.scenes.items()
+        }
+        return DisplayStateSnapshot(scenes=scenes, frames=self.frames)
 
 
 @final
@@ -37,8 +69,11 @@ class DisplayStateProxy:
         payload = self._port.query("display_state", {}).resolve()
         if isinstance(payload, OpError):
             return payload
-        result = DisplayStateSnapshot.from_payload(payload)
-        return result if isinstance(result, OpError) else self._normalized(result)
+        try:
+            raw = _RawDisplayState.model_validate(payload)
+        except ValidationError as exc:
+            return OpError.from_reply(exc)
+        return self._normalized(raw.to_snapshot())
 
     @staticmethod
     def _normalized(snapshot: DisplayStateSnapshot) -> DisplayStateSnapshot:
