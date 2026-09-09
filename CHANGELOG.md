@@ -16,6 +16,25 @@
   `inbox_depth` per session** — whether the Hub holds a registered pub-sub
   writer for the connection, and how many messages are queued but
   undelivered in its inbox.
+- **`make screenshot`** — captures the running lux-display window to a PNG
+  for agent-driven visual verification at the demo gate. On Linux
+  (Ubuntu/Wayland with XWayland, the box this was verified on),
+  `scripts/screenshot.sh` resolves the lux-display window by matching
+  `_NET_WM_PID` to the running `luxd-display` process (distinguishing it
+  from the window manager's same-titled decoration frame), then reads its
+  composited pixmap with ImageMagick's `import -window` — a read that
+  survives occlusion, with `xdotool` raise/activate as a belt-and-suspenders
+  fallback for compositors that withhold the pixmap of a fully-obscured
+  window. Window resolution has no title-only fallback — a PID-match
+  failure dies rather than risk silently capturing the wrong window — and
+  every capture is rejected (file removed) if its pixel standard
+  deviation is near zero, since a locked/blanked session can still
+  produce a nonempty, uniformly black PNG that would otherwise pass as
+  valid evidence. The output path is cleared before every run so a
+  failure never leaves a stale prior capture behind. Not part of
+  `make check`; it is a dev/verification target. DES-028's "no
+  screenshot mechanism" finding was scoped to macOS and does not hold
+  here. See DES-091.
 
 ### Fixed
 
