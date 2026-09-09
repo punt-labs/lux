@@ -51,6 +51,13 @@ esac
 
 [[ -n "${DISPLAY:-}" ]] || die "DISPLAY is not set — no X server to capture from"
 
+window_tree() {
+    xwininfo -root -tree 2>/dev/null \
+        || die "cannot query the X server on DISPLAY=$DISPLAY — check XWayland/Xauthority access"
+}
+
+WINDOW_TREE="$(window_tree)"
+
 # The display process is the source of truth for which window is "ours".
 # pgrep -x matches the exact binary name lux ships (see pyproject.toml
 # [project.scripts]); it must be running before any window can exist.
@@ -59,29 +66,20 @@ DISPLAY_PID="$(pgrep -x luxd-display | head -n1 || true)"
 
 find_lux_window() {
     local target_pid="$1"
-    xwininfo -root -tree 2>/dev/null \
-        | awk 'tolower($0) ~ /"lux"/ { print $1 }' \
-        | while read -r win_id; do
-            local pid
-            pid="$(xprop -id "$win_id" _NET_WM_PID 2>/dev/null | awk -F' = ' '/_NET_WM_PID/ {print $2}')"
-            if [[ "$pid" == "$target_pid" ]]; then
-                echo "$win_id"
-                return
-            fi
-        done
+    local win_id pid
+    while read -r win_id; do
+        [[ -n "$win_id" ]] || continue
+        pid="$(xprop -id "$win_id" _NET_WM_PID 2>/dev/null | awk -F' = ' '/_NET_WM_PID/ {print $2}')"
+        if [[ "$pid" == "$target_pid" ]]; then
+            echo "$win_id"
+            return 0
+        fi
+    done < <(printf '%s\n' "$WINDOW_TREE" | awk 'tolower($0) ~ /"lux"/ { print $1 }')
+    return 1
 }
 
-WIN_ID="$(find_lux_window "$DISPLAY_PID")"
-
-# Fall back to any top-level window literally titled "Lux" if the PID match
-# comes up empty (e.g. a WM that doesn't propagate _NET_WM_PID). This is a
-# looser match — it can pick up a decoration frame instead of the real
-# client window — so PID-match is always tried first.
-if [[ -z "$WIN_ID" ]]; then
-    WIN_ID="$(xwininfo -root -tree 2>/dev/null | awk 'tolower($0) ~ /"lux"/ { print $1; exit }')"
-fi
-
-[[ -n "$WIN_ID" ]] || die "no window titled 'Lux' found (is lux-display actually rendering a window on DISPLAY=$DISPLAY?)"
+WIN_ID="$(find_lux_window "$DISPLAY_PID" || true)"
+[[ -n "$WIN_ID" ]] || die "no Lux window owned by luxd-display pid $DISPLAY_PID found on DISPLAY=$DISPLAY — refusing an unsafe title-only fallback"
 
 # Safety net: raise/activate in case the compositor won't hand back a
 # pixmap for a fully-obscured window. import -window reads the composited
