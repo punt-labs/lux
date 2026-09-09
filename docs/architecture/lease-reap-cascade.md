@@ -538,33 +538,35 @@ these are settled, since Fork 2 in particular determines whether `Connect`/
 `Renew` need a new mutual-exclusion precondition against the departure
 operations that the current, round-2 model does not state.
 
-## 10. Known residual, out of scope: `ensure_writer`'s own sequence is not one atomic step
+## 10. `ensure_writer` and the `/ws` listen leg's registration are both closed
 
-`inbox.ensure_writer` (`inbox.py`) runs four things in sequence:
-`hub_display.register_client` (now `StoreLock`-guarded, §4), then a
-`hub.has_writer` check, then `hub.register_writer`, then
-`hub_display.bind_departure_sink` — none of the last three take `StoreLock`,
-and the sequence as a whole is not one atomic step under it. A `TimedReap`
-(or any other departure trigger) can in principle interleave inside that
-narrow window — for example, between the `has_writer` check and
-`register_writer` — and depart the very connection that is mid-reconnect.
+Two more entry points install fresh Hub-side state the same way
+`register_client`/`identify_client` do, and both were found to share the same
+race: `inbox.ensure_writer` (`inbox.py`) and `HubListenSession`'s handshake
+prologue (`ws_listen.py`, the `/ws` transport a WebSocket listener such as
+Vox's music-control leg connects over).
 
-This is a real, narrower cousin of the §4 race, not a fresh discovery
-requiring a new fork: `register_client`'s own call, the first step of the
-sequence, already renews the connection's lease past its TTL before any of
-the other three steps run. For the interleaving above to depart the
-connection anyway, `TimedReap` would have to fire strictly between that
-renewal and `register_writer` running microseconds later — a window bounded
-by the connection's own lease TTL (90s–1800s depending on client kind), not
-an unbounded one. This is qualitatively different from the §4 hazard, which
-had no such bound: there, a stale reap's cascade tail could land arbitrarily
-long after the registry removal it followed, with no renewal in between to
-shrink the window.
+`ensure_writer` ran `hub_display.register_client` (`StoreLock`-guarded, §4),
+then a `hub.has_writer` check, `hub.register_writer`, and
+`hub_display.bind_departure_sink` — the last three outside the lock, so a
+departure trigger could in principle interleave between the check and
+`register_writer` and depart the very connection that is mid-reconnect. The
+whole sequence now runs inside `with hub_display.write_lock():`; `StoreLock`
+is reentrant, so `register_client`'s own internal lock acquisition nests
+inside it without change.
 
-Closing this fully would mean bringing `hub.register_writer` and
-`hub_display.bind_departure_sink` under `StoreLock` too — widening the lock's
-reach from `HubDisplay`'s own registry/ownership/cascade state into `Hub`'s
-subscription and writer state, a second locking-discipline change of the
-same shape as §4's, and one this design did not scope or model. Recorded
-here as a known, TTL-bounded residual — out of scope for `lux-vvmt` — rather
-than left as a silent gap.
+`HubListenSession._attach_and_register_writer` (extracted from `run`'s
+prologue) had the identical shape one layer up: `HubClientRegistry
+.attach_listener` — itself a renewing registration, structurally the same as
+`register_client` — followed by `hub.register_writer`, neither under
+`StoreLock`. A same-identity WebSocket reconnect landing inside a departure
+cascade's registry-removal-to-cascade-tail window had its fresh listener and
+writer wiped out by the stale cascade's tail. `HubListenSession` now carries
+a `HubDisplay` reference (threaded through `HubListenTransport`) and wraps
+both calls in `with self._display.write_lock():`.
+
+Both closures follow the same reasoning §4 gives for `register_client`: the
+lock is already reentrant and already the outermost lock on every path, so
+extending its reach to these two write-registration sequences adds no new
+lock-acquisition order and closes the race outright rather than leaving a
+narrower, TTL-bounded version of it open.

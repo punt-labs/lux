@@ -72,18 +72,25 @@ def next_event(connection_id: ConnectionId, timeout: float) -> ObserverMessage |
 
 
 def ensure_writer(connection_id: ConnectionId) -> None:
-    """Bind an inbox writer, register the client, and arm ``drop_session``."""
-    hub_display.register_client(connection_id)
-    if hub.has_writer(connection_id):
-        return
-    # Resolves the live queue per call, so a ``drain_inbox`` swap doesn't strand it.
-    inbox_for(connection_id)
+    """Bind an inbox writer, register the client, and arm ``drop_session``.
 
-    def _writer(message: ObserverMessage) -> None:
-        inbox_for(connection_id).put(message)
+    The whole sequence -- registering, the has-writer check, and binding --
+    runs under the Hub store's write lock, so it can never straddle a
+    departure cascade the way a same-identity reconnect could otherwise land
+    inside.
+    """
+    with hub_display.write_lock():
+        hub_display.register_client(connection_id)
+        if hub.has_writer(connection_id):
+            return
+        # Resolves the live queue per call, so a ``drain_inbox`` swap doesn't strand it.
+        inbox_for(connection_id)
 
-    hub.register_writer(connection_id, _writer)
-    hub_display.bind_departure_sink(connection_id, drop_session)
+        def _writer(message: ObserverMessage) -> None:
+            inbox_for(connection_id).put(message)
+
+        hub.register_writer(connection_id, _writer)
+        hub_display.bind_departure_sink(connection_id, drop_session)
 
 
 def inbox_depth_for(connection_id: ConnectionId) -> int:

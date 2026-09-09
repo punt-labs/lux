@@ -52,24 +52,34 @@ class DepartureCascade:
         self._sinks.bind(connection_id, sink)
 
     def run(self, connection_id: ConnectionId) -> None:
-        """Drop the connection's subscriptions and writer, fire its sink."""
-        self._hub.on_disconnect(connection_id)
-        self._sinks.fire(connection_id)
+        """Drop the connection's subscriptions and writer, fire its sink.
+
+        Best-effort per leg: ``connection_id`` has already been irreversibly
+        removed from the registry by the time this runs, so a raise here
+        must never surface as an externally visible disconnect failure, and
+        one leg raising must not skip the other.
+        """
+        try:
+            self._hub.on_disconnect(connection_id)
+        except Exception:
+            logger.exception(
+                "departure cascade on_disconnect failed for connection_id=%s",
+                connection_id,
+            )
+        try:
+            self._sinks.fire(connection_id)
+        except Exception:
+            logger.exception(
+                "departure cascade sink failed for connection_id=%s", connection_id
+            )
 
     def run_all(self, connection_ids: Iterable[ConnectionId]) -> None:
         """Run the cascade tail for every connection in a swept set.
 
-        Isolated per connection: the registry-and-ownership removal for the
-        whole set has already happened by the time this runs, so a raise
-        partway through must not abort the remaining connections' tails and
-        strand them outside the registry with a live writer, subscriptions,
-        or inbox that no future sweep can ever reach again.
+        ``run`` is itself best-effort per leg, so no connection's cascade
+        failure can abort the rest of a swept set or strand a connection
+        outside the registry with a live writer, subscriptions, or inbox
+        that no future sweep can ever reach again.
         """
         for connection_id in connection_ids:
-            try:
-                self.run(connection_id)
-            except Exception:
-                logger.exception(
-                    "departure cascade tail failed for connection_id=%s",
-                    connection_id,
-                )
+            self.run(connection_id)

@@ -92,6 +92,49 @@ def test_run_all_on_an_empty_set_touches_nothing() -> None:
     cascade.run_all(frozenset())  # must not raise
 
 
+def test_run_still_fires_the_sink_when_on_disconnect_raises() -> None:
+    """A raising ``Hub.on_disconnect`` must not stop the sink leg from firing.
+
+    ``connection_id`` has already been irreversibly removed from the
+    registry by the time ``run`` fires, so one leg raising must never skip
+    the other or surface as an externally visible disconnect failure.
+    """
+
+    class _RaisingHub:
+        """A structural ``Hub`` fake whose ``on_disconnect`` always raises."""
+
+        def on_disconnect(self, connection_id: ConnectionId) -> None:
+            del connection_id
+            msg = "on_disconnect exploded"
+            raise RuntimeError(msg)
+
+    cascade = DepartureCascade(_RaisingHub())  # type: ignore[arg-type]  # structural fake
+    fired, sink = _recorder()
+    cascade.bind_sink(_CONN, sink)
+
+    cascade.run(_CONN)  # must not raise
+
+    assert fired == [_CONN]
+
+
+def test_run_does_not_raise_when_the_sink_raises() -> None:
+    """A raising sink must not surface as an externally visible failure."""
+    hub = Hub()
+    hub.register_writer(_CONN, lambda _msg: None)
+    cascade = DepartureCascade(hub)
+
+    def _raising_sink(connection_id: ConnectionId) -> None:
+        del connection_id
+        msg = "sink exploded"
+        raise RuntimeError(msg)
+
+    cascade.bind_sink(_CONN, _raising_sink)
+
+    cascade.run(_CONN)  # must not raise
+
+    assert not hub.has_writer(_CONN)  # the on_disconnect leg still completed
+
+
 def test_run_all_isolates_a_raising_connections_cascade_from_the_rest(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
