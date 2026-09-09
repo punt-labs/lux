@@ -372,6 +372,27 @@ make restart                   # Rebuild, reinstall, restart luxd AND the displa
 `make check` is the commit gate — it runs ruff, mypy, pyright (via `npx`),
 pytest, and the OO ratchet exactly as CI does.
 
+### Visual verification (`make screenshot`)
+
+```bash
+make screenshot                            # writes .tmp/lux-screenshot.png
+SCREENSHOT_OUT=/tmp/out.png make screenshot # override the output path
+```
+
+Captures the running `lux-display` window to a PNG for agent-driven visual
+verification at the demo gate (`docs/WORKFLOW.md`). **Linux only**,
+verified on Ubuntu with a Wayland session running XWayland
+(`DISPLAY` pointing at the X11 socket). Requires `import`/`convert`
+(ImageMagick), `xwininfo`/`xprop` (x11-utils), `xdotool`, and
+`systemd-inhibit` (systemd) on `PATH`. The script
+(`scripts/screenshot.sh`) resolves the real `luxd-display` client window
+by `_NET_WM_PID` match — never by title alone, so a same-titled window
+manager decoration frame is never mistaken for it — and rejects a
+captured image whose pixel standard deviation is near zero (a locked or
+blanked session can still produce a nonempty, uniformly black PNG), so a
+returned path is always a real, non-blank capture. Not part of
+`make check`; CI has no display to capture.
+
 The Claude Code plugin — its `plugin.json`, the `/lux` command, the session
 hooks, and the skills — lives in `plugin/`, separate from the Python package in
 `src/`. A marketplace install fetches only that directory, so load it for local

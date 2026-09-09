@@ -6644,3 +6644,87 @@ opt-in)**, adds the AWS Private CA trust-anchor provider on top of (2) and
 (3) — it is not required to ship the design and nothing else in the bead
 map depends on it; see `multi-hub-addressing-work.md`'s bead map for its
 own dependency detail.
+
+## DES-091: Screenshot Capture on Linux — External Window Capture, Not Framebuffer Access
+
+**Date:** 2026-09-08
+**Status:** SHIPPED
+**Topic:** `make screenshot` — an agent-driven visual verification mechanism for the demo gate, on Linux only
+
+### Relationship to DES-028
+
+DES-028 investigated capturing lux-display's own rendered output from
+*inside* the render loop — `glReadPixels`, `hello_imgui`'s screenshot
+hooks, `CGWindowListCreateImage` — and left the problem **unsolved on
+macOS**: every in-process timing point available to Python either reads
+an empty buffer or reads chrome without widget content. That investigation
+did not test Linux, and its "no mechanism" conclusion does not carry over
+— the constraint it ran into (no callback fires between
+`ImGui::Render()` and `SwapBuffers()`) is specific to reading GL state
+from inside the same process; it says nothing about reading the window
+from *outside* the process, which is a different mechanism entirely.
+
+### What we built
+
+`scripts/screenshot.sh` + `make screenshot`, verified on this box (Ubuntu,
+Wayland session with XWayland, `DISPLAY=:0`). lux-display is a
+`Glfw - OpenGL3` app (same backend DES-028 identified), and on this
+platform GLFW opens its window as a plain XWayland X11 top-level window.
+That window's composited pixmap — the X server's copy of the
+already-rendered frame, populated after `SwapBuffers()`, unlike anything
+DES-028 could reach from inside the render loop — is readable from a
+wholly external process with `import -window <id>` (ImageMagick). The
+window is resolved via `xwininfo -root -tree` narrowed to the real client
+window by `xprop -id <id> _NET_WM_PID` matched against the running
+`luxd-display` process — PID match only, with no title-only fallback: a
+window merely titled "Lux" can be the window manager's decoration frame
+or an unrelated window, and this is a verification tool, so a resolution
+failure dies loud rather than risk capturing (and certifying) the wrong
+window. `xdotool windowactivate`/`windowraise` runs first as a safety
+net for compositors that decline to hand back a pixmap for a
+fully-obscured window; it is not load-bearing, since `import -window`
+reads the pixmap regardless of occlusion.
+
+Two integrity fixes landed after the initial PR review (Copilot + qodo,
+PR #460), both closing gaps where the tool could produce false
+verification evidence rather than fail:
+
+1. **`systemd-inhibit --what=idle` only blocks a *new* idle transition
+   during the capture — it does not un-blank a session that was already
+   locked when the script started.** A locked session can still yield a
+   valid, nonempty, uniformly black PNG that a bare `[[ -s ]]` check
+   would accept. The script now measures
+   `convert <out> -format '%[fx:standard_deviation]' info:` after every
+   capture and dies (removing the file) if it is below a near-zero
+   threshold — this check, not the inhibit, is what actually makes a
+   returned path trustworthy.
+2. **A failed run must never leave a stale prior capture sitting at the
+   stable output path.** The script now `rm -f`s the output path before
+   attempting anything, and again on the black-image rejection above, so
+   every non-success exit leaves no file at all rather than an old
+   image a caller could mistake for current evidence.
+
+Verified end to end: a captured PNG at the live window's exact
+dimensions, with `identify` confirming a valid image and a nonzero
+stddev ruling out a blank/black buffer — proof the capture holds real
+widget content, not just chrome. Three failure paths verified
+separately: `luxd-display` not running, the X server unreachable
+(checked explicitly before the `xwininfo | awk | while` pipeline, since
+under `set -euo pipefail` a failure inside that pipeline would otherwise
+exit mid-pipe without reaching `die()`), and a simulated black capture —
+each fails loud with a clear message, nonzero exit, and no file left
+behind (including no *stale* file from a prior run).
+
+### Scope and what remains open
+
+This does not close DES-028. DES-028's macOS framebuffer problem is
+untouched — nothing here runs on macOS, and nothing here changes what
+happens inside the render loop. What this closes is narrower and
+immediately useful: an agent working *on this box* now has a real
+entry point for Phase 3 demo-gate visual verification (`docs/WORKFLOW.md`
+§"The demo gate") without depending on the operator to look at the
+screen and describe it. A macOS-side mechanism, if one is found, is a
+separate design decision; the two are not mutually exclusive — Linux
+does not need to wait on macOS, and a future macOS fix does not need to
+touch this one. `make screenshot` is a dev/verification target and is
+deliberately kept out of `make check`; CI has no display to capture.
