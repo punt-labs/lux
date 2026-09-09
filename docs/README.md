@@ -90,6 +90,17 @@ the reference for how their subsystem is built.
   — the `scene/` → `display/replica/` dissolution and the N1/N2/N3 naming
   convention (operator-ratified 2026-08-08; PRs #318-#319).
 
+## Design Phase (awaiting operator ratification)
+
+- [architecture/lease-reap-cascade.md](./architecture/lease-reap-cascade.md) —
+  extends `lux-d84d`'s connection-lease reaping (below) to cover the full
+  departure cascade — subscriptions, writer binding, and the transport-owned
+  inbox queue — not just the client registry and scene ownership. Names two
+  forks for the operator: where the timer-driven sweep reaches the
+  transport-layer sink, and a locking-discipline fix the design surfaced
+  that a naive version of the first fork would need anyway. Calls for a
+  round-3 extension of `connection_lease_reaping.tex` (bead `lux-vvmt`).
+
 ## Deferred Designs
 
 - [architecture/display-crash-quarantine.md](./architecture/display-crash-quarantine.md)
