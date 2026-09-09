@@ -1132,3 +1132,58 @@ class TestFramesOnlyInvariant:
         resolved = mgr.resolve_scene("s1")
         assert resolved is not None
         assert resolved is mgr.frames["f1"].scenes["s1"]
+
+
+class TestWidgetSnapshot:
+    def test_returns_the_scenes_curated_widget_state(self) -> None:
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(_make_scene(scene_id="s1"), owner_fd=10)
+        state = mgr.widget_state_for("s1")
+        assert state is not None
+        state.set("checkbox1", value=True)
+
+        assert mgr.widget_snapshot("s1") == {"checkbox1": True}
+
+    def test_returns_none_for_an_untracked_scene(self) -> None:
+        mgr, _ = _make_manager()
+        assert mgr.widget_snapshot("ghost") is None
+
+
+class TestAllWidgetSnapshots:
+    def test_returns_every_tracked_scenes_snapshot_keyed_by_id(self) -> None:
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(_make_scene(scene_id="s1"), owner_fd=10)
+        mgr.handle_framed_scene(_make_scene(scene_id="s2"), owner_fd=10)
+        state1 = mgr.widget_state_for("s1")
+        state2 = mgr.widget_state_for("s2")
+        assert state1 is not None
+        assert state2 is not None
+        state1.set("a", 1)
+        state2.set("b", 2)
+
+        assert mgr.all_widget_snapshots() == {"s1": {"a": 1}, "s2": {"b": 2}}
+
+    def test_an_empty_replica_yields_an_empty_mapping(self) -> None:
+        mgr, _ = _make_manager()
+        assert mgr.all_widget_snapshots() == {}
+
+
+class TestFramePresentations:
+    def test_reports_each_frames_display_owned_facts(self) -> None:
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), owner_fd=10)
+
+        presentations = mgr.frame_presentations()
+
+        assert presentations == [
+            {
+                "frame_id": "f1",
+                "visibility": "on_screen",
+                "active_tab": "s1",
+                "cascade_index": 0,
+            }
+        ]
+
+    def test_an_empty_replica_yields_no_frames(self) -> None:
+        mgr, _ = _make_manager()
+        assert mgr.frame_presentations() == []

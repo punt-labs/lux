@@ -53,6 +53,7 @@ class QueryRouter:
             "list_menus": self._query_list_menus,
             "list_recent_events": self._query_list_recent_events,
             "list_errors": self._query_list_errors,
+            "display_state": self._query_display_state,
         }
         self._recent_events = deque(maxlen=200)
         self._recent_errors = deque(maxlen=100)
@@ -147,13 +148,7 @@ class QueryRouter:
         return {"clients": clients}
 
     def _query_list_menus(self, **_kwargs: Any) -> dict[str, Any]:
-        """Return every menu line the display holds, with the menus it sits under.
-
-        The authoritative menu is the Hub's; this reports what the display
-        received, so an agent can compare the two tiers instead of taking the
-        Hub's word for what is on screen. Each line carries its full path, which
-        is what tells one session's ``Beads`` from another's.
-        """
+        """Return every menu line the display holds, not the Hub's own copy."""
         agent, session = self._get_agent_menus(), self._get_callback_menus()
         return MenuInventory.of([("agent", agent), ("session", session)]).to_report()
 
@@ -176,3 +171,8 @@ class QueryRouter:
             "errors": errors,
             "total_buffered": len(self._recent_errors),
         }
+
+    def _query_display_state(self, **_kwargs: Any) -> dict[str, Any]:
+        """Query handler for display_state: curated widget/frame facts, unkeyed."""
+        sm = self._scenes
+        return {"scenes": sm.all_widget_snapshots(), "frames": sm.frame_presentations()}

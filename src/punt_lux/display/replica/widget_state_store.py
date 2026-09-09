@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections import deque
 from typing import Self
 
-from punt_lux.display.replica.widget_state import WidgetState
+from punt_lux.display.replica.widget_state import WidgetState, WireScalar
 
 
 class WidgetStateStore:
@@ -36,6 +37,12 @@ class WidgetStateStore:
         """Return a scene's widget state, or None when it holds none."""
         return self._by_scene.get(scene_id)
 
+    def snapshots(self) -> dict[str, dict[str, WireScalar]]:
+        """Return every tracked scene's curated widget-state snapshot, keyed by id."""
+        return {
+            sid: state.observable_snapshot() for sid, state in self._by_scene.items()
+        }
+
     def discard(self, scene_id: str) -> None:
         """Forget a scene's widget state. No-op when it holds none."""
         self._by_scene.pop(scene_id, None)
@@ -45,16 +52,9 @@ class WidgetStateStore:
         self._by_scene.clear()
 
     def retire_elements(self, scene_id: str, stale_ids: set[str]) -> None:
-        """Drop the departed elements' state and reset the session slots.
-
-        A whole-root re-push must not wipe survivors' id-keyed state, so only
-        the ids this push dropped are discarded. Survivors' per-render-session
-        slots reset because the push carries the Hub's current answer, which
-        supersedes whatever each was arbitrating against.
-        """
+        """Drop only the departed elements' state, then reset the session slots."""
         widget_state = self._by_scene.get(scene_id)
         if widget_state is None:
             return
-        for stale_id in stale_ids:
-            widget_state.discard_for(stale_id)
+        deque(map(widget_state.discard_for, stale_ids), maxlen=0)
         widget_state.reset_session_slots()

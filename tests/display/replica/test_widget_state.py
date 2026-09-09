@@ -82,3 +82,54 @@ class TestContinuousEditSlotClearing:
         # collide with a per-patch hex-string mirror of widget_value on one key.
         assert WidgetState.CONTINUOUS_EDIT_BUFFER_SUFFIX != ""
         assert WidgetState.CONTINUOUS_EDIT_BUFFER_SUFFIX.startswith(":")
+
+
+class TestObservableSnapshot:
+    def test_a_bare_element_value_is_included(self) -> None:
+        ws = WidgetState()
+        ws.set("checkbox1", value=True)
+        assert ws.observable_snapshot() == {"checkbox1": True}
+
+    def test_every_gesture_window_slot_is_excluded(self) -> None:
+        ws = WidgetState()
+        eid = "dlg"
+        ws.set(f"{eid}{WidgetState.OPEN_SUFFIX}", value=True)
+        ws.set(f"{eid}{WidgetState.DISMISS_SUFFIX}", value=False)
+        ws.set(f"{eid}{WidgetState.PENDING_SUFFIX}", "tab2")
+        ws.set(f"{eid}{WidgetState.HEADER_OPEN_PENDING_SUFFIX}", value=True)
+        ws.set(f"{eid}{WidgetState.CONTINUOUS_EDIT_BUFFER_SUFFIX}", 0.5)
+        ws.set(f"{eid}{WidgetState.CONTINUOUS_EDIT_EDITING_SUFFIX}", value=True)
+        ws.set(f"{eid}{WidgetState.ROW_SELECTION_PENDING_SUFFIX}", "r1")
+
+        assert ws.observable_snapshot() == {}
+
+    def test_durable_facts_beside_gesture_slots_are_included(self) -> None:
+        # Honoured/commit-echo/focus/split-ratio slots are steady-state facts,
+        # not mid-click gesture state, so they survive the filter.
+        ws = WidgetState()
+        eid = "tabs"
+        ws.set(f"{eid}{WidgetState.HONOURED_SUFFIX}", "tab1")
+        ws.set(f"{eid}{WidgetState.CONTINUOUS_EDIT_COMMITTED_SUFFIX}", 42.0)
+        ws.set(f"{eid}{WidgetState.CONTINUOUS_EDIT_COMMIT_HUB_SUFFIX}", 40.0)
+        ws.set(f"{eid}{WidgetState.ROW_SELECTION_HONOURED_SUFFIX}", "r2")
+        ws.set(f"{eid}{WidgetState.FOCUS_SEEN_SUFFIX}", value=True)
+        ws.set(f"{eid}{WidgetState.SPLIT_RATIO_SUFFIX}", 0.3)
+
+        snapshot = ws.observable_snapshot()
+
+        assert snapshot == {
+            f"{eid}{WidgetState.HONOURED_SUFFIX}": "tab1",
+            f"{eid}{WidgetState.CONTINUOUS_EDIT_COMMITTED_SUFFIX}": 42.0,
+            f"{eid}{WidgetState.CONTINUOUS_EDIT_COMMIT_HUB_SUFFIX}": 40.0,
+            f"{eid}{WidgetState.ROW_SELECTION_HONOURED_SUFFIX}": "r2",
+            f"{eid}{WidgetState.FOCUS_SEEN_SUFFIX}": True,
+            f"{eid}{WidgetState.SPLIT_RATIO_SUFFIX}": 0.3,
+        }
+
+    def test_a_frozenset_value_is_narrowed_to_a_sorted_tuple(self) -> None:
+        ws = WidgetState()
+        ws.set("multiselect", frozenset({"c", "a", "b"}))
+        assert ws.observable_snapshot() == {"multiselect": ("a", "b", "c")}
+
+    def test_an_empty_store_yields_an_empty_snapshot(self) -> None:
+        assert WidgetState().observable_snapshot() == {}

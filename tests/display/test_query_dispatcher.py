@@ -157,3 +157,30 @@ class TestListScenesReportsVisibility:
                 "visibility": "closed",
             }
         ]
+
+
+class TestDisplayStateQuery:
+    def test_reports_curated_scene_widget_state_and_frame_presentations(self) -> None:
+        scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
+        qd = _make_dispatcher(scenes)
+        scenes.handle_framed_scene(_scene("s1", "f1"), owner_fd=10)
+        state = scenes.widget_state_for("s1")
+        assert state is not None
+        state.set("checkbox1", value=True)
+
+        result = qd.handle_query("display_state", {}).result
+
+        assert result["scenes"] == {"s1": {"checkbox1": True}}
+        assert result["frames"] == [
+            {
+                "frame_id": "f1",
+                "visibility": "on_screen",
+                "active_tab": "s1",
+                "cascade_index": 0,
+            }
+        ]
+
+    def test_an_empty_replica_reports_no_scenes_or_frames(self) -> None:
+        qd = _make_dispatcher()
+        result = qd.handle_query("display_state", {}).result
+        assert result == {"scenes": {}, "frames": []}
