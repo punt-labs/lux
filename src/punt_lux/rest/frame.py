@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING, Annotated, Self, final
 
 from fastapi import APIRouter, Depends
 
-from punt_lux.commands._frame_target import FrameTarget
 from punt_lux.operations import Ok, Scope
 from punt_lux.rest.identity import resolve_scope
 
@@ -54,5 +53,4 @@ class FrameRoutes:
 
     def close_frame(self, frame_id: str, scope: _OwningScope) -> Ok:
         """Close the caller's own frame: tear down its scenes (DES-057, DES-086)."""
-        target = FrameTarget(frame_id, scope)
-        return self._errors.respond(self._ops.close_frame(target))
+        return self._errors.respond(self._ops.close_frame(frame_id, scope=scope))

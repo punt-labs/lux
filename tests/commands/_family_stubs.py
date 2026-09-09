@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Self, cast, final
 from punt_lux.operations import Ok
 
 if TYPE_CHECKING:
-    from punt_lux.commands._frame_target import FrameTarget
     from punt_lux.domain.hub.session_callback import CallbackInvocation
     from punt_lux.operations import (
         ClientList,
@@ -60,12 +59,8 @@ class StubFrameOps:
         self.last_call = {"frame_id": frame_id, "patch": patch}
         return cast("Ok | OpError", self._result)
 
-    def close_frame(self, target: FrameTarget) -> Ok:
-        self.last_call = {
-            "frame_id": target.frame_id,
-            "op": "close",
-            "scope": target.scope,
-        }
+    def close_frame(self, frame_id: str, *, scope: Scope) -> Ok:
+        self.last_call = {"frame_id": frame_id, "op": "close", "scope": scope}
         return Ok()
 
 

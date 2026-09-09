@@ -22,7 +22,8 @@ class FrameCloseCommand:
 
     async def execute(self, request: FrameCloseRequest) -> Ok | OpError:
         """Close the requested frame and return the typed outcome."""
-        return await asyncio.to_thread(request.ctx.ops.close_frame, request.target)
+        ops, frame_id, scope = request.ctx.ops, request.frame_id, request.scope
+        return await asyncio.to_thread(ops.close_frame, frame_id, scope=scope)
 
     async def __call__(self, request: FrameCloseRequest) -> CommandResult:
         """Run :meth:`execute` and render its outcome into the shared envelope."""

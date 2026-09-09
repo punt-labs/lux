@@ -40,7 +40,10 @@ def set_menu(menus: list[dict[str, Any]]) -> str:
 
 @mcp.tool(name="frame_close")
 def frame_close(frame_id: str) -> Ok | OpError:
-    """Close the caller's own ``frame_id``: tear down its scenes on the Hub."""
+    """Close the caller's own ``frame_id``: tear down its scenes on the Hub.
+
+    A foreign, missing, or malformed id is a named error, never a false success.
+    """
     ctx: CommandCtx[FrameOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
     )

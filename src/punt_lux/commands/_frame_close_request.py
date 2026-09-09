@@ -10,8 +10,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, final
 
-from punt_lux.commands._frame_target import FrameTarget
-
 if TYPE_CHECKING:
     from punt_lux.commands._ports import Ctx, FrameOps
     from punt_lux.operations import Scope
@@ -27,8 +25,3 @@ class FrameCloseRequest:
     ctx: Ctx[FrameOps]
     frame_id: str  # caller's local name; FrameCloser resolves it against ownership
     scope: Scope
-
-    @property
-    def target(self) -> FrameTarget:
-        """The ops-layer ``FrameTarget`` this request resolves to."""
-        return FrameTarget(self.frame_id, self.scope)

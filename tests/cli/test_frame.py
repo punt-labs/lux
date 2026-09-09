@@ -7,7 +7,6 @@ from unittest.mock import patch
 from typer.testing import CliRunner
 
 from punt_lux.__main__ import app
-from punt_lux.commands._frame_target import FrameTarget
 from punt_lux.operations import Ok, OpError
 
 runner = CliRunner()
@@ -24,9 +23,9 @@ class _FrameClient:
     def sync(self) -> _FrameClient:
         return self
 
-    def close_frame(self, target: FrameTarget) -> Ok | OpError:
-        # the fake asserts routing by call args, not the scope value
-        self.calls.append(("close_frame", target.frame_id))
+    def close_frame(self, frame_id: str, *, scope: object) -> Ok | OpError:
+        del scope  # the fake asserts routing by call args, not the scope value
+        self.calls.append(("close_frame", frame_id))
         assert self._close_result is not None
         return self._close_result
 

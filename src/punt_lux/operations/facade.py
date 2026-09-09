@@ -26,7 +26,6 @@ from punt_lux.operations.scenes import SceneOperations
 from punt_lux.operations.timing import Timed
 
 if TYPE_CHECKING:
-    from punt_lux.commands._frame_target import FrameTarget
     from punt_lux.domain.hub.callback_hold import CallbackRouter
     from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.domain.hub.hub import Hub
@@ -228,9 +227,9 @@ class Operations:
         return self._display.list_frames()
 
     @Timed("close_frame")
-    def close_frame(self, target: FrameTarget) -> Ok | OpError:
+    def close_frame(self, frame_id: str, *, scope: Scope) -> Ok | OpError:
         """Close the caller's own frame; the ``frame_close`` command calls this."""
-        return self._frame_closer.close(target.frame_id, target.scope.connection_id)
+        return self._frame_closer.close(frame_id, scope.connection_id)
 
     def inspect_scene(
         self, scene_id: str, *, scope: Scope, facts: InspectScope = HUB_ONLY

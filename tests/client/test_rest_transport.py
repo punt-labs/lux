@@ -16,13 +16,16 @@ import pytest
 from punt_lux.cli_identity import CliIdentity
 from punt_lux.client._rest_transport import _RestTransport
 from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.domain.ids import ConnectionId
 from punt_lux.hub_paths import HubPaths
 from punt_lux.operations import (
+    Ok,
     OpError,
     Pong,
     RenderRequest,
     RenderTableRequest,
     SceneShown,
+    Scope,
 )
 from punt_lux.rest_transport import HttpResponse, HubUnavailableError
 from tests.rest._fakes import make_client
@@ -337,6 +340,27 @@ def test_render_reports_a_duplicate_id_as_a_rejected_error() -> None:
     assert isinstance(result, OpError)
     assert result.code == "rejected"
     assert "duplicate" in result.reason
+
+
+def test_close_frame_over_the_real_surface_takes_a_plain_frame_id() -> None:
+    # Finding 7 (PR #464): FrameOps.close_frame's PUBLIC signature is a plain
+    # string, matching every sibling SyncOps method -- never the internal
+    # FrameTarget value object, which a caller cannot construct.
+    client = _client_over(SurfaceTransport(make_client()))
+    assert client.render(_render_request("board")) == SceneShown(scene_id="board")
+
+    result = client.close_frame("board", scope=Scope(ConnectionId("irrelevant")))
+
+    assert result == Ok()
+
+
+def test_close_frame_of_an_absent_frame_over_the_real_surface_is_not_found() -> None:
+    client = _client_over(SurfaceTransport(make_client()))
+
+    result = client.close_frame("ghost", scope=Scope(ConnectionId("irrelevant")))
+
+    assert isinstance(result, OpError)
+    assert result.code == "not_found"
 
 
 def test_connect_raises_the_actionable_message_when_no_port_file(
