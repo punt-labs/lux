@@ -97,6 +97,16 @@ the reference for how their subsystem is built.
   implementation deferred by operator ruling (bead `lux-88ka`). Companion
   model: `display_crash_loop.tex` below.
 
+## Design Phase
+
+- [architecture/lease-reap-cascade.md](./architecture/lease-reap-cascade.md)
+  — the lease-reap departure cascade design (bead `lux-vvmt`): extends
+  `connection_lease_reaping.tex` round 2 to the full four-step cascade
+  (registry, ownership, subs+writer, transport inbox sink) for every
+  departure trigger, plus the `StoreLock` fix for `register_client`/
+  `identify_client` that closes the reconnect-races-reap hazard. Operator-
+  ratified; round 3 of the model (below) implements its §5 sketch.
+
 ## Element Migration (completed)
 
 The migration of all 25 element kinds onto the Element-ABC / Hub-Display path

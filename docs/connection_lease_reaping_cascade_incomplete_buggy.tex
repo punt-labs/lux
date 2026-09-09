@@ -1,0 +1,379 @@
+%
+% connection_lease_reaping_cascade_incomplete_buggy.tex
+%
+% FIDELITY CONTROL for round 3's I7 (cascade-incomplete), not the design.
+% Changes only TimedReapEnd and Claim: both omit the three new (+) terms
+% this round adds, leaving hasSubs/hasWriter/inboxNonEmpty exactly as they
+% were instead of clearing them to fclear -- the literal shape of the gap
+% docs/architecture/lease-reap-cascade.md Section 1 reports: Depart, once
+% fixed, already reaches all four cascade legs via lifecycle.py, but
+% _depart_lapsed (TimedReap's realization) and apply's embedded sweep
+% (Claim) never called Hub.on_disconnect or the transport sink at all.
+% See docs/connection_lease_reaping.tex, Section "Cascade-incomplete", for
+% the full trace and the goals that must return FOUND against this
+% variant and NOT found against the fixed spec.
+%
+% Type-check:  fuzz docs/connection_lease_reaping_cascade_incomplete_buggy.tex
+% Model-check:
+%   probcli docs/connection_lease_reaping_cascade_incomplete_buggy.tex \
+%       -model_check -nodead -goal "..." -p DEFAULT_SETSIZE 3
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{lux Connection-Lease Reaping --- Fidelity Control (Cascade Incomplete)}
+\author{Buggy variant: TimedReapEnd and Claim release the registry and
+  ownership but never clear subscriptions, the writer binding, or the
+  inbox}
+\date{September 2026}
+\maketitle
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+This is the fidelity control for round 3's I7 in
+\texttt{docs/connection\_lease\_reaping.tex}, not the design. It removes
+only the three new cascade-clearing terms \texttt{TimedReapEnd} and
+\texttt{Claim} otherwise carry: the registry-and-ownership legs are
+released exactly as the fixed spec releases them, but \texttt{hasSubs},
+\texttt{hasWriter}, and \texttt{inboxNonEmpty} are left untouched.
+\texttt{\_depart\_lapsed} and \texttt{apply}'s embedded sweep never call
+\texttt{Hub.on\_disconnect} or the transport-owned sink today -- a
+timer-reaped or swept-aside connection keeps its subscriptions, writer
+binding, and inbox queue forever, even though the identical connection is
+already gone from the registry and owns nothing. Read the main
+specification first; this document states only what differs, in
+Section~\ref{sec:timedreapend} and Section~\ref{sec:claim}.
+
+% ============================================================
+\section{Basic Types}
+% ============================================================
+
+\begin{zed}
+  [CONN, IDENT, SCENE]
+\end{zed}
+
+\begin{zed}
+  TSTATE ::= tup | tdown
+\end{zed}
+
+\begin{zed}
+  LSTATE ::= llive | llapsed
+\end{zed}
+
+\begin{zed}
+  OWNER ::= unowned | conn \ldata CONN \rdata
+\end{zed}
+
+\begin{zed}
+  FSTATE ::= fclear | fset
+\end{zed}
+
+Unchanged from the main specification.
+
+% ============================================================
+\section{State}
+% ============================================================
+
+\begin{schema}{ConnReg}
+  registered : \power CONN \\
+  identity : CONN \pfun IDENT \\
+  transport : CONN \pfun TSTATE \\
+  lease : CONN \pfun LSTATE \\
+  owner : SCENE \fun OWNER \\
+  hasSubs : CONN \fun FSTATE \\
+  hasWriter : CONN \fun FSTATE \\
+  inboxNonEmpty : CONN \fun FSTATE \\
+  cascadeFor : \power CONN
+\where
+  registered \subseteq \dom identity \\
+  \dom identity = \dom transport \\
+  \dom transport = \dom lease \\
+  \# cascadeFor \leq 1
+\end{schema}
+
+Unchanged from the main specification.
+
+% ============================================================
+\section{Initialization}
+% ============================================================
+
+\begin{schema}{Init}
+  ConnReg'
+\where
+  registered' = \emptyset \\
+  identity' = \emptyset \\
+  transport' = \emptyset \\
+  lease' = \emptyset \\
+  owner' = (\lambda s : SCENE @ unowned) \\
+  hasSubs' = (\lambda c : CONN @ fclear) \\
+  hasWriter' = (\lambda c : CONN @ fclear) \\
+  inboxNonEmpty' = (\lambda c : CONN @ fclear) \\
+  cascadeFor' = \emptyset
+\end{schema}
+
+Unchanged from the main specification.
+
+% ============================================================
+\section{Operations}
+% ============================================================
+
+\begin{schema}{Connect}
+  \Delta ConnReg \\
+  c? : CONN \\
+  i? : IDENT
+\where
+  cascadeFor = \emptyset \\
+  registered' = registered \cup \{ c? \} \\
+  identity' = identity \oplus \{ c? \mapsto i? \} \\
+  transport' = transport \oplus \{ c? \mapsto tup \} \\
+  lease' = lease \oplus \{ c? \mapsto llive \} \\
+  hasWriter' = hasWriter \oplus \{ c? \mapsto fset \} \\
+  hasSubs' = hasSubs \\
+  inboxNonEmpty' = inboxNonEmpty \\
+  cascadeFor' = cascadeFor \\
+  owner' = owner
+\end{schema}
+
+\begin{schema}{Renew}
+  \Delta ConnReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  transport~c? = tup \\
+  cascadeFor = \emptyset \\
+  lease' = lease \oplus \{ c? \mapsto llive \} \\
+  registered' = registered \\
+  identity' = identity \\
+  transport' = transport \\
+  hasSubs' = hasSubs \\
+  hasWriter' = hasWriter \\
+  inboxNonEmpty' = inboxNonEmpty \\
+  cascadeFor' = cascadeFor \\
+  owner' = owner
+\end{schema}
+
+\begin{schema}{Activate}
+  \Delta ConnReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  transport~c? = tup \\
+  hasSubs' = hasSubs \oplus \{ c? \mapsto fset \} \\
+  hasWriter' = hasWriter \oplus \{ c? \mapsto fset \} \\
+  inboxNonEmpty' = inboxNonEmpty \oplus \{ c? \mapsto fset \} \\
+  registered' = registered \\
+  identity' = identity \\
+  transport' = transport \\
+  lease' = lease \\
+  owner' = owner \\
+  cascadeFor' = cascadeFor
+\end{schema}
+
+\begin{schema}{TransportDies}
+  \Delta ConnReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  transport~c? = tup \\
+  transport' = transport \oplus \{ c? \mapsto tdown \} \\
+  registered' = registered \\
+  identity' = identity \\
+  lease' = lease \\
+  owner' = owner \\
+  hasSubs' = hasSubs \\
+  hasWriter' = hasWriter \\
+  inboxNonEmpty' = inboxNonEmpty \\
+  cascadeFor' = cascadeFor
+\end{schema}
+
+\begin{schema}{LeaseLapse}
+  \Delta ConnReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  lease~c? = llive \\
+  lease' = lease \oplus \{ c? \mapsto llapsed \} \\
+  registered' = registered \\
+  identity' = identity \\
+  transport' = transport \\
+  owner' = owner \\
+  hasSubs' = hasSubs \\
+  hasWriter' = hasWriter \\
+  inboxNonEmpty' = inboxNonEmpty \\
+  cascadeFor' = cascadeFor
+\end{schema}
+
+\begin{schema}{Read}
+  \Xi ConnReg
+\end{schema}
+
+\begin{schema}{Depart}
+  \Delta ConnReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  registered' = registered \setminus \{ c? \} \\
+  owner' = owner \oplus \\
+  \quad~ (\{ s : SCENE | owner~s = conn(c?) \} \cross \{ unowned \}) \\
+  hasSubs' = hasSubs \oplus \{ c? \mapsto fclear \} \\
+  hasWriter' = hasWriter \oplus \{ c? \mapsto fclear \} \\
+  inboxNonEmpty' = inboxNonEmpty \oplus \{ c? \mapsto fclear \} \\
+  identity' = identity \\
+  transport' = transport \\
+  lease' = lease \\
+  cascadeFor' = cascadeFor
+\end{schema}
+
+\texttt{Depart} is unchanged from the fixed spec, and correct: this
+control isolates the gap to \texttt{TimedReapEnd} and \texttt{Claim}
+alone, matching the design document's own report that \texttt{Depart}'s
+real-code counterpart already reaches all four cascade legs once fixed.
+
+\begin{schema}{TimedReapBegin}
+  \Delta ConnReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  lease~c? = llapsed \\
+  cascadeFor = \emptyset \\
+  registered' = registered \setminus \{ c? \} \\
+  owner' = owner \oplus \\
+  \quad~ (\{ s : SCENE | owner~s = conn(c?) \} \cross \{ unowned \}) \\
+  cascadeFor' = \{ c? \} \\
+  identity' = identity \\
+  transport' = transport \\
+  lease' = lease \\
+  hasSubs' = hasSubs \\
+  hasWriter' = hasWriter \\
+  inboxNonEmpty' = inboxNonEmpty
+\end{schema}
+
+Unchanged from the fixed spec.
+
+\subsection{TimedReapEnd --- BUGGY: releases the lock, never the cascade}
+\label{sec:timedreapend}
+
+\begin{schema}{TimedReapEnd}
+  \Delta ConnReg \\
+  c? : CONN
+\where
+  cascadeFor = \{ c? \} \\
+  cascadeFor' = \emptyset \\
+  hasSubs' = hasSubs \\
+  hasWriter' = hasWriter \\
+  inboxNonEmpty' = inboxNonEmpty \\
+  registered' = registered \\
+  identity' = identity \\
+  transport' = transport \\
+  lease' = lease \\
+  owner' = owner
+\end{schema}
+
+The three terms that clear \texttt{hasSubs}/\texttt{hasWriter}/
+\texttt{inboxNonEmpty} in the fixed spec's \texttt{TimedReapEnd} are
+replaced here with the identity -- the cascade window closes
+(\texttt{cascadeFor} still clears), but nothing the window was meant to
+release actually is.
+
+\subsection{Claim --- BUGGY: sweeps the registry and ownership, never the
+cascade}
+\label{sec:claim}
+
+\begin{schema}{Claim}
+  \Delta ConnReg \\
+  c? : CONN \\
+  s? : SCENE
+\where
+  c? \in registered \\
+  transport~c? = tup \\
+  lease' = lease \oplus \{ c? \mapsto llive \} \\
+  registered' = registered \setminus \\
+  \quad~ \{ c2 : CONN | c2 \in registered \land c2 \neq c? \land
+    lease~c2 = llapsed \} \\
+  (owner \oplus (\{ s : SCENE | \exists c2 : CONN @ \\
+    \qquad c2 \in registered \land c2 \neq c? \land lease~c2 = llapsed
+    \land owner~s = conn(c2) \} \\
+    \qquad \cross \{ unowned \}))~s? = unowned \\
+  \lor \\
+  (owner \oplus (\{ s : SCENE | \exists c2 : CONN @ \\
+    \qquad c2 \in registered \land c2 \neq c? \land lease~c2 = llapsed
+    \land owner~s = conn(c2) \} \\
+    \qquad \cross \{ unowned \}))~s? = conn(c?) \\
+  owner' = (owner \oplus (\{ s : SCENE | \exists c2 : CONN @ \\
+    \qquad c2 \in registered \land c2 \neq c? \land lease~c2 = llapsed
+    \land owner~s = conn(c2) \} \\
+    \qquad \cross \{ unowned \})) \oplus \{ s? \mapsto conn(c?) \} \\
+  hasSubs' = hasSubs \\
+  hasWriter' = hasWriter \\
+  inboxNonEmpty' = inboxNonEmpty \\
+  identity' = identity \\
+  transport' = transport \\
+  cascadeFor' = cascadeFor
+\end{schema}
+
+The registry-and-ownership sweep is exactly the fixed spec's: same set,
+same \(c2 \neq c?\) exclusion. Only the three cascade-clearing terms are
+replaced with the identity.
+
+% ============================================================
+\section{Verification: the goal that must flip}
+% ============================================================
+
+Against this variant, I7's negation must be \emph{found} -- the trace in
+\texttt{connection\_lease\_reaping.tex}, Section ``Cascade-incomplete,''
+reaches it in six steps:
+\texttt{Connect}(c1, i1); \texttt{Activate}(c1); \texttt{TransportDies}(c1);
+\texttt{LeaseLapse}(c1); \texttt{TimedReapBegin}(c1); \texttt{TimedReapEnd}(c1).
+
+\begin{verbatim}
+  # must be FOUND against this variant (NOT found against the fixed spec)
+  probcli docs/connection_lease_reaping_cascade_incomplete_buggy.tex \
+    -model_check -nodead \
+    -goal "#c.(c:CONN & not(c : registered) & not(c : cascadeFor) &
+               (hasSubs(c) = fset or hasWriter(c) = fset or
+                inboxNonEmpty(c) = fset))" \
+    -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+The identical goal is also reachable through \texttt{Claim}'s half of the
+same gap, with no \texttt{TimedReapBegin}/\texttt{TimedReapEnd} in the
+trace at all:
+\texttt{Connect}(c1, i1); \texttt{Activate}(c1); \texttt{LeaseLapse}(c1);
+\texttt{Connect}(c2, i2); \texttt{Claim}(c2, s2) -- the last step's sweep
+removes \texttt{c1} and releases its ownership, but leaves its three
+cascade flags untouched.
+
+I2/I3/I5/I6 must stay unaffected -- this variant does not touch
+\texttt{registered} or \texttt{owner} differently from the fixed spec
+anywhere:
+
+\begin{verbatim}
+  # must remain NOT found
+  probcli docs/connection_lease_reaping_cascade_incomplete_buggy.tex \
+    -model_check -nodead \
+    -goal "#s.(#c.(s:SCENE & c:CONN & owner(s) = conn(c) &
+                   not(c : registered)))" \
+    -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+I1 must stay unaffected -- this variant does not touch
+\texttt{TransportDies}, \texttt{LeaseLapse}, or \texttt{TimedReapBegin},
+so the chain that establishes I1's positive outcome still completes:
+
+\begin{verbatim}
+  # must remain FOUND
+  probcli docs/connection_lease_reaping_cascade_incomplete_buggy.tex \
+    -model_check -nodead \
+    -goal "#c.(c:CONN & c : dom(identity) & not(c : registered) &
+               transport(c) = tdown)" \
+    -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+\end{document}
