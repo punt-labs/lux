@@ -29,6 +29,7 @@ from punt_lux.operations import (
     SceneShown,
     UpdateRequest,
 )
+from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.queries import QueryOperations
 from punt_lux.operations.scenes import SceneOperations
 from punt_lux.operations.scope import Scope
@@ -80,7 +81,8 @@ def _stack() -> tuple[HubDisplay, SceneOperations, QueryOperations]:
     store = HubDisplay()
     hub = Hub()
     scenes = SceneOperations(store, _Recorder(), hub_element_factory, hub)
-    queries = QueryOperations(store, hub, _ForbiddenPort(), _zero_inbox_depth)
+    clients = ClientListing(store, hub, _zero_inbox_depth)
+    queries = QueryOperations(store, _ForbiddenPort(), clients)
     return store, scenes, queries
 
 

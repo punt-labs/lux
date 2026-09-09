@@ -100,6 +100,7 @@ class TestObservableSnapshot:
         ws.set(f"{eid}{WidgetState.CONTINUOUS_EDIT_BUFFER_SUFFIX}", 0.5)
         ws.set(f"{eid}{WidgetState.CONTINUOUS_EDIT_EDITING_SUFFIX}", value=True)
         ws.set(f"{eid}{WidgetState.ROW_SELECTION_PENDING_SUFFIX}", "r1")
+        ws.set(f"{eid}{WidgetState.FOCUS_REFOCUS_SUFFIX}", value=True)
 
         assert ws.observable_snapshot() == {}
 
@@ -130,6 +131,13 @@ class TestObservableSnapshot:
         ws = WidgetState()
         ws.set("multiselect", frozenset({"c", "a", "b"}))
         assert ws.observable_snapshot() == {"multiselect": ("a", "b", "c")}
+
+    def test_a_color_pickers_rgba_tuple_is_included_unconverted(self) -> None:
+        # RgbaColor.as_tuple() -- a plain tuple[float, ...], not a frozenset --
+        # must pass through the snapshot rather than crash the wire narrowing.
+        ws = WidgetState()
+        ws.set("swatch", (0.1, 0.2, 0.3, 1.0))
+        assert ws.observable_snapshot() == {"swatch": (0.1, 0.2, 0.3, 1.0)}
 
     def test_an_empty_store_yields_an_empty_snapshot(self) -> None:
         assert WidgetState().observable_snapshot() == {}

@@ -5,6 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+import pytest
+from pydantic import ValidationError
+
 from punt_lux.operations import (
     DisplayModeRequest,
     OpError,
@@ -12,6 +15,11 @@ from punt_lux.operations import (
     RenderRequest,
     RenderTableRequest,
     UpdateRequest,
+)
+from punt_lux.operations.models.display_state import (
+    DisplayStateSnapshot,
+    FramePresentation,
+    WidgetSnapshot,
 )
 from punt_lux.operations.models.patches import RemovePatch, SetPatch
 from punt_lux.operations.models.render import FrameSpec
@@ -311,3 +319,54 @@ def test_render_dashboard_parse_rejects_rows_without_columns() -> None:
     result = RenderDashboardRequest.parse({"scene_id": "s", "table_rows": [["a"]]})
     assert isinstance(result, OpError)
     assert result.reason == "table_rows requires table_columns"
+
+
+def test_widget_snapshot_holds_every_wire_scalar_shape() -> None:
+    values: dict[str, str | float | bool | tuple[str, ...]] = {
+        "count": 3.0,
+        "label": "hi",
+        "on": True,
+        "tags": ("a", "b"),
+    }
+    snapshot = WidgetSnapshot(values=values)
+    assert snapshot.values == values
+
+
+def test_widget_snapshot_is_frozen() -> None:
+    snapshot = WidgetSnapshot(values={})
+    with pytest.raises(ValidationError):
+        snapshot.values = {"x": 1.0}
+
+
+def test_frame_presentation_preserves_a_none_active_tab() -> None:
+    frame = FramePresentation(
+        frame_id="f1", visibility="closed", active_tab=None, cascade_index=0
+    )
+    assert frame.active_tab is None
+
+
+def test_frame_presentation_rejects_a_negative_cascade_index() -> None:
+    with pytest.raises(ValidationError):
+        FramePresentation(
+            frame_id="f1", visibility="on_screen", active_tab=None, cascade_index=-1
+        )
+
+
+def test_display_state_snapshot_round_trips_through_json() -> None:
+    snapshot = DisplayStateSnapshot(
+        scenes={"s1": WidgetSnapshot(values={"checkbox1": True})},
+        frames=[
+            FramePresentation(
+                frame_id="f1",
+                visibility="on_screen",
+                active_tab="s1",
+                cascade_index=0,
+            )
+        ],
+    )
+
+    dumped = snapshot.model_dump(mode="json")
+    restored = DisplayStateSnapshot.model_validate(dumped)
+
+    assert restored == snapshot
+    assert dumped["kind"] == "ok"

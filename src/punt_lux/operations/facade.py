@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.operations.callbacks import CallbackOperations
+from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.config import DisplayModeOperations
 from punt_lux.operations.conveniences import ConvenienceOperations
 from punt_lux.operations.display_control import DisplayControlOperations
@@ -128,7 +129,8 @@ class Operations:
         """Wire every concern class from injected collaborators — no singletons."""
         scenes = SceneOperations(display, replicator, ports.element_factory, hub)
         callbacks = CallbackOperations(display.clients, callback_router, replicator)
-        queries = QueryOperations(display, hub, ports.display_port, ports.inbox_depth)
+        clients = ClientListing(display, hub, ports.inbox_depth)
+        queries = QueryOperations(display, ports.display_port, clients)
         return cls(
             scenes=scenes,
             pubsub=PubSubOperations(hub, display.clients, ports),
@@ -233,11 +235,8 @@ class Operations:
     def inspect_scene(
         self, scene_id: str, *, scope: Scope, facts: InspectScope = HUB_ONLY
     ) -> SceneInspection | OpError:
-        """Return the caller's own scene tree; ``facts`` adds proxied geometry.
-
-        Composed against ``scope.connection_id`` — a caller can only ever
-        inspect a scene it owns (DES-086, no admin path).
-        """
+        """Return the caller's own scene tree (DES-086, no admin path); ``facts`` adds
+        proxied geometry."""
         return self._queries.inspect_scene(scene_id, scope, facts)
 
     def list_scenes(self, facts: InspectScope = HUB_ONLY) -> SceneList:
@@ -256,9 +255,9 @@ class Operations:
         """Return the display's recent errors, proxied."""
         return self._queries.list_errors(count)
 
-    def get_display_state(self) -> DisplayStateSnapshot | OpError:
-        """Return the display's own widget/frame state, proxied."""
-        return self._queries.display_state()
+    def get_display_state(self, *, scope: Scope) -> DisplayStateSnapshot | OpError:
+        """Return the caller's own widget/frame state, proxied."""
+        return self._queries.display_state(scope)
 
     @Timed("set_menu")
     def set_menu(self, request: SetMenuRequest | OpError) -> Ok | OpError:

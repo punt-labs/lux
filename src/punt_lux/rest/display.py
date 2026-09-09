@@ -24,9 +24,7 @@ from punt_lux.commands import (
     event_ls as event_ls_command,
     ping as ping_command,
 )
-from punt_lux.commands.display_state_get import (
-    display_state_get as display_state_get_command,
-)
+from punt_lux.commands.display_state_get import display_state_get as state_get_command
 from punt_lux.operations import (
     DisplayInfo,
     DisplayStateSnapshot,
@@ -35,6 +33,7 @@ from punt_lux.operations import (
     Pong,
     RecentErrors,
     RecentEvents,
+    Scope,
     Screenshot,
     ThemeState,
     WindowSettings,
@@ -48,6 +47,8 @@ if TYPE_CHECKING:
     from punt_lux.rest.status import HttpErrorMap
 
 _CallerIdentity = Annotated["ClientIdentity", Depends(resolve_identity)]
+# A scoped read (e.g. display state) gets the same 401 challenge a write gets.
+_OwningScope = Annotated[Scope, Depends(resolve_scope)]
 
 __all__ = ["DisplayRoutes"]
 
@@ -129,10 +130,13 @@ class DisplayRoutes:
         result = asyncio.run(display_screenshot_command.execute(ctx))
         return self._errors.respond(result)
 
-    def get_display_state(self, identity: _CallerIdentity) -> DisplayStateSnapshot:
-        """Return the Display's own widget/frame state, proxied."""
+    def get_display_state(
+        self, identity: _CallerIdentity, scope: _OwningScope
+    ) -> DisplayStateSnapshot:
+        """Return the caller's own widget/frame state, proxied (DES-086 scoped)."""
         ctx: CommandCtx[DisplayStateOps] = CommandCtx(ops=self._ops, identity=identity)
-        return self._errors.respond(asyncio.run(display_state_get_command.execute(ctx)))
+        result = asyncio.run(state_get_command.execute(ctx, scope=scope))
+        return self._errors.respond(result)
 
     async def ping(
         self, identity: _CallerIdentity, timeout: _PingTimeout = None

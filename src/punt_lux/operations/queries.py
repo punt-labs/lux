@@ -24,11 +24,9 @@ from punt_lux.operations.models.query_scenes import SceneList
 from punt_lux.operations.scene_listing import SceneListing
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.hub import Hub
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.hub.named_sessions import NamedSession
     from punt_lux.operations.display_port import DisplayPort
-    from punt_lux.operations.hub_collaborators import InboxDepth
     from punt_lux.operations.models.display_state import DisplayStateSnapshot
     from punt_lux.operations.scope import Scope
     from punt_lux.protocol import Element as WireElement
@@ -48,18 +46,14 @@ class QueryOperations:
     __slots__ = ("_clients", "_display", "_facts", "_port", "_scenes")
 
     def __new__(
-        cls,
-        display: HubDisplay,
-        hub: Hub,
-        port: DisplayPort,
-        inbox_depth: InboxDepth,
+        cls, display: HubDisplay, port: DisplayPort, clients: ClientListing
     ) -> Self:
         self = super().__new__(cls)
         self._display = display
         self._port = port
         self._facts = DisplayFactProxy(port)
         self._scenes = SceneListing(display, FrameVisibilityProxy(port))
-        self._clients = ClientListing(display, hub, inbox_depth)
+        self._clients = clients
         return self
 
     def inspect_scene(
@@ -117,9 +111,9 @@ class QueryOperations:
             return payload
         return RecentErrors.from_payload(payload)
 
-    def display_state(self) -> DisplayStateSnapshot | OpError:
-        """Return the display's own widget/frame state, proxied over one connection."""
-        return DisplayStateProxy(self._port).snapshot()
+    def display_state(self, scope: Scope) -> DisplayStateSnapshot | OpError:
+        """Return the caller's own widget/frame state, proxied over one connection."""
+        return DisplayStateProxy(self._port).snapshot(scope)
 
     def _inspect(self, element: WireElement) -> InspectedElement:
         """Return an element's resolved state and recurse into its children."""

@@ -35,6 +35,7 @@ from punt_lux.domain.hub.session_callback import SessionCallback
 from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.operations.client_details import ClientDetailsOperations
 from punt_lux.operations.client_details_port import ClientDetailsPort
+from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.queries import QueryOperations
 from punt_lux.operations.scene_installer import SceneInstaller
 from punt_lux.protocol.elements.table import TableElement
@@ -113,13 +114,13 @@ class _Wired:
         self = super().__new__(cls)
         self._store = HubDisplay()
         marks = _Marks()
+        clients = ClientListing(self._store, Hub(), _zero_inbox_depth)
         self._details = ClientDetailsPort(
             ClientDetailsOperations(
                 QueryOperations(
                     self._store,
-                    Hub(),
                     _Port(),  # type: ignore[arg-type]  # structural port
-                    _zero_inbox_depth,
+                    clients,
                 ),
                 SceneInstaller(self._store, marks),
                 self._store.clients,

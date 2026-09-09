@@ -18,6 +18,7 @@ from punt_lux.cli._shared import (
     connect_client,
     identity_from_flags,
     run,
+    scope_for,
 )
 from punt_lux.commands import (
     CommandResult,
@@ -96,10 +97,10 @@ def state(
     verbose: VerboseFlag = False,
     quiet: QuietFlag = False,
 ) -> None:
-    """Return the Display's own widget/frame state, for Hub-vs-Display comparison."""
+    """Return your own widget/frame state, for Hub-vs-Display comparison."""
     flags = OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet)
     ctx: Ctx[DisplayStateOps] = _ambient_ctx()
-    run(display_state_get(ctx), flags)
+    run(display_state_get(ctx, scope=scope_for(ctx.identity)), flags)
 
 
 async def _local_mode_result(value: str) -> CommandResult:
@@ -175,12 +176,9 @@ def serve(
         help="Auto-fire click events for buttons (testing)",
     ),
 ) -> None:
-    """Start the Lux display server (the ImGui render loop process).
-
-    Interactive/manual entry point onto
-    :meth:`punt_lux.luxd_display.DisplayEntryPoint.serve` — launchd/systemd
-    runs the top-level ``luxd-display`` executable directly, not this.
-    """
+    """Start the Lux display server -- the interactive/manual entry point onto
+    :meth:`punt_lux.luxd_display.DisplayEntryPoint.serve` (launchd/systemd runs
+    ``luxd-display`` directly instead)."""
     try:
         from punt_lux.luxd_display import DisplayEntryPoint
     except ModuleNotFoundError as exc:

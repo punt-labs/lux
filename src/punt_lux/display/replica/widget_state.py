@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import Any, ClassVar, Self, cast
 
-# The wire-safe shape a curated value reduces to. Declared here, not imported
-# from the Hub-side ``operations`` package the Display never depends on.
-type WireScalar = str | float | bool | tuple[str, ...]
+# The wire-safe shape a curated value reduces to (declared here, not imported
+# from the Hub-side ``operations`` package the Display never depends on) --
+# ``tuple[float, ...]`` is a color picker's RGBA slot (RgbaColor.as_tuple).
+type WireScalar = str | float | bool | tuple[str, ...] | tuple[float, ...]
 
 
 class WidgetState:
@@ -60,6 +61,7 @@ class WidgetState:
         CONTINUOUS_EDIT_BUFFER_SUFFIX,
         CONTINUOUS_EDIT_EDITING_SUFFIX,
         ROW_SELECTION_PENDING_SUFFIX,
+        FOCUS_REFOCUS_SUFFIX,  # one-frame transient, armed by the enter-commit
     )
     # Every per-element suffix -- what ``discard_for`` sweeps.
     _ALL_SUFFIXES: ClassVar[tuple[str, ...]] = (
@@ -69,7 +71,6 @@ class WidgetState:
         CONTINUOUS_EDIT_COMMIT_HUB_SUFFIX,
         ROW_SELECTION_HONOURED_SUFFIX,
         FOCUS_SEEN_SUFFIX,
-        FOCUS_REFOCUS_SUFFIX,
         SPLIT_RATIO_SUFFIX,
     )
 
@@ -131,11 +132,7 @@ class WidgetState:
         self._state.clear()
 
     def observable_snapshot(self) -> dict[str, WireScalar]:
-        """Return the steady-state subset of this scene's widget state.
-
-        Bare per-element values plus the durable facts; every gesture-window
-        slot (``_GESTURE_SUFFIXES``) is excluded as true only mid-click.
-        """
+        """Return steady-state values; every gesture-window slot is excluded."""
         observable = filter(lambda kv: self._is_observable(kv[0]), self._state.items())
         return {key: self._wire_value(value) for key, value in observable}
 
@@ -147,7 +144,8 @@ class WidgetState:
     def _wire_value(value: Any) -> WireScalar:
         """Narrow a stored value to its wire-safe shape.
 
-        The row-selection slot is the one ``frozenset``; sorted to a tuple.
+        The row-selection slot is the one ``frozenset``, sorted to a tuple;
+        every other shape (a color picker's RGBA tuple included) passes through.
         """
         return (
             tuple(sorted(cast("frozenset[str]", value)))

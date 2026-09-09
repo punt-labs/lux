@@ -10,8 +10,7 @@ Details is deliberately not on the ``Operations`` facade. The facade is the
 surfaces' one door, and this is not a surface capability: it is keyed by a
 ``ConnectionId``, a wire key no surface addresses by, and it writes a scene owned
 by a connection other than the caller's. So the wiring recipe lives here, and
-each composition root calls :meth:`ClientDetailsPort.for_store` and binds the
-result to the dispatch.
+each composition root calls :meth:`ClientDetailsPort.for_store` and binds the result.
 """
 
 from __future__ import annotations
@@ -20,6 +19,7 @@ from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.details_outcome import DetailsRefused, DetailsShown
 from punt_lux.operations.client_details import ClientDetailsOperations
+from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.queries import QueryOperations
 from punt_lux.operations.scene_installer import SceneInstaller
@@ -52,14 +52,14 @@ class ClientDetailsPort:
     ) -> Self:
         """Wire the command from the collaborators the facade is wired from.
 
-        One recipe, called by both composition roots, so a click answers from the
-        same store and ports whichever root ran last. The concerns it reads
-        through hold no state of their own — they are views onto ``display`` — so
-        two roots building two of these is two doors onto one Hub, not two Hubs.
+        One recipe, called by both composition roots -- the views it reads hold
+        no state of their own, so two roots building two of these is two doors
+        onto one Hub, not two Hubs.
         """
+        clients = ClientListing(display, hub, ports.inbox_depth)
         return cls(
             ClientDetailsOperations(
-                QueryOperations(display, hub, ports.display_port, ports.inbox_depth),
+                QueryOperations(display, ports.display_port, clients),
                 SceneInstaller(display, replicator),
                 display.clients,
             )

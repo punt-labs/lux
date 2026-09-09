@@ -267,8 +267,9 @@ class _RestTransport:
         """Return the display's backend/geometry through ``GET /display``."""
         return self._display.get_display_info()
 
-    def get_display_state(self) -> DisplayStateSnapshot | OpError:
-        """Return the Display's widget/frame state through ``GET /display/state``."""
+    def get_display_state(self, *, scope: Scope) -> DisplayStateSnapshot | OpError:
+        """Return the caller's widget/frame state through ``GET /display/state``."""
+        del scope  # REST composes scope from headers, same as identify()
         return self._display.get_display_state()
 
     def get_theme(self) -> ThemeState | OpError:
@@ -294,10 +295,9 @@ class _RestTransport:
 
         REST has no dedicated identify endpoint: every request already carries
         this client's ``X-Lux-Client-*`` headers, and the Hub resolves the same
-        identity from them on every write via ``RestCaller.resolve`` (the same
-        ``session_identify`` command this method's counterpart runs Hub-side).
-        A separate wire call here would declare nothing new, so this validates
-        ``declaration`` against the client's own identity and confirms it.
+        identity from them on every write via ``RestCaller.resolve``. A separate
+        wire call would declare nothing new, so this validates ``declaration``
+        against the client's own identity and confirms it.
         """
         del scope  # unused: REST composes scope from headers on every request
         parsed = ClientIdentity.model_validate(

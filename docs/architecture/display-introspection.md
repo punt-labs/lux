@@ -1,7 +1,9 @@
 # Display-Local State Introspection (Hub-Mediated)
 
-**Status:** design proposal — pending operator ratification. Not yet
-implemented. Bead `lux-221j`.
+**Status:** shipped. Bead `lux-221j` — the `display_state_get` operation
+(MCP tool, REST `GET /display/state`, CLI `lux display state`, and the
+library `client.display.get_state()` / `client.sync.get_display_state()`
+surfaces), scoped to the caller's own connection.
 
 I read `docs/architecture/target/target.md` (including the DES-088
 content/visibility split and the `WidgetStateStore`/`SceneReplica`

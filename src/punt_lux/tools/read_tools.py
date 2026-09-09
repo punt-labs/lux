@@ -184,11 +184,11 @@ def get_theme() -> ThemeState | OpError:
 
 @mcp.tool(name="display_state_get")
 def get_display_state() -> DisplayStateSnapshot | OpError:
-    """Return the Display's own widget/frame state, for Hub-vs-Display comparison."""
+    """Return your own widget/frame state, scoped to scenes you own."""
     ctx: CommandCtx[DisplayStateOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
     )
-    return asyncio.run(display_state_get_command.execute(ctx))
+    return asyncio.run(display_state_get_command.execute(ctx, scope=_core._scope()))
 
 
 @mcp.tool(name="session_ls")
