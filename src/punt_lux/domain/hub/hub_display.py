@@ -166,11 +166,7 @@ class HubDisplay:
     # -- clients registry --------------------------------------------------
 
     def register_client(self, connection_id: ConnectionId) -> None:
-        """Record a connection's own arrival as a client, renewing its lease.
-
-        Locked like every other mutator, so a reconnect can never land mid a
-        departure's cascade and have its fresh writer wiped by the tail.
-        """
+        """Record a connection's own arrival as a client, renewing its lease."""
         with self._lock.write():
             self._clients.record(connection_id)
 
@@ -449,13 +445,7 @@ class HubDisplay:
     def _depart_lapsed(
         self, *, exclude: frozenset[ConnectionId]
     ) -> frozenset[ConnectionId]:
-        """Depart every lapsed connection except ``exclude``; return who left.
-
-        One lock hold covers all four cascade legs for the whole swept set —
-        registry, ownership, subscriptions/writer, and each connection's
-        transport sink — so a same-identity reconnect can never land between
-        the registry removal and the cascade tail.
-        """
+        """Depart every lapsed connection except ``exclude``; return who left."""
         with self._lock.write():
             lapsed = self._clients.reap_lapsed_locked(exclude)
             self._owners.release_departed(lapsed)
@@ -465,10 +455,8 @@ class HubDisplay:
     def _depart(self, connection_id: ConnectionId) -> None:
         """Atomically deregister and release everything ``connection_id`` owned.
 
-        The one step every departure trigger funnels through: the registry
-        entry, its ownership, its Hub subscriptions and writer binding, and
-        its registered transport sink all go together. Caller holds the
-        store write lock.
+        The one step every departure trigger funnels through. Caller holds
+        the store write lock.
         """
         self._clients.discard(connection_id)
         self._owners.release_all(connection_id)
