@@ -72,7 +72,13 @@ def next_event(connection_id: ConnectionId, timeout: float) -> ObserverMessage |
 
 
 def ensure_writer(connection_id: ConnectionId) -> None:
-    """Bind an inbox writer and register the client; idempotent."""
+    """Bind an inbox writer and register the client; idempotent.
+
+    Registers this module's own :func:`drop_session` as the connection's
+    departure sink alongside the fresh writer, so a departure — whichever
+    trigger fires it — releases the inbox queue in the same cascade that
+    drops the subscriptions and the writer binding.
+    """
     hub_display.register_client(connection_id)
     if hub.has_writer(connection_id):
         return
@@ -84,6 +90,7 @@ def ensure_writer(connection_id: ConnectionId) -> None:
         inbox_for(connection_id).put(message)
 
     hub.register_writer(connection_id, _writer)
+    hub_display.bind_departure_sink(connection_id, drop_session)
 
 
 def inbox_depth_for(connection_id: ConnectionId) -> int:

@@ -6,7 +6,14 @@ process-global module state shared across the test session.
 
 from __future__ import annotations
 
-from punt_lux.domain.hub.inbox import drop_session, inbox_depth_for, inbox_for
+from punt_lux.domain.hub.hub import hub
+from punt_lux.domain.hub.hub_display import hub_display
+from punt_lux.domain.hub.inbox import (
+    drop_session,
+    ensure_writer,
+    inbox_depth_for,
+    inbox_for,
+)
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.protocol.messages.observer import ObserverMessage
 
@@ -39,3 +46,34 @@ def test_drop_session_resets_the_depth_to_zero() -> None:
     drop_session(connection)
 
     assert inbox_depth_for(connection) == 0
+
+
+def test_ensure_writer_binds_drop_session_as_the_departure_sink() -> None:
+    """A fresh writer is registered alongside a departure sink, at connect time.
+
+    Departing the connection through the production ``hub_display`` singleton
+    must drain its inbox without any transport-layer code passing
+    ``drop_session`` explicitly -- the binding done here is what closes that
+    gap.
+    """
+    connection = ConnectionId("c-depth-ensure-writer")
+    inbox_for(connection).put(ObserverMessage(topic="t", payload={}))
+
+    ensure_writer(connection)
+    assert hub.has_writer(connection)
+
+    hub_display.drop_connection(connection)
+
+    assert not hub.has_writer(connection)
+    assert inbox_depth_for(connection) == 0
+
+
+def test_ensure_writer_is_idempotent_and_rebinds_nothing_on_a_second_call() -> None:
+    """A second ``ensure_writer`` call on an already-writered connection no-ops."""
+    connection = ConnectionId("c-depth-ensure-writer-idempotent")
+
+    ensure_writer(connection)
+    ensure_writer(connection)  # must not raise, must not rebind
+
+    assert hub.has_writer(connection)
+    hub_display.drop_connection(connection)  # cleanup: production singletons

@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Self
 
 from punt_lux.domain.element import Element as WireElement
 from punt_lux.domain.hub.child_index import ChildIndex
+from punt_lux.domain.hub.departure_cascade import DepartureCascade
 from punt_lux.domain.hub.dismissal_walk import DismissalWalk
 from punt_lux.domain.hub.element_index import (
     ElementIndex,
@@ -41,6 +42,7 @@ from punt_lux.domain.hub.element_index import (
 )
 from punt_lux.domain.hub.frame_expiry import FrameExpiry
 from punt_lux.domain.hub.frame_lifecycle import FrameLifecycle
+from punt_lux.domain.hub.hub import Hub, hub as default_hub
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.hub.hub_reads import HubReads
 from punt_lux.domain.hub.owner import Owner
@@ -69,6 +71,7 @@ if TYPE_CHECKING:
 
     from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.domain.hub.client_session import ClientSession
+    from punt_lux.domain.hub.departure_sinks import DepartureSink
     from punt_lux.domain.hub.quarantine_record import QuarantineRecord
 
     QuarantineClearedObserver = Callable[[SceneId], None]
@@ -109,12 +112,16 @@ class HubDisplay:
     _quarantine: QuarantineRegistry
     _quarantine_cleared_observers: list[QuarantineClearedObserver]
     _eviction: SceneEviction
+    _cascade: DepartureCascade
 
-    def __new__(cls, clock: Callable[[], float] = time.monotonic) -> Self:
+    def __new__(
+        cls, clock: Callable[[], float] = time.monotonic, hub: Hub = default_hub
+    ) -> Self:
         self = super().__new__(cls)
         self._index = ElementIndex()
         self._clients = HubClientRegistry(clock)
         self._owners = OwnerTracker()
+        self._cascade = DepartureCascade(hub)
         self._roots = RootRegistry()
         self._children = ChildIndex()
         self._dismissal = DismissalWalk(self._index, self._children)
@@ -159,14 +166,20 @@ class HubDisplay:
     # -- clients registry --------------------------------------------------
 
     def register_client(self, connection_id: ConnectionId) -> None:
-        """Record a connection's own arrival as a client, renewing its lease."""
-        self._clients.record(connection_id)
+        """Record a connection's own arrival as a client, renewing its lease.
+
+        Locked like every other mutator, so a reconnect can never land mid a
+        departure's cascade and have its fresh writer wiped by the tail.
+        """
+        with self._lock.write():
+            self._clients.record(connection_id)
 
     def identify_client(
         self, connection_id: ConnectionId, identity: ClientIdentity
     ) -> None:
         """Record the identity a connection declared, registering it if new."""
-        self._clients.record(connection_id, identity)
+        with self._lock.write():
+            self._clients.record(connection_id, identity)
 
     def is_client(self, connection_id: ConnectionId) -> bool:
         """Return True if the connection is currently registered."""
@@ -175,6 +188,13 @@ class HubDisplay:
     def renew_contact(self, connection_id: ConnectionId) -> None:
         """Renew the lease iff registered -- the write-contact choke point."""
         self._clients.renew_if_registered(connection_id)
+
+    def bind_departure_sink(
+        self, connection_id: ConnectionId, sink: DepartureSink
+    ) -> None:
+        """Register ``sink`` as the connection's transport-owned cleanup."""
+        with self._lock.write():
+            self._cascade.bind_sink(connection_id, sink)
 
     @property
     def clients(self) -> HubClientRegistry:
@@ -429,20 +449,30 @@ class HubDisplay:
     def _depart_lapsed(
         self, *, exclude: frozenset[ConnectionId]
     ) -> frozenset[ConnectionId]:
-        """Depart every lapsed connection except ``exclude``; return who left."""
+        """Depart every lapsed connection except ``exclude``; return who left.
+
+        One lock hold covers all four cascade legs for the whole swept set —
+        registry, ownership, subscriptions/writer, and each connection's
+        transport sink — so a same-identity reconnect can never land between
+        the registry removal and the cascade tail.
+        """
         with self._lock.write():
             lapsed = self._clients.reap_lapsed_locked(exclude)
             self._owners.release_departed(lapsed)
+            self._cascade.run_all(lapsed)
             return lapsed
 
     def _depart(self, connection_id: ConnectionId) -> None:
         """Atomically deregister and release everything ``connection_id`` owned.
 
-        The one step every departure trigger funnels through. Caller holds
-        the store write lock.
+        The one step every departure trigger funnels through: the registry
+        entry, its ownership, its Hub subscriptions and writer binding, and
+        its registered transport sink all go together. Caller holds the
+        store write lock.
         """
         self._clients.discard(connection_id)
         self._owners.release_all(connection_id)
+        self._cascade.run(connection_id)
 
 
 hub_display = HubDisplay()

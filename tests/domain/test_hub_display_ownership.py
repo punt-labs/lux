@@ -7,6 +7,7 @@ already gates on ownership; the Hub mirror must enforce the same rule.
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal, Self
@@ -14,10 +15,12 @@ from typing import Literal, Self
 import pytest
 
 from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.domain.hub.departure_cascade import DepartureCascade
+from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.owner import Owner
 from punt_lux.domain.hub.ownership_error import HubOwnershipError
-from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
+from punt_lux.domain.ids import ConnectionId, ElementId, SceneId, Topic
 from punt_lux.domain.update import AddElement, RemoveElement, SetProperty
 
 _SCENE = SceneId("ownership-scene")
@@ -555,3 +558,149 @@ def test_reap_lapsed_leases_touches_no_scene_when_nothing_has_lapsed() -> None:
     assert hub_display.reap_lapsed_leases() == frozenset()
     assert hub_display.is_client(live)
     assert hub_display.owner_of(_SCENE, ElementId("track")) == live
+
+
+# -- cascade completeness: the full departure tail, not just registry+ownership --
+
+
+def test_a_timer_reaped_connection_loses_its_full_cascade_not_just_registry_and_ownership() -> (  # noqa: E501
+    None
+):
+    """CC1: a purely timer-reaped connection loses subs, writer, and inbox too.
+
+    ``TimedReap`` (:meth:`HubDisplay.reap_lapsed_leases`) must reach every
+    cascade leg, not just the registry-and-ownership pair the original
+    reap-and-release fix covered.
+    """
+    clock = _Clock()
+    isolated_hub = Hub()
+    hub_display = HubDisplay(clock, hub=isolated_hub)
+    conn = ConnectionId("cascade-timer")
+    hub_display.identify_client(conn, _cli("cascade"))
+    hub_display.apply(
+        conn,
+        AddElement(scene_id=_SCENE, element=_WireLeaf(id="track"), parent_id=None),
+    )
+    isolated_hub.register_writer(conn, lambda _msg: None)
+    isolated_hub.subscribe(conn, Topic("t"))
+    fired: list[ConnectionId] = []
+
+    def _sink(connection_id: ConnectionId) -> None:
+        fired.append(connection_id)
+
+    hub_display.bind_departure_sink(conn, _sink)
+
+    clock.advance(91.0)  # past the 90s cli lease; nothing else ever renews it
+    reaped = hub_display.reap_lapsed_leases()
+
+    assert reaped == frozenset({conn})
+    assert not isolated_hub.has_writer(conn)
+    assert isolated_hub.topics_for(conn) == frozenset()
+    assert fired == [conn]
+
+
+def test_apply_clears_a_swept_connections_full_cascade_as_a_side_effect() -> None:
+    """CC2: Claim's embedded sweep-of-others clears the swept full cascade too."""
+    clock = _Clock()
+    isolated_hub = Hub()
+    hub_display = HubDisplay(clock, hub=isolated_hub)
+    dead = ConnectionId("swept-dead")
+    live = ConnectionId("swept-live")
+    hub_display.identify_client(dead, _cli("dead"))
+    hub_display.apply(
+        dead,
+        AddElement(scene_id=_SCENE, element=_WireLeaf(id="track"), parent_id=None),
+    )
+    isolated_hub.register_writer(dead, lambda _msg: None)
+    isolated_hub.subscribe(dead, Topic("t"))
+    fired: list[ConnectionId] = []
+
+    def _sink(connection_id: ConnectionId) -> None:
+        fired.append(connection_id)
+
+    hub_display.bind_departure_sink(dead, _sink)
+
+    clock.advance(91.0)  # past the cli lease; live's own write triggers the sweep
+    other_scene = SceneId("swept-other-scene")
+    hub_display.identify_client(live, _mcp("live"))
+    hub_display.apply(
+        live,
+        AddElement(scene_id=other_scene, element=_WireLeaf(id="x"), parent_id=None),
+    )
+
+    assert not isolated_hub.has_writer(dead)
+    assert isolated_hub.topics_for(dead) == frozenset()
+    assert fired == [dead]
+
+
+def test_reaping_a_connection_with_no_side_state_touches_nothing_new() -> None:
+    """CC3: a connection with no subscription, writer, or sink is a cascade no-op."""
+    clock = _Clock()
+    isolated_hub = Hub()
+    hub_display = HubDisplay(clock, hub=isolated_hub)
+    conn = ConnectionId("no-side-state")
+    hub_display.identify_client(conn, _cli("bare"))
+
+    clock.advance(91.0)
+    reaped = hub_display.reap_lapsed_leases()  # must not raise
+
+    assert reaped == frozenset({conn})
+    assert not isolated_hub.has_writer(conn)
+
+
+# -- reconnect-vs-reap mutual exclusion: the StoreLock fix -----------------
+
+
+def test_a_reconnect_never_lands_inside_an_open_departure_cascade() -> None:
+    """RR1: register_client under StoreLock closes the register_client-vs-reap race.
+
+    Without the fix, ``register_client`` takes no lock, so a same-identity
+    reconnect can land between a stale reap's registry removal and its
+    cascade tail: the reconnect's fresh writer is installed, then the
+    reap's delayed ``Hub.on_disconnect`` call wipes it out. With the fix,
+    the reconnect blocks on the same ``StoreLock`` the reap holds across
+    its whole critical section, so it can only proceed once the cascade has
+    fully completed -- landing its fresh writer with nothing left to
+    destroy it.
+
+    The interleaving is forced deterministically: the cascade tail
+    (``DepartureCascade.run_all``) is wrapped to signal it has been
+    reached, then sleep briefly -- an explicit window for the reconnecting
+    thread to attempt ``register_client`` concurrently, whether or not that
+    call blocks.
+    """
+    clock = _Clock()
+    isolated_hub = Hub()
+    hub_display = HubDisplay(clock, hub=isolated_hub)
+    conn = ConnectionId("reconnect-race")
+    hub_display.identify_client(conn, _cli("race"))
+    clock.advance(91.0)  # lapse conn's lease so reap_lapsed_leases will remove it
+
+    tail_reached = threading.Event()
+    original_run_all = DepartureCascade.run_all
+
+    def _paused_run_all(
+        self: DepartureCascade, connection_ids: frozenset[ConnectionId]
+    ) -> None:
+        tail_reached.set()
+        threading.Event().wait(timeout=0.2)  # window for the racing reconnect
+        original_run_all(self, connection_ids)
+
+    new_writer_installed = threading.Event()
+
+    def _reconnect() -> None:
+        tail_reached.wait(timeout=2.0)
+        hub_display.register_client(conn)  # blocks on StoreLock when fixed
+        isolated_hub.register_writer(conn, lambda _msg: None)
+        new_writer_installed.set()
+
+    reconnect_thread = threading.Thread(target=_reconnect)
+
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(DepartureCascade, "run_all", _paused_run_all)
+        reconnect_thread.start()
+        hub_display.reap_lapsed_leases()
+        reconnect_thread.join(timeout=2.0)
+
+    assert new_writer_installed.is_set()
+    assert isolated_hub.has_writer(conn)

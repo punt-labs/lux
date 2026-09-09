@@ -41,7 +41,7 @@ class TestSessionCleanup:
         """A raise in the menu leg must not skip the disconnect leg."""
         disconnected: list[str] = []
 
-        def _record_disconnect(conn: object, drop: object) -> None:
+        def _record_disconnect(conn: object) -> None:
             disconnected.append(str(conn))
 
         monkeypatch.setattr("punt_lux.session_cleanup.OPERATIONS", _RaisingMenu())
@@ -61,7 +61,7 @@ class TestSessionCleanup:
     ) -> None:
         """A raise in the disconnect leg is attributed and does not escape."""
 
-        def _boom(conn: object, drop: object) -> None:
+        def _boom(conn: object) -> None:
             raise RuntimeError("disconnect cascade exploded")
 
         monkeypatch.setattr("punt_lux.session_cleanup.OPERATIONS", _RecordingMenu())
@@ -80,7 +80,7 @@ class TestSessionCleanup:
         menu = _RecordingMenu()
         disconnected: list[str] = []
 
-        def _record_disconnect(conn: object, drop: object) -> None:
+        def _record_disconnect(conn: object) -> None:
             disconnected.append(str(conn))
 
         monkeypatch.setattr("punt_lux.session_cleanup.OPERATIONS", menu)
