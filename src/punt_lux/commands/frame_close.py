@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Self, final
+from typing import Self, final
 
 from punt_lux.commands._faults import render_fault
+from punt_lux.commands._frame_close_request import FrameCloseRequest
 from punt_lux.commands._result import CommandResult
 from punt_lux.operations import Ok, OpError
-
-if TYPE_CHECKING:
-    from punt_lux.commands._ports import Ctx, FrameOps
 
 
 @final
@@ -22,16 +20,16 @@ class FrameCloseCommand:
     def __new__(cls) -> Self:
         return super().__new__(cls)
 
-    async def execute(self, ctx: Ctx[FrameOps], frame_id: str) -> Ok | OpError:
-        """Close ``frame_id`` and return the typed outcome."""
-        return await asyncio.to_thread(ctx.ops.close_frame, frame_id)
+    async def execute(self, request: FrameCloseRequest) -> Ok | OpError:
+        """Close the requested frame and return the typed outcome."""
+        return await asyncio.to_thread(request.ctx.ops.close_frame, request.target)
 
-    async def __call__(self, ctx: Ctx[FrameOps], frame_id: str) -> CommandResult:
+    async def __call__(self, request: FrameCloseRequest) -> CommandResult:
         """Run :meth:`execute` and render its outcome into the shared envelope."""
-        result = await self.execute(ctx, frame_id)
+        result = await self.execute(request)
         if isinstance(result, OpError):
             return render_fault(result)
-        return CommandResult(text=f"closed:{frame_id}")
+        return CommandResult(text=f"closed:{request.frame_id}")
 
 
 frame_close: FrameCloseCommand = FrameCloseCommand()

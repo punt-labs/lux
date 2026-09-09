@@ -8,9 +8,15 @@ round-trip is 504.
 
 from __future__ import annotations
 
+from punt_lux.connection_identity import connection_for
+from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
+from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.ids import SceneId
 from punt_lux.operations.display_reply import DisplayFault, DisplayReplied
 
-from ._fakes import StubPort, make_client
+from ._fakes import DEFAULT_CONNECTION, StubPort, make_client
+
+_TEXT = {"kind": "text", "id": "t1", "content": "hi"}
 
 _INFO = {
     "backend": "OpenGL3",
@@ -99,11 +105,59 @@ def test_list_frames_reports_a_closed_frame_over_http() -> None:
     }
 
 
-def test_close_frame() -> None:
+def test_close_frame_of_a_nonexistent_frame_is_not_found() -> None:
+    # No caller ever showed anything into "f1" -- the route must not report a
+    # blanket success for a frame it tore nothing down (lux-03k6).
     client = make_client(display_port=StubPort(DisplayReplied({})))
     resp = client.post("/display/frames/f1/close")
+    assert resp.status_code == 404
+
+
+def test_close_frame_removes_the_callers_own_frame() -> None:
+    store = HubDisplay()
+    client = make_client(display_port=StubPort(DisplayReplied({})), store=store)
+    client.put(
+        "/scenes/s1",
+        json={"scene_id": "s1", "elements": [_TEXT], "frame": {"frame_id": "board"}},
+    )
+
+    resp = client.post("/display/frames/board/close")
+
     assert resp.status_code == 200
     assert resp.json() == {"kind": "ok"}
+    scoped = SceneId(ConnectionScopedId.compose(DEFAULT_CONNECTION, "s1"))
+    assert store.scene_roots(scoped) == []
+
+
+def test_close_frame_of_another_connections_frame_is_not_found() -> None:
+    # DES-086: a frame named by another connection's local id is
+    # indistinguishable from one that never existed, so this is not_found
+    # too -- and the other caller's scene is left standing.
+    store = HubDisplay()
+    owner_identity = {
+        "X-Lux-Client-Kind": "cli",
+        "X-Lux-Client-Name": "owner",
+        "X-Lux-Client-Repo": "/w/owner",
+    }
+    owner_client = make_client(
+        display_port=StubPort(DisplayReplied({})), store=store, identity=owner_identity
+    )
+    owner_client.put(
+        "/scenes/s1",
+        json={"scene_id": "s1", "elements": [_TEXT], "frame": {"frame_id": "board"}},
+    )
+    stranger_client = make_client(
+        display_port=StubPort(DisplayReplied({})), store=store
+    )
+
+    resp = stranger_client.post("/display/frames/board/close")
+
+    assert resp.status_code == 404
+    owner_connection = connection_for(
+        {"kind": "cli", "name": "owner", "repo": "/w/owner"}
+    )
+    scoped = SceneId(ConnectionScopedId.compose(owner_connection, "s1"))
+    assert store.scene_roots(scoped) != []
 
 
 def test_screenshot_unsupported_is_409() -> None:

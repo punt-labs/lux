@@ -29,6 +29,7 @@ from punt_lux.domain.hub.quarantine_record import QuarantineRecord
 from punt_lux.domain.hub.replicator import HubReplicator
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.operations import OpError, RenderRequest, SceneShown, UpdateRequest
+from punt_lux.operations.scene_deps import SceneOperationsDeps
 from punt_lux.operations.scenes import SceneOperations
 from punt_lux.operations.scope import Scope
 from punt_lux.protocol.elements.text import TextElement
@@ -176,7 +177,8 @@ def _stack() -> tuple[
         store,
     )
     provider.attach(repl)
-    ops = SceneOperations(store, repl, hub_element_factory, Hub())
+    deps = SceneOperationsDeps(store, repl, hub_element_factory, Hub())
+    ops = SceneOperations(deps)
     return store, repl, sender, ops
 
 

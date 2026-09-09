@@ -19,8 +19,10 @@ from punt_lux.cli._shared import (
     connect_client,
     identity_from_flags,
     run,
+    scope_for,
 )
 from punt_lux.commands import Ctx, FrameOps, frame_close
+from punt_lux.commands._frame_close_request import FrameCloseRequest
 
 frame_app = typer.Typer(name="frame", help="Close a frame.", no_args_is_help=True)
 
@@ -42,8 +44,6 @@ def close(
 ) -> None:
     """Close a frame: tear down its scenes on the Hub."""
     flags = OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet)
-    identity = identity_from_flags(
-        as_=as_, kind=kind, name=name, repo=repo, agent=agent
-    )
-    ctx: Ctx[FrameOps] = Ctx(ops=connect_client(identity=identity), identity=identity)
-    run(frame_close(ctx, frame_id), flags)
+    who = identity_from_flags(as_=as_, kind=kind, name=name, repo=repo, agent=agent)
+    ctx: Ctx[FrameOps] = Ctx(ops=connect_client(identity=who), identity=who)
+    run(frame_close(FrameCloseRequest(ctx, frame_id, scope_for(who))), flags)

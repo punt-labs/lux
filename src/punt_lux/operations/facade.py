@@ -11,18 +11,22 @@ from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.operations.callbacks import CallbackOperations
 from punt_lux.operations.client_listing import ClientListing
+from punt_lux.operations.concerns import OperationsConcerns
 from punt_lux.operations.config import DisplayModeOperations
 from punt_lux.operations.conveniences import ConvenienceOperations
 from punt_lux.operations.display_control import DisplayControlOperations
+from punt_lux.operations.frame_closing import FrameCloser
 from punt_lux.operations.identity import IdentityOperations
 from punt_lux.operations.menus import MenuOperations
 from punt_lux.operations.models.inspect_scope import HUB_ONLY, InspectScope
 from punt_lux.operations.pubsub import PubSubOperations
 from punt_lux.operations.queries import QueryOperations
+from punt_lux.operations.scene_deps import SceneOperationsDeps
 from punt_lux.operations.scenes import SceneOperations
 from punt_lux.operations.timing import Timed
 
 if TYPE_CHECKING:
+    from punt_lux.commands._frame_target import FrameTarget
     from punt_lux.domain.hub.callback_hold import CallbackRouter
     from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.domain.hub.hub import Hub
@@ -79,11 +83,13 @@ class Operations:
     _menus: MenuOperations
     _identity: IdentityOperations
     _callbacks: CallbackOperations
+    _frame_closer: FrameCloser
     __slots__ = (
         "_callbacks",
         "_config",
         "_conveniences",
         "_display",
+        "_frame_closer",
         "_identity",
         "_menus",
         "_pubsub",
@@ -91,28 +97,18 @@ class Operations:
         "_scenes",
     )
 
-    def __new__(
-        cls,
-        *,
-        scenes: SceneOperations,
-        pubsub: PubSubOperations,
-        config: DisplayModeOperations,
-        display: DisplayControlOperations,
-        queries: QueryOperations,
-        menus: MenuOperations,
-        identity: IdentityOperations,
-        callbacks: CallbackOperations,
-    ) -> Self:
+    def __new__(cls, concerns: OperationsConcerns) -> Self:
         self = super().__new__(cls)
-        self._scenes = scenes
-        self._conveniences = ConvenienceOperations(scenes)
-        self._pubsub = pubsub
-        self._config = config
-        self._display = display
-        self._queries = queries
-        self._menus = menus
-        self._identity = identity
-        self._callbacks = callbacks
+        self._scenes = concerns.scenes
+        self._conveniences = ConvenienceOperations(concerns.scenes)
+        self._pubsub = concerns.pubsub
+        self._config = concerns.config
+        self._display = concerns.display
+        self._queries = concerns.queries
+        self._menus = concerns.menus
+        self._identity = concerns.identity
+        self._callbacks = concerns.callbacks
+        self._frame_closer = concerns.frame_closer
         return self
 
     @classmethod
@@ -127,19 +123,23 @@ class Operations:
         ports: HubPorts,
     ) -> Self:
         """Wire every concern class from injected collaborators — no singletons."""
-        scenes = SceneOperations(display, replicator, ports.element_factory, hub)
+        deps = SceneOperationsDeps(display, replicator, ports.element_factory, hub)
+        scenes = SceneOperations(deps)
         callbacks = CallbackOperations(display.clients, callback_router, replicator)
         clients = ClientListing(display, hub, ports.inbox_depth)
         queries = QueryOperations(display, ports.display_port, clients)
         return cls(
-            scenes=scenes,
-            pubsub=PubSubOperations(hub, display.clients, ports),
-            config=DisplayModeOperations(),
-            display=DisplayControlOperations(ports.display_port),
-            queries=queries,
-            menus=MenuOperations(menu_registry, replicator, callbacks),
-            identity=IdentityOperations(display),
-            callbacks=callbacks,
+            OperationsConcerns(
+                scenes=scenes,
+                pubsub=PubSubOperations(hub, display.clients, ports),
+                config=DisplayModeOperations(),
+                display=DisplayControlOperations(ports.display_port),
+                queries=queries,
+                menus=MenuOperations(menu_registry, replicator, callbacks),
+                identity=IdentityOperations(display),
+                callbacks=callbacks,
+                frame_closer=FrameCloser(display, replicator),
+            )
         )
 
     @Timed("render")
@@ -228,9 +228,9 @@ class Operations:
         return self._display.list_frames()
 
     @Timed("close_frame")
-    def close_frame(self, frame_id: str) -> Ok:
-        """Close a frame; ``frame_close`` and ``frame_expire`` both call this."""
-        return self._scenes.close_frame(frame_id)
+    def close_frame(self, target: FrameTarget) -> Ok | OpError:
+        """Close the caller's own frame; the ``frame_close`` command calls this."""
+        return self._frame_closer.close(target.frame_id, target.scope.connection_id)
 
     def inspect_scene(
         self, scene_id: str, *, scope: Scope, facts: InspectScope = HUB_ONLY

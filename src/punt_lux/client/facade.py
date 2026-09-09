@@ -1,12 +1,11 @@
 """The ``LuxClient`` facade -- the one public entry point every consumer holds.
 
 A downstream app builds one ``LuxClient`` from its declared identity, then
-reaches the Hub through noun-grouped accessors: the ``client.scene.show`` verb,
+reaches the Hub through noun-grouped accessors: ``client.scene.show``,
 ``client.topic.publish(...)``, ``client.callback.register(...)``. The facade
-composes the transport (a private ``_RestTransport`` by default) once and hands
-the same transport reference to every accessor so a callback registered
-through one accessor is delivered through this client's listener on another.
-The listener leg is built on demand from :meth:`LuxClient.listener`.
+composes the transport once and hands the same reference to every accessor, so
+a callback registered through one is delivered through this client's listener
+on another -- built on demand from :meth:`LuxClient.listener`.
 """
 
 from __future__ import annotations
@@ -21,6 +20,7 @@ from punt_lux.client.display import DisplayAccessor
 from punt_lux.client.error import ErrorAccessor
 from punt_lux.client.event import EventAccessor
 from punt_lux.client.frame import FrameAccessor
+from punt_lux.client.frame_deps import FrameAccessorDeps
 from punt_lux.client.menu import MenuAccessor
 from punt_lux.client.scene import SceneAccessor
 from punt_lux.client.session import SessionAccessor
@@ -45,12 +45,10 @@ if TYPE_CHECKING:
 class LuxClient:
     """The one public entry point every downstream consumer holds.
 
-    Construction is through :meth:`for_identity` (the daemon/app path,
-    declaring an explicit ``ClientIdentity``) or :meth:`connect` (the CLI
-    convenience, which derives a ``cli`` identity from the working context).
-    The accessors are lazily-built properties -- one instance per accessor,
-    reused for every call -- so the ``client.scene.show`` verb uses the same
-    :class:`SceneAccessor` every time.
+    Construction is through :meth:`for_identity` (the daemon/app path, an
+    explicit ``ClientIdentity``) or :meth:`connect` (the CLI convenience,
+    deriving a ``cli`` identity from the working context). Accessors are
+    lazily-built properties, one instance reused for every call.
     """
 
     _transport: _RestTransport
@@ -94,7 +92,8 @@ class LuxClient:
     @cached_property
     def frame(self) -> FrameAccessor:
         """The ``client.frame.*`` verbs."""
-        return FrameAccessor(self._transport, self._identity)
+        deps = FrameAccessorDeps(self._transport, self._identity, self._scope)
+        return FrameAccessor(deps)
 
     @cached_property
     def menu(self) -> MenuAccessor:

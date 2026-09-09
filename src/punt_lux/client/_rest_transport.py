@@ -29,6 +29,7 @@ from punt_lux.hub_paths import HubPaths
 from punt_lux.identity_headers import ClientHeaders
 from punt_lux.operations import (
     ClientList,
+    FrameStates,
     MenuList,
     Ok,
     OpError,
@@ -48,6 +49,7 @@ from punt_lux.rest_reply import RestReply
 from punt_lux.rest_transport import HttpTransport, HubUnavailableError
 
 if TYPE_CHECKING:
+    from punt_lux.commands._frame_target import FrameTarget
     from punt_lux.hub_client import CallbackHandler, ConnectHandler, EventHandler
     from punt_lux.operations import (
         Cleared,
@@ -235,15 +237,16 @@ class _RestTransport:
         call = HttpCall.read("/clients", self._headers)
         return RestReply(self._transport.request(call)).read(ClientList)
 
-    def close_frame(self, frame_id: str) -> Ok | OpError:
-        """Close a frame through ``POST /display/frames/{id}/close``.
-
-        Returns ``Ok``/``OpError`` matching ``raise_frame``'s shape, so callers
-        handle both through the shared command envelope, not a bare exception.
-        """
-        segment = quote(frame_id, safe="")
+    def close_frame(self, target: FrameTarget) -> Ok | OpError:
+        """Close the caller's own frame through ``POST /display/frames/{id}/close``."""
+        segment = quote(target.frame_id, safe="")
         call = HttpCall.command(f"/display/frames/{segment}/close", self._headers)
         return RestReply(self._transport.request(call)).read(Ok)
+
+    def list_frames(self) -> FrameStates | OpError:
+        """List the display's frames through ``GET /display/frames``."""
+        call = HttpCall.read("/display/frames", self._headers)
+        return RestReply(self._transport.request(call)).read(FrameStates)
 
     def list_menus(self) -> MenuList | OpError:
         """Return the Hub-authoritative menu bar through ``GET /menus``.
@@ -324,7 +327,3 @@ class _RestTransport:
         query = urlencode({"count": count})
         call = HttpCall.read(f"/errors?{query}", self._headers)
         return RestReply(self._transport.request(call)).read(RecentErrors)
-
-    def _send(self, call: HttpCall) -> SceneShown | OpError:
-        """Send a scene-write call and read its reply as a ``SceneShown`` or error."""
-        return RestReply(self._transport.request(call)).read(SceneShown)

@@ -31,6 +31,7 @@ from punt_lux.operations import (
 )
 from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.queries import QueryOperations
+from punt_lux.operations.scene_deps import SceneOperationsDeps
 from punt_lux.operations.scenes import SceneOperations
 from punt_lux.operations.scope import Scope
 from punt_lux.protocol import TextElement
@@ -80,7 +81,8 @@ def _stack() -> tuple[HubDisplay, SceneOperations, QueryOperations]:
     """One shared store, two independent connections' worth of operations."""
     store = HubDisplay()
     hub = Hub()
-    scenes = SceneOperations(store, _Recorder(), hub_element_factory, hub)
+    deps = SceneOperationsDeps(store, _Recorder(), hub_element_factory, hub)
+    scenes = SceneOperations(deps)
     clients = ClientListing(store, hub, _zero_inbox_depth)
     queries = QueryOperations(store, _ForbiddenPort(), clients)
     return store, scenes, queries

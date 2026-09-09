@@ -2,12 +2,11 @@
 
 luxd runs one FastAPI app; this module builds the typed routers that mount on it.
 :class:`RestSurface` composes the concern route classes over a single facade so
-the whole surface is one object to mount and one object to test: production wires
-the facade from the Hub singletons via :meth:`RestSurface.for_hub`, and a test
-constructs it over a facade backed by fakes.
-
-:class:`HubHealth` is the typed body of the ``/health`` liveness probe, kept here
-with the surface it belongs to; luxd fills its session count.
+the whole surface is one object to mount and one object to test: production
+wires the facade from the Hub singletons via :meth:`RestSurface.for_hub`, and a
+test constructs it over a facade backed by fakes. :class:`HubHealth` is the
+typed body of the ``/health`` liveness probe, kept here with the surface it
+belongs to; luxd fills its session count.
 """
 
 from __future__ import annotations
@@ -19,8 +18,10 @@ from pydantic import BaseModel, ConfigDict
 from punt_lux.hub_composition import HubComposition
 from punt_lux.rest.config import DisplayModeRoutes
 from punt_lux.rest.display import DisplayRoutes
+from punt_lux.rest.frame import FrameRoutes
 from punt_lux.rest.identity import RestCaller
 from punt_lux.rest.menus import MenuRoutes
+from punt_lux.rest.route_deps import RouteDeps
 from punt_lux.rest.scenes import SceneRoutes
 from punt_lux.rest.status import HttpErrorMap
 
@@ -35,10 +36,9 @@ __all__ = ["HubHealth", "RestSurface"]
 class HubHealth(BaseModel):
     """The hub liveness-probe body: process liveness plus the live session count.
 
-    This reports only that luxd's process is up and how many MCP sessions it
-    holds — not the health of the Hub store or the background replicator. An
-    unhealthy hub is observed as no response at all, not as a degraded status
-    here; there is no status discrimination beyond ``"ok"``.
+    Reports only that luxd's process is up and how many MCP sessions it holds —
+    not Hub store or replicator health; an unhealthy hub is no response at all,
+    never a degraded status, so there is no discrimination beyond ``"ok"``.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -57,23 +57,20 @@ class RestSurface:
 
     def __new__(cls, ops: Operations) -> Self:
         self = super().__new__(cls)
-        errors = HttpErrorMap()
-        self._caller = RestCaller(ops, errors)
+        deps = RouteDeps(ops, HttpErrorMap())
+        self._caller = RestCaller(ops, deps.errors)
         self._routers = (
-            SceneRoutes(ops, errors).router,
-            MenuRoutes(ops, errors).router,
-            DisplayRoutes(ops, errors).router,
-            DisplayModeRoutes(ops, errors).router,
+            SceneRoutes(ops, deps.errors).router,
+            MenuRoutes(ops, deps.errors).router,
+            DisplayRoutes(deps).router,
+            FrameRoutes(deps).router,
+            DisplayModeRoutes(ops, deps.errors).router,
         )
         return self
 
     @classmethod
     def for_hub(cls) -> Self:
-        """Wire the surface over the facade the Hub singletons compose.
-
-        Binding the Details renderer belongs to whichever root starts; either
-        may, so the last one wins and both bind the same wiring.
-        """
+        """Wire the surface over the facade the Hub singletons compose."""
         HubComposition.bind_client_details()
         return cls(HubComposition.operations())
 
