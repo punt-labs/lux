@@ -2015,6 +2015,20 @@
     "max_lcom": 0.0,
     "avg_lcom": 0.0
   },
+  "src/punt_lux/domain/hub/departure_cascade.py": {
+    "efferent_coupling": 1.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.5,
+    "avg_lcom": 0.5
+  },
+  "src/punt_lux/domain/hub/departure_sinks.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 2.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
   "src/punt_lux/domain/hub/details_binding.py": {
     "efferent_coupling": 1.0,
     "public_names": 1.0,
@@ -2191,7 +2205,7 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/domain/hub/lifecycle.py": {
-    "efferent_coupling": 3.0,
+    "efferent_coupling": 2.0,
     "public_names": 1.0,
     "circular_imports": 1.0,
     "max_lcom": 0.0,
@@ -4214,7 +4228,7 @@
     "avg_lcom": 0.449
   },
   "src/punt_lux/session_cleanup.py": {
-    "efferent_coupling": 3.0,
+    "efferent_coupling": 2.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.667,
