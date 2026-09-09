@@ -44,9 +44,18 @@ class FrameCloser:
         because it belongs to a different connection; the two are
         indistinguishable from here (DES-086's composition already refuses
         the collision), so both report the identical ``not_found`` rather
-        than a blanket success that removed nothing.
+        than a blanket success that removed nothing. A ``local_id`` that
+        cannot compose at all -- blank, or carrying the unit separator --
+        raises `ValueError` from that same composition step; caught here and
+        reported as the caller's own malformed input rather than an
+        unhandled fault.
         """
-        frame_id = self._display.frames.frame_id_for_local(local_id, connection=owner)
+        try:
+            frame_id = self._display.frames.frame_id_for_local(
+                local_id, connection=owner
+            )
+        except ValueError as exc:
+            return OpError(code="invalid_request", reason=str(exc))
         if frame_id is None:
             return OpError(code="not_found", reason=f"no frame named {local_id!r}")
         for scene_id in self._display.frames.remove_frame(frame_id):

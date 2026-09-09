@@ -6,6 +6,7 @@ from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
+from punt_lux.domain.hub.id_separator import ID_SEPARATOR
 from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.operations import Ok, OpError, RenderRequest, Scope
 from punt_lux.operations.frame_closing import FrameCloser
@@ -76,6 +77,26 @@ def test_close_of_another_connections_frame_is_not_found() -> None:
     assert result.code == "not_found"
     assert recorder.dirtied == []
     assert store.scene_roots(_scoped(stranger, "s1")) != []
+
+
+def test_close_of_a_blank_local_id_is_invalid_request() -> None:
+    # ConnectionScopedId.compose raises ValueError for a blank local id;
+    # FrameCloser maps it to a typed refusal rather than an unhandled fault.
+    store, recorder = HubDisplay(), _Recorder()
+    result = FrameCloser(store, recorder).close("   ", _CONNECTION)
+    assert isinstance(result, OpError)
+    assert result.code == "invalid_request"
+    assert recorder.dirtied == []
+
+
+def test_close_of_a_local_id_carrying_the_separator_is_invalid_request() -> None:
+    # ConnectionScopedId.compose also raises for a local id carrying the unit
+    # separator -- the same boundary condition, same typed refusal.
+    store, recorder = HubDisplay(), _Recorder()
+    result = FrameCloser(store, recorder).close(f"a{ID_SEPARATOR}b", _CONNECTION)
+    assert isinstance(result, OpError)
+    assert result.code == "invalid_request"
+    assert recorder.dirtied == []
 
 
 def test_close_removes_the_callers_own_frame_and_marks_dirty() -> None:

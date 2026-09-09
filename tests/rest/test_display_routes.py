@@ -8,9 +8,12 @@ round-trip is 504.
 
 from __future__ import annotations
 
+from urllib.parse import quote
+
 from punt_lux.connection_identity import connection_for
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.id_separator import ID_SEPARATOR
 from punt_lux.domain.ids import SceneId
 from punt_lux.operations.display_reply import DisplayFault, DisplayReplied
 
@@ -158,6 +161,18 @@ def test_close_frame_of_another_connections_frame_is_not_found() -> None:
     )
     scoped = SceneId(ConnectionScopedId.compose(owner_connection, "s1"))
     assert store.scene_roots(scoped) != []
+
+
+def test_close_frame_of_a_malformed_frame_id_is_a_422_not_a_500() -> None:
+    # A frame_id carrying the unit separator can never compose to a store key
+    # (ConnectionScopedId.compose raises ValueError); the route must map that
+    # to the caller's own invalid_request, not let it surface as a 500.
+    client = make_client(display_port=StubPort(DisplayReplied({})))
+    malformed = quote(f"a{ID_SEPARATOR}b", safe="")
+
+    resp = client.post(f"/display/frames/{malformed}/close")
+
+    assert resp.status_code == 422
 
 
 def test_screenshot_unsupported_is_409() -> None:
