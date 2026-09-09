@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Self, final
 
+from punt_lux.display.replica.widget_state import WidgetState
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.operations.display_reply import DisplayFault, DisplayReplied, DisplayReply
@@ -220,3 +221,21 @@ def test_snapshot_rejects_a_reply_that_omits_the_scenes_key() -> None:
     result = proxy.snapshot(_SCOPE_1)
 
     assert isinstance(result, OpError)
+
+
+def test_snapshot_decodes_the_rgba_tuple_the_display_actually_emits() -> None:
+    # End to end: the real Display-side producer (WidgetState.observable_snapshot,
+    # not a hand-typed payload) emits a color's RGBA tuple[float, ...] -- this
+    # must decode Hub-side without a ValidationError, or the two WireScalar
+    # definitions (display/replica/widget_state.py and this module's) have
+    # drifted apart again.
+    state = WidgetState()
+    state.set("swatch", (0.1, 0.2, 0.3, 1.0))
+    composed = ConnectionScopedId.compose(_C1, "s1")
+    payload = {"scenes": {composed: state.observable_snapshot()}, "frames": []}
+    proxy = DisplayStateProxy(_StubPort(DisplayReplied(payload=payload)))
+
+    result = proxy.snapshot(_SCOPE_1)
+
+    assert not isinstance(result, OpError)
+    assert result.scenes["s1"].values == {"swatch": (0.1, 0.2, 0.3, 1.0)}

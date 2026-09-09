@@ -322,14 +322,26 @@ def test_render_dashboard_parse_rejects_rows_without_columns() -> None:
 
 
 def test_widget_snapshot_holds_every_wire_scalar_shape() -> None:
-    values: dict[str, str | float | bool | tuple[str, ...]] = {
+    values: dict[str, str | float | bool | tuple[str, ...] | tuple[float, ...]] = {
         "count": 3.0,
         "label": "hi",
         "on": True,
         "tags": ("a", "b"),
+        "swatch": (0.1, 0.2, 0.3, 1.0),
     }
     snapshot = WidgetSnapshot(values=values)
     assert snapshot.values == values
+
+
+def test_widget_snapshot_round_trips_a_color_pickers_rgba_tuple() -> None:
+    # The Hub-side WireScalar must admit exactly what the Display side emits
+    # (display/replica/widget_state.py's WireScalar) -- a color picker's RGBA
+    # slot -- or a value that validates on the Display fails decoding here.
+    dumped = WidgetSnapshot(values={"swatch": (0.1, 0.2, 0.3, 1.0)}).model_dump(
+        mode="json"
+    )
+    restored = WidgetSnapshot.model_validate(dumped)
+    assert restored.values == {"swatch": (0.1, 0.2, 0.3, 1.0)}
 
 
 def test_widget_snapshot_is_frozen() -> None:

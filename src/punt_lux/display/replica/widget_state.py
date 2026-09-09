@@ -7,6 +7,7 @@ from typing import Any, ClassVar, Self, cast
 # The wire-safe shape a curated value reduces to (declared here, not imported
 # from the Hub-side ``operations`` package the Display never depends on) --
 # ``tuple[float, ...]`` is a color picker's RGBA slot (RgbaColor.as_tuple).
+# Mirrors operations/models/display_state.py's WireScalar; widen both together.
 type WireScalar = str | float | bool | tuple[str, ...] | tuple[float, ...]
 
 

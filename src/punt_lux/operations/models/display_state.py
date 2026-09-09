@@ -21,8 +21,11 @@ __all__ = ["DisplayStateSnapshot", "FramePresentation", "WidgetSnapshot"]
 # not recreate a typed domain model for arbitrary renderer-defined keys here
 # (PY-TS-14 wire boundary) — the curated set of names
 # ``WidgetState.observable_snapshot`` emits is the contract, not this value's
-# type.
-type WireScalar = str | float | bool | tuple[str, ...]
+# type. ``tuple[float, ...]`` is a color picker's RGBA slot (RgbaColor.as_tuple).
+# Mirrors display/replica/widget_state.py's WireScalar -- the display package
+# can't import this one (dependency points display -> operations, never back),
+# so the two are separate definitions; widen both together.
+type WireScalar = str | float | bool | tuple[str, ...] | tuple[float, ...]
 
 
 class WidgetSnapshot(BaseModel):
