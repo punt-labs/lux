@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.display_state import (
@@ -35,13 +35,13 @@ class _RawDisplayState(BaseModel):
     Scenes arrive keyed by whatever id the display holds them under; the
     caller normalizes each key to its own local id afterward
     (``DisplayStateProxy.snapshot``), so this stage only needs to know each
-    scene's value is a curated widget-state mapping.
+    scene's value is a curated widget-state mapping, required with no default.
     """
 
     model_config = ConfigDict(frozen=True)
 
-    scenes: dict[str, dict[str, WireScalar]] = Field(default_factory=dict)
-    frames: list[FramePresentation] = Field(default_factory=list[FramePresentation])
+    scenes: dict[str, dict[str, WireScalar]]
+    frames: list[FramePresentation]
 
     def to_snapshot(self) -> DisplayStateSnapshot:
         """Assemble the curated snapshot this validated wire shape describes."""

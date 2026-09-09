@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Literal, Self, final
 
 from punt_lux.display.replica.frame_visibility import FrameVisibility
+from punt_lux.display.replica.window_hints import WindowHints
 from punt_lux.protocol import SceneMessage
 
 
@@ -30,16 +31,12 @@ class Frame:
     _active_tab: str | None
     _visibility: FrameVisibility
     _cascade_index: int
-    _initial_size: tuple[int, int] | None
-    _flags: dict[str, bool] | None
-    _layout: Literal["tab", "stack"]
+    _hints: WindowHints
     __slots__ = (
         "_active_tab",
         "_cascade_index",
-        "_flags",
         "_frame_id",
-        "_initial_size",
-        "_layout",
+        "_hints",
         "_owner_fds",
         "_scene_order",
         "_scenes",
@@ -71,9 +68,7 @@ class Frame:
         self._active_tab = active_tab
         self._visibility = visibility
         self._cascade_index = cascade_index
-        self._initial_size = initial_size
-        self._flags = flags
-        self._layout = layout
+        self._hints = WindowHints(initial_size=initial_size, flags=flags, layout=layout)
         return self
 
     # -- read-only properties ------------------------------------------------
@@ -91,7 +86,12 @@ class Frame:
     @property
     def initial_size(self) -> tuple[int, int] | None:
         """Return the initial window size, if set."""
-        return self._initial_size
+        return self._hints.initial_size
+
+    @property
+    def hints(self) -> WindowHints:
+        """Return the window's ImGui creation hints: flags and layout."""
+        return self._hints
 
     @property
     def owner_fds(self) -> set[int]:
@@ -132,24 +132,6 @@ class Frame:
     def active_tab(self, value: str | None) -> None:
         self._active_tab = value
 
-    @property
-    def flags(self) -> dict[str, bool] | None:
-        """Return the window flags dict."""
-        return self._flags
-
-    @flags.setter
-    def flags(self, value: dict[str, bool] | None) -> None:
-        self._flags = value
-
-    @property
-    def layout(self) -> Literal["tab", "stack"]:
-        """Return the layout mode."""
-        return self._layout
-
-    @layout.setter
-    def layout(self, value: Literal["tab", "stack"]) -> None:
-        self._layout = value
-
     # -- visibility ----------------------------------------------------------
 
     @property
@@ -188,3 +170,12 @@ class Frame:
     def restore(self) -> None:
         """Bring the frame back on screen, from docked and closed alike."""
         self._visibility = FrameVisibility.ON_SCREEN
+
+    def presentation(self) -> dict[str, object]:
+        """Return this frame's Display-owned facts, keyed like ``FramePresentation``."""
+        return {
+            "frame_id": self._frame_id,
+            "visibility": self._visibility.value,
+            "active_tab": self._active_tab,
+            "cascade_index": self._cascade_index,
+        }

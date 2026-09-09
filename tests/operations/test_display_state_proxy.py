@@ -114,3 +114,21 @@ def test_snapshot_rejects_a_malformed_payload_as_an_operror() -> None:
     result = proxy.snapshot()
 
     assert isinstance(result, OpError)
+
+
+def test_snapshot_rejects_a_reply_that_omits_the_frames_key() -> None:
+    # The display-side handler always emits both keys; an omitted one is a
+    # producer/version-skew bug and must fault, not silently decode as empty.
+    proxy = DisplayStateProxy(_StubPort(DisplayReplied(payload={"scenes": {}})))
+
+    result = proxy.snapshot()
+
+    assert isinstance(result, OpError)
+
+
+def test_snapshot_rejects_a_reply_that_omits_the_scenes_key() -> None:
+    proxy = DisplayStateProxy(_StubPort(DisplayReplied(payload={"frames": []})))
+
+    result = proxy.snapshot()
+
+    assert isinstance(result, OpError)

@@ -28,8 +28,8 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.hub.named_sessions import NamedSession
     from punt_lux.operations.display_port import DisplayPort
+    from punt_lux.operations.hub_collaborators import InboxDepth
     from punt_lux.operations.models.display_state import DisplayStateSnapshot
-    from punt_lux.operations.ports import InboxDepth
     from punt_lux.operations.scope import Scope
     from punt_lux.protocol import Element as WireElement
 
@@ -52,7 +52,7 @@ class QueryOperations:
         display: HubDisplay,
         hub: Hub,
         port: DisplayPort,
-        inbox_depth: InboxDepth = lambda _connection_id: 0,
+        inbox_depth: InboxDepth,
     ) -> Self:
         self = super().__new__(cls)
         self._display = display

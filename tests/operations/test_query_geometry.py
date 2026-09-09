@@ -59,6 +59,11 @@ def _scoped(local_id: str) -> SceneId:
     return SceneId(ConnectionScopedId.compose(ConnectionId("c1"), local_id))
 
 
+def _zero_inbox_depth(_connection_id: ConnectionId) -> int:
+    """Report every connection's inbox empty; these tests don't exercise it."""
+    return 0
+
+
 def _seed(store: HubDisplay) -> None:
     text = agent_element_factory().element_from_dict(
         {"kind": "text", "id": "t1", "content": "hi"}
@@ -98,7 +103,9 @@ _GEOMETRY_BLOCK = {
 def test_geometry_not_requested_by_default() -> None:
     store = HubDisplay()
     _seed(store)
-    ops = QueryOperations(store, Hub(), _StubPort(DisplayReplied({})))
+    ops = QueryOperations(
+        store, Hub(), _StubPort(DisplayReplied({})), _zero_inbox_depth
+    )
     result = ops.inspect_scene("s1", _C1)
     assert isinstance(result, SceneInspection)
     assert isinstance(result.geometry, GeometryNotRequested)
@@ -107,7 +114,9 @@ def test_geometry_not_requested_by_default() -> None:
 def test_geometry_present_carries_element_and_frame_rects() -> None:
     store = HubDisplay()
     _seed(store)
-    ops = QueryOperations(store, Hub(), _StubPort(DisplayReplied(_GEOMETRY_BLOCK)))
+    ops = QueryOperations(
+        store, Hub(), _StubPort(DisplayReplied(_GEOMETRY_BLOCK)), _zero_inbox_depth
+    )
     result = ops.inspect_scene("s1", _C1, InspectScope(want_geometry=True))
     assert isinstance(result, SceneInspection)
     assert result.geometry == GeometryPresent(
@@ -135,7 +144,10 @@ def test_geometry_unavailable_when_display_faults() -> None:
     store = HubDisplay()
     _seed(store)
     ops = QueryOperations(
-        store, Hub(), _StubPort(DisplayFault(code="display_unavailable"))
+        store,
+        Hub(),
+        _StubPort(DisplayFault(code="display_unavailable")),
+        _zero_inbox_depth,
     )
     result = ops.inspect_scene("s1", _C1, InspectScope(want_geometry=True))
     assert isinstance(result, SceneInspection)
@@ -145,7 +157,9 @@ def test_geometry_unavailable_when_display_faults() -> None:
 def test_geometry_unavailable_when_reply_omits_block() -> None:
     store = HubDisplay()
     _seed(store)
-    ops = QueryOperations(store, Hub(), _StubPort(DisplayReplied({"scene_id": "s1"})))
+    ops = QueryOperations(
+        store, Hub(), _StubPort(DisplayReplied({"scene_id": "s1"})), _zero_inbox_depth
+    )
     result = ops.inspect_scene("s1", _C1, InspectScope(want_geometry=True))
     assert isinstance(result, SceneInspection)
     assert result.geometry == GeometryUnavailable(
@@ -157,7 +171,9 @@ def test_geometry_unavailable_when_a_rect_is_malformed() -> None:
     store = HubDisplay()
     _seed(store)
     bad = {"geometry": {"elements": {"t1": {"x": "wide"}}, "frame": None}}
-    ops = QueryOperations(store, Hub(), _StubPort(DisplayReplied(bad)))
+    ops = QueryOperations(
+        store, Hub(), _StubPort(DisplayReplied(bad)), _zero_inbox_depth
+    )
     result = ops.inspect_scene("s1", _C1, InspectScope(want_geometry=True))
     assert isinstance(result, SceneInspection)
     assert isinstance(result.geometry, GeometryUnavailable)

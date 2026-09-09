@@ -120,7 +120,7 @@ class QueryRouter:
                     "title": frame.title,
                     "scene_count": len(frame_scenes),
                     "scene_ids": frame_scenes,
-                    "layout": frame.layout,
+                    "layout": frame.hints.layout,
                     # Where the user left it. Display-local and never replicated
                     # back, but reported, because it is the only way an observer
                     # outside this process can tell a closed frame from an

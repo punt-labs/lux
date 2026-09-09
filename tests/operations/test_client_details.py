@@ -79,10 +79,20 @@ class _ForbiddenPort:
         raise AssertionError(msg)
 
 
+def _zero_inbox_depth(_connection_id: ConnectionId) -> int:
+    """Report every connection's inbox empty; these tests don't exercise it."""
+    return 0
+
+
 def _wired(store: HubDisplay, hub: Hub) -> tuple[ClientDetailsOperations, _Marks]:
     """Build the details operation over real stores, with no display in reach."""
     marks = _Marks()
-    queries = QueryOperations(store, hub, cast("object", _ForbiddenPort()))  # type: ignore[arg-type]  # structural port
+    queries = QueryOperations(
+        store,
+        hub,
+        cast("object", _ForbiddenPort()),  # type: ignore[arg-type]  # structural port
+        _zero_inbox_depth,
+    )
     installer = SceneInstaller(store, marks)
     return ClientDetailsOperations(queries, installer, store.clients), marks
 

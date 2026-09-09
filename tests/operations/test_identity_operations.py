@@ -39,6 +39,11 @@ def _scope(connection: str) -> Scope:
     return Scope(ConnectionId(connection))
 
 
+def _zero_inbox_depth(_connection_id: ConnectionId) -> int:
+    """Report every connection's inbox empty; this test doesn't exercise it."""
+    return 0
+
+
 def test_identify_records_the_identity_and_echoes_it() -> None:
     store = HubDisplay()
     ops = IdentityOperations(store)
@@ -100,7 +105,7 @@ def test_list_clients_shows_the_record_only_for_identified_sessions() -> None:
         {"kind": "cli", "name": "lux", "repo": "/w/lux"}, scope=_scope("identified")
     )
     store.register_client(ConnectionId("anonymous"))
-    reader = QueryOperations(store, Hub(), _ForbiddenPort())
+    reader = QueryOperations(store, Hub(), _ForbiddenPort(), _zero_inbox_depth)
 
     by_id = {c.connection_id: c for c in reader.list_clients().clients}
 

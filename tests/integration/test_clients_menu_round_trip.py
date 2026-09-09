@@ -49,6 +49,11 @@ _BEADS = ConnectionId("beads-session")
 _VOXD = ConnectionId("voxd")
 
 
+def _zero_inbox_depth(_connection_id: ConnectionId) -> int:
+    """Report every connection's inbox empty; this test doesn't exercise it."""
+    return 0
+
+
 @final
 class _Leg:
     """A client's listen leg, counting the clicks pushed to it."""
@@ -110,7 +115,12 @@ class _Wired:
         marks = _Marks()
         self._details = ClientDetailsPort(
             ClientDetailsOperations(
-                QueryOperations(self._store, Hub(), _Port()),  # type: ignore[arg-type]  # structural port
+                QueryOperations(
+                    self._store,
+                    Hub(),
+                    _Port(),  # type: ignore[arg-type]  # structural port
+                    _zero_inbox_depth,
+                ),
                 SceneInstaller(self._store, marks),
                 self._store.clients,
             )

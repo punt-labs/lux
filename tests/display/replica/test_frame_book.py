@@ -51,7 +51,19 @@ class TestEnsure:
         assert second is first  # same frame reused
         assert first.owner_fds == {10, 11}
         assert first.title == "New"
-        assert first.flags == {"no_resize": True}
+        assert first.hints.flags == {"no_resize": True}
+
+    def test_presentation_reports_the_display_owned_facts(self) -> None:
+        # FrameBook.ensure creates the frame shell only -- SceneReplica sets
+        # active_tab when it admits the scene, so it reads None here.
+        book = FrameBook()
+        frame = book.ensure(_scene(), "f1", owner_fd=10)
+        assert frame.presentation() == {
+            "frame_id": "f1",
+            "visibility": "on_screen",
+            "active_tab": None,
+            "cascade_index": 0,
+        }
 
     def test_cascade_index_fills_the_lowest_free_slot(self) -> None:
         book = FrameBook()

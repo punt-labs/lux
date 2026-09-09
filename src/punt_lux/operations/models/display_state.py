@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, NonNegativeInt
 
 from punt_lux.operations.models.query_visibility import FrameVisibility
 
@@ -43,7 +43,7 @@ class FramePresentation(BaseModel):
     # None is a real state, not "unknown": a frame with no scenes has no
     # active tab to report.
     active_tab: str | None
-    cascade_index: int
+    cascade_index: NonNegativeInt
 
 
 class DisplayStateSnapshot(BaseModel):

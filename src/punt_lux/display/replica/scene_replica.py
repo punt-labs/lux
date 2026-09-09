@@ -259,15 +259,7 @@ class SceneReplica:
 
     def frame_presentations(self) -> list[dict[str, object]]:
         """Return every frame's Display-owned facts: visibility, active tab, cascade."""
-        return [
-            {
-                "frame_id": frame.frame_id,
-                "visibility": frame.visibility.value,
-                "active_tab": frame.active_tab,
-                "cascade_index": frame.cascade_index,
-            }
-            for frame in self._book.frames.values()
-        ]
+        return [frame.presentation() for frame in self._book.frames.values()]
 
     @property
     def widget_state_count(self) -> int:

@@ -70,12 +70,17 @@ class _ForbiddenPort:
         raise AssertionError(msg)
 
 
+def _zero_inbox_depth(_connection_id: ConnectionId) -> int:
+    """Report every connection's inbox empty; these tests don't exercise it."""
+    return 0
+
+
 def _stack() -> tuple[HubDisplay, SceneOperations, QueryOperations]:
     """One shared store, two independent connections' worth of operations."""
     store = HubDisplay()
     hub = Hub()
     scenes = SceneOperations(store, _Recorder(), hub_element_factory, hub)
-    queries = QueryOperations(store, hub, _ForbiddenPort())
+    queries = QueryOperations(store, hub, _ForbiddenPort(), _zero_inbox_depth)
     return store, scenes, queries
 
 
