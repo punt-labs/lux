@@ -159,7 +159,7 @@ class HubListenSession:
             self._teardown()
 
     def _attach_and_register_writer(self) -> ListenerAttachment:
-        """Take the listener slot and bind the writer, atomically. See module docstring."""
+        """Take the listener slot and bind the writer -- see module docstring."""
         with self._display.write_lock():
             attachment = self._clients.attach_listener(self._conn, self._identity, self)
             self._hub.register_writer(self._conn, self.deliver_event)
