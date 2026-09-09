@@ -20,11 +20,11 @@ class HubClient(BaseModel):
     connection_id: str
     identity: ClientIdentity | None = None
     connected_seconds: float
-    # The effective lease, not the declared one: a session that named no TTL
-    # holds its kind's. Two states, so the permanent case survives JSON.
-    lease: LeaseTerm
+    lease: LeaseTerm  # the effective lease; a session naming no TTL holds its kind's
     subscribed_topics: list[str]
     owned_scenes: list[str]
+    writer_bound: bool  # a Hub.register_writer leg is bound to this connection
+    inbox_depth: int  # queued-but-undelivered events (queue.SimpleQueue.qsize())
 
 
 class ClientList(BaseModel):

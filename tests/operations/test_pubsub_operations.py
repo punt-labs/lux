@@ -11,7 +11,12 @@ from punt_lux.domain.hub import hub, hub_display
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
-from punt_lux.domain.hub.inbox import drop_session, ensure_writer, next_event
+from punt_lux.domain.hub.inbox import (
+    drop_session,
+    ensure_writer,
+    inbox_depth_for,
+    next_event,
+)
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.domain.update import AddElement
 from punt_lux.operations import PublishRequest
@@ -47,6 +52,7 @@ def _ports(
         element_factory=hub_element_factory,
         ensure_writer=ensure_writer_fn,
         next_event=next_event_fn,
+        inbox_depth=inbox_depth_for,
         display_port=cast("DisplayPort", _ForbiddenDisplayPort()),
     )
 

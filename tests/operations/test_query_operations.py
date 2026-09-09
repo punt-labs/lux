@@ -458,6 +458,35 @@ def test_list_clients_reads_the_hub_session_registry() -> None:
     assert client.connected_seconds >= 0.0
 
 
+def test_list_clients_reports_writer_bound_true_only_for_a_registered_writer() -> None:
+    store = HubDisplay()
+    _seed_scene(store, scene="s1", connection="c1")
+    _seed_scene(store, scene="s2", connection="c2")
+    hub = Hub()
+    hub.register_writer(ConnectionId("c1"), lambda _msg: None)
+    ops = QueryOperations(store, hub, _ForbiddenPort())
+
+    clients = {c.connection_id: c for c in ops.list_clients().clients}
+
+    assert clients["c1"].writer_bound is True
+    assert clients["c2"].writer_bound is False
+
+
+def test_list_clients_reports_inbox_depth_from_the_injected_port() -> None:
+    store = HubDisplay()
+    _seed_scene(store, scene="s1", connection="c1")
+    hub = Hub()
+    hub.register_writer(ConnectionId("c1"), lambda _msg: None)
+    depths = {ConnectionId("c1"): 3}
+    ops = QueryOperations(
+        store, hub, _ForbiddenPort(), inbox_depth=lambda cid: depths.get(cid, 0)
+    )
+
+    client = next(c for c in ops.list_clients().clients if c.connection_id == "c1")
+
+    assert client.inbox_depth == 3
+
+
 def test_list_clients_owned_scenes_round_trips_into_inspect_scene() -> None:
     # The exact regression Bugbot flagged: an agent discovers a scene via
     # list_clients, then feeds that string straight back into inspect_scene.

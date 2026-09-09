@@ -9,7 +9,12 @@ name an alias references must be importable at runtime, not only under
 
 from __future__ import annotations
 
-from punt_lux.operations.ports import ElementFactoryFor, EnsureWriter, NextEvent
+from punt_lux.operations.ports import (
+    ElementFactoryFor,
+    EnsureWriter,
+    InboxDepth,
+    NextEvent,
+)
 
 
 def test_element_factory_for_value_evaluates() -> None:
@@ -22,3 +27,7 @@ def test_ensure_writer_value_evaluates() -> None:
 
 def test_next_event_value_evaluates() -> None:
     assert NextEvent.__value__ is not None
+
+
+def test_inbox_depth_value_evaluates() -> None:
+    assert InboxDepth.__value__ is not None

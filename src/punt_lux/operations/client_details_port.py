@@ -59,7 +59,7 @@ class ClientDetailsPort:
         """
         return cls(
             ClientDetailsOperations(
-                QueryOperations(display, hub, ports.display_port),
+                QueryOperations(display, hub, ports.display_port, ports.inbox_depth),
                 SceneInstaller(display, replicator),
                 display.clients,
             )

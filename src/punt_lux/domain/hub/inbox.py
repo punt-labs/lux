@@ -1,9 +1,8 @@
 """Per-connection inbox queues for MCP-side Agent Subscribe delivery.
 
-The Hub writer for an MCP session puts each ``Hub.publish`` fan-out
-onto a ``queue.SimpleQueue`` keyed by the session's ``ConnectionId``.
-The ``recv`` MCP tool consumes one message per call; tests use
-``drain_inbox`` to snapshot the full queue at once.
+The Hub writer for an MCP session puts each ``Hub.publish`` fan-out onto a
+``queue.SimpleQueue`` keyed by the session's ``ConnectionId``; ``recv``
+consumes one message per call.
 """
 
 from __future__ import annotations
@@ -20,6 +19,7 @@ __all__ = [
     "drain_inbox",
     "drop_session",
     "ensure_writer",
+    "inbox_depth_for",
     "inbox_for",
     "next_event",
 ]
@@ -76,9 +76,8 @@ def ensure_writer(connection_id: ConnectionId) -> None:
     hub_display.register_client(connection_id)
     if hub.has_writer(connection_id):
         return
-    # Ensure the inbox exists; the writer resolves the live queue per
-    # call so a ``drain_inbox`` swap doesn't strand messages on the old
-    # queue instance.
+    # The writer resolves the live queue per call, not this one, so a
+    # ``drain_inbox`` swap doesn't strand messages on the old instance.
     inbox_for(connection_id)
 
     def _writer(message: ObserverMessage) -> None:
@@ -87,12 +86,14 @@ def ensure_writer(connection_id: ConnectionId) -> None:
     hub.register_writer(connection_id, _writer)
 
 
-def drop_session(connection_id: ConnectionId) -> None:
-    """Release the session's inbox queue. Idempotent.
+def inbox_depth_for(connection_id: ConnectionId) -> int:
+    """Return the queued-but-undelivered count -- observational, per ``qsize()``."""
+    with _inboxes_lock:
+        inbox = _inboxes.get(connection_id)
+    return inbox.qsize() if inbox is not None else 0
 
-    Called from the connection-disconnect cascade so the queue is not
-    leaked when the MCP session closes. Subsequent ``inbox_for`` calls for
-    the same id create a fresh queue.
-    """
+
+def drop_session(connection_id: ConnectionId) -> None:
+    """Release the session's inbox queue on disconnect. Idempotent."""
     with _inboxes_lock:
         _inboxes.pop(connection_id, None)

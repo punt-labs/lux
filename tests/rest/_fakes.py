@@ -96,6 +96,11 @@ class ForbiddenInbox:
     ) -> ObserverMessage | None:
         raise AssertionError(f"unexpected pub-sub: next_event({connection_id!r})")
 
+    def inbox_depth(self, connection_id: ConnectionId) -> int:
+        """Report no queued messages -- ``list_clients`` reads this, not pub-sub."""
+        del connection_id
+        return 0
+
 
 class StubPort:
     """A DisplayPort returning one preset reply and recording the ping wait."""
@@ -137,6 +142,7 @@ def make_facade(
             element_factory=hub_element_factory,
             ensure_writer=inbox.ensure_writer,
             next_event=inbox.next_event,
+            inbox_depth=inbox.inbox_depth,
             display_port=display_port,  # type: ignore[arg-type]  # DisplayPort protocol; fakes satisfy it structurally
         ),
     )

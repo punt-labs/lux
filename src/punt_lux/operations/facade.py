@@ -1,9 +1,8 @@
 """The Operations facade — one object exposing every capability.
 
-The facade composes the concern classes so a single caller — an MCP adapter, a
-REST route, or a test — has one object to call. Every collaborator is injected
-into ``for_store`` by the presentation-layer composition root, so nothing here
-binds the running process at import time.
+Composes the concern classes so a single caller — MCP, REST, or a test — has
+one object to call. Every collaborator is injected into ``for_store``, so
+nothing here binds the running process at import time.
 """
 
 from __future__ import annotations
@@ -50,6 +49,7 @@ if TYPE_CHECKING:
     from punt_lux.operations.models.display_frames import FrameStates
     from punt_lux.operations.models.display_info import DisplayInfo
     from punt_lux.operations.models.display_probe import Pong, Screenshot
+    from punt_lux.operations.models.display_state import DisplayStateSnapshot
     from punt_lux.operations.models.identity import Identified
     from punt_lux.operations.models.menu_results import MenuList, Ok, SetMenuRequest
     from punt_lux.operations.models.query_clients import ClientList
@@ -125,14 +125,10 @@ class Operations:
         callback_router: CallbackRouter,
         ports: HubPorts,
     ) -> Self:
-        """Wire every concern class from injected collaborators — no singletons.
-
-        ``callback_router`` is the one process-wide router the MCP and REST
-        composition roots share.
-        """
+        """Wire every concern class from injected collaborators — no singletons."""
         scenes = SceneOperations(display, replicator, ports.element_factory, hub)
         callbacks = CallbackOperations(display.clients, callback_router, replicator)
-        queries = QueryOperations(display, hub, ports.display_port)
+        queries = QueryOperations(display, hub, ports.display_port, ports.inbox_depth)
         return cls(
             scenes=scenes,
             pubsub=PubSubOperations(hub, display.clients, ports),
@@ -259,6 +255,10 @@ class Operations:
     def list_errors(self, count: int) -> RecentErrors | OpError:
         """Return the display's recent errors, proxied."""
         return self._queries.list_errors(count)
+
+    def get_display_state(self) -> DisplayStateSnapshot | OpError:
+        """Return the display's own widget/frame state, proxied."""
+        return self._queries.display_state()
 
     @Timed("set_menu")
     def set_menu(self, request: SetMenuRequest | OpError) -> Ok | OpError:
