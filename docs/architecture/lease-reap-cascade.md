@@ -1,8 +1,12 @@
 # Lease-Reap Departure Cascade: Design
 
-**Status:** design-phase, awaiting operator ratification on the two forks below.
+**Status:** shipped. Both forks (§3, §4) were ratified as designed (Option A;
+bring `register_client`/`identify_client` under `StoreLock`) and implemented —
+`domain/hub/departure_sinks.py`, `domain/hub/departure_cascade.py`, the
+`HubDisplay` wiring, and round 3 of the companion model below. See §10 for
+one known, out-of-scope residual left open by this implementation.
 **Bead:** `lux-vvmt`. Companion model: `docs/connection_lease_reaping.tex`
-(round 2, bead `lux-d84d`) and its coverage audit,
+(round 3, extending round 2's bead `lux-d84d`) and its coverage audit,
 `docs/connection_lease_reaping_coverage.md`. Companion design:
 `docs/architecture/target/target.md`, especially the DES-088 content/visibility
 split and its discussion of what a Hub resend may and may not overwrite.
@@ -533,3 +537,34 @@ Both decisions are also, independently, decisions about the *shape* of round
 these are settled, since Fork 2 in particular determines whether `Connect`/
 `Renew` need a new mutual-exclusion precondition against the departure
 operations that the current, round-2 model does not state.
+
+## 10. Known residual, out of scope: `ensure_writer`'s own sequence is not one atomic step
+
+`inbox.ensure_writer` (`inbox.py`) runs four things in sequence:
+`hub_display.register_client` (now `StoreLock`-guarded, §4), then a
+`hub.has_writer` check, then `hub.register_writer`, then
+`hub_display.bind_departure_sink` — none of the last three take `StoreLock`,
+and the sequence as a whole is not one atomic step under it. A `TimedReap`
+(or any other departure trigger) can in principle interleave inside that
+narrow window — for example, between the `has_writer` check and
+`register_writer` — and depart the very connection that is mid-reconnect.
+
+This is a real, narrower cousin of the §4 race, not a fresh discovery
+requiring a new fork: `register_client`'s own call, the first step of the
+sequence, already renews the connection's lease past its TTL before any of
+the other three steps run. For the interleaving above to depart the
+connection anyway, `TimedReap` would have to fire strictly between that
+renewal and `register_writer` running microseconds later — a window bounded
+by the connection's own lease TTL (90s–1800s depending on client kind), not
+an unbounded one. This is qualitatively different from the §4 hazard, which
+had no such bound: there, a stale reap's cascade tail could land arbitrarily
+long after the registry removal it followed, with no renewal in between to
+shrink the window.
+
+Closing this fully would mean bringing `hub.register_writer` and
+`hub_display.bind_departure_sink` under `StoreLock` too — widening the lock's
+reach from `HubDisplay`'s own registry/ownership/cascade state into `Hub`'s
+subscription and writer state, a second locking-discipline change of the
+same shape as §4's, and one this design did not scope or model. Recorded
+here as a known, TTL-bounded residual — out of scope for `lux-vvmt` — rather
+than left as a silent gap.

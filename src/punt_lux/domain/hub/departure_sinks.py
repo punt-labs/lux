@@ -30,7 +30,9 @@ class DepartureSink(Protocol):
 
         Positional-only: :class:`DepartureSinks` always calls a sink
         positionally, so an implementation is free to name its own
-        parameter however it likes.
+        parameter however it likes. Runs inside the departure coordinator's
+        ``StoreLock`` critical section, so a sink must be non-blocking and
+        must never re-enter a Hub-mutating (``StoreLock``-taking) call.
         """
         ...
 

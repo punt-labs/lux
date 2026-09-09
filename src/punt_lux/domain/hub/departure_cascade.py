@@ -16,6 +16,7 @@ binding wiped out by the stale departure's tail.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.departure_sinks import DepartureSinks
@@ -28,6 +29,8 @@ if TYPE_CHECKING:
     from punt_lux.domain.ids import ConnectionId
 
 __all__ = ["DepartureCascade"]
+
+logger = logging.getLogger(__name__)
 
 
 @final
@@ -54,6 +57,19 @@ class DepartureCascade:
         self._sinks.fire(connection_id)
 
     def run_all(self, connection_ids: Iterable[ConnectionId]) -> None:
-        """Run the cascade tail for every connection in a swept set."""
+        """Run the cascade tail for every connection in a swept set.
+
+        Isolated per connection: the registry-and-ownership removal for the
+        whole set has already happened by the time this runs, so a raise
+        partway through must not abort the remaining connections' tails and
+        strand them outside the registry with a live writer, subscriptions,
+        or inbox that no future sweep can ever reach again.
+        """
         for connection_id in connection_ids:
-            self.run(connection_id)
+            try:
+                self.run(connection_id)
+            except Exception:
+                logger.exception(
+                    "departure cascade tail failed for connection_id=%s",
+                    connection_id,
+                )

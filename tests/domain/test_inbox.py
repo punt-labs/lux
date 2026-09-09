@@ -13,8 +13,9 @@ from punt_lux.domain.hub.inbox import (
     ensure_writer,
     inbox_depth_for,
     inbox_for,
+    next_event,
 )
-from punt_lux.domain.ids import ConnectionId
+from punt_lux.domain.ids import ConnectionId, Topic
 from punt_lux.protocol.messages.observer import ObserverMessage
 
 
@@ -76,4 +77,49 @@ def test_ensure_writer_is_idempotent_and_rebinds_nothing_on_a_second_call() -> N
     ensure_writer(connection)  # must not raise, must not rebind
 
     assert hub.has_writer(connection)
+    hub_display.drop_connection(connection)  # cleanup: production singletons
+
+
+def test_ensure_writer_installs_a_fresh_writer_after_a_same_identity_reap() -> None:
+    """RR2: the real ``ensure_writer`` entry point installs a fresh writer.
+
+    Exercises ``ensure_writer``'s own ``if hub.has_writer(connection_id):
+    return`` early-return branch for real -- not ``hub.register_writer``
+    called directly -- because that branch is the original bug's mechanism
+    (design doc Section 1.1): before the fix, a departed connection's writer
+    binding survived the reap, so a reconnecting session's ``ensure_writer``
+    call returned early and silently inherited the dead predecessor's
+    binding instead of installing its own.
+    """
+    connection = ConnectionId("c-depth-rr2")
+    topic = Topic("rr2.topic")
+
+    ensure_writer(connection)
+    hub.subscribe(connection, topic)
+    assert hub.has_writer(connection)
+    assert hub.topics_for(connection) == frozenset({topic})
+
+    # Depart -- the full cascade drops the writer and subscriptions together.
+    hub_display.drop_connection(connection)
+    assert not hub.has_writer(connection)
+    assert hub.topics_for(connection) == frozenset()
+
+    # The real reconnect entry point, exercised for real: the
+    # `if hub.has_writer(connection_id): return` branch is now on the
+    # covered path, since has_writer is correctly False post-departure.
+    ensure_writer(connection)
+
+    assert hub.has_writer(connection)
+    assert hub.topics_for(connection) == frozenset()  # nothing inherited
+
+    # Prove the fresh writer genuinely works, not merely "is bound":
+    # publish only reaches a live subscription, so re-subscribe and confirm
+    # the message actually lands in the reconnected session's own inbox.
+    hub.subscribe(connection, topic)
+    delivered = hub.publish(connection, topic, {"k": "v"})
+    assert delivered == 1
+    event = next_event(connection, timeout=1.0)
+    assert event is not None
+    assert event.payload == {"k": "v"}
+
     hub_display.drop_connection(connection)  # cleanup: production singletons
