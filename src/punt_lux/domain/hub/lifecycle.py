@@ -1,11 +1,12 @@
 """Connection-lifecycle cleanup — single entry point for disconnect.
 
 The transport layer (``luxd``) calls ``disconnect_connection`` when an MCP
-session ends. The function departs the connection as a Hub client —
-atomically deregistering it and releasing every scene it owned to
-``unowned`` — tears down its subscription scope and writer binding, and
-invokes the caller's ``on_disconnect`` sink so transport-layer state (e.g.
-the MCP inbox queue) is released in the same cascade.
+session ends. ``HubDisplay.drop_connection`` runs the full departure cascade
+atomically — registry, ownership, subscriptions, writer, and each
+connection's registered transport sink (see
+:class:`~punt_lux.domain.hub.departure_cascade.DepartureCascade`) — so this
+function is a thin, named entry point onto that one coordinator rather than
+a second place the cascade's steps are assembled.
 
 The scenes themselves are never torn down, only released: they stay
 standing until a later explicit removal or an unowned-claim reclaim.
@@ -13,38 +14,26 @@ standing until a later explicit removal or an unowned-claim reclaim.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-from punt_lux.domain.hub.hub import Hub, hub as default_hub
 from punt_lux.domain.hub.hub_display import (
     HubDisplay,
     hub_display as default_hub_display,
 )
 from punt_lux.domain.ids import ConnectionId
 
-if TYPE_CHECKING:
-    from collections.abc import Callable
-
 __all__ = ["disconnect_connection"]
 
 
 def disconnect_connection(
     connection_id: ConnectionId,
-    on_disconnect: Callable[[ConnectionId], None],
     *,
     hub_display: HubDisplay = default_hub_display,
-    hub: Hub = default_hub,
 ) -> None:
-    """Clean the session for ``connection_id`` while its scenes stay standing.
+    """Depart ``connection_id`` as a Hub client, cascading the full departure.
 
-    Forgets the connection as a Hub client and releases its subscriptions, then
-    fires ``on_disconnect`` so the transport layer frees per-session resources
-    (MCP inbox queue, file handles, etc.). The connection's scenes are left
-    installed — nothing is blanked — so there is no repaint to mark.
+    The connection's scenes are left installed — nothing is blanked — so
+    there is no repaint to mark.
 
-    Defaults for ``hub_display`` and ``hub`` point at the production singletons;
-    tests pass their own isolated instances.
+    Defaults to the production singleton; tests pass their own isolated
+    ``HubDisplay``.
     """
     hub_display.drop_connection(connection_id)
-    hub.on_disconnect(connection_id)
-    on_disconnect(connection_id)

@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.callback_hold import CallbackRouter
     from punt_lux.domain.hub.hub import Hub
     from punt_lux.domain.hub.hub_clients import HubClientRegistry
+    from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.operations.ports import DirtyMarker
 
 logger = logging.getLogger(__name__)
@@ -53,20 +54,23 @@ class HubListenTransport:
 
     _hub: Hub
     _clients: HubClientRegistry
+    _display: HubDisplay
     _router: CallbackRouter
     _menus: DirtyMarker
-    __slots__ = ("_clients", "_hub", "_menus", "_router")
+    __slots__ = ("_clients", "_display", "_hub", "_menus", "_router")
 
     def __new__(
         cls,
         hub: Hub,
         clients: HubClientRegistry,
+        display: HubDisplay,
         router: CallbackRouter,
         menus: DirtyMarker,
     ) -> Self:
         self = super().__new__(cls)
         self._hub = hub
         self._clients = clients
+        self._display = display
         self._router = router
         self._menus = menus
         return self
@@ -74,7 +78,9 @@ class HubListenTransport:
     @classmethod
     def for_hub(cls) -> Self:
         """Wire the transport over the Hub's process singletons."""
-        return cls(hub, hub_display.clients, hub_callback_router, hub_replicator)
+        return cls(
+            hub, hub_display.clients, hub_display, hub_callback_router, hub_replicator
+        )
 
     def mount(self, app: FastAPI) -> None:
         """Add the ``/ws`` WebSocket route to the parent app."""
@@ -101,6 +107,7 @@ class HubListenTransport:
             identity,
             self._hub,
             self._clients,
+            self._display,
             self._router,
             self._menus,
         )

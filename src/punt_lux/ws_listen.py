@@ -10,9 +10,11 @@ click run on arbitrary threads (an MCP tool thread, the click-dispatch thread);
 the WebSocket lives on the server's event loop. So the pub-sub writer and the
 :class:`~punt_lux.domain.hub.callback_ports.CallbackListener` wake both hop onto
 the loop with ``call_soon_threadsafe`` and enqueue a frame the write task drains.
-The loop takes the client registry's lock to install and release the session's
-listener slot, and the router's to drain the hold, but never one inside the other,
-so no cross-lock path appears.
+Taking the listener slot and binding the writer run under the Hub store's write
+lock, nesting the client registry's own lock inside it exactly as
+``HubDisplay.register_client`` does — so a same-identity reconnect can never
+land inside a departure cascade's registry-removal-to-cascade-tail span and
+have its fresh listener and writer wiped out by the stale cascade's tail.
 
 The connection is keyed by an identity-derived id, so successive sessions of one
 identity share it, and the session occupying the listener slot is the connection's
@@ -49,6 +51,8 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.callback_hold import CallbackRouter
     from punt_lux.domain.hub.hub import Hub
     from punt_lux.domain.hub.hub_clients import HubClientRegistry
+    from punt_lux.domain.hub.hub_display import HubDisplay
+    from punt_lux.domain.hub.registry_outcomes import ListenerAttachment
     from punt_lux.domain.ids import ConnectionId
     from punt_lux.operations.ports import DirtyMarker
     from punt_lux.protocol.messages.observer import ObserverMessage
@@ -76,6 +80,7 @@ class HubListenSession:
     _identity: ClientIdentity
     _hub: Hub
     _clients: HubClientRegistry
+    _display: HubDisplay
     _router: CallbackRouter
     _outbound: asyncio.Queue[ServerFrame]
     _loop: asyncio.AbstractEventLoop
@@ -83,6 +88,7 @@ class HubListenSession:
     __slots__ = (
         "_clients",
         "_conn",
+        "_display",
         "_hub",
         "_identity",
         "_loop",
@@ -99,6 +105,7 @@ class HubListenSession:
         identity: ClientIdentity,
         hub: Hub,
         clients: HubClientRegistry,
+        display: HubDisplay,
         router: CallbackRouter,
         menus: DirtyMarker,
     ) -> Self:
@@ -108,6 +115,7 @@ class HubListenSession:
         self._identity = identity
         self._hub = hub
         self._clients = clients
+        self._display = display
         self._router = router
         self._menus = menus
         self._outbound = asyncio.Queue()
@@ -139,10 +147,9 @@ class HubListenSession:
         await self._ws.accept()
         self._loop = asyncio.get_running_loop()
         try:
-            attachment = self._clients.attach_listener(self._conn, self._identity, self)
+            attachment = self._attach_and_register_writer()
             if attachment == "attached_over_callbacks":
                 self._menus.mark_menus()
-            self._hub.register_writer(self._conn, self.deliver_event)
             await self._ws.send_text(
                 ReadyFrame(connection_id=str(self._conn)).model_dump_json()
             )
@@ -150,6 +157,13 @@ class HubListenSession:
             await self._pump()
         finally:
             self._teardown()
+
+    def _attach_and_register_writer(self) -> ListenerAttachment:
+        """Take the listener slot and bind the writer -- see module docstring."""
+        with self._display.write_lock():
+            attachment = self._clients.attach_listener(self._conn, self._identity, self)
+            self._hub.register_writer(self._conn, self.deliver_event)
+            return attachment
 
     async def _pump(self) -> None:
         """Read until the peer goes away, with the writer draining alongside."""

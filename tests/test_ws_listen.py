@@ -12,6 +12,7 @@ import ast
 import asyncio
 import contextlib
 import inspect
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -26,10 +27,12 @@ from starlette.websockets import WebSocketDisconnect
 from punt_lux.connection_identity import connection_for
 from punt_lux.domain.hub.callback_hold import CallbackRouter
 from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.domain.hub.departure_cascade import DepartureCascade
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
+from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
-from punt_lux.domain.ids import SceneId, Topic
+from punt_lux.domain.ids import ConnectionId, SceneId, Topic
 from punt_lux.protocol.messages.listen import CallbackFrame
 from punt_lux.ws_listen import HubListenSession
 from punt_lux.ws_transport import HubListenTransport
@@ -95,17 +98,19 @@ class _Wiring:
     client: TestClient
     hub: Hub
     clients: HubClientRegistry
+    display: HubDisplay
     router: CallbackRouter
     menus: _MenuFlag
 
 
 def _wired(clock: Callable[[], float] = time.monotonic) -> _Wiring:
     hub, clients = Hub(), HubClientRegistry(clock)
+    display = HubDisplay(clock, hub=hub)
     router = CallbackRouter(clients)
     menus = _MenuFlag()
     app = FastAPI()
-    HubListenTransport(hub, clients, router, menus).mount(app)
-    return _Wiring(TestClient(app), hub, clients, router, menus)
+    HubListenTransport(hub, clients, display, router, menus).mount(app)
+    return _Wiring(TestClient(app), hub, clients, display, router, menus)
 
 
 def _eventually(predicate: Callable[[], bool], *, timeout: float = 2.0) -> None:
@@ -271,6 +276,7 @@ def _session_over(send_error: Exception) -> HubListenSession:
         ClientIdentity(kind="app", name="voxd", repo="/w/vox"),
         hub,
         clients,
+        HubDisplay(hub=hub),
         CallbackRouter(clients),
         _MenuFlag(),
     )
@@ -308,6 +314,7 @@ def test_a_peer_that_dies_before_the_handshake_leaves_no_listener() -> None:
     what the registration gate checks for.
     """
     hub, clients = Hub(), HubClientRegistry()
+    display = HubDisplay(hub=hub)
     router = CallbackRouter(clients)
 
     async def _drive() -> None:
@@ -318,6 +325,7 @@ def test_a_peer_that_dies_before_the_handshake_leaves_no_listener() -> None:
             ClientIdentity(kind="app", name="voxd", repo="/w/vox"),
             hub,
             clients,
+            display,
             router,
             _MenuFlag(),
         )
@@ -540,3 +548,82 @@ def test_the_teardown_contains_no_await() -> None:
         if isinstance(node, ast.Await | ast.AsyncWith | ast.AsyncFor)
     ]
     assert suspensions == [], "_teardown must stay await-free; see its docstring"
+
+
+_VOX_IDENTITY = ClientIdentity(kind="app", name="voxd", repo="/w/vox", lease_ttl=5.0)
+
+
+def _listen_session(
+    hub: Hub, clients: HubClientRegistry, display: HubDisplay
+) -> HubListenSession:
+    """Build a session bound to a fresh loop, for calling its sync methods directly."""
+
+    async def _build() -> HubListenSession:
+        return HubListenSession(
+            _GoneWebSocket(WebSocketDisconnect(code=1006)),  # type: ignore[arg-type]  # never driven
+            _CONN,
+            _VOX_IDENTITY,
+            hub,
+            clients,
+            display,
+            CallbackRouter(clients),
+            _MenuFlag(),
+        )
+
+    return asyncio.run(_build())
+
+
+def test_a_same_identity_ws_reconnect_never_lands_inside_an_open_departure_cascade() -> (  # noqa: E501
+    None
+):
+    """A same-identity WS reconnect must never land inside an open cascade.
+
+    Concretely: a Vox music-control listener's ``TimedReap`` races its own
+    reconnect. Without ``_attach_and_register_writer`` holding the same
+    ``StoreLock`` a departure cascade holds across its registry-removal-to-
+    cascade-tail span, the reconnect's fresh listener and writer land, then
+    the stale reap's delayed ``Hub.on_disconnect`` wipes them out -- no event
+    delivery until the connection reconnects yet again.
+
+    The interleaving is forced deterministically, the same shape as the
+    register_client-vs-reap race: the cascade tail is wrapped to signal it
+    has been reached, then sleep briefly -- an explicit window for the
+    reconnecting thread to attempt landing its own listener and writer.
+    """
+    clock = _Clock()
+    hub = Hub()
+    display = HubDisplay(clock, hub=hub)
+    clients = display.clients  # the same registry HubListenTransport wires in
+
+    original = _listen_session(hub, clients, display)
+    original._attach_and_register_writer()
+    clock.advance(6.0)  # past the declared 5s lease; nothing else ever renews it
+
+    tail_reached = threading.Event()
+    original_run_all = DepartureCascade.run_all
+
+    def _paused_run_all(
+        self: DepartureCascade, connection_ids: frozenset[ConnectionId]
+    ) -> None:
+        tail_reached.set()
+        threading.Event().wait(timeout=0.2)  # window for the racing reconnect
+        original_run_all(self, connection_ids)
+
+    new_writer_installed = threading.Event()
+
+    def _reconnect() -> None:
+        tail_reached.wait(timeout=2.0)
+        reconnect = _listen_session(hub, clients, display)
+        reconnect._attach_and_register_writer()  # blocks on StoreLock when fixed
+        new_writer_installed.set()
+
+    reconnect_thread = threading.Thread(target=_reconnect)
+
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(DepartureCascade, "run_all", _paused_run_all)
+        reconnect_thread.start()
+        display.reap_lapsed_leases()
+        reconnect_thread.join(timeout=2.0)
+
+    assert new_writer_installed.is_set()
+    assert hub.has_writer(_CONN)

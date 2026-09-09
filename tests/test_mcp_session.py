@@ -93,7 +93,7 @@ class TestUncleanDisconnect:
             def drop_session(self) -> None:
                 legs.append("menu")
 
-        def _record_disconnect(conn: object, drop: object) -> None:
+        def _record_disconnect(conn: object) -> None:
             legs.append("disconnect")
 
         monkeypatch.setattr("punt_lux.session_cleanup.OPERATIONS", _Menu())
@@ -164,7 +164,7 @@ class TestSharedKeyCleanup:
             def drop_session(self) -> None:
                 legs.append("menu")
 
-        def _record_disconnect(conn: object, drop: object) -> None:
+        def _record_disconnect(conn: object) -> None:
             legs.append("disconnect")
 
         monkeypatch.setattr("punt_lux.session_cleanup.OPERATIONS", _Menu())

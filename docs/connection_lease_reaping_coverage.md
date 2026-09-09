@@ -3,13 +3,35 @@
 Companion to `docs/connection_lease_reaping.tex`, following the same format
 as `docs/frame_expiry_coverage.md` and
 `docs/hub_display_reconciliation.tex`'s own "Test Partitions" section. This
-is a **modeling-mission** artifact (bead `lux-d84d`): the partitions below
-are the contract the implementation mission (`rmh`) builds against and the
-partitions its tests must cover — each names the behaviour a test must
-exercise, and the "Expected covering test" column names where that test
-belongs, not a test that exists today. When the implementation mission
-lands, replace each placeholder with the real test name; a partition left
-unchecked at that point is a gap, not a missing row in this table.
+is a **modeling-mission** artifact (bead `lux-d84d`, round 3 extension
+`lux-vvmt`): the partitions below are the contract the implementation
+mission builds against and the partitions its tests must cover — each
+names the behaviour a test must exercise, and the "Expected covering test"
+column names where that test belongs, not a test that exists today. When
+the implementation mission lands, replace each placeholder with the real
+test name; a partition left unchecked at that point is a gap, not a
+missing row in this table.
+
+## Round 3: why this table changed again
+
+Round 3 (bead `lux-vvmt`, design `docs/architecture/lease-reap-cascade.md`)
+extends the model from one departure leg (registry membership and scene
+ownership) to the full four-leg cascade the shipped code's `Depart` path
+already performs once fixed but `TimedReap` and `Claim`'s embedded sweep
+never reached: dropping Hub subscriptions and the writer binding
+(`Hub.on_disconnect`), and firing the transport-owned inbox sink
+(`inbox.drop_session`). It adds I7 (departure clears the full cascade,
+however triggered) and its own regression partitions below, and it splits
+`TimedReap` into `TimedReapBegin`/`TimedReapEnd` around a new `cascadeFor`
+device to make a second, previously-unmodeled hazard checkable: a
+same-identity reconnect landing inside the window between a stale reap's
+registry removal and its cascade tail, because `register_client`/
+`identify_client` do not take `StoreLock` today. The partitions below add
+CC1–CC3 (cascade-completeness) and RR1–RR2 (reconnect-vs-reap mutual
+exclusion) to the existing table; every partition from round 2 (C1–CL3)
+is retained unchanged, since round 3 does not alter `Depart`'s,
+`TimedReapBegin`'s (the registry-and-ownership half), or `Claim`'s
+existing registry/ownership behaviour.
 
 ## Round 2: why this table changed
 
@@ -68,6 +90,11 @@ disconnect and the SDK's idle-reap take).
 | `Claim` (**fixed**) | `HubDisplay.apply`, changed to (1) renew the caller's own lease first, (2) then sweep every *other* lapsed connection via `HubClientRegistry.reap`-equivalent and release what each owned, (3) then perform the existing `SetProperty`/`RemoveElement`/`AddElement` ownership check against the result |
 | `Claim` (**H3-buggy**, i.e. current code) | `HubDisplay.apply` exactly as shipped: calls `self._reap_and_release()` — an unconditional sweep of every lapsed session including the caller's own — before doing anything else, and never calls anything that renews the caller |
 | `TimedReap` (**new, round 2 addendum**) | Does not exist yet in any form. Must be built: a periodic background task (interval no longer than the shortest `SessionLease` TTL in use, `SessionLease._TTL_BY_KIND`'s `cli` at 90s today) that calls the same release path `HubDisplay._reap_and_release` already has, for every session `HubClientRegistry` reports as lapsed, independent of any read or write ever occurring |
+| `Activate` (**new, round 3**) | Not a real code operation of its own — an abstract collapse of `SubscriptionRegistry.subscribe`, `Hub.register_writer`, and a peer's `publish` landing a message in the connection's own inbox queue. No single covering test; each real operation it stands in for gets its own test under the design's coordinator (design document Section 6/8) |
+| `TimedReapBegin` (**new, round 3**) | The registry-and-ownership half of `TimedReap`'s realization — unchanged in shape from round 2's `TimedReap`/`HubDisplay._reap_and_release`'s registry+ownership leg |
+| `TimedReapEnd` (**new, round 3**) | The cascade-tail half: the new coordinator's `Hub.on_disconnect` call (subscriptions, writer) plus the registered `DepartureSink` fire (inbox) — design document Sections 2, 3, 6. Does not exist yet in the real code for the `TimedReap`/`Claim` triggers; exists today only for `Depart`, via `lifecycle.disconnect_connection` |
+| `cascadeFor` (**new, round 3, model-only device**) | Stands for `StoreLock` being held across a departure coordinator's full critical section. Not a state variable the real code needs to introduce on its own — the real fix is `register_client`/`identify_client` acquiring the *same* `StoreLock` every other mutating `HubDisplay` method already holds (design document Section 4) |
+| `hasSubs`, `hasWriter`, `inboxNonEmpty` (**new, round 3**) | `SubscriptionRegistry._by_connection`, `Hub.has_writer`/`WriterRegistry`, and the per-connection `inbox.py` queue depth, each coarsened to "is there any" |
 
 ## A design gap this model surfaced — now resolved by the round-2 ruling
 
@@ -132,6 +159,11 @@ surfaced:
 | TR2 | `TimedReap` and `Depart` firing on the same connection at the same instant (a race between the background timer and an arriving disconnect signal) leave the registry and ownership table in the identical state either order runs — same predicate, same postcondition | `test_hub_display_ownership.py::test_timed_reap_racing_a_graceful_disconnect_converges` |
 | TR3 | `TimedReap` on a connection that owns no scenes is a no-op on `owner`, same as `Depart` and `Claim`'s embedded sweep | `test_hub_display_ownership.py::test_timed_reap_of_an_ownerless_connection_touches_no_scene` |
 | TR4 | `TimedReap` never fires on a connection whose lease is still live, however long the timer has been running — the periodic check is a filter, not an unconditional sweep | `test_hub_clients.py::test_timed_reap_never_touches_a_connection_with_a_live_lease` |
+| **CC1 (cascade-complete-on-timer, the round-3 regression)** | a connection reaped purely by the timer (no disconnect, no read, no other write) loses its subscriptions and writer binding, and its inbox is drained, in the same overall cascade that removes it from the registry and releases its scenes — the direct regression test for the design document's Section 1 gap | `test_hub_display_ownership.py::test_a_timer_reaped_connection_loses_its_full_cascade_not_just_registry_and_ownership` — the direct regression test for round 3's own bug |
+| CC2 | `Claim`'s embedded sweep-of-others clears the swept connections' subscriptions and writer binding, and drains their inboxes, exactly as it already releases their scenes — the sweep leg of CC1, isolated from the timer | `test_hub_display_ownership.py::test_apply_clears_a_swept_connections_full_cascade_as_a_side_effect` |
+| CC3 | a connection with no subscription, no writer, and no queued inbox message is a no-op on the three new cascade legs when reaped by any trigger — the TR3/GD2/KT3 partition extended to the three new flags | `test_hub_display_ownership.py::test_reaping_a_connection_with_no_side_state_touches_nothing_new` |
+| **RR1 (reconnect-races-reap, the register\_client-vs-reap regression)** | a same-identity reconnect that lands while a background reap's cascade is still open for that identity's connection id is refused (or, once `register_client`/`identify_client` take `StoreLock`, simply waits) until the cascade fully completes — never observing, and never being overwritten by, a partially-applied cascade. The direct regression test for design document Section 4 | `test_hub_display_ownership.py::test_a_reconnect_never_lands_inside_an_open_departure_cascade` — the direct regression test for the register\_client-vs-reap race |
+| RR2 | once a reconnect under the same identity as a just-reaped connection completes, its writer binding is the *fresh* one `ensure_writer` installs, not a stale `true` left over from before the reap — the observable-outcome half of RR1, matching the design document's own `hub.has_writer` framing | `test_inbox.py::test_ensure_writer_installs_a_fresh_writer_after_a_same_identity_reap` |
 | KT1 (kill-transport-then-depart) | a connection whose transport has died, once disconnected (gracefully or via the SDK's idle-reap) is dropped from the live set **and** every scene it owned becomes unowned in the same step | `test_hub_display_ownership.py::test_depart_of_a_dead_transport_connection_releases_its_scenes` |
 | KT2 | a connection making continuous, renewing contact (`Renew` or `Claim`) is never a candidate for `LeaseLapse`, however long it has been actively used | `test_session_lease.py::test_continuous_renewal_prevents_lease_lapse` |
 | KT3 | departing (gracefully or by lapse) a connection that owns *no* scenes is a no-op on `owner` | `test_hub_display_ownership.py::test_departing_an_ownerless_connection_touches_no_scene` |
@@ -143,15 +175,23 @@ surfaced:
 | CL2 | `Claim` on a scene the caller already owns is idempotent | `test_owner_tracker.py::test_reclaiming_ones_own_scene_is_idempotent` |
 | CL3 | `Claim` on a scene owned by a *different, still-live* connection is refused (`HubOwnershipError`), independent of this bead's fix — existing, correct behaviour the fix must not weaken | `test_owner_tracker.py::test_claiming_another_live_connections_scene_raises` |
 
-Partitions in **bold** are new or substantially reframed in this round; they
-are the direct coverage requirement for H1 (RD1, RD2), H2 (GD1, GD3), H3
-(WR1, SR1, SR2, SR3), and the addendum's own regression, TR1 (the bead's
-own reported scenario: kill, wait, and touch nothing else). A test suite
-covering only the round-1 partitions (`KT1`–`RA1` under their old
-`Reap`-based names) would have looked complete and still missed all three
-holes — this is precisely what happened. A suite covering H1/H2/H3 but not
-TR1 would look complete a second time and still miss the bead itself, since
-none of H1/H2/H3 exercises an otherwise-idle Hub.
+Partitions in **bold** are new or substantially reframed in their round.
+Round 2's bold partitions are the direct coverage requirement for H1 (RD1,
+RD2), H2 (GD1, GD3), H3 (WR1, SR1, SR2, SR3), and the addendum's own
+regression, TR1 (the bead's own reported scenario: kill, wait, and touch
+nothing else). Round 3 adds CC1 and RR1, the direct coverage requirement
+for its own two regressions: the cascade-incomplete gap (design document
+Section 1) and the register\_client-vs-reap race (design document
+Section 4). A test suite covering only the round-1 partitions (`KT1`–`RA1`
+under their old `Reap`-based names) would have looked complete and still
+missed all three round-2 holes — this is precisely what happened. A suite
+covering H1/H2/H3 but not TR1 would look complete a second time and still
+miss the bead itself, since none of H1/H2/H3 exercises an otherwise-idle
+Hub. A suite covering TR1 but not CC1 would look complete a third time and
+still miss round 3's own hole, since TR1 only asserts registry-and-ownership
+release, never subscriptions, the writer binding, or the inbox — exactly
+the recurrence the org's z-spec mandate names: the same class of "looked
+complete, wasn't" gap, now at its second refinement.
 
 Trace lengths quoted below (and in `docs/connection_lease_reaping.tex`'s
 own Fidelity section) are illustrative witnesses from a specific run, not a
@@ -199,22 +239,58 @@ what the gate actually checks.
   the fixed spec; `FOUND` against `connection_lease_reaping_self_reap
   _buggy.tex` (a minimal witness through `Connect`;`LeaseLapse`;`Claim`
   alone, never calling `TransportDies`, `Depart`, or `TimedReap`).
-- **Deadlock-freedom and no cross-operation race.** `Connect` carries no
-  guard, so it is enabled in every reachable state of the fixed spec and
-  all three controls; full `-model_check` over `DEFAULT_SETSIZE 2` and `3`
-  reports no deadlock and full operation coverage (9 operations) for the
-  fixed spec, unchanged after `TimedReap`'s addition. Because
-  `TimedReap`, `Depart`, and `Claim`'s embedded sweep compute the same
-  postcondition wherever more than one is simultaneously enabled on the
-  same connection, the model has no reachable state in which their
-  effects could conflict — whichever fires first disables the others'
-  guard on that connection (`c? \in registered` fails once any one of
-  them has removed it), which the full model-check's absence of any
-  invariant violation or deadlock confirms rather than merely assumes.
+- **I7** — departure clears the full cascade, however triggered. New this
+  round. Checked by reachability of the negation, scoped to a connection
+  not currently mid its own `TimedReapBegin`/`TimedReapEnd` window:
+  `NOT found` against the fixed spec at `DEFAULT_SETSIZE 2` (4,705 states,
+  ten operations covered, no deadlock); `FOUND` against
+  `connection_lease_reaping_cascade_incomplete_buggy.tex` (an 8-step
+  witness through `Claim`'s sweep leg, shorter than the hand-derived
+  `TimedReapBegin`/`TimedReapEnd` trace the main spec's Fidelity section
+  also gives).
+- **Deadlock-freedom and no cross-operation race, round 2's trio.**
+  `TimedReapBegin`, `Depart`, and `Claim`'s embedded sweep compute the
+  same postcondition on `registered`/`owner` wherever more than one is
+  simultaneously enabled on the same connection, so the model has no
+  reachable state in which their effects could conflict — whichever fires
+  first disables the others' guard on that connection (`c? \in registered`
+  fails once any one of them has removed it).
+- **Deadlock-freedom, round 3's new nesting.** `Connect`/`Renew` bringing
+  `register_client`/`identify_client` under `StoreLock` nests two real
+  locks on a path that previously took only the inner one. The nesting
+  order does not change (`StoreLock` first, the inner registry lock
+  second, on every path before and after the fix), and `cascadeFor` — the
+  model's stand-in for `StoreLock`'s single critical section — is
+  acquired by exactly one operation (`TimedReapBegin`) and released by
+  exactly one (`TimedReapEnd`, which carries no precondition beyond
+  `cascadeFor = {c?}` and so is always enabled the moment `TimedReapBegin`
+  has run): a single-owner, single-releaser resource cannot participate
+  in a lock-acquisition cycle with itself. Full `-model_check` over
+  `DEFAULT_SETSIZE 2` (4,705 states, ten operations, no deadlock) confirms
+  the structural argument rather than resting on it alone.
+  `DEFAULT_SETSIZE 3` was attempted and did not complete in this round's
+  session — the enlarged carrier (three new total flag-functions plus
+  `cascadeFor`) passed 380,000 states at 25--27% coverage before the run
+  was stopped, well past round 2's own 313,093-state total at the same
+  setsize, and the true total was still climbing when stopped. This is
+  recorded here plainly rather than glossed over: `DEFAULT_SETSIZE 3`
+  exhaustive confirmation is an open follow-up, not a claimed result.
+- **The reconnect-races-reap hazard itself (design document Section 4),
+  not an invariant but the round's second regression.** `FOUND` at
+  `DEFAULT_SETSIZE 3` (a 10-step witness through `TimedReapBegin`; an
+  unguarded `Connect` landing mid-cascade; `TimedReapEnd` overwriting it —
+  found quickly, since locating one witness needs no exhaustive search)
+  against `connection_lease_reaping_reconnect_race_buggy.tex`, which
+  differs from the fixed spec only in `Connect`/`Renew` omitting the
+  `cascadeFor = {}` guard; `NOT found` against the fixed spec at
+  `DEFAULT_SETSIZE 2` (4,705 states, exhaustive — the same
+  `DEFAULT_SETSIZE 3` caveat above applies here too).
 
 Re-run `fuzz` and the `probcli` goal checks in
 `docs/connection_lease_reaping.tex`'s Verification section, and the
 per-hole checks in its Fidelity section, whenever `hub_clients.py`,
 `client_session.py`, `session_lease.py`, `owner_tracker.py`, `owner.py`,
-`hub_display.py`'s `drop_connection`/`apply`/`_reap_and_release`,
-`lifecycle.py`'s `disconnect_connection`, or `session_cleanup.py` change.
+`hub_display.py`'s `drop_connection`/`register_client`/`identify_client`/
+`apply`/`_reap_and_release`, `hub.py`'s `on_disconnect`, `inbox.py`'s
+`ensure_writer`/`drop_session`, `lifecycle.py`'s `disconnect_connection`,
+or `session_cleanup.py` change.

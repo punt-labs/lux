@@ -82,6 +82,27 @@
   ordinary — so a frame close or TTL on such a scene left its content
   installed forever; an unowned root is now torn down directly instead.
   (bead lux-d84d; model `docs/connection_lease_reaping.tex`.)
+- **A timer-reaped or write-swept connection now loses its full departure
+  cascade — subscriptions, writer binding, and inbox — not just its
+  registry entry and scene ownership.** The earlier fix (above) converged
+  `Depart`, `TimedReap`, and `apply`'s embedded sweep-of-others onto one
+  atomic registry-and-ownership removal, but only the graceful-disconnect
+  path also dropped Hub subscriptions and the writer binding
+  (`Hub.on_disconnect`) and released transport-owned state (the MCP inbox
+  queue). A connection reaped purely by the timer, or swept aside by a
+  peer's write, kept all three live forever — and because connection ids
+  are identity-derived, a same-identity reconnect could inherit a dead
+  predecessor's stale subscriptions and be silently blocked from installing
+  its own fresh writer. A new `DepartureCascade` (`domain/hub/`) now runs
+  all four legs — registry, ownership, subscriptions/writer, and each
+  connection's registered `DepartureSink` (today, the inbox) — atomically,
+  inside the same `StoreLock` hold, for every departure trigger alike.
+  Closing this required a second fix: `HubDisplay.register_client`/
+  `identify_client` did not take `StoreLock`, so a same-identity reconnect
+  could land between a stale reap's registry removal and its cascade tail
+  and have its fresh writer binding wiped out retroactively — both now run
+  under the lock like every other mutator. (bead lux-vvmt; model
+  `docs/connection_lease_reaping.tex`, round 3.)
 
 ### Security
 

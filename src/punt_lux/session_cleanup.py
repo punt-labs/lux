@@ -15,7 +15,6 @@ import logging
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub import disconnect_connection
-from punt_lux.domain.hub.inbox import drop_session
 from punt_lux.tools.tools import OPERATIONS
 
 if TYPE_CHECKING:
@@ -47,11 +46,7 @@ class SessionCleanup:
         never starves the other.
         """
         self._leg("menu", key, OPERATIONS.drop_session)
-        self._leg(
-            "disconnect",
-            key,
-            lambda: disconnect_connection(self._connection_id, drop_session),
-        )
+        self._leg("disconnect", key, lambda: disconnect_connection(self._connection_id))
 
     def _leg(self, leg: str, key: str, step: Callable[[], None]) -> None:
         """Run one teardown leg, logging and swallowing its failure."""

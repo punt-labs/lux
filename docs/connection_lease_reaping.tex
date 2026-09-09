@@ -27,6 +27,49 @@
 % lease is a genuine background backstop and I1 no longer depends on any
 % other party's activity.
 %
+% ROUND 3 (bead lux-vvmt). Design: docs/architecture/lease-reap-cascade.md,
+% ratified by the operator. Round 2 modeled one leg of departure --
+% registry membership and scene ownership. The shipped code's departure
+% cascade is wider: a graceful Depart, via lifecycle.py, also drops the
+% connection's Hub subscriptions and writer binding (Hub.on_disconnect)
+% and fires its transport-owned sink (inbox.drop_session); TimedReap and
+% Claim's embedded sweep never reached either leg, so a timer-reaped or
+% swept-aside connection kept its subscriptions, writer binding, and inbox
+% queue forever. Worse, because connection_for derives a STABLE id from a
+% client's declared identity, a same-identity reconnect often reuses the
+% identical CONN value, so an unreleased writer binding silently blocks a
+% legitimate reconnect's own ensure_writer call from installing a fresh
+% one -- not a leak, a reconnecting client inheriting a stranger's state.
+% This round adds three new state components (hasSubs, hasWriter,
+% inboxNonEmpty) and I7, the general form of "leaving the registry
+% releases the FULL cascade, however triggered." Grounding the fix
+% surfaced a second hazard: register_client/identify_client (Connect/Renew
+% below) do not take the Hub's StoreLock, so a same-identity reconnect can
+% land inside the window between TimedReap's registry removal and its
+% (new) cascade tail, and have its fresh writer binding retroactively
+% wiped out by the stale reap's tail. Closing that hazard needs an
+% explicit mutual-exclusion device this round adds: TimedReap is split
+% into TimedReapBegin/TimedReapEnd around a new cascadeFor flag, and
+% Connect/Renew gain a precondition against it -- the formal counterpart
+% of bringing register_client/identify_client under StoreLock.write().
+% Depart and Claim need no such split: neither is implicated by any
+% reported race, and their existing round-2 atomicity already forecloses
+% one (see the Invariants section's discussion of why the split is scoped
+% to TimedReap alone). I7's statement is scoped accordingly: it excludes
+% a connection currently inside its own TimedReapBegin/End window, which
+% is not a weakening but the model's honest acknowledgement that nothing
+% can observe a real critical section from the inside -- the same
+% reasoning round 2 already gives informally for why no operation here
+% needs to represent being "mid-Depart" or "mid-Claim."
+%
+% Read first (round 3, in addition to the round-2 list below): the design
+% document's own "Read first" grounding at
+% docs/architecture/lease-reap-cascade.md Section 1 and Section 4 --
+% domain/hub/hub_display.py (register_client, identify_client,
+% drop_connection, _depart_lapsed, apply), domain/hub/lifecycle.py
+% (disconnect_connection), domain/hub/hub.py (on_disconnect), and
+% domain/hub/inbox.py (ensure_writer, drop_session).
+%
 % Read first: src/punt_lux/domain/hub/hub_clients.py (HubClientRegistry --
 % named_sessions/live_sessions/repos as READS that must become
 % non-destructive; reap/_sweep_locked; record/_renewed; discard),
@@ -210,6 +253,56 @@ round exists:
     swept its own caller.
 \end{description}
 
+This round adds a seventh:
+
+\begin{description}
+  \item[I7 --- departure clears the full cascade, however triggered.] The
+    general form of I5, extended to the three cascade legs round 2 never
+    modeled: no connection outside \texttt{registered}, and not currently
+    inside its own \texttt{TimedReapBegin}/\texttt{TimedReapEnd} window,
+    still shows a live subscription, a bound writer, or a non-empty
+    inbox. This is what closes the gap Section~1 of the design document
+    names: \texttt{Depart} already reached all four legs of the cascade
+    via \texttt{lifecycle.py}; \texttt{TimedReap} and \texttt{Claim}'s
+    embedded sweep reached only the first two (registry, ownership),
+    leaving a timer-reaped or swept-aside connection's subscriptions,
+    writer binding, and inbox queue live forever.
+\end{description}
+
+Ten operations realize round 3 (up from round 2's eight).
+\texttt{Connect}, \texttt{TransportDies}, \texttt{LeaseLapse}, \texttt{Read},
+\texttt{Depart}, and \texttt{Claim} keep round 2's shape, each carrying the
+three new state components through unchanged (or, for \texttt{Depart} and
+\texttt{Claim}, gaining three more \(\oplus\) terms in exactly the predicate
+that already zeroes \texttt{owner} -- textually the same kind of change both
+operations already carry from round 1 to round 2). \texttt{Renew} keeps its
+effect but gains a new guard. \texttt{Activate} is new: it models, as one
+abstract step, an already-connected client subscribing to a topic, having a
+writer bound, or writing to its own inbox -- the design document's own
+framing, "modeled abstractly," since this round's invariant needs only that
+these three facts can become true, not which topic or which message.
+\texttt{TimedReap} is retired as a single schema and replaced by
+\texttt{TimedReapBegin}/\texttt{TimedReapEnd}, a two-step decomposition of
+what was previously one atomic predicate. This is the one place this round
+deviates from the design document's literal sketch, and the deviation is
+argued in full where \texttt{TimedReapBegin} is introduced below: reproducing
+the register\_client-vs-reap race the design document reports (its
+Section~4) is a mathematical impossibility under an unsplit, fully atomic
+\texttt{TimedReap}, because a Z operation's guard is evaluated fresh against
+the current state at the moment it is chosen to fire, and \texttt{Connect}
+always renews the lease it touches -- so no ordering of two atomic,
+guard-checked operations can ever place a stale reap decision's effect after
+a fresh reconnect's effect on the same connection. The design document itself
+says as much without naming the consequence: "the two operations' effects
+apply out of the order their real-world causes occurred in" is a
+non-sequentially-consistent execution, and a non-sequentially-consistent
+execution cannot be witnessed by any total ordering of whole, atomic steps.
+Splitting \texttt{TimedReap} at the exact point its real-code counterpart
+(\texttt{\_depart\_lapsed}) already splits -- registry-and-ownership removal
+first, cascade tail second, with nothing atomic connecting the two once
+\texttt{register\_client} stops sharing the lock -- is what makes the
+hazard, and the fix, formally checkable at all.
+
 % ============================================================
 \section{Basic Types}
 % ============================================================
@@ -250,6 +343,16 @@ changed in when it may transition.
 
 Unchanged from round 1.
 
+\begin{zed}
+  FSTATE ::= fclear | fset
+\end{zed}
+
+New in round 3. A coarse two-value carrier for the three new cascade-leg
+flags below, in the same style as \texttt{TSTATE} and \texttt{LSTATE} --
+prefixed constructors, not \fuzz's logical \texttt{true}/\texttt{false}, so a
+reader is never tempted to read \texttt{hasSubs~c? = fset} as a bare
+proposition.
+
 % ============================================================
 \section{State}
 % ============================================================
@@ -263,11 +366,16 @@ counterexample rather than a disabled transition.
   identity : CONN \pfun IDENT \\
   transport : CONN \pfun TSTATE \\
   lease : CONN \pfun LSTATE \\
-  owner : SCENE \fun OWNER
+  owner : SCENE \fun OWNER \\
+  hasSubs : CONN \fun FSTATE \\
+  hasWriter : CONN \fun FSTATE \\
+  inboxNonEmpty : CONN \fun FSTATE \\
+  cascadeFor : \power CONN
 \where
   registered \subseteq \dom identity \\
   \dom identity = \dom transport \\
-  \dom transport = \dom lease
+  \dom transport = \dom lease \\
+  \# cascadeFor \leq 1
 \end{schema}
 
 As in round 1, \texttt{identity} is kept for every connection that has
@@ -275,7 +383,18 @@ ever connected, including a departed one -- I3's same-identity comparison
 needs it, and no operation below ever shrinks \texttt{dom identity}.
 \texttt{owner} stays total over \texttt{SCENE} for the same reason round 1
 gave: every predicate below is then a plain function application, never a
-domain-membership guard.
+domain-membership guard. The three new cascade-leg flags are total over
+\texttt{CONN} for the identical reason -- round 1's argument for
+\texttt{owner} applies verbatim, and it sidesteps a real modeling trap: a
+partial function keyed like \texttt{lease} would need every operation that
+introduces a fresh connection id to decide, separately, whether that id is
+new (needing a fresh \texttt{fclear} entry) or a reconnect (needing its
+prior value preserved) -- an \emph{if-then-else} on domain membership this
+model has no need to carry. \texttt{cascadeFor} is new: a set of at most
+one connection, standing for whichever connection, if any, is currently
+between \texttt{TimedReapBegin} and \texttt{TimedReapEnd} -- the model's
+one deliberately-exposed window onto what is, in the fixed real system, a
+single unbroken hold of \texttt{StoreLock}.
 
 % ============================================================
 \section{Initialization}
@@ -288,10 +407,16 @@ domain-membership guard.
   identity' = \emptyset \\
   transport' = \emptyset \\
   lease' = \emptyset \\
-  owner' = (\lambda s : SCENE @ unowned)
+  owner' = (\lambda s : SCENE @ unowned) \\
+  hasSubs' = (\lambda c : CONN @ fclear) \\
+  hasWriter' = (\lambda c : CONN @ fclear) \\
+  inboxNonEmpty' = (\lambda c : CONN @ fclear) \\
+  cascadeFor' = \emptyset
 \end{schema}
 
-Unchanged from round 1.
+The first five lines are unchanged from round 1. The four new lines start
+every cascade-leg flag \texttt{fclear} and no cascade in flight -- the only
+sensible empty state, since nothing has connected yet.
 
 % ============================================================
 \section{Operations}
@@ -309,12 +434,35 @@ whole of I4's argument.
   c? : CONN \\
   i? : IDENT
 \where
+  cascadeFor = \emptyset \\
   registered' = registered \cup \{ c? \} \\
   identity' = identity \oplus \{ c? \mapsto i? \} \\
   transport' = transport \oplus \{ c? \mapsto tup \} \\
   lease' = lease \oplus \{ c? \mapsto llive \} \\
+  hasWriter' = hasWriter \oplus \{ c? \mapsto fset \} \\
+  hasSubs' = hasSubs \\
+  inboxNonEmpty' = inboxNonEmpty \\
+  cascadeFor' = cascadeFor \\
   owner' = owner
 \end{schema}
+
+Two changes from round 1/2. First, the guard: \texttt{$cascadeFor = \emptyset$}
+is new -- the formal counterpart of bringing \texttt{register\_client} under
+\texttt{StoreLock.write()} (design document Section~4). Second, the effect:
+\texttt{$hasWriter' = hasWriter \oplus \{c? \mapsto fset\}$} models
+\texttt{inbox.ensure\_writer}'s net effect on any (re)connect -- either a
+genuinely fresh writer is bound because none existed, or one already did and
+\texttt{ensure\_writer} returns early, leaving it \texttt{true} either way;
+this coarse model has no way to distinguish a fresh writer from a stale one
+by identity, so it does not need to. \texttt{hasSubs} and
+\texttt{inboxNonEmpty} are left unchanged by \texttt{Connect} -- deliberately:
+a reconnect does not automatically resubscribe to any topic, and it does not
+automatically drain an inbox queue that already had messages in it. This
+asymmetry is not an oversight; it is exactly Section~1.1 of the design
+document's own diagnosis, that a reconnecting client silently inherits
+whatever \texttt{hasSubs}/\texttt{inboxNonEmpty} state a departed
+predecessor under the same identity left behind, unless departure itself
+cleared it first.
 
 \subsection{Renew --- authenticated contact that is not a write}
 
@@ -331,12 +479,65 @@ cannot renew this way either.
 \where
   c? \in registered \\
   transport~c? = tup \\
+  cascadeFor = \emptyset \\
   lease' = lease \oplus \{ c? \mapsto llive \} \\
   registered' = registered \\
   identity' = identity \\
   transport' = transport \\
+  hasSubs' = hasSubs \\
+  hasWriter' = hasWriter \\
+  inboxNonEmpty' = inboxNonEmpty \\
+  cascadeFor' = cascadeFor \\
   owner' = owner
 \end{schema}
+
+One change: the same \texttt{$cascadeFor = \emptyset$} guard \texttt{Connect}
+gains, matching \texttt{identify\_client} joining \texttt{register\_client}
+under \texttt{StoreLock.write()} in the design document's Section~4 fix.
+\texttt{Renew} touches none of the three cascade-leg flags -- an explicit
+\texttt{identify} call is contact, not \texttt{ensure\_writer}, and does not
+by itself bind a writer.
+
+\subsection{Activate --- the transport-owned side effects, one abstract step}
+\label{sec:activate}
+
+New in round 3. Models, collapsed into a single step, whatever combination
+of a topic subscription, a writer binding, and an inbox write an ordinary
+connected client performs after connecting -- \texttt{SubscriptionRegistry.subscribe},
+\texttt{Hub.register\_writer}, and a peer's \texttt{publish} landing a
+message in \texttt{c?}'s own inbox queue. The design document frames this
+collapse explicitly ("modeled abstractly") for its cascade-incomplete
+trace (Section~\ref{sec:fidelity-cascade-incomplete} below): I7 needs only
+that these three facts can become true together, never which topic or
+which message, so one schema setting all three suffices and no topic or
+message carrier is introduced.
+
+\begin{schema}{Activate}
+  \Delta ConnReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  transport~c? = tup \\
+  hasSubs' = hasSubs \oplus \{ c? \mapsto fset \} \\
+  hasWriter' = hasWriter \oplus \{ c? \mapsto fset \} \\
+  inboxNonEmpty' = inboxNonEmpty \oplus \{ c? \mapsto fset \} \\
+  registered' = registered \\
+  identity' = identity \\
+  transport' = transport \\
+  lease' = lease \\
+  owner' = owner \\
+  cascadeFor' = cascadeFor
+\end{schema}
+
+\texttt{Activate} does not renew the lease -- it is not named among the
+contact-renews-lease operations in round 2's ruling, and keeping it inert on
+\texttt{lease} is what keeps \texttt{LeaseLapse} reachable immediately
+afterward in Section~\ref{sec:fidelity-cascade-incomplete}'s trace, exactly
+as the design document's own sketch lists it. Nor does it check or touch
+\texttt{cascadeFor}: while \texttt{c?} is mid its own
+\texttt{TimedReapBegin}/\texttt{TimedReapEnd} window it has already left
+\texttt{registered}, so \texttt{Activate}'s own guard already excludes it,
+and no other connection's window has any bearing on what \texttt{c?} can do.
 
 \subsection{TransportDies --- the environment, not the Hub}
 
@@ -352,7 +553,11 @@ Unchanged from round 1.
   registered' = registered \\
   identity' = identity \\
   lease' = lease \\
-  owner' = owner
+  owner' = owner \\
+  hasSubs' = hasSubs \\
+  hasWriter' = hasWriter \\
+  inboxNonEmpty' = inboxNonEmpty \\
+  cascadeFor' = cascadeFor
 \end{schema}
 
 \subsection{LeaseLapse --- time passes with nothing to renew it}
@@ -378,7 +583,11 @@ is pure time arithmetic and never inspects transport state.
   registered' = registered \\
   identity' = identity \\
   transport' = transport \\
-  owner' = owner
+  owner' = owner \\
+  hasSubs' = hasSubs \\
+  hasWriter' = hasWriter \\
+  inboxNonEmpty' = inboxNonEmpty \\
+  cascadeFor' = cascadeFor
 \end{schema}
 
 \subsection{Read --- the non-destructive query}
@@ -426,12 +635,26 @@ reflecting the release.
   registered' = registered \setminus \{ c? \} \\
   owner' = owner \oplus \\
   \quad~ (\{ s : SCENE | owner~s = conn(c?) \} \cross \{ unowned \}) \\
+  hasSubs' = hasSubs \oplus \{ c? \mapsto fclear \} \\
+  hasWriter' = hasWriter \oplus \{ c? \mapsto fclear \} \\
+  inboxNonEmpty' = inboxNonEmpty \oplus \{ c? \mapsto fclear \} \\
   identity' = identity \\
   transport' = transport \\
-  lease' = lease
+  lease' = lease \\
+  cascadeFor' = cascadeFor
 \end{schema}
 
-\subsection{TimedReap --- the lease as a real background backstop}
+The three new lines are round 3's addition, in exactly the predicate that
+already zeroes \texttt{owner} -- one atomic step, all four cascade legs at
+once, matching \texttt{HubDisplay.drop\_connection} once it is fixed to run
+the coordinator's full cascade (design document Section~2) rather than only
+its first two legs. \texttt{Depart} needs no split: nothing in the design
+document's Section~4 finding implicates it, and Section~\ref{sec:inv}
+argues why its round-2 atomicity already forecloses the hazard that
+motivates \texttt{TimedReap}'s split below.
+
+\subsection{TimedReap --- the lease as a real background backstop, now in
+two steps}
 \label{sec:timedreap}
 
 \texttt{Depart} and \texttt{Claim}'s embedded sweep are both
@@ -441,46 +664,85 @@ Neither fires on its own. The bead this model exists to close reports a
 connection that persisted 25.79 hours: no peer ever wrote again, and
 nothing ever disconnected it, so neither pull-based path ever ran, and a
 purely pull-based fix would have reproduced exactly that silence.
-\texttt{TimedReap} is the same atomic deregister-and-release predicate as
-\texttt{Depart}, but with \texttt{Depart}'s permissive guard narrowed to
-the one condition a background timer can act on without any other
-party's help: the lease has lapsed. No other connection needs to exist,
-act, or have ever existed, for \texttt{TimedReap(c?)} to become and stay
+\texttt{TimedReap} realizes the one condition a background timer can act on
+without any other party's help: the lease has lapsed. No other connection
+needs to exist, act, or have ever existed, for it to become and stay
 enabled.
 
-\begin{schema}{TimedReap}
+Through round 2 this was one atomic schema, line-for-line \texttt{Depart}'s
+with one added guard conjunct. Round 3 splits it into two:
+\texttt{TimedReapBegin} performs exactly what round 2's \texttt{TimedReap}
+did -- the registry-and-ownership removal, unchanged in shape from
+\texttt{Depart}'s own first two legs -- and marks \texttt{c?} as
+mid-cascade; \texttt{TimedReapEnd} performs the two new legs this round
+adds (subscriptions and writer, inbox) and clears the mark. This is not a
+cosmetic refactor. It is required to make the register\_client-vs-reap
+race the design document reports (its Section~4) reachable by \fuzz\ 's
+model at all -- the introduction above already argues why no ordering of
+two fully atomic, freshly-guard-checked operations could ever witness it.
+\texttt{Depart} and \texttt{Claim} are not split, because nothing reported
+implicates them, and Section~\ref{sec:inv} argues their existing atomicity
+already forecloses the same hazard without needing the device.
+
+\begin{schema}{TimedReapBegin}
   \Delta ConnReg \\
   c? : CONN
 \where
   c? \in registered \\
   lease~c? = llapsed \\
+  cascadeFor = \emptyset \\
   registered' = registered \setminus \{ c? \} \\
   owner' = owner \oplus \\
   \quad~ (\{ s : SCENE | owner~s = conn(c?) \} \cross \{ unowned \}) \\
+  cascadeFor' = \{ c? \} \\
   identity' = identity \\
   transport' = transport \\
-  lease' = lease
+  lease' = lease \\
+  hasSubs' = hasSubs \\
+  hasWriter' = hasWriter \\
+  inboxNonEmpty' = inboxNonEmpty
 \end{schema}
 
-The predicate is line-for-line \texttt{Depart}'s, with one added
-conjunct in the guard. That repetition is deliberate, not an oversight:
-Section~\ref{sec:inv}'s two-lock argument depends on every
-registry-mutating operation sharing exactly this shape, and stating
-\texttt{TimedReap} as ``\texttt{Depart} restricted to a lapsed lease''
-in prose, without restating its predicate in full, would leave a reader
-unable to check by inspection that the restriction is the \emph{only}
-difference. \texttt{TimedReap} is, in fact, round 1's original
-\texttt{Reap} operation, reinstated verbatim: round 1 was right that a
-lapsed lease alone should be enough to trigger release, and this
-addendum's ruling is that round 1 was also right to make it a
-freestanding, unconditional operation rather than something this round's
-first cut folded away entirely into \texttt{Depart} and \texttt{Claim}.
-The difference from round 1 is only what it now stands \emph{beside}: an
-explicit non-destructive \texttt{Read}, an explicit external-signal
-\texttt{Depart}, and a \texttt{Claim} that also renews and sweeps -- so
-the model no longer has to choose between ``the lease fires on its own''
-and ``leaving the registry always releases ownership, however
-triggered''; it has both.
+The guard's added conjunct, \texttt{$cascadeFor = \emptyset$}, is
+\texttt{TimedReapBegin}'s own self-exclusion: only one connection's cascade
+may be in flight at a time, matching \texttt{StoreLock}'s single-holder
+property (\texttt{ConnReg}'s own \texttt{$\#cascadeFor \leq 1$} axiom
+states the invariant this maintains). \texttt{hasSubs}, \texttt{hasWriter},
+and \texttt{inboxNonEmpty} are deliberately left untouched here -- this is
+the registry-and-ownership removal alone, matching real
+\texttt{\_depart\_lapsed}'s own first act (design document Section~1: ``C is
+popped from \texttt{\_sessions}. \texttt{StoreLock} is still held.'') --
+the window this exposes, and what closes it, is the entire point of the
+split.
+
+\begin{schema}{TimedReapEnd}
+  \Delta ConnReg \\
+  c? : CONN
+\where
+  cascadeFor = \{ c? \} \\
+  cascadeFor' = \emptyset \\
+  hasSubs' = hasSubs \oplus \{ c? \mapsto fclear \} \\
+  hasWriter' = hasWriter \oplus \{ c? \mapsto fclear \} \\
+  inboxNonEmpty' = inboxNonEmpty \oplus \{ c? \mapsto fclear \} \\
+  registered' = registered \\
+  identity' = identity \\
+  transport' = transport \\
+  lease' = lease \\
+  owner' = owner
+\end{schema}
+
+\texttt{TimedReapEnd} models the cascade tail this round adds --
+\texttt{Hub.on\_disconnect} (subscriptions, writer) and the transport
+sink (inbox) -- and is enabled precisely when some connection's cascade is
+open, closing it unconditionally once fired: no other precondition, so it
+cannot be indefinitely deferred once \texttt{TimedReapBegin} has run
+(Section~\ref{sec:verify}'s deadlock re-run confirms this rather than
+assuming it). Together, \texttt{TimedReapBegin}\,;\,\texttt{TimedReapEnd} in
+immediate succession, with nothing else interleaved, compute exactly what
+round 2's single \texttt{TimedReap} computed, plus the three new
+\(\oplus\) terms -- the split changes nothing about the property round 2
+already proved; it only creates the one window this round needs to state
+and then close a new one.
 
 \subsection{Claim --- the ownership-gated write, renewing itself first}
 \label{sec:claim}
@@ -545,9 +807,29 @@ can only arrive over a live transport.
     \qquad c2 \in registered \land c2 \neq c? \land lease~c2 = llapsed
     \land owner~s = conn(c2) \} \\
     \qquad \cross \{ unowned \})) \oplus \{ s? \mapsto conn(c?) \} \\
+  hasSubs' = hasSubs \oplus (\{ c2 : CONN | c2 \in registered \land
+    c2 \neq c? \land lease~c2 = llapsed \} \cross \{ fclear \}) \\
+  hasWriter' = hasWriter \oplus (\{ c2 : CONN | c2 \in registered \land
+    c2 \neq c? \land lease~c2 = llapsed \} \cross \{ fclear \}) \\
+  inboxNonEmpty' = inboxNonEmpty \oplus (\{ c2 : CONN | c2 \in registered
+    \land c2 \neq c? \land lease~c2 = llapsed \} \cross \{ fclear \}) \\
   identity' = identity \\
-  transport' = transport
+  transport' = transport \\
+  cascadeFor' = cascadeFor
 \end{schema}
+
+The three new lines mirror the \(\oplus\) already computing \texttt{owner'}
+exactly: same sweep set, same \(c2 \neq c?\) exclusion (the exclusion that
+closes H3/I6 is untouched -- the caller is never among the connections
+its own write clears), applied to the three new flags instead of ownership.
+\texttt{Claim} needs no \texttt{cascadeFor} guard of its own: its own guard
+already requires \texttt{$c? \in registered$}, which a connection currently
+mid \texttt{TimedReapBegin}/\texttt{TimedReapEnd} has already lost, so
+\texttt{Claim(c?, s?)} for that \texttt{c?} is disabled by its existing
+guard with no new conjunct needed, and \texttt{Claim} for any \emph{other}
+connection has no state in common with a cascade window that names a
+different \texttt{c?} -- adding the guard there would exclude no
+additional trace.
 
 % ============================================================
 \section{Invariants}
@@ -571,10 +853,13 @@ means a connection can never re-arm its lease once its transport has died
 without an intervening \texttt{Connect}. Once
 \texttt{$transport~c? = tdown \land lease~c? = llive$}, \texttt{LeaseLapse}
 is enabled and depends on nothing but \texttt{c?}'s own state; once
-\texttt{lease~c? = llapsed}, \texttt{TimedReap} (Section
+\texttt{lease~c? = llapsed}, \texttt{TimedReapBegin} (Section
 \ref{sec:timedreap}) is enabled and \emph{also} depends on nothing but
-\texttt{c?}'s own state -- not on any other connection existing, not on
-any read ever running, not on any disconnect ever being detected. This is
+\texttt{c?}'s own state and \texttt{cascadeFor} being empty -- an
+uncontested condition for a lone connection, since nothing else can be
+mid-cascade in a carrier holding only \texttt{c?} -- not on any other
+connection existing, not on any read ever running, not on any disconnect
+ever being detected. This is
 the strengthening this addendum makes, and it is worth being exact about
 what was actually wrong with the previous round's argument, because it is
 not a reachability gap. \texttt{Depart}'s guard, \texttt{$c? \in
@@ -598,11 +883,13 @@ on nothing but \texttt{c?}'s own recorded state, so a periodic caller
 with no reference to any other connection's identity, and no external
 signal delivered to it at all, could implement exactly this guard: the
 chain
-\texttt{TransportDies}\,;\,\texttt{LeaseLapse}\,;\,\texttt{TimedReap},
+\texttt{TransportDies}\,;\,\texttt{LeaseLapse}\,;\,\texttt{TimedReapBegin}\,;
+\,\texttt{TimedReapEnd},
 run against a carrier holding only \texttt{c?} itself -- no second
 connection, no \texttt{Read}, no \texttt{Depart} -- is a complete,
 self-contained witness that \texttt{c?} leaves \texttt{registered} with
-every scene it owned released, and Section~\ref{sec:verify} confirms this
+every scene it owned released and every cascade-leg flag cleared, and
+Section~\ref{sec:verify} confirms this
 trace by reachability with \texttt{CONN} instantiated to a single element.
 \texttt{Depart} and \texttt{Claim}'s embedded sweep remain additional,
 faster dischargers of a lapsed lease when their own triggers happen to
@@ -618,8 +905,8 @@ coverage audit named as an open gap and this addendum closes.
 Restated verbatim from round 1. It remains true, but it is no longer the
 whole of the argument, because there are now three operations that can
 remove a connection from \texttt{registered}
-(\texttt{Depart}, \texttt{TimedReap}, and \texttt{Claim}'s embedded sweep
-of others) instead of one, plus one that must never remove anyone
+(\texttt{Depart}, \texttt{TimedReapBegin}, and \texttt{Claim}'s embedded
+sweep of others) instead of one, plus one that must never remove anyone
 (\texttt{Read}). I5, below, is the version of this argument that
 actually accounts for all four.
 
@@ -650,11 +937,15 @@ ownership is the same \texttt{Claim} every connection uses.
 \texttt{Read} itself) ever changes \texttt{registered}.
 
 The first conjunct is I2's formula, now proven against four removal
-paths instead of one: \texttt{Depart} and \texttt{TimedReap} each release
-every scene \texttt{c?} owned in the same step they remove \texttt{c?}
-(Sections~\ref{sec:depart} and~\ref{sec:timedreap} -- the two predicates
-are identical apart from \texttt{TimedReap}'s added lease guard, so this
-argument covers both at once), and \texttt{Claim}'s embedded sweep
+paths instead of one: \texttt{Depart} and \texttt{TimedReapBegin} each
+release every scene \texttt{c?} owned in the same step they remove
+\texttt{c?} (Sections~\ref{sec:depart} and~\ref{sec:timedreap} -- the two
+predicates are identical, registry-and-ownership-wise, apart from
+\texttt{TimedReapBegin}'s added lease guard and its
+\texttt{$cascadeFor = \emptyset$} self-exclusion, so this argument covers
+both at once; the split's second half, \texttt{TimedReapEnd}, touches
+neither \texttt{registered} nor \texttt{owner} at all, so it plays no part
+in I2 or I5), and \texttt{Claim}'s embedded sweep
 releases every scene each swept \texttt{c2} owned in the same step it
 removes \texttt{c2} from \texttt{registered} (Section~\ref{sec:claim}'s
 step 2). No other operation ever assigns \texttt{owner} to a connection
@@ -692,25 +983,66 @@ transport never died. Every witness to I5's general formula that
 (Section~\ref{sec:depart}'s guard is orthogonal to it), so it does not
 distinguish this case on its own -- but that is exactly why \texttt{c?}'s
 own \texttt{transport} being \texttt{tup} throughout a trace is a
-meaningful discriminator elsewhere: a \texttt{TimedReap}-produced witness
-\emph{also} requires nothing of transport state, so a witness confined to
-\texttt{transport~c? = tup} could still, in principle, come from either
-\texttt{Depart} or \texttt{TimedReap} acting on a connection that never
-crashed at all -- an ordinary graceful departure or a lease that
-genuinely lapsed from real inactivity, neither of which is a bug. What I6
-rules out is narrower and sharper: that \texttt{Claim}'s own sweep, not
-\texttt{Depart} or \texttt{TimedReap}, ever catches its \emph{own caller}
-on the very call that caller is making -- the one mechanism H3 names, and
-the one no legitimate departure operation is even attempting to perform
-mid-write. In the fixed spec that cannot happen, because \texttt{Claim}'s
-\(c2 \neq c?\) exclusion (Section~\ref{sec:claim}, step 2) means the
-caller can never appear in the set it sweeps, regardless of what its own
-\texttt{lease} showed on entry. Section~\ref{sec:fidelity-h3}'s control
-removes exactly that exclusion and shows the formula above becomes
+meaningful discriminator elsewhere: a \texttt{TimedReapBegin}-produced
+witness \emph{also} requires nothing of transport state, so a witness
+confined to \texttt{transport~c? = tup} could still, in principle, come
+from either \texttt{Depart} or \texttt{TimedReapBegin} acting on a
+connection that never crashed at all -- an ordinary graceful departure or
+a lease that genuinely lapsed from real inactivity, neither of which is a
+bug. What I6 rules out is narrower and sharper: that \texttt{Claim}'s own
+sweep, not \texttt{Depart} or \texttt{TimedReapBegin}, ever catches its
+\emph{own caller} on the very call that caller is making -- the one
+mechanism H3 names, and the one no legitimate departure operation is even
+attempting to perform mid-write. In the fixed spec that cannot happen,
+because \texttt{Claim}'s \(c2 \neq c?\) exclusion (Section~\ref{sec:claim},
+step 2) means the caller can never appear in the set it sweeps, regardless
+of what its own \texttt{lease} showed on entry. Section~\ref{sec:fidelity-h3}'s
+control removes exactly that exclusion and shows the formula above becomes
 reachable in three steps that never call \texttt{TransportDies},
-\texttt{Depart}, or \texttt{TimedReap} at all -- isolating the claim to
-\texttt{Claim} alone, exactly as the fidelity-control discipline
-requires.
+\texttt{Depart}, \texttt{TimedReapBegin}, or \texttt{TimedReapEnd} at all --
+isolating the claim to \texttt{Claim} alone, exactly as the
+fidelity-control discipline requires.
+
+\paragraph{I7 --- departure clears the full cascade, however triggered.}
+\[
+  \lnot\, \exists\, c : CONN @ \\
+  \quad~ c \notin registered \land c \notin cascadeFor \land \\
+  \quad~ (hasSubs~c = fset \lor hasWriter~c = fset \lor
+    inboxNonEmpty~c = fset).
+\]
+The general form of I5, extended from the registry-and-ownership leg to
+all three of the legs round 3 adds. The \texttt{$c \notin cascadeFor$}
+conjunct is the one genuinely new piece of the statement, and it earns a
+careful defense rather than a wave: without it, I7 would be reported
+\texttt{FOUND}-violated even in this, the fixed, spec, purely as an
+artifact of the \texttt{TimedReapBegin}/\texttt{TimedReapEnd} split --
+immediately after \texttt{TimedReapBegin(c?)}, \texttt{c?} has already
+left \texttt{registered} but \texttt{hasWriter(c?)} may still read
+\texttt{fset}, because clearing it is \texttt{TimedReapEnd}'s job, not
+\texttt{TimedReapBegin}'s. That is not a defect in the fix; it is the
+exposed half of the very window this round's split exists to reveal, and
+it is invisible to every external operation for the same reason round 2's
+``two-lock concern is moot by construction'' argument already gives for
+\emph{every} atomic schema in this document: nothing else can act on
+\texttt{c?} while its own cascade is open (\texttt{Depart}'s and
+\texttt{Claim}'s guards on \texttt{c?} already fail the moment
+\texttt{TimedReapBegin} has run, and \texttt{Connect}/\texttt{Renew}'s new
+\texttt{$cascadeFor = \emptyset$} guard, argued below, forecloses the one
+operation that otherwise could). I7 is stated, correctly, over states an
+external observer can actually reach between complete operations -- exactly
+where I2, I5, and I6 are already implicitly stated, since Z's own
+atomicity means none of them has ever needed to say ``except mid-Depart''
+or ``except mid-Claim.'' \texttt{TimedReapBegin}/\texttt{TimedReapEnd} is
+the one place this round deliberately widens the grain past a single
+schema, so it is the one place the exemption must be written down rather
+than left implicit. The exemption is vacuous for every connection that
+ever departs via \texttt{Depart} or \texttt{Claim}'s sweep, since neither
+operation ever adds anything to \texttt{cascadeFor} -- \texttt{$c
+\notin cascadeFor$} is unconditionally true for them, so I7 binds on them
+with no relaxation at all. This is what closes the gap Section~1 of the
+design document names: \texttt{Depart} already reached all four cascade
+legs once fixed; \texttt{TimedReapBegin}/\texttt{TimedReapEnd} and
+\texttt{Claim}'s sweep now do too.
 
 \paragraph{The two-lock concern is moot by construction.}
 The current, unfixed code holds \texttt{HubClientRegistry}'s own lock
@@ -721,7 +1053,7 @@ when a caller updates one without the other under one critical section.
 This model does not need a second lock in its own terms, because it does
 not need coordinating in the first place: \texttt{Read} never mutates
 \texttt{registered} (Section~\ref{sec:read}), so the only three
-operations that ever do -- \texttt{Depart}, \texttt{TimedReap}, and
+operations that ever do -- \texttt{Depart}, \texttt{TimedReapBegin}, and
 \texttt{Claim} -- are also, by their own single predicate, the only
 three operations that ever mutate \texttt{owner} on a departure. There
 is no interleaving in which one without the other could be observed,
@@ -730,6 +1062,38 @@ because in this model, as the fix requires of the real
 \texttt{\_owners}), removing-from-the-registry and releasing-ownership
 are not two updates that a lock discipline keeps in step; they are one
 update.
+
+\paragraph{Bringing \texttt{Connect}/\texttt{Renew} under the same
+discipline introduces no new lock-acquisition cycle.}
+\label{sec:storelock-nesting}
+The design document's Section~4 fix nests two real locks on a path that
+previously took only the inner one: \texttt{register\_client}/
+\texttt{identify\_client} currently take only \texttt{HubClientRegistry}'s
+own internal lock; the fix additionally wraps them in
+\texttt{HubDisplay.\_lock.write()} (\texttt{StoreLock}), so the call now
+holds \texttt{StoreLock} \emph{and then} the inner registry lock, nested,
+exactly as \texttt{apply}/\texttt{replace\_scene}/\texttt{show\_scene}
+already do. A locking-discipline change that nests two locks is exactly
+the class of change this project's z-spec mandate requires proving
+deadlock-free, not assuming it. The argument is short because the nesting
+order does not change: on every path, before and after this fix,
+\texttt{StoreLock} is acquired first and the inner \texttt{HubClientRegistry}
+lock (fully absorbed into this model's schema atomicity, per the paragraph
+above) second, never the reverse -- \texttt{register\_client}/
+\texttt{identify\_client} joining that discipline is one more caller taking
+the locks in the \emph{same} order every existing caller already does, not
+a new order for anyone to take them in. A deadlock needs a cycle in the
+lock-acquisition graph; adding an edge in a direction every existing edge
+already points cannot create one. In this model, that global order is
+represented by \texttt{cascadeFor}: it is acquired by exactly one operation
+(\texttt{TimedReapBegin}), released by exactly one operation
+(\texttt{TimedReapEnd}), and merely tested, never acquired, by
+\texttt{Connect} and \texttt{Renew} -- a single-owner, single-releaser
+resource is structurally incapable of participating in a cycle with
+itself, since a cycle needs at least two resources each waiting on the
+other. Section~\ref{sec:verify}'s full \texttt{-model\_check}, re-run
+against this round's extended carrier, confirms no deadlock rather than
+resting on this structural argument alone.
 
 \paragraph{The three coordinators serialize; none of them races.}
 \label{sec:serialize}
@@ -752,52 +1116,98 @@ deadlock) is what confirms none of them is merely assumed:
 
 \begin{enumerate}
   \item \textbf{Whichever fires first wins, and correctly.} If
-    \texttt{TimedReap(c?)} and \texttt{Depart(c?)} are \emph{both} enabled
-    in some state (a lapsed lease and a live, graceful-disconnect-eligible
-    connection are not mutually exclusive conditions), firing either one
-    removes \texttt{c?} from \texttt{registered} and releases every scene
-    it owned -- the two predicates differ only in \texttt{TimedReap}'s
-    extra guard, never in their effect. The second operation, whichever
+    \texttt{TimedReapBegin(c?)} and \texttt{Depart(c?)} are \emph{both}
+    enabled in some state (a lapsed lease and a live,
+    graceful-disconnect-eligible connection are not mutually exclusive
+    conditions), firing either one removes \texttt{c?} from
+    \texttt{registered} and releases every scene it owned -- the two
+    predicates differ only in \texttt{TimedReapBegin}'s extra guard, never
+    in their registry-and-ownership effect. The second operation, whichever
     it is, is then simply disabled: its guard, \texttt{$c? \in registered$},
     fails, because the first one already removed \texttt{c?}. There is no
     state in which both fire on the same \texttt{c?} and no state in
     which their effects could conflict, because they compute the
-    identical postcondition.
+    identical postcondition on \texttt{registered} and \texttt{owner}.
   \item \textbf{A write is never stranded behind a timer, or vice versa.}
     \texttt{Claim(c2, s?)} for a \emph{different} connection \texttt{c2}
-    and \texttt{TimedReap(c1)} for a lapsed \texttt{c1} are independent:
-    neither's guard reads the other's parameter, and \texttt{Claim}'s own
-    embedded sweep (Section~\ref{sec:claim}, step 2) would perform the
-    identical release on \texttt{c1} if \texttt{TimedReap} had not already
-    done so first. Whichever fires first, the reachable state after both
-    have run (in either order) is the same: \texttt{c1} departed and
-    released, \texttt{c2}'s claim resolved against a registry that no
-    longer shows \texttt{c1} as a candidate to be swept. Reachability is
-    monotonic under adding \texttt{TimedReap} to a spec that already had
-    \texttt{Depart} and \texttt{Claim}: every state and trace reachable
-    before this addendum remains reachable after it, because no existing
-    operation's guard or effect changed.
+    and \texttt{TimedReapBegin(c1)} for a lapsed \texttt{c1} are
+    independent: neither's guard reads the other's parameter, and
+    \texttt{Claim}'s own embedded sweep (Section~\ref{sec:claim}, step 2)
+    would perform the identical release on \texttt{c1} if
+    \texttt{TimedReapBegin} had not already done so first. Whichever fires
+    first, the reachable state after both have run (in either order) is
+    the same: \texttt{c1} departed and released, \texttt{c2}'s claim
+    resolved against a registry that no longer shows \texttt{c1} as a
+    candidate to be swept. Reachability is monotonic under adding
+    \texttt{TimedReap} to a spec that already had \texttt{Depart} and
+    \texttt{Claim}: every state and trace reachable before this addendum
+    remains reachable after it, because no existing operation's guard or
+    effect changed.
   \item \textbf{A connection can never claim while being timed-reaped
     out from under itself.} \texttt{Claim(c?, s?)} renews \texttt{c?}'s
     own lease to \texttt{llive} as its first effect
-    (Section~\ref{sec:claim}, step 1), and \texttt{TimedReap(c?)}
+    (Section~\ref{sec:claim}, step 1), and \texttt{TimedReapBegin(c?)}
     requires \texttt{lease~c? = llapsed}. Because both are whole,
     indivisible steps, there is no state in which \texttt{Claim(c?, s?)}
-    is ``in progress'' for \texttt{TimedReap(c?)} to observe a stale
+    is ``in progress'' for \texttt{TimedReapBegin(c?)} to observe a stale
     lease during: either \texttt{Claim} has already completed, in which
-    case \texttt{c?}'s lease is \texttt{llive} and \texttt{TimedReap(c?)}
+    case \texttt{c?}'s lease is \texttt{llive} and \texttt{TimedReapBegin(c?)}
     is disabled, or it has not yet run at all.
 \end{enumerate}
 
-None of this needs a fourth invariant: it is I5 and I6, reread as claims
-about \emph{any} pair of the four registry-mutating operations rather
-than about \texttt{Claim} alone, and both are already checked exhaustively
-over every reachable state, from every reachable ordering of the four,
-by Section~\ref{sec:verify}'s I5/I6 goal checks. A genuine race producing
-an inconsistent intermediate state would surface there directly, as a
-\texttt{FOUND} counterexample naming the offending trace -- not merely as
-a deadlock, which Section~\ref{sec:verify}'s separate full model-check
-also confirms absent, so neither failure mode is left unchecked.
+None of this needs a fourth invariant for \texttt{Depart}/\texttt{Claim}:
+it is I5 and I6, reread as claims about \emph{any} pair of those two
+registry-mutating operations plus \texttt{TimedReapBegin} rather than
+about \texttt{Claim} alone, and all three are already checked exhaustively
+over every reachable state, from every reachable ordering, by
+Section~\ref{sec:verify}'s I5/I6 goal checks. A genuine race among
+\emph{these three} producing an inconsistent intermediate state would
+surface there directly, as a \texttt{FOUND} counterexample naming the
+offending trace -- not merely as a deadlock, which
+Section~\ref{sec:verify}'s separate full model-check also confirms absent,
+so neither failure mode is left unchecked for this trio.
+
+\paragraph{\texttt{Connect}/\texttt{Renew} are the one pair this argument
+does \emph{not} cover, and closing them needs the new guard, not just the
+atomicity argument above.}
+\label{sec:reconnect-race}
+The three consequences above rest on every participant being a single,
+whole, indivisible Z step -- which is exactly what makes
+\texttt{TimedReapBegin}/\texttt{TimedReapEnd}'s deliberate split the one
+place in this document where that rest is \emph{not} available for free.
+\texttt{Connect(c?, i?)} sets \texttt{$hasWriter'(c?) = fset$}
+unconditionally (Section~\ref{sec:depart}'s sibling, \texttt{Connect}'s own
+definition above); nothing else in the fixed spec ever sets
+\texttt{hasWriter} back to \texttt{fclear} for a connection that remains in
+\texttt{registered} -- the only two operations that ever do,
+\texttt{TimedReapEnd} and \texttt{Depart}, either presuppose or produce
+\texttt{c?} being outside \texttt{registered} in the very same or a prior
+step. So the state
+\texttt{$c? \in registered \land hasWriter(c?) = fclear$} is reachable in
+the fixed spec if, and only if, \texttt{TimedReapEnd(c?)} is permitted to
+fire \emph{after} a \texttt{Connect(c?, \ldots)} that reconnected \texttt{c?}
+during \texttt{c?}'s own still-open cascade window -- precisely the
+interleaving \texttt{cascadeFor} exists to name and the new
+\texttt{$cascadeFor = \emptyset$} guard on \texttt{Connect}/\texttt{Renew}
+exists to forbid: once \texttt{TimedReapBegin(c?)} has set
+\texttt{$cascadeFor = \{c?\}$}, \texttt{Connect}/\texttt{Renew} for
+\emph{any} connection are disabled until \texttt{TimedReapEnd} clears it,
+so no reconnect can land inside the window at all, and by the time one
+can, \texttt{hasWriter(c?)} is already settled at whatever
+\texttt{TimedReapEnd} left it (\texttt{fclear}) with nothing left in
+flight to overwrite. Section~\ref{sec:fidelity-reconnect-race}'s control
+removes exactly this one guard and shows the goal above becomes reachable
+in the shortest witness the design document's own trace names -- isolating
+the hazard to the missing guard alone, exactly as the fidelity-control
+discipline requires. This is the one place in round 3 where atomicity
+alone, the argument this whole section otherwise rests on, is not
+sufficient, and it is not sufficient for a reason worth stating plainly:
+\texttt{Connect}/\texttt{Renew} are the real code's one gap relative to
+its own stated discipline (design document Section~4, quoting
+\texttt{hub\_display.py}'s docstring: ``every write runs under
+\texttt{StoreLock}''), so they are the one pair this model must show a
+race \emph{without} the fix and its absence \emph{with} it, rather than
+argue away structurally as it does for every other pair.
 
 % ============================================================
 \section{Verification}
@@ -839,7 +1249,33 @@ the invariant holds on every reachable state.
     -goal "#s.(#c.(s:SCENE & c:CONN & owner(s) = conn(c) &
                    not(c : registered) & transport(c) = tup))" \
     -p DEFAULT_SETSIZE 3
+
+  # I7 (goal NOT found in this, the fixed, spec)
+  probcli docs/connection_lease_reaping.tex -model_check -nodead \
+    -goal "#c.(c:CONN & not(c : registered) & not(c : cascadeFor) &
+               (hasSubs(c) = fset or hasWriter(c) = fset or
+                inboxNonEmpty(c) = fset))" \
+    -p DEFAULT_SETSIZE 3
 \end{verbatim}
+
+Round 2 confirmed I2/I3/I5/I6 exhaustively at \texttt{DEFAULT\_SETSIZE 3}
+(313{,}093 states) against round 2's own spec. That earlier count does not
+automatically carry over to round 3's spec -- \texttt{Connect} and
+\texttt{Renew} gained a new guard, \texttt{TimedReap} became two
+operations, and every operation gained four new state components -- so the
+same, structurally different model needs its own confirmation.
+\textbf{This round's own exhaustive confirmation of I2, I3, I5, I6, and I7
+is at \texttt{DEFAULT\_SETSIZE 2} (4{,}705 states, ten operations
+covered, no deadlock).} \texttt{DEFAULT\_SETSIZE 3} was attempted for I7
+and for the reconnect-race fidelity control's goal
+(Section~\ref{sec:fidelity-reconnect-race}) and did not complete: the
+enlarged carrier passed 380{,}000 states at 25--27\% coverage, with the
+running total still climbing, before the search was stopped. This is
+stated plainly, not glossed over: \texttt{DEFAULT\_SETSIZE 3} exhaustive
+confirmation of I2/I3/I5/I6/I7 over round 3's carrier is an open
+follow-up, and the commands above are given at \texttt{DEFAULT\_SETSIZE
+3} as the target check for whenever that follow-up runs, not as a claim
+already discharged this round.
 
 I1's mechanism is confirmed by reachability of its positive outcome:
 
@@ -853,9 +1289,10 @@ I1's mechanism is confirmed by reachability of its positive outcome:
 \end{verbatim}
 
 The state a witness ends in does not, by itself, say which operation
-produced it: \texttt{Depart} and \texttt{TimedReap} compute the identical
-postcondition (Section~\ref{sec:timedreap}), so a reachability goal alone
-cannot certify that \texttt{TimedReap} specifically was exercised. The
+produced it: \texttt{Depart} and \texttt{TimedReapBegin} compute the
+identical postcondition on \texttt{registered} and \texttt{owner}
+(Section~\ref{sec:timedreap}), so a reachability goal alone cannot certify
+that \texttt{TimedReap} specifically was exercised. The
 same goal remains \emph{FOUND} at \texttt{DEFAULT\_SETSIZE 1}, which
 bounds \texttt{CONN} to a single element and so rules out any second
 connection appearing anywhere in the witness by construction of the
@@ -880,8 +1317,9 @@ lapsed at all. What is reproducible, and what actually proves the
 strengthening, is the structural argument already given above: at any
 point where \texttt{lease~c? = llapsed} holds for a registered \texttt{c?}
 -- which \texttt{LeaseLapse}'s postcondition establishes unconditionally,
-independent of any other connection -- \texttt{TimedReap(c?)} is enabled
-by inspection of its own guard, whether or not the same state also
+independent of any other connection -- \texttt{TimedReapBegin(c?)} is
+enabled by inspection of its own guard (once \texttt{cascadeFor} is empty,
+uncontested for a lone connection), whether or not the same state also
 happens to enable \texttt{Depart}. A search tool that reports \emph{some}
 witness cannot be asked to prefer one enabled operation over another
 that produces the identical effect; the schema's own precondition is
@@ -903,16 +1341,36 @@ confirmed reachable:
     -p DEFAULT_SETSIZE 3
 \end{verbatim}
 
-\paragraph{Deadlock.} \texttt{Connect} carries no precondition beyond its
-two arguments' types, so it is enabled in every reachable state; the full
-model-check confirms no deadlock over the bounded carrier:
+\paragraph{Deadlock.} Round 1/2's argument was that \texttt{Connect} carries
+no precondition beyond its two arguments' types, so it is enabled in every
+reachable state. Round 3 adds one: \texttt{Connect} now also requires
+\texttt{$cascadeFor = \emptyset$}, so that argument alone no longer
+suffices on its own -- it is exactly the nesting
+Section~\ref{sec:storelock-nesting} argues introduces no new
+lock-acquisition cycle, because \texttt{TimedReapEnd} (the sole releaser of
+\texttt{cascadeFor}) carries no precondition beyond \texttt{$cascadeFor =
+\{c?\}$} and is therefore always enabled the moment
+\texttt{TimedReapBegin} has run, so \texttt{Connect} is never blocked
+longer than one step. The full model-check, re-run against this round's
+extended carrier (ten operations, four new state components), confirms no
+deadlock at \texttt{DEFAULT\_SETSIZE 2} (4,705 states, all visited) rather
+than resting on the structural argument alone:
 
 \begin{verbatim}
-  probcli docs/connection_lease_reaping.tex -model_check -p DEFAULT_SETSIZE 3
+  probcli docs/connection_lease_reaping.tex -model_check -p DEFAULT_SETSIZE 2
 \end{verbatim}
 
+\texttt{DEFAULT\_SETSIZE 3} was attempted and did not finish within this
+round's session: the enlarged carrier -- three new total flag-functions
+plus \texttt{cascadeFor} -- had already passed 380{,}000 states at
+25--27\% coverage, well beyond round 2's own 313{,}093-state total at the
+same setsize, with the running total still climbing when the search was
+stopped. Stated plainly rather than glossed over: \texttt{DEFAULT\_SETSIZE
+2}'s exhaustive result is what this round's deadlock claim rests on;
+\texttt{DEFAULT\_SETSIZE 3} exhaustive confirmation is an open follow-up.
+
 % ============================================================
-\section{Fidelity: reproducing the three shipped holes}
+\section{Fidelity: reproducing five shipped holes}
 \label{sec:fidelity}
 % ============================================================
 
@@ -920,6 +1378,12 @@ A model that cannot reproduce a known defect proves nothing about closing
 it. Each hole gets its own control, changing exactly one thing from this,
 the fixed, spec -- so that a goal found in one control and not found in
 the fixed spec attributes the defect to that one change and no other.
+Round 2 closed three (H1--H3, below); round 3 adds two more --
+Section~\ref{sec:fidelity-cascade-incomplete}'s cascade-incomplete control,
+reproducing round 3's own newly-added gap, and
+Section~\ref{sec:fidelity-reconnect-race}'s reconnect-races-reap control,
+reproducing the register\_client-vs-reap hazard the design document's
+Section~4 reports.
 
 \subsection{H1 --- destructive-read-sweep}
 \label{sec:fidelity-h1}
@@ -1097,5 +1561,169 @@ whichever step first exposes a lapsed lease at the caller's own next
                    not(c : registered) & transport(c) = tup))" \
     -p DEFAULT_SETSIZE 3
 \end{verbatim}
+
+\subsection{Cascade-incomplete --- round 3's own hole, reproduced}
+\label{sec:fidelity-cascade-incomplete}
+
+\texttt{docs/connection\_lease\_reaping\_cascade\_incomplete\_buggy.tex}
+changes only \texttt{TimedReapEnd} and \texttt{Claim}: both omit the three
+new \(\oplus\) terms, leaving \texttt{hasSubs}/\texttt{hasWriter}/
+\texttt{inboxNonEmpty} exactly as they were rather than clearing them to
+\texttt{fclear}, while \texttt{Depart} is left correct -- the literal
+shape of the gap Section~1 of the design document reports:
+\texttt{HubDisplay.drop\_connection} already reaches all four cascade legs
+once fixed, but \texttt{\_depart\_lapsed} (\texttt{TimedReap}'s
+realization) and \texttt{apply}'s embedded sweep (\texttt{Claim}) never
+called \texttt{Hub.on\_disconnect} or the transport sink at all.
+
+\begin{verbatim}
+  % fixed (TimedReapEnd, this spec):
+  hasSubs' = hasSubs (+) {c? |-> fclear}
+  hasWriter' = hasWriter (+) {c? |-> fclear}
+  inboxNonEmpty' = inboxNonEmpty (+) {c? |-> fclear}
+
+  % buggy (TimedReapEnd, the control): the lock releases, but the
+  % cascade tail this round adds never runs
+  hasSubs' = hasSubs
+  hasWriter' = hasWriter
+  inboxNonEmpty' = inboxNonEmpty
+\end{verbatim}
+
+\paragraph{The trace}, matching the design document's own sketch (Section~5)
+almost verbatim.
+\begin{enumerate}
+  \item \texttt{Connect}(c1, i1): \texttt{registered = \{c1\}},
+    \texttt{hasWriter(c1) = fset} (\texttt{Connect}'s own effect).
+  \item \texttt{Activate}(c1): the abstract subscribe/writer-bind/inbox-write
+    step -- \texttt{hasSubs(c1) = hasWriter(c1) = inboxNonEmpty(c1) = fset}.
+  \item \texttt{TransportDies}(c1): \texttt{transport(c1) = tdown}.
+  \item \texttt{LeaseLapse}(c1): \texttt{lease(c1) = llapsed}.
+  \item \texttt{TimedReapBegin}(c1): \texttt{registered = \{\}} (c1
+    removed), \texttt{owner} released, \texttt{cascadeFor = \{c1\}}. The
+    three flags are untouched by \texttt{TimedReapBegin} in \emph{either}
+    spec -- this is not yet where the two diverge.
+  \item \texttt{TimedReapEnd}(c1) -- buggy: \texttt{cascadeFor = \{\}}
+    again, but \texttt{hasSubs(c1) = hasWriter(c1) = inboxNonEmpty(c1) =
+    fset} remain exactly as step 2 left them. \texttt{c1} is outside
+    \texttt{registered} and outside \texttt{cascadeFor}, yet all three
+    flags still read \texttt{fset}: I7's negation is satisfied. Under the
+    fixed spec, the same step clears all three to \texttt{fclear}, so I7
+    holds at every subsequent state too.
+\end{enumerate}
+
+\begin{verbatim}
+  # must be FOUND against this control, NOT found against the fixed spec
+  probcli <spec>.tex -model_check -nodead \
+    -goal "#c.(c:CONN & not(c : registered) & not(c : cascadeFor) &
+               (hasSubs(c) = fset or hasWriter(c) = fset or
+                inboxNonEmpty(c) = fset))" \
+    -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+Confirmed: \texttt{FOUND} against this control at \texttt{DEFAULT\_SETSIZE
+3} (the 8-step trace above, found quickly); \texttt{NOT found} against the
+fixed spec at \texttt{DEFAULT\_SETSIZE 2} (4{,}705 states, exhaustive --
+this is I7's own check, Section~\ref{sec:verify}).
+
+The identical control also demonstrates \texttt{Claim}'s half of the same
+gap: replace steps 3--6 above with a second connection \texttt{c2} calling
+\texttt{Claim}(c2, s2) once \texttt{c1}'s lease has lapsed (no
+\texttt{TransportDies} needed -- \texttt{LeaseLapse} no longer requires a
+dead transport). The buggy \texttt{Claim} sweeps \texttt{c1} out of
+\texttt{registered} and releases its ownership exactly as the fixed spec
+does, but -- with the same three \(\oplus\) terms omitted from its sweep --
+leaves \texttt{hasSubs(c1)}/\texttt{hasWriter(c1)}/\texttt{inboxNonEmpty(c1)}
+at whatever \texttt{Activate} set them to. The same goal is \texttt{FOUND}
+by this route too, with no \texttt{TimedReapBegin}/\texttt{TimedReapEnd}
+in the trace at all -- isolating \texttt{Claim}'s share of the hole from
+\texttt{TimedReap}'s.
+
+\subsection{Reconnect-races-reap --- the register\_client-vs-reap hazard
+(design document Section~4)}
+\label{sec:fidelity-reconnect-race}
+
+\texttt{docs/connection\_lease\_reaping\_reconnect\_race\_buggy.tex}
+changes only \texttt{Connect} and \texttt{Renew}: both drop the
+\texttt{$cascadeFor = \emptyset$} guard this round adds, while every other
+schema -- including the \texttt{TimedReapBegin}/\texttt{TimedReapEnd}
+split itself -- is identical to the fixed spec. This is the real-code
+counterpart of \texttt{register\_client}/\texttt{identify\_client} not
+taking \texttt{StoreLock}: the split already exists in the fixed real
+system (the multi-statement critical section \texttt{\_depart\_lapsed} and
+its cascade tail run through), so what distinguishes fixed from buggy here
+is purely whether the one caller that currently ignores the lock keeps
+ignoring it.
+
+\begin{verbatim}
+  % fixed (Connect, this spec):
+  cascadeFor = {}
+  registered' = registered \/ {c?}
+  ... hasWriter' = hasWriter (+) {c? |-> fset} ...
+
+  % buggy (Connect, the control): the StoreLock fix omitted -- no guard
+  % against a departure coordinator's cascade being open
+  registered' = registered \/ {c?}
+  ... hasWriter' = hasWriter (+) {c? |-> fset} ...
+\end{verbatim}
+
+\paragraph{The trace}, the design document's own Section~5 sketch realized
+step for step.
+\begin{enumerate}
+  \item \texttt{Connect}(c1, i1): \texttt{registered = \{c1\}},
+    \texttt{hasWriter(c1) = fset}, \texttt{lease(c1) = llive}.
+  \item \texttt{LeaseLapse}(c1): \texttt{lease(c1) = llapsed} -- an
+    ordinary lease timeout; no crash, no disconnect.
+  \item \texttt{TimedReapBegin}(c1): \texttt{registered = \{\}} (c1
+    removed), \texttt{cascadeFor = \{c1\}}. \texttt{hasWriter(c1)} is
+    still \texttt{fset} -- untouched by \texttt{TimedReapBegin} in either
+    spec, exactly as Section~\ref{sec:fidelity-cascade-incomplete}'s
+    control shows, but here that is not yet the bug: this connection's
+    cascade has genuinely not finished.
+  \item \texttt{Connect}(c1, i1) again -- \textbf{buggy}: a same-identity
+    reconnect, deriving the identical \texttt{c1} (design document
+    Section~1.1). The fixed spec's guard, \texttt{$cascadeFor =
+    \emptyset$}, would refuse this step outright, since
+    \texttt{cascadeFor = \{c1\}}; the buggy control has no such guard, so
+    it fires: \texttt{registered = \{c1\}} again, \texttt{hasWriter(c1) =
+    fset} again (\texttt{Connect}'s own effect, representing
+    \texttt{ensure\_writer} installing what it believes is a fresh
+    binding), \texttt{cascadeFor} untouched by \texttt{Connect} in either
+    spec -- still \texttt{\{c1\}}, since only \texttt{TimedReapEnd}
+    clears it.
+  \item \texttt{TimedReapEnd}(c1): enabled because \texttt{cascadeFor =
+    \{c1\}} still holds -- the stale reap's cascade tail, decided back at
+    step 3, finally lands. \texttt{hasWriter(c1) = fclear},
+    \texttt{cascadeFor = \{\}}. The reconnect's fresh writer binding from
+    step 4 is retroactively destroyed by a reap that was already stale by
+    the time its cascade tail ran -- exactly the design document's own
+    description, ``the two operations' effects apply out of the order
+    their real-world causes occurred in.''
+\end{enumerate}
+
+After step 5: \texttt{c1 \(\in\) registered} (from the buggy step-4
+reconnect) \emph{and} \texttt{hasWriter(c1) = fclear} (from step 5) -- a
+live, just-reconnected session with no writer bound, silently. Under the
+fixed spec, step 4 is refused; \texttt{Connect}(c1, i1) can only succeed
+\emph{after} \texttt{TimedReapEnd}(c1) has cleared \texttt{cascadeFor},
+and by then \texttt{Connect}'s own unconditional
+\texttt{$hasWriter' = hasWriter \oplus \{c? \mapsto fset\}$} is the last
+word: \texttt{hasWriter(c1) = fset} once the reconnect completes, with
+nothing left in \texttt{cascadeFor} to overwrite it afterward.
+
+\begin{verbatim}
+  # must be FOUND against this control, NOT found against the fixed spec
+  probcli <spec>.tex -model_check -nodead \
+    -goal "#c.(c:CONN & c : registered & hasWriter(c) = fclear)" \
+    -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+Confirmed: \texttt{FOUND} against this control at
+\texttt{DEFAULT\_SETSIZE 3} (a 10-step trace, found quickly -- locating one
+witness needs no exhaustive search); \texttt{NOT found} against the fixed
+spec at \texttt{DEFAULT\_SETSIZE 2} (4{,}705 states, exhaustive).
+\texttt{DEFAULT\_SETSIZE 3} against the fixed spec was attempted and did
+not complete this round (Section~\ref{sec:verify}'s Deadlock paragraph
+records the same state-space growth); \texttt{DEFAULT\_SETSIZE 2}'s
+exhaustive result is what the \texttt{NOT found} claim above rests on.
 
 \end{document}
