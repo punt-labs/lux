@@ -53,6 +53,7 @@ if TYPE_CHECKING:
         Cleared,
         DisplayInfo,
         DisplayModeState,
+        DisplayStateSnapshot,
         InspectScope,
         RenderDashboardRequest,
         SceneInspection,
@@ -189,8 +190,7 @@ class _RestTransport:
     def ping(self, wait: float | None = None) -> Pong | OpError:
         """Round-trip a display ping through ``GET /display/ping``.
 
-        A given ``wait`` rides through as the ``timeout`` query param (the
-        display-leg budget); ``None`` omits it so luxd uses its standing budget.
+        ``None`` uses the standing display-leg budget instead of a caller value.
         """
         suffix = f"?{urlencode({'timeout': wait})}" if wait is not None else ""
         call = HttpCall.read(f"/display/ping{suffix}", self._headers)
@@ -229,10 +229,8 @@ class _RestTransport:
     def list_clients(self) -> ClientList | OpError:
         """List the Hub's sessions and their scopes through ``GET /clients``.
 
-        The in-process ``Operations`` facade never fails this read, but a REST
-        round trip can (stale port, unreachable Hub, unexpected response) --
-        returning the ``OpError`` instead of raising lets every caller handle
-        it through the shared command envelope rather than crashing.
+        A REST round trip can fail where the in-process facade cannot;
+        ``OpError`` lets every caller handle both through one envelope.
         """
         call = HttpCall.read("/clients", self._headers)
         return RestReply(self._transport.request(call)).read(ClientList)
@@ -240,9 +238,8 @@ class _RestTransport:
     def close_frame(self, frame_id: str) -> Ok | OpError:
         """Close a frame through ``POST /display/frames/{id}/close``.
 
-        Returns ``Ok`` on success or ``OpError`` on any REST-visible failure --
-        matching ``raise_frame``'s shape so a caller handles both through the
-        shared command envelope rather than a bare ``RuntimeError``.
+        Returns ``Ok``/``OpError`` matching ``raise_frame``'s shape, so callers
+        handle both through the shared command envelope, not a bare exception.
         """
         segment = quote(frame_id, safe="")
         call = HttpCall.command(f"/display/frames/{segment}/close", self._headers)
@@ -269,6 +266,10 @@ class _RestTransport:
     def get_display_info(self) -> DisplayInfo | OpError:
         """Return the display's backend/geometry through ``GET /display``."""
         return self._display.get_display_info()
+
+    def get_display_state(self) -> DisplayStateSnapshot | OpError:
+        """Return the Display's widget/frame state through ``GET /display/state``."""
+        return self._display.get_display_state()
 
     def get_theme(self) -> ThemeState | OpError:
         """Return the active theme through ``GET /display/theme``."""

@@ -17,7 +17,7 @@ from punt_lux.domain.hub.callback_hold import CallbackRouter
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
-from punt_lux.domain.hub.inbox import ensure_writer, next_event
+from punt_lux.domain.hub.inbox import ensure_writer, inbox_depth_for, next_event
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.hub.scene_presentation import SceneLayout
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
@@ -957,6 +957,7 @@ def _bind_store(monkeypatch: pytest.MonkeyPatch, store: HubDisplay) -> MagicMock
             element_factory=hub_element_factory,
             ensure_writer=ensure_writer,
             next_event=next_event,
+            inbox_depth=inbox_depth_for,
             display_port=HubDisplayConnection(
                 is_running=lambda: DisplayPaths().is_running(),
                 clients=client_registry,
@@ -992,6 +993,7 @@ def _bind_pubsub(
             element_factory=hub_element_factory,
             ensure_writer=_no_writer,
             next_event=next_fn,
+            inbox_depth=inbox_depth_for,
             display_port=HubDisplayConnection(
                 is_running=lambda: DisplayPaths().is_running(),
                 clients=client_registry,

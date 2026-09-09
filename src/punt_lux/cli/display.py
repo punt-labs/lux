@@ -6,7 +6,7 @@ Theme and window are user-only gestures at the Display itself (DES-088).
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated, cast
 
 import typer
 
@@ -33,8 +33,12 @@ from punt_lux.commands import (
     display_screenshot,
     display_window_get,
 )
+from punt_lux.commands.display_state_get import display_state_get
 from punt_lux.operations import DisplayModeRequest
 from punt_lux.operations.display_mode_store import DisplayModeStore
+
+if TYPE_CHECKING:
+    from punt_lux.commands.display_state_get import DisplayStateOps
 
 display_app = typer.Typer(
     name="display",
@@ -49,6 +53,16 @@ _ModeValue = Annotated[
 ]
 
 
+def _ambient_ctx[T](*, _protocol: type[T] | None = None) -> Ctx[T]:
+    """Build a ``Ctx`` from the shared identity; ``_protocol`` only types the call."""
+    del _protocol
+    identity = identity_from_flags(
+        as_=None, kind=None, name=None, repo=None, agent=None
+    )
+    ctx = Ctx(ops=connect_client(identity=identity), identity=identity)
+    return cast("Ctx[T]", ctx)
+
+
 @display_app.command("info")
 def info(
     *,
@@ -58,12 +72,7 @@ def info(
 ) -> None:
     """Return the display's backend, geometry, frame rate, and identity."""
     flags = OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet)
-    identity = identity_from_flags(
-        as_=None, kind=None, name=None, repo=None, agent=None
-    )
-    ctx: Ctx[DisplayInfoOps] = Ctx(
-        ops=connect_client(identity=identity), identity=identity
-    )
+    ctx: Ctx[DisplayInfoOps] = _ambient_ctx()
     run(display_info(ctx), flags)
 
 
@@ -76,11 +85,21 @@ def theme(
 ) -> None:
     """Get the active theme; setting it is a user gesture at Lux ▸ Settings."""
     flags = OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet)
-    identity = identity_from_flags(
-        as_=None, kind=None, name=None, repo=None, agent=None
-    )
-    ctx: Ctx[ThemeOps] = Ctx(ops=connect_client(identity=identity), identity=identity)
+    ctx: Ctx[ThemeOps] = _ambient_ctx()
     run(display_get_theme(ctx), flags)
+
+
+@display_app.command("state")
+def state(
+    *,
+    json_out: JsonFlag = False,
+    verbose: VerboseFlag = False,
+    quiet: QuietFlag = False,
+) -> None:
+    """Return the Display's own widget/frame state, for Hub-vs-Display comparison."""
+    flags = OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet)
+    ctx: Ctx[DisplayStateOps] = _ambient_ctx()
+    run(display_state_get(ctx), flags)
 
 
 async def _local_mode_result(value: str) -> CommandResult:
@@ -97,19 +116,10 @@ def mode(
     verbose: VerboseFlag = False,
     quiet: QuietFlag = False,
 ) -> None:
-    """Get or set a project's display mode. --repo is always required.
-
-    Setting writes the per-repo marker file directly (DES-088); getting is
-    still Hub-routed.
-    """
+    """Get or set a project's display mode. --repo is always required."""
     flags = OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet)
     if value is None:
-        identity = identity_from_flags(
-            as_=None, kind=None, name=None, repo=None, agent=None
-        )
-        ctx: Ctx[DisplayModeOps] = Ctx(
-            ops=connect_client(identity=identity), identity=identity
-        )
+        ctx: Ctx[DisplayModeOps] = _ambient_ctx()
         run(display_mode_get(ctx, repo), flags)
         return
     _set_mode(value, repo, flags)
@@ -139,10 +149,7 @@ def window(
 ) -> None:
     """Get window settings; changing them is a user gesture at Lux ▸ Settings."""
     flags = OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet)
-    identity = identity_from_flags(
-        as_=None, kind=None, name=None, repo=None, agent=None
-    )
-    ctx: Ctx[WindowOps] = Ctx(ops=connect_client(identity=identity), identity=identity)
+    ctx: Ctx[WindowOps] = _ambient_ctx()
     run(display_window_get(ctx), flags)
 
 
@@ -153,17 +160,9 @@ def screenshot(
     verbose: VerboseFlag = False,
     quiet: QuietFlag = False,
 ) -> None:
-    """Capture the display framebuffer and return the image path.
-
-    Currently unsupported (DES-028, lux-olgj) -- returns the Hub's real error.
-    """
+    """Capture the display framebuffer; currently unsupported (DES-028)."""
     flags = OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet)
-    identity = identity_from_flags(
-        as_=None, kind=None, name=None, repo=None, agent=None
-    )
-    ctx: Ctx[ScreenshotOps] = Ctx(
-        ops=connect_client(identity=identity), identity=identity
-    )
+    ctx: Ctx[ScreenshotOps] = _ambient_ctx()
     run(display_screenshot(ctx), flags)
 
 

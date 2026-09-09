@@ -19,6 +19,7 @@ from punt_lux.commands._ports import (
     ThemeOps,
     WindowOps,
 )
+from punt_lux.commands.display_state_get import DisplayStateOps
 
 __all__ = ["CallbackConvenienceOps", "SyncOps"]
 
@@ -34,6 +35,7 @@ class SyncOps(
     EventOps,
     ErrorOps,
     DisplayInfoOps,
+    DisplayStateOps,
     ThemeOps,
     WindowOps,
     DisplayModeOps,
@@ -42,9 +44,6 @@ class SyncOps(
 ):
     """Every synchronous Hub operation ``LuxClient.sync`` exposes at once.
 
-    A Protocol extending every per-family Ops Protocol in ``commands/_ports.py``
-    plus :class:`CallbackConvenienceOps` -- satisfied structurally by
-    ``_RestTransport``, adding no new requirement on it. Lets a caller's
-    ``Ctx[SceneOps]`` (or narrower) accept ``client.sync`` without ever
-    importing ``_RestTransport``.
+    Extends every per-family Ops Protocol, satisfied structurally by
+    ``_RestTransport`` with no new requirement on it.
     """

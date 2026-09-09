@@ -57,6 +57,8 @@ class _SessionClient:
                     lease=PermanentLease(),
                     subscribed_topics=[],
                     owned_scenes=[],
+                    writer_bound=False,
+                    inbox_depth=0,
                 )
             ]
         )
