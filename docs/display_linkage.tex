@@ -1,0 +1,929 @@
+%
+% display_linkage.tex
+%
+% A Z specification of the corrected display-linkage design: the Hub holds
+% content it cannot deliver, retries at a bounded and eventually slow
+% cadence, and never touches the display's process lifecycle.  Two
+% concurrent Hub-side actors dial the same client registry -- the
+% HubReplicator (the content sender) and DisplayLiveness (the cheap,
+% frequent prober) -- coordinated by one shared reconnect signal.
+%
+% Models the DESIGN in
+% docs/architecture/display-presence-demand-driven.md, sections 4
+% (DisplayLinkage), 6.1 (the three-way cycle outcome), 6.2 (the two
+% independently-tuned backoff curves), 6.3 (the interruptible wait,
+% coordinated through ClientRegistry._reconnected and NOT holding
+% ClientRegistry._lock across it), and 6.4 (DisplayLiveness's two-speed
+% pacing).  It does not re-model the single-writer send/reap/reconnect/menu
+% discipline that docs/hub_replicator.tex already proves for one worker
+% against one display; see the note below on why this is a separate
+% specification rather than an extension of that one.
+%
+% Type-check:  fuzz docs/display_linkage.tex
+% Model-check (see the Verification section for the exact goal predicates):
+%   probcli docs/display_linkage.tex -model_check -p DEFAULT_SETSIZE 2
+%
+% Formatting follows the fuzz house rules established by hub_replicator.tex:
+% \quad~ for continuation indent, schema lines under 80 columns, predicates
+% broken at \land/\lor/\implies.
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{Display Linkage: a Z Specification}
+\author{Formal model of the Hub's hold/reconcile/never-control discipline}
+\date{September 2026}
+\maketitle
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+Closing the Lux window used to black-hole content: an idle, no-display Hub
+retried at a fixed, tight cadence forever, because the code could not tell
+``no display has ever been connected'' apart from ``a connected display just
+misbehaved,'' and both conditions advanced the same short backoff.  The
+corrected design (\texttt{docs/architecture/display-presence-demand-driven.md})
+holds content safely in \texttt{HubDisplay} (unchanged), reconciles it the
+moment a display connects (unchanged, DES-068), and fixes the one thing that
+was actually broken: the retry \emph{cadence} when nothing is connected at
+all, and the coordination between the Hub's two independent threads that
+each dial the display.
+
+\paragraph{Why a new specification, not an extension of \texttt{hub\_replicator.tex}.}
+\texttt{docs/hub\_replicator.tex} already proves six invariants for the
+Hub's \emph{single} background worker sending to \emph{one} display: no
+second writer, agent-path liveness, no lock cycle between the store lock and
+the client lock, no lost update across a reap or reconnect, no two live
+displays, and menu durability.  That model has exactly one thread that ever
+touches the display connection.  This design's entire novelty is a
+\emph{second} thread --- \texttt{DisplayLiveness} --- dialing the
+\emph{same} client registry concurrently, coordinated with the replicator
+through a shared \texttt{threading.Event} that is deliberately consulted
+\emph{without} holding the registry's lock, plus two independently-tuned
+exponential backoff curves that must never be conflated.  None of that
+concurrency shape, nor any of its invariants, exists in
+\texttt{hub\_replicator.tex}'s \texttt{Repl} schema.  Grafting a second actor
+onto an already-verified, committed regression artifact would force
+re-deriving its six proven invariants under an interleaving they were never
+checked against, for invariants that are otherwise orthogonal to them.  A
+fresh, narrower specification --- cross-referencing
+\texttt{hub\_replicator.tex} for the reconciliation hook it already models
+(\texttt{Ensure}/\texttt{Remark}/\texttt{Reconn}'s re-mark, the concrete
+counterpart of this design's DES-068 connect-success reconcile) --- is more
+faithful to what changed and leaves the existing proof untouched.  (The
+mission brief cites this as ``\S10 item 13''; the design document's own
+numbering makes it item 13's cross-reference to item 11, the test list ---
+noted here since the two numbers do not otherwise agree.)
+
+\paragraph{Scope.} This model covers the connect/disconnect/backoff
+mechanism newly introduced by the design: \texttt{DisplayLinkage} as an
+observed classification of \texttt{(connected, live content)}; the two
+concurrent actors dialing \texttt{ClientRegistry}; the disconnected backoff
+(2s~$\to$~120s in the design, abstracted here to a small bounded step count)
+kept structurally separate from the wedged-display backoff (0.1s~$\to$~2.0s,
+likewise abstracted); and the shared reconnect signal with its
+lock-freedom property.  It does \emph{not} re-derive the fine-grained
+send-cycle mechanics (draining, snapshotting under a store lock, per-scene
+blank-on-empty) that \texttt{hub\_replicator.tex} already covers: one
+``send cycle'' here is modelled as a single atomic step that delivers
+whatever is currently held, which is adequate for every invariant below and
+is stated plainly so the simplification is never mistaken for silence.
+
+Eight properties, drawn directly from \S12 of the design document, must hold
+across every interleaving of the two actors and the content-owning agents:
+
+\begin{description}
+  \item[I1 --- content never lost while disconnected.] Every scene that is
+    live is either queued for delivery or already known to be shown; no
+    interleaving of push, disconnect, and retry silently drops it.
+  \item[I2 --- reconcile exactly once.] The moment either actor's dial
+    turns a disconnected registry into a connected one, every currently
+    live scene is marked for redelivery in that same step --- never missed,
+    never re-queued twice for one reconnect.
+  \item[I3 --- neither actor blocks or spins on a missing display.] Every
+    dial resolves in one bounded step; the replicator's retry interval is
+    always the disconnected backoff's current value; the prober's interval
+    is always one of exactly two named speeds.
+  \item[I4 --- the disconnected backoff is genuinely exponential and
+    reaches a slow steady state.] Under a sustained disconnection its own
+    counter climbs to its own, higher cap --- not merely bounded, but
+    bounded at the \emph{right}, slower ceiling.
+  \item[I5 --- the Hub never issues a process-control call to the
+    display.] No Hub-side operation ever causes a display to become
+    reachable; only the environment does.
+  \item[I6 --- a display connect promptly breaks the replicator out of
+    the slow-retry state.] Via the specific mechanism the design defines,
+    not merely ``eventually.''
+  \item[I7 --- a disconnected cycle never advances the wedged-display
+    backoff, and vice versa.] The two counters are structurally disjoint.
+  \item[I8 --- deadlock-freedom, with the prober modelled as a genuine
+    second actor.] In particular, the specific claim to check: the
+    replicator's wait for a reconnect never holds the registry's lock.
+\end{description}
+
+% ============================================================
+\section{Basic Types}
+% ============================================================
+
+\begin{zed}
+  [SCENE]
+\end{zed}
+
+\texttt{SCENE} is the set of scenes \texttt{HubDisplay} can hold live; one
+suffices for every invariant below except I2's ``every currently live
+scene'' claim, which needs at least two to show that a batch reconcile
+covers more than a singleton.  Bounded by ProB's \texttt{DEFAULT\_SETSIZE}.
+
+% ============================================================
+\section{Free Types}
+% ============================================================
+
+\begin{zed}
+  FLAG ::= set | clear
+\end{zed}
+
+\begin{zed}
+  LOCK ::= held | free
+\end{zed}
+
+Two-valued markers, following \texttt{hub\_replicator.tex}'s own convention:
+\texttt{FLAG} for the connected belief, the shared reconnect signal, and the
+``woken early or timed out'' witness; \texttt{LOCK} for
+\texttt{ClientRegistry.\_lock}.
+
+\begin{zed}
+  RPHASE ::= ridle | rwaitdisc | rsending | rhealing
+\end{zed}
+
+The replicator's own program counter, restricted to the phases this design
+adds or changes.  \texttt{ridle}: no cycle in flight, about to dial.
+\texttt{rwaitdisc}: parked in \texttt{\_wait\_disconnected}, having just
+failed to connect at all.  \texttt{rsending}: connected, about to deliver
+whatever is held.  \texttt{rhealing}: a connected-but-misbehaving delivery
+is being reaped/reconnected --- the machinery
+\texttt{docs/hub\_replicator.tex} already proves in full; here it is one
+atomic step, entered and left.
+
+\begin{zed}
+  SPEED ::= pconn | pdisc
+\end{zed}
+
+\texttt{DisplayLiveness}'s current probe pacing: \texttt{pconn}, the normal
+connected-interaction cadence, or \texttt{pdisc}, the slightly relaxed
+\texttt{\_DISCONNECTED\_PROBE\_INTERVAL} --- the two, and only two, named
+values \S6.4 defines.
+
+% ============================================================
+\section{State}
+% ============================================================
+
+The state is flat: one schema, exactly as
+\texttt{docs/display\_lifecycle.tex} and \texttt{docs/hub\_replicator.tex}
+require for ProB.  Its predicate carries only structural bookkeeping ---
+facts true by construction of every operation below, correct or buggy ---
+never one of the eight safety properties themselves, which must stay free
+to be violated by a faulty variant or the model would prove nothing.
+
+\begin{schema}{Link}
+  live : \power SCENE \\
+  dirty : \power SCENE \\
+  shown : \power SCENE \\
+  linked : FLAG \\
+  reconnected : FLAG \\
+  wokenEarly : FLAG \\
+  reachable : FLAG \\
+  sendOk : FLAG \\
+  regLock : LOCK \\
+  rphase : RPHASE \\
+  discBackoff : \nat \\
+  wedgeBackoff : \nat \\
+  lInterval : SPEED
+\where
+  dirty \subseteq live \\
+  shown \subseteq live
+\end{schema}
+
+\texttt{live} is the set of scenes currently live in \texttt{HubDisplay} ---
+the content-owning agents' own state, touched only by the two content
+operations below, never by either dialing actor.  \texttt{dirty} is the set
+still owed to the display: exactly the design's ``content is held'' set,
+populated by a push and by the reconcile-on-connect, and drained only by an
+actual successful delivery.  \texttt{shown} records which live scenes are
+believed already delivered --- the abstraction standing in for
+\texttt{hub\_replicator.tex}'s own \texttt{displayed} map, coarsened to a
+set because this spec does not re-derive per-scene send mechanics.
+
+\texttt{linked} is \texttt{ClientRegistry}'s own belief about whether a
+display is connected --- what \texttt{DisplayLinkage.classify} reads as its
+\texttt{connected} argument, together with \texttt{\#live} for its
+\texttt{live\_scene\_count}.  \texttt{DisplayLinkage} itself is not stored:
+consistent with \S4 of the design (``no new stored state, because there is
+nothing for the Hub to decide here, only something to observe''), it is a
+derived classification of \texttt{(linked, live)}:
+\[
+  Linkage(linked, live) \defs
+  \begin{cases}
+    \mathrm{DISCONNECTED} & linked = clear \land live = \emptyset \\
+    \mathrm{HELD} & linked = clear \land live \neq \emptyset \\
+    \mathrm{CONNECTED\_IDLE} & linked = set \land live = \emptyset \\
+    \mathrm{CONNECTED\_ACTIVE} & linked = set \land live \neq \emptyset
+  \end{cases}
+\]
+exactly \texttt{DisplayLinkage.classify}'s own four-way case split.  No
+invariant below needs to name a \texttt{Linkage} value directly; each is
+stated over \texttt{linked}, \texttt{live}, \texttt{dirty}, and the backoff
+state instead, which is equivalent and avoids adding a derived value to the
+carrier ProB has to enumerate.
+
+\texttt{reconnected} is the shared \texttt{threading.Event}
+(\texttt{ClientRegistry.\_reconnected}): set by whichever actor's dial is
+the one that turns \texttt{linked} from \texttt{clear} to \texttt{set},
+consumed by the replicator's wait.  \texttt{wokenEarly} records what
+\texttt{wait\_for\_reconnect}'s own boolean return value records --- whether
+the wait was broken by the event (\texttt{set}) or ran out the clock
+(\texttt{clear}) --- the exact fact I6 is stated over.  \texttt{reachable}
+and \texttt{sendOk} are the environment's own truth: whether a dial would
+succeed right now, and, independently, whether an already-connected send
+would succeed right now (a wedged or dead-peer failure is a \emph{send-time}
+event, not a dial-time one, so the two are modelled as separate flags rather
+than folded into one three-way display-process type).  \texttt{regLock} is
+\texttt{ClientRegistry.\_lock}. \texttt{discBackoff} and
+\texttt{wedgeBackoff} are the two independently-tuned counters of \S6.2,
+abstracted from seconds to a step count; \texttt{lInterval} is
+\texttt{DisplayLiveness}'s current pacing.
+
+Modelling \texttt{reachable} and \texttt{sendOk} as two independent flags
+rather than one three-valued display-process type (as
+\texttt{hub\_replicator.tex}'s \texttt{DPROC} does) is deliberate: that
+model needed \texttt{dstuck} versus \texttt{ddead} to route to two different
+recoveries it fully derives; this model only needs to know \emph{whether}
+a connected-but-misbehaving send happened at all, because the recovery
+itself (\texttt{rhealing}) is the already-proven machinery, entered and left
+in one step.
+
+% ============================================================
+\section{Initialization}
+% ============================================================
+
+\begin{schema}{Init}
+  Link'
+\where
+  live' = \emptyset \\
+  dirty' = \emptyset \\
+  shown' = \emptyset \\
+  linked' = clear \\
+  reconnected' = clear \\
+  wokenEarly' = clear \\
+  reachable' = clear \\
+  sendOk' = set \\
+  regLock' = free \\
+  rphase' = ridle \\
+  discBackoff' = 0 \\
+  wedgeBackoff' = 0 \\
+  lInterval' = pdisc
+\end{schema}
+
+A single initial state: nothing live, nothing held, no display connected ---
+\texttt{DISCONNECTED}, the quiet healthy idle Hub of \S4's own table ---
+both counters at their base, the prober already at its relaxed pace, no
+lock held.
+
+% ============================================================
+\section{Content Operations}
+% ============================================================
+
+An agent's push and withdrawal are content-owner actions on
+\texttt{HubDisplay}.  Neither mentions \texttt{linked}, \texttt{reachable},
+\texttt{regLock}, or \texttt{rphase}: no state of the display or of either
+dialing actor can disable them, exactly the ``the Hub never controls the
+display'' table of \S4 restated as an operation guard --- or rather, the
+absence of one.
+
+\begin{schema}{PushContent}
+  \Delta Link \\
+  s? : SCENE
+\where
+  live' = live \cup \{ s? \} \\
+  dirty' = dirty \cup \{ s? \} \\
+  shown' = shown \setminus \{ s? \} \\
+  linked' = linked \\
+  reconnected' = reconnected \\
+  wokenEarly' = wokenEarly \\
+  reachable' = reachable \\
+  sendOk' = sendOk \\
+  regLock' = regLock \\
+  rphase' = rphase \\
+  discBackoff' = discBackoff \\
+  wedgeBackoff' = wedgeBackoff \\
+  lInterval' = lInterval
+\end{schema}
+
+A scene that becomes live is marked owed and, if it had been believed
+shown, that belief is withdrawn --- the new content has not been delivered
+yet, whatever the connection state.
+
+\begin{schema}{WithdrawContent}
+  \Delta Link \\
+  s? : SCENE
+\where
+  s? \in live \\
+  live' = live \setminus \{ s? \} \\
+  dirty' = dirty \setminus \{ s? \} \\
+  shown' = shown \setminus \{ s? \} \\
+  linked' = linked \\
+  reconnected' = reconnected \\
+  wokenEarly' = wokenEarly \\
+  reachable' = reachable \\
+  sendOk' = sendOk \\
+  regLock' = regLock \\
+  rphase' = rphase \\
+  discBackoff' = discBackoff \\
+  wedgeBackoff' = wedgeBackoff \\
+  lInterval' = lInterval
+\end{schema}
+
+Disposing content before any display connects is the design's
+\texttt{HELD}~$\to$~\texttt{DISCONNECTED} transition (\S4's table); nothing
+in this operation depends on \texttt{linked}, so it applies identically
+whether connected or not.
+
+% ============================================================
+\section{Environment}
+% ============================================================
+
+The display's own reachability and send-health change independently of the
+Hub, exactly as \texttt{hub\_replicator.tex}'s \texttt{DisplayWedge} and
+\texttt{DisplayCrash} model a display failing on its own.  These are the
+\emph{only} operations that ever write a new value to \texttt{reachable} or
+\texttt{sendOk} --- the textual fact I5 rests on.
+
+\begin{schema}{GoReachable}
+  \Delta Link
+\where
+  reachable = clear \\
+  reachable' = set \\
+  live' = live \\ dirty' = dirty \\ shown' = shown \\
+  linked' = linked \\ reconnected' = reconnected \\
+  wokenEarly' = wokenEarly \\ sendOk' = sendOk \\
+  regLock' = regLock \\ rphase' = rphase \\
+  discBackoff' = discBackoff \\ wedgeBackoff' = wedgeBackoff \\
+  lInterval' = lInterval
+\end{schema}
+
+\begin{schema}{GoUnreachable}
+  \Delta Link
+\where
+  reachable = set \\
+  reachable' = clear \\
+  live' = live \\ dirty' = dirty \\ shown' = shown \\
+  linked' = linked \\ reconnected' = reconnected \\
+  wokenEarly' = wokenEarly \\ sendOk' = sendOk \\
+  regLock' = regLock \\ rphase' = rphase \\
+  discBackoff' = discBackoff \\ wedgeBackoff' = wedgeBackoff \\
+  lInterval' = lInterval
+\end{schema}
+
+\begin{schema}{GoSendOk}
+  \Delta Link
+\where
+  sendOk = clear \\
+  sendOk' = set \\
+  live' = live \\ dirty' = dirty \\ shown' = shown \\
+  linked' = linked \\ reconnected' = reconnected \\
+  wokenEarly' = wokenEarly \\ reachable' = reachable \\
+  regLock' = regLock \\ rphase' = rphase \\
+  discBackoff' = discBackoff \\ wedgeBackoff' = wedgeBackoff \\
+  lInterval' = lInterval
+\end{schema}
+
+\begin{schema}{GoSendFail}
+  \Delta Link
+\where
+  sendOk = set \\
+  sendOk' = clear \\
+  live' = live \\ dirty' = dirty \\ shown' = shown \\
+  linked' = linked \\ reconnected' = reconnected \\
+  wokenEarly' = wokenEarly \\ reachable' = reachable \\
+  regLock' = regLock \\ rphase' = rphase \\
+  discBackoff' = discBackoff \\ wedgeBackoff' = wedgeBackoff \\
+  lInterval' = lInterval
+\end{schema}
+
+% ============================================================
+\section{The Replicator}
+% ============================================================
+
+The replicator dials only when it has something to deliver, exactly as the
+real worker only calls \texttt{.get()} from inside a drained cycle.  A dial
+that finds the display reachable either completes an ordinary already-
+connected cycle or --- if the registry was not connected a moment ago ---
+is the fresh connect that reconciles every held scene in the very same
+step, discharging I2 by construction rather than by a separate pass.
+
+\begin{schema}{RDialOk}
+  \Delta Link \\
+\where
+  rphase = ridle \\
+  dirty \neq \emptyset \\
+  reachable = set \\
+  linked' = set \\
+  (linked = clear \implies
+    (reconnected' = set \land dirty' = dirty \cup live)) \\
+  (linked = set \implies
+    (reconnected' = reconnected \land dirty' = dirty)) \\
+  discBackoff' = 0 \\
+  rphase' = rsending \\
+  live' = live \\ shown' = shown \\ wokenEarly' = wokenEarly \\
+  reachable' = reachable \\ sendOk' = sendOk \\ regLock' = regLock \\
+  wedgeBackoff' = wedgeBackoff \\ lInterval' = lInterval
+\end{schema}
+
+A dial that finds nothing listening is exactly today's \texttt{RuntimeError}
+from \texttt{ClientRegistry.get()}: no content is touched (nothing is lost,
+\texttt{dirty} is untouched), \texttt{linked} drops, the disconnected
+backoff advances toward its own cap, and the replicator moves to the wait.
+This is the one and only operation that advances \texttt{discBackoff}.
+
+\begin{schema}{RDialFail}
+  \Delta Link
+\where
+  rphase = ridle \\
+  dirty \neq \emptyset \\
+  reachable = clear \\
+  linked' = clear \\
+  (discBackoff < 3 \implies discBackoff' = discBackoff + 1) \\
+  (discBackoff = 3 \implies discBackoff' = discBackoff) \\
+  rphase' = rwaitdisc \\
+  regLock' = free \\
+  live' = live \\ dirty' = dirty \\ shown' = shown \\
+  reconnected' = reconnected \\ wokenEarly' = wokenEarly \\
+  reachable' = reachable \\ sendOk' = sendOk \\
+  wedgeBackoff' = wedgeBackoff \\ lInterval' = lInterval
+\end{schema}
+
+The cap is \texttt{3} here, standing in for the design's 120s ceiling;
+\texttt{regLock' = free} is not a passthrough but the load-bearing fact of
+\S6.3 stated at the one place it is decided --- entering the wait never
+takes the lock.  \texttt{RDialFail}'s guard is disjoint from
+\texttt{RDialOk}'s (\texttt{reachable} has exactly two values), so exactly
+one of the two is ever the successor from \texttt{ridle} with work pending.
+
+The wait is broken one of two ways.  \texttt{RWaitWoken} models
+\texttt{ClientRegistry.wait\_for\_reconnect} returning \texttt{True}: the
+event had been set by \emph{either} actor's successful dial, so the
+replicator retries at once, without paying any more of the current delay.
+
+\begin{schema}{RWaitWoken}
+  \Delta Link
+\where
+  rphase = rwaitdisc \\
+  reconnected = set \\
+  rphase' = ridle \\
+  reconnected' = clear \\
+  wokenEarly' = set \\
+  live' = live \\ dirty' = dirty \\ shown' = shown \\ linked' = linked \\
+  reachable' = reachable \\ sendOk' = sendOk \\ regLock' = regLock \\
+  discBackoff' = discBackoff \\ wedgeBackoff' = wedgeBackoff \\
+  lInterval' = lInterval
+\end{schema}
+
+\texttt{RWaitTimeout} models the same call returning \texttt{False}: the
+full current delay elapsed with no reconnect.  \texttt{wait\_for\_reconnect}
+clears the event on \emph{either} exit, matching \texttt{Event.wait}
+followed unconditionally by \texttt{.clear()} in the real code, so both
+operations agree on that one point and differ only in \texttt{wokenEarly}.
+
+\begin{schema}{RWaitTimeout}
+  \Delta Link
+\where
+  rphase = rwaitdisc \\
+  rphase' = ridle \\
+  reconnected' = clear \\
+  wokenEarly' = clear \\
+  live' = live \\ dirty' = dirty \\ shown' = shown \\ linked' = linked \\
+  reachable' = reachable \\ sendOk' = sendOk \\ regLock' = regLock \\
+  discBackoff' = discBackoff \\ wedgeBackoff' = wedgeBackoff \\
+  lInterval' = lInterval
+\end{schema}
+
+Once connected, a delivery either succeeds --- everything held is shown,
+and the wedged-display backoff resets, since a clean cycle is unambiguous
+in a way ``hasn't misbehaved again yet'' is not (\S6.3) --- or the send
+itself fails against an already-open connection, which is the
+\emph{different} condition this design is careful never to confuse with a
+failed dial.
+
+\begin{schema}{RSendCycle}
+  \Delta Link
+\where
+  rphase = rsending \\
+  sendOk = set \\
+  dirty' = \emptyset \\
+  shown' = shown \cup dirty \\
+  wedgeBackoff' = 0 \\
+  rphase' = ridle \\
+  live' = live \\ linked' = linked \\ reconnected' = reconnected \\
+  wokenEarly' = wokenEarly \\ reachable' = reachable \\ sendOk' = sendOk \\
+  regLock' = regLock \\ discBackoff' = discBackoff \\
+  lInterval' = lInterval
+\end{schema}
+
+\begin{schema}{RSendFail}
+  \Delta Link
+\where
+  rphase = rsending \\
+  sendOk = clear \\
+  (wedgeBackoff < 1 \implies wedgeBackoff' = wedgeBackoff + 1) \\
+  (wedgeBackoff = 1 \implies wedgeBackoff' = wedgeBackoff) \\
+  rphase' = rhealing \\
+  live' = live \\ dirty' = dirty \\ shown' = shown \\ linked' = linked \\
+  reconnected' = reconnected \\ wokenEarly' = wokenEarly \\
+  reachable' = reachable \\ sendOk' = sendOk \\ regLock' = regLock \\
+  discBackoff' = discBackoff \\ lInterval' = lInterval
+\end{schema}
+
+The cap is \texttt{1} here, standing in for the design's 2.0s ceiling ---
+deliberately much lower than \texttt{discBackoff}'s cap of \texttt{3}, the
+concrete gap I4 is stated over.  \texttt{RSendFail} is the only operation
+that advances \texttt{wedgeBackoff}, and it never touches
+\texttt{discBackoff}; \texttt{RDialFail} is the only operation that
+advances \texttt{discBackoff}, and it never touches \texttt{wedgeBackoff}.
+That disjointness is I7, established by inspection exactly as
+\texttt{hub\_replicator.tex}'s I1 is (``no mutator operation mentions
+\texttt{clientLock}''): there is no third operation and no shared branch
+that could touch both.
+
+\texttt{RHeal} abstracts the reap/respawn/reconnect/re-mark recovery
+\texttt{hub\_replicator.tex} already proves in full (its \texttt{Reap},
+\texttt{Ensure}, \texttt{Remark}, \texttt{Reconn}): here it is one atomic
+step, entered only from \texttt{rhealing} and always eventually leaving
+it, touching nothing this spec cares about beyond returning control to the
+cycle.
+
+\begin{schema}{RHeal}
+  \Delta Link
+\where
+  rphase = rhealing \\
+  rphase' = ridle \\
+  live' = live \\ dirty' = dirty \\ shown' = shown \\ linked' = linked \\
+  reconnected' = reconnected \\ wokenEarly' = wokenEarly \\
+  reachable' = reachable \\ sendOk' = sendOk \\ regLock' = regLock \\
+  discBackoff' = discBackoff \\ wedgeBackoff' = wedgeBackoff \\
+  lInterval' = lInterval
+\end{schema}
+
+% ============================================================
+\section{The Liveness Prober}
+% ============================================================
+
+\texttt{DisplayLiveness} probes continuously and independently of the
+replicator's own cycle --- it has no notion of ``dirty content,'' only of
+whether the display answers.  Its dial goes through the same registry lock
+the replicator's does, so its guard is exactly \texttt{regLock = free};
+under the corrected design that guard is never actually contended, because
+nothing ever holds the lock across a wait (\S Fidelity makes this concrete).
+A successful probe can be the very dial that turns \texttt{linked} from
+\texttt{clear} to \texttt{set} and reconciles held content --- ``ANY
+successful \texttt{ClientRegistry.get()}'' in the design's own words, not
+only the replicator's.
+
+\begin{schema}{LDialOk}
+  \Delta Link
+\where
+  regLock = free \\
+  reachable = set \\
+  linked' = set \\
+  (linked = clear \implies
+    (reconnected' = set \land dirty' = dirty \cup live)) \\
+  (linked = set \implies
+    (reconnected' = reconnected \land dirty' = dirty)) \\
+  lInterval' = pconn \\
+  live' = live \\ shown' = shown \\ wokenEarly' = wokenEarly \\
+  reachable' = reachable \\ sendOk' = sendOk \\ regLock' = regLock \\
+  rphase' = rphase \\
+  discBackoff' = discBackoff \\ wedgeBackoff' = wedgeBackoff
+\end{schema}
+
+\begin{schema}{LDialFail}
+  \Delta Link
+\where
+  regLock = free \\
+  reachable = clear \\
+  linked' = clear \\
+  lInterval' = pdisc \\
+  live' = live \\ dirty' = dirty \\ shown' = shown \\
+  reconnected' = reconnected \\ wokenEarly' = wokenEarly \\
+  reachable' = reachable \\ sendOk' = sendOk \\ regLock' = regLock \\
+  rphase' = rphase \\
+  discBackoff' = discBackoff \\ wedgeBackoff' = wedgeBackoff
+\end{schema}
+
+Neither operation is guarded by \texttt{rphase}: the prober runs regardless
+of whatever cycle the replicator is in, which is the whole point of it
+being a genuinely independent second actor rather than a second phase of
+the same worker.
+
+% ============================================================
+\section{Invariants}
+\label{sec:inv}
+% ============================================================
+
+None of the eight properties below is placed in \texttt{Link}'s own
+predicate, for the same reason \texttt{hub\_replicator.tex} keeps its six
+out of \texttt{Repl}: a predicate there would silently disable any
+operation that would break it, masking exactly the defect the model exists
+to catch.
+
+\paragraph{I1 --- content never lost while disconnected.}
+Every live scene is either owed or already believed delivered:
+\[
+  \forall s : SCENE \mid s \in live @ s \in dirty \lor s \in shown.
+\]
+No operation removes a scene from \texttt{dirty} without also adding it to
+\texttt{shown} (\texttt{RSendCycle}) or removing it from \texttt{live} in
+the same step (\texttt{WithdrawContent}); no operation ever adds to
+\texttt{live} without adding the same scene to \texttt{dirty}
+(\texttt{PushContent}).  The claim holds unconditionally, not only while
+\texttt{linked = clear}: a scene mid-cycle, not yet delivered, is still
+covered because it is still in \texttt{dirty}.
+
+\paragraph{I2 --- reconcile exactly once.}
+\texttt{dirty' = dirty \cup live} fires only inside \texttt{RDialOk} and
+\texttt{LDialOk}, and only under the guard \texttt{linked = clear} ---
+i.e.\ only on the step that turns the registry from disconnected to
+connected.  Because \texttt{linked} is one shared boolean, at most one of
+the two dialing operations can be the step that performs that transition
+for a given disconnection; whichever one does not (because it finds
+\texttt{linked} already \texttt{set}) takes the other branch, which leaves
+\texttt{dirty} untouched by the reconcile.  The reconcile cannot be missed
+either, because it is not a separate pass triggered \emph{after} the
+transition: it is part of the same atomic step that performs the
+transition.  A held scene believed already shown is the sharpest witness:
+only the reconcile can put a scene into \texttt{dirty} without first
+taking it out of \texttt{shown}, since every other producer of
+\texttt{dirty} (\texttt{PushContent}) removes it from \texttt{shown} in the
+same step.
+
+\paragraph{I3 --- neither actor blocks or spins on a missing display.}
+Every dial (\texttt{RDialOk}, \texttt{RDialFail}, \texttt{LDialOk},
+\texttt{LDialFail}) is one Z operation and therefore resolves in one
+bounded step by construction --- there is no schema in this model whose
+enabling condition can remain true indefinitely without an intervening
+state change, unlike a raw \texttt{time.sleep} which is not a state
+transition at all.  \texttt{lInterval} is typed \texttt{SPEED}, so the
+prober's pacing is always exactly one of the two named values; the
+replicator's own interval between retries is governed by
+\texttt{discBackoff} alone (\texttt{RWaitTimeout}'s only enabling condition
+is \texttt{rphase = rwaitdisc}, entered only via \texttt{RDialFail}, which
+is the only place \texttt{discBackoff} advances) --- there is no third,
+unnamed pacing value either actor can fall into.
+
+\paragraph{I4 --- the disconnected backoff reaches its own, higher, slow
+steady state.}
+\[
+  \Diamond\,(discBackoff = 3)
+\]
+is reachable under sustained disconnection alone (no send ever attempted).
+This is the specific defect this design fixes, restated as a reachability
+property rather than an ``eventually bounded'' one: \S Fidelity shows that
+collapsing the two counters makes this exact state unreachable, because
+nothing then advances \texttt{discBackoff} past whatever the shared,
+lower-capped counter tops out at.
+
+\paragraph{I5 --- the Hub never issues a process-control call to the
+display.}
+No operation other than \texttt{GoReachable} ever writes \texttt{set} to
+\texttt{reachable'} where \texttt{reachable = clear} beforehand ---
+inspection of every schema above confirms each either leaves
+\texttt{reachable} unchanged or is \texttt{GoReachable}/\texttt{GoUnreachable}
+themselves, the two environment operations standing in for a human running
+\texttt{lux display start}/\texttt{stop} or the OS service supervisor.  This
+is the absolute, grep-checkable form of the operator's ruling (\S2 item 1
+of the design), restated as the claim that the model's own carrier of
+``a display becomes reachable'' has exactly one non-environment writer:
+none.
+
+\paragraph{I6 --- a display connect promptly breaks the replicator out.}
+\[
+  \Diamond\,(wokenEarly = set)
+\]
+is reachable: the replicator's wait can be broken by the shared event, not
+only by the full delay elapsing.  \S Fidelity shows this is exactly the
+property that a raw blocking sleep --- \texttt{RWaitWoken} deleted ---
+makes unreachable, reproducing ``up-to-full-delay blindness'' precisely.
+
+\paragraph{I7 --- the two backoffs never advance together.}
+\texttt{RDialFail} is the only operation whose effect changes
+\texttt{discBackoff}, and its frame leaves \texttt{wedgeBackoff} unchanged;
+\texttt{RSendFail} is the only operation whose effect changes
+\texttt{wedgeBackoff}, and its frame leaves \texttt{discBackoff} unchanged.
+No operation instance can therefore advance both counters in one step ---
+established by inspection, exactly as \texttt{hub\_replicator.tex}
+establishes its own I1.  The mechanism is corroborated live (not simply
+dead code) by the reachability of
+\[
+  \Diamond\,(discBackoff > 0 \land wedgeBackoff > 0)
+\]
+--- both counters independently nonzero, from two disjoint causes.
+
+\paragraph{I8 --- deadlock-freedom; the wait never holds the registry
+lock.}
+\[
+  \lnot\,\Diamond\,(rphase = rwaitdisc \land regLock = held).
+\]
+No operation in this specification ever sets \texttt{regLock' = held}: it
+is \texttt{free} at \texttt{Init} and every subsequent schema either leaves
+it unchanged or (\texttt{RDialFail}) explicitly re-asserts \texttt{free} at
+the one place \S6.3's design decision is made.  The prober's own dial
+(\texttt{LDialOk}/\texttt{LDialFail}) is therefore never disabled by the
+replicator sitting in \texttt{rwaitdisc}, and the full state space is free
+of deadlock (Verification, below).  \S Fidelity constructs the variant
+where this fails, and shows the goal above becomes reachable and the
+prober's dial becomes starved for as long as the replicator waits.
+
+% ============================================================
+\section{Verification}
+\label{sec:verify}
+% ============================================================
+
+Type-checking is a \texttt{fuzz} pass:
+\begin{verbatim}
+  fuzz docs/display_linkage.tex
+\end{verbatim}
+
+I1, I5, and I8's lock claim are state properties, checked as reachability
+of the negation (\emph{goal NOT found} means the invariant holds
+everywhere reachable):
+\begin{verbatim}
+  # Invariant 1 (must report: goal NOT found)
+  probcli docs/display_linkage.tex -model_check -nodead \
+    -goal "card({s | s : SCENE & s : live &
+           not(s : dirty) & not(s : shown)}) > 0" \
+    -p DEFAULT_SETSIZE 2
+
+  # Invariant 8, the lock claim (must report: goal NOT found)
+  probcli docs/display_linkage.tex -model_check -nodead \
+    -goal "rphase = rwaitdisc & regLock = held" \
+    -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+I2, I3, I5, and I7 are established by inspection of the operation schemas
+(Section~\ref{sec:inv}) and corroborated live by reachability goals that
+must be \emph{found} --- the mechanism is exercised, not dead:
+\begin{verbatim}
+  # Invariant 2 corroboration (must report: goal FOUND)
+  probcli docs/display_linkage.tex -model_check -nodead \
+    -goal "card(dirty /\ shown) > 0" -p DEFAULT_SETSIZE 2
+
+  # Invariant 3 corroboration -- both named prober speeds are live
+  probcli docs/display_linkage.tex -model_check -nodead \
+    -goal "lInterval = pdisc" -p DEFAULT_SETSIZE 2
+  probcli docs/display_linkage.tex -model_check -nodead \
+    -goal "lInterval = pconn" -p DEFAULT_SETSIZE 2
+
+  # Invariant 7 corroboration (must report: goal FOUND)
+  probcli docs/display_linkage.tex -model_check -nodead \
+    -goal "discBackoff > 0 & wedgeBackoff > 0" -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+I4 and I6 are the two properties this design exists to fix, each checked as
+reachability that must be \emph{found} in the corrected model:
+\begin{verbatim}
+  # Invariant 4 (must report: goal FOUND)
+  probcli docs/display_linkage.tex -model_check -nodead \
+    -goal "discBackoff = 3" -p DEFAULT_SETSIZE 2
+
+  # Invariant 6 (must report: goal FOUND)
+  probcli docs/display_linkage.tex -model_check -nodead \
+    -goal "wokenEarly = set" -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+Deadlock freedom is the full-state-space check.  Every phase has an
+always-available successor --- \texttt{PushContent}/\texttt{WithdrawContent}
+require nothing about the display, \texttt{RWaitTimeout} requires nothing
+beyond \texttt{rphase = rwaitdisc}, and each of \texttt{sendOk}'s two values
+enables exactly one of \texttt{RSendCycle}/\texttt{RSendFail} --- so any
+deadlock reported would be a genuine cyclic wait, not this model
+terminating:
+\begin{verbatim}
+  # Deadlock freedom (must report: no deadlock / no counterexample)
+  probcli docs/display_linkage.tex -model_check -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+% ============================================================
+\section{Fidelity: reproducing the design's own defects}
+\label{sec:fidelity}
+% ============================================================
+
+A model that cannot reproduce the defects it is meant to guard against
+proves nothing.  This specification guards three; each is reproduced by a
+small, named change to one operation, verified against a scratch copy of
+this file with exactly that change applied and nothing else.
+
+\paragraph{(a) Collapsing the tri-state outcome onto the shared backoff.}
+The design's own root-cause bug (\S1, \S6.1): before the fix,
+\emph{every} not-connected cycle advanced the same low-capped backoff a
+wedged display uses, because the code could not tell ``never connected''
+apart from ``connected but just healed.''  Reproduced here by changing
+\texttt{RDialFail}'s effect from advancing \texttt{discBackoff} (cap 3) to
+advancing \texttt{wedgeBackoff} (cap 1) instead --- the literal
+``collapse onto the shared backoff'':
+\begin{quote}
+  \texttt{(wedgeBackoff < 1 \(\implies\) wedgeBackoff' = wedgeBackoff + 1)} \\
+  \texttt{(wedgeBackoff = 1 \(\implies\) wedgeBackoff' = wedgeBackoff)} \\
+  \texttt{discBackoff' = discBackoff}
+\end{quote}
+in place of the two \texttt{discBackoff} lines shown above.  The property
+that separates the two designs is I4 itself:
+\begin{verbatim}
+  # must be FOUND for the correct spec, NOT FOUND for the collapsed variant
+  probcli <spec>.tex -model_check -nodead \
+    -goal "discBackoff = 3" -p DEFAULT_SETSIZE 2
+\end{verbatim}
+Run against a scratch copy with the one-line substitution above: the goal
+returns \emph{not found} --- \texttt{discBackoff} is never touched by any
+operation in that variant, so it never leaves \texttt{0}, while
+\texttt{wedgeBackoff} climbs under sustained disconnection alone and
+plateaus at its own cap of \texttt{1} --- the model's rendering of ``the
+backoff plateaus at $\sim$2s and stays there forever,'' exactly the
+symptom of \S1's confirmed root cause. Reachability of
+\texttt{wedgeBackoff = 1} under a disconnection-only trace (no
+\texttt{RSendFail} ever fired) is the positive confirmation of the same
+collapse:
+\begin{verbatim}
+  # FOUND in the collapsed variant via RDialFail alone
+  probcli <spec>.tex -model_check -nodead \
+    -goal "wedgeBackoff = 1" -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+\paragraph{(b) A blocking sleep in place of the interruptible wait.}
+The design's own second, load-bearing correction (\S6.3): a raw
+\texttt{time.sleep(delay)} would commit the replicator to sleeping out the
+\emph{entire} current delay --- up to 120s once backed off --- before
+attempting another connect, regardless of how promptly the display actually
+returns.  Reproduced here by deleting \texttt{RWaitWoken} from the
+operation set entirely, leaving \texttt{RWaitTimeout} as the only way out
+of \texttt{rwaitdisc}:
+\begin{verbatim}
+  # RWaitWoken removed; RWaitTimeout unchanged
+\end{verbatim}
+The property that separates the two designs is I6 itself:
+\begin{verbatim}
+  # must be FOUND for the correct spec, NOT FOUND for the blocking-sleep variant
+  probcli <spec>.tex -model_check -nodead \
+    -goal "wokenEarly = set" -p DEFAULT_SETSIZE 2
+\end{verbatim}
+With \texttt{RWaitWoken} removed, nothing in the model ever sets
+\texttt{wokenEarly} to \texttt{set} --- the goal returns \emph{not found}.
+Concretely: \texttt{reachable} can flip to \texttt{set}
+(\texttt{GoReachable}) and the prober can dial successfully
+(\texttt{LDialOk}, itself unaffected by the deletion) and set
+\texttt{reconnected}, all while \texttt{rphase = rwaitdisc} --- but with no
+\texttt{RWaitWoken} to consume that signal, the replicator remains parked
+until \texttt{RWaitTimeout} eventually fires regardless, discovering the
+display no sooner than a display that never reconnected at all would have
+been retried.  This is the model's rendering of ``a display connect not
+promptly breaking the replicator out'' --- exactly the second required
+symptom, and exactly the failure mode \S6.3's own worked example describes
+(``a user who runs \texttt{lux display start} right after the Hub has
+climbed deep into its backoff would see held content stay blank for up to
+two minutes'').
+
+\paragraph{(c) Holding the registry lock across the wait (bonus control
+for I8).} Not one of the two symptoms the mission requires, but the most
+direct way to exhibit what \S6.3's own prose warns the lock-freedom
+property prevents.  Reproduced by two changes: \texttt{RDialFail} sets
+\texttt{regLock' = held} instead of \texttt{free}, and both
+\texttt{RWaitWoken} and \texttt{RWaitTimeout} gain \texttt{regLock' = free}
+in place of their passthrough. The distinguishing goal is I8's own:
+\begin{verbatim}
+  # must be NOT FOUND for the correct spec, FOUND for the lock-holding variant
+  probcli <spec>.tex -model_check -nodead \
+    -goal "rphase = rwaitdisc & regLock = held" -p DEFAULT_SETSIZE 2
+\end{verbatim}
+In the lock-holding variant this goal is reached immediately after the
+first \texttt{RDialFail}, and for as long as the replicator remains
+parked, \texttt{LDialOk}/\texttt{LDialFail}'s shared guard
+\texttt{regLock = free} is false --- the prober is starved from dialling at
+all, which in turn starves \texttt{reconnected} of the one signal that
+could wake the replicator early, so the only escape becomes
+\texttt{RWaitTimeout}: precisely the mechanism by which ``holding the lock
+across the wait'' would defeat the very promptness I6 exists to guarantee,
+stated here as a positive account of \emph{why} \S6.3 insists on
+\texttt{wait\_for\_reconnect} not taking \texttt{ClientRegistry.\_lock},
+not merely that it must not. This variant does not produce a literal ProB
+deadlock --- \texttt{RWaitTimeout} remains an always-enabled escape, and
+the content operations never consult \texttt{regLock} at all, so the state
+space stays live -- it produces exactly the starvation the reachability
+goal states, which is the honest and sufficient demonstration of the
+claim; a spec that manufactured a true deadlock here would need to also
+remove \texttt{RWaitTimeout}, which is a different, unrelated defect from
+the one this control targets.
+
+\end{document}

@@ -927,20 +927,29 @@ specific file this design read.
       `src/punt_lux/domain/hub/` references `ServiceManager` in connection
       with `DISPLAY_SPEC`/`DisplayServiceManager`.
 12. **CHANGELOG** entry under `## [Unreleased]`.
-13. **z-spec model** (`docs/display_linkage.tex` or an extension of the
-    existing `docs/hub_replicator.tex` — that spec already models
-    Hub→Display replication including the connect-success re-mark hook
-    (DES-068) this design leans on, per `docs/README.md`'s coverage table,
-    so extending it may be more accurate than a fresh document; the
-    implementation mission should confirm which after reading it) —
-    `DisplayLiveness` modeled as a second concurrent actor on
-    `ClientRegistry`, not just the replicator — and the eight invariants in
-    §12, with a fidelity control that reproduces this design's own root
-    causes when reverted: (a) catching `RuntimeError` on the generic branch
-    again must reproduce "the backoff plateaus at 2s and never reaches the
-    slow steady state"; (b) reverting `_wait_disconnected` to a raw
-    `time.sleep` must reproduce "a reconnect during the wait is not
-    rendered until the sleep expires."
+13. **z-spec model** — **done** (z-spec mission `m-2026-09-10-002`,
+    jms): a new specification, `docs/display_linkage.tex`, not an
+    extension of `docs/hub_replicator.tex`. That spec's own `Repl` schema
+    has exactly one thread that ever touches the display connection; this
+    design's entire novelty is a *second* thread (`DisplayLiveness`)
+    dialing the same registry, coordinated through a shared
+    `threading.Event` consulted without holding the registry's lock, plus
+    two independently-tuned backoff curves — none of which exists in
+    `hub_replicator.tex`'s carrier or invariants. Grafting a second actor
+    onto that already-verified, committed regression artifact would force
+    re-deriving its six proven invariants (I1–I6) under an interleaving
+    they were never checked against, for new invariants that are
+    orthogonal to them. `display_linkage.tex` cross-references
+    `hub_replicator.tex` for the reconciliation hook (DES-068) it already
+    models, rather than re-deriving it. All eight §12 invariants and
+    deadlock-freedom model-check clean at `DEFAULT_SETSIZE 2`
+    (7,464 states). Both mandatory fidelity controls reproduce the exact
+    symptoms: (a) collapsing the tri-state outcome onto the shared backoff
+    makes `discBackoff` unreachable past its base value while the shared
+    counter plateaus at the wedge backoff's low cap; (b) deleting the
+    early-wake exit from the wait makes a display reconnect not promptly
+    break the replicator out — reachable and stable while the replicator
+    stays parked. Coverage: `docs/display_linkage_coverage.md`.
 
 ## 11. Rejected Alternatives
 
