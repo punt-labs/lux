@@ -1,0 +1,84 @@
+name: Ratchets
+
+# Closes the gap that let #465 land a coupling regression that turned main
+# red: `make check-oo` and `make check-coupling` were enforced only on a
+# developer's machine (and in the local Phase-5 review pass), never in CI, so
+# a PR whose ratchet was red could still satisfy the merge gate (CI-green +
+# resolved threads) and merge anyway. These two jobs run the same ratchets
+# `make check` runs locally, so a red ratchet fails the check run here too.
+#
+# RUNNING vs REQUIRED: adding these jobs makes them RUN on every PR and push
+# to main. Making them REQUIRED to merge is a separate branch-protection /
+# ruleset setting -- this file cannot flip that switch. The exact status
+# check names to add to the ruleset are the job ids below, prefixed with this
+# workflow's name (the format GitHub's branch-protection UI expects):
+#   Ratchets / check-oo
+#   Ratchets / check-coupling
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  # check-oo compares HEAD against the baseline committed at the merge-base of
+  # origin/main and HEAD (`git show <merge-base>:.oo-baseline.json` --
+  # tools/oo_ratchet/gitio.py `resolve_base`/`show_baseline`). The default
+  # actions/checkout is a shallow, single-branch clone: it does not fetch
+  # `origin/main` at all (not merely a short history -- the ref is absent),
+  # so `git merge-base origin/main HEAD` fails with "unknown revision" and
+  # the ratchet fails closed ("cannot resolve merge-base (origin/main
+  # unfetched or stale)"). `fetch-depth: 0` makes actions/checkout do a full,
+  # unshallow fetch of every branch and tag, which is what actually populates
+  # `refs/remotes/origin/main` -- confirmed locally by cloning this repo with
+  # `git clone --depth 1` (origin/main absent, merge-base fails) and then
+  # `git fetch --unshallow origin '+refs/heads/*:refs/remotes/origin/*'`
+  # (origin/main present, merge-base resolves). The explicit `git fetch
+  # origin main` step below is belt-and-suspenders: fetch-depth: 0 already
+  # covers it, but if a future edit narrows the checkout back down, this step
+  # keeps origin/main resolvable without silently reintroducing the gotcha.
+  check-oo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          fetch-depth: 0
+      - name: Fetch origin/main (merge-base target for the OO ratchet)
+        run: git fetch origin main
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - run: uv sync --locked --extra display
+      - run: make check-oo
+
+  # check-coupling compares touched files against the IN-TREE
+  # .oo-coupling-baseline.json (not a merge-base blob), so it does not share
+  # check-oo's merge-base gotcha -- but it still needs the full source tree
+  # plus the display extra to score src/punt_lux/, so the setup mirrors
+  # check-oo. Deterministic since the Tarjan/sorted-neighbor fix in #466
+  # (tools/oo_coupling.py `_tarjan_scc`): neighbor iteration is sorted, not
+  # raw set iteration, so PYTHONHASHSEED no longer perturbs SCC
+  # discovery/return order between runs on identical source.
+  check-coupling:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - run: uv sync --locked --extra display
+      - run: make check-coupling
