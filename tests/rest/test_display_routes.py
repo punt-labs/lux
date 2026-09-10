@@ -183,3 +183,22 @@ def test_list_recent_events_rejects_a_count_over_the_cap_with_422() -> None:
 def test_list_errors_rejects_a_negative_count_with_422() -> None:
     resp = make_client().get("/errors?count=-1")
     assert resp.status_code == 422
+
+
+def test_get_link_reports_disconnected_with_no_display() -> None:
+    # ForbiddenPort (the default) is not connected and asserts nothing else is
+    # touched -- get_link never round-trips, so a disconnected display is fine.
+    resp = make_client().get("/display/link")
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "kind": "disconnected",
+        "linkage": "disconnected",
+        "retry_delay_seconds": 0.0,
+    }
+
+
+def test_get_link_reports_connected_idle() -> None:
+    client = make_client(display_port=StubPort(DisplayReplied({})))
+    resp = client.get("/display/link")
+    assert resp.status_code == 200
+    assert resp.json() == {"kind": "connected", "linkage": "connected_idle"}

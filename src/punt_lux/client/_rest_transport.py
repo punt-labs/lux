@@ -20,11 +20,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 from urllib.parse import quote, urlencode
 
-from pydantic import BaseModel
-
 from punt_lux.cli_identity import CliIdentity
+from punt_lux.client._link_reply import LinkReply
 from punt_lux.client._rest_display import _DisplayRestOps
-from punt_lux.client._rest_display_link import _DisplayLinkRestOps
 from punt_lux.client._rest_scenes import _SceneRestOps
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.hub_client import LuxHubClient
@@ -91,15 +89,7 @@ class _RestTransport:
     _headers: dict[str, str]
     _scenes: _SceneRestOps
     _display: _DisplayRestOps
-    _display_link: _DisplayLinkRestOps
-    __slots__ = (
-        "_display",
-        "_display_link",
-        "_headers",
-        "_identity",
-        "_scenes",
-        "_transport",
-    )
+    __slots__ = ("_display", "_headers", "_identity", "_scenes", "_transport")
 
     def __new__(cls, transport: HttpTransport, identity: ClientIdentity) -> Self:
         self = super().__new__(cls)
@@ -108,7 +98,6 @@ class _RestTransport:
         self._headers = ClientHeaders.to_wire(identity)
         self._scenes = _SceneRestOps(transport, self._headers)
         self._display = _DisplayRestOps(transport, self._headers)
-        self._display_link = _DisplayLinkRestOps(transport, self._headers)
         return self
 
     @classmethod
@@ -195,7 +184,8 @@ class _RestTransport:
         ``None`` uses the standing display-leg budget instead of a caller value.
         """
         suffix = f"?{urlencode({'timeout': wait})}" if wait is not None else ""
-        return self._get(f"/display/ping{suffix}", Pong)
+        call = HttpCall.read(f"/display/ping{suffix}", self._headers)
+        return RestReply(self._transport.request(call)).read(Pong)
 
     def render_dashboard(
         self, request: RenderDashboardRequest | OpError, *, scope: Scope
@@ -233,7 +223,8 @@ class _RestTransport:
         A REST round trip can fail where the in-process facade cannot;
         ``OpError`` lets every caller handle both through one envelope.
         """
-        return self._get("/clients", ClientList)
+        call = HttpCall.read("/clients", self._headers)
+        return RestReply(self._transport.request(call)).read(ClientList)
 
     def close_frame(self, frame_id: str, *, scope: Scope) -> Ok | OpError:
         """Close the caller's own frame through ``POST /display/frames/{id}/close``."""
@@ -244,7 +235,8 @@ class _RestTransport:
 
     def list_frames(self) -> FrameStates | OpError:
         """List the display's frames through ``GET /display/frames``."""
-        return self._get("/display/frames", FrameStates)
+        call = HttpCall.read("/display/frames", self._headers)
+        return RestReply(self._transport.request(call)).read(FrameStates)
 
     def list_menus(self) -> MenuList | OpError:
         """Return the Hub-authoritative menu bar through ``GET /menus``.
@@ -252,11 +244,13 @@ class _RestTransport:
         Unlike the in-process facade, a REST round trip can fail (stale port,
         unreachable Hub); ``OpError`` lets every caller handle it uniformly.
         """
-        return self._get("/menus", MenuList)
+        call = HttpCall.read("/menus", self._headers)
+        return RestReply(self._transport.request(call)).read(MenuList)
 
     def get_link(self) -> DisplayLinkState | OpError:
         """Return the Hub's observed link state through ``GET /display/link``."""
-        return self._display_link.get_link()
+        call = HttpCall.read("/display/link", self._headers)
+        return LinkReply.read(self._transport.request(call))
 
     def set_menu(self, request: SetMenuRequest | OpError) -> Ok | OpError:
         """Replace the Hub-owned menu bar through ``PUT /menus``."""
@@ -316,14 +310,11 @@ class _RestTransport:
     def list_recent_events(self, count: int) -> RecentEvents | OpError:
         """Return recent interactions through ``GET /events``."""
         query = urlencode({"count": count})
-        return self._get(f"/events?{query}", RecentEvents)
+        call = HttpCall.read(f"/events?{query}", self._headers)
+        return RestReply(self._transport.request(call)).read(RecentEvents)
 
     def list_errors(self, count: int) -> RecentErrors | OpError:
         """Return recent errors through ``GET /errors``."""
         query = urlencode({"count": count})
-        return self._get(f"/errors?{query}", RecentErrors)
-
-    def _get[T: BaseModel](self, path: str, model: type[T]) -> T | OpError:
-        """Bind, send, and parse one bodiless ``GET`` -- the shared read shape."""
-        call = HttpCall.read(path, self._headers)
-        return RestReply(self._transport.request(call)).read(model)
+        call = HttpCall.read(f"/errors?{query}", self._headers)
+        return RestReply(self._transport.request(call)).read(RecentErrors)

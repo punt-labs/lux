@@ -41,12 +41,6 @@ _MCP_ONLY = {
     # invocations; delivery goes through the listen leg's ``take`` drain, so
     # a REST route (which cannot bind to a listener) has no way to be useful.
     "pending_callbacks",
-    # get_link (DisplayLinkage, design display-presence-demand-driven.md §6)
-    # is a genuine gap, not an architectural exemption: its implementation
-    # mission's write-set covered operations/tools/cli but not rest/, so the
-    # REST route is deferred to a follow-up rather than a deliberate MCP-only
-    # design choice like the entries above.
-    "get_link",
 }
 
 
@@ -91,7 +85,7 @@ def test_exempt_set_names_only_real_operations() -> None:
 
 def test_surface_exposes_one_router_per_concern() -> None:
     surface = RestSurface(make_facade(display_port=ForbiddenPort()))
-    assert len(surface.routers) == 5
+    assert len(surface.routers) == 6
 
 
 def test_no_publish_route_is_mounted() -> None:

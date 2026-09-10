@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict
 from punt_lux.hub_composition import HubComposition
 from punt_lux.rest.config import DisplayModeRoutes
 from punt_lux.rest.display import DisplayRoutes
+from punt_lux.rest.display_link import DisplayLinkRoutes
 from punt_lux.rest.frame import FrameRoutes
 from punt_lux.rest.identity import RestCaller
 from punt_lux.rest.menus import MenuRoutes
@@ -36,9 +37,8 @@ __all__ = ["HubHealth", "RestSurface"]
 class HubHealth(BaseModel):
     """The hub liveness-probe body: process liveness plus the live session count.
 
-    Reports only that luxd's process is up and how many MCP sessions it holds —
-    not Hub store or replicator health; an unhealthy hub is no response at all,
-    never a degraded status, so there is no discrimination beyond ``"ok"``.
+    Not Hub store or replicator health -- an unhealthy hub is no response at
+    all, so there is no discrimination beyond ``"ok"``.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -63,6 +63,7 @@ class RestSurface:
             SceneRoutes(ops, deps.errors).router,
             MenuRoutes(ops, deps.errors).router,
             DisplayRoutes(deps).router,
+            DisplayLinkRoutes(deps).router,
             FrameRoutes(deps).router,
             DisplayModeRoutes(ops, deps.errors).router,
         )
@@ -80,10 +81,9 @@ class RestSurface:
         return self._routers
 
     def mount(self, app: FastAPI) -> None:
-        """Include every router on the app, and publish the per-request resolver.
+        """Include every router, and publish the per-request identity resolver.
 
-        The write routes read the caller off ``app.state`` through the
-        ``resolve_scope`` dependency, so one resolver serves the whole surface.
+        Write routes read the caller off ``app.state`` via ``resolve_scope``.
         """
         app.state.rest_caller = self._caller
         for router in self._routers:
