@@ -113,9 +113,7 @@ class TestKeepAliveRendering:
         assert lines[keep_alive + 1] == "<true/>"
         assert "SuccessfulExit" not in plist
 
-    def test_display_spec_uses_the_crash_only_dict_stanza(
-        self, tmp_path: Path
-    ) -> None:
+    def test_display_spec_uses_the_crash_only_dict_stanza(self, tmp_path: Path) -> None:
         # DISPLAY_SPEC: a clean exit is operator-initiated (design §4) and
         # must not respawn -- only a crash (non-zero/signal exit) does.
         fake_home = tmp_path / "home"
