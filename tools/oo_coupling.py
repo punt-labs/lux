@@ -392,36 +392,92 @@ class CouplingScorer:
         return graph
 
     @staticmethod
-    def _find_cycle_members(graph: dict[str, set[str]]) -> set[str]:
-        """Return set of nodes that participate in any cycle (DFS)."""
-        white, gray, black = 0, 1, 2
-        color: dict[str, int] = dict.fromkeys(graph, white)
-        in_cycle: set[str] = set()
-        path: list[str] = []
+    def _tarjan_scc(graph: dict[str, set[str]]) -> list[set[str]]:
+        """Return the strongly connected components of graph (Tarjan's SCC).
 
-        def dfs(node: str) -> None:
-            color[node] = gray
-            path.append(node)
-            # Sorted, not raw set iteration: str-keyed sets order by hash,
-            # which PYTHONHASHSEED randomizes per process, making membership
-            # in a partial (non-Tarjan) SCC scan flip between runs on the
-            # exact same source tree.
-            for neighbor in sorted(graph.get(node, set())):
-                if neighbor not in color:
+        Iterative — a recursive walk would risk the interpreter's recursion
+        limit on a long, linear import chain. Neighbor iteration is sorted,
+        not raw set iteration: str-keyed sets order by hash, which
+        PYTHONHASHSEED randomizes per process, and an unsorted walk would
+        make SCC membership flip between runs on the exact same source tree.
+        """
+        index_of: dict[str, int] = {}
+        lowlink: dict[str, int] = {}
+        on_stack: set[str] = set()
+        tarjan_stack: list[str] = []
+        sccs: list[set[str]] = []
+        next_index = 0
+
+        for root in sorted(graph):
+            if root in index_of:
+                continue
+
+            index_of[root] = next_index
+            lowlink[root] = next_index
+            next_index += 1
+            tarjan_stack.append(root)
+            on_stack.add(root)
+            # Explicit call stack standing in for the recursive strongconnect:
+            # each frame is (node, its sorted neighbors, the next one to visit).
+            work: list[tuple[str, list[str], int]] = [
+                (root, sorted(graph.get(root, ())), 0)
+            ]
+
+            while work:
+                node, neighbors, i = work[-1]
+                if i < len(neighbors):
+                    work[-1] = (node, neighbors, i + 1)
+                    neighbor = neighbors[i]
+                    if neighbor not in graph:
+                        continue
+                    if neighbor not in index_of:
+                        index_of[neighbor] = next_index
+                        lowlink[neighbor] = next_index
+                        next_index += 1
+                        tarjan_stack.append(neighbor)
+                        on_stack.add(neighbor)
+                        work.append((neighbor, sorted(graph.get(neighbor, ())), 0))
+                    elif neighbor in on_stack:
+                        lowlink[node] = min(lowlink[node], index_of[neighbor])
                     continue
-                if color[neighbor] == gray:
-                    # Found a cycle — mark all nodes in the cycle
-                    idx = path.index(neighbor)
-                    in_cycle.update(path[idx:])
-                elif color[neighbor] == white:
-                    dfs(neighbor)
-            path.pop()
-            color[node] = black
 
-        for node in graph:
-            if color[node] == white:
-                dfs(node)
+                work.pop()
+                if work:
+                    parent = work[-1][0]
+                    lowlink[parent] = min(lowlink[parent], lowlink[node])
+                if lowlink[node] == index_of[node]:
+                    component: set[str] = set()
+                    while True:
+                        member = tarjan_stack.pop()
+                        on_stack.discard(member)
+                        component.add(member)
+                        if member == node:
+                            break
+                    sccs.append(component)
 
+        return sccs
+
+    @staticmethod
+    def _find_cycle_members(graph: dict[str, set[str]]) -> set[str]:
+        """Return every node that participates in any cycle.
+
+        A node is in a cycle iff its SCC (Tarjan) has two or more members,
+        or it has a self-loop. A prior DFS-path approach recorded cycle
+        membership only on a back-edge into a GRAY (on-stack) node, so a
+        node reached solely along an already-BLACK path into the same
+        cycle was silently dropped: edges A->B, A->C, B->A, C->B are all
+        one cycle, but a DFS visiting B first reports only {A, B} because
+        C is never revisited once B has gone black. SCC membership doesn't
+        depend on traversal order, so it can't under-report this way.
+        """
+        in_cycle: set[str] = set()
+        for component in CouplingScorer._tarjan_scc(graph):
+            if len(component) >= 2:
+                in_cycle.update(component)
+                continue
+            (node,) = component
+            if node in graph.get(node, ()):
+                in_cycle.add(node)
         return in_cycle
 
     # ---- scoring ----

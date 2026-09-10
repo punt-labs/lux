@@ -2291,7 +2291,7 @@
   "src/punt_lux/domain/hub/lifecycle.py": {
     "efferent_coupling": 2.0,
     "public_names": 1.0,
-    "circular_imports": 0.0,
+    "circular_imports": 1.0,
     "max_lcom": 0.0,
     "avg_lcom": 0.0
   },
@@ -4055,7 +4055,7 @@
   "src/punt_lux/protocol/messages/__init__.py": {
     "efferent_coupling": 7.0,
     "public_names": 28.0,
-    "circular_imports": 0.0,
+    "circular_imports": 1.0,
     "max_lcom": 0.0,
     "avg_lcom": 0.0
   },
@@ -4125,14 +4125,14 @@
   "src/punt_lux/protocol/messages/scene.py": {
     "efferent_coupling": 1.0,
     "public_names": 1.0,
-    "circular_imports": 0.0,
+    "circular_imports": 1.0,
     "max_lcom": 0.0,
     "avg_lcom": 0.0
   },
   "src/punt_lux/protocol/messages/scene_codec.py": {
     "efferent_coupling": 2.0,
     "public_names": 1.0,
-    "circular_imports": 0.0,
+    "circular_imports": 1.0,
     "max_lcom": 0.0,
     "avg_lcom": 0.0
   },
