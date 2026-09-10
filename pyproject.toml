@@ -277,6 +277,18 @@ reportUnknownArgumentType = false
 reportUnknownMemberType = false
 
 [[tool.pyright.executionEnvironments]]
+# Same carve-out as tests/oo_ratchet above, for the same reason: this
+# package imports the top-level tools/oo_coupling.py, and without an
+# entry listed ahead of the general "tests" root below, the sibling
+# tests/tools/ package shadows the top-level tools/ package.
+root = "tests/oo_coupling"
+extraPaths = ["."]
+reportPrivateUsage = false
+reportUnknownVariableType = false
+reportUnknownArgumentType = false
+reportUnknownMemberType = false
+
+[[tool.pyright.executionEnvironments]]
 root = "tests"
 # The repo root, so a test importing a fixture from a sibling test package by its
 # full path (`tests.rest._fakes`) resolves the same way pytest and mypy resolve
