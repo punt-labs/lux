@@ -191,10 +191,10 @@ class DisplayLinkage(Enum):
     supervisor (§7) — never to this enum or anything that computes it.
     """
 
-    DISCONNECTED = auto()       # no display connected; nothing held either
-    HELD = auto()               # no display connected; content is waiting
-    CONNECTED_IDLE = auto()     # display connected; nothing live to show
-    CONNECTED_ACTIVE = auto()   # display connected; live content is rendering
+    DISCONNECTED = auto()  # no display connected; nothing held either
+    HELD = auto()  # no display connected; content is waiting
+    CONNECTED_IDLE = auto()  # display connected; nothing live to show
+    CONNECTED_ACTIVE = auto()  # display connected; live content is rendering
 
     @classmethod
     def classify(cls, *, connected: bool, live_scene_count: int) -> Self:
@@ -378,6 +378,7 @@ def __new__(
     self._last_respawn_at = None
     return self
 
+
 @property
 def current_delay(self) -> float:
     """Return the delay `note_respawn` would apply next — read-only, no mutation."""
@@ -413,19 +414,25 @@ and wire separately:
 # clients.py — ClientRegistry gains one field and two methods
 _reconnected: threading.Event  # set on a fresh connect; consumed by wait_for_reconnect
 
+
 def get(self) -> DisplayLink:
     with self._lock:
         was_connected = self._client is not None and self._client.is_connected
         if self._client is None:
-            self._client = DisplayLink(name=_DISPLAY_CLIENT_NAME, kind="hub", auto_spawn=False)
+            self._client = DisplayLink(
+                name=_DISPLAY_CLIENT_NAME, kind="hub", auto_spawn=False
+            )
         self._setup_apps()
         if not self._client.is_connected:
-            self._connect_and_reconcile(self._client)  # raises RuntimeError if unreachable
+            self._connect_and_reconcile(
+                self._client
+            )  # raises RuntimeError if unreachable
         if not self._client.listener_active:
             self._client.start_listener()
         if not was_connected:
             self._reconnected.set()  # wakes anyone in wait_for_reconnect, immediately
         return self._client
+
 
 def wait_for_reconnect(self, timeout: float) -> bool:
     """Block up to `timeout`s for a fresh connect from EITHER thread.
@@ -457,6 +464,7 @@ def _push_cycle(self, batch: DrainedBatch) -> _CycleOutcome:
     except OSError as exc:
         ...  # unchanged — dead-peer reconnect
     return _CycleOutcome(outcome="clean", emptied=emptied)
+
 
 def _wait_disconnected(self) -> None:
     """Wait for the current disconnected delay, breakable by a reconnect."""
@@ -503,8 +511,8 @@ either — that would defeat the very rediscovery §6.3 relies on it for.
 
 ```python
 _DISCONNECTED_PROBE_INTERVAL = 5.0  # a few seconds slower than the connected
-                                     # ping cadence — visibly relaxed, still
-                                     # well inside "prompt" for invariant 6
+# ping cadence — visibly relaxed, still
+# well inside "prompt" for invariant 6
 
 
 class DisplayLiveness:
@@ -519,7 +527,11 @@ class DisplayLiveness:
                 self.check_once()
             except Exception:
                 logger.exception("liveness cycle failed; continuing")
-            interval = self._interval if not self._disconnected else _DISCONNECTED_PROBE_INTERVAL
+            interval = (
+                self._interval
+                if not self._disconnected
+                else _DISCONNECTED_PROBE_INTERVAL
+            )
 
     def check_once(self) -> None:
         if self._probe() or self._probe():
@@ -713,7 +725,7 @@ class ConnectedLinkState(BaseModel):
     linkage: Literal["connected_idle", "connected_active"]
     live_scene_count: int
     hub_host: str  # socket.gethostname() — which machine this Hub is on
-    hub_pid: int   # os.getpid() — which Hub process, for a same-host duplicate
+    hub_pid: int  # os.getpid() — which Hub process, for a same-host duplicate
 
 
 class DisconnectedLinkState(BaseModel):
