@@ -809,7 +809,7 @@ class CouplingRatchet:
 
     @staticmethod
     def _git_renamed_files(base_ref: str = "HEAD~1") -> set[str]:
-        """Return new-path side of pure renames between ``base_ref`` and HEAD.
+        """Return new-path side of *pure* renames between ``base_ref`` and HEAD.
 
         Same ``base_ref`` default and override rationale as
         ``_git_touched_files`` -- the rename set must be scoped to the same
@@ -817,6 +817,15 @@ class CouplingRatchet:
         push commit could be excluded from ``touched`` (correct) while its
         content regression is missed entirely (incorrect: renames+regresses
         elsewhere in a multi-commit push must still be scored).
+
+        Uses ``--name-status`` rather than ``--name-only`` because
+        ``--diff-filter=R`` matches *any* rename git detects, including one
+        where the content also changed (``R82`` == 82% similar, not 100%) --
+        ``--name-only`` collapses that distinction away, so a renamed-and-
+        modified file (a genuine regression candidate) would be subtracted
+        from ``touched`` right alongside a true no-op rename. Only ``R100``
+        (100% similarity -- byte-identical content) has nothing to score;
+        anything below that keeps its new path in the touched set.
         """
         try:
             result = subprocess.run(
@@ -825,7 +834,7 @@ class CouplingRatchet:
                     "diff",
                     "-M",
                     "--diff-filter=R",
-                    "--name-only",
+                    "--name-status",
                     f"{base_ref}..HEAD",
                 ],
                 capture_output=True,
@@ -833,7 +842,19 @@ class CouplingRatchet:
                 timeout=5,
             )
             if result.returncode == 0:
-                return {line for line in result.stdout.strip().splitlines() if line}
+                renamed: set[str] = set()
+                for line in result.stdout.strip().splitlines():
+                    if not line:
+                        continue
+                    # Rename lines are "R<score>\t<old>\t<new>" -- the score
+                    # is a variable-width percentage (e.g. "R100", "R82").
+                    parts = line.split("\t")
+                    if len(parts) != 3:
+                        continue
+                    status, _old_path, new_path = parts
+                    if status == "R100":
+                        renamed.add(new_path)
+                return renamed
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
         return set()

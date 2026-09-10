@@ -227,3 +227,81 @@ class TestMultiCommitPushBaseRef:
 
         outcome = fx.ratchet().check(fx.scorer(), base_ref=before)
         assert outcome == 0
+
+
+class TestRenamedFiles:
+    """``_git_renamed_files`` must exclude only *pure* (byte-identical) renames.
+
+    ``git diff --diff-filter=R`` matches any rename git detects, including one
+    where the content also changed (e.g. ``R82`` -- 82% similar, not 100%).
+    Treating every ``R*`` match as a no-op rename would subtract a genuinely
+    modified file from ``touched`` right alongside a true no-op rename --
+    exactly the file most in need of scoring, silently dropped.
+    """
+
+    def test_pure_rename_is_excluded(self, fx: CouplingGitFixture) -> None:
+        fx.write("sub/w.py", COHESIVE)
+        before = fx.commit("add w.py")
+
+        (fx.root / "sub" / "w.py").unlink()
+        fx.write("sub/w_renamed.py", COHESIVE)
+        fx.commit("pure rename, byte-identical content")
+
+        assert CouplingRatchet._git_renamed_files(before) == {"sub/w_renamed.py"}
+
+    def test_rename_with_content_change_is_not_excluded(
+        self, fx: CouplingGitFixture
+    ) -> None:
+        fx.write("sub/w.py", COHESIVE)
+        before = fx.commit("add w.py")
+
+        (fx.root / "sub" / "w.py").unlink()
+        fx.write("sub/w_renamed.py", DISJOINT)
+        fx.commit("rename and regress w.py -> w_renamed.py")
+
+        # Git still pairs this as a rename (content is well over the 50%
+        # similarity default), but it is not a *pure* one -- the new path
+        # must stay eligible for scoring, not be silently dropped.
+        assert CouplingRatchet._git_renamed_files(before) == set()
+
+    def test_check_still_scores_renamed_and_modified_file(
+        self, fx: CouplingGitFixture, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """End to end: a rename-with-regression stays visible through ``check()``.
+
+        A rename always changes the path, so the baseline -- keyed by the old
+        path -- can never have an entry under the new one; this can't surface
+        as an exit-code FAIL from a single push. What the fix guarantees is
+        that the file is still scored and reported (as NEW), rather than
+        vanishing from ``touched`` the way a pure rename correctly does (see
+        ``test_check_drops_pure_rename_entirely`` below for the contrast).
+        """
+        fx.write("sub/w.py", COHESIVE)
+        fx.snapshot("sub")
+        before = fx.commit("pre-push main tip")
+
+        (fx.root / "sub" / "w.py").unlink()
+        fx.write("sub/w_renamed.py", DISJOINT)
+        fx.commit("rename and regress w.py -> w_renamed.py")
+
+        outcome = fx.ratchet().check(fx.scorer(), base_ref=before)
+        assert outcome == 0  # no baseline entry under the new path -> INFO
+        out = capsys.readouterr().out
+        assert "sub/w_renamed.py" in out
+        assert "NEW" in out
+
+    def test_check_drops_pure_rename_entirely(
+        self, fx: CouplingGitFixture, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        fx.write("sub/w.py", COHESIVE)
+        fx.snapshot("sub")
+        before = fx.commit("pre-push main tip")
+
+        (fx.root / "sub" / "w.py").unlink()
+        fx.write("sub/w_renamed.py", COHESIVE)
+        fx.commit("pure rename, no content change")
+
+        outcome = fx.ratchet().check(fx.scorer(), base_ref=before)
+        assert outcome == 0
+        out = capsys.readouterr().out
+        assert "No Python files touched -- trivial pass" in out
