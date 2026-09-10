@@ -131,6 +131,11 @@ class _Provider:
     def drop(self) -> None:
         self._needs_reconcile = True
 
+    def wait_for_reconnect(self, timeout: float) -> bool:
+        """Unused here — this fake's sender is always reachable, never disconnected."""
+        del timeout
+        return False
+
 
 class _Lifecycle:
     """A no-op display lifecycle — no real process to reap or respawn."""

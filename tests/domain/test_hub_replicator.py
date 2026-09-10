@@ -256,8 +256,17 @@ class _FakeProvider:
     _sender: _FakeSender
     _reconcile: Callable[[], None] | None
     _needs_reconcile: bool
+    _unreachable: bool
     drops: int
-    __slots__ = ("_needs_reconcile", "_reconcile", "_sender", "drops")
+    reconnect_waits: list[float]
+    __slots__ = (
+        "_needs_reconcile",
+        "_reconcile",
+        "_sender",
+        "_unreachable",
+        "drops",
+        "reconnect_waits",
+    )
 
     def __new__(
         cls, sender: _FakeSender, reconcile: Callable[[], None] | None = None
@@ -266,10 +275,23 @@ class _FakeProvider:
         self._sender = sender
         self._reconcile = reconcile
         self._needs_reconcile = False
+        self._unreachable = False
         self.drops = 0
+        self.reconnect_waits = []
         return self
 
+    def arm_unreachable(self) -> None:
+        """Make every ``get()`` raise ``RuntimeError`` — no display connected."""
+        self._unreachable = True
+
+    def heal_unreachable(self) -> None:
+        """Stop raising — the next ``get()`` succeeds, like a display returning."""
+        self._unreachable = False
+
     def get(self) -> _FakeSender:
+        if self._unreachable:
+            msg = "no display connected"
+            raise RuntimeError(msg)
         if self._needs_reconcile and self._reconcile is not None:
             self._reconcile()
             self._needs_reconcile = False
@@ -278,6 +300,11 @@ class _FakeProvider:
     def drop(self) -> None:
         self.drops += 1
         self._needs_reconcile = True
+
+    def wait_for_reconnect(self, timeout: float) -> bool:
+        """Record the wait; never actually blocks — unit tests stay instant."""
+        self.reconnect_waits.append(timeout)
+        return False
 
 
 class _FakeLifecycle:
@@ -771,6 +798,107 @@ def test_a_recovered_cycle_backs_off_and_a_clean_cycle_resets(
 
     repl._run_cycle(batch)  # a clean cycle now resets the delay
     assert repl._backoff == _BASE_BACKOFF_SECONDS
+
+
+# -- demand-driven display linkage (display-presence-demand-driven.md) ------
+
+
+def test_a_dial_failure_drives_the_disconnected_branch_not_the_wedged_backoff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # RuntimeError from ClientProvider.get() means no display was ever
+    # connected -- a different condition from a connected display misbehaving.
+    # It must never trip the wedged-display backoff (_back_off/time.sleep).
+    slept: list[float] = []
+    monkeypatch.setattr("punt_lux.domain.hub.replicator.time.sleep", slept.append)
+    store = HubDisplay()
+    scene = _seed(store, "s1")
+    repl, _sender, provider, _lifecycle = _replicator(store)
+    batch = DrainedBatch(frozenset({scene}), shutting=False)
+    provider.arm_unreachable()
+
+    repl._run_cycle(batch)
+
+    assert slept == []  # the wedged-display backoff never fires
+    assert provider.reconnect_waits == [2.0]  # the disconnected backoff's base delay
+    assert repl._backoff == _BASE_BACKOFF_SECONDS  # the wedged delay is untouched
+
+
+def test_content_pushed_while_disconnected_is_held_then_delivered_on_reconnect() -> (
+    None
+):
+    # Nothing is lost while disconnected (I1): the real worker thread restores
+    # the batch and, once the display becomes reachable again, delivers it.
+    store = HubDisplay()
+    scene = _seed(store, "s1")
+    repl, sender, provider, _lifecycle = _replicator(store)
+    provider.arm_unreachable()
+    repl.start()
+    try:
+        repl.mark_dirty(scene)
+        for _ in range(200):
+            if provider.reconnect_waits:
+                break
+            threading.Event().wait(0.01)
+        assert provider.reconnect_waits  # the worker parked in the disconnected wait
+        assert sender.shows == []  # nothing sent yet -- held, not lost
+
+        provider.heal_unreachable()  # a display connects
+        assert sender.wait_sent(3.0)
+        assert sender.shows == ["s1"]  # delivered once reachable
+    finally:
+        provider.heal_unreachable()
+        repl.stop()
+
+
+def test_the_disconnected_backoff_climbs_from_base_to_cap() -> None:
+    # I4: the disconnected backoff is genuinely exponential and reaches its
+    # own, higher, slow steady state -- 2s -> 4s -> ... -> 120s (design §6.2).
+    store = HubDisplay()
+    scene = _seed(store, "s1")
+    repl, _sender, provider, _lifecycle = _replicator(store)
+    batch = DrainedBatch(frozenset({scene}), shutting=False)
+    provider.arm_unreachable()
+
+    for _ in range(8):
+        repl._run_cycle(batch)
+
+    assert provider.reconnect_waits == [
+        2.0,
+        4.0,
+        8.0,
+        16.0,
+        32.0,
+        64.0,
+        120.0,
+        120.0,
+    ]
+    assert repl.disconnected_delay == 120.0
+
+
+def test_the_disconnected_backoff_resets_on_a_clean_send_not_on_dial_success() -> None:
+    # The CRITICAL obligation: the reset fires on a genuinely clean SEND
+    # (outcome == "clean"), not merely on the dial succeeding. A dial that
+    # succeeds but whose send then fails is "recovered", not "clean", and
+    # must leave the climbed disconnected delay untouched.
+    store = HubDisplay()
+    scene = _seed(store, "s1")
+    registry = HubMenuRegistry()
+    repl, sender, provider, _lifecycle = _replicator(store, registry)
+    batch = DrainedBatch(frozenset({scene}), shutting=False)
+
+    provider.arm_unreachable()
+    repl._run_cycle(batch)
+    repl._run_cycle(batch)
+    assert repl.disconnected_delay == 8.0  # climbed twice (2.0 -> 4.0 -> 8.0 pending)
+
+    provider.heal_unreachable()  # the dial now succeeds...
+    sender.arm_failure(OSError())  # ...but the send itself still fails
+    repl._run_cycle(batch)
+    assert repl.disconnected_delay == 8.0  # a dial-only success does not reset it
+
+    repl._run_cycle(batch)  # now a genuinely clean send
+    assert repl.disconnected_delay == 2.0  # reset back to base
 
 
 def test_recovery_of_an_emptied_store_repaints_nothing() -> None:

@@ -5,12 +5,11 @@ or the process. It reaches them through three structural ports so the concurrenc
 logic is tested against fakes, not a live socket:
 
 - ``DisplaySender`` — the fire-and-forget send surface (a ``DisplayLink``).
-- ``ClientProvider`` — hands out the current sender and drops a dead one so the
-  next hand-out reconnects (the Hub's ``ClientRegistry``).
-- ``DisplayLifecycle`` — kills a wedged display; its own service unit
-  respawns it (``DisplayPaths``).
-- ``DirtyMarker`` — the queue-only side of the replicator (``HubReplicator``)
-  that a fresh-connect hook marks after declaring its manifest (DES-068).
+- ``ClientProvider`` — hands out the current sender, drops a dead one, and
+  blocks a waiter until a fresh connect (the Hub's ``ClientRegistry``).
+- ``DisplayLifecycle`` — kills a wedged display; its service unit respawns it.
+- ``DirtyMarker`` — the queue-only side (``HubReplicator``) a fresh-connect
+  hook marks after declaring its manifest (DES-068).
 """
 
 from __future__ import annotations
@@ -83,11 +82,10 @@ class DisplaySender(ScenePusher, Protocol):
         Used by ``HubReplicator``'s isolation-mode loop as a synchronous
         liveness check between consecutive singleton probes: a scene N whose
         render crashed the display surfaces as a broken pipe on the *next*
-        write, so without a roundtrip in between, the death would attribute
-        to scene N+1 (which was in flight when the write raised) rather than
-        to scene N (the real culprit). Raising OSError/BlockingIOError is
-        also a "no" — the caller propagates either as a failure of the last
-        scene sent.
+        write, so without a roundtrip in between, the death would attribute to
+        scene N+1 rather than scene N (the real culprit). Raising
+        OSError/BlockingIOError is also a "no" — the caller propagates either
+        as a failure of the last scene sent.
         """
         ...
 
@@ -103,14 +101,17 @@ class ClientProvider(Protocol):
     def drop(self) -> None:
         """Close the current connection so the next ``get`` binds a fresh one."""
 
+    def wait_for_reconnect(self, timeout: float) -> bool:
+        """Block up to ``timeout``s for a fresh reconnect; ``False`` on timeout."""
+        ...
+
 
 @runtime_checkable
 class DisplayLifecycle(Protocol):
     """Kills a wedged display; its own service unit respawns it.
 
-    Before lux-5uc7, the Hub both reaped a wedged display and spawned its
-    replacement — a second supervisor racing the launchd/systemd unit that
-    now owns respawn. The Hub's remaining lifecycle role is killing.
+    The Hub used to both reap and respawn — a second supervisor racing the
+    launchd/systemd unit that now owns respawn. Its remaining role is killing.
     """
 
     def reap(self, timeout: float = ...) -> None:

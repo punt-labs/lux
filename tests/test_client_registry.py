@@ -16,6 +16,7 @@ gets repainted, not just told.
 
 from __future__ import annotations
 
+import threading
 from typing import Self
 
 import pytest
@@ -326,3 +327,92 @@ def test_reconcile_reads_live_scene_ids_so_quarantined_scenes_never_leak(
         hub_display.replace_scene(conn, kept, ())  # cleanup
         hub_display.replace_scene(conn, poison, ())
         hub_display.drop_connection(conn)
+
+
+# -- DisplayLinkage: is_connected / wait_for_reconnect (design §6.3, §9) -----
+
+
+def test_is_connected_is_false_with_no_client_and_no_io() -> None:
+    registry = ClientRegistry()
+    assert registry.is_connected is False
+
+
+def test_is_connected_is_false_before_any_connect() -> None:
+    registry = ClientRegistry()
+    fake = _FakeClient()
+    _install_client(registry, fake)
+    assert registry.is_connected is False
+
+
+def test_is_connected_is_true_once_the_client_connects() -> None:
+    registry = ClientRegistry()
+    fake = _FakeClient()
+    _install_client(registry, fake)
+    fake.connect()
+    assert registry.is_connected is True
+
+
+def test_is_connected_is_false_again_once_closed() -> None:
+    registry = ClientRegistry()
+    fake = _FakeClient()
+    _install_client(registry, fake)
+    fake.connect()
+    fake.close()
+    assert registry.is_connected is False
+
+
+def test_get_sets_reconnected_only_on_a_not_connected_to_connected_edge() -> None:
+    """Fires once per genuine reconnect, never on an already-connected get()."""
+    registry = ClientRegistry()
+    fake = _FakeClient()
+    _install_client(registry, fake)
+
+    registry.get()  # the fresh connect: not-connected -> connected
+    assert registry.wait_for_reconnect(0.0) is True  # set, consumed once
+
+    registry.get()  # already connected: no edge, no re-set
+    assert registry.wait_for_reconnect(0.0) is False
+
+
+def test_wait_for_reconnect_wakes_promptly_on_a_concurrent_connect() -> None:
+    """A waiter parked on a 60s timeout wakes in well under a second."""
+    registry = ClientRegistry()
+    fake = _FakeClient()
+    _install_client(registry, fake)
+    woke: list[bool] = []
+    entered = threading.Event()
+
+    def wait() -> None:
+        entered.set()
+        woke.append(registry.wait_for_reconnect(60.0))
+
+    waiter = threading.Thread(target=wait)
+    waiter.start()
+    assert entered.wait(2.0)
+    registry.get()  # the connect that should wake the waiter
+    waiter.join(timeout=2.0)
+
+    assert not waiter.is_alive()
+    assert woke == [True]  # woke early, not by the 60s timeout
+
+
+def test_wait_for_reconnect_does_not_hold_the_registry_lock() -> None:
+    """A concurrent get() must complete while a wait is in flight (I8)."""
+    registry = ClientRegistry()
+    fake = _FakeClient()
+    _install_client(registry, fake)
+    done = threading.Event()
+
+    waiter = threading.Thread(target=registry.wait_for_reconnect, args=(0.5,))
+    waiter.start()
+
+    def call_get() -> None:
+        registry.get()
+        done.set()
+
+    getter = threading.Thread(target=call_get)
+    getter.start()
+    getter.join(timeout=2.0)
+
+    assert done.is_set(), "get() blocked behind a lock the wait should not hold"
+    waiter.join(timeout=2.0)
