@@ -1,14 +1,10 @@
 """The Hub's connection to the display process.
 
-Provides :class:`DisplayLink`, a context-manager that connects to the Lux
-display over a Unix domain socket, waits for the ``ReadyMessage``
-handshake, and exposes typed methods for sending scenes, updates, clears,
-and pings.  Receives ack, pong, and observer events.
-
-Supports push-based event handling via :meth:`on_event` and
-:meth:`start_listener`. When active, a matching interaction dispatches on the
-listener thread; acks, pongs, and query responses route to queues consumed
-by :meth:`show`, :meth:`ping`, and :meth:`query`. Inbound
+:class:`DisplayLink` is a context manager over a Unix socket that performs
+the ``ReadyMessage`` handshake and exposes typed methods for scenes, pings,
+and queries. :meth:`on_event` + :meth:`start_listener` enable push-based
+dispatch on the listener thread; acks, pongs, and query responses route to
+the queues :meth:`show`, :meth:`ping`, and :meth:`query` consume, and
 :class:`ObserverMessage` frames queue as :class:`PolledEvent` for
 :meth:`poll_event`.
 """
@@ -77,23 +73,14 @@ def _drain_queue(q: queue.SimpleQueue[Any]) -> None:
 class DisplayLink:
     """Client for the Lux display server.
 
-    Parameters
-    ----------
-    socket_path:
-        Path to the Unix domain socket.  ``None`` uses the default.
-    name:
-        The identity this connection declares in its ``ConnectMessage``.
-    kind:
-        ``"hub"`` triggers single-owner preemption plus a manifest
-        (DES-068); ``"test"`` (default) is the read-only backdoor for
-        every other caller — a deliberately wrong-looking name, since
-        the display logs and rejects a ``SceneMessage`` sent under it.
-    auto_spawn:
-        If ``True`` (default), spawn the display server when not running.
-    connect_timeout:
-        Seconds to wait for the display to become available.
-    recv_timeout:
-        Default timeout in seconds for :meth:`recv`.
+    ``socket_path`` is the Unix socket path (``None`` uses the default).
+    ``name`` is the identity this connection declares in its
+    ``ConnectMessage``. ``kind="hub"`` triggers single-owner preemption plus
+    a manifest (DES-068); ``"test"`` (default) is the read-only backdoor --
+    a deliberately wrong-looking name, since the display rejects a
+    ``SceneMessage`` sent under it. ``auto_spawn`` (default ``True``) spawns
+    the display server when not running. ``connect_timeout`` bounds the wait
+    for the display; ``recv_timeout`` is the default for :meth:`recv`.
     """
 
     _socket_path: Path | None
@@ -217,6 +204,11 @@ class DisplayLink:
             raise DisplayNotConnectedError(msg)
         if not isinstance(ready, ReadyMessage):
             self.close()
+            # A protocol mismatch (e.g. version skew), not a disconnect: still
+            # raises DisplayNotConnectedError so the replicator holds and retries,
+            # but a persistent mismatch must stay visible, not vanish into that
+            # path's ordinary quiet-disconnected retry cadence.
+            logger.warning("Handshake mismatch: expected ReadyMessage, got %s", ready)
             msg = f"Expected ReadyMessage, got {type(ready).__name__}"
             raise DisplayNotConnectedError(msg)
         self._ready = ready
