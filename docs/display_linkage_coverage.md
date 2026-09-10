@@ -5,10 +5,11 @@ Companion to `docs/display_linkage.tex`, following the same format as
 `docs/architecture/display-presence-demand-driven.md` (bead `lux-81t3.1`) is
 **implemented**: every "Expected covering test" below names the actual test
 that satisfies the partition, per the design document's own §10 item 11
-("Tests"). One partition (L22 — the prober's independence from the
-replicator's own phase while both run concurrently against one registry) has
-no dedicated covering test yet; that gap is called out in its row rather than
-misreported as covered.
+("Tests"). Three partitions have no dedicated covering test yet — L22 (the
+prober's independence from the replicator's own phase while both run
+concurrently against one registry), and L24/L25 (added in round 3 below,
+covering the two model gaps a PR review found); each gap is called out in
+its own row rather than misreported as covered.
 
 The bar, as with every other coverage audit in this repository, is that the
 spec's partitions are each covered by a test, not merely that the
@@ -41,6 +42,61 @@ control (c), and the registry/`StoreLock` two-lock ordering is deferred to
 `hub_replicator.tex`'s own I3 on the stated premise that
 `wait_for_reconnect` acquires no second lock.
 
+### Round 3 — qodo review on PR #465, two genuine model gaps
+
+`qodo-code-review` raised two findings against `docs/display_linkage.tex`
+during PR review (findings #16 at line 616, `RHeal`; #18 at line 647,
+`LDialOk`/`LDialFail`). Both were adjudicated against the schemas and
+against `hub_replicator.tex`'s already-proven `Remark`/`Reconn` and the real
+`DisplayLiveness._probe()`/`check_once()` code in
+`docs/architecture/display-presence-demand-driven.md` §6.4, and both were
+**genuine**, not misreadings of a deliberate abstraction:
+
+- **`RHeal` (finding #16).** The schema left `dirty' = dirty` on every heal
+  — a pure passthrough — silently assuming a heal is always the
+  stale-but-correct `Reconn` case. `hub_replicator.tex`'s own `Remark` (the
+  fresh-process respawn case) re-marks *every live scene*, not merely the
+  failed batch, because a freshly spawned display shows nothing until
+  everything is redelivered; a live scene this model already believed
+  `shown`, untouched by the failed batch, would silently stay wrong forever
+  after a respawn-driven heal. Fixed: `RHeal` now performs
+  `dirty' = dirty \cup live`, the same union `RDialOk`/`LDialOk` perform on
+  a genuine reconnect, matching `hub_replicator.tex`'s own union. I1 cannot
+  be weakened by the change (a union only adds to `dirty`); I2's paragraph
+  was extended to state the two unions are guard-disjoint and never
+  substitute for one another — I2 stays scoped to the connect-triggered
+  reconcile; `RHeal`'s heal-triggered re-mark is a separate, corroborated
+  guarantee.
+- **`LDialOk`/`LDialFail` (finding #18).** Both transitions decided the
+  probe purely from `reachable` (dial-time), but the real
+  `DisplayLiveness._probe()` is `self._clients.get().ping(...) is not
+  None` — a dial *and* a round-trip health check, and `check_once()`
+  treats a ping failure (dial succeeds, ping does not) the same as a dial
+  failure: it drops the client and switches to the disconnected pacing.
+  That send-time failure mode had no operation in the model at all —
+  exactly the asymmetry the model's own design principle warns against for
+  the replicator (`reachable`/`sendOk` kept as two flags because "a wedged
+  or dead-peer failure is a send-time event, not a dial-time one"), but had
+  not been applied to the liveness actor. Fixed: added `LDialOkPingFail`
+  (`reachable = set \land sendOk = clear \implies linked' = clear \land
+  lInterval' = pdisc`), reading the same `sendOk` flag the replicator's own
+  `RSendFail` reads, for the same reason.
+
+Both fixes were re-verified in full: `fuzz` clean; I1–I8 and deadlock
+re-checked (deadlock-free at `DEFAULT_SETSIZE 2`: 6,792 states, 52,475
+transitions; at `DEFAULT_SETSIZE 3`: 21,384 states, 201,691 transitions; no
+counterexample at either size); two new corroboration goals added —
+`rphase = rhealing & card(live \ dirty) > 0`, witnessing the exact
+failed-batch-plus-other-live-scene scenario the old `RHeal` would have
+mishandled, and `reachable = set & sendOk = clear & regLock = free`,
+witnessing `LDialOkPingFail`'s own guard — both report **goal FOUND**.
+Three other findings from the same PR review round were adjudicated as
+*not* spec defects and are not reflected in the `.tex`: the reconnect-wait
+model already matches the shipped generation-counter/`Condition` mechanism
+(recorded in the Implementer notes below, PR #465), and two findings
+concerned `docs/architecture/display-presence-demand-driven.md`/`DESIGN.md`
+prose drift, not this specification.
+
 ## Spec operation → design element mapping
 
 | Spec operation | Design element |
@@ -55,8 +111,9 @@ control (c), and the registry/`StoreLock` two-lock ordering is deferred to
 | `RWaitTimeout` | `ClientRegistry.wait_for_reconnect(timeout, since_gen=...)` returning `False` |
 | `RSendCycle` | `_CycleOutcome.outcome = "clean"` — a real send succeeded, `_disconnected_backoff` and `_backoff` (wedge) both eligible to reset |
 | `RSendFail` | `_CycleOutcome.outcome = "recovered"` — a connected-but-misbehaving send, healed by `SendRecovery`; the wedge backoff (`HubReplicator._backoff`, 0.1s→2.0s) advances, never the disconnected one |
-| `RHeal` | `SendRecovery`'s reap/respawn/reconnect/re-mark — `docs/hub_replicator.tex`'s own `Reap`/`Ensure`/`Remark`/`Reconn`, entered and left as one step here |
-| `LDialOk` / `LDialFail` | `DisplayLiveness.check_once()`'s `_probe()` outcome, paced by `_interval` (connected) or `_DISCONNECTED_PROBE_INTERVAL` (§6.4) |
+| `RHeal` | `SendRecovery`'s reap/respawn/reconnect/re-mark — `docs/hub_replicator.tex`'s own `Reap`/`Ensure`/`Remark`/`Reconn`, entered and left as one step here, including `SendRecovery._remark`'s unconditional union of every live scene into the owed set |
+| `LDialOk` / `LDialFail` | `DisplayLiveness.check_once()`'s `_probe()` outcome when the failure is a dial-time one (`.get()` itself raises), paced by `_interval` (connected) or `_DISCONNECTED_PROBE_INTERVAL` (§6.4) |
+| `LDialOkPingFail` | `DisplayLiveness.check_once()`'s `_probe()` outcome when `.get()` succeeds but `.ping(...)` does not — `check_once()`'s `self._clients.drop()` on two consecutive such failures |
 
 ## Partitions
 
@@ -79,7 +136,7 @@ control (c), and the registry/`StoreLock` two-lock ordering is deferred to
 
 | # | Partition | Expected |
 |---|---|---|
-| L6 | `.get()` raises `RuntimeError` (`RDialFail`) | routed to the `disconnected` outcome; the wedge backoff (`_backoff`) is untouched; content is not lost |
+| L6 | `.get()` raises `DisplayNotConnectedError` (`RDialFail`) | routed to the `disconnected` outcome; the wedge backoff (`_backoff`) is untouched; content is not lost |
 | L7 | `.get()` succeeds after a prior disconnect (`RDialOk`, `linked` was `clear`) | every currently-live scene (and the menu) is marked dirty in the same step — the DES-068 reconcile, exactly once |
 | L8 | `.get()` succeeds while already connected (`RDialOk`, `linked` was `set`) | an ordinary cycle start; no re-reconcile, no duplicate re-mark |
 
@@ -123,6 +180,13 @@ control (c), and the registry/`StoreLock` two-lock ordering is deferred to
 |---|---|---|
 | L23 | every operation that could plausibly touch `reachable` | only `GoReachable`/`GoUnreachable` (the environment) ever write a new value to it; every Hub-side operation's frame leaves it unchanged — the model-level form of the grep check in §10 item 11's own bullet |
 
+### Round-3 additions — the heal's own re-mark, and the liveness actor's send-time failure
+
+| # | Partition | Expected |
+|---|---|---|
+| L24 | a heal (`RHeal`) fires while a live scene the failed batch never touched is already believed `shown` | that scene is pulled back into `dirty` too — the heal's own re-mark covers every live scene, not only the failed batch, matching `hub_replicator.tex`'s `Remark`/`Reconn` |
+| L25 | the liveness prober's dial succeeds but its ping/health-check does not (`LDialOkPingFail`) | treated as a disconnection — `linked` drops, pacing relaxes to `pdisc` — distinct from, and using a different flag than, a genuine dial failure (`LDialFail`) |
+
 ## Coverage table
 
 | Partition | Expected covering test (design §10 item 11) | Status |
@@ -150,6 +214,8 @@ control (c), and the registry/`StoreLock` two-lock ordering is deferred to
 | L21 | `tests/test_liveness.py::TestDisconnectedPacing::test_interval_relaxes_after_a_failure_and_snaps_back_on_reconnect` | IMPLEMENTED |
 | L22 | No dedicated covering test. `DisplayLiveness` and `HubReplicator` share one production `ClientRegistry`/`_lock`, but no test exercises both workers concurrently against one fake to assert the prober's `.get()` is never gated by the replicator's `rwaitdisc` phase. Gap, not a false-covered row. | GAP |
 | L23 | `tests/test_hub_never_spawns_display.py::test_no_hub_module_references_the_display_service_lifecycle` — grep-provable, asserts no `src/punt_lux/domain/hub/` file references `ServiceManager`/`DISPLAY_SPEC`/`DisplayServiceManager` | IMPLEMENTED |
+| L24 | (model-only for this audit; the underlying `SendRecovery._remark` re-mark-every-live-scene behavior is exercised by `tests/domain/test_hub_replicator.py::test_a_wedged_display_is_reaped_respawned_and_repainted` and `::test_a_dead_peer_reconnects_without_reaping`, but neither seeds a *second*, batch-untouched live scene, so no test in this repository yet drives the exact multi-scene case the round-3 `RHeal` fix models) | GAP |
+| L25 | (model-only for this audit; `DisplayLiveness.check_once()`'s ping-fails-despite-a-successful-`.get()` branch and its `self._clients.drop()` call are visible in the design doc's own code excerpt, §6.4, but no test in `tests/test_liveness.py` isolates a ping failure from a dial failure) | GAP |
 
 Three partitions (L11, L14, L16) have no code to test yet by construction —
 they are properties of the *model*, exercised against scratch buggy variants

@@ -222,6 +222,7 @@ values \S6.4 defines.
 
 % ============================================================
 \section{State}
+\label{sec:state}
 % ============================================================
 
 The state is flat: one schema, exactly as
@@ -604,20 +605,47 @@ that could touch both.
 \texttt{hub\_replicator.tex} already proves in full (its \texttt{Reap},
 \texttt{Ensure}, \texttt{Remark}, \texttt{Reconn}): here it is one atomic
 step, entered only from \texttt{rhealing} and always eventually leaving
-it, touching nothing this spec cares about beyond returning control to the
-cycle.
+it.  It is not, however, a pure passthrough on \texttt{dirty}.
+\texttt{hub\_replicator.tex}'s own \texttt{Remark} and \texttt{Reconn}
+both re-mark \emph{every live scene}, not merely the ones the failed
+batch carried --- \texttt{dirty' = (dirty \cup drained) \cup \{s : SCENE
+\mid store~s = vlive\}} in that spec's fuller carrier --- precisely
+because the concrete recovery a heal performs is a fresh-process respawn
+as often as a same-process reconnect: \texttt{Ensure} brings up a display
+that shows nothing at all, so a live scene this model already believes
+\texttt{shown}, but which the failed batch never touched, is not actually
+on screen again until it is redelivered.  \texttt{RHeal} must perform the
+same union here, or a heal silently strands exactly the scenes this
+model's own \texttt{shown} set claims are safe --- the gap raised against
+an earlier revision of this schema, which left \texttt{dirty} an
+unconditional passthrough:
 
 \begin{schema}{RHeal}
   \Delta Link
 \where
   rphase = rhealing \\
   rphase' = ridle \\
-  live' = live \\ dirty' = dirty \\ shown' = shown \\ linked' = linked \\
+  dirty' = dirty \cup live \\
+  live' = live \\ shown' = shown \\ linked' = linked \\
   reconnected' = reconnected \\ wokenEarly' = wokenEarly \\
   reachable' = reachable \\ sendOk' = sendOk \\ regLock' = regLock \\
   discBackoff' = discBackoff \\ wedgeBackoff' = wedgeBackoff \\
   lInterval' = lInterval
 \end{schema}
+
+\texttt{shown} is left unchanged, matching \texttt{Remark} and
+\texttt{Reconn} alike, both of which leave \texttt{displayed} untouched on
+the very same step: the correctness this union buys does not rest on
+resetting the belief that a scene was delivered, only on forcing every
+live scene back into the owed set regardless of that belief, so the next
+cycle redelivers it whether the old belief happened to be right
+(\texttt{Reconn}'s stale-but-correct case) or wrong (\texttt{Ensure}'s
+freshly-emptied one) --- \texttt{hub\_replicator.tex} proves its own I4
+exactly this way, ``because of that re-mark, not because of any reset.''
+Because the union only ever adds scenes to \texttt{dirty} and never
+removes one, it cannot weaken I1; because it never writes \texttt{linked},
+it is invisible to I2's own claim about the \texttt{linked} transition,
+addressed directly in that invariant's own paragraph below.
 
 % ============================================================
 \section{The Liveness Prober}
@@ -665,10 +693,52 @@ only the replicator's.
   discBackoff' = discBackoff \\ wedgeBackoff' = wedgeBackoff
 \end{schema}
 
-Neither operation is guarded by \texttt{rphase}: the prober runs regardless
-of whatever cycle the replicator is in, which is the whole point of it
-being a genuinely independent second actor rather than a second phase of
-the same worker.
+\texttt{DisplayLiveness}'s own \texttt{\_probe()} does not stop at the
+dial.  \texttt{self.\_clients.get().ping(self.\_ping\_timeout) is not
+None} is a dial immediately followed by a round-trip health check ---
+structurally the replicator's own \texttt{RDialOk}-then-\texttt{RSendFail}
+shape, not a single test.  Folding a ping failure into \texttt{reachable}
+would repeat the exact confusion \S1 diagnoses for the replicator itself:
+\texttt{reachable} is the environment's truth about whether a fresh dial
+would succeed \emph{right now}, and a display can answer a fresh dial
+perfectly well while the client \texttt{\_probe()} already holds is
+wedged or has just dropped its socket --- a send-time fact, independent
+of the dial-time one, exactly the distinction \S\ref{sec:state} draws for
+the replicator's own \texttt{sendOk}.  \texttt{check\_once()} treats two
+consecutive failed probes as a disconnection regardless of \emph{which}
+of the two ways \texttt{\_probe()} failed: it calls
+\texttt{self.\_clients.drop()} --- the real counterpart of
+\texttt{linked' = clear} --- and switches to
+\texttt{\_DISCONNECTED\_PROBE\_INTERVAL} pacing.
+\texttt{LDialOkPingFail} models exactly the ping-fails-despite-a-live-dial
+case, reading \texttt{sendOk} rather than \texttt{reachable} for the same
+reason \texttt{RSendFail} does:
+
+\begin{schema}{LDialOkPingFail}
+  \Delta Link
+\where
+  regLock = free \\
+  reachable = set \\
+  sendOk = clear \\
+  linked' = clear \\
+  lInterval' = pdisc \\
+  live' = live \\ dirty' = dirty \\ shown' = shown \\
+  reconnected' = reconnected \\ wokenEarly' = wokenEarly \\
+  reachable' = reachable \\ sendOk' = sendOk \\ regLock' = regLock \\
+  rphase' = rphase \\
+  discBackoff' = discBackoff \\ wedgeBackoff' = wedgeBackoff
+\end{schema}
+
+No reconcile fires here: the display this step drops never held the
+content long enough for that to matter, so \texttt{dirty} is left exactly
+as it was, to be reconciled properly at the next successful dial from
+either actor, by \texttt{RDialOk} or \texttt{LDialOk} in the ordinary way
+--- the same argument \texttt{RHeal}'s own paragraph above makes for why
+a heal that never touches \texttt{linked} needs no reconcile of its own.
+None of the three liveness-actor operations is guarded by \texttt{rphase}:
+the prober runs regardless of whatever cycle the replicator is in, which
+is the whole point of it being a genuinely independent second actor
+rather than a second phase of the same worker.
 
 % ============================================================
 \section{Invariants}
@@ -695,21 +765,42 @@ the same step (\texttt{WithdrawContent}); no operation ever adds to
 covered because it is still in \texttt{dirty}.
 
 \paragraph{I2 --- reconcile exactly once.}
-\texttt{dirty' = dirty \cup live} fires only inside \texttt{RDialOk} and
-\texttt{LDialOk}, and only under the guard \texttt{linked = clear} ---
-i.e.\ only on the step that turns the registry from disconnected to
-connected.  Because \texttt{linked} is one shared boolean, at most one of
-the two dialing operations can be the step that performs that transition
-for a given disconnection; whichever one does not (because it finds
-\texttt{linked} already \texttt{set}) takes the other branch, which leaves
-\texttt{dirty} untouched by the reconcile.  The reconcile cannot be missed
-either, because it is not a separate pass triggered \emph{after} the
-transition: it is part of the same atomic step that performs the
-transition.  A held scene believed already shown is the sharpest witness:
-only the reconcile can put a scene into \texttt{dirty} without first
-taking it out of \texttt{shown}, since every other producer of
-\texttt{dirty} (\texttt{PushContent}) removes it from \texttt{shown} in the
-same step.
+Restricted to the connect transition itself, \texttt{dirty' = dirty \cup
+live} under the guard \texttt{linked = clear} fires only inside
+\texttt{RDialOk} and \texttt{LDialOk} --- i.e.\ only on the step that
+turns the registry from disconnected to connected.  Because \texttt{linked}
+is one shared boolean, at most one of the two dialing operations can be
+the step that performs that transition for a given disconnection;
+whichever one does not (because it finds \texttt{linked} already
+\texttt{set}) takes the other branch, which leaves \texttt{dirty}
+untouched by that reconcile.  The reconcile cannot be missed either,
+because it is not a separate pass triggered \emph{after} the transition:
+it is part of the same atomic step that performs the transition.
+
+\texttt{RHeal} performs the identical union \texttt{dirty' = dirty \cup
+live}, but unconditionally, from \texttt{rhealing}, with \texttt{linked}
+passed through unchanged --- \texttt{set} throughout, by construction:
+\texttt{RSendFail} and \texttt{RHeal} both leave \texttt{linked}
+untouched, so a heal is never, in this model, also a disconnect.  The two
+unions are disjoint by guard alone: \texttt{RDialOk}/\texttt{LDialOk}'s
+reconcile requires \texttt{linked = clear} beforehand; \texttt{RHeal}'s
+requires \texttt{rphase = rhealing}, reachable only through
+\texttt{RSendFail} with \texttt{linked = set} throughout.  No reachable
+state satisfies both guards at once, so the two reconciles never race,
+never double-fire for the same event, and never substitute for each
+other --- they guard different hazards.  I2's own name is deliberately
+scoped to the first, the connect-triggered reconcile that gives the
+invariant its title; the second, \texttt{RHeal}'s heal-triggered re-mark
+against the risk of a heal stranding content this model already believed
+delivered, is a distinct guarantee, corroborated separately in
+\S\ref{sec:verify}.
+
+A held scene believed already shown is the sharpest witness for either
+mechanism: only a reconcile (\texttt{RDialOk}/\texttt{LDialOk} under
+\texttt{linked = clear}) or a heal (\texttt{RHeal}) can put a scene into
+\texttt{dirty} without first taking it out of \texttt{shown}; every other
+producer of \texttt{dirty} (\texttt{PushContent}) removes it from
+\texttt{shown} in the same step.
 
 \paragraph{I3 --- neither actor blocks or spins on a missing display.}
 Every dial (\texttt{RDialOk}, \texttt{RDialFail}, \texttt{LDialOk},
@@ -911,6 +1002,30 @@ reachability that must be \emph{found} in the corrected model:
   probcli docs/display_linkage.tex -model_check -nodead \
     -goal "wokenEarly = set" -p DEFAULT_SETSIZE 2
 \end{verbatim}
+
+Two further mechanisms, added to close a fidelity gap raised in review
+(\S\ref{sec:inv}'s I2 paragraph and the \texttt{DisplayLiveness} paragraph
+above), are corroborated the same way --- reachable, not dead code, even
+though neither is one of the eight named invariants in its own right:
+\begin{verbatim}
+  # RHeal corroboration -- a heal that must reconcile more than the
+  # failed batch (some other live scene already believed shown) is
+  # reachable (must report: goal FOUND)
+  probcli docs/display_linkage.tex -model_check -nodead \
+    -goal "rphase = rhealing & card(live \ dirty) > 0" -p DEFAULT_SETSIZE 2
+
+  # LDialOkPingFail corroboration -- the liveness actor's own send-time
+  # (ping) failure, distinct from a dial-time failure, is reachable
+  # (must report: goal FOUND)
+  probcli docs/display_linkage.tex -model_check -nodead \
+    -goal "reachable = set & sendOk = clear & regLock = free" \
+    -p DEFAULT_SETSIZE 2
+\end{verbatim}
+The first goal is the precise witness for the defect raised against an
+earlier revision of \texttt{RHeal}: a heal entered while some live scene
+is already believed \texttt{shown} and is \emph{not} part of the failed
+batch --- exactly the state in which the old, passthrough \texttt{RHeal}
+would have left that scene unreconciled.
 
 Deadlock freedom is the full-state-space check.  Every phase has an
 always-available successor --- \texttt{PushContent}/\texttt{WithdrawContent}
