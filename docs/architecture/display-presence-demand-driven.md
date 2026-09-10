@@ -1026,11 +1026,26 @@ mandatory z-spec still applies.
    `ClientRegistry.wait_for_reconnect`, which returns the instant `.get()`
    succeeds from *either* thread; `DisplayLiveness` probes at
    `_DISCONNECTED_PROBE_INTERVAL` regardless of how deep the replicator's
-   own backoff has climbed. The model must show the replicator's wait is
-   broken within one `DisplayLiveness` probe tick of a display becoming
-   reachable — not "within the current backoff delay," which is the exact
-   claim the original blocking-`time.sleep` sketch made and which review
-   found false.
+   own backoff has climbed. This must not degrade to "within the current
+   backoff delay," which is the exact claim the original blocking-`time.sleep`
+   sketch made and which review found false.
+   **Scope, as amended by `docs/display_linkage.tex`'s own I6 paragraph
+   (z-spec mission `m-2026-09-10-002`, jra-evaluated):** the *mechanism* —
+   an early-wake path distinct from the timeout, present, reachable, and
+   destroyed exactly by reverting `wait_for_reconnect` to a blocking sleep
+   — is what the Z model proves, by reachability of `wokenEarly = set` and
+   by that state becoming unreachable under the reverted fidelity variant.
+   The literal "within one probe tick" bound is a real-time claim an
+   untimed Z model has no clock to state, let alone prove; it rests on two
+   facts the model proves true by construction (the wait never holds
+   `ClientRegistry._lock`, so the prober's own dial is never blocked by a
+   parked replicator) and one fact outside the model entirely (the
+   prober's actual 5-second cadence, and the real thread scheduler's
+   fairness between the wake and the timeout). The implementation mission
+   should treat "within one probe tick" as an empirical property to verify
+   against the running system (§10 item 11's
+   `ClientRegistry.wait_for_reconnect` test, timing-asserted), not as a
+   claim this or any Z model discharges.
 7. **A `disconnected`-classified cycle never advances the wedged-display
    backoff, and vice versa.** Structurally guaranteed by `_CycleOutcome`'s
    three-way `Literal` (§6.1) — `_run_cycle` has no code path that calls

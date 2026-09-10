@@ -14,6 +14,33 @@ The bar, as with every other coverage audit in this repository, is that the
 spec's partitions are each covered by a test, not merely that the
 model-check passed.
 
+## Model-check results and independent evaluation
+
+`jra` independently re-ran the full suite and confirmed every result — fuzz
+clean, all 8 invariants and deadlock-freedom holding, both mandatory
+fidelity controls and the bonus lock-holding control reproducing exactly as
+claimed — and additionally ran the deadlock check at `DEFAULT_SETSIZE 3`
+(this specification's own verification section stops at 2, per
+`docs/display_lifecycle.tex`'s and `docs/hub_replicator.tex`'s convention):
+24,408 states, 223,921 transitions, no counterexample — no interleaving the
+larger carrier exposes that the smaller one did not. Verdict: **revise,
+light** — two invariants' prose overclaimed relative to what the untimed
+model actually discharges, corrected in `docs/display_linkage.tex`'s I6 and
+I8 paragraphs and in design §12's own I6 (no model-structure change; every
+number above is unchanged by the revision).
+
+The two corrections, in brief: I6's reachability of `wokenEarly = set`
+proves the early-wake mechanism is present, reachable, and load-bearing (its
+absence is exactly fidelity control (b)) — it does not prove the design's
+literal "within one `DisplayLiveness` probe tick" real-time bound, which an
+untimed Z model has no clock to state. I8's "the wait never holds the lock"
+holds in the degenerate sense that `regLock = held` is unreachable in *any*
+state of the corrected model at all (every dial is one atomic step), not
+only during the wait; the specific hazard is exercised only by fidelity
+control (c), and the registry/`StoreLock` two-lock ordering is deferred to
+`hub_replicator.tex`'s own I3 on the stated premise that
+`wait_for_reconnect` acquires no second lock.
+
 ## Spec operation → design element mapping
 
 | Spec operation | Design element |
@@ -160,3 +187,32 @@ The partitions an implementation must not ship without, mirroring
   it holds of every *modeled* operation, but only the grep confirms it of
   the *actual* code, forever, including code added after this mission
   closes.
+
+## Implementer notes carried from evaluation
+
+Two points the model cannot enforce, so the implementation must get right
+on its own — both are stated in full in `docs/display_linkage.tex`'s Scope
+paragraph, restated here as coverage obligations rather than left only in
+prose:
+
+- **The disconnected-backoff reset point (L10).** This model resets
+  `discBackoff` at `RDialOk` (dial success), because dial and send are one
+  atomic step here. Design §6.3 resets `_disconnected_backoff` at a
+  *clean send*, one step later. No invariant is sensitive to the
+  difference — under sustained disconnection `RDialOk` never fires — but
+  L10's covering test (`HubReplicator` disconnected curve, "assert a
+  subsequent successful `get()` resets it") must assert the reset follows
+  a **successful send**, not merely a successful dial, or it will pass
+  against an implementation that resets one step too early.
+- **The `wait()`/`.clear()` lost-wakeup window.** `RWaitWoken` and
+  `RWaitTimeout` each model
+  `woke = self._reconnected.wait(timeout); self._reconnected.clear(); return woke`
+  as one atomic step. The real two-statement body has a window in which a
+  second `.set()` landing between the wake and the `.clear()` is silently
+  discarded — out of this model's scope by construction, not oversight.
+  The consequence is bounded (added retry latency via the next dial, never
+  lost content or a stuck wait, since I4 already proves the retry delay
+  itself is capped), but L12/L15's covering tests
+  (`ClientRegistry.wait_for_reconnect`) should include a case that lands a
+  second `.set()` in that exact window and asserts the bounded-latency
+  degradation, not a hang.

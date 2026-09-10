@@ -95,6 +95,42 @@ blank-on-empty) that \texttt{hub\_replicator.tex} already covers: one
 whatever is currently held, which is adequate for every invariant below and
 is stated plainly so the simplification is never mistaken for silence.
 
+Two further simplifications are implementer-relevant rather than merely
+notational, and are called out here so neither is read as a claim about
+where the real reset or the real wake happens.
+
+\emph{The disconnected-backoff reset point.} This model resets
+\texttt{discBackoff} to \texttt{0} at \texttt{RDialOk} --- the dial
+succeeding --- because a dial and a send are one atomic step here.  Design
+\S6.3 resets \texttt{\_disconnected\_backoff} at a \emph{clean send}
+(\texttt{outcome == "clean"}), one step later than the dial in the real
+two-phase cycle.  No invariant above is sensitive to which of the two
+points is used: under a sustained disconnection \texttt{RDialOk} never
+fires at all, so the reset in either place is equally inert while the
+property I4 actually exercises (the climb) is underway.  The
+\emph{implementation} must follow \S6.3's clean-send reset, not this
+model's dial-success reset --- a dial that succeeds but whose immediate
+send then fails should not reset the disconnected backoff, and this
+model's coarser single-step cycle cannot distinguish that case from one
+where the send also succeeds.
+
+\emph{The wait/clear lost-wakeup window.} The real
+\texttt{wait\_for\_reconnect} body is \texttt{woke = self.\_reconnected.wait(timeout);
+self.\_reconnected.clear(); return woke} --- two statements, with a window
+between the event's own wake and the unconditional \texttt{.clear()} in
+which another thread could, in principle, call \texttt{.set()} again and
+have that second signal silently discarded.  \texttt{RWaitWoken} and
+\texttt{RWaitTimeout} each model the whole body as one atomic step, so
+this window does not exist in the carrier and this model proves nothing
+about it either way.  The consequence of a real lost wakeup here is
+bounded --- the replicator does not learn of the second signal until its
+\emph{next} dial attempt, which is bounded by the very backoff delay I4
+already proves reaches its cap and no further, so this degrades to added
+retry latency, never to a stuck wait or lost content.  It is out of this
+model's scope by construction, not by oversight, and an implementer
+reviewing the real \texttt{wait\_for\_reconnect} body should confirm that
+bound holds of the shipped code.
+
 Eight properties, drawn directly from \S12 of the design document, must hold
 across every interleaving of the two actors and the content-owning agents:
 
@@ -117,9 +153,14 @@ across every interleaving of the two actors and the content-owning agents:
   \item[I5 --- the Hub never issues a process-control call to the
     display.] No Hub-side operation ever causes a display to become
     reachable; only the environment does.
-  \item[I6 --- a display connect promptly breaks the replicator out of
-    the slow-retry state.] Via the specific mechanism the design defines,
-    not merely ``eventually.''
+  \item[I6 --- the early-wake mechanism is present, reachable, and load-
+    bearing.] The replicator's wait \emph{can} be broken by the shared
+    event rather than only by the full delay elapsing, and a blocking
+    sleep in place of that mechanism destroys the property.  ``Within one
+    \texttt{DisplayLiveness} probe tick,'' the design's own real-time
+    phrasing, is a timing claim an untimed model cannot discharge; see the
+    invariant's own paragraph (\S\ref{sec:inv}) for exactly what is and is
+    not proven.
   \item[I7 --- a disconnected cycle never advances the wedged-display
     backoff, and vice versa.] The two counters are structurally disjoint.
   \item[I8 --- deadlock-freedom, with the prober modelled as a genuine
@@ -709,14 +750,46 @@ of the design), restated as the claim that the model's own carrier of
 ``a display becomes reachable'' has exactly one non-environment writer:
 none.
 
-\paragraph{I6 --- a display connect promptly breaks the replicator out.}
+\paragraph{I6 --- the early-wake mechanism is present, reachable, and
+load-bearing.}
 \[
   \Diamond\,(wokenEarly = set)
 \]
-is reachable: the replicator's wait can be broken by the shared event, not
-only by the full delay elapsing.  \S Fidelity shows this is exactly the
-property that a raw blocking sleep --- \texttt{RWaitWoken} deleted ---
-makes unreachable, reproducing ``up-to-full-delay blindness'' precisely.
+is reachable: the replicator's wait \emph{can} be broken by the shared
+event, not only by the full delay elapsing.  \S Fidelity shows this is
+exactly the property that a raw blocking sleep --- \texttt{RWaitWoken}
+deleted --- makes unreachable, reproducing ``up-to-full-delay blindness''
+precisely: the mechanism this proves present is also the mechanism whose
+absence is observably worse.
+
+This is not the whole of design \S12's I6, and the gap is worth stating
+plainly rather than papering over.  The design's own words are that a
+reconnect breaks the replicator out ``within one \texttt{DisplayLiveness}
+probe tick,'' a real-time bound.  \texttt{RWaitTimeout}'s only guard in
+this model is \texttt{rphase = rwaitdisc}: at a state where
+\texttt{reconnected = set}, both \texttt{RWaitWoken} and
+\texttt{RWaitTimeout} are enabled, and the model admits a legal trace that
+takes the timeout exit \emph{despite} the wake signal being available.  An
+untimed Z model has no clock against which ``within one probe tick'' could
+even be stated, let alone proved; reachability of
+\texttt{wokenEarly = set} shows the early-exit path exists and matters, but
+it does not show the replicator \emph{always} takes it the instant the
+signal is available.  The actual real-time promptness claim rests on two
+facts this model proves true by construction and one it does not model at
+all: I8 below establishes that the wait never holds the registry lock, so
+the prober's own dial is never blocked from setting the signal; \S6.4's
+5-second \texttt{\_DISCONNECTED\_PROBE\_INTERVAL} bounds how long the
+prober can go between attempts (a real-time fact about the implementation,
+not a Z proposition); and the actual scheduling fairness between
+\texttt{RWaitWoken} and \texttt{RWaitTimeout} at the moment both are
+enabled is a property of the real thread scheduler, not of this
+specification. A liveness variant of this property --- ``if parked with
+the signal set, the wait is broken by the wake and not by repeated,
+signal-ignoring timeouts'' --- is expressible as an LTL check under weak
+fairness on \texttt{RWaitWoken}; it was considered and set aside for this
+revision (\S Fidelity) as not adding proof strength proportionate to its
+cost, since the honest restatement above already draws the line the design
+document itself needed redrawn.
 
 \paragraph{I7 --- the two backoffs never advance together.}
 \texttt{RDialFail} is the only operation whose effect changes
@@ -746,6 +819,41 @@ replicator sitting in \texttt{rwaitdisc}, and the full state space is free
 of deadlock (Verification, below).  \S Fidelity constructs the variant
 where this fails, and shows the goal above becomes reachable and the
 prober's dial becomes starved for as long as the replicator waits.
+
+The scope of this claim is worth stating precisely, not left implicit.
+\texttt{regLock = held} is unreachable in \emph{every} state of the
+corrected model, not merely in \texttt{rwaitdisc} --- every dial
+(\texttt{RDialOk}, \texttt{RDialFail}, \texttt{LDialOk}, \texttt{LDialFail})
+is one atomic Z step, so nothing this model can observe ever holds the
+lock across more than the single step in which it is momentarily
+acquired and released.  ``The wait never holds the lock'' is therefore
+true here in the degenerate sense that the lock is never held across
+\emph{any} multi-step span at all; the specific hazard I8 is guarding
+against --- a wait that wrongly extends the hold across the whole parked
+interval --- is exercised only by fidelity control (c), which is the one
+place \texttt{regLock} does anything interesting in this specification.
+This is an honest, not an evasive, degeneracy: it reflects that
+\texttt{ClientRegistry.get()}'s real critical section genuinely is short
+and bounded, and the design's actual risk was always specifically about
+\emph{extending} that hold across \texttt{wait\_for\_reconnect}, which is
+exactly what fidelity control (c) targets.
+
+This paragraph's deadlock-freedom claim is also scoped to
+\texttt{regLock} alone.  \texttt{hub\_replicator.tex} proves its own I3
+--- no thread ever holds its store lock (\texttt{StoreLock}, guarding
+\texttt{HubDisplay}'s content) and the client send lock at once --- for
+the \emph{single-actor} replicator model; this specification does not
+re-derive a two-lock ordering across \texttt{regLock} and
+\texttt{StoreLock} for the two-actor case, and rests on a premise it
+states rather than proves: \texttt{wait\_for\_reconnect} acquires no
+second lock while parked. \texttt{ClientRegistry.\_lock} and
+\texttt{StoreLock} are two independent locks in the real implementation,
+and nothing in \texttt{wait\_for\_reconnect}'s own body (\S6.3) touches
+\texttt{StoreLock} at all --- but that is a fact about the implementation
+this model takes as a premise, not a conclusion this model's operations
+derive, because \texttt{StoreLock} does not appear in \texttt{Link}'s
+carrier. An implementation review should confirm that premise holds of
+the shipped code, not merely of this specification.
 
 % ============================================================
 \section{Verification}
