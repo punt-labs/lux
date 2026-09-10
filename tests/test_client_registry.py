@@ -17,6 +17,7 @@ gets repainted, not just told.
 from __future__ import annotations
 
 import threading
+import time
 from typing import Self
 
 import pytest
@@ -366,12 +367,37 @@ def test_get_sets_reconnected_only_on_a_not_connected_to_connected_edge() -> Non
     registry = ClientRegistry()
     fake = _FakeClient()
     _install_client(registry, fake)
+    woke: list[bool] = []
+    entered = threading.Event()
 
-    registry.get()  # the fresh connect: not-connected -> connected
-    assert registry.wait_for_reconnect(0.0) is True  # set, consumed once
+    def wait() -> None:
+        entered.set()
+        woke.append(registry.wait_for_reconnect(2.0))
+
+    waiter = threading.Thread(target=wait)
+    waiter.start()
+    assert entered.wait(2.0)
+    registry.get()  # the fresh connect: not-connected -> connected, wakes the waiter
+    waiter.join(timeout=2.0)
+    assert woke == [True]
 
     registry.get()  # already connected: no edge, no re-set
-    assert registry.wait_for_reconnect(0.0) is False
+    assert registry.wait_for_reconnect(0.05) is False
+
+
+def test_a_connect_with_no_waiter_leaves_no_stale_wake_for_a_later_wait() -> None:
+    """A connect nobody is waiting on (Hub startup, a liveness probe) must not
+    leave a stale set that makes a LATER, unrelated wait return an instant
+    premature wake instead of genuinely waiting out its own timeout."""
+    registry = ClientRegistry()
+    fake = _FakeClient()
+    _install_client(registry, fake)
+
+    registry.get()  # not-connected -> connected, but nobody is waiting
+
+    started = time.monotonic()
+    assert registry.wait_for_reconnect(0.2) is False
+    assert time.monotonic() - started >= 0.2  # genuinely waited, not a stale wake
 
 
 def test_wait_for_reconnect_wakes_promptly_on_a_concurrent_connect() -> None:

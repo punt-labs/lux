@@ -3,14 +3,18 @@
 Drives the MCP tool, the REST route, the CLI command, and a direct library
 call against the SAME ``Operations`` instance, for both the connected and the
 disconnected/held cases, then compares the parsed JSON payload field-for-field
-(python.md's Surface Parity Testing pattern) -- the discriminated ``kind`` and
-its shape-specific fields (``linkage``, ``retry_delay_seconds``) must survive
-identically across every surface, with no silent drop or rename.
+(python.md's Surface Parity Testing pattern) -- the discriminated ``kind``,
+its shape-specific fields (``linkage``, ``retry_delay_seconds``), and the
+multi-host introspection fields every variant carries (``live_scene_count``,
+``hub_host``, ``hub_pid``, design §9) must survive identically across every
+surface, with no silent drop or rename.
 """
 
 from __future__ import annotations
 
 import json
+import os
+import socket
 from typing import TYPE_CHECKING, cast
 
 from fastapi import FastAPI
@@ -32,11 +36,22 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.operations import Operations
 
-_CONNECTED = {"kind": "connected", "linkage": "connected_idle"}
+_HOST = socket.gethostname()
+_PID = os.getpid()
+_CONNECTED = {
+    "kind": "connected",
+    "linkage": "connected_idle",
+    "live_scene_count": 0,
+    "hub_host": _HOST,
+    "hub_pid": _PID,
+}
 _DISCONNECTED = {
     "kind": "disconnected",
     "linkage": "disconnected",
+    "live_scene_count": 0,
     "retry_delay_seconds": 0.0,
+    "hub_host": _HOST,
+    "hub_pid": _PID,
 }
 
 

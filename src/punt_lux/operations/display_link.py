@@ -1,13 +1,14 @@
 """DisplayLinkOperations — report the Hub's observed display-link state.
 
-Pure classification: no round-trip to the display, only the local facts the
-Hub already holds — the connection's live/dead state, the replicator's
-pending retry delay, and the store's live-scene count — so a caller learns
-the link state even while the display is unreachable (design §6).
-"""
+Pure classification: no round-trip to the display, only local facts (the
+connection's live/dead state, the replicator's pending retry delay, the
+store's live-scene count) so a caller learns the state even while the
+display is unreachable (design §6)."""
 
 from __future__ import annotations
 
+import os
+import socket
 from typing import TYPE_CHECKING, Literal, Protocol, Self, final, runtime_checkable
 
 from punt_lux.domain.hub.display_linkage import DisplayLinkage
@@ -23,6 +24,17 @@ if TYPE_CHECKING:
     from punt_lux.operations.display_port import DisplayPort
 
 __all__ = ["DisplayLinkOperations", "ReplicatorLink"]
+
+# Each dict's declared value type is the exact Literal its shape needs, so a
+# lookup narrows for free -- no cast, no runtime branch on the tag string.
+_CONNECTED_TAG: dict[DisplayLinkage, Literal["connected_active", "connected_idle"]] = {
+    DisplayLinkage.CONNECTED_ACTIVE: "connected_active",
+    DisplayLinkage.CONNECTED_IDLE: "connected_idle",
+}
+_DISCONNECTED_TAG: dict[DisplayLinkage, Literal["held", "disconnected"]] = {
+    DisplayLinkage.HELD: "held",
+    DisplayLinkage.DISCONNECTED: "disconnected",
+}
 
 
 @runtime_checkable
@@ -55,18 +67,27 @@ class DisplayLinkOperations:
         return self
 
     def get_link(self) -> DisplayLinkState:
-        """Return the connected/disconnected link state; this never faults."""
+        """Return the connected/disconnected link state; this never faults.
+
+        ``hub_host``/``hub_pid`` name which Hub, on which machine, holds this
+        state (design §9) -- an agent seeing ``HELD`` needs to know where to
+        look, not just that content is waiting somewhere."""
+        count = len(self._display.live_scene_ids())
+        host, pid = socket.gethostname(), os.getpid()
         linkage = DisplayLinkage.classify(
-            connected=self._display_port.is_connected,
-            live_scene_count=len(self._display.live_scene_ids()),
+            connected=self._display_port.is_connected, live_scene_count=count
         )
-        if linkage is DisplayLinkage.CONNECTED_ACTIVE:
-            return ConnectedLinkState(linkage="connected_active")
-        if linkage is DisplayLinkage.CONNECTED_IDLE:
-            return ConnectedLinkState(linkage="connected_idle")
-        tag: Literal["held", "disconnected"] = (
-            "held" if linkage is DisplayLinkage.HELD else "disconnected"
-        )
+        if linkage in _CONNECTED_TAG:
+            return ConnectedLinkState(
+                linkage=_CONNECTED_TAG[linkage],
+                live_scene_count=count,
+                hub_host=host,
+                hub_pid=pid,
+            )
         return DisconnectedLinkState(
-            linkage=tag, retry_delay_seconds=self._replicator.disconnected_delay
+            linkage=_DISCONNECTED_TAG[linkage],
+            live_scene_count=count,
+            retry_delay_seconds=self._replicator.disconnected_delay,
+            hub_host=host,
+            hub_pid=pid,
         )

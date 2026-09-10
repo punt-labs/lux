@@ -66,10 +66,7 @@ class DisconnectedRetry:
         self._was_disconnected = True
 
     def reset(self) -> None:
-        """Reset to base on a clean SEND — not merely a successful dial.
-
-        A dial that succeeds but whose immediate send then fails is a
-        ``recovered`` outcome, never routed here.
-        """
+        """Reset to base on a clean SEND, not merely a successful dial -- a
+        dial whose immediate send fails is ``recovered``, never routed here."""
         self._backoff = RespawnBackoff(self._config)
         self._was_disconnected = False

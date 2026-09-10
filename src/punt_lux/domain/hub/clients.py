@@ -112,14 +112,13 @@ class ClientRegistry:
             self._reconnected.set()
 
     def wait_for_reconnect(self, timeout: float) -> bool:
-        """Block up to ``timeout``s for a fresh connect from either thread.
-
+        """Block up to ``timeout``s for a fresh connect; clears any pre-existing
+        set first, so a connect nobody was waiting on (startup, a liveness probe)
+        cannot give a LATER, unrelated wait an instant premature wake.
         Deliberately does NOT hold ``_lock`` — that would block every other
-        caller for the same window, the Hub-wide stall this design prevents.
-        """
-        woke = self._reconnected.wait(timeout)
+        caller for the same window, the Hub-wide stall this design prevents."""
         self._reconnected.clear()
-        return woke
+        return self._reconnected.wait(timeout)
 
     def drop(self) -> None:
         """Close the client so the next ``get`` reconnects, not reuses a stale fd."""

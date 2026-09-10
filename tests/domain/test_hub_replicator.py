@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Self
 import pytest
 
 from punt_lux.domain.hub.dirty_signal import DrainedBatch
+from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.menu_models import Menu, MenuAction
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
@@ -257,9 +258,11 @@ class _FakeProvider:
     _reconcile: Callable[[], None] | None
     _needs_reconcile: bool
     _unreachable: bool
+    _generic_failure: bool
     drops: int
     reconnect_waits: list[float]
     __slots__ = (
+        "_generic_failure",
         "_needs_reconcile",
         "_reconcile",
         "_sender",
@@ -276,21 +279,30 @@ class _FakeProvider:
         self._reconcile = reconcile
         self._needs_reconcile = False
         self._unreachable = False
+        self._generic_failure = False
         self.drops = 0
         self.reconnect_waits = []
         return self
 
     def arm_unreachable(self) -> None:
-        """Make every ``get()`` raise ``RuntimeError`` — no display connected."""
+        """Make every ``get()`` raise ``DisplayNotConnectedError`` — never connected."""
         self._unreachable = True
 
     def heal_unreachable(self) -> None:
         """Stop raising — the next ``get()`` succeeds, like a display returning."""
         self._unreachable = False
 
+    def arm_generic_runtime_error(self) -> None:
+        """Make every ``get()`` raise a plain ``RuntimeError`` -- NOT the dial
+        failure -- to prove it is never misclassified as "never connected"."""
+        self._generic_failure = True
+
     def get(self) -> _FakeSender:
         if self._unreachable:
             msg = "no display connected"
+            raise DisplayNotConnectedError(msg)
+        if self._generic_failure:
+            msg = "a connected-then-dropped teardown, not a dial failure"
             raise RuntimeError(msg)
         if self._needs_reconcile and self._reconcile is not None:
             self._reconcile()
@@ -822,6 +834,43 @@ def test_a_dial_failure_drives_the_disconnected_branch_not_the_wedged_backoff(
     assert slept == []  # the wedged-display backoff never fires
     assert provider.reconnect_waits == [2.0]  # the disconnected backoff's base delay
     assert repl._backoff == _BASE_BACKOFF_SECONDS  # the wedged delay is untouched
+
+
+def test_a_non_dial_runtime_error_never_drives_the_disconnected_branch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A RuntimeError that is NOT DisplayNotConnectedError -- a connected-then-
+    # dropped teardown, a listener-thread guard -- must fall through to the
+    # outer exception handler (restored, wedged backoff advances), never be
+    # misclassified as "never connected" and routed onto the slow backoff.
+    slept: list[float] = []
+    monkeypatch.setattr("punt_lux.domain.hub.replicator.time.sleep", slept.append)
+    store = HubDisplay()
+    scene = _seed(store, "s1")
+    repl, _sender, provider, _lifecycle = _replicator(store)
+    batch = DrainedBatch(frozenset({scene}), shutting=False)
+    provider.arm_generic_runtime_error()
+
+    repl._run_cycle(batch)
+
+    assert provider.reconnect_waits == []  # the disconnected backoff never fires
+    assert slept == [_BASE_BACKOFF_SECONDS]  # the wedged/generic backoff advances
+
+
+def test_a_shutting_batch_skips_the_disconnected_wait() -> None:
+    # I8/shutdown: a shutdown-time flush that finds no display connected must
+    # not block on the (up to 120s) disconnected backoff -- mirrors
+    # SendRecovery.recover's own early return on batch.shutting, so
+    # HubReplicator.stop()'s bounded join is never left waiting behind it.
+    store = HubDisplay()
+    scene = _seed(store, "s1")
+    repl, _sender, provider, _lifecycle = _replicator(store)
+    batch = DrainedBatch(frozenset({scene}), shutting=True)
+    provider.arm_unreachable()
+
+    repl._run_cycle(batch)
+
+    assert provider.reconnect_waits == []  # the long wait never ran
 
 
 def test_content_pushed_while_disconnected_is_held_then_delivered_on_reconnect() -> (

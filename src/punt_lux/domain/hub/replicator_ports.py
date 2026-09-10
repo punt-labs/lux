@@ -5,8 +5,7 @@ or the process. It reaches them through three structural ports so the concurrenc
 logic is tested against fakes, not a live socket:
 
 - ``DisplaySender`` — the fire-and-forget send surface (a ``DisplayLink``).
-- ``ClientProvider`` — hands out the current sender, drops a dead one, and
-  extends ``ReconnectWaiter`` (the Hub's ``ClientRegistry``).
+- ``ClientProvider`` — hands out the sender, drops a dead one, waits.
 - ``DisplayLifecycle`` — kills a wedged display; its service unit respawns it.
 - ``DirtyMarker`` — the queue-only side (``HubReplicator``) a fresh-connect
   hook marks after declaring its manifest (DES-068).
@@ -96,7 +95,8 @@ class ClientProvider(ReconnectWaiter, Protocol):
     """Hands out the one display connection, drops a dead one, and waits."""
 
     def get(self) -> DisplaySender:
-        """Return the connected sender, reconnecting if the last was dropped."""
+        """Return the connected sender; raises ``DisplayNotConnectedError`` if
+        never connected -- the case ``HubReplicator`` paces slowest."""
         ...
 
     def drop(self) -> None:

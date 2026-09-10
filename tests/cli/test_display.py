@@ -57,7 +57,9 @@ class _DisplayClient:
 
     def get_link(self) -> DisplayLinkState:
         self.calls.append(("get_link", None))
-        return ConnectedLinkState(linkage="connected_idle")
+        return ConnectedLinkState(
+            linkage="connected_idle", live_scene_count=0, hub_host="host", hub_pid=1
+        )
 
 
 class TestDisplayInfo:
@@ -197,7 +199,13 @@ class TestDisplayLinkReadOnly:
         class _HeldClient(_DisplayClient):
             def get_link(self) -> DisplayLinkState:
                 self.calls.append(("get_link", None))
-                return DisconnectedLinkState(linkage="held", retry_delay_seconds=8.0)
+                return DisconnectedLinkState(
+                    linkage="held",
+                    retry_delay_seconds=8.0,
+                    live_scene_count=1,
+                    hub_host="host",
+                    hub_pid=1,
+                )
 
         client = _HeldClient()
         with patch(

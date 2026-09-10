@@ -1135,3 +1135,8 @@
 {"ts":"2026-09-10T09:46:33Z","commit":"0c2f66af","source":null,"files_scored":639,"files_improved":0,"files_regressed":1,"verdict":"fail","reason":null,"deltas":{}}
 {"ts":"2026-09-10T09:47:02Z","commit":"0c2f66af","source":null,"files_scored":639,"files_improved":0,"files_regressed":1,"verdict":"fail","reason":null,"deltas":{}}
 {"ts":"2026-09-10T09:47:17Z","commit":"0c2f66af","source":null,"files_scored":639,"files_improved":1,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{"src/punt_lux/domain/hub/display_linkage.py":{"module_size":[25.0,24.0]}}}
+{"ts":"2026-09-10T10:01:34Z","commit":"07a3cc3d","source":null,"files_scored":640,"files_improved":0,"files_regressed":5,"verdict":"fail","reason":null,"deltas":{}}
+{"ts":"2026-09-10T10:02:12Z","commit":"07a3cc3d","source":null,"files_scored":640,"files_improved":0,"files_regressed":5,"verdict":"fail","reason":null,"deltas":{}}
+{"ts":"2026-09-10T10:03:31Z","commit":"07a3cc3d","source":null,"files_scored":640,"files_improved":0,"files_regressed":4,"verdict":"fail","reason":null,"deltas":{}}
+{"ts":"2026-09-10T10:13:26Z","commit":"07a3cc3d","source":null,"files_scored":640,"files_improved":0,"files_regressed":3,"verdict":"fail","reason":null,"deltas":{}}
+{"ts":"2026-09-10T10:16:39Z","commit":"07a3cc3d","source":null,"files_scored":640,"files_improved":1,"files_regressed":3,"verdict":"fail","reason":null,"deltas":{"src/punt_lux/domain/hub/disconnected_retry.py":{"module_size":[56.0,54.0]}}}

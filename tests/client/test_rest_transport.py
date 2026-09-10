@@ -168,27 +168,34 @@ def test_ping_without_a_wait_omits_the_timeout_param() -> None:
 
 
 def test_get_link_targets_the_link_route() -> None:
-    transport = CannedTransport(
-        HttpResponse(
-            status=200, body=b'{"kind":"connected","linkage":"connected_idle"}'
-        )
+    body = (
+        b'{"kind":"connected","linkage":"connected_idle","live_scene_count":0,'
+        b'"hub_host":"host","hub_pid":1}'
     )
+    transport = CannedTransport(HttpResponse(status=200, body=body))
     result = _client_over(transport).get_link()
-    assert result == ConnectedLinkState(linkage="connected_idle")
+    assert result == ConnectedLinkState(
+        linkage="connected_idle", live_scene_count=0, hub_host="host", hub_pid=1
+    )
     call = _sent(transport)
     assert call.method == "GET"
     assert call.path == "/display/link"
 
 
 def test_get_link_parses_the_disconnected_shape() -> None:
-    transport = CannedTransport(
-        HttpResponse(
-            status=200,
-            body=b'{"kind":"disconnected","linkage":"held","retry_delay_seconds":8.0}',
-        )
+    body = (
+        b'{"kind":"disconnected","linkage":"held","live_scene_count":1,'
+        b'"retry_delay_seconds":8.0,"hub_host":"host","hub_pid":1}'
     )
+    transport = CannedTransport(HttpResponse(status=200, body=body))
     result = _client_over(transport).get_link()
-    assert result == DisconnectedLinkState(linkage="held", retry_delay_seconds=8.0)
+    assert result == DisconnectedLinkState(
+        linkage="held",
+        retry_delay_seconds=8.0,
+        live_scene_count=1,
+        hub_host="host",
+        hub_pid=1,
+    )
 
 
 def test_get_link_maps_a_non_2xx_status_to_op_error() -> None:

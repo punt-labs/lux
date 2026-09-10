@@ -1,21 +1,18 @@
 """HubReplicator — the one background worker that writes to the display.
 
 Every MCP mutation tool and every Hub-side click writes only to ``HubDisplay``
-and marks the changed scene dirty; this worker alone sends those changes to the
-display, and it alone handles a slow or dead one. So a stuck display can never
-freeze an agent.
+and marks the changed scene dirty; this worker alone sends those changes to
+the display and handles a slow or dead one, so a stuck display never freezes an agent.
 
 The worker waits on a ``DirtySignal``, wakes when a scene is dirty or the menu
 changed, coalesces a 16 ms burst, and drains the whole changed set. It repaints
-each scene from a copy the store took under its read lock, so the store lock
-and client send lock are never held together; an emptied scene is pushed with
-no roots to blank its own frame. A send is time-limited (``SO_SNDTIMEO``): a
-wedged display raises ``BlockingIOError`` and a dead peer raises ``OSError``,
-both handed to ``SendRecovery``, which heals the display and re-marks the
-work. No display connected at all is a third, different condition
-(``RuntimeError`` from the client provider's dial) — it never wedges
-anything, so it paces its own, much slower backoff instead (§6). Nothing
-drained is ever lost.
+each scene from a copy taken under the store's read lock, so the store lock and
+client send lock are never held together; an emptied scene is pushed with no
+roots to blank its own frame. A send is time-limited (``SO_SNDTIMEO``): a wedged
+display raises ``BlockingIOError``, a dead peer raises ``OSError``, both handed
+to ``SendRecovery``. No display connected at all is a third condition
+(``DisplayNotConnectedError``) that paces its own, much slower backoff (§6).
+Nothing drained is ever lost.
 
 The send loop also hosts the crash-loop quarantine (display-crash-quarantine.md):
 normal replication is *batching* — every drained scene is sent, and a death
@@ -23,8 +20,8 @@ anywhere is attributed to the whole batch, since a socket-level failure can't
 tell which render actually crashed. The first attributed death switches to
 *isolation*: each live, non-quarantined scene sends alone, so a death has a
 single suspect, left only once ``CrashAttribution`` sees a death-free
-``STABLE_INTERVAL``. A scene at the attribution threshold is quarantined and
-excluded from every future send, breaking the respawn loop.
+``STABLE_INTERVAL``, and a scene at the attribution threshold is quarantined
+and excluded from every future send, breaking the respawn loop.
 """
 
 from __future__ import annotations
@@ -39,6 +36,7 @@ from punt_lux.domain.hub.backoff_config import BackoffConfig
 from punt_lux.domain.hub.crash_attribution import CrashAttribution
 from punt_lux.domain.hub.dirty_signal import DirtySignal
 from punt_lux.domain.hub.disconnected_retry import DisconnectedRetry
+from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
 from punt_lux.domain.hub.recovery import SendRecovery
 from punt_lux.domain.hub.respawn_backoff import RespawnBackoff
 
@@ -102,8 +100,7 @@ class HubReplicator:
     Composes the store's scene reader (its locked read side), the client
     provider, the dirty signal, and the ``SendRecovery`` that heals a failed
     send. ``mark_dirty``/``mark_menus`` are what surface tools call; this
-    worker thread owns every send.
-    """
+    worker thread owns every send."""
 
     _reader: SceneReader
     _menu_reader: MenuReader
@@ -263,7 +260,7 @@ class HubReplicator:
             self._recover_from_exception(batch)
             return
         if result.outcome == "disconnected":
-            return  # _push_cycle already restored the batch and waited
+            return  # _push_cycle restored the batch (waited, unless shutting)
         if result.outcome == "recovered":
             if not batch.shutting:
                 self._back_off()
@@ -280,20 +277,18 @@ class HubReplicator:
     def _push_cycle(self, batch: DrainedBatch) -> _CycleOutcome:
         """Send the cycle; heal a bounded send failure, else report the clean result.
 
-        ``RuntimeError`` (the client provider's dial failure) means no display
-        was ever connected — different from a connected display misbehaving,
-        so it paces the disconnected backoff, not the wedged one.
+        ``DisplayNotConnectedError`` means no display was ever connected, so
+        it paces the disconnected backoff, not the wedged one -- every OTHER
+        ``RuntimeError`` (a mid-send teardown, a listener-thread guard) is NOT
+        this condition and propagates to the caller's outer guard instead.
         ``BlockingIOError`` (send timeout) is a wedged display, reaped and
-        respawned; ``OSError`` (dead peer) only reconnects. Either way the
+        respawned; ``OSError`` (dead peer) only reconnects -- either way the
         death is attributed to ``_current_suspect``, set by ``_attempt``
-        immediately before each send that can raise. A recovery step that
-        itself fails propagates to the caller's outer guard, not swallowed here.
-        """
+        immediately before each send that can raise."""
         try:
             emptied = self._attempt(batch)
-        except RuntimeError:
-            self._recovery.restore(batch)
-            self._disconnected_retry.wait(self._clients)
+        except DisplayNotConnectedError:
+            self._handle_disconnected(batch)
             return _CycleOutcome(outcome="disconnected")
         except BlockingIOError as exc:
             self._recovery.recover(
@@ -312,6 +307,12 @@ class HubReplicator:
             )
             return _CycleOutcome(outcome="recovered")
         return _CycleOutcome(outcome="clean", emptied=emptied)
+
+    def _handle_disconnected(self, batch: DrainedBatch) -> None:
+        """Restore the batch; wait out the backoff unless shutting down."""
+        self._recovery.restore(batch)
+        if not batch.shutting:
+            self._disconnected_retry.wait(self._clients)
 
     def _back_off(self) -> None:
         """Sleep the current retry delay, then grow it toward the cap."""

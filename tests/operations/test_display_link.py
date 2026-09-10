@@ -7,6 +7,8 @@ to the display (design display-presence-demand-driven.md §6).
 
 from __future__ import annotations
 
+import os
+import socket
 from typing import TYPE_CHECKING, Self, cast
 
 from punt_lux.operations.display_link import DisplayLinkOperations
@@ -108,3 +110,22 @@ def test_connected_state_carries_no_retry_delay_field_at_all() -> None:
     # (OO Five Rules #5: no discriminated-state field left as an Optional).
     result = _link(connected=True, scene_count=0).get_link()
     assert not hasattr(result, "retry_delay_seconds")
+
+
+# -- multi-host introspection: hub_host / hub_pid / live_scene_count (§9) ---
+
+
+def test_connected_carries_live_scene_count_and_host_identity() -> None:
+    result = _link(connected=True, scene_count=3).get_link()
+    assert isinstance(result, ConnectedLinkState)
+    assert result.live_scene_count == 3
+    assert result.hub_host == socket.gethostname()
+    assert result.hub_pid == os.getpid()
+
+
+def test_disconnected_carries_live_scene_count_and_host_identity() -> None:
+    result = _link(connected=False, scene_count=5, delay=4.0).get_link()
+    assert isinstance(result, DisconnectedLinkState)
+    assert result.live_scene_count == 5
+    assert result.hub_host == socket.gethostname()
+    assert result.hub_pid == os.getpid()
