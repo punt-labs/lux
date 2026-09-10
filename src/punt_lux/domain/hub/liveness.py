@@ -143,11 +143,10 @@ class DisplayLiveness:
             interval = self._pacing.interval(self._interval)
 
     def _probe(self) -> bool:
-        """Return whether a ``get`` + ping round-trip succeeded.
-
-        No per-failure log — ``check_once`` logs the transition once.
-        """
+        """Return whether a ``get`` + ping round-trip succeeded; ``check_once``
+        logs the not-connected transition once, not on each failed probe."""
         try:
             return self._clients.get().ping(self._ping_timeout) is not None
-        except (OSError, RuntimeError):
+        except (OSError, RuntimeError) as exc:
+            logger.debug("liveness probe failed: %s", exc)
             return False

@@ -1,16 +1,16 @@
 {
-  "total": 118,
+  "total": 120,
   "by_category": {
-    "noqa": 19,
+    "noqa": 20,
     "type_ignore": 4,
     "pylint_disable": 2,
-    "pyright_ignore": 5,
+    "pyright_ignore": 6,
     "per_file_ignores": 88
   },
   "by_file": {
     "src/punt_lux/__main__.py": {
-      "noqa": 1,
-      "pyright_ignore": 2
+      "noqa": 2,
+      "pyright_ignore": 3
     },
     "src/punt_lux/_backend_launchd.py": {
       "pylint_disable": 1
@@ -77,5 +77,5 @@
       "noqa": 1
     }
   },
-  "updated_at": "2026-09-06T17:45:32Z"
+  "updated_at": "2026-09-10T09:44:36Z"
 }

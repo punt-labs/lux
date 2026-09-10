@@ -1,9 +1,7 @@
 """Parse a ``GET /display/link`` reply into its discriminated shape.
 
-A 2xx body parses straight into ``ConnectedLinkState``/``DisconnectedLinkState``
-via one discriminated-union adapter; anything else (a non-2xx status, or a
-malformed 2xx body) falls through to :class:`RestReply`'s own status/error
-table, reusing the same mapping every other read shares.
+A 2xx body decodes via one discriminated-union adapter; anything else falls
+through to :class:`RestReply`'s shared status/error table.
 """
 
 from __future__ import annotations
@@ -45,4 +43,6 @@ class LinkReply:
         try:
             return _LinkAdapter.validate_json(response.body)
         except ValidationError:
+            # ConnectedLinkState here is just the error-extraction vehicle --
+            # a non-2xx/malformed body never actually decodes as one.
             return RestReply(response).read(ConnectedLinkState)
