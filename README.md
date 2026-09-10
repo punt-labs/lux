@@ -133,7 +133,7 @@ Demos are in `demos/` --- each connects as a client and drives the display:
 - **Closed is a place, not an erasure** --- the close button puts a frame away with its scenes, widget state and active tab intact. The dock pill, Expand All and the Windows menu's closed-frame list all bring it back as it was --- raising a frame is the user's own gesture at the Display (DES-088), never a client operation; only the client taking its content away disposes of it
 - **Persistent tabs** --- each `show()` call opens a dismissable tab; same `scene_id` replaces content in-place. Users can close individual tabs
 - **Themes** --- 11 built-in themes, chosen by the user from the display's Settings menu (agents read the active theme via `display_theme_get` but never set it, per DES-088): `imgui_colors_dark`, `imgui_colors_light`, `imgui_colors_classic`, `darcula`, `darcula_darker`, `material_flat`, `photoshop_style`, `grey_flat`, `cherry`, `light_rounded`, `microsoft_style`
-- **Auto-spawn** --- the Hub (luxd) starts the display renderer on first use if it isn't already running
+- **Hold and reconcile, never control** --- the Hub never starts, stops, or spawns the display renderer; that is the user's own gesture (`lux display start`/`stop`) or the OS service supervisor's, and soon the display need not even share a machine with the Hub (DES-093). When no display is connected, the Hub *holds* the content it cannot deliver and retries reaching a display at an exponential backoff that slows to a minute-plus, reconciling everything held the moment a display (re)connects. `display_link_get` / `lux display link` report whether a display is linked, how many scenes are held, the current retry delay, and which Hub (host + pid) holds them
 - **Unix socket IPC** --- length-prefixed JSON frames, no HTTP overhead, no threads
 
 ## MCP Tools
@@ -161,6 +161,7 @@ Agents interact with Lux through the MCP tools `luxd` serves over its streamable
 | `display_window_get()` | Current window settings (opacity, font scale, decoration, idle FPS) |
 | `display_mode_get(repo)` | Read the display mode (`y`/`n`) for the caller's project --- pass the absolute project path (set it via the `lux display mode on\|off` CLI) |
 | `display_screenshot()` | Capture the display framebuffer |
+| `display_link_get()` | Whether a display is linked and, when not, how many scenes the Hub is holding, the current retry delay, and the Hub's host + pid --- Hub-side, answerable with no display connected |
 | **Introspection** | |
 | `scene_inspect(scene_id)` | Return the element tree for a scene the caller owns |
 | `scene_ls()` | List active scenes and frames from the Hub's store |
@@ -261,7 +262,7 @@ command accepts `--json/--verbose/--quiet`.
 | `lux frame` | `set-state` |
 | `lux menu` | `ls`, `set` |
 | `lux session` | `ls`, `inspect`, `identify` |
-| `lux display` | `info`, `theme`, `mode`, `window`, `screenshot`, `serve` (raw render-loop entry point, invoked by the supervisor), `install`, `uninstall`, `start`, `stop`, `status` (admin — window process supervision, CLI-only) |
+| `lux display` | `info`, `theme`, `mode`, `window`, `screenshot`, `link` (linkage + held-scene count + retry delay + Hub host/pid), `serve` (raw render-loop entry point, invoked by the supervisor), `install`, `uninstall`, `start`, `stop`, `status` (admin — window process supervision, CLI-only) |
 | `lux event` | `ls` |
 | `lux error` | `ls` |
 | `lux callback` | `register` |
