@@ -406,10 +406,16 @@ INTROSPECTION_SCENARIOS: tuple[Scenario, ...] = (
     # and list_errors now return typed models (Hub-authoritative reads, or the
     # display facts proxied), so they leave the string-parity corpus. Their
     # behavior is pinned by the typed operation tests under tests/operations/.
-    # get_display_info, get_window_settings, and get_theme now return typed
-    # models (their MCP output schema is derived from the model), so they leave
-    # the string-parity corpus. Their behavior is pinned by the typed operation
-    # and adapter tests under tests/operations/.
+    # get_display_info, get_window_settings, get_theme, and display_link_get
+    # now return typed models (their MCP output schema is derived from the
+    # model), so they leave the string-parity corpus -- ToolExerciser.call
+    # requires a str return (see its docstring) and raises ToolCallError on
+    # anything else. display_link_get's connected and disconnected/held
+    # shapes, with every discriminated field (linkage, retry_delay_seconds,
+    # live_scene_count, hub_host, hub_pid), are pinned by
+    # tests/operations/test_display_link.py and, across all four client
+    # surfaces (MCP tool, REST route, CLI, library facade),
+    # tests/test_display_link_surface_parity.py.
     Scenario(
         # ping's failure path now raises ToolError rather than returning a
         # string (fastmcp-idiomatic error signaling), so it has no snapshot

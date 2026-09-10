@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Self, final
 from urllib.parse import quote, urlencode
 
 from punt_lux.cli_identity import CliIdentity
+from punt_lux.client._link_reply import LinkReply
 from punt_lux.client._rest_display import _DisplayRestOps
 from punt_lux.client._rest_scenes import _SceneRestOps
 from punt_lux.domain.hub.client_identity import ClientIdentity
@@ -66,6 +67,7 @@ if TYPE_CHECKING:
         UpdateRequest,
         WindowSettings,
     )
+    from punt_lux.operations.models.display_link import DisplayLinkState
 
 __all__ = ["_RestTransport"]
 
@@ -100,25 +102,19 @@ class _RestTransport:
 
     @classmethod
     def connect(cls, *, timeout: float = 2.0) -> Self:
-        """The CLI convenience: build a client whose identity comes from the context.
-
-        A ``lux`` command has no identity to declare, so one is derived from where it
-        runs — a ``LUX_CLIENT`` override, else the git repository, else headless — as
-        a ``cli`` identity. A daemon or app must NOT use this: it would be attributed
-        by accident to wherever it started rather than to what it is. Such a caller
-        declares itself with :meth:`for_identity`.
+        """The CLI convenience -- a ``cli`` identity derived from context
+        (``LUX_CLIENT``, else the repo, else headless). A daemon/app must use
+        :meth:`for_identity` instead, so it is attributed to itself.
         """
         return cls.for_identity(CliIdentity.resolve(), timeout=timeout)
 
     @classmethod
     def for_identity(cls, identity: ClientIdentity, *, timeout: float = 2.0) -> Self:
-        """Build a client that declares an EXPLICIT ``identity``, or raise if luxd down.
+        """Build a client declaring an EXPLICIT ``identity``, or raise if luxd is down.
 
-        The daemon and app path: a long-lived service names itself — an ``app`` with
-        its own name, optionally its declared lease TTL — rather than deriving a
-        ``cli`` identity from its working directory. A daemon that both pushes scenes
-        and holds a listen connection builds one client here, then :meth:`listener`
-        shares this identity so both legs resolve to a single connection.
+        The daemon/app path: a long-lived service names itself rather than
+        deriving a ``cli`` identity from its working directory. One built here
+        also seeds :meth:`listener`, so both legs share one identity.
         """
         port = HubPaths().read_port()
         if port is None:
@@ -134,15 +130,13 @@ class _RestTransport:
         on_event: EventHandler,
         on_connect: ConnectHandler | None = None,
     ) -> LuxHubClient:
-        """Build a persistent listen client that shares this client's identity.
+        """Build a persistent listen client sharing this client's identity.
 
-        Scene pushes stay on this REST client; the returned :class:`LuxHubClient`
-        holds the WebSocket listen connection. Both carry one identity, so a callback
-        this client registers over REST is delivered on the listener's stream.
-
-        Pass ``on_connect`` to re-register those callbacks (and re-push scenes) after
-        every handshake — the listener's internal reconnect restores subscriptions
-        but not lease-expired callbacks, so the register-fresh work belongs here.
+        Scene pushes stay on this REST client; the returned client holds the
+        WebSocket listen connection, so a callback registered here over REST
+        is delivered on its stream. Pass ``on_connect`` to re-register those
+        callbacks after every handshake -- reconnect restores subscriptions
+        but not lease-expired callbacks.
         """
         return LuxHubClient.connect(
             self._identity,
@@ -157,9 +151,7 @@ class _RestTransport:
         """Install a whole scene through ``PUT /scenes/{scene_id}``.
 
         ``scope`` satisfies :class:`~punt_lux.commands._ports.SceneOps`'s call
-        signature -- unused over REST, which composes scope from the
-        ``X-Lux-Client-*`` headers already stamped on every request. Defaults
-        to ``None`` so pre-Protocol callers keep working unchanged.
+        signature -- unused over REST, which composes scope from headers.
         """
         return self._scenes.render(request, scope=scope)
 
@@ -172,13 +164,11 @@ class _RestTransport:
     def register_callback(
         self, callback_id: str, label: str, frame_id: str | None = None
     ) -> Ok | OpError:
-        """Register a menu callback for this identity through ``POST /menus/callbacks``.
+        """Register a menu callback through ``POST /menus/callbacks``.
 
-        The daemon path: a client registers the callback it wants on the menu here,
-        then receives the user's clicks on it over its :meth:`listener` stream — both
-        under this client's identity, so the click routes back to the same session. A
-        malformed id or label is reported as an ``OpError`` without a round-trip.
-        ``frame_id`` is applet-only -- see :meth:`CallbackAccessor.register`.
+        Clicks on it arrive over this identity's :meth:`listener` stream. A
+        malformed id/label is an ``OpError`` with no round-trip; ``frame_id``
+        is applet-only -- see :meth:`CallbackAccessor.register`.
         """
         request = RegisterCallbackRequest.parse(
             CallbackFields(callback_id, label, frame_id)
@@ -251,13 +241,16 @@ class _RestTransport:
     def list_menus(self) -> MenuList | OpError:
         """Return the Hub-authoritative menu bar through ``GET /menus``.
 
-        The in-process ``Operations`` facade never fails this read, but a REST
-        round trip can (stale port, unreachable Hub, unexpected response) --
-        returning the ``OpError`` instead of raising lets every caller handle
-        it through the shared command envelope rather than crashing.
+        Unlike the in-process facade, a REST round trip can fail (stale port,
+        unreachable Hub); ``OpError`` lets every caller handle it uniformly.
         """
         call = HttpCall.read("/menus", self._headers)
         return RestReply(self._transport.request(call)).read(MenuList)
+
+    def get_link(self) -> DisplayLinkState | OpError:
+        """Return the Hub's observed link state through ``GET /display/link``."""
+        call = HttpCall.read("/display/link", self._headers)
+        return LinkReply.read(self._transport.request(call))
 
     def set_menu(self, request: SetMenuRequest | OpError) -> Ok | OpError:
         """Replace the Hub-owned menu bar through ``PUT /menus``."""
@@ -296,11 +289,9 @@ class _RestTransport:
     ) -> Identified | OpError:
         """Confirm this client's declared identity, with no network round trip.
 
-        REST has no dedicated identify endpoint: every request already carries
-        this client's ``X-Lux-Client-*`` headers, and the Hub resolves the same
-        identity from them on every write via ``RestCaller.resolve``. A separate
-        wire call would declare nothing new, so this validates ``declaration``
-        against the client's own identity and confirms it.
+        REST has no identify endpoint -- every request already carries these
+        ``X-Lux-Client-*`` headers, so this just validates ``declaration``
+        against the client's own identity.
         """
         del scope  # unused: REST composes scope from headers on every request
         parsed = ClientIdentity.model_validate(

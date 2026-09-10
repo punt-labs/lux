@@ -1,4 +1,4 @@
-"""OperationsConcerns -- the nine-field bundle Operations.__new__ takes."""
+"""OperationsConcerns -- the ten-field bundle Operations.__new__ takes."""
 
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ def _concerns() -> OperationsConcerns:
         identity=object(),  # type: ignore[arg-type]  # sentinel
         callbacks=object(),  # type: ignore[arg-type]  # sentinel
         frame_closer=object(),  # type: ignore[arg-type]  # sentinel
+        link=object(),  # type: ignore[arg-type]  # sentinel
     )
 
 
@@ -37,6 +38,7 @@ def test_every_field_round_trips() -> None:
     assert concerns.identity is not None
     assert concerns.callbacks is not None
     assert concerns.frame_closer is not None
+    assert concerns.link is not None
 
 
 def test_is_frozen() -> None:

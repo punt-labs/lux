@@ -71,6 +71,10 @@ class _ForbiddenPort:
         msg = f"unexpected display proxy: ping({wait!r})"
         raise AssertionError(msg)
 
+    @property
+    def is_connected(self) -> bool:
+        return True
+
 
 def _zero_inbox_depth(_connection_id: ConnectionId) -> int:
     """Report every connection's inbox empty; these tests don't exercise it."""

@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from punt_lux._backend_launchd import LaunchdBackend
-from punt_lux.service import HUB_SPEC
+from punt_lux.service import DISPLAY_SPEC, HUB_SPEC
 
 
 def _result(returncode: int):
@@ -88,3 +88,45 @@ class TestLaunchdInstallIdempotency:
         verbs_issued = [call.args[0] for call in run.call_args_list]
         assert any(v[:2] == ["launchctl", "bootout"] for v in verbs_issued)
         assert any(v[:2] == ["launchctl", "bootstrap"] for v in verbs_issued)
+
+
+class TestKeepAliveRendering:
+    """The two KeepAlive stanzas a spec's restart_on_crash_only selects."""
+
+    def test_hub_spec_keeps_the_bare_always_restart_stanza(
+        self, tmp_path: Path
+    ) -> None:
+        # HUB_SPEC is untouched by the demand-driven design: restart on any
+        # exit, including a clean one -- byte-identical to the pre-existing
+        # plist, so an already-installed Hub never sees a spurious diff.
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        (fake_home / ".local" / "bin").mkdir(parents=True)
+        (fake_home / ".local" / "bin" / "luxd-hub").touch()
+        with (
+            patch("punt_lux._backend_launchd.Path.home", return_value=fake_home),
+            patch("punt_lux._service_spec.Path.home", return_value=fake_home),
+        ):
+            plist = LaunchdBackend(HUB_SPEC)._plist_content()
+        lines = [line.strip() for line in plist.splitlines()]
+        keep_alive = lines.index("<key>KeepAlive</key>")
+        assert lines[keep_alive + 1] == "<true/>"
+        assert "SuccessfulExit" not in plist
+
+    def test_display_spec_uses_the_crash_only_dict_stanza(self, tmp_path: Path) -> None:
+        # DISPLAY_SPEC: a clean exit is operator-initiated (design §4) and
+        # must not respawn -- only a crash (non-zero/signal exit) does.
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        (fake_home / ".local" / "bin").mkdir(parents=True)
+        (fake_home / ".local" / "bin" / "luxd-display").touch()
+        with (
+            patch("punt_lux._backend_launchd.Path.home", return_value=fake_home),
+            patch("punt_lux._service_spec.Path.home", return_value=fake_home),
+        ):
+            plist = LaunchdBackend(DISPLAY_SPEC)._plist_content()
+        lines = [line.strip() for line in plist.splitlines()]
+        keep_alive = lines.index("<key>KeepAlive</key>")
+        assert lines[keep_alive + 1] == "<dict>"
+        success_exit = lines.index("<key>SuccessfulExit</key>")
+        assert lines[success_exit + 1] == "<false/>"

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import errno
+import logging
 import threading
 import time
 
 import pytest
 
 from punt_lux.domain.hub.liveness import DisplayLiveness, KeepaliveConnection
+from punt_lux.domain.hub.liveness_pacing import _DISCONNECTED_PROBE_INTERVAL
 from punt_lux.protocol import PongMessage
 
 
@@ -105,6 +107,62 @@ class TestCheckOnce:
         DisplayLiveness(clients).check_once()  # must not raise
         assert clients.drop_calls == 1
         assert clients.get_calls == 3
+
+
+class _AlwaysFailingClients:
+    """A keepalive client provider whose ``get`` never manages to connect."""
+
+    __slots__ = ()
+
+    def get(self) -> KeepaliveConnection:
+        msg = "connect refused"
+        raise RuntimeError(msg)
+
+    def drop(self) -> None:
+        """No connection was ever held, so there is nothing to close."""
+
+
+class TestDisconnectedPacing:
+    """The two-speed cadence and once-per-transition logging (§6.4)."""
+
+    def test_logs_once_at_info_on_transition_and_never_at_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        worker = DisplayLiveness(_AlwaysFailingClients())
+        with caplog.at_level(logging.INFO):
+            worker.check_once()
+            worker.check_once()
+            worker.check_once()
+        info_records = [r for r in caplog.records if r.levelno == logging.INFO]
+        warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(info_records) == 1
+        assert warning_records == []
+
+    def test_interval_relaxes_after_a_failure_and_snaps_back_on_reconnect(
+        self,
+    ) -> None:
+        # All three probes in the first cycle fail (the two ``check_once``
+        # probes plus the post-drop reconnect probe), so that cycle
+        # genuinely ends disconnected; the second cycle's connection
+        # answers reliably and snaps the cadence back.
+        clients = _FakeClients(_FakeConnection([None, None, None, _pong()]))
+        worker = DisplayLiveness(clients, interval=1.0)
+        worker.check_once()  # every probe fails — the cycle marks disconnected
+        assert worker._pacing.interval(1.0) == _DISCONNECTED_PROBE_INTERVAL
+        worker.check_once()  # the connection now answers reliably
+        assert worker._pacing.interval(1.0) == 1.0
+
+    def test_a_successful_post_drop_reconnect_snaps_back_within_one_cycle(
+        self,
+    ) -> None:
+        # Both probes fail, then the drop+reconnect probe succeeds -- all in
+        # the SAME check_once(). The pacer must notice at once, not report
+        # disconnected for a further cycle before catching up to the
+        # reconnect it just performed.
+        clients = _FakeClients(_FakeConnection([None, None, _pong()]))
+        worker = DisplayLiveness(clients, interval=1.0)
+        worker.check_once()
+        assert worker._pacing.interval(1.0) == 1.0
 
 
 class TestWorkerLifecycle:

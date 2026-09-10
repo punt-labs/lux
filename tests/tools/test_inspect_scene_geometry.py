@@ -92,6 +92,10 @@ class _NullReplicator:
     def mark_menus(self) -> None:
         """Ignore the menu mark — no display to replicate to."""
 
+    @property
+    def disconnected_delay(self) -> float:
+        return 0.0
+
 
 def _seed(store: HubDisplay) -> None:
     # Seeded under "local" — the default MCP session key (tools/server.py) —

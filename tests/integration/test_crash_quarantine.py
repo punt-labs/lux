@@ -26,6 +26,7 @@ from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.hub.quarantine_record import QuarantineRecord
+from punt_lux.domain.hub.reconnect_wait import ReconnectWait
 from punt_lux.domain.hub.replicator import HubReplicator
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.operations import OpError, RenderRequest, SceneShown, UpdateRequest
@@ -130,6 +131,19 @@ class _Provider:
 
     def drop(self) -> None:
         self._needs_reconcile = True
+
+    @property
+    def reconnect_generation(self) -> int:
+        """Unused here — this fake's sender is always reachable, never disconnected."""
+        return 0
+
+    def wait_for_reconnect(self, wait: ReconnectWait) -> bool:
+        """Unused here — this fake's sender is always reachable, never disconnected."""
+        del wait
+        return False
+
+    def request_stop(self) -> None:
+        """Unused here — no test in this module stops mid disconnected-wait."""
 
 
 class _Lifecycle:

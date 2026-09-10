@@ -27,6 +27,10 @@ from punt_lux.operations import (
     SceneShown,
     Scope,
 )
+from punt_lux.operations.models.display_link import (
+    ConnectedLinkState,
+    DisconnectedLinkState,
+)
 from punt_lux.rest_transport import HttpResponse, HubUnavailableError
 from tests.rest._fakes import make_client
 
@@ -161,6 +165,57 @@ def test_ping_without_a_wait_omits_the_timeout_param() -> None:
     result = _client_over(transport).ping(None)
     assert result == Pong(rtt_seconds=0.02)
     assert _sent(transport).path == "/display/ping"
+
+
+def test_get_link_targets_the_link_route() -> None:
+    body = (
+        b'{"kind":"connected","linkage":"connected_idle","live_scene_count":0,'
+        b'"hub_host":"host","hub_pid":1}'
+    )
+    transport = CannedTransport(HttpResponse(status=200, body=body))
+    result = _client_over(transport).get_link()
+    assert result == ConnectedLinkState(
+        linkage="connected_idle", live_scene_count=0, hub_host="host", hub_pid=1
+    )
+    call = _sent(transport)
+    assert call.method == "GET"
+    assert call.path == "/display/link"
+
+
+def test_get_link_parses_the_disconnected_shape() -> None:
+    body = (
+        b'{"kind":"disconnected","linkage":"held","live_scene_count":1,'
+        b'"retry_delay_seconds":8.0,"hub_host":"host","hub_pid":1}'
+    )
+    transport = CannedTransport(HttpResponse(status=200, body=body))
+    result = _client_over(transport).get_link()
+    assert result == DisconnectedLinkState(
+        linkage="held",
+        retry_delay_seconds=8.0,
+        live_scene_count=1,
+        hub_host="host",
+        hub_pid=1,
+    )
+
+
+def test_get_link_maps_a_non_2xx_status_to_op_error() -> None:
+    transport = CannedTransport(HttpResponse(status=502, body=b'{"detail":"boom"}'))
+    result = _client_over(transport).get_link()
+    assert result == OpError(code="fault", reason="boom")
+
+
+def test_get_link_maps_a_non_2xx_status_even_with_a_valid_link_shaped_body() -> None:
+    # A stale proxy, gateway, or incompatible Hub can answer a non-2xx status
+    # with a body that still happens to validate as a link state. Status must
+    # win over body shape -- this is not a success.
+    body = (
+        b'{"kind":"connected","linkage":"connected_idle","live_scene_count":0,'
+        b'"hub_host":"host","hub_pid":1}'
+    )
+    transport = CannedTransport(HttpResponse(status=502, body=body))
+    result = _client_over(transport).get_link()
+    assert isinstance(result, OpError)
+    assert result.code == "fault"
 
 
 @pytest.mark.parametrize(

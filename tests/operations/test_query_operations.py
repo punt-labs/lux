@@ -76,6 +76,10 @@ class _ForbiddenPort:
         msg = f"Hub read reached around to the display: ping({wait!r})"
         raise AssertionError(msg)
 
+    @property
+    def is_connected(self) -> bool:
+        return True
+
 
 class _StubPort:
     """A DisplayPort returning a preset reply for the proxied reads."""
@@ -92,6 +96,10 @@ class _StubPort:
 
     def ping(self, wait: float | None) -> DisplayReply:
         return self._reply
+
+    @property
+    def is_connected(self) -> bool:
+        return True
 
 
 class _CountingPort:
@@ -113,6 +121,10 @@ class _CountingPort:
 
     def ping(self, wait: float | None) -> DisplayReply:
         return self._reply
+
+    @property
+    def is_connected(self) -> bool:
+        return True
 
 
 def _seed_scene(store: HubDisplay, *, scene: str, connection: str) -> None:

@@ -4,6 +4,29 @@
 
 ### Added
 
+- **Demand-driven display presence (`lux-81t3.1`).** The Hub no longer treats
+  a missing display as an error to route around at every send site — it
+  classifies the link (`DisplayLinkage`: disconnected, held, connected-idle,
+  connected-active), holds content across a disconnection, and retries at a
+  slow, bounded, interruptible cadence instead of the old fixed 2-second
+  fallback loop. `HubReplicator`'s disconnected branch paces its own 2s→120s
+  backoff (`DisconnectedRetry`), structurally disjoint from the existing
+  wedged-display backoff so a never-connected display can never advance the
+  wrong counter. `DisplayLiveness`'s keepalive prober relaxes its own probe
+  interval while disconnected and logs the transition once, not per cycle.
+  `ClientRegistry.wait_for_reconnect` lets either actor's successful dial
+  wake a parked retry immediately, without holding the registry lock. New
+  read-only MCP tool `display_link_get` reports the Hub's observed link
+  state without ever round-tripping to the display. The display's own
+  launchd unit now restarts only on a crash
+  (`ServiceSpec.restart_on_crash_only`), never on the clean, operator-
+  initiated exit the demand-driven design treats as legitimate. Formally
+  verified: `docs/display_linkage.tex`, ProB-proven (8 invariants +
+  deadlock-freedom). The link state now has full surface parity: `GET
+  /display/link`, `lux display link`, and the library client's
+  `get_link()` all report the same discriminated `ConnectedLinkState` /
+  `DisconnectedLinkState` shape the MCP tool does — never a proxy to the
+  display.
 - **`get_display_state` — a standalone, curated read of the Display's own
   widget/frame state, for Hub-vs-Display comparison.** Proxied over luxd's
   one display connection like `get_display_info`/`get_theme`; excludes every

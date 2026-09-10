@@ -39,6 +39,7 @@ _ALLOWED = frozenset({"domain/hub/display_link.py", "domain/hub/clients.py"})
 
 _MODULE = "display_link"  # last segment of punt_lux.domain.hub.display_link
 _CLASS = "DisplayLink"
+_PROTECTED = "punt_lux.domain.hub.display_link"  # the one module this guards
 
 
 def _module_tail(node: ast.ImportFrom) -> str:
@@ -53,11 +54,21 @@ def _import_from_reason(node: ast.ImportFrom) -> str:
     alias) imports the class; ``from … import display_link`` imports the module
     wholesale. Importing a plain value from the module (``DEFAULT_RECV_TIMEOUT``)
     is neither, and returns ''.
+
+    An absolute ``from X import display_link`` is checked against its full
+    dotted path (``X.display_link``) rather than the bare name, so a same-named
+    submodule elsewhere in the tree (``punt_lux.cli.display_link``) does not
+    collide with the one this guards. A relative import has no path to resolve
+    without the importing file's own location, which this walk does not carry,
+    so it stays on the conservative bare-name match.
     """
     if _module_tail(node) == _MODULE:
         return (
             "imports DisplayLink" if any(a.name == _CLASS for a in node.names) else ""
         )
+    if node.level == 0 and node.module is not None:
+        full_paths = {f"{node.module}.{a.name}" for a in node.names}
+        return "imports the display_link module" if _PROTECTED in full_paths else ""
     if any(a.name == _MODULE for a in node.names):
         return "imports the display_link module"
     return ""
@@ -68,8 +79,10 @@ def _node_reason(node: ast.AST) -> str:
     if isinstance(node, ast.ImportFrom):
         return _import_from_reason(node)
     if isinstance(node, ast.Import):
-        tails = (a.name.split(".")[-1] for a in node.names)
-        return "imports the display_link module" if _MODULE in tails else ""
+        # A plain ``import`` statement is always fully dotted (never relative),
+        # so an exact match against the protected path is unambiguous.
+        matched = any(a.name == _PROTECTED for a in node.names)
+        return "imports the display_link module" if matched else ""
     if isinstance(node, ast.Name) and node.id == _CLASS:
         return "references DisplayLink"
     if isinstance(node, ast.Attribute) and node.attr == _CLASS:

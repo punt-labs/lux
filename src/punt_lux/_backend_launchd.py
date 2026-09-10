@@ -60,21 +60,13 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
     def install(self) -> bool:
         """Write the plist and bootstrap the service into launchd.
 
-        Returns whether this call was a no-op: the service was already
-        active under the plist content we would write anyway. Reinstalling
-        an unchanged, running service must never bootout a live daemon just
-        to bootstrap the same thing back -- a daemon serving long-lived
-        connections (luxd's MCP streamable-HTTP sessions) may never actually
-        exit on the resulting SIGTERM (uvicorn's graceful-shutdown window is
-        unbounded while a client is attached), turning a same-version
-        reinstall into an indefinite hang (lux-94p0). Curing a stale
-        registration under this service's OWN label (an in-place
-        binary-path upgrade, where the content genuinely differs) still
-        uses the same bootout-and-verify discipline as a renamed
-        predecessor's cleanup
-        (:class:`~punt_lux._legacy_sweep_launchd.LaunchdLegacySweep`) --
-        fatal on failure, never a warn-and-continue fallthrough onto a
-        supervisor call that may silently no-op.
+        Returns whether this call was a no-op: already active under the
+        plist content we would write anyway. A live long-lived MCP daemon
+        may never actually exit on SIGTERM (unbounded uvicorn shutdown
+        window), so reinstalling unchanged must never bootout-then-bootstrap
+        the same thing back (lux-94p0). A genuine content change still uses
+        :class:`~punt_lux._legacy_sweep_launchd.LaunchdLegacySweep`'s
+        bootout-and-verify discipline, fatal on failure.
         """
         from punt_lux.hub_paths import HubPaths
 
@@ -132,11 +124,8 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
     def stop(self) -> bool:
         """Boot the job out of launchd (plist stays); a missing plist is a no-op.
 
-        ``bootout``, not ``unload``: with ``KeepAlive=true`` (every plist this
-        backend writes), ``launchctl stop`` sends SIGTERM and launchd
-        immediately respawns the job per the KeepAlive contract — the daemon
-        never actually stops. ``bootout`` deregisters the job from the GUI
-        domain outright, so nothing is left to respawn it.
+        ``bootout``, not ``unload``: KeepAlive respawns the job on a plain
+        SIGTERM, so only deregistering it from the GUI domain actually stops it.
         """
         if not self._plist_path.exists():
             logger.info("No plist found at %s -- nothing to stop", self._plist_path)
@@ -145,14 +134,7 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         return launchctl.run(["launchctl", "bootout", target], verb="bootout")
 
     def restart(self) -> bool:
-        """Atomically kill-and-respawn the job under launchd.
-
-        ``launchctl kickstart -k`` sends the current instance a signal and
-        launchd starts a fresh one under the same plist — one supervisor
-        call, no pid file, no gap where the daemon is deregistered. The
-        supervisor already knows the pid, so a restart is not a signal-based
-        handshake with a pid file the daemon does not itself keep current.
-        """
+        """Atomically kill-and-respawn under the same plist — one call, no pid file."""
         target = f"{launchctl.gui_domain()}/{self._spec.launchd_label}"
         return launchctl.run(
             ["launchctl", "kickstart", "-k", target],
@@ -196,8 +178,7 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
                 </array>
                 <key>RunAtLoad</key>
                 <true/>
-                <key>KeepAlive</key>
-                <true/>
+            {self._keep_alive_block()}
                 <key>StandardOutPath</key>
                 <string>{stdout}</string>
                 <key>StandardErrorPath</key>
@@ -205,3 +186,20 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
             </dict>
             </plist>
         """)
+
+    def _keep_alive_block(self) -> str:
+        """Return the ``KeepAlive`` stanza: bare, or crash-only per the spec.
+
+        Bare ``<true/>`` respawns on any exit, including a clean one — right
+        for the always-on Hub, wrong for the demand-driven display, whose own
+        clean exit is operator-initiated (design §4) and must not respawn.
+        """
+        crash_only = (
+            "    <key>KeepAlive</key>\n"
+            "    <dict>\n"
+            "        <key>SuccessfulExit</key>\n"
+            "        <false/>\n"
+            "    </dict>"
+        )
+        always = "    <key>KeepAlive</key>\n    <true/>"
+        return crash_only if self._spec.restart_on_crash_only else always

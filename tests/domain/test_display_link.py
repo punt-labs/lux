@@ -533,6 +533,59 @@ class TestErrorHandling:
         client = DisplayLink(auto_spawn=False)
         client.close()  # should not raise
 
+    def test_handshake_mismatch_logs_warning_and_raises(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A non-ReadyMessage handshake reply is a protocol mismatch, not a
+        quiet disconnect: it must surface at WARNING (naming the unexpected
+        type) even though the Hub still retries via ``DisplayNotConnectedError``.
+
+        Without the WARNING, a persistent version skew would back off to the
+        replicator's slow disconnected cadence and retry into silence —
+        indistinguishable in the log from an ordinary "no display" wait.
+        """
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+
+        def serve() -> None:
+            nonlocal server_conn
+            server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            server.bind(str(sock_path))
+            server.listen(1)
+            ready_event.set()
+            conn, _ = server.accept()
+            server_conn = conn
+            # Wrong message type: a PongMessage instead of ReadyMessage.
+            send_message(conn, PongMessage(ts=time.time(), display_ts=time.time()))
+            server.close()
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        try:
+            client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
+            with (
+                caplog.at_level("WARNING", logger="punt_lux.domain.hub.display_link"),
+                pytest.raises(RuntimeError, match="Expected ReadyMessage"),
+            ):
+                client.connect()
+            assert any(
+                r.levelname == "WARNING" and "PongMessage" in r.message
+                for r in caplog.records
+            ), "handshake mismatch must log a WARNING naming the unexpected type"
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
 
 # ---------------------------------------------------------------------------
 # Auto-spawn

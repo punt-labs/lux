@@ -8,21 +8,7 @@ import typer
 
 from punt_lux import __version__
 from punt_lux.cli._shared import JsonFlag, OutputFlags, QuietFlag, VerboseFlag, run
-from punt_lux.cli.beads import beads as beads_command
-from punt_lux.cli.callback import callback_app
-from punt_lux.cli.display_service import display_app
-from punt_lux.cli.error import error_app
-from punt_lux.cli.event import event_app
-from punt_lux.cli.frame import frame_app
-from punt_lux.cli.hub import hub_app
-from punt_lux.cli.menu import menu_app
-from punt_lux.cli.plugin import (
-    _PLUGIN_ID,
-    install as plugin_install,
-    uninstall as plugin_uninstall,
-)
-from punt_lux.cli.scene import scene_app
-from punt_lux.cli.session import session_app
+from punt_lux.cli.registry import PLUGIN_ID, register_subcommands
 from punt_lux.doctor_report import FAIL, OK, OPTIONAL, DoctorReport
 
 
@@ -60,16 +46,7 @@ def _main(  # pyright: ignore[reportUnusedFunction]
 
 hook_app = typer.Typer(hidden=True)
 app.add_typer(hook_app, name="hook")
-app.command("beads")(beads_command)
-app.add_typer(hub_app, name="hub")
-app.add_typer(session_app, name="session")
-app.add_typer(scene_app, name="scene")
-app.add_typer(frame_app, name="frame")
-app.add_typer(menu_app, name="menu")
-app.add_typer(display_app, name="display")
-app.add_typer(event_app, name="event")
-app.add_typer(error_app, name="error")
-app.add_typer(callback_app, name="callback")
+register_subcommands(app)
 
 
 # Product commands
@@ -131,8 +108,7 @@ def cc_session_start() -> None:
 def version(
     *,
     json_out: JsonFlag = False,
-    # Accepted for surface parity; verbose/quiet not currently distinguished
-    # in this command.
+    # Accepted for surface parity; verbose/quiet not distinguished here.
     verbose: VerboseFlag = False,
     quiet: QuietFlag = False,
 ) -> None:
@@ -163,11 +139,9 @@ def ping(
 ) -> None:
     """Ping the display through luxd and print round-trip time.
 
-    ``--timeout`` (0.1-30s) is the real display-leg budget over luxd's REST API;
-    the HTTP round-trip sits a margin above it, so a slow display reports "timeout".
-    Routes through the shared ``ping`` command singleton and prints its rendered
-    line directly — the same three-way status ("not running" / "timeout" /
-    "error: <reason>") the MCP tool and REST route report, on one code path.
+    ``--timeout`` (0.1-30s) is the real display-leg budget; the HTTP round-trip
+    sits a margin above it, reporting the same "not running"/"timeout"/"error"
+    status the MCP tool and REST route share on one code path.
     """
     from punt_lux.cli._shared import connect_client
     from punt_lux.cli_identity import CliIdentity
@@ -261,7 +235,7 @@ def doctor(
 
     # Fonts and the plugin are the machine's business, not lux's — advisory
     # either way, so a missing one never fails the run.
-    checks = EnvironmentChecks(_check, _PLUGIN_ID)
+    checks = EnvironmentChecks(_check, PLUGIN_ID)
     checks.fonts()
 
     # Display server
@@ -278,10 +252,6 @@ def doctor(
         print(_check.render())
     if _check.failed > 0:
         raise typer.Exit(code=1)
-
-
-app.command()(plugin_install)
-app.command()(plugin_uninstall)
 
 
 if __name__ == "__main__":

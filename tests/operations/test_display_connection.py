@@ -102,14 +102,20 @@ class _Registry:
 
     _client: _Client
     _connect_error: Exception | None
+    is_connected: bool
     drops: int
 
     def __new__(
-        cls, client: _Client, *, connect_error: Exception | None = None
+        cls,
+        client: _Client,
+        *,
+        connect_error: Exception | None = None,
+        is_connected: bool = False,
     ) -> Self:
         self = super().__new__(cls)
         self._client = client
         self._connect_error = connect_error
+        self.is_connected = is_connected
         self.drops = 0
         return self
 
@@ -211,3 +217,10 @@ def test_ping_maps_a_failed_reconnect_to_unavailable() -> None:
     assert isinstance(reply, DisplayFault)
     assert reply.code == "display_unavailable"
     assert registry.drops == 1
+
+
+def test_is_connected_delegates_to_the_registry() -> None:
+    connected = _conn(_Registry(_Client(), is_connected=True))
+    disconnected = _conn(_Registry(_Client(), is_connected=False))
+    assert connected.is_connected is True
+    assert disconnected.is_connected is False

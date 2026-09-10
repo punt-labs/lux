@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 
 from punt_lux.client._callback_ops import CallbackConvenienceOps
+from punt_lux.client._display_link_ops import DisplayLinkOps
 from punt_lux.commands._ports import (
     DisplayInfoOps,
     DisplayModeOps,
@@ -36,14 +37,11 @@ class SyncOps(
     ErrorOps,
     DisplayInfoOps,
     DisplayStateOps,
+    DisplayLinkOps,
     ThemeOps,
     WindowOps,
     DisplayModeOps,
     ScreenshotOps,
     Protocol,
 ):
-    """Every synchronous Hub operation ``LuxClient.sync`` exposes at once.
-
-    Extends every per-family Ops Protocol, satisfied structurally by
-    ``_RestTransport`` with no new requirement on it.
-    """
+    """Every synchronous Hub operation ``LuxClient.sync`` exposes at once."""

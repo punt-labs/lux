@@ -6812,3 +6812,70 @@ separate design decision; the two are not mutually exclusive — Linux
 does not need to wait on macOS, and a future macOS fix does not need to
 touch this one. `make screenshot` is a dev/verification target and is
 deliberately kept out of `make check`; CI has no display to capture.
+
+## DES-093: Display Linkage — the Hub Holds Content and Never Controls the Display
+
+**Status:** accepted; implemented (bead `lux-81t3.1`, epic `lux-81t3`).
+Full design: [`docs/architecture/display-presence-demand-driven.md`](docs/architecture/display-presence-demand-driven.md).
+Formally verified: [`docs/display_linkage.tex`](docs/display_linkage.tex) +
+[coverage](docs/display_linkage_coverage.md) (ProB — 8 invariants + deadlock,
+setsize 2 and 3).
+
+**Problem.** After the display became a managed launchd/systemd service (not a
+luxd-keepalive-spawned process), the `auto_spawn=False` fix that ended the
+omnipresent-window bug removed the *only* code path that brought a display up on
+demand — and nothing replaced it. Content pushed to a Hub with no connected
+display black-holed: `DisplayLink.connect()` raised, the replicator's broad
+`except` restored-and-backed-off at a capped 2s cadence forever, and the user
+saw nothing with no signal that content was waiting.
+
+**Operator rulings (the governing decisions).** (1) The Hub *never* starts,
+spawns, stops, or otherwise controls the display's process — not deferred,
+removed as a direction, because the display and Hub will not always share a
+machine (DES-089/090 cross-host), and you cannot `start()` a service on a box
+you have no access to. (2) `lux display stop` means the process is gone and
+pushing content does **not** bring it back; the display is entirely
+user/service-controlled. (3) `display:off` is just `lux display stop` — there is
+no Hub-level veto flag, and no "running but invisible" state. Content-to-the-Hub
+(per-repo lux enable/disable) and display-on/off (the user's `lux display
+start/stop`) are two separate controls. (4) The Hub *may* retry a missing
+display, but must back off exponentially to a slow steady state (~once a minute
+to once every five minutes), not spin at 2s.
+
+**Decision.** The Hub's job when no display is connected is: hold the content it
+cannot deliver (already authoritative in `HubDisplay`), keep trying to reach a
+display at a bounded, eventually-slow cadence, reconcile everything held the
+moment a display connects (local now, remote later), and make the waiting state
+visible — never touch the display's process. Concretely: a `DisplayLinkage`
+classification (`disconnected`/`held`/`connected_idle`/`connected_active`,
+*derived* from observed facts, never a stored/controlled state); a dedicated
+`DisplayNotConnectedError` for the dial failure so it is never conflated with a
+mid-send teardown or a programmer error; a second, distinctly-paced backoff
+(2s→120s) on that branch, separate from the wedged-send backoff (1s→30s); an
+interruptible wait (a monotonic reconnect-generation counter guarded by a
+`threading.Condition`: any successful `get()` from either the replicator or the
+5s liveness probe bumps the generation and notifies under the lock, and a waiter
+that snapshotted the generation before its failed dial wakes the moment it
+advances — race-free against a reconnect landing in the dial→wait gap, and
+`Condition.wait` releases the lock while blocked) so a returning display renders
+promptly instead of after the full backoff; and a
+`display_link_get` / `lux display link` introspection surface (Hub-side, no
+round-trip) reporting the linkage, held-scene count, current retry delay, and
+Hub host identity (`hub_host`/`hub_pid`) so an agent can catch a wrong-host push.
+The display service's own restart policy is scoped so a clean user
+stop/close stays down (`ServiceSpec.restart_on_crash_only`, `DISPLAY_SPEC`
+only; `HUB_SPEC` unchanged).
+
+**Rejected alternatives.** (a) The first design had the Hub *open* the display on
+demand (`ServiceManager.for_display().start()` from `ClientRegistry.acquire()`,
+gated by an `OFF` veto flag) — ruled out entirely: it requires the Hub to have
+privileged control over the display's process, false once they are on different
+machines. (b) Making the per-repo `.punt-labs/lux.md` `display:off` file the
+Hub's veto — a per-repo file cannot arbitrate one shared display across many
+repos without repo-aware connection identity (DES-089 territory). (c) A single
+shared backoff for both the wedged-and-connected and never-connected cases —
+their timescales differ by orders of magnitude; conflating them was the root of
+the 2s-forever defect. (d) Stopping retries once disconnected — the operator
+ruled retrying is correct; the defect was always the cadence. (e) `set_off`
+retracting an already-open window — moot once `display:off` became `lux display
+stop`, and a "running but invisible" state was judged no value-add.

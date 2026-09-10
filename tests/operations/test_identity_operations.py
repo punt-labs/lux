@@ -35,6 +35,10 @@ class _ForbiddenPort:
         msg = f"read reached around to the display: ping({wait!r})"
         raise AssertionError(msg)
 
+    @property
+    def is_connected(self) -> bool:
+        return True
+
 
 def _scope(connection: str) -> Scope:
     return Scope(ConnectionId(connection))

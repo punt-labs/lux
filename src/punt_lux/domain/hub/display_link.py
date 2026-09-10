@@ -1,18 +1,12 @@
 """The Hub's connection to the display process.
 
-Provides :class:`DisplayLink`, a context-manager that connects to the Lux
-display over a Unix domain socket, waits for the ``ReadyMessage``
-handshake, and exposes typed methods for sending scenes, updates, clears,
-and pings.  Receives ack, pong, and observer events.
-
-Supports push-based event handling via :meth:`on_event` and
-:meth:`start_listener`.  When the background listener is active, incoming
-:class:`RemoteEventHandlerInvocation` frames with a matching ``(element_id, action)``
-callback are dispatched on the listener thread; acks, pongs, and query
-responses route to dedicated queues consumed by :meth:`show`, :meth:`ping`,
-and :meth:`query`.  Inbound :class:`ObserverMessage` frames — fan-outs
-from ``Hub.publish`` calls scoped to this connection — queue as
-:class:`PolledEvent` records for :meth:`poll_event`.
+:class:`DisplayLink` is a context manager over a Unix socket that performs
+the ``ReadyMessage`` handshake and exposes typed methods for scenes, pings,
+and queries. :meth:`on_event` + :meth:`start_listener` enable push-based
+dispatch on the listener thread; acks, pongs, and query responses route to
+the queues :meth:`show`, :meth:`ping`, and :meth:`query` consume, and
+:class:`ObserverMessage` frames queue as :class:`PolledEvent` for
+:meth:`poll_event`.
 """
 
 from __future__ import annotations
@@ -28,6 +22,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Self
 
+from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
 from punt_lux.paths import DisplayPaths
 from punt_lux.polled_event import PolledEvent
 from punt_lux.protocol import (
@@ -59,6 +54,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+__all__ = ["DEFAULT_RECV_TIMEOUT", "DisplayLink"]
+
 # The Hub-side budget for one display round-trip (ping / recv). A CLI reaching
 # the display through luxd must keep its transport timeout above this.
 DEFAULT_RECV_TIMEOUT = 5.0
@@ -76,23 +73,14 @@ def _drain_queue(q: queue.SimpleQueue[Any]) -> None:
 class DisplayLink:
     """Client for the Lux display server.
 
-    Parameters
-    ----------
-    socket_path:
-        Path to the Unix domain socket.  ``None`` uses the default.
-    name:
-        The identity this connection declares in its ``ConnectMessage``.
-    kind:
-        ``"hub"`` triggers single-owner preemption plus a manifest
-        (DES-068); ``"test"`` (default) is the read-only backdoor for
-        every other caller — a deliberately wrong-looking name, since
-        the display logs and rejects a ``SceneMessage`` sent under it.
-    auto_spawn:
-        If ``True`` (default), spawn the display server when not running.
-    connect_timeout:
-        Seconds to wait for the display to become available.
-    recv_timeout:
-        Default timeout in seconds for :meth:`recv`.
+    ``socket_path`` is the Unix socket path (``None`` uses the default).
+    ``name`` is the identity this connection declares in its
+    ``ConnectMessage``. ``kind="hub"`` triggers single-owner preemption plus
+    a manifest (DES-068); ``"test"`` (default) is the read-only backdoor --
+    a deliberately wrong-looking name, since the display rejects a
+    ``SceneMessage`` sent under it. ``auto_spawn`` (default ``True``) spawns
+    the display server when not running. ``connect_timeout`` bounds the wait
+    for the display; ``recv_timeout`` is the default for :meth:`recv`.
     """
 
     _socket_path: Path | None
@@ -181,7 +169,7 @@ class DisplayLink:
 
         Raises
         ------
-        RuntimeError
+        DisplayNotConnectedError
             If the display fails to start or the handshake times out.
         """
         if self._sock is not None:
@@ -199,7 +187,7 @@ class DisplayLink:
         except (ConnectionRefusedError, FileNotFoundError, OSError) as exc:
             sock.close()
             msg = f"Cannot connect to display at {path}: {exc}"
-            raise RuntimeError(msg) from exc
+            raise DisplayNotConnectedError(msg) from exc
 
         set_send_timeout(sock)
         self._sock = sock
@@ -213,11 +201,16 @@ class DisplayLink:
         if ready is None:
             self.close()
             msg = f"Handshake timed out after {self._connect_timeout}s at {path}"
-            raise RuntimeError(msg)
+            raise DisplayNotConnectedError(msg)
         if not isinstance(ready, ReadyMessage):
             self.close()
+            # A protocol mismatch (e.g. version skew), not a disconnect: still
+            # raises DisplayNotConnectedError so the replicator holds and retries,
+            # but a persistent mismatch must stay visible, not vanish into that
+            # path's ordinary quiet-disconnected retry cadence.
+            logger.warning("Handshake mismatch: expected ReadyMessage, got %s", ready)
             msg = f"Expected ReadyMessage, got {type(ready).__name__}"
-            raise RuntimeError(msg)
+            raise DisplayNotConnectedError(msg)
         self._ready = ready
         logger.info("Connected to display (protocol %s)", ready.version)
         self._post_handshake(sock)
@@ -234,7 +227,7 @@ class DisplayLink:
             except OSError as exc:
                 self.close()
                 err = f"ConnectMessage failed after handshake: {exc}"
-                raise RuntimeError(err) from exc
+                raise DisplayNotConnectedError(err) from exc
 
     def close(self) -> None:
         """Close the connection to the display server."""

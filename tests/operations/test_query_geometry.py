@@ -54,6 +54,10 @@ class _StubPort:
     def ping(self, wait: float | None) -> DisplayReply:
         return self._reply
 
+    @property
+    def is_connected(self) -> bool:
+        return True
+
 
 def _scoped(local_id: str) -> SceneId:
     """The store key ``local_id`` composes to for connection "c1"."""

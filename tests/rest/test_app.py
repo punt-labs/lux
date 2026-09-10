@@ -85,7 +85,7 @@ def test_exempt_set_names_only_real_operations() -> None:
 
 def test_surface_exposes_one_router_per_concern() -> None:
     surface = RestSurface(make_facade(display_port=ForbiddenPort()))
-    assert len(surface.routers) == 5
+    assert len(surface.routers) == 6
 
 
 def test_no_publish_route_is_mounted() -> None:
