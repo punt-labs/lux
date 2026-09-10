@@ -132,6 +132,17 @@ which this revision makes **more** central, since "which Hub is holding
 this content, and is a display even watching it" is now the primary
 observability question, not a secondary caveat.
 
+**A second review pass (gvr, evaluating commit `6731b1c5`) found the
+operator-ruling front sound — grep-confirmed, no Hub process-control of the
+display — but flagged real, code-verified mechanism gaps in how the
+corrected fix was sketched: a blocking `time.sleep` that would itself defeat
+prompt rediscovery, an outcome type that let two backoffs fire on one cycle,
+a keepalive worker not held to the same discipline as the replicator, a
+missing read accessor, and an `Optional` field that should have been a
+discriminated pair. §6, §9, §10, and §12 below are revised again to close
+those gaps; §1 through §5, §7, §8, and §11's first two entries are
+otherwise unchanged from that pass.**
+
 ## 3. The Corrected Model: Hold, Reconcile, Never Control
 
 `HubDisplay` is already the authoritative store for scene content
@@ -246,37 +257,114 @@ appearing — a coarser, different gesture than DES-088's per-frame close
 button. This design adds nothing to, and does not reinterpret, any DES-088
 mechanism.
 
-## 6. The Fix: A Slow, Bounded, Named Retry — Not a Black Hole and Not a Stop
+## 6. The Fix: A Slow, Bounded, Interruptible Retry
 
-### 6.1 Two backoff regimes, kept separate
+**Load-bearing correction from review.** The first pass of this section
+paced the not-connected retry with a raw `time.sleep(delay)` inside the
+replicator's own worker thread. That is wrong on its own terms: it commits
+the Hub's *only* sender thread to sleeping out the full current delay —
+up to 120s once backed off — before it so much as attempts another
+connect, which makes invariant 6 (§12, "a connect promptly breaks out of
+the slow-retry state") false as written. A user who runs `lux display
+start` right after the Hub has climbed deep into its backoff would see
+held content stay blank for up to two minutes. Retrying slowly and
+rediscovering promptly are both required (§2 item 5); a blocking sleep
+cannot deliver both at once. §6.3 below replaces it with an interruptible
+wait. A second defect in the same area — a boolean outcome type that let
+the wedged-display backoff *also* fire on a not-connected cycle — is fixed
+in §6.1 by making the outcome a genuine three-way discrimination instead
+of asking a `bool` to carry three meanings.
 
-The codebase already has two backoff mechanisms and this design adds a
-third by reusing one of them, rather than inventing a new mechanism:
+### 6.1 Three outcomes, not one boolean
+
+`_CycleOutcome.recovered: bool` was asked to distinguish three different
+things: a clean send, a connected-but-misbehaving send that `SendRecovery`
+healed, and no display connected at all. The `RuntimeError` branch
+returned `recovered=True` — the only value available — which is
+indistinguishable, to `_run_cycle`, from "a wedged display was just
+healed." `_run_cycle` then called `self._back_off()` (the *wedged-display*
+backoff) **in addition to** the disconnected wait that had already run
+inside `_push_cycle` — every not-connected cycle was paying two
+uncoordinated sleeps, not one.
+
+The fix is a `Literal` tag, not a bespoke class per branch — this is an
+internal control-flow result with no behavior attached to the tag beyond
+which branch `_run_cycle` takes, the same shape `DrainedBatch` already uses
+for its own `shutting`/`has_work` discrimination:
+
+```python
+@final
+@dataclass(frozen=True, slots=True)
+class _CycleOutcome:
+    """The result of one push cycle — exactly one of three distinct causes.
+
+    ``clean``: a real send succeeded; ``emptied`` names scenes to reclaim.
+    ``recovered``: a send failed while CONNECTED (wedged or dead peer) and
+    ``SendRecovery`` healed it — the wedged-display backoff advances.
+    ``disconnected``: no display was connected at all — nothing to reap or
+    heal; the disconnected-backoff advances instead. These two backoffs
+    are mutually exclusive by construction: a cycle can match only one
+    `except` branch in `_push_cycle`, so there is no path where both are
+    touched in the same cycle.
+    """
+
+    outcome: Literal["clean", "recovered", "disconnected"]
+    emptied: tuple[SceneId, ...] = ()
+```
+
+```python
+def _run_cycle(self, batch: DrainedBatch) -> None:
+    try:
+        result = self._push_cycle(batch)
+    except Exception:
+        if batch.shutting:
+            logger.exception("replicator shutdown flush failed; dropping the batch")
+            return
+        logger.exception("replicator cycle failed; retrying the batch")
+        self._recovery.restore(batch)
+        self._back_off()
+        return
+    if result.outcome == "disconnected":
+        return  # _push_cycle already restored the batch and waited (§6.3)
+    if result.outcome == "recovered":
+        if not batch.shutting:
+            self._back_off()
+        return
+    self._backoff = _BASE_BACKOFF_SECONDS
+    self._reclaim_emptied(result.emptied)
+```
+
+The `disconnected` branch does nothing further — no reclaim, no
+`_back_off()` — which is what makes "never advances the wedged backoff on
+a disconnected cycle" true by construction rather than by convention:
+there is no code path left that could call `self._back_off()` for a
+`disconnected` outcome.
+
+### 6.2 Two independently-tuned backoff curves
+
+The codebase already has two backoff mechanisms; this design adds a third
+by reusing one of them rather than inventing a new mechanism:
 
 | Backoff | Lives in | Paces | Range today |
 |---|---|---|---|
-| `HubReplicator._backoff` | `replicator.py` | Retrying a batch after ANY `_run_cycle` failure (currently conflates "wedged, connected" and "not connected at all") | `_BASE_BACKOFF_SECONDS=0.1` → `_MAX_BACKOFF_SECONDS=2.0` |
+| `HubReplicator._backoff` | `replicator.py` | The wedged/dead-peer `recovered` outcome | `_BASE_BACKOFF_SECONDS=0.1` → `_MAX_BACKOFF_SECONDS=2.0` |
 | `RespawnBackoff` | `respawn_backoff.py`, used by `SendRecovery` | Pacing successive `reap()` calls on a display that keeps crashing after reconnect (display-crash-quarantine.md) | `_BASE_DELAY_SECONDS=1.0` → `_MAX_DELAY_SECONDS=30.0`, resets after a stable interval |
 
 Both are correctly scoped to *connected-but-misbehaving* scenarios, where a
 few-second cadence is right because the supervisor's own crash-restart
 (§7) is expected to resolve things within seconds. Neither is the right
-shape for *never-connected-at-all*, which can legitimately last
+shape for the `disconnected` outcome, which can legitimately last
 indefinitely (a display that's off, or on a machine the user hasn't turned
-on yet, per §2 item 4). This design adds a **third, distinctly-paced**
-backoff for exactly that condition, rather than repurposing either
-existing one — conflating them was the root of the 2-second-forever defect
-in the first place (§1).
-
-### 6.2 The new not-connected retry curve
-
-Reuse `RespawnBackoff`'s shape (`note_respawn()` / `reset_if_stable()`
-already do exactly the right thing — grow on each retry, reset once
-stable) by parameterizing its two constants instead of hardcoding a third
-copy of the same twelve lines:
+on yet, per §2 item 4). Reuse `RespawnBackoff`'s shape (`note_respawn()` /
+`reset_if_stable()` already do exactly the right thing — grow on each
+retry, reset once stable) by parameterizing its two constants instead of
+hardcoding a third copy of the same twelve lines, and adding the one
+non-mutating accessor introspection needs (§9) that the class did not
+previously expose:
 
 ```python
-# respawn_backoff.py — only the constructor changes; existing callers unaffected
+# respawn_backoff.py — only the constructor and one new property change;
+# existing callers (crash-respawn pacing) are unaffected by the defaults.
 def __new__(
     cls,
     clock: Callable[[], float] = time.monotonic,
@@ -289,9 +377,14 @@ def __new__(
     self._max_delay = max_delay
     self._last_respawn_at = None
     return self
+
+@property
+def current_delay(self) -> float:
+    """Return the delay `note_respawn` would apply next — read-only, no mutation."""
+    return self._delay
 ```
 
-`HubReplicator` composes a second instance for the not-connected case:
+`HubReplicator` composes a second instance for the `disconnected` case:
 
 ```python
 self._disconnected_backoff = RespawnBackoff(base_delay=2.0, max_delay=120.0)
@@ -302,52 +395,174 @@ operator's stated "once a minute to once every five minutes" band. The
 exact numbers are an explicit tunable, not load-bearing: the operator's own
 words are "it's not critical what it is." What is load-bearing is the
 *shape* — genuinely exponential, genuinely capped one to two orders of
-magnitude above the existing 2-second wedged-display ceiling, so an
-unattended, no-display Hub settles into a quiet, minute-or-slower poll
-instead of a tight loop.
+magnitude above the existing 2-second wedged-display ceiling — combined
+with the interruptible wait in §6.3, which is what keeps that slow cap from
+also making rediscovery slow.
 
-### 6.3 Catching the right exception on its own branch
+### 6.3 Never a blocking sleep: an interruptible wait, coordinated with `DisplayLiveness`
 
-`RuntimeError` (no display was ever connected — `.get()`'s failure mode)
-must be distinguished from `BlockingIOError`/`OSError` (a display *was*
-connected and the send just failed) at the point they're raised, not left
-to fall through to the same catch-all:
+The mechanism that actually satisfies both "slow steady state" and "prompt
+rediscovery" at once: the disconnected wait blocks on a `threading.Event`
+that ANY successful `ClientRegistry.get()` — from the replicator's own next
+retry, or from `DisplayLiveness`'s independent probe (§6.4) — sets. The
+event lives on `ClientRegistry`, the one existing choke point both threads
+already call through, not as a second object the replicator has to import
+and wire separately:
+
+```python
+# clients.py — ClientRegistry gains one field and two methods
+_reconnected: threading.Event  # set on a fresh connect; consumed by wait_for_reconnect
+
+def get(self) -> DisplayLink:
+    with self._lock:
+        was_connected = self._client is not None and self._client.is_connected
+        if self._client is None:
+            self._client = DisplayLink(name=_DISPLAY_CLIENT_NAME, kind="hub", auto_spawn=False)
+        self._setup_apps()
+        if not self._client.is_connected:
+            self._connect_and_reconcile(self._client)  # raises RuntimeError if unreachable
+        if not self._client.listener_active:
+            self._client.start_listener()
+        if not was_connected:
+            self._reconnected.set()  # wakes anyone in wait_for_reconnect, immediately
+        return self._client
+
+def wait_for_reconnect(self, timeout: float) -> bool:
+    """Block up to `timeout`s for a fresh connect from EITHER thread.
+
+    Deliberately does NOT hold `self._lock` while waiting — `Event.wait`
+    is thread-safe on its own, and holding the registry lock here for up
+    to `timeout` seconds would block every other caller (`DisplayLiveness`,
+    an MCP tool's `.get()` for an unrelated query) for the same window,
+    which is exactly the kind of Hub-wide stall this design exists to
+    prevent. Returns whether it woke early (`True`) or timed out (`False`).
+    """
+    woke = self._reconnected.wait(timeout)
+    self._reconnected.clear()
+    return woke
+```
+
+`HubReplicator`'s `disconnected` branch replaces the raw sleep with this:
 
 ```python
 def _push_cycle(self, batch: DrainedBatch) -> _CycleOutcome:
     try:
         emptied = self._attempt(batch)
     except RuntimeError:
-        # No display connected at all — nothing to reap or heal, just wait.
         self._recovery.restore(batch)
-        delay = self._disconnected_backoff.note_respawn()
-        self._log_disconnected(delay)
-        time.sleep(delay)
-        return _CycleOutcome(recovered=True, emptied=())
+        self._wait_disconnected()
+        return _CycleOutcome(outcome="disconnected")
     except BlockingIOError as exc:
-        ...  # unchanged — wedged-display recovery, self._recovery / RespawnBackoff(1.0, 30.0)
+        ...  # unchanged — wedged-display recovery, SendRecovery / RespawnBackoff(1.0, 30.0)
     except OSError as exc:
         ...  # unchanged — dead-peer reconnect
-    return _CycleOutcome(recovered=False, emptied=emptied)
+    return _CycleOutcome(outcome="clean", emptied=emptied)
+
+def _wait_disconnected(self) -> None:
+    """Wait for the current disconnected delay, breakable by a reconnect."""
+    delay = self._disconnected_backoff.note_respawn()
+    self._log_disconnected(delay)
+    self._clients.wait_for_reconnect(delay)
 ```
 
-A clean cycle (a real send succeeded) resets `_disconnected_backoff` to a
-fresh `RespawnBackoff(base_delay=2.0, max_delay=120.0)` immediately — no
+`ClientProvider` (`replicator_ports.py`) gains `wait_for_reconnect` in its
+structural contract alongside `get`/`drop`; `KeepaliveClients` does not —
+only the replicator waits, `DisplayLiveness` only ever sets the event as a
+side effect of its own successful `get()`.
+
+**Why this satisfies invariant 6 concretely, not just by naming it:** the
+replicator's wait is bounded by `min(disconnected_delay, time until
+DisplayLiveness's next successful probe)`, and `DisplayLiveness`'s probe
+runs on its own, much shorter cadence (§6.4) regardless of how deep the
+replicator's own backoff has climbed. A user starting the display is
+discovered by the *cheap, frequent* prober, not the *slow, patient* sender
+— the two are coordinated through one shared signal instead of one thread
+trying to be both fast and slow at once.
+
+On a clean cycle, `_run_cycle` resets `_disconnected_backoff` to a fresh
+`RespawnBackoff(base_delay=2.0, max_delay=120.0)` immediately — no
 stability window needed here, unlike the crash-quarantine `RespawnBackoff`,
 because "reconnected and sent successfully" is unambiguous in a way
-"hasn't crashed again yet" is not (there is no analogous flapping risk to
-guard against).
+"hasn't crashed again yet" is not.
 
-### 6.4 Logging: state the condition, don't cry wolf
+### 6.4 `DisplayLiveness` is not exempt — quiet, and paced on purpose
+
+**Correction from review — do not claim this worker is "not part of the
+bug."** `DisplayLiveness.check_once()` pings on a fixed
+`CONNECTION_TIMING.keepalive_interval` (today, a couple of seconds)
+forever, with zero backoff, and its `_probe()` logs a `WARNING` on every
+single failed probe. While the display is legitimately, correctly
+disconnected, that is a Hub background worker hammering the same socket at
+a fixed short interval indefinitely and warning about it every time —
+exactly the pattern the operator's ruling targets, whether or not it ever
+tries to *spawn* anything. It needs the same discipline as the replicator,
+not an exemption, and it doubles as the mechanism §6.3 depends on for
+prompt rediscovery, so the fix is "quiet and explicitly paced," not "leave
+it alone" and not "slow it down to the replicator's own multi-minute cap"
+either — that would defeat the very rediscovery §6.3 relies on it for.
+
+```python
+_DISCONNECTED_PROBE_INTERVAL = 5.0  # a few seconds slower than the connected
+                                     # ping cadence — visibly relaxed, still
+                                     # well inside "prompt" for invariant 6
+
+
+class DisplayLiveness:
+    ...
+    _disconnected: bool  # tracks whether the last cycle found a live peer
+    __slots__ = (..., "_disconnected")
+
+    def _run(self) -> None:
+        interval = self._interval
+        while not self._stop.wait(interval):
+            try:
+                self.check_once()
+            except Exception:
+                logger.exception("liveness cycle failed; continuing")
+            interval = self._interval if not self._disconnected else _DISCONNECTED_PROBE_INTERVAL
+
+    def check_once(self) -> None:
+        if self._probe() or self._probe():
+            self._disconnected = False
+            return
+        if not self._disconnected:
+            logger.info(
+                "display not connected; probing every %.0fs until it returns",
+                _DISCONNECTED_PROBE_INTERVAL,
+            )
+        self._disconnected = True
+        self._clients.drop()
+        self._probe()
+
+    def _probe(self) -> bool:
+        try:
+            return self._clients.get().ping(self._ping_timeout) is not None
+        except (OSError, RuntimeError):
+            return False  # no per-failure log — check_once logs the transition once
+```
+
+Two cadences, both explicit and justified, not one unexamined fixed
+interval doing double duty: the normal `_interval` while connected (needed
+for interaction responsiveness — unchanged), and the slower, named
+`_DISCONNECTED_PROBE_INTERVAL` while not — long enough to visibly relax
+relative to the connected cadence, short enough that a display starting up
+is discovered within a handful of seconds, satisfying §6.3's "cheap,
+frequent prober" role without itself becoming the thing that hammers the
+socket forever. A successful `get()` here — whether from this probe or the
+replicator's own next retry — is what sets `ClientRegistry._reconnected`
+(§6.3); no additional code is needed in `liveness.py` for the wake itself,
+it is inherited from the one choke point both threads already share.
+
+### 6.5 Logging: state the condition, don't cry wolf
 
 Today's `logger.exception("replicator cycle failed; retrying the batch")`
 fires every cycle, indistinguishable from a genuine failure, training an
-operator to ignore it. The corrected behavior: log once, at `INFO`, on the
-transition *into* `HELD`/`DISCONNECTED` ("no display connected; N scene(s)
-held, next retry in Ns"), and at `DEBUG` on every subsequent already-waiting
-cycle — the state is expected and already visible through introspection
-(§9), so the log's job is a breadcrumb for someone reading logs, not a
-recurring alarm.
+operator to ignore it. The corrected behavior, in both the replicator and
+`DisplayLiveness`: log once, at `INFO`, on the transition *into* the
+not-connected state, and at `DEBUG` (or not at all) on every subsequent
+already-waiting cycle — the state is expected and already visible through
+introspection (§9), so the log's job is a breadcrumb for someone reading
+logs, not a recurring alarm.
 
 ## 7. Honoring a User Stop or Close — Scoped to the Display's Own Service Spec
 
@@ -410,6 +625,14 @@ behavior during implementation (the exact interaction between
 call is a platform detail this design states with the correct intent but
 has not executed and confirmed).
 
+**Footnote — a pre-existing, out-of-scope asymmetry.** `HUB_SPEC`'s own
+restart posture already differs by platform today: macOS's bare
+`KeepAlive=true` restarts the Hub on any exit, Linux's `Restart=on-failure`
+restarts it only on a crash. This design does not touch `HUB_SPEC` (§2
+item 1's rationale, restated above), so it neither introduces nor corrects
+that asymmetry — noted here so it isn't mistaken for something this design
+was silent about by oversight rather than by scope.
+
 ## 8. Cross-Host Forward Compatibility
 
 Nothing in this design assumes the Hub and the display share a machine.
@@ -455,7 +678,20 @@ secondary caveat.
 
 New, pure Hub-side (no display round-trip needed — that's the point)
 operation and wire model, mirroring `DisplayModeOperations`'s existing
-"reads local/Hub state only" shape:
+"reads local/Hub state only" shape.
+
+**Correction from review:** the first pass gave this model a
+`retry_delay_seconds: float | None`, `None` exactly when connected — a
+discriminated state (connected vs. disconnected) smuggled through an
+`Optional`, the pattern the lux OO standard's Five Rules #5 exists to
+catch (and the same shape `OpError`/`DisplayModeState` already avoid via a
+`kind: Literal[...]` discriminant elsewhere in this codebase). Split into
+two variants instead: `retry_delay_seconds` is a plain, required `float`
+on the variant where it means something, and does not exist at all on the
+other — and `linkage` is narrowed per variant too, so
+`ConnectedLinkState` cannot claim to be `"held"` and `DisconnectedLinkState`
+cannot claim to be `"connected_active"`, which the flat four-way `Literal`
+never prevented.
 
 ```python
 # operations/models/display_link.py
@@ -465,24 +701,35 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-__all__ = ["DisplayLinkState"]
+__all__ = ["ConnectedLinkState", "DisconnectedLinkState", "DisplayLinkState"]
 
 
-class DisplayLinkState(BaseModel):
-    """The Hub's own view of its display connection and any content held.
-
-    Answerable with zero display round-trip — that is the entire point:
-    this must work precisely when `linkage` is DISCONNECTED or HELD.
-    """
+class ConnectedLinkState(BaseModel):
+    """The Hub currently has a live display connection."""
 
     model_config = ConfigDict(frozen=True)
 
-    kind: Literal["ok"] = "ok"
-    linkage: Literal["disconnected", "held", "connected_idle", "connected_active"]
+    kind: Literal["connected"] = "connected"
+    linkage: Literal["connected_idle", "connected_active"]
     live_scene_count: int
-    retry_delay_seconds: float | None  # current not-connected backoff delay; None when connected
-    hub_host: str   # socket.gethostname() — which machine this Hub is on
-    hub_pid: int    # os.getpid() — which Hub process, for a same-host duplicate
+    hub_host: str  # socket.gethostname() — which machine this Hub is on
+    hub_pid: int   # os.getpid() — which Hub process, for a same-host duplicate
+
+
+class DisconnectedLinkState(BaseModel):
+    """The Hub has no display connection right now; content may be held."""
+
+    model_config = ConfigDict(frozen=True)
+
+    kind: Literal["disconnected"] = "disconnected"
+    linkage: Literal["disconnected", "held"]
+    live_scene_count: int
+    retry_delay_seconds: float  # required here — this variant IS the "waiting" state
+    hub_host: str
+    hub_pid: int
+
+
+DisplayLinkState = ConnectedLinkState | DisconnectedLinkState
 ```
 
 ```python
@@ -494,7 +741,10 @@ import socket
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.display_linkage import DisplayLinkage
-from punt_lux.operations.models.display_link import DisplayLinkState
+from punt_lux.operations.models.display_link import (
+    ConnectedLinkState,
+    DisconnectedLinkState,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -527,34 +777,48 @@ class DisplayLinkOperations:
         self._replicator = replicator
         return self
 
-    def get_link(self) -> DisplayLinkState:
+    def get_link(self) -> ConnectedLinkState | DisconnectedLinkState:
         """Return the current linkage classification and host identity."""
         count = len(self._live_scene_ids())
         connected = self._clients.is_connected
-        linkage = DisplayLinkage.classify(connected=connected, live_scene_count=count)
-        return DisplayLinkState(
-            linkage=linkage.name.lower(),
-            live_scene_count=count,
-            retry_delay_seconds=None if connected else self._replicator.disconnected_delay,
-            hub_host=socket.gethostname(),
-            hub_pid=os.getpid(),
-        )
+        host, pid = socket.gethostname(), os.getpid()
+        state = DisplayLinkage.classify(connected=connected, live_scene_count=count)
+        match state:
+            case DisplayLinkage.DISCONNECTED | DisplayLinkage.HELD:
+                return DisconnectedLinkState(
+                    linkage="held" if state is DisplayLinkage.HELD else "disconnected",
+                    live_scene_count=count,
+                    retry_delay_seconds=self._replicator.disconnected_delay,
+                    hub_host=host,
+                    hub_pid=pid,
+                )
+            case DisplayLinkage.CONNECTED_IDLE | DisplayLinkage.CONNECTED_ACTIVE:
+                return ConnectedLinkState(
+                    linkage=(
+                        "connected_active"
+                        if state is DisplayLinkage.CONNECTED_ACTIVE
+                        else "connected_idle"
+                    ),
+                    live_scene_count=count,
+                    hub_host=host,
+                    hub_pid=pid,
+                )
 ```
 
 `ClientRegistry` gains a cheap read-only `is_connected` property
 (`self._client is not None and self._client.is_connected` — no lock, no
 I/O) so this operation never has to attempt a connect just to answer a
 read. `HubReplicator` gains a small `disconnected_delay` property exposing
-the current `_disconnected_backoff` delay for the same reason —
-introspection should show the operator not just "held" but "and the Hub
-will try again in about N seconds," so a person watching doesn't have to
-guess whether it's about to retry or settled into the five-minute
-steady-state.
+`self._disconnected_backoff.current_delay` (§6.2's new accessor) for the
+same reason — introspection should show the operator not just "held" but
+"and the Hub will try again in about N seconds," so a person watching
+doesn't have to guess whether it's about to retry or settled into the
+slow steady-state.
 
 Surfaced via a new read-only MCP tool `display_link_get` (no arguments,
 alongside the existing `display_mode_get`/`display_state_get` reads) and a
 CLI verb, `lux display link`. Both work with no display connected at all —
-verified explicitly in the write-set's test plan (§10 item 8), since a
+verified explicitly in the write-set's test plan (§10 item 11), since a
 surface that only answers while connected would be useless for exactly the
 state it exists to report.
 
@@ -568,69 +832,115 @@ specific file this design read.
 2. **Modify** `src/punt_lux/domain/hub/respawn_backoff.py` —
    parameterize `RespawnBackoff.__new__` with `base_delay`/`max_delay`
    (defaulting to today's `_BASE_DELAY_SECONDS`/`_MAX_DELAY_SECONDS`, so the
-   existing crash-respawn caller is unaffected) (§6.2).
-3. **Modify** `src/punt_lux/domain/hub/replicator.py` —
-   - Compose a second backoff instance,
+   existing crash-respawn caller is unaffected); add the read-only
+   `current_delay` property (§6.2).
+3. **Modify** `src/punt_lux/domain/hub/clients.py` (`ClientRegistry`) —
+   - Add the `_reconnected: threading.Event` field, set inside `get()` on a
+     fresh connect (`if not was_connected: self._reconnected.set()`) (§6.3).
+   - Add `wait_for_reconnect(timeout: float) -> bool`, deliberately not
+     holding `self._lock` while waiting (§6.3).
+   - Add the cheap read-only `is_connected` property (§9).
+   - `get()`'s own connect/reconnect shape is otherwise unchanged — no
+     ensure, no split; the earlier draft's `acquire()`/veto machinery is
+     fully removed, not merely unused.
+4. **Modify** `src/punt_lux/domain/hub/replicator_ports.py` — add
+   `wait_for_reconnect` to the `ClientProvider` Protocol (not
+   `KeepaliveClients`) (§6.3).
+5. **Modify** `src/punt_lux/domain/hub/replicator.py` — this is the item
+   the earlier write-set understated; it now covers `_run_cycle` and
+   `_CycleOutcome` explicitly, not just `_push_cycle`:
+   - Replace `_CycleOutcome.recovered: bool` with
+     `outcome: Literal["clean", "recovered", "disconnected"]` (§6.1).
+   - `_run_cycle` gains the explicit `disconnected` branch that neither
+     reclaims via `_reclaim_emptied` nor calls `_back_off()` (§6.1) — the
+     structural fix for the double-sleep defect review found.
+   - Compose the second backoff instance,
      `self._disconnected_backoff = RespawnBackoff(base_delay=2.0, max_delay=120.0)`.
-   - `_push_cycle` catches `RuntimeError` on its own branch, distinct from
-     `BlockingIOError`/`OSError` (§6.3).
+   - `_push_cycle` catches `RuntimeError` on its own branch and calls the
+     new `_wait_disconnected()` (§6.3) instead of a raw `time.sleep`.
    - Logging: `INFO` on transition into the not-connected state, `DEBUG` on
-     repeats (§6.4).
-   - New `disconnected_delay` read-only property for §9's introspection.
-4. **Modify** `src/punt_lux/domain/hub/clients.py` — add a cheap read-only
-   `is_connected` property to `ClientRegistry` (§9). No other change —
-   `get()` keeps its current shape and behavior exactly (no ensure, no
-   split; the earlier draft's `acquire()`/veto machinery is fully removed,
-   not merely unused).
-5. **New** `operations/models/display_link.py` (`DisplayLinkState`) and
-   `operations/display_link.py` (`DisplayLinkOperations`), composed into
-   `operations/facade.py` alongside the existing concern classes (§9).
-6. **New** MCP tool `display_link_get` (read-only, no arguments) and CLI
+     repeats (§6.5).
+   - New `disconnected_delay` read-only property (returns
+     `self._disconnected_backoff.current_delay`) for §9's introspection.
+6. **Modify** `src/punt_lux/domain/hub/liveness.py` (`DisplayLiveness`) —
+   the coordinated cadence and quiet logging in §6.4: the new
+   `_DISCONNECTED_PROBE_INTERVAL` constant, the `_disconnected: bool` field,
+   `_run`'s adaptive interval, and `_probe`'s per-failure `WARNING` removed
+   in favor of `check_once`'s one transition-only `INFO` log.
+7. **New** `operations/models/display_link.py` (`ConnectedLinkState`,
+   `DisconnectedLinkState`) and `operations/display_link.py`
+   (`DisplayLinkOperations`), composed into `operations/facade.py`
+   alongside the existing concern classes (§9).
+8. **New** MCP tool `display_link_get` (read-only, no arguments) and CLI
    verb `lux display link`, mirroring the existing `display_mode_get`/
    `lux display mode` read shape.
-7. **Modify** `src/punt_lux/_service_spec.py` — add
+9. **Modify** `src/punt_lux/_service_spec.py` — add
    `restart_on_crash_only: bool = False` to `ServiceSpec`; set
    `restart_on_crash_only=True` on `DISPLAY_SPEC` only (§7). `HUB_SPEC` is
    not touched.
-8. **Modify** `src/punt_lux/_backend_launchd.py` — `_plist_content()`
-   branches on `spec.restart_on_crash_only` to emit the dict form
-   (`SuccessfulExit: false`) or the existing bare `<true/>` (§7). No change
-   to `_backend_systemd.py` — already correct for both specs.
-9. **Tests**:
-   - `DisplayLinkage.classify` — a pure-function truth table (4 branches,
-     no fakes).
-   - `HubReplicator` — a fake `ClientProvider` whose `get()` raises
-     `RuntimeError` drives the not-connected branch: assert the batch is
-     restored (content not lost), assert the delay sequence matches the
-     2s→120s curve across repeated cycles (fidelity check for the exact
-     cadence, not just "some backoff exists"), assert a subsequent
-     successful `get()` resets the delay.
-   - `ClientRegistry.is_connected` — reflects the underlying `DisplayLink`
-     state with no I/O.
-   - `DisplayLinkOperations.get_link()` — with a fake `ClientRegistry`
-     reporting not-connected and a nonzero live-scene count, assert
-     `linkage == "held"` and the call requires no display round-trip
-     (constructed with no display fixture at all).
-   - `_backend_launchd.py` — a unit test asserting the two `KeepAlive`
-     renderings (`restart_on_crash_only=True` → dict form;
-     `restart_on_crash_only=False` → bare `<true/>`), and a fidelity check
-     that `HUB_SPEC`'s rendered plist is byte-identical before and after
-     this change.
-   - **Grep-provable safety check (§11 invariant 5)**: a test (or a
-     `make check`-wired grep) asserting no source file under
-     `src/punt_lux/domain/hub/` references `ServiceManager` in connection
-     with `DISPLAY_SPEC`/`DisplayServiceManager`.
-10. **CHANGELOG** entry under `## [Unreleased]`.
-11. **z-spec model** (`docs/display_linkage.tex` or an extension of the
+10. **Modify** `src/punt_lux/_backend_launchd.py` — `_plist_content()`
+    branches on `spec.restart_on_crash_only` to emit the dict form
+    (`SuccessfulExit: false`) or the existing bare `<true/>` (§7). No
+    change to `_backend_systemd.py` — already correct for both specs.
+11. **Tests**:
+    - `DisplayLinkage.classify` — a pure-function truth table (4 branches,
+      no fakes).
+    - `RespawnBackoff.current_delay` — reflects the pending delay without
+      mutating it; a second read returns the same value.
+    - `_CycleOutcome`/`_run_cycle` — a fake `ClientProvider` whose `get()`
+      raises `RuntimeError` drives the `disconnected` branch: assert
+      `_back_off()` (the wedged-backoff sleep) is never invoked on that
+      path — the specific double-sleep regression review found — and
+      assert the batch is restored (content not lost).
+    - `HubReplicator` disconnected curve — assert the delay sequence
+      matches the 2s→120s curve across repeated cycles (fidelity check for
+      the exact cadence, not just "some backoff exists"), and that a
+      subsequent successful `get()` resets it.
+    - `ClientRegistry.wait_for_reconnect` — a thread sets `_reconnected`
+      while another is blocked in `wait_for_reconnect(60.0)`; assert the
+      waiter returns `True` in well under a second, not anywhere near the
+      60s timeout — the fidelity check for prompt rediscovery regardless of
+      backoff depth. A second test asserts `wait_for_reconnect` does not
+      hold `self._lock` for its duration (a concurrent `.get()` from
+      another thread completes while the wait is in flight).
+    - `ClientRegistry.is_connected` — reflects the underlying `DisplayLink`
+      state with no I/O.
+    - `DisplayLiveness` — with a fake `KeepaliveClients` whose `get()`
+      always raises `RuntimeError`: assert exactly one `INFO` log fires
+      (on the transition), assert no `WARNING` fires across repeated
+      cycles, and assert the loop's wait interval becomes
+      `_DISCONNECTED_PROBE_INTERVAL` after the first failure.
+    - `DisplayLinkOperations.get_link()` — with a fake `ClientRegistry`
+      reporting not-connected and a nonzero live-scene count, assert the
+      return is a `DisconnectedLinkState` with `linkage == "held"` and a
+      populated `retry_delay_seconds`; with a fake reporting connected,
+      assert the return is a `ConnectedLinkState` with no
+      `retry_delay_seconds` field at all (not merely `None`). Neither case
+      requires a display fixture.
+    - `_backend_launchd.py` — a unit test asserting the two `KeepAlive`
+      renderings (`restart_on_crash_only=True` → dict form;
+      `restart_on_crash_only=False` → bare `<true/>`), and a fidelity check
+      that `HUB_SPEC`'s rendered plist is byte-identical before and after
+      this change.
+    - **Grep-provable safety check (§12 invariant 5)**: a test (or a
+      `make check`-wired grep) asserting no source file under
+      `src/punt_lux/domain/hub/` references `ServiceManager` in connection
+      with `DISPLAY_SPEC`/`DisplayServiceManager`.
+12. **CHANGELOG** entry under `## [Unreleased]`.
+13. **z-spec model** (`docs/display_linkage.tex` or an extension of the
     existing `docs/hub_replicator.tex` — that spec already models
     Hub→Display replication including the connect-success re-mark hook
     (DES-068) this design leans on, per `docs/README.md`'s coverage table,
     so extending it may be more accurate than a fresh document; the
-    implementation mission should confirm which after reading it) — the
-    seven invariants in §11, with a fidelity control that reproduces this
-    design's own root cause (§1) when the fix is reverted: catching
-    `RuntimeError` on the generic branch again must reproduce "the backoff
-    plateaus at 2s and never reaches the slow steady state."
+    implementation mission should confirm which after reading it) —
+    `DisplayLiveness` modeled as a second concurrent actor on
+    `ClientRegistry`, not just the replicator — and the eight invariants in
+    §12, with a fidelity control that reproduces this design's own root
+    causes when reverted: (a) catching `RuntimeError` on the generic branch
+    again must reproduce "the backoff plateaus at 2s and never reaches the
+    slow steady state"; (b) reverting `_wait_disconnected` to a raw
+    `time.sleep` must reproduce "a reconnect during the wait is not
+    rendered until the sleep expires."
 
 ## 11. Rejected Alternatives
 
@@ -658,7 +968,7 @@ have genuinely different expected timescales — a wedged display is
 expected back within seconds because the supervisor's own crash-restart is
 in flight (§7); a fully disconnected display may legitimately stay that
 way for hours. One shared cap is a compromise that serves neither well; two
-independently-tuned backoffs (§6.1), reusing one existing class
+independently-tuned backoffs (§6.2), reusing one existing class
 parameterized rather than duplicated, serve both correctly with a two-line
 change.
 
@@ -680,10 +990,15 @@ mandatory z-spec still applies.
    moment `DisplayLinkage` transitions from not-connected to connected,
    every currently-live scene (and the menu) is marked dirty exactly
    once — none missed, none double-sent for the same reconnect event.
-3. **The Hub never blocks or spins on a missing display.** Every dial
-   attempt resolves in bounded time (the connect timeout); the interval
-   between attempts is always governed by the disconnected-backoff's
-   current delay, never a tight unbounded loop.
+3. **Neither concurrent actor on `ClientRegistry` blocks or spins on a
+   missing display.** Scope explicitly includes `DisplayLiveness` as well
+   as `HubReplicator` — both call `.get()` on the same registry from
+   separate threads. Every dial attempt resolves in bounded time (the
+   connect timeout); `HubReplicator`'s interval between send-retry attempts
+   is always governed by the disconnected-backoff's current delay (never a
+   tight unbounded loop), and `DisplayLiveness`'s own probe interval is
+   always one of exactly two named values — `_interval` or
+   `_DISCONNECTED_PROBE_INTERVAL` — never an unbounded tight loop either.
 4. **The disconnected-backoff curve is genuinely exponential and reaches a
    slow steady state, not merely bounded.** Across a sustained
    disconnection, successive delays strictly increase up to the configured
@@ -694,19 +1009,36 @@ mandatory z-spec still applies.
 5. **The Hub never issues a process-control call to the display.** No
    code path in `domain/hub/` (replicator, recovery, liveness, client
    registry) calls `ServiceManager.start()`/`.stop()`/`.restart()` for the
-   display, under any circumstance — checkable by grep (§10 item 9) and by
+   display, under any circumstance — checkable by grep (§10 item 11) and by
    the model, as the absolute form of the operator's ruling.
-6. **A display connect promptly breaks out of the slow-retry state.**
-   Regardless of how deep into the backoff curve the Hub currently is (even
-   sitting at the 120s cap), the very next cycle after a display becomes
-   reachable sends the held content and resets the curve — the Hub is never
-   "committed" to waiting out its current delay once a display is actually
-   there.
-7. **Deadlock-freedom.** `ClientRegistry._lock` (an `RLock`), the
-   replicator's dirty-signal wait/drain loop, and the disconnected-backoff's
-   own sleep never produce a cyclic wait or a scenario where a new content
-   push cannot eventually be observed because the replicator thread is
-   parked.
+6. **A display connect promptly breaks out of the slow-retry state, via the
+   specific mechanism §6.3 defines, not merely "eventually."** Concretely:
+   `HubReplicator._wait_disconnected` blocks on
+   `ClientRegistry.wait_for_reconnect`, which returns the instant `.get()`
+   succeeds from *either* thread; `DisplayLiveness` probes at
+   `_DISCONNECTED_PROBE_INTERVAL` regardless of how deep the replicator's
+   own backoff has climbed. The model must show the replicator's wait is
+   broken within one `DisplayLiveness` probe tick of a display becoming
+   reachable — not "within the current backoff delay," which is the exact
+   claim the original blocking-`time.sleep` sketch made and which review
+   found false.
+7. **A `disconnected`-classified cycle never advances the wedged-display
+   backoff, and vice versa.** Structurally guaranteed by `_CycleOutcome`'s
+   three-way `Literal` (§6.1) — `_run_cycle` has no code path that calls
+   both `self._back_off()` (wedged) and `_wait_disconnected` (disconnected)
+   for the same cycle — but "structurally guaranteed in the sketch" is a
+   claim to verify, not a substitute for verifying it: the model must show
+   no reachable state advances both counters from one batch.
+8. **Deadlock-freedom, with `DisplayLiveness` modeled as a second
+   concurrent actor.** `ClientRegistry._lock` (an `RLock`), the
+   replicator's dirty-signal wait/drain loop, `HubReplicator`'s blocking
+   `wait_for_reconnect` call, and `DisplayLiveness`'s independent probe
+   loop never produce a cyclic wait. The specific claim to check, not just
+   assume: `wait_for_reconnect` does not hold `ClientRegistry._lock` for
+   the duration of its wait (§6.3), so `DisplayLiveness`'s own `.get()` —
+   and any MCP-tool thread's `.get()` for an unrelated query — can still
+   acquire the lock and complete while the replicator is parked waiting for
+   exactly one of them to wake it.
 
 ## Related Documents
 
