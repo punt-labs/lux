@@ -215,6 +215,82 @@ class TestBaseCompare:
         assert outcome.exit_code == 0
         assert fx.root  # b.py's main-only regression did not fail the PR
 
+    def test_merge_base_catches_regression_in_earlier_pr_commit(
+        self, fx: GitFixture
+    ) -> None:
+        """A multi-commit PR is diffed as a whole range, not its last commit.
+
+        Companion to ``TestMultiCommitPrBaseRef`` in
+        ``tests/oo_coupling/test_push_base_ref.py`` (the Copilot finding on
+        PR #467, round 2, that motivated computing this same merge-base for
+        check-coupling's PR trigger). Unlike check-coupling, check-oo never
+        had a ``HEAD~1``-only default to fall into -- ``GitRepo.resolve_base``
+        always resolves ``base_ref=None`` to merge-base(origin/main, HEAD),
+        so a regression in the FIRST commit of a PR, never re-touched by the
+        LAST commit, is still inside that range and still caught. This test
+        proves the negative directly: there is no HEAD~1-shaped hole here to
+        fix.
+        """
+        fx.write("sub/w.py", GOOD)
+        fx.snapshot("sub")
+        fork = fx.commit("origin/main tip -- the PR's fork point")
+        fx.set_origin_main(fork)
+
+        fx.checkout_new("feature")
+        fx.write("sub/w.py", WORSE)  # regression: first commit of the PR
+        fx.commit("regress w.py (first commit of the PR)")
+        fx.write("sub/unrelated.py", GOOD.replace("Widget", "Other"))
+        fx.commit("touch an unrelated file (last commit of the PR)")
+
+        # A HEAD~1-only view would see just the "touch unrelated file" commit
+        # and never notice w.py regressed two commits back.
+        outcome = fx.ratchet().check(fx.scorer(), base_ref=None, require_base=True)
+        assert outcome.exit_code == 1
+        assert any("regression" in line for line in outcome.lines)
+
+
+class TestPushToMainBaseHandling:
+    """qodo scenario 1 (lux PR #467): the merge-base default is vacuous on push.
+
+    A PR's ``base_ref=None`` correctly resolves to merge-base(origin/main,
+    HEAD) -- the fork point. But after a push, HEAD *is* the new
+    origin/main: merge-base(origin/main, HEAD) == HEAD, an empty diff, so
+    the same default silently reports "No Python files touched" without
+    scoring anything the push changed. ``ratchets.yml``'s push job now
+    passes ``github.event.before`` (the pre-push tip of main) as
+    ``BASE_REF`` -- forwarded here to ``base_ref`` -- specifically to
+    avoid this. ``tools/oo_ratchet/cli.py`` already exposed ``--base-ref``
+    before this fix; only the workflow's *use* of it on push was missing.
+    """
+
+    def test_merge_base_default_is_vacuous_immediately_after_a_push(
+        self, fx: GitFixture
+    ) -> None:
+        fx.write("sub/w.py", GOOD)
+        fx.snapshot("sub")
+        before = fx.commit("pre-push tip of main")
+
+        fx.write("sub/w.py", WORSE)
+        fx.snapshot("sub")  # in-tree baseline is locked to the regressed value
+        after = fx.commit("the pushed commit")
+
+        # Simulate the push-job checkout: origin/main now points at the same
+        # commit the local HEAD is on (fetched after the push landed).
+        fx.set_origin_main(after)
+
+        # Old buggy behavior: base_ref=None resolves merge-base(origin/main,
+        # HEAD) == HEAD == after -- an empty diff against the work tree, so
+        # the regression that just landed is never scored.
+        vacuous = fx.ratchet().check(fx.scorer(), base_ref=None, require_base=True)
+        assert vacuous.exit_code == 0
+        assert any("trivial pass" in line for line in vacuous.lines)
+
+        # Fixed behavior: base_ref=<pre-push tip> (what BASE_REF carries
+        # from github.event.before) diffs before..HEAD and catches it.
+        caught = fx.ratchet().check(fx.scorer(), base_ref=before, require_base=True)
+        assert caught.exit_code == 1
+        assert any("regression" in line for line in caught.lines)
+
 
 class TestAllowNoImprovement:
     """--allow-no-improvement waives only the must-improve gate.
