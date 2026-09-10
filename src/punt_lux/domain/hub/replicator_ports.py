@@ -6,7 +6,7 @@ logic is tested against fakes, not a live socket:
 
 - ``DisplaySender`` — the fire-and-forget send surface (a ``DisplayLink``).
 - ``ClientProvider`` — hands out the current sender, drops a dead one, and
-  blocks a waiter until a fresh connect (the Hub's ``ClientRegistry``).
+  extends ``ReconnectWaiter`` (the Hub's ``ClientRegistry``).
 - ``DisplayLifecycle`` — kills a wedged display; its service unit respawns it.
 - ``DirtyMarker`` — the queue-only side (``HubReplicator``) a fresh-connect
   hook marks after declaring its manifest (DES-068).
@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
+from punt_lux.domain.hub.disconnected_retry import ReconnectWaiter
 from punt_lux.domain.hub.scene_presentation import ScenePusher
 
 if TYPE_CHECKING:
@@ -91,8 +92,8 @@ class DisplaySender(ScenePusher, Protocol):
 
 
 @runtime_checkable
-class ClientProvider(Protocol):
-    """Hands out the one display connection and drops a dead one."""
+class ClientProvider(ReconnectWaiter, Protocol):
+    """Hands out the one display connection, drops a dead one, and waits."""
 
     def get(self) -> DisplaySender:
         """Return the connected sender, reconnecting if the last was dropped."""
@@ -100,10 +101,6 @@ class ClientProvider(Protocol):
 
     def drop(self) -> None:
         """Close the current connection so the next ``get`` binds a fresh one."""
-
-    def wait_for_reconnect(self, timeout: float) -> bool:
-        """Block up to ``timeout``s for a fresh reconnect; ``False`` on timeout."""
-        ...
 
 
 @runtime_checkable

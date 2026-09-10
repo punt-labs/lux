@@ -40,7 +40,6 @@ from punt_lux.commands.display_state_get import (
 from punt_lux.operations import (
     ClientList,
     DisplayInfo,
-    DisplayLinkState,
     DisplayStateSnapshot,
     FrameStates,
     InspectScope,
@@ -53,6 +52,7 @@ from punt_lux.operations import (
     ThemeState,
     WindowSettings,
 )
+from punt_lux.operations.models.display_link import DisplayLinkState
 from punt_lux.tools import tools as _core
 from punt_lux.tools._signal import signal
 from punt_lux.tools.server import mcp

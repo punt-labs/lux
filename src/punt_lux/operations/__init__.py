@@ -21,7 +21,6 @@ from punt_lux.operations.models import (
 )
 from punt_lux.operations.models.display_frames import FrameState, FrameStates
 from punt_lux.operations.models.display_info import DisplayInfo
-from punt_lux.operations.models.display_link import DisplayLinkState
 from punt_lux.operations.models.display_probe import Pong, Screenshot
 from punt_lux.operations.models.display_state import DisplayStateSnapshot
 from punt_lux.operations.models.display_write import FrameStatePatch
@@ -42,7 +41,6 @@ __all__ = [
     "Cleared",
     "ClientList",
     "DisplayInfo",
-    "DisplayLinkState",
     "DisplayModeRequest",
     "DisplayModeState",
     "DisplayStateSnapshot",
