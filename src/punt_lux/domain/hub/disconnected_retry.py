@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
 
+from punt_lux.domain.hub.reconnect_wait import ReconnectWait
 from punt_lux.domain.hub.respawn_backoff import RespawnBackoff
 
 if TYPE_CHECKING:
@@ -23,10 +24,15 @@ __all__ = ["DisconnectedRetry", "ReconnectWaiter"]
 
 @runtime_checkable
 class ReconnectWaiter(Protocol):
-    """The one capability ``wait`` needs — narrower than the full ``ClientProvider``."""
+    """The two capabilities ``wait`` needs — narrower than ``ClientProvider``."""
 
-    def wait_for_reconnect(self, timeout: float) -> bool:
-        """Block up to ``timeout``s for a fresh reconnect; ``False`` on timeout."""
+    @property
+    def reconnect_generation(self) -> int:
+        """Return the current reconnect generation, snapshot before a dial."""
+        ...
+
+    def wait_for_reconnect(self, wait: ReconnectWait) -> bool:
+        """Block up to ``wait.timeout``s for a reconnect after ``wait.since_gen``."""
         ...
 
 
@@ -51,11 +57,13 @@ class DisconnectedRetry:
         """Return the pending retry delay, in seconds (design §9)."""
         return self._backoff.current_delay
 
-    def wait(self, clients: ReconnectWaiter) -> None:
-        """Wait the current delay, breakable by a reconnect; grow it after."""
+    def wait(self, clients: ReconnectWaiter, *, since_gen: int) -> None:
+        """Wait the current delay, breakable by a reconnect since ``since_gen``;
+        grow it after. The caller snapshots ``since_gen`` BEFORE its own dial
+        attempt, so a reconnect racing that attempt is never missed."""
         delay = self._backoff.note_respawn()
         self._log(delay)
-        clients.wait_for_reconnect(delay)
+        clients.wait_for_reconnect(ReconnectWait(since_gen, delay))
 
     def _log(self, delay: float) -> None:
         """Log once, at INFO, on the transition; DEBUG on every repeat."""

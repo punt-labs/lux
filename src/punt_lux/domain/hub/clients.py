@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Self
 from punt_lux.domain.hub.display_link import DisplayLink
 from punt_lux.domain.hub.hub_display import hub_display
 from punt_lux.domain.hub.hub_interaction_dispatch import HubInteractionDispatch
+from punt_lux.domain.hub.reconnect_wait import ReconnectWait
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.replicator_ports import DirtyMarker
@@ -27,12 +28,8 @@ _DISPLAY_CLIENT_NAME = "lux-mcp"
 
 
 class _NullDirtyMarker:
-    """No-op marker held before the composition root wires the real replicator in.
-
-    Never actually fires in production — the first ``get()`` runs only once a
-    surface serves — this exists so the registry always has a collaborator to
-    call, not a ``None`` to check.
-    """
+    """No-op marker held before the composition root wires the real replicator
+    in -- so the registry always has a collaborator to call, not a ``None``."""
 
     __slots__ = ()
 
@@ -57,7 +54,8 @@ class ClientRegistry:
     _lock: threading.RLock
     _apps_registered_for: int | None
     _marker: DirtyMarker
-    _reconnected: threading.Event
+    _reconnect_gen: int
+    _reconnect_cond: threading.Condition
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
@@ -65,7 +63,8 @@ class ClientRegistry:
         self._lock = threading.RLock()
         self._apps_registered_for = None
         self._marker = _NullDirtyMarker()
-        self._reconnected = threading.Event()
+        self._reconnect_gen = 0
+        self._reconnect_cond = threading.Condition(self._lock)
         return self
 
     @property
@@ -86,10 +85,8 @@ class ClientRegistry:
         self._marker = marker
 
     def get(self) -> DisplayLink:
-        """Return a connected ``DisplayLink``, creating/reconnecting as needed.
-
-        Holds ``_lock`` against duplicate creation from concurrent callers.
-        """
+        """Return a connected ``DisplayLink``, creating/reconnecting as needed;
+        holds ``_lock`` against duplicate creation from concurrent callers."""
         with self._lock:
             was_connected = self.is_connected
             if self._client is None:
@@ -107,18 +104,25 @@ class ClientRegistry:
             return self._client
 
     def _mark_reconnected_if_fresh(self, *, was_connected: bool) -> None:
-        """Wake a ``wait_for_reconnect`` waiter on a not-connected -> connected edge."""
+        """Bump+notify under ``_lock`` on a not-connected -> connected edge."""
         if not was_connected:
-            self._reconnected.set()
+            self._reconnect_gen += 1
+            self._reconnect_cond.notify_all()
 
-    def wait_for_reconnect(self, timeout: float) -> bool:
-        """Block up to ``timeout``s for a fresh connect; clears any pre-existing
-        set first, so a connect nobody was waiting on (startup, a liveness probe)
-        cannot give a LATER, unrelated wait an instant premature wake.
-        Deliberately does NOT hold ``_lock`` — that would block every other
-        caller for the same window, the Hub-wide stall this design prevents."""
-        self._reconnected.clear()
-        return self._reconnected.wait(timeout)
+    @property
+    def reconnect_generation(self) -> int:
+        """Snapshot BEFORE a dial attempt, so a racing reconnect is caught."""
+        with self._lock:
+            return self._reconnect_gen
+
+    def wait_for_reconnect(self, wait: ReconnectWait) -> bool:
+        """Block up to ``wait.timeout``s for a reconnect after ``wait.since_gen``
+        -- race-free (unlike a bare ``Event``): check-then-park is one atomic
+        step under ``_lock``, which ``wait_for`` releases for the block."""
+        with self._lock:
+            return self._reconnect_cond.wait_for(
+                lambda: self._reconnect_gen > wait.since_gen, wait.timeout
+            )
 
     def drop(self) -> None:
         """Close the client so the next ``get`` reconnects, not reuses a stale fd."""
@@ -167,12 +171,8 @@ class ClientRegistry:
         self._marker.mark_menus()
 
     def _setup_apps(self) -> None:
-        """Wire the Hub-side dispatch for display clicks. Idempotent per client.
-
-        Each session now registers its own Beads callback, so this only installs
-        the D21 fallback that routes every display interaction back through
-        Hub-side element dispatch. Reads ``self._client``, bound by ``get``.
-        """
+        """Wire the D21 fallback interaction dispatch. Idempotent per client;
+        reads ``self._client``, bound by ``get``."""
         client = self._client
         if client is None or self._apps_registered_for == id(client):
             return

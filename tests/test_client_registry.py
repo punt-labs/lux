@@ -23,6 +23,7 @@ from typing import Self
 import pytest
 
 from punt_lux.domain.hub.clients import ClientRegistry
+from punt_lux.domain.hub.reconnect_wait import ReconnectWait
 from punt_lux.domain.ids import SceneId
 
 
@@ -362,17 +363,20 @@ def test_is_connected_is_false_again_once_closed() -> None:
     assert registry.is_connected is False
 
 
-def test_get_sets_reconnected_only_on_a_not_connected_to_connected_edge() -> None:
+def test_get_advances_the_generation_only_on_a_not_connected_to_connected_edge() -> (
+    None
+):
     """Fires once per genuine reconnect, never on an already-connected get()."""
     registry = ClientRegistry()
     fake = _FakeClient()
     _install_client(registry, fake)
+    since_gen = registry.reconnect_generation
     woke: list[bool] = []
     entered = threading.Event()
 
     def wait() -> None:
         entered.set()
-        woke.append(registry.wait_for_reconnect(2.0))
+        woke.append(registry.wait_for_reconnect(ReconnectWait(since_gen, 2.0)))
 
     waiter = threading.Thread(target=wait)
     waiter.start()
@@ -380,24 +384,61 @@ def test_get_sets_reconnected_only_on_a_not_connected_to_connected_edge() -> Non
     registry.get()  # the fresh connect: not-connected -> connected, wakes the waiter
     waiter.join(timeout=2.0)
     assert woke == [True]
+    connected_gen = registry.reconnect_generation
+    assert connected_gen > since_gen
 
-    registry.get()  # already connected: no edge, no re-set
-    assert registry.wait_for_reconnect(0.05) is False
+    registry.get()  # already connected: no edge, generation unchanged
+    assert registry.reconnect_generation == connected_gen
+    assert registry.wait_for_reconnect(ReconnectWait(connected_gen, 0.05)) is False
 
 
-def test_a_connect_with_no_waiter_leaves_no_stale_wake_for_a_later_wait() -> None:
-    """A connect nobody is waiting on (Hub startup, a liveness probe) must not
-    leave a stale set that makes a LATER, unrelated wait return an instant
-    premature wake instead of genuinely waiting out its own timeout."""
+def test_a_reconnect_landing_in_the_get_to_wait_gap_is_not_lost() -> None:
+    """The exact race Bugbot/Copilot found: a liveness probe's reconnect
+    landing AFTER the caller's own failed dial but BEFORE it calls
+    ``wait_for_reconnect`` must still be seen -- because ``since_gen`` is
+    snapshotted BEFORE the dial attempt (not after catching its failure),
+    the racing reconnect always advances the generation past the snapshot.
+    The wait returns True at once, not after the full backoff -- unlike a
+    bare ``Event``'s clear-before-wait, which can still drop a set landing
+    in that exact gap.
+    """
     registry = ClientRegistry()
     fake = _FakeClient()
     _install_client(registry, fake)
 
-    registry.get()  # not-connected -> connected, but nobody is waiting
+    since_gen = registry.reconnect_generation  # snapshot BEFORE the "dial attempt"
+    racing_connect_done = threading.Event()
+
+    def racing_reconnect() -> None:
+        registry.get()  # e.g. a liveness probe reconnecting concurrently
+        racing_connect_done.set()
+
+    threading.Thread(target=racing_reconnect).start()
+    assert racing_connect_done.wait(2.0)  # the race resolves before we wait
 
     started = time.monotonic()
-    assert registry.wait_for_reconnect(0.2) is False
-    assert time.monotonic() - started >= 0.2  # genuinely waited, not a stale wake
+    woke = registry.wait_for_reconnect(ReconnectWait(since_gen, 5.0))
+    elapsed = time.monotonic() - started
+
+    assert woke is True
+    assert elapsed < 0.5  # promptly detected, not after the full 5s "backoff"
+
+
+def test_a_wait_snapshotted_after_its_own_connect_waits_out_its_own_timeout() -> None:
+    """A caller that snapshots ``since_gen`` AFTER a connect it already knows
+    about correctly waits out its own timeout for the NEXT edge -- there is
+    no notion of a "stale" wake left to leak forward, because the caller's
+    snapshot IS the reference point, not a shared sticky flag."""
+    registry = ClientRegistry()
+    fake = _FakeClient()
+    _install_client(registry, fake)
+
+    registry.get()  # not-connected -> connected
+    since_gen = registry.reconnect_generation  # snapshotted AFTER that connect
+
+    started = time.monotonic()
+    assert registry.wait_for_reconnect(ReconnectWait(since_gen, 0.2)) is False
+    assert time.monotonic() - started >= 0.2  # genuinely waited for a NEW edge
 
 
 def test_wait_for_reconnect_wakes_promptly_on_a_concurrent_connect() -> None:
@@ -405,12 +446,13 @@ def test_wait_for_reconnect_wakes_promptly_on_a_concurrent_connect() -> None:
     registry = ClientRegistry()
     fake = _FakeClient()
     _install_client(registry, fake)
+    since_gen = registry.reconnect_generation
     woke: list[bool] = []
     entered = threading.Event()
 
     def wait() -> None:
         entered.set()
-        woke.append(registry.wait_for_reconnect(60.0))
+        woke.append(registry.wait_for_reconnect(ReconnectWait(since_gen, 60.0)))
 
     waiter = threading.Thread(target=wait)
     waiter.start()
@@ -429,7 +471,9 @@ def test_wait_for_reconnect_does_not_hold_the_registry_lock() -> None:
     _install_client(registry, fake)
     done = threading.Event()
 
-    waiter = threading.Thread(target=registry.wait_for_reconnect, args=(0.5,))
+    waiter = threading.Thread(
+        target=registry.wait_for_reconnect, args=(ReconnectWait(0, 0.5),)
+    )
     waiter.start()
 
     def call_get() -> None:

@@ -21,6 +21,7 @@ from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.menu_models import Menu, MenuAction
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
+from punt_lux.domain.hub.reconnect_wait import ReconnectWait
 from punt_lux.domain.hub.replicator import (
     _BASE_BACKOFF_SECONDS,
     HubReplicator,
@@ -259,9 +260,11 @@ class _FakeProvider:
     _needs_reconcile: bool
     _unreachable: bool
     _generic_failure: bool
+    _gen: int
     drops: int
     reconnect_waits: list[float]
     __slots__ = (
+        "_gen",
         "_generic_failure",
         "_needs_reconcile",
         "_reconcile",
@@ -280,6 +283,7 @@ class _FakeProvider:
         self._needs_reconcile = False
         self._unreachable = False
         self._generic_failure = False
+        self._gen = 0
         self.drops = 0
         self.reconnect_waits = []
         return self
@@ -290,12 +294,19 @@ class _FakeProvider:
 
     def heal_unreachable(self) -> None:
         """Stop raising — the next ``get()`` succeeds, like a display returning."""
+        was_unreachable = self._unreachable
         self._unreachable = False
+        if was_unreachable:
+            self._gen += 1
 
     def arm_generic_runtime_error(self) -> None:
         """Make every ``get()`` raise a plain ``RuntimeError`` -- NOT the dial
         failure -- to prove it is never misclassified as "never connected"."""
         self._generic_failure = True
+
+    @property
+    def reconnect_generation(self) -> int:
+        return self._gen
 
     def get(self) -> _FakeSender:
         if self._unreachable:
@@ -313,9 +324,9 @@ class _FakeProvider:
         self.drops += 1
         self._needs_reconcile = True
 
-    def wait_for_reconnect(self, timeout: float) -> bool:
+    def wait_for_reconnect(self, wait: ReconnectWait) -> bool:
         """Record the wait; never actually blocks — unit tests stay instant."""
-        self.reconnect_waits.append(timeout)
+        self.reconnect_waits.append(wait.timeout)
         return False
 
 

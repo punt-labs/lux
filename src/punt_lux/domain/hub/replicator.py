@@ -10,19 +10,17 @@ each scene from a copy taken under the store's read lock, so the store lock and
 client send lock are never held together; an emptied scene is pushed with no
 roots to blank its own frame. A send is time-limited (``SO_SNDTIMEO``): a wedged
 display raises ``BlockingIOError``, a dead peer raises ``OSError``, both handed
-to ``SendRecovery``. No display connected at all is a third condition
-(``DisplayNotConnectedError``) that paces its own, much slower backoff (§6).
-Nothing drained is ever lost.
+to ``SendRecovery``. A third condition, no display connected at all
+(``DisplayNotConnectedError``), paces its own slower backoff (§6).
 
 The send loop also hosts the crash-loop quarantine (display-crash-quarantine.md):
 normal replication is *batching* — every drained scene is sent, and a death
 anywhere is attributed to the whole batch, since a socket-level failure can't
 tell which render actually crashed. The first attributed death switches to
-*isolation*: each live, non-quarantined scene sends alone, so a death has a
-single suspect, left only once ``CrashAttribution`` sees a death-free
-``STABLE_INTERVAL``, and a scene at the attribution threshold is quarantined
-and excluded from every future send, breaking the respawn loop.
-"""
+*isolation*: each live, non-quarantined scene sends alone, for a single
+suspect, left only once ``CrashAttribution`` sees a death-free
+``STABLE_INTERVAL``; a scene at the threshold is quarantined and excluded
+from every future send, breaking the respawn loop."""
 
 from __future__ import annotations
 
@@ -285,10 +283,13 @@ class HubReplicator:
         respawned; ``OSError`` (dead peer) only reconnects -- either way the
         death is attributed to ``_current_suspect``, set by ``_attempt``
         immediately before each send that can raise."""
+        since_gen = self._clients.reconnect_generation  # BEFORE the attempt: race-safe
         try:
             emptied = self._attempt(batch)
         except DisplayNotConnectedError:
-            self._handle_disconnected(batch)
+            self._recovery.restore(batch)
+            if not batch.shutting:
+                self._disconnected_retry.wait(self._clients, since_gen=since_gen)
             return _CycleOutcome(outcome="disconnected")
         except BlockingIOError as exc:
             self._recovery.recover(
@@ -307,12 +308,6 @@ class HubReplicator:
             )
             return _CycleOutcome(outcome="recovered")
         return _CycleOutcome(outcome="clean", emptied=emptied)
-
-    def _handle_disconnected(self, batch: DrainedBatch) -> None:
-        """Restore the batch; wait out the backoff unless shutting down."""
-        self._recovery.restore(batch)
-        if not batch.shutting:
-            self._disconnected_retry.wait(self._clients)
 
     def _back_off(self) -> None:
         """Sleep the current retry delay, then grow it toward the cap."""
