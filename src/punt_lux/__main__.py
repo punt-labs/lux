@@ -7,6 +7,9 @@ import sys
 import typer
 
 from punt_lux import __version__
+from punt_lux.cli import (
+    display_link as _display_link,  # noqa: F401  # pyright: ignore[reportUnusedImport]
+)
 from punt_lux.cli._shared import JsonFlag, OutputFlags, QuietFlag, VerboseFlag, run
 from punt_lux.cli.beads import beads as beads_command
 from punt_lux.cli.callback import callback_app
@@ -131,8 +134,7 @@ def cc_session_start() -> None:
 def version(
     *,
     json_out: JsonFlag = False,
-    # Accepted for surface parity; verbose/quiet not currently distinguished
-    # in this command.
+    # Accepted for surface parity; verbose/quiet not distinguished here.
     verbose: VerboseFlag = False,
     quiet: QuietFlag = False,
 ) -> None:
@@ -163,11 +165,9 @@ def ping(
 ) -> None:
     """Ping the display through luxd and print round-trip time.
 
-    ``--timeout`` (0.1-30s) is the real display-leg budget over luxd's REST API;
-    the HTTP round-trip sits a margin above it, so a slow display reports "timeout".
-    Routes through the shared ``ping`` command singleton and prints its rendered
-    line directly — the same three-way status ("not running" / "timeout" /
-    "error: <reason>") the MCP tool and REST route report, on one code path.
+    ``--timeout`` (0.1-30s) is the real display-leg budget; the HTTP round-trip
+    sits a margin above it, reporting the same "not running"/"timeout"/"error"
+    status the MCP tool and REST route share on one code path.
     """
     from punt_lux.cli._shared import connect_client
     from punt_lux.cli_identity import CliIdentity

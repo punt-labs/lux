@@ -14,6 +14,11 @@ from punt_lux.operations import (
     ThemeState,
     WindowSettings,
 )
+from punt_lux.operations.models.display_link import (
+    ConnectedLinkState,
+    DisconnectedLinkState,
+    DisplayLinkState,
+)
 
 runner = CliRunner()
 
@@ -49,6 +54,10 @@ class _DisplayClient:
     def read_display_mode(self, repo: str) -> DisplayModeState:
         self.calls.append(("read_display_mode", repo))
         return DisplayModeState(mode="on")
+
+    def get_link(self) -> DisplayLinkState:
+        self.calls.append(("get_link", None))
+        return ConnectedLinkState(linkage="connected_idle")
 
 
 class TestDisplayInfo:
@@ -168,6 +177,36 @@ class TestDisplayModeFused:
         assert result.exit_code == 1
         assert "does not exist" in result.output
         assert client.calls == []
+
+
+class TestDisplayLinkReadOnly:
+    """``lux display link`` -- the Hub's observed link state, never a proxy."""
+
+    def test_reports_the_connected_shape(self) -> None:
+        client = _DisplayClient()
+        with patch(
+            "punt_lux.client.facade.LuxClient.for_identity", return_value=client
+        ):
+            result = runner.invoke(app, ["display", "link", "--json"])
+        assert result.exit_code == 0
+        assert client.calls == [("get_link", None)]
+        assert '"kind":"connected"' in result.output.replace(" ", "")
+        assert '"linkage":"connected_idle"' in result.output.replace(" ", "")
+
+    def test_reports_the_held_shape_with_a_retry_delay(self) -> None:
+        class _HeldClient(_DisplayClient):
+            def get_link(self) -> DisplayLinkState:
+                self.calls.append(("get_link", None))
+                return DisconnectedLinkState(linkage="held", retry_delay_seconds=8.0)
+
+        client = _HeldClient()
+        with patch(
+            "punt_lux.client.facade.LuxClient.for_identity", return_value=client
+        ):
+            result = runner.invoke(app, ["display", "link"])
+        assert result.exit_code == 0
+        assert "held" in result.output
+        assert "retry_delay=8.0s" in result.output
 
 
 class TestDisplayAdminVerbs:

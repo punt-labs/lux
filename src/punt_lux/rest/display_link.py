@@ -46,5 +46,8 @@ class DisplayLinkRoutes:
 
     def get_link(self) -> DisplayLinkState:
         """Return the Hub's observed display-link state; never round-trips or faults."""
-        result = self._errors.respond(self._ops.get_link())
-        return cast("DisplayLinkState", result)
+        # mypy widens the generic here; pyright narrows it and flags the cast
+        # unnecessary on its own (correct) reading -- both checkers must pass.
+        return cast(  # pyright: ignore[reportUnnecessaryCast]
+            "DisplayLinkState", self._errors.respond(self._ops.get_link())
+        )
