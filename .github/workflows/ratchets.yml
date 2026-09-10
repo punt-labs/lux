@@ -89,11 +89,41 @@ jobs:
         with:
           python-version: "3.13"
       - run: uv sync --locked --extra display
-      - name: Run OO ratchet (push: base-compare against pre-push main; PR: merge-base default)
+      # Root cause of the push-trigger startup_failure this step's `name:`
+      # used to carry (confirmed with `uvx --from actionlint-py actionlint`,
+      # which failed pure YAML parsing -- "mapping values are not allowed in
+      # this context" -- at the colon in `(push: ...)`): a plain (unquoted)
+      # YAML scalar cannot contain a bare ": " -- colon immediately followed
+      # by a space -- because that sequence is indistinguishable from a
+      # mapping key/value separator. `Run OO ratchet (push: base-compare ...;
+      # PR: merge-base default)` has two such sequences ("push: " and "PR:
+      # "), so GitHub could not parse the workflow file at all: every push
+      # run against main showed zero jobs (a true startup_failure, not a job
+      # failure) because the file was rejected before any job was scheduled.
+      # It surfaced as push-only because the last `pull_request` CI run
+      # before merge (374bfa2c) predated this text -- these two comment-heavy
+      # step names were added in a later commit within #467, and ratchets.yml
+      # was not yet a REQUIRED status check (see the header comment above),
+      # so the PR could merge without a fresh green run ever validating the
+      # final content. Fix: quote the `name:` scalar.
+      - name: "Run OO ratchet (push: base-compare against pre-push main; PR: merge-base default)"
+        # `github.event.before` (the push event's pre-push tip) is read via
+        # `env:`, not spliced inline as `${{ }}` into the run script body.
+        # GitHub renders every `${{ }}` expression in a `run:` block at
+        # template time, unconditionally, regardless of which shell branch
+        # ends up executing -- so an inline expression here is live on every
+        # trigger this workflow listens to, not just push. `env:` keeps the
+        # raw event text out of the script text entirely (the hardening this
+        # repo's org standard already asks for -- see GitHub's guidance on
+        # script-injection risk from unsanitized `${{ }}` in `run:` bodies)
+        # and degrades safely to an empty string on `pull_request`, where
+        # `before` is absent from the event payload.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
         run: |
-          BEFORE="${{ github.event_name == 'push' && github.event.before || '' }}"
-          if [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
-            make check-oo BASE_REF="$BEFORE"
+          if [ "$EVENT_NAME" = "push" ] && [ -n "$BEFORE_SHA" ] && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
+            make check-oo BASE_REF="$BEFORE_SHA"
           else
             make check-oo
           fi
@@ -157,12 +187,22 @@ jobs:
         with:
           python-version: "3.13"
       - run: uv sync --locked --extra display
-      - name: Run coupling ratchet (push: whole-push touched-file range; PR: whole-PR touched-file range)
+      # Same quoting fix as check-oo's step above, and for the identical
+      # reason: this `name:` scalar also carried two unquoted ": " sequences
+      # ("push: " and "PR: "), which is invalid in plain YAML and is what
+      # actually caused the push-trigger startup_failure (confirmed with
+      # `actionlint`'s YAML syntax-check, not a `github.event.before` context
+      # issue). See the longer note on the check-oo step above.
+      - name: "Run coupling ratchet (push: whole-push touched-file range; PR: whole-PR touched-file range)"
+        # `github.event.before` read via `env:`, not inline `${{ }}` in the
+        # run script -- see the check-oo step above for why.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
         run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
-            BEFORE="${{ github.event.before }}"
-            if [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
-              make check-coupling BASE_REF="$BEFORE"
+          if [ "$EVENT_NAME" = "push" ]; then
+            if [ -n "$BEFORE_SHA" ] && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
+              make check-coupling BASE_REF="$BEFORE_SHA"
             else
               make check-coupling
             fi
