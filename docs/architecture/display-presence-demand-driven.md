@@ -1,8 +1,11 @@
 # Display Linkage: Hold Content, Never Chase the Display
 
-**Status:** design, unimplemented. Bead `lux-81t3.1`, epic `lux-81t3`. Mission
-`m-2026-09-10-001`. Implementation and the z-spec model are separate
-missions, dispatched only after operator ratification of this document.
+**Status:** implemented. Bead `lux-81t3.1`, epic `lux-81t3`. This document
+was the design ratified before implementation (mission `m-2026-09-10-001`);
+the shipped code lives in `src/punt_lux/domain/hub/` (`clients.py`,
+`replicator.py`, `liveness.py`, `disconnected_retry.py`, `display_linkage.py`)
+and the z-spec model is `docs/display_linkage.tex`. Retained as the design
+record — see §10 for the write-set this document's implementation followed.
 
 **This revision supersedes an earlier draft of this document wholesale.**
 The earlier draft designed the Hub *opening* the display on demand
@@ -866,10 +869,14 @@ specific file this design read.
    - `_run_cycle` gains the explicit `disconnected` branch that neither
      reclaims via `_reclaim_emptied` nor calls `_back_off()` (§6.1) — the
      structural fix for the double-sleep defect review found.
-   - Compose the second backoff instance,
-     `self._disconnected_backoff = RespawnBackoff(base_delay=2.0, max_delay=120.0)`.
-   - `_push_cycle` catches `RuntimeError` on its own branch and calls the
-     new `_wait_disconnected()` (§6.3) instead of a raw `time.sleep`.
+   - The second backoff is extracted into its own collaborator,
+     `DisconnectedRetry` (new `src/punt_lux/domain/hub/disconnected_retry.py`,
+     wrapping `RespawnBackoff` plus the wait and its once-per-transition log),
+     held as `self._disconnected_retry: DisconnectedRetry`.
+   - `_push_cycle` catches `DisplayNotConnectedError` (not a generic
+     `RuntimeError`) on its own branch and calls
+     `self._disconnected_retry.wait(self._clients, since_gen=...)` (§6.3)
+     instead of a raw `time.sleep`.
    - Logging: `INFO` on transition into the not-connected state, `DEBUG` on
      repeats (§6.5).
    - New `disconnected_delay` read-only property (returns
