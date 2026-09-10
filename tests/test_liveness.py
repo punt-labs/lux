@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import errno
+import logging
 import threading
 import time
 
 import pytest
 
 from punt_lux.domain.hub.liveness import DisplayLiveness, KeepaliveConnection
+from punt_lux.domain.hub.liveness_pacing import _DISCONNECTED_PROBE_INTERVAL
 from punt_lux.protocol import PongMessage
 
 
@@ -105,6 +107,46 @@ class TestCheckOnce:
         DisplayLiveness(clients).check_once()  # must not raise
         assert clients.drop_calls == 1
         assert clients.get_calls == 3
+
+
+class _AlwaysFailingClients:
+    """A keepalive client provider whose ``get`` never manages to connect."""
+
+    __slots__ = ()
+
+    def get(self) -> KeepaliveConnection:
+        msg = "connect refused"
+        raise RuntimeError(msg)
+
+    def drop(self) -> None:
+        """No connection was ever held, so there is nothing to close."""
+
+
+class TestDisconnectedPacing:
+    """The two-speed cadence and once-per-transition logging (§6.4)."""
+
+    def test_logs_once_at_info_on_transition_and_never_at_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        worker = DisplayLiveness(_AlwaysFailingClients())
+        with caplog.at_level(logging.INFO):
+            worker.check_once()
+            worker.check_once()
+            worker.check_once()
+        info_records = [r for r in caplog.records if r.levelno == logging.INFO]
+        warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(info_records) == 1
+        assert warning_records == []
+
+    def test_interval_relaxes_after_a_failure_and_snaps_back_on_reconnect(
+        self,
+    ) -> None:
+        clients = _FakeClients(_FakeConnection([None, None, _pong()]))
+        worker = DisplayLiveness(clients, interval=1.0)
+        worker.check_once()  # both probes fail — the cycle marks disconnected
+        assert worker._pacing.interval(1.0) == _DISCONNECTED_PROBE_INTERVAL
+        worker.check_once()  # the connection now answers reliably
+        assert worker._pacing.interval(1.0) == 1.0
 
 
 class TestWorkerLifecycle:

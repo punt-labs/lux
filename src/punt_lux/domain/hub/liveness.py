@@ -1,17 +1,14 @@
 """DisplayLiveness — keep luxd's display connection live so clicks keep flowing.
 
-luxd learns a dropped display connection only when it next tries to push a scene.
-Between pushes the display has no client to forward interactions to, so every
-click in that window is fired display-side and dropped -- a silent gap the
-operator experiences as "selection stopped working". This worker closes that gap:
-it periodically proves the connection live with a ping and, on failure, drops and
-reconnects so luxd re-registers as a display client. The silent window is bounded
-to about one keepalive interval instead of the time until the next scene push.
+luxd learns a dropped display connection only when it next tries to push a
+scene. Between pushes, every click is fired display-side and dropped -- a
+silent gap the operator experiences as "selection stopped working". This
+worker closes it: it periodically pings and, on failure, drops and
+reconnects, bounding the silent window to about one probe interval.
 
-The worker only reuses the connection registry the rest of luxd already shares;
-its ``get`` reconnects and re-registers, and its ``drop`` closes a dead socket so
-the next ``get`` binds fresh. The registry serializes those against the
-replicator and the tool threads, so this worker adds no new lock.
+Reuses the connection registry the rest of luxd already shares; the
+registry serializes connect/drop against the replicator and tool threads,
+so this worker adds no new lock.
 """
 
 from __future__ import annotations
@@ -21,6 +18,7 @@ import threading
 from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
 
 from punt_lux.connection_timing import CONNECTION_TIMING
+from punt_lux.domain.hub.liveness_pacing import LivenessPacing
 
 if TYPE_CHECKING:
     from punt_lux.protocol import PongMessage
@@ -60,12 +58,10 @@ class KeepaliveClients(Protocol):
 
 @final
 class DisplayLiveness:
-    """Background worker that keeps luxd's display connection live and registered.
+    """Background worker keeping luxd's display connection live and registered.
 
-    Starts and stops with luxd. Each cycle proves the connection with a ping; a
-    failed ping drops the dead connection and reconnects at once, so luxd is a
-    registered display client again within about one interval and interactions
-    resume instead of being dropped display-side.
+    Each cycle proves the connection with a ping; a failed ping drops and
+    reconnects at once, so interactions resume instead of dropping display-side.
     """
 
     _clients: KeepaliveClients
@@ -73,7 +69,15 @@ class DisplayLiveness:
     _ping_timeout: float
     _stop: threading.Event
     _thread: threading.Thread | None
-    __slots__ = ("_clients", "_interval", "_ping_timeout", "_stop", "_thread")
+    _pacing: LivenessPacing
+    __slots__ = (
+        "_clients",
+        "_interval",
+        "_pacing",
+        "_ping_timeout",
+        "_stop",
+        "_thread",
+    )
 
     def __new__(
         cls,
@@ -87,6 +91,7 @@ class DisplayLiveness:
         self._ping_timeout = ping_timeout
         self._stop = threading.Event()
         self._thread = None
+        self._pacing = LivenessPacing()
         return self
 
     def start(self) -> None:
@@ -113,41 +118,36 @@ class DisplayLiveness:
     def check_once(self) -> None:
         """Prove the connection; on a twice-failed probe, drop and reconnect.
 
-        The re-probe before dropping spares a connection a concurrent
-        ``SendRecovery`` just reconnected, avoiding a needless close. The reconnect
-        in the same cycle re-registers luxd at once, so a real drop swallows at
-        most about one interval of interactions, not everything until the next push.
+        The re-probe spares a connection a concurrent reconnect just healed.
+        ``_pacing`` logs the not-connected transition once, not per cycle.
         """
         if self._probe() or self._probe():
+            self._pacing.mark_connected()
             return
-        logger.warning("display connection unresponsive; dropping and reconnecting")
+        self._pacing.mark_disconnected()
         self._clients.drop()
         self._probe()
 
     def _run(self) -> None:
-        """Tick every interval until stopped, surviving any cycle failure.
+        """Tick until stopped; a raising cycle must never kill the thread.
 
-        A raising cycle must never kill the thread: nothing restarts it, so one
-        escape would silently retire the keepalive for the life of luxd and reopen
-        the dropped-click window. Every exception is logged and the loop continues.
+        The interval relaxes while disconnected and snaps back once a probe
+        answers, per ``_pacing``.
         """
-        while not self._stop.wait(self._interval):
+        interval = self._interval
+        while not self._stop.wait(interval):
             try:
                 self.check_once()
             except Exception:
                 logger.exception("liveness cycle failed; continuing")
+            interval = self._pacing.interval(self._interval)
 
     def _probe(self) -> bool:
         """Return whether a ``get`` + ping round-trip succeeded.
 
-        ``get`` reconnects a dropped connection before the ping, so success also
-        means luxd is a registered display client. A connect that cannot complete
-        surfaces as ``RuntimeError`` (``ClientRegistry`` wraps a refused socket,
-        spawn failure, or handshake timeout) and a dead ping send as ``OSError``;
-        both are a failed probe, never an escape that could kill the worker.
+        No per-failure log — ``check_once`` logs the transition once.
         """
         try:
             return self._clients.get().ping(self._ping_timeout) is not None
-        except (OSError, RuntimeError) as exc:
-            logger.warning("liveness probe failed: %s", exc)
+        except (OSError, RuntimeError):
             return False
