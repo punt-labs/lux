@@ -1,8 +1,7 @@
 """ServiceSpec — a service's identity across supervisors and its command line.
 
-A value object naming the launchd label, systemd unit, description, binary,
-extra args, and log file stems for one Lux service. The hub and the display
-each get one; :class:`~punt_lux.service.ServiceManager` composes the pair.
+Names the launchd label, systemd unit, binary, args, and log stems for one
+Lux service; the hub and display each get one.
 """
 
 from __future__ import annotations
@@ -38,13 +37,12 @@ class ServiceSpec:
     legacy_binary_names: tuple[str, ...] = ()
     # None: no fixed port to guard -- DISPLAY_SPEC's documented contract.
     health_port: int | None = None
+    # True (DISPLAY_SPEC only): a clean exit is operator-initiated under the
+    # demand-driven design, so the supervisor restarts a crash, never a stop.
+    restart_on_crash_only: bool = False
 
     def resolve_exec_args(self) -> list[str]:
-        """Return the command that launches this service.
-
-        Resolves ``~/.local/bin/<binary_name>`` -- the uv-tool install
-        symlink, stable across ``uv tool upgrade`` -- and refuses if missing.
-        """
+        """Return the command line, resolving the stable uv-tool-install symlink."""
         local_bin = Path.home() / ".local" / "bin" / self.binary_name
         if not local_bin.exists():
             msg = (
@@ -91,4 +89,5 @@ DISPLAY_SPEC: ServiceSpec = ServiceSpec(
     log_stem="luxd-display",
     cli_verb="display",
     process_name="luxd-display",
+    restart_on_crash_only=True,
 )
