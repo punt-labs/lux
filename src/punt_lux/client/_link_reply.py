@@ -40,9 +40,9 @@ class LinkReply:
     @staticmethod
     def read(response: HttpResponse) -> DisplayLinkState | OpError:
         """Return the parsed link state, or the mapped ``OpError``."""
+        is_2xx = 200 <= response.status < 300
         try:
-            return _LinkAdapter.validate_json(response.body)
+            return _LinkAdapter.validate_json(response.body if is_2xx else b"")
         except ValidationError:
-            # ConnectedLinkState here is just the error-extraction vehicle --
-            # a non-2xx/malformed body never actually decodes as one.
+            # ConnectedLinkState is just the error-extraction vehicle here.
             return RestReply(response).read(ConnectedLinkState)

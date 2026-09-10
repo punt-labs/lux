@@ -204,6 +204,20 @@ def test_get_link_maps_a_non_2xx_status_to_op_error() -> None:
     assert result == OpError(code="fault", reason="boom")
 
 
+def test_get_link_maps_a_non_2xx_status_even_with_a_valid_link_shaped_body() -> None:
+    # A stale proxy, gateway, or incompatible Hub can answer a non-2xx status
+    # with a body that still happens to validate as a link state. Status must
+    # win over body shape -- this is not a success.
+    body = (
+        b'{"kind":"connected","linkage":"connected_idle","live_scene_count":0,'
+        b'"hub_host":"host","hub_pid":1}'
+    )
+    transport = CannedTransport(HttpResponse(status=502, body=body))
+    result = _client_over(transport).get_link()
+    assert isinstance(result, OpError)
+    assert result.code == "fault"
+
+
 @pytest.mark.parametrize(
     ("status", "code"),
     [
