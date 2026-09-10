@@ -1,668 +1,712 @@
-# Display Presence: Demand-Driven, Not Keepalive-Forced
+# Display Linkage: Hold Content, Never Chase the Display
 
 **Status:** design, unimplemented. Bead `lux-81t3.1`, epic `lux-81t3`. Mission
 `m-2026-09-10-001`. Implementation and the z-spec model are separate
 missions, dispatched only after operator ratification of this document.
 
+**This revision supersedes an earlier draft of this document wholesale.**
+The earlier draft designed the Hub *opening* the display on demand
+(`ServiceManager.for_display().start()` from Hub code, a `presence` state
+with an `OFF` veto, a `get()`/`acquire()` split). The operator ruled that
+direction out entirely, verbatim: *"if I type `lux display stop` the
+process is gone. So yes, pushing content will not execute `lux display
+start`. And honestly when we are done, the display and hub probably won't
+even be on the same machine."* The bead's own original framing — "window
+OPENS when content is pushed" — is **overridden** by this ruling. Two
+follow-on refinements from the operator (below) further shaped the
+corrected fix's retry cadence. This document is the corrected design.
+Everything the Hub does now is: **hold content it cannot deliver, keep
+trying to reach a display at a bounded and eventually slow cadence, never
+touch the display's process lifecycle, and say clearly what it is doing.**
+
 ## 1. Problem, Confirmed Against the Code
 
 The bead's corrected symptom (operator-observed 2026-09-01, 0.32.1): closing
 the Lux window terminates `luxd-display.service` /
-`com.punt-labs.luxd-display`, and nothing brings it back. A `show()` pushed
-to a Hub with a closed display is accepted by the Hub and rendered nowhere.
+`com.punt-labs.luxd-display`, and content pushed while it's down black-holes
+— accepted by the Hub, rendered nowhere, with no visibility into what
+happened.
 
-Tracing the code confirms exactly why, and it is a single missing step, not
-a diffuse defect:
+Tracing the code confirms the exact mechanism, and it turns out to be a
+**cadence** defect, not a missing capability:
 
 - `ClientRegistry.get()` (`src/punt_lux/domain/hub/clients.py:96-108`)
-  constructs the Hub's one `DisplayLink` with `auto_spawn=False`, with the
-  comment: *"the display's own service unit is its supervisor now; the Hub
-  only sends scenes, it never launches a competing process."* That comment
-  is correct as far as it goes — before `lux-5uc7`, the Hub raced the
-  managed-service supervisor by forking its own competing process
-  (`DisplayPaths._spawn()`, a raw `subprocess.Popen`, `src/punt_lux/paths.py:191-205`).
-  Removing the Hub-side fork fixed the double-spawn hazard and, as a side
-  effect of `KeepAlive`/`Restart=on-failure` no longer racing a second
-  supervisor, incidentally fixed the *original* omnipresent-window bug this
-  epic opened with.
-- But removing the fork removed the **only** code path that ever brought the
-  display up on demand, and nothing was put in its place. `DisplayLink.connect()`
-  (`src/punt_lux/domain/hub/display_link.py:174-194`) with `auto_spawn=False`
-  skips `DisplayPaths.ensure()` entirely and goes straight to a raw
-  `socket.connect()`, which raises `RuntimeError` when nothing is listening.
-- `replicator_ports.py`'s `DisplayLifecycle` protocol docstring says the
-  quiet part out loud: *"Before lux-5uc7, the Hub both reaped a wedged
-  display and spawned its replacement... The Hub's remaining lifecycle role
-  is killing."* Reaping (killing a wedged display) survived the migration;
-  **ensuring never got a managed-service replacement**.
-- The failure is silent by construction, not by accident: `HubReplicator._push_cycle`
-  (`src/punt_lux/domain/hub/replicator.py:275-305`) only catches
-  `BlockingIOError`/`OSError` around a send. `RuntimeError` from a
-  not-running `.connect()` escapes to `_run_cycle`'s broad
-  `except Exception`, which restores the batch and backs off
-  (`_BASE_BACKOFF_SECONDS` → `_MAX_BACKOFF_SECONDS`, `recovery.py`/`replicator.py`).
-  The Hub logs `"replicator cycle failed; retrying the batch"` forever, at a
-  capped 2-second cadence, and never once asks the supervisor to start the
-  service. This is the exact mechanism behind "Hub accepted the push but
-  nothing appeared."
-- `DisplayLiveness` (`src/punt_lux/domain/hub/liveness.py`), the keepalive
-  worker, already does the *right* thing today for the reason the epic
-  wanted: it pings and, on failure, drops and reconnects
-  (`self._clients.get()`), but `.get()` never spawns anything either, so
-  keepalive cannot resurrect a closed display and does not force-spawn an
-  unwanted one. Keepalive is not the bug. It is, however, wired to the same
-  `ClientRegistry.get()` the demand path uses, which matters below (§5).
-- The service supervisors' restart policy already self-heals a *crash*
-  without the Hub's help: systemd's unit sets `Restart=on-failure` /
-  `RestartSec=5` (`_backend_systemd.py:157-158`) — a non-zero exit is
-  auto-restarted, a clean exit is not. macOS's plist sets bare
-  `KeepAlive=<true/>` (`_backend_launchd.py:199-200`), which launchd's own
-  documented semantics restart on **any** exit, including a clean one — an
-  asymmetry with systemd that this design closes (§6, §9).
+  constructs the Hub's one `DisplayLink` with `auto_spawn=False` — correct,
+  and staying correct under this revision: the Hub dials out to the
+  display's socket and never forks or starts anything. When nothing is
+  listening, `DisplayLink.connect()` (`display_link.py:174-194`) raises
+  `RuntimeError`.
+- `HubReplicator._push_cycle` (`replicator.py:275-305`) only special-cases
+  `BlockingIOError`/`OSError` around a send — both mean "a display *was*
+  connected and the send to it just failed" (wedged or dead peer), and
+  `SendRecovery.recover()` handles those by reaping/reconnecting. A
+  `RuntimeError` from `.get()` — "no display was ever connected to begin
+  with" — is a **different** condition, but today it isn't caught
+  specifically at all: it escapes to `_run_cycle`'s broad
+  `except Exception`, which calls `self._recovery.restore(batch)` (correctly
+  — nothing is lost) and then `self._back_off()`.
+- **The defect is `_back_off()`'s cadence, confirmed by reading it, not
+  guessed:**
 
-So the fix is precise: **wire one missing step** — "content wants to go out,
-the display isn't running, ask the managed-service supervisor to start it,
-wait for the socket, then send" — without reopening the double-spawn hazard
-`lux-5uc7` already closed, and without breaking keepalive's already-correct
-non-spawning behavior.
+  ```python
+  def _back_off(self) -> None:
+      """Sleep the current retry delay, then grow it toward the cap."""
+      time.sleep(self._backoff)
+      self._backoff = min(self._backoff * 2, _MAX_BACKOFF_SECONDS)
+  ```
 
-## 2. The Presence State Machine
+  with `_BASE_BACKOFF_SECONDS = 0.1` and `_MAX_BACKOFF_SECONDS = 2.0`. This
+  **does climb correctly** — 0.1s, 0.2s, 0.4s, 0.8s, 1.6s, 2.0s — it is not
+  stuck or reset-only. It plateaus at a 2-second cadence and **stays there
+  forever**, because nothing ever reaches the clean-cycle branch
+  (`_run_cycle`'s `self._backoff = _BASE_BACKOFF_SECONDS` reset) while no
+  display is connected. A 2-second cadence is a sensible ceiling for "a
+  display that was just connected is being reaped and is expected back
+  within a few seconds" (the scenario this backoff was actually written
+  for — a wedged/crashed send failure). It is the wrong ceiling for "no
+  display has been connected for an indefinite, possibly very long time,"
+  which is `RuntimeError`'s actual meaning, and which the code today cannot
+  even tell apart from the wedged case because it never catches
+  `RuntimeError` on its own branch.
+- The result: an idle, no-display Hub spins at a tight 2-second cadence
+  indefinitely, logging `"replicator cycle failed; retrying the batch"`
+  every cycle as though something is actively broken, with nothing telling
+  an operator or agent that content is sitting held, waiting for a display
+  that isn't there.
+- `DisplayLiveness` (the keepalive worker, `liveness.py`) is unaffected by
+  any of this — it already only pings and reconnects
+  (`self._clients.get()`), never spawns, and is not part of the bug.
 
-Four states, matching the mission's naming. Three of the four are **pure
-derivations** of two observable facts and one piece of Hub-held intent —
-there is deliberately almost no state to get out of sync with reality:
+**The corrected fix, confirmed against the operator's rulings below:**
+retrying is fine and required — it's how content reconnects once a display
+later appears, wherever it is. The fix is the retry's **cadence**: back off
+exponentially to a genuinely slow steady state (on the order of a minute or
+slower, per the operator, not 2 seconds), hold the content safely the whole
+time (already true — nothing is lost today), reconcile it the moment a
+display connects (already true, DES-068), and make "content is held, no
+display connected" **visible** so nobody is guessing during the slow-retry
+window.
 
-```text
-PresenceState.classify(off: bool, is_running: bool, live_scene_count: int) -> PresenceState
+## 2. Operator Ruling — What This Design Does and Does Not Do
 
-    off                                     -> OFF
-    not off and not is_running              -> CLOSED
-    not off and is_running and count == 0   -> IDLE
-    not off and is_running and count  > 0   -> OPEN
-```
+Stated explicitly because it reverses the original bead framing and the
+earlier draft of this document:
 
-| State | Meaning | Who observes it |
-|---|---|---|
-| `OFF` | The Hub refuses to connect to, populate, or start the display. An absolute veto, independent of whether a process happens to be running. | `_off` flag, held by the Hub. |
-| `CLOSED` | Not vetoed; no live display process. The resting state — true both "never started" and "user closed it." | `DisplayPaths.is_running()` |
-| `OPEN` | Not vetoed; display running; at least one live Hub scene. | `is_running()` + `HubDisplay.live_scene_ids()` |
-| `IDLE` | Not vetoed; display running; zero live Hub scenes. The window is present and usable as a launcher (World/Clients menus, beads applet) with nothing to show. | `is_running()` + `live_scene_ids()` |
+1. **The Hub never starts, spawns, stops, or otherwise controls the
+   display's process lifecycle. Not deferred — removed as a design
+   direction entirely.** No code path in `domain/hub/` may call
+   `ServiceManager.for_display().start()`/`.stop()`/`.restart()`, under any
+   circumstance, including as a "helpful" fallback after repeated failures.
+2. **`lux display stop` means the process is gone, and pushing content does
+   not bring it back.** This is already true today and this design does not
+   change it — it is stated here because the earlier draft's `ensure`
+   mechanism would have violated it.
+3. **The display is entirely user/service-controlled.** A human runs
+   `lux display start`/`stop`, or the OS service supervisor
+   (launchd/systemd) starts it at login or restarts it after a crash, per
+   its own configured policy (§7). The Hub is a client of that socket, never
+   an operator of that process.
+4. **Design for the Hub and display on different machines.** The
+   Hub-to-display leg is a same-host `AF_UNIX` socket today, but DES-090
+   describes it becoming a network transport. Any design where the Hub
+   reaches out to start the display is architecturally wrong on its face
+   once the two are not guaranteed to be co-located — you cannot `start()`
+   a service on a machine you have no privileged access to. This design
+   assumes nothing about co-location anywhere (§8).
+5. **A retry is not a black hole, and retrying is not the thing being
+   fixed.** Two clarifying rulings arrived after the operator's initial
+   scrap of the ensure-based design, both folded in below:
+   - *"The hub can retry and that is fine, but it needs some type of
+     exponential backoff to a slow retry state."* Retrying is correct
+     behavior, not the defect; the defect is that today's retry never
+     slows down past 2 seconds (§1, §6).
+   - *"It should increase to something like once a minute or once every
+     five minutes. It's not critical what it is."* The exact number is the
+     operator's explicit non-concern; §6 picks one value in that band and
+     names it as a tunable, not a load-bearing constant.
 
-The only state `CLOSED` vs `OFF` distinguishes is *whose decision it was* —
-the user's (or a crash, or "never asked yet") vs. the Hub's own veto. Both
-present identically at the OS level (`is_running() == False`); the `_off`
-flag is the one bit of memory this design needs beyond what is already
-observable, and it changes only on an explicit `presence_set` call (§7).
+What survives from the earlier draft, unchanged in substance: the precise
+root-cause trace (§1, now corrected in its conclusion), the DES-088
+orthogonality argument (§5), and the multi-host introspection surface —
+which this revision makes **more** central, since "which Hub is holding
+this content, and is a display even watching it" is now the primary
+observability question, not a secondary caveat.
 
-### Transitions and triggers
+## 3. The Corrected Model: Hold, Reconcile, Never Control
 
-| From | Trigger | To | Mechanism |
-|---|---|---|---|
-| any | `presence_set(off)` | `OFF` | Sets `_off = True`. Does **not** stop an already-running display (§8, rejected alternative). |
-| `OFF` | `presence_set(on)` | `CLOSED` (or `OPEN`/`IDLE` if a process happens to already be running out-of-band) | Sets `_off = False`; no action taken to open anything. |
-| `CLOSED` | content push (a scene becomes dirty and the replicator needs to send it) | `OPEN` | `ClientRegistry.acquire()` sees `not is_running()`, calls `DisplayPresence.ensure_running()` → `ServiceManager.for_display().start()`, polls for the socket, then connects (§4). |
-| `CLOSED` | content push, but `ensure_running()` fails (not installed, supervisor refuses, timeout) | `CLOSED` | The batch is restored and backed off exactly as today; the failure is now attributable (a named error), not silent. |
-| `OPEN` | last live scene disposed everywhere | `IDLE` | Purely observational — `live_scene_ids()` becomes empty. No transition code needed. |
-| `IDLE` | new content pushed | `OPEN` | Purely observational. |
-| `OPEN`/`IDLE` | user closes the OS window (clean exit) | `CLOSED` | The socket drops; the next `.get()`/`.acquire()` observes `is_running() == False`. |
-| `OPEN`/`IDLE` | process crash (non-zero exit) | supervisor auto-restarts per its own policy (`Restart=on-failure` / the corrected `KeepAlive`, §9); once the socket is live again, the next `.get()`/`.acquire()` reconnects and `_connect_and_reconcile` repaints every live scene (DES-068) | Stays `OPEN`/`IDLE` from an external observer's point of view; the Hub never had to "ensure" anything, because the *supervisor's own contract* is the crash-recovery path, not the Hub's. |
-| `OPEN`/`IDLE` | crash outlives the supervisor's restart attempts | `CLOSED` once observed down | Same as user-close, from the Hub's point of view — it cannot and need not distinguish "gave up" from "closed." The next content demand re-ensures. |
+`HubDisplay` is already the authoritative store for scene content
+(`hub_display.py`'s own docstring: "Every write runs under `StoreLock`");
+nothing about that changes. The correction is entirely about how the
+**replicator** — the one worker that tries to deliver that content to a
+display — behaves when there is no display to deliver to:
 
-No state machine library, no explicit transition methods, no stored
-enum beyond one boolean. This directly follows the reasoning
-`service-lifecycle-migration.md` §5.1 already used to reject a `LegacySweep`
-state pattern: "clean" and "dirty" were not two behaviorally distinct modes,
-they were two *outcomes* of one idempotent operation. The same is true here
-— `CLOSED`, `OPEN`, and `IDLE` are outcomes of observing reality, not modes
-a class switches between.
+- **Content is never lost.** A scene that becomes dirty while no display is
+  connected stays live in `HubDisplay` and stays marked dirty on the
+  `DirtySignal`. This is already true today (`SendRecovery.restore`
+  re-queues the batch) and this design does not change the storage side at
+  all — only the retry cadence and the visibility of the waiting state.
+- **A (re)connect reconciles everything held, exactly once.** This
+  mechanism already exists and is unchanged: `ClientRegistry._connect_and_reconcile`
+  (DES-068) declares the fresh connection's manifest and marks every
+  currently-live scene (and the menu) dirty the moment `.get()` succeeds
+  after having been disconnected. The replicator's very next cycle sends
+  everything held. No new reconciliation code is needed — the existing
+  connect-success hook already IS the "hold, then repaint on reconnect"
+  mechanism; the only thing missing was giving the *disconnected* interval
+  a sane cadence and a name.
+- **The Hub never touches the display's process.** Confirmed by this
+  design's write-set (§9): grep for `ServiceManager` inside `domain/hub/`
+  after implementation must return zero hits tied to the display spec.
 
-## 3. Presence vs. DES-088's Content/Visibility Axes
+## 4. `DisplayLinkage` — an Observed Classification, Not a Controlled State
 
-DES-088 settled a different, narrower question: for one already-open
-display, does a *frame's* content (client-owned: `show`/`update`/dispose)
-or its *visibility* (user-owned: close/collapse/dock/raise) get written by
-a given event? DES-088's rule — a content event never writes visibility, a
-visibility event never writes content — governs frames **inside** a running
-display.
-
-Presence is one layer up: it governs whether the **display process itself**
-exists at all. DES-088 has nothing to say about a display that is not
-running — there is no frame to be visible or invisible if there is no
-window. The two are orthogonal and compose cleanly:
-
-- Presence answers: "is there a display process to hold any frames?"
-- DES-088 answers, once presence is `OPEN`/`IDLE`: "of the frames it holds,
-  which are on-screen?"
-
-A user closing the **last** ImGui frame inside a running display (a DES-088
-visibility event) does not, by itself, touch presence at all — the process
-is still running, so presence stays `OPEN` while `live_scene_count` may
-still be nonzero (a closed-but-not-disposed frame keeps its scenes per
-DES-088) or drops to zero and presence reads `IDLE`. Presence only reacts to
-the **process** disappearing (the OS window's own close, or a crash) — a
-different, coarser gesture than DES-088's per-frame close button. This
-design does not add, rename, or reinterpret any DES-088 mechanism; it adds
-the layer above it that DES-088 assumed but never specified.
-
-## 4. Demand-Path Wiring Against the Managed-Service Model
-
-**The rule this design enforces: "ensure" means asking the supervisor to
-start its managed unit and waiting for the socket — never forking a
-competing process.** `DisplayPaths._spawn()`/`ensure()`'s raw
-`subprocess.Popen` path is retired from the Hub's demand path entirely (it
-may still serve a bare, service-less dev workflow — see §10 write-set item
-7 — but the Hub never calls it again).
-
-New component, `DisplayPresence`, in `src/punt_lux/domain/hub/presence.py`,
-alongside `clients.py` and `replicator.py`:
+Four classifications, purely derived from two facts the Hub already has —
+no new stored state, because there is nothing for the Hub to decide here,
+only something to observe:
 
 ```python
 from __future__ import annotations
 
 from enum import Enum, auto
-from typing import Self, final
-
-from punt_lux.paths import DisplayPaths
-from punt_lux.service import (
-    DisplayServiceManager,
-    ServiceActionFailedError,
-    ServiceNotInstalledError,
-)
-
-__all__ = ["DisplayPresence", "EnsureOutcome", "PresenceState"]
+from typing import Self
 
 
-class PresenceState(Enum):
-    """The four presence states — derived, never stored except the veto."""
+class DisplayLinkage(Enum):
+    """How the Hub currently sees its one display connection.
 
-    OFF = auto()
-    CLOSED = auto()
-    OPEN = auto()
-    IDLE = auto()
+    Purely observational: the Hub never causes a transition between these
+    states, it only reports which one currently holds. The display's
+    process lifecycle belongs entirely to the user and the service
+    supervisor (§7) — never to this enum or anything that computes it.
+    """
+
+    DISCONNECTED = auto()       # no display connected; nothing held either
+    HELD = auto()               # no display connected; content is waiting
+    CONNECTED_IDLE = auto()     # display connected; nothing live to show
+    CONNECTED_ACTIVE = auto()   # display connected; live content is rendering
 
     @classmethod
-    def classify(
-        cls, *, off: bool, is_running: bool, live_scene_count: int
-    ) -> PresenceState:
-        """Return the state implied by observed facts plus one held veto."""
-        if off:
-            return cls.OFF
-        if not is_running:
-            return cls.CLOSED
-        return cls.OPEN if live_scene_count > 0 else cls.IDLE
-
-
-class EnsureOutcome(Enum):
-    """The result `DisplayPresence.ensure_running` reports — never raises.
-
-    A veto or a supervisor failure is an ordinary, expected outcome here
-    (PY-EH-4/PY-EH-8): the caller (`ClientRegistry`) decides whether its own
-    contract requires turning a given outcome into an exception.
-    """
-
-    ALREADY_RUNNING = auto()
-    STARTED = auto()
-    VETOED = auto()
-    FAILED = auto()
-
-
-@final
-class DisplayPresence:
-    """Own the one piece of presence memory (`off`) and the ensure step.
-
-    Composes the display's `ServiceManager` and `DisplayPaths` — the same
-    two collaborators `DisplayRestart` already composes for its own
-    supervisor-call-then-poll shape, which this class mirrors rather than
-    reinventing.
-    """
-
-    _manager: DisplayServiceManager
-    _paths: DisplayPaths
-    _off: bool
-    __slots__ = ("_manager", "_off", "_paths")
-
-    def __new__(
-        cls,
-        manager: DisplayServiceManager | None = None,
-        paths: DisplayPaths | None = None,
-    ) -> Self:
-        self = super().__new__(cls)
-        self._manager = manager if manager is not None else DisplayServiceManager()
-        self._paths = paths if paths is not None else DisplayPaths()
-        self._off = False
-        return self
-
-    @property
-    def is_off(self) -> bool:
-        """Return whether the Hub currently vetoes the display."""
-        return self._off
-
-    def state(self, live_scene_count: int) -> PresenceState:
-        """Classify current presence given the caller's live-scene count."""
-        return PresenceState.classify(
-            off=self._off,
-            is_running=self._paths.is_running(),
-            live_scene_count=live_scene_count,
-        )
-
-    def set_off(self) -> None:
-        """Veto the display. Does not stop an already-running process (§8)."""
-        self._off = True
-
-    def set_on(self) -> None:
-        """Lift the veto. Does not itself open anything (§8)."""
-        self._off = False
-
-    def ensure_running(self, timeout: float = 30.0) -> EnsureOutcome:
-        """Ask the supervisor to start the display; poll until ready.
-
-        Callers must check `is_off` first — this method assumes the veto
-        gate has already been passed, so the one check lives in one place
-        (`ClientRegistry`, the actual boundary where Hub/display contact
-        begins) rather than being repeated defensively here (PL-PP-3).
-
-        Idempotent against a supervisor already mid-restart (e.g. the
-        display just crashed and `Restart=on-failure`/`KeepAlive` is
-        already bringing it back): `start()` on an already-active or
-        already-activating unit either no-ops or reports a failure that
-        this method treats as informational, not fatal — the poll below is
-        the actual ground truth, not the supervisor call's return code.
-        """
-        if self._paths.is_running():
-            return EnsureOutcome.ALREADY_RUNNING
-        if not self._manager.is_active:
-            try:
-                self._manager.start()
-            except (ServiceNotInstalledError, ServiceActionFailedError):
-                # Do not return FAILED yet — a concurrent supervisor-driven
-                # restart (crash racing this call) can still bring the
-                # socket up; the poll below is authoritative, not this
-                # call's return code (see docstring).
-                pass
-        return self._await_ready(timeout)
-
-    def _await_ready(self, timeout: float) -> EnsureOutcome:
-        """Poll `is_running()` until ready or timeout — the ground truth."""
-        import time
-
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            if self._paths.is_running():
-                return EnsureOutcome.STARTED
-            time.sleep(0.1)
-        return EnsureOutcome.FAILED
-
-
-display_presence: DisplayPresence = DisplayPresence()
+    def classify(cls, *, connected: bool, live_scene_count: int) -> Self:
+        """Classify from two observed facts — no stored transition state."""
+        if not connected:
+            return cls.HELD if live_scene_count > 0 else cls.DISCONNECTED
+        return cls.CONNECTED_ACTIVE if live_scene_count > 0 else cls.CONNECTED_IDLE
 ```
 
-(`import time` is written inline above only to keep the sketch legible; the
-real module puts it at the top per PY-CS-10.)
+| State | Meaning |
+|---|---|
+| `DISCONNECTED` | No display connected; the Hub holds nothing either — a quiet, healthy idle Hub. |
+| `HELD` | No display connected; the Hub holds live content it cannot currently deliver. This is the state this design makes visible (§9) and paces sanely (§6). |
+| `CONNECTED_IDLE` | Display connected; zero live scenes. Still a valid resting state — the window is present and usable (menus, applets) with nothing to show. |
+| `CONNECTED_ACTIVE` | Display connected; live content is rendering. |
 
-`ClientRegistry` (`clients.py`) gains the veto gate and a second, distinct
-acquisition method — **not** a second implementation of the same protocol
-method, because the two callers need genuinely different contracts:
+### Transitions and triggers — every one external to the Hub's own action
+
+| From | Trigger | To |
+|---|---|---|
+| `DISCONNECTED` | an agent pushes content | `HELD` |
+| `HELD` | the held content is withdrawn (disposed) before any display connects | `DISCONNECTED` |
+| `DISCONNECTED`/`HELD` | a display connects — a human ran `lux display start`, the OS service supervisor started it at login, or the supervisor auto-restarted it after a crash | `CONNECTED_IDLE` (nothing was held) or `CONNECTED_ACTIVE` (held content is reconciled, DES-068) |
+| `CONNECTED_ACTIVE` | last live scene disposed while still connected | `CONNECTED_IDLE` |
+| `CONNECTED_IDLE` | new content pushed while connected | `CONNECTED_ACTIVE` |
+| `CONNECTED_*` | the display disconnects — `lux display stop`, the user closing the window, or a crash the supervisor hasn't yet restarted | `DISCONNECTED` or `HELD`, depending on whether content is still live |
+
+Every trigger in that table is something a user, a supervisor, or an agent
+pushing/disposing content does. None is a Hub action. This is the literal
+shape of "the Hub never controls the display" — there is no cell in this
+table where the Hub causes the *left* column to change; it only computes
+which cell it's in.
+
+## 5. `DisplayLinkage` vs. DES-088's Content/Visibility Axes
+
+DES-088 settled a narrower, one-layer-down question: for one already-open
+display, does a *frame's* content (client-owned: `show`/`update`/dispose)
+or its *visibility* (user-owned: close/collapse/dock/raise) get written by
+a given event? Its rule — a content event never writes visibility, a
+visibility event never writes content — governs frames **inside** a
+running display process.
+
+`DisplayLinkage` is one layer up: it governs whether the **display process
+itself** is there to hold any frames at all. DES-088 has nothing to say
+about a display that isn't running. The two compose cleanly and do not
+overlap:
+
+- `DisplayLinkage` answers: "is there a display process, and does the Hub
+  hold anything for it?"
+- DES-088 answers, once `DisplayLinkage` is `CONNECTED_*`: "of the frames it
+  holds, which are on-screen?"
+
+A user closing the **last** ImGui frame inside a running display (a
+DES-088 visibility event) does not touch `DisplayLinkage` at all — the
+process is still running, so linkage stays `CONNECTED_*` regardless of
+whether the closed frame's scenes are still live (DES-088 keeps a closed
+frame's scenes; `live_scene_count` is unaffected by mere frame closure).
+`DisplayLinkage` only reacts to the **process** disappearing or
+appearing — a coarser, different gesture than DES-088's per-frame close
+button. This design adds nothing to, and does not reinterpret, any DES-088
+mechanism.
+
+## 6. The Fix: A Slow, Bounded, Named Retry — Not a Black Hole and Not a Stop
+
+### 6.1 Two backoff regimes, kept separate
+
+The codebase already has two backoff mechanisms and this design adds a
+third by reusing one of them, rather than inventing a new mechanism:
+
+| Backoff | Lives in | Paces | Range today |
+|---|---|---|---|
+| `HubReplicator._backoff` | `replicator.py` | Retrying a batch after ANY `_run_cycle` failure (currently conflates "wedged, connected" and "not connected at all") | `_BASE_BACKOFF_SECONDS=0.1` → `_MAX_BACKOFF_SECONDS=2.0` |
+| `RespawnBackoff` | `respawn_backoff.py`, used by `SendRecovery` | Pacing successive `reap()` calls on a display that keeps crashing after reconnect (display-crash-quarantine.md) | `_BASE_DELAY_SECONDS=1.0` → `_MAX_DELAY_SECONDS=30.0`, resets after a stable interval |
+
+Both are correctly scoped to *connected-but-misbehaving* scenarios, where a
+few-second cadence is right because the supervisor's own crash-restart
+(§7) is expected to resolve things within seconds. Neither is the right
+shape for *never-connected-at-all*, which can legitimately last
+indefinitely (a display that's off, or on a machine the user hasn't turned
+on yet, per §2 item 4). This design adds a **third, distinctly-paced**
+backoff for exactly that condition, rather than repurposing either
+existing one — conflating them was the root of the 2-second-forever defect
+in the first place (§1).
+
+### 6.2 The new not-connected retry curve
+
+Reuse `RespawnBackoff`'s shape (`note_respawn()` / `reset_if_stable()`
+already do exactly the right thing — grow on each retry, reset once
+stable) by parameterizing its two constants instead of hardcoding a third
+copy of the same twelve lines:
 
 ```python
-def _reject_if_off(self) -> None:
-    """Refuse any Hub/display contact while presence is vetoed."""
-    if display_presence.is_off:
-        msg = "display presence is off; refusing to connect or populate it"
-        raise RuntimeError(msg)
-
-def get(self) -> DisplayLink:
-    """Return a connected DisplayLink — reconnect only, never ensure.
-
-    Used by DisplayLiveness (KeepaliveClients). Never starts the service:
-    a keepalive tick that ensured a closed display back into existence
-    would be the exact omnipresence bug this epic already fixed, in a new
-    disguise.
-    """
-    with self._lock:
-        self._reject_if_off()
-        ...  # unchanged below this line
-
-def acquire(self) -> DisplayLink:
-    """Return a connected DisplayLink, ensuring the service first if down.
-
-    Used by HubReplicator/SendRecovery (ClientProvider) — the one path
-    where there is real content that wants to go out, which is the only
-    condition under which the demand path may bring the display up.
-    """
-    with self._lock:
-        self._reject_if_off()
-        if self._client is None:
-            self._client = DisplayLink(
-                name=_DISPLAY_CLIENT_NAME, kind="hub", auto_spawn=False
-            )
-        self._setup_apps()
-        if not self._client.is_connected and not DisplayPaths().is_running():
-            outcome = display_presence.ensure_running()
-            if outcome is EnsureOutcome.VETOED:
-                raise RuntimeError("display presence is off")  # unreachable: gated above
-            if outcome is EnsureOutcome.FAILED:
-                msg = "display did not become ready via its managed service"
-                raise RuntimeError(msg)
-        if not self._client.is_connected:
-            self._connect_and_reconcile(self._client)
-        if not self._client.listener_active:
-            self._client.start_listener()
-        return self._client
+# respawn_backoff.py — only the constructor changes; existing callers unaffected
+def __new__(
+    cls,
+    clock: Callable[[], float] = time.monotonic,
+    base_delay: float = _BASE_DELAY_SECONDS,
+    max_delay: float = _MAX_DELAY_SECONDS,
+) -> Self:
+    self = super().__new__(cls)
+    self._clock = clock
+    self._delay = base_delay
+    self._max_delay = max_delay
+    self._last_respawn_at = None
+    return self
 ```
 
-`ClientProvider` (`replicator_ports.py`) is renamed from `.get()` to
-`.acquire()` — a Protocol name change, not a shim — so its structural
-contract states what it actually promises ("get me a connection, ensuring
-the display exists") distinctly from `KeepaliveClients.get()` ("get
-whatever connection currently exists"). Every call site inside
-`HubReplicator`/`SendRecovery` that sends real content
-(`_send_scene`, the menu-send branch in `_attempt`, `_attempt_isolating`'s
-send, `SendRecovery.recover`'s post-drop reconnect) moves from
-`self._clients.get()` to `self._clients.acquire()`.
+`HubReplicator` composes a second instance for the not-connected case:
 
-## 5. Honored, Not Permanent: How "Close" Self-Heals on the Next Push
+```python
+self._disconnected_backoff = RespawnBackoff(base_delay=2.0, max_delay=120.0)
+```
 
-Nothing new has to detect "the user closed the window" as a distinct event
-from "the process crashed" — see §1's finding that systemd's
-`Restart=on-failure` (and the corrected `KeepAlive`, §9) already treat a
-clean exit and an abnormal exit differently, entirely inside the
-supervisor, with zero Hub involvement. From the Hub's side, both cases look
-identical: `is_running()` is `False`, `CLOSED` is the classification, and
-`acquire()` will happily call `ensure_running()` on the very next content
-push, exactly as it would for a display that had never been opened at all.
+Curve: 2s, 4s, 8s, 16s, 32s, 64s, capped at 120s — squarely inside the
+operator's stated "once a minute to once every five minutes" band. The
+exact numbers are an explicit tunable, not load-bearing: the operator's own
+words are "it's not critical what it is." What is load-bearing is the
+*shape* — genuinely exponential, genuinely capped one to two orders of
+magnitude above the existing 2-second wedged-display ceiling, so an
+unattended, no-display Hub settles into a quiet, minute-or-slower poll
+instead of a tight loop.
 
-"Honored" falls out of `get()` (keepalive) never calling `ensure_running()`
-— a closed display stays closed through any number of keepalive ticks with
-nothing pushed. "Not permanent" falls out of `acquire()` (the demand path)
-always trying `ensure_running()` when not running and not vetoed — the very
-next `show()` reopens it. No flag named "was this closed by the user"
-exists anywhere, because no code path needs to ask that question — the only
-question that matters is "is content trying to go out right now," and that
-question is exactly what distinguishes `get()`'s callers from `acquire()`'s.
+### 6.3 Catching the right exception on its own branch
 
-## 6. The `display:off` Veto Point
+`RuntimeError` (no display was ever connected — `.get()`'s failure mode)
+must be distinguished from `BlockingIOError`/`OSError` (a display *was*
+connected and the send just failed) at the point they're raised, not left
+to fall through to the same catch-all:
 
-**Design decision, stated explicitly rather than left implicit.** The
-existing `display:off`/`display:on` control
-(`operations/models/config.py`'s `DisplayModeRequest`/`DisplayModeState`,
-`operations/display_mode_store.py`) is a **per-repo, client-side, advisory**
-setting: it lives in `<repo>/.punt-labs/lux.md`, is read by
-`display_mode_get`, and its write path (`cli/display.py:_set_mode`)
-explicitly bypasses the Hub — the comment there even says "same shape the
-deleted Hub round trip produced." Its intended consumer is the calling
-agent, deciding for itself whether to invoke `show()` at all for a given
-repo, the same shape as vox's per-repo `enabled` marker. It is not, and
-never has been, enforced by the Hub or the demand path — there is no code
-anywhere that reads it before a scene is pushed.
+```python
+def _push_cycle(self, batch: DrainedBatch) -> _CycleOutcome:
+    try:
+        emptied = self._attempt(batch)
+    except RuntimeError:
+        # No display connected at all — nothing to reap or heal, just wait.
+        self._recovery.restore(batch)
+        delay = self._disconnected_backoff.note_respawn()
+        self._log_disconnected(delay)
+        time.sleep(delay)
+        return _CycleOutcome(recovered=True, emptied=())
+    except BlockingIOError as exc:
+        ...  # unchanged — wedged-display recovery, self._recovery / RespawnBackoff(1.0, 30.0)
+    except OSError as exc:
+        ...  # unchanged — dead-peer reconnect
+    return _CycleOutcome(recovered=False, emptied=emptied)
+```
 
-Redefining that per-repo file as the Hub's presence veto is rejected: a
-Hub aggregates content from many repos and possibly many concurrent
-sessions (target.md's "one Hub, many agent/app UIs"), and the physical
-display is one shared resource. A per-repo file cannot arbitrate "repo A
-says off, repo B says on, what does the one shared window do" — that
-question has no answer in the current data model, because scenes are keyed
-by `ConnectionScopedId` (DES-086), not by filesystem repo path, and
-threading "repo" through the connection/identity model to make that
-arbitration possible is an identity-layer change (DES-089's territory), not
-a presence-layer one.
+A clean cycle (a real send succeeded) resets `_disconnected_backoff` to a
+fresh `RespawnBackoff(base_delay=2.0, max_delay=120.0)` immediately — no
+stability window needed here, unlike the crash-quarantine `RespawnBackoff`,
+because "reconnected and sent successfully" is unambiguous in a way
+"hasn't crashed again yet" is not (there is no analogous flapping risk to
+guard against).
 
-**What this design adds instead**: a new, Hub-instance-scoped presence
-control — `display_presence.set_off()`/`set_on()` (§4) — which is the
-`_off` flag `PresenceState.classify` reads. This is the literal "absolute
-veto" the mission asks for: `ClientRegistry._reject_if_off()` is checked
-before *any* Hub/display contact, in both `get()` and `acquire()`, so a
-vetoed Hub never connects, never sends a manifest, never repaints a
-scene — regardless of whether the trigger was a content push, a keepalive
-tick, or (per §8) an out-of-band process that happens to be running. It is
-new surface (a new operation, MCP tool, and CLI verb — §10 write-set item
-6), deliberately independent of the existing per-repo file, which keeps
-working exactly as it does today for its existing, narrower job.
+### 6.4 Logging: state the condition, don't cry wolf
 
-The relationship between the two controls (should setting the per-repo file
-off for the currently-active repo also flip the new Hub-level flag?) is an
-open question for a later design, not resolved here — folding them
-together requires the repo-aware connection identity this design
-deliberately does not build.
+Today's `logger.exception("replicator cycle failed; retrying the batch")`
+fires every cycle, indistinguishable from a genuine failure, training an
+operator to ignore it. The corrected behavior: log once, at `INFO`, on the
+transition *into* `HELD`/`DISCONNECTED` ("no display connected; N scene(s)
+held, next retry in Ns"), and at `DEBUG` on every subsequent already-waiting
+cycle — the state is expected and already visible through introspection
+(§9), so the log's job is a breadcrumb for someone reading logs, not a
+recurring alarm.
 
-## 7. Keepalive Maintains, Never Force-Spawns
+## 7. Honoring a User Stop or Close — Scoped to the Display's Own Service Spec
 
-`DisplayLiveness` needs exactly one behavioral change, and it is a
-tightening, not new logic: `check_once()`/`_probe()` should short-circuit
-to a debug-level no-op when `DisplayPaths().is_running()` is already
-`False`, rather than calling `self._clients.get()` and logging a
-`WARNING`-level "liveness probe failed" every interval. Today that warning
-fires once per `keepalive_interval` for as long as the display is
-legitimately, correctly `CLOSED` — a purely cosmetic problem (it does not
-spawn anything, because `get()` never ensures), but a real one: a log that
-warns continuously about an expected, healthy state trains an operator to
-ignore warnings.
+Two distinct user gestures both need to *stay down* until the user or
+service infrastructure — never the Hub — brings the display back:
 
-No other change is needed. `get()` (§4) never calls `ensure_running()`, so
-keepalive maintains exactly what its name says — the *connection* to a
-display that is supposed to be there — and never spawns a display that
-isn't wanted. This is the direct fix for the epic's original complaint
-("today's 2-second liveness worker unconditionally spawns and resurrects
-the window"): that complaint was already resolved by `auto_spawn=False`;
-this design's job is only to make sure the *replacement* mechanism
-(`acquire()`'s `ensure_running()`) never leaks into keepalive's path.
+1. **`lux display stop`** — already correct today. `LaunchdBackend.stop()`
+   deliberately uses `bootout`, not `unload`, specifically because bare
+   `KeepAlive=true` would otherwise have launchd respawn the job on the
+   `SIGTERM` `stop` sends; `bootout` deregisters the job from the domain
+   entirely, so there is nothing left to respawn it
+   (`_backend_launchd.py:132-145`'s own docstring states this). No change
+   needed.
+2. **The user closing the OS window**, without going through `lux display
+   stop` — the job stays *loaded* (bootstrapped), and only the process
+   exits. Whether that exit is auto-resurrected depends entirely on the
+   supervisor's restart policy, and the two platforms disagree today:
+   - Linux: `_backend_systemd.py:157` sets `Restart=on-failure` — a clean
+     exit (`rc=0`) is **not** auto-restarted. Already correct.
+   - macOS: `_backend_launchd.py:199-200` sets bare `<key>KeepAlive</key><true/>`.
+     launchd's documented semantics for the bare-boolean form restart the
+     job on **any** exit, including a clean one — closing the window would
+     be immediately resurrected by launchd itself, one layer below
+     anything the Hub does. This is the one asymmetry this design fixes.
 
-## 8. Empty-but-Open Is Valid; Off Does Not Retract an Open Window
+**Fix, scoped to `DISPLAY_SPEC` only — `HUB_SPEC`'s restart semantics do not
+change** (a distinct finding from review: the Hub has no user-facing
+"window" gesture to honor, and its own bare-`KeepAlive`/always-restart
+posture is correct and untouched). `ServiceSpec` gains one field:
 
-`IDLE` (§2) is a first-class resting state, not a transient one to be
-swept away. A display with zero live scenes stays exactly as reachable as
-one with content — the World/Clients menus, the beads applet, and any
-other launcher affordance keep working, and nothing times it out or closes
-it. This falls directly out of `PresenceState.classify` treating `IDLE` as
-a plain classification of `is_running() and count == 0`, with no special
-"idle too long, tear it down" logic anywhere.
+```python
+@dataclass(frozen=True, slots=True)
+class ServiceSpec:
+    ...
+    restart_on_crash_only: bool = False  # False preserves today's behavior for HUB_SPEC
+```
 
-**Rejected alternative: `set_off()` also stops an already-running
-display.** Considered making the veto retroactive — killing the display
-via `ServiceManager.for_display().stop()` the moment presence turns off,
-so "off" always means "no window, period." Rejected because: (1) the
-mission's stated invariant is specifically about a **content push** not
-opening the display while off, not about tearing down a window the user is
-currently looking at; (2) forcibly closing a window mid-interaction because
-a flag flipped elsewhere is a surprising, unrequested side effect with no
-upside the gate at `_reject_if_off()` doesn't already provide; (3) it
-introduces a genuine race between "stop the service" and "a click just in
-flight on that same display" with no corresponding safety win, since the
-gate already guarantees the Hub sends nothing further to it. The chosen
-design (§4, §6) is purely a **forward-looking** veto: nothing new gets in
-while off; whatever was already there before the veto was set is left
-alone. The one residual gap — an out-of-band actor (a user running
-`lux display start` by hand, or `RunAtLoad` firing at the next login) bringing
-the process up while the Hub is off — is deliberately left as a non-issue
-rather than "fixed" by killing it: `_reject_if_off()` still refuses to
-connect to it, so the Hub never populates it with content either way, and
-respecting an explicit manual `lux display start` (rather than fighting it)
-is the more conservative failure mode.
-
-## 9. Cross-Platform Restart-Policy Asymmetry (Discovered, In Write-Set)
-
-§1 already named this: macOS's plist sets bare `<key>KeepAlive</key><true/>`
-(`_backend_launchd.py:199-200`). launchd's documented semantics for the
-bare-boolean form are "restart on **any** exit, including a clean one" —
-unlike systemd's `Restart=on-failure`, which only restarts on a non-zero
-exit. If the display's OS-window-close path exits cleanly (`rc=0`), the two
-platforms currently disagree about whether "honored, not permanent" (§2,
-§5) actually holds: Linux honors the close (the unit stays down until the
-Hub's demand path brings it back); macOS's `KeepAlive=true` would
-immediately resurrect it, regardless of what this design does at the Hub
-layer, because the resurrection happens one layer below the Hub entirely.
-
-**Required implementation-mission fix**: change the plist's `KeepAlive` key
-from the bare boolean to the dictionary form restricting restart to
-abnormal exits only —
+`DISPLAY_SPEC` sets `restart_on_crash_only=True`; `HUB_SPEC` is left at the
+default, unchanged. `LaunchdBackend._plist_content()` branches on the
+field:
 
 ```xml
+<!-- restart_on_crash_only=True (DISPLAY_SPEC): -->
 <key>KeepAlive</key>
 <dict>
     <key>SuccessfulExit</key>
     <false/>
 </dict>
+
+<!-- restart_on_crash_only=False (HUB_SPEC, unchanged): -->
+<key>KeepAlive</key>
+<true/>
 ```
 
-— which is the macOS-side statement of the identical policy systemd's
-`Restart=on-failure` already encodes. This must be verified against real
-launchd behavior during implementation (the exact interaction between
-`SuccessfulExit=false` and a signal-terminated exit, versus a `sys.exit(0)`
-call, is a platform detail this design states with the correct intent but
-does not claim to have executed and confirmed).
+`_backend_systemd.py` needs no change — `Restart=on-failure` already
+applies identically to both specs today and is already correct for both;
+only launchd has the asymmetry. This must be verified against real launchd
+behavior during implementation (the exact interaction between
+`SuccessfulExit=false` and a signal-terminated exit versus a `sys.exit(0)`
+call is a platform detail this design states with the correct intent but
+has not executed and confirmed).
+
+## 8. Cross-Host Forward Compatibility
+
+Nothing in this design assumes the Hub and the display share a machine.
+The Hub-to-display leg is a same-host `AF_UNIX` socket today
+(`DisplayPaths._default_path()` resolves `$XDG_RUNTIME_DIR`/`/tmp/lux-$USER`),
+and DES-090 describes it becoming a network transport for the cross-host
+case. Every mechanism this design relies on survives that transition
+unchanged, because none of them assume co-location:
+
+- **Dialing out** (`ClientRegistry.get()`'s `.connect()` call) is a plain
+  client-of-a-socket operation whether the socket is a Unix path or a
+  network address — swapping the transport changes the address, not the
+  shape of "try to connect; if refused, that's `DISCONNECTED`/`HELD`; if it
+  succeeds, reconcile."
+- **The retry cadence** (§6) has no notion of "the same machine, so it
+  should be back soon" baked into it — a minute-to-five-minutes cadence is
+  exactly as sensible whether the display is down the hall or on a laptop
+  that's currently closed on the other side of a network.
+- **The Hub never issuing a process-control call** (§2 item 1) is the
+  precondition that makes cross-host safe at all — a design that called
+  `ServiceManager.for_display().start()` cannot survive the display moving
+  to a machine the Hub has no privileged access to, which is exactly why
+  that direction was ruled out.
+
+The one thing this design does NOT attempt is cross-host aggregation itself
+(many Hubs, one display, or vice versa) — that is DES-089/090's own,
+separate, unimplemented scope. This design's job is narrower and
+prerequisite: make sure nothing here has to be rewritten when that scope
+lands.
+
+## 9. Multi-Host / Host-Identity Introspection — Now Central
+
+The bead's own evidence — "pembroke Hub vs. keble display" — is not a
+wire-protocol multi-Hub-aggregation problem; each host runs its own
+independent Hub+display pair today (the socket is same-host only), so the
+actual failure was an operator (or an agent on their behalf) pushing to the
+wrong host's Hub — one nobody is looking at. Now that `HELD` is an expected,
+possibly long-lived state rather than an error, telling *which* Hub is
+holding content, on *which* host, is the primary way an agent or operator
+notices "I pushed here, but nothing will ever render, because nobody is
+watching this Hub" — more central than in the earlier draft, not a
+secondary caveat.
+
+New, pure Hub-side (no display round-trip needed — that's the point)
+operation and wire model, mirroring `DisplayModeOperations`'s existing
+"reads local/Hub state only" shape:
+
+```python
+# operations/models/display_link.py
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict
+
+__all__ = ["DisplayLinkState"]
+
+
+class DisplayLinkState(BaseModel):
+    """The Hub's own view of its display connection and any content held.
+
+    Answerable with zero display round-trip — that is the entire point:
+    this must work precisely when `linkage` is DISCONNECTED or HELD.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    kind: Literal["ok"] = "ok"
+    linkage: Literal["disconnected", "held", "connected_idle", "connected_active"]
+    live_scene_count: int
+    retry_delay_seconds: float | None  # current not-connected backoff delay; None when connected
+    hub_host: str   # socket.gethostname() — which machine this Hub is on
+    hub_pid: int    # os.getpid() — which Hub process, for a same-host duplicate
+```
+
+```python
+# operations/display_link.py
+from __future__ import annotations
+
+import os
+import socket
+from typing import TYPE_CHECKING, Self, final
+
+from punt_lux.domain.hub.display_linkage import DisplayLinkage
+from punt_lux.operations.models.display_link import DisplayLinkState
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from punt_lux.domain.hub.clients import ClientRegistry
+    from punt_lux.domain.hub.replicator import HubReplicator
+    from punt_lux.domain.ids import SceneId
+
+__all__ = ["DisplayLinkOperations"]
+
+
+@final
+class DisplayLinkOperations:
+    """Report the Hub-to-display link and any content held on it — no proxying."""
+
+    _clients: ClientRegistry
+    _live_scene_ids: Callable[[], frozenset[SceneId]]
+    _replicator: HubReplicator
+    __slots__ = ("_clients", "_live_scene_ids", "_replicator")
+
+    def __new__(
+        cls,
+        clients: ClientRegistry,
+        live_scene_ids: Callable[[], frozenset[SceneId]],
+        replicator: HubReplicator,
+    ) -> Self:
+        self = super().__new__(cls)
+        self._clients = clients
+        self._live_scene_ids = live_scene_ids
+        self._replicator = replicator
+        return self
+
+    def get_link(self) -> DisplayLinkState:
+        """Return the current linkage classification and host identity."""
+        count = len(self._live_scene_ids())
+        connected = self._clients.is_connected
+        linkage = DisplayLinkage.classify(connected=connected, live_scene_count=count)
+        return DisplayLinkState(
+            linkage=linkage.name.lower(),
+            live_scene_count=count,
+            retry_delay_seconds=None if connected else self._replicator.disconnected_delay,
+            hub_host=socket.gethostname(),
+            hub_pid=os.getpid(),
+        )
+```
+
+`ClientRegistry` gains a cheap read-only `is_connected` property
+(`self._client is not None and self._client.is_connected` — no lock, no
+I/O) so this operation never has to attempt a connect just to answer a
+read. `HubReplicator` gains a small `disconnected_delay` property exposing
+the current `_disconnected_backoff` delay for the same reason —
+introspection should show the operator not just "held" but "and the Hub
+will try again in about N seconds," so a person watching doesn't have to
+guess whether it's about to retry or settled into the five-minute
+steady-state.
+
+Surfaced via a new read-only MCP tool `display_link_get` (no arguments,
+alongside the existing `display_mode_get`/`display_state_get` reads) and a
+CLI verb, `lux display link`. Both work with no display connected at all —
+verified explicitly in the write-set's test plan (§10 item 8), since a
+surface that only answers while connected would be useless for exactly the
+state it exists to report.
 
 ## 10. Concrete Implementation Write-Set
 
-For the follow-on implementation mission. Every item below is grounded in
-a specific file this design read, not a placeholder.
+For the follow-on implementation mission. Every item is grounded in a
+specific file this design read.
 
-1. **New** `src/punt_lux/domain/hub/presence.py` — `PresenceState`,
-   `EnsureOutcome`, `DisplayPresence`, singleton `display_presence` (§4).
-2. **Modify** `src/punt_lux/domain/hub/clients.py` — add
-   `_reject_if_off()`; add `acquire()`; keep `get()` non-ensuring (§4, §7).
-3. **Modify** `src/punt_lux/domain/hub/replicator_ports.py` — rename
-   `ClientProvider.get` → `ClientProvider.acquire` (structural contract
-   change, not a shim — PL-PP-1).
-4. **Modify** `src/punt_lux/domain/hub/replicator.py` and `recovery.py` —
-   every call site sending real content (`_send_scene`, the menu-send
-   branch of `_attempt`, `_attempt_isolating`, `SendRecovery.recover`'s
-   post-drop reconnect) moves from `self._clients.get()` to
-   `self._clients.acquire()`.
-5. **Modify** `src/punt_lux/domain/hub/liveness.py` — `_probe()` /
-   `check_once()` short-circuits to a debug no-op when
-   `DisplayPaths().is_running()` is already `False`, instead of calling
-   `get()` and warning every interval (§7).
-6. **New** Hub-scoped presence control surface, mirroring the existing
-   `display_mode_get`/`DisplayModeOperations` shape:
-   - `operations/models/presence.py` — a `PresenceStateReply` (`kind`,
-     `state: Literal["off","closed","open","idle"]`, plus the host-identity
-     fields from §11) and a `PresenceRequest` (`mode: Literal["on","off"]`).
-   - `operations/presence.py` — `PresenceOperations`, composed into
-     `operations/facade.py` alongside `DisplayModeOperations`.
-   - MCP tools in `tools/display_write_tools.py` (`presence_set`) and a
-     read tool/CLI verb (`lux display presence`, or extend `lux display
-     state`) for `presence_get`.
-7. **Modify** `src/punt_lux/paths.py` — `DisplayPaths.ensure()`/`_spawn()`
-   (the raw-`Popen` path) is no longer reachable from any Hub code path
-   after items 2–4 land. Leave it in place only for the bare,
-   service-less dev/test entry points that still legitimately want a
-   direct fork (grep every remaining caller after items 2–4 to confirm
-   none are Hub-facing; if all remaining callers are test-only or
-   `lux display serve --socket` foreground dev usage, consider whether
-   `ensure()` should be deleted outright rather than left as a second,
-   now-Hub-unreachable way to bring up a display — a decision for the
-   implementation mission, not prescribed here per the design-mission
-   write-set-is-the-output rule).
-8. **Modify** `src/punt_lux/_backend_launchd.py` — `KeepAlive` from bare
-   `<true/>` to `{"SuccessfulExit": false}` (§9).
+1. **New** `src/punt_lux/domain/hub/display_linkage.py` — `DisplayLinkage`
+   enum with `classify()` (§4). Pure, no I/O, trivially unit-testable.
+2. **Modify** `src/punt_lux/domain/hub/respawn_backoff.py` —
+   parameterize `RespawnBackoff.__new__` with `base_delay`/`max_delay`
+   (defaulting to today's `_BASE_DELAY_SECONDS`/`_MAX_DELAY_SECONDS`, so the
+   existing crash-respawn caller is unaffected) (§6.2).
+3. **Modify** `src/punt_lux/domain/hub/replicator.py` —
+   - Compose a second backoff instance,
+     `self._disconnected_backoff = RespawnBackoff(base_delay=2.0, max_delay=120.0)`.
+   - `_push_cycle` catches `RuntimeError` on its own branch, distinct from
+     `BlockingIOError`/`OSError` (§6.3).
+   - Logging: `INFO` on transition into the not-connected state, `DEBUG` on
+     repeats (§6.4).
+   - New `disconnected_delay` read-only property for §9's introspection.
+4. **Modify** `src/punt_lux/domain/hub/clients.py` — add a cheap read-only
+   `is_connected` property to `ClientRegistry` (§9). No other change —
+   `get()` keeps its current shape and behavior exactly (no ensure, no
+   split; the earlier draft's `acquire()`/veto machinery is fully removed,
+   not merely unused).
+5. **New** `operations/models/display_link.py` (`DisplayLinkState`) and
+   `operations/display_link.py` (`DisplayLinkOperations`), composed into
+   `operations/facade.py` alongside the existing concern classes (§9).
+6. **New** MCP tool `display_link_get` (read-only, no arguments) and CLI
+   verb `lux display link`, mirroring the existing `display_mode_get`/
+   `lux display mode` read shape.
+7. **Modify** `src/punt_lux/_service_spec.py` — add
+   `restart_on_crash_only: bool = False` to `ServiceSpec`; set
+   `restart_on_crash_only=True` on `DISPLAY_SPEC` only (§7). `HUB_SPEC` is
+   not touched.
+8. **Modify** `src/punt_lux/_backend_launchd.py` — `_plist_content()`
+   branches on `spec.restart_on_crash_only` to emit the dict form
+   (`SuccessfulExit: false`) or the existing bare `<true/>` (§7). No change
+   to `_backend_systemd.py` — already correct for both specs.
 9. **Tests**:
-   - `PresenceState.classify` — a pure-function truth table (trivial,
-     4 branches, no fakes needed).
-   - `ClientRegistry.acquire()`/`get()` — veto behavior with a fake
-     `DisplayPresence`/`DisplayServiceManager`: `acquire()` calls
-     `ensure_running()` when down and not vetoed; `get()` never does;
-     both raise when vetoed regardless of `is_running()`.
-   - `DisplayLiveness` — no `WARNING` log and no `get()` call when
-     `is_running()` is `False` (fidelity control for §7).
-   - E2E (tier 3, mirroring `DisplayRestart`'s existing shape in
-     `display_restart.py`): stop the display via `lux display stop`, push a
-     scene through the Hub, assert the display comes back via
-     `ServiceManager.start()` (spy/assert on the supervisor call, not a
-     raw-`Popen` process count) and the scene renders. A second e2e case
-     asserts `presence_set(off)` then a push never calls
-     `ServiceManager.start()` at all.
+   - `DisplayLinkage.classify` — a pure-function truth table (4 branches,
+     no fakes).
+   - `HubReplicator` — a fake `ClientProvider` whose `get()` raises
+     `RuntimeError` drives the not-connected branch: assert the batch is
+     restored (content not lost), assert the delay sequence matches the
+     2s→120s curve across repeated cycles (fidelity check for the exact
+     cadence, not just "some backoff exists"), assert a subsequent
+     successful `get()` resets the delay.
+   - `ClientRegistry.is_connected` — reflects the underlying `DisplayLink`
+     state with no I/O.
+   - `DisplayLinkOperations.get_link()` — with a fake `ClientRegistry`
+     reporting not-connected and a nonzero live-scene count, assert
+     `linkage == "held"` and the call requires no display round-trip
+     (constructed with no display fixture at all).
+   - `_backend_launchd.py` — a unit test asserting the two `KeepAlive`
+     renderings (`restart_on_crash_only=True` → dict form;
+     `restart_on_crash_only=False` → bare `<true/>`), and a fidelity check
+     that `HUB_SPEC`'s rendered plist is byte-identical before and after
+     this change.
+   - **Grep-provable safety check (§11 invariant 5)**: a test (or a
+     `make check`-wired grep) asserting no source file under
+     `src/punt_lux/domain/hub/` references `ServiceManager` in connection
+     with `DISPLAY_SPEC`/`DisplayServiceManager`.
 10. **CHANGELOG** entry under `## [Unreleased]`.
-11. **z-spec model** (`docs/display_presence.tex`, separate mission after
-    ratification) — the seven invariants in §12, following
-    `display_lifecycle.tex`'s existing shape: flat state schema, one `Init`,
-    ProB model-check of every invariant plus deadlock-freedom, a fidelity
-    control that reproduces the exact bug in §1 when the fix is reverted
-    (drop `acquire()`'s ensure call → the model must exhibit "content
-    pushed, display closed, nothing ever renders").
+11. **z-spec model** (`docs/display_linkage.tex` or an extension of the
+    existing `docs/hub_replicator.tex` — that spec already models
+    Hub→Display replication including the connect-success re-mark hook
+    (DES-068) this design leans on, per `docs/README.md`'s coverage table,
+    so extending it may be more accurate than a fresh document; the
+    implementation mission should confirm which after reading it) — the
+    seven invariants in §11, with a fidelity control that reproduces this
+    design's own root cause (§1) when the fix is reverted: catching
+    `RuntimeError` on the generic branch again must reproduce "the backoff
+    plateaus at 2s and never reaches the slow steady state."
 
-## 11. Multi-Host Introspection Surface (DES-089 Caveat)
+## 11. Rejected Alternatives
 
-The bead's evidence — "pembroke Hub vs keble display" — is not a
-wire-protocol multi-Hub-aggregation problem (DES-089/090's cross-host
-transport is a separate, unimplemented companion design). It is simpler and
-narrower: the Hub-to-Display leg is a same-host `AF_UNIX` socket today
-(`DisplayPaths._default_path()` resolves `$XDG_RUNTIME_DIR`/`/tmp/lux-$USER`
-— always local), so **each host runs its own independent Hub+Display
-pair**, and the failure mode is an operator (or an agent acting on their
-behalf) pushing to the wrong host's Hub — one they are not physically
-looking at.
+**The earlier draft's demand-open design** (`DisplayPresence.ensure_running()`
+calling `ServiceManager.for_display().start()` from `ClientRegistry.acquire()`,
+gated by an `OFF` veto flag). Rejected by explicit operator ruling (§2): it
+requires the Hub to have privileged control over the display's process,
+which is false today only by convention and will be structurally false
+once the two are on different machines (§8). Documented here rather than
+silently dropped, because the root-cause trace in §1 is genuinely reused —
+only the conclusion drawn from it changes.
 
-This design does not build cross-host aggregation. It surfaces enough for
-an agent or operator to catch the mismatch themselves: every presence read
-(`presence_get`, and `display_state_get` while at it) includes the Hub's
-own host identity, using data already available with no new transport:
+**Stop retrying once disconnected** (an intermediate idea raised while
+correcting the above: treat `HELD` as terminal until some external signal
+says "try again"). Rejected by explicit operator ruling: *"The hub can
+retry and that is fine... it needs some type of exponential backoff to a
+slow retry state,"* not a cessation of retries. Retrying is how content
+reconnects when a display later appears with nobody having to nudge the
+Hub; the defect was always the cadence, never the existence of the retry.
 
-```python
-@dataclass(frozen=True, slots=True)
-class HubHostIdentity:
-    """Which machine and process this Hub is — enough to catch a
-    wrong-host push, without any cross-host transport (DES-090's job,
-    not this design's)."""
-
-    hostname: str  # socket.gethostname()
-    pid: int  # os.getpid() — the Hub process, not the display's
-    socket_path: str  # DisplayPaths().socket_path — always same-host
-```
-
-Included in `PresenceStateReply` (§10 item 6). An agent or CLI reading
-`lux display presence` sees, alongside the state, exactly which host's Hub
-it just queried — the same information an operator would need to notice
-"I'm on pembroke, but I meant to push to keble." This is intentionally
-minimal: it is a diagnostic surface, not a fix, and it reuses the identity
-shape DES-089 already establishes (`HubId` = hostname + pid) rather than
-inventing a parallel one.
+**A single shared backoff object for both the wedged-and-connected case and
+the never-connected case.** Considered reusing `HubReplicator._backoff`
+(0.1s→2.0s) for both, just raising its cap. Rejected: the two scenarios
+have genuinely different expected timescales — a wedged display is
+expected back within seconds because the supervisor's own crash-restart is
+in flight (§7); a fully disconnected display may legitimately stay that
+way for hours. One shared cap is a compromise that serves neither well; two
+independently-tuned backoffs (§6.1), reusing one existing class
+parameterized rather than duplicated, serve both correctly with a two-line
+change.
 
 ## 12. Safety Invariants — Required Before Implementation (z-spec)
 
-The mission's own trigger for mandatory formal verification applies here:
-this is a stateful lifecycle with genuine interleaving between
-content-push, user-close, `display:off`, keepalive, and supervisor
-start/stop — the same class of problem `display_lifecycle.tex` already
-solved for the socket-bind race, one layer below this one. **None of these
-seven are optional; all must be ProB-model-checked, with a fidelity control
-reproducing this design's own bug (§1) when the fix is reverted, before the
-implementation mission is dispatched.**
+Re-derived for the corrected model; the earlier draft's veto-centric
+invariants (`off ⇒ never-open`, etc.) are moot — there is no veto and no
+Hub-initiated open to guard against anymore. This remains a genuine
+interleaving problem (content push, disconnect, reconnect, and the retry
+timer, all potentially concurrent) and the mission's own trigger for
+mandatory z-spec still applies.
 
-1. **`off ⇒ never-open`.** While presence is `OFF`, no code path — demand
-   push, keepalive tick, or an out-of-band process racing a `set_off()` —
-   ever causes the Hub to connect to, populate, or start the display.
-2. **`wanted-and-not-off ⇒ eventually-a-display`.** If content is live and
-   presence is not `OFF`, `ensure_running()` is eventually attempted and,
-   absent a persistent external failure (not installed, supervisor
-   refuses), the display becomes running. (Liveness, not just safety.)
-3. **`user-close-while-idle ⇒ stays-closed`.** Once the display transitions
-   to not-running with no content demanding it, it remains `CLOSED`
-   indefinitely under keepalive alone — no background process reopens it
-   without a fresh content push.
-4. **No two-supervisor-call race (`no-two-winners`).** Two concurrent
-   triggers for `ensure_running()` (two racing pushes, or a push racing
-   keepalive's own reconnect) never result in two overlapping
-   `ServiceManager.start()` calls disagreeing about outcome — the
-   `ClientRegistry` lock plus `is_active()`/poll-for-ground-truth
-   composition (§4) is the claimed mechanism; this must be proven, not
-   assumed.
-5. **`set_off` mid-`ensure_running()` leaves no stale window.** A
-   `presence_set(off)` arriving while an `ensure_running()` call is in
-   flight must not result in the Hub treating that in-flight call's
-   eventual success as license to send content afterward — the *next*
-   `acquire()`'s veto check, not the in-flight call's own completion, is
-   what must govern.
-6. **Deadlock-freedom.** `ClientRegistry._lock` (an `RLock`) plus the
-   synchronous subprocess calls inside `ServiceManager.start()`/`is_active`
-   (`launchctl`/`systemctl`) never produce a cyclic wait — this is a new
-   lock/external-process combination not covered by
-   `display_lifecycle.tex`'s existing spawn-lock/bind-lock ordering, and
-   needs its own check.
-7. **Crash-restart does not defeat `OFF`.** A supervisor-level auto-restart
-   (crash → `Restart=on-failure`/corrected `KeepAlive`) that brings the
-   process back up while presence is `OFF` must never result in the Hub
-   reconnecting to or repainting it — the specific interleaving of a
-   crash-restart racing a `presence_set(off)` that invariant 1 states in
-   general.
+1. **Content is never lost while disconnected.** Every scene marked dirty
+   (or already live) while `DisplayLinkage` is `DISCONNECTED`/`HELD`
+   remains in `HubDisplay`'s authoritative store and on the dirty signal;
+   no interleaving of push, disconnect, and retry drops, forgets, or
+   silently discards a batch.
+2. **A (re)connect reconciles all held content exactly once.** The
+   moment `DisplayLinkage` transitions from not-connected to connected,
+   every currently-live scene (and the menu) is marked dirty exactly
+   once — none missed, none double-sent for the same reconnect event.
+3. **The Hub never blocks or spins on a missing display.** Every dial
+   attempt resolves in bounded time (the connect timeout); the interval
+   between attempts is always governed by the disconnected-backoff's
+   current delay, never a tight unbounded loop.
+4. **The disconnected-backoff curve is genuinely exponential and reaches a
+   slow steady state, not merely bounded.** Across a sustained
+   disconnection, successive delays strictly increase up to the configured
+   cap (§6.2's 2s→120s, or whatever the implementation tunes it to) and
+   then hold at the cap — the specific defect this design fixes (§1: a
+   curve that climbs but plateaus too low) must be the exact thing the
+   model can distinguish from a correct curve.
+5. **The Hub never issues a process-control call to the display.** No
+   code path in `domain/hub/` (replicator, recovery, liveness, client
+   registry) calls `ServiceManager.start()`/`.stop()`/`.restart()` for the
+   display, under any circumstance — checkable by grep (§10 item 9) and by
+   the model, as the absolute form of the operator's ruling.
+6. **A display connect promptly breaks out of the slow-retry state.**
+   Regardless of how deep into the backoff curve the Hub currently is (even
+   sitting at the 120s cap), the very next cycle after a display becomes
+   reachable sends the held content and resets the curve — the Hub is never
+   "committed" to waiting out its current delay once a display is actually
+   there.
+7. **Deadlock-freedom.** `ClientRegistry._lock` (an `RLock`), the
+   replicator's dirty-signal wait/drain loop, and the disconnected-backoff's
+   own sleep never produce a cyclic wait or a scenario where a new content
+   push cannot eventually be observed because the replicator thread is
+   parked.
 
 ## Related Documents
 
@@ -672,18 +716,20 @@ implementation mission is dispatched.**
 - [`../display_lifecycle.tex`](../display_lifecycle.tex) →
   [`../display_lifecycle.pdf`](../display_lifecycle.pdf) and
   [`../display_lifecycle_coverage.md`](../display_lifecycle_coverage.md) —
-  the process-singleton socket lifecycle this design's `is_running()`
-  ground truth already relies on; the reference shape for §12's z-spec
-  model and its coverage audit.
+  the process-singleton socket lifecycle this design's connect/disconnect
+  observation already relies on.
+- [`../hub_replicator.tex`](../hub_replicator.tex) →
+  [`../hub_replicator.pdf`](../hub_replicator.pdf) and
+  [`../hub_replicator_coverage.md`](../hub_replicator_coverage.md) — models
+  Hub→Display replication including the DES-068 connect-success re-mark
+  hook this design's reconciliation leans on; the likely extension target
+  for §12's invariants rather than a wholly new spec (§10 item 11).
 - [`./service-lifecycle-migration.md`](./service-lifecycle-migration.md) —
-  the managed-service model (`ServiceManager`, `ServiceSpec`,
-  `LegacySweep`) this design's `ensure_running()` builds directly on; also
-  the precedent for treating a spurious supervisor-call failure as
-  self-healing rather than fatal (§4's `ensure_running()` docstring).
-- `src/punt_lux/display_restart.py` — the existing
-  supervisor-call-then-poll-for-witnesses shape `DisplayPresence.ensure_running`
-  mirrors.
+  the managed-service model (`ServiceManager`, `ServiceSpec`) this design
+  deliberately does NOT call into from Hub code; still the reference for
+  `ServiceSpec`'s existing shape that §7's `restart_on_crash_only` field
+  extends.
 - `src/punt_lux/domain/hub/clients.py`, `replicator.py`, `recovery.py`,
-  `replicator_ports.py`, `liveness.py`, `paths.py`, `service.py`,
+  `respawn_backoff.py`, `liveness.py`, `hub_display.py`,
   `_backend_launchd.py`, `_backend_systemd.py`, `_service_spec.py` — the
   current implementation this design extends.
