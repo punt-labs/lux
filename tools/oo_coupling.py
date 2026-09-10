@@ -402,7 +402,11 @@ class CouplingScorer:
         def dfs(node: str) -> None:
             color[node] = gray
             path.append(node)
-            for neighbor in graph.get(node, set()):
+            # Sorted, not raw set iteration: str-keyed sets order by hash,
+            # which PYTHONHASHSEED randomizes per process, making membership
+            # in a partial (non-Tarjan) SCC scan flip between runs on the
+            # exact same source tree.
+            for neighbor in sorted(graph.get(node, set())):
                 if neighbor not in color:
                     continue
                 if color[neighbor] == gray:
