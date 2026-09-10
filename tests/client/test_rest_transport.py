@@ -27,6 +27,10 @@ from punt_lux.operations import (
     SceneShown,
     Scope,
 )
+from punt_lux.operations.models.display_link import (
+    ConnectedLinkState,
+    DisconnectedLinkState,
+)
 from punt_lux.rest_transport import HttpResponse, HubUnavailableError
 from tests.rest._fakes import make_client
 
@@ -161,6 +165,36 @@ def test_ping_without_a_wait_omits_the_timeout_param() -> None:
     result = _client_over(transport).ping(None)
     assert result == Pong(rtt_seconds=0.02)
     assert _sent(transport).path == "/display/ping"
+
+
+def test_get_link_targets_the_link_route() -> None:
+    transport = CannedTransport(
+        HttpResponse(
+            status=200, body=b'{"kind":"connected","linkage":"connected_idle"}'
+        )
+    )
+    result = _client_over(transport).get_link()
+    assert result == ConnectedLinkState(linkage="connected_idle")
+    call = _sent(transport)
+    assert call.method == "GET"
+    assert call.path == "/display/link"
+
+
+def test_get_link_parses_the_disconnected_shape() -> None:
+    transport = CannedTransport(
+        HttpResponse(
+            status=200,
+            body=b'{"kind":"disconnected","linkage":"held","retry_delay_seconds":8.0}',
+        )
+    )
+    result = _client_over(transport).get_link()
+    assert result == DisconnectedLinkState(linkage="held", retry_delay_seconds=8.0)
+
+
+def test_get_link_maps_a_non_2xx_status_to_op_error() -> None:
+    transport = CannedTransport(HttpResponse(status=502, body=b'{"detail":"boom"}'))
+    result = _client_over(transport).get_link()
+    assert result == OpError(code="fault", reason="boom")
 
 
 @pytest.mark.parametrize(

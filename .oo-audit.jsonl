@@ -1119,3 +1119,5 @@
 {"ts":"2026-09-10T08:10:48Z","commit":"736b4752","source":null,"files_scored":636,"files_improved":0,"files_regressed":2,"verdict":"fail","reason":null,"deltas":{}}
 {"ts":"2026-09-10T08:18:13Z","commit":"736b4752","source":null,"files_scored":636,"files_improved":1,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{"src/punt_lux/domain/hub/replicator_ports.py":{"module_size":[97.0,96.0]}}}
 {"ts":"2026-09-10T08:19:57Z","commit":"736b4752","source":null,"files_scored":636,"files_improved":1,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{"src/punt_lux/domain/hub/replicator_ports.py":{"module_size":[96.0,95.0]}}}
+{"ts":"2026-09-10T08:22:26Z","commit":"a4826b0b","source":null,"files_scored":636,"files_improved":1,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{"src/punt_lux/client/_sync_ops.py":{"module_size":[42.0,41.0]}}}
+{"ts":"2026-09-10T08:35:06Z","commit":"a4826b0b","source":null,"files_scored":637,"files_improved":1,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{"src/punt_lux/client/_rest_transport.py":{"avg_params":[1.29,1.27],"avg_complexity":[1.11,1.1],"module_size":[280.0,279.0]}}}
