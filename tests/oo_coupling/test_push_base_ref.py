@@ -26,8 +26,11 @@ import pytest
 
 from tools.oo_coupling import CouplingRatchet, CouplingScorer
 
-# Two methods sharing an attribute: LCOM (max_lcom) is 0.0 -- perfectly
-# cohesive, the ratchet's "good" end.
+# Two methods, each touching both attributes: LCOM (max_lcom) is 0.0 --
+# perfectly cohesive, the ratchet's "good" end. Both methods touch both
+# ``_a`` and ``_b`` (rather than ``bump_b`` quietly touching only ``_a``) so
+# the method names match what they do -- cohesion still holds because their
+# attribute sets always intersect.
 COHESIVE = '''from __future__ import annotations
 
 
@@ -45,9 +48,11 @@ class Widget:
 
     def bump_a(self) -> None:
         self._a += 1
+        self._b += 1
 
     def bump_b(self) -> None:
         self._a += 1
+        self._b += 1
 '''
 
 # Same shape, but the two methods now touch disjoint attributes: max_lcom
