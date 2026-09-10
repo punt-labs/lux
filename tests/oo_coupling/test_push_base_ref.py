@@ -11,8 +11,15 @@ The regression this file guards: on a push that lands more than one commit,
 regression introduced in an *earlier* commit of the same push is invisible to
 that range and passes trivially -- qodo's scenario 2 on lux PR #467. Passing
 the push's pre-push tip of main as ``base_ref`` (what the CI job now does via
-``PUSH_BASE_REF``/``github.event.before``) widens the diff to the whole push
+``BASE_REF``/``github.event.before``) widens the diff to the whole push
 range and catches it.
+
+``TestMultiCommitPrBaseRef`` below guards the same hole on the OTHER trigger:
+a multi-commit PULL REQUEST, where ``HEAD~1..HEAD`` only ever sees the last
+commit of the PR, not the whole PR range since it forked from ``origin/main``
+(Copilot finding on PR #467, round 2). The fix there is
+``merge-base(origin/main, HEAD)`` -- the PR's fork point -- passed the same
+way as the push case: ``make check-coupling BASE_REF=<merge-base-sha>``.
 """
 
 from __future__ import annotations
@@ -157,6 +164,44 @@ class CouplingGitFixture:
         )
         return self._head()
 
+    def checkout_new(self, branch: str) -> None:
+        subprocess.run(
+            ["git", "checkout", "-q", "-b", branch],  # noqa: S607
+            cwd=self._root,
+            check=True,
+        )
+
+    def checkout(self, branch: str) -> None:
+        subprocess.run(
+            ["git", "checkout", "-q", branch],  # noqa: S607
+            cwd=self._root,
+            check=True,
+        )
+
+    def set_origin_main(self, sha: str) -> None:
+        """Point ``refs/remotes/origin/main`` at ``sha``, as a real fetch would.
+
+        Mirrors ``GitFixture.set_origin_main`` in
+        ``tests/oo_ratchet/test_oo_ratchet.py`` -- a real remote-tracking ref,
+        not a same-named local branch, so ``git merge-base origin/main HEAD``
+        resolves exactly the way the CI checkout's ``origin/main`` does.
+        """
+        subprocess.run(
+            ["git", "update-ref", "refs/remotes/origin/main", sha],  # noqa: S607
+            cwd=self._root,
+            check=True,
+        )
+
+    def merge_base(self, left: str, right: str) -> str:
+        out = subprocess.run(
+            ["git", "merge-base", left, right],  # noqa: S607
+            cwd=self._root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return out.stdout.strip()
+
     def _head(self) -> str:
         out = subprocess.run(
             ["git", "rev-parse", "HEAD"],  # noqa: S607
@@ -231,6 +276,97 @@ class TestMultiCommitPushBaseRef:
         fx.commit("touch other.py again (last commit of the push)")
 
         outcome = fx.ratchet().check(fx.scorer(), base_ref=before)
+        assert outcome == 0
+
+
+class TestMultiCommitPrBaseRef:
+    """A multi-commit PULL REQUEST must be diffed as the whole PR range too.
+
+    Same hole as ``TestMultiCommitPushBaseRef`` above, on the other CI
+    trigger: ``check()``'s default ``base_ref="HEAD~1"`` sees only the PR's
+    LAST commit. A regression introduced in the PR's FIRST commit, never
+    re-touched by a later commit, passed trivially before this fix (Copilot
+    finding on lux PR #467, round 2 -- filed after the push-side fix above
+    had already landed). ``ratchets.yml``'s pull_request job now computes
+    ``merge-base(origin/main, HEAD)`` -- the PR's fork point -- once, and
+    passes it the same way the push job passes ``github.event.before``.
+    """
+
+    def test_default_base_ref_misses_earlier_pr_commit_regression(
+        self, fx: CouplingGitFixture
+    ) -> None:
+        # origin/main tip: cohesive, baselined -- this is the PR's fork point.
+        fx.write("sub/w.py", COHESIVE)
+        fx.snapshot("sub")
+        fork = fx.commit("origin/main tip")
+        fx.set_origin_main(fork)
+
+        fx.checkout_new("feature")
+        # First commit of the PR: w.py regresses. The in-tree baseline is NOT
+        # updated, so the regression is real and detectable.
+        fx.write("sub/w.py", DISJOINT)
+        fx.commit("regress w.py (first commit of the PR)")
+
+        # Last commit of the PR: an unrelated file. This is the commit
+        # HEAD~1..HEAD spans -- and all it spans.
+        fx.write("sub/other.py", OTHER_MODULE)
+        fx.commit("add other.py (last commit of the PR)")
+
+        # Old buggy behavior: default base_ref="HEAD~1" only sees the last
+        # commit. w.py's regression from the first commit is invisible to it.
+        outcome_default = fx.ratchet().check(fx.scorer(), base_ref="HEAD~1")
+        assert outcome_default == 0
+
+        # Fixed behavior: base_ref=merge-base(origin/main, HEAD) diffs the
+        # whole PR range (fork..HEAD) and catches the regression.
+        merge_base = fx.merge_base("origin/main", "HEAD")
+        outcome_pr = fx.ratchet().check(fx.scorer(), base_ref=merge_base)
+        assert outcome_pr == 1
+
+    def test_merge_base_passes_when_pr_has_no_regression(
+        self, fx: CouplingGitFixture
+    ) -> None:
+        fx.write("sub/w.py", COHESIVE)
+        fx.snapshot("sub")
+        fork = fx.commit("origin/main tip")
+        fx.set_origin_main(fork)
+
+        fx.checkout_new("feature")
+        fx.write("sub/other.py", OTHER_MODULE)
+        fx.commit("add other.py (first commit of the PR)")
+        fx.write("sub/other.py", OTHER_MODULE + "\n# a comment\n")
+        fx.commit("touch other.py again (last commit of the PR)")
+
+        merge_base = fx.merge_base("origin/main", "HEAD")
+        outcome = fx.ratchet().check(fx.scorer(), base_ref=merge_base)
+        assert outcome == 0
+
+    def test_merge_base_excludes_concurrent_main_regression(
+        self, fx: CouplingGitFixture
+    ) -> None:
+        """A regression landed on main by someone else's PR is out of scope."""
+        fx.write("sub/w.py", COHESIVE)
+        fx.snapshot("sub")
+        fork = fx.commit("origin/main tip")
+        fx.set_origin_main(fork)
+
+        fx.checkout_new("feature")
+        fx.write("sub/other.py", OTHER_MODULE)
+        fx.commit("unrelated PR change")
+
+        # Main advances concurrently, on a different local branch, with a
+        # regression this PR never touched -- the fetched origin/main ref
+        # moves to that new tip, but merge-base(origin/main, feature) is
+        # still the fork point, so the regression stays out of this PR's
+        # touched-file diff.
+        fx.checkout("main")
+        fx.write("sub/w.py", DISJOINT)
+        main_head = fx.commit("regress w.py on main, concurrently with the PR")
+        fx.set_origin_main(main_head)
+        fx.checkout("feature")
+
+        merge_base = fx.merge_base("origin/main", "HEAD")
+        outcome = fx.ratchet().check(fx.scorer(), base_ref=merge_base)
         assert outcome == 0
 
 
