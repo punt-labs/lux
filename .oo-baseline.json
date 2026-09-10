@@ -4354,6 +4354,19 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
+  "src/punt_lux/domain/hub/null_dirty_marker.py": {
+    "method_ratio": 1.0,
+    "encapsulation_ratio": 1.0,
+    "avg_params": 0.25,
+    "max_complexity": 1.0,
+    "avg_complexity": 1.0,
+    "module_size": 19.0,
+    "classes_per_module": 1.0,
+    "class_to_func_ratio": 1.0,
+    "init_violations": 0.0,
+    "public_attr_violations": 0.0,
+    "future_annotations": 1.0
+  },
   "src/punt_lux/domain/hub/owner.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
