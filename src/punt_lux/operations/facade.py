@@ -1,8 +1,7 @@
 """The Operations facade — one object exposing every capability.
 
 Composes the concern classes so a single caller — MCP, REST, or a test — has
-one object to call. Every collaborator is injected into ``for_store``, so
-nothing here binds the running process at import time.
+one object to call. Every collaborator is injected into ``for_store``.
 """
 
 from __future__ import annotations
@@ -15,6 +14,7 @@ from punt_lux.operations.concerns import OperationsConcerns
 from punt_lux.operations.config import DisplayModeOperations
 from punt_lux.operations.conveniences import ConvenienceOperations
 from punt_lux.operations.display_control import DisplayControlOperations
+from punt_lux.operations.display_link import DisplayLinkOperations
 from punt_lux.operations.frame_closing import FrameCloser
 from punt_lux.operations.identity import IdentityOperations
 from punt_lux.operations.menus import MenuOperations
@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.hub.menu_registry import HubMenuRegistry
     from punt_lux.domain.hub.session_callback import CallbackInvocation
+    from punt_lux.operations.display_link import ReplicatorLink
     from punt_lux.operations.models import (
         Cleared,
         DisplayModeState,
@@ -47,11 +48,10 @@ if TYPE_CHECKING:
         Unsubscribed,
         UpdateRequest,
     )
-    from punt_lux.operations.models.callbacks import (
-        RegisterCallbackRequest,
-    )
+    from punt_lux.operations.models.callbacks import RegisterCallbackRequest
     from punt_lux.operations.models.display_frames import FrameStates
     from punt_lux.operations.models.display_info import DisplayInfo
+    from punt_lux.operations.models.display_link import DisplayLinkState
     from punt_lux.operations.models.display_probe import Pong, Screenshot
     from punt_lux.operations.models.display_state import DisplayStateSnapshot
     from punt_lux.operations.models.identity import Identified
@@ -63,7 +63,7 @@ if TYPE_CHECKING:
     from punt_lux.operations.models.query_scenes import SceneList
     from punt_lux.operations.models.theme import ThemeState
     from punt_lux.operations.models.window import WindowSettings
-    from punt_lux.operations.ports import DirtyMarker, HubPorts
+    from punt_lux.operations.ports import HubPorts
     from punt_lux.operations.scope import Scope
 
 __all__ = ["Operations"]
@@ -83,6 +83,7 @@ class Operations:
     _identity: IdentityOperations
     _callbacks: CallbackOperations
     _frame_closer: FrameCloser
+    _link: DisplayLinkOperations
     __slots__ = (
         "_callbacks",
         "_config",
@@ -90,6 +91,7 @@ class Operations:
         "_display",
         "_frame_closer",
         "_identity",
+        "_link",
         "_menus",
         "_pubsub",
         "_queries",
@@ -108,13 +110,14 @@ class Operations:
         self._identity = concerns.identity
         self._callbacks = concerns.callbacks
         self._frame_closer = concerns.frame_closer
+        self._link = concerns.link
         return self
 
     @classmethod
     def for_store(
         cls,
         display: HubDisplay,
-        replicator: DirtyMarker,
+        replicator: ReplicatorLink,
         *,
         hub: Hub,
         menu_registry: HubMenuRegistry,
@@ -138,6 +141,7 @@ class Operations:
                 identity=IdentityOperations(display),
                 callbacks=callbacks,
                 frame_closer=FrameCloser(display, replicator),
+                link=DisplayLinkOperations(ports.display_port, display, replicator),
             )
         )
 
@@ -234,8 +238,7 @@ class Operations:
     def inspect_scene(
         self, scene_id: str, *, scope: Scope, facts: InspectScope = HUB_ONLY
     ) -> SceneInspection | OpError:
-        """Return the caller's own scene tree (DES-086, no admin path); ``facts`` adds
-        proxied geometry."""
+        """Return the caller's own scene tree; ``facts`` adds proxied geometry."""
         return self._queries.inspect_scene(scene_id, scope, facts)
 
     def list_scenes(self, facts: InspectScope = HUB_ONLY) -> SceneList:
@@ -271,14 +274,7 @@ class Operations:
     def register_callback(
         self, request: RegisterCallbackRequest | OpError, *, scope: Scope
     ) -> Ok | OpError:
-        """Register a menu callback for the caller's session; the replicator pushes.
-
-        Registration is the whole client-facing surface of the callback model.
-        Routing a click (``invoke_callback``) stays Hub-internal — the display
-        dispatches clicks, not a client — and delivering one is the listen leg's
-        job, so a registered session is pushed its clicks rather than offered a
-        read to poll.
-        """
+        """Register a menu callback for the caller's session; the replicator pushes."""
         return self._callbacks.register_callback(request, scope=scope)
 
     def pending_callbacks(self, *, scope: Scope) -> tuple[CallbackInvocation, ...]:
@@ -298,3 +294,7 @@ class Operations:
     def drop_session(self) -> None:
         """Re-push the menu after a session departs so its submenu vanishes."""
         self._callbacks.drop_session()
+
+    def get_link(self) -> DisplayLinkState:
+        """Return the Hub's observed display-link state; never a fault."""
+        return self._link.get_link()

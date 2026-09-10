@@ -1,11 +1,10 @@
 """The display connection an operation proxies through — luxd's one leg.
 
 Every display-fact operation reaches the running display over this port: the
-same single connection the replicator already owns. The port hides the socket,
-the bounded send, and the reconnect policy behind two calls that each return a
-:class:`DisplayReply`. The concrete implementation lives in the Hub layer and is
-injected at the composition root, so nothing under ``operations/`` names the
-``DisplayLink``.
+same single connection the replicator already owns, hiding the socket, the
+bounded send, and the reconnect policy. The concrete implementation lives in
+the Hub layer and is injected at the composition root, so nothing under
+``operations/`` names the ``DisplayLink``.
 """
 
 from __future__ import annotations
@@ -31,8 +30,9 @@ class DisplayPort(Protocol):
     # wait is float | None: None means "use the connection's standing recv
     # budget" — the documented absence contract, not a failure sentinel.
     def ping(self, wait: float | None) -> DisplayReply:
-        """Round-trip a ping bounded by ``wait`` seconds (``None`` = default budget).
-
-        A reply payload carries the measured ``rtt_seconds``.
-        """
+        """Round-trip a ping bounded by ``wait``s; the reply carries ``rtt_seconds``."""
         ...
+
+    @property
+    def is_connected(self) -> bool:
+        """Report a live display connection, no I/O."""

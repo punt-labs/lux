@@ -41,6 +41,12 @@ _MCP_ONLY = {
     # invocations; delivery goes through the listen leg's ``take`` drain, so
     # a REST route (which cannot bind to a listener) has no way to be useful.
     "pending_callbacks",
+    # get_link (DisplayLinkage, design display-presence-demand-driven.md §6)
+    # is a genuine gap, not an architectural exemption: its implementation
+    # mission's write-set covered operations/tools/cli but not rest/, so the
+    # REST route is deferred to a follow-up rather than a deliberate MCP-only
+    # design choice like the entries above.
+    "get_link",
 }
 
 

@@ -5215,10 +5215,10 @@
   "src/punt_lux/operations/display_connection.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
-    "avg_params": 1.67,
+    "avg_params": 1.25,
     "max_complexity": 6.0,
-    "avg_complexity": 4.33,
-    "module_size": 91.0,
+    "avg_complexity": 3.5,
+    "module_size": 88.0,
     "classes_per_module": 1.0,
     "class_to_func_ratio": 1.0,
     "init_violations": 0.0,
@@ -5251,6 +5251,19 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
+  "src/punt_lux/operations/display_link.py": {
+    "method_ratio": 1.0,
+    "encapsulation_ratio": 1.0,
+    "avg_params": 1.0,
+    "max_complexity": 3.0,
+    "avg_complexity": 1.67,
+    "module_size": 58.0,
+    "classes_per_module": 1.0,
+    "class_to_func_ratio": 1.0,
+    "init_violations": 0.0,
+    "public_attr_violations": 0.0,
+    "future_annotations": 1.0
+  },
   "src/punt_lux/operations/display_mode_store.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
@@ -5267,7 +5280,7 @@
   "src/punt_lux/operations/display_port.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
-    "avg_params": 1.5,
+    "avg_params": 1.0,
     "max_complexity": 1.0,
     "avg_complexity": 1.0,
     "module_size": 27.0,
@@ -5306,7 +5319,7 @@
   "src/punt_lux/operations/facade.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
-    "avg_params": 1.36,
+    "avg_params": 1.32,
     "max_complexity": 1.0,
     "avg_complexity": 1.0,
     "module_size": 257.0,
@@ -5493,6 +5506,19 @@
     "avg_complexity": 2.0,
     "module_size": 32.0,
     "classes_per_module": 1.0,
+    "class_to_func_ratio": 1.0,
+    "init_violations": 0.0,
+    "public_attr_violations": 0.0,
+    "future_annotations": 1.0
+  },
+  "src/punt_lux/operations/models/display_link.py": {
+    "method_ratio": 1.0,
+    "encapsulation_ratio": 1.0,
+    "avg_params": 0.0,
+    "max_complexity": 0.0,
+    "avg_complexity": 0.0,
+    "module_size": 24.0,
+    "classes_per_module": 2.0,
     "class_to_func_ratio": 1.0,
     "init_violations": 0.0,
     "public_attr_violations": 0.0,
@@ -8127,9 +8153,9 @@
   "src/punt_lux/tools/read_tools.py": {
     "method_ratio": 0.0,
     "encapsulation_ratio": 1.0,
-    "avg_params": 0.38,
+    "avg_params": 0.36,
     "max_complexity": 2.0,
-    "avg_complexity": 1.08,
+    "avg_complexity": 1.07,
     "module_size": 193.0,
     "classes_per_module": 0.0,
     "class_to_func_ratio": 0.0,

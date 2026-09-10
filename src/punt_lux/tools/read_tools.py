@@ -1,8 +1,7 @@
 """The read-only MCP tools — introspection and display getters.
 
 ``_core.OPERATIONS`` is read at call time (never imported by value), so the
-characterization corpus can rebind ``punt_lux.tools.tools.OPERATIONS`` at an
-isolated store; the pattern is shared with ``composite_tools``.
+characterization corpus can rebind it at an isolated store.
 """
 
 from __future__ import annotations
@@ -41,6 +40,7 @@ from punt_lux.commands.display_state_get import (
 from punt_lux.operations import (
     ClientList,
     DisplayInfo,
+    DisplayLinkState,
     DisplayStateSnapshot,
     FrameStates,
     InspectScope,
@@ -62,6 +62,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "get_display_info",
+    "get_display_link",
     "get_display_state",
     "get_theme",
     "get_window_settings",
@@ -136,11 +137,9 @@ def list_scenes(*, want_visibility: bool = False) -> SceneList:
 def list_frames() -> FrameStates | OpError:
     """List the display's frames and where each one is currently shown.
 
-    Each frame reports a ``visibility`` of ``on_screen``, ``docked`` (collapsed
-    to the dock bar), or ``closed`` (the user shut it). A closed frame still
-    holds its scenes; only the user, at the Display's own Windows menu, can
-    bring it back (DES-088: visibility is never a client op) -- read from the
-    running display rather than the Hub's store, since it is never replicated.
+    Each frame reports a ``visibility`` of ``on_screen``, ``docked``, or
+    ``closed`` (the user shut it, but it still holds its scenes) — read from
+    the running display, since visibility is never replicated (DES-088).
     """
     return _core.OPERATIONS.list_frames()
 
@@ -191,13 +190,15 @@ def get_display_state() -> DisplayStateSnapshot | OpError:
     return asyncio.run(display_state_get_command.execute(ctx, scope=_core._scope()))
 
 
+@mcp.tool(name="display_link_get")
+def get_display_link() -> DisplayLinkState:
+    """Return the Hub's observed display-link state — never round-trips or faults."""
+    return _core.OPERATIONS.get_link()
+
+
 @mcp.tool(name="session_ls")
 def list_clients() -> ClientList | OpError:
-    """List the Hub's sessions — the connections and their scopes.
-
-    After the Hub took over, the display has one socket client (luxd); the
-    meaningful client list is the set of Hub sessions the Hub holds.
-    """
+    """List the Hub's sessions — the connections and their scopes."""
     ctx: CommandCtx[SessionOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
     )

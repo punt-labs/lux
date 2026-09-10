@@ -1,16 +1,13 @@
 """HubDisplayConnection — luxd's one display connection behind the DisplayPort.
 
-The concrete adapter the operations layer proxies display facts through. It lives
-in the operations layer (it produces the operations' :class:`DisplayReply`) and
-reaches down into the Hub for its two collaborators — a liveness check, so a
-query short-circuits when no display is running, and the connection registry that
-owns the socket — keeping the one dependency arrow pointing operations → domain.
+The concrete adapter the operations layer proxies display facts through. It
+reaches into the Hub for a liveness check (so a query short-circuits when no
+display is running) and the connection registry that owns the socket, keeping
+the one dependency arrow pointing operations -> domain.
 
-There is no intra-call retry: a failed round-trip drops the dead connection and
-returns a typed fault, and the next call reconnects. That mirrors the
-replicator's drop-then-reconnect discipline and keeps every call bounded. Every
-outcome is folded into a :class:`DisplayReply` so the operation never sees a
-socket or an exception.
+There is no intra-call retry: a failed round-trip drops the dead connection
+and returns a typed fault, mirroring the replicator's drop-then-reconnect
+discipline. Every outcome folds into a :class:`DisplayReply`.
 """
 
 from __future__ import annotations
@@ -78,14 +75,9 @@ class HubDisplayConnection:
     def ping(self, wait: float | None) -> DisplayReply:
         """Round-trip a ping bounded by ``wait`` seconds; return the rtt.
 
-        ``wait`` of ``None`` uses the client's standing recv budget (the
-        documented absence contract, threaded to ``DisplayLink.ping``).
-
-        The connection owns the whole measurement: one monotonic clock, read
-        immediately before the send and immediately after the pong arrives, so
-        the elapsed time is the real round trip and can never be negative. The
-        pong's echoed ``ts`` no longer participates in the timing — it is kept
-        only as a validity signal (a pong without it is a defective reply).
+        ``wait`` of ``None`` uses the client's standing recv budget. The
+        connection times the whole round trip itself with one monotonic
+        clock; the pong's echoed ``ts`` is kept only as a validity signal.
         """
         if not self._is_running():
             return DisplayFault(code="display_unavailable")
@@ -106,3 +98,8 @@ class HubDisplayConnection:
             # not a zero-latency success — surface it as an error, never 0.0s.
             return DisplayErrored(message="pong carried no timestamp")
         return DisplayReplied(payload={"rtt_seconds": elapsed})
+
+    @property
+    def is_connected(self) -> bool:
+        """Report a live display connection, delegating to the registry."""
+        return self._clients.is_connected
