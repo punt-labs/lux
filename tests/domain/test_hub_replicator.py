@@ -261,17 +261,23 @@ class _FakeProvider:
     _unreachable: bool
     _generic_failure: bool
     _gen: int
+    _block_until_stop: bool
+    _stop_event: threading.Event
     drops: int
     reconnect_waits: list[float]
+    stop_requests: int
     __slots__ = (
+        "_block_until_stop",
         "_gen",
         "_generic_failure",
         "_needs_reconcile",
         "_reconcile",
         "_sender",
+        "_stop_event",
         "_unreachable",
         "drops",
         "reconnect_waits",
+        "stop_requests",
     )
 
     def __new__(
@@ -284,9 +290,19 @@ class _FakeProvider:
         self._unreachable = False
         self._generic_failure = False
         self._gen = 0
+        self._block_until_stop = False
+        self._stop_event = threading.Event()
         self.drops = 0
         self.reconnect_waits = []
+        self.stop_requests = 0
         return self
+
+    def arm_blocking_reconnect_wait(self) -> None:
+        """Make ``wait_for_reconnect`` genuinely block until ``request_stop`` --
+        every other test's provider returns instantly (never blocks), so this
+        models the real ``ClientRegistry`` only for the one test that needs a
+        provably-parked wait."""
+        self._block_until_stop = True
 
     def arm_unreachable(self) -> None:
         """Make every ``get()`` raise ``DisplayNotConnectedError`` — never connected."""
@@ -325,9 +341,17 @@ class _FakeProvider:
         self._needs_reconcile = True
 
     def wait_for_reconnect(self, wait: ReconnectWait) -> bool:
-        """Record the wait; never actually blocks — unit tests stay instant."""
+        """Record the wait; instant unless ``arm_blocking_reconnect_wait`` was
+        called, in which case it genuinely blocks until ``request_stop``."""
         self.reconnect_waits.append(wait.timeout)
+        if self._block_until_stop:
+            return self._stop_event.wait(wait.timeout)
         return False
+
+    def request_stop(self) -> None:
+        """Wake a blocking ``wait_for_reconnect``, mirroring ``ClientRegistry``."""
+        self.stop_requests += 1
+        self._stop_event.set()
 
 
 class _FakeLifecycle:
@@ -1076,6 +1100,36 @@ def test_the_worker_snapshot_waits_for_a_mutation_to_commit() -> None:
         assert [e.to_dict()["content"] for e in pushed] == ["after"]
     finally:
         repl.stop()
+
+
+def test_stop_wakes_a_worker_parked_in_the_disconnected_wait_promptly() -> None:
+    # A stop issued while the worker is parked in wait_for_reconnect (which,
+    # for a real ClientRegistry, can block up to the 120s disconnected cap)
+    # must not be trapped behind it: stop() wakes the provider's own wait, not
+    # merely the dirty signal, so the join below returns well under its own
+    # timeout instead of surviving past it with a logged warning.
+    store = HubDisplay()
+    scene = _seed(store, "s1")
+    repl, _sender, provider, _lifecycle = _replicator(store)
+    provider.arm_unreachable()
+    provider.arm_blocking_reconnect_wait()
+    repl.start()
+    try:
+        repl.mark_dirty(scene)
+        for _ in range(200):
+            if provider.reconnect_waits:
+                break
+            threading.Event().wait(0.01)
+        assert provider.reconnect_waits  # provably parked in the disconnected wait
+
+        started = time.monotonic()
+        repl.stop()
+        elapsed = time.monotonic() - started
+
+        assert elapsed < 2.0  # woke on the stop, not the join's 5s timeout
+        assert provider.stop_requests >= 1
+    finally:
+        provider.request_stop()
 
 
 def test_a_stop_flushes_a_send_in_flight_then_exits() -> None:

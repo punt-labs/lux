@@ -81,10 +81,9 @@ class _CycleOutcome:
     """One push cycle's result — exactly one of three distinct causes.
 
     ``clean``: a real send succeeded; ``emptied`` names scenes to reclaim.
-    ``recovered``: a send failed while CONNECTED and was healed — the
-    wedged backoff advances. ``disconnected``: never connected at all — the
-    disconnected backoff advances instead. Mutually exclusive by
-    construction: one ``except`` branch matches per ``_push_cycle`` call.
+    ``recovered``: a send failed while CONNECTED and was healed -- the wedged
+    backoff advances. ``disconnected``: never connected at all -- the
+    disconnected backoff advances instead; mutually exclusive by construction.
     """
 
     outcome: Literal["clean", "recovered", "disconnected"]
@@ -198,13 +197,13 @@ class HubReplicator:
             raise RuntimeError(msg)
 
     def stop(self) -> None:
-        """Flush pending, stop, and join. A stop is terminal, even before a start.
-
-        Latches the dirty signal shutting, so a later ``start`` raises rather
-        than spawning a worker that exits at once. No thread yet means nothing
-        to join, so a stop before a start is a no-op that is still terminal.
+        """Flush pending, stop, and join. A stop is terminal, even before a
+        start: latches the dirty signal shutting so a later ``start`` raises,
+        wakes a parked disconnected wait so the join below isn't trapped
+        behind it, and is a no-op (nothing to join) before any ``start``.
         """
         self._signal.request_stop()
+        self._clients.request_stop()
         thread = self._thread
         if thread is not None:
             thread.join(timeout=_STOP_JOIN_TIMEOUT)

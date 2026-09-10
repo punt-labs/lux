@@ -1,14 +1,12 @@
 """Ports the Hub replicator depends on — the display connection and its lifecycle.
 
-The replicator is the sole writer to the display, but it does not own the socket
-or the process. It reaches them through three structural ports so the concurrency
-logic is tested against fakes, not a live socket:
-
-- ``DisplaySender`` — the fire-and-forget send surface (a ``DisplayLink``).
-- ``ClientProvider`` — hands out the sender, drops a dead one, waits.
-- ``DisplayLifecycle`` — kills a wedged display; its service unit respawns it.
-- ``DirtyMarker`` — the queue-only side (``HubReplicator``) a fresh-connect
-  hook marks after declaring its manifest (DES-068).
+The replicator is the sole writer to the display, but it does not own the
+socket or the process. It reaches them through structural ports so the
+concurrency logic is tested against fakes, not a live socket: ``DisplaySender``
+(the fire-and-forget send surface), ``ClientProvider`` (hands out the sender,
+drops a dead one, waits), ``DisplayLifecycle`` (kills a wedged display; its
+service unit respawns it), and ``DirtyMarker`` (the queue-only side a
+fresh-connect hook marks after declaring its manifest, DES-068).
 """
 
 from __future__ import annotations
@@ -37,10 +35,9 @@ __all__ = [
 class CallbackMenuReader(Protocol):
     """The live ``Clients`` menu, read fresh at send time.
 
-    Composed from the session registry, so whatever sessions are in lease when the
-    send runs is what the display renders — the same read-at-send discipline the
-    agent bar uses, with no payload to go stale.
-    """
+    Composed from the session registry, so whatever sessions are in lease when
+    the send runs is what the display renders -- the same read-at-send
+    discipline the agent bar uses, with no payload to go stale."""
 
     def callback_menu_wire(self) -> list[dict[str, object]]:
         """Return the uniform ``Clients`` menu as wire payloads."""
@@ -95,12 +92,14 @@ class ClientProvider(ReconnectWaiter, Protocol):
     """Hands out the one display connection, drops a dead one, and waits."""
 
     def get(self) -> DisplaySender:
-        """Return the connected sender; raises ``DisplayNotConnectedError`` if
-        never connected -- the case ``HubReplicator`` paces slowest."""
+        """Return the sender; raises ``DisplayNotConnectedError`` if never connected."""
         ...
 
     def drop(self) -> None:
         """Close the current connection so the next ``get`` binds a fresh one."""
+
+    def request_stop(self) -> None:
+        """Wake a parked ``wait_for_reconnect`` past the disconnected backoff."""
 
 
 @runtime_checkable

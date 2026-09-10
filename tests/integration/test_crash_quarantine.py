@@ -142,6 +142,9 @@ class _Provider:
         del wait
         return False
 
+    def request_stop(self) -> None:
+        """Unused here — no test in this module stops mid disconnected-wait."""
+
 
 class _Lifecycle:
     """A no-op display lifecycle — no real process to reap or respawn."""

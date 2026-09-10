@@ -486,3 +486,36 @@ def test_wait_for_reconnect_does_not_hold_the_registry_lock() -> None:
 
     assert done.is_set(), "get() blocked behind a lock the wait should not hold"
     waiter.join(timeout=2.0)
+
+
+def test_request_stop_wakes_a_parked_wait_for_reconnect_promptly() -> None:
+    """A stop must not be trapped behind the (up to 120s) disconnected
+    backoff: a waiter parked on a long timeout wakes as soon as
+    ``request_stop`` is called, not once that timeout elapses."""
+    registry = ClientRegistry()
+    woke: list[bool] = []
+    entered = threading.Event()
+
+    def wait() -> None:
+        entered.set()
+        woke.append(registry.wait_for_reconnect(ReconnectWait(0, 120.0)))
+
+    waiter = threading.Thread(target=wait)
+    waiter.start()
+    assert entered.wait(2.0)
+
+    started = time.monotonic()
+    registry.request_stop()
+    waiter.join(timeout=2.0)
+    elapsed = time.monotonic() - started
+
+    assert not waiter.is_alive()
+    assert woke == [True]  # woke on the stop, not the 120s timeout
+    assert elapsed < 2.0
+
+
+def test_request_stop_is_a_no_op_for_a_registry_with_no_parked_waiter() -> None:
+    """Calling it early (before any wait) must not raise -- latches quietly."""
+    registry = ClientRegistry()
+    registry.request_stop()
+    assert registry.wait_for_reconnect(ReconnectWait(0, 5.0)) is True
