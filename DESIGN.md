@@ -6852,9 +6852,13 @@ classification (`disconnected`/`held`/`connected_idle`/`connected_active`,
 `DisplayNotConnectedError` for the dial failure so it is never conflated with a
 mid-send teardown or a programmer error; a second, distinctly-paced backoff
 (2s→120s) on that branch, separate from the wedged-send backoff (1s→30s); an
-interruptible wait (a shared `threading.Event` any successful `get()` from
-either the replicator or the 5s liveness probe sets, holding no lock) so a
-returning display renders promptly instead of after the full backoff; and a
+interruptible wait (a monotonic reconnect-generation counter guarded by a
+`threading.Condition`: any successful `get()` from either the replicator or the
+5s liveness probe bumps the generation and notifies under the lock, and a waiter
+that snapshotted the generation before its failed dial wakes the moment it
+advances — race-free against a reconnect landing in the dial→wait gap, and
+`Condition.wait` releases the lock while blocked) so a returning display renders
+promptly instead of after the full backoff; and a
 `display_link_get` / `lux display link` introspection surface (Hub-side, no
 round-trip) reporting the linkage, held-scene count, current retry delay, and
 Hub host identity (`hub_host`/`hub_pid`) so an agent can catch a wrong-host push.
