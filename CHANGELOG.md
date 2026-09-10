@@ -22,9 +22,11 @@
   (`ServiceSpec.restart_on_crash_only`), never on the clean, operator-
   initiated exit the demand-driven design treats as legitimate. Formally
   verified: `docs/display_linkage.tex`, ProB-proven (8 invariants +
-  deadlock-freedom). Known gaps, tracked for a follow-up: no REST route for
-  `get_link` and no `lux display link` CLI verb (both need `rest/`,
-  `commands/`, and `client/`, outside this mission's write-set).
+  deadlock-freedom). The link state now has full surface parity: `GET
+  /display/link`, `lux display link`, and the library client's
+  `get_link()` all report the same discriminated `ConnectedLinkState` /
+  `DisconnectedLinkState` shape the MCP tool does — never a proxy to the
+  display.
 - **`get_display_state` — a standalone, curated read of the Display's own
   widget/frame state, for Hub-vs-Display comparison.** Proxied over luxd's
   one display connection like `get_display_info`/`get_theme`; excludes every

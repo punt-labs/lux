@@ -58,20 +58,20 @@ class _LinkResult:
             text=_LinkResult.text(result), json_data=result.model_dump(mode="json")
         )
 
-
-@display_app.command("link")
-def link(
-    *,
-    json_out: JsonFlag = False,
-    verbose: VerboseFlag = False,
-    quiet: QuietFlag = False,
-) -> None:
-    """Return the Hub's observed display-link state -- never proxies to the display."""
-    flags = OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet)
-    identity = identity_from_flags(
-        as_=None, kind=None, name=None, repo=None, agent=None
-    )
-    ctx: Ctx[DisplayLinkOps] = Ctx(
-        ops=connect_client(identity=identity), identity=identity
-    )
-    run(_LinkResult.fetch(ctx), flags)
+    @staticmethod
+    @display_app.command("link")
+    def command(
+        *,
+        json_out: JsonFlag = False,
+        verbose: VerboseFlag = False,
+        quiet: QuietFlag = False,
+    ) -> None:
+        """Return the Hub's link state -- never proxies to the display."""
+        flags = OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet)
+        identity = identity_from_flags(
+            as_=None, kind=None, name=None, repo=None, agent=None
+        )
+        ctx: Ctx[DisplayLinkOps] = Ctx(
+            ops=connect_client(identity=identity), identity=identity
+        )
+        run(_LinkResult.fetch(ctx), flags)
