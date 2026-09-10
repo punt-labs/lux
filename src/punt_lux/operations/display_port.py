@@ -29,7 +29,7 @@ class DisplayPort(Protocol):
     # wait is float | None: None means "use the connection's standing recv
     # budget" — the documented absence contract, not a failure sentinel.
     def ping(self, wait: float | None) -> DisplayReply:
-        """Round-trip a ping bounded by ``wait``s; the reply carries ``rtt_seconds``."""
+        """Round-trip a ping bounded to ``wait`` seconds; carries ``rtt_seconds``."""
         ...
 
     @property
