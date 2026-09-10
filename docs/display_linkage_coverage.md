@@ -2,13 +2,13 @@
 
 Companion to `docs/display_linkage.tex`, following the same format as
 `docs/hub_replicator_coverage.md` and `docs/connection_lease_reaping_coverage.md`.
-This is a **design-phase** artifact: `docs/architecture/display-presence-demand-driven.md`
-is ratified but unimplemented (bead `lux-81t3.1`), so every "Expected covering
-test" below names where a test belongs — the exact bullet in the design
-document's own §10 item 11 ("Tests") that the implementation mission must
-satisfy — not a test that exists today. When the implementation mission
-lands, replace each placeholder with the real test name; a partition left
-unchecked at that point is a gap, not a missing row in this table.
+`docs/architecture/display-presence-demand-driven.md` (bead `lux-81t3.1`) is
+**implemented**: every "Expected covering test" below names the actual test
+that satisfies the partition, per the design document's own §10 item 11
+("Tests"). One partition (L22 — the prober's independence from the
+replicator's own phase while both run concurrently against one registry) has
+no dedicated covering test yet; that gap is called out in its row rather than
+misreported as covered.
 
 The bar, as with every other coverage audit in this repository, is that the
 spec's partitions are each covered by a test, not merely that the
@@ -50,9 +50,9 @@ control (c), and the registry/`StoreLock` two-lock ordering is deferred to
 | `GoReachable` / `GoUnreachable` | `lux display start`/`stop`, the OS service supervisor starting the display at login, or auto-restarting it after a crash (§7) — never a Hub-initiated call |
 | `GoSendOk` / `GoSendFail` | An already-connected send succeeding or hitting the `BlockingIOError`/`OSError` pair `hub_replicator.tex` fully derives; here coarsened to one flag since this spec does not re-derive which socket error fired |
 | `RDialOk` | `ClientRegistry.get()` succeeding — the `linked = clear` branch is `_connect_and_reconcile` (DES-068) firing for the first time since a drop |
-| `RDialFail` | `ClientRegistry.get()` raising `RuntimeError` — the new `disconnected` arm of `_CycleOutcome` (§6.1), routed through `HubReplicator._wait_disconnected` (§6.3) |
-| `RWaitWoken` | `ClientRegistry.wait_for_reconnect(timeout)` returning `True` |
-| `RWaitTimeout` | `ClientRegistry.wait_for_reconnect(timeout)` returning `False` |
+| `RDialFail` | `ClientRegistry.get()` raising `DisplayNotConnectedError` — the `disconnected` arm of `_CycleOutcome` (§6.1), routed through `HubReplicator._handle_disconnected` (§6.3) |
+| `RWaitWoken` | `ClientRegistry.wait_for_reconnect(timeout, since_gen=...)` returning `True` — the generation counter (a monotonic `_reconnect_gen` plus a `Condition` wrapping `_lock`) replaces the earlier `Event`-based design; see the PR-465 review note under Implementer notes |
+| `RWaitTimeout` | `ClientRegistry.wait_for_reconnect(timeout, since_gen=...)` returning `False` |
 | `RSendCycle` | `_CycleOutcome.outcome = "clean"` — a real send succeeded, `_disconnected_backoff` and `_backoff` (wedge) both eligible to reset |
 | `RSendFail` | `_CycleOutcome.outcome = "recovered"` — a connected-but-misbehaving send, healed by `SendRecovery`; the wedge backoff (`HubReplicator._backoff`, 0.1s→2.0s) advances, never the disconnected one |
 | `RHeal` | `SendRecovery`'s reap/respawn/reconnect/re-mark — `docs/hub_replicator.tex`'s own `Reap`/`Ensure`/`Remark`/`Reconn`, entered and left as one step here |
@@ -127,29 +127,29 @@ control (c), and the registry/`StoreLock` two-lock ordering is deferred to
 
 | Partition | Expected covering test (design §10 item 11) | Status |
 |---|---|---|
-| L1 | `DisplayLinkage.classify` truth table (4 branches, no fakes) | PLANNED |
-| L2 | `DisplayLinkage.classify` truth table (4 branches, no fakes) | PLANNED |
-| L3 | `DisplayLinkage.classify` truth table (4 branches, no fakes) | PLANNED |
-| L4 | `DisplayLinkage.classify` truth table (4 branches, no fakes) | PLANNED |
-| L5 | `DisplayLinkage.classify` truth table (4 branches, no fakes) | PLANNED |
-| L6 | `_CycleOutcome`/`_run_cycle` — a fake `ClientProvider` whose `get()` raises `RuntimeError` drives the `disconnected` branch; assert `_back_off()` is never invoked | PLANNED |
-| L7 | `DisplayLinkOperations.get_link()` with a fake `ClientRegistry` reporting a fresh connect, plus `test_recovery`-style reconcile coverage inherited from DES-068 | PLANNED |
-| L8 | `_CycleOutcome`/`_run_cycle` — a fake `ClientProvider` whose `get()` succeeds while already connected; assert no duplicate re-mark | PLANNED |
-| L9 | `HubReplicator` disconnected curve — assert the delay sequence matches the 2s→120s curve across repeated cycles | PLANNED |
-| L10 | `HubReplicator` disconnected curve — assert a subsequent successful `get()` resets it | PLANNED |
+| L1 | `tests/domain/test_display_linkage.py::test_classify_truth_table` (parametrized, 4 branches, no fakes) | IMPLEMENTED |
+| L2 | `tests/domain/test_display_linkage.py::test_classify_truth_table` | IMPLEMENTED |
+| L3 | `tests/domain/test_display_linkage.py::test_classify_truth_table` | IMPLEMENTED |
+| L4 | `tests/domain/test_display_linkage.py::test_classify_truth_table` | IMPLEMENTED |
+| L5 | `tests/domain/test_display_linkage.py::test_classify_truth_table` | IMPLEMENTED |
+| L6 | `tests/domain/test_hub_replicator.py::test_a_dial_failure_drives_the_disconnected_branch_not_the_wedged_backoff` — a fake `ClientProvider` whose `get()` raises `DisplayNotConnectedError` drives the `disconnected` branch; asserts `_back_off()` is never invoked | IMPLEMENTED |
+| L7 | `tests/test_client_registry.py::TestConnectAndReconcile` — every fresh connect through `get()` (any caller) reconciles via DES-068's one choke point | IMPLEMENTED |
+| L8 | `tests/test_client_registry.py::test_get_does_not_reconnect_when_already_connected` — no duplicate re-mark | IMPLEMENTED |
+| L9 | `tests/domain/test_hub_replicator.py::test_the_disconnected_backoff_climbs_from_base_to_cap` — the delay sequence matches the 2s→120s curve | IMPLEMENTED |
+| L10 | `tests/domain/test_hub_replicator.py::test_the_disconnected_backoff_resets_on_a_clean_send_not_on_dial_success` | IMPLEMENTED |
 | L11 | (model-only; fidelity control (a), reproduced in `docs/display_linkage.tex` §Fidelity against a scratch variant, not a committed file) | MODEL-CHECKED |
-| L12 | `ClientRegistry.wait_for_reconnect` — a thread sets `_reconnected` while another is blocked in `wait_for_reconnect(60.0)`; assert the waiter returns `True` in well under a second | PLANNED |
-| L13 | `ClientRegistry.wait_for_reconnect` — a call with nothing setting the event returns `False` once its timeout elapses | PLANNED |
+| L12 | `tests/test_client_registry.py::test_wait_for_reconnect_wakes_promptly_on_a_concurrent_connect` and `::test_a_reconnect_landing_in_the_get_to_wait_gap_is_not_lost` (PR-465: the generation-counter race close) | IMPLEMENTED |
+| L13 | `tests/test_client_registry.py::test_a_wait_snapshotted_after_its_own_connect_waits_out_its_own_timeout` | IMPLEMENTED |
 | L14 | (model-only; fidelity control (b), reproduced in `docs/display_linkage.tex` §Fidelity against a scratch variant, not a committed file) | MODEL-CHECKED |
-| L15 | `ClientRegistry.wait_for_reconnect` — a second test asserts `wait_for_reconnect` does not hold `self._lock` for its duration (a concurrent `.get()` from another thread completes while the wait is in flight) | PLANNED |
+| L15 | `tests/test_client_registry.py::test_wait_for_reconnect_does_not_hold_the_registry_lock` — a concurrent `.get()` from another thread completes while the wait is in flight | IMPLEMENTED |
 | L16 | (model-only; bonus fidelity control (c), reproduced in `docs/display_linkage.tex` §Fidelity against a scratch variant, not a committed file) | MODEL-CHECKED |
-| L17 | `_CycleOutcome`/`_run_cycle` — assert `_back_off()` (the wedge-backoff sleep) is never invoked on the `disconnected` path — the specific double-sleep regression review found | PLANNED |
-| L18 | `HubReplicator` disconnected curve, contrasted with the existing wedge-backoff tests in `test_hub_replicator.py` (`test_a_wedged_display_is_reaped_respawned_and_repainted` et al.) | PLANNED |
-| L19 | Combination of L9/L18 — both curves exercised in the same test session without cross-contamination | PLANNED |
-| L20 | `DisplayLiveness` — with a fake `KeepaliveClients`, assert a successful probe after a disconnection is indistinguishable in effect from the replicator's own reconnect (reconcile fires) | PLANNED |
-| L21 | `DisplayLiveness` — with a fake `KeepaliveClients` whose `get()` always raises `RuntimeError`, assert the loop's wait interval becomes `_DISCONNECTED_PROBE_INTERVAL` after the first failure, and reverts to `_interval` on recovery | PLANNED |
-| L22 | `DisplayLiveness` — exercised concurrently with `HubReplicator` against one fake `ClientRegistry`; assert the prober's own `.get()` is never gated by the replicator's phase | PLANNED |
-| L23 | Grep-provable safety check (§12 invariant 5): a test (or a `make check`-wired grep) asserting no source file under `src/punt_lux/domain/hub/` references `ServiceManager` in connection with `DISPLAY_SPEC`/`DisplayServiceManager` | PLANNED |
+| L17 | `tests/domain/test_hub_replicator.py::test_a_dial_failure_drives_the_disconnected_branch_not_the_wedged_backoff` — `_back_off()` (the wedge-backoff sleep) is never invoked on the `disconnected` path | IMPLEMENTED |
+| L18 | `tests/domain/test_hub_replicator.py::test_a_wedged_display_is_reaped_respawned_and_repainted` et al. (wedge curve), contrasted with L9's disconnected curve — the wedge tests never touch `_disconnected_retry` | IMPLEMENTED |
+| L19 | `tests/domain/test_hub_replicator.py` — L9 and L18's tests run in the same module without cross-contamination (shared file, independent `HubReplicator` instances per test) | IMPLEMENTED |
+| L20 | `tests/test_client_registry.py::TestConnectAndReconcile` — the reconcile hook lives entirely in `ClientRegistry.get()`, so it fires identically for `DisplayLiveness`'s and `HubReplicator`'s calls; no per-caller branch exists to test separately | IMPLEMENTED |
+| L21 | `tests/test_liveness.py::TestDisconnectedPacing::test_interval_relaxes_after_a_failure_and_snaps_back_on_reconnect` | IMPLEMENTED |
+| L22 | No dedicated covering test. `DisplayLiveness` and `HubReplicator` share one production `ClientRegistry`/`_lock`, but no test exercises both workers concurrently against one fake to assert the prober's `.get()` is never gated by the replicator's `rwaitdisc` phase. Gap, not a false-covered row. | GAP |
+| L23 | `tests/test_hub_never_spawns_display.py::test_no_hub_module_references_the_display_service_lifecycle` — grep-provable, asserts no `src/punt_lux/domain/hub/` file references `ServiceManager`/`DISPLAY_SPEC`/`DisplayServiceManager` | IMPLEMENTED |
 
 Three partitions (L11, L14, L16) have no code to test yet by construction —
 they are properties of the *model*, exercised against scratch buggy variants
@@ -204,15 +204,21 @@ prose:
   subsequent successful `get()` resets it") must assert the reset follows
   a **successful send**, not merely a successful dial, or it will pass
   against an implementation that resets one step too early.
-- **The `wait()`/`.clear()` lost-wakeup window.** `RWaitWoken` and
-  `RWaitTimeout` each model
+- **The `wait()`/`.clear()` lost-wakeup window — closed, not merely bounded.**
+  `RWaitWoken` and `RWaitTimeout` each model
   `woke = self._reconnected.wait(timeout); self._reconnected.clear(); return woke`
-  as one atomic step. The real two-statement body has a window in which a
-  second `.set()` landing between the wake and the `.clear()` is silently
-  discarded — out of this model's scope by construction, not oversight.
-  The consequence is bounded (added retry latency via the next dial, never
-  lost content or a stuck wait, since I4 already proves the retry delay
-  itself is capped), but L12/L15's covering tests
-  (`ClientRegistry.wait_for_reconnect`) should include a case that lands a
-  second `.set()` in that exact window and asserts the bounded-latency
-  degradation, not a hang.
+  as one atomic step. The original `Event`-based implementation (both its
+  sticky-set and its later clear-before-wait forms) only approximated that
+  atomicity, leaving a real window where a concurrent reconnect landing
+  between the check and the park could be missed — reported by Bugbot/Copilot
+  on PR #465. The fix replaces the `Event` with a monotonic `_reconnect_gen`
+  counter plus a `threading.Condition` wrapping `ClientRegistry._lock`:
+  `get()` bumps the generation and calls `notify_all()` under the same lock
+  `wait_for_reconnect`'s check-then-`Condition.wait_for` runs under, so the
+  check ("did a reconnect already land past my snapshot?") and the park
+  ("wake me when one does") are genuinely one atomic step — the real
+  mechanism now MATCHES the model's abstraction instead of only
+  approximating it, so `docs/display_linkage.tex` needs no change. L12's
+  `test_a_reconnect_landing_in_the_get_to_wait_gap_is_not_lost` asserts the
+  exact race is closed: a reconnect landing in that window returns promptly,
+  not after the full backoff.
