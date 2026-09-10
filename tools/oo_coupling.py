@@ -10,6 +10,11 @@ Usage:
     python oo_coupling.py <file_or_directory> --update        # update baseline
     python oo_coupling.py <file_or_directory> --rebaseline    # unconditional reset
     python oo_coupling.py <file_or_directory> --log           # audit history
+    python oo_coupling.py <file_or_directory> --check --base-ref <ref>
+        # scope --check's touched-file diff to <ref>..HEAD instead of the
+        # default HEAD~1..HEAD -- the push-to-main CI job passes the pre-push
+        # tip of main (github.event.before) so a multi-commit push is scored
+        # as a whole range, not just its last commit
 
 Metrics produced:
     efferent_coupling    count of internal package modules imported (target: <= 7)
@@ -777,11 +782,21 @@ class CouplingRatchet:
         return None
 
     @staticmethod
-    def _git_touched_files() -> list[str] | None:
-        """Return repo-relative paths changed in the latest commit."""
+    def _git_touched_files(base_ref: str = "HEAD~1") -> list[str] | None:
+        """Return repo-relative paths changed between ``base_ref`` and HEAD.
+
+        Defaults to the latest commit (``HEAD~1..HEAD``), which is correct for
+        the PR-diff path: a PR's `--check` run scores the single commit range
+        a developer or reviewer cares about. The push-to-main CI job overrides
+        this with ``github.event.before`` (the pre-push tip of main) so a push
+        that lands more than one commit is diffed as the whole
+        ``before..after`` range -- otherwise a regression in an earlier commit
+        of a multi-commit push would never appear in ``HEAD~1..HEAD`` and
+        would pass trivially (qodo finding on PR #467).
+        """
         try:
             result = subprocess.run(
-                ["git", "diff", "--name-only", "HEAD~1..HEAD"],
+                ["git", "diff", "--name-only", f"{base_ref}..HEAD"],
                 capture_output=True,
                 text=True,
                 timeout=5,
@@ -793,11 +808,26 @@ class CouplingRatchet:
         return None
 
     @staticmethod
-    def _git_renamed_files() -> set[str]:
-        """Return new-path side of pure renames in the latest commit."""
+    def _git_renamed_files(base_ref: str = "HEAD~1") -> set[str]:
+        """Return new-path side of pure renames between ``base_ref`` and HEAD.
+
+        Same ``base_ref`` default and override rationale as
+        ``_git_touched_files`` -- the rename set must be scoped to the same
+        range the touched-file set is scoped to, or a rename in an earlier
+        push commit could be excluded from ``touched`` (correct) while its
+        content regression is missed entirely (incorrect: renames+regresses
+        elsewhere in a multi-commit push must still be scored).
+        """
         try:
             result = subprocess.run(
-                ["git", "diff", "-M", "--diff-filter=R", "--name-only", "HEAD~1..HEAD"],
+                [
+                    "git",
+                    "diff",
+                    "-M",
+                    "--diff-filter=R",
+                    "--name-only",
+                    f"{base_ref}..HEAD",
+                ],
                 capture_output=True,
                 text=True,
                 timeout=5,
@@ -873,15 +903,23 @@ class CouplingRatchet:
 
     # ---- --check ----
 
-    def check(self, scorer: CouplingScorer) -> int:
-        """Compare touched files against baseline. Return exit code."""
+    def check(self, scorer: CouplingScorer, base_ref: str = "HEAD~1") -> int:
+        """Compare touched files (since ``base_ref``) against baseline.
+
+        ``base_ref`` defaults to the latest commit -- see
+        ``_git_touched_files`` for why the push-to-main CI job overrides it.
+        An unresolvable ``base_ref`` (bad SHA, unfetched history) makes
+        ``_git_touched_files`` return ``None``, which this falls back to
+        treating every scored file as touched -- fail toward a broader check,
+        never a silently narrower one.
+        """
         if not self.has_baseline:
             _writeln("No baseline -- run --update to create one")
             return 0
 
         current_by_file = self._results_by_file(scorer.results)
 
-        git_touched = self._git_touched_files()
+        git_touched = self._git_touched_files(base_ref)
         scored_files = set(current_by_file)
 
         if git_touched is not None:
@@ -890,7 +928,7 @@ class CouplingRatchet:
             touched = scored_files
 
         # Exclude pure renames — no content changed, nothing to improve
-        renamed = self._git_renamed_files()
+        renamed = self._git_renamed_files(base_ref)
         touched -= renamed
 
         touched = {f for f in touched if f.endswith(".py")}
@@ -1125,11 +1163,23 @@ class CouplingRatchet:
 # ------------------------------------------------------------------
 
 
+def _arg_value(flag: str) -> str | None:
+    """Return the value following ``flag`` in ``sys.argv``, or ``None`` if absent."""
+    if flag not in sys.argv:
+        return None
+    idx = sys.argv.index(flag)
+    if idx + 1 >= len(sys.argv):
+        _writeln(f"{flag} requires a value")
+        sys.exit(1)
+    return sys.argv[idx + 1]
+
+
 def main() -> None:
     if len(sys.argv) < 2:
         _writeln(
             f"Usage: {sys.argv[0]} <file_or_directory> "
-            f"[--json] [--threshold] [--check] [--update] [--rebaseline] [--log]",
+            f"[--json] [--threshold] [--check] [--update] [--rebaseline] [--log] "
+            f"[--base-ref REF]",
         )
         sys.exit(1)
 
@@ -1140,9 +1190,15 @@ def main() -> None:
 
     scorer = CouplingScorer(target)
     ratchet = CouplingRatchet()
+    # --base-ref overrides the default HEAD~1..HEAD range. The push-to-main CI
+    # job passes github.event.before so a multi-commit push is diffed as a
+    # whole range instead of just its last commit; --check is the only
+    # base_ref consumer -- --update always scores the whole target, see
+    # CouplingRatchet.update.
+    base_ref = _arg_value("--base-ref") or "HEAD~1"
 
     if "--check" in sys.argv:
-        sys.exit(ratchet.check(scorer))
+        sys.exit(ratchet.check(scorer, base_ref))
     elif "--rebaseline" in sys.argv:
         sys.exit(ratchet.rebaseline(scorer))
     elif "--update" in sys.argv:
