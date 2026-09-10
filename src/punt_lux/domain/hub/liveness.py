@@ -6,9 +6,9 @@ silent gap the operator experiences as "selection stopped working". This
 worker closes it: it periodically pings and, on failure, drops and
 reconnects, bounding the silent window to about one probe interval.
 
-Reuses the connection registry the rest of luxd already shares; the
-registry serializes connect/drop against the replicator and tool threads,
-so this worker adds no new lock.
+Reuses the connection registry the rest of luxd already shares -- it
+serializes connect/drop against the replicator and tool threads, so this
+worker adds no new lock.
 """
 
 from __future__ import annotations
@@ -25,11 +25,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-__all__ = [
-    "DisplayLiveness",
-    "KeepaliveClients",
-    "KeepaliveConnection",
-]
+__all__ = ["DisplayLiveness", "KeepaliveClients", "KeepaliveConnection"]
 
 # Bound the join at stop so a wedged final ping cannot hang shutdown.
 _STOP_JOIN_TIMEOUT = 3.0
@@ -119,14 +115,19 @@ class DisplayLiveness:
         """Prove the connection; on a twice-failed probe, drop and reconnect.
 
         The re-probe spares a connection a concurrent reconnect just healed.
-        ``_pacing`` logs the not-connected transition once, not per cycle.
         """
         if self._probe() or self._probe():
             self._pacing.mark_connected()
             return
         self._pacing.mark_disconnected()
+        self._reconnect()
+
+    def _reconnect(self) -> None:
+        """Drop the dead connection and re-probe -- a live probe marks
+        connected at once, sparing a further disconnected-interval cycle."""
         self._clients.drop()
-        self._probe()
+        if self._probe():
+            self._pacing.mark_connected()
 
     def _run(self) -> None:
         """Tick until stopped; a raising cycle must never kill the thread.

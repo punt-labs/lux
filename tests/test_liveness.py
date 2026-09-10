@@ -141,11 +141,27 @@ class TestDisconnectedPacing:
     def test_interval_relaxes_after_a_failure_and_snaps_back_on_reconnect(
         self,
     ) -> None:
-        clients = _FakeClients(_FakeConnection([None, None, _pong()]))
+        # All three probes in the first cycle fail (the two ``check_once``
+        # probes plus the post-drop reconnect probe), so that cycle
+        # genuinely ends disconnected; the second cycle's connection
+        # answers reliably and snaps the cadence back.
+        clients = _FakeClients(_FakeConnection([None, None, None, _pong()]))
         worker = DisplayLiveness(clients, interval=1.0)
-        worker.check_once()  # both probes fail — the cycle marks disconnected
+        worker.check_once()  # every probe fails — the cycle marks disconnected
         assert worker._pacing.interval(1.0) == _DISCONNECTED_PROBE_INTERVAL
         worker.check_once()  # the connection now answers reliably
+        assert worker._pacing.interval(1.0) == 1.0
+
+    def test_a_successful_post_drop_reconnect_snaps_back_within_one_cycle(
+        self,
+    ) -> None:
+        # Both probes fail, then the drop+reconnect probe succeeds -- all in
+        # the SAME check_once(). The pacer must notice at once, not report
+        # disconnected for a further cycle before catching up to the
+        # reconnect it just performed.
+        clients = _FakeClients(_FakeConnection([None, None, _pong()]))
+        worker = DisplayLiveness(clients, interval=1.0)
+        worker.check_once()
         assert worker._pacing.interval(1.0) == 1.0
 
 
