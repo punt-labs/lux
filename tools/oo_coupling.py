@@ -396,10 +396,14 @@ class CouplingScorer:
         """Return the strongly connected components of graph (Tarjan's SCC).
 
         Iterative — a recursive walk would risk the interpreter's recursion
-        limit on a long, linear import chain. Neighbor iteration is sorted,
-        not raw set iteration: str-keyed sets order by hash, which
-        PYTHONHASHSEED randomizes per process, and an unsorted walk would
-        make SCC membership flip between runs on the exact same source tree.
+        limit on a long, linear import chain. SCC membership is a property
+        of the graph alone: it is the same partition no matter what order
+        neighbors are visited in. Neighbor iteration is sorted anyway, not
+        raw set iteration, because str-keyed sets order by hash, which
+        PYTHONHASHSEED randomizes per process — an unsorted walk would make
+        the DISCOVERY and RETURN order of the SCCs (and of members within
+        each SCC) flip between runs on the exact same source tree, even
+        though which nodes land in which component would not.
         """
         index_of: dict[str, int] = {}
         lowlink: dict[str, int] = {}
