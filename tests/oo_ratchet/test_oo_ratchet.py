@@ -216,6 +216,49 @@ class TestBaseCompare:
         assert fx.root  # b.py's main-only regression did not fail the PR
 
 
+class TestPushToMainBaseHandling:
+    """qodo scenario 1 (lux PR #467): the merge-base default is vacuous on push.
+
+    A PR's ``base_ref=None`` correctly resolves to merge-base(origin/main,
+    HEAD) -- the fork point. But after a push, HEAD *is* the new
+    origin/main: merge-base(origin/main, HEAD) == HEAD, an empty diff, so
+    the same default silently reports "No Python files touched" without
+    scoring anything the push changed. ``ratchets.yml``'s push job now
+    passes ``github.event.before`` (the pre-push tip of main) as
+    ``PUSH_BASE_REF`` -- forwarded here to ``base_ref`` -- specifically to
+    avoid this. ``tools/oo_ratchet/cli.py`` already exposed ``--base-ref``
+    before this fix; only the workflow's *use* of it on push was missing.
+    """
+
+    def test_merge_base_default_is_vacuous_immediately_after_a_push(
+        self, fx: GitFixture
+    ) -> None:
+        fx.write("sub/w.py", GOOD)
+        fx.snapshot("sub")
+        before = fx.commit("pre-push tip of main")
+
+        fx.write("sub/w.py", WORSE)
+        fx.snapshot("sub")  # in-tree baseline is locked to the regressed value
+        after = fx.commit("the pushed commit")
+
+        # Simulate the push-job checkout: origin/main now points at the same
+        # commit the local HEAD is on (fetched after the push landed).
+        fx.set_origin_main(after)
+
+        # Old buggy behavior: base_ref=None resolves merge-base(origin/main,
+        # HEAD) == HEAD == after -- an empty diff against the work tree, so
+        # the regression that just landed is never scored.
+        vacuous = fx.ratchet().check(fx.scorer(), base_ref=None, require_base=True)
+        assert vacuous.exit_code == 0
+        assert any("trivial pass" in line for line in vacuous.lines)
+
+        # Fixed behavior: base_ref=<pre-push tip> (what PUSH_BASE_REF carries
+        # from github.event.before) diffs before..HEAD and catches it.
+        caught = fx.ratchet().check(fx.scorer(), base_ref=before, require_base=True)
+        assert caught.exit_code == 1
+        assert any("regression" in line for line in caught.lines)
+
+
 class TestAllowNoImprovement:
     """--allow-no-improvement waives only the must-improve gate.
 
