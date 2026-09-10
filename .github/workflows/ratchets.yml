@@ -25,22 +25,49 @@ permissions:
   contents: read
 
 jobs:
-  # check-oo compares HEAD against the baseline committed at the merge-base of
-  # origin/main and HEAD (`git show <merge-base>:.oo-baseline.json` --
-  # tools/oo_ratchet/gitio.py `resolve_base`/`show_baseline`). The default
-  # actions/checkout is a shallow, single-branch clone: it does not fetch
-  # `origin/main` at all (not merely a short history -- the ref is absent),
-  # so `git merge-base origin/main HEAD` fails with "unknown revision" and
-  # the ratchet fails closed ("cannot resolve merge-base (origin/main
-  # unfetched or stale)"). `fetch-depth: 0` makes actions/checkout do a full,
-  # unshallow fetch of every branch and tag, which is what actually populates
-  # `refs/remotes/origin/main` -- confirmed locally by cloning this repo with
-  # `git clone --depth 1` (origin/main absent, merge-base fails) and then
-  # `git fetch --unshallow origin '+refs/heads/*:refs/remotes/origin/*'`
-  # (origin/main present, merge-base resolves). The explicit `git fetch
-  # origin main` step below is belt-and-suspenders: fetch-depth: 0 already
-  # covers it, but if a future edit narrows the checkout back down, this step
-  # keeps origin/main resolvable without silently reintroducing the gotcha.
+  # check-oo compares HEAD against a base baseline
+  # (`git show <base>:.oo-baseline.json` -- tools/oo_ratchet/gitio.py
+  # `resolve_base`/`show_baseline`). Which commit is "the base" differs by
+  # trigger, because the two triggers answer different questions:
+  #
+  #   pull_request -- "did this PR regress anything?" The base is
+  #   merge-base(origin/main, HEAD): the point the PR branch forked from
+  #   main, so a concurrent regression landed on main by someone else's PR is
+  #   correctly excluded from THIS PR's touched set. `make check-oo` with no
+  #   PUSH_BASE_REF leaves the tool's own default (merge-base) untouched.
+  #
+  #   push -- "is main green after this landed?" This is the defense-in-depth
+  #   net for the merge-produces-red case the PR trigger can miss (#465):
+  #   a PR can be individually green yet, once merged, `main` at HEAD carries
+  #   a regression neither side's merge-base comparison alone would catch.
+  #   On push, HEAD *is* the new origin/main -- merge-base(origin/main, HEAD)
+  #   == HEAD, an empty diff, so the merge-base default is VACUOUS here: it
+  #   silently reports "No Python files touched" without scoring anything the
+  #   push changed (qodo finding on PR #467, scenario 1). The fix is to
+  #   compare against `github.event.before` (the pre-push tip of main)
+  #   instead: `make check-oo PUSH_BASE_REF=<before-sha>` passes
+  #   `--base-ref <before-sha> --require-base` (tools/oo_ratchet/cli.py
+  #   already exposes `--base-ref`; only the Makefile plumbing was missing).
+  #   `--require-base` makes an unresolvable base a hard failure rather than
+  #   a silent bootstrap-pass, matching "genuinely verify main is green."
+  #
+  # The default actions/checkout is a shallow, single-branch clone: it does
+  # not fetch `origin/main` at all (not merely a short history -- the ref is
+  # absent), so `git merge-base origin/main HEAD` fails with "unknown
+  # revision" and the ratchet fails closed ("cannot resolve merge-base
+  # (origin/main unfetched or stale)"). `fetch-depth: 0` makes
+  # actions/checkout do a full, unshallow fetch of every branch and tag,
+  # which is what actually populates `refs/remotes/origin/main` -- confirmed
+  # locally by cloning this repo with `git clone --depth 1` (origin/main
+  # absent, merge-base fails) and then `git fetch --unshallow origin
+  # '+refs/heads/*:refs/remotes/origin/*'` (origin/main present, merge-base
+  # resolves). It also fetches `github.event.before`'s commit whenever that
+  # commit is an ancestor of the pushed history, which it is for the normal
+  # fast-forward push this repo's branch protection produces. The explicit
+  # `git fetch origin main` step below is belt-and-suspenders: fetch-depth: 0
+  # already covers it, but if a future edit narrows the checkout back down,
+  # this step keeps origin/main resolvable without silently reintroducing the
+  # gotcha.
   check-oo:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -57,7 +84,14 @@ jobs:
         with:
           python-version: "3.13"
       - run: uv sync --locked --extra display
-      - run: make check-oo
+      - name: Run OO ratchet (push: base-compare against pre-push main; PR: merge-base default)
+        run: |
+          BEFORE="${{ github.event_name == 'push' && github.event.before || '' }}"
+          if [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            make check-oo PUSH_BASE_REF="$BEFORE"
+          else
+            make check-oo
+          fi
 
   # check-coupling compares touched files against the IN-TREE
   # .oo-coupling-baseline.json (not a merge-base blob), so it does not share
@@ -67,6 +101,22 @@ jobs:
   # (tools/oo_coupling.py `_tarjan_scc`): neighbor iteration is sorted, not
   # raw set iteration, so PYTHONHASHSEED no longer perturbs SCC
   # discovery/return order between runs on identical source.
+  #
+  # "Touched files" itself has the same push-vs-PR base problem check-oo has,
+  # for a different reason: tools/oo_coupling.py `_git_touched_files`
+  # defaults to `HEAD~1..HEAD` (the single latest commit), which is correct
+  # for a PR's `--check` (one commit's worth of change to review) but wrong
+  # for a push that lands more than one commit -- a regression in an earlier
+  # commit of the push would never appear in `HEAD~1..HEAD` and would pass
+  # trivially (qodo finding on PR #467, scenario 2). On push,
+  # `make check-coupling PUSH_BASE_REF=<before-sha>` passes
+  # `--base-ref <before-sha>`, so the diff range becomes `before..HEAD` --
+  # the whole set of commits the push landed. Unlike check-oo this needs no
+  # `--require-base`-style hard-fail flag: an unresolvable `--base-ref` makes
+  # `_git_touched_files` return `None`, and `check()` already treats that as
+  # "score every file in the target" -- fail toward a broader check, not a
+  # silently narrower one, so the tool's existing no-git fallback already
+  # does the safe thing.
   check-coupling:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -81,4 +131,11 @@ jobs:
         with:
           python-version: "3.13"
       - run: uv sync --locked --extra display
-      - run: make check-coupling
+      - name: Run coupling ratchet (push: whole-push touched-file range; PR: last-commit default)
+        run: |
+          BEFORE="${{ github.event_name == 'push' && github.event.before || '' }}"
+          if [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            make check-coupling PUSH_BASE_REF="$BEFORE"
+          else
+            make check-coupling
+          fi

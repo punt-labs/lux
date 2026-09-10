@@ -37,8 +37,13 @@ type: ## Type check with mypy and pyright
 
 check: check-oo check-coupling check-suppressions lint type test ## Run all quality gates
 
+# PUSH_BASE_REF overrides the default merge-base (check-oo) / HEAD~1
+# (check-coupling) comparison base. Set only by the push-to-main CI job
+# (github.event.before, the pre-push tip of main) -- unset locally and on the
+# pull_request job, so the default merge-base / touched-files-in-last-commit
+# behavior for the PR-diff path is unchanged.
 check-oo: ## OO ratchet — must improve over baseline, never regress
-	uv run --extra display python tools/oo_score.py src/punt_lux/ --check
+	uv run --extra display python tools/oo_score.py src/punt_lux/ --check $(if $(PUSH_BASE_REF),--base-ref $(PUSH_BASE_REF) --require-base,)
 
 update-oo: ## Update OO baseline after improvements (stage .oo-baseline.json and .oo-audit.jsonl)
 	uv run --extra display python tools/oo_score.py src/punt_lux/ --update
@@ -53,7 +58,7 @@ check-plugin-surface: ## Verify the plugin/ surface resolves entirely inside its
 	bash scripts/check-plugin-surface.sh
 
 check-coupling: ## Coupling ratchet — must not regress against .oo-coupling-baseline.json
-	uv run --extra display python tools/oo_coupling.py src/punt_lux/ --check
+	uv run --extra display python tools/oo_coupling.py src/punt_lux/ --check $(if $(PUSH_BASE_REF),--base-ref $(PUSH_BASE_REF),)
 
 update-coupling: ## Update coupling baseline
 	uv run --extra display python tools/oo_coupling.py src/punt_lux/ --update
