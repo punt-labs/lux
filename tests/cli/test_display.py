@@ -195,6 +195,17 @@ class TestDisplayLinkReadOnly:
         assert '"kind":"connected"' in result.output.replace(" ", "")
         assert '"linkage":"connected_idle"' in result.output.replace(" ", "")
 
+    def test_the_default_text_names_the_hub_host_and_pid(self) -> None:
+        # The whole point of the restored host-identity fields is catching a
+        # wrong-host push -- the default rendering must not hide them.
+        client = _DisplayClient()
+        with patch(
+            "punt_lux.client.facade.LuxClient.for_identity", return_value=client
+        ):
+            result = runner.invoke(app, ["display", "link"])
+        assert result.exit_code == 0
+        assert "hub=host:1" in result.output
+
     def test_reports_the_held_shape_with_a_retry_delay(self) -> None:
         class _HeldClient(_DisplayClient):
             def get_link(self) -> DisplayLinkState:
@@ -203,8 +214,8 @@ class TestDisplayLinkReadOnly:
                     linkage="held",
                     retry_delay_seconds=8.0,
                     live_scene_count=1,
-                    hub_host="host",
-                    hub_pid=1,
+                    hub_host="held-host",
+                    hub_pid=2,
                 )
 
         client = _HeldClient()
@@ -215,6 +226,7 @@ class TestDisplayLinkReadOnly:
         assert result.exit_code == 0
         assert "held" in result.output
         assert "retry_delay=8.0s" in result.output
+        assert "hub=held-host:2" in result.output
 
 
 class TestDisplayAdminVerbs:

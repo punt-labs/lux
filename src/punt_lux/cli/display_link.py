@@ -42,11 +42,11 @@ class _LinkResult:
 
     @staticmethod
     def text(state: DisplayLinkState) -> str:
-        """Render either link shape readably: linkage, plus a retry delay when held."""
+        """Render either link shape readably: linkage, hub identity, retry delay."""
         if isinstance(state, ConnectedLinkState):
-            return f"display:link:{state.linkage}"
+            return f"display:link:{state.linkage} {state.hub}"
         delay = state.retry_delay_seconds
-        return f"display:link:{state.linkage} retry_delay={delay:.1f}s"
+        return f"display:link:{state.linkage} retry_delay={delay:.1f}s {state.hub}"
 
     @staticmethod
     async def fetch(ctx: Ctx[DisplayLinkOps]) -> CommandResult:
