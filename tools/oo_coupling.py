@@ -12,9 +12,14 @@ Usage:
     python oo_coupling.py <file_or_directory> --log           # audit history
     python oo_coupling.py <file_or_directory> --check --base-ref <ref>
         # scope --check's touched-file diff to <ref>..HEAD instead of the
-        # default HEAD~1..HEAD -- the push-to-main CI job passes the pre-push
-        # tip of main (github.event.before) so a multi-commit push is scored
-        # as a whole range, not just its last commit
+        # default HEAD~1..HEAD -- CI passes an explicit <ref> on both
+        # triggers, since this tool has no merge-base-aware default of its
+        # own: the push-to-main job passes the pre-push tip of main
+        # (github.event.before) so a multi-commit push is scored as a whole
+        # range, not just its last commit; the pull_request job passes
+        # merge-base(origin/main, HEAD) -- the PR's fork point, computed by
+        # the workflow -- so the whole PR range is scored, not just the last
+        # commit of a multi-commit PR
 
 Metrics produced:
     efferent_coupling    count of internal package modules imported (target: <= 7)
@@ -785,14 +790,20 @@ class CouplingRatchet:
     def _git_touched_files(base_ref: str = "HEAD~1") -> list[str] | None:
         """Return repo-relative paths changed between ``base_ref`` and HEAD.
 
-        Defaults to the latest commit (``HEAD~1..HEAD``), which is correct for
-        the PR-diff path: a PR's `--check` run scores the single commit range
-        a developer or reviewer cares about. The push-to-main CI job overrides
-        this with ``github.event.before`` (the pre-push tip of main) so a push
-        that lands more than one commit is diffed as the whole
-        ``before..after`` range -- otherwise a regression in an earlier commit
-        of a multi-commit push would never appear in ``HEAD~1..HEAD`` and
-        would pass trivially (qodo finding on PR #467).
+        Defaults to the latest commit (``HEAD~1..HEAD``), which is correct
+        for a local, single-commit `--check` run -- a developer scoring the
+        commit they just made. This tool has no merge-base-aware default of
+        its own, so CI overrides the default on both triggers. The
+        push-to-main job passes ``github.event.before`` (the pre-push tip of
+        main) so a push that lands more than one commit is diffed as the
+        whole ``before..after`` range -- otherwise a regression in an
+        earlier commit of a multi-commit push would never appear in
+        ``HEAD~1..HEAD`` and would pass trivially. The pull_request job
+        passes ``merge-base(origin/main, HEAD)`` -- the
+        PR's fork point, computed by the workflow -- so the whole PR range
+        is scored; otherwise a regression introduced in an earlier commit of
+        a multi-commit PR and never re-touched by a later one would also
+        pass trivially.
         """
         try:
             result = subprocess.run(
