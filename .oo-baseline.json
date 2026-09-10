@@ -3925,6 +3925,19 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
+  "src/punt_lux/domain/hub/display_linkage.py": {
+    "method_ratio": 1.0,
+    "encapsulation_ratio": 1.0,
+    "avg_params": 2.0,
+    "max_complexity": 2.0,
+    "avg_complexity": 2.0,
+    "module_size": 26.0,
+    "classes_per_module": 1.0,
+    "class_to_func_ratio": 1.0,
+    "init_violations": 0.0,
+    "public_attr_violations": 0.0,
+    "future_annotations": 1.0
+  },
   "src/punt_lux/domain/hub/display_workers.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
@@ -4409,10 +4422,10 @@
   "src/punt_lux/domain/hub/respawn_backoff.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
-    "avg_params": 0.33,
+    "avg_params": 0.25,
     "max_complexity": 3.0,
-    "avg_complexity": 1.67,
-    "module_size": 60.0,
+    "avg_complexity": 1.5,
+    "module_size": 59.0,
     "classes_per_module": 1.0,
     "class_to_func_ratio": 1.0,
     "init_violations": 0.0,

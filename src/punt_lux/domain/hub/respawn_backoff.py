@@ -1,53 +1,52 @@
 """RespawnBackoff — paces successive Display respawns, apart from send retry.
 
 A poison scene can crash the Display several times before
-:class:`~punt_lux.domain.hub.crash_attribution.CrashAttribution` quarantines it.
-Between the first death and quarantine, each attributed death triggers a
-respawn, and each respawn opens a fresh window that steals macOS keyboard
-focus (display-crash-quarantine.md Question 3/4). This object paces those
-respawns so the pre-quarantine deaths are a slowing trickle, not a rapid burst.
+:class:`~punt_lux.domain.hub.crash_attribution.CrashAttribution` quarantines
+it. Each attributed death triggers a respawn, and each respawn opens a fresh
+window that steals macOS keyboard focus (display-crash-quarantine.md Question
+3/4) — this paces those into a slowing trickle, not a rapid burst.
 
 Deliberately not the send-retry backoff already in
-:mod:`~punt_lux.domain.hub.replicator` (``_BASE_BACKOFF_SECONDS`` /
-``_MAX_BACKOFF_SECONDS``, reset on any clean *send*): that reset condition
-fires too eagerly under isolation mode, where an innocent scene's clean send
-would reset a shared counter mid-episode. This backoff resets only once the
-Display has demonstrably served without a death for
-:data:`~punt_lux.domain.hub.crash_attribution.STABLE_INTERVAL` — the same
-stability bar isolation-exit uses — never on a clean send.
+:mod:`~punt_lux.domain.hub.replicator` (reset on any clean *send*, which fires
+too eagerly here — an innocent scene's send would reset a shared counter
+mid-episode). This resets only once the Display has served a death-free
+stable interval. Pacing is a
+:class:`~punt_lux.domain.hub.backoff_config.BackoffConfig`, so a second,
+independently-tuned instance can pace the disconnected-display retry too.
 """
 
 from __future__ import annotations
 
-import time
-from typing import TYPE_CHECKING, Self, final
+from typing import Self, final
 
-from punt_lux.domain.hub.crash_attribution import STABLE_INTERVAL
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
+from punt_lux.domain.hub.backoff_config import BackoffConfig
 
 __all__ = ["RespawnBackoff"]
 
-_BASE_DELAY_SECONDS = 1.0
-_MAX_DELAY_SECONDS = 30.0
+# Frozen and shared, so a call-free default satisfies ruff B008.
+_DEFAULT_CONFIG = BackoffConfig()
 
 
 @final
 class RespawnBackoff:
     """Own the respawn delay's growth and its serve-stably reset."""
 
-    _clock: Callable[[], float]
+    _config: BackoffConfig
     _delay: float
     _last_respawn_at: float | None
-    __slots__ = ("_clock", "_delay", "_last_respawn_at")
+    __slots__ = ("_config", "_delay", "_last_respawn_at")
 
-    def __new__(cls, clock: Callable[[], float] = time.monotonic) -> Self:
+    def __new__(cls, config: BackoffConfig = _DEFAULT_CONFIG) -> Self:
         self = super().__new__(cls)
-        self._clock = clock
-        self._delay = _BASE_DELAY_SECONDS
+        self._config = config
+        self._delay = config.base_delay
         self._last_respawn_at = None
         return self
+
+    @property
+    def current_delay(self) -> float:
+        """Return the pending delay ``note_respawn`` would apply — read-only."""
+        return self._delay
 
     def note_respawn(self) -> float:
         """Record a respawn now; return the delay to wait before it.
@@ -56,21 +55,21 @@ class RespawnBackoff:
         current pacing and the next respawn is paced further out.
         """
         delay = self._delay
-        self._delay = min(self._delay * 2, _MAX_DELAY_SECONDS)
-        self._last_respawn_at = self._clock()
+        self._delay = min(self._delay * 2, self._config.max_delay)
+        self._last_respawn_at = self._config.clock()
         return delay
 
     def reset_if_stable(self) -> bool:
         """Reset the delay to base once the Display served a stable interval.
 
-        Only fires ``STABLE_INTERVAL`` after the *last* respawn with no
+        Only fires ``config.stable_interval`` after the *last* respawn with no
         further respawn in between — a display that keeps dying keeps its
         backoff climbing. Returns whether the reset fired.
         """
         if self._last_respawn_at is None:
             return False
-        if self._clock() - self._last_respawn_at < STABLE_INTERVAL:
+        if self._config.clock() - self._last_respawn_at < self._config.stable_interval:
             return False
-        self._delay = _BASE_DELAY_SECONDS
+        self._delay = self._config.base_delay
         self._last_respawn_at = None
         return True

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, cast
 
+from punt_lux.domain.hub.backoff_config import BackoffConfig
 from punt_lux.domain.hub.crash_attribution import CrashAttribution
 from punt_lux.domain.hub.dirty_signal import DrainedBatch
 from punt_lux.domain.hub.quarantine_record import QuarantineRecord
@@ -137,7 +138,7 @@ def _recovery() -> tuple[
         cast("DisplayLifecycle", lifecycle),
         cast("DirtySignal", signal),
         attribution,
-        RespawnBackoff(lambda: 0.0),
+        RespawnBackoff(BackoffConfig(clock=lambda: 0.0)),
     )
     return recovery, provider, lifecycle, signal, attribution
 
