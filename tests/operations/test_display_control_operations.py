@@ -81,6 +81,10 @@ class _FakePort:
     def last_wait(self) -> float | None:
         return self._last_wait
 
+    @property
+    def is_connected(self) -> bool:
+        return True
+
 
 def _ops(port: _FakePort) -> DisplayControlOperations:
     """Build a ``DisplayControlOperations`` over a fake port."""

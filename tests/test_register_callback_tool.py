@@ -56,6 +56,10 @@ class _StubReplicator:
     def mark_menus(self) -> None:
         """Swallow the menu-dirty flag."""
 
+    @property
+    def disconnected_delay(self) -> float:
+        return 0.0
+
 
 @final
 class _Listener:

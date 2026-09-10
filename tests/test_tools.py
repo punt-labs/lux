@@ -937,6 +937,10 @@ class _ReplicatorSpy:
     def mark_menus(self) -> None:
         """Swallow the menu-dirty flag; the spy only records scene signals."""
 
+    @property
+    def disconnected_delay(self) -> float:
+        return 0.0
+
 
 def _bind_store(monkeypatch: pytest.MonkeyPatch, store: HubDisplay) -> MagicMock:
     """Route the operations at one isolated store and a recording replicator.

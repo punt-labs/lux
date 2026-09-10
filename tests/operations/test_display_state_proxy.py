@@ -39,6 +39,10 @@ class _StubPort:
         del wait
         return self._reply
 
+    @property
+    def is_connected(self) -> bool:
+        return True
+
 
 def test_snapshot_reads_the_callers_own_scene_and_frame() -> None:
     composed = ConnectionScopedId.compose(_C1, "s1")

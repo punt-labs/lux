@@ -68,6 +68,10 @@ class Recorder:
     def mark_menus(self) -> None:
         self.menus += 1
 
+    @property
+    def disconnected_delay(self) -> float:
+        return 0.0
+
 
 class ForbiddenPort:
     """A DisplayPort that fails the test if any proxied call is made."""
@@ -77,6 +81,10 @@ class ForbiddenPort:
 
     def ping(self, wait: float | None) -> DisplayReply:
         raise AssertionError(f"unexpected display proxy: ping({wait!r})")
+
+    @property
+    def is_connected(self) -> bool:
+        return False
 
 
 class ForbiddenInbox:
@@ -115,6 +123,10 @@ class StubPort:
     def ping(self, wait: float | None) -> DisplayReply:
         self.ping_wait = wait
         return self._reply
+
+    @property
+    def is_connected(self) -> bool:
+        return True
 
 
 def make_facade(

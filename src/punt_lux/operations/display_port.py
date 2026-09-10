@@ -1,10 +1,9 @@
 """The display connection an operation proxies through — luxd's one leg.
 
-Every display-fact operation reaches the running display over this port: the
-same single connection the replicator already owns, hiding the socket, the
-bounded send, and the reconnect policy. The concrete implementation lives in
-the Hub layer and is injected at the composition root, so nothing under
-``operations/`` names the ``DisplayLink``.
+Every display-fact operation reaches the display over this port, hiding the
+socket, the bounded send, and the reconnect policy. Implemented in the Hub
+layer, injected at the composition root — nothing under ``operations/``
+names the ``DisplayLink``.
 """
 
 from __future__ import annotations
@@ -36,3 +35,4 @@ class DisplayPort(Protocol):
     @property
     def is_connected(self) -> bool:
         """Report a live display connection, no I/O."""
+        ...

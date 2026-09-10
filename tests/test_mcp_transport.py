@@ -36,6 +36,7 @@ _EXPECTED_TOOLS = frozenset(
         "callback_pending",
         "callback_register",
         "display_info",
+        "display_link_get",
         "display_mode_get",
         "display_screenshot",
         "display_state_get",
