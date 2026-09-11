@@ -37,15 +37,21 @@ type: ## Type check with mypy and pyright
 
 check: check-oo check-coupling check-suppressions lint type test ## Run all quality gates
 
-# BASE_REF overrides the default comparison base: merge-base(origin/main,
-# HEAD) for check-oo, HEAD~1 for check-coupling. Set by CI on BOTH triggers --
-# the push-to-main job passes github.event.before (the pre-push tip of main),
-# the pull_request job passes merge-base(origin/main, HEAD) computed once in
-# the workflow so check-coupling scores the WHOLE PR range, not just its last
-# commit (check-oo's own default already IS that merge-base, so its PR
-# invocation leaves BASE_REF unset and gets the same range for free). Unset
-# locally, so a developer's ad-hoc `make check-oo`/`make check-coupling` keeps
-# each tool's plain default.
+# BASE_REF overrides the default comparison base for both ratchets. Set by CI
+# on BOTH triggers -- the push-to-main job passes github.event.before (the
+# pre-push tip of main); the pull_request job passes merge-base(origin/main,
+# HEAD) computed once in the workflow so both ratchets score the WHOLE PR
+# range, not just its last commit. Unset locally, so a developer's ad-hoc
+# `make check-oo`/`make check-coupling` keeps each tool's own plain default:
+# merge-base(origin/main, HEAD) for BOTH tools now (oo_score.py's
+# GitRepo.resolve_base; oo_coupling.py's CouplingRatchet's own default base
+# resolver), falling back to HEAD~1 only when merge-base cannot resolve (no
+# origin/main fetched, detached HEAD). check-coupling's plain default used to
+# be an unconditional HEAD~1 -- the last commit only -- so a within-cap
+# regression buried in an earlier commit of a multi-commit local branch
+# passed `make check` and only ever failed once pushed, where CI always
+# overrode the default explicitly. The fix lives entirely in the tools; this
+# Makefile plumbing is unchanged.
 check-oo: ## OO ratchet — must improve over baseline, never regress
 	uv run --extra display python tools/oo_score.py src/punt_lux/ --check $(if $(BASE_REF),--base-ref $(BASE_REF) --require-base,)
 
