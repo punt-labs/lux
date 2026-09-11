@@ -1497,7 +1497,7 @@ class TestMessageRegistry:
 
     def test_registry_completeness(self) -> None:
         """Every non-unknown message type is registered on the default registry."""
-        from punt_lux.protocol.messages import _registry
+        from punt_lux.protocol.messages._wiring import _registry
 
         expected_types = {
             "scene",

@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 import pytest
 
+from punt_lux.domain.hub.callback_key import CallbackKey
 from punt_lux.domain.hub.display_link import DisplayLink
 from punt_lux.domain.hub.hub_id import HubId
 from punt_lux.protocol import (
@@ -122,7 +123,9 @@ class TestConnect:
 
         try:
             client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
-            with patch("punt_lux.domain.hub.display_link.set_send_timeout") as mock_set:
+            with patch(
+                "punt_lux.domain.hub.handshake_connector.set_send_timeout"
+            ) as mock_set:
                 client.connect()
             mock_set.assert_called_once()
             (applied_to,) = mock_set.call_args.args
@@ -515,7 +518,7 @@ class TestRecvEvents:
                 received.append(msg)
                 done.set()
 
-            client.on_event("b1", "click", _cb)
+            client.on_event(CallbackKey("b1", "click"), _cb)
             try:
                 client.connect()
                 client.start_listener()
@@ -665,7 +668,9 @@ class TestErrorHandling:
         try:
             client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
             with (
-                caplog.at_level("WARNING", logger="punt_lux.domain.hub.display_link"),
+                caplog.at_level(
+                    "WARNING", logger="punt_lux.domain.hub.handshake_connector"
+                ),
                 pytest.raises(RuntimeError, match="Expected ReadyMessage"),
             ):
                 client.connect()
@@ -827,7 +832,9 @@ class TestBackgroundListener:
 
         try:
             client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
-            client.on_event("btn1", "click", lambda msg: received.append(msg))
+            client.on_event(
+                CallbackKey("btn1", "click"), lambda msg: received.append(msg)
+            )
             client.connect()
             client.start_listener()
             # Wait for callback to fire
@@ -1012,7 +1019,7 @@ class TestBackgroundListener:
                 )
                 callback_done.set()
 
-            client.on_event("trigger", "click", on_trigger)
+            client.on_event(CallbackKey("trigger", "click"), on_trigger)
             client.connect()
             client.start_listener()
             assert callback_done.wait(timeout=2.0)
@@ -1067,7 +1074,9 @@ class TestBackgroundListener:
 
         try:
             client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
-            client.on_event("btn2", "click", lambda msg: received.append(msg))
+            client.on_event(
+                CallbackKey("btn2", "click"), lambda msg: received.append(msg)
+            )
             client.connect()
             client.start_listener()
             assert client.listener_active
@@ -1145,7 +1154,9 @@ class TestBackgroundListener:
 
         try:
             client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
-            client.on_event("slider1", "click", lambda msg: click_received.append(msg))
+            client.on_event(
+                CallbackKey("slider1", "click"), lambda msg: click_received.append(msg)
+            )
             client.connect()
             client.start_listener()
 
@@ -1200,7 +1211,9 @@ class TestBackgroundListener:
 
         try:
             client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
-            client.on_event("cb1", "changed", lambda msg: received.append(msg))
+            client.on_event(
+                CallbackKey("cb1", "changed"), lambda msg: received.append(msg)
+            )
             client.connect()
             client.start_listener()
 
@@ -1280,7 +1293,7 @@ class TestBackgroundListener:
                 )
                 callback_fired.set()
 
-            client.on_event("hello-world", "menu", on_hello)
+            client.on_event(CallbackKey("hello-world", "menu"), on_hello)
             client.connect()
             client.start_listener()
             # Signal readiness (and trigger the flow) with a real menu write.

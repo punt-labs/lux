@@ -20,16 +20,15 @@ import threading
 import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Self, cast
+from typing import TYPE_CHECKING, Any, Literal, Self
 
-from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
-from punt_lux.domain.hub.hub_id import HubId
-from punt_lux.paths import DisplayPaths
+from punt_lux.domain.hub.callback_key import CallbackKey
+from punt_lux.domain.hub.handshake_connector import HandshakeConnector
+from punt_lux.domain.hub.reply_queues import ReplyQueues
 from punt_lux.polled_event import PolledEvent
 from punt_lux.protocol import (
     AckMessage,
     CallbackMenuMessage,
-    ConnectMessage,
     FrameReader,
     HubManifestMessage,
     MenuMessage,
@@ -43,9 +42,7 @@ from punt_lux.protocol import (
     SceneMessage,
     encode_message,
     recv_message,
-    send_message,
 )
-from punt_lux.send_timeout import set_send_timeout
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
@@ -62,15 +59,6 @@ __all__ = ["DEFAULT_RECV_TIMEOUT", "DisplayLink"]
 DEFAULT_RECV_TIMEOUT = 5.0
 
 
-def _drain_queue(q: queue.SimpleQueue[Any]) -> None:
-    """Discard all items from a :class:`queue.SimpleQueue`."""
-    while True:
-        try:
-            q.get_nowait()
-        except queue.Empty:
-            break
-
-
 class DisplayLink:
     """Client for the Lux display server.
 
@@ -85,22 +73,18 @@ class DisplayLink:
     """
 
     _socket_path: Path | None
-    _name: str | None
-    _kind: Literal["hub", "test"]
     _auto_spawn: bool
     _connect_timeout: float
     _recv_timeout: float
     _sock: socket.socket | None
     _ready: ReadyMessage | None
-    _hub_id: HubId
+    _handshake: HandshakeConnector
     _lock: threading.Lock
-    _callbacks: dict[tuple[str, str], Callable[[RemoteEventHandlerInvocation], None]]
+    _callbacks: dict[CallbackKey, Callable[[RemoteEventHandlerInvocation], None]]
     _fallback_interaction_handler: Callable[[RemoteEventHandlerInvocation], None] | None
     _listener_thread: threading.Thread | None
     _listener_stop: threading.Event
-    _ack_queue: queue.SimpleQueue[AckMessage]
-    _pong_queue: queue.SimpleQueue[PongMessage]
-    _query_queue: queue.SimpleQueue[QueryResponse]
+    _replies: ReplyQueues
     _event_queue: queue.SimpleQueue[PolledEvent]
 
     def __new__(
@@ -115,22 +99,18 @@ class DisplayLink:
     ) -> Self:
         self = super().__new__(cls)
         self._socket_path = Path(socket_path) if socket_path else None
-        self._name = name
-        self._kind = kind
         self._auto_spawn = auto_spawn
         self._connect_timeout = connect_timeout
         self._recv_timeout = recv_timeout
         self._sock = None
         self._ready = None
-        self._hub_id = HubId.current() if kind == "hub" else HubId.stub()
+        self._handshake = HandshakeConnector(name=name, kind=kind)
         self._lock = threading.Lock()
         self._callbacks = {}
         self._fallback_interaction_handler = None
         self._listener_thread = None
         self._listener_stop = threading.Event()
-        self._ack_queue = queue.SimpleQueue()
-        self._pong_queue = queue.SimpleQueue()
-        self._query_queue = queue.SimpleQueue()
+        self._replies = ReplyQueues()
         self._event_queue = queue.SimpleQueue()
         return self
 
@@ -165,8 +145,10 @@ class DisplayLink:
 
         No-op if already connected.  If *auto_spawn* is enabled and no
         display is running, spawns one first.  Blocks until the
-        ``ReadyMessage`` handshake completes.  If callbacks are
-        registered, starts the background listener after handshake.
+        ``ReadyMessage``/``ConnectMessage`` handshake completes (delegated to
+        :class:`HandshakeConnector`, which owns the socket-open and identity
+        concern). If callbacks are registered, starts the background
+        listener after handshake.
 
         Raises
         ------
@@ -176,64 +158,17 @@ class DisplayLink:
         if self._sock is not None:
             return
 
-        dp = DisplayPaths(self._socket_path)
-        path = dp.socket_path
-
-        if self._auto_spawn:
-            path = dp.ensure(timeout=self._connect_timeout)
-
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        try:
-            sock.connect(str(path))
-        except (ConnectionRefusedError, FileNotFoundError, OSError) as exc:
-            sock.close()
-            msg = f"Cannot connect to display at {path}: {exc}"
-            raise DisplayNotConnectedError(msg) from exc
-
-        set_send_timeout(sock)
-        self._sock = sock
-        self._socket_path = path
-
-        try:
-            ready = recv_message(sock, timeout=self._connect_timeout)
-        except Exception:
-            self.close()
-            raise
-        if ready is None:
-            self.close()
-            msg = f"Handshake timed out after {self._connect_timeout}s at {path}"
-            raise DisplayNotConnectedError(msg)
-        if not isinstance(ready, ReadyMessage):
-            self.close()
-            # A protocol mismatch (e.g. version skew), not a disconnect: still
-            # raises DisplayNotConnectedError so the replicator holds and retries,
-            # but a persistent mismatch must stay visible, not vanish into that
-            # path's ordinary quiet-disconnected retry cadence.
-            logger.warning("Handshake mismatch: expected ReadyMessage, got %s", ready)
-            msg = f"Expected ReadyMessage, got {type(ready).__name__}"
-            raise DisplayNotConnectedError(msg)
-        self._ready = ready
-        logger.info("Connected to display (protocol %s)", ready.version)
-        self._post_handshake(sock)
+        result = self._handshake.connect(
+            self._socket_path,
+            auto_spawn=self._auto_spawn,
+            connect_timeout=self._connect_timeout,
+        )
+        self._sock = result.sock
+        self._socket_path = result.socket_path
+        self._ready = result.ready
 
         if self._callbacks:  # reconnect resilience: restart a registered listener
             self.start_listener()
-
-    def _post_handshake(self, sock: socket.socket) -> None:
-        """Send the connection's declared identity after handshake."""
-        if self._name:
-            try:
-                send_message(sock, self._connect_message(self._name))
-            except OSError as exc:
-                self.close()
-                err = f"ConnectMessage failed after handshake: {exc}"
-                raise DisplayNotConnectedError(err) from exc
-
-    def _connect_message(self, name: str) -> ConnectMessage:
-        """Build this connection's declared identity, HubId included."""
-        return ConnectMessage(
-            name=name, kind=self._kind, hub_id=self._hub_id.wire_token
-        )
 
     def close(self) -> None:
         """Close the connection to the display server."""
@@ -243,12 +178,11 @@ class DisplayLink:
                 self._sock.close()
             self._sock = None
             self._ready = None
-            # Queues may still receive items from a dying listener;
-            # stragglers are harmless — the queue itself will be GC'd.
-            _drain_queue(self._ack_queue)
-            _drain_queue(self._pong_queue)
-            _drain_queue(self._query_queue)
-            _drain_queue(self._event_queue)
+            # A dying listener may still be mid-put; replacing the queue
+            # outright (rather than draining it) can never race that put,
+            # and any straggler it lands in is simply GC'd with the old queue.
+            self._replies.drain()
+            self._event_queue = queue.SimpleQueue()
 
     # -- callback registration ---------------------------------------------
 
@@ -265,11 +199,10 @@ class DisplayLink:
 
     def on_event(
         self,
-        element_id: str,
-        action: str,
+        key: CallbackKey,
         callback: Callable[[RemoteEventHandlerInvocation], None],
     ) -> None:
-        """Register a callback for ``(element_id, action)`` events.
+        """Register a callback for a ``(element_id, action)`` :class:`CallbackKey`.
 
         Callbacks are invoked by the background listener thread.  They
         may call :meth:`show_async` and other fire-and-forget methods
@@ -282,12 +215,12 @@ class DisplayLink:
         Thread-safe: may be called while the listener is running.
         """
         with self._lock:
-            self._callbacks[(element_id, action)] = callback
+            self._callbacks[key] = callback
 
-    def remove_callback(self, element_id: str, action: str) -> None:
-        """Remove the callback for ``(element_id, action)``, if any."""
+    def remove_callback(self, key: CallbackKey) -> None:
+        """Remove the callback for ``key``, if any."""
         with self._lock:
-            self._callbacks.pop((element_id, action), None)
+            self._callbacks.pop(key, None)
 
     # -- background listener -----------------------------------------------
 
@@ -367,7 +300,7 @@ class DisplayLink:
         :meth:`query`.  Other message kinds are dropped with a debug log.
         """
         if isinstance(msg, RemoteEventHandlerInvocation):
-            key = (msg.element_id, msg.action)
+            key = CallbackKey(msg.element_id, msg.action)
             with self._lock:
                 cb = self._callbacks.get(key)
             if cb is None:
@@ -398,14 +331,8 @@ class DisplayLink:
         if isinstance(msg, ObserverMessage):
             self._event_queue.put(PolledEvent(topic=msg.topic, payload=msg.payload))
             return
-        if isinstance(msg, AckMessage):
-            self._ack_queue.put(msg)
-            return
-        if isinstance(msg, PongMessage):
-            self._pong_queue.put(msg)
-            return
-        if isinstance(msg, QueryResponse):
-            self._query_queue.put(msg)
+        if isinstance(msg, (AckMessage, PongMessage, QueryResponse)):
+            self._replies.put(msg)
             return
         logger.debug("Dropping unhandled message: %s", type(msg).__name__)
 
@@ -427,9 +354,14 @@ class DisplayLink:
         return self._sock
 
     @trace
-    def _send(self, msg: Message) -> None:
-        """Send a message, holding the lock when the listener is active."""
-        sock = self._require_connected()
+    def _send(self, sock: socket.socket, msg: Message) -> None:
+        """Send a message on ``sock``, holding the lock when the listener is active.
+
+        Takes the socket rather than fetching it via :meth:`_require_connected`
+        itself: every caller is a public boundary method that already
+        validates the connection to obtain ``sock``, so this internal
+        primitive trusts that invariant instead of re-checking it (PY-EH-1).
+        """
         wire = encode_message(msg)
         with self._lock:
             sock.sendall(wire)
@@ -464,7 +396,7 @@ class DisplayLink:
             frame_flags=frame_flags,
             frame_layout=frame_layout,
         )
-        self._send(msg)
+        self._send(self._require_connected(), msg)
         return self._recv_ack()
 
     def show_async(
@@ -492,15 +424,15 @@ class DisplayLink:
             frame_flags=frame_flags,
             frame_layout=frame_layout,
         )
-        self._send(msg)
+        self._send(self._require_connected(), msg)
 
     def set_menu(self, menus: list[dict[str, Any]]) -> None:
         """Set custom menu bar entries."""
-        self._send(MenuMessage(menus=menus))
+        self._send(self._require_connected(), MenuMessage(menus=menus))
 
     def set_callback_menus(self, submenus: list[dict[str, Any]]) -> None:
         """Replace the display's Clients menu (Hub-composed)."""
-        self._send(CallbackMenuMessage(submenus=submenus))
+        self._send(self._require_connected(), CallbackMenuMessage(submenus=submenus))
 
     def send_manifest(self, scene_ids: Sequence[str]) -> None:
         """Declare the Hub's complete live-scene set to the display (DES-068).
@@ -510,7 +442,9 @@ class DisplayLink:
         every scene it cannot attribute to this connection that the
         manifest does not name.
         """
-        self._send(HubManifestMessage(scene_ids=tuple(scene_ids)))
+        self._send(
+            self._require_connected(), HubManifestMessage(scene_ids=tuple(scene_ids))
+        )
 
     def probe_alive(self, timeout: float) -> bool:
         """Return whether the display responded to a ping within ``timeout``.
@@ -526,7 +460,7 @@ class DisplayLink:
 
     def ping(self, timeout: float | None = None) -> PongMessage | None:
         """Send a ping and wait for the pong within ``timeout`` (else recv budget)."""
-        self._send(PingMessage(ts=time.time()))
+        self._send(self._require_connected(), PingMessage(ts=time.time()))
         budget = timeout if timeout is not None else self._recv_timeout
         return self._await_typed(PongMessage, time.monotonic() + budget)
 
@@ -538,16 +472,10 @@ class DisplayLink:
     ) -> QueryResponse | None:
         """Send a generic query and wait for the response."""
         budget = timeout if timeout is not None else self._recv_timeout
-        self._send(QueryRequest(method=method, params=params or {}))
+        self._send(
+            self._require_connected(), QueryRequest(method=method, params=params or {})
+        )
         return self._await_typed(QueryResponse, time.monotonic() + budget)
-
-    def _reply_queue[T: Message](self, expected: type[T]) -> queue.SimpleQueue[T]:
-        """Return the per-type reply queue :meth:`_dispatch` fills for ``expected``."""
-        queues: dict[type[Message], queue.SimpleQueue[Any]] = {
-            PongMessage: self._pong_queue,
-            QueryResponse: self._query_queue,
-        }
-        return cast("queue.SimpleQueue[T]", queues[cast("type[Message]", expected)])
 
     def _await_typed[T: Message](self, expected: type[T], deadline: float) -> T | None:
         """Wait for one ``expected`` reply, active listener or inline read.
@@ -559,10 +487,7 @@ class DisplayLink:
         """
         if self.listener_active:
             remaining = deadline - time.monotonic()
-            try:
-                return self._reply_queue(expected).get(timeout=max(remaining, 0))
-            except queue.Empty:
-                return None
+            return self._replies.get_typed(expected, timeout=max(remaining, 0))
         sock = self._require_connected()
         while True:
             remaining = deadline - time.monotonic()
@@ -613,11 +538,17 @@ class DisplayLink:
                 err = f"no business event arrived within {t}s"
             raise TimeoutError(err) from exc
 
+    def _ensure_not_listener_thread(self) -> None:
+        """Raise if called from the listener thread (it would deadlock)."""
+        if self._listener_thread is threading.current_thread():
+            err = "Cannot call blocking _recv_ack from the listener thread"
+            raise RuntimeError(err)
+
     def _recv_ack(self) -> AckMessage | None:
         """Receive expecting an AckMessage.  Drops interleaved frames.
 
-        Thread-safe.  When the listener is active, blocks on
-        ``_ack_queue``.  When inactive, reads directly from the socket
+        Thread-safe.  When the listener is active, blocks on the reply
+        queues.  When inactive, reads directly from the socket
         and drops any non-ack frame that arrives in the meantime —
         each typed reader (poll_event / ping / query) owns its own
         path, so there is no shared backlog to push into.
@@ -625,18 +556,9 @@ class DisplayLink:
         Raises RuntimeError if called from the listener thread (would
         deadlock because the listener is the only ack producer).
         """
-        t = self._listener_thread
-        if t is not None and t is threading.current_thread():
-            err = (
-                "Cannot call blocking _recv_ack from the listener thread — "
-                "use show_async() instead"
-            )
-            raise RuntimeError(err)
+        self._ensure_not_listener_thread()
         if self.listener_active:
-            try:
-                return self._ack_queue.get(timeout=self._recv_timeout)
-            except queue.Empty:
-                return None
+            return self._replies.get_ack(self._recv_timeout)
         sock = self._require_connected()
         deadline = time.monotonic() + self._recv_timeout
         while True:
