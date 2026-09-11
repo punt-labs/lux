@@ -372,17 +372,30 @@ class FakeImGui:
 
         Real ImGui raises "N visible items with conflicting ID" when two
         widgets share an id within one scope. In strict mode this double
-        reproduces that: the full label string (its ``##`` salt included) is
-        the id, scoped by the current menu path.
+        reproduces that on the *effective* id ImGui hashes, scoped by the
+        current menu path.
         """
         if not self._strict_ids:
             return
         scope = tuple(self._path)
         seen = self._seen_ids.setdefault(scope, set())
-        if label in seen:
-            msg = f"conflicting ImGui id {label!r} under {scope}"
+        ident = self._effective_id(label)
+        if ident in seen:
+            msg = f"conflicting ImGui id {ident!r} (from {label!r}) under {scope}"
             raise AssertionError(msg)
-        seen.add(label)
+        seen.add(ident)
+
+    @staticmethod
+    def _effective_id(label: str) -> str:
+        """Return the id ImGui hashes for *label*.
+
+        ImGui's ``###`` marker resets the id to the text following the last
+        ``###`` -- the display prefix contributes nothing -- so an unguarded
+        ``###`` in an id salt would drop everything before it (e.g. the Hub
+        token). A plain ``##`` is only a display/id split, so the whole string
+        still seeds the id.
+        """
+        return label.rsplit("###", 1)[1] if "###" in label else label
 
     @staticmethod
     def _visible(label: str) -> str:

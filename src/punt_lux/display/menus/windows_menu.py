@@ -106,9 +106,10 @@ class WindowsMenu:
     def _reopen_item(self, frame: Frame) -> MenuItem:
         """Build the reopen entry, ImGui-keyed on ``(frame.hub, frame_id)``."""
         frame_id = frame.frame_id
-        # ZWSP after each '#' keeps a title's own '##' out of ImGui's id suffix.
-        shown = frame.title.replace("#", "#" + chr(0x200B))
-        label = f"{shown}##{frame.hub.wire_token}:{frame_id}"
+        # ZWSP after each '#' keeps a raw '##'/'###' (title or id) out of the id.
+        zw = "#" + chr(0x200B)
+        suffix = f"{frame.hub.wire_token}:{frame_id}".replace("#", zw)
+        label = f"{frame.title.replace('#', zw)}##{suffix}"
         return MenuItem(label, lambda: self._on_raise_frame(frame_id))
 
     def _collapse_all(self) -> None:

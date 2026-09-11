@@ -1213,3 +1213,4 @@
 {"ts":"2026-09-11T21:39:54Z","commit":"012c9a6e","source":null,"files_scored":697,"files_improved":1,"files_regressed":0,"verdict":"pass","deltas":{"src/punt_lux/display/render_loop.py":{"module_size":[968.0,966.0]}}}
 {"ts":"2026-09-11T21:40:35Z","commit":"012c9a6e","source":null,"files_scored":697,"files_improved":1,"files_regressed":0,"verdict":"pass","deltas":{"src/punt_lux/display/render_loop.py":{"module_size":[966.0,965.0]}}}
 {"ts":"2026-09-11T21:40:54Z","commit":"012c9a6e","source":null,"files_scored":697,"files_improved":1,"files_regressed":0,"verdict":"pass","deltas":{"src/punt_lux/display/render_loop.py":{"module_size":[965.0,964.0]}}}
+{"ts":"2026-09-11T22:34:55Z","commit":"cb57ca29","source":null,"files_scored":697,"files_improved":1,"files_regressed":0,"verdict":"pass","deltas":{"src/punt_lux/display/menus/wire_decode.py":{"module_size":[81.0,80.0]}}}

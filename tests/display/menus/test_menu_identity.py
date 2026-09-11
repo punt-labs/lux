@@ -114,6 +114,54 @@ class TestLabelAccessors:
         assert menu.label == "a##b"
 
 
+class TestIdSuffixReset:
+    """The id salt itself is guarded: a raw ``###`` in the id-part must not
+    reset ImGui's id and drop the Hub token (the cross-Hub collision)."""
+
+    def test_unguarded_hashhashhash_suffix_collides(self) -> None:
+        # Fidelity control: ImGui's ``###`` resets the id to the text after it,
+        # so an unguarded ``A###B`` id-part hashes to "B" on both Hubs.
+        model = MenuModel(
+            [
+                Submenu(f"A##{_HUB_A.wire_token}:A###B", []),
+                Submenu(f"A##{_HUB_B.wire_token}:A###B", []),
+            ]
+        )
+        with pytest.raises(AssertionError, match="conflicting ImGui id"):
+            model.render(FakeImGui(strict_ids=True))
+
+    def test_submenu_hashhashhash_title_stays_hub_scoped(self) -> None:
+        model = MenuModel(
+            [
+                Submenu.from_wire(
+                    checked_menu(wire_menu("A###B", [{"label": "x", "id": "i"}])),
+                    _handlers(_HUB_A),
+                ),
+                Submenu.from_wire(
+                    checked_menu(wire_menu("A###B", [{"label": "x", "id": "i"}])),
+                    _handlers(_HUB_B),
+                ),
+            ]
+        )
+        imgui = FakeImGui(strict_ids=True)
+
+        model.render(imgui)  # no raise -- Hub token survives
+
+        shown = {r.split("##", 1)[0].replace(_ZWSP, "") for r in imgui.raw_ids_under()}
+        assert shown == {"A###B"}
+
+    def test_leaf_hashhashhash_item_id_stays_hub_scoped(self) -> None:
+        items: list[dict[str, object]] = [{"label": "Vox", "id": "a###b"}]
+        one = _clients_menu(items, hub=_HUB_A)
+        two = _clients_menu(items, hub=_HUB_B)
+        a, b = FakeImGui(strict_ids=True), FakeImGui(strict_ids=True)
+
+        one.render(a)  # no raise
+        two.render(b)  # no raise
+
+        assert a.raw_ids_under("Clients") != b.raw_ids_under("Clients")
+
+
 class TestReplicatedLeafIdentity:
     """Leaves under one menu carry the item id in their ImGui salt."""
 
