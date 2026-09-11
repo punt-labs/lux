@@ -9,6 +9,23 @@ Usage:
     python oo_coupling.py <file_or_directory> --check         # ratchet check
     python oo_coupling.py <file_or_directory> --update        # update baseline
     python oo_coupling.py <file_or_directory> --rebaseline    # unconditional reset
+    python oo_coupling.py <file_or_directory> --rebaseline-files <path>[,<path>...] \
+        --reason "<why this bless is necessary>"
+        # DES-096: bounded, scoped, tool-computed bless. Recomputes and
+        # records the baseline for ONLY the named files (repo-relative paths
+        # as they appear as keys in .oo-coupling-baseline.json), leaving
+        # every other file's baseline untouched -- unlike --rebaseline,
+        # which resets the whole tree. --reason is REQUIRED: it is recorded
+        # in the audit log alongside every blessed file, because the tool
+        # cannot judge "genuinely necessary first edge" -- the human-
+        # supplied reason is the accountability. Refuses each named file --
+        # per-file, not all-or-nothing -- whose recomputed metric strictly
+        # EXCEEDS that metric's absolute PL-CU-1 threshold (a value exactly
+        # AT the cap is within-threshold and is recorded), or that was not
+        # scored (not in the tree); every other named file is still
+        # blessed. This permits recording a within-threshold coupling
+        # regression -- the first-edge-under-cap case --update's strict
+        # no-regression rule would otherwise refuse.
     python oo_coupling.py <file_or_directory> --log           # audit history
     python oo_coupling.py <file_or_directory> --check --base-ref <ref>
         # scope --check's touched-file diff to <ref>..HEAD instead of the
@@ -1138,6 +1155,128 @@ class CouplingRatchet:
         _writeln(f"  files scored: {len(current_by_file)}")
         return 0
 
+    # ---- --rebaseline-files (DES-096: bounded, scoped, tool-computed bless) ----
+
+    def rebaseline_files(
+        self,
+        scorer: CouplingScorer,
+        paths: list[str],
+        reason: str,
+    ) -> int:
+        """Record the recomputed baseline for the ``paths`` that clear the cap.
+
+        The DES-096 bless: a genuinely-necessary new dependency edge that
+        stays under its absolute PL-CU-1 threshold may be recorded even
+        though it is a regression against the committed baseline --
+        ``--update`` refuses any regression outright. Four properties keep
+        this from becoming a suppression loophole: bounded (the guardrail
+        below refuses any value that strictly exceeds threshold -- a value
+        exactly AT the cap is within-threshold and is recorded), tool-computed
+        (every recorded number comes from ``scorer``, never from an
+        argument), scoped (only the named ``paths`` are touched -- every
+        other file's baseline entry is untouched), and audit-logged (every
+        bless appends an entry to ``.oo-coupling-audit.jsonl`` naming the
+        ``reason`` the caller supplied -- the tool cannot judge "genuinely
+        necessary first edge," so the human-supplied reason plus this record
+        are the accountability).
+
+        The refusal is per-metric, per-file, not all-or-nothing across the
+        whole call: a named file with any metric that strictly exceeds its
+        absolute threshold is refused -- excluded from the baseline write,
+        reported, and never recorded -- while every other named file that
+        clears its cap is still blessed. The same holds for a named path
+        absent from the scored tree. The call returns 0 only when every
+        named file was blessed; it returns 1 whenever at least one was
+        refused, even if the rest were written.
+
+        ``reason`` must be a non-blank justification for the bless; a blank
+        or whitespace-only reason is refused before anything is scored,
+        because an unrecorded reason turns the audit trail into just the
+        numbers -- exactly the suppression-loophole risk the bounded/
+        tool-computed/scoped/audit-logged properties above are meant to
+        close.
+        """
+        if not reason.strip():
+            _writeln("--rebaseline-files requires a non-blank --reason")
+            return 1
+
+        current_by_file = self._results_by_file(scorer.results)
+
+        accepted: list[str] = []
+        refused: list[tuple[str, str]] = []
+        for fpath in paths:
+            current = current_by_file.get(fpath)
+            if current is None:
+                refused.append((fpath, "not found in scored tree"))
+                continue
+            over = [
+                (metric, value)
+                for metric, value in current.items()
+                if not self._meets_threshold(metric, value, fpath)
+            ]
+            if over:
+                op_target = CouplingScorer.THRESHOLDS
+                detail = "; ".join(
+                    f"{metric}={value:g} exceeds "
+                    f"{op_target[metric][0]} {op_target[metric][1]:g}"
+                    for metric, value in over
+                )
+                refused.append((fpath, detail))
+                continue
+            accepted.append(fpath)
+
+        if accepted:
+            new_baseline = dict(self._baseline)
+            deltas: dict[str, dict[str, list[float]]] = {}
+            regressed_files: set[str] = set()
+            for fpath in accepted:
+                current = current_by_file[fpath]
+                baseline_entry = self._baseline.get(fpath, {})
+                file_deltas: dict[str, list[float]] = {}
+                for metric in self.METRIC_KEYS:
+                    if metric not in current:
+                        continue
+                    old_val = baseline_entry.get(metric, 0.0)
+                    if current[metric] != old_val:
+                        file_deltas[metric] = [old_val, current[metric]]
+                    if metric in baseline_entry and not self._is_better_or_equal(
+                        metric,
+                        current[metric],
+                        baseline_entry[metric],
+                    ):
+                        regressed_files.add(fpath)
+                new_baseline[fpath] = current
+                if file_deltas:
+                    deltas[fpath] = file_deltas
+
+            # A file with any regressed metric is counted as regressed, not
+            # improved, even if another one of its metrics also improved --
+            # "improved" is reserved for files whose bless recorded a pure
+            # improvement, never a regression riding alongside one.
+            files_improved = sum(
+                1 for f, d in deltas.items() if d and f not in regressed_files
+            )
+            self._save_baseline(new_baseline)
+            self._append_audit(
+                files_scored=len(accepted),
+                files_improved=files_improved,
+                files_regressed=len(regressed_files),
+                verdict="rebaseline-files",
+                deltas=deltas,
+                reason=reason,
+            )
+            _writeln(f"\nBaseline blessed for {len(accepted)} file(s):")
+            _writeln(f"  {self._baseline_path}")
+            for fpath in accepted:
+                _writeln(f"  {fpath}")
+
+        if refused:
+            _writeln(f"\n  REFUSED ({len(refused)} file(s), nothing written for them):")
+            for fpath, why in refused:
+                _writeln(f"    {fpath}: {why}")
+
+        return 1 if refused else 0
+
     # ---- audit log ----
 
     def _append_audit(
@@ -1148,6 +1287,10 @@ class CouplingRatchet:
         files_regressed: int,
         verdict: str,
         deltas: dict[str, dict[str, list[float]]],
+        # Only "rebaseline-files" (DES-096) requires a caller-supplied
+        # justification; "update" and "rebaseline" score the whole target
+        # mechanically and have no per-invocation reason to record.
+        reason: str | None = None,
     ) -> None:
         commit = self._git_commit_short()
         entry = {
@@ -1159,6 +1302,7 @@ class CouplingRatchet:
             "files_improved": files_improved,
             "files_regressed": files_regressed,
             "verdict": verdict,
+            "reason": reason,
             "deltas": deltas,
         }
         with self._audit_path.open("a") as f:
@@ -1210,8 +1354,8 @@ def main() -> None:
     if len(sys.argv) < 2:
         _writeln(
             f"Usage: {sys.argv[0]} <file_or_directory> "
-            f"[--json] [--threshold] [--check] [--update] [--rebaseline] [--log] "
-            f"[--base-ref REF]",
+            f"[--json] [--threshold] [--check] [--update] [--rebaseline] "
+            f"[--rebaseline-files <path>[,<path>...]] [--log] [--base-ref REF]",
         )
         sys.exit(1)
 
@@ -1231,6 +1375,21 @@ def main() -> None:
 
     if "--check" in sys.argv:
         sys.exit(ratchet.check(scorer, base_ref))
+    elif "--rebaseline-files" in sys.argv:
+        raw = _arg_value("--rebaseline-files") or ""
+        paths = [p.strip() for p in raw.split(",") if p.strip()]
+        if not paths:
+            _writeln("--rebaseline-files requires at least one path")
+            sys.exit(1)
+        # --reason is required: the tool cannot judge "genuinely necessary
+        # first edge" -- the human-supplied reason, recorded to the audit
+        # log alongside the file and its old->new values, is the
+        # accountability DES-096 requires for every bless.
+        reason = _arg_value("--reason")
+        if not reason or not reason.strip():
+            _writeln("--rebaseline-files requires --reason <text>")
+            sys.exit(1)
+        sys.exit(ratchet.rebaseline_files(scorer, paths, reason))
     elif "--rebaseline" in sys.argv:
         sys.exit(ratchet.rebaseline(scorer))
     elif "--update" in sys.argv:
