@@ -6892,9 +6892,15 @@ to an unrelated process, and the poll then reads that stranger as "session
 alive" forever, leaving an orphaned applet. The Hub's connection lease does
 **not** backstop this particular case: the orphan's `AppletLeg` keeps its
 connection alive and renews its lease, and the Hub only reaps *lapsed*
-connections — so a live-but-orphaned applet is never swept by the lease, only
-by a Display restart or manual cleanup. (The lease remains the backstop for a
-genuinely *dead* connection, where the transport is gone and the lease lapses.)
+connections — so a live-but-orphaned applet is never swept by the lease. Nor
+does a Display restart clear it: the Display is a replica, so on reconnect the
+Hub re-marks the menu (`ClientRegistry._connect_and_reconcile`) and
+`CallbackMenuReplica` rebuilds it from every live leased session — the restart
+just re-renders the Hub's authoritative roster, orphan included. The orphan
+clears only when the applet's own connection actually drops (its process exits,
+its transport lapses) or by manual cleanup. (The lease remains the backstop for
+a genuinely *dead* connection, where the transport is gone and the lease
+lapses.)
 Bead `lux-0bkm` reported ghost applets accumulating in the Hub roster and the
 aggregation menu.
 
