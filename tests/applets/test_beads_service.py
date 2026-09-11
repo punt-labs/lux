@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -94,8 +95,26 @@ def _ids(table: RenderTableRequest) -> list[str]:
     return [str(row[0]) for row in table.rows]
 
 
-def test_the_entry_is_named_for_what_it_shows() -> None:
+def test_the_entry_is_named_for_what_it_shows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The frame is named for the repository ``for_repo`` finds — not the ambient CWD.
+
+    ``BeadsService.for_repo()`` derives the name from ``RepoRoot.of()``'s walk up
+    from the process's current working directory, so a test that calls it without
+    controlling that input is really asserting the basename of whatever checkout
+    happens to be running the suite — pinned to ``lux`` in CI and the main
+    worktree, but wrong in any other worktree name. Building a throwaway
+    repository root named ``lux`` and running the walk from inside it makes the
+    input explicit instead of borrowed from the ambient environment.
+    """
+    repo = tmp_path / "lux"
+    repo.mkdir()
+    (repo / ".git").touch()
+    monkeypatch.chdir(repo)
+
     service = BeadsService.for_repo()
+
     assert service.callback_id == "beads"
     assert service.label == "Beads"
     assert service.frame_id == "beads-lux"
