@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import os
 import socket
-from dataclasses import dataclass
 from typing import Self, final
 
+from punt_lux.domain.hostname import Hostname
 from punt_lux.domain.id_separator import ID_SEPARATOR
 
 __all__ = ["HubId"]
@@ -23,7 +23,6 @@ _STUB_PID = 0
 
 
 @final
-@dataclass(frozen=True, slots=True)
 class HubId:
     """A Hub connection's own stable identity -- network host plus process.
 
@@ -41,50 +40,30 @@ class HubId:
     ``0700`` permission already bounds who can open a connection to declare a
     HubId in the first place -- that argument does not carry across a
     network, which is exactly why cross-host needs mTLS.
+
+    The host axis is a composed :class:`Hostname`, which owns the
+    lowercase-canonical, ASCII-only invariant in its own construction. Because
+    every ``HubId`` gets its host through that one constructor -- whether it
+    came from :meth:`current`, :meth:`stub`, or a wire token's resolve --
+    ``HUB1`` and ``hub1`` mint the *same* identity by construction: the wire
+    token, the registration/preemption key, and the Gate 2 SAN compare all
+    read the one normalized value rather than needing to agree independently.
+    Without that, a cross-host peer whose cert SAN names ``hub1.example.com``
+    could declare ``hub_id=HUB1.EXAMPLE.COM``, pass the case-insensitive SAN
+    compare, and then register as a *second*, distinct ``HubId`` from an
+    already-live ``hub1.example.com`` connection -- defeating W11's
+    at-most-one-live-connection-per-HubId preemption.
     """
 
-    hostname: str
-    pid: int
+    _hostname: Hostname
+    _pid: int
+    __slots__ = ("_hostname", "_pid")
 
-    def __post_init__(self) -> None:
-        """Canonicalize ``hostname`` once, here, so every construction path
-        (:meth:`current`, :meth:`stub`, :class:`HubIdToken`'s wire resolve)
-        agrees on the same identity for the same host.
-
-        Without this, a cross-host peer whose cert SAN names
-        ``hub1.example.com`` could declare ``hub_id=HUB1.EXAMPLE.COM``,
-        pass the Gate 2 case-insensitive SAN compare
-        (``cross_host_verification.py``), and then register as a *second*,
-        distinct ``HubId`` from an already-live ``hub1.example.com``
-        connection -- defeating W11's at-most-one-live-connection-per-HubId
-        preemption. Canonicalizing here means the wire token, the
-        registration/preemption key, and the Gate 2 compare all read the
-        same normalized value, by construction, rather than needing to
-        agree independently.
-        """
-        object.__setattr__(self, "hostname", self._canonicalize(self.hostname))
-
-    @staticmethod
-    def _canonicalize(hostname: str) -> str:
-        """Return ``hostname`` lowercased, or raise if it is not ASCII.
-
-        FQDNs are ASCII, or punycode (RFC 3492) for a non-ASCII domain --
-        never raw Unicode. DNS names are case-insensitive (RFC 4343), and a
-        plain ASCII ``str.lower()`` is exact and total *because* the input
-        is ASCII-only: Unicode-aware folding (``str.casefold()``) is what
-        would be needed for non-ASCII input, and casefold collides distinct
-        strings (``"faß"`` and ``"fass"`` casefold identically) -- exactly
-        the kind of identity collision this canonicalization exists to
-        close. Rejecting non-ASCII outright removes the need for that
-        collision-prone fold rather than trading one masquerade risk for
-        another.
-        """
-        if not hostname.isascii():
-            msg = (
-                f"HubId.hostname must be ASCII (FQDNs are ASCII/punycode): {hostname!r}"
-            )
-            raise ValueError(msg)
-        return hostname.lower()
+    def __new__(cls, hostname: str, pid: int) -> Self:
+        self = super().__new__(cls)
+        self._hostname = Hostname(hostname)
+        self._pid = pid
+        return self
 
     @classmethod
     def current(cls) -> Self:
@@ -105,9 +84,37 @@ class HubId:
         return cls(_STUB_HOSTNAME, _STUB_PID)
 
     @property
+    def hostname(self) -> str:
+        """The canonical (ASCII-lowercase) network host string.
+
+        A ``str`` rather than the composed :class:`Hostname`, because every
+        consumer -- the Gate 2 SAN compare, the address-book label, the wire
+        token -- wants the plain canonical string, and the value type has
+        already done its one job (validate and lowercase) by the time this
+        reads it back.
+        """
+        return self._hostname.value
+
+    @property
+    def pid(self) -> int:
+        """The process id that breaks a tie within one already-named host."""
+        return self._pid
+
+    @property
     def wire_token(self) -> str:
         """The string this identity declares on the wire.
 
         Compared for equality only, never parsed.
         """
-        return f"{self.hostname}{ID_SEPARATOR}{self.pid}"
+        return f"{self._hostname.value}{ID_SEPARATOR}{self._pid}"
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, HubId):
+            return NotImplemented
+        return (self._hostname, self._pid) == (other._hostname, other._pid)
+
+    def __hash__(self) -> int:
+        return hash((HubId, self._hostname, self._pid))
+
+    def __repr__(self) -> str:
+        return f"HubId({self._hostname.value!r}, {self._pid})"
