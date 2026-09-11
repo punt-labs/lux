@@ -14,15 +14,19 @@ the same rollback discipline ``TreeSelectionModel`` documents for
 
 from __future__ import annotations
 
-from typing import Self
+from typing import TYPE_CHECKING, Self
 
 from punt_lux.protocol.elements.selection_wire import SelectionWire
 from punt_lux.protocol.elements.tree_node import TreeNode
 from punt_lux.protocol.elements.tree_selection_model import TreeSelectionModel
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
 __all__ = ["TreeNodesState"]
 
 _DEFAULT_SELECTION = TreeSelectionModel()
+_PATCH_ORDER: tuple[str, ...] = ("nodes", "selected_node_ids", "anchor_node_id")
 
 
 class TreeNodesState:
@@ -73,6 +77,21 @@ class TreeNodesState:
         return type(self)(
             nodes=self._nodes, selection=self._selection.with_anchor(node_id)
         )
+
+    @staticmethod
+    def reordered_patch(patch: Mapping[str, object]) -> dict[str, object]:
+        """Return ``patch`` with any nodes/selection keys moved to the front.
+
+        ``Element.apply_patch`` dispatches setters in the caller's dict
+        order; the selection setters intersect against the *current* live-id
+        cache, so a patch listing ``selected_node_ids``/``anchor_node_id``
+        ahead of ``nodes`` would silently drop ids that only exist in the
+        new tree. Reordering here removes that footgun regardless of the
+        patch's own key order.
+        """
+        ordered = {k: patch[k] for k in _PATCH_ORDER if k in patch}
+        ordered.update((k, v) for k, v in patch.items() if k not in ordered)
+        return ordered
 
     def resolved_props(self) -> dict[str, object]:
         """Return nodes + selection view-state for ``TreeElement.resolved_props``."""

@@ -1,14 +1,10 @@
 # pyright: reportMissingModuleSource=false
 """ImGuiTreeRenderer — Renderer-Protocol adapter for ``TreeElement``.
 
-A display-only leaf that paints a collapsible tree directly: the optional
-heading, then each top-level ``TreeNode`` and its subtree. ``flat`` toggles
-branches inline (``NoTreePushOnOpen``) and renders leaves as selectable items —
-an inline disclosure for tight horizontal space. Node expansion is Display-local
-ImGui view state; the tree carries no interaction, so a node click routes
-nowhere and the walk is a pure paint (fork, don't mix — the render logic lives
-on the ABC path, not the legacy dispatch). ``LeafRenderer`` adds the shared
-tooltip pass and the geometry capture around it.
+A display-only leaf: the optional heading, then each top-level ``TreeNode``
+and its subtree. ``flat`` toggles branches inline (``NoTreePushOnOpen``) and
+renders leaves as selectable items. Node expansion is Display-local ImGui
+view state; the tree carries no interaction, so the walk is a pure paint.
 """
 
 from __future__ import annotations
@@ -38,10 +34,8 @@ class ImGuiTreeRenderer(LeafRenderer[TreeElement]):
     def _paint_widget(self) -> None:
         """Draw the tree under a per-element id scope, then heading and nodes.
 
-        An anonymous element (id == "") makes two same-labelled trees share node
-        ids and thus ImGui expansion state; fall back to object identity, stable
-        within a scene generation, so anonymous trees stay independent — the same
-        guard the plot leaf uses for Hub-side-constructible anonymous elements.
+        An anonymous element (id == "") falls back to object identity so two
+        same-labelled anonymous trees don't share ImGui expansion state.
         """
         elem = self._elem
         imgui.push_id(elem.id or f"anon-{id(elem)}")
@@ -49,12 +43,13 @@ class ImGuiTreeRenderer(LeafRenderer[TreeElement]):
             if elem.label:
                 imgui.text(elem.label)
             for i, node in enumerate(elem.nodes):
-                self._paint_node(node, f"{elem.id}_{i}", flat=elem.flat)
+                self._paint_node(node, f"{elem.id}_{self._node_key(node, i)}")
         finally:
             imgui.pop_id()
 
-    def _paint_node(self, node: TreeNode, node_id: str, *, flat: bool) -> None:
+    def _paint_node(self, node: TreeNode, node_id: str) -> None:
         """Paint one node and recurse into its children."""
+        flat = self._elem.flat
         if node.children:
             if flat:
                 opened = imgui.tree_node_ex(f"{node.label}##{node_id}", self._NO_PUSH)
@@ -62,10 +57,15 @@ class ImGuiTreeRenderer(LeafRenderer[TreeElement]):
                 opened = imgui.tree_node(f"{node.label}##{node_id}")
             if opened:
                 for i, child in enumerate(node.children):
-                    self._paint_node(child, f"{node_id}_{i}", flat=flat)
+                    self._paint_node(child, f"{node_id}_{self._node_key(child, i)}")
                 if not flat:
                     imgui.tree_pop()
         elif flat:
             imgui.selectable(f"{node.label}##{node_id}", False)  # noqa: FBT003
         else:
             imgui.tree_node_ex(f"{node.label}##{node_id}", self._LEAF | self._NO_PUSH)
+
+    @staticmethod
+    def _node_key(node: TreeNode, index: int) -> str:
+        """Stable ``id`` when set (so expand state follows a reorder), else position."""
+        return f"id:{node.id}" if node.id else f"pos:{index}"

@@ -137,6 +137,34 @@ class TestLevel1Serialization:
         assert restored.selected_node_ids == frozenset({"n0", "n1"})
         assert restored.anchor_node_id == "n1"
 
+    def test_every_public_field_survives_one_full_roundtrip(self) -> None:
+        # A composite roundtrip, distinct from the field-at-a-time tests above:
+        # catches an interaction bug (e.g. flat corrupting node decode) that a
+        # test touching only one field at a time could miss.
+        tree = TreeElement(
+            id="tr",
+            label="Project",
+            nodes=(
+                TreeNode(
+                    label="src", id="n0", children=(TreeNode(label="main.py", id="n1"),)
+                ),
+            ),
+            flat=True,
+            tooltip="explorer",
+            selection_mode="multi",
+            selected_node_ids=frozenset({"n0", "n1"}),
+            anchor_node_id="n1",
+        )
+        restored = _decode(tree.to_dict())
+        assert isinstance(restored, TreeElement)
+        assert restored.label == tree.label
+        assert restored.nodes == tree.nodes
+        assert restored.flat == tree.flat
+        assert restored.tooltip == tree.tooltip
+        assert restored.selection_mode == tree.selection_mode
+        assert restored.selected_node_ids == tree.selected_node_ids
+        assert restored.anchor_node_id == tree.anchor_node_id
+
     def test_tooltip_round_trips_through_abc_path(self) -> None:
         wire = TreeElement(id="tr", label="Files", tooltip="explorer").to_dict()
         assert wire["tooltip"] == "explorer"
@@ -289,6 +317,74 @@ class TestShowRejectsMalformedTree:
         client.show.assert_not_called()
 
 
+class TestShowGatesOnSelectionValidation:
+    """A selection-content violation is a ``validate()`` concern (DES-039),
+    not a decode error, so it must ALSO gate ``show()`` — mirroring
+    ``TestShowRejectsMalformedTree``'s node-shape coverage above."""
+
+    @patch(_CLIENT_GET)
+    def test_show_rejects_a_selected_id_naming_no_node(
+        self, mock_get: MagicMock
+    ) -> None:
+        client = _mock_client()
+        mock_get.return_value = client
+        with pytest.raises(ToolError) as _exc:
+            show(
+                "s1",
+                [
+                    {
+                        "kind": "tree",
+                        "id": "tr",
+                        "nodes": [{"label": "a", "id": "n0"}],
+                        "selection_mode": "single",
+                        "selected_node_ids": ["ghost"],
+                    }
+                ],
+            )
+        result = str(_exc.value)
+        assert result.startswith("error: scene not rendered")
+        assert "names no node" in result
+        client.show.assert_not_called()
+
+    @patch(_CLIENT_GET)
+    def test_show_rejects_a_selection_invalid_tree_nested_in_group(
+        self, mock_get: MagicMock
+    ) -> None:
+        client = _mock_client()
+        mock_get.return_value = client
+        with pytest.raises(ToolError):
+            show(
+                "s1",
+                [
+                    {
+                        "kind": "group",
+                        "id": "g1",
+                        "children": [
+                            {"kind": "text", "id": "ok", "content": "fine"},
+                            {
+                                "kind": "tree",
+                                "id": "bad",
+                                "nodes": [{"label": "a", "id": "n0"}],
+                                "selection_mode": "single",
+                                "selected_node_ids": ["ghost"],
+                            },
+                        ],
+                    }
+                ],
+            )
+        client.show.assert_not_called()
+
+    def test_a_selection_valid_tree_reaches_the_real_render_path(self) -> None:
+        tree = TreeElement(
+            id="tr",
+            nodes=(TreeNode(label="a", id="n0"),),
+            selection_mode="single",
+            selected_node_ids=frozenset({"n0"}),
+        )
+        resp = _inspect(_server(), tree)
+        assert _record(resp, "tr")["kind"] == "tree"
+
+
 # -- Level 2: pickle scene wire ---------------------------------------------
 
 
@@ -328,6 +424,37 @@ class TestLevel2WireRoundtrip:
         assert r.selection_mode == "single"
         assert r.selected_node_ids == frozenset({"n0"})
         assert r.anchor_node_id == "n0"
+
+    def test_every_public_field_survives_the_pickle_wire(self) -> None:
+        # A composite crossing, distinct from the selection-only test above:
+        # a loss in node data, label, flat, or tooltip could coexist with a
+        # passing selection-only wire test.
+        tree = TreeElement(
+            id="tr",
+            label="Project",
+            nodes=(
+                TreeNode(
+                    label="src", id="n0", children=(TreeNode(label="main.py", id="n1"),)
+                ),
+            ),
+            flat=True,
+            tooltip="explorer",
+            selection_mode="multi",
+            selected_node_ids=frozenset({"n0", "n1"}),
+            anchor_node_id="n1",
+        )
+        wire = message_to_dict(SceneMessage(id="s1", elements=[tree], frame_id="s1"))
+        restored = message_from_dict(wire)
+        assert isinstance(restored, SceneMessage)
+        r = restored.elements[0]
+        assert isinstance(r, TreeElement)
+        assert r.label == tree.label
+        assert r.nodes == tree.nodes
+        assert r.flat == tree.flat
+        assert r.tooltip == tree.tooltip
+        assert r.selection_mode == tree.selection_mode
+        assert r.selected_node_ids == tree.selected_node_ids
+        assert r.anchor_node_id == tree.anchor_node_id
 
 
 # -- Level 3: Hub/Display crossing + factory rebind -------------------------
@@ -466,6 +593,25 @@ class TestPatchSelection:
         tree = self._tree()
         with pytest.raises(ValueError, match="selected_node_ids"):
             tree.apply_patch({"selected_node_ids": "not-a-list"})
+
+    def test_selection_survives_when_patch_lists_it_before_the_new_nodes(
+        self,
+    ) -> None:
+        # apply_patch dispatches setters in the caller's dict order; a naive
+        # dict-order dispatch would intersect "n1" against the pre-patch node
+        # set (only n0) and silently drop it before "nodes" installs n1.
+        tree = TreeElement(
+            id="tr", nodes=(TreeNode(label="a", id="n0"),), selection_mode="single"
+        )
+        tree.apply_patch(
+            {"selected_node_ids": ["n1"], "nodes": [{"label": "b", "id": "n1"}]}
+        )
+        assert tree.selected_node_ids == frozenset({"n1"})
+
+    def test_anchor_survives_when_patch_lists_it_before_its_selection(self) -> None:
+        tree = self._tree()
+        tree.apply_patch({"anchor_node_id": "n1", "selected_node_ids": ["n0", "n1"]})
+        assert tree.anchor_node_id == "n1"
 
 
 class TestNodesReconcileSelection:
@@ -708,3 +854,30 @@ def test_two_anonymous_trees_get_distinct_scopes(
 
     scopes = [call.args[0] for call in mock_imgui.push_id.call_args_list]
     assert scopes[0] != scopes[1]
+
+
+class TestNodeKeyStability:
+    """A node's ImGui widget key follows its stable ``id``, not its sibling
+    position — otherwise expand/collapse state migrates to the wrong node
+    when the tree is reordered or a node is inserted."""
+
+    def test_node_with_id_uses_the_id_not_the_position(self) -> None:
+        key = ImGuiTreeRenderer._node_key(TreeNode(label="a", id="n0"), 3)
+        assert key == "id:n0"
+
+    def test_anonymous_node_falls_back_to_position(self) -> None:
+        key = ImGuiTreeRenderer._node_key(TreeNode(label="a"), 3)
+        assert key == "pos:3"
+
+    def test_key_is_unchanged_when_the_node_moves_position(self) -> None:
+        node = TreeNode(label="a", id="n0")
+        assert ImGuiTreeRenderer._node_key(node, 0) == ImGuiTreeRenderer._node_key(
+            node, 5
+        )
+
+    def test_stable_and_positional_keys_never_collide(self) -> None:
+        # A stable id that happens to look like "pos:3" must not be mistaken
+        # for the positional-fallback scheme, and vice versa.
+        by_id = ImGuiTreeRenderer._node_key(TreeNode(label="a", id="3"), 0)
+        by_pos = ImGuiTreeRenderer._node_key(TreeNode(label="b"), 3)
+        assert by_id != by_pos

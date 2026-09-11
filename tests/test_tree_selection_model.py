@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 
+from punt_lux.protocol.elements.tree_node import TreeNode
 from punt_lux.protocol.elements.tree_selection_model import TreeSelectionModel
 
 
@@ -115,3 +116,42 @@ class TestSerialization:
         assert restored.mode == "multi"
         assert restored.selected_node_ids == frozenset({"a", "b"})
         assert restored.anchor == "b"
+
+
+class TestLiveIds:
+    def test_collects_ids_across_nodes_and_descendants(self) -> None:
+        nodes = (
+            TreeNode(label="a", id="n0", children=(TreeNode(label="c", id="n1"),)),
+            TreeNode(label="b"),
+        )
+        assert TreeSelectionModel.live_ids(nodes) == frozenset({"n0", "n1"})
+
+    def test_empty_for_no_nodes(self) -> None:
+        assert TreeSelectionModel.live_ids(()) == frozenset()
+
+
+class TestNotifyIfChanged:
+    def test_notifies_when_the_selection_moved(self) -> None:
+        before = TreeSelectionModel(mode="multi")
+        after = before.with_selection(frozenset({"a"}))
+        notified: list[str] = []
+        after.notify_if_changed(before, notified.append)
+        assert notified == ["selected_node_ids"]
+
+    def test_does_not_notify_when_unchanged(self) -> None:
+        model = TreeSelectionModel(mode="multi", selected=frozenset({"a"}))
+        notified: list[str] = []
+        model.notify_if_changed(model, notified.append)
+        assert notified == []
+
+
+class TestResolvedProps:
+    def test_returns_the_three_wire_keys(self) -> None:
+        model = TreeSelectionModel(
+            mode="single", selected=frozenset({"b", "a"}), anchor="a"
+        )
+        assert model.resolved_props() == {
+            "selection_mode": "single",
+            "selected_node_ids": ["a", "b"],
+            "anchor_node_id": "a",
+        }

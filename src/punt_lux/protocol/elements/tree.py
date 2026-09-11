@@ -1,7 +1,6 @@
 """TreeElement — a collapsible tree on the Element ABC with Hub-authoritative selection.
 
-Selection machinery (``TreeNodesState``/``TreeSelectionModel``/``TreeValidator``)
-is reached via ``tree_selection_facade`` (PL-CU-1); codec in ``tree_codec.py``.
+Selection lives behind ``tree_selection_facade`` (PL-CU-1); codec in ``tree_codec.py``.
 """
 
 from __future__ import annotations
@@ -104,6 +103,9 @@ class TreeElement(Element):
     def anchor_node_id(self) -> str:
         return self._state.selection.anchor
 
+    def apply_patch(self, patch: Mapping[str, object]) -> Self:
+        return super().apply_patch(TreeNodesState.reordered_patch(patch))
+
     def _set_label(self, value: object) -> None:
         self._label = PatchField("label").as_str(value)
 
@@ -124,8 +126,7 @@ class TreeElement(Element):
         self._notify_observers("selected_node_ids")
 
     def _set_anchor_node_id(self, value: object) -> None:
-        node_id = PatchField("anchor_node_id").as_str(value)
-        self._state = self._state.anchored(node_id)
+        self._state = self._state.anchored(PatchField("anchor_node_id").as_str(value))
         self._notify_observers("selected_node_ids")
 
     def validate(self) -> tuple[ValidationError, ...]:  # DES-039
