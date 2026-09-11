@@ -1,0 +1,377 @@
+%
+% crosshost_hubid_preemption.tex
+%
+% W12 (lux-833p), Invariant 2 of the cross-host transport design (DES-090):
+% "at most one live connection per HubId."  Models the single-owner
+% preemption discipline of DES-068 as re-keyed by W11 (lux-u9gb) onto the
+% connecting Hub's HubId, generalized from one same-host Hub to N
+% concurrently-reconnecting Hubs.
+%
+% Models the code in:
+%   src/punt_lux/display/client_registry.py   -- ClientRegistry.hub_fd_for
+%   src/punt_lux/display/hub_reconciliation.py -- HubReconciliation._preempt_stale_hub
+% and the invariant stated in
+%   docs/architecture/system.tex "Cross-Host Transport and Trust",
+%   subsection "Invariants", item 2.
+%
+% This document supersedes the name-keyed preemption clauses of
+% hub_display_reconciliation.tex (its own SUPERSEDED banner points here):
+% HI4 there ("preemption scopes to the shared name") described the pre-W11
+% code and is corrected below.
+%
+% Type-check:  fuzz docs/crosshost_hubid_preemption.tex
+% Model-check (goal predicates in the Verification section):
+%   probcli docs/crosshost_hubid_preemption.tex -model_check -p DEFAULT_SETSIZE 3
+%
+% Formatting follows the fuzz house rules: \quad~ for continuation indent,
+% schema lines under 80 columns, predicates broken at \land/\lor/\implies.
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{Cross-Host Single-Owner Preemption: a Z Specification}
+\author{W12 formal model of DES-090 Invariant 2 (at most one live
+connection per \texttt{HubId})}
+\date{September 2026}
+\maketitle
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+The Display may aggregate Hub connections from several machines at once.
+Each such connection carries, in its \texttt{ConnectMessage}, two
+independent identifiers: a \texttt{HubId} --- a per-process identity, the
+peer's hostname (cross-host, certificate-verified) paired with its
+process id --- and a \texttt{name}, a human label that many Hub processes
+may legitimately share (every production Hub today declares the identical
+hardcoded name).  The two are not the same kind of thing, and the whole
+point of this model is that single-owner preemption must key on the
+former, never the latter.
+
+DES-068 established, for the then-single same-host Hub, that a fresh
+\texttt{kind="hub"} identify forcibly disconnects any predecessor
+declaring the \emph{same identity} before recording itself --- so a dead
+process's stale connection cannot linger and swallow clicks.  With one
+Hub, ``same identity'' was unambiguous.  Cross-host makes two
+independently-legitimate, simultaneously-live Hubs the ordinary case, and
+the question ``which predecessor does a new connection preempt?'' now has
+a right answer and a wrong one:
+
+\begin{description}
+  \item[right --- key on \texttt{HubId}.] A reconnect under the same
+    \texttt{HubId} preempts its own stale predecessor; two connections
+    with \emph{different} \texttt{HubId}s never preempt each other, even
+    when they share a \texttt{name}.  This is the W11 (\texttt{lux-u9gb})
+    change: \texttt{ClientRegistry.hub\_fd\_for} keys the lookup on
+    \texttt{HubId}.
+  \item[wrong --- key on \texttt{name}.] The pre-W11 code keyed the
+    lookup on \texttt{ConnectMessage.name}.  Two Hubs sharing a name on
+    different machines would then evict one another (a live, unrelated
+    Hub wrongly disconnected), while two connections sharing a
+    \texttt{HubId} but declaring different names would \emph{fail} to
+    collapse --- both left live for one identity.
+\end{description}
+
+Two properties must hold across every interleaving of $N$ Hubs
+connecting, reconnecting, and disconnecting:
+
+\begin{description}
+  \item[I1 --- at most one live owner per \texttt{HubId}.] No reachable
+    state holds two distinct live connections declaring the same
+    \texttt{HubId}.  This is Invariant 2 of the design, stated exactly.
+  \item[I2 --- deadlock freedom.] No interleaving traps the model; some
+    operation is always enabled.
+\end{description}
+
+Alongside these, two \emph{witnesses} must be reachable, or the
+invariants would hold only because the mechanism they guard is dead
+(Section~\ref{sec:verify}): different-\texttt{HubId} connections
+\emph{coexisting} (preemption is not over-eager), and a same-name pair of
+them coexisting in particular (the coexistence the wrong, name-keyed
+design destroys).
+
+% ============================================================
+\section{Basic Types}
+% ============================================================
+
+\begin{zed}
+  [CONN, HID, NAME]
+\end{zed}
+
+\texttt{CONN} is the set of Hub-Display connections (file descriptors)
+the Display can hold open; three suffice to model two connections
+contending over one identity plus a third unrelated one.  \texttt{HID} is
+the set of \texttt{HubId} values a connection may declare --- two suffice
+to exhibit both a same-identity reconnect and two distinct coexisting
+identities.  \texttt{NAME} is the set of declared human labels; two
+suffice to exhibit the (same \texttt{HubId}, different \texttt{name}) pair
+the name-keyed variant mis-handles and the (different \texttt{HubId},
+same \texttt{name}) pair it wrongly evicts.  All three carriers are
+bounded by ProB's \texttt{DEFAULT\_SETSIZE}.
+
+% ============================================================
+\section{State}
+% ============================================================
+
+The state is flat: one schema.  A connection is ``live'' once it has
+identified as \texttt{kind="hub"} and its socket is still open --- the
+state in which it owns content and services clicks.  \texttt{hubOf} and
+\texttt{nameOf} record what each live connection declared.
+
+\begin{schema}{Owners}
+  live : \power CONN \\
+  hubOf : CONN \pfun HID \\
+  nameOf : CONN \pfun NAME
+\where
+  \dom hubOf = live \\
+  \dom nameOf = live
+\end{schema}
+
+The two domain equalities are structural, not the safety property: a live
+connection has, by construction, declared exactly one \texttt{HubId} and
+one \texttt{name} (both arrive in its single \texttt{ConnectMessage}), and
+a departed one has neither.  ``At most one live per \texttt{HubId}'' ---
+the injectivity of \texttt{hubOf} on \texttt{live} --- is I1, deliberately
+\emph{not} written here: placing it in the state schema would enforce it
+as a guard on every successor and silently disable any operation that
+could break it, masking the very defect the name-keyed variant
+(Section~\ref{sec:fidelity}) must be able to reach.
+
+% ============================================================
+\section{Initialization}
+% ============================================================
+
+\begin{schema}{Init}
+  Owners'
+\where
+  live' = \emptyset \\
+  hubOf' = \emptyset \\
+  nameOf' = \emptyset
+\end{schema}
+
+A single initial state: no connection is live, and nothing has been
+declared --- the cold start before any Hub has connected.
+
+% ============================================================
+\section{Operations}
+% ============================================================
+
+\subsection{Identify --- single-owner preemption, keyed on \texttt{HubId}}
+
+A fresh connection \texttt{c?} identifies as \texttt{kind="hub"} declaring
+\texttt{HubId} \texttt{h?} and name \texttt{n?}.  \texttt{c?} must not
+already be live: a reconnect always arrives on a new file descriptor, so
+the predecessor is a \emph{different} \texttt{CONN} value, and idempotent
+re-identification of an already-live fd is not a distinct transition here.
+
+The preempted set is exactly the live connections declaring the same
+\texttt{HubId} \texttt{h?} --- \texttt{hub\_fd\_for(h?)} in the code,
+lifted from ``the one such fd'' to ``every such fd'' so the model can
+never assume uniqueness it is trying to prove.  Each is dropped
+(\texttt{remove\_client}); \texttt{c?} is then recorded as the sole live
+owner of \texttt{h?}.
+
+\begin{schema}{Identify}
+  \Delta Owners \\
+  c? : CONN \\
+  h? : HID \\
+  n? : NAME
+\where
+  c? \notin live \\
+  live' = (live \setminus \{ c : live | hubOf~c = h? \}) \cup \{ c? \} \\
+  hubOf' = (\{ c : live | hubOf~c = h? \} \ndres hubOf) \oplus \{ c? \mapsto h? \} \\
+  nameOf' = (\{ c : live | hubOf~c = h? \} \ndres nameOf) \oplus \{ c? \mapsto n? \}
+\end{schema}
+
+\subsection{Disconnect --- an ordinary drop}
+
+A live connection's socket closes on its own --- a network blip, a
+graceful shutdown, or a process exit.  \texttt{c?} leaves \texttt{live}
+and its declarations are forgotten.  No new mechanism: a dropped
+cross-host connection is, to the socket listener, an ordinary fd closing,
+handled by the existing per-fd reaping the same-host case already uses.
+
+\begin{schema}{Disconnect}
+  \Delta Owners \\
+  c? : CONN
+\where
+  c? \in live \\
+  live' = live \setminus \{ c? \} \\
+  hubOf' = \{ c? \} \ndres hubOf \\
+  nameOf' = \{ c? \} \ndres nameOf
+\end{schema}
+
+% ============================================================
+\section{Invariants}
+\label{sec:inv}
+% ============================================================
+
+\paragraph{Invariant 1 --- at most one live owner per \texttt{HubId}.}
+\texttt{hubOf} is injective on the live set:
+\[
+  \forall c_1, c_2 : live @ \\
+  \quad~ hubOf~c_1 = hubOf~c_2 \implies c_1 = c_2.
+\]
+\texttt{Identify} removes \emph{every} live connection declaring
+\texttt{h?} before adding \texttt{c? \mapsto h?}, so no two live
+connections can share a \texttt{HubId}; \texttt{Disconnect} only shrinks
+\texttt{live}, which cannot create a collision.  The check
+(Section~\ref{sec:verify}) asks whether the negation --- two distinct live
+connections with equal \texttt{hubOf} --- is reachable.
+
+\paragraph{Invariant 2 --- deadlock freedom.}
+\texttt{Disconnect} is enabled whenever \texttt{live} is non-empty, and
+\texttt{Identify} is enabled for any \texttt{c? \notin live} whenever one
+exists.  In the sole state where \texttt{Identify} has no fresh argument
+--- \texttt{live = CONN} --- \texttt{Disconnect} is enabled.  So some
+operation is always enabled.
+
+% ============================================================
+\section{Verification}
+\label{sec:verify}
+% ============================================================
+
+Type-checking is a \texttt{fuzz} pass:
+\begin{verbatim}
+  fuzz docs/crosshost_hubid_preemption.tex
+\end{verbatim}
+
+I1 is a state property, checked by asking ProB whether its negation is
+reachable.  A goal reported \emph{not found} means the invariant holds on
+every reachable state.  It returns \emph{goal not found} against
+\texttt{DEFAULT\_SETSIZE 3}:
+\begin{verbatim}
+  # Invariant 1 (goal NOT found for the correct spec)
+  probcli docs/crosshost_hubid_preemption.tex -model_check -nodead \
+    -goal "#(c1,c2).(c1 : live & c2 : live & not(c1 = c2) &
+                     hubOf(c1) = hubOf(c2))" \
+    -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+I2 is the full-state-space deadlock check.  Every state has an enabled
+operation (Section~\ref{sec:inv}), so any deadlock reported would be a
+model defect:
+\begin{verbatim}
+  # Invariant 2 / deadlock freedom (no deadlock, all states visited)
+  probcli docs/crosshost_hubid_preemption.tex -model_check \
+    -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+The witnesses must each be \emph{found}, or the invariant above would
+hold only because the mechanism it guards is unreachable.  Both return
+\emph{goal found} for the correct spec:
+\begin{verbatim}
+  # W1: two different-HubId connections coexist -- preemption is not
+  #     over-eager (goal FOUND)
+  probcli docs/crosshost_hubid_preemption.tex -model_check -nodead \
+    -goal "#(c1,c2).(c1 : live & c2 : live & not(c1 = c2) &
+                     not(hubOf(c1) = hubOf(c2)))" \
+    -p DEFAULT_SETSIZE 3
+
+  # W2: two different-HubId connections that share a NAME coexist --
+  #     the coexistence the name-keyed variant destroys (goal FOUND)
+  probcli docs/crosshost_hubid_preemption.tex -model_check -nodead \
+    -goal "#(c1,c2).(c1 : live & c2 : live & not(c1 = c2) &
+                     not(hubOf(c1) = hubOf(c2)) &
+                     nameOf(c1) = nameOf(c2))" \
+    -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+% ============================================================
+\section{Fidelity: reproducing the shipped defect}
+\label{sec:fidelity}
+% ============================================================
+
+A model that cannot reproduce the known defect proves nothing.  The buggy
+variant, kept as
+\texttt{docs/crosshost\_hubid\_preemption\_name\_keyed\_buggy.tex}, is the
+pre-W11 design: preemption keys on \texttt{name}, not \texttt{HubId}.
+\texttt{Identify}'s preempted set becomes
+\begin{verbatim}
+  % correct (this spec):
+  preempted == { c : live | hubOf(c) = h? }
+
+  % buggy (name-keyed variant):
+  preempted == { c : live | nameOf(c) = n? }
+\end{verbatim}
+and nothing else changes.  That single substitution reproduces both
+halves of the defect W11 closes.
+
+\paragraph{The double-owner trace (I1 violated).}
+\begin{enumerate}
+  \item \texttt{Identify}(c1, h1, n1): \texttt{live = \{c1\}},
+    \texttt{hubOf = \{c1 \mapsto h1\}}, \texttt{nameOf = \{c1 \mapsto n1\}}.
+  \item \texttt{Identify}(c2, h1, n2): the same \texttt{HubId} \texttt{h1},
+    but a \emph{different} name \texttt{n2}.  Name-keyed preemption looks
+    for a live connection named \texttt{n2}; \texttt{c1} is named
+    \texttt{n1}, so nothing is preempted.  \texttt{c2} joins:
+    \texttt{live = \{c1, c2\}} with \texttt{hubOf(c1) = hubOf(c2) = h1}.
+\end{enumerate}
+Two distinct live connections now own the identical \texttt{HubId} ---
+I1's negation, reachable.  I1's goal returns \emph{found} against this
+variant and \emph{not found} against the correct spec.  This is the
+``double-owner state'' the design's fidelity requirement names: the same
+\texttt{HubId} claimed by two live connections at once, which
+\texttt{HubId}-keyed preemption excludes because step 2 would then find
+\texttt{c1} (same \texttt{HubId}) and evict it.
+
+\paragraph{The wrong-eviction trace (W2 destroyed).}
+The same substitution also breaks the coexistence witness W2.  Under the
+name-keyed variant, any second \texttt{Identify} sharing a \texttt{name}
+with a live connection evicts it, so two live connections can never share
+a name --- even when their \texttt{HubId}s differ and both are legitimate
+Hubs on different machines.  W2's goal, \emph{found} for the correct spec,
+returns \emph{not found} against this variant.  That is the live,
+unrelated Hub wrongly disconnected because it happened to share the
+hardcoded name --- the second half of what W11 fixes.
+
+Both discriminators come from the one key choice, which is why W11 is a
+single change, not two, and why this one buggy variant is sufficient
+fidelity for Invariant 2.
+
+\paragraph{Errata for \texttt{hub\_display\_reconciliation.tex}.}
+That document's HI4 (\texttt{hub\_display\_reconciliation\_coverage.md}:
+``preemption scopes to the shared name'') and its \texttt{hubOwner}
+identity, modeled as a bare \texttt{CONNECTION\_ID} with no
+name/\texttt{HubId} distinction, describe the pre-W11 code.  The corrected
+statement is I1 above: preemption scopes to the shared \texttt{HubId}; two
+connections sharing a name but declaring distinct \texttt{HubId}s coexist,
+and only a same-\texttt{HubId} arrival preempts.  This model, not that
+one, is authoritative for Invariant 2.
+
+% ============================================================
+\section{Test Partitions}
+\label{sec:partitions}
+% ============================================================
+
+Derived from the operations and invariants above, for audit against the
+test suite (see \texttt{docs/crosshost\_transport\_coverage.md}):
+
+\begin{description}
+  \item[Q1 --- a same-\texttt{HubId} reconnect preempts its predecessor.]
+    A second \texttt{Identify} with the \texttt{HubId} of a live
+    connection evicts it; exactly one live owner remains.
+  \item[Q2 --- a different-\texttt{HubId} identify preempts nothing.] Two
+    connections with distinct \texttt{HubId}s coexist (witness W1).
+  \item[Q3 --- a same-name, different-\texttt{HubId} pair coexists.] A
+    shared \texttt{name} does not trigger preemption (witness W2); the
+    regression against name-keying.
+  \item[Q4 --- a same-\texttt{HubId}, different-name reconnect still
+    preempts.] The declared name plays no role: a reconnect under the
+    same \texttt{HubId} but a changed name still evicts its predecessor.
+  \item[Q5 --- an ordinary disconnect releases the identity.] After
+    \texttt{Disconnect}, the freed \texttt{HubId} may be claimed again
+    with no residual owner.
+  \item[Q6 --- N-way interleaving preserves one-per-\texttt{HubId}.] Any
+    interleaving of several Hubs connecting, reconnecting, and
+    disconnecting leaves \texttt{hubOf} injective on \texttt{live} (I1,
+    model-checked exhaustively).
+\end{description}
+
+\end{document}

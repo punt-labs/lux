@@ -1,0 +1,499 @@
+%
+% crosshost_connection_lifecycle_no_identify_gate_buggy.tex
+%
+% FIDELITY CONTROL (variant B) for crosshost_connection_lifecycle.tex
+% (W12, lux-833p).  Removes ONLY the Gate 2 guard: ProcessScene accepts a
+% SceneMessage from any readable fd, not only an identified one (the
+% shipped same-host W1 gap -- kind_of(fd) is None is not rejected).
+% Reproduces the defect: I2's negation (a served-but-not-identified
+% connection) is REACHABLE here (goal FOUND), whereas it is unreachable in
+% the correct spec.  I1 still holds here -- this variant isolates the
+% Gate 2 failure.  The authoritative model is
+% crosshost_connection_lifecycle.tex.
+%
+% Models the code in:
+%   src/punt_lux/display/cross_host_listener.py    -- CrossHostListener
+%       (Gate 1: the pending-handshake set; a socket is not in the reader
+%        set until do_handshake() has returned "ready")
+%   src/punt_lux/display/cross_host_verification.py -- CrossHostVerification
+%       (Gate 2: the SAN/hub_id cross-check)
+%   src/punt_lux/display/hub_reconciliation.py     -- handle_connect
+%       (Gate 2: reject-or-register-identity)
+%   src/punt_lux/display/identity_guard.py         -- reject_scene_unless_hub
+%       (content requires an identified kind="hub" fd)
+% and the invariant stated in
+%   docs/architecture/system.tex "Cross-Host Transport and Trust",
+%   subsection "Invariants", item 1, and subsection "Coexistence with the
+%   Local Fast Path" ("Two distinct gates, not one").
+%
+% Type-check:  fuzz docs/crosshost_connection_lifecycle.tex
+% Model-check (goal predicates in the Verification section):
+%   probcli docs/crosshost_connection_lifecycle.tex -model_check \
+%       -p DEFAULT_SETSIZE 3
+%
+% Formatting follows the fuzz house rules: \quad~ for continuation indent,
+% schema lines under 80 columns, predicates broken at \land/\lor/\implies.
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{Cross-Host Connection Lifecycle:
+a Fidelity Control (variant B, no Gate 2, BUGGY)}
+\author{W12 variant --- content gate weakened to ``readable'' alone (the
+W1 gap), which violates DES-090 Invariant 1}
+\date{September 2026}
+\maketitle
+
+\noindent\fbox{\parbox{\dimexpr\textwidth-2\fboxsep-2\fboxrule}{%
+\textbf{Fidelity control --- BUGGY by construction.} This variant lets a
+\msg{SceneMessage} be processed from any readable fd, not only an
+identified one (the shipped same-host W1 gap). Invariant 2's negation (a
+served-but-not-identified connection) is \emph{reachable} here; Invariant 1
+still holds, isolating the Gate 2 failure. The authoritative model is
+\texttt{crosshost\_connection\_lifecycle.tex}.}}
+\vspace{1em}
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+The same-host Hub-to-Display leg is an \field{AF\_UNIX} socket whose
+\texttt{0700} permission \emph{is} the trust model: anything that can open
+the path is already a process the same OS user controls.  Cross-host
+removes that free lunch --- anyone who can route a packet to the
+Display's port can attempt to speak the Hub protocol --- so a
+newly-connected peer must clear two gates before its content is honored,
+and the accept path must never let a \msg{SceneMessage} slip past either
+one.
+
+A connection's life runs through four observable conditions:
+
+\begin{description}
+  \item[accepted.] The TCP connection exists; the socket sits in a
+    pending-handshake set, deliberately \emph{not} in the reader set, so
+    \texttt{poll\_clients} never reads a frame from it
+    (\texttt{CrossHostListener.accept\_pending}).
+  \item[TLS verified (Gate 1).] \texttt{do\_handshake()} has returned
+    successfully --- mutual certificate verification complete.  Only now
+    is the fd promoted into the ordinary reader set, where it may exchange
+    \msg{ConnectMessage} like any other connection
+    (\texttt{CrossHostListener.pump\_ready}).
+  \item[identified (Gate 2).] A \msg{ConnectMessage} arrived and its
+    self-reported \field{hub\_id} hostname matched the peer certificate's
+    SAN (\texttt{CrossHostVerification}); \texttt{handle\_connect}
+    recorded the fd as \texttt{kind="hub"}.  A mismatch instead closes the
+    connection, never a degraded-trust fallback.
+  \item[receiving content.] Only an identified \texttt{kind="hub"} fd has
+    its \msg{SceneMessage} processed (\texttt{reject\_scene\_unless\_hub}).
+\end{description}
+
+The hazard the design closes is an accept path that hands a socket to the
+ordinary reader set --- making its frames deliverable --- before its TLS
+handshake, or before its \msg{ConnectMessage}, has completed, letting a
+\msg{SceneMessage} land against an unverified or not-yet-identified
+connection.  The handshake itself is driven non-blocking, one step per
+frame under a bounded deadline, precisely so a stalled peer cannot freeze
+the render thread; but the correctness property this model concerns is
+the \emph{ordering}, not the timing: content is honored only after both
+gates.
+
+Three properties must hold across every interleaving:
+
+\begin{description}
+  \item[I1 --- no identify before the handshake (Gate 1).] No connection
+    is identified until its TLS handshake has completed.  Because content
+    requires identification (I2), this is what keeps a \msg{SceneMessage}
+    from an un-handshaken peer out.
+  \item[I2 --- no content before identification (Gate 2).] No
+    \msg{SceneMessage} is processed against a connection that has not
+    been identified (SAN-cross-checked \texttt{kind="hub"}).
+  \item[I3 --- deadlock freedom.] Some operation is always enabled.
+\end{description}
+
+Together I1 and I2 are exactly Invariant 1: content only after \emph{both}
+transport verification and \field{hub\_id} cross-check.
+
+% ============================================================
+\section{Basic Types}
+% ============================================================
+
+\begin{zed}
+  [CONN]
+\end{zed}
+
+\texttt{CONN} is the set of cross-host connections (file descriptors) the
+Display can hold at once; two suffice to exhibit one connection racing
+through the gates while another is at a different stage, and three give
+ProB room to interleave a stalled, a verified, and an identified
+connection.  The carrier is bounded by ProB's \texttt{DEFAULT\_SETSIZE}.
+
+% ============================================================
+\section{State}
+% ============================================================
+
+The state is flat: one schema of five subsets of \texttt{CONN}, each
+recording a condition a connection has reached.  A connection may hold
+several at once (an identified one is also handshaken and readable); the
+subset relations that say so are I1 and I2, and are deliberately
+\emph{not} written into the schema.
+
+\begin{schema}{Conn}
+  known : \power CONN \\
+  readable : \power CONN \\
+  handshook : \power CONN \\
+  identified : \power CONN \\
+  served : \power CONN
+\where
+  readable \subseteq known \\
+  handshook \subseteq known \\
+  identified \subseteq known \\
+  served \subseteq known
+\end{schema}
+
+\texttt{known} is every connection currently open (accepted, not yet
+dropped).  \texttt{readable} is the ordinary reader set ---
+\texttt{SocketListener}'s client dict, the membership \texttt{poll\_clients}
+tests before it ever delivers a frame to a handler; a connection outside
+it can have no message of any kind processed.  \texttt{handshook} is
+Gate 1 complete.  \texttt{identified} is Gate 2 complete.  \texttt{served}
+records every connection against which at least one \msg{SceneMessage} has
+been processed --- the observable this model exists to constrain.  The
+four containments are structural hygiene: dropping a connection removes it
+from every set, so nothing outlives \texttt{known}.  The \emph{ordering}
+containments --- \texttt{identified \subseteq handshook} (I1) and
+\texttt{served \subseteq identified} (I2) --- are the safety properties,
+checked as reachability of their negations (Section~\ref{sec:verify}), not
+enforced as guards here.
+
+% ============================================================
+\section{Initialization}
+% ============================================================
+
+\begin{schema}{Init}
+  Conn'
+\where
+  known' = \emptyset \\
+  readable' = \emptyset \\
+  handshook' = \emptyset \\
+  identified' = \emptyset \\
+  served' = \emptyset
+\end{schema}
+
+A single initial state: no connection exists --- the cold start before any
+peer has connected to the cross-host listener.
+
+% ============================================================
+\section{Operations}
+% ============================================================
+
+\subsection{Accept --- into the pending set, not the reader set}
+
+A peer completes the TCP handshake.  \texttt{c?} becomes known but is
+\emph{not} made readable: it sits in the pending-handshake set, kept
+separate from the reader set exactly so no frame can be read from it until
+its TLS handshake is verified complete.  This is the ordering the whole
+design turns on --- \texttt{accept\_pending} wraps the raw socket
+non-blocking with \field{do\_handshake\_on\_connect=False} and holds it
+apart from \texttt{\_clients}/\texttt{\_readers}.
+
+\begin{schema}{Accept}
+  \Delta Conn \\
+  c? : CONN
+\where
+  c? \notin known \\
+  known' = known \cup \{ c? \} \\
+  readable' = readable \\
+  handshook' = handshook \\
+  identified' = identified \\
+  served' = served
+\end{schema}
+
+\subsection{HandshakeComplete --- Gate 1, promote to the reader set}
+
+\texttt{do\_handshake()} returns successfully for a pending connection.
+Only now is \texttt{c?} both recorded as handshaken and promoted into the
+reader set --- \texttt{pump\_ready} returning the socket and the caller
+moving it out of pending into \texttt{\_clients}.  The two happen together:
+there is no state in which a connection is readable but not handshaken.
+
+\begin{schema}{HandshakeComplete}
+  \Delta Conn \\
+  c? : CONN
+\where
+  c? \in known \\
+  c? \notin handshook \\
+  handshook' = handshook \cup \{ c? \} \\
+  readable' = readable \cup \{ c? \} \\
+  known' = known \\
+  identified' = identified \\
+  served' = served
+\end{schema}
+
+\subsection{Identify --- Gate 2, SAN match}
+
+A \msg{ConnectMessage} arrives on a readable connection and its
+\field{hub\_id} hostname matches the peer certificate's SAN.
+\texttt{handle\_connect} records the fd as identified.  The guard is
+\texttt{c? \in readable}: the message could only be delivered because the
+fd is in the reader set.  It does \emph{not} re-check \texttt{handshook}
+--- Gate 1's ordering is what guarantees a readable fd is already
+handshaken, and removing that ordering (Section~\ref{sec:fidelity},
+variant A) is exactly how a not-yet-verified connection reaches identify.
+
+\begin{schema}{Identify}
+  \Delta Conn \\
+  c? : CONN
+\where
+  c? \in readable \\
+  c? \notin identified \\
+  identified' = identified \cup \{ c? \} \\
+  known' = known \\
+  readable' = readable \\
+  handshook' = handshook \\
+  served' = served
+\end{schema}
+
+\subsection{SanReject --- Gate 2, SAN mismatch, fail-closed}
+
+The other outcome of Gate 2: the \msg{ConnectMessage}'s \field{hub\_id}
+does not match the certificate SAN, so \texttt{handle\_connect} closes the
+connection (\texttt{remove\_client}) rather than identifying it --- never a
+degraded-trust fallback (Invariant 3).  \texttt{c?} leaves every set.
+
+\begin{schema}{SanReject}
+  \Delta Conn \\
+  c? : CONN
+\where
+  c? \in readable \\
+  c? \notin identified \\
+  known' = known \setminus \{ c? \} \\
+  readable' = readable \setminus \{ c? \} \\
+  handshook' = handshook \setminus \{ c? \} \\
+  identified' = identified \\
+  served' = served \setminus \{ c? \}
+\end{schema}
+
+\subsection{ProcessScene --- content, only past both gates}
+
+A \msg{SceneMessage} is processed.  The guard is the conjunction of both
+gates: \texttt{c? \in readable} (the frame was delivered) \emph{and}
+\texttt{c? \in identified} (Gate 2 passed) --- the two facts
+\texttt{reject\_scene\_unless\_hub} checks before a scene is installed.
+This guard \emph{is} I2; weakening it to \texttt{readable} alone
+(Section~\ref{sec:fidelity}, variant B) is the W1 gap where an
+unidentified fd's scene is installed.
+
+\begin{schema}{ProcessScene}
+  \Delta Conn \\
+  c? : CONN
+\where
+  c? \in readable \\
+  served' = served \cup \{ c? \} \\
+  known' = known \\
+  readable' = readable \\
+  handshook' = handshook \\
+  identified' = identified
+\end{schema}
+
+\subsection{Drop --- an ordinary disconnect}
+
+The connection's socket closes on its own.  \texttt{c?} leaves every set
+--- the existing per-fd reaping, applied identically to a cross-host fd.
+
+\begin{schema}{Drop}
+  \Delta Conn \\
+  c? : CONN
+\where
+  c? \in known \\
+  known' = known \setminus \{ c? \} \\
+  readable' = readable \setminus \{ c? \} \\
+  handshook' = handshook \setminus \{ c? \} \\
+  identified' = identified \setminus \{ c? \} \\
+  served' = served \setminus \{ c? \}
+\end{schema}
+
+% ============================================================
+\section{Invariants}
+\label{sec:inv}
+% ============================================================
+
+\paragraph{Invariant 1 --- no identify before the handshake (Gate 1).}
+\[
+  identified \subseteq handshook.
+\]
+\texttt{Identify} requires \texttt{c? \in readable}, and \texttt{readable}
+is granted only by \texttt{HandshakeComplete}, which grants
+\texttt{handshook} in the same step --- so \texttt{readable \subseteq
+handshook} holds throughout, and hence so does \texttt{identified
+\subseteq handshook}.  \texttt{Accept} adds to \texttt{known} only, never
+to \texttt{readable}; that is the ordering.  The check
+(Section~\ref{sec:verify}) asks whether the negation --- an identified
+connection that is not handshaken --- is reachable.
+
+\paragraph{Invariant 2 --- no content before identification (Gate 2).}
+\[
+  served \subseteq identified.
+\]
+\texttt{ProcessScene} requires \texttt{c? \in identified} before recording
+it in \texttt{served}, and no other operation grows \texttt{served}.  With
+I1, this gives \texttt{served \subseteq identified \subseteq handshook}:
+content only past both gates --- Invariant 1 of the design in full.
+
+\paragraph{Invariant 3 --- deadlock freedom.}
+\texttt{Accept} is enabled for any \texttt{c? \notin known} whenever one
+exists; in the sole state where it has no fresh argument
+(\texttt{known = CONN}), \texttt{Drop} is enabled.  So some operation is
+always enabled.
+
+% ============================================================
+\section{Verification}
+\label{sec:verify}
+% ============================================================
+
+Type-checking is a \texttt{fuzz} pass:
+\begin{verbatim}
+  fuzz docs/crosshost_connection_lifecycle.tex
+\end{verbatim}
+
+I1 and I2 are state properties, checked by asking ProB whether their
+negations are reachable.  A goal reported \emph{not found} means the
+invariant holds on every reachable state.  Both return \emph{goal not
+found} against \texttt{DEFAULT\_SETSIZE 3}:
+\begin{verbatim}
+  # Invariant 1: an identified-but-not-handshaken connection
+  #              (goal NOT found for the correct spec)
+  probcli docs/crosshost_connection_lifecycle.tex -model_check -nodead \
+    -goal "card({c | c : CONN & c : identified & not(c : handshook)}) > 0" \
+    -p DEFAULT_SETSIZE 3
+
+  # Invariant 2: a served-but-not-identified connection
+  #              (goal NOT found for the correct spec)
+  probcli docs/crosshost_connection_lifecycle.tex -model_check -nodead \
+    -goal "card({c | c : CONN & c : served & not(c : identified)}) > 0" \
+    -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+I3 is the full-state-space deadlock check.  Every state has an enabled
+operation (Section~\ref{sec:inv}), so any deadlock reported would be a
+model defect:
+\begin{verbatim}
+  # Invariant 3 / deadlock freedom (no deadlock, all states visited)
+  probcli docs/crosshost_connection_lifecycle.tex -model_check \
+    -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+The witnesses must each be \emph{found}, or the invariants would hold only
+because the mechanism they guard is unreachable.  Both return \emph{goal
+found} for the correct spec:
+\begin{verbatim}
+  # W1: content is actually processed (goal FOUND)
+  probcli docs/crosshost_connection_lifecycle.tex -model_check -nodead \
+    -goal "card(served) > 0" \
+    -p DEFAULT_SETSIZE 3
+
+  # W2: the between-gates window is reachable -- handshaken (Gate 1 done)
+  #     but not yet identified (Gate 2 pending) (goal FOUND)
+  probcli docs/crosshost_connection_lifecycle.tex -model_check -nodead \
+    -goal "card({c | c : CONN & c : handshook & not(c : identified)}) > 0" \
+    -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+% ============================================================
+\section{Fidelity: reproducing the shipped defect}
+\label{sec:fidelity}
+% ============================================================
+
+A model that cannot reproduce the known defect proves nothing.  Two buggy
+variants, one per gate, each remove exactly one ordering guarantee and
+each surfaces its own invariant violation.
+
+\paragraph{Variant A --- handshake-before-accept removed (Gate 1).}
+Kept as
+\texttt{docs/crosshost\_connection\_lifecycle\_no\_handshake\_gate\_buggy.tex},
+this is the concrete race the design names: an accept path that adds a
+socket to the reader set before its TLS handshake has completed.
+\texttt{Accept} becomes
+\begin{verbatim}
+  % correct (this spec): accepted != readable
+  readable' = readable
+  % buggy (variant A): freshly accepted, immediately readable
+  readable' = readable \cup {c?}
+\end{verbatim}
+Now a \msg{ConnectMessage} can be delivered --- and \texttt{Identify} can
+fire --- on a connection whose TLS handshake never completed.  Trace:
+\texttt{Accept}(c) makes \texttt{c} readable while
+\texttt{c \notin handshook}; \texttt{Identify}(c) fires (guard
+\texttt{c \in readable} holds); \texttt{c} is now identified but not
+handshaken.  I1's negation is reachable: its goal returns \emph{found}
+against variant A and \emph{not found} against the correct spec.  This is
+an unauthenticated peer being honored as an identified Hub --- the mTLS
+handshake and its SAN check bypassed entirely.
+
+\paragraph{Variant B --- identify gate removed (Gate 2, the W1 gap).}
+Kept as
+\texttt{docs/crosshost\_connection\_lifecycle\_no\_identify\_gate\_buggy.tex},
+this is the shipped same-host gap W1 closes: a content handler that
+accepts a \msg{SceneMessage} from any readable fd, not only an identified
+one.  \texttt{ProcessScene}'s guard becomes
+\begin{verbatim}
+  % correct (this spec):
+  c? : readable & c? : identified
+  % buggy (variant B):
+  c? : readable
+\end{verbatim}
+Trace: \texttt{Accept}(c); \texttt{HandshakeComplete}(c) --- \texttt{c}
+readable and handshaken but not yet identified; \texttt{ProcessScene}(c)
+fires (the weakened guard does not require \texttt{identified}).  I2's
+negation is reachable: its goal returns \emph{found} against variant B and
+\emph{not found} against the correct spec.  This is a scene installed
+under a connection with no verified \texttt{HubId} to attribute it to ---
+harmless behind the \texttt{0700} \field{AF\_UNIX} permission, a hole once
+the store is keyed by \texttt{HubId}.
+
+Each variant isolates one gate: variant A leaves I2's guard intact (so
+I2 still holds there --- the failure is purely I1), and variant B leaves
+Gate 1 intact (so I1 still holds there --- the failure is purely I2).
+Together they show the model detects a breach of \emph{either} gate, which
+is why Invariant 1 of the design requires \emph{both}.
+
+% ============================================================
+\section{Test Partitions}
+\label{sec:partitions}
+% ============================================================
+
+Derived from the operations and invariants above, for audit against the
+test suite (see \texttt{docs/crosshost\_transport\_coverage.md}):
+
+\begin{description}
+  \item[R1 --- an accepted, un-handshaken connection is not readable.] A
+    freshly accepted socket sits in the pending set; no frame is read from
+    it.  The Gate 1 ordering.
+  \item[R2 --- Gate 1 promotes on handshake success.] A completed
+    handshake, and only then, moves the fd into the reader set.
+  \item[R3 --- the between-gates window is real.] A handshaken,
+    not-yet-identified connection is readable but content-refused (witness
+    W2).
+  \item[R4 --- Gate 2 identifies on SAN match.] A \msg{ConnectMessage}
+    whose \field{hub\_id} matches the certificate SAN records the fd as
+    \texttt{kind="hub"}.
+  \item[R5 --- Gate 2 rejects, fail-closed, on SAN mismatch.] A mismatch
+    closes the connection; it never becomes identified and never serves
+    content.
+  \item[R6 --- content only past both gates.] A \msg{SceneMessage} is
+    processed only for an identified connection (I2), which is
+    handshaken (I1) --- so served $\subseteq$ handshaken, model-checked
+    exhaustively.
+  \item[R7 --- an un-handshaken connection never serves content.] The
+    Gate 1 regression against variant A.
+  \item[R8 --- an unidentified connection never serves content.] The
+    Gate 2 regression against variant B (the W1 gap).
+  \item[R9 --- a drop at any stage removes the connection cleanly.] No
+    residual membership in any set survives a disconnect.
+\end{description}
+
+\end{document}
