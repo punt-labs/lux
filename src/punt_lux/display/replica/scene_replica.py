@@ -10,6 +10,8 @@ from punt_lux.display.replica.frame_book import FrameBook
 from punt_lux.display.replica.stale_ids import OnSceneReplacedFn, StaleIds
 from punt_lux.display.replica.widget_state import WidgetState, WireScalar
 from punt_lux.display.replica.widget_state_store import WidgetStateStore
+from punt_lux.domain.hub.hub_id import HubId
+from punt_lux.domain.hub.hub_scoped_key import HubScopedKey
 from punt_lux.protocol import SceneMessage
 
 __all__ = ["OnSceneReplacedFn", "SceneReplica"]
@@ -133,39 +135,35 @@ class SceneReplica:
 
     # -- public API --------------------------------------------------------
 
-    def handle_framed_scene(self, msg: SceneMessage, owner_fd: int) -> None:
+    def handle_framed_scene(
+        self, msg: SceneMessage, owner_fd: int, hub: HubId | None = None
+    ) -> None:
         """Route a scene into its frame, creating the frame if needed.
 
-        An empty push removes the scene instead of creating or keeping a frame:
-        the frame and its content appear and disappear together, never as a husk.
+        An empty push removes the scene instead of keeping a husk frame.
+        ``hub`` defaults to :meth:`HubId.stub` for callers with no Hub
+        connection in play; production dispatch always passes the real one.
         """
-        frame_id = msg.frame_id
         if not msg.elements:
-            stale = self._book.frame_of_scene(msg.id) or self._book.frames.get(frame_id)
-            if stale is not None and self.dismiss_framed_scene(stale, msg.id):
-                self.dispose_frame(stale.frame_id)
+            self._remove_emptied_scene(msg)
             return
-        frame = self._book.ensure(msg, frame_id, owner_fd)
-        self.upsert_scene_in_frame(frame, msg)
-        self._book.record_owner(msg.id, owner_fd)
-
-    def upsert_scene_in_frame(self, frame: Frame, msg: SceneMessage) -> None:
-        """Add or replace a scene within a frame.
-
-        A push is a notification, not a window-raise. Whether the scene is new to
-        the frame or a repaint of one already there, this writes content only: it
-        never restores a frame the user docked or closed, never asks for focus,
-        and never moves the tab the user is reading. The one tab it does write is
-        a frame's first scene, which has no selection to take.
-        """
+        key = HubScopedKey(hub if hub is not None else HubId.stub(), msg.id)
+        frame = self._book.ensure(msg, msg.frame_id, owner_fd)
         self._vacate_other_frame(frame, msg.id)
         is_new = msg.id not in frame.scenes
         old_scene = frame.scenes.get(msg.id)
         frame.scenes[msg.id] = msg
         if is_new:
-            self._admit_new_scene(frame, msg.id)
+            self._admit_new_scene(frame, key)
         else:
             self._replace_scene_state(msg, old_scene)
+        self._book.record_owner(key, owner_fd)
+
+    def _remove_emptied_scene(self, msg: SceneMessage) -> None:
+        """Drop a scene an empty push named, disposing its frame if left bare."""
+        stale = self._book.frame_of_scene(msg.id) or self._book.frames.get(msg.frame_id)
+        if stale is not None and self.dismiss_framed_scene(stale, msg.id):
+            self.dispose_frame(stale.frame_id)
 
     def _vacate_other_frame(self, frame: Frame, scene_id: str) -> None:
         """Take ``scene_id`` out of any other frame, disposing it if that empties it."""
@@ -175,17 +173,18 @@ class SceneReplica:
         if self.dismiss_framed_scene(old_frame, scene_id):
             self.dispose_frame(old_frame.frame_id)
 
-    def _admit_new_scene(self, frame: Frame, scene_id: str) -> None:
+    def _admit_new_scene(self, frame: Frame, key: HubScopedKey) -> None:
         """Place a scene the frame did not hold, writing content only.
 
         The active tab is set only for the frame's first scene; a later
         arrival joins the strip without moving what the user is reading.
         """
+        scene_id = key.local
         frame.scene_order.append(scene_id)
         self._widget_state.open(scene_id)
         if frame.active_tab is None:
             frame.active_tab = scene_id
-        self._book.set_frame(scene_id, frame.frame_id)
+        self._book.set_frame(key, frame.frame_id)
 
     def resolve_scene(self, scene_id: str) -> SceneMessage | None:
         """Find a scene in its frame, or None when no frame holds it."""
