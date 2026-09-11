@@ -1,8 +1,7 @@
 """TreeElement — a collapsible tree on the Element ABC with Hub-authoritative selection.
 
-``TreeNodesState`` (PY-IC-1) composes the recursive ``TreeNode`` family with a
-``TreeSelectionModel``; codec in ``tree_codec.py``, selection *content*
-validated via ``TreeValidator`` (DES-039).
+Selection machinery (``TreeNodesState``/``TreeSelectionModel``/``TreeValidator``)
+is reached via ``tree_selection_facade`` (PL-CU-1); codec in ``tree_codec.py``.
 """
 
 from __future__ import annotations
@@ -10,19 +9,21 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal, Self, cast
 
 from punt_lux.domain.element_abc import Element
-from punt_lux.domain.validation import ValidationError
 from punt_lux.protocol.elements.abc_di_defaults import NO_EMIT, RAISING_FACTORY
 from punt_lux.protocol.elements.patch_field import PatchField
 from punt_lux.protocol.elements.tree_codec import JsonTreeDecoder, JsonTreeEncoder
-from punt_lux.protocol.elements.tree_nodes_state import TreeNodesState
-from punt_lux.protocol.elements.tree_selection_model import TreeSelectionModel
-from punt_lux.protocol.elements.tree_validation import TreeValidator
+from punt_lux.protocol.elements.tree_selection_facade import (
+    TreeNodesState,
+    TreeSelectionModel,
+    TreeValidator,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from punt_lux.domain.validation import ValidationError
     from punt_lux.protocol.elements.tree_node import TreeNode
-    from punt_lux.protocol.elements.tree_selection_model import SelectionMode
+    from punt_lux.protocol.elements.tree_selection_facade import SelectionMode
     from punt_lux.protocol.renderer import Emit, RendererFactory
 
 __all__ = ["TreeElement"]
@@ -107,7 +108,6 @@ class TreeElement(Element):
         self._label = PatchField("label").as_str(value)
 
     def _set_nodes(self, value: object) -> None:
-        """Replace the nodes; the state reconciles the selection (Tell, Don't Ask)."""
         before = self._state.selection
         self._state = self._state.replaced_nodes(value)
         self._notify_observers("nodes")

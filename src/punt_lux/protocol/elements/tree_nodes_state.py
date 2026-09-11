@@ -77,6 +77,6 @@ class TreeNodesState:
     def resolved_props(self) -> dict[str, object]:
         """Return nodes + selection view-state for ``TreeElement.resolved_props``."""
         return {
-            "nodes": [node.to_dict() for node in self._nodes],
+            "nodes": [TreeNode.to_dict(node) for node in self._nodes],
             **self._selection.resolved_props(),
         }

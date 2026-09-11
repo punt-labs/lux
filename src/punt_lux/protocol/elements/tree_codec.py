@@ -79,7 +79,7 @@ class JsonTreeEncoder:
                 "kind": elem.kind,
                 "id": elem.id,
                 "label": elem.label,
-                "nodes": [node.to_dict() for node in elem.nodes],
+                "nodes": [TreeNode.to_dict(node) for node in elem.nodes],
                 "flat": elem.flat or None,
                 "tooltip": elem.tooltip,
             }
