@@ -175,6 +175,16 @@
   and have its fresh writer binding wiped out retroactively — both now run
   under the lock like every other mutator. (bead lux-vvmt; model
   `docs/connection_lease_reaping.tex`, round 3.)
+- **A Hub's manifest can no longer purge another, still-live Hub's scene.**
+  `SceneReplica.scenes_to_purge` conflated two independent rules into one
+  condition: the sending Hub's own manifest scoping, and the orphan sweep
+  for a Hub no longer connected. Both were gated by the same "not named in
+  this manifest" check, so a dead Hub's scene survived whenever its local
+  scene id happened to also appear in an unrelated *live* Hub's own
+  manifest -- a coincidental collision. The two rules are now independent:
+  a manifest is authoritative only over its own sending Hub's scenes, and
+  the orphan sweep depends only on Hub liveness, never on any manifest's
+  content. See lux-fsdo (W14).
 
 ### Security
 
