@@ -6879,3 +6879,49 @@ the 2s-forever defect. (d) Stopping retries once disconnected — the operator
 ruled retrying is correct; the defect was always the cadence. (e) `set_off`
 retracting an already-open window — moot once `display:off` became `lux display
 stop`, and a "running but invisible" state was judged no value-add.
+
+## DES-094: Session Liveness Is a Heuristic, Not a Trust Boundary
+
+**Status:** ACCEPTED — operator-ruled 2026-09-10.
+
+**Context.** An applet leaves when the Claude session that spawned it exits.
+`SessionWatch` implements this by polling `os.kill(session_pid, 0)` on an
+interval and exiting when the process is gone (the Hub's connection lease is
+the roster-side backstop). `os.kill(pid, 0)` is *pid-reuse-unsafe*: after the
+watched session exits, the OS can recycle its pid to an unrelated process, and
+the poll then reads that stranger as "session alive" forever, leaving an
+orphaned applet. Bead `lux-0bkm` reported ghost applets accumulating in the Hub
+roster and the aggregation menu.
+
+**Decision.** Do not harden the pid check. A live dogfood on 2026-09-10 found
+**no reap failure on current code** — every accumulated applet was watching a
+genuinely-alive, long-idle `claude` process (sessions up to a week old that
+never exited), so those applets were correctly persisting, not ghosting. The
+pid-reuse gap is therefore *theoretical*, and its impact if it fired is
+*cosmetic*: a stale `Clients`-menu entry / roster growth, never a correctness
+or security breach. A cross-platform pid+start-time hardening (a
+`ProcessStartTime` identity source over `/proc` and `ps`) was built and then
+**reverted** as disproportionate machinery for a liveness heuristic.
+
+The governing distinction this ADR settles: `SessionWatch` answers a
+**liveness** question — "is the process that spawned me still alive, so do I
+keep serving?" — which pids/pidfd/start-time answer and a cryptographic key
+cannot (a key cannot tell you a process is still running). It is **not** an
+identity or trust boundary. The mature, secure answer to "who is this
+Hub/applet, and should the Display trust the content it sends?" is
+cryptographic — DES-090's mTLS + personal-CA enrollment — a separate concern
+that neither substitutes for reaping nor is substituted by it. The robustness
+and security investment belongs in the keys layer, not in start-time plumbing
+that closes a theoretical, cosmetic gap on a heuristic.
+
+**Consequence.** `SessionWatch` keeps the simple, cross-platform
+`os.kill(pid, 0)` poll (identical on Linux and macOS — both first-class) plus
+the Hub lease backstop. `lux-0bkm` is closed pending either a real
+reproduction on current code, or folding the concern into the DES-090 trust
+layer where identity is done properly.
+
+**Rejected alternatives.** (a) pid+start-time cross-platform hardening —
+disproportionate for a heuristic; reverted. (b) `os.pidfd_open` — Linux-only,
+would still need a separate macOS path, so it buys nothing over the uniform
+`os.kill`. (c) Treating reaping as a security mechanism — a category error;
+liveness and trust are different questions, and keys answer the second.
