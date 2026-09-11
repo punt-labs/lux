@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Self, final
 
+from punt_lux.display.menus.own_menus import OwnMenus
 from punt_lux.display.menus.wire import WireMenu
 from punt_lux.display.menus.wire_field import WireField
 from punt_lux.display.replica.frame import Frame
@@ -369,7 +370,13 @@ def make_menu_replica(**overrides: Any) -> MenuReplica:
         "chrome": FakeChrome(),
     }
     defaults.update(overrides)
-    return MenuReplica(**defaults)
+    emit_event = defaults.pop("emit_event")
+    return MenuReplica(
+        emit_event=emit_event,
+        on_raise_frame=defaults["on_raise_frame"],
+        get_frames=defaults["get_frames"],
+        own=OwnMenus(**defaults),
+    )
 
 
 def wire_menu(label: str, items: Iterable[dict[str, Any]]) -> dict[str, Any]:

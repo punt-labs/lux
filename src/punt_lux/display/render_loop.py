@@ -37,6 +37,7 @@ from punt_lux.display.idle_screen import render_idle
 from punt_lux.display.interaction_delivery import InteractionDelivery
 from punt_lux.display.macos import set_regular_activation_policy
 from punt_lux.display.markdown_font import MarkdownFont
+from punt_lux.display.menus.own_menus import OwnMenus
 from punt_lux.display.paint_clock import PaintClock
 from punt_lux.display.pending_interactions import PendingInteractions
 from punt_lux.display.query_dispatcher import QueryRouter
@@ -144,19 +145,23 @@ class RenderLoop:
         self._current_theme = "imgui_colors_dark"
         self._menus = MenuReplica(
             emit_event=self._emit_event,
-            on_theme_selected=self._apply_theme,
-            on_decorated_toggled=self._on_decorated_toggled,
-            on_opacity_changed=self._on_opacity_changed,
-            on_font_scale_changed=self._on_font_scale_changed,
-            get_themes=lambda: self._themes,
-            get_decorated=lambda: self._decorated,
-            get_opacity=lambda: self._opacity,
-            get_font_scale=lambda: self._font_scale,
-            get_frames=lambda: self._scenes.frames,
-            on_clear_all=self._clear_all,
-            on_fit_all=self._request_fit_all,
             on_raise_frame=self._raise_frame,
-            chrome=WindowChrome(),
+            get_frames=lambda: self._scenes.frames,
+            own=OwnMenus(
+                on_theme_selected=self._apply_theme,
+                on_decorated_toggled=self._on_decorated_toggled,
+                on_opacity_changed=self._on_opacity_changed,
+                on_font_scale_changed=self._on_font_scale_changed,
+                get_themes=lambda: self._themes,
+                get_decorated=lambda: self._decorated,
+                get_opacity=lambda: self._opacity,
+                get_font_scale=lambda: self._font_scale,
+                get_frames=lambda: self._scenes.frames,
+                on_clear_all=self._clear_all,
+                on_fit_all=self._request_fit_all,
+                on_raise_frame=self._raise_frame,
+                chrome=WindowChrome(),
+            ),
         )
         # QueryRouter must be created before SocketListener so that
         # the on_error callback is available.
@@ -588,14 +593,10 @@ class RenderLoop:
     # -- socket callbacks ---------------------------------------------------
 
     def _on_client_disconnected(self, fd: int) -> None:
-        """Handle domain-specific cleanup when a client disconnects.
-
-        Called by SocketListener after socket-level state is already cleaned up.
-        Transfers ownership of this client's scenes to another client in the same
-        frame, or marks them as orphans if no other client remains. Scenes
-        persist — they are never dismissed on disconnect.
-        """
+        """Reassign this client's scenes; retire a departed Hub's own menu."""
         self._scenes.reassign_scenes_of(fd, _ORPHAN_FD)
+        hub = self._socket_listener.hub_id_of(fd)
+        self._menus.forget_hub(hub) if hub is not None else None
 
     # -- message handling --------------------------------------------------
 
@@ -758,17 +759,13 @@ class RenderLoop:
         return self._socket_listener.client_names.get(fd)
 
     def _handle_scene(self, sock: socket.socket, msg: SceneMessage) -> None:
-        """Route a scene into its frame, creating the frame if needed.
-
-        Every scene carries a frame — the Hub synthesizes one at the render
-        boundary when the caller names none (frame_id = scene_id), so the display
-        has a single, always-framed install path.
-        """
+        """Route a scene into its frame, creating the frame if needed."""
         if self._hub_reconciliation.reject_scene_unless_hub(sock):
             return
         self._paint_clock.received(msg.id)
         self._wrap_abc_elements(msg)
-        self._scenes.handle_framed_scene(msg, sock.fileno())
+        hub = self._hub_reconciliation.hub_of(sock)
+        self._scenes.handle_framed_scene(msg, sock.fileno(), hub)
         ack = AckMessage(scene_id=msg.id, ts=time.time())
         self._socket_listener.send_to_client(sock, ack)
         if self._test_auto_click:

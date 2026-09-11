@@ -1,30 +1,32 @@
 """MenuReplica — the display's menu state and the model both surfaces render.
 
-The menu bar and World panel are two projections of one :class:`MenuModel`,
-composed from the Hub-replicated agent bars and ``Clients`` menu alongside
-:class:`OwnMenus` (the display's own menus) -- an entry can never appear on
-one surface and not the other.
-
 ``imgui`` is typed ``Any``: imgui_bundle ships no type stubs.
 """
 
 from __future__ import annotations
 
+from itertools import chain
 from typing import TYPE_CHECKING, Any, Self, final
 
 from punt_lux.display.menus import GuardedMenu, MenuBar, MenuModel, Submenu, WorldPanel
 from punt_lux.display.menus.menu_click import MenuHandlers
 from punt_lux.display.menus.own_menus import OwnMenus
 from punt_lux.display.menus.wire import WireMenu
+from punt_lux.display.replica.menu_stats import MenuStats
+from punt_lux.domain.hub.hub_id import HubId
+from punt_lux.domain.hub.hub_scoped_key import HubScopedKey
+from punt_lux.domain.hub.hub_scoped_store import HubScopedStore
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
     from punt_lux.display.replica.frame import Frame
-    from punt_lux.display.window_chrome import WindowChromeCommands
     from punt_lux.protocol import RemoteEventHandlerInvocation
 
 __all__ = ["MenuReplica"]
+
+# One "Clients" submenu list per Hub -- the disambiguator two Hubs need.
+_CALLBACK_MENUS_LOCAL = "callback_menus"
 
 
 @final
@@ -35,7 +37,7 @@ class MenuReplica:
     _on_raise_frame: Callable[[str], None]
     _own: OwnMenus
     _agent_menus: tuple[WireMenu, ...]
-    _callback_menus: tuple[WireMenu, ...]
+    _callback_menus: HubScopedStore[tuple[WireMenu, ...]]
     _bar: GuardedMenu
     _panel: WorldPanel
     _world: GuardedMenu
@@ -54,40 +56,21 @@ class MenuReplica:
         cls,
         *,
         emit_event: Callable[[RemoteEventHandlerInvocation], None],
-        on_theme_selected: Callable[[str], None],
-        on_decorated_toggled: Callable[[bool], None],
-        on_opacity_changed: Callable[[float], None],
-        on_font_scale_changed: Callable[[float], None],
-        get_themes: Callable[[], list[Any]],
-        get_decorated: Callable[[], bool],
-        get_opacity: Callable[[], float],
-        get_font_scale: Callable[[], float],
-        get_frames: Callable[[], Mapping[str, Frame]],
-        on_clear_all: Callable[[], None],
-        on_fit_all: Callable[[], None],
         on_raise_frame: Callable[[str], None],
-        chrome: WindowChromeCommands,
+        get_frames: Callable[[], Mapping[str, Frame]],
+        own: OwnMenus,
     ) -> Self:
+        """Compose a replica around an already-built :class:`OwnMenus`.
+
+        The caller assembles ``own`` -- construction is one object's job, not
+        a fourteen-parameter pass-through here.
+        """
         self = super().__new__(cls)
         self._emit_event = emit_event
         self._on_raise_frame = on_raise_frame
-        self._own = OwnMenus(
-            on_theme_selected=on_theme_selected,
-            on_decorated_toggled=on_decorated_toggled,
-            on_opacity_changed=on_opacity_changed,
-            on_font_scale_changed=on_font_scale_changed,
-            get_themes=get_themes,
-            get_decorated=get_decorated,
-            get_opacity=get_opacity,
-            get_font_scale=get_font_scale,
-            get_frames=get_frames,
-            on_clear_all=on_clear_all,
-            on_fit_all=on_fit_all,
-            on_raise_frame=on_raise_frame,
-            chrome=chrome,
-        )
+        self._own = own
         self._agent_menus = ()
-        self._callback_menus = ()
+        self._callback_menus = HubScopedStore()
         self._bar = GuardedMenu(MenuBar(), self.menu_model)
         self._panel = WorldPanel(get_frames)
         self._world = GuardedMenu(self._panel, self.menu_model)
@@ -97,34 +80,46 @@ class MenuReplica:
 
     @property
     def agent_menus(self) -> tuple[WireMenu, ...]:
-        """Return the agent-defined menus the display holds."""
+        """The agent-defined menus the display holds."""
         return self._agent_menus
 
     def replace_agent_menus(self, payloads: Sequence[object]) -> None:
-        """Take the replicated agent bar; the socket boundary drops malformed menus."""
+        """Take the replicated agent bar; drops malformed menus."""
         self._agent_menus = WireMenu.accepted(payloads, origin="agent_menus")
 
     @property
     def callback_menus(self) -> tuple[WireMenu, ...]:
-        """Return the Hub-composed callback menus — the ``Clients`` menu."""
-        return self._callback_menus
+        """Every live Hub's ``Clients`` menu, concatenated (not replaced)."""
+        return tuple(chain.from_iterable(self._callback_menus.values()))
 
-    def replace_callback_menus(self, payloads: Sequence[object]) -> None:
-        """Take the replicated ``Clients`` menu, keeping what is well-formed."""
-        self._callback_menus = WireMenu.accepted(payloads, origin="callback_menus")
+    def replace_callback_menus(
+        self, payloads: Sequence[object], hub: HubId | None = None
+    ) -> None:
+        """Take one Hub's ``Clients`` submenus; ``hub`` defaults to a stub."""
+        resolved_hub = hub if hub is not None else HubId.stub()
+        menus = WireMenu.accepted(payloads, origin="callback_menus")
+        key = HubScopedKey(resolved_hub, _CALLBACK_MENUS_LOCAL)
+        self._callback_menus.put(key, menus)
+
+    def forget_hub(self, hub: HubId) -> None:
+        """Retire a departed Hub's callback menus, so a stale entry doesn't linger."""
+        self._callback_menus.drop_hub(hub)
+
+    @property
+    def stats(self) -> MenuStats:
+        """This replica's live menu counts, for diagnostics."""
+        hub_count = len(self._callback_menus.hubs())
+        return MenuStats.compute(self._agent_menus, self.callback_menus, hub_count)
 
     # -- the one model ------------------------------------------------------
 
     def menu_model(self) -> MenuModel:
-        """Compose the menu: Lux, then Clients, then agent bars, then chrome.
-
-        Rebuilt each frame so every item reads live state.
-        """
+        """Compose Lux, Clients, agent bars, chrome. Rebuilt each frame."""
         handlers = MenuHandlers(self._emit_event, self._on_raise_frame)
         return MenuModel(
             [
                 self._own.lux_section(),
-                *(Submenu.from_wire(m, handlers) for m in self._callback_menus),
+                *(Submenu.from_wire(m, handlers) for m in self.callback_menus),
                 *(Submenu.from_wire(m, handlers) for m in self._agent_menus),
                 *self._own.chrome_sections(),
             ]
@@ -133,7 +128,7 @@ class MenuReplica:
     # -- the two surfaces ---------------------------------------------------
 
     def show_menus(self) -> None:
-        """Render the menu bar. This is the ImGui runner's per-frame callback."""
+        """Render the menu bar; the ImGui runner's per-frame callback."""
         from imgui_bundle import imgui
 
         self.render_bar(imgui)
@@ -143,11 +138,11 @@ class MenuReplica:
         self._bar.draw(imgui)
 
     def render_world_panel(self, imgui: Any) -> None:
-        """Render the menu model in the World panel, while the panel is open."""
+        """Render the menu model in the World panel, while open."""
         self._world.draw(imgui)
 
     def check_world_menu_background_click(self, imgui: Any) -> None:
-        """Toggle the World panel on a left click on the window background."""
+        """Toggle the World panel on a background left click."""
         self._panel.check_background_click(imgui)
 
     @property
