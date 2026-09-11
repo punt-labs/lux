@@ -22,8 +22,8 @@ from punt_lux.domain.handlers.publish_sink import PublishSink
 from punt_lux.domain.selection_interaction import RowSelectionChanged
 from punt_lux.protocol.elements.abc_di_defaults import NO_EMIT, RAISING_FACTORY
 from punt_lux.protocol.elements.element_wire import ElementWireContext
+from punt_lux.protocol.elements.selection_wire import SelectionWire
 from punt_lux.protocol.elements.table_flags import TableFlags
-from punt_lux.protocol.elements.table_selection_model import SelectionMode
 from punt_lux.protocol.elements.table_wire import TableWire
 from punt_lux.protocol.raising_publish_sink import RaisingPublishSink
 from punt_lux.protocol.standalone_row_selection_handler import (
@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from punt_lux.protocol.elements.table import TableElement
+    from punt_lux.protocol.elements.table_selection_model import SelectionMode
     from punt_lux.protocol.handler_decoder import HandlerDecoder
     from punt_lux.protocol.renderer import Emit, RendererFactory
 
@@ -45,7 +46,6 @@ __all__ = [
     "install_selection_sync",
 ]
 
-_SELECTION_MODES: frozenset[str] = frozenset({"none", "single", "multi"})
 _ROW_EVENT_TYPES: dict[str, type[RowSelectionChanged]] = {
     "row_selection_changed": RowSelectionChanged
 }
@@ -181,6 +181,11 @@ class JsonTableDecoder:
         return tuple(widths)
 
     @staticmethod
+    def _decode_mode(raw: Mapping[str, object]) -> SelectionMode:
+        """Decode the selection mode, defaulting to ``none``."""
+        return SelectionWire.decode_mode(raw.get("selection_mode", "none"))
+
+    @staticmethod
     def _resolve_key_column(raw: object, columns: tuple[str, ...]) -> int:
         """Resolve a wire key-column (index or name) to a column index.
 
@@ -199,16 +204,6 @@ class JsonTableDecoder:
             msg = f"key_column {raw!r} does not name a column ({list(columns)})"
             raise ValueError(msg)
         return columns.index(raw)
-
-    @staticmethod
-    def _decode_mode(raw: Mapping[str, object]) -> SelectionMode:
-        """Decode the selection mode, defaulting to ``none``."""
-        value = raw.get("selection_mode", "none")
-        if value not in _SELECTION_MODES:
-            modes = sorted(_SELECTION_MODES)
-            msg = f"selection_mode must be one of {modes}, got {value!r}"
-            raise ValueError(msg)
-        return cast("SelectionMode", value)
 
     @staticmethod
     def _decode_selected_ids(
@@ -284,12 +279,13 @@ class JsonTableEncoder:
         }
         if elem.column_widths:
             payload["column_widths"] = list(elem.column_widths)
-        if elem.selection_mode != "none":
-            payload["selection_mode"] = elem.selection_mode
-        if elem.selected_row_ids:
-            payload["selected_row_ids"] = sorted(elem.selected_row_ids)
-        if elem.anchor_row_id:
-            payload["anchor_row_id"] = elem.anchor_row_id
+        SelectionWire.emit_fields(
+            payload,
+            mode=elem.selection_mode,
+            selected_ids=elem.selected_row_ids,
+            anchor_id=elem.anchor_row_id,
+            noun="row",
+        )
         if elem.tooltip is not None:
             payload["tooltip"] = elem.tooltip
         if elem.scroll_reserve_lines:

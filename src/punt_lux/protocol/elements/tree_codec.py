@@ -1,14 +1,9 @@
 """JsonTreeDecoder + JsonTreeEncoder — wire codec for ``TreeElement``.
 
-The codec body lives in this sibling module rather than on ``TreeElement``.
-``TreeElement.to_dict`` / ``TreeElement.from_dict`` remain as short delegators
-so the runtime-checkable ``domain.element.Element`` Protocol stays satisfied.
-
-The decoder injects the tier's ``renderer_factory`` + ``emit`` at construction;
-off the display tier that is the fail-loud sentinel, which the Display rebinds
-post-receive. Malformed nodes are rejected here at the boundary (PY-EH-1) via
-``TreeNode.decode_all`` — a non-mapping or label-less node raises ``ValueError``
-before the element is built, so a tree can carry only well-formed nodes.
+Sibling module, not methods on ``TreeElement``, so ``to_dict``/``from_dict``
+stay short Protocol-satisfying delegators. ``TreeNode.decode_all`` rejects a
+malformed node (PY-EH-1) before construction. Selection wire fields route
+through ``SelectionWire``, shared with ``table_codec.py``.
 """
 
 from __future__ import annotations
@@ -17,6 +12,7 @@ from typing import TYPE_CHECKING, Self
 
 from punt_lux.protocol.elements._util import strip_none
 from punt_lux.protocol.elements.element_wire import ElementWireContext
+from punt_lux.protocol.elements.selection_wire import SelectionWire
 from punt_lux.protocol.elements.tree_node import TreeNode
 
 if TYPE_CHECKING:
@@ -31,11 +27,7 @@ __all__ = ["JsonTreeDecoder", "JsonTreeEncoder"]
 class JsonTreeDecoder:
     """Decode a wire dict to a fully-constructed ``TreeElement``.
 
-    Constructed once per tier with that tier's ``renderer_factory`` + ``emit``;
-    every decoded element is born with the same injected DI. Boundary validation
-    (PY-EH-1) routes through ``ElementWireContext`` and ``TreeNode.decode_all`` so
-    a non-string ``id``/``label`` or a malformed node raises a typed ``ValueError``
-    naming the offending field or node position.
+    Constructed once per tier with that tier's injected ``renderer_factory`` + ``emit``.
     """
 
     _rf: RendererFactory
@@ -56,7 +48,6 @@ class JsonTreeDecoder:
         return self
 
     def decode(self, raw: Mapping[str, object]) -> TreeElement:
-        """Construct a TreeElement from a JSON-decoded mapping."""
         ctx = ElementWireContext.for_kind("tree")
         return self._cls(
             renderer_factory=self._rf,
@@ -66,16 +57,16 @@ class JsonTreeDecoder:
             nodes=TreeNode.decode_all(raw.get("nodes", []), "nodes"),
             flat=ctx.optional_bool(raw, "flat", default=False),
             tooltip=ctx.optional_nullable_str(raw, "tooltip"),
+            selection_mode=SelectionWire.decode_mode(raw.get("selection_mode", "none")),
+            selected_node_ids=frozenset(
+                ctx.optional_string_list(raw, "selected_node_ids")
+            ),
+            anchor_node_id=ctx.optional_str(raw, "anchor_node_id", default=""),
         )
 
 
 class JsonTreeEncoder:
-    """Encode a ``TreeElement`` to its JSON-compatible wire dict.
-
-    Stateless. ``flat`` is omitted when falsy and ``tooltip`` when ``None``
-    (an empty-string tooltip is still serialized); ``label`` and ``nodes``
-    are always emitted.
-    """
+    """Encode a ``TreeElement`` to its JSON-compatible wire dict, stateless."""
 
     __slots__ = ()
 
@@ -83,14 +74,21 @@ class JsonTreeEncoder:
         return super().__new__(cls)
 
     def encode(self, elem: TreeElement) -> dict[str, object]:
-        """Serialize a TreeElement to a JSON-compatible dict."""
-        return strip_none(
+        payload = strip_none(
             {
                 "kind": elem.kind,
                 "id": elem.id,
                 "label": elem.label,
-                "nodes": [node.to_dict() for node in elem.nodes],
+                "nodes": [TreeNode.to_dict(node) for node in elem.nodes],
                 "flat": elem.flat or None,
                 "tooltip": elem.tooltip,
             }
         )
+        SelectionWire.emit_fields(
+            payload,
+            mode=elem.selection_mode,
+            selected_ids=elem.selected_node_ids,
+            anchor_id=elem.anchor_node_id,
+            noun="node",
+        )
+        return payload
