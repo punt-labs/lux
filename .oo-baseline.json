@@ -8491,9 +8491,9 @@
   "src/punt_lux/trust/atomic_dir_install.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
-    "avg_params": 1.0,
+    "avg_params": 0.8,
     "max_complexity": 2.0,
-    "avg_complexity": 1.33,
+    "avg_complexity": 1.2,
     "module_size": 38.0,
     "classes_per_module": 1.0,
     "class_to_func_ratio": 1.0,
