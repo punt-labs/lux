@@ -1,4 +1,4 @@
-"""``lux frame`` -- close a frame."""
+"""``lux frame`` -- remove a frame's content."""
 
 from __future__ import annotations
 
@@ -21,17 +21,17 @@ from punt_lux.cli._shared import (
     run,
     scope_for,
 )
-from punt_lux.commands import Ctx, FrameOps, frame_close
-from punt_lux.commands._frame_close_request import FrameCloseRequest
+from punt_lux.commands import Ctx, FrameOps, frame_remove
+from punt_lux.commands._frame_remove_request import FrameRemoveRequest
 
-frame_app = typer.Typer(name="frame", help="Close a frame.", no_args_is_help=True)
+frame_app = typer.Typer(name="frame", help="Remove a frame.", no_args_is_help=True)
 
 __all__ = ["frame_app"]
 
 
-@frame_app.command("close")
-def close(
-    frame_id: Annotated[str, typer.Argument(help="Frame id to close.")],
+@frame_app.command("remove")
+def remove(
+    frame_id: Annotated[str, typer.Argument(help="Frame id to remove.")],
     *,
     as_: AsFlag = None,
     kind: KindFlag = None,
@@ -42,8 +42,8 @@ def close(
     verbose: VerboseFlag = False,
     quiet: QuietFlag = False,
 ) -> None:
-    """Close a frame: tear down its scenes on the Hub."""
+    """Remove a frame's content: tear down its scenes on the Hub."""
     flags = OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet)
     who = identity_from_flags(as_=as_, kind=kind, name=name, repo=repo, agent=agent)
     ctx: Ctx[FrameOps] = Ctx(ops=connect_client(identity=who), identity=who)
-    run(frame_close(FrameCloseRequest(ctx, frame_id, scope_for(who))), flags)
+    run(frame_remove(FrameRemoveRequest(ctx, frame_id, scope_for(who))), flags)

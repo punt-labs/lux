@@ -15,7 +15,7 @@ from punt_lux.operations.config import DisplayModeOperations
 from punt_lux.operations.conveniences import ConvenienceOperations
 from punt_lux.operations.display_control import DisplayControlOperations
 from punt_lux.operations.display_link import DisplayLinkOperations
-from punt_lux.operations.frame_closing import FrameCloser
+from punt_lux.operations.frame_removal import FrameRemover
 from punt_lux.operations.identity import IdentityOperations
 from punt_lux.operations.menus import MenuOperations
 from punt_lux.operations.models.inspect_scope import HUB_ONLY, InspectScope
@@ -82,14 +82,14 @@ class Operations:
     _menus: MenuOperations
     _identity: IdentityOperations
     _callbacks: CallbackOperations
-    _frame_closer: FrameCloser
+    _frame_remover: FrameRemover
     _link: DisplayLinkOperations
     __slots__ = (
         "_callbacks",
         "_config",
         "_conveniences",
         "_display",
-        "_frame_closer",
+        "_frame_remover",
         "_identity",
         "_link",
         "_menus",
@@ -109,7 +109,7 @@ class Operations:
         self._menus = concerns.menus
         self._identity = concerns.identity
         self._callbacks = concerns.callbacks
-        self._frame_closer = concerns.frame_closer
+        self._frame_remover = concerns.frame_remover
         self._link = concerns.link
         return self
 
@@ -140,7 +140,7 @@ class Operations:
                 menus=MenuOperations(menu_registry, replicator, callbacks),
                 identity=IdentityOperations(display),
                 callbacks=callbacks,
-                frame_closer=FrameCloser(display, replicator),
+                frame_remover=FrameRemover(display, replicator),
                 link=DisplayLinkOperations(ports.display_port, display, replicator),
             )
         )
@@ -230,10 +230,10 @@ class Operations:
         """List every frame the display holds and where it is showing each one."""
         return self._display.list_frames()
 
-    @Timed("close_frame")
-    def close_frame(self, frame_id: str, *, scope: Scope) -> Ok | OpError:
-        """Close the caller's own frame; the ``frame_close`` command calls this."""
-        return self._frame_closer.close(frame_id, scope.connection_id)
+    @Timed("remove_frame")
+    def remove_frame(self, frame_id: str, *, scope: Scope) -> Ok | OpError:
+        """Remove the caller's own frame's content; ``frame_remove`` calls this."""
+        return self._frame_remover.remove(frame_id, scope.connection_id)
 
     def inspect_scene(
         self, scene_id: str, *, scope: Scope, facts: InspectScope = HUB_ONLY

@@ -2,7 +2,7 @@
 
 Everything the store knows about a frame lives here: how each scene is framed for
 a resend (its :class:`ScenePresentation`), its optional TTL deadline, and the two
-ways it is torn down: an explicit close request, or its time-to-live passing. All
+ways it is torn down: an explicit removal request, or its time-to-live passing. All
 of it sits behind one lock discipline rather than scattered across the store
 facade, because a frame's presentation, its deadline, and its teardown must not be
 read or written half-applied. This component composes the presentation registry,
@@ -13,7 +13,7 @@ There used to be a *third* teardown — a user closing a frame on the Display se
 a ``frame_close`` event the Hub answered by removing the frame's scenes. That is
 gone (DES-088): where a window sits is the Display's own business, so a *user
 gesture on the Display* is no longer one of the ways a frame is torn down here.
-What remains is a caller *asking* to close a frame outright — :meth:`remove_frame`
+What remains is a caller *asking* to remove a frame outright — :meth:`remove_frame`
 — and the client taking its content away: an empty push or manifest purge through
 :meth:`forget`, a deadline passing through :meth:`expire_due`.
 
@@ -132,14 +132,14 @@ class FrameLifecycle:
             return self._frames.frame_id_for_local(local_id, connection=connection)
 
     def remove_frame(self, frame_id: str) -> frozenset[SceneId]:
-        """Close ``frame_id`` outright: tear down scenes, disarm its TTL, return them.
+        """Remove ``frame_id`` outright: tear down scenes, disarm its TTL, return them.
 
-        Reached only by an explicit close request (the ``frame_close``/
-        ``close_frame`` command) — never by a Display-originated event, which
+        Reached only by an explicit removal request (the ``frame_remove``/
+        ``remove_frame`` command) — never by a Display-originated event, which
         DES-088 retired (see the module docstring). Each scene's roots are
         dropped whatever the (possibly departed) owner, so an orphaned frame
-        still closes, and the deadline is disarmed so a closed frame is never
-        swept again.
+        is still removed, and the deadline is disarmed so a removed frame is
+        never swept again.
         """
         with self._lock.write():
             self._expiry.disarm(frame_id)

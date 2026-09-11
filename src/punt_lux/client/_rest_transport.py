@@ -226,11 +226,11 @@ class _RestTransport:
         call = HttpCall.read("/clients", self._headers)
         return RestReply(self._transport.request(call)).read(ClientList)
 
-    def close_frame(self, frame_id: str, *, scope: Scope) -> Ok | OpError:
-        """Close the caller's own frame through ``POST /display/frames/{id}/close``."""
+    def remove_frame(self, frame_id: str, *, scope: Scope) -> Ok | OpError:
+        """Remove the caller's frame via ``POST /display/frames/{id}/remove``."""
         del scope  # REST composes scope from headers, same as identify()
         segment = quote(frame_id, safe="")
-        call = HttpCall.command(f"/display/frames/{segment}/close", self._headers)
+        call = HttpCall.command(f"/display/frames/{segment}/remove", self._headers)
         return RestReply(self._transport.request(call)).read(Ok)
 
     def list_frames(self) -> FrameStates | OpError:
