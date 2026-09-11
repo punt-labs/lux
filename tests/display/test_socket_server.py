@@ -192,6 +192,49 @@ class TestRemoveClient:
         finally:
             server.shutdown()
 
+    def test_hub_id_of_still_resolves_during_the_disconnect_callback(self) -> None:
+        """A departure reaction reads hub_id_of(fd) from inside the callback.
+
+        RenderLoop._on_client_disconnected retires a departed Hub's menu by
+        calling self._socket_listener.hub_id_of(fd) -- so the fd -> HubId
+        mapping must survive until on_client_disconnected returns, even
+        though every other per-fd fact is already gone by then.
+        """
+        tmpdir = _make_tmpdir()
+        sock_path = Path(tmpdir) / "test.sock"
+        hub_id = HubId("pembroke", 123)
+        seen_during_callback: list[HubId | None] = []
+
+        def on_disconnect(fd: int) -> None:
+            seen_during_callback.append(server.hub_id_of(fd))
+
+        server = SocketListener(
+            SocketListenerCallbacks(
+                on_message=_noop_message,
+                on_client_disconnected=on_disconnect,
+                on_error=_noop_error,
+            )
+        )
+        try:
+            server.setup(sock_path)
+            client = _connect_client(sock_path)
+            try:
+                server.accept_connections()
+                conn = server.clients[0]
+                fd = conn.fileno()
+                server.register_client_identity(
+                    fd, kind="hub", name="hub-a", connect_time=1000.0, hub_id=hub_id
+                )
+
+                server.remove_client(conn)
+
+                assert seen_during_callback == [hub_id]  # resolved DURING the callback
+                assert server.hub_id_of(fd) is None  # gone once remove_client returns
+            finally:
+                client.close()
+        finally:
+            server.shutdown()
+
 
 class TestRemoveClientDeadFd:
     """remove_client treats a closed socket's fileno()==-1 like an unavailable fd.

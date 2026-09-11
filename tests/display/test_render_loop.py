@@ -467,3 +467,35 @@ class TestContentRejectionFromUnidentifiedFd:
         assert errors.result is not None
         messages = [e["message"] for e in errors.result["errors"]]
         assert any("unidentified" in m and "MenuMessage" in m for m in messages)
+
+
+class TestClientDisconnectRetiresHubMenus:
+    """_on_client_disconnected reads hub_id_of(fd) to retire a departed Hub's
+    menus -- so the fd -> HubId mapping must survive through the disconnect
+    callback (the ordering ClientRegistry.forget_connection/forget_hub_id
+    establishes: identity/reader state drops first, the callback runs while
+    hub_id_of(fd) still resolves, and only then is the HubId itself dropped).
+    """
+
+    def test_a_disconnecting_hubs_agent_and_callback_menus_are_removed(self) -> None:
+        server = _make_server()
+        sock = _mock_sock(10)
+        server._socket_listener.clients.append(sock)
+        server._socket_listener.fd_to_client[10] = sock
+
+        server._handle_message(
+            sock, ConnectMessage(name="lux-mcp", kind="hub", hub_id="pembroke\x1f123")
+        )
+        server._handle_message(
+            sock, MenuMessage(menus=[{"label": "File", "items": []}])
+        )
+        server._handle_message(
+            sock, CallbackMenuMessage(submenus=[{"label": "Clients", "items": []}])
+        )
+        assert len(server._menus.agent_menus) > 0
+        assert len(server._menus.callback_menus) > 0
+
+        server._socket_listener.remove_client(sock)
+
+        assert len(server._menus.agent_menus) == 0
+        assert len(server._menus.callback_menus) == 0
