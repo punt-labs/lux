@@ -6950,21 +6950,16 @@ liveness and trust are different questions, and keys answer the second.
 **Status:** ACCEPTED — leader-ruled 2026-09-11 (COO authority; a tooling-policy
 call, not a product fork).
 
-**Context.** Two independent ratchets gate every change: `check-oo`
-(module-size / complexity / LCOM) and `check-coupling` (afferent / efferent
-coupling and circular imports). **Both compare a touched file's current metrics
-against a committed baseline** (`.oo-baseline.json`, `.oo-coupling-baseline.json`)
-and fail on *any* regression; `check-oo` additionally requires at least one
-metric to *improve* on some touched file (`tools/oo_ratchet/ratchet.py`
-`_verdict`: separate `has_regression` and `improvement_satisfied` gates). The
-merge-base (`--base-ref`) is **not** a value baseline — it only *selects* which
-files count as touched for the check: CI passes the PR fork-point so the whole
-PR's changed files are checked, whereas a bare local `make check-coupling`
-defaults to `HEAD~1` (the last commit only). That selection difference — not any
-difference in what the values are compared against — is why a coupling
-regression can pass locally yet fail CI: the regressed file was outside the last
-commit but inside the PR range. The W7 personal-CA work (lux-81b2, #474) exposed a real tension between
-them. The security fixes each required extracting a small cohesive primitive —
+**Context.** Two independent ratchets gate every change: `check-oo` (module
+size and complexity) and `check-coupling` (coupling and circular imports). Both
+compare a touched file's current metrics against a committed baseline and fail
+on *any* regression; `check-oo` additionally requires at least one metric to
+*improve* on some touched file. (Their exact metric inventories and their
+differing `--base-ref` handling are each tool's own contract, defined at its
+source — not restated here; the touched-file-selection quirk that can split a
+file's local vs CI result is tracked in `lux-cv7p`.) The W7 personal-CA work
+(lux-81b2, #474) exposed a real tension between them. The security fixes each
+required extracting a small cohesive primitive —
 `Curve`, `Pairing`, `MaterialLoad`, `AtomicDirInstall` — to satisfy the
 complexity/module-size ratchet. But every extraction adds an *import edge*, so
 six crypto classes' efferent coupling rose (e.g. `certificate_authority.py`
@@ -6978,10 +6973,7 @@ several extracted primitives, it imports *one* facade module that aggregates
 them rather than N primitive modules directly, so its efferent-coupling edge
 count returns to no-regression while the extracted classes (and the complexity
 win) stay intact. This is exactly the move gvr used on #472: `_wiring.py` took
-`protocol/messages/__init__` from efferent 7→1. (Mechanical note: a bare
-re-export module fails the OO *new-file* gate — `method_ratio` /
-`class_to_func_ratio` — so the facade is wrapped as a class with a method, e.g.
-`_MessageWiring.build_registry()`.)
+`protocol/messages/__init__` from efferent 7→1.
 
 **Why not weaken the gate.** Three alternatives were rejected. (a) A whole-tree
 `--rebaseline` of `check-coupling` — it would launder 14 *unrelated*
