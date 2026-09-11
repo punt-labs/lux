@@ -9,7 +9,6 @@ from punt_lux.protocol import FrameReader
 
 if TYPE_CHECKING:
     import socket
-    from collections.abc import Callable
 
     from punt_lux.domain.hub_id import HubId
 
@@ -95,16 +94,17 @@ class ClientRegistry:
     def hub_fd_for(self, name: str) -> int | None:
         """Return the live fd currently declaring ``kind="hub"`` with this name."""
         kinds, names = self._client_kinds, self._client_names
-        return self._first_live_fd(lambda fd: kinds[fd] == "hub" and names[fd] == name)
+        return next(
+            filter(lambda fd: kinds[fd] == "hub" and names[fd] == name, kinds), None
+        )
 
     def fd_for_hub_token(self, token: str) -> int | None:
-        """Return the live fd declaring this ``HubId.wire_token`` -- a menu's Hub."""
-        hub_ids = self._client_hub_ids
-        return self._first_live_fd(lambda fd: hub_ids[fd].wire_token == token)
+        """Return the live fd declaring this ``HubId.wire_token`` -- a menu's Hub.
 
-    def _first_live_fd(self, matches: Callable[[int], bool]) -> int | None:
-        """Return the first identified fd (a key of ``_client_kinds``) matching."""
-        return next((fd for fd in self._client_kinds if matches(fd)), None)
+        Every fd in ``_client_kinds`` has a paired ``_client_hub_ids`` entry
+        (:meth:`identify` sets both together), so this indexes directly."""
+        hub_ids, kinds = self._client_hub_ids, self._client_kinds
+        return next(filter(lambda fd: hub_ids[fd].wire_token == token, kinds), None)
 
     def forget_connection(self, fd: int) -> None:
         """Drop everything but the ``HubId`` -- a caller may still resolve it once."""

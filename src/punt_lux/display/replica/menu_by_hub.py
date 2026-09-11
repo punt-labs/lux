@@ -8,7 +8,7 @@ identically, so it is written once here rather than duplicated per bar.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -17,17 +17,24 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub_id import HubId
     from punt_lux.domain.hub_scoped_store import HubScopedStore
 
-__all__ = ["menus_by_hub"]
+__all__ = ["MenuByHub"]
 
 
-def menus_by_hub(
-    store: HubScopedStore[tuple[WireMenu, ...]],
-) -> Iterator[tuple[HubId, WireMenu]]:
-    """Yield every entry of ``store``, each menu paired with its owning Hub.
+@final
+class MenuByHub:
+    """The routing primitive a scene-less (menu-sourced) click resolves its
+    one target Hub through, once callback and agent menus are Hub-scoped (W3)."""
 
-    The routing primitive a scene-less (menu-sourced) click resolves its one
-    target Hub through, once callback and agent menus are Hub-scoped (W3).
-    """
-    for key, menus in store.entries():
-        for menu in menus:
-            yield key.hub, menu
+    __slots__ = ()
+
+    def __new__(cls) -> Self:
+        return super().__new__(cls)
+
+    @staticmethod
+    def pairs(
+        store: HubScopedStore[tuple[WireMenu, ...]],
+    ) -> Iterator[tuple[HubId, WireMenu]]:
+        """Yield every entry of ``store``, each menu paired with its owning Hub."""
+        for key, menus in store.entries():
+            for menu in menus:
+                yield key.hub, menu

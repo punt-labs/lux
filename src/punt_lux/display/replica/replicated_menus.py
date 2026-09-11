@@ -9,7 +9,7 @@ from itertools import chain
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.display.menus.wire import WireMenu
-from punt_lux.display.replica.menu_by_hub import menus_by_hub
+from punt_lux.display.replica.menu_by_hub import MenuByHub
 from punt_lux.display.replica.menu_stats import MenuStats
 from punt_lux.domain.identity import HubId, HubScopedKey, HubScopedStore
 
@@ -49,7 +49,7 @@ class ReplicatedMenus:
 
     def agent_menus_by_hub(self) -> Iterator[tuple[HubId, WireMenu]]:
         """Yield every live Hub's agent-defined menus, each paired with its Hub."""
-        return menus_by_hub(self._agent_menus)
+        return MenuByHub.pairs(self._agent_menus)
 
     def replace_agent_menus(
         self, payloads: Sequence[object], hub: HubId = _NO_HUB
@@ -65,7 +65,7 @@ class ReplicatedMenus:
 
     def callback_menus_by_hub(self) -> Iterator[tuple[HubId, WireMenu]]:
         """Yield every live Hub's ``Clients`` menus, each paired with its Hub."""
-        return menus_by_hub(self._callback_menus)
+        return MenuByHub.pairs(self._callback_menus)
 
     def replace_callback_menus(
         self, payloads: Sequence[object], hub: HubId = _NO_HUB
