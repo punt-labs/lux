@@ -18,7 +18,7 @@ import ssl
 import threading
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Self, final
 
 import pytest
 
@@ -27,6 +27,32 @@ from punt_lux.trust import CertificateAuthority
 
 if TYPE_CHECKING:
     from punt_lux.trust import KeyPair, LeafCertificate
+
+
+@final
+class _FakeClock:
+    """A deterministic, test-advanced substitute for ``time.monotonic``.
+
+    Deadline math (``pump_ready``'s expiry check, ``accept_pending``'s
+    deadline stamp) reads this instead of the wall clock, so a deadline
+    test asserts state transitions the test itself controls rather than
+    racing real ``time.sleep`` against real elapsed time.
+    """
+
+    _now: float
+    __slots__ = ("_now",)
+
+    def __new__(cls, start: float = 1_000.0) -> Self:
+        self = super().__new__(cls)
+        self._now = start
+        return self
+
+    def __call__(self) -> float:
+        return self._now
+
+    def advance(self, seconds: float) -> None:
+        self._now += seconds
+
 
 # ---------------------------------------------------------------------------
 # Helpers -- real mTLS material over TCP loopback
@@ -152,6 +178,27 @@ class TestSetup:
             blocker.close()
             listener.shutdown()
 
+    def test_setup_closes_a_prior_listening_socket_before_rebinding(
+        self, tmp_path: Path
+    ) -> None:
+        """A second setup() must not leave the first socket bound and exposed
+        underneath the new one -- it closes the old fd first."""
+        ca = CertificateAuthority.create()
+        listener = CrossHostListener(_server_context(ca, tmp_path))
+        try:
+            listener.setup("127.0.0.1", _free_port())
+            first_sock = listener.server_sock
+            assert first_sock is not None
+            assert first_sock.fileno() >= 0
+
+            listener.setup("127.0.0.1", _free_port())
+
+            assert first_sock.fileno() == -1  # the old socket was actually closed
+            assert listener.server_sock is not None
+            assert listener.server_sock is not first_sock
+        finally:
+            listener.shutdown()
+
 
 class TestHandshakeSuccess:
     def test_a_valid_client_certificate_completes_the_handshake(
@@ -256,11 +303,14 @@ class TestBoundedDeadline:
     ) -> None:
         """The fail-closed backstop (T1's opportunistic scanner): a peer that
         completes the TCP handshake and sends nothing is dropped once its
-        budget expires -- ``pump_ready`` itself never blocks waiting for it.
+        budget expires. The deadline reads an injected ``_FakeClock``, not
+        the wall clock -- the test advances time deterministically instead
+        of racing a real ``time.sleep`` against real elapsed time.
         """
         ca = CertificateAuthority.create()
+        clock = _FakeClock()
         listener = CrossHostListener(
-            _server_context(ca, tmp_path), handshake_budget=0.05
+            _server_context(ca, tmp_path), handshake_budget=0.05, clock=clock
         )
         try:
             port = _free_port()
@@ -271,20 +321,45 @@ class TestBoundedDeadline:
                 listener.accept_pending()
                 assert listener.pending_count == 1
 
-                # Immediately after accept, well before the budget: still pending.
-                start = time.monotonic()
+                # The clock hasn't moved: still well before the budget.
                 ready = listener.pump_ready()
-                elapsed = time.monotonic() - start
                 assert ready == []
-                assert elapsed < 0.05, "pump_ready must not block waiting on a peer"
                 assert listener.pending_count == 1
 
-                time.sleep(0.1)  # past the 0.05s budget
+                clock.advance(0.1)  # deterministically past the 0.05s budget
                 ready = listener.pump_ready()
                 assert ready == []
                 assert listener.pending_count == 0  # dropped, not left dangling
             finally:
                 stalled.close()
+        finally:
+            listener.shutdown()
+
+
+class TestPendingCap:
+    def test_a_peer_over_the_cap_is_refused_not_queued(self, tmp_path: Path) -> None:
+        """Admission control against a handshake-flood burst: once the
+        pending set is at ``max_pending``, a newly-accepted peer is refused
+        (closed) immediately rather than growing the set further.
+        """
+        ca = CertificateAuthority.create()
+        listener = CrossHostListener(_server_context(ca, tmp_path), max_pending=1)
+        try:
+            port = _free_port()
+            listener.setup("127.0.0.1", port)
+            first = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            second = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            first.connect(("127.0.0.1", port))
+            second.connect(("127.0.0.1", port))
+            try:
+                listener.accept_pending()  # admits the first -- fills the cap
+                assert listener.pending_count == 1
+
+                listener.accept_pending()  # the second is refused, not queued
+                assert listener.pending_count == 1
+            finally:
+                first.close()
+                second.close()
         finally:
             listener.shutdown()
 

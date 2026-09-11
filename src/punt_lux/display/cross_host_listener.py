@@ -21,6 +21,7 @@ import select
 import socket
 import ssl
 import time
+from collections.abc import Callable
 from typing import Literal, Self, final
 
 from punt_lux.display.nonblocking import Nonblocking
@@ -36,6 +37,12 @@ _HANDSHAKE_BUDGET = 5.0
 # Mirrors SocketListener's own AF_UNIX backlog -- a briefly-stalled accept
 # loop must not misread a queued-but-not-yet-accepted peer as refused.
 _LISTEN_BACKLOG = 128
+
+# Caps the pending-handshake set against a burst that accumulates within one
+# _HANDSHAKE_BUDGET window (accept_pending admits at most one peer per frame,
+# but a budget of several seconds at a high frame rate still adds up): once
+# full, a newly-accepted peer is refused rather than growing the set further.
+_MAX_PENDING = 64
 
 _HandshakeOutcome = Literal["pending", "ready", "failed"]
 
@@ -100,16 +107,31 @@ class CrossHostListener:
     _ssl_context: ssl.SSLContext
     _pending: dict[int, _PendingHandshake]
     _handshake_budget: float
-    __slots__ = ("_handshake_budget", "_pending", "_server_sock", "_ssl_context")
+    _max_pending: int
+    _clock: Callable[[], float]
+    __slots__ = (
+        "_clock",
+        "_handshake_budget",
+        "_max_pending",
+        "_pending",
+        "_server_sock",
+        "_ssl_context",
+    )
 
     def __new__(
-        cls, ssl_context: ssl.SSLContext, handshake_budget: float = _HANDSHAKE_BUDGET
+        cls,
+        ssl_context: ssl.SSLContext,
+        handshake_budget: float = _HANDSHAKE_BUDGET,
+        max_pending: int = _MAX_PENDING,
+        clock: Callable[[], float] = time.monotonic,
     ) -> Self:
         self = super().__new__(cls)
         self._server_sock = None
         self._ssl_context = ssl_context
         self._pending = {}
         self._handshake_budget = handshake_budget
+        self._max_pending = max_pending
+        self._clock = clock
         return self
 
     @property
@@ -130,7 +152,13 @@ class CrossHostListener:
         this one Display's own explicit configuration -- there is no
         concurrent-binder race to arbitrate, so a bind failure is always a
         real misconfiguration (port in use, no permission) and propagates.
+        A prior listening socket is closed first -- re-setup rebinds rather
+        than leaking the old fd bound and exposed underneath the new one.
         """
+        if self._server_sock is not None:
+            with contextlib.suppress(OSError):
+                self._server_sock.close()
+            self._server_sock = None
         family = socket.AF_INET6 if ":" in host else socket.AF_INET
         sock = socket.socket(family, socket.SOCK_STREAM)
         try:
@@ -160,7 +188,11 @@ class CrossHostListener:
         Never blocks: the raw socket is wrapped in the server's
         ``ssl.SSLContext`` non-blocking, with ``do_handshake_on_connect=False``
         so the wrap itself cannot stall -- the handshake is driven
-        explicitly, one step per frame, by :meth:`pump_ready`.
+        explicitly, one step per frame, by :meth:`pump_ready`. A peer
+        accepted once the pending set is already at :data:`_MAX_PENDING` is
+        refused immediately -- admission control against a burst that
+        accumulates within one handshake-budget window, since each frame
+        admits at most one new peer but a multi-second budget still adds up.
         """
         if self._server_sock is None:
             return
@@ -174,11 +206,19 @@ class CrossHostListener:
         except OSError as exc:
             logger.debug("cross-host accept() failed: %s", exc)
             return
+        if len(self._pending) >= self._max_pending:
+            logger.warning(
+                "cross-host pending-handshake set full (%d); refusing new peer",
+                self._max_pending,
+            )
+            with contextlib.suppress(OSError):
+                raw.close()
+            return
         Nonblocking.set(raw)
         tls_sock = self._ssl_context.wrap_socket(
             raw, server_side=True, do_handshake_on_connect=False
         )
-        deadline = time.monotonic() + self._handshake_budget
+        deadline = self._clock() + self._handshake_budget
         self._pending[tls_sock.fileno()] = _PendingHandshake(tls_sock, deadline)
 
     def pump_ready(self) -> list[ssl.SSLSocket]:
@@ -191,7 +231,7 @@ class CrossHostListener:
         mirroring the render loop's own per-frame cadence; this method
         never waits.
         """
-        now = time.monotonic()
+        now = self._clock()
         ready: list[ssl.SSLSocket] = []
         for fd in list(self._pending):
             pending = self._pending[fd]
