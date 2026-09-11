@@ -76,8 +76,8 @@ class MenuItem:
 
     @property
     def label(self) -> str:
-        """Return the text this item shows -- the part before any ``##`` salt."""
-        return self._label.split("##", 1)[0]
+        """Return the visible text: before any ``##`` salt, ZWSP guards removed."""
+        return self._label.split("##", 1)[0].replace(chr(0x200B), "")
 
     def render(self, imgui: Any) -> bool:
         """Render the item, running its action when the user clicks it."""

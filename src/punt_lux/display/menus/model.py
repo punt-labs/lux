@@ -54,16 +54,17 @@ class Submenu:
         Agent bar, ``Clients`` menu, and nested client submenu arrive alike; any
         leaf click emits one ``action="menu"`` invocation (a ``frame_id`` leaf
         also raises its frame first -- DES-088). ImGui-keyed on ``(hub, label)``
-        so two Hubs' same-named menus never collide (:class:`HiddenId`).
+        so two Hubs' same-named menus never collide.
         """
         decoder = WireMenuDecoder(handlers, cls.from_wire)
-        label = f"{menu.label}##{handlers.hub.wire_token}:{menu.label}"
+        shown = menu.label.replace("#", "#" + chr(0x200B))
+        label = f"{shown}##{handlers.hub.wire_token}:{menu.label}"
         return cls(label, list(decoder.entries(menu)))
 
     @property
     def label(self) -> str:
         """Return the title this menu shows -- the part before any ``##`` salt."""
-        return self._label.split("##", 1)[0]
+        return self._label.split("##", 1)[0].replace(chr(0x200B), "")
 
     @property
     def entries(self) -> tuple[MenuEntry, ...]:

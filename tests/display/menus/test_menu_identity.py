@@ -63,6 +63,57 @@ class TestConflictDetectorFidelity:
         assert len(set(imgui.raw_ids_under("Clients"))) == 2
 
 
+_ZWSP = chr(0x200B)
+
+
+class TestLabelContainingHashHash:
+    """A human label that itself contains ``##`` is not split by the salt."""
+
+    def test_same_hashhash_labels_render_without_conflict(self) -> None:
+        items: list[dict[str, object]] = [
+            {"label": "a##b", "id": "c1"},
+            {"label": "a##b", "id": "c2"},
+        ]
+        imgui = FakeImGui(strict_ids=True)
+
+        _clients_menu(items, hub=_HUB_A).render(imgui)  # no raise
+
+        assert len(set(imgui.raw_ids_under("Clients"))) == 2
+
+    def test_the_visible_text_keeps_both_hashes(self) -> None:
+        # ImGui shows the text before the salt's ``##``; the ZWSP guards render
+        # invisibly, so the user reads "a##b" rather than a truncated "a".
+        menu = _clients_menu([{"label": "a##b", "id": "c1"}], hub=_HUB_A)
+        imgui = FakeImGui()
+
+        menu.render(imgui)
+
+        (shown,) = imgui.labels_under("Clients")
+        assert shown.replace(_ZWSP, "") == "a##b"
+
+
+class TestLabelAccessors:
+    """``label`` reports the human text, free of salt and ZWSP guards."""
+
+    def test_menu_item_strips_salt_and_guard(self) -> None:
+        salted = "a##b".replace("#", "#" + _ZWSP) + "##pembroke\x1f100:c1"
+        assert MenuItem(salted, ignore).label == "a##b"
+
+    def test_menu_item_plain_label_is_unchanged(self) -> None:
+        assert MenuItem("Vox", ignore).label == "Vox"
+
+    def test_submenu_reports_its_human_title(self) -> None:
+        menu = _clients_menu([{"label": "x", "id": "c1"}], hub=_HUB_A)
+        assert menu.label == "Clients"
+
+    def test_submenu_title_with_hashhash(self) -> None:
+        menu = Submenu.from_wire(
+            checked_menu(wire_menu("a##b", [{"label": "x", "id": "c1"}])),
+            _handlers(_HUB_A),
+        )
+        assert menu.label == "a##b"
+
+
 class TestReplicatedLeafIdentity:
     """Leaves under one menu carry the item id in their ImGui salt."""
 

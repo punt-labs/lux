@@ -51,11 +51,8 @@ class WireMenuDecoder:
         return self
 
     def entries(self, menu: WireMenu) -> Iterator[MenuEntry]:
-        """Yield one entry per checked entry, forking on wire type not a key.
-
-        A nested :class:`WireMenu` is decoded via ``build_submenu`` -- the
-        clients under ``Clients`` -- so Hub nesting renders as nesting here.
-        """
+        """Yield one entry per checked entry; a nested menu recurses via
+        ``build_submenu`` (the clients under ``Clients``)."""
         for entry in menu.entries:
             if isinstance(entry, WireMenu):
                 yield self._build_submenu(entry, self._handlers)
@@ -65,12 +62,15 @@ class WireMenuDecoder:
                 yield self._wire_item(menu.label, entry)
 
     def _wire_item(self, menu_label: str, action: WireAction) -> MenuItem:
-        """Return the clickable line, ImGui-keyed on its ``(Hub, item id)`` salt
-        so same-labelled leaves from many sessions never clash."""
+        """Return the clickable line, ImGui-keyed on its ``(Hub, item id)`` salt.
+
+        A zero-width space after each ``#`` of the label keeps the label's own
+        ``##`` from opening ImGui's id suffix before the appended salt does.
+        """
         target = ClickTarget(menu_label, action.label, action.item_id, action.frame_id)
         salt = f"{self._handlers.hub.wire_token}:{action.item_id}"
         return MenuItem(
-            f"{action.label}##{salt}",
+            f"{action.label.replace('#', '#' + chr(0x200B))}##{salt}",
             self._invoke(target),
             shortcut=action.shortcut,
             enabled=action.enabled,

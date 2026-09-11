@@ -82,6 +82,20 @@
 
 ### Fixed
 
+- **Menu-item ID conflict on same-labelled cross-Hub/cross-session items
+  (`lux-whb9`).** Dear ImGui derives a widget's identity from its label, so
+  the Windows and Clients menus raised "N visible items with conflicting ID"
+  when items from different repo-scoped sessions shared a human label (e.g.
+  four vox-panel frames all titled "Vox"). The Display now keys each
+  aggregated menu entry's ImGui identity on its `(source-Hub, item id)` tuple
+  — hung off the visible label as an ImGui `##` id salt — so same-labelled
+  leaves from many sessions, and same-named menus from two Hubs, stay distinct
+  while the user still reads the plain label. A label that itself contains
+  `##` is guarded with a zero-width space after each `#`, so the label's own
+  `##` cannot open the id suffix ahead of the appended salt. The applet and
+  Hub layers are unchanged: an applet still registers a plain label, and
+  cross-Hub disambiguation is the Display's job alone (it is the one layer
+  that sees more than one Hub).
 - **Dev tooling: local `make check-coupling` now scores the same range CI
   does (`lux-cv7p`).** `tools/oo_coupling.py`'s `--check` defaulted to
   `HEAD~1..HEAD` — the last commit only — whenever `--base-ref` was omitted,
