@@ -34,8 +34,16 @@ from pathlib import Path
 _SRC = Path(__file__).resolve().parents[2] / "src" / "punt_lux"
 
 # domain/hub/display_link.py defines DisplayLink; domain/hub/clients.py owns luxd's one
-# lazy connection to the display. No other module may import or reference it.
-_ALLOWED = frozenset({"domain/hub/display_link.py", "domain/hub/clients.py"})
+# lazy connection to the display; domain/hub/cross_host_link.py is the Hub-layer seam
+# that builds a DisplayLink over the cross-host mTLS dialer (DES-090 W10). No other
+# module may import or reference it.
+_ALLOWED = frozenset(
+    {
+        "domain/hub/display_link.py",
+        "domain/hub/clients.py",
+        "domain/hub/cross_host_link.py",
+    }
+)
 
 _MODULE = "display_link"  # last segment of punt_lux.domain.hub.display_link
 _CLASS = "DisplayLink"

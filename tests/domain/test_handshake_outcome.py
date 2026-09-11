@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import socket
-from pathlib import Path
 
 from punt_lux.domain.hub.handshake_outcome import (
     DisplayNotConnectedError,
@@ -12,14 +11,13 @@ from punt_lux.domain.hub.handshake_outcome import (
 from punt_lux.protocol import ReadyMessage
 
 
-def test_handshake_result_carries_the_socket_path_and_ready_message() -> None:
+def test_handshake_result_carries_the_endpoint_and_ready_message() -> None:
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
         ready = ReadyMessage(version="1")
-        path = Path("/tmp/lux.sock")
-        result = HandshakeResult(sock=sock, socket_path=path, ready=ready)
+        result = HandshakeResult(sock=sock, endpoint="/tmp/lux.sock", ready=ready)
         assert result.sock is sock
-        assert result.socket_path == path
+        assert result.endpoint == "/tmp/lux.sock"
         assert result.ready is ready
     finally:
         sock.close()
