@@ -82,6 +82,15 @@
 
 ### Fixed
 
+- **Stale-connection preemption no longer kills a second, genuinely distinct
+  Hub.** Single-owner preemption keyed on the declared `ConnectMessage.name`,
+  and every production Hub declares the identical hardcoded name
+  (`"lux-mcp"`) — so a second Hub connecting under that name forced the
+  first one off, even though the two were unrelated processes. Preemption
+  now keys on `HubId` (hostname + pid) instead: distinct Hubs sharing a name
+  coexist, and only a reconnect under the *same* `HubId` preempts its own
+  stale predecessor — at most one live connection per `HubId`. See
+  lux-u9gb (W11).
 - **`frame_close` no longer reports success for a frame the caller does not
   own or that does not exist.** The old path operated on the raw local id
   without resolving it against the caller's connection, so it silently
