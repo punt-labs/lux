@@ -20,6 +20,7 @@ from punt_lux.display.menus.wire_field import WireField
 from punt_lux.display.replica.frame import Frame
 from punt_lux.display.replica.frame_visibility import FrameVisibility
 from punt_lux.display.replica.menu_replica import MenuReplica
+from punt_lux.domain.identity import HubId
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Iterable
@@ -402,6 +403,7 @@ def make_frame(
 ) -> Frame:
     """Return an empty frame in the visibility named, on screen by default."""
     return Frame(
+        hub=HubId.stub(),
         frame_id=frame_id,
         title=title if title is not None else frame_id,
         owner_fds=set(),

@@ -49,7 +49,7 @@ class TestHandleAgentMenus:
 
         gate.handle_agent_menus(_mock_sock(10), msg)
 
-        menus.replace_agent_menus.assert_called_once_with(msg.menus)
+        menus.replace_agent_menus.assert_called_once_with(msg.menus, HubId.stub())
 
     def test_installs_from_a_test_kind_fd(self) -> None:
         listener = _make_listener()
@@ -62,7 +62,7 @@ class TestHandleAgentMenus:
 
         gate.handle_agent_menus(_mock_sock(10), msg)
 
-        menus.replace_agent_menus.assert_called_once_with(msg.menus)
+        menus.replace_agent_menus.assert_called_once_with(msg.menus, HubId.stub())
 
     def test_rejects_an_unidentified_fd(self) -> None:
         listener = _make_listener()

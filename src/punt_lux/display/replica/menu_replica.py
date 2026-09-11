@@ -23,7 +23,9 @@ if TYPE_CHECKING:
 
 __all__ = ["MenuReplica"]
 
-# One "Clients" submenu list per Hub -- the disambiguator two Hubs need.
+# One submenu list per Hub -- the disambiguator two Hubs need, for the
+# agent-defined bar and the Clients bar alike.
+_AGENT_MENUS_LOCAL = "agent_menus"
 _CALLBACK_MENUS_LOCAL = "callback_menus"
 
 # replace_callback_menus's own-Hub default; production dispatch always
@@ -38,7 +40,7 @@ class MenuReplica:
     _emit_event: Callable[[RemoteEventHandlerInvocation], None]
     _on_raise_frame: Callable[[str], None]
     _own: OwnMenus
-    _agent_menus: tuple[WireMenu, ...]
+    _agent_menus: HubScopedStore[tuple[WireMenu, ...]]
     _callback_menus: HubScopedStore[tuple[WireMenu, ...]]
     _bar: GuardedMenu
     _panel: WorldPanel
@@ -62,13 +64,12 @@ class MenuReplica:
         get_frames: Callable[[], Mapping[str, Frame]],
         own: OwnMenus,
     ) -> Self:
-        """Compose a replica around an already-built :class:`OwnMenus` --
-        the caller assembles it, not a fourteen-parameter pass-through here."""
+        """Compose a replica around an already-built :class:`OwnMenus`."""
         self = super().__new__(cls)
         self._emit_event = emit_event
         self._on_raise_frame = on_raise_frame
         self._own = own
-        self._agent_menus = ()
+        self._agent_menus = HubScopedStore()
         self._callback_menus = HubScopedStore()
         self._bar = GuardedMenu(MenuBar(), self.menu_model)
         self._panel = WorldPanel(get_frames)
@@ -79,12 +80,18 @@ class MenuReplica:
 
     @property
     def agent_menus(self) -> tuple[WireMenu, ...]:
-        """The agent-defined menus the display holds."""
-        return self._agent_menus
+        """Every live Hub's agent-defined bar, concatenated (not replaced) --
+        a second Hub's push used to overwrite the first's outright."""
+        return tuple(chain.from_iterable(self._agent_menus.values()))
 
-    def replace_agent_menus(self, payloads: Sequence[object]) -> None:
-        """Take the replicated agent bar; drops malformed menus."""
-        self._agent_menus = WireMenu.accepted(payloads, origin="agent_menus")
+    def replace_agent_menus(
+        self, payloads: Sequence[object], hub: HubId = _NO_HUB
+    ) -> None:
+        """Take one Hub's agent bar; drops malformed menus. ``hub`` defaults
+        to a stub for a caller with no live Hub connection in play."""
+        menus = WireMenu.accepted(payloads, origin="agent_menus")
+        key = HubScopedKey(hub, _AGENT_MENUS_LOCAL)
+        self._agent_menus.put(key, menus)
 
     @property
     def callback_menus(self) -> tuple[WireMenu, ...]:
@@ -100,14 +107,16 @@ class MenuReplica:
         self._callback_menus.put(key, menus)
 
     def forget_hub(self, hub: HubId) -> None:
-        """Retire a departed Hub's callback menus, so a stale entry doesn't linger."""
+        """Retire a departed Hub's agent and callback menus, so neither
+        lingers as a stale entry."""
+        self._agent_menus.drop_hub(hub)
         self._callback_menus.drop_hub(hub)
 
     @property
     def stats(self) -> MenuStats:
         """This replica's live menu counts, for diagnostics."""
-        hub_count = len(self._callback_menus.hubs())
-        return MenuStats.compute(self._agent_menus, self.callback_menus, hub_count)
+        hub_count = len(self._agent_menus.hubs() | self._callback_menus.hubs())
+        return MenuStats.compute(self.agent_menus, self.callback_menus, hub_count)
 
     # -- the one model ------------------------------------------------------
 
@@ -118,7 +127,7 @@ class MenuReplica:
             [
                 self._own.lux_section(),
                 *(Submenu.from_wire(m, handlers) for m in self.callback_menus),
-                *(Submenu.from_wire(m, handlers) for m in self._agent_menus),
+                *(Submenu.from_wire(m, handlers) for m in self.agent_menus),
                 *self._own.chrome_sections(),
             ]
         )
