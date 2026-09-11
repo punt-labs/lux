@@ -104,7 +104,7 @@ class TreeElement(Element):
         return self._state.selection.anchor
 
     def apply_patch(self, patch: Mapping[str, object]) -> Self:
-        return super().apply_patch(TreeNodesState.reordered_patch(patch))
+        return super().apply_patch(self._state.reordered_patch(patch))
 
     def _set_label(self, value: object) -> None:
         self._label = PatchField("label").as_str(value)

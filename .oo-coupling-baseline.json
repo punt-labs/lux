@@ -3891,6 +3891,13 @@
     "max_lcom": 1.0,
     "avg_lcom": 0.666
   },
+  "src/punt_lux/protocol/elements/selection_wire.py": {
+    "efferent_coupling": 1.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
   "src/punt_lux/protocol/elements/separator.py": {
     "efferent_coupling": 4.0,
     "public_names": 1.0,
@@ -4028,8 +4035,8 @@
     "efferent_coupling": 5.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.705,
-    "avg_lcom": 0.705
+    "max_lcom": 0.674,
+    "avg_lcom": 0.674
   },
   "src/punt_lux/protocol/elements/tree_codec.py": {
     "efferent_coupling": 4.0,
@@ -4040,6 +4047,34 @@
   },
   "src/punt_lux/protocol/elements/tree_node.py": {
     "efferent_coupling": 2.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_lux/protocol/elements/tree_nodes_state.py": {
+    "efferent_coupling": 3.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.095,
+    "avg_lcom": 0.095
+  },
+  "src/punt_lux/protocol/elements/tree_selection_facade.py": {
+    "efferent_coupling": 4.0,
+    "public_names": 5.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_lux/protocol/elements/tree_selection_model.py": {
+    "efferent_coupling": 1.0,
+    "public_names": 2.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.538,
+    "avg_lcom": 0.538
+  },
+  "src/punt_lux/protocol/elements/tree_validation.py": {
+    "efferent_coupling": 1.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
@@ -4072,6 +4107,13 @@
     "circular_imports": 0.0,
     "max_lcom": 1.0,
     "avg_lcom": 0.666
+  },
+  "src/punt_lux/protocol/elements/wire_require.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
   },
   "src/punt_lux/protocol/encoder_factory.py": {
     "efferent_coupling": 1.0,
