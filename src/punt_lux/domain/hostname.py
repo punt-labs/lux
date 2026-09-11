@@ -2,23 +2,28 @@
 
 Owns exactly one invariant, in its own construction: a hostname is either
 ASCII and gets lowercased, or it is rejected outright. Composed into
-:class:`~punt_lux.domain.hub_id.HubId` (DES-090 W9) so that every
-construction path -- ``HubId.current()``, ``HubId.stub()``, a cross-host
-peer's self-reported ``hub_id`` resolved off the wire -- agrees on the same
-identity for the same host, illegal (non-ASCII, mixed-case-as-distinct)
-states never representable in the first place.
+:class:`~punt_lux.domain.hub_id.HubId` so that every construction path --
+``HubId.current()``, ``HubId.stub()``, a cross-host peer's self-reported
+``hub_id`` resolved off the wire -- agrees on the same identity for the same
+host, illegal (non-ASCII, mixed-case-as-distinct) states never representable
+in the first place.
 """
 
 from __future__ import annotations
 
-from typing import Self, final
+from dataclasses import dataclass
+from typing import final
 
 __all__ = ["Hostname"]
 
 
 @final
+@dataclass(frozen=True, slots=True)
 class Hostname:
     """An ASCII hostname, always lowercase once constructed.
+
+    Frozen so that the hash of a value already used as (or composed into) a
+    dict/registry key can never be corrupted by a post-construction write.
 
     FQDNs are ASCII, or punycode (RFC 3492) for a non-ASCII domain -- never
     raw Unicode. DNS names are case-insensitive (RFC 4343), and a plain
@@ -31,29 +36,10 @@ class Hostname:
     trading one masquerade risk for another.
     """
 
-    _value: str
-    __slots__ = ("_value",)
+    value: str
 
-    def __new__(cls, value: str) -> Self:
-        if not value.isascii():
-            msg = f"Hostname must be ASCII (FQDNs are ASCII/punycode): {value!r}"
+    def __post_init__(self) -> None:
+        if not self.value.isascii():
+            msg = f"Hostname must be ASCII (FQDNs are ASCII/punycode): {self.value!r}"
             raise ValueError(msg)
-        self = super().__new__(cls)
-        self._value = value.lower()
-        return self
-
-    @property
-    def value(self) -> str:
-        """The canonical (ASCII-lowercase) hostname string."""
-        return self._value
-
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, Hostname):
-            return NotImplemented
-        return self._value == other._value
-
-    def __hash__(self) -> int:
-        return hash((Hostname, self._value))
-
-    def __repr__(self) -> str:
-        return f"Hostname({self._value!r})"
+        object.__setattr__(self, "value", self.value.lower())

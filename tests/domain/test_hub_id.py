@@ -51,6 +51,14 @@ def test_stub_wire_token_is_non_blank() -> None:
     assert HubId.stub().wire_token.strip()
 
 
+def test_is_frozen() -> None:
+    # A HubId is a dict/registry/HubScopedStore key; a post-construction write
+    # would corrupt the hash of an already-inserted key.
+    hub_id = HubId("pembroke", 123)
+    with pytest.raises(AttributeError):
+        hub_id.pid = 456  # type: ignore[misc]  # proving frozen=True raises
+
+
 class TestHostnameCanonicalization:
     """The identity/preemption bypass: a declared-hostname case difference
     must never mint a second, distinct HubId for the same host."""

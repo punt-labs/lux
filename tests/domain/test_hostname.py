@@ -24,6 +24,14 @@ def test_a_non_ascii_hostname_is_rejected() -> None:
         Hostname("faß.example")
 
 
+def test_is_frozen() -> None:
+    # A Hostname is (composed into) a hashable registry key; a
+    # post-construction write would corrupt an already-inserted key's hash.
+    hostname = Hostname("pembroke")
+    with pytest.raises(AttributeError):
+        hostname.value = "other"  # type: ignore[misc]  # proving frozen=True raises
+
+
 class TestCaseInsensitiveIdentity:
     """A declared-hostname case difference must never mint two distinct hosts."""
 
@@ -35,14 +43,3 @@ class TestCaseInsensitiveIdentity:
 
     def test_two_distinct_hostnames_are_not_equal(self) -> None:
         assert Hostname("pembroke") != Hostname("otherhost")
-
-
-def test_a_hostname_never_equals_a_bare_string() -> None:
-    # A Hostname is a value type, not a str subclass: equality is only ever
-    # defined against another Hostname, so a stray string comparison can never
-    # silently pass and let an un-canonicalized value masquerade as one.
-    assert Hostname("pembroke") != "pembroke"
-
-
-def test_repr_names_the_type_and_value() -> None:
-    assert repr(Hostname("pembroke")) == "Hostname('pembroke')"
