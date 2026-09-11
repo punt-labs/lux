@@ -8,6 +8,7 @@ as a pure state machine — no ImGui, no sockets, no RenderLoop.
 from __future__ import annotations
 
 from punt_lux.display.replica import SceneReplica, WidgetState
+from punt_lux.domain.identity import HubId
 from punt_lux.protocol import (
     ButtonElement,
     SceneMessage,
@@ -15,6 +16,9 @@ from punt_lux.protocol import (
     TableElement,
     TextElement,
 )
+
+_HUB_A = HubId("hub-a.invalid", 1)
+_HUB_B = HubId("hub-b.invalid", 2)
 
 
 def _make_scene(
@@ -1049,62 +1053,80 @@ class TestEmptySceneRemovesFrame:
 class TestScenesToPurge:
     """DES-068's manifest-driven purge query — every ghost scene, not frame."""
 
-    def test_a_scene_outside_the_manifest_and_owner_is_a_candidate(self) -> None:
+    def test_a_scene_outside_the_manifest_is_a_candidate(self) -> None:
         mgr, _ = _make_manager()
-        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), owner_fd=10)
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s1", frame_id="f1"), owner_fd=10, hub=_HUB_A
+        )
 
-        candidates = mgr.scenes_to_purge(identifying_fd=20, manifest=frozenset())
+        candidates = mgr.scenes_to_purge(_HUB_A, frozenset(), frozenset({_HUB_A}))
 
         assert candidates == [("f1", "s1")]
 
     def test_a_scene_named_in_the_manifest_is_not_a_candidate(self) -> None:
         mgr, _ = _make_manager()
-        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), owner_fd=10)
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s1", frame_id="f1"), owner_fd=10, hub=_HUB_A
+        )
 
-        candidates = mgr.scenes_to_purge(identifying_fd=20, manifest=frozenset({"s1"}))
+        candidates = mgr.scenes_to_purge(_HUB_A, frozenset({"s1"}), frozenset({_HUB_A}))
 
         assert candidates == []
 
-    def test_a_scene_owned_by_the_identifying_fd_is_not_a_candidate(self) -> None:
+    def test_another_live_hubs_scene_is_never_a_candidate(self) -> None:
+        """The collision-safe property: Hub A's manifest never disowns Hub B's."""
         mgr, _ = _make_manager()
-        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), owner_fd=10)
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s1", frame_id="f1"), owner_fd=10, hub=_HUB_A
+        )
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s1", frame_id="f2"), owner_fd=11, hub=_HUB_B
+        )
 
-        candidates = mgr.scenes_to_purge(identifying_fd=10, manifest=frozenset())
+        # Hub A's own manifest is empty -- it disowns its own s1, never Hub B's.
+        candidates = mgr.scenes_to_purge(
+            _HUB_A, frozenset(), frozenset({_HUB_A, _HUB_B})
+        )
 
-        assert candidates == []
+        assert candidates == [("f1", "s1")]
 
     def test_a_mixed_frame_loses_only_its_ghost_scene(self) -> None:
         """Per-scene: a manifested scene shields its frame, not its ghost sibling."""
         mgr, _ = _make_manager()
-        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), owner_fd=10)
-        mgr.handle_framed_scene(_make_scene(scene_id="s2", frame_id="f1"), owner_fd=10)
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s1", frame_id="f1"), owner_fd=10, hub=_HUB_A
+        )
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s2", frame_id="f1"), owner_fd=10, hub=_HUB_A
+        )
 
-        candidates = mgr.scenes_to_purge(identifying_fd=20, manifest=frozenset({"s1"}))
+        candidates = mgr.scenes_to_purge(_HUB_A, frozenset({"s1"}), frozenset({_HUB_A}))
 
         assert candidates == [("f1", "s2")]
 
-    def test_an_orphaned_scene_is_swept_by_the_same_rule(self) -> None:
-        """A scene reassigned to the orphan sentinel is a candidate like any other.
-
-        No special-casing needed: an orphan's owner is never the identifying
-        fd, so it falls out of the same not-owned-and-not-manifested test.
-        """
+    def test_an_orphaned_hubs_scene_is_swept_once_it_leaves_live_hubs(self) -> None:
+        """A scene from a Hub no longer connected is candidate like any other."""
         mgr, _ = _make_manager()
-        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), owner_fd=10)
-        mgr.reassign_scenes_of(departed_fd=10, orphan_fd=-1)
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s1", frame_id="f1"), owner_fd=10, hub=_HUB_A
+        )
 
-        candidates = mgr.scenes_to_purge(identifying_fd=20, manifest=frozenset())
+        # Hub B's manifest reconciles; Hub A is no longer among the live Hubs.
+        candidates = mgr.scenes_to_purge(_HUB_B, frozenset(), frozenset({_HUB_B}))
 
         assert candidates == [("f1", "s1")]
 
     def test_widget_state_is_discarded_only_for_the_purged_scene(self) -> None:
         mgr, _ = _make_manager()
-        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), owner_fd=10)
-        mgr.handle_framed_scene(_make_scene(scene_id="s2", frame_id="f1"), owner_fd=10)
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s1", frame_id="f1"), owner_fd=10, hub=_HUB_A
+        )
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s2", frame_id="f1"), owner_fd=10, hub=_HUB_A
+        )
 
-        for frame_id, scene_id in mgr.scenes_to_purge(
-            identifying_fd=20, manifest=frozenset({"s1"})
-        ):
+        purge = mgr.scenes_to_purge(_HUB_A, frozenset({"s1"}), frozenset({_HUB_A}))
+        for frame_id, scene_id in purge:
             frame = mgr.frames[frame_id]
             mgr.dismiss_framed_scene(frame, scene_id)
 

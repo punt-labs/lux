@@ -1,9 +1,7 @@
 """Single-owner Hub-identity preemption and manifest-driven purge (DES-068).
 
-A ``kind="hub"`` connection declares its complete scene manifest immediately
-after identifying, and this class reconciles the Display's replica against
-it: at most one connection holds the Hub's identity at a time, and every
-scene the manifest disowns is purged.
+A ``kind="hub"`` connection declares its manifest right after identifying,
+and this class reconciles the Display's replica against it.
 """
 
 from __future__ import annotations
@@ -36,10 +34,9 @@ class HubReconciliation:
 
     Owns two DES-068 responsibilities: forcing a stale Hub-kind connection off
     before recording a new one (``handle_connect``), and purging every scene a
-    fresh manifest no longer claims (``handle_manifest``). Both read and
-    mutate the injected ``SceneReplica`` and ``SocketListener`` directly —
-    the same collaborators ``RenderLoop`` itself would have reached through —
-    so this is decomposition, not a new layer of indirection.
+    fresh manifest no longer claims (``handle_manifest``). Both mutate the
+    injected ``SceneReplica`` and ``SocketListener`` directly -- decomposition,
+    not a new layer of indirection.
     """
 
     _socket_listener: SocketListener
@@ -79,30 +76,25 @@ class HubReconciliation:
         if msg.kind == "hub":
             self._preempt_stale_hub(fd, name)
         else:
-            pid = SocketOwner.peer_pid_of(sock)
-            logger.warning(
-                "test-kind connect: fd=%d pid=%s name=%r "
-                "-- read-only path; not a supported production mode",
-                fd,
-                pid if pid is not None else "?",
-                name,
-            )
-            self._record_error(
-                "warning", f"test-kind connect fd={fd} name={name!r}", "connect"
-            )
+            self._log_test_kind_connect(sock, fd, name)
         self._socket_listener.register_client_identity(
             fd, kind=msg.kind, name=name, hub_id=hub_id, connect_time=time.time()
         )
         logger.info("Client fd=%d identified as %r (kind=%s)", fd, name, msg.kind)
 
+    def _log_test_kind_connect(self, sock: socket.socket, fd: int, name: str) -> None:
+        """Warn and record a read-only ``kind="test"`` identify."""
+        pid = SocketOwner.peer_pid_of(sock)
+        logger.warning("test-kind connect: fd=%d pid=%s name=%r", fd, pid, name)
+        self._record_error(
+            "warning", f"test-kind connect fd={fd} name={name!r}", "connect"
+        )
+
     def handle_manifest(self, sock: socket.socket, msg: HubManifestMessage) -> None:
         """Purge every scene the manifest disowns, disposing any frame it empties.
 
-        Only a ``kind="hub"`` fd may declare a manifest. A scene qualifies
-        for purge when it is neither owned by the identifying fd nor named
-        in the manifest -- orphans from a prior Hub's death are swept by the
-        same rule. An emptied frame is *disposed*, whatever visibility the
-        user had left it in.
+        Only a ``kind="hub"`` fd may declare a manifest; see
+        :meth:`SceneReplica.scenes_to_purge` for what qualifies for purge.
         """
         try:
             fd = sock.fileno()
@@ -115,27 +107,36 @@ class HubReconciliation:
             )
             return
         manifest = frozenset(msg.scene_ids)
-        for frame_id, scene_id in self._scenes.scenes_to_purge(fd, manifest):
+        hub = self.hub_of(sock)
+        purge = self._scenes.scenes_to_purge(hub, manifest, self._live_hubs())
+        for frame_id, scene_id in purge:
             frame = self._scenes.frames.get(frame_id)
             if frame is None:
                 continue
             if self._scenes.dismiss_framed_scene(frame, scene_id):
                 self._scenes.dispose_frame(frame_id)
 
+    def _live_hubs(self) -> frozenset[HubId]:
+        """Return the ``HubId`` of every currently connected ``kind="hub"`` fd."""
+        listener = self._socket_listener
+        return frozenset(
+            hub
+            for sock in listener.clients
+            if listener.kind_of(sock.fileno()) == "hub"
+            and (hub := listener.hub_id_of(sock.fileno())) is not None
+        )
+
     def reject_scene_unless_hub(self, sock: socket.socket) -> bool:
         """Reject a ``SceneMessage`` unless the fd has identified as ``"hub"``."""
         return self._identity.reject_scene_unless_hub(sock)
 
     def hub_of(self, sock: socket.socket) -> HubId:
-        """Return the sender's ``HubId``, for a fd :meth:`reject_scene_unless_hub`
-        already confirmed is ``kind="hub"``. :meth:`HubId.stub` is the fallback."""
+        """Return the sender's ``HubId``; :meth:`HubId.stub` is the fallback."""
         hub = self._socket_listener.hub_id_of(sock.fileno())
         return hub if hub is not None else HubId.stub()
 
     def _preempt_stale_hub(self, fd: int, name: str) -> None:
-        """Force-disconnect any other live connection already declaring this
-        identity, before the new identify is recorded -- at most one
-        connection ever holds ``kind="hub", name`` at a time."""
+        """Force-disconnect any prior live connection declaring this identity."""
         stale_fd = self._socket_listener.hub_fd_for(name)
         if stale_fd is None or stale_fd == fd:
             return

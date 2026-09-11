@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 from punt_lux.display import RenderLoop
+from punt_lux.domain.identity import HubId
 from punt_lux.protocol import (
     CallbackMenuMessage,
     ConnectMessage,
@@ -115,8 +116,15 @@ class TestAClosePassesNoWord:
     def test_a_manifest_driven_purge_sends_no_frame_close_event(self) -> None:
         server = _make_server()
         owner_sock = _mock_sock(10)
+        # Same HubId the reconnecting fd=20 below presents -- the realistic
+        # DES-068 scenario: a fresh manifest from the same logical Hub, under
+        # a new fd, purges that Hub's own orphaned scene from the old one.
         server._socket_listener.register_client_identity(
-            10, kind="hub", name="owner", connect_time=0.0
+            10,
+            kind="hub",
+            name="owner",
+            connect_time=0.0,
+            hub_id=HubId("pembroke", 123),
         )
         server._socket_listener.clients.append(owner_sock)
         server._socket_listener.fd_to_client[10] = owner_sock

@@ -1,15 +1,9 @@
 """HubScopedStore -- the aggregated-storage shape every multi-Hub collection uses.
 
 An aggregated store is an object, not a dictionary passed between functions
-(PY-OO-5, PY-IC-1). ``FrameBook``'s scene/frame maps and ``MenuReplica``'s
-callback-menu map were, before this class existed, flat ``dict[str, ...]``
-mappings spanning every connection the Display has ever seen -- a primitive
-collection standing in for a domain type, with the keying and purge logic
-living in whichever caller happened to touch the dict rather than on the
-collection itself. Two Hubs producing the identical Rung-2 local id could
-silently clobber one another's entry. This class makes that collision
-unrepresentable: the real key is always a :class:`HubScopedKey`, so two
-entries from different Hubs are never the same dict slot.
+(PY-OO-5, PY-IC-1). Two Hubs producing the identical local id could silently
+clobber one another's entry in a bare dict; this class makes that collision
+unrepresentable -- the real key is always a :class:`HubScopedKey`.
 """
 
 from __future__ import annotations
@@ -28,17 +22,9 @@ __all__ = ["HubScopedStore"]
 
 @final
 class HubScopedStore[V]:
-    """The one aggregated-storage shape every Display-side multi-Hub collection
-    composes, in place of a bare dict.
-
-    Owns its own keying discipline -- a caller never reaches past this class
-    into a bare mapping -- and exposes only the operations an aggregator
-    actually needs: assign, look up, remove one entry, enumerate one Hub's own
-    entries or every entry, and retire one Hub's entries either wholesale
-    (disconnect) or selectively (a manifest naming which of that Hub's own
-    entries still exist). What structure backs this class is this class's
-    own business and nobody else's; that encapsulation -- not any specific
-    backing structure -- is the design-time commitment.
+    """The one aggregated-storage shape every Display-side multi-Hub
+    collection composes, in place of a bare dict -- owns its own keying
+    discipline; a caller never reaches past this class into a bare mapping.
     """
 
     _entries: dict[HubScopedKey, V]
@@ -49,21 +35,20 @@ class HubScopedStore[V]:
         self._entries = {}
         return self
 
-    def put(self, key: HubScopedKey, value: V) -> None:
-        """Assign one entry.
+    def __len__(self) -> int:
+        """Return how many entries this store holds, across every Hub."""
+        return len(self._entries)
 
-        Two entries collide only when they share the identical
-        ``(hub, local)`` pair -- never across Hubs, by construction of the
-        key type.
-        """
+    def hub_count(self) -> int:
+        """Return how many distinct Hubs currently hold an entry."""
+        return len(self.hubs())
+
+    def put(self, key: HubScopedKey, value: V) -> None:
+        """Assign one entry; two collide only on an identical (hub, local)."""
         self._entries[key] = value
 
     def get(self, key: HubScopedKey) -> V | None:
-        """Look up one entry.
-
-        ``None`` answers a genuine "not present" -- there is no
-        discriminated state hiding behind it.
-        """
+        """Look up one entry; ``None`` answers a genuine "not present"."""
         return self._entries.get(key)
 
     def remove(self, key: HubScopedKey) -> V | None:
@@ -71,14 +56,22 @@ class HubScopedStore[V]:
         return self._entries.pop(key, None)
 
     def remove_all(self, local: str) -> list[V]:
-        """Drop every Hub's entry for ``local``, regardless of which owns it.
-
-        For a caller with no live Hub to scope a removal by -- a
-        Display-local gesture (a closed tab), never a Hub-originated
-        message -- matching :meth:`flatten`'s own any-Hub reach.
-        """
+        """Drop every Hub's entry for ``local`` -- for a caller with no live
+        Hub to scope by, e.g. a Display-local closed tab."""
         stale = [key for key in self._entries if key.local == local]
         return [self._entries.pop(key) for key in stale]
+
+    def remove_matching(self, local: str, value: V) -> list[HubScopedKey]:
+        """Remove every entry whose local id and value both match -- the
+        collision-safe :meth:`remove_all`. Returns the removed keys."""
+        matches = [k for k in self.keys_for_value(value) if k.local == local]
+        for key in matches:
+            del self._entries[key]
+        return matches
+
+    def keys_for_value(self, value: V) -> list[HubScopedKey]:
+        """Return every key currently mapped to ``value``, across every Hub."""
+        return [key for key, v in self._entries.items() if v == value]
 
     def reassign_value(self, old: V, new: V, locals_filter: frozenset[str]) -> None:
         """Replace ``old`` with ``new`` for every entry whose local id is in

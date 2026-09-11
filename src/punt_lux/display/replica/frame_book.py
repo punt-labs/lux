@@ -1,12 +1,8 @@
 """FrameBook — the display's frame collection and its scene placement maps.
 
-Split out of ``SceneReplica``, which keeps to per-scene widget state and
-stale-id notification. The scene-placement maps compose
+Split out of ``SceneReplica``. The scene-placement maps compose
 :class:`HubScopedStore <punt_lux.domain.hub_scoped_store.HubScopedStore>`
-(`system.tex` "Aggregated Storage") so two Hubs minting the identical scene
-id can never clobber one another's entry -- ``set_frame``/``record_owner``
-are Hub-scoped; removal and the flat read views stay keyed by the bare scene
-id, since a Display-local gesture (a tab close) has no live Hub to supply.
+so two Hubs minting the identical scene id can never clobber one another.
 """
 
 from __future__ import annotations
@@ -23,6 +19,7 @@ from punt_lux.domain.identity import HubScopedKey, HubScopedStore
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
 
+    from punt_lux.domain.identity import HubId
     from punt_lux.protocol import SceneMessage
 
 __all__ = ["FrameBook"]
@@ -50,21 +47,14 @@ class FrameBook:
 
     @property
     def frames(self) -> Mapping[str, Frame]:
-        """Return a read-only view of the frame map keyed by frame id.
-
-        The renderer reads and renders the frames but never adds or removes one;
-        the view keeps that guarantee at the boundary. (The ``Frame`` objects it
-        yields are still mutable — their own methods own their internal state.)
-        """
+        """Return a read-only view of the frame map keyed by frame id --
+        the ``Frame`` objects it yields are still mutable."""
         return MappingProxyType(self._frames)
 
     @property
     def scene_to_frame(self) -> Mapping[str, str]:
-        """Return a flat scene id → frame id view, merged across every Hub.
-
-        A collision resolves last-write-wins here, per
-        :meth:`HubScopedStore.flatten`'s own contract.
-        """
+        """Return a flat scene id → frame id view, merged across every Hub --
+        a collision resolves last-write-wins, per :meth:`HubScopedStore.flatten`."""
         return MappingProxyType(self._scene_to_frame.flatten())
 
     @property
@@ -76,6 +66,20 @@ class FrameBook:
         """Return the frame a scene lives in, or ``None`` if no frame holds it."""
         frame_id = self.scene_to_frame.get(scene_id)
         return self._frames.get(frame_id) if frame_id is not None else None
+
+    def frame_of_hub_scene(self, key: HubScopedKey) -> Frame | None:
+        """Return the frame ``key`` lives in, resolved by its owning Hub --
+        unlike :meth:`frame_of_scene`, never another Hub's same-named entry."""
+        frame_id = self._scene_to_frame.get(key)
+        return self._frames.get(frame_id) if frame_id is not None else None
+
+    def scenes_of_hub(self, hub: HubId) -> Iterator[tuple[str, str]]:
+        """Yield every ``(scene_id, frame_id)`` pair ``hub`` currently owns."""
+        return self._scene_to_frame.for_hub(hub)
+
+    def scene_to_frame_entries(self) -> Iterator[tuple[HubScopedKey, str]]:
+        """Yield every scene→frame entry with its full Hub-scoped key."""
+        return self._scene_to_frame.entries()
 
     def framed_scenes(self) -> Iterator[SceneMessage]:
         """Yield every scene held by any frame."""
@@ -98,16 +102,9 @@ class FrameBook:
     # -- writes -------------------------------------------------------------
 
     def ensure(self, msg: SceneMessage, frame_id: str, owner_fd: int) -> Frame:
-        """Return the scene's frame, creating it or refreshing its presentation.
-
-        A new frame is born on screen — the Display's new-frame policy, and the
-        one place a content event may set a visibility, because there is no prior
-        value to override. Being born on screen is not a raise: no focus is
-        requested, no other frame is disturbed, and the window's own shown state
-        is untouched. An existing frame keeps whatever visibility the user left it
-        in, and gains only the owner and any title, flags, or layout the push
-        carries.
-        """
+        """Return the scene's frame, creating it on screen or refreshing its
+        presentation -- an existing frame keeps whatever visibility the user
+        left it in."""
         frame = self._frames.get(frame_id)
         if frame is None:
             return self._born(msg, frame_id, owner_fd)
@@ -134,11 +131,8 @@ class FrameBook:
 
     @staticmethod
     def _adopt_presentation(frame: Frame, msg: SceneMessage) -> None:
-        """Take the title, flags and layout a push carries, keeping what it omits.
-
-        Presentation the client declares, unlike the visibility the user owns: an
-        omitted field means "leave it", never "reset it".
-        """
+        """Take the title, flags and layout a push carries; an omitted field
+        means "leave it", never "reset it"."""
         if msg.frame_title:
             frame.title = msg.frame_title
         if msg.frame_flags is not None:
@@ -163,10 +157,8 @@ class FrameBook:
     def close(self, frame_id: str) -> Frame | None:
         """Put the named frame away and return it, or ``None`` if it is gone.
 
-        A visibility write and nothing else: the frame stays in the book with its
-        scenes, so a later :meth:`restore` has something to act on and a later
-        push still reads as a repeat rather than an arrival. Its focus request
-        goes, because a frame that is not painted cannot take focus.
+        A visibility write only: scenes stay, so a later push still reads
+        as a repeat. Its focus request goes, since it is no longer painted.
         """
         frame = self._frames.get(frame_id)
         if frame is None:
@@ -176,12 +168,10 @@ class FrameBook:
         return frame
 
     def restore(self, frame_id: str) -> bool:
-        """Bring a frame back on screen and ask for focus; report whether it is held.
+        """Bring a frame on screen and ask for focus; report whether it is held.
 
-        Restoring and focusing are one gesture, not two: a frame that took focus
-        while still put away would have answered the request without becoming
-        visible. Enabled from every visibility, which is what makes a closed frame
-        reachable again.
+        One gesture, not two, and works from every visibility -- what makes
+        a closed frame reachable again.
         """
         frame = self._frames.get(frame_id)
         if frame is None:
@@ -191,12 +181,8 @@ class FrameBook:
         return True
 
     def reassign_scenes_of(self, departed_fd: int, orphan_fd: int) -> None:
-        """Transfer a departed client's framed scenes to a surviving co-owner.
-
-        The client leaves every frame it co-owned; each scene it owned passes to
-        another owner of that frame, or to ``orphan_fd`` when none remains. Scenes
-        persist across a disconnect --- they are never dismissed here.
-        """
+        """Transfer a departed client's framed scenes to a surviving co-owner,
+        or to ``orphan_fd`` when none remains. Scenes persist; never dismissed."""
         for frame in self._frames.values():
             frame.owner_fds.discard(departed_fd)
             self._reassign_within(frame, departed_fd, orphan_fd)
@@ -219,6 +205,19 @@ class FrameBook:
         """Drop a scene's frame and owner mappings, across every Hub."""
         self._scene_to_frame.remove_all(scene_id)
         self._scene_to_owner.remove_all(scene_id)
+
+    def forget_scene_from(self, scene_id: str, frame_id: str) -> None:
+        """Drop exactly the mapping placing ``scene_id`` in ``frame_id`` --
+        another Hub's same-named scene elsewhere survives untouched."""
+        for key in self._scene_to_frame.remove_matching(scene_id, frame_id):
+            self._scene_to_owner.remove(key)
+
+    def forget_scenes_of_frame(self, frame_id: str) -> None:
+        """Drop every entry pointing at ``frame_id``, across every Hub that
+        placed a scene there -- the whole-frame :meth:`forget_scene_from`."""
+        for key in self._scene_to_frame.keys_for_value(frame_id):
+            self._scene_to_frame.remove(key)
+            self._scene_to_owner.remove(key)
 
     def pop_frame(self, frame_id: str) -> Frame | None:
         """Remove and return a frame, clearing focus if it held it."""

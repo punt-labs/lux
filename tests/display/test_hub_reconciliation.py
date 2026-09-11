@@ -15,12 +15,16 @@ from punt_lux.display.hub_reconciliation import HubReconciliation
 from punt_lux.display.identity_guard import IdentityGuard
 from punt_lux.display.replica import SceneReplica
 from punt_lux.display.socket_server import SocketListener
+from punt_lux.domain.identity import HubId
 from punt_lux.protocol import (
     ConnectMessage,
     HubManifestMessage,
     SceneMessage,
     TextElement,
 )
+
+_HUB_A = HubId("hub-a.invalid", 1)
+_HUB_B = HubId("hub-b.invalid", 2)
 
 if TYPE_CHECKING:
     import pytest
@@ -230,7 +234,12 @@ class TestHandleManifest:
         assert scenes.resolve_scene("s1") is not None
         assert "f1" in scenes.frames
 
-    def test_a_scene_owned_by_the_identifying_fd_survives(self) -> None:
+    def test_an_empty_manifest_purges_even_the_senders_own_just_pushed_scene(
+        self,
+    ) -> None:
+        """The manifest is authoritative: it disowns whatever it omits, full
+        stop -- a scene surviving only because it shares the sending
+        connection's fd would undermine that authority."""
         listener = _make_listener()
         scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
         scenes.handle_framed_scene(_make_scene("s1", "f1"), owner_fd=20)
@@ -240,8 +249,32 @@ class TestHandleManifest:
 
         reconciliation.handle_manifest(sock, HubManifestMessage(scene_ids=()))
 
-        assert scenes.resolve_scene("s1") is not None
-        assert "f1" in scenes.frames
+        assert scenes.resolve_scene("s1") is None
+        assert "f1" not in scenes.frames
+
+    def test_a_still_live_different_hubs_scene_is_never_purged(self) -> None:
+        """The collision-safe property: Hub A's manifest never disowns Hub B's,
+        even sharing a local scene id, as long as Hub B is still connected."""
+        listener = _make_listener()
+        scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
+        scenes.handle_framed_scene(_make_scene("s1", "fA"), owner_fd=10, hub=_HUB_A)
+        scenes.handle_framed_scene(_make_scene("s1", "fB"), owner_fd=11, hub=_HUB_B)
+        reconciliation = _make_reconciliation(listener, scenes)
+        sock_a = _mock_sock(10)
+        sock_b = _mock_sock(11)
+        listener.register_client_identity(
+            10, kind="hub", name="lux-mcp", connect_time=0.0, hub_id=_HUB_A
+        )
+        listener.register_client_identity(
+            11, kind="hub", name="lux-mcp", connect_time=0.0, hub_id=_HUB_B
+        )
+        listener._clients.extend([sock_a, sock_b])  # test harness reaches in directly
+
+        reconciliation.handle_manifest(sock_a, HubManifestMessage(scene_ids=()))
+
+        assert scenes.resolve_scene("s1") is not None  # Hub B's survives
+        assert "fB" in scenes.frames
+        assert "fA" not in scenes.frames  # Hub A's own was purged
 
     def test_a_mixed_frame_only_loses_its_ghost_scene(self) -> None:
         listener = _make_listener()
