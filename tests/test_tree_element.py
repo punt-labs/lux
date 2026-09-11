@@ -241,6 +241,16 @@ class TestNodeBoundaryValidation:
                 {"kind": "tree", "id": "tr", "selection_mode": "bogus"}
             )
 
+    def test_unhashable_selection_mode_list_raises_value_error(self) -> None:
+        # A list is unhashable; SelectionWire.decode_mode must check isinstance(str)
+        # before the frozenset membership test, or this raises TypeError instead.
+        with pytest.raises(ValueError, match="selection_mode must be one of"):
+            TreeElement.from_dict({"kind": "tree", "id": "tr", "selection_mode": []})
+
+    def test_unhashable_selection_mode_mapping_raises_value_error(self) -> None:
+        with pytest.raises(ValueError, match="selection_mode must be one of"):
+            TreeElement.from_dict({"kind": "tree", "id": "tr", "selection_mode": {}})
+
 
 class TestShowRejectsMalformedTree:
     @patch(_CLIENT_GET)
@@ -616,6 +626,24 @@ class TestNodeIdsWalk:
             label="root", children=(TreeNode(label="a", id="x"), TreeNode(label="b"))
         )
         assert list(node.ids()) == ["x"]
+
+
+class TestNodePositionalConstruction:
+    """``id`` sits after ``children`` so the historical ``TreeNode(label,
+    children)`` two-positional-arg call keeps binding to the same fields
+    (PL-PP-1) — the field order change ``id`` requires stays additive."""
+
+    def test_two_positional_args_bind_label_and_children(self) -> None:
+        child = TreeNode(label="leaf")
+        node = TreeNode("root", (child,))
+        assert node.label == "root"
+        assert node.children == (child,)
+        assert node.id == ""
+
+    def test_positionally_constructed_node_roundtrips_through_the_codec(self) -> None:
+        node = TreeNode("root", (TreeNode(label="leaf", id="n0"),))
+        restored = TreeNode.decode_all([TreeNode.to_dict(node)], "nodes")[0]
+        assert restored == node
 
 
 class TestEncoderFactoryGuard:

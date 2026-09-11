@@ -28,8 +28,14 @@ class SelectionWire:
 
     @staticmethod
     def decode_mode(raw: object) -> SelectionMode:
-        """Return ``raw`` as a ``SelectionMode``; raise naming the accepted set."""
-        if raw not in _MODES:
+        """Return ``raw`` as a ``SelectionMode``; raise naming the accepted set.
+
+        Checks ``isinstance(raw, str)`` before the ``in`` membership test — an
+        unhashable wire value (a list or a mapping) would otherwise raise
+        ``TypeError`` from the ``frozenset`` lookup instead of the documented
+        ``ValueError`` (PY-EH-1).
+        """
+        if not isinstance(raw, str) or raw not in _MODES:
             modes = sorted(_MODES)
             msg = f"selection_mode must be one of {modes}, got {raw!r}"
             raise ValueError(msg)

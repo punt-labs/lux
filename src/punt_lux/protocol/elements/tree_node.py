@@ -28,8 +28,8 @@ class TreeNode:
     """One node in a tree: a ``label``, a stable ``id``, and recursive ``children``."""
 
     label: str
-    id: str = ""
     children: tuple[TreeNode, ...] = ()
+    id: str = ""
 
     def ids(self) -> Iterator[str]:
         """Return this node's own id (if set) and each descendant's, depth-first."""
