@@ -36,15 +36,17 @@ Usage:
         # over-cap metric.
     python oo_coupling.py <file_or_directory> --log           # audit history
     python oo_coupling.py <file_or_directory> --check --base-ref <ref>
-        # scope --check's touched-file diff to <ref>..HEAD instead of the
-        # default HEAD~1..HEAD -- CI passes an explicit <ref> on both
-        # triggers, since this tool has no merge-base-aware default of its
-        # own: the push-to-main job passes the pre-push tip of main
-        # (github.event.before) so a multi-commit push is scored as a whole
-        # range, not just its last commit; the pull_request job passes
-        # merge-base(origin/main, HEAD) -- the PR's fork point, computed by
-        # the workflow -- so the whole PR range is scored, not just the last
-        # commit of a multi-commit PR
+        # scope --check's touched-file diff to <ref>..HEAD. Omitted, --check
+        # resolves merge-base(origin/main, HEAD) itself -- the same default
+        # oo_score.py's GitRepo.resolve_base already computes -- so a bare
+        # local run scores the whole fork-to-HEAD range, not just the last
+        # commit. CI still passes an explicit <ref> on both triggers, as
+        # belt-and-suspenders against this default's own fallback (HEAD~1,
+        # used when merge-base cannot resolve): the push-to-main
+        # job passes the pre-push tip of main (github.event.before) so a
+        # multi-commit push is scored as a whole range; the pull_request job
+        # passes its own computed merge-base(origin/main, HEAD) for the
+        # identical reason on a multi-commit PR
 
 Metrics produced:
     efferent_coupling    count of internal package modules imported (target: <= 7)
@@ -816,20 +818,26 @@ class CouplingRatchet:
     def _git_touched_files(base_ref: str = "HEAD~1") -> list[str] | None:
         """Return repo-relative paths changed between ``base_ref`` and HEAD.
 
-        Defaults to the latest commit (``HEAD~1..HEAD``), which is correct
-        for a local, single-commit `--check` run -- a developer scoring the
-        commit they just made. This tool has no merge-base-aware default of
-        its own, so CI overrides the default on both triggers. The
-        push-to-main job passes ``github.event.before`` (the pre-push tip of
-        main) so a push that lands more than one commit is diffed as the
-        whole ``before..after`` range -- otherwise a regression in an
-        earlier commit of a multi-commit push would never appear in
-        ``HEAD~1..HEAD`` and would pass trivially. The pull_request job
-        passes ``merge-base(origin/main, HEAD)`` -- the
-        PR's fork point, computed by the workflow -- so the whole PR range
-        is scored; otherwise a regression introduced in an earlier commit of
-        a multi-commit PR and never re-touched by a later one would also
-        pass trivially.
+        ``"HEAD~1"`` here is this *function's* own narrow fallback, used
+        only by a direct, non-CLI caller that passes no ``base_ref`` (tests
+        construct one explicitly to reproduce the old bug -- see
+        ``tests/oo_coupling/test_push_base_ref.py``). The CLI entry point
+        (``main()``) never relies on it: when ``--base-ref`` is omitted from
+        argv, ``main()`` resolves ``merge-base(origin/main, HEAD)`` itself
+        via ``_resolve_default_base_ref`` -- the same default
+        ``oo_score.py``'s ``GitRepo.resolve_base`` already computes for its
+        own bare ``--check`` -- so a plain local ``make check-coupling``
+        scores the whole fork-to-HEAD range, not just the last commit.
+        CI still overrides explicitly on both triggers, as
+        belt-and-suspenders against this function's own local fallback, not
+        because the CLI default is wrong: the push-to-main job passes
+        ``github.event.before`` (the pre-push tip of main) so a push landing
+        more than one commit is diffed as the whole ``before..after`` range
+        -- otherwise a regression in an earlier commit of a multi-commit
+        push would never appear in a single-commit range and would pass
+        trivially. The pull_request job passes its own computed
+        ``merge-base(origin/main, HEAD)`` for the identical reason on a
+        multi-commit PR.
         """
         try:
             result = subprocess.run(
@@ -895,6 +903,63 @@ class CouplingRatchet:
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
         return set()
+
+    @staticmethod
+    def _resolve_default_base_ref() -> str:
+        """Return the base ref the CLI diffs against when ``--base-ref`` is
+        never passed at all.
+
+        ``merge-base(origin/main, HEAD)`` -- the identical default
+        ``oo_score.py``'s ``GitRepo.resolve_base`` already computes for its
+        own bare ``--check`` -- so a plain local ``make check-coupling``
+        scores the whole fork-to-HEAD range a real PR would carry, not just
+        the narrower ``HEAD~1..HEAD`` last-commit range the old default
+        silently kept: a within-cap regression landed in an earlier commit
+        of a multi-commit branch, never re-touched by a later one, passed
+        locally and only failed in CI, which always overrides explicitly
+        (see ``_git_touched_files``).
+
+        Falls back to ``"HEAD~1"`` -- the old, narrower default -- in two
+        cases:
+
+        1. Merge-base cannot resolve: no ``origin/main`` fetched, no
+           ``origin`` remote, or no common history with ``origin/main``.
+        2. The merge-base *is* HEAD -- i.e. HEAD is an ancestor of (or equal
+           to) ``origin/main`` and carries no commits ahead of it, so
+           ``merge-base..HEAD`` is an empty range that would score nothing.
+           This is the shape of a push whose ``origin/main`` was just fetched
+           to the pushed tip (``ratchets.yml``'s bare ``make check-coupling``
+           on an all-zeros ``github.event.before``), and of any local
+           checkout sitting on or behind ``origin/main``. Falling back to
+           ``HEAD~1`` scores the last commit -- exactly the prior default's
+           behavior -- instead of vacuously passing.
+
+        Either fallback can never regress local usage below what the old
+        unconditional ``HEAD~1`` default already risked; the merge-base
+        result only widens the common, resolvable, commits-ahead case.
+        """
+        try:
+            merge_base = subprocess.run(
+                ["git", "merge-base", "origin/main", "HEAD"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            head = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return "HEAD~1"
+        if merge_base.returncode != 0:
+            return "HEAD~1"
+        resolved = merge_base.stdout.strip()
+        head_sha = head.stdout.strip() if head.returncode == 0 else ""
+        if not resolved or resolved == head_sha:
+            return "HEAD~1"
+        return resolved
 
     # ---- metric comparison helpers ----
 
@@ -1530,14 +1595,23 @@ def main() -> None:
 
     scorer = CouplingScorer(target)
     ratchet = CouplingRatchet()
-    # --base-ref overrides the default HEAD~1..HEAD range. The push-to-main CI
-    # job passes github.event.before so a multi-commit push is diffed as a
-    # whole range instead of just its last commit; --check is the only
-    # base_ref consumer -- --update always scores the whole target, see
-    # CouplingRatchet.update.
-    base_ref = _arg_value("--base-ref") or "HEAD~1"
 
     if "--check" in sys.argv:
+        # --check is the only base_ref consumer, so the merge-base default is
+        # resolved only here -- resolving it before the mode dispatch would
+        # spawn `git merge-base` (up to a 5s block) for --update, --log,
+        # --json, and plain metric runs that never use it. --base-ref
+        # overrides the default; omitted, the ratchet resolves the merge-base
+        # of origin/main and HEAD itself -- the same default oo_score.py's
+        # GitRepo.resolve_base already computes -- so a plain local
+        # `make check-coupling` scores the whole fork-to-HEAD range, matching
+        # CI's pull_request trigger, instead of only the last commit. CI
+        # overrides explicitly on both triggers regardless (push-to-main
+        # passes github.event.before; pull_request computes and passes its
+        # own merge-base).
+        base_ref = _arg_value("--base-ref") or (
+            CouplingRatchet._resolve_default_base_ref()
+        )
         sys.exit(ratchet.check(scorer, base_ref))
     elif "--rebaseline-files" in sys.argv:
         sys.exit(ratchet.rebaseline_files(scorer, rebaseline_paths, rebaseline_reason))
