@@ -10,11 +10,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.trust.atomic_dir_install import AtomicDirInstall
+from punt_lux.trust.ca_paths import CaPaths
 from punt_lux.trust.certificate_authority import CertificateAuthority
 from punt_lux.trust.enrolled_identity import EnrolledIdentity
 
 if TYPE_CHECKING:
-    from punt_lux.trust.ca_paths import CaPaths
     from punt_lux.trust.certificate_signing_request import CertificateSigningRequest
     from punt_lux.trust.leaf_certificate import LeafCertificate
     from punt_lux.trust.trust_anchor import TrustAnchor
@@ -38,16 +39,15 @@ class PersonalCaProvider:
     def bootstrap(cls, paths: CaPaths) -> Self:
         """Load the personal CA at *paths*, or create and save a new one.
 
-        The one-time act system.tex describes: "the first time cross-host
-        is enabled, the Display generates a small personal Certificate
-        Authority." Idempotent — a second call against the same *paths*
-        loads what the first call created.
+        Safe under concurrent first starts — an :class:`AtomicDirInstall`
+        rename loser discards its own CA and loads the winner's instead.
         """
         if paths.exists():
             return cls(CertificateAuthority.load(paths))
         ca = CertificateAuthority.create()
-        ca.save(paths)
-        return cls(ca)
+        install = AtomicDirInstall(paths.dir)
+        ca.save(CaPaths(install.staging_dir))
+        return cls(install.finish(lambda: ca, lambda: CertificateAuthority.load(paths)))
 
     def trust_anchor(self) -> TrustAnchor:
         """Return this CA's root as the verification set a Display loads."""
