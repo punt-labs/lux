@@ -8,6 +8,7 @@ signature hands this class a builder rather than reaching for the raw key.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Self, final
 
@@ -15,14 +16,12 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.hashes import SHA256
 
+from punt_lux.trust.curve import Curve
+
 if TYPE_CHECKING:
     from cryptography import x509
 
 __all__ = ["KeyPair"]
-
-# NIST P-256 — the modern default curve for TLS leaf/CA keys (RFC 8446 §4.2.7's
-# default group, matched by every current browser and OpenSSL build).
-_CURVE = ec.SECP256R1()
 
 
 @final
@@ -34,19 +33,19 @@ class KeyPair:
 
     def __new__(cls, private_key: ec.EllipticCurvePrivateKey) -> Self:
         self = super().__new__(cls)
-        self._private_key = private_key
+        self._private_key = Curve.require_p256(private_key)
         return self
 
     @classmethod
     def generate(cls) -> Self:
         """Generate a fresh P-256 keypair."""
-        return cls(ec.generate_private_key(_CURVE))
+        return cls(ec.generate_private_key(ec.SECP256R1()))
 
     @classmethod
     def from_pem(cls, pem: bytes) -> Self:
         """Load an unencrypted PEM-encoded private key.
 
-        Raises :class:`ValueError` if the key is not an EC key — the only
+        Raises :class:`ValueError` if the key is not P-256 EC — the only
         kind this class, and every certificate it signs, is built to hold.
         """
         key = serialization.load_pem_private_key(pem, password=None)
@@ -77,14 +76,8 @@ class KeyPair:
         )
 
     def to_pem(self) -> bytes:
-        """Serialize the private key as unencrypted PKCS8 PEM.
-
-        Unencrypted at this layer because the filesystem permission
-        (``0600``, applied by :meth:`save`) is this design's stated
-        protection for key material at rest — the same discipline the
-        socket directory already uses (system.tex §"Authentication and
-        Enrollment"). A passphrase layer belongs to the CLI that calls this,
-        not this value class.
+        """Serialize the private key as unencrypted PKCS8 PEM — ``0600``
+        (applied by :meth:`save`) is this design's stated at-rest protection.
         """
         return self._private_key.private_bytes(
             encoding=serialization.Encoding.PEM,
@@ -93,9 +86,15 @@ class KeyPair:
         )
 
     def save(self, path: Path) -> None:
-        """Write the private key to *path* as ``0600``."""
-        path.write_bytes(self.to_pem())
-        path.chmod(0o600)
+        """Write the private key to *path*, created (or reset) as ``0600``
+        via ``os.open``/``fchmod`` — never briefly group/other-readable.
+        """
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            os.fchmod(fd, 0o600)
+            os.write(fd, self.to_pem())
+        finally:
+            os.close(fd)
 
     def sign_csr_builder(
         self, builder: x509.CertificateSigningRequestBuilder
