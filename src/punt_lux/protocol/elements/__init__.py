@@ -21,8 +21,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from punt_lux.protocol.elements import container_dispatch
-
 # _strip_none is re-exported for protocol.messages.scene; lives in
 # _util because the codec layer above the per-element modules uses it.
 from punt_lux.protocol.elements._util import strip_none as _strip_none
@@ -31,6 +29,7 @@ from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement
 from punt_lux.protocol.elements.color_picker import ColorPickerElement
 from punt_lux.protocol.elements.combo import ComboElement
+from punt_lux.protocol.elements.container_dispatch import dispatch
 from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.draw import DrawElement
 from punt_lux.protocol.elements.group import GroupElement
@@ -82,7 +81,6 @@ __all__ = [
     "TextElement",
     "TreeElement",
     "WindowElement",
-    "_element_to_dict",
     "_strip_none",
     "element_to_dict",
 ]
@@ -123,14 +121,9 @@ Element = (
 _ENCODER_FACTORY = JsonEncoderFactory()
 
 
-def _element_to_dict(elem: Element) -> dict[str, Any]:
+def element_to_dict(elem: Element) -> dict[str, Any]:
     """Serialize an Element to its JSON-compatible wire dict."""
     return _ENCODER_FACTORY.encode(elem)
-
-
-def element_to_dict(elem: Element) -> dict[str, Any]:
-    """Serialize an Element to a JSON-compatible dict."""
-    return _element_to_dict(elem)
 
 
 # Encode-side container recursion has no factory dependency. Install
@@ -138,4 +131,4 @@ def element_to_dict(elem: Element) -> dict[str, Any]:
 # the tier-boundary code: each tier calls
 # ``container_dispatch.dispatch.install_from_dict(factory.element_from_dict)``
 # after constructing its :class:`JsonElementFactory`.
-container_dispatch.dispatch.install_to_dict(_element_to_dict)
+dispatch.install_to_dict(element_to_dict)
