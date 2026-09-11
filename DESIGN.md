@@ -7132,12 +7132,17 @@ required). It is never a first resort or a blanket pass.
 
 **Why this honors, not negotiates with, the ratchet.** The operator's rule
 targets agents shipping procedural regressions and *arguing* they are
-acceptable. This is the opposite: the absolute caps are still enforced (nothing
-over-cap is ever blessed), extraction is exhausted first, every bless is
+acceptable. This is the opposite: the absolute caps are still enforced against
+*regressions* — no metric is ever blessed over its cap by a regression (a
+metric that regresses over its cap is refused, forcing decomposition), and a
+metric merely *carried* over its cap is one that was already grandfathered by
+`check()`'s own no-regression rule and is unchanged or improved by this change
+(per the DES-096 refinement). Extraction is exhausted first, every bless is
 tool-computed with a recorded human reason and appears in the PR diff, and the
-files blessed are already well-designed and under every absolute cap. The
+files blessed are already well-designed — their *regressions* are all within
+cap, even where a pre-existing metric sits over its cap unchanged. The
 no-regression *ratchet* is a debt-paydown mechanism; the absolute caps are the
-quality bar. When a legitimate feature's footprint on an already-good file
+quality bar for what a change may newly introduce. When a legitimate feature's footprint on an already-good file
 cannot be paid down without fragmenting a cohesive class, blessing that
 within-cap footprint is consistent with the operator's stated rejection of
 "rules that make it harder to improve code." Mirrors DES-095/DES-096 exactly,
