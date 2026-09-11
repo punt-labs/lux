@@ -8761,6 +8761,19 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
+  "src/punt_lux/trust/_acm_pca_client.py": {
+    "method_ratio": 1.0,
+    "encapsulation_ratio": 1.0,
+    "avg_params": 0.5,
+    "max_complexity": 1.0,
+    "avg_complexity": 1.0,
+    "module_size": 45.0,
+    "classes_per_module": 0.0,
+    "class_to_func_ratio": 1.0,
+    "init_violations": 0.0,
+    "public_attr_violations": 0.0,
+    "future_annotations": 1.0
+  },
   "src/punt_lux/trust/_facade.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
@@ -8794,6 +8807,32 @@
     "max_complexity": 2.0,
     "avg_complexity": 1.2,
     "module_size": 38.0,
+    "classes_per_module": 1.0,
+    "class_to_func_ratio": 1.0,
+    "init_violations": 0.0,
+    "public_attr_violations": 0.0,
+    "future_annotations": 1.0
+  },
+  "src/punt_lux/trust/aws_private_ca_config.py": {
+    "method_ratio": 1.0,
+    "encapsulation_ratio": 1.0,
+    "avg_params": 0.2,
+    "max_complexity": 8.0,
+    "avg_complexity": 2.8,
+    "module_size": 122.0,
+    "classes_per_module": 1.0,
+    "class_to_func_ratio": 1.0,
+    "init_violations": 0.0,
+    "public_attr_violations": 0.0,
+    "future_annotations": 1.0
+  },
+  "src/punt_lux/trust/aws_private_ca_provider.py": {
+    "method_ratio": 1.0,
+    "encapsulation_ratio": 1.0,
+    "avg_params": 0.71,
+    "max_complexity": 2.0,
+    "avg_complexity": 1.57,
+    "module_size": 165.0,
     "classes_per_module": 1.0,
     "class_to_func_ratio": 1.0,
     "init_violations": 0.0,

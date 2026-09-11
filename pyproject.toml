@@ -57,6 +57,14 @@ display = [
     "pyobjc-framework-Cocoa>=10.0; sys_platform == 'darwin'",
     "pyobjc-framework-Quartz>=10.0; sys_platform == 'darwin'",
 ]
+# Provider 2 (system.tex §"Provider 2 (Optional): AWS Private CA (Managed)",
+# DES-090) is opt-in and enterprise-tier by design — most single-user
+# installs never touch it, so boto3's dependency tree (botocore, s3transfer,
+# jmespath, python-dateutil) stays out of the base install, exactly like the
+# [display] extra keeps the GPU stack out of a headless one.
+aws = [
+    "boto3>=1.34.0,<2",
+]
 
 # Dev tools live in PEP 735 dependency-groups (uv-native), not
 # project.optional-dependencies. Two reasons:
@@ -73,6 +81,13 @@ dev = [
     "pyright>=1.1.400",
     "pytest>=8.4.2",
     "pytest-cov>=6.0.0",
+    # boto3 backs the [aws] extra (AwsPrivateCaProvider, DES-090 Provider 2).
+    # It is not a base runtime dependency (see [project.optional-dependencies]
+    # above) but `make check` runs plain `uv run` with no `--extra aws`
+    # thread-through, so it lives here — the dev group installs by default
+    # on every `uv run` — to keep mypy/pyright/pytest exercising the real
+    # boto3 client shape rather than an ignore_missing_imports stub.
+    "boto3>=1.34.0,<2",
 ]
 
 [project.scripts]
@@ -244,6 +259,11 @@ module = [
     "fastmcp.*",
     "numpy.*",
     "PIL.*",
+    # boto3 ships no py.typed marker/stubs of its own (its client objects are
+    # generated at runtime from AWS's service model); AwsPrivateCaProvider.connect
+    # only ever assigns the untyped client into the package's own _AcmPcaClient
+    # Protocol, so Any-typed boto3 is sufficient without adding boto3-stubs.
+    "boto3.*",
 ]
 ignore_missing_imports = true
 
