@@ -1,10 +1,8 @@
-"""AtomicDirInstall — build into a sibling temp directory, then install it
-with one atomic ``os.rename``, so two racing writers can never leave a
-destination holding a torn mix of each other's files.
-"""
+"""AtomicDirInstall — build into a sibling dir, install with one atomic rename."""
 
 from __future__ import annotations
 
+import shutil
 from collections.abc import Callable
 from pathlib import Path
 from typing import Self, TypeVar, final
@@ -27,24 +25,27 @@ class AtomicDirInstall:
 
     def __new__(cls, dest: Path) -> Self:
         self = super().__new__(cls)
-        self._dest = dest
-        self._staging = dest.parent / f".{dest.name}.tmp-{uuid4().hex}"
+        self._dest, self._staging = dest, dest.parent / f".{dest.name}.tmp{uuid4().hex}"
         return self
 
     @property
     def staging_dir(self) -> Path:
-        """Return the sibling temp directory to build the new content into."""
+        """Return the sibling temp dir to build the new content into."""
         return self._staging
 
-    def finish(self, on_win: Callable[[], _T], on_lose: Callable[[], _T]) -> _T:
-        """Commit the staged directory onto the destination.
+    def discard(self) -> None:
+        """Remove the staging dir; best-effort (cleanup never masks a real error)."""
+        shutil.rmtree(self._staging, ignore_errors=True)
 
-        Calls *on_win* if this install's rename got there first, or
-        *on_lose* if another writer's rename beat it to *self._dest*.
-        Anything other than that specific race loss — permission,
-        ENOSPC, a cross-device rename — is not misclassified as one; see
-        :class:`_RenameOutcome`.
-        """
-        if _RenameOutcome.commit(self._staging, self._dest):
-            return on_win()
-        return on_lose()
+    def build(self, populate: Callable[[Path], None]) -> None:
+        """Call ``populate(staging_dir)``, discarding it on ``OSError``."""
+        try:
+            populate(self._staging)
+        except OSError:
+            self.discard()
+            raise
+
+    def finish(self, on_win: Callable[[], _T], on_lose: Callable[[], _T]) -> _T:
+        """Commit the staging dir; *on_win* if this rename won, else *on_lose*."""
+        won = _RenameOutcome.commit(self._staging, self._dest)
+        return on_win() if won else on_lose()

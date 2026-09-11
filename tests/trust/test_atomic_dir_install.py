@@ -74,3 +74,49 @@ def test_finish_reraises_a_non_race_os_error(
     # discarded, because this was never a real race to lose.
     assert install.staging_dir.exists()
     assert not dest.exists()
+
+
+def test_discard_removes_the_staging_dir(tmp_path: Path) -> None:
+    dest = tmp_path / "dest"
+    install = AtomicDirInstall(dest)
+    install.staging_dir.mkdir(parents=True)
+    (install.staging_dir / "secret").write_text("private-key-bytes")
+
+    install.discard()
+
+    assert not install.staging_dir.exists()
+
+
+def test_discard_is_a_noop_when_staging_never_existed(tmp_path: Path) -> None:
+    install = AtomicDirInstall(tmp_path / "dest")
+    install.discard()  # must not raise
+    assert not install.staging_dir.exists()
+
+
+def test_build_populates_the_staging_dir(tmp_path: Path) -> None:
+    dest = tmp_path / "dest"
+    install = AtomicDirInstall(dest)
+
+    def _populate(staging: Path) -> None:
+        staging.mkdir(parents=True)
+        (staging / "f").write_text("x")
+
+    install.build(_populate)
+
+    assert (install.staging_dir / "f").read_text() == "x"
+
+
+def test_build_discards_the_staging_dir_on_failure(tmp_path: Path) -> None:
+    dest = tmp_path / "dest"
+    install = AtomicDirInstall(dest)
+
+    def _populate(staging: Path) -> None:
+        staging.mkdir(parents=True)
+        (staging / "partial-key").write_text("half-written")
+        msg = "disk full"
+        raise OSError(msg)
+
+    with pytest.raises(OSError, match="disk full"):
+        install.build(_populate)
+
+    assert not install.staging_dir.exists()
