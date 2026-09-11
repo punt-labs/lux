@@ -1,17 +1,10 @@
 """The fail-closed content-message identity guard.
 
 An unidentified fd -- ``kind_of(fd) is None``, no ``ConnectMessage`` sent at
-all -- has no attribution to install content under. This is a strictly worse
-case than an already-identified ``kind="test"`` observer, which every
-content-bearing handler already knew to distrust. Before this guard existed,
-only ``SceneMessage`` handling checked kind at all, and even there it checked
-for ``"test"`` and let ``None`` straight through -- harmless only because the
-``AF_UNIX`` socket's ``0700`` permission already vouches for same-user
-attribution. That stops holding the moment content is stored under a key
-derived from the sender's declared identity: an unidentified connection has
-no such key to store anything under. One predicate -- "is this fd
-identified?" -- backs every content-bearing handler's rejection, so the gap
-can never again open in just one of them.
+all -- has no attribution to install content under, a strictly worse case
+than an already-identified ``kind="test"`` observer. One predicate -- "is
+this fd identified?" -- backs every content-bearing handler's rejection, so
+the gap can never open in just one of them.
 """
 
 from __future__ import annotations
@@ -19,6 +12,8 @@ from __future__ import annotations
 import logging
 import socket
 from typing import TYPE_CHECKING, Self
+
+from punt_lux.domain.identity import HubId
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -54,6 +49,12 @@ class IdentityGuard:
         self._socket_listener = socket_listener
         self._record_error = record_error
         return self
+
+    def hub_id_of(self, sock: socket.socket) -> HubId:
+        """Return the sender's ``HubId`` for a fd :meth:`reject_if_unidentified`
+        already confirmed identified. :meth:`HubId.stub` is the fallback."""
+        hub = self._socket_listener.hub_id_of(sock.fileno())
+        return hub if hub is not None else HubId.stub()
 
     def reject_if_unidentified(self, sock: socket.socket, message_kind: str) -> bool:
         """Reject a message from an fd that never sent a ``ConnectMessage``.

@@ -19,6 +19,7 @@ from punt_lux.display import RenderLoop
 from punt_lux.display.frame_placement import FramePlacement
 from punt_lux.display.geometry_capture import GeometryCapture
 from punt_lux.display.replica.frame import Frame
+from punt_lux.domain.identity import HubId
 
 if TYPE_CHECKING:
     import pytest
@@ -32,7 +33,14 @@ def _make_server() -> RenderLoop:
 
 
 def _frame() -> Frame:
-    return Frame(frame_id="f1", title="F", owner_fds=set(), scenes={}, scene_order=[])
+    return Frame(
+        hub=HubId.stub(),
+        frame_id="f1",
+        title="F",
+        owner_fds=set(),
+        scenes={},
+        scene_order=[],
+    )
 
 
 class _FakeImgui:

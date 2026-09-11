@@ -53,8 +53,8 @@ def _register(server: RenderLoop, sock: MagicMock) -> None:
     lives here rather than at each call site.
     """
     server._socket_listener.clients.append(sock)
-    server._socket_listener._readers[sock.fileno()] = FrameReader()
-    server._socket_listener._fd_to_client[sock.fileno()] = sock
+    server._socket_listener._registry._readers[sock.fileno()] = FrameReader()
+    server._socket_listener._registry._fd_to_client[sock.fileno()] = sock
     server._socket_listener.register_client_identity(
         sock.fileno(), kind="hub", name="test-hub", connect_time=0.0
     )

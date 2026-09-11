@@ -12,6 +12,7 @@ from unittest.mock import MagicMock
 from punt_lux.display.content_message_gate import ContentMessageGate
 from punt_lux.display.identity_guard import IdentityGuard
 from punt_lux.display.socket_server import SocketListener
+from punt_lux.domain.hub_id import HubId
 from punt_lux.protocol import CallbackMenuMessage, MenuMessage, ThemeMessage
 
 
@@ -48,7 +49,7 @@ class TestHandleAgentMenus:
 
         gate.handle_agent_menus(_mock_sock(10), msg)
 
-        menus.replace_agent_menus.assert_called_once_with(msg.menus)
+        menus.replace_agent_menus.assert_called_once_with(msg.menus, HubId.stub())
 
     def test_installs_from_a_test_kind_fd(self) -> None:
         listener = _make_listener()
@@ -61,7 +62,7 @@ class TestHandleAgentMenus:
 
         gate.handle_agent_menus(_mock_sock(10), msg)
 
-        menus.replace_agent_menus.assert_called_once_with(msg.menus)
+        menus.replace_agent_menus.assert_called_once_with(msg.menus, HubId.stub())
 
     def test_rejects_an_unidentified_fd(self) -> None:
         listener = _make_listener()
@@ -85,7 +86,7 @@ class TestHandleCallbackMenus:
 
         gate.handle_callback_menus(_mock_sock(10), msg)
 
-        menus.replace_callback_menus.assert_called_once_with(msg.submenus)
+        menus.replace_callback_menus.assert_called_once_with(msg.submenus, HubId.stub())
 
     def test_rejects_an_unidentified_fd(self) -> None:
         listener = _make_listener()

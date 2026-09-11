@@ -14,6 +14,7 @@ from unittest.mock import MagicMock
 
 from punt_lux.display import RenderLoop
 from punt_lux.display.replica.frame import Frame
+from punt_lux.domain.identity import HubId
 from punt_lux.protocol import SceneMessage
 
 
@@ -57,6 +58,7 @@ def _stack_frame(scene_ids: list[str]) -> tuple[Frame, dict[str, MagicMock]]:
         for scene_id in scene_ids
     }
     frame = Frame(
+        hub=HubId.stub(),
         frame_id="f1",
         title="Stack",
         owner_fds=set(),
