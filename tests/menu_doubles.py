@@ -11,7 +11,7 @@ user reads.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Self, final
 
 from punt_lux.display.menus.own_menus import OwnMenus
@@ -48,13 +48,20 @@ _MIDDLE_OF_THE_WINDOW = (400.0, 300.0)
 
 @dataclass(frozen=True, slots=True)
 class MenuLine:
-    """One line a surface drew: where it sits, what it reads, and its state."""
+    """One line a surface drew: where it sits, what it reads, and its state.
+
+    ``label`` is what the user reads (before any ``##``); ``raw`` is the full
+    string ImGui identifies the widget by (label plus the hidden id salt).
+    """
 
     path: tuple[str, ...]
     label: str
     shortcut: str = ""
     checked: bool = False
     enabled: bool = True
+    # Diagnostic only: two surfaces show one menu with different ids (id_suffix),
+    # so raw is excluded from equality -- equality models visible sameness.
+    raw: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,6 +175,8 @@ class FakeImGui:
 
     _clicks: frozenset[str]
     _menus_open: bool
+    _strict_ids: bool
+    _seen_ids: dict[tuple[str, ...], set[str]]
     _lines: list[MenuLine]
     _path: list[str]
     _windows: list[str]
@@ -187,14 +196,24 @@ class FakeImGui:
         "_mouse_pos",
         "_open_windows",
         "_path",
+        "_seen_ids",
+        "_strict_ids",
         "_window_hovered",
         "_windows",
     )
 
-    def __new__(cls, clicks: Collection[str] = (), *, menus_open: bool = True) -> Self:
+    def __new__(
+        cls,
+        clicks: Collection[str] = (),
+        *,
+        menus_open: bool = True,
+        strict_ids: bool = False,
+    ) -> Self:
         self = super().__new__(cls)
         self._clicks = frozenset(clicks)
         self._menus_open = menus_open
+        self._strict_ids = strict_ids
+        self._seen_ids = {}
         self._lines = []
         self._path = []
         self._windows = []
@@ -227,6 +246,10 @@ class FakeImGui:
         """Return the labels drawn directly under *path*."""
         return tuple(line.label for line in self._lines if line.path == path)
 
+    def raw_ids_under(self, *path: str) -> tuple[str, ...]:
+        """Return the full ImGui id strings drawn directly under *path*."""
+        return tuple(line.raw for line in self._lines if line.path == path)
+
     def line(self, label: str) -> MenuLine:
         """Return the single line reading *label*, or raise if it is not there."""
         found = [line for line in self._lines if line.label == label]
@@ -245,7 +268,8 @@ class FakeImGui:
         next sibling recorded as a child.
         """
         visible = self._visible(label)
-        self._lines.append(MenuLine(tuple(self._path), visible))
+        self._note_id(label)
+        self._lines.append(MenuLine(tuple(self._path), visible, raw=label))
         if not self._menus_open:
             return False
         self._path.append(visible)
@@ -268,8 +292,9 @@ class FakeImGui:
         neither may this double.
         """
         visible = self._visible(label)
+        self._note_id(label)
         self._lines.append(
-            MenuLine(tuple(self._path), visible, shortcut, checked, enabled)
+            MenuLine(tuple(self._path), visible, shortcut, checked, enabled, raw=label)
         )
         clicked = enabled and visible in self._clicks
         return clicked, checked != clicked
@@ -342,6 +367,23 @@ class FakeImGui:
         """Arm the window's own close button — ImGui answers through ``begin``."""
         self._close_button = True
 
+    def _note_id(self, label: str) -> None:
+        """Record *label*'s ImGui id, raising on a conflict under strict mode.
+
+        Real ImGui raises "N visible items with conflicting ID" when two
+        widgets share an id within one scope. In strict mode this double
+        reproduces that: the full label string (its ``##`` salt included) is
+        the id, scoped by the current menu path.
+        """
+        if not self._strict_ids:
+            return
+        scope = tuple(self._path)
+        seen = self._seen_ids.setdefault(scope, set())
+        if label in seen:
+            msg = f"conflicting ImGui id {label!r} under {scope}"
+            raise AssertionError(msg)
+        seen.add(label)
+
     @staticmethod
     def _visible(label: str) -> str:
         """Return the part of *label* ImGui shows — everything before ``##``."""
@@ -400,10 +442,11 @@ def make_frame(
     *,
     visibility: FrameVisibility = FrameVisibility.ON_SCREEN,
     title: str | None = None,
+    hub: HubId | None = None,
 ) -> Frame:
     """Return an empty frame in the visibility named, on screen by default."""
     return Frame(
-        hub=HubId.stub(),
+        hub=hub if hub is not None else HubId.stub(),
         frame_id=frame_id,
         title=title if title is not None else frame_id,
         owner_fds=set(),
