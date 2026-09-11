@@ -34,6 +34,14 @@ class LeafCertificate:
         return cls(x509.load_pem_x509_certificate(pem))
 
     @classmethod
+    def from_der(cls, der: bytes) -> Self:
+        """Load a DER-encoded certificate -- the form
+        ``ssl.SSLSocket.getpeercert(binary_form=True)`` returns for an
+        already mTLS-verified peer (system.tex §"Resolving the Trust Fork").
+        """
+        return cls(x509.load_der_x509_certificate(der))
+
+    @classmethod
     def load(cls, path: Path) -> Self:
         """Load a certificate from a PEM file on disk."""
         return cls.from_pem(path.read_bytes())
@@ -41,6 +49,10 @@ class LeafCertificate:
     def to_pem(self) -> bytes:
         """Serialize this certificate as PEM."""
         return self._certificate.public_bytes(serialization.Encoding.PEM)
+
+    def to_der(self) -> bytes:
+        """Serialize this certificate as DER -- :meth:`from_der`'s inverse."""
+        return self._certificate.public_bytes(serialization.Encoding.DER)
 
     def save(self, path: Path) -> None:
         """Write this certificate to *path* as PEM. A certificate is public."""
