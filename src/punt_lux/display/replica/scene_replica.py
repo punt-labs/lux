@@ -76,8 +76,7 @@ class SceneReplica:
 
     @property
     def active_scene_id(self) -> str | None:
-        """The first painted frame's active tab -- the display's 'current'
-        scene; a docked or closed frame's tab is never it."""
+        """The first painted frame's active tab -- a docked/closed tab is never it."""
         for frame in self._book.on_screen():
             if frame.active_tab is not None:
                 return frame.active_tab
@@ -104,8 +103,7 @@ class SceneReplica:
         self._book.minimize(frame_id)
 
     def raise_frame(self, frame_id: str, hub: HubId = _NO_HUB) -> bool:
-        """Restore the named frame in its owning Hub's scope and ask for focus;
-        report whether held -- a callback never reopens another Hub's frame."""
+        """Restore the named frame in its Hub's scope and focus it; report if held."""
         return self._book.restore(frame_id, hub)
 
     def on_screen_frames(self) -> list[Frame]:
@@ -127,8 +125,7 @@ class SceneReplica:
     def scenes_to_purge(
         self, hub: HubId, manifest: frozenset[str], live_hubs: frozenset[HubId]
     ) -> list[tuple[HubScopedKey, str]]:
-        """Every ``(frame_key, scene_id)`` pair to purge -- delegated to the
-        composed :class:`ManifestPurge` (own-Hub scoping, orphan sweep)."""
+        """Every ``(frame_key, scene_id)`` to purge -- via :class:`ManifestPurge`."""
         return self._purge.candidates(hub, manifest, live_hubs)
 
     def frame(self, frame_id: str, hub: HubId = _NO_HUB) -> Frame | None:
@@ -138,8 +135,7 @@ class SceneReplica:
     def handle_framed_scene(
         self, msg: SceneMessage, owner_fd: int, hub: HubId = _NO_HUB
     ) -> None:
-        """Route a scene into its frame, creating the frame if needed. An
-        empty push removes the scene instead of keeping a husk frame."""
+        """Route a scene into its frame; an empty push removes it, husk and all."""
         key = HubScopedKey(hub, msg.id)
         if not msg.elements:
             self._remove_emptied_scene(key)
@@ -156,15 +152,13 @@ class SceneReplica:
         self._book.record_owner(key, owner_fd)
 
     def _remove_emptied_scene(self, key: HubScopedKey) -> None:
-        """Drop a scene an empty push named, resolved by its own Hub only --
-        no flat fallback, or Hub A's empty push could remove Hub B's scene."""
+        """Drop a scene an empty push named, resolved by its own Hub only."""
         stale = self._book.frame_of_hub_scene(key)
         if stale is not None and self.dismiss_framed_scene(stale, key.local):
             self.dispose_frame(stale.frame_id, stale.hub)
 
     def _vacate_other_frame(self, frame: Frame, key: HubScopedKey) -> None:
-        """Take ``key`` out of any other frame owning it, disposing it if that
-        empties it -- resolved by ``key``'s own Hub, never another Hub's."""
+        """Take ``key`` out of any other frame owning it, disposing an emptied one."""
         old_frame = self._book.frame_of_hub_scene(key)
         if old_frame is None or old_frame.frame_id == frame.frame_id:
             return
@@ -172,8 +166,7 @@ class SceneReplica:
             self.dispose_frame(old_frame.frame_id, old_frame.hub)
 
     def _admit_new_scene(self, frame: Frame, key: HubScopedKey) -> None:
-        """Place a scene the frame did not hold; active tab only for the
-        frame's first scene, so a later arrival doesn't move the reader."""
+        """Place a scene the frame did not hold; active tab only for its first."""
         scene_id = key.local
         frame.scene_order.append(scene_id)
         self._widget_state.open(key)
@@ -187,8 +180,7 @@ class SceneReplica:
         return frame.scenes.get(scene_id) if frame is not None else None
 
     def dismiss_framed_scene(self, frame: Frame, scene_id: str) -> bool:
-        """Remove a scene from ``frame``, return True if now empty -- scoped
-        to this exact frame, so another Hub's same-named scene is untouched."""
+        """Remove a scene from this exact ``frame``; return True if now empty."""
         dismissed = frame.scenes.pop(scene_id, None)
         if dismissed is not None:
             self._stale.notify(self._stale.in_tree(dismissed.elements))
@@ -200,16 +192,16 @@ class SceneReplica:
         return not frame.scenes
 
     def close(self, frame_id: str) -> list[str]:
-        """Put a frame away, returning the scene ids to drain -- visibility
-        only: content, widget state, and active tab all survive."""
+        """Put a frame away, returning its scene ids -- visibility only; content
+        stays."""
         frame = self._book.close(frame_id)
         if frame is None:
             return []
         return list(frame.scene_order)
 
     def dispose_frame(self, frame_id: str, hub: HubId = _NO_HUB) -> list[str]:
-        """Throw a frame out with all its scenes, returning the stale element
-        IDs -- content is gone (empty push, manifest purge, TTL, Clear All)."""
+        """Throw a frame and its scenes out, returning stale element IDs -- content
+        is gone (empty push, manifest purge, TTL, Clear All)."""
         frame = self._book.pop_frame(frame_id, hub)
         if frame is None:
             return []
@@ -225,8 +217,7 @@ class SceneReplica:
         self._widget_state.clear()
 
     def dispose_all_frames(self) -> None:
-        """Throw out every frame, each by its own owning Hub, notifying
-        stale ids per frame -- unlike :meth:`clear_all`'s silent reset."""
+        """Throw out every frame by its own Hub, notifying stale ids per frame."""
         for frame in list(self._book.frames.values()):
             self.dispose_frame(frame.frame_id, frame.hub)
 
@@ -269,9 +260,7 @@ class SceneReplica:
     def _replace_scene_state(
         self, key: HubScopedKey, msg: SceneMessage, old_scene: SceneMessage | None
     ) -> None:
-        """Drain stale IDs no other scene holds and discard their widget state
-        -- survivor-aware, so replacing one scene never cancels another's
-        still-valid queued events."""
+        """Drain stale IDs no surviving scene holds and discard their widget state."""
         if old_scene is None:
             return
         stale_ids = self._stale.dropped_by(msg, old_scene)
