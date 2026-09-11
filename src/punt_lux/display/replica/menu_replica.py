@@ -26,6 +26,10 @@ __all__ = ["MenuReplica"]
 # One "Clients" submenu list per Hub -- the disambiguator two Hubs need.
 _CALLBACK_MENUS_LOCAL = "callback_menus"
 
+# replace_callback_menus's own-Hub default; production dispatch always
+# resolves and passes the sender's real HubId.
+_NO_HUB = HubId.stub()
+
 
 @final
 class MenuReplica:
@@ -58,11 +62,8 @@ class MenuReplica:
         get_frames: Callable[[], Mapping[str, Frame]],
         own: OwnMenus,
     ) -> Self:
-        """Compose a replica around an already-built :class:`OwnMenus`.
-
-        The caller assembles ``own`` -- construction is one object's job, not
-        a fourteen-parameter pass-through here.
-        """
+        """Compose a replica around an already-built :class:`OwnMenus` --
+        the caller assembles it, not a fourteen-parameter pass-through here."""
         self = super().__new__(cls)
         self._emit_event = emit_event
         self._on_raise_frame = on_raise_frame
@@ -91,12 +92,11 @@ class MenuReplica:
         return tuple(chain.from_iterable(self._callback_menus.values()))
 
     def replace_callback_menus(
-        self, payloads: Sequence[object], hub: HubId | None = None
+        self, payloads: Sequence[object], hub: HubId = _NO_HUB
     ) -> None:
         """Take one Hub's ``Clients`` submenus; ``hub`` defaults to a stub."""
-        resolved_hub = hub if hub is not None else HubId.stub()
         menus = WireMenu.accepted(payloads, origin="callback_menus")
-        key = HubScopedKey(resolved_hub, _CALLBACK_MENUS_LOCAL)
+        key = HubScopedKey(hub, _CALLBACK_MENUS_LOCAL)
         self._callback_menus.put(key, menus)
 
     def forget_hub(self, hub: HubId) -> None:
