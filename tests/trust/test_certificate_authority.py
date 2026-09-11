@@ -124,6 +124,49 @@ def test_sign_csr_backdates_not_valid_before_for_clock_skew() -> None:
     assert timedelta(minutes=4) < skew < timedelta(minutes=6)
 
 
+def test_sign_csr_leaf_key_usage_excludes_key_encipherment() -> None:
+    from cryptography import x509
+
+    ca = CertificateAuthority.create()
+    csr = CertificateSigningRequest.generate(_HOSTNAME, KeyPair.generate())
+    leaf = ca.sign_csr(csr)
+    leaf_cert = x509.load_pem_x509_certificate(leaf.to_pem())
+    key_usage = leaf_cert.extensions.get_extension_for_class(x509.KeyUsage).value
+    # digital_signature is what a P-256 ECDSA/ECDHE leaf needs under TLS 1.3;
+    # key_encipherment is an RSA key-transport bit this leaf never uses.
+    assert key_usage.digital_signature is True
+    assert key_usage.key_encipherment is False
+
+
+def test_sign_csr_clamps_leaf_validity_to_the_roots_expiry() -> None:
+    from cryptography import x509
+    from cryptography.x509.oid import NameOID
+
+    # A hand-built root expiring in 10 days — well inside the leaf's usual
+    # 365-day validity — to prove a leaf never outlives the CA that signs it.
+    key_pair = KeyPair.generate()
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "near-expiry CA")])
+    now = datetime.now(UTC)
+    root_expiry = now + timedelta(days=10)
+    builder = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key_pair.public_key)
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(minutes=5))
+        .not_valid_after(root_expiry)
+        .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
+    )
+    ca = CertificateAuthority(key_pair, key_pair.sign_certificate_builder(builder))
+
+    csr = CertificateSigningRequest.generate(_HOSTNAME, KeyPair.generate())
+    leaf = ca.sign_csr(csr)
+
+    assert leaf.not_valid_after <= root_expiry
+    assert abs(leaf.not_valid_after - root_expiry) < timedelta(seconds=2)
+
+
 def test_sign_csr_rejects_an_externally_supplied_csr_with_a_non_p256_key() -> None:
     from cryptography.hazmat.primitives.asymmetric import ec
 

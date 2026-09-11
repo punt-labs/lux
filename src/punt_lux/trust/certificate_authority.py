@@ -48,10 +48,11 @@ _CA_KEY_USAGE = x509.KeyUsage(
     decipher_only=False,
 )
 
+# key_encipherment omitted: an RSA bit a P-256 TLS 1.3 leaf never needs.
 _LEAF_KEY_USAGE = x509.KeyUsage(
     digital_signature=True,
     content_commitment=False,
-    key_encipherment=True,
+    key_encipherment=False,
     data_encipherment=False,
     key_agreement=False,
     key_cert_sign=False,
@@ -70,9 +71,7 @@ class CertificateAuthority:
     __slots__ = ("_certificate", "_key_pair")
 
     def __new__(cls, key_pair: KeyPair, certificate: x509.Certificate) -> Self:
-        _TrustFacade.require_matching_certificate(
-            key_pair, certificate, "the root cert"
-        )
+        _TrustFacade.require_matching_certificate(key_pair, certificate, "root cert")
         self = super().__new__(cls)
         self._key_pair = key_pair
         self._certificate = certificate
@@ -103,9 +102,7 @@ class CertificateAuthority:
 
     @classmethod
     def load(cls, paths: CaPaths) -> Self:
-        """Load a previously-saved CA from *paths*, or raise naming *paths*
-        on damaged or partial material (a save interrupted mid-write).
-        """
+        """Load a previously-saved CA from *paths*, raising on damaged material."""
 
         def _read() -> tuple[KeyPair, x509.Certificate]:
             key_pair = KeyPair.load(paths.root_key_path)
@@ -130,10 +127,8 @@ class CertificateAuthority:
         return TrustAnchor((self.certificate_pem(),))
 
     def sign_csr(self, csr: CertificateSigningRequest) -> LeafCertificate:
-        """Sign *csr*, returning a 1-year leaf chaining to this CA.
-
-        Rejects a CSR whose signature or key (P-256, PY-EH-1) don't
-        verify — the offline step that keeps the CA's key from travelling.
+        """Sign *csr* into a leaf chaining to this CA, rejecting a bad
+        signature or non-P-256 key (PY-EH-1) — the CA's key never travels.
         """
         if not csr.is_signature_valid:
             msg = "CSR signature does not verify — refusing to sign"
@@ -141,6 +136,9 @@ class CertificateAuthority:
         hostname = csr.hostname  # raises if SAN is missing/ambiguous
         _TrustFacade.require_p256(csr.public_key)
         now = datetime.now(UTC)
+        # A leaf must never outlive the CA that vouches for it.
+        root_expiry = self._certificate.not_valid_after_utc
+        not_valid_after = min(now + _LEAF_VALIDITY, root_expiry)
         builder = (
             x509.CertificateBuilder()
             .subject_name(csr.subject)
@@ -148,7 +146,7 @@ class CertificateAuthority:
             .public_key(csr.public_key)
             .serial_number(x509.random_serial_number())
             .not_valid_before(now - _NOT_BEFORE_SKEW)
-            .not_valid_after(now + _LEAF_VALIDITY)
+            .not_valid_after(not_valid_after)
             .add_extension(
                 x509.SubjectAlternativeName([x509.DNSName(hostname)]), critical=False
             )
@@ -174,10 +172,9 @@ class CertificateAuthority:
         return LeafCertificate(self._key_pair.sign_certificate_builder(builder))
 
     def issue_leaf(self, hostname: str) -> tuple[KeyPair, LeafCertificate]:
-        """Generate a fresh keypair and sign its own leaf for *hostname*.
-
-        Requester and CA are the same machine here (system.tex step 2), so
-        the CSR round-trip that keeps a key from crossing hosts is moot.
+        """Generate a fresh keypair and sign its own leaf for *hostname* —
+        requester and CA are the same machine (system.tex step 2), so the
+        CSR round-trip that keeps a key from crossing hosts is moot.
         """
         key_pair = KeyPair.generate()
         csr = CertificateSigningRequest.generate(hostname, key_pair)
