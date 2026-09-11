@@ -7066,3 +7066,24 @@ the file genuinely *constructs* the dependency (which these do), and re-shaping
 a clean design to appease a metric is the gaming DES-095 forbids. (c) Blocking
 the epic until the exception is individually approved for each PR — the
 recurrence makes that a standing tax on every addressing change.
+
+**Refinement (2026-09-11): refuse only over-cap AND regressing.** The first
+implementation refused a file if *any* recomputed metric exceeded its absolute
+cap. Applying the tool to the addressing epic showed that is too coarse: a file
+can carry a **pre-existing, non-regressing** over-cap metric (e.g.
+`avg_lcom = 0.667`, already `0.667` in the committed baseline) while a
+*different* metric has the within-cap regression to bless (e.g.
+`efferent_coupling 4→5`). `check-coupling` already grandfathers the pre-existing
+`avg_lcom` — its rule is no-regression, not absolute — so the bless must carry
+that value forward while recording the within-cap efferent regression. The
+guardrail now refuses a metric only when it **both** exceeds its cap **and**
+regressed against the file's committed baseline value for that metric
+(`_over_cap_and_regressed`); an over-cap metric that is unchanged or improved is
+carried forward. A genuinely new file (no baseline entry) keeps the strict rule
+— any over-cap value is refused, since there is nothing to grandfather. This
+keeps the guardrail's teeth: a metric that *regresses over* its cap — an
+already-over-cap god module like `render_loop.py` growing its efferent further —
+is still refused, which correctly forces decomposition (as it did for W3's
+`render_loop` edge) rather than a bless. Only the legitimate within-cap
+first-edge on a file that merely *carries* an unrelated pre-existing over-cap
+metric is unblocked.
