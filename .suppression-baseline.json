@@ -1,7 +1,7 @@
 {
-  "total": 121,
+  "total": 122,
   "by_category": {
-    "noqa": 20,
+    "noqa": 21,
     "type_ignore": 4,
     "pylint_disable": 2,
     "pyright_ignore": 6,
@@ -34,9 +34,15 @@
       "noqa": 1,
       "pyright_ignore": 1
     },
+    "src/punt_lux/display/cross_host_verification.py": {
+      "noqa": 1
+    },
     "src/punt_lux/display/macos.py": {
       "type_ignore": 1,
       "pyright_ignore": 1
+    },
+    "src/punt_lux/display/nonblocking.py": {
+      "noqa": 1
     },
     "src/punt_lux/display/query_dispatcher.py": {
       "noqa": 1
@@ -54,9 +60,6 @@
     },
     "src/punt_lux/display/renderers/imgui/modal.py": {
       "noqa": 1
-    },
-    "src/punt_lux/display/socket_server.py": {
-      "noqa": 2
     },
     "src/punt_lux/doctor_checks.py": {
       "noqa": 1
@@ -79,7 +82,10 @@
     },
     "src/punt_lux/protocol/messages/unknown_message.py": {
       "noqa": 1
+    },
+    "src/punt_lux/trust/aws_private_ca_provider.py": {
+      "noqa": 1
     }
   },
-  "updated_at": "2026-09-11T13:25:11Z"
+  "updated_at": "2026-09-11T19:55:13Z"
 }
