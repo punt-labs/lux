@@ -104,3 +104,61 @@ class TestFrameProjection:
             rendering.frame_window_id(frame)
             == f"{_PEMBROKE_1.wire_token}{ID_SEPARATOR}vox"
         )
+
+
+class TestWindowIdStabilityAcrossAmbiguity:
+    """The visible title may change with Hub count; the ImGui window id may not.
+
+    ImGui keys a window on the ``##``-suffix -- ``frame_window_id`` -- while the
+    label before it (``frame_title``) is cosmetic. If the id shifted when a
+    second Hub flipped a title from plain to prefixed, ImGui would see a new
+    window and lose its position, scroll, and collapse state. The id derives
+    only from ``frame.hub`` and ``frame.frame_id``; ambiguity never enters it.
+    """
+
+    def test_window_id_is_invariant_when_a_second_hub_changes_the_title(
+        self,
+    ) -> None:
+        rendering = _rendering((_PEMBROKE_1, "c1"))
+        frame = _frame(_PEMBROKE_1, "vox", "Vox")
+        id_before = rendering.frame_window_id(frame)
+        title_before = rendering.frame_title(frame)
+
+        rendering.note_connection(_PEMBROKE_2, "c2")  # a second same-host Hub
+
+        assert rendering.frame_window_id(frame) == id_before  # identity holds
+        assert title_before == "Vox"
+        assert rendering.frame_title(frame) == "pembroke :: Vox"  # label moved
+
+    def test_window_id_holds_when_the_second_hub_departs_again(self) -> None:
+        rendering = _rendering((_PEMBROKE_1, "c1"), (_PEMBROKE_2, "c2"))
+        frame = _frame(_PEMBROKE_1, "vox", "Vox")
+        id_ambiguous = rendering.frame_window_id(frame)
+
+        rendering.forget_connection(_PEMBROKE_2, "c2")
+
+        assert rendering.frame_window_id(frame) == id_ambiguous
+        assert rendering.frame_title(frame) == "Vox"  # re-elided to plain
+
+
+class TestLifecycleRobustness:
+    """The note/forget lifecycle tolerates the disconnect and reconnect paths."""
+
+    def test_noting_the_same_connection_twice_leaves_one_live_hub(self) -> None:
+        rendering = _rendering((_PEMBROKE_1, "c1"))
+        rendering.note_connection(_PEMBROKE_1, "c1")  # a redundant note
+        assert rendering.title_for(_PEMBROKE_1, "Vox") == "Vox"  # still lone
+
+    def test_forgetting_an_unnoted_connection_is_a_no_op(self) -> None:
+        rendering = AddressRendering()
+        rendering.forget_connection(_PEMBROKE_1, "never-noted")  # no raise
+        assert rendering.title_for(_PEMBROKE_1, "Vox") == "Vox"
+
+    def test_a_departed_hubs_orphan_frame_still_renders(self) -> None:
+        """An orphaned frame keeps ``frame.hub`` set to a Hub no longer live;
+        the title path falls back to the plain label rather than failing."""
+        rendering = _rendering((_PEMBROKE_1, "c1"))
+        frame = _frame(_PEMBROKE_1, "vox", "Vox")
+        rendering.forget_connection(_PEMBROKE_1, "c1")  # the Hub departs
+        assert rendering.frame_title(frame) == "Vox"
+        assert rendering.frame_window_id(frame).endswith("vox")
