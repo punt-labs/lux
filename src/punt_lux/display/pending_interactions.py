@@ -121,7 +121,7 @@ class PendingInteractions:
         self, dropped: Iterable[RemoteEventHandlerInvocation]
     ) -> Evictions:
         """Split ``dropped`` against pending; call after ``discard_prefix``."""
-        return Evictions.of(dropped, self.pending_events())
+        return Evictions.of(dropped, (held.event for held in self._events))
 
     def discard_elements(self, element_ids: set[str]) -> Evictions:
         """Remove held interactions targeting a now-removed element.
