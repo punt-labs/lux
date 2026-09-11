@@ -95,15 +95,15 @@ class DisplayLink:
         auto_spawn: bool = True,
         connect_timeout: float = 5.0,
         recv_timeout: float = DEFAULT_RECV_TIMEOUT,
-        dialer: DisplayDialer | None = None,
+        dialer: DisplayDialer | None = None,  # None = default AF_UNIX dialer (PY-TS-14)
     ) -> Self:
         self = super().__new__(cls)
         self._connect_timeout = connect_timeout
         self._recv_timeout = recv_timeout
         self._sock = None
         self._ready = None
-        # ``dialer`` injected (a cross-host CrossHostConnector) overrides the
-        # default AF_UNIX dialer -- see cross_host_link.dial_cross_host.
+        # An injected dialer (a cross-host CrossHostConnector built by
+        # CrossHostEndpoint.dial) overrides the default; _dialer is never None.
         self._dialer = dialer or HandshakeConnector(
             name=name, kind=kind, socket_path=socket_path, auto_spawn=auto_spawn
         )

@@ -393,12 +393,23 @@ class RenderLoop:
         onto the ordinary client set, where the content gate holds it to the
         same verify -> identify -> content order the ``AF_UNIX`` leg follows
         (Invariant 1). Fail-closed: no listener configured, nothing happens.
+
+        A transport error accepting or pumping the cross-host leg drops that
+        frame's cross-host work and keeps rendering -- a wedged listen socket
+        must never stop the display or freeze the same-host ``AF_UNIX`` leg
+        (the render loop is a crash boundary). The log fires only on the
+        exceptional path, never per frame.
         """
         listener = self._cross_host
         if listener is None:
             return
-        listener.accept_pending()
-        for tls_sock in listener.pump_ready():
+        try:
+            listener.accept_pending()
+            ready = listener.pump_ready()
+        except OSError as exc:
+            logger.warning("cross-host accept/pump failed this frame: %s", exc)
+            return
+        for tls_sock in ready:
             self._socket_listener.promote_connection(tls_sock)
 
     def _on_after_swap(self) -> None:

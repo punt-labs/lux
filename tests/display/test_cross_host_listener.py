@@ -152,6 +152,19 @@ def _free_port() -> int:
 # ---------------------------------------------------------------------------
 
 
+class TestVerifyModeGuard:
+    """DES-090 boundary: the listener refuses a context that would admit a peer
+    without a client certificate, so mutual auth is structural (T1), not a
+    property of whoever built the context."""
+
+    def test_a_non_cert_required_context_is_refused(self, tmp_path: Path) -> None:
+        ca = CertificateAuthority.create()
+        ctx = _server_context(ca, tmp_path)
+        ctx.verify_mode = ssl.CERT_OPTIONAL
+        with pytest.raises(ValueError, match="CERT_REQUIRED"):
+            CrossHostListener(ctx)
+
+
 class TestSetup:
     def test_setup_binds_and_listens(self, tmp_path: Path) -> None:
         ca = CertificateAuthority.create()
