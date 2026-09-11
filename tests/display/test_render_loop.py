@@ -61,12 +61,18 @@ class TestHandleConnectDispatch:
         server._socket_listener.clients.append(old_sock)
         server._socket_listener.fd_to_client[10] = old_sock
 
-        server._handle_message(old_sock, ConnectMessage(name="lux-mcp", kind="hub"))
+        server._handle_message(
+            old_sock,
+            ConnectMessage(name="lux-mcp", kind="hub", hub_id="pembroke\x1f123"),
+        )
         assert server._socket_listener.hub_fd_for("lux-mcp") == 10
 
         server._socket_listener.clients.append(new_sock)
         server._socket_listener.fd_to_client[20] = new_sock
-        server._handle_message(new_sock, ConnectMessage(name="lux-mcp", kind="hub"))
+        server._handle_message(
+            new_sock,
+            ConnectMessage(name="lux-mcp", kind="hub", hub_id="pembroke\x1f123"),
+        )
 
         assert old_sock not in server._socket_listener.clients
         assert server._socket_listener.hub_fd_for("lux-mcp") == 20
@@ -75,7 +81,9 @@ class TestHandleConnectDispatch:
         server = _make_server()
         sock = _mock_sock(10)
 
-        server._handle_message(sock, ConnectMessage(name="quarry", kind="test"))
+        server._handle_message(
+            sock, ConnectMessage(name="quarry", kind="test", hub_id="test.invalid\x1f0")
+        )
 
         assert server._socket_listener.client_names[10] == "quarry"
         assert server._socket_listener.hub_fd_for("quarry") is None
@@ -92,7 +100,9 @@ class TestHandleManifestDispatch:
         assert server._scenes.resolve_scene("s1") is not None
 
         identify_sock = _mock_sock(20)
-        hub_identify = ConnectMessage(name="lux-mcp", kind="hub")
+        hub_identify = ConnectMessage(
+            name="lux-mcp", kind="hub", hub_id="pembroke\x1f123"
+        )
         server._handle_message(identify_sock, hub_identify)
         server._handle_message(identify_sock, HubManifestMessage(scene_ids=()))
 
@@ -114,7 +124,9 @@ class TestAClosePassesNoWord:
         owner_sock.send.reset_mock()  # drop the scene-install ack, not under test
 
         identify_sock = _mock_sock(20)
-        hub_identify = ConnectMessage(name="lux-mcp", kind="hub")
+        hub_identify = ConnectMessage(
+            name="lux-mcp", kind="hub", hub_id="pembroke\x1f123"
+        )
         server._handle_message(identify_sock, hub_identify)
         server._handle_message(identify_sock, HubManifestMessage(scene_ids=()))
 
@@ -209,7 +221,9 @@ class TestConnectMessageStillDispatchesThroughHandleMessage:
         server = _make_server()
         sock = _mock_sock(10)
 
-        server._handle_message(sock, ConnectMessage(name="quarry", kind="test"))
+        server._handle_message(
+            sock, ConnectMessage(name="quarry", kind="test", hub_id="test.invalid\x1f0")
+        )
 
         assert server._socket_listener.client_names[10] == "quarry"
 
@@ -220,7 +234,9 @@ class TestConnectMessageStillDispatchesThroughHandleMessage:
             RemoteEventHandlerInvocation(element_id="b1", action="click", ts=1.0)
         )
 
-        server._handle_message(sock, ConnectMessage(name="quarry", kind="test"))
+        server._handle_message(
+            sock, ConnectMessage(name="quarry", kind="test", hub_id="test.invalid\x1f0")
+        )
 
         assert len(server._event_queue) == 1  # untouched by the identify
 
@@ -234,7 +250,9 @@ class TestSceneRejectionFromTestKind:
         server._socket_listener.clients.append(sock)
         server._socket_listener.fd_to_client[10] = sock
 
-        server._handle_message(sock, ConnectMessage(name="probe", kind="test"))
+        server._handle_message(
+            sock, ConnectMessage(name="probe", kind="test", hub_id="test.invalid\x1f0")
+        )
         server._handle_message(sock, _make_scene("s1"))
 
         assert server._scenes.resolve_scene("s1") is None
@@ -247,7 +265,9 @@ class TestSceneRejectionFromTestKind:
         server._socket_listener.clients.append(sock)
         server._socket_listener.fd_to_client[10] = sock
 
-        server._handle_message(sock, ConnectMessage(name="probe", kind="test"))
+        server._handle_message(
+            sock, ConnectMessage(name="probe", kind="test", hub_id="test.invalid\x1f0")
+        )
         server._handle_message(sock, _make_scene("s1"))
 
         errors = server._query_router.handle_query("list_errors", None)
@@ -261,7 +281,9 @@ class TestSceneRejectionFromTestKind:
         server._socket_listener.clients.append(sock)
         server._socket_listener.fd_to_client[10] = sock
 
-        server._handle_message(sock, ConnectMessage(name="lux-mcp", kind="hub"))
+        server._handle_message(
+            sock, ConnectMessage(name="lux-mcp", kind="hub", hub_id="pembroke\x1f123")
+        )
         server._handle_message(sock, _make_scene("s1"))
 
         assert server._scenes.resolve_scene("s1") is not None
@@ -320,7 +342,9 @@ class TestContentRejectionFromUnidentifiedFd:
     def test_agent_menus_from_a_hub_kind_fd_still_install(self) -> None:
         server = _make_server()
         sock = _mock_sock(10)
-        server._handle_message(sock, ConnectMessage(name="lux-mcp", kind="hub"))
+        server._handle_message(
+            sock, ConnectMessage(name="lux-mcp", kind="hub", hub_id="pembroke\x1f123")
+        )
 
         server._handle_message(
             sock, MenuMessage(menus=[{"label": "File", "items": []}])
@@ -331,7 +355,9 @@ class TestContentRejectionFromUnidentifiedFd:
     def test_agent_menus_from_a_test_kind_fd_still_install(self) -> None:
         server = _make_server()
         sock = _mock_sock(10)
-        server._handle_message(sock, ConnectMessage(name="probe", kind="test"))
+        server._handle_message(
+            sock, ConnectMessage(name="probe", kind="test", hub_id="test.invalid\x1f0")
+        )
 
         server._handle_message(
             sock, MenuMessage(menus=[{"label": "File", "items": []}])
@@ -352,7 +378,9 @@ class TestContentRejectionFromUnidentifiedFd:
     def test_callback_menus_from_a_hub_kind_fd_still_install(self) -> None:
         server = _make_server()
         sock = _mock_sock(10)
-        server._handle_message(sock, ConnectMessage(name="lux-mcp", kind="hub"))
+        server._handle_message(
+            sock, ConnectMessage(name="lux-mcp", kind="hub", hub_id="pembroke\x1f123")
+        )
 
         server._handle_message(
             sock, CallbackMenuMessage(submenus=[{"label": "Clients", "items": []}])
@@ -378,7 +406,9 @@ class TestContentRejectionFromUnidentifiedFd:
     ) -> None:
         server = _make_server()
         sock = _mock_sock(10)
-        server._handle_message(sock, ConnectMessage(name="lux-mcp", kind="hub"))
+        server._handle_message(
+            sock, ConnectMessage(name="lux-mcp", kind="hub", hub_id="pembroke\x1f123")
+        )
 
         with caplog.at_level("WARNING"):
             server._handle_message(sock, ThemeMessage(theme="imgui_colors_light"))

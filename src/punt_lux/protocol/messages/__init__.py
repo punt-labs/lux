@@ -4,8 +4,10 @@ Sub-modules house each family of message types together with their codec
 helpers:
 
 - ``scene``: scene replacement (Scene, Clear)
-- ``lifecycle``: connection handshake and heartbeat (Ready, Connect, Ack, Ping,
-  Pong, Unknown)
+- ``connect_message``: the connection-identity handshake (Connect), Hub
+  identity included
+- ``lifecycle``: heartbeat and manifest (Ready, Ack, Ping, Pong,
+  HubManifest, Unknown)
 - ``remote_invocation``: handler invocations for remote execution
   (RemoteEventHandlerInvocation)
 - ``menu``: display configuration (Menu, RegisterMenu, Theme)
@@ -24,8 +26,7 @@ provides ``message_to_dict`` / ``message_from_dict``.
 
 from __future__ import annotations
 
-from typing import Any
-
+from punt_lux.protocol.messages.connect_message import ConnectMessage
 from punt_lux.protocol.messages.introspect import (
     IntrospectRequest,
     IntrospectResponse,
@@ -40,7 +41,6 @@ from punt_lux.protocol.messages.introspect import (
 from punt_lux.protocol.messages.lifecycle import (
     PROTOCOL_VERSION,
     AckMessage,
-    ConnectMessage,
     HubManifestMessage,
     PingMessage,
     PongMessage,
@@ -68,6 +68,7 @@ from punt_lux.protocol.messages.scene import (
 )
 
 _register_scene = SceneMessage.register_codecs
+_register_connect = ConnectMessage.register_codecs
 
 __all__ = [
     "PROTOCOL_VERSION",
@@ -136,18 +137,13 @@ Message = ClientMessage | DisplayMessage | UnknownMessage
 _registry = MessageRegistry()
 
 _register_scene(_registry.register)
+_register_connect(_registry.register)
 _register_lifecycle(_registry.register)
 _register_remote_invocation(_registry.register)
 _register_menu(_registry.register)
 _register_introspect(_registry.register)
 _register_observer(_registry.register)
 
-
-def message_to_dict(msg: Message) -> dict[str, Any]:
-    """Serialize a Message dataclass to a JSON-compatible dict."""
-    return _registry.to_dict(msg)
-
-
-def message_from_dict(d: dict[str, Any]) -> Message:
-    """Deserialize a JSON dict to the appropriate Message dataclass."""
-    return _registry.from_dict(d)
+# The package's codec entry points ARE the registry's own bound methods.
+message_to_dict = _registry.to_dict
+message_from_dict = _registry.from_dict

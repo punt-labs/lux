@@ -20,9 +20,10 @@ import threading
 import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Self
+from typing import TYPE_CHECKING, Any, Literal, Self, cast
 
 from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
+from punt_lux.domain.hub.hub_id import HubId
 from punt_lux.paths import DisplayPaths
 from punt_lux.polled_event import PolledEvent
 from punt_lux.protocol import (
@@ -91,6 +92,7 @@ class DisplayLink:
     _recv_timeout: float
     _sock: socket.socket | None
     _ready: ReadyMessage | None
+    _hub_id: HubId
     _lock: threading.Lock
     _callbacks: dict[tuple[str, str], Callable[[RemoteEventHandlerInvocation], None]]
     _fallback_interaction_handler: Callable[[RemoteEventHandlerInvocation], None] | None
@@ -120,8 +122,7 @@ class DisplayLink:
         self._recv_timeout = recv_timeout
         self._sock = None
         self._ready = None
-
-        # Push-based event handling state
+        self._hub_id = HubId.current() if kind == "hub" else HubId.stub()
         self._lock = threading.Lock()
         self._callbacks = {}
         self._fallback_interaction_handler = None
@@ -215,19 +216,24 @@ class DisplayLink:
         logger.info("Connected to display (protocol %s)", ready.version)
         self._post_handshake(sock)
 
-        # Restart listener if callbacks are registered (reconnect resilience)
-        if self._callbacks:
+        if self._callbacks:  # reconnect resilience: restart a registered listener
             self.start_listener()
 
     def _post_handshake(self, sock: socket.socket) -> None:
         """Send the connection's declared identity after handshake."""
         if self._name:
             try:
-                send_message(sock, ConnectMessage(name=self._name, kind=self._kind))
+                send_message(sock, self._connect_message(self._name))
             except OSError as exc:
                 self.close()
                 err = f"ConnectMessage failed after handshake: {exc}"
                 raise DisplayNotConnectedError(err) from exc
+
+    def _connect_message(self, name: str) -> ConnectMessage:
+        """Build this connection's declared identity, HubId included."""
+        return ConnectMessage(
+            name=name, kind=self._kind, hub_id=self._hub_id.wire_token
+        )
 
     def close(self) -> None:
         """Close the connection to the display server."""
@@ -522,27 +528,7 @@ class DisplayLink:
         """Send a ping and wait for the pong within ``timeout`` (else recv budget)."""
         self._send(PingMessage(ts=time.time()))
         budget = timeout if timeout is not None else self._recv_timeout
-        deadline = time.monotonic() + budget
-        if self.listener_active:
-            remaining = deadline - time.monotonic()
-            try:
-                return self._pong_queue.get(timeout=max(remaining, 0))
-            except queue.Empty:
-                return None
-        sock = self._require_connected()
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                return None
-            received = recv_message(sock, timeout=remaining)
-            if received is None:
-                return None
-            if isinstance(received, PongMessage):
-                return received
-            # Non-pong frames without an active listener have no consumer:
-            # poll_event, _recv_ack, and query each block on their own typed
-            # queue and are not fed by inline ping reads.
-            logger.debug("ping: dropping interleaved %s frame", type(received).__name__)
+        return self._await_typed(PongMessage, time.monotonic() + budget)
 
     def query(
         self,
@@ -551,13 +537,30 @@ class DisplayLink:
         timeout: float | None = None,
     ) -> QueryResponse | None:
         """Send a generic query and wait for the response."""
-        t = timeout if timeout is not None else self._recv_timeout
+        budget = timeout if timeout is not None else self._recv_timeout
         self._send(QueryRequest(method=method, params=params or {}))
-        deadline = time.monotonic() + t
+        return self._await_typed(QueryResponse, time.monotonic() + budget)
+
+    def _reply_queue[T: Message](self, expected: type[T]) -> queue.SimpleQueue[T]:
+        """Return the per-type reply queue :meth:`_dispatch` fills for ``expected``."""
+        queues: dict[type[Message], queue.SimpleQueue[Any]] = {
+            PongMessage: self._pong_queue,
+            QueryResponse: self._query_queue,
+        }
+        return cast("queue.SimpleQueue[T]", queues[cast("type[Message]", expected)])
+
+    def _await_typed[T: Message](self, expected: type[T], deadline: float) -> T | None:
+        """Wait for one ``expected`` reply, active listener or inline read.
+
+        Shared by :meth:`ping` and :meth:`query`: both send a request and then
+        wait for exactly one typed reply -- from the background listener's own
+        queue when it is running, or an inline read loop when it is not,
+        dropping any interleaved frame the inline path sees along the way.
+        """
         if self.listener_active:
             remaining = deadline - time.monotonic()
             try:
-                return self._query_queue.get(timeout=max(remaining, 0))
+                return self._reply_queue(expected).get(timeout=max(remaining, 0))
             except queue.Empty:
                 return None
         sock = self._require_connected()
@@ -568,11 +571,10 @@ class DisplayLink:
             received = recv_message(sock, timeout=remaining)
             if received is None:
                 return None
-            if isinstance(received, QueryResponse):
+            if isinstance(received, expected):
                 return received
-            logger.debug(
-                "query: dropping interleaved %s frame", type(received).__name__
-            )
+            kind = type(received).__name__
+            logger.debug("%s: dropping interleaved %s frame", expected.__name__, kind)
 
     # -- receiving ---------------------------------------------------------
 

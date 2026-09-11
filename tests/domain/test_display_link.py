@@ -12,8 +12,10 @@ from unittest.mock import patch
 import pytest
 
 from punt_lux.domain.hub.display_link import DisplayLink
+from punt_lux.domain.hub.hub_id import HubId
 from punt_lux.protocol import (
     AckMessage,
+    ConnectMessage,
     MenuMessage,
     PingMessage,
     PongMessage,
@@ -192,6 +194,99 @@ class TestConnect:
             client.connect()
             client.connect()  # should be a no-op
             assert client.is_connected
+            client.close()
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# ConnectMessage.hub_id (W2, DES-089)
+# ---------------------------------------------------------------------------
+
+
+class TestPostHandshakeHubId:
+    def test_kind_hub_sends_a_real_hub_id(self, tmp_path: Path) -> None:
+        """A kind="hub" connection declares HubId.current().wire_token."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+        received: list[ConnectMessage] = []
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            assert server_conn is not None
+            msg = recv_message(server_conn, timeout=5)
+            assert isinstance(msg, ConnectMessage)
+            received.append(msg)
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        try:
+            client = DisplayLink(
+                sock_path,
+                name="lux-mcp",
+                kind="hub",
+                auto_spawn=False,
+                connect_timeout=2.0,
+            )
+            client.connect()
+            t.join(timeout=2)
+            assert len(received) == 1
+            assert received[0].hub_id == HubId.current().wire_token
+            client.close()
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+    def test_kind_test_sends_a_stub_hub_id(self, tmp_path: Path) -> None:
+        """A kind="test" connection declares a stub HubId, never an absence."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+        received: list[ConnectMessage] = []
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            assert server_conn is not None
+            msg = recv_message(server_conn, timeout=5)
+            assert isinstance(msg, ConnectMessage)
+            received.append(msg)
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        try:
+            client = DisplayLink(
+                sock_path,
+                name="probe",
+                kind="test",
+                auto_spawn=False,
+                connect_timeout=2.0,
+            )
+            client.connect()
+            t.join(timeout=2)
+            assert len(received) == 1
+            assert received[0].hub_id == HubId.stub().wire_token
             client.close()
         finally:
             if server_conn:
