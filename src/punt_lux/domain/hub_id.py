@@ -46,6 +46,46 @@ class HubId:
     hostname: str
     pid: int
 
+    def __post_init__(self) -> None:
+        """Canonicalize ``hostname`` once, here, so every construction path
+        (:meth:`current`, :meth:`stub`, :class:`HubIdToken`'s wire resolve)
+        agrees on the same identity for the same host.
+
+        Without this, a cross-host peer whose cert SAN names
+        ``hub1.example.com`` could declare ``hub_id=HUB1.EXAMPLE.COM``,
+        pass the Gate 2 case-insensitive SAN compare
+        (``cross_host_verification.py``), and then register as a *second*,
+        distinct ``HubId`` from an already-live ``hub1.example.com``
+        connection -- defeating W11's at-most-one-live-connection-per-HubId
+        preemption. Canonicalizing here means the wire token, the
+        registration/preemption key, and the Gate 2 compare all read the
+        same normalized value, by construction, rather than needing to
+        agree independently.
+        """
+        object.__setattr__(self, "hostname", self._canonicalize(self.hostname))
+
+    @staticmethod
+    def _canonicalize(hostname: str) -> str:
+        """Return ``hostname`` lowercased, or raise if it is not ASCII.
+
+        FQDNs are ASCII, or punycode (RFC 3492) for a non-ASCII domain --
+        never raw Unicode. DNS names are case-insensitive (RFC 4343), and a
+        plain ASCII ``str.lower()`` is exact and total *because* the input
+        is ASCII-only: Unicode-aware folding (``str.casefold()``) is what
+        would be needed for non-ASCII input, and casefold collides distinct
+        strings (``"faß"`` and ``"fass"`` casefold identically) -- exactly
+        the kind of identity collision this canonicalization exists to
+        close. Rejecting non-ASCII outright removes the need for that
+        collision-prone fold rather than trading one masquerade risk for
+        another.
+        """
+        if not hostname.isascii():
+            msg = (
+                f"HubId.hostname must be ASCII (FQDNs are ASCII/punycode): {hostname!r}"
+            )
+            raise ValueError(msg)
+        return hostname.lower()
+
     @classmethod
     def current(cls) -> Self:
         """This process's own HubId, as declared to the Display."""

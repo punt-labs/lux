@@ -51,7 +51,15 @@ class CrossHostVerification:
     def reject_unless_verified(self, sock: socket.socket, hub_id: HubId) -> bool:
         """Return whether ``sock``'s declared ``hub_id`` must be rejected.
 
-        Comparison is case-insensitive -- DNS names are (RFC 4343) -- and a
+        Comparison is case-insensitive -- DNS names are (RFC 4343) -- via a
+        plain ASCII ``str.lower()``, never ``str.casefold()``: casefold is
+        Unicode-aware and collides distinct strings (``"faß"`` and
+        ``"fass"`` casefold identically), which would let one hostname
+        masquerade as another. ``str.lower()`` is exact here because
+        ``HubId.hostname`` is already canonicalized ASCII-only at
+        construction (``domain/hub_id.py``) and the certificate's SAN is an
+        IA5String -- ASCII-only by the X.509 encoding itself (RFC 5280) --
+        so only this side, the cert-derived one, still needs lowering. A
         peer certificate this Display cannot read as naming exactly one
         hostname (absent SAN, more than one DNSName, no certificate at all)
         is treated as a mismatch rather than left to raise past this gate:
@@ -69,7 +77,7 @@ class CrossHostVerification:
             # must reject, never propagate and crash the render loop.
             logger.warning("cross-host peer certificate unusable: %s", exc)
             return True
-        mismatch = verified_hostname.casefold() != hub_id.hostname.casefold()
+        mismatch = verified_hostname.lower() != hub_id.hostname
         if mismatch:
             logger.warning(
                 "cross-host SAN/hub_id mismatch: cert names %r, hub_id declares %r",

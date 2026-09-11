@@ -69,9 +69,10 @@ class HubReconciliation:
         does not match the hostname its mTLS handshake already verified is
         rejected here, closed, and never reaches
         :meth:`SocketListener.register_client_identity` -- so it can never
-        become an identified fd content-bearing messages are let through
-        for (Invariant 1, system.tex §"Invariants"). A same-host
-        (``AF_UNIX``) connection is untouched by this gate (Invariant 4).
+        become an identified fd, the state content-bearing messages
+        require to be let through (Invariant 1, system.tex §"Invariants").
+        A same-host (``AF_UNIX``) connection is untouched by this gate
+        (Invariant 4).
         """
         name = msg.name.strip()
         if not name:

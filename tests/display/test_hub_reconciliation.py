@@ -390,6 +390,42 @@ class TestCrossHostHostnameVerification:
         assert listener.hub_fd_for(HubId("anything.invalid", 123)) == 10
         sock.close.assert_not_called()
 
+    def test_a_reconnect_differing_only_in_declared_hostname_case_preempts(
+        self,
+    ) -> None:
+        """The identity/preemption bypass this gate exists to close: a peer
+        declaring ``HUB1.EXAMPLE.COM`` is the *same* HubId as one already
+        live under ``hub1.example.com`` -- it must preempt, not coexist as
+        a second, distinct identity (W11's at-most-one-per-HubId)."""
+        listener = _make_listener()
+        scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
+        reconciliation = _make_reconciliation(listener, scenes)
+        old_sock = _ssl_mock_sock(10, _der_for("hub1.example.com"))
+        listener.clients.append(old_sock)
+        listener.fd_to_client[10] = old_sock
+        reconciliation.handle_connect(
+            old_sock,
+            ConnectMessage(
+                name="lux-mcp", kind="hub", hub_id="hub1.example.com\x1f123"
+            ),
+        )
+        assert listener.hub_fd_for(HubId("hub1.example.com", 123)) == 10
+
+        new_sock = _ssl_mock_sock(20, _der_for("hub1.example.com"))
+        listener.clients.append(new_sock)
+        listener.fd_to_client[20] = new_sock
+        reconciliation.handle_connect(
+            new_sock,
+            ConnectMessage(
+                name="lux-mcp", kind="hub", hub_id="HUB1.EXAMPLE.COM\x1f123"
+            ),
+        )
+
+        old_sock.close.assert_called_once()  # preempted, not left coexisting
+        assert old_sock not in listener.clients
+        assert listener.hub_fd_for(HubId("hub1.example.com", 123)) == 20
+        assert listener.hub_fd_for(HubId("HUB1.EXAMPLE.COM", 123)) == 20
+
 
 def _identify_as_hub(listener: SocketListener, sock: MagicMock) -> None:
     """Register ``sock`` as an identified, connected ``kind="hub"`` fd --

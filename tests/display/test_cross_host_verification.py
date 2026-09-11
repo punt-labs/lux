@@ -131,6 +131,23 @@ class TestMatching:
 
         assert rejected is False
 
+    def test_a_declared_hub_id_differing_only_in_case_from_the_san_is_accepted(
+        self,
+    ) -> None:
+        # The declared HubId side, not just the SAN side: HubId itself
+        # canonicalizes to lowercase (domain/hub_id.py), so a peer
+        # declaring an upper-case hub_id against a lower-case cert SAN
+        # passes Gate 2 exactly as a same-case declaration would.
+        verification = CrossHostVerification()
+        der = _der_for("hub1.example.com")
+        sock = _ssl_sock(10, der)
+
+        rejected = verification.reject_unless_verified(
+            sock, HubId("HUB1.EXAMPLE.COM", 123)
+        )
+
+        assert rejected is False
+
 
 class TestMismatch:
     def test_a_mismatched_hostname_is_rejected(self) -> None:
