@@ -12,6 +12,7 @@ import socket
 from dataclasses import dataclass
 from typing import Self, final
 
+from punt_lux.domain.hostname import Hostname
 from punt_lux.domain.id_separator import ID_SEPARATOR
 
 __all__ = ["HubId"]
@@ -27,9 +28,8 @@ _STUB_PID = 0
 class HubId:
     """A Hub connection's own stable identity -- network host plus process.
 
-    Two independent uniqueness axes, kept as two fields because they are
-    disambiguated by two different mechanisms: ``hostname`` distinguishes one
-    machine from another (FQDN via :func:`socket.getfqdn`, not
+    Two independent uniqueness axes: ``hostname`` distinguishes one machine
+    from another (FQDN via :func:`socket.getfqdn`, not
     :func:`socket.gethostname` -- a bare hostname is not guaranteed unique
     across a network the way it is on one box); ``pid`` distinguishes one
     process from another on the same machine, the same shape of fix
@@ -41,10 +41,30 @@ class HubId:
     ``0700`` permission already bounds who can open a connection to declare a
     HubId in the first place -- that argument does not carry across a
     network, which is exactly why cross-host needs mTLS.
+
+    Frozen (hashable, immutable) because a ``HubId`` is a
+    dict/registry/``HubScopedStore`` key -- a post-construction write would
+    corrupt the hash of an already-inserted key.
+
+    The host axis is canonicalized through the composed :class:`Hostname`
+    value type, which owns the lowercase-canonical, ASCII-only invariant in
+    its own construction. Because every ``HubId`` gets its host through that
+    one constructor -- whether it came from :meth:`current`, :meth:`stub`, or
+    a wire token's resolve -- ``HUB1`` and ``hub1`` mint the *same* identity
+    by construction: the wire token, the registration/preemption key, and the
+    Gate 2 SAN compare all read the one normalized value rather than needing
+    to agree independently. Without that, a cross-host peer whose cert SAN
+    names ``hub1.example.com`` could declare ``hub_id=HUB1.EXAMPLE.COM``, pass
+    the case-insensitive SAN compare, and then register as a *second*,
+    distinct ``HubId`` from an already-live ``hub1.example.com`` connection --
+    defeating W11's at-most-one-live-connection-per-HubId preemption.
     """
 
-    hostname: str
+    _hostname: str
     pid: int
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_hostname", Hostname(self._hostname).value)
 
     @classmethod
     def current(cls) -> Self:
@@ -65,9 +85,23 @@ class HubId:
         return cls(_STUB_HOSTNAME, _STUB_PID)
 
     @property
+    def hostname(self) -> str:
+        """The canonical (ASCII-lowercase) network host string.
+
+        A ``str`` rather than the composed :class:`Hostname`, because every
+        consumer -- the Gate 2 SAN compare, the address-book label, the wire
+        token -- wants the plain canonical string, and the value type has
+        already done its one job (validate and lowercase) at construction.
+        """
+        return self._hostname
+
+    @property
     def wire_token(self) -> str:
         """The string this identity declares on the wire.
 
         Compared for equality only, never parsed.
         """
-        return f"{self.hostname}{ID_SEPARATOR}{self.pid}"
+        return f"{self._hostname}{ID_SEPARATOR}{self.pid}"
+
+    def __repr__(self) -> str:
+        return f"HubId({self._hostname!r}, {self.pid})"

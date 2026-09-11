@@ -57,6 +57,20 @@ def test_pem_roundtrip_preserves_hostname() -> None:
     assert restored.hostname == original.hostname
 
 
+def test_der_roundtrip_preserves_hostname() -> None:
+    # DER is the form ssl.SSLSocket.getpeercert(binary_form=True) returns --
+    # this is the exact roundtrip the cross-host SAN check depends on.
+    original = _signed_leaf()
+    restored = LeafCertificate.from_der(original.to_der())
+    assert restored.hostname == original.hostname
+
+
+def test_der_roundtrip_preserves_the_whole_certificate() -> None:
+    original = _signed_leaf()
+    restored = LeafCertificate.from_der(original.to_der())
+    assert restored.to_pem() == original.to_pem()
+
+
 def test_save_then_load_roundtrips(tmp_path: Path) -> None:
     path = tmp_path / "hub1.crt"
     original = _signed_leaf()

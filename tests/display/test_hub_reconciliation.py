@@ -8,6 +8,7 @@ that exercises the real wire protocol end to end lives in
 
 from __future__ import annotations
 
+import ssl
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
@@ -23,6 +24,7 @@ from punt_lux.protocol import (
     SceneMessage,
     TextElement,
 )
+from punt_lux.trust import CertificateAuthority
 
 _HUB_A = HubId("hub-a.invalid", 1)
 _HUB_B = HubId("hub-b.invalid", 2)
@@ -258,6 +260,171 @@ class TestHandleConnect:
             reconciliation.handle_connect(sock, msg)
 
         assert not any("test-kind connect" in r.message for r in caplog.records)
+
+
+def _der_for(hostname: str) -> bytes:
+    """Return DER bytes for a freshly-issued leaf naming *hostname* (W7 material)."""
+    ca = CertificateAuthority.create()
+    _, leaf = ca.issue_leaf(hostname)
+    return leaf.to_der()
+
+
+def _ssl_mock_sock(fd: int, der: bytes) -> MagicMock:
+    """A ``MagicMock(spec=ssl.SSLSocket)`` -- the cross-host (TLS) shape,
+    distinguishable from :func:`_mock_sock`'s plain ``AF_UNIX`` shape by
+    ``isinstance``, exactly as :class:`CrossHostVerification` distinguishes
+    them."""
+    sock = MagicMock(spec=ssl.SSLSocket)
+    sock.fileno.return_value = fd
+    sock.getpeercert.return_value = der
+    return sock
+
+
+class TestCrossHostHostnameVerification:
+    """Gate 2 (system.tex §"Coexistence with the Local Fast Path"): a
+    cross-host peer's declared ``hub_id.hostname`` must match its mTLS
+    certificate's SAN before ``handle_connect`` will identify it."""
+
+    def test_a_matching_hostname_is_identified_normally(self) -> None:
+        listener = _make_listener()
+        scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
+        reconciliation = _make_reconciliation(listener, scenes)
+        sock = _ssl_mock_sock(10, _der_for("hub7.example.com"))
+
+        reconciliation.handle_connect(
+            sock,
+            ConnectMessage(
+                name="lux-mcp", kind="hub", hub_id="hub7.example.com\x1f123"
+            ),
+        )
+
+        assert listener.hub_fd_for(HubId("hub7.example.com", 123)) == 10
+        sock.close.assert_not_called()
+
+    def test_a_mismatched_hostname_is_rejected_closed_and_never_identified(
+        self,
+    ) -> None:
+        listener = _make_listener()
+        scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
+        reconciliation = _make_reconciliation(listener, scenes)
+        sock = _ssl_mock_sock(10, _der_for("hub7.example.com"))
+        listener.clients.append(sock)
+        listener.fd_to_client[10] = sock
+
+        reconciliation.handle_connect(
+            sock,
+            ConnectMessage(
+                name="lux-mcp", kind="hub", hub_id="attacker.example.com\x1f123"
+            ),
+        )
+
+        assert listener.hub_fd_for(HubId("attacker.example.com", 123)) is None
+        assert listener.kind_of(10) is None  # never identified
+        sock.close.assert_called_once()
+        assert sock not in listener.clients
+
+    def test_a_mismatch_is_never_preempted_as_a_stale_hub(self) -> None:
+        """A rejected connect must not reach preemption -- there is nothing
+        legitimate to preempt on behalf of an unverified declaration."""
+        listener = _make_listener()
+        scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
+        reconciliation = _make_reconciliation(listener, scenes)
+        live = _mock_sock(10)
+        listener.register_client_identity(
+            10,
+            kind="hub",
+            name="lux-mcp",
+            connect_time=0.0,
+            hub_id=HubId("pembroke", 123),
+        )
+        listener.clients.append(live)
+        mismatched = _ssl_mock_sock(20, _der_for("hub7.example.com"))
+        listener.clients.append(mismatched)
+        listener.fd_to_client[20] = mismatched
+
+        reconciliation.handle_connect(
+            mismatched,
+            ConnectMessage(name="lux-mcp", kind="hub", hub_id="pembroke\x1f123"),
+        )
+
+        live.close.assert_not_called()  # the live, unrelated hub survives
+        assert listener.hub_fd_for(HubId("pembroke", 123)) == 10
+
+    def test_a_mismatch_surfaces_via_the_injected_record_error(self) -> None:
+        listener = _make_listener()
+        scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
+        errors: list[str] = []
+
+        def record_error(_sev: str, msg: str, _ctx: str) -> None:
+            errors.append(msg)
+
+        reconciliation = HubReconciliation(
+            listener, scenes, record_error, IdentityGuard(listener, record_error)
+        )
+        sock = _ssl_mock_sock(10, _der_for("hub7.example.com"))
+
+        reconciliation.handle_connect(
+            sock,
+            ConnectMessage(
+                name="lux-mcp", kind="hub", hub_id="attacker.example.com\x1f123"
+            ),
+        )
+
+        assert any("hostname verification failed" in m for m in errors)
+
+    def test_a_same_host_af_unix_connect_is_unaffected(self) -> None:
+        """Invariant 4: a plain (non-TLS) socket is never subject to this
+        gate, whatever hostname its ``hub_id`` declares."""
+        listener = _make_listener()
+        scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
+        reconciliation = _make_reconciliation(listener, scenes)
+        sock = _mock_sock(10)  # plain MagicMock -- not ssl.SSLSocket
+
+        reconciliation.handle_connect(
+            sock,
+            ConnectMessage(
+                name="lux-mcp", kind="hub", hub_id="anything.invalid\x1f123"
+            ),
+        )
+
+        assert listener.hub_fd_for(HubId("anything.invalid", 123)) == 10
+        sock.close.assert_not_called()
+
+    def test_a_reconnect_differing_only_in_declared_hostname_case_preempts(
+        self,
+    ) -> None:
+        """The identity/preemption bypass this gate exists to close: a peer
+        declaring ``HUB1.EXAMPLE.COM`` is the *same* HubId as one already
+        live under ``hub1.example.com`` -- it must preempt, not coexist as
+        a second, distinct identity (W11's at-most-one-per-HubId)."""
+        listener = _make_listener()
+        scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
+        reconciliation = _make_reconciliation(listener, scenes)
+        old_sock = _ssl_mock_sock(10, _der_for("hub1.example.com"))
+        listener.clients.append(old_sock)
+        listener.fd_to_client[10] = old_sock
+        reconciliation.handle_connect(
+            old_sock,
+            ConnectMessage(
+                name="lux-mcp", kind="hub", hub_id="hub1.example.com\x1f123"
+            ),
+        )
+        assert listener.hub_fd_for(HubId("hub1.example.com", 123)) == 10
+
+        new_sock = _ssl_mock_sock(20, _der_for("hub1.example.com"))
+        listener.clients.append(new_sock)
+        listener.fd_to_client[20] = new_sock
+        reconciliation.handle_connect(
+            new_sock,
+            ConnectMessage(
+                name="lux-mcp", kind="hub", hub_id="HUB1.EXAMPLE.COM\x1f123"
+            ),
+        )
+
+        old_sock.close.assert_called_once()  # preempted, not left coexisting
+        assert old_sock not in listener.clients
+        assert listener.hub_fd_for(HubId("hub1.example.com", 123)) == 20
+        assert listener.hub_fd_for(HubId("HUB1.EXAMPLE.COM", 123)) == 20
 
 
 def _identify_as_hub(listener: SocketListener, sock: MagicMock) -> None:

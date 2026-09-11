@@ -82,6 +82,24 @@
 
 ### Fixed
 
+- **Dev tooling: local `make check-coupling` now scores the same range CI
+  does (`lux-cv7p`).** `tools/oo_coupling.py`'s `--check` defaulted to
+  `HEAD~1..HEAD` — the last commit only — whenever `--base-ref` was omitted,
+  which is exactly how a bare local `make check-coupling` invokes it. A
+  within-cap coupling regression buried in an *earlier* commit of a
+  multi-commit local branch, never re-touched by a later commit, passed
+  `make check` locally and only ever failed once pushed, where CI always
+  overrides the default explicitly. The CLI now resolves
+  `merge-base(origin/main, HEAD)` itself when `--base-ref` is absent — the
+  identical default `oo_score.py`'s `GitRepo.resolve_base` already computes —
+  so both ratchets default the same way and a bare `make check` catches
+  exactly what CI catches. Falls back to `HEAD~1` both when merge-base cannot
+  resolve (no `origin/main` ref, no `origin` remote, or no common history)
+  and when the merge-base *is* HEAD (no commits ahead of `origin/main` — the
+  shape of a push whose `origin/main` was just fetched to the pushed tip, so
+  the range would otherwise be empty). The resolver runs only for `--check`,
+  never for `--update`/`--log`/`--json`. CI's explicit `--base-ref` on both
+  triggers is unchanged.
 - **Stale-connection preemption no longer kills a second, genuinely distinct
   Hub.** Single-owner preemption keyed on the declared `ConnectMessage.name`,
   and every production Hub declares the identical hardcoded name
@@ -208,6 +226,28 @@
   `ContentMessageGate` (`display/content_message_gate.py`) so
   `RenderLoop._handle_message` stays a pure dispatch table. (bead lux-2kv9,
   DES-090.)
+- **Cross-host `ConnectMessage`s now cross-check the declared `HubId` against
+  the mTLS peer certificate's own Subject Alternative Name (Gate 2 of the
+  cross-host connect sequence).** The mTLS handshake (Gate 1) proves a
+  connecting peer holds a key this Display's trust anchor signed, but not
+  that the `HubId.hostname` it self-reports in `ConnectMessage` is the
+  machine that key was issued to — a misconfigured (not even malicious) Hub
+  could self-report a hostname colliding with a different, already-live
+  Hub's entry. A new `CrossHostVerification`
+  (`display/cross_host_verification.py`) derives the verified hostname from
+  the peer certificate's SAN and rejects the connection outright — closed,
+  logged, never registered — on any mismatch; a same-host (`AF_UNIX`)
+  connection is untouched (`isinstance` structurally excludes a plain
+  `socket.socket`). `HubId.hostname` is now canonicalized to ASCII-lowercase
+  at construction (`domain/hub_id.py`) so the wire token, the
+  registration/preemption key, and this gate's own compare can never
+  disagree about whether two differently-cased hostnames name the same Hub
+  — closing an identity/preemption bypass where a peer could otherwise
+  register a same-host, differently-cased `HubId` as a second, distinct
+  identity. Comparison uses plain ASCII `str.lower()`, not `str.casefold()`,
+  because casefold is Unicode-aware and collides distinct strings (e.g.
+  `"faß"` and `"fass"`); a non-ASCII declared hostname is rejected outright
+  rather than folded. (bead lux-dp9n, W9, DES-090.)
 
 ### Removed
 
