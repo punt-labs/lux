@@ -1,8 +1,7 @@
-"""Unit tests for AddressRendering -- the Display's identity-rendering seam."""
+"""Unit tests for AddressRendering -- the Display's identity facade."""
 
 from __future__ import annotations
 
-from punt_lux.display.replica.address_book import AddressBook
 from punt_lux.display.replica.address_rendering import AddressRendering
 from punt_lux.display.replica.frame import Frame
 from punt_lux.domain.hub_id import HubId
@@ -14,11 +13,11 @@ _OKINOS = HubId("okinos", 300)
 
 
 def _rendering(*noted: tuple[HubId, str]) -> AddressRendering:
-    """An AddressRendering over a book with the given connections noted."""
-    book = AddressBook()
+    """An AddressRendering with the given connections noted."""
+    rendering = AddressRendering()
     for hub, key in noted:
-        book.note_connection(hub, key)
-    return AddressRendering(book)
+        rendering.note_connection(hub, key)
+    return rendering
 
 
 def _frame(hub: HubId, frame_id: str, title: str) -> Frame:
@@ -60,7 +59,7 @@ class TestTitleFor:
         assert rendering.title_for(_PEMBROKE_1, "Vox") == "Vox"
 
     def test_with_no_connections_noted_an_item_still_reads_plain(self) -> None:
-        assert AddressRendering(AddressBook()).title_for(_PEMBROKE_1, "Vox") == "Vox"
+        assert AddressRendering().title_for(_PEMBROKE_1, "Vox") == "Vox"
 
     def test_two_hubs_on_one_host_disambiguate_by_numbered_hostname(self) -> None:
         rendering = _rendering((_PEMBROKE_1, "c1"), (_PEMBROKE_2, "c2"))
@@ -73,11 +72,9 @@ class TestTitleFor:
         assert rendering.title_for(_OKINOS, "Vox") == "okinos :: Vox"
 
     def test_a_departed_second_hub_returns_the_survivor_to_plain(self) -> None:
-        book = AddressBook()
-        book.note_connection(_PEMBROKE_1, "c1")
-        book.note_connection(_OKINOS, "c2")
-        book.forget_connection(_OKINOS, "c2")
-        assert AddressRendering(book).title_for(_PEMBROKE_1, "Vox") == "Vox"
+        rendering = _rendering((_PEMBROKE_1, "c1"), (_OKINOS, "c2"))
+        rendering.forget_connection(_OKINOS, "c2")
+        assert rendering.title_for(_PEMBROKE_1, "Vox") == "Vox"
 
 
 class TestFrameProjection:

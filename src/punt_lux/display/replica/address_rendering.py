@@ -1,24 +1,23 @@
-"""AddressRendering -- render the shared AddressBook into an item's identity.
+"""AddressRendering -- the Display's identity facade for aggregated items.
 
 The one seam every leaf renderer (a frame title bar, a Windows-menu entry, a
 menu item) routes through, so no aggregated surface builds ImGui identity or a
-visible title from a bare label (DES-089). It composes the
-:class:`~punt_lux.display.replica.address_book.AddressBook` that owns Hub
-liveness and collision-numbered labels, and renders that state into the two
-strings a renderer needs: the hidden ImGui id and the visible title. Kept
-apart from ``AddressBook`` so identity *storage* (who is live, what each Hub is
-called) and identity *rendering* (how one item reads and keys) are separate
-responsibilities.
+visible title from a bare label (DES-089). It composes an
+:class:`~punt_lux.display.replica.address_book.AddressBook` -- the store that
+tracks which Hubs are live and what each is called -- and renders that state
+into the two strings a renderer needs: the hidden ImGui id and the visible
+title. Connect/disconnect feed it through :meth:`note_connection` /
+:meth:`forget_connection`; renderers read it through the rest.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.display.replica.address_book import AddressBook
 from punt_lux.domain.id_separator import ID_SEPARATOR
 
 if TYPE_CHECKING:
-    from punt_lux.display.replica.address_book import AddressBook
     from punt_lux.display.replica.frame import Frame
     from punt_lux.domain.hub_id import HubId
 
@@ -27,15 +26,23 @@ __all__ = ["AddressRendering"]
 
 @final
 class AddressRendering:
-    """Render one aggregated item's hidden id and visible title from the book."""
+    """Own the identity store and render one item's hidden id and visible title."""
 
     _book: AddressBook
     __slots__ = ("_book",)
 
-    def __new__(cls, book: AddressBook) -> Self:
+    def __new__(cls) -> Self:
         self = super().__new__(cls)
-        self._book = book
+        self._book = AddressBook()
         return self
+
+    def note_connection(self, hub: HubId, connection_key: str) -> None:
+        """Record one live Hub connection so its liveness and label are current."""
+        self._book.note_connection(hub, connection_key)
+
+    def forget_connection(self, hub: HubId, connection_key: str) -> None:
+        """Drop one connection, retiring its Hub's label once none remain."""
+        self._book.forget_connection(hub, connection_key)
 
     def hidden_id_for(self, hub: HubId, composed_key: str) -> str:
         """The ImGui identity: the Hub dimension prepended onto an already-

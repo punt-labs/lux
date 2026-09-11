@@ -2,12 +2,9 @@
 # pyright: reportUnknownArgumentType=false, reportMissingModuleSource=false
 """The ImGui render loop, with non-blocking Unix socket IPC.
 
-Listens on a Unix socket for protocol messages, renders via imgui-bundle,
-and polls I/O every frame with zero-timeout ``select()`` -- no threads/asyncio.
-
-This module imports Pillow at module level but defers ImGui and OpenGL
-imports to method bodies. It can be imported by unit tests (for state
-machine testing) but ``run()`` requires a GPU-capable environment.
+Polls I/O every frame with zero-timeout ``select()`` -- no threads/asyncio.
+Pillow imports at module level; ImGui and OpenGL imports are deferred to
+method bodies, so unit tests can import this without a GPU (``run()`` needs one).
 """
 
 from __future__ import annotations
@@ -72,21 +69,19 @@ from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
+    from punt_lux.display.replica.address_rendering import AddressRendering
     from punt_lux.domain.identity import HubId
     from punt_lux.protocol import Message
 
 logger = logging.getLogger(__name__)
 
-# Sentinel fd for scenes whose owning client has disconnected and no other
-# client remains in the frame.  The scene persists until the user closes the
-# frame or a new client adopts it.
+# Sentinel fd for a scene whose owning client disconnected with no co-owner;
+# it persists until the user closes the frame or a new client adopts it.
 _ORPHAN_FD = -1
 
-# Total wall-clock a single frame's synchronous sends (Acks, Pongs, query
-# responses) may spend waiting on a backpressured Hub. Well below the 1 s ping
-# timeout and the ~2 s macOS "not responding" threshold, so a slow-but-alive
-# peer never wedges the render thread long enough to trip either. Individual
-# sends past the budget are deferred by the caller, not blocked.
+# Total wall-clock a frame's synchronous sends may wait on a backpressured Hub.
+# Below the 1 s ping timeout and ~2 s macOS "not responding" threshold, so a
+# slow-but-alive peer never wedges the render thread; over-budget sends defer.
 _FRAME_SEND_BUDGET = 0.1
 
 
@@ -96,6 +91,7 @@ class RenderLoop:
     _socket_path: Path
     _socket_listener: SocketListener
     _scenes: SceneReplica
+    _addressing: AddressRendering
     _event_queue: list[RemoteEventHandlerInvocation]
     _interaction_delivery: InteractionDelivery
     _pending: PendingInteractions
@@ -136,6 +132,10 @@ class RenderLoop:
         self._scenes = SceneReplica(
             on_scene_replaced=self._drain_stale_events,
         )
+        # Inline import (like the factory wiring below) keeps this off efferent.
+        from punt_lux.display.replica.address_rendering import AddressRendering
+
+        self._addressing = AddressRendering()
         self._themes = []
         self._decorated = True
         self._opacity = 1.0
@@ -581,6 +581,7 @@ class RenderLoop:
         self._scenes.reassign_scenes_of(fd, _ORPHAN_FD)
         hub = self._socket_listener.hub_id_of(fd)
         self._menus.forget_hub(hub) if hub is not None else None
+        self._addressing.forget_connection(hub, str(fd)) if hub is not None else None
 
     # -- message handling --------------------------------------------------
 
@@ -625,8 +626,13 @@ class RenderLoop:
             logger.debug("Ignoring unknown message type %r", msg.raw_type)
 
     def _handle_connect(self, sock: socket.socket, msg: ConnectMessage) -> None:
-        """Record a client's declared identity; preempt a stale Hub (DES-068)."""
+        """Record identity, preempt a stale Hub, and note the Hub for cross-Hub
+        title disambiguation (DES-089) -- ``fd`` read first, before a rejected
+        connect may close the socket."""
+        fd = sock.fileno()
         self._hub_reconciliation.handle_connect(sock, msg)
+        hub = self._socket_listener.hub_id_of(fd)
+        self._addressing.note_connection(hub, str(fd)) if hub is not None else None
 
     def _handle_hub_manifest(
         self, sock: socket.socket, msg: HubManifestMessage
@@ -849,16 +855,8 @@ class RenderLoop:
         return result
 
     def _apply_fit_all(self) -> bool:
-        """If fit-all was requested, undock every frame and compute tile layout.
-
-        Returns True when fitting is active (callers should use
-        ``Cond_.always`` for position/size).
-
-        A *closed* frame is left closed. Fitting is a layout command over the
-        frames the user has on screen; pulling back a window they deliberately
-        shut would be a raise wearing a tiling command's clothes. Expand All and
-        the Windows menu's closed list are the gestures that mean "bring it back".
-        """
+        """Undock on-screen frames and tile them if fit-all was asked; return True
+        while fitting -- a *closed* frame is left closed, never pulled back."""
         if not self._fit_all_frames:
             return False
         self._fit_all_frames = False
@@ -877,14 +875,9 @@ class RenderLoop:
     def _render_single_frame(
         self, frame: Frame, imgui: Any, placement: FramePlacement
     ) -> tuple[str | None, bool]:
-        """Render one frame window.
-
-        Returns (result, hovered) where result is 'closed', 'minimized',
-        or None, and hovered indicates the mouse is over this frame.
-        """
-        # A fit-all pass places this frame at its computed tile rect, if one
-        # was assigned; falling through covers both "not fitting" and "fitting
-        # but this frame has no tile yet" in one branch.
+        """Render one frame window; return (result, hovered) where result is
+        'closed', 'minimized', or None."""
+        # A fit-all pass tiles this frame if it has a computed rect; else cascade.
         tiled = placement.tile_layout.get(frame.frame_id) if placement.fitting else None
         if tiled is not None:
             cond = imgui.Cond_.always.value
@@ -901,9 +894,9 @@ class RenderLoop:
             logger.info("raise frame=%s applied", frame.frame_id)
         win_flags = self._resolve_frame_flags(frame, imgui)
         still_open = True
-        expanded, still_open = imgui.begin(
-            f"{frame.title}##{frame.frame_id}", still_open, win_flags
-        )
+        title = self._addressing.frame_title(frame)
+        win_id = self._addressing.frame_window_id(frame)
+        expanded, still_open = imgui.begin(f"{title}##{win_id}", still_open, win_flags)
         hovered = imgui.is_window_hovered(
             imgui.HoveredFlags_.root_and_child_windows.value
         )
