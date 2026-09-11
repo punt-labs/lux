@@ -34,7 +34,7 @@ dependencies = [
     # The persistent hub client (LuxHubClient) speaks the WebSocket listen leg;
     # uvicorn already resolves websockets for its own server protocol, so this only
     # makes the client's dependency explicit rather than pulling a new package.
-    "websockets>=16.0,<17",
+    "websockets>=16.0,<18",
     # luxd itself needs its process identity ("luxd-hub") — for logs, ps,
     # Activity Monitor, and the pgrep-diff restart wait. Without this in the
     # base install, `pip install punt-lux` (no [display] extra) leaves luxd
