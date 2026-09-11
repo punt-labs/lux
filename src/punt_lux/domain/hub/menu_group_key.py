@@ -27,7 +27,7 @@ from __future__ import annotations
 import logging
 from typing import Self, final
 
-from punt_lux.domain.hub import applet_name_format
+from punt_lux.domain.hub.applet_name_format import session_pid_from_name
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.ids import ConnectionId
 
@@ -64,7 +64,7 @@ class MenuGroupKey:
         surfaces in luxd's log instead of a silent misgrouping.
         """
         if identity.kind == "applet":
-            pid = applet_name_format.session_pid_from_name(identity.name)
+            pid = session_pid_from_name(identity.name)
             if pid is not None:
                 return cls((_APPLET_TAG, identity.repo or "", format(pid, "x")))
             logger.warning(
