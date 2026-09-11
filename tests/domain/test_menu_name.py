@@ -14,8 +14,8 @@ freed to the senior holder still numbered against it.
 
 from __future__ import annotations
 
-from punt_lux.domain.hub.menu_name import MenuName, MenuNames
 from punt_lux.domain.ids import ConnectionId
+from punt_lux.domain.menu_name import MenuName, MenuNames
 
 
 class TestWhatANameReadsAs:

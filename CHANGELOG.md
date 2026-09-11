@@ -4,6 +4,18 @@
 
 ### Added
 
+- **`AddressBook` — Rung-3 identity minting for the Display (`lux-9109`,
+  DES-089).** The Display's `LuxAddress` closes the collision risk every
+  aggregated surface (menu, frame, scene, tree node) independently risked:
+  keying ImGui identity or a title on a bare label. `AddressBook` tracks the
+  live set of connected Hubs and, per Hub, the live set of connections;
+  computes each rung's ambiguity as a pure cardinality test on demand; and
+  reuses the same collision-numbering machinery `ClientRoster` already
+  applies at Rung 2 to label the Hub rung ("pembroke", then "pembroke (2)"
+  for a second Hub on the same host). `address_for()` is the one
+  construction path for a `LuxAddress`, and rejects a `connection_key` or
+  `leaf_key` carrying the internal unit separator that joins every rung's
+  key into the address's opaque `hidden_id`.
 - **Demand-driven display presence (`lux-81t3.1`).** The Hub no longer treats
   a missing display as an error to route around at every send site — it
   classifies the link (`DisplayLinkage`: disconnected, held, connected-idle,

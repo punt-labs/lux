@@ -14,34 +14,21 @@ from __future__ import annotations
 
 import logging
 import socket
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Self, final
 
-from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
-from punt_lux.domain.hub.hub_id import HubId
-from punt_lux.paths import DisplayPaths
-from punt_lux.protocol import (
-    ConnectMessage,
-    ReadyMessage,
-    recv_message,
-    send_message,
+from punt_lux.domain.hub.handshake_outcome import (
+    DisplayNotConnectedError,
+    HandshakeResult,
 )
+from punt_lux.domain.hub_id import HubId
+from punt_lux.paths import DisplayPaths
+from punt_lux.protocol import ConnectMessage, ReadyMessage, recv_message, send_message
 from punt_lux.send_timeout import set_send_timeout
 
 __all__ = ["HandshakeConnector", "HandshakeResult"]
 
 logger = logging.getLogger(__name__)
-
-
-@final
-@dataclass(frozen=True, slots=True)
-class HandshakeResult:
-    """The socket and ``ReadyMessage`` a completed handshake produced."""
-
-    sock: socket.socket
-    socket_path: Path
-    ready: ReadyMessage
 
 
 @final
