@@ -53,10 +53,13 @@ class AwsPrivateCaProvider:
         return self
 
     @classmethod
-    def connect(
-        cls, config: AwsPrivateCaConfig, *, region_name: str | None = None
-    ) -> Self:
+    def connect(cls, config: AwsPrivateCaConfig) -> Self:
         """Build a provider backed by a real ``boto3`` ACM Private CA client.
+
+        The client's region is taken from the CA ARN in *config*, not boto3's
+        ambient default (env/shared-config/IMDS): the ACM Private CA client
+        must reach the region the CA lives in, and a client silently pointed
+        elsewhere fails confusingly against a CA that "does not exist" there.
 
         Resolves credentials from boto3's default chain — never a static
         key this class holds or accepts. ``boto3`` is an opt-in dependency
@@ -71,7 +74,7 @@ class AwsPrivateCaProvider:
         # (_Boto3Module) resolves every downstream type from a single typed
         # boundary instead of a suppression at the call site (PY-TS-12).
         client_factory = cast("_Boto3Module", boto3)
-        raw_client = client_factory.client("acm-pca", region_name=region_name)
+        raw_client = client_factory.client("acm-pca", region_name=config.region)
         client = cast("_AcmPcaClient", raw_client)
         return cls(config, client)
 
@@ -150,12 +153,28 @@ class AwsPrivateCaProvider:
         remaining lifetime — a leaf must never outlive the CA that vouches
         for it, mirroring :meth:`.certificate_authority.CertificateAuthority
         .sign_csr`'s identical ``min(now + validity, root_expiry)`` clamp.
+
+        A CA at or past its own expiry has no window left to clamp to: the
+        clamp would produce a ``not_valid_after`` in the past, which ACM
+        Private CA rejects with an opaque ``IssueCertificate`` error. Fail
+        loud here instead, naming the CA's expiry, so the operator knows to
+        renew or replace the CA rather than debug an AWS-side rejection.
         """
-        requested = datetime.now(UTC) + timedelta(days=self._config.validity_days)
+        now = datetime.now(UTC)
+        requested = now + timedelta(days=self._config.validity_days)
         ca_certificate = x509.load_pem_x509_certificate(
             self._ca_certificate_response()["Certificate"].encode("ascii")
         )
-        return min(requested, ca_certificate.not_valid_after_utc)
+        ca_expiry = ca_certificate.not_valid_after_utc
+        not_valid_after = min(requested, ca_expiry)
+        if not_valid_after <= now:
+            msg = (
+                "ACM Private CA has no remaining validity to issue a leaf: the "
+                f"CA expires at {ca_expiry.isoformat()} (now {now.isoformat()}). "
+                "Renew or replace the CA before issuing certificates."
+            )
+            raise ValueError(msg)
+        return not_valid_after
 
     @staticmethod
     def _split_pem_bundle(bundle: bytes) -> tuple[bytes, ...]:

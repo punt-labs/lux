@@ -63,6 +63,17 @@ def test_a_real_boto3_acm_pca_client_satisfies_the_protocol() -> None:
     """The whole point of a structural Protocol: boto3 never imports this
     package, and this package never subclasses boto3, yet the real client
     boto3 hands back is a valid ``_AcmPcaClient`` by having the methods.
+
+    Constructing a boto3 client is a local operation: it loads the service
+    model from disk and builds an endpoint resolver, making no network call
+    and resolving no credentials (both are deferred to the first API call).
+    Passing ``region_name`` explicitly also skips ambient region resolution,
+    so this test cannot stall or require live AWS. The region assertion pins
+    that the explicit region is the one the client actually uses.
     """
     client = boto3.client("acm-pca", region_name="us-east-1")
+    # Region check first, while ``client`` is still boto3's untyped Any — the
+    # isinstance narrowing below rebinds it to the _AcmPcaClient Protocol,
+    # which does not (and should not) expose boto3's ``meta``.
+    assert client.meta.region_name == "us-east-1"
     assert isinstance(client, _AcmPcaClient)

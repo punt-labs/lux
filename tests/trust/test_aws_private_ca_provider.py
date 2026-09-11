@@ -60,6 +60,7 @@ class _FakeAcmPcaClient:
         self._next_arn = 0
         self.requested_waiter: str | None = None
         self.last_validity: dict[str, object] | None = None
+        self.last_template_arn: object = None
 
     def issue_certificate(self, **kwargs: object) -> dict[str, str]:
         csr_pem = kwargs["Csr"]
@@ -67,6 +68,7 @@ class _FakeAcmPcaClient:
         validity = kwargs["Validity"]
         assert isinstance(validity, dict)
         self.last_validity = validity
+        self.last_template_arn = kwargs["TemplateArn"]
         csr = CertificateSigningRequest.from_pem(csr_pem)
         leaf = self._signer.sign_csr(csr)
         self._next_arn += 1
@@ -195,6 +197,75 @@ def test_issue_leaf_certificate_clamps_validity_to_the_cas_remaining_lifetime() 
     expected_expiry = datetime.now(UTC) + root_expiry
     # Clamped to the CA's own expiry, not the config's 365-day request.
     assert abs(requested_epoch - expected_expiry.timestamp()) < 5
+
+
+def _already_expired_root() -> CertificateAuthority:
+    """A root whose validity window is entirely in the past — valid to build
+    (not_valid_before precedes not_valid_after) but already expired now.
+    """
+    key_pair = KeyPair.generate()
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "expired CA")])
+    now = datetime.now(UTC)
+    builder = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key_pair.public_key)
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(days=30))
+        .not_valid_after(now - timedelta(days=1))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
+    )
+    return CertificateAuthority(key_pair, key_pair.sign_certificate_builder(builder))
+
+
+def test_issue_leaf_certificate_rejects_an_expired_ca() -> None:
+    # A CA already past its own expiry has no window to clamp a leaf into:
+    # submitting a past-dated ABSOLUTE validity would draw an opaque ACM
+    # rejection, so the provider fails loud and names the CA's expiry instead.
+    ca = _already_expired_root()
+    client = _FakeAcmPcaClient(ca)
+    provider = _provider(client)
+    csr = CertificateSigningRequest.generate(_HOSTNAME, KeyPair.generate())
+
+    with pytest.raises(ValueError, match="no remaining validity"):
+        provider.issue_leaf_certificate(csr)
+
+
+def test_issue_leaf_certificate_forwards_the_configs_partition_template() -> None:
+    # The whole issuance path, not just the ARN shape-check, must honor the
+    # CA's partition: a GovCloud config sends a GovCloud template ARN so ACM
+    # does not reject a commercial-partition template against a GovCloud CA.
+    govcloud_arn = (
+        "arn:aws-us-gov:acm-pca:us-gov-west-1:123456789012:"
+        "certificate-authority/abc-123"
+    )
+    config = AwsPrivateCaConfig(
+        ca_authority_arn=govcloud_arn, signing_algorithm="SHA256WITHECDSA"
+    )
+    client = _FakeAcmPcaClient(CertificateAuthority.create())
+    provider = AwsPrivateCaProvider(config, client)
+    csr = CertificateSigningRequest.generate(_HOSTNAME, KeyPair.generate())
+
+    provider.issue_leaf_certificate(csr)
+
+    assert client.last_template_arn == (
+        "arn:aws-us-gov:acm-pca:::template/EndEntityCertificate/V1"
+    )
+
+
+def test_connect_wires_the_client_region_from_the_ca_arn() -> None:
+    # connect() must derive the boto3 client's region from the CA ARN, never
+    # boto3's ambient default — a client silently pointed at the wrong region
+    # fails against a CA that "does not exist" there. Constructing a boto3
+    # client makes no network call and needs no live AWS, so this is safe in
+    # CI (boto3 ships in the dev dependency-group).
+    config = AwsPrivateCaConfig(
+        ca_authority_arn=_CA_ARN, signing_algorithm="SHA256WITHECDSA"
+    )
+    provider = AwsPrivateCaProvider.connect(config)
+    assert isinstance(provider, TrustAnchorProvider)
+    assert provider._client.meta.region_name == "us-east-1"  # type: ignore[attr-defined]
 
 
 def test_issue_leaf_certificate_rejects_a_csr_with_a_tampered_signature() -> None:
