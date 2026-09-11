@@ -4,6 +4,15 @@
 
 ### Added
 
+- **`TreeNode` stable identity + Hub-authoritative tree selection
+  (`lux-kob7`).** `TreeNode` gains an `id` field (default `""` — unaddressable)
+  naming a node across a wire re-push, mirroring a table row's `key_column`.
+  `TreeElement` composes a `TreeSelectionModel` (`selection_mode`,
+  `selected_node_ids`, `anchor_node_id`), reconciled against the live node-id
+  set on every `nodes` write and validated as a `validate()` concern
+  (DES-039) — the same shape `TableElement`'s selection already ships. All
+  three selection fields are omitted from the wire at their display-only
+  defaults, so an unselectable tree's payload is unchanged.
 - **`AddressBook` — Rung-3 identity minting for the Display (`lux-9109`,
   DES-089).** The Display's `LuxAddress` closes the collision risk every
   aggregated surface (menu, frame, scene, tree node) independently risked:
