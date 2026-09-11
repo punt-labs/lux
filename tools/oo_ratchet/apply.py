@@ -147,6 +147,41 @@ class PlanApplier:
         ]
 
     @staticmethod
+    def over_cap_and_regressed(
+        entry: dict[str, float], base: dict[str, float] | None
+    ) -> list[str]:
+        """Return the metrics that refuse a ``--rebaseline-files`` bless.
+
+        A metric refuses the bless only when it BOTH fails its absolute
+        ``Thresholds.meets`` cap AND regressed against ``base`` (worse than
+        the file's existing committed baseline value for that metric, per
+        ``Thresholds.better_or_equal`` -- direction-aware, so a floor metric
+        like ``method_ratio`` regresses on a DECREASE while a ceiling metric
+        like ``module_size`` regresses on an INCREASE). An over-cap metric
+        that is unchanged or improved against its baseline is carried
+        forward untouched, not refused -- ``check()``'s own lock/
+        no-regression rule already grandfathers a pre-existing,
+        non-regressing violation; refusing it again here would let one
+        already-accepted debt on a file block an unrelated,
+        genuinely-necessary within-cap regression on the SAME file.
+
+        ``base`` absent (a genuinely new file, never rebaselined before) or
+        missing this specific metric falls back to the strict rule: any
+        value over cap refuses -- there is no prior value to grandfather
+        against.
+        """
+        refusals: list[str] = []
+        for metric, value in entry.items():
+            if Thresholds.meets(metric, value):
+                continue
+            if base is None or metric not in base:
+                refusals.append(metric)
+                continue
+            if not Thresholds.better_or_equal(metric, value, base[metric]):
+                refusals.append(metric)
+        return refusals
+
+    @staticmethod
     def deltas(
         entry: dict[str, float], base: dict[str, float] | None
     ) -> dict[str, list[float]]:

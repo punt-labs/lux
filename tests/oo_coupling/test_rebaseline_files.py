@@ -4,35 +4,48 @@ DES-096 authorizes a bounded, scoped, tool-computed bless: ``--rebaseline-files`
 records the CURRENT (recomputed) baseline for exactly the named files, and
 refuses -- writing nothing to either the baseline or the audit log -- when a
 named file's recomputed value strictly EXCEEDS its absolute PL-CU-1 threshold
-(a value exactly AT the cap is within-threshold and is recorded), or when a
-named path was never scored at all. Refusal is per-file, not all-or-nothing:
-a named file that clears its cap is still blessed even if another named file
-in the same call is refused. Every bless requires a caller-supplied
-``reason``, recorded in the audit entry -- the tool cannot judge "genuinely
-necessary first edge," so the human-supplied justification is the
-accountability.
+AND regressed against the file's existing baseline value for that metric (a
+value exactly AT the cap is within-threshold and is recorded; an over-cap
+value that is unchanged or improved vs. baseline is carried forward, not
+refused -- it is already grandfathered by ``check()``/``update()``'s own
+no-regression rule), or when a named path was never scored at all. Refusal is
+per-file, not all-or-nothing: a named file that clears its gate is still
+blessed even if another named file in the same call is refused. Every bless
+requires a caller-supplied ``reason``, recorded in the audit entry -- the tool
+cannot judge "genuinely necessary first edge," so the human-supplied
+justification is the accountability.
 
 These tests exercise: (1) a within-threshold regression IS recorded, (2) an
-over-threshold value is REFUSED with nothing written for it, (3) files not
-named in the bless are never touched, (4) a circular-import regression (an
-``==`` threshold, not a ``<=`` one) is refused the same way, (5) a value
-exactly AT the cap is accepted while one strictly over it is refused, in the
-same call, without one blocking the other, (6) the CLI-level requirement
-that ``--rebaseline-files`` without ``--reason`` fails before anything is
-written to either the baseline or the audit log -- and never even
-constructs the ``CouplingScorer``, (7) a path named in a non-canonical but
-equivalent form is still resolved and blessed, (8) a blessed file whose
-recomputed values exactly match the existing baseline still gets a full
-audit entry rather than silently vanishing from ``deltas``, (9) a baseline
-write failure never leaves a bless recorded-in-baseline-but-missing-from-
-audit, (10) legacy ``--update``/``--rebaseline`` audit entries omit the
-``reason`` key entirely rather than serializing ``"reason": null``, (11) a
-refused ``__main__.py`` file cites its own relaxed cap, not the default one,
-and (12) a bless invoked against an ABSOLUTE target -- whose scorer keys are
-therefore absolute -- lands on the file's EXISTING repo-relative baseline
-key (the one ``check()``/``update()`` actually read) instead of minting a
-second, differently-shaped key that leaves the real entry, and therefore
-``--check``, untouched.
+over-threshold value that also REGRESSED is REFUSED with nothing written for
+it, (3) files not named in the bless are never touched, (4) a circular-import
+regression (an ``==`` threshold, not a ``<=`` one) is refused the same way,
+(5) a value exactly AT the cap is accepted while one strictly over it (and
+regressed) is refused, in the same call, without one blocking the other, (6)
+the CLI-level requirement that ``--rebaseline-files`` without ``--reason``
+fails before anything is written to either the baseline or the audit log --
+and never even constructs the ``CouplingScorer``, (7) a path named in a
+non-canonical but equivalent form is still resolved and blessed, (8) a
+blessed file whose recomputed values exactly match the existing baseline
+still gets a full audit entry rather than silently vanishing from
+``deltas``, (9) a baseline write failure never leaves a bless
+recorded-in-baseline-but-missing-from-audit, (10) legacy
+``--update``/``--rebaseline`` audit entries omit the ``reason`` key entirely
+rather than serializing ``"reason": null``, (11) a refused ``__main__.py``
+file cites its own relaxed cap, not the default one, (12) a bless invoked
+against an ABSOLUTE target -- whose scorer keys are therefore absolute --
+lands on the file's EXISTING repo-relative baseline key (the one
+``check()``/``update()`` actually read) instead of minting a second,
+differently-shaped key that leaves the real entry, and therefore
+``--check``, untouched, (13) a pre-existing, non-regressing over-cap
+``avg_lcom`` is carried forward alongside a within-cap ``efferent_coupling``
+regression on the SAME file -- both blessed, and a subsequent ``check()``
+passes, (14) a metric that was ALREADY over cap at baseline and regresses
+FURTHER is still refused -- the gate is over-cap-AND-regressed, not
+over-cap-alone, so it never lets a god module keep sliding, (15) a
+pre-existing over-cap metric that IMPROVED (still over cap, but closer to
+threshold) is never refused, and (16) a genuinely new file -- absent from
+the baseline entirely -- with an over-cap value is refused under the strict
+rule, since there is no prior value to grandfather against.
 """
 
 from __future__ import annotations
@@ -534,3 +547,161 @@ def test_dunder_main_refusal_cites_relaxed_cap(tmp_path: Path) -> None:
     output = buf.getvalue()
     assert "<= 15" in output
     assert "<= 7" not in output
+
+
+# ---- over-cap-AND-regressed gate (guardrail refinement) ----
+
+# A 4-method class whose disjoint-pair fraction is 4/6 = 0.667: m1/m3 share
+# `_a`, m2/m4 share `_b`, every cross-pair (m1-m2, m1-m4, m2-m3, m3-m4) is
+# disjoint. avg_lcom for a single-class module equals that class's LCOM, and
+# 0.667 exceeds the `<= 0.5` avg_lcom cap.
+_LCOM_667_CLASS = (
+    "\n\nclass Carried:\n"
+    "    def m1(self) -> None:\n"
+    "        self._a = 1\n"
+    "\n"
+    "    def m2(self) -> None:\n"
+    "        self._b = 2\n"
+    "\n"
+    "    def m3(self) -> None:\n"
+    "        self._a = 3\n"
+    "\n"
+    "    def m4(self) -> None:\n"
+    "        self._b = 4\n"
+)
+
+# A 5-method class whose disjoint-pair fraction is 6/10 = 0.6: m1/m2/m3 all
+# share `_a` (3 overlapping pairs), m4/m5 share `_b` (1 overlapping pair),
+# every cross-group pair is disjoint (6 of them). 0.6 < 0.667 (an
+# improvement) and still exceeds the `<= 0.5` cap (still over cap).
+_LCOM_600_CLASS = (
+    "\n\nclass Carried:\n"
+    "    def m1(self) -> None:\n"
+    "        self._a = 1\n"
+    "\n"
+    "    def m2(self) -> None:\n"
+    "        self._a = 2\n"
+    "\n"
+    "    def m3(self) -> None:\n"
+    "        self._a = 3\n"
+    "\n"
+    "    def m4(self) -> None:\n"
+    "        self._b = 4\n"
+    "\n"
+    "    def m5(self) -> None:\n"
+    "        self._b = 5\n"
+)
+
+
+def test_pre_existing_over_cap_carried_alongside_within_cap_regression(
+    tmp_path: Path,
+) -> None:
+    """A pre-existing, non-regressing over-cap ``avg_lcom`` is carried forward
+    alongside a within-cap ``efferent_coupling`` regression on the SAME file --
+    both blessed in one call, matching ``check()``'s own no-regression (not
+    absolute) grandfathering of the unchanged ``avg_lcom``. A subsequent
+    ``check()`` for the file passes: neither metric regressed against the
+    NEW baseline this bless just recorded.
+    """
+    fx = RebaselineFilesFixture(tmp_path)
+    for i in range(1, 6):
+        fx.write(f"dep{i}.py", _stub_module(f"dep{i}"))
+
+    fx.write("target.py", _importer(["dep1", "dep2", "dep3", "dep4"]) + _LCOM_667_CLASS)
+    baseline_before = CouplingRatchet._results_by_file(fx.scorer().results)
+    fx.write_baseline(baseline_before)
+    target = fx.path("target.py")
+    assert baseline_before[target]["avg_lcom"] == pytest.approx(0.667)
+    assert baseline_before[target]["efferent_coupling"] == 4
+
+    # Regress efferent_coupling (4 -> 5, still within the <= 7 cap); the
+    # already-over-cap avg_lcom class is untouched.
+    fx.write(
+        "target.py",
+        _importer(["dep1", "dep2", "dep3", "dep4", "dep5"]) + _LCOM_667_CLASS,
+    )
+
+    exit_code = fx.ratchet().rebaseline_files(fx.scorer(), [target], _REASON)
+
+    assert exit_code == 0
+    recorded = fx.baseline()[target]
+    assert recorded["efferent_coupling"] == 5
+    assert recorded["avg_lcom"] == pytest.approx(0.667)
+
+    # No git repo in tmp_path -> _git_touched_files returns None -> check()
+    # falls back to treating every scored file as touched.
+    check_exit = fx.ratchet().check(fx.scorer(), base_ref="HEAD~1")
+    assert check_exit == 0
+
+
+def test_over_cap_metric_regressed_further_is_still_refused(tmp_path: Path) -> None:
+    """A metric ALREADY over cap at baseline that regresses FURTHER is refused.
+
+    The gate is over-cap AND regressed, not over-cap alone -- a god module
+    whose ``efferent_coupling`` was already 8 (over the ``<= 7`` cap) must
+    not be allowed to slide to 9 just because it was already in violation.
+    """
+    fx = RebaselineFilesFixture(tmp_path)
+    for i in range(1, 10):
+        fx.write(f"dep{i}.py", _stub_module(f"dep{i}"))
+    fx.write("target.py", _importer([f"dep{i}" for i in range(1, 9)]))  # 8, over cap
+    baseline_before = CouplingRatchet._results_by_file(fx.scorer().results)
+    fx.write_baseline(baseline_before)
+    target = fx.path("target.py")
+    assert baseline_before[target]["efferent_coupling"] == 8
+
+    fx.write("target.py", _importer([f"dep{i}" for i in range(1, 10)]))  # 9, worse
+
+    exit_code = fx.ratchet().rebaseline_files(fx.scorer(), [target], _REASON)
+
+    assert exit_code == 1
+    assert fx.baseline() == baseline_before
+    assert fx.audit_lines() == []
+
+
+def test_over_cap_metric_improved_is_never_refused(tmp_path: Path) -> None:
+    """A pre-existing over-cap metric that IMPROVED (still over cap) is blessed.
+
+    ``avg_lcom`` moves 0.667 -> 0.6: strictly better, but still above the
+    ``<= 0.5`` cap. Improvement is never refused, regardless of whether the
+    improved value still exceeds the absolute threshold.
+    """
+    fx = RebaselineFilesFixture(tmp_path)
+    fx.write("target.py", _HEADER + _LCOM_667_CLASS)
+    baseline_before = CouplingRatchet._results_by_file(fx.scorer().results)
+    fx.write_baseline(baseline_before)
+    target = fx.path("target.py")
+    assert baseline_before[target]["avg_lcom"] == pytest.approx(0.667)
+
+    fx.write("target.py", _HEADER + _LCOM_600_CLASS)
+
+    exit_code = fx.ratchet().rebaseline_files(fx.scorer(), [target], _REASON)
+
+    assert exit_code == 0
+    recorded = fx.baseline()[target]
+    assert recorded["avg_lcom"] == pytest.approx(0.6)
+
+
+def test_new_file_with_no_baseline_entry_over_cap_is_refused(tmp_path: Path) -> None:
+    """A genuinely new file (no baseline entry at all) keeps the strict rule.
+
+    There is no prior value to grandfather an over-cap metric against, so
+    every over-cap metric on a never-before-baselined file refuses
+    unconditionally -- exactly the pre-refinement behavior.
+    """
+    fx = RebaselineFilesFixture(tmp_path)
+    for i in range(1, 10):
+        fx.write(f"dep{i}.py", _stub_module(f"dep{i}"))
+    fx.write("existing.py", _stub_module("existing"))
+    fx.write_baseline(CouplingRatchet._results_by_file(fx.scorer().results))
+    baseline_before = fx.baseline()
+
+    # brand_new.py never appears in the baseline written above.
+    fx.write("brand_new.py", _importer([f"dep{i}" for i in range(1, 9)]))  # 8, over cap
+    target = fx.path("brand_new.py")
+
+    exit_code = fx.ratchet().rebaseline_files(fx.scorer(), [target], _REASON)
+
+    assert exit_code == 1
+    assert fx.baseline() == baseline_before
+    assert fx.audit_lines() == []
