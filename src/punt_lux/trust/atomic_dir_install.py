@@ -5,11 +5,12 @@ destination holding a torn mix of each other's files.
 
 from __future__ import annotations
 
-import shutil
 from collections.abc import Callable
 from pathlib import Path
 from typing import Self, TypeVar, final
 from uuid import uuid4
+
+from punt_lux.trust._race_rename import _RenameOutcome
 
 __all__ = ["AtomicDirInstall"]
 
@@ -39,13 +40,11 @@ class AtomicDirInstall:
         """Commit the staged directory onto the destination.
 
         Calls *on_win* if this install's rename got there first, or
-        *on_lose* if another writer's rename beat it — a directory
-        rename onto an occupied destination fails outright, so the
-        loser's staged content is discarded rather than left to diverge.
+        *on_lose* if another writer's rename beat it to *self._dest*.
+        Anything other than that specific race loss — permission,
+        ENOSPC, a cross-device rename — is not misclassified as one; see
+        :class:`_RenameOutcome`.
         """
-        try:
-            self._staging.rename(self._dest)
-        except OSError:
-            shutil.rmtree(self._staging, ignore_errors=True)
-            return on_lose()
-        return on_win()
+        if _RenameOutcome.commit(self._staging, self._dest):
+            return on_win()
+        return on_lose()

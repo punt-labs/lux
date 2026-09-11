@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from punt_lux.trust.atomic_dir_install import AtomicDirInstall
 
 
@@ -46,3 +48,29 @@ def test_staging_dir_is_a_sibling_of_the_destination(tmp_path: Path) -> None:
     install = AtomicDirInstall(dest)
     assert install.staging_dir.parent == dest.parent
     assert install.staging_dir != dest
+
+
+def test_finish_reraises_a_non_race_os_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A genuine I/O failure (permission, ENOSPC, cross-device rename) must
+    surface as itself, not get misclassified as a race loss — the
+    destination was never populated, so there is no winner to defer to.
+    """
+    dest = tmp_path / "dest"
+    install = AtomicDirInstall(dest)
+    install.staging_dir.mkdir(parents=True)
+
+    def _permission_denied(_self: Path, _target: str | Path) -> Path:
+        msg = "Permission denied"
+        raise PermissionError(msg)
+
+    monkeypatch.setattr(Path, "rename", _permission_denied)
+
+    with pytest.raises(PermissionError):
+        install.finish(lambda: "won", lambda: "lost")
+
+    # Not treated as a race loss: the staged content is left in place, not
+    # discarded, because this was never a real race to lose.
+    assert install.staging_dir.exists()
+    assert not dest.exists()
