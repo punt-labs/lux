@@ -45,13 +45,17 @@ check: check-oo check-coupling check-suppressions lint type test ## Run all qual
 # `make check-oo`/`make check-coupling` keeps each tool's own plain default:
 # merge-base(origin/main, HEAD) for BOTH tools now (oo_score.py's
 # GitRepo.resolve_base; oo_coupling.py's CouplingRatchet's own default base
-# resolver), falling back to HEAD~1 only when merge-base cannot resolve (no
-# origin/main fetched, detached HEAD). check-coupling's plain default used to
-# be an unconditional HEAD~1 -- the last commit only -- so a within-cap
-# regression buried in an earlier commit of a multi-commit local branch
-# passed `make check` and only ever failed once pushed, where CI always
-# overrode the default explicitly. The fix lives entirely in the tools; this
-# Makefile plumbing is unchanged.
+# resolver), falling back to HEAD~1 when merge-base cannot resolve (no
+# origin/main ref fetched, no origin remote, or no common history with
+# origin/main -- note a detached HEAD does NOT prevent merge-base, which
+# resolves fine as long as the ref and shared history exist) or when the
+# merge-base IS HEAD (HEAD carries no commits ahead of origin/main, so the
+# range is empty -- e.g. a push whose origin/main was just fetched to the
+# pushed tip). check-coupling's plain default used to be an unconditional
+# HEAD~1 -- the last commit only -- so a within-cap regression buried in an
+# earlier commit of a multi-commit local branch passed `make check` and only
+# ever failed once pushed, where CI always overrode the default explicitly.
+# The fix lives entirely in the tools; this Makefile plumbing is unchanged.
 check-oo: ## OO ratchet — must improve over baseline, never regress
 	uv run --extra display python tools/oo_score.py src/punt_lux/ --check $(if $(BASE_REF),--base-ref $(BASE_REF) --require-base,)
 
