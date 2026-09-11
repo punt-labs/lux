@@ -38,7 +38,7 @@ class TestAddressFor:
         addr = book.address_for(_PEMBROKE_1, "c1", "lux", "leaf1", "Vox")
         assert addr.hub.label == "pembroke"
 
-    def test_propagates_lux_addresss_rejection_of_a_separator_bearing_key(
+    def test_propagates_lux_address_rejection_of_a_separator_bearing_key(
         self,
     ) -> None:
         """LuxAddress owns the validation; this proves address_for wires it."""
