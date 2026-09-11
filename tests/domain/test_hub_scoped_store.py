@@ -8,9 +8,9 @@ exists to make unrepresentable (`system.tex` "Governing Invariant").
 
 from __future__ import annotations
 
-from punt_lux.domain.hub.hub_id import HubId
-from punt_lux.domain.hub.hub_scoped_key import HubScopedKey
-from punt_lux.domain.hub.hub_scoped_store import HubScopedStore
+from punt_lux.domain.hub_id import HubId
+from punt_lux.domain.hub_scoped_key import HubScopedKey
+from punt_lux.domain.hub_scoped_store import HubScopedStore
 
 _HUB_A = HubId("pembroke", 1)
 _HUB_B = HubId("okinos", 2)

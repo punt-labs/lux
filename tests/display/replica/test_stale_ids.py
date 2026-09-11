@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from punt_lux.display.replica.frame_book import FrameBook
 from punt_lux.display.replica.stale_ids import StaleIds
-from punt_lux.domain.hub.hub_id import HubId
-from punt_lux.domain.hub.hub_scoped_key import HubScopedKey
+from punt_lux.domain.hub_id import HubId
+from punt_lux.domain.hub_scoped_key import HubScopedKey
 from punt_lux.protocol import (
     ButtonElement,
     SceneMessage,

@@ -13,7 +13,7 @@ from urllib.parse import quote
 from punt_lux.connection_identity import connection_for
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.hub_display import HubDisplay
-from punt_lux.domain.hub.id_separator import ID_SEPARATOR
+from punt_lux.domain.id_separator import ID_SEPARATOR
 from punt_lux.domain.ids import SceneId
 from punt_lux.operations.display_reply import DisplayReplied
 

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux.domain.hub.hub_id import HubId
-from punt_lux.domain.hub.hub_id_token import HubIdToken
+from punt_lux.domain.hub_id import HubId
+from punt_lux.domain.hub_id_token import HubIdToken
 
 
 def test_resolve_round_trips_a_real_hub_ids_wire_token() -> None:

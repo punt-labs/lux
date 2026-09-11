@@ -2,7 +2,7 @@
 
 Split out of ``SceneReplica``, which keeps to per-scene widget state and
 stale-id notification. The scene-placement maps compose
-:class:`HubScopedStore <punt_lux.domain.hub.hub_scoped_store.HubScopedStore>`
+:class:`HubScopedStore <punt_lux.domain.hub_scoped_store.HubScopedStore>`
 (`system.tex` "Aggregated Storage") so two Hubs minting the identical scene
 id can never clobber one another's entry -- ``set_frame``/``record_owner``
 are Hub-scoped; removal and the flat read views stay keyed by the bare scene
@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.display.replica.focus_request import FocusRequest
 from punt_lux.display.replica.frame import Frame
 from punt_lux.display.replica.frame_visibility import FrameVisibility
-from punt_lux.domain.hub.identity import HubScopedKey, HubScopedStore
+from punt_lux.domain.identity import HubScopedKey, HubScopedStore
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping

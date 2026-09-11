@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 from punt_lux.display.content_message_gate import ContentMessageGate
 from punt_lux.display.identity_guard import IdentityGuard
 from punt_lux.display.socket_server import SocketListener
-from punt_lux.domain.hub.hub_id import HubId
+from punt_lux.domain.hub_id import HubId
 from punt_lux.protocol import CallbackMenuMessage, MenuMessage, ThemeMessage
 
 

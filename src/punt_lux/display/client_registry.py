@@ -17,7 +17,7 @@ from punt_lux.protocol import FrameReader
 if TYPE_CHECKING:
     import socket
 
-    from punt_lux.domain.hub.hub_id import HubId
+    from punt_lux.domain.hub_id import HubId
 
 __all__ = ["ClientRegistry"]
 

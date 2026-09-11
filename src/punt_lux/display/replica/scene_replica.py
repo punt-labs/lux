@@ -10,7 +10,7 @@ from punt_lux.display.replica.frame_book import FrameBook
 from punt_lux.display.replica.stale_ids import OnSceneReplacedFn, StaleIds
 from punt_lux.display.replica.widget_state import WidgetState, WireScalar
 from punt_lux.display.replica.widget_state_store import WidgetStateStore
-from punt_lux.domain.hub.identity import HubId, HubScopedKey
+from punt_lux.domain.identity import HubId, HubScopedKey
 from punt_lux.protocol import SceneMessage
 
 __all__ = ["OnSceneReplacedFn", "SceneReplica"]

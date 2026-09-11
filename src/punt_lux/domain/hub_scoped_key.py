@@ -2,7 +2,7 @@
 
 Composed as a value type (PY-IC-1), never concatenated into one string and
 never a bare tuple: two independently-meaningful fields, kept as two fields,
-the same argument :class:`~punt_lux.domain.hub.hub_id.HubId` itself makes for
+the same argument :class:`~punt_lux.domain.hub_id.HubId` itself makes for
 keeping ``hostname`` and ``pid`` apart rather than joining them.
 """
 
@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import final
 
-from punt_lux.domain.hub.hub_id import HubId
+from punt_lux.domain.hub_id import HubId
 
 __all__ = ["HubScopedKey"]
 

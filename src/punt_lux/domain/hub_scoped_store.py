@@ -16,12 +16,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.hub_scoped_key import HubScopedKey
+from punt_lux.domain.hub_scoped_key import HubScopedKey
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from punt_lux.domain.hub.hub_id import HubId
+    from punt_lux.domain.hub_id import HubId
 
 __all__ = ["HubScopedStore"]
 

@@ -14,8 +14,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import final
 
-from punt_lux.domain.hub.hub_id import HubId
-from punt_lux.domain.hub.id_separator import ID_SEPARATOR
+from punt_lux.domain.hub_id import HubId
+from punt_lux.domain.id_separator import ID_SEPARATOR
 
 __all__ = ["HubIdToken"]
 

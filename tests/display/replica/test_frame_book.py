@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 
 from punt_lux.display.replica.frame_book import FrameBook
-from punt_lux.domain.hub.hub_id import HubId
-from punt_lux.domain.hub.hub_scoped_key import HubScopedKey
+from punt_lux.domain.hub_id import HubId
+from punt_lux.domain.hub_scoped_key import HubScopedKey
 from punt_lux.protocol import SceneMessage, TextElement
 
 _HUB_A = HubId("pembroke", 1)

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from punt_lux.domain.hub.hub_id import HubId
-from punt_lux.domain.hub.hub_scoped_key import HubScopedKey
+from punt_lux.domain.hub_id import HubId
+from punt_lux.domain.hub_scoped_key import HubScopedKey
 
 
 def test_two_keys_with_the_same_hub_and_local_are_equal() -> None:
