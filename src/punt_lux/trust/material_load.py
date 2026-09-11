@@ -1,10 +1,9 @@
 """MaterialLoad — wrap a load failure with directory context.
 
-A save interrupted mid-write leaves a damaged or partial file; loading it
-back raises ``cryptography``'s bare deserialization error, with no
-indication of which directory or files caused it. This re-wraps that
-failure into a message naming the directory, so the caller gets a clear,
-actionable error instead of a "silent break."
+A save interrupted mid-write leaves a damaged, partial, or missing file
+whose bare ``ValueError``/``OSError`` names no directory. This re-wraps
+either into a message naming the directory — a clear error, not a
+silent break.
 """
 
 from __future__ import annotations
@@ -26,10 +25,11 @@ class MaterialLoad:
     @staticmethod
     def or_raise_clearly(directory: Path, load: Callable[[], _T]) -> _T:
         """Call *load*, or raise :class:`ValueError` naming *directory*
-        if *load* itself raises :class:`ValueError` (damaged material).
+        on a :class:`ValueError` (damaged) or :class:`OSError` (missing
+        or unreadable — e.g. a partial directory missing one file).
         """
         try:
             return load()
-        except ValueError as exc:
+        except (ValueError, OSError) as exc:
             msg = f"material at {directory} is damaged or incomplete: {exc}"
             raise ValueError(msg) from exc
