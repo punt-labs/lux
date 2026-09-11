@@ -53,3 +53,13 @@ def test_ensure_dir_is_idempotent(tmp_path: Path) -> None:
     paths.ensure_dir()
     paths.ensure_dir()  # must not raise on an already-existing directory
     assert paths.dir.is_dir()
+
+
+def test_ensure_dir_normalizes_a_preexisting_insecure_directory(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "ca"
+    root.mkdir(mode=0o755)
+    paths = CaPaths(root)
+    paths.ensure_dir()
+    assert stat.S_IMODE(root.stat().st_mode) == 0o700
