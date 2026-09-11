@@ -6897,8 +6897,12 @@ does a Display restart clear it: the Display is a replica, so on reconnect the
 Hub re-marks the menu (`ClientRegistry._connect_and_reconcile`) and
 `CallbackMenuReplica` rebuilds it from every live leased session — the restart
 just re-renders the Hub's authoritative roster, orphan included. The orphan
-clears only when the applet's own connection actually drops (its process exits,
-its transport lapses) or by manual cleanup. (The lease remains the backstop for
+clears only when the applet's process exits, or its connection stays down long
+enough for the lease to lapse, or by manual cleanup. A *transient* transport
+drop is not enough: `AppletLeg.serve()` reconnects after `_listen_once()`
+returns and runs `_register()` again, renewing the same lease and restoring the
+menu entry — so only a sustained-down connection (one that outlives the lease
+window) or an outright process exit removes it. (The lease remains the backstop for
 a genuinely *dead* connection, where the transport is gone and the lease
 lapses.)
 Bead `lux-0bkm` reported ghost applets accumulating in the Hub roster and the
