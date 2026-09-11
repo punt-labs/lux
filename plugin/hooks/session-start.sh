@@ -75,7 +75,7 @@ if command -v jq &>/dev/null && [[ -f "$SETTINGS" ]]; then
     "Skill(scene.table)"
     "Skill(callback.pending)"
     "Skill(frame.raise)"
-    "Skill(frame.close)"
+    "Skill(frame.remove)"
     "Skill(menu.ls)"
     "Skill(menu.set)"
     "Skill(session.ls)"
