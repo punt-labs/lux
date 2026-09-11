@@ -168,9 +168,16 @@ class FrameBook:
         self._focus.release(frame_id)
         return frame
 
-    def restore(self, frame_id: str) -> bool:
-        """Bring a frame on screen and ask for focus; report whether held."""
-        frame = self._frames.flatten().get(frame_id)
+    def restore(self, frame_id: str, hub: HubId = _NO_HUB) -> bool:
+        """Bring a frame on screen and ask for focus; report whether held. A
+        named Hub scopes the lookup to its own frames, so a callback item never
+        reopens another Hub's identically-named frame; ``_NO_HUB`` keeps the
+        flattened best-effort view its other callers read (lux-oshd scopes them)."""
+        frame = (
+            self._frames.get(HubScopedKey(hub, frame_id))
+            if hub != _NO_HUB
+            else self._frames.flatten().get(frame_id)
+        )
         if frame is None:
             return False
         frame.restore()

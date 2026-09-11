@@ -103,10 +103,10 @@ class SceneReplica:
         """Dock the named frame. No-op if it is gone."""
         self._book.minimize(frame_id)
 
-    def raise_frame(self, frame_id: str) -> bool:
-        """Restore the named frame and ask for focus; report whether it is
-        held -- the gesture behind a user asking for a frame by name."""
-        return self._book.restore(frame_id)
+    def raise_frame(self, frame_id: str, hub: HubId = _NO_HUB) -> bool:
+        """Restore the named frame in its owning Hub's scope and ask for focus;
+        report whether held -- a callback never reopens another Hub's frame."""
+        return self._book.restore(frame_id, hub)
 
     def on_screen_frames(self) -> list[Frame]:
         """Return the frames the renderer paints."""

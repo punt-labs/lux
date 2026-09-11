@@ -1,8 +1,5 @@
-"""MenuReplica — composes the replicated menu state and the model both
-surfaces render.
-
-``imgui`` is typed ``Any``: imgui_bundle ships no type stubs.
-"""
+"""MenuReplica — composes the replicated menu state and the model both surfaces
+render. ``imgui`` is typed ``Any``: imgui_bundle ships no type stubs."""
 
 from __future__ import annotations
 
@@ -25,35 +22,27 @@ if TYPE_CHECKING:
 
 __all__ = ["MenuReplica"]
 
-# replace_agent_menus/replace_callback_menus's own-Hub default; production
-# dispatch always resolves and passes the sender's real HubId.
+# The two replace_* methods' own-Hub default; production passes a real HubId.
 _NO_HUB = HubId.stub()
 
 
 @final
 class MenuReplica:
     """Compose the replicated menu state (:class:`ReplicatedMenus`) and the
-    two rendering surfaces (:class:`MenuSurfaces`) that draw the one model
-    built from it."""
+    two rendering surfaces (:class:`MenuSurfaces`) that draw its model."""
 
     _emit_event: Callable[[RemoteEventHandlerInvocation], None]
-    _on_raise_frame: Callable[[str], None]
+    _on_raise_frame: Callable[[str, HubId], None]
     _own: OwnMenus
     _menus: ReplicatedMenus
     _surfaces: MenuSurfaces
-    __slots__ = (
-        "_emit_event",
-        "_menus",
-        "_on_raise_frame",
-        "_own",
-        "_surfaces",
-    )
+    __slots__ = ("_emit_event", "_menus", "_on_raise_frame", "_own", "_surfaces")
 
     def __new__(
         cls,
         *,
         emit_event: Callable[[RemoteEventHandlerInvocation], None],
-        on_raise_frame: Callable[[str], None],
+        on_raise_frame: Callable[[str, HubId], None],
         get_frames: Callable[[], Mapping[str, Frame]],
         own: OwnMenus,
     ) -> Self:
@@ -73,8 +62,7 @@ class MenuReplica:
     def replace_agent_menus(
         self, payloads: Sequence[object], hub: HubId = _NO_HUB
     ) -> None:
-        """Take one Hub's agent bar; drops malformed menus. ``hub`` defaults
-        to a stub for a caller with no live Hub connection in play."""
+        """Take one Hub's agent bar; drops malformed menus."""
         self._menus.replace_agent_menus(payloads, hub)
 
     @property
@@ -84,12 +72,11 @@ class MenuReplica:
     def replace_callback_menus(
         self, payloads: Sequence[object], hub: HubId = _NO_HUB
     ) -> None:
-        """Take one Hub's ``Clients`` submenus; ``hub`` defaults to a stub."""
+        """Take one Hub's ``Clients`` submenus."""
         self._menus.replace_callback_menus(payloads, hub)
 
     def forget_hub(self, hub: HubId) -> None:
-        """Retire a departed Hub's agent and callback menus, so neither
-        lingers as a stale entry."""
+        """Retire a departed Hub's agent and callback menus -- no stale entry."""
         self._menus.forget_hub(hub)
 
     @property
@@ -98,13 +85,16 @@ class MenuReplica:
         return self._menus.stats
 
     def menu_model(self) -> MenuModel:
-        """Compose Lux, Clients, agent bars, chrome. Rebuilt each frame."""
-        handlers = MenuHandlers(self._emit_event, self._on_raise_frame)
+        """Compose Lux, Clients, agent bars, chrome, rebuilt each frame -- each
+        Hub-sourced section's handlers route straight to its own Hub."""
+        emit, raise_frame = self._emit_event, self._on_raise_frame
         return MenuModel(
             [
                 self._own.lux_section(),
-                *(Submenu.from_wire(m, handlers) for m in self._menus.callback_menus),
-                *(Submenu.from_wire(m, handlers) for m in self._menus.agent_menus),
+                *(
+                    Submenu.from_wire(m, MenuHandlers(emit, raise_frame, hub))
+                    for hub, m in self._menus.hub_scoped_menus_by_hub()
+                ),
                 *self._own.chrome_sections(),
             ]
         )

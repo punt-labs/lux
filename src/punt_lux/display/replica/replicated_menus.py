@@ -1,12 +1,7 @@
 """ReplicatedMenus — the agent-defined and Clients (callback) menu bars, each
-keyed by :class:`HubScopedKey <punt_lux.domain.identity.HubScopedKey>` so a
-second live Hub's push concatenates onto the first's bar instead of erasing
-it.
-
-Composed out of :class:`MenuReplica <punt_lux.display.replica.menu_replica.MenuReplica>`
-so the replicated-state concern and the two render-surface concerns cluster
-around different composed collaborators, rather than one class touching both.
-"""
+keyed by ``HubScopedKey`` so a second live Hub's push concatenates onto the
+first's bar rather than erasing it. Composed out of ``MenuReplica``, which
+also holds the two render surfaces as a separate collaborator."""
 
 from __future__ import annotations
 
@@ -14,16 +9,16 @@ from itertools import chain
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.display.menus.wire import WireMenu
+from punt_lux.display.replica.menu_by_hub import MenuByHub
 from punt_lux.display.replica.menu_stats import MenuStats
 from punt_lux.domain.identity import HubId, HubScopedKey, HubScopedStore
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterator, Sequence
 
 __all__ = ["ReplicatedMenus"]
 
-# One submenu list per Hub -- the disambiguator two Hubs need, for the
-# agent-defined bar and the Clients bar alike.
+# One submenu list per Hub -- the disambiguator two Hubs need, both bars alike.
 _AGENT_MENUS_LOCAL = "agent_menus"
 _CALLBACK_MENUS_LOCAL = "callback_menus"
 
@@ -55,8 +50,7 @@ class ReplicatedMenus:
     def replace_agent_menus(
         self, payloads: Sequence[object], hub: HubId = _NO_HUB
     ) -> None:
-        """Take one Hub's agent bar; drops malformed menus. ``hub`` defaults
-        to a stub for a caller with no live Hub connection in play."""
+        """Take one Hub's agent bar; drops malformed menus. Defaults to a stub."""
         menus = WireMenu.accepted(payloads, origin="agent_menus")
         self._agent_menus.put(HubScopedKey(hub, _AGENT_MENUS_LOCAL), menus)
 
@@ -72,9 +66,14 @@ class ReplicatedMenus:
         menus = WireMenu.accepted(payloads, origin="callback_menus")
         self._callback_menus.put(HubScopedKey(hub, _CALLBACK_MENUS_LOCAL), menus)
 
+    def hub_scoped_menus_by_hub(self) -> Iterator[tuple[HubId, WireMenu]]:
+        """Yield every live Hub's callback then agent-defined menus, each
+        paired with its Hub -- the routing hint a scene-less click carries."""
+        yield from MenuByHub.pairs(self._callback_menus)
+        yield from MenuByHub.pairs(self._agent_menus)
+
     def forget_hub(self, hub: HubId) -> None:
-        """Retire a departed Hub's agent and callback menus, so neither
-        lingers as a stale entry."""
+        """Retire a departed Hub's agent and callback menus -- no stale entry."""
         self._agent_menus.drop_hub(hub)
         self._callback_menus.drop_hub(hub)
 

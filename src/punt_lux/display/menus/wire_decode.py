@@ -1,13 +1,11 @@
 """Decode a checked wire menu's entries into the entries a menu renders.
 
-Split from :mod:`punt_lux.display.menus.model` (PY-IC-6: one responsibility per
-class) — :class:`~punt_lux.display.menus.model.Submenu` holds a label and
-renders entries; turning wire data into click-ready :class:`MenuEntry` objects
-is a separate concern with its own recursion. That recursion nests back into a
-menu whenever a wire entry is itself a menu, so it needs to build a
-``Submenu`` — but importing ``Submenu`` here would make this module and
-``model.py`` import each other. ``build_submenu`` breaks the cycle: the caller
-passes ``Submenu.from_wire`` in rather than this module reaching for it.
+Split from :mod:`punt_lux.display.menus.model` (PY-IC-6) — turning wire data
+into click-ready :class:`MenuEntry` objects is its own recursion, nesting back
+into a menu whenever an entry is itself one, so it needs to build a
+``Submenu`` — but importing it here would import ``model.py`` back.
+``build_submenu`` breaks the cycle: the caller passes ``Submenu.from_wire`` in
+rather than this module reaching for it.
 """
 
 from __future__ import annotations
@@ -88,13 +86,14 @@ class WireMenuDecoder:
 
         def activate() -> None:
             if target.frame_id is not None:
-                handlers.raise_frame(target.frame_id)
+                handlers.raise_frame(target.frame_id, handlers.hub)
             handlers.emit(
                 RemoteEventHandlerInvocation(
                     element_id=target.item_id,
                     action="menu",
                     ts=time.time(),
                     value={"menu": target.menu_label, "item": target.item_label},
+                    hub_token=handlers.hub.wire_token,
                 )
             )
 

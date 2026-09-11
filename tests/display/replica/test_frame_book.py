@@ -334,6 +334,21 @@ class TestRestore:
         assert book.restore("ghost") is False
         assert book.consume_focus("ghost") is False
 
+    def test_a_scoped_restore_reopens_only_its_own_hubs_frame(self) -> None:
+        # W6 / lux-oshd class: two Hubs each hold a frame under the identical
+        # id, both closed. A callback item names its owning Hub, so its raise
+        # must reopen that Hub's frame alone -- never the other's same-named one.
+        book = FrameBook()
+        frame_a = book.ensure(_scene(frame_id="board"), owner_fd=10, hub=_HUB_A)
+        frame_b = book.ensure(_scene(frame_id="board"), owner_fd=20, hub=_HUB_B)
+        frame_a.close()
+        frame_b.close()
+
+        assert book.restore("board", _HUB_A) is True
+
+        assert frame_a.is_on_screen is True  # its own Hub's raise reopened it
+        assert frame_b.is_closed is True  # the other Hub's frame stayed closed
+
 
 class TestVisibilityQueries:
     """The renderer and the menus ask the book, rather than testing a flag."""
