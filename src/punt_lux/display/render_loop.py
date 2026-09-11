@@ -293,8 +293,6 @@ class RenderLoop:
                     return p
             return None
 
-        merge: list[str] = []
-
         if platform.system() == "Darwin":
             primary = _first_existing(
                 "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
@@ -302,16 +300,12 @@ class RenderLoop:
             )
             # Apple Symbols fills gaps (math angle brackets U+27E8/E9, etc.)
             sym = _first_existing("/System/Library/Fonts/Apple Symbols.ttf")
-            if sym:
-                merge.append(sym)
             # STIX Two Math covers Mathematical Alphanumeric Symbols
             # (U+1D400-1D7FF) -- needed for Z notation double-struck letters
             math = _first_existing(
                 "/System/Library/Fonts/Supplemental/STIXTwoMath.otf",
                 "/Library/Fonts/STIXTwoMath.otf",
             )
-            if math:
-                merge.append(math)
         else:
             # Linux -- DejaVu has good symbol coverage; Noto as fallback
             primary = _first_existing(
@@ -326,17 +320,14 @@ class RenderLoop:
                 "/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf",
                 "/usr/share/fonts/noto/NotoSansSymbols2-Regular.ttf",
             )
-            if sym:
-                merge.append(sym)
             # Noto Sans Math covers Mathematical Alphanumeric Symbols
             # (U+1D400-1D7FF) -- needed for Z notation double-struck letters
             math = _first_existing(
                 "/usr/share/fonts/truetype/noto/NotoSansMath-Regular.ttf",
                 "/usr/share/fonts/noto/NotoSansMath-Regular.ttf",
             )
-            if math:
-                merge.append(math)
 
+        merge = [font for font in (sym, math) if font is not None]
         return primary, merge
 
     def _load_fonts(self) -> None:
@@ -738,8 +729,13 @@ class RenderLoop:
         ``RemoteEventHandlerInvocation`` to the Hub, where the real handler
         fires. This method is the socket-send path the ``remote_dispatch``
         closure captures.
+
+        A menu-sourced event already carries its own routing hint
+        (``hub_token``) and no scene -- stamping ``_current_scene_id`` onto it
+        would make it look scene-owned and defeat that routing (W6), so the
+        stamp is skipped whenever ``hub_token`` is set.
         """
-        if event.scene_id is None:
+        if event.scene_id is None and event.hub_token is None:
             event = dataclasses.replace(event, scene_id=self._current_scene_id)
         logger.debug(
             "_emit_event queued element_id=%s action=%s scene_id=%s",

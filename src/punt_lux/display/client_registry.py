@@ -107,13 +107,10 @@ class ClientRegistry:
 
     def fd_for_hub_token(self, token: str) -> int | None:
         """Return the live ``kind="hub"`` fd declaring this ``HubId.wire_token``
-        -- a menu's Hub. Excludes ``kind="test"`` connections: a scene-less
-        menu click must never route to a test probe standing in for no Hub."""
-        for candidate_fd, kind in self._client_kinds.items():
-            hub_id = self._client_hub_ids.get(candidate_fd)
-            if kind == "hub" and hub_id is not None and hub_id.wire_token == token:
-                return candidate_fd
-        return None
+        -- a menu's Hub, never a ``kind="test"`` probe standing in for none."""
+        kinds, hub_ids = self._client_kinds, self._client_hub_ids
+        hub_fds = filter(lambda fd: kinds[fd] == "hub", kinds)
+        return next(filter(lambda fd: hub_ids[fd].wire_token == token, hub_fds), None)
 
     def forget_connection(self, fd: int) -> None:
         """Drop everything but the ``HubId`` -- a caller may still resolve it once."""

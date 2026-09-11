@@ -121,26 +121,47 @@ class TestDeliver:
 
         delivery.deliver([event])
 
-        socket_listener.send_to_client.assert_called_once_with(a_sock, event)
+        sent_to = [c.args[0] for c in socket_listener.send_to_client.call_args_list]
+        assert sent_to == [a_sock]  # exactly hub-a's socket, never hub-b's
 
-    def test_a_scene_less_hub_less_event_is_undeliverable(self) -> None:
-        # No scene, no declared Hub: dropped, never guessed at with a
-        # broadcast.
+    def test_a_scene_less_hub_less_event_is_dropped_not_held(self) -> None:
+        # No scene, no declared Hub: dropped -- handled at once (never a
+        # broadcast, and never left stuck in the pending buffer forever).
         delivery, socket_listener = _build()
         event = RemoteEventHandlerInvocation(element_id="b", action="click", ts=1.0)
 
-        assert delivery.deliver([event]) == 0
+        assert delivery.deliver([event]) == 1  # handled: dropped, not sent
         socket_listener.send_to_client.assert_not_called()
 
-    def test_an_unresolvable_hub_token_is_undeliverable(self) -> None:
-        # The declared Hub has since departed; still no broadcast fallback.
+    def test_an_unresolvable_hub_token_is_dropped_not_held(self) -> None:
+        # The declared Hub has since departed; still no broadcast fallback,
+        # and the unroutable click is handled now rather than re-held forever.
         delivery, socket_listener = _build()
         event = RemoteEventHandlerInvocation(
             element_id="m", action="menu", ts=1.0, hub_token="departed-hub"
         )
 
-        assert delivery.deliver([event]) == 0
+        assert delivery.deliver([event]) == 1
         socket_listener.send_to_client.assert_not_called()
+
+    def test_a_dropped_event_does_not_stall_a_later_deliverable_one(self) -> None:
+        """The exact bug the fix closes: an unresolvable click ahead of a
+        deliverable one must not stall the deliverable one behind it."""
+        good_sock = object()
+        delivery, socket_listener = _build(
+            fd_to_client={9: good_sock}, hub_fds={"hub-a": 9}
+        )
+        unresolvable = RemoteEventHandlerInvocation(
+            element_id="m1", action="menu", ts=1.0, hub_token="departed-hub"
+        )
+        deliverable = RemoteEventHandlerInvocation(
+            element_id="m2", action="menu", ts=1.0, hub_token="hub-a"
+        )
+
+        handled = delivery.deliver([unresolvable, deliverable])
+
+        assert handled == 2  # both handled -- one dropped, one sent
+        socket_listener.send_to_client.assert_called_once_with(good_sock, deliverable)
 
     def test_delivery_stops_at_first_unsent_event(self) -> None:
         # A failed send ends the frame: that event and every one after it stay
