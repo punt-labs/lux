@@ -1,28 +1,16 @@
 """AddressBook -- the one place a leaf renderer resolves an item's identity.
 
-The failure mode DES-089 closes is not per-surface: menus, frames, scenes,
-and tree nodes each independently risk keying ImGui identity or a title on a
-bare label, and each one that does repeats the same bug -- two same-labeled
-items collide because nothing above the label namespaced it. One component
-owns the fix for every surface at once.
-
-:class:`AddressBook` tracks the live set of connected
-:class:`~punt_lux.domain.hub_id.HubId` values and, per Hub, the live set of
-connections; computes each rung's *ambiguity* -- a pure cardinality test --
-on demand; and, once the Hub rung is shown, reuses the same
-collision-numbering machinery ``ClientRoster`` already applies at Rung 2
-(:class:`~punt_lux.domain.hub.menu_name.MenuNames`) to compute the Hub
-rung's own label text -- "pembroke", then "pembroke (2)" for a second Hub
-on the same host. The connection and leaf rungs carry the labels their
-caller already resolved: Rung 2's own numbering is settled Hub-side
-(``ClientRoster``) before it ever reaches the wire, so AddressBook never
-re-numbers it.
-
-Ambiguity and labeling are two different jobs on two different cadences:
-ambiguity answers *whether* a rung shows at all, recomputed fresh on every
-call from whatever :meth:`note_connection`/:meth:`forget_connection` have
-most recently reported live; labeling answers *what* a shown rung's label
-reads as, and only changes when a Hub's connection count crosses zero.
+DES-089 closes a bug every aggregating surface (menu, frame, scene, tree
+node) independently risked: keying ImGui identity or a title on a bare
+label lets two same-labeled items collide. :class:`AddressBook` tracks the
+live set of connected :class:`~punt_lux.domain.hub_id.HubId` values and,
+per Hub, the live set of connections; computes each rung's *ambiguity* --
+a pure cardinality test, recomputed fresh on every call -- and, once the
+Hub rung is shown, reuses the collision-numbering machinery
+``ClientRoster`` already applies at Rung 2
+(:class:`~punt_lux.domain.menu_name.MenuNames`) to label it -- "pembroke",
+then "pembroke (2)" for a second Hub on the same host. The connection and
+leaf rungs carry the labels their caller already resolved.
 """
 
 from __future__ import annotations
@@ -30,8 +18,8 @@ from __future__ import annotations
 from typing import Self, final
 
 from punt_lux.display.replica.lux_address import LuxAddress, Rung
-from punt_lux.domain.hub.menu_name import MenuNames
 from punt_lux.domain.hub_id import HubId
+from punt_lux.domain.menu_name import MenuNames
 
 __all__ = ["AddressBook"]
 
@@ -40,9 +28,8 @@ __all__ = ["AddressBook"]
 class AddressBook:
     """Mint the disambiguated :class:`LuxAddress` every leaf renderer routes through.
 
-    No menu item, frame title, scene entry, or tree-node row may be built
-    from a bare label again -- :meth:`address_for` is the one construction
-    path.
+    :meth:`address_for` is the one construction path -- no menu item, frame
+    title, scene entry, or tree-node row may be built from a bare label.
     """
 
     _hub_labels: MenuNames[HubId]
@@ -58,24 +45,19 @@ class AddressBook:
     def note_connection(self, hub: HubId, connection_key: str) -> None:
         """Record one live connection, taking the Hub's label on its first.
 
-        A Hub becomes live -- and enters :meth:`hub_ambiguous`'s count -- the
-        moment it holds one connection, not before.
+        ``take`` is already a no-op past a holder's first call, so no
+        membership check is needed here.
         """
-        if hub not in self._connections:
-            self._hub_labels.take(hub, hub.hostname)
-            self._connections[hub] = set()
-        self._connections[hub].add(connection_key)
+        self._hub_labels.take(hub, hub.hostname)
+        self._connections.setdefault(hub, set()).add(connection_key)
 
     def forget_connection(self, hub: HubId, connection_key: str) -> None:
         """Drop one connection, retiring the Hub's label once none remain.
 
-        Forgetting a connection AddressBook never noted is not an error --
-        the same tolerance :meth:`~punt_lux.domain.hub.menu_name.MenuNames.drop`
-        already gives a departure it was never told to expect.
+        ``drop`` is already a no-op for a holder never given a name, so
+        forgetting a connection never noted is not an error either.
         """
-        live = self._connections.get(hub)
-        if live is None:
-            return
+        live = self._connections.setdefault(hub, set())
         live.discard(connection_key)
         if not live:
             del self._connections[hub]
@@ -93,7 +75,9 @@ class AddressBook:
 
         The Hub rung's label is the collision-numbered name
         :meth:`note_connection` assigned; the connection and leaf rungs pass
-        their caller-given labels through unchanged.
+        their caller-given labels through unchanged. :class:`LuxAddress`
+        itself raises if ``connection_key`` or ``leaf_key`` carries the
+        separator its ``hidden_id`` joins rungs on.
         """
         hub_label = self._hub_labels.labels().get(hub, hub.hostname)
         return LuxAddress(

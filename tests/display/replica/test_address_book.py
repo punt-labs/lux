@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import pytest
+
 from punt_lux.display.replica.address_book import AddressBook
 from punt_lux.domain.hub_id import HubId
+from punt_lux.domain.id_separator import ID_SEPARATOR
 
 _PEMBROKE_1 = HubId("pembroke", 100)
 _PEMBROKE_2 = HubId("pembroke", 200)
@@ -34,6 +37,16 @@ class TestAddressFor:
         book = AddressBook()
         addr = book.address_for(_PEMBROKE_1, "c1", "lux", "leaf1", "Vox")
         assert addr.hub.label == "pembroke"
+
+    def test_propagates_lux_addresss_rejection_of_a_separator_bearing_key(
+        self,
+    ) -> None:
+        """LuxAddress owns the validation; this proves address_for wires it."""
+        book = AddressBook()
+        with pytest.raises(ValueError, match="unit separator"):
+            book.address_for(
+                _PEMBROKE_1, f"c1{ID_SEPARATOR}evil", "lux", "leaf1", "Vox"
+            )
 
 
 class TestHubLabelNumbering:

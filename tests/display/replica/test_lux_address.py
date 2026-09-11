@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import pytest
+
 from punt_lux.display.replica.lux_address import LuxAddress, Rung
+from punt_lux.domain.id_separator import ID_SEPARATOR
 
 
 def _address(
@@ -67,3 +70,22 @@ class TestTitle:
         addr = _address(hub_label="A", connection_label="B", leaf_label="C")
         title = addr.title(hub_ambiguous=True, connection_ambiguous=True)
         assert title == "A :: B :: C"
+
+
+class TestSeparatorRejection:
+    """An embedded separator would let two distinct triples collide."""
+
+    def test_rejects_a_connection_key_carrying_the_separator(self) -> None:
+        with pytest.raises(ValueError, match="connection"):
+            _address(connection_key=f"c{ID_SEPARATOR}evil")
+
+    def test_rejects_a_leaf_key_carrying_the_separator(self) -> None:
+        with pytest.raises(ValueError, match="leaf"):
+            _address(leaf_key=f"l{ID_SEPARATOR}evil")
+
+    def test_the_hub_key_is_exempt_since_it_already_carries_the_separator(
+        self,
+    ) -> None:
+        """HubId.wire_token joins hostname and pid with this same separator."""
+        addr = _address(hub_key=f"pembroke{ID_SEPARATOR}123")
+        assert addr.hub.key == f"pembroke{ID_SEPARATOR}123"
