@@ -29,7 +29,7 @@ from punt_lux.tools.read_tools import (
 from punt_lux.tools.write_tools import clear, clear_scene, identify, show, update
 from punt_lux.tools.display_write_tools import (
     display_mode,
-    frame_close,
+    frame_remove,
     set_menu,
 )
 from punt_lux.tools.composite_tools import show_dashboard, show_table
@@ -46,7 +46,7 @@ __all__ = [
     "clear",
     "clear_scene",
     "display_mode",
-    "frame_close",
+    "frame_remove",
     "get_display_info",
     "get_theme",
     "get_window_settings",

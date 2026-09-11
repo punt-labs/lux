@@ -1,15 +1,14 @@
 """SceneOperations — render, update, and clear a caller's own scenes.
 
-These are the Hub-owned scene mutations as a *caller* makes them. Each takes a
-typed request and returns a discriminated result. The store and the replicator
-are given at construction, and element decode is a connection-scoped factory the
-presentation layer wires in, so the class runs against real collaborators in a
-test without the process.
+These are the Hub-owned scene mutations as a *caller* makes them. Each takes a typed
+request and returns a discriminated result. The store and the replicator are given at
+construction, and element decode is a connection-scoped factory the presentation layer
+wires in, so the class runs against real collaborators in a test without the process.
 
 Every operation here is scoped: the caller owns what it writes, and reaching the
 Hub at all is that connection's contact, so a show registers the caller's session
-and renews its lease. Closing a frame is a distinct concern, not one of the
-caller's own scenes -- see :class:`~punt_lux.operations.frame_closing.FrameCloser`.
+and renews its lease. Removing a frame's content is a distinct concern, not one of
+the caller's own scenes -- see :class:`~punt_lux.operations.frame_removal.FrameRemover`.
 
 A patch-style ``update`` against a quarantined scene is refused: the scene is
 unchanged, so nothing about it has become safe to render

@@ -230,7 +230,7 @@ public for callers that hold the listen leg directly.
 | `client.clear()` | `await client.scene.clear_all()` |
 | `client.list_scenes()` | `await client.scene.ls()` |
 | `client.inspect_scene(sid, facts=...)` | `await client.scene.inspect(sid, facts=...)` |
-| `client.close_frame(fid)` | `await client.frame.close(fid)` |
+| `client.close_frame(fid)` | `await client.frame.remove(fid)` |
 | `client.list_menus()` | `await client.menu.ls()` |
 | `client.set_menu(req)` | `await client.menu.set(req)` |
 | `client.list_clients()` | `await client.session.ls()` |

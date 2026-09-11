@@ -18,7 +18,7 @@ _SCOPE = Scope(ConnectionId("c1"))
 class _StubFrameOps:
     """A minimal ``FrameOps``-shaped stub -- construction only, never called."""
 
-    def close_frame(self, frame_id: str, *, scope: Scope) -> Ok:
+    def remove_frame(self, frame_id: str, *, scope: Scope) -> Ok:
         del frame_id, scope
         return Ok()
 

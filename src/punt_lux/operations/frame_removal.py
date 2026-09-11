@@ -1,7 +1,7 @@
-"""FrameCloser — tear down the caller's own frame, or say truthfully why not.
+"""FrameRemover — tear down the caller's own frame's content, or say why not.
 
-Split out of ``SceneOperations`` (lux-03k6): closing a frame is a distinct
-concern from installing, patching, and clearing scenes, and mirrors
+Split out of ``SceneOperations`` (lux-03k6): removing a frame's content is a
+distinct concern from installing, patching, and clearing scenes, and mirrors
 ``SceneClearer``/``SceneInstaller`` as its own single-purpose collaborator.
 """
 
@@ -17,11 +17,11 @@ if TYPE_CHECKING:
     from punt_lux.domain.ids import ConnectionId
     from punt_lux.operations.ports import DirtyMarker
 
-__all__ = ["FrameCloser"]
+__all__ = ["FrameRemover"]
 
 
 @final
-class FrameCloser:
+class FrameRemover:
     """Resolve the caller's own local frame name and tear it down, or refuse."""
 
     _display: HubDisplay
@@ -34,7 +34,7 @@ class FrameCloser:
         self._replicator = replicator
         return self
 
-    def close(self, local_id: str, owner: ConnectionId) -> Ok | OpError:
+    def remove(self, local_id: str, owner: ConnectionId) -> Ok | OpError:
         """Tear down ``owner``'s own ``local_id`` frame; report truthfully otherwise.
 
         Resolved through :meth:`FrameLifecycle.frame_id_for_local` against

@@ -44,7 +44,7 @@ _EXPECTED_TOOLS = frozenset(
         "display_window_get",
         "error_ls",
         "event_ls",
-        "frame_close",
+        "frame_remove",
         "list_frames",
         "menu_ls",
         "menu_set",
