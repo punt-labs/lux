@@ -8,8 +8,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Self, final
 
+from punt_lux.trust._facade import _TrustFacade
 from punt_lux.trust.key_pair import KeyPair
-from punt_lux.trust.key_pairing import Pairing
 from punt_lux.trust.leaf_certificate import LeafCertificate
 
 __all__ = ["EnrolledIdentity"]
@@ -24,7 +24,7 @@ class EnrolledIdentity:
     __slots__ = ("_key_pair", "_leaf")
 
     def __new__(cls, key_pair: KeyPair, leaf: LeafCertificate) -> Self:
-        Pairing.require_matching(key_pair, leaf, "the leaf certificate")
+        _TrustFacade.require_matching(key_pair, leaf, "the leaf certificate")
         self = super().__new__(cls)
         self._key_pair = key_pair
         self._leaf = leaf

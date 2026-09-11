@@ -15,7 +15,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 
-from punt_lux.trust.curve import Curve
+from punt_lux.trust._facade import _TrustFacade
 
 if TYPE_CHECKING:
     from punt_lux.trust.key_pair import KeyPair
@@ -77,7 +77,7 @@ class CertificateSigningRequest:
         if not isinstance(key, ec.EllipticCurvePublicKey):
             msg = f"expected an EC public key, got {type(key).__name__}"
             raise ValueError(msg)
-        return Curve.require_p256(key)
+        return _TrustFacade.require_p256(key)
 
     @property
     def is_signature_valid(self) -> bool:

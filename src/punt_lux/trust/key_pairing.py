@@ -18,7 +18,7 @@ __all__ = ["Pairing"]
 
 
 @runtime_checkable
-class _KeyedByPublicKeyPem(Protocol):
+class KeyedByPublicKeyPem(Protocol):
     """Anything that can report its own public key as PEM."""
 
     def public_key_pem(self) -> bytes: ...
@@ -29,7 +29,7 @@ class Pairing:
 
     @staticmethod
     def require_matching(
-        a: _KeyedByPublicKeyPem, b: _KeyedByPublicKeyPem, what: str
+        a: KeyedByPublicKeyPem, b: KeyedByPublicKeyPem, what: str
     ) -> None:
         """Raise :class:`ValueError` naming *what* unless *a* and *b*
         report the same public key.
@@ -38,7 +38,7 @@ class Pairing:
 
     @staticmethod
     def require_matching_certificate(
-        key_pair: _KeyedByPublicKeyPem, certificate: x509.Certificate, what: str
+        key_pair: KeyedByPublicKeyPem, certificate: x509.Certificate, what: str
     ) -> None:
         """Raise :class:`ValueError` naming *what* unless *key_pair* and
         *certificate* share a public key — for a raw ``x509.Certificate``

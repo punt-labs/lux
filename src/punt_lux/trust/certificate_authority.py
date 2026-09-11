@@ -14,12 +14,10 @@ from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 from cryptography.x509.oid import NameOID
 
+from punt_lux.trust._facade import _TrustFacade
 from punt_lux.trust.certificate_signing_request import CertificateSigningRequest
-from punt_lux.trust.curve import Curve
 from punt_lux.trust.key_pair import KeyPair
-from punt_lux.trust.key_pairing import Pairing
 from punt_lux.trust.leaf_certificate import LeafCertificate
-from punt_lux.trust.material_load import MaterialLoad
 from punt_lux.trust.trust_anchor import TrustAnchor
 
 if TYPE_CHECKING:
@@ -72,7 +70,9 @@ class CertificateAuthority:
     __slots__ = ("_certificate", "_key_pair")
 
     def __new__(cls, key_pair: KeyPair, certificate: x509.Certificate) -> Self:
-        Pairing.require_matching_certificate(key_pair, certificate, "the root cert")
+        _TrustFacade.require_matching_certificate(
+            key_pair, certificate, "the root cert"
+        )
         self = super().__new__(cls)
         self._key_pair = key_pair
         self._certificate = certificate
@@ -112,7 +112,7 @@ class CertificateAuthority:
             cert_pem = paths.root_cert_path.read_bytes()
             return key_pair, x509.load_pem_x509_certificate(cert_pem)
 
-        key_pair, certificate = MaterialLoad.or_raise_clearly(paths.dir, _read)
+        key_pair, certificate = _TrustFacade.load_or_raise_clearly(paths.dir, _read)
         return cls(key_pair, certificate)
 
     def save(self, paths: CaPaths) -> None:
@@ -139,7 +139,7 @@ class CertificateAuthority:
             msg = "CSR signature does not verify — refusing to sign"
             raise ValueError(msg)
         hostname = csr.hostname  # raises if SAN is missing/ambiguous
-        Curve.require_p256(csr.public_key)
+        _TrustFacade.require_p256(csr.public_key)
         now = datetime.now(UTC)
         builder = (
             x509.CertificateBuilder()

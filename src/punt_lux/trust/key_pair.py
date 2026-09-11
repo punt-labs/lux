@@ -16,7 +16,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.hashes import SHA256
 
-from punt_lux.trust.curve import Curve
+from punt_lux.trust._facade import _TrustFacade
 
 if TYPE_CHECKING:
     from cryptography import x509
@@ -33,7 +33,7 @@ class KeyPair:
 
     def __new__(cls, private_key: ec.EllipticCurvePrivateKey) -> Self:
         self = super().__new__(cls)
-        self._private_key = Curve.require_p256(private_key)
+        self._private_key = _TrustFacade.require_p256(private_key)
         return self
 
     @classmethod
