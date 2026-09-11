@@ -6951,11 +6951,19 @@ liveness and trust are different questions, and keys answer the second.
 call, not a product fork).
 
 **Context.** Two independent ratchets gate every change: `check-oo`
-(module-size / complexity / LCOM, committed-baseline model — a touched file may
-regress one metric if it nets an improvement) and `check-coupling` (afferent /
-efferent coupling and circular imports, **merge-base** model — a touched file
-must not regress *any* coupling metric versus `git merge-base(origin/main,
-HEAD)`). The W7 personal-CA work (lux-81b2, #474) exposed a real tension between
+(module-size / complexity / LCOM) and `check-coupling` (afferent / efferent
+coupling and circular imports). **Both compare a touched file's current metrics
+against a committed baseline** (`.oo-baseline.json`, `.oo-coupling-baseline.json`)
+and fail on *any* regression; `check-oo` additionally requires at least one
+metric to *improve* on some touched file (`tools/oo_ratchet/ratchet.py`
+`_verdict`: separate `has_regression` and `improvement_satisfied` gates). The
+merge-base (`--base-ref`) is **not** a value baseline — it only *selects* which
+files count as touched for the check: CI passes the PR fork-point so the whole
+PR's changed files are checked, whereas a bare local `make check-coupling`
+defaults to `HEAD~1` (the last commit only). That selection difference — not any
+difference in what the values are compared against — is why a coupling
+regression can pass locally yet fail CI: the regressed file was outside the last
+commit but inside the PR range. The W7 personal-CA work (lux-81b2, #474) exposed a real tension between
 them. The security fixes each required extracting a small cohesive primitive —
 `Curve`, `Pairing`, `MaterialLoad`, `AtomicDirInstall` — to satisfy the
 complexity/module-size ratchet. But every extraction adds an *import edge*, so
@@ -6975,19 +6983,22 @@ re-export module fails the OO *new-file* gate — `method_ratio` /
 `class_to_func_ratio` — so the facade is wrapped as a class with a method, e.g.
 `_MessageWiring.build_registry()`.)
 
-**Why not weaken the gate.** Two alternatives were rejected. (a) A whole-tree
+**Why not weaken the gate.** Three alternatives were rejected. (a) A whole-tree
 `--rebaseline` of `check-coupling` — it would launder 14 *unrelated*
 pre-existing coupling regressions already on `main` (tracked separately), so it
-is never an acceptable way to bless one PR's deltas. (b) Aligning
-`check-coupling` with `check-oo`'s committed-baseline bless model (allow a
-reviewed within-threshold regression recorded in the baseline). This is a
-plausible *future* consistency fix and is genuinely tempting — the two ratchets
-using different comparison models (baseline vs merge-base) is the underlying
-friction — but changing a gating CI mechanism to be more permissive is a
-load-bearing decision that should not ride in on a security PR under deadline,
-and the facade remedy resolves the immediate case cleanly without it. The
-merge-base strictness is a feature: it cannot be gamed by editing a committed
-baseline. Deferred to its own bead, not adopted here.
+is never an acceptable way to bless one PR's deltas. (b) Hand-editing
+`.oo-coupling-baseline.json` to record the regressed value — forbidden:
+baselines are tool-computed, never hand-written, and `update-coupling`
+deliberately *refuses* to write a regression, so there is no sanctioned bless
+path for a genuine coupling regression (the discipline "never hand-edit
+baselines," not any property of the metric baseline itself, is what keeps this
+honest — the committed file is mutable). (c) Adding an explicit
+within-absolute-threshold regression *waiver* to `check-coupling` — a reviewed,
+recorded exception that neither ratchet offers today. This is a plausible future
+tooling change, but making a gating CI mechanism more permissive is load-bearing
+and should not ride in on a security PR under deadline; the facade remedy
+resolves the immediate case cleanly without it. Deferred to its own bead, not
+adopted here.
 
 **Consequence.** Security-driven (or any) extraction that the complexity
 ratchet demands never has to choose between the two gates: the facade is the
