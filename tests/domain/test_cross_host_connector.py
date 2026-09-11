@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from punt_lux.domain.hub.cross_host_connector import CrossHostConnector
-from punt_lux.domain.hub.cross_host_link import dial_cross_host
+from punt_lux.domain.hub.cross_host_link import CrossHostEndpoint
 from punt_lux.domain.hub.handshake_outcome import DisplayNotConnectedError
 from punt_lux.domain.hub_id import HubId
 from punt_lux.protocol import ConnectMessage, ReadyMessage, recv_message, send_message
@@ -116,12 +116,9 @@ class TestCrossHostConnect:
         ca = CertificateAuthority.create()
         server = _DisplayServer(_display_context(ca, tmp_path))
         server.start()
-        link = dial_cross_host(
-            "127.0.0.1",
-            server.port,
-            _hub_context(ca, tmp_path),
-            name="lux-mcp",
-        )
+        link = CrossHostEndpoint(
+            "127.0.0.1", server.port, _hub_context(ca, tmp_path)
+        ).dial(name="lux-mcp")
         try:
             link.connect()
             assert link.is_connected

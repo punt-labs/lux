@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-import platform
 import socket
 import time
 from pathlib import Path
@@ -72,6 +71,7 @@ from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
+    from punt_lux.display.cross_host_pump import CrossHostPump
     from punt_lux.domain.identity import HubId
     from punt_lux.protocol import Message
 
@@ -122,14 +122,17 @@ class RenderLoop:
     _hub_reconciliation: HubReconciliation
     _content_gate: ContentMessageGate
     _exit_signal: ExitSignal
+    _cross_host: CrossHostPump | None
 
     def __new__(
         cls,
         socket_path: str | None = None,
         *,
         test_auto_click: bool = False,
+        cross_host_listener: CrossHostPump | None = None,
     ) -> Self:
         self = super().__new__(cls)
+        self._cross_host = cross_host_listener
         paths = DisplayPaths(Path(socket_path) if socket_path else None)
         self._socket_path = paths.socket_path
         self._display_paths = paths
@@ -276,90 +279,6 @@ class RenderLoop:
         ]
         self._interaction_delivery.compensate_evicted(evicted)
 
-    # -- font loading ------------------------------------------------------
-
-    @staticmethod
-    def _find_fonts() -> tuple[str | None, list[str]]:
-        """Find system fonts for broad Unicode coverage.
-
-        Returns ``(primary, merge_fonts)`` where *primary* is a text font
-        with good coverage and *merge_fonts* are symbol fonts merged on
-        top to fill gaps (e.g. mathematical angle brackets, Z notation).
-        """
-
-        def _first_existing(*candidates: str) -> str | None:
-            for p in candidates:
-                if Path(p).is_file():
-                    return p
-            return None
-
-        if platform.system() == "Darwin":
-            primary = _first_existing(
-                "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
-                "/System/Library/Fonts/Helvetica.ttc",
-            )
-            # Apple Symbols fills gaps (math angle brackets U+27E8/E9, etc.)
-            sym = _first_existing("/System/Library/Fonts/Apple Symbols.ttf")
-            # STIX Two Math covers Mathematical Alphanumeric Symbols
-            # (U+1D400-1D7FF) -- needed for Z notation double-struck letters
-            math = _first_existing(
-                "/System/Library/Fonts/Supplemental/STIXTwoMath.otf",
-                "/Library/Fonts/STIXTwoMath.otf",
-            )
-        else:
-            # Linux -- DejaVu has good symbol coverage; Noto as fallback
-            primary = _first_existing(
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-                "/usr/share/fonts/TTF/DejaVuSans.ttf",
-                "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",
-                "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
-                "/usr/share/fonts/noto/NotoSans-Regular.ttf",
-            )
-            # Noto Sans Symbols for anything DejaVu misses
-            sym = _first_existing(
-                "/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf",
-                "/usr/share/fonts/noto/NotoSansSymbols2-Regular.ttf",
-            )
-            # Noto Sans Math covers Mathematical Alphanumeric Symbols
-            # (U+1D400-1D7FF) -- needed for Z notation double-struck letters
-            math = _first_existing(
-                "/usr/share/fonts/truetype/noto/NotoSansMath-Regular.ttf",
-                "/usr/share/fonts/noto/NotoSansMath-Regular.ttf",
-            )
-
-        merge = [font for font in (sym, math) if font is not None]
-        return primary, merge
-
-    def _load_fonts(self) -> None:
-        """hello_imgui ``load_additional_fonts`` callback.
-
-        Loads a system font with Unicode symbol coverage as the default
-        font, replacing ImGui's built-in ProggyClean (Latin-only).
-        A second symbol font is merged on top to fill remaining gaps
-        (Z notation angle brackets, additional mathematical symbols).
-        """
-        from imgui_bundle import hello_imgui
-
-        primary, merge_fonts = self._find_fonts()
-        if primary is None:
-            logger.error(
-                "No Unicode font found -- using ImGui default (Latin-only). "
-                "Unicode symbols will not render correctly."
-            )
-            return
-
-        params = hello_imgui.FontLoadingParams()
-        params.inside_assets = False
-        hello_imgui.load_font(primary, 16.0, params)
-        logger.info("Loaded primary font: %s", primary)
-
-        for sym_path in merge_fonts:
-            merge_params = hello_imgui.FontLoadingParams()
-            merge_params.inside_assets = False
-            merge_params.merge_to_last_font = True
-            hello_imgui.load_font(sym_path, 16.0, merge_params)
-            logger.info("Merged symbol font: %s", sym_path)
-
     # -- public entry point ------------------------------------------------
 
     def run(self) -> None:
@@ -382,6 +301,8 @@ class RenderLoop:
 
         from imgui_bundle import hello_imgui, immapp
 
+        from punt_lux.display.fonts import FontLoader
+
         runner_params = hello_imgui.RunnerParams()
         runner_params.app_window_params.window_title = "Lux"
         runner_params.app_window_params.window_geometry.size = (1200, 800)
@@ -392,7 +313,7 @@ class RenderLoop:
         runner_params.imgui_window_params.show_status_bar = False
         runner_params.imgui_window_params.show_status_fps = False
         runner_params.imgui_window_params.remember_status_bar_settings = False
-        runner_params.callbacks.load_additional_fonts = self._load_fonts
+        runner_params.callbacks.load_additional_fonts = FontLoader().load
         runner_params.callbacks.show_menus = self._show_menus
         runner_params.callbacks.post_init = self._on_post_init
         runner_params.callbacks.show_gui = self._on_frame
@@ -456,11 +377,29 @@ class RenderLoop:
         self._socket_listener.set_frame_deadline(time.monotonic() + _FRAME_SEND_BUDGET)
         try:
             self._socket_listener.accept_connections()
+            self._pump_cross_host()
             self._socket_listener.poll_clients()
             self._render_scene()
             self._flush_events()
         finally:
             self._socket_listener.clear_frame_deadline()
+
+    def _pump_cross_host(self) -> None:
+        """Advance the opt-in cross-host TLS listener one frame (DES-090 W10).
+
+        ``accept_pending()`` is called **at most once per frame** -- the
+        listener's pending-handshake self-bounding depends on that cadence --
+        and every socket whose mTLS handshake completed this frame is promoted
+        onto the ordinary client set, where the content gate holds it to the
+        same verify -> identify -> content order the ``AF_UNIX`` leg follows
+        (Invariant 1). Fail-closed: no listener configured, nothing happens.
+        """
+        listener = self._cross_host
+        if listener is None:
+            return
+        listener.accept_pending()
+        for tls_sock in listener.pump_ready():
+            self._socket_listener.promote_connection(tls_sock)
 
     def _on_after_swap(self) -> None:
         """Called after GL buffer swap -- GL_FRONT has rendered content."""
@@ -545,6 +484,8 @@ class RenderLoop:
     def _on_exit(self) -> None:
         """Called before the window closes."""
         self._textures.cleanup()
+        if self._cross_host is not None:
+            self._cross_host.shutdown()  # close the TLS listen socket + pending peers
         self._socket_listener.shutdown()
         self._socket_path.unlink(missing_ok=True)
         self._display_paths.remove_pid()
