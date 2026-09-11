@@ -24,6 +24,7 @@ from punt_lux.display.cross_host_listener import CrossHostListener
 from punt_lux.display.socket_listener_callbacks import SocketListenerCallbacks
 from punt_lux.display.socket_server import SocketListener
 from punt_lux.protocol import (
+    FrameReader,
     ReadyMessage,
     SceneMessage,
     TextElement,
@@ -84,6 +85,28 @@ def _connect_tls_in_background(
     return thread, result
 
 
+def _register_promoted_client(
+    unix_listener: SocketListener, conn: ssl.SSLSocket
+) -> None:
+    """Install a cross-host-verified socket the same way ``accept_connections``
+    installs an ``AF_UNIX`` one.
+
+    ``SocketListener`` does not yet expose a public promotion entry point --
+    wiring ``CrossHostListener`` into the render loop's per-frame accept
+    cadence is a separate, later change (DES-090 W8 stops at establishing
+    the listener and the mTLS transport). This mirrors
+    ``SocketListener.accept_connections``'s own registration steps exactly,
+    to prove the two legs converge on identical bookkeeping even before that
+    wiring lands.
+    """
+    fd = conn.fileno()
+    unix_listener.clients.append(conn)
+    unix_listener.fd_to_client[fd] = conn
+    # _readers has no public accessor yet; see the module docstring above.
+    unix_listener._readers[fd] = FrameReader()
+    unix_listener.send_to_client(conn, ReadyMessage())
+
+
 def _drive_until_tls_ready(
     unix_listener: SocketListener,
     cross_host: CrossHostListener,
@@ -100,7 +123,7 @@ def _drive_until_tls_ready(
         unix_listener.accept_connections()
         cross_host.accept_pending()
         for tls_sock in cross_host.pump_ready():
-            unix_listener.register_client(tls_sock)
+            _register_promoted_client(unix_listener, tls_sock)
             return  # the TLS peer just got promoted -- done
         time.sleep(0.005)  # give the client thread's connect+handshake a chance
 

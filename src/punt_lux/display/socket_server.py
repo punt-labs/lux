@@ -173,21 +173,12 @@ class SocketListener:
             except (BlockingIOError, OSError):
                 return
             Nonblocking.set(conn)
-            self.register_client(conn)
-
-    def register_client(self, conn: socket.socket) -> None:
-        """Install an already-connected, verified socket as a client.
-
-        ``accept_connections`` calls this for the ``AF_UNIX`` leg; a
-        cross-host TLS peer (DES-090 W8) reaches it the same way once its
-        handshake -- including client-cert verification -- fully completes.
-        """
-        fd = conn.fileno()
-        self._clients.append(conn)
-        self._readers[fd] = FrameReader()
-        self._fd_to_client[fd] = conn
-        logger.debug("Client connected (total: %d)", len(self._clients))
-        self.send_to_client(conn, ReadyMessage())
+            fd = conn.fileno()
+            self._clients.append(conn)
+            self._readers[fd] = FrameReader()
+            self._fd_to_client[fd] = conn
+            logger.debug("Client connected (total: %d)", len(self._clients))
+            self.send_to_client(conn, ReadyMessage())
 
     def poll_clients(self) -> None:
         """Read from all readable clients and dispatch messages."""
