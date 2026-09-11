@@ -535,13 +535,9 @@ class RenderLoop:
         self._font_scale = scale
 
     def _clear_all(self) -> None:
-        """Callback for MenuReplica: throw every frame out, then clear scenes and state.
-
-        Clear All means the content is gone, not put away, so every frame is
-        disposed whatever visibility the user had left it in.
-        """
-        for fid in list(self._scenes.frames):
-            self._scenes.dispose_frame(fid)
+        """Callback for MenuReplica: throw every frame out, then clear scenes
+        and state."""
+        self._scenes.dispose_all_frames()
         self._handle_clear()
 
     def _raise_frame(self, frame_id: str) -> None:
@@ -1009,7 +1005,7 @@ class RenderLoop:
             for sid in closed_tabs:
                 frame_empty = self._scenes.dismiss_framed_scene(frame, sid)
                 if frame_empty:
-                    self._scenes.dispose_frame(frame.frame_id)
+                    self._scenes.dispose_frame(frame.frame_id, frame.hub)
 
     def _render_frame_stack(self, frame: Frame, imgui: Any) -> None:
         """Render multi-scene frame as vertically stacked collapsing headers.

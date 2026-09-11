@@ -8,7 +8,7 @@ as a pure state machine — no ImGui, no sockets, no RenderLoop.
 from __future__ import annotations
 
 from punt_lux.display.replica import SceneReplica, WidgetState
-from punt_lux.domain.identity import HubId
+from punt_lux.domain.identity import HubId, HubScopedKey
 from punt_lux.protocol import (
     ButtonElement,
     SceneMessage,
@@ -1061,7 +1061,7 @@ class TestScenesToPurge:
 
         candidates = mgr.scenes_to_purge(_HUB_A, frozenset(), frozenset({_HUB_A}))
 
-        assert candidates == [("f1", "s1")]
+        assert candidates == [(HubScopedKey(_HUB_A, "f1"), "s1")]
 
     def test_a_scene_named_in_the_manifest_is_not_a_candidate(self) -> None:
         mgr, _ = _make_manager()
@@ -1088,7 +1088,7 @@ class TestScenesToPurge:
             _HUB_A, frozenset(), frozenset({_HUB_A, _HUB_B})
         )
 
-        assert candidates == [("f1", "s1")]
+        assert candidates == [(HubScopedKey(_HUB_A, "f1"), "s1")]
 
     def test_a_mixed_frame_loses_only_its_ghost_scene(self) -> None:
         """Per-scene: a manifested scene shields its frame, not its ghost sibling."""
@@ -1102,7 +1102,7 @@ class TestScenesToPurge:
 
         candidates = mgr.scenes_to_purge(_HUB_A, frozenset({"s1"}), frozenset({_HUB_A}))
 
-        assert candidates == [("f1", "s2")]
+        assert candidates == [(HubScopedKey(_HUB_A, "f1"), "s2")]
 
     def test_an_orphaned_hubs_scene_is_swept_once_it_leaves_live_hubs(self) -> None:
         """A scene from a Hub no longer connected is candidate like any other."""
@@ -1114,7 +1114,8 @@ class TestScenesToPurge:
         # Hub B's manifest reconciles; Hub A is no longer among the live Hubs.
         candidates = mgr.scenes_to_purge(_HUB_B, frozenset(), frozenset({_HUB_B}))
 
-        assert candidates == [("f1", "s1")]
+        # The orphan's own key -- Hub A, never the reconciling Hub B.
+        assert candidates == [(HubScopedKey(_HUB_A, "f1"), "s1")]
 
     def test_widget_state_is_discarded_only_for_the_purged_scene(self) -> None:
         mgr, _ = _make_manager()
@@ -1126,12 +1127,81 @@ class TestScenesToPurge:
         )
 
         purge = mgr.scenes_to_purge(_HUB_A, frozenset({"s1"}), frozenset({_HUB_A}))
-        for frame_id, scene_id in purge:
-            frame = mgr.frames[frame_id]
+        for frame_key, scene_id in purge:
+            frame = mgr.frame(frame_key.local, frame_key.hub)
+            assert frame is not None
             mgr.dismiss_framed_scene(frame, scene_id)
 
-        assert mgr.widget_state_for("s2") is None  # purged
-        assert mgr.widget_state_for("s1") is not None  # retained, untouched
+        assert mgr.widget_state_for("s2", _HUB_A) is None  # purged
+        assert mgr.widget_state_for("s1", _HUB_A) is not None  # retained, untouched
+
+
+class TestTwoHubsCollision:
+    """W3's foundation: two Hubs minting the identical connection-scoped id must
+    never merge, cross-dismiss, or bleed ownership into one another."""
+
+    def test_frames_with_the_same_id_never_merge(self) -> None:
+        """The literal defect: ``ensure()`` used to reuse Hub A's frame object
+        for Hub B's push naming the identical frame id."""
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s1", frame_id="f1", frame_title="A's window"),
+            owner_fd=10,
+            hub=_HUB_A,
+        )
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s2", frame_id="f1", frame_title="B's window"),
+            owner_fd=11,
+            hub=_HUB_B,
+        )
+
+        frame_a = mgr.frame("f1", _HUB_A)
+        frame_b = mgr.frame("f1", _HUB_B)
+        assert frame_a is not None
+        assert frame_b is not None
+        assert frame_a is not frame_b
+        assert frame_a.title == "A's window"
+        assert frame_b.title == "B's window"
+        assert "s1" in frame_a.scenes
+        assert "s2" not in frame_a.scenes
+        assert "s2" in frame_b.scenes
+        assert "s1" not in frame_b.scenes
+        assert frame_a.owner_fds == {10}
+        assert frame_b.owner_fds == {11}
+
+    def test_hub_bs_empty_push_never_dismisses_hub_as_scene(self) -> None:
+        """The killed fallback: an empty push resolved only within its own
+        Hub, never falling back to a same-frame-id match on another Hub."""
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s1", frame_id="f1"), owner_fd=10, hub=_HUB_A
+        )
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s1", frame_id="f1"), owner_fd=11, hub=_HUB_B
+        )
+
+        # Hub B empties a scene that, for Hub B, never had elements to begin
+        # with -- an empty push naming an id Hub B never actually held.
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s1", frame_id="f1", elements=[]),
+            owner_fd=11,
+            hub=_HUB_B,
+        )
+
+        assert mgr.resolve_scene("s1") is not None  # Hub A's scene survives
+        assert mgr.frame("f1", _HUB_A) is not None
+
+    def test_a_second_hub_never_erases_the_firsts_agent_menus(self) -> None:
+        """Finding #5's own claim: a second Hub's agent-menu push used to
+        overwrite the whole flat tuple, erasing the first Hub's bar."""
+        from tests.menu_doubles import make_menu_replica, wire_menu
+
+        replica = make_menu_replica()
+        replica.replace_agent_menus([wire_menu("A's Tools", [])], _HUB_A)
+        replica.replace_agent_menus([wire_menu("B's Tools", [])], _HUB_B)
+
+        labels = {m.label for m in replica.agent_menus}
+        assert labels == {"A's Tools", "B's Tools"}
 
 
 class TestFramesOnlyInvariant:
