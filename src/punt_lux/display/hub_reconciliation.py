@@ -1,12 +1,9 @@
 """Single-owner Hub-identity preemption and manifest-driven purge (DES-068).
 
-Killing and restarting ``luxd`` drops its in-memory scene store; without this,
-the Display keeps rendering the dead process's scenes forever, since nothing
-ever tells it to stop. A ``kind="hub"`` connection declares its complete
-scene manifest immediately after identifying, and this class is the policy
-that reconciles the Display's replica against it: at most one connection may
-hold the Hub's identity at a time (preemption), and every scene the manifest
-disowns is purged, not just the ones the manifest happens to mention.
+A ``kind="hub"`` connection declares its complete scene manifest immediately
+after identifying, and this class reconciles the Display's replica against
+it: at most one connection holds the Hub's identity at a time, and every
+scene the manifest disowns is purged.
 """
 
 from __future__ import annotations
@@ -16,6 +13,8 @@ import socket
 import time
 from typing import TYPE_CHECKING, Self
 
+from punt_lux.domain.hub.hub_id import HubId
+from punt_lux.domain.hub.hub_id_token import HubIdToken
 from punt_lux.socket_owner import SocketOwner
 
 if TYPE_CHECKING:
@@ -70,6 +69,11 @@ class HubReconciliation:
             logger.warning("ConnectMessage with empty name -- ignored")
             return
         try:
+            hub_id = HubIdToken(msg.hub_id).resolve()
+        except ValueError:
+            logger.warning("malformed hub_id=%r -- ignored", msg.hub_id)
+            return
+        try:
             fd = sock.fileno()
         except OSError:
             return
@@ -88,25 +92,18 @@ class HubReconciliation:
                 "warning", f"test-kind connect fd={fd} name={name!r}", "connect"
             )
         self._socket_listener.register_client_identity(
-            fd, kind=msg.kind, name=name, connect_time=time.time()
+            fd, kind=msg.kind, name=name, hub_id=hub_id, connect_time=time.time()
         )
         logger.info("Client fd=%d identified as %r (kind=%s)", fd, name, msg.kind)
 
     def handle_manifest(self, sock: socket.socket, msg: HubManifestMessage) -> None:
         """Purge every scene the manifest disowns, disposing any frame it empties.
 
-        Only a ``kind="hub"`` fd may declare a manifest — a ``"test"`` fd or one
-        that never identified is rejected and nothing is purged, since the whole
-        point of a manifest is that its sender is the one process the Display
-        trusts to say what the Hub currently holds.
-
-        A scene qualifies for purge when it is neither owned by the identifying
-        fd nor named in the manifest — orphaned scenes from a prior Hub die are
-        swept by the same rule, since their owner is never this fd.
-
-        A purge is a content event: the Hub is saying the scene is gone, so an
-        emptied frame is *disposed*, whatever visibility the user had left it in.
-        A frame with no content is a husk, and a closed one is no exception.
+        Only a ``kind="hub"`` fd may declare a manifest. A scene qualifies
+        for purge when it is neither owned by the identifying fd nor named
+        in the manifest -- orphans from a prior Hub's death are swept by the
+        same rule. An emptied frame is *disposed*, whatever visibility the
+        user had left it in.
         """
         try:
             fd = sock.fileno()
@@ -127,20 +124,19 @@ class HubReconciliation:
                 self._scenes.dispose_frame(frame_id)
 
     def reject_scene_unless_hub(self, sock: socket.socket) -> bool:
-        """Reject a ``SceneMessage`` unless the fd has identified as ``"hub"``.
-
-        Delegates to the shared :class:`IdentityGuard`.
-        """
+        """Reject a ``SceneMessage`` unless the fd has identified as ``"hub"``."""
         return self._identity.reject_scene_unless_hub(sock)
 
-    def _preempt_stale_hub(self, fd: int, name: str) -> None:
-        """Force-disconnect any other live connection already declaring this identity.
+    def hub_of(self, sock: socket.socket) -> HubId:
+        """Return the sender's ``HubId``, for a fd :meth:`reject_scene_unless_hub`
+        already confirmed is ``kind="hub"``. :meth:`HubId.stub` is the fallback."""
+        hub = self._socket_listener.hub_id_of(sock.fileno())
+        return hub if hub is not None else HubId.stub()
 
-        Runs before the new identify is recorded, so at most one connection ever
-        holds ``kind="hub", name`` at a time — closing the interleaving where a
-        straggling message from a superseded connection could re-materialize a
-        scene a fresh manifest just purged.
-        """
+    def _preempt_stale_hub(self, fd: int, name: str) -> None:
+        """Force-disconnect any other live connection already declaring this
+        identity, before the new identify is recorded -- at most one
+        connection ever holds ``kind="hub", name`` at a time."""
         stale_fd = self._socket_listener.hub_fd_for(name)
         if stale_fd is None or stale_fd == fd:
             return
