@@ -14,11 +14,13 @@ from __future__ import annotations
 import socket
 import ssl
 import threading
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
 import pytest
 from cryptography import x509
+from cryptography.x509.oid import NameOID
 
 from punt_lux.trust.aws_private_ca_config import AwsPrivateCaConfig
 from punt_lux.trust.aws_private_ca_provider import AwsPrivateCaProvider
@@ -57,10 +59,14 @@ class _FakeAcmPcaClient:
         self._issued: dict[str, bytes] = {}
         self._next_arn = 0
         self.requested_waiter: str | None = None
+        self.last_validity: dict[str, object] | None = None
 
     def issue_certificate(self, **kwargs: object) -> dict[str, str]:
         csr_pem = kwargs["Csr"]
         assert isinstance(csr_pem, bytes)
+        validity = kwargs["Validity"]
+        assert isinstance(validity, dict)
+        self.last_validity = validity
         csr = CertificateSigningRequest.from_pem(csr_pem)
         leaf = self._signer.sign_csr(csr)
         self._next_arn += 1
@@ -130,6 +136,65 @@ def test_issue_leaf_certificate_waits_on_the_certificate_issued_waiter() -> None
     csr = CertificateSigningRequest.generate(_HOSTNAME, KeyPair.generate())
     provider.issue_leaf_certificate(csr)
     assert client.requested_waiter == "certificate_issued"
+
+
+def test_issue_leaf_certificate_requests_an_absolute_validity_near_config_days() -> (
+    None
+):
+    config_validity_days = AwsPrivateCaConfig(
+        ca_authority_arn=_CA_ARN, signing_algorithm="SHA256WITHECDSA"
+    ).validity_days
+    client = _FakeAcmPcaClient(CertificateAuthority.create())
+    provider = _provider(client)
+    csr = CertificateSigningRequest.generate(_HOSTNAME, KeyPair.generate())
+
+    provider.issue_leaf_certificate(csr)
+
+    assert client.last_validity is not None
+    assert client.last_validity["Type"] == "ABSOLUTE"
+    requested_epoch = client.last_validity["Value"]
+    assert isinstance(requested_epoch, int)
+    expected = datetime.now(UTC) + timedelta(days=config_validity_days)
+    assert abs(requested_epoch - expected.timestamp()) < 5
+
+
+def _root_expiring_in(delta: timedelta) -> CertificateAuthority:
+    """A hand-built root expiring at *delta* from now — mirrors
+    ``test_certificate_authority.py``'s own near-expiry root, used here to
+    prove the same clamp Provider 1 applies locally.
+    """
+    key_pair = KeyPair.generate()
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "near-expiry CA")])
+    now = datetime.now(UTC)
+    builder = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key_pair.public_key)
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(minutes=5))
+        .not_valid_after(now + delta)
+        .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
+    )
+    return CertificateAuthority(key_pair, key_pair.sign_certificate_builder(builder))
+
+
+def test_issue_leaf_certificate_clamps_validity_to_the_cas_remaining_lifetime() -> None:
+    root_expiry = timedelta(days=10)
+    ca = _root_expiring_in(root_expiry)
+    client = _FakeAcmPcaClient(ca)
+    provider = _provider(client)  # default config requests 365 days
+    csr = CertificateSigningRequest.generate(_HOSTNAME, KeyPair.generate())
+
+    provider.issue_leaf_certificate(csr)
+
+    assert client.last_validity is not None
+    assert client.last_validity["Type"] == "ABSOLUTE"
+    requested_epoch = client.last_validity["Value"]
+    assert isinstance(requested_epoch, int)
+    expected_expiry = datetime.now(UTC) + root_expiry
+    # Clamped to the CA's own expiry, not the config's 365-day request.
+    assert abs(requested_epoch - expected_expiry.timestamp()) < 5
 
 
 def test_issue_leaf_certificate_rejects_a_csr_with_a_tampered_signature() -> None:

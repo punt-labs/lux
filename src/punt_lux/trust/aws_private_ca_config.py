@@ -61,6 +61,17 @@ class AwsPrivateCaConfig:
         if not self.ca_authority_arn:
             msg = "ca_authority_arn must be a non-empty ACM Private CA ARN"
             raise ValueError(msg)
+        # Partition-agnostic (arn:aws:, arn:aws-cn:, arn:aws-us-gov:) — checks
+        # only the service and resource-type segments every partition shares.
+        if (
+            ":acm-pca:" not in self.ca_authority_arn
+            or ":certificate-authority/" not in self.ca_authority_arn
+        ):
+            msg = (
+                "ca_authority_arn does not look like an ACM Private CA ARN: "
+                f"{self.ca_authority_arn!r}"
+            )
+            raise ValueError(msg)
         if self.validity_days <= 0:
             msg = f"validity_days must be positive, got {self.validity_days}"
             raise ValueError(msg)

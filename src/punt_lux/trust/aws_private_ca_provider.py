@@ -19,6 +19,7 @@ the org's no-long-lived-IAM-keys standard.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Literal, Self, cast, final
 
 from cryptography import x509
@@ -78,9 +79,7 @@ class AwsPrivateCaProvider:
         """Return the CA's own certificate chain as the verification set a
         Display loads — root plus any intermediate ACM Private CA reports.
         """
-        response = self._client.get_certificate_authority_certificate(
-            CertificateAuthorityArn=self._config.ca_authority_arn,
-        )
+        response = self._ca_certificate_response()
         bundle = response["Certificate"].encode("ascii")
         # Absent for a root CA with no subordinate above it — the documented
         # shape of GetCertificateAuthorityCertificate's response, not a
@@ -99,19 +98,25 @@ class AwsPrivateCaProvider:
         before Provider 1 signs locally — a CSR whose self-signature does
         not verify, or whose SAN is missing or ambiguous, is rejected before
         it ever reaches AWS, never silently forwarded as an API call AWS
-        would have to reject on Lux's behalf.
+        would have to reject on Lux's behalf. The requested validity is also
+        clamped to the CA's own remaining lifetime — the identical rule
+        :meth:`.certificate_authority.CertificateAuthority.sign_csr` applies
+        locally for Provider 1 (a leaf must never outlive the CA vouching for
+        it), computed here from ACM Private CA's own reported expiry rather
+        than an in-memory certificate.
         """
         if not csr.is_signature_valid:
             msg = "CSR signature does not verify — refusing to submit for issuance"
             raise ValueError(msg)
         _ = csr.hostname  # raises unless the SAN names exactly one hostname
 
+        not_valid_after = self._clamped_leaf_expiry()
         issued = self._client.issue_certificate(
             CertificateAuthorityArn=self._config.ca_authority_arn,
             Csr=csr.to_pem(),
             SigningAlgorithm=self._config.signing_algorithm,
             TemplateArn=self._config.template_arn,
-            Validity={"Value": self._config.validity_days, "Type": "DAYS"},
+            Validity={"Value": int(not_valid_after.timestamp()), "Type": "ABSOLUTE"},
         )
         certificate_arn = issued["CertificateArn"]
         # ACM Private CA issuance is asynchronous — the waiter blocks (with
@@ -129,6 +134,28 @@ class AwsPrivateCaProvider:
         return LeafCertificate.from_pem(
             issued_certificate["Certificate"].encode("ascii")
         )
+
+    def _ca_certificate_response(self) -> dict[str, str]:
+        """Return ACM Private CA's own ``GetCertificateAuthorityCertificate``
+        response — the one AWS call both :meth:`trust_anchor` and
+        :meth:`_clamped_leaf_expiry` read from, kept in one place rather than
+        duplicated at each call site.
+        """
+        return self._client.get_certificate_authority_certificate(
+            CertificateAuthorityArn=self._config.ca_authority_arn,
+        )
+
+    def _clamped_leaf_expiry(self) -> datetime:
+        """Return the leaf's ``not_valid_after``, clamped to the CA's own
+        remaining lifetime — a leaf must never outlive the CA that vouches
+        for it, mirroring :meth:`.certificate_authority.CertificateAuthority
+        .sign_csr`'s identical ``min(now + validity, root_expiry)`` clamp.
+        """
+        requested = datetime.now(UTC) + timedelta(days=self._config.validity_days)
+        ca_certificate = x509.load_pem_x509_certificate(
+            self._ca_certificate_response()["Certificate"].encode("ascii")
+        )
+        return min(requested, ca_certificate.not_valid_after_utc)
 
     @staticmethod
     def _split_pem_bundle(bundle: bytes) -> tuple[bytes, ...]:
