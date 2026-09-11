@@ -72,11 +72,11 @@ class LeafCertificate:
 
     def is_expired(self) -> bool:
         """Return whether this certificate has expired as of now."""
-        return datetime.now(UTC) >= self.not_valid_after
+        return datetime.now(UTC) >= self._certificate.not_valid_after_utc
 
     def is_expired_as_of(self, at: datetime) -> bool:
         """Return whether this certificate is expired as of *at* (test hook)."""
-        return at >= self.not_valid_after
+        return at >= self._certificate.not_valid_after_utc
 
     @property
     def hostname(self) -> str:
