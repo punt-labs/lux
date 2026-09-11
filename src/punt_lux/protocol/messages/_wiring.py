@@ -11,6 +11,8 @@ efferent coupling, never the facade's.
 
 from __future__ import annotations
 
+from typing import final
+
 from punt_lux.protocol.messages.connect_message import ConnectMessage
 from punt_lux.protocol.messages.introspect import (
     IntrospectRequest,
@@ -114,18 +116,36 @@ DisplayMessage = (
 Message = ClientMessage | DisplayMessage | UnknownMessage
 
 
+@final
+class _MessageWiring:
+    """Builds a :class:`MessageRegistry` populated with every family's codecs.
+
+    The registration step -- unlike the union assembly above -- is
+    behavior, not just data (PY-OO-5): it drives seven family modules'
+    ``register_codecs`` through one collaborator, so it lives on a class
+    rather than as bare module-level statements.
+    """
+
+    __slots__ = ()
+
+    @staticmethod
+    def build_registry() -> MessageRegistry:
+        """Return a registry with every message family's codecs installed."""
+        registry = MessageRegistry()
+        _register_scene(registry.register)
+        _register_connect(registry.register)
+        _register_lifecycle(registry.register)
+        _register_remote_invocation(registry.register)
+        _register_menu(registry.register)
+        _register_introspect(registry.register)
+        _register_observer(registry.register)
+        return registry
+
+
 # Module-level dispatch registry, populated at import time.  Tests that need
 # isolation construct their own MessageRegistry instance directly via the
 # registry sub-module.
-_registry = MessageRegistry()
-
-_register_scene(_registry.register)
-_register_connect(_registry.register)
-_register_lifecycle(_registry.register)
-_register_remote_invocation(_registry.register)
-_register_menu(_registry.register)
-_register_introspect(_registry.register)
-_register_observer(_registry.register)
+_registry = _MessageWiring.build_registry()
 
 # The package's codec entry points ARE the registry's own bound methods.
 message_to_dict = _registry.to_dict
