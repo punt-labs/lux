@@ -1104,3 +1104,203 @@ class TestBootstrap:
         fx.commit("pre-adoption")
         outcome = fx.ratchet().check(fx.scorer(), base_ref="0" * 40, require_base=False)
         assert outcome.exit_code == 0
+
+
+# DES-097's floor-metric fixtures. FLOOR_BASE has method_ratio == 0.5 (one
+# method, one top-level function), already below the >= 0.80 floor -- a
+# PRE-EXISTING over-cap violation, the same shape as coupling's avg_lcom
+# fixture but on a floor metric, where "worse" means LOWER, not higher.
+FLOOR_BASE = '''from __future__ import annotations
+
+
+class Widget:
+    """A widget."""
+
+    _n: int
+
+    def __new__(cls, n: int) -> "Widget":
+        self = super().__new__(cls)
+        self._n = n
+        return self
+
+
+def helper() -> None:
+    pass
+'''
+
+# Same class/function COUNT as FLOOR_BASE -- method_ratio stays exactly 0.5
+# (unchanged, still over cap) -- but helper() gains two parameters, so
+# avg_params regresses from 0.5 to 1.5, a WITHIN-CAP regression (<= 4.0).
+FLOOR_REGRESSED_WITHIN_CAP = '''from __future__ import annotations
+
+
+class Widget:
+    """A widget."""
+
+    _n: int
+
+    def __new__(cls, n: int) -> "Widget":
+        self = super().__new__(cls)
+        self._n = n
+        return self
+
+
+def helper(a: int, b: int) -> None:
+    pass
+'''
+
+# A second top-level function with no new method: method_ratio slides from
+# 0.5 to 1/3 == 0.333 -- WORSE (lower), for a floor metric, and still over
+# the >= 0.80 cap the whole time.
+FLOOR_FURTHER_REGRESSED = '''from __future__ import annotations
+
+
+class Widget:
+    """A widget."""
+
+    _n: int
+
+    def __new__(cls, n: int) -> "Widget":
+        self = super().__new__(cls)
+        self._n = n
+        return self
+
+
+def helper() -> None:
+    pass
+
+
+def helper2() -> None:
+    pass
+'''
+
+
+class TestRebaselineFilesBless:
+    """DES-097: the OO ratchet's bounded, scoped, tool-computed bless.
+
+    Mirrors the coupling ratchet's ``--rebaseline-files`` (DES-096) gate --
+    refuse a metric only when it BOTH exceeds its absolute threshold AND
+    regressed against the file's committed baseline -- adapted to
+    ``Thresholds``' direction-aware comparison, so the gate is exercised on
+    a FLOOR metric (``method_ratio``, where lower is worse) rather than
+    only a ceiling metric.
+    """
+
+    def test_within_cap_regression_blessed_and_subsequent_check_passes(
+        self, fx: GitFixture
+    ) -> None:
+        fx.write("sub/w.py", FLOOR_BASE)
+        fx.snapshot("sub")  # method_ratio 0.5 (already over the >= 0.80 cap)
+        base = fx.commit("base")
+
+        fx.write("sub/w.py", FLOOR_REGRESSED_WITHIN_CAP)  # avg_params 0.5 -> 1.5
+        bless = fx.writer().rebaseline_files(
+            fx.scorer(),
+            ["sub/w.py"],
+            reason="accepted debt",
+            allow_ci_write=True,
+            source="lux-x #1",
+        )
+        assert bless.exit_code == 0
+        recorded = Baseline(fx.root).get("sub/w.py")
+        assert recorded is not None
+        assert recorded["avg_params"] == 1.5
+        assert recorded["method_ratio"] == 0.5  # over cap, carried forward
+
+        audit_lines = (fx.root / ".oo-audit.jsonl").read_text().splitlines()
+        assert len(audit_lines) == 1
+        entry = json.loads(audit_lines[0])
+        assert entry["verdict"] == "rebaseline-files"
+        assert entry["reason"] == "accepted debt"
+        assert entry["deltas"]["sub/w.py"]["avg_params"] == [0.5, 1.5]
+        assert "method_ratio" not in entry["deltas"]["sub/w.py"]  # unchanged
+
+        fx.commit("bless")
+        outcome = fx.ratchet().check(fx.scorer(), base_ref=base, require_base=True)
+        assert outcome.exit_code == 0
+
+    def test_over_cap_and_regressed_metric_is_refused(self, fx: GitFixture) -> None:
+        fx.write("sub/w.py", FLOOR_BASE)
+        fx.snapshot("sub")  # method_ratio 0.5, already over cap
+        baseline_before = dict(Baseline(fx.root).entries)
+        fx.commit("base")
+
+        fx.write("sub/w.py", FLOOR_FURTHER_REGRESSED)  # method_ratio 0.5 -> 0.333
+        outcome = fx.writer().rebaseline_files(
+            fx.scorer(),
+            ["sub/w.py"],
+            reason="x",
+            allow_ci_write=True,
+            source=None,
+        )
+        assert outcome.exit_code == 1
+        assert Baseline(fx.root).entries == baseline_before
+        audit_path = fx.root / ".oo-audit.jsonl"
+        audit_text = audit_path.read_text() if audit_path.exists() else ""
+        assert "rebaseline-files" not in audit_text
+
+    def test_new_file_with_no_baseline_entry_over_cap_is_refused(
+        self, fx: GitFixture
+    ) -> None:
+        fx.write("sub/existing.py", GOOD)
+        fx.snapshot("sub")  # baseline covers existing.py only
+        baseline_before = dict(Baseline(fx.root).entries)
+        fx.commit("base")
+
+        fx.write("sub/new.py", FLOOR_BASE)  # never baselined; method_ratio over cap
+        outcome = fx.writer().rebaseline_files(
+            fx.scorer(),
+            ["sub/new.py"],
+            reason="x",
+            allow_ci_write=True,
+            source=None,
+        )
+        assert outcome.exit_code == 1
+        assert Baseline(fx.root).entries == baseline_before
+        audit_path = fx.root / ".oo-audit.jsonl"
+        audit_text = audit_path.read_text() if audit_path.exists() else ""
+        assert "rebaseline-files" not in audit_text
+
+    def test_missing_reason_errors_before_scoring(
+        self, fx: GitFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Regression guard for the ordering contract: --reason must be
+        # checked before Scorer is even constructed, mirroring the coupling
+        # ratchet's guard. Stubbing Scorer to raise proves the ordering: the
+        # reason check fails first, so the stub is never invoked.
+        fx.write("sub/w.py", GOOD)
+        fx.snapshot("sub")
+        fx.commit("base")
+
+        def _must_not_construct(*_args: object, **_kwargs: object) -> None:
+            raise AssertionError("Scorer must not be constructed before --reason")
+
+        import tools.oo_ratchet.cli as cli_module
+
+        monkeypatch.setattr(cli_module, "Scorer", _must_not_construct)
+        monkeypatch.chdir(fx.root)
+        exit_code = main(["sub", "--rebaseline-files", "sub/w.py"])
+        assert exit_code == 1
+
+    def test_absolute_request_path_lands_on_existing_relative_key(
+        self, fx: GitFixture
+    ) -> None:
+        fx.write("sub/w.py", FLOOR_BASE)
+        fx.snapshot("sub")
+        fx.commit("base")
+
+        fx.write("sub/w.py", FLOOR_REGRESSED_WITHIN_CAP)
+        absolute_request = str(fx.root / "sub" / "w.py")
+
+        outcome = fx.writer().rebaseline_files(
+            fx.scorer(),
+            [absolute_request],
+            reason="x",
+            allow_ci_write=True,
+            source=None,
+        )
+
+        assert outcome.exit_code == 0
+        entries = Baseline(fx.root).entries
+        assert entries["sub/w.py"]["avg_params"] == 1.5  # existing relative key
+        assert absolute_request not in entries  # no duplicate absolute key
