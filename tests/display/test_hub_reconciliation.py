@@ -14,6 +14,7 @@ from unittest.mock import MagicMock
 from punt_lux.display.hub_reconciliation import HubReconciliation
 from punt_lux.display.identity_guard import IdentityGuard
 from punt_lux.display.replica import SceneReplica
+from punt_lux.display.socket_listener_callbacks import SocketListenerCallbacks
 from punt_lux.display.socket_server import SocketListener
 from punt_lux.domain.identity import HubId
 from punt_lux.protocol import (
@@ -39,9 +40,11 @@ def _mock_sock(fd: int) -> MagicMock:
 
 def _make_listener() -> SocketListener:
     return SocketListener(
-        on_message=lambda _sock, _msg: None,
-        on_client_disconnected=lambda _fd: None,
-        on_error=lambda _sev, _msg, _ctx: None,
+        SocketListenerCallbacks(
+            on_message=lambda _sock, _msg: None,
+            on_client_disconnected=lambda _fd: None,
+            on_error=lambda _sev, _msg, _ctx: None,
+        )
     )
 
 

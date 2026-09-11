@@ -5,6 +5,7 @@ from __future__ import annotations
 import errno
 import os
 import socket
+import ssl
 import tempfile
 import threading
 import time
@@ -13,6 +14,7 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
+from punt_lux.display.socket_listener_callbacks import SocketListenerCallbacks
 from punt_lux.display.socket_server import SocketListener
 from punt_lux.domain.identity import HubId
 from punt_lux.paths import DisplayPaths
@@ -53,9 +55,11 @@ def _noop_error(_sev: str, _msg: str, _ctx: str) -> None:
 def _make_server() -> SocketListener:
     """Create a SocketListener with no-op callbacks."""
     return SocketListener(
-        on_message=_noop_message,
-        on_client_disconnected=_noop_disconnect,
-        on_error=_noop_error,
+        SocketListenerCallbacks(
+            on_message=_noop_message,
+            on_client_disconnected=_noop_disconnect,
+            on_error=_noop_error,
+        )
     )
 
 
@@ -99,9 +103,11 @@ class TestAcceptAndPoll:
             received.append((sock.fileno(), msg))
 
         server = SocketListener(
-            on_message=on_message,
-            on_client_disconnected=_noop_disconnect,
-            on_error=_noop_error,
+            SocketListenerCallbacks(
+                on_message=on_message,
+                on_client_disconnected=_noop_disconnect,
+                on_error=_noop_error,
+            )
         )
         try:
             server.setup(sock_path)
@@ -150,9 +156,11 @@ class TestRemoveClient:
             disconnected_fds.append(fd)
 
         server = SocketListener(
-            on_message=_noop_message,
-            on_client_disconnected=on_disconnect,
-            on_error=_noop_error,
+            SocketListenerCallbacks(
+                on_message=_noop_message,
+                on_client_disconnected=on_disconnect,
+                on_error=_noop_error,
+            )
         )
         try:
             server.setup(sock_path)
@@ -184,6 +192,49 @@ class TestRemoveClient:
         finally:
             server.shutdown()
 
+    def test_hub_id_of_still_resolves_during_the_disconnect_callback(self) -> None:
+        """A departure reaction reads hub_id_of(fd) from inside the callback.
+
+        RenderLoop._on_client_disconnected retires a departed Hub's menu by
+        calling self._socket_listener.hub_id_of(fd) -- so the fd -> HubId
+        mapping must survive until on_client_disconnected returns, even
+        though every other per-fd fact is already gone by then.
+        """
+        tmpdir = _make_tmpdir()
+        sock_path = Path(tmpdir) / "test.sock"
+        hub_id = HubId("pembroke", 123)
+        seen_during_callback: list[HubId | None] = []
+
+        def on_disconnect(fd: int) -> None:
+            seen_during_callback.append(server.hub_id_of(fd))
+
+        server = SocketListener(
+            SocketListenerCallbacks(
+                on_message=_noop_message,
+                on_client_disconnected=on_disconnect,
+                on_error=_noop_error,
+            )
+        )
+        try:
+            server.setup(sock_path)
+            client = _connect_client(sock_path)
+            try:
+                server.accept_connections()
+                conn = server.clients[0]
+                fd = conn.fileno()
+                server.register_client_identity(
+                    fd, kind="hub", name="hub-a", connect_time=1000.0, hub_id=hub_id
+                )
+
+                server.remove_client(conn)
+
+                assert seen_during_callback == [hub_id]  # resolved DURING the callback
+                assert server.hub_id_of(fd) is None  # gone once remove_client returns
+            finally:
+                client.close()
+        finally:
+            server.shutdown()
+
 
 class TestRemoveClientDeadFd:
     """remove_client treats a closed socket's fileno()==-1 like an unavailable fd.
@@ -196,9 +247,11 @@ class TestRemoveClientDeadFd:
     def test_negative_fileno_skips_disconnect_callback(self) -> None:
         disconnected_fds: list[int] = []
         server = SocketListener(
-            on_message=_noop_message,
-            on_client_disconnected=disconnected_fds.append,
-            on_error=_noop_error,
+            SocketListenerCallbacks(
+                on_message=_noop_message,
+                on_client_disconnected=disconnected_fds.append,
+                on_error=_noop_error,
+            )
         )
         dead = _FakeClient(fd=-1)
         sock = _inject_client(server, dead)
@@ -860,3 +913,159 @@ class TestSetupArbitration:
             server.shutdown()
             if worker is not None:
                 worker.join(timeout=5)
+
+
+class _WantWriteClient:
+    """A socket stand-in whose ``recv()`` raises ``SSLWantWriteError`` on demand.
+
+    Mirrors ``_FakeClient``'s injection shape, but for the read side: a
+    non-blocking TLS ``recv()`` can want a write before it can finish (a
+    normal, rare event) -- the counterpart to ``BoundedSend``'s want-read-
+    during-send case (see ``test_bounded_send.py::TestWantReadDuringSend``).
+    """
+
+    _want_write_left: int
+    _fd: int
+    _data: bytes
+
+    def __new__(
+        cls, *, fd: int, want_write_before: int = 0, data: bytes = b""
+    ) -> _WantWriteClient:
+        self = super().__new__(cls)
+        self._want_write_left = want_write_before
+        self._fd = fd
+        self._data = data
+        return self
+
+    def recv(self, _bufsize: int) -> bytes:
+        if self._want_write_left > 0:
+            self._want_write_left -= 1
+            raise ssl.SSLWantWriteError
+        return self._data
+
+    def fileno(self) -> int:
+        return self._fd
+
+    def close(self) -> None:
+        """No-op -- ``remove_client`` closes an empty-``recv()`` fd."""
+
+
+def _inject_want_write_client(
+    server: SocketListener, client: _WantWriteClient
+) -> socket.socket:
+    """Register ``client`` as if just accepted; return it typed as a socket."""
+    sock = cast("socket.socket", client)
+    server.clients.append(sock)
+    server.fd_to_client[client.fileno()] = sock
+    return sock
+
+
+class TestWantWriteDuringRead:
+    """``poll_clients`` tracks and selects for a ``recv()``-wants-write fd.
+
+    Before the fix, ``_read_from_client`` deferred a ``SSLWantWriteError``
+    to the next poll exactly like a plain want-read -- but the next poll's
+    ``select`` only ever watches for readability, never writability, so
+    nothing was actually waiting on the condition ``recv()`` needed.
+    """
+
+    def test_want_write_is_tracked_and_selected_on_next_poll(self) -> None:
+        server = _make_server()
+        client = _WantWriteClient(fd=777, want_write_before=1, data=b"")
+        sock = _inject_want_write_client(server, client)
+        server._registry.register_connection(777, sock)
+
+        server._read_from_client(sock)
+
+        assert 777 in server._want_write._fds
+
+        seen_write_watch: list[list[object]] = []
+
+        def fake_select(
+            r: list[object], w: list[object], _x: list[object], _t: float
+        ) -> tuple[list[object], list[object], list[object]]:
+            seen_write_watch.append(list(w))
+            return ([], [], [])  # not yet ready -- just prove it was watched
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr("punt_lux.display.socket_server.select.select", fake_select)
+            server.poll_clients()
+
+        assert seen_write_watch == [[sock]]  # the want-write fd was in the write set
+
+    def test_becoming_writable_retries_and_clears_the_tracked_fd(self) -> None:
+        server = _make_server()
+        received: list[bytes] = []
+        client = _WantWriteClient(fd=778, want_write_before=1, data=b"")
+        sock = _inject_want_write_client(server, client)
+        server._registry.register_connection(778, sock)
+
+        server._read_from_client(sock)
+        assert 778 in server._want_write._fds
+
+        def fake_select(
+            r: list[object], w: list[object], _x: list[object], _t: float
+        ) -> tuple[list[object], list[object], list[object]]:
+            return ([], list(w), [])  # the watched fd is now writable
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr("punt_lux.display.socket_server.select.select", fake_select)
+            server.poll_clients()
+
+        assert 778 not in server._want_write._fds
+        assert received == []  # empty recv() -- the peer closed, client removed
+        assert sock not in server.clients
+
+
+class TestWantWriteCleanup:
+    """A tracked want-write fd must not survive its owning connection.
+
+    Left stale, a reused fd would hit ``_WantWriteState.sockets``'s
+    ``fd_to_client.__getitem__`` on a fd no longer registered -- a KeyError
+    on the very next ``poll_clients`` after reuse.
+    """
+
+    def test_remove_client_discards_its_tracked_want_write_fd(self) -> None:
+        server = _make_server()
+        client = _WantWriteClient(fd=779, want_write_before=1, data=b"")
+        sock = _inject_want_write_client(server, client)
+        server._registry.register_connection(779, sock)
+        server._read_from_client(sock)
+        assert 779 in server._want_write._fds
+
+        server.remove_client(sock)
+
+        assert 779 not in server._want_write._fds
+
+    def test_shutdown_clears_every_tracked_want_write_fd(self) -> None:
+        server = _make_server()
+        client = _WantWriteClient(fd=780, want_write_before=1, data=b"")
+        sock = _inject_want_write_client(server, client)
+        server._registry.register_connection(780, sock)
+        server._read_from_client(sock)
+        assert 780 in server._want_write._fds
+
+        server.shutdown()
+
+        assert server._want_write._fds == set()
+
+    def test_a_reused_fd_after_shutdown_does_not_inherit_stale_want_write(
+        self,
+    ) -> None:
+        """The exact reuse hazard: fd 781 tracked as want-write, shutdown,
+        then a fresh connection reuses fd 781 -- poll_clients must not
+        KeyError resolving it to a socket that no longer exists."""
+        server = _make_server()
+        client = _WantWriteClient(fd=781, want_write_before=1, data=b"")
+        sock = _inject_want_write_client(server, client)
+        server._registry.register_connection(781, sock)
+        server._read_from_client(sock)
+        assert 781 in server._want_write._fds
+
+        server.shutdown()
+
+        reused = _WantWriteClient(fd=781, want_write_before=0, data=b"")
+        reused_sock = _inject_want_write_client(server, reused)
+        server._registry.register_connection(781, reused_sock)
+
+        server.poll_clients()  # must not raise KeyError on the stale fd

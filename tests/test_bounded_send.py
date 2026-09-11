@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import errno
 import socket
+import ssl
 import time
 from typing import cast
 
@@ -27,6 +28,7 @@ class _FakeSocket:
     _block_after: int | None
     _returns_zero: bool
     _fail_with: OSError | None
+    _want_read_left: int
     sent: bytearray
     calls: int
 
@@ -38,6 +40,7 @@ class _FakeSocket:
         block_after: int | None = None,
         returns_zero: bool = False,
         fail_with: OSError | None = None,
+        want_read_before: int = 0,
     ) -> _FakeSocket:
         self = super().__new__(cls)
         self._eagain_left = eagain_before
@@ -45,6 +48,7 @@ class _FakeSocket:
         self._block_after = block_after
         self._returns_zero = returns_zero
         self._fail_with = fail_with
+        self._want_read_left = want_read_before
         self.sent = bytearray()
         self.calls = 0
         return self
@@ -55,6 +59,9 @@ class _FakeSocket:
             raise self._fail_with
         if self._returns_zero:
             return 0
+        if self._want_read_left > 0:
+            self._want_read_left -= 1
+            raise ssl.SSLWantReadError
         if self._eagain_left > 0:
             self._eagain_left -= 1
             raise BlockingIOError(errno.EAGAIN, "resource temporarily unavailable")
@@ -81,6 +88,34 @@ def _patch_writable(monkeypatch: pytest.MonkeyPatch, *, writable: bool) -> None:
     monkeypatch.setattr("punt_lux.bounded_send.select.select", fake_select)
 
 
+def _patch_writable_never_readable(
+    monkeypatch: pytest.MonkeyPatch, select_calls: list[float]
+) -> None:
+    """Force ``select`` to report writable but never readable, recording each
+    call's timeout -- the exact scenario a direction-unaware wait busy-spins
+    on: the send buffer has room, but nothing to read yet.
+    """
+
+    def fake_select(
+        _r: list[object], w: list[object], _x: list[object], t: float
+    ) -> tuple[list[object], list[object], list[object]]:
+        select_calls.append(t)
+        return ([], list(w), [])  # writable always true, readable never
+
+    monkeypatch.setattr("punt_lux.bounded_send.select.select", fake_select)
+
+
+def _patch_readable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Force ``select`` to report both directions ready."""
+
+    def fake_select(
+        r: list[object], w: list[object], _x: list[object], _t: float
+    ) -> tuple[list[object], list[object], list[object]]:
+        return (list(r), list(w), [])
+
+    monkeypatch.setattr("punt_lux.bounded_send.select.select", fake_select)
+
+
 class TestBackpressure:
     """A would-block is waited out and the message still lands, in order."""
 
@@ -101,6 +136,44 @@ class TestBackpressure:
         payload = bytes(range(37))
         BoundedSend().send(cast("socket.socket", sock), payload, time.monotonic() + 1.0)
         assert bytes(sock.sent) == payload
+
+
+class TestWantReadDuringSend:
+    """``SSLWantReadError`` waits on readability, never busy-spins on writability.
+
+    A TLS 1.3 post-handshake event (NewSessionTicket/KeyUpdate) can make
+    ``send()`` want a read before it can finish -- a normal event, not
+    malice. Waiting on the wrong fd-set (writability, which is usually
+    already true -- the kernel send buffer has room) would make ``select``
+    return instantly every time, so the loop retries as fast as the CPU
+    allows: a busy-spin for the whole deadline.
+    """
+
+    def test_never_readable_gives_up_after_one_attempt_not_a_spin(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        select_calls: list[float] = []
+        _patch_writable_never_readable(monkeypatch, select_calls)
+        sock = _FakeSocket(want_read_before=1_000_000)  # never stops wanting a read
+        with pytest.raises(BlockingIOError):
+            BoundedSend().send(
+                cast("socket.socket", sock), b"payload", time.monotonic() + 5.0
+            )
+        # A direction-unaware wait would retry on every instantly-writable
+        # select() -- hundreds of calls in the time this test takes to run.
+        # Waiting on readability instead means exactly one send, one wait,
+        # one give-up: the peer never became readable, so nothing to retry.
+        assert sock.calls == 1
+        assert len(select_calls) == 1
+        assert bytes(sock.sent) == b""  # nothing reached the wire
+
+    def test_resumes_once_readable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _patch_readable(monkeypatch)
+        sock = _FakeSocket(want_read_before=1)
+        payload = b"hello world"
+        BoundedSend().send(cast("socket.socket", sock), payload, time.monotonic() + 1.0)
+        assert bytes(sock.sent) == payload
+        assert sock.calls == 2  # one want-read, one successful send
 
 
 class TestGiveUp:

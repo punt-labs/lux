@@ -2,9 +2,8 @@
 # pyright: reportUnknownArgumentType=false, reportMissingModuleSource=false
 """The ImGui render loop, with non-blocking Unix socket IPC.
 
-Listens on a Unix domain socket for protocol messages and renders scenes
-using imgui-bundle. Socket I/O is polled every frame via ``select()`` with
-zero timeout — no threads, no asyncio.
+Listens on a Unix socket for protocol messages, renders via imgui-bundle,
+and polls I/O every frame with zero-timeout ``select()`` -- no threads/asyncio.
 
 This module imports Pillow at module level but defers ImGui and OpenGL
 imports to method bodies. It can be imported by unit tests (for state
@@ -44,7 +43,7 @@ from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.replica import Frame, SceneReplica, WidgetState
 from punt_lux.display.replica.menu_replica import MenuReplica, OwnMenus
 from punt_lux.display.scene_inspector import SceneInspector
-from punt_lux.display.socket_server import SocketListener
+from punt_lux.display.socket_server import SocketListener, SocketListenerCallbacks
 from punt_lux.display.texture_cache import TextureCache
 from punt_lux.display.window_chrome import WindowChrome
 from punt_lux.paths import DisplayPaths
@@ -162,8 +161,7 @@ class RenderLoop:
                 chrome=WindowChrome(),
             ),
         )
-        # QueryRouter must be created before SocketListener so that
-        # the on_error callback is available.
+        # QueryRouter must precede SocketListener -- it supplies on_error.
         self._query_router = QueryRouter(
             scenes=self._scenes,
             get_client_names=lambda: self._socket_listener.client_names,
@@ -171,11 +169,12 @@ class RenderLoop:
             get_agent_menus=lambda: self._menus.agent_menus,
             get_callback_menus=lambda: self._menus.callback_menus,
         )
-        self._socket_listener = SocketListener(
+        socket_callbacks = SocketListenerCallbacks(
             on_message=self._handle_message,
             on_client_disconnected=self._on_client_disconnected,
             on_error=self._query_router.record_error,
         )
+        self._socket_listener = SocketListener(socket_callbacks)
         self._interaction_delivery = InteractionDelivery(
             socket_listener=self._socket_listener,
             scenes=self._scenes,
