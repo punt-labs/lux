@@ -74,7 +74,7 @@ class HubReconciliation:
         except OSError:
             return
         if msg.kind == "hub":
-            self._preempt_stale_hub(fd, name)
+            self._preempt_stale_hub(fd, hub_id)
         else:
             self._log_test_kind_connect(sock, fd, name)
         self._socket_listener.register_client_identity(
@@ -135,12 +135,22 @@ class HubReconciliation:
         hub = self._socket_listener.hub_id_of(sock.fileno())
         return hub if hub is not None else HubId.stub()
 
-    def _preempt_stale_hub(self, fd: int, name: str) -> None:
-        """Force-disconnect any prior live connection declaring this identity."""
-        stale_fd = self._socket_listener.hub_fd_for(name)
+    def _preempt_stale_hub(self, fd: int, hub_id: HubId) -> None:
+        """Force-disconnect any prior live connection declaring this ``HubId``.
+
+        Keyed on ``HubId`` (W11), never on the declared ``name`` -- ``name``
+        keeps its narrower "what a human calls this" meaning and plays no
+        role in single-owner preemption. Two distinct Hubs sharing a name
+        (every production Hub today declares the identical hardcoded name)
+        coexist; only a reconnect under the *same* ``HubId`` preempts its own
+        stale predecessor.
+        """
+        stale_fd = self._socket_listener.hub_fd_for(hub_id)
         if stale_fd is None or stale_fd == fd:
             return
         stale_sock = self._socket_listener.fd_to_client.get(stale_fd)
         if stale_sock is not None:
-            logger.info("Preempting stale hub connection fd=%d for %r", stale_fd, name)
+            logger.info(
+                "Preempting stale hub connection fd=%d for hub_id=%r", stale_fd, hub_id
+            )
             self._socket_listener.remove_client(stale_sock)
