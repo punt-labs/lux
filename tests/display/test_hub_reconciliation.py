@@ -83,7 +83,7 @@ class TestHandleConnect:
             sock, ConnectMessage(name="lux-mcp", kind="hub", hub_id="pembroke\x1f123")
         )
 
-        assert listener.hub_fd_for("lux-mcp") == 10
+        assert listener.hub_fd_for(HubId("pembroke", 123)) == 10
 
     def test_a_test_identify_never_preempts_or_marks_hub(self) -> None:
         listener = _make_listener()
@@ -94,11 +94,12 @@ class TestHandleConnect:
         probe = ConnectMessage(name="quarry", kind="test", hub_id="test.invalid\x1f0")
         reconciliation.handle_connect(sock, probe)
 
-        assert listener.hub_fd_for("quarry") is None
+        assert listener.hub_fd_for(HubId("test.invalid", 0)) is None
         assert listener.client_names[10] == "quarry"
         assert listener.kind_of(10) == "test"
 
     def test_a_second_hub_identify_forcibly_disconnects_the_first(self) -> None:
+        """A reconnect under the *same* HubId preempts its own predecessor."""
         listener = _make_listener()
         scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
         reconciliation = _make_reconciliation(listener, scenes)
@@ -110,7 +111,7 @@ class TestHandleConnect:
             old_sock,
             ConnectMessage(name="lux-mcp", kind="hub", hub_id="pembroke\x1f123"),
         )
-        assert listener.hub_fd_for("lux-mcp") == 10
+        assert listener.hub_fd_for(HubId("pembroke", 123)) == 10
 
         listener.clients.append(new_sock)
         listener.fd_to_client[20] = new_sock
@@ -121,7 +122,8 @@ class TestHandleConnect:
 
         old_sock.close.assert_called_once()  # forcibly removed
         assert old_sock not in listener.clients
-        assert listener.hub_fd_for("lux-mcp") == 20  # the new claimant, and only it
+        # the new claimant, and only it
+        assert listener.hub_fd_for(HubId("pembroke", 123)) == 20
 
     def test_a_hub_identify_with_no_predecessor_preempts_nothing(self) -> None:
         """The ordinary restart case: the old process's socket is already gone."""
@@ -136,7 +138,7 @@ class TestHandleConnect:
 
         sock.close.assert_not_called()
 
-    def test_a_different_named_hub_identify_is_not_preempted(self) -> None:
+    def test_a_different_hub_id_identify_is_not_preempted(self) -> None:
         listener = _make_listener()
         scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
         reconciliation = _make_reconciliation(listener, scenes)
@@ -153,8 +155,62 @@ class TestHandleConnect:
         )
 
         first.close.assert_not_called()
-        assert listener.hub_fd_for("a") == 10
-        assert listener.hub_fd_for("b") == 20
+        assert listener.hub_fd_for(HubId("a.example", 1)) == 10
+        assert listener.hub_fd_for(HubId("b.example", 2)) == 20
+
+    def test_two_hub_ids_sharing_the_same_name_both_stay_connected(self) -> None:
+        """W11: preemption keys on HubId, never the declared name -- every
+        production Hub today declares the identical hardcoded name
+        (``_DISPLAY_CLIENT_NAME``), so two genuinely distinct Hubs sharing
+        that name must coexist rather than preempt one another."""
+        listener = _make_listener()
+        scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
+        reconciliation = _make_reconciliation(listener, scenes)
+        first, second = _mock_sock(10), _mock_sock(20)
+        listener.clients.extend([first, second])
+        listener.fd_to_client[10] = first
+        listener.fd_to_client[20] = second
+
+        reconciliation.handle_connect(
+            first, ConnectMessage(name="lux-mcp", kind="hub", hub_id="pembroke\x1f123")
+        )
+        reconciliation.handle_connect(
+            second, ConnectMessage(name="lux-mcp", kind="hub", hub_id="orsett\x1f456")
+        )
+
+        first.close.assert_not_called()
+        assert first in listener.clients
+        assert second in listener.clients
+        assert listener.hub_fd_for(HubId("pembroke", 123)) == 10
+        assert listener.hub_fd_for(HubId("orsett", 456)) == 20
+
+    def test_a_reconnect_under_a_different_name_but_same_hub_id_still_preempts(
+        self,
+    ) -> None:
+        """The declared name plays no role in preemption after W11 -- only
+        the HubId identifies "the same process reconnecting"."""
+        listener = _make_listener()
+        scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
+        reconciliation = _make_reconciliation(listener, scenes)
+        old_sock, new_sock = _mock_sock(10), _mock_sock(20)
+        listener.clients.append(old_sock)
+        listener.fd_to_client[10] = old_sock
+
+        reconciliation.handle_connect(
+            old_sock,
+            ConnectMessage(name="lux-mcp", kind="hub", hub_id="pembroke\x1f123"),
+        )
+        listener.clients.append(new_sock)
+        listener.fd_to_client[20] = new_sock
+        reconciliation.handle_connect(
+            new_sock,
+            ConnectMessage(
+                name="a-different-display-name", kind="hub", hub_id="pembroke\x1f123"
+            ),
+        )
+
+        old_sock.close.assert_called_once()  # preempted despite the new name
+        assert listener.hub_fd_for(HubId("pembroke", 123)) == 20
 
     def test_a_blank_name_is_ignored(self) -> None:
         listener = _make_listener()

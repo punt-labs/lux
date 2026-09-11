@@ -15,6 +15,22 @@
 %   probcli docs/hub_display_reconciliation_no_preemption_buggy.tex \
 %       -model_check -nodead -goal "..." -p DEFAULT_SETSIZE 3
 %
+% ------------------------------------------------------------------------
+% SUPERSEDED -- PENDING W12 (lux-833p) RE-MODEL
+%
+% This fidelity control inherits its CONNECTION_ID/hubOwner shape from
+% docs/hub_display_reconciliation.tex, which as of W11 (lux-u9gb, merged)
+% no longer reflects the shipped code -- preemption now keys on HubId, not
+% ConnectMessage.name. See the banner at the top of that file for the full
+% explanation. W12 (lux-833p) will re-model this fidelity control's own
+% wrong-key case (preemption re-keyed incorrectly, kept on name, with two
+% same-named-but-different-HubId connections both live) alongside the
+% main spec's re-model. Until then this file still correctly demonstrates
+% the pre-W11 socket-eviction defect it was built to reproduce; it is
+% superseded only in the sense that its shared identity shape is stale,
+% not that its own fidelity argument is wrong.
+% ------------------------------------------------------------------------
+%
 
 \documentclass[a4paper,10pt,fleqn]{article}
 \usepackage[margin=1in]{geometry}
