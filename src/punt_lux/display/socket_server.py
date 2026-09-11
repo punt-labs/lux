@@ -68,6 +68,10 @@ class _WantWriteState:
         """Clear ``fd`` -- a no-op if it was never tracked."""
         self._fds.discard(fd)
 
+    def clear(self) -> None:
+        """Drop every tracked fd -- shutdown, not one departure."""
+        self._fds.clear()
+
     def sockets(self, fd_to_client: dict[int, socket.socket]) -> list[socket.socket]:
         """Return the live sockets among the tracked fds, for a write-select."""
         return list(map(fd_to_client.__getitem__, self._fds))
@@ -133,12 +137,7 @@ class SocketListener:
         return self._frame_deadline
 
     def set_frame_deadline(self, deadline: float) -> None:
-        """Bound every deadline-less send in this frame by ``deadline`` (monotonic).
-
-        Called at the top of each render frame so a burst of Acks/Pongs/query
-        responses can't stack per-send waits into a multi-second wedge under
-        Hub backpressure. Sends passing an explicit deadline are unaffected.
-        """
+        """Bound every deadline-less send this frame against backpressure wedges."""
         self._frame_deadline = deadline
 
     def clear_frame_deadline(self) -> None:
@@ -183,6 +182,7 @@ class SocketListener:
                 client.close()
         self._clients.clear()
         self._registry.clear()
+        self._want_write.clear()
         if self._server_sock is not None:
             self._server_sock.close()
             self._server_sock = None

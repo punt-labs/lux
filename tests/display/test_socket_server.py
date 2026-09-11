@@ -1015,3 +1015,57 @@ class TestWantWriteDuringRead:
         assert 778 not in server._want_write._fds
         assert received == []  # empty recv() -- the peer closed, client removed
         assert sock not in server.clients
+
+
+class TestWantWriteCleanup:
+    """A tracked want-write fd must not survive its owning connection.
+
+    Left stale, a reused fd would hit ``_WantWriteState.sockets``'s
+    ``fd_to_client.__getitem__`` on a fd no longer registered -- a KeyError
+    on the very next ``poll_clients`` after reuse.
+    """
+
+    def test_remove_client_discards_its_tracked_want_write_fd(self) -> None:
+        server = _make_server()
+        client = _WantWriteClient(fd=779, want_write_before=1, data=b"")
+        sock = _inject_want_write_client(server, client)
+        server._registry.register_connection(779, sock)
+        server._read_from_client(sock)
+        assert 779 in server._want_write._fds
+
+        server.remove_client(sock)
+
+        assert 779 not in server._want_write._fds
+
+    def test_shutdown_clears_every_tracked_want_write_fd(self) -> None:
+        server = _make_server()
+        client = _WantWriteClient(fd=780, want_write_before=1, data=b"")
+        sock = _inject_want_write_client(server, client)
+        server._registry.register_connection(780, sock)
+        server._read_from_client(sock)
+        assert 780 in server._want_write._fds
+
+        server.shutdown()
+
+        assert server._want_write._fds == set()
+
+    def test_a_reused_fd_after_shutdown_does_not_inherit_stale_want_write(
+        self,
+    ) -> None:
+        """The exact reuse hazard: fd 781 tracked as want-write, shutdown,
+        then a fresh connection reuses fd 781 -- poll_clients must not
+        KeyError resolving it to a socket that no longer exists."""
+        server = _make_server()
+        client = _WantWriteClient(fd=781, want_write_before=1, data=b"")
+        sock = _inject_want_write_client(server, client)
+        server._registry.register_connection(781, sock)
+        server._read_from_client(sock)
+        assert 781 in server._want_write._fds
+
+        server.shutdown()
+
+        reused = _WantWriteClient(fd=781, want_write_before=0, data=b"")
+        reused_sock = _inject_want_write_client(server, reused)
+        server._registry.register_connection(781, reused_sock)
+
+        server.poll_clients()  # must not raise KeyError on the stale fd
