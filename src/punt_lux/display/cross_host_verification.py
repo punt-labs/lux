@@ -62,7 +62,11 @@ class CrossHostVerification:
             return False
         try:
             verified_hostname = self._verified_hostname(sock)
-        except ValueError as exc:
+        except Exception as exc:  # noqa: BLE001 -- PY-EH-6: this gate parses a
+            # peer's certificate, adversary-influenced DER handed to a
+            # third-party library (cryptography/OpenSSL). ANY parse failure
+            # -- not just the ValueError this project's own code raises --
+            # must reject, never propagate and crash the render loop.
             logger.warning("cross-host peer certificate unusable: %s", exc)
             return True
         mismatch = verified_hostname.casefold() != hub_id.hostname.casefold()

@@ -193,6 +193,30 @@ class TestUnusableCertificate:
 
         assert any("peer certificate unusable" in r.message for r in caplog.records)
 
+    def test_a_non_valueerror_parse_failure_is_still_rejected(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """PY-EH-6: the DER a peer presents is adversary-influenced input
+        parsed by a third-party library (cryptography/OpenSSL). Any parse
+        failure -- not just the ``ValueError`` this project's own code
+        happens to raise today -- must reject rather than propagate and
+        crash the render loop."""
+
+        def _raise_type_error(_der: bytes) -> LeafCertificate:
+            msg = "simulated third-party parse failure"
+            raise TypeError(msg)
+
+        monkeypatch.setattr(
+            "punt_lux.display.cross_host_verification.LeafCertificate.from_der",
+            _raise_type_error,
+        )
+        verification = CrossHostVerification()
+        sock = _ssl_sock(10, b"not-real-der")
+
+        rejected = verification.reject_unless_verified(sock, HubId("hub1", 1))
+
+        assert rejected is True
+
 
 # ---------------------------------------------------------------------------
 # Real handshake -- proves the gate against an actual ssl.SSLSocket, not just
