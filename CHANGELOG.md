@@ -226,6 +226,28 @@
   `ContentMessageGate` (`display/content_message_gate.py`) so
   `RenderLoop._handle_message` stays a pure dispatch table. (bead lux-2kv9,
   DES-090.)
+- **Cross-host `ConnectMessage`s now cross-check the declared `HubId` against
+  the mTLS peer certificate's own Subject Alternative Name (Gate 2 of the
+  cross-host connect sequence).** The mTLS handshake (Gate 1) proves a
+  connecting peer holds a key this Display's trust anchor signed, but not
+  that the `HubId.hostname` it self-reports in `ConnectMessage` is the
+  machine that key was issued to — a misconfigured (not even malicious) Hub
+  could self-report a hostname colliding with a different, already-live
+  Hub's entry. A new `CrossHostVerification`
+  (`display/cross_host_verification.py`) derives the verified hostname from
+  the peer certificate's SAN and rejects the connection outright — closed,
+  logged, never registered — on any mismatch; a same-host (`AF_UNIX`)
+  connection is untouched (`isinstance` structurally excludes a plain
+  `socket.socket`). `HubId.hostname` is now canonicalized to ASCII-lowercase
+  at construction (`domain/hub_id.py`) so the wire token, the
+  registration/preemption key, and this gate's own compare can never
+  disagree about whether two differently-cased hostnames name the same Hub
+  — closing an identity/preemption bypass where a peer could otherwise
+  register a same-host, differently-cased `HubId` as a second, distinct
+  identity. Comparison uses plain ASCII `str.lower()`, not `str.casefold()`,
+  because casefold is Unicode-aware and collides distinct strings (e.g.
+  `"faß"` and `"fass"`); a non-ASCII declared hostname is rejected outright
+  rather than folded. (bead lux-dp9n, W9, DES-090.)
 
 ### Removed
 

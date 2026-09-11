@@ -11,6 +11,7 @@ import socket
 import time
 from typing import TYPE_CHECKING, Self
 
+from punt_lux.display.cross_host_verification import CrossHostVerification
 from punt_lux.domain.identity import HubId, HubIdToken
 from punt_lux.socket_owner import SocketOwner
 
@@ -43,6 +44,7 @@ class HubReconciliation:
     _scenes: SceneReplica
     _record_error: _RecordError
     _identity: IdentityGuard
+    _cross_host: CrossHostVerification
 
     def __new__(
         cls,
@@ -56,10 +58,22 @@ class HubReconciliation:
         self._scenes = scenes
         self._record_error = record_error
         self._identity = identity
+        self._cross_host = CrossHostVerification()
         return self
 
     def handle_connect(self, sock: socket.socket, msg: ConnectMessage) -> None:
-        """Record a client's declared identity (idempotent); preempt a stale Hub."""
+        """Record a client's declared identity (idempotent); preempt a stale Hub.
+
+        Gate 2 (system.tex §"Coexistence with the Local Fast Path") runs
+        before any of that: a cross-host peer whose declared ``hub_id``
+        does not match the hostname its mTLS handshake already verified is
+        rejected here, closed, and never reaches
+        :meth:`SocketListener.register_client_identity` -- so it can never
+        become an identified fd, the state content-bearing messages
+        require to be let through (Invariant 1, system.tex §"Invariants").
+        A same-host (``AF_UNIX``) connection is untouched by this gate
+        (Invariant 4).
+        """
         name = msg.name.strip()
         if not name:
             logger.warning("ConnectMessage with empty name -- ignored")
@@ -73,6 +87,39 @@ class HubReconciliation:
             fd = sock.fileno()
         except OSError:
             return
+        if self._reject_unverified_cross_host(sock, fd, hub_id):
+            return
+        self._identify(sock, fd, msg, hub_id)
+
+    def _reject_unverified_cross_host(
+        self, sock: socket.socket, fd: int, hub_id: HubId
+    ) -> bool:
+        """Gate 2: close and refuse to identify a SAN/``hub_id`` mismatch.
+
+        A same-host connection is never rejected here -- see
+        :class:`CrossHostVerification`.
+        """
+        if not self._cross_host.reject_unless_verified(sock, hub_id):
+            return False
+        self._record_error(
+            "error",
+            f"cross-host hostname verification failed (fd={fd}, "
+            f"hub_id={hub_id.hostname!r})",
+            "connect",
+        )
+        self._socket_listener.remove_client(sock)
+        return True
+
+    def _identify(
+        self, sock: socket.socket, fd: int, msg: ConnectMessage, hub_id: HubId
+    ) -> None:
+        """Preempt a stale same-``HubId`` Hub, then record this fd's identity.
+
+        ``msg.name`` arrives pre-validated non-blank by :meth:`handle_connect`
+        -- re-stripped here rather than threaded through as a fifth
+        parameter (PY-OO-3).
+        """
+        name = msg.name.strip()
         if msg.kind == "hub":
             self._preempt_stale_hub(fd, hub_id)
         else:
