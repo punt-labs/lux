@@ -11,9 +11,12 @@ from unittest.mock import patch
 
 import pytest
 
+from punt_lux.domain.hub.callback_key import CallbackKey
 from punt_lux.domain.hub.display_link import DisplayLink
+from punt_lux.domain.hub.hub_id import HubId
 from punt_lux.protocol import (
     AckMessage,
+    ConnectMessage,
     MenuMessage,
     PingMessage,
     PongMessage,
@@ -120,7 +123,9 @@ class TestConnect:
 
         try:
             client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
-            with patch("punt_lux.domain.hub.display_link.set_send_timeout") as mock_set:
+            with patch(
+                "punt_lux.domain.hub.handshake_connector.set_send_timeout"
+            ) as mock_set:
                 client.connect()
             mock_set.assert_called_once()
             (applied_to,) = mock_set.call_args.args
@@ -192,6 +197,99 @@ class TestConnect:
             client.connect()
             client.connect()  # should be a no-op
             assert client.is_connected
+            client.close()
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# ConnectMessage.hub_id (W2, DES-089)
+# ---------------------------------------------------------------------------
+
+
+class TestPostHandshakeHubId:
+    def test_kind_hub_sends_a_real_hub_id(self, tmp_path: Path) -> None:
+        """A kind="hub" connection declares HubId.current().wire_token."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+        received: list[ConnectMessage] = []
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            assert server_conn is not None
+            msg = recv_message(server_conn, timeout=5)
+            assert isinstance(msg, ConnectMessage)
+            received.append(msg)
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        try:
+            client = DisplayLink(
+                sock_path,
+                name="lux-mcp",
+                kind="hub",
+                auto_spawn=False,
+                connect_timeout=2.0,
+            )
+            client.connect()
+            t.join(timeout=2)
+            assert len(received) == 1
+            assert received[0].hub_id == HubId.current().wire_token
+            client.close()
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+    def test_kind_test_sends_a_stub_hub_id(self, tmp_path: Path) -> None:
+        """A kind="test" connection declares a stub HubId, never an absence."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+        received: list[ConnectMessage] = []
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            assert server_conn is not None
+            msg = recv_message(server_conn, timeout=5)
+            assert isinstance(msg, ConnectMessage)
+            received.append(msg)
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        try:
+            client = DisplayLink(
+                sock_path,
+                name="probe",
+                kind="test",
+                auto_spawn=False,
+                connect_timeout=2.0,
+            )
+            client.connect()
+            t.join(timeout=2)
+            assert len(received) == 1
+            assert received[0].hub_id == HubId.stub().wire_token
             client.close()
         finally:
             if server_conn:
@@ -420,7 +518,7 @@ class TestRecvEvents:
                 received.append(msg)
                 done.set()
 
-            client.on_event("b1", "click", _cb)
+            client.on_event(CallbackKey("b1", "click"), _cb)
             try:
                 client.connect()
                 client.start_listener()
@@ -570,7 +668,9 @@ class TestErrorHandling:
         try:
             client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
             with (
-                caplog.at_level("WARNING", logger="punt_lux.domain.hub.display_link"),
+                caplog.at_level(
+                    "WARNING", logger="punt_lux.domain.hub.handshake_connector"
+                ),
                 pytest.raises(RuntimeError, match="Expected ReadyMessage"),
             ):
                 client.connect()
@@ -732,7 +832,9 @@ class TestBackgroundListener:
 
         try:
             client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
-            client.on_event("btn1", "click", lambda msg: received.append(msg))
+            client.on_event(
+                CallbackKey("btn1", "click"), lambda msg: received.append(msg)
+            )
             client.connect()
             client.start_listener()
             # Wait for callback to fire
@@ -917,7 +1019,7 @@ class TestBackgroundListener:
                 )
                 callback_done.set()
 
-            client.on_event("trigger", "click", on_trigger)
+            client.on_event(CallbackKey("trigger", "click"), on_trigger)
             client.connect()
             client.start_listener()
             assert callback_done.wait(timeout=2.0)
@@ -972,7 +1074,9 @@ class TestBackgroundListener:
 
         try:
             client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
-            client.on_event("btn2", "click", lambda msg: received.append(msg))
+            client.on_event(
+                CallbackKey("btn2", "click"), lambda msg: received.append(msg)
+            )
             client.connect()
             client.start_listener()
             assert client.listener_active
@@ -1050,7 +1154,9 @@ class TestBackgroundListener:
 
         try:
             client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
-            client.on_event("slider1", "click", lambda msg: click_received.append(msg))
+            client.on_event(
+                CallbackKey("slider1", "click"), lambda msg: click_received.append(msg)
+            )
             client.connect()
             client.start_listener()
 
@@ -1105,7 +1211,9 @@ class TestBackgroundListener:
 
         try:
             client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
-            client.on_event("cb1", "changed", lambda msg: received.append(msg))
+            client.on_event(
+                CallbackKey("cb1", "changed"), lambda msg: received.append(msg)
+            )
             client.connect()
             client.start_listener()
 
@@ -1185,7 +1293,7 @@ class TestBackgroundListener:
                 )
                 callback_fired.set()
 
-            client.on_event("hello-world", "menu", on_hello)
+            client.on_event(CallbackKey("hello-world", "menu"), on_hello)
             client.connect()
             client.start_listener()
             # Signal readiness (and trigger the flow) with a real menu write.

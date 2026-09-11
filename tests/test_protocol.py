@@ -566,7 +566,9 @@ class TestSerialization:
         )
 
     def test_connect_message_roundtrip(self):
-        original = ConnectMessage(name="quarry", kind="test")
+        original = ConnectMessage(
+            name="quarry", kind="test", hub_id="test.invalid\x1f0"
+        )
         d = message_to_dict(original)
         assert d["type"] == "connect"
         assert d["name"] == "quarry"
@@ -617,7 +619,8 @@ class TestSerialization:
             ),
             pytest.param(ThemeMessage(theme="imgui_colors_dark"), id="ThemeMessage"),
             pytest.param(
-                ConnectMessage(name="quarry", kind="test"), id="ConnectMessage"
+                ConnectMessage(name="quarry", kind="test", hub_id="test.invalid\x1f0"),
+                id="ConnectMessage",
             ),
             pytest.param(
                 QueryRequest(method="get_theme", params={"key": "bg"}),
@@ -1494,7 +1497,7 @@ class TestMessageRegistry:
 
     def test_registry_completeness(self) -> None:
         """Every non-unknown message type is registered on the default registry."""
-        from punt_lux.protocol.messages import _registry
+        from punt_lux.protocol.messages._wiring import _registry
 
         expected_types = {
             "scene",

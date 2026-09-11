@@ -1,4 +1,4 @@
-"""FrameCloser against a real HubDisplay and a recording replicator."""
+"""FrameRemover against a real HubDisplay and a recording replicator."""
 
 from __future__ import annotations
 
@@ -9,7 +9,8 @@ from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.id_separator import ID_SEPARATOR
 from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.operations import Ok, OpError, RenderRequest, Scope
-from punt_lux.operations.frame_closing import FrameCloser
+from punt_lux.operations.facade import Operations
+from punt_lux.operations.frame_removal import FrameRemover
 from punt_lux.operations.scene_deps import SceneOperationsDeps
 from punt_lux.operations.scenes import SceneOperations
 
@@ -32,7 +33,7 @@ class _Recorder:
         self.dirtied.append(scene_id)
 
     def mark_menus(self) -> None:
-        """Unused here — closing a frame never marks the menu bar."""
+        """Unused here — removing a frame's content never marks the menu bar."""
 
 
 def _show_framed(
@@ -50,18 +51,18 @@ def _show_framed(
     SceneOperations(deps).render(request, scope=Scope(connection))
 
 
-def test_close_of_a_nonexistent_frame_is_not_found() -> None:
+def test_remove_of_a_nonexistent_frame_is_not_found() -> None:
     # A frame never shown by anyone reports why, rather than a blanket
-    # "closed" that tore nothing down (lux-03k6).
+    # "removed" that tore nothing down (lux-03k6).
     store, recorder = HubDisplay(), _Recorder()
-    result = FrameCloser(store, recorder).close("ghost", _CONNECTION)
+    result = FrameRemover(store, recorder).remove("ghost", _CONNECTION)
     assert isinstance(result, OpError)
     assert result.code == "not_found"
     assert recorder.dirtied == []
 
 
-def test_close_of_another_connections_frame_is_not_found() -> None:
-    # A frame closed under the caller's OWN local name never resolves to a
+def test_remove_of_another_connections_frame_is_not_found() -> None:
+    # A frame removed under the caller's OWN local name never resolves to a
     # different connection's frame -- DES-086 composition makes that
     # collision unrepresentable, so this is indistinguishable from "does not
     # exist" and reports the identical not_found. The other owner's scene is
@@ -69,9 +70,9 @@ def test_close_of_another_connections_frame_is_not_found() -> None:
     store, recorder = HubDisplay(), _Recorder()
     stranger = ConnectionId("agent-b")
     _show_framed(store, recorder, stranger, "board")
-    recorder.dirtied.clear()  # isolate close()'s own dirty marks
+    recorder.dirtied.clear()  # isolate remove()'s own dirty marks
 
-    result = FrameCloser(store, recorder).close("board", _CONNECTION)
+    result = FrameRemover(store, recorder).remove("board", _CONNECTION)
 
     assert isinstance(result, OpError)
     assert result.code == "not_found"
@@ -79,33 +80,40 @@ def test_close_of_another_connections_frame_is_not_found() -> None:
     assert store.scene_roots(_scoped(stranger, "s1")) != []
 
 
-def test_close_of_a_blank_local_id_is_invalid_request() -> None:
+def test_remove_of_a_blank_local_id_is_invalid_request() -> None:
     # ConnectionScopedId.compose raises ValueError for a blank local id;
-    # FrameCloser maps it to a typed refusal rather than an unhandled fault.
+    # FrameRemover maps it to a typed refusal rather than an unhandled fault.
     store, recorder = HubDisplay(), _Recorder()
-    result = FrameCloser(store, recorder).close("   ", _CONNECTION)
+    result = FrameRemover(store, recorder).remove("   ", _CONNECTION)
     assert isinstance(result, OpError)
     assert result.code == "invalid_request"
     assert recorder.dirtied == []
 
 
-def test_close_of_a_local_id_carrying_the_separator_is_invalid_request() -> None:
+def test_remove_of_a_local_id_carrying_the_separator_is_invalid_request() -> None:
     # ConnectionScopedId.compose also raises for a local id carrying the unit
     # separator -- the same boundary condition, same typed refusal.
     store, recorder = HubDisplay(), _Recorder()
-    result = FrameCloser(store, recorder).close(f"a{ID_SEPARATOR}b", _CONNECTION)
+    result = FrameRemover(store, recorder).remove(f"a{ID_SEPARATOR}b", _CONNECTION)
     assert isinstance(result, OpError)
     assert result.code == "invalid_request"
     assert recorder.dirtied == []
 
 
-def test_close_removes_the_callers_own_frame_and_marks_dirty() -> None:
+def test_remove_removes_the_callers_own_frame_and_marks_dirty() -> None:
     store, recorder = HubDisplay(), _Recorder()
     _show_framed(store, recorder, _CONNECTION, "board")
-    recorder.dirtied.clear()  # isolate close()'s own dirty marks
+    recorder.dirtied.clear()  # isolate remove()'s own dirty marks
 
-    result = FrameCloser(store, recorder).close("board", _CONNECTION)
+    result = FrameRemover(store, recorder).remove("board", _CONNECTION)
 
     assert isinstance(result, Ok)
     assert store.scene_roots(_scoped(_CONNECTION, "s1")) == []
     assert recorder.dirtied == [_scoped(_CONNECTION, "s1")]
+
+
+def test_close_frame_no_longer_exists_on_operations() -> None:
+    """Rename train (lux-81t3.6): no alias survives for the retired op name."""
+    assert not hasattr(Operations, "close_frame")
+    assert not hasattr(FrameRemover, "close")
+    assert hasattr(Operations, "remove_frame")

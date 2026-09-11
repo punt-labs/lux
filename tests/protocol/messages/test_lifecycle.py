@@ -2,8 +2,9 @@
 
 Every class in ``protocol/messages/lifecycle.py`` now serializes itself
 (``to_dict``/``from_dict``) rather than being serialized by a free function
-(PY-OO-5). These tests exercise that contract directly, plus the two wire
-additions DES-068 needs: ``ConnectMessage.kind`` and ``HubManifestMessage``.
+(PY-OO-5). These tests exercise that contract directly, plus the
+DES-068 ``HubManifestMessage``. ``ConnectMessage`` moved to its own module
+and its own test file, ``test_connect_message.py`` (W2, DES-089).
 """
 
 from __future__ import annotations
@@ -13,7 +14,6 @@ import pytest
 from punt_lux.protocol.messages import message_from_dict, message_to_dict
 from punt_lux.protocol.messages.lifecycle import (
     AckMessage,
-    ConnectMessage,
     HubManifestMessage,
     PingMessage,
     PongMessage,
@@ -33,44 +33,6 @@ class TestPingMessage:
         d = original.to_dict()
         assert "ts" not in d
         assert PingMessage.from_dict(d) == original
-
-
-class TestConnectMessage:
-    def test_roundtrip_preserves_kind(self) -> None:
-        original = ConnectMessage(name="lux-mcp", kind="hub")
-        d = original.to_dict()
-        assert d["kind"] == "hub"
-        restored = ConnectMessage.from_dict(d)
-        assert restored == original
-
-    def test_roundtrip_preserves_test_kind(self) -> None:
-        original = ConnectMessage(name="probe", kind="test")
-        d = original.to_dict()
-        assert d["kind"] == "test"
-        restored = ConnectMessage.from_dict(d)
-        assert restored == original
-
-    def test_decode_rejects_missing_kind(self) -> None:
-        """No default -- every caller must declare 'hub' or 'test' explicitly."""
-        with pytest.raises(ValueError, match="missing or invalid 'kind'"):
-            ConnectMessage.from_dict({"type": "connect", "name": "quarry"})
-
-    def test_decode_rejects_missing_name(self) -> None:
-        with pytest.raises(ValueError, match="missing or invalid 'name'"):
-            ConnectMessage.from_dict({"type": "connect", "kind": "test"})
-
-    def test_decode_rejects_blank_name(self) -> None:
-        with pytest.raises(ValueError, match="missing or invalid 'name'"):
-            ConnectMessage.from_dict({"type": "connect", "name": "   ", "kind": "test"})
-
-    def test_decode_rejects_invalid_kind(self) -> None:
-        with pytest.raises(ValueError, match="missing or invalid 'kind'"):
-            ConnectMessage.from_dict({"type": "connect", "name": "x", "kind": "bogus"})
-
-    def test_registry_roundtrip(self) -> None:
-        original = ConnectMessage(name="lux-mcp", kind="hub")
-        restored = message_from_dict(message_to_dict(original))
-        assert restored == original
 
 
 class TestHubManifestMessage:

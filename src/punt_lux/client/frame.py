@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.commands import frame_close
-from punt_lux.commands._frame_close_request import FrameCloseRequest
+from punt_lux.commands import frame_remove
+from punt_lux.commands._frame_remove_request import FrameRemoveRequest
 from punt_lux.commands._ports import Ctx
 
 if TYPE_CHECKING:
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 @final
 class FrameAccessor:
-    """The ``client.frame.*`` verbs -- ``close`` this cycle."""
+    """The ``client.frame.*`` verbs -- ``remove`` this cycle."""
 
     _ctx: Ctx[FrameOps]
     _scope: Scope
@@ -28,7 +28,7 @@ class FrameAccessor:
         self._scope = deps.scope
         return self
 
-    async def close(self, frame_id: str) -> Ok | OpError:
-        """Close the caller's own ``frame_id`` and tear down its scenes on the Hub."""
-        request = FrameCloseRequest(self._ctx, frame_id, self._scope)
-        return await frame_close.execute(request)
+    async def remove(self, frame_id: str) -> Ok | OpError:
+        """Remove the caller's own ``frame_id``: tear down its scenes on the Hub."""
+        request = FrameRemoveRequest(self._ctx, frame_id, self._scope)
+        return await frame_remove.execute(request)

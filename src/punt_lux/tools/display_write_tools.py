@@ -11,16 +11,16 @@ from punt_lux.commands import (
     FrameOps,
     MenuOps,
     display_mode_get as display_mode_get_command,
-    frame_close as frame_close_command,
+    frame_remove as frame_remove_command,
     menu_set as menu_set_command,
 )
-from punt_lux.commands._frame_close_request import FrameCloseRequest
+from punt_lux.commands._frame_remove_request import FrameRemoveRequest
 from punt_lux.operations import Ok, OpError, SetMenuRequest
 from punt_lux.tools import tools as _core
 from punt_lux.tools._signal import signal
 from punt_lux.tools.server import mcp
 
-__all__ = ["display_mode", "frame_close", "set_menu"]
+__all__ = ["display_mode", "frame_remove", "set_menu"]
 
 
 @mcp.tool(name="menu_set")
@@ -38,17 +38,17 @@ def set_menu(menus: list[dict[str, Any]]) -> str:
     return signal(result)
 
 
-@mcp.tool(name="frame_close")
-def frame_close(frame_id: str) -> Ok | OpError:
-    """Close the caller's own ``frame_id``: tear down its scenes on the Hub.
+@mcp.tool(name="frame_remove")
+def frame_remove(frame_id: str) -> Ok | OpError:
+    """Remove the caller's own ``frame_id``: tear down its scenes on the Hub.
 
     A foreign, missing, or malformed id is a named error, never a false success.
     """
     ctx: CommandCtx[FrameOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
     )
-    request = FrameCloseRequest(ctx, frame_id, _core._scope())
-    return asyncio.run(frame_close_command.execute(request))
+    request = FrameRemoveRequest(ctx, frame_id, _core._scope())
+    return asyncio.run(frame_remove_command.execute(request))
 
 
 @mcp.tool(name="display_mode_get")

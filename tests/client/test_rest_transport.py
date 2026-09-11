@@ -397,22 +397,22 @@ def test_render_reports_a_duplicate_id_as_a_rejected_error() -> None:
     assert "duplicate" in result.reason
 
 
-def test_close_frame_over_the_real_surface_takes_a_plain_frame_id() -> None:
-    # Finding 7 (PR #464): FrameOps.close_frame's PUBLIC signature is a plain
+def test_remove_frame_over_the_real_surface_takes_a_plain_frame_id() -> None:
+    # Finding 7 (PR #464): FrameOps.remove_frame's PUBLIC signature is a plain
     # string, matching every sibling SyncOps method -- never the internal
     # FrameTarget value object, which a caller cannot construct.
     client = _client_over(SurfaceTransport(make_client()))
     assert client.render(_render_request("board")) == SceneShown(scene_id="board")
 
-    result = client.close_frame("board", scope=Scope(ConnectionId("irrelevant")))
+    result = client.remove_frame("board", scope=Scope(ConnectionId("irrelevant")))
 
     assert result == Ok()
 
 
-def test_close_frame_of_an_absent_frame_over_the_real_surface_is_not_found() -> None:
+def test_remove_frame_of_an_absent_frame_over_the_real_surface_is_not_found() -> None:
     client = _client_over(SurfaceTransport(make_client()))
 
-    result = client.close_frame("ghost", scope=Scope(ConnectionId("irrelevant")))
+    result = client.remove_frame("ghost", scope=Scope(ConnectionId("irrelevant")))
 
     assert isinstance(result, OpError)
     assert result.code == "not_found"

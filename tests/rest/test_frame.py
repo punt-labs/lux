@@ -1,8 +1,9 @@
-"""The frame routes -- close the caller's own frame, over the real facade.
+"""The frame routes -- remove the caller's own frame's content, over the real facade.
 
 Split out of ``test_display_routes.py`` to mirror the source split
-(``rest/frame.py`` out of ``rest/display.py``, lux-03k6): closing a frame is
-a Hub-side write with its own ownership rule, not a proxied display read.
+(``rest/frame.py`` out of ``rest/display.py``, lux-03k6): removing a frame's
+content is a Hub-side write with its own ownership rule, not a proxied
+display read.
 """
 
 from __future__ import annotations
@@ -21,15 +22,15 @@ from ._fakes import DEFAULT_CONNECTION, StubPort, make_client
 _TEXT = {"kind": "text", "id": "t1", "content": "hi"}
 
 
-def test_close_frame_of_a_nonexistent_frame_is_not_found() -> None:
+def test_remove_frame_of_a_nonexistent_frame_is_not_found() -> None:
     # No caller ever showed anything into "f1" -- the route must not report a
     # blanket success for a frame it tore nothing down (lux-03k6).
     client = make_client(display_port=StubPort(DisplayReplied({})))
-    resp = client.post("/display/frames/f1/close")
+    resp = client.post("/display/frames/f1/remove")
     assert resp.status_code == 404
 
 
-def test_close_frame_removes_the_callers_own_frame() -> None:
+def test_remove_frame_removes_the_callers_own_frame() -> None:
     store = HubDisplay()
     client = make_client(display_port=StubPort(DisplayReplied({})), store=store)
     client.put(
@@ -37,7 +38,7 @@ def test_close_frame_removes_the_callers_own_frame() -> None:
         json={"scene_id": "s1", "elements": [_TEXT], "frame": {"frame_id": "board"}},
     )
 
-    resp = client.post("/display/frames/board/close")
+    resp = client.post("/display/frames/board/remove")
 
     assert resp.status_code == 200
     assert resp.json() == {"kind": "ok"}
@@ -45,7 +46,7 @@ def test_close_frame_removes_the_callers_own_frame() -> None:
     assert store.scene_roots(scoped) == []
 
 
-def test_close_frame_of_another_connections_frame_is_not_found() -> None:
+def test_remove_frame_of_another_connections_frame_is_not_found() -> None:
     # DES-086: a frame named by another connection's local id is
     # indistinguishable from one that never existed, so this is not_found
     # too -- and the other caller's scene is left standing.
@@ -66,7 +67,7 @@ def test_close_frame_of_another_connections_frame_is_not_found() -> None:
         display_port=StubPort(DisplayReplied({})), store=store
     )
 
-    resp = stranger_client.post("/display/frames/board/close")
+    resp = stranger_client.post("/display/frames/board/remove")
 
     assert resp.status_code == 404
     owner_connection = connection_for(
@@ -76,13 +77,13 @@ def test_close_frame_of_another_connections_frame_is_not_found() -> None:
     assert store.scene_roots(scoped) != []
 
 
-def test_close_frame_of_a_malformed_frame_id_is_a_422_not_a_500() -> None:
+def test_remove_frame_of_a_malformed_frame_id_is_a_422_not_a_500() -> None:
     # A frame_id carrying the unit separator can never compose to a store key
     # (ConnectionScopedId.compose raises ValueError); the route must map that
     # to the caller's own invalid_request, not let it surface as a 500.
     client = make_client(display_port=StubPort(DisplayReplied({})))
     malformed = quote(f"a{ID_SEPARATOR}b", safe="")
 
-    resp = client.post(f"/display/frames/{malformed}/close")
+    resp = client.post(f"/display/frames/{malformed}/remove")
 
     assert resp.status_code == 422
