@@ -5,7 +5,16 @@ from __future__ import annotations
 import pytest
 
 from punt_lux.display.replica.frame_book import FrameBook
+from punt_lux.domain.hub_id import HubId
+from punt_lux.domain.hub_scoped_key import HubScopedKey
 from punt_lux.protocol import SceneMessage, TextElement
+
+_HUB_A = HubId("pembroke", 1)
+_HUB_B = HubId("okinos", 2)
+
+
+def _key(scene_id: str, hub: HubId = _HUB_A) -> HubScopedKey:
+    return HubScopedKey(hub, scene_id)
 
 
 def _scene(
@@ -29,7 +38,7 @@ def _scene(
 class TestEnsure:
     def test_creates_a_frame_on_first_use(self) -> None:
         book = FrameBook()
-        frame = book.ensure(_scene(frame_title="Title"), "f1", owner_fd=10)
+        frame = book.ensure(_scene(frame_title="Title"), owner_fd=10)
         assert frame.frame_id == "f1"
         assert frame.title == "Title"
         assert 10 in frame.owner_fds
@@ -37,15 +46,14 @@ class TestEnsure:
 
     def test_titles_from_scene_title_then_frame_id_when_unset(self) -> None:
         book = FrameBook()
-        frame = book.ensure(_scene(), "f1", owner_fd=10)
+        frame = book.ensure(_scene(), owner_fd=10)
         assert frame.title == "f1"  # no frame_title, no scene title -> frame id
 
     def test_reuses_and_updates_an_existing_frame(self) -> None:
         book = FrameBook()
-        first = book.ensure(_scene(), "f1", owner_fd=10)
+        first = book.ensure(_scene(), owner_fd=10)
         second = book.ensure(
             _scene(frame_title="New", frame_flags={"no_resize": True}),
-            "f1",
             owner_fd=11,
         )
         assert second is first  # same frame reused
@@ -57,7 +65,7 @@ class TestEnsure:
         # FrameBook.ensure creates the frame shell only -- SceneReplica sets
         # active_tab when it admits the scene, so it reads None here.
         book = FrameBook()
-        frame = book.ensure(_scene(), "f1", owner_fd=10)
+        frame = book.ensure(_scene(), owner_fd=10)
         assert frame.presentation() == {
             "frame_id": "f1",
             "visibility": "on_screen",
@@ -67,22 +75,22 @@ class TestEnsure:
 
     def test_cascade_index_fills_the_lowest_free_slot(self) -> None:
         book = FrameBook()
-        book.ensure(_scene(scene_id="s1"), "f1", owner_fd=10)
-        book.ensure(_scene(scene_id="s2"), "f2", owner_fd=10)
+        book.ensure(_scene(scene_id="s1"), owner_fd=10)
+        book.ensure(_scene(scene_id="s2", frame_id="f2"), owner_fd=10)
         assert book.frames["f1"].cascade_index == 0
         assert book.frames["f2"].cascade_index == 1
         # Dropping f1 frees index 0; the next frame reuses it, not index 2.
         book.pop_frame("f1")
-        book.ensure(_scene(scene_id="s3"), "f3", owner_fd=10)
+        book.ensure(_scene(scene_id="s3", frame_id="f3"), owner_fd=10)
         assert book.frames["f3"].cascade_index == 0
 
 
 class TestPlacementMaps:
     def test_set_frame_and_record_owner_then_forget(self) -> None:
         book = FrameBook()
-        book.ensure(_scene(), "f1", owner_fd=10)
-        book.set_frame("s1", "f1")
-        book.record_owner("s1", 10)
+        book.ensure(_scene(), owner_fd=10)
+        book.set_frame(_key("s1"), "f1")
+        book.record_owner(_key("s1"), 10)
         assert book.scene_to_frame["s1"] == "f1"
         assert book.scene_to_owner["s1"] == 10
         assert book.frame_of_scene("s1") is book.frames["f1"]
@@ -95,11 +103,41 @@ class TestPlacementMaps:
     def test_frame_of_scene_is_none_for_unknown_scene(self) -> None:
         assert FrameBook().frame_of_scene("nope") is None
 
+    def test_two_hubs_naming_the_same_scene_id_do_not_raise(self) -> None:
+        """Writing the identical local scene id under two Hubs is representable,
+        not a clobber -- the underlying-store proof lives in
+        ``test_hub_scoped_store.py``'s ``TestCollisionSafety``; this proves the
+        wiring accepts two distinct ``hub`` values for one local id."""
+        book = FrameBook()
+        book.ensure(_scene(), owner_fd=10)
+        book.ensure(_scene(scene_id="s2", frame_id="f2"), owner_fd=11)
+
+        book.set_frame(_key("s1"), "f1")
+        book.record_owner(_key("s1"), 10)
+        book.set_frame(_key("s1", _HUB_B), "f2")
+        book.record_owner(_key("s1", _HUB_B), 11)
+
+        # The flat view resolves last-write-wins on a genuine collision (the
+        # documented caveat), but neither write raised or was silently lost.
+        assert book.scene_to_frame["s1"] in {"f1", "f2"}
+        assert book.scene_to_owner["s1"] in {10, 11}
+
+    def test_forgetting_a_scene_drops_it_for_every_hub_that_named_it(self) -> None:
+        book = FrameBook()
+        book.ensure(_scene(), owner_fd=10)
+        book.ensure(_scene(scene_id="s2", frame_id="f2"), owner_fd=11)
+        book.set_frame(_key("s1"), "f1")
+        book.set_frame(_key("s1", _HUB_B), "f2")
+
+        book.forget_scene("s1")
+
+        assert "s1" not in book.scene_to_frame
+
 
 class TestPopFrame:
     def test_pop_returns_frame_and_clears_focus_when_it_held_it(self) -> None:
         book = FrameBook()
-        book.ensure(_scene(), "f1", owner_fd=10)
+        book.ensure(_scene(), owner_fd=10)
         book.request_focus("f1")
         popped = book.pop_frame("f1")
         assert popped is not None
@@ -109,8 +147,8 @@ class TestPopFrame:
 
     def test_pop_keeps_focus_on_a_different_frame(self) -> None:
         book = FrameBook()
-        book.ensure(_scene(scene_id="s1"), "f1", owner_fd=10)
-        book.ensure(_scene(scene_id="s2"), "f2", owner_fd=10)
+        book.ensure(_scene(scene_id="s1"), owner_fd=10)
+        book.ensure(_scene(scene_id="s2", frame_id="f2"), owner_fd=10)
         book.request_focus("f2")
         book.pop_frame("f1")
         assert book.consume_focus("f2") is True  # f2 still awaits focus
@@ -122,18 +160,18 @@ class TestPopFrame:
 class TestFramedScenesAndClear:
     def test_framed_scenes_yields_every_held_scene(self) -> None:
         book = FrameBook()
-        f1 = book.ensure(_scene(scene_id="s1"), "f1", owner_fd=10)
+        f1 = book.ensure(_scene(scene_id="s1"), owner_fd=10)
         f1.scenes["s1"] = _scene(scene_id="s1")
-        f2 = book.ensure(_scene(scene_id="s2", frame_id="f2"), "f2", owner_fd=10)
+        f2 = book.ensure(_scene(scene_id="s2", frame_id="f2"), owner_fd=10)
         f2.scenes["s2"] = _scene(scene_id="s2", frame_id="f2")
         ids = {s.id for s in book.framed_scenes()}
         assert ids == {"s1", "s2"}
 
     def test_clear_drops_everything(self) -> None:
         book = FrameBook()
-        book.ensure(_scene(), "f1", owner_fd=10)
-        book.set_frame("s1", "f1")
-        book.record_owner("s1", 10)
+        book.ensure(_scene(), owner_fd=10)
+        book.set_frame(_key("s1"), "f1")
+        book.record_owner(_key("s1"), 10)
         book.request_focus("f1")
         book.clear()
         assert not book.frames
@@ -159,7 +197,7 @@ class TestConsumeFocus:
 class TestMinimize:
     def test_minimizes_a_present_frame(self) -> None:
         book = FrameBook()
-        book.ensure(_scene(), "f1", owner_fd=10)
+        book.ensure(_scene(), owner_fd=10)
         book.minimize("f1")
         assert book.frames["f1"].is_docked is True
 
@@ -177,30 +215,30 @@ class TestBornOnScreen:
 
     def test_a_new_frame_is_on_screen(self) -> None:
         book = FrameBook()
-        frame = book.ensure(_scene(), "f1", owner_fd=10)
+        frame = book.ensure(_scene(), owner_fd=10)
         assert frame.is_on_screen is True
 
     def test_a_new_frame_asks_for_no_focus(self) -> None:
         book = FrameBook()
-        book.ensure(_scene(), "f1", owner_fd=10)
+        book.ensure(_scene(), owner_fd=10)
         assert book.consume_focus("f1") is False
 
     def test_a_new_frame_leaves_another_frames_visibility_alone(self) -> None:
         book = FrameBook()
-        book.ensure(_scene(), "f1", owner_fd=10)
+        book.ensure(_scene(), owner_fd=10)
         book.close("f1")
 
-        book.ensure(_scene(scene_id="s2"), "f2", owner_fd=10)
+        book.ensure(_scene(scene_id="s2", frame_id="f2"), owner_fd=10)
 
         assert book.frames["f1"].is_closed is True
 
     def test_ensure_leaves_an_existing_frames_visibility_alone(self) -> None:
         """The policy is for frames being *born*; an existing one keeps its place."""
         book = FrameBook()
-        book.ensure(_scene(), "f1", owner_fd=10)
+        book.ensure(_scene(), owner_fd=10)
         book.minimize("f1")
 
-        book.ensure(_scene(), "f1", owner_fd=11)
+        book.ensure(_scene(), owner_fd=11)
 
         assert book.frames["f1"].is_docked is True
 
@@ -210,7 +248,7 @@ class TestClose:
 
     def test_a_closed_frame_stays_in_the_book(self) -> None:
         book = FrameBook()
-        book.ensure(_scene(), "f1", owner_fd=10)
+        book.ensure(_scene(), owner_fd=10)
 
         book.close("f1")
 
@@ -219,7 +257,7 @@ class TestClose:
 
     def test_closing_a_docked_frame_takes_away_its_pill(self) -> None:
         book = FrameBook()
-        book.ensure(_scene(), "f1", owner_fd=10)
+        book.ensure(_scene(), owner_fd=10)
         book.minimize("f1")
 
         book.close("f1")
@@ -229,7 +267,7 @@ class TestClose:
 
     def test_closing_clears_a_focus_request_that_frame_held(self) -> None:
         book = FrameBook()
-        book.ensure(_scene(), "f1", owner_fd=10)
+        book.ensure(_scene(), owner_fd=10)
         book.request_focus("f1")
 
         book.close("f1")
@@ -238,8 +276,8 @@ class TestClose:
 
     def test_closing_leaves_another_frames_focus_request_standing(self) -> None:
         book = FrameBook()
-        book.ensure(_scene(), "f1", owner_fd=10)
-        book.ensure(_scene(scene_id="s2"), "f2", owner_fd=10)
+        book.ensure(_scene(), owner_fd=10)
+        book.ensure(_scene(scene_id="s2", frame_id="f2"), owner_fd=10)
         book.request_focus("f2")
 
         book.close("f1")
@@ -249,9 +287,9 @@ class TestClose:
     def test_closing_keeps_the_scene_placement_maps(self) -> None:
         """The user shut a window; that says nothing about what it holds."""
         book = FrameBook()
-        book.ensure(_scene(), "f1", owner_fd=10)
-        book.set_frame("s1", "f1")
-        book.record_owner("s1", 10)
+        book.ensure(_scene(), owner_fd=10)
+        book.set_frame(_key("s1"), "f1")
+        book.record_owner(_key("s1"), 10)
 
         book.close("f1")
 
@@ -267,7 +305,7 @@ class TestRestore:
 
     def test_restores_a_docked_frame_and_asks_for_focus(self) -> None:
         book = FrameBook()
-        book.ensure(_scene(), "f1", owner_fd=10)
+        book.ensure(_scene(), owner_fd=10)
         book.minimize("f1")
 
         assert book.restore("f1") is True
@@ -277,7 +315,7 @@ class TestRestore:
     def test_restores_a_closed_frame_and_asks_for_focus(self) -> None:
         """Bug A's partition: the close left something for the gesture to act on."""
         book = FrameBook()
-        book.ensure(_scene(), "f1", owner_fd=10)
+        book.ensure(_scene(), owner_fd=10)
         book.close("f1")
 
         assert book.restore("f1") is True
@@ -286,7 +324,7 @@ class TestRestore:
 
     def test_restores_a_frame_that_is_already_on_screen(self) -> None:
         book = FrameBook()
-        book.ensure(_scene(), "f1", owner_fd=10)
+        book.ensure(_scene(), owner_fd=10)
 
         assert book.restore("f1") is True
         assert book.consume_focus("f1") is True
@@ -303,7 +341,7 @@ class TestVisibilityQueries:
     def test_each_frame_appears_in_exactly_one_bucket(self) -> None:
         book = FrameBook()
         for fid, sid in (("f1", "s1"), ("f2", "s2"), ("f3", "s3")):
-            book.ensure(_scene(scene_id=sid), fid, owner_fd=10)
+            book.ensure(_scene(scene_id=sid, frame_id=fid), owner_fd=10)
         book.minimize("f2")
         book.close("f3")
 
@@ -321,15 +359,16 @@ class TestVisibilityQueries:
 class TestReassignScenesOf:
     def _framed_scene(self, book: FrameBook, scene_id: str, owner_fd: int) -> None:
         """Install a framed scene owned by ``owner_fd`` in frame ``f1``."""
-        frame = book.ensure(_scene(scene_id=scene_id), "f1", owner_fd=owner_fd)
+        frame = book.ensure(_scene(scene_id=scene_id), owner_fd=owner_fd, hub=_HUB_A)
         frame.scene_order.append(scene_id)
-        book.set_frame(scene_id, "f1")
-        book.record_owner(scene_id, owner_fd)
+        book.set_frame(_key(scene_id), "f1")
+        book.record_owner(_key(scene_id), owner_fd)
 
     def test_transfers_to_a_surviving_co_owner(self) -> None:
         book = FrameBook()
         self._framed_scene(book, "s1", owner_fd=10)
-        book.ensure(_scene(scene_id="s1"), "f1", owner_fd=11)  # second co-owner
+        # second co-owner
+        book.ensure(_scene(scene_id="s1"), owner_fd=11, hub=_HUB_A)
 
         book.reassign_scenes_of(10, orphan_fd=-1)
 
@@ -348,7 +387,7 @@ class TestReassignScenesOf:
     def test_leaves_a_scene_another_client_owns_untouched(self) -> None:
         book = FrameBook()
         self._framed_scene(book, "s1", owner_fd=11)
-        book.ensure(_scene(scene_id="s1"), "f1", owner_fd=10)  # departing co-owner
+        book.ensure(_scene(scene_id="s1"), owner_fd=10)  # departing co-owner
 
         book.reassign_scenes_of(10, orphan_fd=-1)
 
@@ -359,14 +398,14 @@ class TestReassignScenesOf:
 class TestReadOnlyViews:
     def test_frames_view_rejects_mutation(self) -> None:
         book = FrameBook()
-        book.ensure(_scene(), "f1", owner_fd=10)
+        book.ensure(_scene(), owner_fd=10)
         with pytest.raises(TypeError):
             book.frames["f2"] = book.frames["f1"]  # type: ignore[index]
 
     def test_scene_maps_are_read_only(self) -> None:
         book = FrameBook()
-        book.set_frame("s1", "f1")
-        book.record_owner("s1", 10)
+        book.set_frame(_key("s1"), "f1")
+        book.record_owner(_key("s1"), 10)
         with pytest.raises(TypeError):
             book.scene_to_frame["s2"] = "f9"  # type: ignore[index]
         with pytest.raises(TypeError):

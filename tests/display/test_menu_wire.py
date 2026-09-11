@@ -309,7 +309,7 @@ class TestTheFrameIdRoundTrip:
         # frame (DES-086) -- and the exact reopen-a-closed-board scenario.
         real_key = ConnectionScopedId.compose(conn, "beads-lux")
         book = FrameBook()
-        book.ensure(_scene(frame_id=real_key), real_key, owner_fd=1)
+        book.ensure(_scene(frame_id=real_key), owner_fd=1)
         book.close(real_key)
 
         assert raised_id == real_key

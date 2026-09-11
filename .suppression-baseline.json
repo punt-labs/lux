@@ -1,11 +1,11 @@
 {
-  "total": 119,
+  "total": 121,
   "by_category": {
-    "noqa": 19,
+    "noqa": 20,
     "type_ignore": 4,
     "pylint_disable": 2,
     "pyright_ignore": 6,
-    "per_file_ignores": 88
+    "per_file_ignores": 89
   },
   "by_file": {
     "src/punt_lux/__main__.py": {
@@ -38,9 +38,6 @@
       "type_ignore": 1,
       "pyright_ignore": 1
     },
-    "src/punt_lux/display/nonblocking.py": {
-      "noqa": 1
-    },
     "src/punt_lux/display/query_dispatcher.py": {
       "noqa": 1
     },
@@ -57,6 +54,9 @@
     },
     "src/punt_lux/display/renderers/imgui/modal.py": {
       "noqa": 1
+    },
+    "src/punt_lux/display/socket_server.py": {
+      "noqa": 2
     },
     "src/punt_lux/doctor_checks.py": {
       "noqa": 1
@@ -81,5 +81,5 @@
       "noqa": 1
     }
   },
-  "updated_at": "2026-09-11T12:03:12Z"
+  "updated_at": "2026-09-11T13:25:11Z"
 }
