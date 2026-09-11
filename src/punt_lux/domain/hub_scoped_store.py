@@ -61,28 +61,20 @@ class HubScopedStore[V]:
         stale = [key for key in self._entries if key.local == local]
         return [self._entries.pop(key) for key in stale]
 
-    def remove_matching(self, local: str, value: V) -> list[HubScopedKey]:
-        """Remove every entry whose local id and value both match -- the
-        collision-safe :meth:`remove_all`. Returns the removed keys."""
-        matches = [k for k in self.keys_for_value(value) if k.local == local]
-        for key in matches:
-            del self._entries[key]
-        return matches
-
     def remove_matching_hub_value(self, hub: HubId, value: V) -> list[HubScopedKey]:
         """Remove every entry ``hub`` owns whose value matches -- the whole-frame
-        counterpart to :meth:`remove_matching`, scoped by owner instead of local
-        id so a second Hub's identically-valued entries are never candidates."""
+        removal :meth:`forget_scenes_of_frame` is built on, scoped by owner so a
+        second Hub's identically-valued entries are never candidates. There is no
+        hub-blind ``remove_matching(local, value)`` counterpart: matching on local
+        id and value alone, across every Hub, is exactly the collision this store
+        exists to make unrepresentable -- two Hubs placing the same local id at
+        the same value would both be removed."""
         matches = [
             key for key, v in self._entries.items() if key.hub == hub and v == value
         ]
         for key in matches:
             del self._entries[key]
         return matches
-
-    def keys_for_value(self, value: V) -> list[HubScopedKey]:
-        """Return every key currently mapped to ``value``, across every Hub."""
-        return [key for key, v in self._entries.items() if v == value]
 
     def reassign_value(
         self, hub: HubId, old: V, new: V, locals_filter: frozenset[str]
