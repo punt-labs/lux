@@ -2306,7 +2306,7 @@
     "avg_params": 0.84,
     "max_complexity": 9.0,
     "avg_complexity": 2.41,
-    "module_size": 968.0,
+    "module_size": 964.0,
     "classes_per_module": 1.0,
     "class_to_func_ratio": 1.0,
     "init_violations": 0.0,
@@ -3171,6 +3171,19 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
+  "src/punt_lux/display/replica/address_rendering.py": {
+    "method_ratio": 1.0,
+    "encapsulation_ratio": 1.0,
+    "avg_params": 1.43,
+    "max_complexity": 1.0,
+    "avg_complexity": 1.0,
+    "module_size": 59.0,
+    "classes_per_module": 1.0,
+    "class_to_func_ratio": 1.0,
+    "init_violations": 0.0,
+    "public_attr_violations": 0.0,
+    "future_annotations": 1.0
+  },
   "src/punt_lux/display/replica/element_walk.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
@@ -3372,7 +3385,7 @@
     "avg_params": 0.87,
     "max_complexity": 5.0,
     "avg_complexity": 1.56,
-    "module_size": 231.0,
+    "module_size": 220.0,
     "classes_per_module": 1.0,
     "class_to_func_ratio": 1.0,
     "init_violations": 0.0,
