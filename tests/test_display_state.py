@@ -354,12 +354,12 @@ class TestPollClientsSkipsRemoved:
         server._socket_listener.clients.append(sock)
         from punt_lux.protocol import FrameReader
 
-        server._socket_listener._readers[sock.fileno()] = FrameReader()
+        server._socket_listener._registry._readers[sock.fileno()] = FrameReader()
 
         # After _remove_client, sock should not be in _clients
         server._socket_listener.remove_client(sock)
         assert sock not in server._socket_listener.clients
-        assert sock.fileno() not in server._socket_listener._readers
+        assert sock.fileno() not in server._socket_listener._registry._readers
 
         # _read_from_client on a removed socket should be a no-op
         # (reader lookup returns None)
@@ -373,7 +373,7 @@ class TestPollClientsSkipsRemoved:
         server._socket_listener.clients.append(sock)
         from punt_lux.protocol import FrameReader
 
-        server._socket_listener._readers[sock.fileno()] = FrameReader()
+        server._socket_listener._registry._readers[sock.fileno()] = FrameReader()
 
         server._socket_listener.remove_client(sock)
         assert sock not in server._socket_listener.clients
@@ -397,7 +397,7 @@ class TestMalformedMessageDisconnects:
         from punt_lux.protocol import FrameReader
 
         reader = FrameReader()
-        server._socket_listener._readers[sock.fileno()] = reader
+        server._socket_listener._registry._readers[sock.fileno()] = reader
 
         # Feed a frame with invalid JSON (valid length prefix, bad payload)
         import struct
@@ -427,7 +427,7 @@ class TestMalformedMessageDisconnects:
         from punt_lux.protocol import FrameReader
 
         reader = FrameReader()
-        server._socket_listener._readers[sock.fileno()] = reader
+        server._socket_listener._registry._readers[sock.fileno()] = reader
 
         payload = json.dumps({"type": "bogus"}).encode("utf-8")
         frame = struct.pack("!I", len(payload)) + payload
@@ -452,7 +452,7 @@ class TestMalformedMessageDisconnects:
         from punt_lux.protocol import FrameReader
 
         reader = FrameReader()
-        server._socket_listener._readers[sock.fileno()] = reader
+        server._socket_listener._registry._readers[sock.fileno()] = reader
 
         # "scene" is a known type, but missing required "id" and "elements"
         payload = json.dumps({"type": "scene"}).encode("utf-8")
@@ -503,8 +503,8 @@ class TestFlushEvents:
         sock1 = _mock_sock_fd(10)
         sock2 = _mock_sock_fd(20)
         server._socket_listener.clients.extend([sock1, sock2])
-        server._socket_listener._fd_to_client[10] = sock1
-        server._socket_listener._fd_to_client[20] = sock2
+        server._socket_listener._registry._fd_to_client[10] = sock1
+        server._socket_listener._registry._fd_to_client[20] = sock2
         server._event_queue.append(
             RemoteEventHandlerInvocation(element_id="button_x", action="click", ts=1.0)
         )
@@ -524,8 +524,8 @@ class TestFlushEvents:
         sock1 = _mock_sock_fd(10)
         sock2 = _mock_sock_fd(20)
         server._socket_listener.clients.extend([sock1, sock2])
-        server._socket_listener._fd_to_client[10] = sock1
-        server._socket_listener._fd_to_client[20] = sock2
+        server._socket_listener._registry._fd_to_client[10] = sock1
+        server._socket_listener._registry._fd_to_client[20] = sock2
         server._event_queue.append(
             RemoteEventHandlerInvocation(
                 element_id="voxd\x1fmusic",
@@ -611,7 +611,7 @@ class TestModalDismissRevertOnUndeliverable:
 
         sock = _mock_sock_fd(10)
         server._socket_listener.clients.append(sock)
-        server._socket_listener._fd_to_client[10] = sock
+        server._socket_listener._registry._fd_to_client[10] = sock
         server._flush_events()  # client back: the held close is delivered
 
         sock.send.assert_called_once()
@@ -629,7 +629,7 @@ class TestModalDismissRevertOnUndeliverable:
         server._socket_listener.clients.append(sock)
         from punt_lux.protocol import FrameReader
 
-        server._socket_listener._readers[sock.fileno()] = FrameReader()
+        server._socket_listener._registry._readers[sock.fileno()] = FrameReader()
         ws = self._latch_modal(server, "s1", "m1")
         self._queue_modal_closed(server, "s1", "m1")
 
@@ -643,7 +643,7 @@ class TestModalDismissRevertOnUndeliverable:
         server = _make_server()
         sock = _mock_sock_fd(10)
         server._socket_listener.clients.append(sock)
-        server._socket_listener._fd_to_client[10] = sock
+        server._socket_listener._registry._fd_to_client[10] = sock
         ws = self._latch_modal(server, "s1", "m1")
         self._queue_modal_closed(server, "s1", "m1")
 
@@ -692,7 +692,7 @@ class TestFrameSendBudget:
         slow = _mock_sock_fd(10)
         slow.send.side_effect = BlockingIOError(errno.EAGAIN, "would block")
         server._socket_listener.clients.append(slow)
-        server._socket_listener._fd_to_client[10] = slow
+        server._socket_listener._registry._fd_to_client[10] = slow
         for i in range(8):  # eight broadcast clicks queued this frame
             server._event_queue.append(
                 RemoteEventHandlerInvocation(element_id=f"b{i}", action="click", ts=1.0)
@@ -720,8 +720,8 @@ class TestFrameSendBudget:
         dead = _mock_sock_fd(10)
         dead.send.side_effect = OSError("boom")
         server._socket_listener.clients.append(dead)
-        server._socket_listener._fd_to_client[10] = dead
-        server._socket_listener._readers[10] = FrameReader()
+        server._socket_listener._registry._fd_to_client[10] = dead
+        server._socket_listener._registry._readers[10] = FrameReader()
         for i in range(4):
             server._event_queue.append(
                 RemoteEventHandlerInvocation(element_id=f"c{i}", action="click", ts=1.0)

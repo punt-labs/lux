@@ -64,7 +64,7 @@ def _register_client(server: RenderLoop, sock: MagicMock) -> None:
     identified ``"hub"`` fd (bead lux-2kv9 / W1).
     """
     server._socket_listener.clients.append(sock)
-    server._socket_listener._readers[sock.fileno()] = FrameReader()
+    server._socket_listener._registry._readers[sock.fileno()] = FrameReader()
     server._socket_listener.register_client_identity(
         sock.fileno(), kind="hub", name="test-hub", connect_time=0.0
     )
@@ -433,7 +433,7 @@ class TestRefinementShutdown:
         for client in list(server._socket_listener.clients):
             client.close()
         server._socket_listener.clients.clear()
-        server._socket_listener._readers.clear()
+        server._socket_listener._registry._readers.clear()
         server._scenes.clear_all()
         server._event_queue.clear()
         server._socket_listener._server_sock = None
@@ -446,7 +446,7 @@ class TestRefinementShutdown:
         abs_before = abstract(server)
 
         server._socket_listener.clients.clear()
-        server._socket_listener._readers.clear()
+        server._socket_listener._registry._readers.clear()
         server._scenes.clear_all()
         server._event_queue.clear()
         server._socket_listener._server_sock = None

@@ -106,7 +106,7 @@ def abstract(server: RenderLoop) -> AbstractState:
     client_fds = frozenset(s.fileno() for s in ss.clients)
 
     # readers -> keys of the readers dict (should equal client_fds)
-    reader_fds = frozenset(ss._readers.keys())
+    reader_fds = frozenset(ss._registry._readers.keys())
 
     # Scene decomposition — every scene lives in a frame now, so the abstract
     # "active scene" is a frame's active tab. The refinement suite installs one

@@ -67,7 +67,7 @@ def _sock(fd: int = 42) -> MagicMock:
 
 def _register(server: RenderLoop, sock: MagicMock) -> None:
     server._socket_listener.clients.append(sock)
-    server._socket_listener._readers[sock.fileno()] = FrameReader()
+    server._socket_listener._registry._readers[sock.fileno()] = FrameReader()
 
 
 def _hub_sock(server: RenderLoop, fd: int = 42) -> MagicMock:
@@ -129,7 +129,7 @@ class TestAcceptConnectionPartitions:
         assert len(server._socket_listener.clients) == 0
         _register_hub(server, sock)
         assert len(server._socket_listener.clients) == 1
-        assert 10 in server._socket_listener._readers
+        assert 10 in server._socket_listener._registry._readers
 
     def test_accept_2_one_existing_client(self):
         """P2: Accept second client when one already connected."""
@@ -138,7 +138,7 @@ class TestAcceptConnectionPartitions:
         sock2 = _sock(fd=20)
         _register_hub(server, sock2)
         assert len(server._socket_listener.clients) == 2
-        assert {10, 20} == set(server._socket_listener._readers.keys())
+        assert {10, 20} == set(server._socket_listener._registry._readers.keys())
 
     def test_accept_3_boundary_fills_to_max(self):
         """P3: Accept client when at maxClients-1 (reaches capacity).
@@ -166,10 +166,10 @@ class TestAcceptConnectionPartitions:
         server = _server()
         sock1 = _sock(fd=10)
         _register_hub(server, sock1)
-        reader1 = server._socket_listener._readers[10]
+        reader1 = server._socket_listener._registry._readers[10]
         # Re-registering same fd overwrites the reader
         _register_hub(server, _sock(fd=10))
-        assert server._socket_listener._readers[10] is not reader1
+        assert server._socket_listener._registry._readers[10] is not reader1
 
     def test_accept_6_rejected_at_capacity(self):
         """REJECTED ¬P3: Server at maxClients capacity.
@@ -199,7 +199,7 @@ class TestDisconnectClientPartitions:
         _register_hub(server, sock)
         server._socket_listener.remove_client(sock)
         assert len(server._socket_listener.clients) == 0
-        assert 10 not in server._socket_listener._readers
+        assert 10 not in server._socket_listener._registry._readers
 
     def test_disconnect_2_one_of_two(self):
         """P2: Disconnect one of two clients -> one remains."""
@@ -209,8 +209,8 @@ class TestDisconnectClientPartitions:
         _register_hub(server, sock2)
         server._socket_listener.remove_client(sock1)
         assert len(server._socket_listener.clients) == 1
-        assert 20 in server._socket_listener._readers
-        assert 10 not in server._socket_listener._readers
+        assert 20 in server._socket_listener._registry._readers
+        assert 10 not in server._socket_listener._registry._readers
 
     def test_disconnect_3_preserves_scene(self):
         """P3: Disconnect does not affect current scene or events."""
@@ -661,13 +661,13 @@ class TestShutdownPartitions:
         for client in list(server._socket_listener.clients):
             client.close()
         server._socket_listener.clients.clear()
-        server._socket_listener._readers.clear()
+        server._socket_listener._registry._readers.clear()
         _clear_all_scenes(server)
         server._event_queue.clear()
         server._socket_listener._server_sock = None
 
         assert len(server._socket_listener.clients) == 0
-        assert len(server._socket_listener._readers) == 0
+        assert len(server._socket_listener._registry._readers) == 0
         assert _scene_count(server) == 0
         assert len(server._event_queue) == 0
         assert server._socket_listener.server_sock is None
@@ -676,7 +676,7 @@ class TestShutdownPartitions:
         """P2: Shutdown already-empty server (idempotent)."""
         server = _server()
         server._socket_listener.clients.clear()
-        server._socket_listener._readers.clear()
+        server._socket_listener._registry._readers.clear()
         _clear_all_scenes(server)
         server._event_queue.clear()
         server._socket_listener._server_sock = None
@@ -700,10 +700,10 @@ class TestInvariantPartitions:
         _register_hub(server, s1)
         _register_hub(server, s2)
         ss = server._socket_listener
-        assert set(ss._readers.keys()) == {s.fileno() for s in ss.clients}
+        assert set(ss._registry._readers.keys()) == {s.fileno() for s in ss.clients}
 
         ss.remove_client(s1)
-        assert set(ss._readers.keys()) == {s.fileno() for s in ss.clients}
+        assert set(ss._registry._readers.keys()) == {s.fileno() for s in ss.clients}
 
     def test_inv_i6_elem_kinds_coverage(self):
         """I6: elemIds ⊆ dom elemKinds — all elements have a kind."""
@@ -872,7 +872,7 @@ class TestFrameCascadePartitions:
         server = _server()
         sock = _sock(fd=10)
         _register_hub(server, sock)
-        server._socket_listener._fd_to_client[10] = sock
+        server._socket_listener._registry._fd_to_client[10] = sock
 
         server._handle_scene(sock, _framed_scene("s1", "f1"))
         server._handle_scene(sock, _framed_scene("s2", "f2"))
@@ -891,7 +891,7 @@ class TestFrameCascadePartitions:
         server = _server()
         sock = _sock(fd=10)
         _register_hub(server, sock)
-        server._socket_listener._fd_to_client[10] = sock
+        server._socket_listener._registry._fd_to_client[10] = sock
 
         server._handle_scene(sock, _framed_scene("s1", "f1"))
         server._handle_scene(sock, _framed_scene("s2", "f2"))
@@ -910,7 +910,7 @@ class TestConnectMessagePartitions:
         server = _server()
         sock = _sock(fd=10)
         _register_hub(server, sock)
-        server._socket_listener._fd_to_client[10] = sock
+        server._socket_listener._registry._fd_to_client[10] = sock
 
         server._handle_connect(
             sock, ConnectMessage(name="quarry", kind="test", hub_id="test.invalid\x1f0")
@@ -923,7 +923,7 @@ class TestConnectMessagePartitions:
         server = _server()
         sock = _sock(fd=10)
         _register_hub(server, sock)
-        server._socket_listener._fd_to_client[10] = sock
+        server._socket_listener._registry._fd_to_client[10] = sock
 
         server._handle_connect(
             sock, ConnectMessage(name="quarry", kind="test", hub_id="test.invalid\x1f0")
@@ -939,7 +939,7 @@ class TestConnectMessagePartitions:
         server = _server()
         sock = _sock(fd=10)
         _register_hub(server, sock)
-        server._socket_listener._fd_to_client[10] = sock
+        server._socket_listener._registry._fd_to_client[10] = sock
 
         server._handle_connect(
             sock, ConnectMessage(name="quarry", kind="test", hub_id="test.invalid\x1f0")
@@ -953,7 +953,7 @@ class TestConnectMessagePartitions:
         server = _server()
         sock = _sock(fd=10)
         _register(server, sock)
-        server._socket_listener._fd_to_client[10] = sock
+        server._socket_listener._registry._fd_to_client[10] = sock
 
         assert server.client_name(10) is None
 
@@ -966,7 +966,7 @@ class TestDisposeFramePartitions:
         server = _server()
         sock = _sock(fd=10)
         _register_hub(server, sock)
-        server._socket_listener._fd_to_client[10] = sock
+        server._socket_listener._registry._fd_to_client[10] = sock
         server._handle_message(
             sock, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
         )
@@ -993,7 +993,7 @@ class TestDisposeFramePartitions:
         server = _server()
         sock = _sock(fd=10)
         _register_hub(server, sock)
-        server._socket_listener._fd_to_client[10] = sock
+        server._socket_listener._registry._fd_to_client[10] = sock
         server._handle_message(
             sock, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
         )
@@ -1203,7 +1203,7 @@ class TestFrameStaleEventDrainPartitions:
         server = _server()
         sock = _sock(fd=10)
         _register_hub(server, sock)
-        server._socket_listener._fd_to_client[10] = sock
+        server._socket_listener._registry._fd_to_client[10] = sock
         server._handle_message(
             sock,
             _framed_scene("s1", "f1", ButtonElement(id="b1", label="X")),
@@ -1230,7 +1230,7 @@ class TestFrameStaleEventDrainPartitions:
         server = _server()
         sock = _sock(fd=10)
         _register_hub(server, sock)
-        server._socket_listener._fd_to_client[10] = sock
+        server._socket_listener._registry._fd_to_client[10] = sock
         server._handle_message(
             sock, _framed_scene("s1", "f1", ButtonElement(id="save", label="Save"))
         )

@@ -13,11 +13,12 @@ from pathlib import Path
 from typing import Literal, Self
 
 from punt_lux.bounded_send import BoundedSend
+from punt_lux.display.client_registry import ClientRegistry
+from punt_lux.domain.hub.hub_id import HubId
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
     HEADER_SIZE,
     MAX_MESSAGE_SIZE,
-    FrameReader,
     ReadyMessage,
     encode_message,
 )
@@ -39,6 +40,14 @@ _BIND_RACE_ERRNOS = frozenset({errno.EADDRINUSE, errno.EEXIST})
 # client count (luxd's one persistent connection plus occasional probes).
 _LISTEN_BACKLOG = 128
 
+# register_client_identity's hub_id default -- production identification
+# (hub_reconciliation.HubReconciliation.handle_connect) always resolves and
+# passes the sender's own real HubId; this stands in only for the many
+# existing callers registering a client identity with no real Hub connection
+# in play, the same stand-in role a kind="test" connection already plays on
+# the wire (system.tex "Hub Identity on the Wire").
+_DEFAULT_HUB_ID: HubId = HubId.stub()
+
 
 class SocketListener:
     """Accept, poll, read from, send to, and remove Unix socket clients.
@@ -49,11 +58,7 @@ class SocketListener:
 
     _server_sock: socket.socket | None
     _clients: list[socket.socket]
-    _readers: dict[int, FrameReader]
-    _fd_to_client: dict[int, socket.socket]
-    _client_names: dict[int, str]
-    _client_kinds: dict[int, Literal["hub", "test"]]
-    _client_connect_times: dict[int, float]
+    _registry: ClientRegistry
     _on_message: Callable[[socket.socket, Message], None]
     _on_client_disconnected: Callable[[int], None]
     _on_error: Callable[[str, str, str], None]
@@ -68,11 +73,7 @@ class SocketListener:
         self = super().__new__(cls)
         self._server_sock = None
         self._clients = []
-        self._readers = {}
-        self._fd_to_client = {}
-        self._client_names = {}
-        self._client_kinds = {}
-        self._client_connect_times = {}
+        self._registry = ClientRegistry()
         self._on_message = on_message
         self._on_client_disconnected = on_client_disconnected
         self._on_error = on_error
@@ -94,19 +95,29 @@ class SocketListener:
     @property
     def client_names(self) -> dict[int, str]:
         """Return fd-to-display-name mapping."""
-        return self._client_names
+        return self._registry.client_names
 
     @property
     def client_connect_times(self) -> dict[int, float]:
         """Return fd-to-connect-timestamp mapping."""
-        return self._client_connect_times
+        return self._registry.client_connect_times
 
     @property
     def fd_to_client(self) -> dict[int, socket.socket]:
         """Return fd-to-socket mapping for O(1) lookup."""
-        return self._fd_to_client
+        return self._registry.fd_to_client
+
+    @property
+    def client_count(self) -> int:
+        """Return how many clients are currently connected."""
+        return len(self._clients)
 
     # -- frame-scoped send budget -------------------------------------------
+
+    @property
+    def frame_deadline(self) -> float | None:
+        """Return the deadline armed by :meth:`set_frame_deadline`, if any."""
+        return self._frame_deadline
 
     def set_frame_deadline(self, deadline: float) -> None:
         """Bound every deadline-less send in this frame by ``deadline`` (monotonic).
@@ -164,8 +175,7 @@ class SocketListener:
             with contextlib.suppress(OSError):
                 client.close()
         self._clients.clear()
-        self._readers.clear()
-        self._fd_to_client.clear()
+        self._registry.clear()
         if self._server_sock is not None:
             self._server_sock.close()
             self._server_sock = None
@@ -185,9 +195,8 @@ class SocketListener:
             conn.setblocking(False)  # noqa: FBT003
             fd = conn.fileno()
             self._clients.append(conn)
-            self._readers[fd] = FrameReader()
-            self._fd_to_client[fd] = conn
-            logger.debug("Client connected (total: %d)", len(self._clients))
+            self._registry.register_connection(fd, conn)
+            logger.debug("Client connected (total: %d)", self.client_count)
             self.send_to_client(conn, ReadyMessage())
 
     def poll_clients(self) -> None:
@@ -210,15 +219,16 @@ class SocketListener:
         self._clients.remove(sock)
         fd = self._live_fd(sock)
         if fd is not None:
-            self._readers.pop(fd, None)
-            self._fd_to_client.pop(fd, None)
-            self._client_names.pop(fd, None)
-            self._client_kinds.pop(fd, None)
-            self._client_connect_times.pop(fd, None)
+            self._registry.forget_connection(fd)
             self._on_client_disconnected(fd)  # domain-specific cleanup
+            # Popped last, after the callback runs: a departure reaction
+            # (FrameBook/MenuReplica cleanup) resolves this fd's HubId through
+            # hub_id_of() while it is still live, the same way the callback
+            # already resolves the departing fd itself.
+            self._registry.forget_hub_id(fd)
         with contextlib.suppress(OSError):
             sock.close()
-        logger.debug("Client disconnected (remaining: %d)", len(self._clients))
+        logger.debug("Client disconnected (remaining: %d)", self.client_count)
 
     @staticmethod
     def _live_fd(sock: socket.socket) -> int | None:
@@ -234,14 +244,10 @@ class SocketListener:
     ) -> bool:
         """Send ``msg`` to ``sock`` before ``deadline``; return whether it landed.
 
-        The render loop passes one shared ``deadline`` so a frame's sends share a
-        budget; a one-off send omits it and gets its own. When the render loop has
-        armed a frame deadline (``set_frame_deadline``) the caller-less path uses
-        that instead of the one-off budget, so a burst of in-frame Acks / Pongs /
-        query responses cannot stack per-send waits into a multi-second wedge under
-        Hub backpressure. A ``BlockingIOError`` (the peer alive but not drained
-        before the deadline) keeps the client and reports ``False`` so the caller
-        defers; only a dead-peer ``OSError`` removes it.
+        A caller-less send uses the armed frame deadline if one is set
+        (``set_frame_deadline``), else its own one-off budget. A slow-but-alive
+        peer (``BlockingIOError``) keeps the client and returns ``False`` so the
+        caller defers; only a dead peer (``OSError``) removes it.
         """
         if deadline is None:
             deadline = (
@@ -270,35 +276,31 @@ class SocketListener:
         kind: Literal["hub", "test"],
         name: str,
         connect_time: float,
+        hub_id: HubId = _DEFAULT_HUB_ID,
     ) -> None:
-        """Record a client's declared kind, display name, and connect timestamp."""
-        self._client_names[fd] = name
-        self._client_kinds[fd] = kind
-        self._client_connect_times[fd] = connect_time
+        """Record a client's declared kind, name, ``HubId``, and connect time."""
+        self._registry.identify(
+            fd, kind=kind, name=name, hub_id=hub_id, connect_time=connect_time
+        )
 
     def kind_of(self, fd: int) -> Literal["hub", "test"] | None:
         """Return the declared kind for ``fd``, or ``None`` before it identifies."""
-        return self._client_kinds.get(fd)
+        return self._registry.kind_of(fd)
+
+    def hub_id_of(self, fd: int) -> HubId | None:
+        """Return the declared ``HubId`` for ``fd``, or ``None`` if unidentified."""
+        return self._registry.hub_id_of(fd)
 
     def hub_fd_for(self, name: str) -> int | None:
-        """Return the live fd currently declaring ``kind="hub"`` with this name.
-
-        ``None`` when no such connection exists — the ordinary case once a
-        superseded Hub's socket has already closed on its own. Single-owner
-        preemption (DES-068) uses this to find (and evict) a predecessor
-        before recording a new claimant, so at most one ever holds the name.
-        """
-        for candidate_fd, kind in self._client_kinds.items():
-            if kind == "hub" and self._client_names.get(candidate_fd) == name:
-                return candidate_fd
-        return None
+        """Return the live fd currently declaring ``kind="hub"`` with this name."""
+        return self._registry.hub_fd_for(name)
 
     # -- internal -----------------------------------------------------------
 
     def _read_from_client(self, sock: socket.socket) -> None:
         """Read available data from a client and dispatch complete messages."""
         fd = sock.fileno()
-        reader = self._readers.get(fd)
+        reader = self._registry.reader_for(fd)
         if reader is None:
             return
         try:
