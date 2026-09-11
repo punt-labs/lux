@@ -32,6 +32,7 @@ from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_interaction_dispatch import HubInteractionDispatch
 from punt_lux.domain.hub.session_callback import SessionCallback
+from punt_lux.domain.identity import HubId
 from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.operations.client_details import ClientDetailsOperations
 from punt_lux.operations.client_details_port import ClientDetailsPort
@@ -154,7 +155,7 @@ class _Wired:
         field = WireField("callback_menus")
         for wire in CallbackMenuReplica(self._store.clients).callback_menu_wire():
             menu = WireMenu.of_payload(wire, field=field)
-            handlers = MenuHandlers(self._sent.append, ignore, "test-hub")
+            handlers = MenuHandlers(self._sent.append, ignore, HubId.stub())
             Submenu.from_wire(menu, handlers).render(imgui)
         return imgui
 

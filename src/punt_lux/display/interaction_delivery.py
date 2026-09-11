@@ -20,9 +20,13 @@ if TYPE_CHECKING:
 
 __all__ = ["InteractionDelivery"]
 
-# _deliver_one's outcome: sent; dropped (unresolvable, the caller must
-# compensate); or blocked (send budget/peer -- retried next frame).
-type _SendOutcome = Literal["sent", "dropped", "blocked"]
+# _deliver_one's outcome: sent; dropped (unroutable -- compensate); deferred
+# (Hub absent this instant, perhaps mid-reconnect -- hold without stalling);
+# blocked (send budget/socket -- stop the line, retry next frame).
+type _SendOutcome = Literal["sent", "dropped", "deferred", "blocked"]
+# deliver's report: events to drop from the buffer, then the unroutable subset.
+type _Events = tuple[RemoteEventHandlerInvocation, ...]
+type _DeliveryReport = tuple[_Events, _Events]
 
 
 class InteractionDelivery:
@@ -49,35 +53,46 @@ class InteractionDelivery:
     @trace
     def deliver(
         self, events: Sequence[RemoteEventHandlerInvocation]
-    ) -> tuple[int, tuple[RemoteEventHandlerInvocation, ...]]:
-        """Send events under the frame's budget; return the handled prefix
-        count and the dropped subset within it, for the caller to compensate.
-        A ``"blocked"`` event holds it and everything after it for the next
-        frame; a ``"dropped"`` one is handled at once instead, so one
-        unroutable click never stalls a deliverable one behind it."""
+    ) -> _DeliveryReport:
+        """Send events under the frame's budget; return the events to drop and
+        the unroutable subset to compensate. ``blocked`` stops the line (retry
+        next frame); ``deferred`` is skipped and kept (its Hub may be
+        mid-reconnect); ``dropped`` is given up now."""
+        removed: list[RemoteEventHandlerInvocation] = []
         dropped: list[RemoteEventHandlerInvocation] = []
-        handled = 0
         for event in events:
             match self._deliver_one(event):
+                case "sent":
+                    removed.append(event)
+                case "dropped":
+                    removed.append(event)
+                    dropped.append(event)
+                case "deferred":
+                    continue
                 case "blocked":
                     break
-                case "dropped":
-                    dropped.append(event)
-                    handled += 1
-                case "sent":
-                    handled += 1
-        return handled, tuple(dropped)
+        return tuple(removed), tuple(dropped)
 
     def _deliver_one(self, event: RemoteEventHandlerInvocation) -> _SendOutcome:
         """Resolve one event's target and send it -- never a broadcast."""
         owner_fd = self._resolve_target(event)
         if owner_fd is None:
-            return "dropped"
+            return self._unresolved(event)
         target = self._socket_listener.fd_to_client.get(owner_fd)
         if target is None:
             return "blocked"
         sent = self._socket_listener.send_to_client(target, event)
         return "sent" if sent else "blocked"
+
+    @staticmethod
+    def _unresolved(event: RemoteEventHandlerInvocation) -> _SendOutcome:
+        """Classify an event with no live target. A menu event (no scene) whose
+        Hub token did not resolve may be mid-reconnect -- ``deferred``, so the
+        bounded buffer holds it for the reconnect window. Everything else -- a
+        scene gone from the replica, an event naming no target -- is ``dropped``."""
+        if event.scene_id is None and event.hub_token is not None:
+            return "deferred"
+        return "dropped"
 
     def _resolve_target(self, event: RemoteEventHandlerInvocation) -> int | None:
         """Return one event's target fd: its scene's owner, else the Hub its

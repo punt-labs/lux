@@ -86,14 +86,14 @@ class WireMenuDecoder:
 
         def activate() -> None:
             if target.frame_id is not None:
-                handlers.raise_frame(target.frame_id)
+                handlers.raise_frame(target.frame_id, handlers.hub)
             handlers.emit(
                 RemoteEventHandlerInvocation(
                     element_id=target.item_id,
                     action="menu",
                     ts=time.time(),
                     value={"menu": target.menu_label, "item": target.item_label},
-                    hub_token=handlers.hub_token,
+                    hub_token=handlers.hub.wire_token,
                 )
             )
 

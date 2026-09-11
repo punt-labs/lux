@@ -32,7 +32,7 @@ class MenuReplica:
     two rendering surfaces (:class:`MenuSurfaces`) that draw its model."""
 
     _emit_event: Callable[[RemoteEventHandlerInvocation], None]
-    _on_raise_frame: Callable[[str], None]
+    _on_raise_frame: Callable[[str, HubId], None]
     _own: OwnMenus
     _menus: ReplicatedMenus
     _surfaces: MenuSurfaces
@@ -42,7 +42,7 @@ class MenuReplica:
         cls,
         *,
         emit_event: Callable[[RemoteEventHandlerInvocation], None],
-        on_raise_frame: Callable[[str], None],
+        on_raise_frame: Callable[[str, HubId], None],
         get_frames: Callable[[], Mapping[str, Frame]],
         own: OwnMenus,
     ) -> Self:
@@ -92,9 +92,7 @@ class MenuReplica:
             [
                 self._own.lux_section(),
                 *(
-                    Submenu.from_wire(
-                        m, MenuHandlers(emit, raise_frame, hub.wire_token)
-                    )
+                    Submenu.from_wire(m, MenuHandlers(emit, raise_frame, hub))
                     for hub, m in self._menus.hub_scoped_menus_by_hub()
                 ),
                 *self._own.chrome_sections(),

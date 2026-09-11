@@ -11,22 +11,22 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from punt_lux.domain.identity import HubId
     from punt_lux.protocol import RemoteEventHandlerInvocation
 
 __all__ = ["ClickTarget", "MenuHandlers"]
 
 type EmitEvent = Callable[[RemoteEventHandlerInvocation], None]
-type RaiseFrame = Callable[[str], None]
+type RaiseFrame = Callable[[str, HubId], None]
 
 
 @dataclass(frozen=True, slots=True)
 class MenuHandlers:
-    """The click callbacks (emit, raise) plus the ``HubId.wire_token`` this
-    menu tree replicates from -- so a scene-less click names its Hub."""
+    """Click callbacks (emit, raise) plus the owning :class:`HubId` they scope to."""
 
     emit: EmitEvent
     raise_frame: RaiseFrame
-    hub_token: str
+    hub: HubId
 
 
 @dataclass(frozen=True, slots=True)

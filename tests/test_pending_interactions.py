@@ -29,7 +29,7 @@ def _ids(events: Sequence[RemoteEventHandlerInvocation]) -> list[str]:
 
 
 class TestAdmitAndDeliver:
-    """Admitted interactions are readable in order and dropped by prefix."""
+    """Admitted interactions are readable in order and dropped by identity."""
 
     def test_admit_then_pending_events_preserves_order(self) -> None:
         buf = PendingInteractions(max_age=3.0, max_count=128)
@@ -38,11 +38,22 @@ class TestAdmitAndDeliver:
         assert not buf.is_empty
         assert _ids(buf.pending_events()) == ["a", "b"]
 
-    def test_discard_prefix_drops_the_delivered_front(self) -> None:
+    def test_discard_delivered_drops_the_delivered_events(self) -> None:
         buf = PendingInteractions(max_age=3.0, max_count=128)
-        buf.admit([_event("a"), _event("b"), _event("c")], now=100.0)
-        buf.discard_prefix(2)  # a and b delivered
+        a, b, c = _event("a"), _event("b"), _event("c")
+        buf.admit([a, b, c], now=100.0)
+        buf.discard_delivered([a, b])  # a and b delivered
         assert _ids(buf.pending_events()) == ["c"]
+
+    def test_discard_delivered_keeps_a_skipped_event_mid_stream(self) -> None:
+        # A deferred event (its Hub absent) is skipped by delivery and NOT in the
+        # delivered set; discarding only the delivered ones leaves it held, so a
+        # truly-gone Hub's click never sweeps out a deliverable one behind it.
+        buf = PendingInteractions(max_age=3.0, max_count=128)
+        deferred, delivered = _event("deferred"), _event("delivered")
+        buf.admit([deferred, delivered], now=100.0)
+        buf.discard_delivered([delivered])  # only the delivered one leaves
+        assert _ids(buf.pending_events()) == ["deferred"]  # the skipped one survives
 
     def test_reconnect_delivers_the_whole_gap_in_order(self) -> None:
         buf = PendingInteractions(max_age=3.0, max_count=128)
@@ -52,7 +63,7 @@ class TestAdmitAndDeliver:
         buf.admit([_event("c3")], now=101.0)
         events = buf.pending_events()
         assert _ids(events) == ["c1", "c2", "c3"]
-        buf.discard_prefix(len(events))  # a reconnect delivers them all
+        buf.discard_delivered(events)  # a reconnect delivers them all
         assert buf.is_empty
 
 
@@ -76,12 +87,15 @@ class TestExpire:
         assert _ids(buf.pending_events()) == ["mid", "new"]
 
     def test_age_survives_a_discard_so_a_stalled_frame_still_expires(self) -> None:
-        # A held event keeps its original age across a prefix discard, so a later
-        # frame -- even one stalled long past the bound -- still expires it and
-        # does not carry it forever.
+        # A held event keeps its original age across a discard, so a later frame
+        # -- even one stalled long past the bound -- still expires it and does
+        # not carry it forever.
         buf = PendingInteractions(max_age=3.0, max_count=128)
-        buf.admit([_event("delivered"), _event("held")], now=100.0)
-        buf.discard_prefix(1)  # "delivered" landed; "held" kept its held_at=100
+        delivered, held = _event("delivered"), _event("held")
+        buf.admit([delivered, held], now=100.0)
+        buf.discard_delivered(
+            [delivered]
+        )  # "delivered" landed; "held" kept held_at=100
         assert _ids(buf.pending_events()) == ["held"]
         evicted = buf.expire(now=110.0)  # the stalled next frame arrives 10s later
         assert _ids(evicted.lost) == ["held"]  # aged out on its original clock

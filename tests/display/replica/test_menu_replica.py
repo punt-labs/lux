@@ -110,7 +110,11 @@ class TestMenuModelComposition:
 
     def test_a_callback_leafs_frame_raises_through_on_raise_frame(self) -> None:
         raised: list[str] = []
-        manager = _manager(on_raise_frame=raised.append)
+
+        def on_raise(frame_id: str, _hub: HubId) -> None:
+            raised.append(frame_id)
+
+        manager = _manager(on_raise_frame=on_raise)
         manager.replace_callback_menus(
             [
                 wire_menu(

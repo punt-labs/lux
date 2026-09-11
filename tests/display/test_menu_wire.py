@@ -36,6 +36,7 @@ from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.menu_models import Menu, MenuAction
 from punt_lux.domain.hub.named_sessions import NamedSessions
 from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
+from punt_lux.domain.identity import HubId
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.protocol import SceneMessage, TextElement
 from tests.menu_doubles import FakeImGui, ignore
@@ -302,7 +303,10 @@ class TestTheFrameIdRoundTrip:
         wire_menu = _checked(lux_submenu.to_wire())
         raised: list[str] = []
         display_menu = Submenu.from_wire(
-            wire_menu, MenuHandlers(ignore, raised.append, "test-hub")
+            wire_menu,
+            MenuHandlers(
+                ignore, lambda frame_id, _hub: raised.append(frame_id), HubId.stub()
+            ),
         )
         display_menu.render(FakeImGui(("Beads",)))
         (raised_id,) = raised

@@ -56,10 +56,10 @@ class PendingInteractions:
 
     ``admit`` adds this frame's interactions; ``expire`` evicts the ones that
     aged or overflowed past the bound (the caller compensates what it names); a
-    delivery attempt reads ``pending_events`` and then ``discard_prefix`` removes
-    the ones that landed, leaving the rest held -- with their original ages --
-    for the next frame. Ages are held per event, so a stalled frame cannot make
-    an entry immortal: the very next ``expire`` re-checks it.
+    delivery attempt reads ``pending_events`` and then ``discard_delivered``
+    removes the ones that landed, leaving the rest held -- with their original
+    ages -- for the next frame. Ages are held per event, so a stalled frame
+    cannot make an entry immortal: the very next ``expire`` re-checks it.
     """
 
     _events: deque[_Held]
@@ -104,10 +104,12 @@ class PendingInteractions:
         """Return the held interactions in order, for a delivery attempt."""
         return [pending.event for pending in self._events]
 
-    def discard_prefix(self, count: int) -> None:
-        """Drop the first ``count`` interactions -- the prefix a delivery landed."""
-        for _ in range(count):
-            self._events.popleft()
+    def discard_delivered(
+        self, delivered: Iterable[RemoteEventHandlerInvocation]
+    ) -> None:
+        """Drop delivered events by identity; a mid-stream deferred one survives."""
+        consumed = {id(event) for event in delivered}
+        self._discard(lambda event: id(event) in consumed)
 
     def evict_all(self) -> Evictions:
         """Remove every held interaction -- the display was cleared, so none
@@ -120,7 +122,7 @@ class PendingInteractions:
     def compensate_dropped(
         self, dropped: Iterable[RemoteEventHandlerInvocation]
     ) -> Evictions:
-        """Split ``dropped`` against pending; call after ``discard_prefix``."""
+        """Split ``dropped`` against pending; call after ``discard_delivered``."""
         return Evictions.of(dropped, (held.event for held in self._events))
 
     def discard_elements(self, element_ids: set[str]) -> Evictions:

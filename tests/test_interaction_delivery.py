@@ -90,7 +90,7 @@ class TestDeliver:
             element_id="b", action="click", scene_id="s1", ts=1.0
         )
 
-        assert delivery.deliver([event]) == (1, ())  # one delivered, none dropped
+        assert delivery.deliver([event]) == ((event,), ())  # delivered, none dropped
         socket_listener.send_to_client.assert_called_once_with(owner_sock, event)
 
     def test_routes_a_scene_less_event_to_its_declared_hub(self) -> None:
@@ -105,7 +105,7 @@ class TestDeliver:
             element_id="m", action="menu", ts=1.0, hub_token="hub-a"
         )
 
-        assert delivery.deliver([event]) == (1, ())
+        assert delivery.deliver([event]) == ((event,), ())
         socket_listener.send_to_client.assert_called_once_with(hub_sock, event)
 
     def test_a_menu_click_never_reaches_a_second_live_hub(self) -> None:
@@ -125,48 +125,49 @@ class TestDeliver:
         assert sent_to == [a_sock]  # exactly hub-a's socket, never hub-b's
 
     def test_a_scene_less_hub_less_event_is_dropped_not_held(self) -> None:
-        # No scene, no declared Hub: dropped -- handled at once (never a
-        # broadcast, and never left stuck in the pending buffer forever).
+        # No scene, no declared Hub: unroutable now and forever, so dropped --
+        # removed and compensated at once, never left stuck in the buffer.
         delivery, socket_listener = _build()
         event = RemoteEventHandlerInvocation(element_id="b", action="click", ts=1.0)
 
-        assert delivery.deliver([event]) == (1, (event,))  # handled: dropped, not sent
+        assert delivery.deliver([event]) == ((event,), (event,))  # removed, dropped
         socket_listener.send_to_client.assert_not_called()
 
-    def test_an_unresolvable_hub_token_is_dropped_not_held(self) -> None:
-        # The declared Hub has since departed; still no broadcast fallback,
-        # and the unroutable click is handled now rather than re-held forever.
+    def test_an_unresolvable_hub_token_is_deferred_not_dropped(self) -> None:
+        # The declared Hub is absent this instant -- perhaps mid-reconnect -- so
+        # the click is deferred: neither sent nor dropped, and kept in the buffer
+        # (removed is empty) so a reconnect within the window can still deliver it.
         delivery, socket_listener = _build()
         event = RemoteEventHandlerInvocation(
-            element_id="m", action="menu", ts=1.0, hub_token="departed-hub"
+            element_id="m", action="menu", ts=1.0, hub_token="absent-hub"
         )
 
-        assert delivery.deliver([event]) == (1, (event,))
+        assert delivery.deliver([event]) == ((), ())  # kept, not dropped
         socket_listener.send_to_client.assert_not_called()
 
-    def test_a_dropped_event_does_not_stall_a_later_deliverable_one(self) -> None:
-        """The exact bug the fix closes: an unresolvable click ahead of a
-        deliverable one must not stall the deliverable one behind it."""
+    def test_a_deferred_event_does_not_stall_a_later_deliverable_one(self) -> None:
+        """A menu click whose Hub is absent is held (deferred), yet must not
+        stall a deliverable click behind it: the deliverable one still goes."""
         good_sock = object()
         delivery, socket_listener = _build(
             fd_to_client={9: good_sock}, hub_fds={"hub-a": 9}
         )
-        unresolvable = RemoteEventHandlerInvocation(
-            element_id="m1", action="menu", ts=1.0, hub_token="departed-hub"
+        deferred = RemoteEventHandlerInvocation(
+            element_id="m1", action="menu", ts=1.0, hub_token="absent-hub"
         )
         deliverable = RemoteEventHandlerInvocation(
             element_id="m2", action="menu", ts=1.0, hub_token="hub-a"
         )
 
-        handled, dropped = delivery.deliver([unresolvable, deliverable])
+        removed, dropped = delivery.deliver([deferred, deliverable])
 
-        assert handled == 2  # both handled -- one dropped, one sent
-        assert dropped == (unresolvable,)
+        assert removed == (deliverable,)  # only the deliverable one leaves the buffer
+        assert dropped == ()  # the deferred one is neither sent nor dropped -- held
         socket_listener.send_to_client.assert_called_once_with(good_sock, deliverable)
 
     def test_delivery_stops_at_first_unsent_event(self) -> None:
         # A failed send ends the frame: that event and every one after it stay
-        # unsent (the prefix count is where delivery stopped), in order.
+        # unsent (removed is empty -- delivery stopped at the block), in order.
         dead = object()
         delivery, _ = _build(
             fd_to_client={9: dead}, hub_fds={"hub-a": 9}, send_results={dead: False}
@@ -178,9 +179,9 @@ class TestDeliver:
             element_id="b", action="click", ts=1.0, hub_token="hub-a"
         )
 
-        assert delivery.deliver([first, second]) == (0, ())  # none landed
+        assert delivery.deliver([first, second]) == ((), ())  # none landed
 
-    def test_delivered_prefix_counts_before_a_stop(self) -> None:
+    def test_delivered_prefix_leaves_the_buffer_before_a_stop(self) -> None:
         good, bad = object(), object()
         delivery, _ = _build(
             fd_to_client={8: good, 9: bad},
@@ -189,7 +190,7 @@ class TestDeliver:
             send_results={bad: False},
         )
         # first routes to `good` via its declared Hub (delivered); second
-        # targets the dead scene owner.
+        # targets the dead scene owner and blocks the line.
         first = RemoteEventHandlerInvocation(
             element_id="a", action="click", ts=1.0, hub_token="hub-a"
         )
@@ -197,7 +198,7 @@ class TestDeliver:
             element_id="b", action="click", scene_id="s9", ts=1.0
         )
 
-        assert delivery.deliver([first, second]) == (1, ())  # only the prefix
+        assert delivery.deliver([first, second]) == ((first,), ())  # only the prefix
 
     def test_missing_owner_socket_stops_delivery(self) -> None:
         delivery, socket_listener = _build(scene_to_owner={"s1": 7})  # fd 7 not mapped
@@ -205,7 +206,7 @@ class TestDeliver:
             element_id="b", action="click", scene_id="s1", ts=1.0
         )
 
-        assert delivery.deliver([event]) == (0, ())
+        assert delivery.deliver([event]) == ((), ())
         socket_listener.send_to_client.assert_not_called()
 
     def test_spent_budget_delivers_nothing(self) -> None:
@@ -220,8 +221,53 @@ class TestDeliver:
             element_id="b", action="click", ts=1.0, hub_token="hub-a"
         )
 
-        assert delivery.deliver([event]) == (0, ())
+        assert delivery.deliver([event]) == ((), ())
         assert socket_listener.send_to_client.call_count == 1
+
+    def test_a_menu_click_survives_its_hubs_reconnect(self) -> None:
+        # The Hub is absent at the first flush -- the click is deferred and kept,
+        # not dropped -- then it reconnects and the held click is delivered. This
+        # is the reconnect-window case the deferral exists to close.
+        hub_sock = object()
+        delivery, socket_listener = _build()  # no Hubs connected yet
+        buf = PendingInteractions()
+        event = RemoteEventHandlerInvocation(
+            element_id="m", action="menu", ts=1.0, hub_token="hub-a"
+        )
+        buf.admit([event], now=100.0)
+
+        removed, dropped = delivery.deliver(buf.pending_events())
+        buf.discard_delivered(removed)
+        assert (removed, dropped) == ((), ())  # deferred: neither sent nor dropped
+        assert [e.element_id for e in buf.pending_events()] == ["m"]  # still held
+
+        socket_listener.fd_to_client[9] = hub_sock  # hub-a reconnects
+        socket_listener.fd_for_hub_token.side_effect = {"hub-a": 9}.get
+
+        removed, dropped = delivery.deliver(buf.pending_events())
+        buf.discard_delivered(removed)
+        assert removed == (event,)
+        assert buf.is_empty  # delivered on reconnect, no longer held
+        socket_listener.send_to_client.assert_called_once_with(hub_sock, event)
+
+    def test_a_deferred_menu_click_ages_out_when_its_hub_never_returns(self) -> None:
+        # A truly-departed Hub's click is held only for the bounded window; once
+        # it ages out the buffer gives it up. A menu click latches nothing, so
+        # compensating the aged-out click is a harmless no-op (it must not raise).
+        delivery, socket_listener = _build()  # Hub never present
+        buf = PendingInteractions(max_age=3.0)
+        event = RemoteEventHandlerInvocation(
+            element_id="m", action="menu", ts=1.0, hub_token="gone-hub"
+        )
+        buf.admit([event], now=100.0)
+        removed, _dropped = delivery.deliver(buf.pending_events())
+        buf.discard_delivered(removed)
+        assert [e.element_id for e in buf.pending_events()] == ["m"]  # held at first
+
+        delivery.compensate_evicted(buf.expire(now=104.0))  # past max_age
+
+        assert buf.is_empty  # aged out once the reconnect window lapsed
+        socket_listener.send_to_client.assert_not_called()
 
 
 class TestCompensateEvicted:
@@ -403,8 +449,8 @@ class TestSupersededEvictionRevertsNothing:
             fd_to_client={7: owner_sock}, scene_to_owner={"s1": 7}, widget_state=ws
         )
         evicted, buf = _aged_out_while_newer_held("header_toggled", "h")
-        handled, _dropped = delivery.deliver(buf.pending_events())
-        buf.discard_prefix(handled)
+        removed, _dropped = delivery.deliver(buf.pending_events())
+        buf.discard_delivered(removed)
         assert buf.is_empty  # the surviving toggle went to the Hub this frame
 
         delivery.compensate_evicted(evicted)

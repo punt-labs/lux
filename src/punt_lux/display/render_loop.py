@@ -72,6 +72,7 @@ from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
+    from punt_lux.domain.identity import HubId
     from punt_lux.protocol import Message
 
 logger = logging.getLogger(__name__)
@@ -157,7 +158,7 @@ class RenderLoop:
                 get_frames=lambda: self._scenes.frames,
                 on_clear_all=self._clear_all,
                 on_fit_all=self._request_fit_all,
-                on_raise_frame=self._raise_frame,
+                on_raise_frame=self._raise_frame_unscoped,
                 chrome=WindowChrome(),
             ),
         )
@@ -530,13 +531,11 @@ class RenderLoop:
         self._scenes.dispose_all_frames()
         self._handle_clear()
 
-    def _raise_frame(self, frame_id: str) -> None:
-        """Callback for MenuReplica: bring one closed frame back on screen.
+    def _raise_frame(self, frame_id: str, hub: HubId) -> None:
+        """Raise a replicated menu's frame in its owning Hub's scope."""
+        self._scenes.raise_frame(frame_id, hub)
 
-        A menu entry has no use for whether the frame was held — it was composed
-        from the frames the display holds — so the answer the query surface reads
-        is dropped here.
-        """
+    def _raise_frame_unscoped(self, frame_id: str) -> None:
         self._scenes.raise_frame(frame_id)
 
     def _request_fit_all(self) -> None:
@@ -1094,10 +1093,10 @@ class RenderLoop:
         self._event_queue.clear()
         expired = self._pending.expire(now)
         if self._socket_listener.clients:
-            handled, dropped = self._interaction_delivery.deliver(
+            removed, dropped = self._interaction_delivery.deliver(
                 self._pending.pending_events()
             )
-            self._pending.discard_prefix(handled)
+            self._pending.discard_delivered(removed)
             if dropped:
                 self._interaction_delivery.compensate_evicted(
                     self._pending.compensate_dropped(dropped)

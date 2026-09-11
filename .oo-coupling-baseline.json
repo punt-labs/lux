@@ -1207,8 +1207,8 @@
     "efferent_coupling": 2.0,
     "public_names": 3.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.409,
-    "avg_lcom": 0.409
+    "max_lcom": 0.451,
+    "avg_lcom": 0.451
   },
   "src/punt_lux/display/query_dispatcher.py": {
     "efferent_coupling": 4.0,
