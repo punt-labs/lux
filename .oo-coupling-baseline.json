@@ -4032,7 +4032,7 @@
     "avg_lcom": 0.705
   },
   "src/punt_lux/protocol/elements/tree_codec.py": {
-    "efferent_coupling": 3.0,
+    "efferent_coupling": 4.0,
     "public_names": 2.0,
     "circular_imports": 0.0,
     "max_lcom": 1.0,
