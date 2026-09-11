@@ -169,7 +169,10 @@ class CrossHostListener:
             return
         try:
             raw, _ = self._server_sock.accept()
-        except (BlockingIOError, OSError):
+        except BlockingIOError:
+            return  # the readable-select was stale by the time accept() ran
+        except OSError as exc:
+            logger.debug("cross-host accept() failed: %s", exc)
             return
         Nonblocking.set(raw)
         tls_sock = self._ssl_context.wrap_socket(
