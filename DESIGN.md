@@ -6886,12 +6886,17 @@ stop`, and a "running but invisible" state was judged no value-add.
 
 **Context.** An applet leaves when the Claude session that spawned it exits.
 `SessionWatch` implements this by polling `os.kill(session_pid, 0)` on an
-interval and exiting when the process is gone (the Hub's connection lease is
-the roster-side backstop). `os.kill(pid, 0)` is *pid-reuse-unsafe*: after the
-watched session exits, the OS can recycle its pid to an unrelated process, and
-the poll then reads that stranger as "session alive" forever, leaving an
-orphaned applet. Bead `lux-0bkm` reported ghost applets accumulating in the Hub
-roster and the aggregation menu.
+interval and exiting when the process is gone. `os.kill(pid, 0)` is
+*pid-reuse-unsafe*: after the watched session exits, the OS can recycle its pid
+to an unrelated process, and the poll then reads that stranger as "session
+alive" forever, leaving an orphaned applet. The Hub's connection lease does
+**not** backstop this particular case: the orphan's `AppletLeg` keeps its
+connection alive and renews its lease, and the Hub only reaps *lapsed*
+connections — so a live-but-orphaned applet is never swept by the lease, only
+by a Display restart or manual cleanup. (The lease remains the backstop for a
+genuinely *dead* connection, where the transport is gone and the lease lapses.)
+Bead `lux-0bkm` reported ghost applets accumulating in the Hub roster and the
+aggregation menu.
 
 **Decision.** Do not harden the pid check. A live dogfood on 2026-09-10 found
 **no reap failure on current code** — every accumulated applet was watching a
@@ -6907,10 +6912,14 @@ The governing distinction this ADR settles: `SessionWatch` answers a
 **liveness** question — "is the process that spawned me still alive, so do I
 keep serving?" — which pids/pidfd/start-time answer and a cryptographic key
 cannot (a key cannot tell you a process is still running). It is **not** an
-identity or trust boundary. The mature, secure answer to "who is this
-Hub/applet, and should the Display trust the content it sends?" is
-cryptographic — DES-090's mTLS + personal-CA enrollment — a separate concern
-that neither substitutes for reaping nor is substituted by it. The robustness
+identity or trust boundary. The mature, secure answer to "who is this **Hub**,
+and should the Display trust the content it sends over the Hub↔Display leg?"
+is cryptographic — DES-090's mTLS + personal-CA enrollment, which authenticates
+the *Hub peer on that transport leg*, not an applet's identity to the Hub.
+(Applet-to-Hub authentication is a distinct concern this ADR does not settle and
+no ADR yet designs; it is noted here only to mark the boundary.) Either way,
+that trust question is separate from liveness — it neither substitutes for
+reaping nor is substituted by it. The robustness
 and security investment belongs in the keys layer, not in start-time plumbing
 that closes a theoretical, cosmetic gap on a heuristic.
 
