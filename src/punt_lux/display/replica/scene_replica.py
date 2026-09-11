@@ -5,20 +5,23 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Self
 
-from punt_lux.display.replica.frame import Frame
-from punt_lux.display.replica.frame_book import FrameBook
-from punt_lux.display.replica.manifest_purge import ManifestPurge
-from punt_lux.display.replica.stale_ids import OnSceneReplacedFn, StaleIds
-from punt_lux.display.replica.widget_state import WidgetState, WireScalar
-from punt_lux.display.replica.widget_state_store import WidgetStateStore
+from punt_lux.display.replica._wiring import (
+    Frame,
+    FrameBook,
+    ManifestPurge,
+    OnSceneReplacedFn,
+    StaleIds,
+    WidgetState,
+    WidgetStateStore,
+    WireScalar,
+)
 from punt_lux.domain.identity import HubId, HubScopedKey
 from punt_lux.protocol import SceneMessage
 
 __all__ = ["OnSceneReplacedFn", "SceneReplica"]
 
-# handle_framed_scene's own-Hub default -- production dispatch always
-# resolves and passes the sender's real HubId; stands in for the many
-# existing callers with no real Hub connection in play.
+# handle_framed_scene's own-Hub default; stands in for the many existing
+# callers with no real Hub connection -- production resolves the real HubId.
 _NO_HUB = HubId.stub()
 
 
@@ -59,8 +62,7 @@ class SceneReplica:
 
     @property
     def frame_count(self) -> int:
-        """Every Hub's own count, never the flattened view a collision
-        would undercount."""
+        """Every Hub's own frame count; a collision never undercounts it here."""
         return len(self)
 
     @property
@@ -126,9 +128,7 @@ class SceneReplica:
         self, hub: HubId, manifest: frozenset[str], live_hubs: frozenset[HubId]
     ) -> list[tuple[HubScopedKey, str]]:
         """Every ``(frame_key, scene_id)`` pair to purge -- delegated to the
-        composed :class:`ManifestPurge`, which keeps the manifest-purge
-        policy's two independent rules (own-Hub scoping, orphan sweep) in
-        one place."""
+        composed :class:`ManifestPurge` (own-Hub scoping, orphan sweep)."""
         return self._purge.candidates(hub, manifest, live_hubs)
 
     def frame(self, frame_id: str, hub: HubId = _NO_HUB) -> Frame | None:
