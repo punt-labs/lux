@@ -19,6 +19,32 @@
 % Formatting follows the fuzz house rules: \quad~ for continuation indent,
 % schema lines under 80 columns, predicates broken at \land/\lor/\implies.
 %
+% ------------------------------------------------------------------------
+% SUPERSEDED -- PENDING W12 (lux-833p) RE-MODEL
+%
+% As of W11 (lux-u9gb, merged), Hub-connection preemption keys on the
+% connecting Hub's HubId (hostname+pid) -- ClientRegistry.hub_fd_for /
+% SocketListener.hub_fd_for / HubReconciliation._preempt_stale_hub --
+% never on the declared ConnectMessage.name. This model still represents
+% a Hub connection's identity as a bare CONNECTION_ID with no name/HubId
+% distinction, and HI4 in hub_display_reconciliation_coverage.md ("two
+% kind="hub" identifies for two different declared names -- neither
+% preempts the other -- preemption scopes to the shared name") states the
+% PRE-W11 rule: it no longer reflects the code. Two connections sharing a
+% name but declaring distinct HubIds now correctly coexist (the bug W11
+% fixes -- every production Hub declares the identical hardcoded name), and
+% a reconnect under the SAME HubId still preempts its predecessor
+% regardless of a changed name. W12 (lux-833p) is the dedicated z-spec
+% bead that re-models invariant 2 ("at most one live connection per
+% HubId") against the corrected HubId-keyed logic, generalized from one
+% Hub to N concurrently-reconnecting Hubs; it cannot run until W8/W9/W11
+% have all merged. Until W12 lands, treat every clause below that scopes
+% preemption by name (HI4 above all) as a historical record of the
+% pre-W11 code, not an authoritative description of the shipped
+% behaviour -- do not hand-edit this model to patch it; that re-model is
+% W12's scope.
+% ------------------------------------------------------------------------
+%
 
 \documentclass[a4paper,10pt,fleqn]{article}
 \usepackage[margin=1in]{geometry}
@@ -31,6 +57,23 @@
 \author{Formal model of DES-068's single-owner preemption and manifest purge}
 \date{August 2026}
 \maketitle
+
+\noindent\fbox{\parbox{\dimexpr\textwidth-2\fboxsep-2\fboxrule}{%
+\textbf{SUPERSEDED --- pending W12 (\texttt{lux-833p}) re-model.} As of
+W11 (\texttt{lux-u9gb}, merged), single-owner preemption is keyed on the
+connecting Hub's \texttt{HubId} (hostname + pid), never on the declared
+\texttt{ConnectMessage.name}. This model still treats a connection's
+identity as a bare \texttt{CONNECTION\_ID} with no name/\texttt{HubId}
+distinction, so \textbf{HI4} (\texttt{hub\_display\_reconciliation
+\_coverage.md}: ``two \texttt{kind="hub"} identifies for two different
+declared names -- neither preempts the other -- preemption scopes to the
+shared name'') and the \texttt{hubOwner}-keyed-by-name shape it stands in
+for no longer reflect the shipped code. W12 will re-model invariant 2
+(``at most one live connection per \texttt{HubId}'') against the
+corrected \texttt{HubId}-keyed logic once W8/W9/W11 have all merged.
+Read this document as a historical record of the pre-W11 design until
+then, not as a description of current behaviour.}}
+\vspace{1em}
 
 % ============================================================
 \section{Introduction}

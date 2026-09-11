@@ -94,10 +94,17 @@ class ClientRegistry:
         """Return the declared ``HubId`` for ``fd``, or ``None`` if unidentified."""
         return self._client_hub_ids.get(fd)
 
-    def hub_fd_for(self, name: str) -> int | None:
-        """Return the live fd currently declaring ``kind="hub"`` with this name."""
+    def hub_fd_for(self, hub_id: HubId) -> int | None:
+        """Return the live fd currently declaring ``kind="hub"`` with this ``HubId``.
+
+        Keyed on ``HubId``, never on the declared ``name`` (W11) -- ``name`` is
+        "what a human calls this connection," not a per-process identity, and
+        every production Hub today declares the identical hardcoded name. Two
+        Hubs sharing a name must coexist; two connections sharing a ``HubId``
+        (a reconnect) must not.
+        """
         for candidate_fd, kind in self._client_kinds.items():
-            if kind == "hub" and self._client_names.get(candidate_fd) == name:
+            if kind == "hub" and self._client_hub_ids.get(candidate_fd) == hub_id:
                 return candidate_fd
         return None
 

@@ -298,9 +298,9 @@ class SocketListener:
         """Return the declared ``HubId`` for ``fd``, or ``None`` if unidentified."""
         return self._registry.hub_id_of(fd)
 
-    def hub_fd_for(self, name: str) -> int | None:
-        """Return the live fd currently declaring ``kind="hub"`` with this name."""
-        return self._registry.hub_fd_for(name)
+    def hub_fd_for(self, hub_id: HubId) -> int | None:
+        """Return the live fd currently declaring ``kind="hub"`` with this ``HubId``."""
+        return self._registry.hub_fd_for(hub_id)
 
     # -- internal -----------------------------------------------------------
 
