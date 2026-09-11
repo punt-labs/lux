@@ -45,6 +45,7 @@ __all__ = [
     "FakeClock",
     "LoopbackListener",
     "MtlsMaterial",
+    "PumpOutcome",
 ]
 
 _DISPLAY_HOST = "display.example.com"
@@ -151,8 +152,8 @@ class MtlsMaterial:
         self._load_leaf(context, *self._ca.issue_leaf(hostname))
         return context
 
-    def defense_removed_server_context(self) -> ssl.SSLContext:
-        """A fidelity control: the Display's server context with the
+    def cert_optional_server_context(self) -> ssl.SSLContext:
+        """A T1 fidelity control: the Display's server context with the
         ``CERT_REQUIRED`` mutual-auth requirement stripped to ``CERT_NONE``.
 
         This is the exact defense removed. A test that admits a no-cert peer
@@ -164,6 +165,19 @@ class MtlsMaterial:
         context.minimum_version = ssl.TLSVersion.TLSv1_3
         context.verify_mode = ssl.CERT_NONE
         self._load_leaf(context, *self._ca.issue_leaf(_DISPLAY_HOST))
+        return context
+
+    def tls12_floor_server_context(self) -> ssl.SSLContext:
+        """A T6 fidelity control: the production server context (mutual auth
+        intact) with the TLS-1.3 floor lowered to 1.2.
+
+        A downgrade client admitted through *this* context but refused by the
+        production :meth:`server_context` isolates the refusal to the 1.3 floor
+        -- and proves the TLS-1.2 client is a genuine, handshake-capable peer,
+        not one misconfigured into failing for an unrelated reason.
+        """
+        context = self.server_context()
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
         return context
 
     def bare_client_context(self) -> ssl.SSLContext:
@@ -275,6 +289,37 @@ class BackgroundConnect:
 
 
 @final
+class PumpOutcome:
+    """What pumping a listener to a settled state yielded.
+
+    ``ready`` is the sockets promoted past their handshake; ``admitted`` records
+    whether any peer ever entered the pending set at all -- so a rejection test
+    asserting ``ready == []`` cannot pass vacuously against a broken accept that
+    silently dropped every connection on the floor.
+    """
+
+    _ready: list[ssl.SSLSocket]
+    _admitted: bool
+    __slots__ = ("_admitted", "_ready")
+
+    def __new__(cls, ready: list[ssl.SSLSocket], *, admitted: bool) -> Self:
+        self = super().__new__(cls)
+        self._ready = ready
+        self._admitted = admitted
+        return self
+
+    @property
+    def ready(self) -> list[ssl.SSLSocket]:
+        """The sockets whose handshakes completed and were promoted."""
+        return self._ready
+
+    @property
+    def admitted(self) -> bool:
+        """Whether any peer was ever accepted into the pending set."""
+        return self._admitted
+
+
+@final
 class LoopbackListener:
     """A :class:`CrossHostListener` bound to a loopback ephemeral port.
 
@@ -335,24 +380,33 @@ class LoopbackListener:
         """Drive every pending handshake one step; return newly-verified sockets."""
         return self._listener.pump_ready()
 
-    def pump_until_ready_or_dropped(
+    def pump_until_settled(
         self, *, rounds: int = 400, delay: float = 0.005
-    ) -> list[ssl.SSLSocket]:
-        """Pump accept/handshake for up to *rounds* frames; return ready sockets.
+    ) -> PumpOutcome:
+        """Pump accept/handshake for up to *rounds* frames until it settles.
 
-        Stops early once nothing is pending and nothing became ready -- the
-        connecting client has either succeeded, been rejected, or not yet
+        Returns the sockets promoted past their handshake plus whether any peer
+        was ever admitted to the pending set at all -- read right after each
+        ``accept_pending``, so it is captured even when the very next
+        ``pump_ready`` drops the peer in the same frame. That admission flag is
+        what keeps a rejection assertion (``ready == []``) from passing
+        vacuously against a broken accept that silently dropped the peer on the
+        floor. Stops early once nothing is pending and nothing became ready --
+        the connecting client has either succeeded, been rejected, or not yet
         arrived; a short sleep gives a not-yet-arrived connect another chance.
         """
+        admitted = False
         for _ in range(rounds):
             self._listener.accept_pending()
+            if self._listener.pending_count > 0:
+                admitted = True
             ready = self._listener.pump_ready()
             if ready:
-                return ready
+                return PumpOutcome(ready, admitted=True)
             if self._listener.pending_count == 0:
                 time.sleep(delay)
             time.sleep(delay)
-        return []
+        return PumpOutcome([], admitted=admitted)
 
     def shutdown(self) -> None:
         """Close the listening socket and every pending (unverified) connection."""

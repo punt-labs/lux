@@ -28,6 +28,10 @@ Threat rows covered here (system.tex §"Threat Model"):
   Defended by the listener never falling back to plaintext and by the TLS 1.3
   floor: a plaintext peer is bounded and dropped, a TLS 1.2 peer is refused.
 
+The rejection tests assert the peer was *admitted to the pending set* before
+asserting it was dropped, so a broken accept that silently discarded every
+connection could never let a rejection assertion pass vacuously.
+
 Two defenses whose full realization is W10's wiring are out of scope here and
 noted, not tested: rejection of a cross-host ``kind="test"`` connection, and the
 ``identity_guard`` content gate on a promoted TLS fd. Those gate a connection
@@ -79,10 +83,11 @@ class TestT1ConnectAtAll:
         )
         connect = listener.connect(attacker_ctx)
         try:
-            ready = listener.pump_until_ready_or_dropped()
+            outcome = listener.pump_until_settled()
             connect.join()
             assert not connect.is_alive()
-            assert ready == []  # never promoted -- no application byte reachable
+            assert outcome.admitted  # the peer WAS accepted, then dropped
+            assert outcome.ready == []  # never promoted -- no application byte read
             assert listener.pending_count == 0  # dropped, not stuck pending
         finally:
             connect.close()
@@ -97,10 +102,11 @@ class TestT1ConnectAtAll:
         listener = LoopbackListener.serving(material.server_context())
         connect = listener.connect(material.no_cert_client_context())
         try:
-            ready = listener.pump_until_ready_or_dropped()
+            outcome = listener.pump_until_settled()
             connect.join()
             assert not connect.is_alive()
-            assert ready == []
+            assert outcome.admitted  # accepted to pending, then dropped
+            assert outcome.ready == []
             assert listener.pending_count == 0
         finally:
             connect.close()
@@ -118,14 +124,14 @@ class TestT1ConnectAtAll:
         load-bearing, not incidental: strip it and T1 reopens.
         """
         material = MtlsMaterial(tmp_path)
-        listener = LoopbackListener.serving(material.defense_removed_server_context())
+        listener = LoopbackListener.serving(material.cert_optional_server_context())
         connect = listener.connect(material.no_cert_client_context())
         try:
-            ready = listener.pump_until_ready_or_dropped()
+            outcome = listener.pump_until_settled()
             connect.join()
             assert not connect.is_alive()
-            assert len(ready) == 1  # defense removed -> the no-cert peer is admitted
-            ready[0].close()
+            assert len(outcome.ready) == 1  # defense removed -> no-cert peer admitted
+            outcome.ready[0].close()
         finally:
             connect.close()
             listener.shutdown()
@@ -181,11 +187,11 @@ class TestT3InjectAsAnotherHub:
         attacker_ctx = material.trusted_client_context("attacker.example.com")
         connect = listener.connect(attacker_ctx)
         try:
-            ready = listener.pump_until_ready_or_dropped()
+            outcome = listener.pump_until_settled()
             connect.join()
             assert not connect.is_alive()
-            assert len(ready) == 1  # Gate 1 authenticated the attacker's own cert
-            server_sock = ready[0]
+            assert len(outcome.ready) == 1  # Gate 1 authenticated the attacker's cert
+            server_sock = outcome.ready[0]
             try:
                 verification = CrossHostVerification()
                 # Declaring hub1's identity -- attributing content to it -- is refused.
@@ -202,6 +208,59 @@ class TestT3InjectAsAnotherHub:
                     )
                     is False
                 )
+            finally:
+                server_sock.close()
+        finally:
+            connect.close()
+            listener.shutdown()
+
+    def test_t3_fidelity_bypassing_gate2_injects_content_under_the_target_hub(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Fidelity control -- the store-level consequence, not just the boolean.
+
+        With Gate 2 defeated (stubbed to accept every declaration), the same
+        validly-enrolled attacker of
+        :meth:`test_t3_a_foreign_hub_cannot_attribute_content_to_another_hub`
+        gets its self-declared identity trusted, so its content is registered
+        under the *target* Hub's own ``HubScopedKey`` and overwrites the
+        already-connected Hub's entry. This shows what Gate 2 prevents at the
+        store, not merely that its boolean flips.
+        """
+        material = MtlsMaterial(tmp_path)
+        listener = LoopbackListener.serving(material.server_context())
+        attacker_ctx = material.trusted_client_context("attacker.example.com")
+        connect = listener.connect(attacker_ctx)
+        try:
+            outcome = listener.pump_until_settled()
+            connect.join()
+            server_sock = outcome.ready[0]
+            try:
+                # Gate 2 stripped: the SAN cross-check no longer rejects anything.
+                def _accept_all(
+                    _self: CrossHostVerification,
+                    _sock: socket.socket,
+                    _hub: HubId,
+                ) -> bool:
+                    return False
+
+                monkeypatch.setattr(
+                    CrossHostVerification, "reject_unless_verified", _accept_all
+                )
+                verification = CrossHostVerification()
+
+                target = HubId("hub1.example.com", 111)  # the already-connected Hub
+                store: HubScopedStore[str] = HubScopedStore()
+                store.put(HubScopedKey(target, "scene-1"), "hub1's content")
+
+                # The attacker declares the target's identity; with Gate 2 gone,
+                # the registration path trusts it and writes under the target key.
+                if not verification.reject_unless_verified(server_sock, target):
+                    store.put(HubScopedKey(target, "scene-1"), "attacker's injection")
+
+                assert len(store) == 1  # no distinct entry -- hub1's slot overwritten
+                injected = store.get(HubScopedKey(target, "scene-1"))
+                assert injected == "attacker's injection"
             finally:
                 server_sock.close()
         finally:
@@ -229,11 +288,11 @@ class TestT4StoreCollision:
         attacker_ctx = material.trusted_client_context("attacker.example.com")
         connect = listener.connect(attacker_ctx)
         try:
-            ready = listener.pump_until_ready_or_dropped()
+            outcome = listener.pump_until_settled()
             connect.join()
             assert not connect.is_alive()
-            assert len(ready) == 1
-            server_sock = ready[0]
+            assert len(outcome.ready) == 1
+            server_sock = outcome.ready[0]
             try:
                 live_hub = HubId("hub1.example.com", 111)
                 collider = HubId("hub1.example.com", 111)  # the slot it would clobber
@@ -327,12 +386,39 @@ class TestT6Downgrade:
         downgrade_ctx = material.downgrade_client_context("hub1.example.com")
         connect = listener.connect(downgrade_ctx)
         try:
-            ready = listener.pump_until_ready_or_dropped()
+            outcome = listener.pump_until_settled()
             connect.join()
             assert not connect.is_alive()
-            assert ready == []  # the 1.3 floor refuses the 1.2 downgrade
+            assert outcome.admitted  # the peer WAS accepted, then dropped
+            assert outcome.ready == []  # the 1.3 floor refuses the 1.2 downgrade
             assert listener.pending_count == 0
             assert connect.handshake_failed()
+        finally:
+            connect.close()
+            listener.shutdown()
+
+    def test_t6_fidelity_lowering_the_floor_admits_the_same_downgrade_client(
+        self, tmp_path: Path
+    ) -> None:
+        """Fidelity control -- what breaks if the 1.3 floor is removed.
+
+        The identical TLS-1.2-only client that
+        :meth:`test_t6_a_tls12_only_peer_is_refused_by_the_13_floor` proves is
+        refused completes the handshake and is *admitted* the moment the server
+        floor drops to TLS 1.2. This isolates the refusal to the 1.3 floor and
+        proves the downgrade client is a genuine, handshake-capable peer -- not
+        one misconfigured into failing for an unrelated reason.
+        """
+        material = MtlsMaterial(tmp_path)
+        listener = LoopbackListener.serving(material.tls12_floor_server_context())
+        downgrade_ctx = material.downgrade_client_context("hub1.example.com")
+        connect = listener.connect(downgrade_ctx)
+        try:
+            outcome = listener.pump_until_settled()
+            connect.join()
+            assert not connect.is_alive()
+            assert len(outcome.ready) == 1  # floor lowered to 1.2 -> peer admitted
+            outcome.ready[0].close()
         finally:
             connect.close()
             listener.shutdown()
