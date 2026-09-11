@@ -63,3 +63,9 @@ def test_ensure_dir_normalizes_a_preexisting_insecure_directory(
     paths = CaPaths(root)
     paths.ensure_dir()
     assert stat.S_IMODE(root.stat().st_mode) == 0o700
+
+
+# Partial-directory handling (one of root.key/root.crt present) is covered
+# by PersonalCaProvider.bootstrap's own tests — CaPaths carries no
+# is_partial/needs_load predicate; bootstrap composes exists() with the two
+# path properties instead.

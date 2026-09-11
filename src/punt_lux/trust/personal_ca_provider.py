@@ -1,9 +1,8 @@
 """PersonalCaProvider — Provider 1, the default trust-anchor provider.
 
 system.tex §"Trust Anchor Providers": free, single-machine key custody,
-offline CSR-exchange enrollment. Satisfies
-:class:`~punt_lux.trust.provider.TrustAnchorProvider` structurally — no
-base class, per the org's "families share via Protocol" standard.
+offline CSR-exchange enrollment. Satisfies TrustAnchorProvider
+structurally — no base class, per "families share via Protocol."
 """
 
 from __future__ import annotations
@@ -39,14 +38,17 @@ class PersonalCaProvider:
     def bootstrap(cls, paths: CaPaths) -> Self:
         """Load the personal CA at *paths*, or create and save a new one.
 
-        Safe under concurrent first starts — an atomic-install rename
-        loser discards its own CA and loads the winner's instead.
+        A dir with exactly one required file (a save interrupted
+        mid-write) raises `load`'s own clear error, not a second CA
+        landing beside the first. An atomic-install race loser loads
+        the winner's CA; a mid-build error discards the staging dir.
         """
-        if paths.exists():
+        present = int(paths.root_key_path.exists()) + int(paths.root_cert_path.exists())
+        if present > 0:
             return cls(CertificateAuthority.load(paths))
         ca = CertificateAuthority.create()
         install = _TrustFacade.atomic_install(paths.dir)
-        ca.save(CaPaths(install.staging_dir))
+        install.build(lambda staging: ca.save(CaPaths(staging)))
         return cls(install.finish(lambda: ca, lambda: CertificateAuthority.load(paths)))
 
     def trust_anchor(self) -> TrustAnchor:
@@ -58,11 +60,8 @@ class PersonalCaProvider:
         return self._ca.sign_csr(csr)
 
     def issue_own_leaf(self, hostname: str) -> EnrolledIdentity:
-        """Issue the Display's own leaf certificate for *hostname*.
-
-        system.tex step 2 of enrollment: the Display is both the CA and the
-        first machine it enrolls, so this collapses the CSR round-trip into
-        one local call.
+        """Issue the Display's own leaf certificate for *hostname* — the
+        CSR round-trip collapses to one local call (system.tex step 2).
         """
         key_pair, leaf = self._ca.issue_leaf(hostname)
         return EnrolledIdentity(key_pair, leaf)
