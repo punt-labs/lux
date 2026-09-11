@@ -1,14 +1,14 @@
 """Unit tests for InteractionDelivery — the display's outbound interaction leg.
 
-Cover the three delivery routes (scene owner, broadcast, undeliverable) and the
-eviction compensation for every interaction kind that latches display-side state,
-driving the collaborator directly with lightweight stand-ins for the socket server
-and scene widget state.
+Cover the two delivery routes (scene owner, declared Hub) and the undeliverable
+case -- there is no broadcast fallback -- plus the eviction compensation for
+every interaction kind that latches display-side state, driving the
+collaborator directly with lightweight stand-ins for the socket server and
+scene widget state.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 from punt_lux.display.evictions import Evictions
@@ -17,21 +17,18 @@ from punt_lux.display.pending_interactions import PendingInteractions
 from punt_lux.display.replica import WidgetState
 from punt_lux.protocol import RemoteEventHandlerInvocation
 
-if TYPE_CHECKING:
-    from collections.abc import Sequence
-
 
 def _build(
     *,
-    clients: Sequence[object] = (),
     fd_to_client: dict[int, object] | None = None,
     scene_to_owner: dict[str, int] | None = None,
+    hub_fds: dict[str, int] | None = None,
     send_results: dict[object, bool] | None = None,
     widget_state: WidgetState | None = None,
 ) -> tuple[InteractionDelivery, MagicMock]:
     socket_listener = MagicMock()
-    socket_listener.clients = list(clients)
     socket_listener.fd_to_client = fd_to_client or {}
+    socket_listener.fd_for_hub_token.side_effect = (hub_fds or {}).get
     results = send_results or {}
 
     def _send(sock: object, _msg: object) -> bool:
@@ -96,34 +93,84 @@ class TestDeliver:
         assert delivery.deliver([event]) == 1  # one delivered
         socket_listener.send_to_client.assert_called_once_with(owner_sock, event)
 
-    def test_broadcast_sends_to_every_client_without_short_circuit(self) -> None:
-        a, b = object(), object()
-        delivery, socket_listener = _build(clients=[a, b])
-        event = RemoteEventHandlerInvocation(element_id="b", action="click", ts=1.0)
+    def test_routes_a_scene_less_event_to_its_declared_hub(self) -> None:
+        # A menu-sourced event carries no scene -- it carries the HubId its
+        # menu was replicated from instead, so delivery names that one Hub's
+        # connection rather than guessing.
+        hub_sock = object()
+        delivery, socket_listener = _build(
+            fd_to_client={9: hub_sock}, hub_fds={"hub-a": 9}
+        )
+        event = RemoteEventHandlerInvocation(
+            element_id="m", action="menu", ts=1.0, hub_token="hub-a"
+        )
 
         assert delivery.deliver([event]) == 1
-        assert socket_listener.send_to_client.call_count == 2
+        socket_listener.send_to_client.assert_called_once_with(hub_sock, event)
+
+    def test_a_menu_click_never_reaches_a_second_live_hub(self) -> None:
+        # Two Hubs connected; a click declaring hub-a's token must resolve to
+        # hub-a's own connection only -- the misrouting a broadcast risked.
+        a_sock, b_sock = object(), object()
+        delivery, socket_listener = _build(
+            fd_to_client={9: a_sock, 10: b_sock}, hub_fds={"hub-a": 9, "hub-b": 10}
+        )
+        event = RemoteEventHandlerInvocation(
+            element_id="m", action="menu", ts=1.0, hub_token="hub-a"
+        )
+
+        delivery.deliver([event])
+
+        socket_listener.send_to_client.assert_called_once_with(a_sock, event)
+
+    def test_a_scene_less_hub_less_event_is_undeliverable(self) -> None:
+        # No scene, no declared Hub: dropped, never guessed at with a
+        # broadcast.
+        delivery, socket_listener = _build()
+        event = RemoteEventHandlerInvocation(element_id="b", action="click", ts=1.0)
+
+        assert delivery.deliver([event]) == 0
+        socket_listener.send_to_client.assert_not_called()
+
+    def test_an_unresolvable_hub_token_is_undeliverable(self) -> None:
+        # The declared Hub has since departed; still no broadcast fallback.
+        delivery, socket_listener = _build()
+        event = RemoteEventHandlerInvocation(
+            element_id="m", action="menu", ts=1.0, hub_token="departed-hub"
+        )
+
+        assert delivery.deliver([event]) == 0
+        socket_listener.send_to_client.assert_not_called()
 
     def test_delivery_stops_at_first_unsent_event(self) -> None:
         # A failed send ends the frame: that event and every one after it stay
         # unsent (the prefix count is where delivery stopped), in order.
         dead = object()
-        delivery, _ = _build(clients=[dead], send_results={dead: False})
-        first = RemoteEventHandlerInvocation(element_id="a", action="click", ts=1.0)
-        second = RemoteEventHandlerInvocation(element_id="b", action="click", ts=1.0)
+        delivery, _ = _build(
+            fd_to_client={9: dead}, hub_fds={"hub-a": 9}, send_results={dead: False}
+        )
+        first = RemoteEventHandlerInvocation(
+            element_id="a", action="click", ts=1.0, hub_token="hub-a"
+        )
+        second = RemoteEventHandlerInvocation(
+            element_id="b", action="click", ts=1.0, hub_token="hub-a"
+        )
 
         assert delivery.deliver([first, second]) == 0  # none landed
 
     def test_delivered_prefix_counts_before_a_stop(self) -> None:
         good, bad = object(), object()
         delivery, _ = _build(
-            clients=[good],
-            send_results={bad: False},
-            fd_to_client={9: bad},
+            fd_to_client={8: good, 9: bad},
+            hub_fds={"hub-a": 8},
             scene_to_owner={"s9": 9},
+            send_results={bad: False},
         )
-        # first broadcasts to `good` (delivered); second targets the dead owner.
-        first = RemoteEventHandlerInvocation(element_id="a", action="click", ts=1.0)
+        # first routes to `good` via its declared Hub (delivered); second
+        # targets the dead scene owner.
+        first = RemoteEventHandlerInvocation(
+            element_id="a", action="click", ts=1.0, hub_token="hub-a"
+        )
         second = RemoteEventHandlerInvocation(
             element_id="b", action="click", scene_id="s9", ts=1.0
         )
@@ -144,8 +191,12 @@ class TestDeliver:
         # False (its deadline has passed). Delivery stops at the first refusal so
         # the caller re-holds the whole prefix for the next frame.
         sock = object()
-        delivery, socket_listener = _build(clients=[sock], send_results={sock: False})
-        event = RemoteEventHandlerInvocation(element_id="b", action="click", ts=1.0)
+        delivery, socket_listener = _build(
+            fd_to_client={9: sock}, hub_fds={"hub-a": 9}, send_results={sock: False}
+        )
+        event = RemoteEventHandlerInvocation(
+            element_id="b", action="click", ts=1.0, hub_token="hub-a"
+        )
 
         assert delivery.deliver([event]) == 0
         assert socket_listener.send_to_client.call_count == 1
@@ -325,7 +376,10 @@ class TestSupersededEvictionRevertsNothing:
         # while its answer is still outstanding, and the latch must survive.
         ws = WidgetState()
         ws.set(f"h{WidgetState.HEADER_OPEN_PENDING_SUFFIX}", True)
-        delivery, _ = _build(clients=[object()], widget_state=ws)
+        owner_sock = object()
+        delivery, _ = _build(
+            fd_to_client={7: owner_sock}, scene_to_owner={"s1": 7}, widget_state=ws
+        )
         evicted, buf = _aged_out_while_newer_held("header_toggled", "h")
         buf.discard_prefix(delivery.deliver(buf.pending_events()))
         assert buf.is_empty  # the surviving toggle went to the Hub this frame

@@ -9,9 +9,12 @@ these tests exercise is what the user gets.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from unittest.mock import MagicMock
 
+from punt_lux.display.interaction_delivery import InteractionDelivery
 from punt_lux.display.menus import MenuModel
 from punt_lux.display.replica.frame_visibility import FrameVisibility
+from punt_lux.domain.identity import HubId
 from tests.menu_doubles import (
     SEPARATOR,
     FakeChrome,
@@ -26,6 +29,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from punt_lux.display.menus.wire import WireMenu
+    from punt_lux.protocol import RemoteEventHandlerInvocation
 
 
 def _labels(menus: Sequence[WireMenu]) -> tuple[str, ...]:
@@ -377,3 +381,60 @@ class TestTheClosedFrameList:
         manager.render_bar(FakeImGui(("Music",)))
 
         assert raised == ["a"]
+
+
+class TestMenuClickRoutesToItsOwningHub:
+    """W6 -- a scene-less menu click carries the Hub it was replicated from,
+    so interaction delivery routes to that one Hub and never broadcasts."""
+
+    def test_a_callback_click_carries_the_hub_it_was_replicated_from(self) -> None:
+        sent: list[RemoteEventHandlerInvocation] = []
+        manager = _manager(emit_event=sent.append)
+        hub_a, hub_b = HubId("host-a", 1), HubId("host-b", 2)
+        manager.replace_callback_menus(
+            [wire_menu("alpha", [{"label": "Open", "id": "a\x1fopen"}])], hub=hub_a
+        )
+        manager.replace_callback_menus(
+            [wire_menu("beta", [{"label": "Open", "id": "b\x1fopen"}])], hub=hub_b
+        )
+
+        manager.render_bar(FakeImGui(("Open",)))
+
+        assert len(sent) == 2
+        by_id = {event.element_id: event for event in sent}
+        assert by_id["a\x1fopen"].hub_token == hub_a.wire_token
+        assert by_id["b\x1fopen"].hub_token == hub_b.wire_token
+
+    def test_a_click_delivers_only_to_its_declared_hub_not_a_second_live_one(
+        self,
+    ) -> None:
+        """The full loop: MenuReplica emits with ``hub_token``,
+        InteractionDelivery resolves that Hub's one fd and sends there --
+        never both, never the wrong one."""
+        sent: list[RemoteEventHandlerInvocation] = []
+        manager = _manager(emit_event=sent.append)
+        hub_a, hub_b = HubId("host-a", 1), HubId("host-b", 2)
+        manager.replace_callback_menus(
+            [wire_menu("alpha", [{"label": "Open", "id": "a\x1fopen"}])], hub=hub_a
+        )
+        manager.replace_callback_menus(
+            [wire_menu("beta", [{"label": "Open", "id": "b\x1fopen"}])], hub=hub_b
+        )
+        manager.render_bar(FakeImGui(("Open",)))
+        (event_for_a,) = [e for e in sent if e.element_id == "a\x1fopen"]
+
+        a_sock, b_sock = object(), object()
+        socket_listener = MagicMock()
+        socket_listener.fd_to_client = {9: a_sock, 10: b_sock}
+        socket_listener.fd_for_hub_token.side_effect = {
+            hub_a.wire_token: 9,
+            hub_b.wire_token: 10,
+        }.get
+        socket_listener.send_to_client.return_value = True
+        scenes = MagicMock()
+        scenes.scene_to_owner = {}
+        delivery = InteractionDelivery(socket_listener=socket_listener, scenes=scenes)
+
+        delivery.deliver([event_for_a])
+
+        socket_listener.send_to_client.assert_called_once_with(a_sock, event_for_a)

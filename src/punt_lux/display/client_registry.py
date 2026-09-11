@@ -1,9 +1,5 @@
-"""ClientRegistry -- the per-fd maps a connected client's state was split across.
-
-``SocketListener`` held six parallel dicts -- readers, fd-to-socket, names,
-kinds, Hub ids, connect times -- all keyed by the identical fd. This class
-is that entity's registry, per PY-OO-5.
-"""
+"""ClientRegistry -- the six per-fd maps (once ``SocketListener``'s own
+parallel dicts) a connected client's state lives in, per PY-OO-5."""
 
 from __future__ import annotations
 
@@ -13,6 +9,7 @@ from punt_lux.protocol import FrameReader
 
 if TYPE_CHECKING:
     import socket
+    from collections.abc import Callable
 
     from punt_lux.domain.hub_id import HubId
 
@@ -97,10 +94,17 @@ class ClientRegistry:
 
     def hub_fd_for(self, name: str) -> int | None:
         """Return the live fd currently declaring ``kind="hub"`` with this name."""
-        for candidate_fd, kind in self._client_kinds.items():
-            if kind == "hub" and self._client_names.get(candidate_fd) == name:
-                return candidate_fd
-        return None
+        kinds, names = self._client_kinds, self._client_names
+        return self._first_live_fd(lambda fd: kinds[fd] == "hub" and names[fd] == name)
+
+    def fd_for_hub_token(self, token: str) -> int | None:
+        """Return the live fd declaring this ``HubId.wire_token`` -- a menu's Hub."""
+        hub_ids = self._client_hub_ids
+        return self._first_live_fd(lambda fd: hub_ids[fd].wire_token == token)
+
+    def _first_live_fd(self, matches: Callable[[int], bool]) -> int | None:
+        """Return the first identified fd (a key of ``_client_kinds``) matching."""
+        return next((fd for fd in self._client_kinds if matches(fd)), None)
 
     def forget_connection(self, fd: int) -> None:
         """Drop everything but the ``HubId`` -- a caller may still resolve it once."""
@@ -115,12 +119,8 @@ class ClientRegistry:
         self._client_hub_ids.pop(fd, None)
 
     def clear(self) -> None:
-        """Drop every connection's state -- shutdown, not one departure.
-
-        All six maps, not the two :meth:`forget_connection` alone would
-        leave behind -- a listener reused after shutdown must never let a
-        recycled fd inherit a departed client's identity.
-        """
+        """Drop every connection's state, all six maps: shutdown, not one
+        departure -- a reused listener must never inherit a departed identity."""
         self._readers.clear()
         self._fd_to_client.clear()
         self._client_names.clear()

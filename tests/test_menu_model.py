@@ -114,7 +114,7 @@ class TestSubmenuFromWire:
                     ],
                 )
             ),
-            MenuHandlers(ignore, ignore),
+            MenuHandlers(ignore, ignore, "test-hub"),
         )
 
         menu.render(imgui)
@@ -129,7 +129,7 @@ class TestSubmenuFromWire:
             checked_menu(
                 wire_menu("voxd", [{"label": "Music", "id": "conn\x1fmusic"}])
             ),
-            MenuHandlers(sent.append, ignore),
+            MenuHandlers(sent.append, ignore, "voxd-hub"),
         )
 
         menu.render(FakeImGui(("Music",)))
@@ -138,6 +138,20 @@ class TestSubmenuFromWire:
         assert sent[0].element_id == "conn\x1fmusic"
         assert sent[0].action == "menu"
         assert sent[0].value == {"menu": "voxd", "item": "Music"}
+
+    def test_a_click_carries_its_handlers_hub_token(self) -> None:
+        # The routing hint InteractionDelivery resolves a scene-less click's
+        # target Hub through -- stamped from the handlers this menu was built
+        # with, not guessed at delivery time.
+        sent: list[RemoteEventHandlerInvocation] = []
+        menu = Submenu.from_wire(
+            checked_menu(wire_menu("voxd", [{"label": "Music", "id": "m"}])),
+            MenuHandlers(sent.append, ignore, "voxd-hub"),
+        )
+
+        menu.render(FakeImGui(("Music",)))
+
+        assert sent[0].hub_token == "voxd-hub"
 
     def test_a_nested_menu_becomes_a_nested_menu(self) -> None:
         imgui = FakeImGui()
@@ -148,7 +162,7 @@ class TestSubmenuFromWire:
                     [wire_menu("lux", [{"label": "Beads", "id": "c\x1fb"}])],
                 )
             ),
-            MenuHandlers(ignore, ignore),
+            MenuHandlers(ignore, ignore, "test-hub"),
         )
 
         menu.render(imgui)
@@ -164,7 +178,7 @@ class TestSubmenuFromWire:
                     "File", [{"label": "Close", "id": "file.close", "enabled": False}]
                 )
             ),
-            MenuHandlers(sent.append, ignore),
+            MenuHandlers(sent.append, ignore, "test-hub"),
         )
 
         imgui = FakeImGui(("Close",))
@@ -185,6 +199,7 @@ class TestSubmenuFromWire:
             MenuHandlers(
                 lambda _event: calls.append("emit"),
                 lambda frame_id: calls.append(f"raise:{frame_id}"),
+                "test-hub",
             ),
         )
 
@@ -198,7 +213,7 @@ class TestSubmenuFromWire:
             checked_menu(
                 wire_menu("Clients", [{"label": "Details", "id": "c\x1fdetails"}])
             ),
-            MenuHandlers(ignore, raised.append),
+            MenuHandlers(ignore, raised.append, "test-hub"),
         )
 
         menu.render(FakeImGui(("Details",)))
@@ -209,7 +224,7 @@ class TestSubmenuFromWire:
         imgui = FakeImGui()
 
         menu = checked_menu({"label": "File"})
-        Submenu.from_wire(menu, MenuHandlers(ignore, ignore)).render(imgui)
+        Submenu.from_wire(menu, MenuHandlers(ignore, ignore, "test-hub")).render(imgui)
 
         assert imgui.labels_under() == ("File",)
         assert imgui.labels_under("File") == ()

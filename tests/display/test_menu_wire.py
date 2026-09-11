@@ -301,7 +301,9 @@ class TestTheFrameIdRoundTrip:
 
         wire_menu = _checked(lux_submenu.to_wire())
         raised: list[str] = []
-        display_menu = Submenu.from_wire(wire_menu, MenuHandlers(ignore, raised.append))
+        display_menu = Submenu.from_wire(
+            wire_menu, MenuHandlers(ignore, raised.append, "test-hub")
+        )
         display_menu.render(FakeImGui(("Beads",)))
         (raised_id,) = raised
 

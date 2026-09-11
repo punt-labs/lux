@@ -35,17 +35,14 @@ _ONE_OFF_SEND_BUDGET = 1.0
 _BIND_RACE_ERRNOS = frozenset({errno.EADDRINUSE, errno.EEXIST})
 
 # Large backlog so a briefly-stalled display (hung render loop, GPU stall,
-# breakpoint) that is not draining accepts isn't misread as dead: a probe would
-# get ECONNREFUSED only once 128+ connects are queued, far beyond lux's real
-# client count (luxd's one persistent connection plus occasional probes).
+# breakpoint) that is not draining accepts isn't misread as dead: a probe
+# would get ECONNREFUSED only once 128+ connects are queued, far beyond
+# lux's real client count (one persistent Hub connection plus probes).
 _LISTEN_BACKLOG = 128
 
-# register_client_identity's hub_id default -- production identification
-# (hub_reconciliation.HubReconciliation.handle_connect) always resolves and
-# passes the sender's own real HubId; this stands in only for the many
-# existing callers registering a client identity with no real Hub connection
-# in play, the same stand-in role a kind="test" connection already plays on
-# the wire (system.tex "Hub Identity on the Wire").
+# register_client_identity's hub_id default: production identification
+# always resolves and passes the sender's own real HubId; this stands in
+# for callers registering an identity with no real Hub connection in play.
 _DEFAULT_HUB_ID: HubId = HubId.stub()
 
 
@@ -120,12 +117,11 @@ class SocketListener:
         return self._frame_deadline
 
     def set_frame_deadline(self, deadline: float) -> None:
-        """Bound every deadline-less send in this frame by ``deadline`` (monotonic).
+        """Bound every send in this frame by ``deadline`` (monotonic).
 
         The render loop calls this at the top of each frame so a burst of Acks,
         Pongs, and query responses cannot stack per-send ``_ONE_OFF_SEND_BUDGET``
-        waits into a multi-second wedge under Hub backpressure. Sends that pass an
-        explicit deadline (interaction delivery already does so) are unaffected.
+        waits into a multi-second wedge under Hub backpressure.
         """
         self._frame_deadline = deadline
 
@@ -239,22 +235,19 @@ class SocketListener:
             fd = -1
         return fd if fd >= 0 else None
 
-    def send_to_client(
-        self, sock: socket.socket, msg: Message, deadline: float | None = None
-    ) -> bool:
-        """Send ``msg`` to ``sock`` before ``deadline``; return whether it landed.
+    def send_to_client(self, sock: socket.socket, msg: Message) -> bool:
+        """Send ``msg`` to ``sock``; return whether it landed before its deadline.
 
-        A caller-less send uses the armed frame deadline if one is set
-        (``set_frame_deadline``), else its own one-off budget. A slow-but-alive
-        peer (``BlockingIOError``) keeps the client and returns ``False`` so the
-        caller defers; only a dead peer (``OSError``) removes it.
+        Uses the armed frame deadline if one is set (``set_frame_deadline``),
+        else its own one-off budget. A slow-but-alive peer (``BlockingIOError``)
+        keeps the client and returns ``False`` so the caller defers; only a
+        dead peer (``OSError``) removes it.
         """
-        if deadline is None:
-            deadline = (
-                self._frame_deadline
-                if self._frame_deadline is not None
-                else time.monotonic() + _ONE_OFF_SEND_BUDGET
-            )
+        deadline = (
+            self._frame_deadline
+            if self._frame_deadline is not None
+            else time.monotonic() + _ONE_OFF_SEND_BUDGET
+        )
         try:
             BoundedSend().send(sock, encode_message(msg), deadline)
         except BlockingIOError:
@@ -294,6 +287,10 @@ class SocketListener:
     def hub_fd_for(self, name: str) -> int | None:
         """Return the live fd currently declaring ``kind="hub"`` with this name."""
         return self._registry.hub_fd_for(name)
+
+    def fd_for_hub_token(self, token: str) -> int | None:
+        """Return the live fd declaring this ``HubId.wire_token`` -- a menu's Hub."""
+        return self._registry.fd_for_hub_token(token)
 
     # -- internal -----------------------------------------------------------
 

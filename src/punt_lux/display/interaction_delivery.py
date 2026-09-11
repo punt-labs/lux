@@ -2,12 +2,12 @@
 
 The display renders a replica and forwards each interaction (a
 ``RemoteEventHandlerInvocation``) to the Hub that owns the UI. This collaborator
-owns that outbound leg: it resolves each event's target client (scene owner, else
-broadcast) and sends it under one shared frame deadline, so a slow peer cannot
-freeze the render thread per event. Events past the first it cannot send stay the
-caller's to re-hold, in order; one that later ages out of the buffer takes its
-kind's ``Compensation``, giving up what the display held optimistically for it —
-unless a newer gesture of the same kind is still speaking for that element.
+owns that outbound leg: it resolves each event's one target client (scene
+owner, else declared Hub) and sends it under one shared frame deadline, so a
+slow peer cannot freeze the render thread per event. Events past the first it
+cannot send stay the caller's to re-hold, in order; one that later ages out of
+the buffer takes its kind's ``Compensation``, giving up what the display held
+optimistically for it — unless a newer gesture of the same kind still speaks.
 """
 
 from __future__ import annotations
@@ -69,28 +69,30 @@ class InteractionDelivery:
         return len(events)
 
     def _deliver_one(self, event: RemoteEventHandlerInvocation) -> bool:
-        """Send one event to its scene owner or broadcast under the frame budget.
+        """Send one event to its one resolvable target; drop it otherwise --
+        never a broadcast (system.tex "stop broadcasting")."""
+        owner_fd = self._resolve_target(event)
+        if owner_fd is None:
+            return False
+        target = self._socket_listener.fd_to_client.get(owner_fd)
+        if target is None:
+            return False
+        return self._socket_listener.send_to_client(target, event)
 
-        A menu-bar click carries no ``scene_id``, so it broadcasts to every
-        display client — reaching luxd, whose fallback handler resolves the
-        callback leaf back to the owning session.
+    def _resolve_target(self, event: RemoteEventHandlerInvocation) -> int | None:
+        """Return one event's target fd: its scene's owner, else its Hub.
+
+        A scene-bearing event routes to the connection ``FrameBook`` recorded
+        as that scene's owner. A menu-sourced event carries no scene --
+        ``CallbackInvocation`` and agent-menu ids are unique only within their
+        own Hub's registry -- so it carries the Hub its menu was replicated
+        from instead (``hub_token``), and routes there.
         """
-        owner_fd = (
-            self._scenes.scene_to_owner.get(event.scene_id) if event.scene_id else None
-        )
-        if owner_fd is not None:
-            target = self._socket_listener.fd_to_client.get(owner_fd)
-            if target is None:
-                return False
-            return self._socket_listener.send_to_client(target, event)
-        # Broadcast to every client — the list comprehension sends to all before
-        # reducing, so one success never short-circuits the rest (a generator in
-        # ``any`` would stop at the first delivered send and skip the others).
-        sent = [
-            self._socket_listener.send_to_client(client, event)
-            for client in list(self._socket_listener.clients)
-        ]
-        return any(sent)
+        if event.scene_id:
+            return self._scenes.scene_to_owner.get(event.scene_id)
+        if event.hub_token is not None:
+            return self._socket_listener.fd_for_hub_token(event.hub_token)
+        return None
 
     def compensate_evicted(self, evicted: Evictions) -> None:
         """Revert optimistic display state whose interaction never reached the Hub.
@@ -111,10 +113,9 @@ class InteractionDelivery:
     def _compensate_one(self, event: RemoteEventHandlerInvocation) -> None:
         """Give up what one lost interaction's element was holding optimistically.
 
-        An event with no scene — a menu-bar click — and one whose scene has since
-        gone both leave nothing to unwind: the latch lives in per-scene widget
-        state, so no scene means no latch.
-        """
+        A scene-less event (a menu click) and one whose scene has since gone
+        both leave nothing to unwind: the latch lives in per-scene widget
+        state, so no scene means no latch."""
         if event.scene_id is None:
             return
         ws = self._scenes.widget_state_for(event.scene_id)

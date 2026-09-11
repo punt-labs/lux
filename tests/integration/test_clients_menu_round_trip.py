@@ -154,7 +154,7 @@ class _Wired:
         field = WireField("callback_menus")
         for wire in CallbackMenuReplica(self._store.clients).callback_menu_wire():
             menu = WireMenu.of_payload(wire, field=field)
-            handlers = MenuHandlers(self._sent.append, ignore)
+            handlers = MenuHandlers(self._sent.append, ignore, "test-hub")
             Submenu.from_wire(menu, handlers).render(imgui)
         return imgui
 

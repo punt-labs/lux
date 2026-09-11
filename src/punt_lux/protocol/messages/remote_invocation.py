@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
-__all__ = [
-    "RemoteEventHandlerInvocation",
-    "register_codecs",
+__all__ = ["RemoteEventHandlerInvocation"]
+
+_Register = Callable[
+    [str, type, Callable[..., dict[str, Any]], Callable[[dict[str, Any]], Any]],
+    None,
 ]
 
 
@@ -23,47 +25,41 @@ class RemoteEventHandlerInvocation:
     ts: float | None = None
     value: Any = None  # wire payload — shape varies by element kind
     scene_id: str | None = None
+    # Display-local routing hint for a scene-less (menu) event: the HubId
+    # wire_token its menu came from, so delivery names its target fd instead
+    # of broadcasting. Never serialized -- absent below, Hub side unread.
+    hub_token: str | None = None
 
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to the wire dict; ``hub_token`` never crosses the wire."""
+        d: dict[str, Any] = {
+            "type": self.type,
+            "element_id": self.element_id,
+            "action": self.action,
+        }
+        if self.event_kind is not None:
+            d["event_kind"] = self.event_kind
+        if self.ts is not None:
+            d["ts"] = self.ts
+        if self.value is not None:
+            d["value"] = self.value
+        if self.scene_id is not None:
+            d["scene_id"] = self.scene_id
+        return d
 
-def _invocation_to_dict(msg: RemoteEventHandlerInvocation) -> dict[str, Any]:
-    d: dict[str, Any] = {
-        "type": msg.type,
-        "element_id": msg.element_id,
-        "action": msg.action,
-    }
-    if msg.event_kind is not None:
-        d["event_kind"] = msg.event_kind
-    if msg.ts is not None:
-        d["ts"] = msg.ts
-    if msg.value is not None:
-        d["value"] = msg.value
-    if msg.scene_id is not None:
-        d["scene_id"] = msg.scene_id
-    return d
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> Self:
+        """Rebuild from a wire dict; ``hub_token`` defaults, never decoded."""
+        return cls(
+            element_id=d["element_id"],
+            action=d["action"],
+            event_kind=d.get("event_kind"),
+            ts=d.get("ts"),
+            value=d.get("value"),
+            scene_id=d.get("scene_id"),
+        )
 
-
-def _invocation_from_dict(d: dict[str, Any]) -> RemoteEventHandlerInvocation:
-    return RemoteEventHandlerInvocation(
-        element_id=d["element_id"],
-        action=d["action"],
-        event_kind=d.get("event_kind"),
-        ts=d.get("ts"),
-        value=d.get("value"),
-        scene_id=d.get("scene_id"),
-    )
-
-
-_Register = Callable[
-    [str, type, Callable[..., dict[str, Any]], Callable[[dict[str, Any]], Any]],
-    None,
-]
-
-
-def register_codecs(register: _Register) -> None:
-    """Register this module's message codecs into a MessageRegistry."""
-    register(
-        "remote_invocation",
-        RemoteEventHandlerInvocation,
-        _invocation_to_dict,
-        _invocation_from_dict,
-    )
+    @classmethod
+    def register_codecs(cls, register: _Register) -> None:
+        """Register this class's codec into a MessageRegistry."""
+        register("remote_invocation", cls, cls.to_dict, cls.from_dict)

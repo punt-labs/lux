@@ -1,11 +1,7 @@
-"""The click-time value types a wire menu threads through activation.
-
-Two things travel together through every level of :meth:`Submenu.from_wire`'s
-recursion: the callbacks a click fires (:class:`MenuHandlers`) and what one
-clickable line reports about itself (:class:`ClickTarget`). Bundling each into
-its own frozen value class keeps every method in that recursion to a handful
-of parameters, rather than threading four-to-six loose arguments by hand.
-"""
+"""The click-time value types a wire menu threads through activation: the
+callbacks a click fires (:class:`MenuHandlers`) and what one clickable line
+reports about itself (:class:`ClickTarget`), bundled so every method in
+:meth:`Submenu.from_wire`'s recursion takes a handful of parameters."""
 
 from __future__ import annotations
 
@@ -25,15 +21,17 @@ type RaiseFrame = Callable[[str], None]
 
 @dataclass(frozen=True, slots=True)
 class MenuHandlers:
-    """The two click callbacks every wire entry threads through: emit, raise."""
+    """The click callbacks (emit, raise) plus the ``HubId.wire_token`` this
+    menu tree replicates from -- so a scene-less click names its Hub."""
 
     emit: EmitEvent
     raise_frame: RaiseFrame
+    hub_token: str
 
 
 @dataclass(frozen=True, slots=True)
 class ClickTarget:
-    """What one clickable line reports on activation: its labels, id, and frame."""
+    """What one clickable line reports: its labels, id, and frame."""
 
     menu_label: str
     item_label: str
