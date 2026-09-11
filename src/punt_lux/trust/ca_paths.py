@@ -1,10 +1,4 @@
-"""CaPaths — resolve the personal CA's on-disk location.
-
-Mirrors :class:`~punt_lux.hub_paths.HubPaths`'s single-root-directory shape:
-one directory under ``~/.punt-labs/lux/``, every material path derived from
-it. system.tex §"Authentication and Enrollment" names the directory and its
-permission discipline explicitly: ``0700`` directory, ``0600`` private key.
-"""
+"""CaPaths — the personal CA's on-disk location under ``~/.punt-labs/lux/``."""
 
 from __future__ import annotations
 
@@ -21,10 +15,15 @@ class CaPaths:
     _dir: Path
     __slots__ = ("_dir",)
 
-    def __new__(cls, root: Path | None = None) -> Self:
+    def __new__(cls, root: Path) -> Self:
         self = super().__new__(cls)
-        self._dir = root or Path.home() / ".punt-labs" / "lux" / "ca"
+        self._dir = root
         return self
+
+    @classmethod
+    def default(cls) -> Self:
+        """Return the standard CA root: ``~/.punt-labs/lux/ca/``."""
+        return cls(Path.home() / ".punt-labs" / "lux" / "ca")
 
     @property
     def dir(self) -> Path:

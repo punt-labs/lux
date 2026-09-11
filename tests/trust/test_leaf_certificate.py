@@ -33,10 +33,16 @@ def test_is_expired_is_false_for_a_freshly_signed_leaf() -> None:
     assert leaf.is_expired() is False
 
 
-def test_is_expired_is_true_past_not_valid_after() -> None:
+def test_is_expired_as_of_is_true_past_not_valid_after() -> None:
     leaf = _signed_leaf()
     future = leaf.not_valid_after + timedelta(days=1)
-    assert leaf.is_expired(at=future) is True
+    assert leaf.is_expired_as_of(future) is True
+
+
+def test_not_valid_before_backdates_for_clock_skew() -> None:
+    leaf = _signed_leaf()
+    skew = datetime.now(UTC) - leaf.not_valid_before
+    assert timedelta(minutes=4) < skew < timedelta(minutes=6)
 
 
 def test_not_valid_after_is_about_one_year_out() -> None:

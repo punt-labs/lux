@@ -1,9 +1,7 @@
 """LeafCertificate — a signed X.509 certificate naming exactly one hostname.
 
-The material a CA hands back after signing a
-:class:`.certificate_signing_request.CertificateSigningRequest` — what
-system.tex §"Resolving the Trust Fork" calls the material the transport
-derives a connection's verified hostname from.
+What a CA hands back after signing a CSR — system.tex §"Resolving the
+Trust Fork" derives a connection's verified hostname from this material.
 """
 
 from __future__ import annotations
@@ -49,11 +47,8 @@ class LeafCertificate:
         path.write_bytes(self.to_pem())
 
     def public_key_pem(self) -> bytes:
-        """Return this leaf's public key as PEM SubjectPublicKeyInfo.
-
-        Used to confirm a leaf pairs with the private key an enrollment
-        request generated, without comparing ``cryptography`` key objects
-        directly.
+        """Return this leaf's public key as PEM SubjectPublicKeyInfo, to
+        compare pairing with a key without cryptography's own equality.
         """
         return self._certificate.public_key().public_bytes(
             encoding=serialization.Encoding.PEM,
@@ -66,27 +61,31 @@ class LeafCertificate:
         return self._certificate.issuer
 
     @property
+    def not_valid_before(self) -> datetime:
+        """Return the certificate's start of validity, timezone-aware (UTC)."""
+        return self._certificate.not_valid_before_utc
+
+    @property
     def not_valid_after(self) -> datetime:
         """Return the certificate's expiry, timezone-aware (UTC)."""
         return self._certificate.not_valid_after_utc
 
-    def is_expired(self, *, at: datetime | None = None) -> bool:
-        """Return whether this certificate has expired as of *at* (default: now)."""
-        return (at or datetime.now(UTC)) >= self.not_valid_after
+    def is_expired(self) -> bool:
+        """Return whether this certificate has expired as of now."""
+        return datetime.now(UTC) >= self.not_valid_after
+
+    def is_expired_as_of(self, at: datetime) -> bool:
+        """Return whether this certificate is expired as of *at* (test hook)."""
+        return at >= self.not_valid_after
 
     @property
     def hostname(self) -> str:
-        """Return the single SAN DNSName this leaf certifies.
-
-        Raises :class:`ValueError` if the SAN extension is absent or does
-        not name exactly one DNS hostname.
+        """Return the single SAN DNSName this leaf certifies, or raise if
+        the SAN is absent or does not name exactly one hostname.
         """
         names = self._dns_names()
         if len(names) != 1:
-            msg = (
-                "leaf certificate must have exactly one SAN DNSName, "
-                f"found {len(names)}"
-            )
+            msg = f"leaf must name exactly one SAN DNSName, found {len(names)}"
             raise ValueError(msg)
         return names[0]
 

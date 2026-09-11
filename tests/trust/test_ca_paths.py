@@ -16,7 +16,7 @@ def test_paths_derive_from_the_root(tmp_path: Path) -> None:
 
 
 def test_default_root_is_under_punt_labs_lux_ca() -> None:
-    paths = CaPaths()
+    paths = CaPaths.default()
     assert paths.dir == Path.home() / ".punt-labs" / "lux" / "ca"
 
 
