@@ -1799,11 +1799,11 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/display/socket_server.py": {
-    "efferent_coupling": 6.0,
+    "efferent_coupling": 7.0,
     "public_names": 2.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.519,
-    "avg_lcom": 0.519
+    "max_lcom": 0.476,
+    "avg_lcom": 0.476
   },
   "src/punt_lux/display/texture_cache.py": {
     "efferent_coupling": 3.0,

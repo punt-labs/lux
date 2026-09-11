@@ -24,7 +24,6 @@ from punt_lux.display.cross_host_listener import CrossHostListener
 from punt_lux.display.socket_listener_callbacks import SocketListenerCallbacks
 from punt_lux.display.socket_server import SocketListener
 from punt_lux.protocol import (
-    FrameReader,
     ReadyMessage,
     SceneMessage,
     TextElement,
@@ -101,9 +100,7 @@ def _register_promoted_client(
     """
     fd = conn.fileno()
     unix_listener.clients.append(conn)
-    unix_listener.fd_to_client[fd] = conn
-    # _readers has no public accessor yet; see the module docstring above.
-    unix_listener._readers[fd] = FrameReader()
+    unix_listener._registry.register_connection(fd, conn)
     unix_listener.send_to_client(conn, ReadyMessage())
 
 

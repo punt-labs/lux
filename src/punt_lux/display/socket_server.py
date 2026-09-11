@@ -10,17 +10,13 @@ import socket
 import ssl
 import time
 from pathlib import Path
-from typing import Literal, Self
+from typing import TYPE_CHECKING, Literal, Self
 
 from punt_lux.bounded_send import BoundedSend
-<<<<<<< HEAD
-from punt_lux.display.client_identity_book import ClientIdentityBook
+from punt_lux.display.client_registry import ClientRegistry
 from punt_lux.display.nonblocking import Nonblocking
 from punt_lux.display.socket_listener_callbacks import SocketListenerCallbacks
-=======
-from punt_lux.display.client_registry import ClientRegistry
 from punt_lux.domain.identity import HubId
->>>>>>> origin/main
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
     HEADER_SIZE,
@@ -28,75 +24,73 @@ from punt_lux.protocol import (
     ReadyMessage,
     encode_message,
 )
-from punt_lux.protocol.messages import Message
+
+if TYPE_CHECKING:
+    from punt_lux.protocol.messages import Message
 
 __all__ = ["SocketListener", "SocketListenerCallbacks"]
 
 logger = logging.getLogger(__name__)
 
-# Budget for a one-off send (no caller deadline): a full buffer drains in tens of
-# milliseconds once the peer reads, so this only bounds a genuinely stuck peer.
+# A full buffer drains in tens of ms once the peer reads -- this only bounds
+# a genuinely stuck peer, absent a caller deadline.
 _ONE_OFF_SEND_BUDGET = 1.0
 
-# AF_UNIX bind() rejects an already-owned path with EADDRINUSE on Linux and
-# EEXIST on macOS/BSD; either means a concurrent binder won the race.
+# EADDRINUSE (Linux) / EEXIST (macOS/BSD): a concurrent binder won the race.
 _BIND_RACE_ERRNOS = frozenset({errno.EADDRINUSE, errno.EEXIST})
 
-# Large backlog so a briefly-stalled display (hung render loop, GPU stall,
-# breakpoint) that is not draining accepts isn't misread as dead: a probe would
-# get ECONNREFUSED only once 128+ connects are queued, far beyond lux's real
-# client count (luxd's one persistent connection plus occasional probes).
+# Large backlog so a briefly-stalled display (hung render loop, GPU stall)
+# isn't misread as dead -- far beyond lux's real client count.
 _LISTEN_BACKLOG = 128
 
-# register_client_identity's hub_id default -- production identification
-# (hub_reconciliation.HubReconciliation.handle_connect) always resolves and
-# passes the sender's own real HubId; this stands in only for the many
-# existing callers registering a client identity with no real Hub connection
-# in play, the same stand-in role a kind="test" connection already plays on
-# the wire (system.tex "Hub Identity on the Wire").
+# register_client_identity's hub_id default -- production callers
+# (hub_reconciliation.py) always pass the sender's real HubId; this stands
+# in for the many existing callers with no real Hub connection in play.
 _DEFAULT_HUB_ID: HubId = HubId.stub()
 
 
-class SocketListener:
-    """Accept, poll, read from, send to, and remove Unix socket clients.
+class _WantWriteState:
+    """Fds whose non-blocking ``recv()`` awaits writability (a TLS event, not death)."""
 
-    Pure networking -- no ImGui dependency.  Domain-specific reactions
-    (scene ownership, menu cleanup) are delegated to callbacks.
-    """
+    _fds: set[int]
+    __slots__ = ("_fds",)
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._fds = set()
+        return self
+
+    def set(self, fd: int, *, wants: bool) -> None:
+        """Note whether ``fd``'s next ``recv()`` retry is waiting on writability."""
+        (self._fds.add if wants else self._fds.discard)(fd)
+
+    def discard(self, fd: int) -> None:
+        """Clear ``fd`` -- a no-op if it was never tracked."""
+        self._fds.discard(fd)
+
+    def sockets(self, fd_to_client: dict[int, socket.socket]) -> list[socket.socket]:
+        """Return the live sockets among the tracked fds, for a write-select."""
+        return list(map(fd_to_client.__getitem__, self._fds))
+
+
+class SocketListener:
+    """Accept/poll/read/send/remove clients; reactions delegate to callbacks."""
 
     _server_sock: socket.socket | None
     _clients: list[socket.socket]
-<<<<<<< HEAD
-    _readers: dict[int, FrameReader]
-    _fd_to_client: dict[int, socket.socket]
-    _identity: ClientIdentityBook
-    _callbacks: SocketListenerCallbacks
-=======
     _registry: ClientRegistry
-    _on_message: Callable[[socket.socket, Message], None]
-    _on_client_disconnected: Callable[[int], None]
-    _on_error: Callable[[str, str, str], None]
->>>>>>> origin/main
+    _callbacks: SocketListenerCallbacks
     _frame_deadline: float | None  # bounds in-frame sends when set by the render loop
-    _want_write: set[int]  # fds whose recv() wants writability (rare TLS event)
+    _want_write: _WantWriteState
 
     def __new__(cls, callbacks: SocketListenerCallbacks) -> Self:
         self = super().__new__(cls)
         self._server_sock = None
         self._clients = []
-<<<<<<< HEAD
-        self._readers = {}
-        self._fd_to_client = {}
-        self._identity = ClientIdentityBook()
-        self._callbacks = callbacks
-=======
         self._registry = ClientRegistry()
-        self._on_message = on_message
-        self._on_client_disconnected = on_client_disconnected
-        self._on_error = on_error
->>>>>>> origin/main
+        self._callbacks = callbacks
         self._frame_deadline = None
-        self._want_write = set()
+        self._want_write = _WantWriteState()
         return self
 
     # -- public properties --------------------------------------------------
@@ -114,20 +108,12 @@ class SocketListener:
     @property
     def client_names(self) -> dict[int, str]:
         """Return fd-to-display-name mapping."""
-<<<<<<< HEAD
-        return self._identity.names
-=======
         return self._registry.client_names
->>>>>>> origin/main
 
     @property
     def client_connect_times(self) -> dict[int, float]:
         """Return fd-to-connect-timestamp mapping."""
-<<<<<<< HEAD
-        return self._identity.connect_times
-=======
         return self._registry.client_connect_times
->>>>>>> origin/main
 
     @property
     def fd_to_client(self) -> dict[int, socket.socket]:
@@ -149,10 +135,9 @@ class SocketListener:
     def set_frame_deadline(self, deadline: float) -> None:
         """Bound every deadline-less send in this frame by ``deadline`` (monotonic).
 
-        The render loop calls this at the top of each frame so a burst of Acks,
-        Pongs, and query responses cannot stack per-send ``_ONE_OFF_SEND_BUDGET``
-        waits into a multi-second wedge under Hub backpressure. Sends that pass an
-        explicit deadline (interaction delivery already does so) are unaffected.
+        Called at the top of each render frame so a burst of Acks/Pongs/query
+        responses can't stack per-send waits into a multi-second wedge under
+        Hub backpressure. Sends passing an explicit deadline are unaffected.
         """
         self._frame_deadline = deadline
 
@@ -165,14 +150,9 @@ class SocketListener:
     def setup(self, socket_path: Path) -> bool:
         """Bind and listen; return ``False`` if a live display already owns it.
 
-        Self-arbitrating: the whole probe → stale-cleanup → ``bind`` → ``listen``
-        critical section runs under ``DisplayPaths.bind_lock`` so concurrent
-        binders serialize. Without that lock a racing caller can unlink a socket
-        another process bound but has not yet listened on -- a freshly-bound
-        socket refuses connections until ``listen``, so a probe reads it dead --
-        letting two displays bind the same path. A live owner is never unlinked
-        or bound over; a lost bind race (``EADDRINUSE``/``EEXIST``) returns
-        ``False``; any other ``OSError`` fails loud.
+        Self-arbitrating under ``DisplayPaths.bind_lock``, so concurrent binders
+        never unlink or bind over a live owner. A lost bind race
+        (``EADDRINUSE``/``EEXIST``) returns ``False``; any other ``OSError`` fails loud.
         """
         dp = DisplayPaths(socket_path)
         with dp.bind_lock():
@@ -230,16 +210,14 @@ class SocketListener:
         """Read + dispatch from readable clients, plus any ``recv()``-wants-write fd."""
         if not self._clients:
             return
-        fd2sock = self._fd_to_client
-        watch_write = [fd2sock[fd] for fd in self._want_write if fd in fd2sock]
+        watch_write = self._want_write.sockets(self._registry.fd_to_client)
         readable, writable, errored = select.select(
             self._clients, watch_write, self._clients, 0
         )
         for sock in errored:
             self.remove_client(sock)
-        for sock in {*readable, *writable}:
-            if sock in self._clients:
-                self._read_from_client(sock)
+        for sock in {*readable, *writable} & set(self._clients):
+            self._read_from_client(sock)
 
     # -- client management --------------------------------------------------
 
@@ -250,21 +228,12 @@ class SocketListener:
         self._clients.remove(sock)
         fd = self._live_fd(sock)
         if fd is not None:
-<<<<<<< HEAD
-            self._readers.pop(fd, None)
-            self._fd_to_client.pop(fd, None)
-            self._identity.discard(fd)
+            self._registry.forget_connection(fd)
             self._want_write.discard(fd)
             self._callbacks.on_client_disconnected(fd)  # domain-specific cleanup
-=======
-            self._registry.forget_connection(fd)
-            self._on_client_disconnected(fd)  # domain-specific cleanup
-            # Popped last, after the callback runs: a departure reaction
-            # (FrameBook/MenuReplica cleanup) resolves this fd's HubId through
-            # hub_id_of() while it is still live, the same way the callback
-            # already resolves the departing fd itself.
+            # Popped last: a departure reaction (FrameBook/MenuReplica
+            # cleanup) still resolves this fd's HubId via hub_id_of() here.
             self._registry.forget_hub_id(fd)
->>>>>>> origin/main
         with contextlib.suppress(OSError):
             sock.close()
         logger.debug("Client disconnected (remaining: %d)", self.client_count)
@@ -283,10 +252,9 @@ class SocketListener:
     ) -> bool:
         """Send ``msg`` to ``sock`` before ``deadline``; return whether it landed.
 
-        A caller-less send uses the armed frame deadline if one is set
-        (``set_frame_deadline``), else its own one-off budget. A slow-but-alive
-        peer (``BlockingIOError``) keeps the client and returns ``False`` so the
-        caller defers; only a dead peer (``OSError``) removes it.
+        A caller-less send uses the armed frame deadline or its own one-off
+        budget. A slow-but-alive peer (``BlockingIOError``) keeps the client and
+        defers; only a dead peer (``OSError``) removes it.
         """
         if deadline is None:
             deadline = (
@@ -309,23 +277,6 @@ class SocketListener:
         return True
 
     def register_client_identity(
-<<<<<<< HEAD
-        self, fd: int, *, kind: Literal["hub", "test"], name: str, connect_time: float
-    ) -> None:
-        """Record a client's declared kind, display name, and connect timestamp."""
-        self._identity.register(fd, kind=kind, name=name, connect_time=connect_time)
-
-    def kind_of(self, fd: int) -> Literal["hub", "test"] | None:
-        """Return the declared kind for ``fd``, or ``None`` before it identifies."""
-        return self._identity.kind_of(fd)
-
-    def hub_fd_for(self, name: str) -> int | None:
-        """Return the live fd currently declaring ``kind="hub"`` with this name.
-
-        See ``ClientIdentityBook.hub_fd_for`` -- the DES-068 preemption lookup.
-        """
-        return self._identity.hub_fd_for(name)
-=======
         self,
         fd: int,
         *,
@@ -350,27 +301,14 @@ class SocketListener:
     def hub_fd_for(self, name: str) -> int | None:
         """Return the live fd currently declaring ``kind="hub"`` with this name."""
         return self._registry.hub_fd_for(name)
->>>>>>> origin/main
 
     # -- internal -----------------------------------------------------------
 
     def _read_from_client(self, sock: socket.socket) -> None:
-        """Read available data from a client and dispatch complete messages.
-
-        ``SSLWantReadError``/``SSLWantWriteError`` (checked ahead of the
-        broader ``OSError`` they subclass) mean a non-blocking TLS socket
-        wants more of a record -- not a dead peer. A want-write fd is
-        tracked so the next ``poll_clients`` also selects it for
-        writability; a plain want-read fd just retries on the next
-        ordinary readable poll.
-        """
+        """Read + dispatch; an SSL want-error means more I/O is needed, not death."""
         fd = sock.fileno()
-<<<<<<< HEAD
         self._want_write.discard(fd)
-        reader = self._readers.get(fd)
-=======
         reader = self._registry.reader_for(fd)
->>>>>>> origin/main
         if reader is None:
             return
         try:
@@ -380,10 +318,10 @@ class SocketListener:
                 return
             reader.feed(data)
             self._dispatch_ready_messages(sock)
-        except ssl.SSLWantWriteError:
-            self._want_write.add(fd)
-        except ssl.SSLWantReadError:
-            return  # not a full TLS record yet -- retry next readable poll
+        except (ssl.SSLWantWriteError, ssl.SSLWantReadError) as exc:
+            # want-write is tracked for the next write-select; a plain
+            # want-read (not a full TLS record yet) just retries later.
+            self._want_write.set(fd, wants=isinstance(exc, ssl.SSLWantWriteError))
         except (ConnectionError, OSError) as exc:
             self._callbacks.on_error("warning", str(exc), "client_connection")
             self.remove_client(sock)
@@ -391,7 +329,9 @@ class SocketListener:
     def _dispatch_ready_messages(self, sock: socket.socket) -> None:
         """Drain every complete message ``sock``'s reader now holds and dispatch it."""
         fd = sock.fileno()
-        reader = self._readers[fd]
+        reader = self._registry.reader_for(fd)
+        if reader is None:
+            return  # departed between _read_from_client's feed and this call
         if reader.buffer_size > MAX_MESSAGE_SIZE + HEADER_SIZE:
             logger.warning("Buffer overflow from fd %d", fd)
             self.remove_client(sock)

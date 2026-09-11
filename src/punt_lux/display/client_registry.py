@@ -1,8 +1,7 @@
-"""ClientRegistry -- the per-fd maps a connected client's state was split across.
+"""ClientRegistry -- owns the per-fd maps a connected client's state lives in.
 
-``SocketListener`` held six parallel dicts -- readers, fd-to-socket, names,
-kinds, Hub ids, connect times -- all keyed by the identical fd. This class
-is that entity's registry, per PY-OO-5.
+``SocketListener`` held these dicts as parallel state, all keyed by the
+identical fd; this class is that entity's registry, per PY-OO-5.
 """
 
 from __future__ import annotations
@@ -115,12 +114,7 @@ class ClientRegistry:
         self._client_hub_ids.pop(fd, None)
 
     def clear(self) -> None:
-        """Drop every connection's state -- shutdown, not one departure.
-
-        All six maps, not the two :meth:`forget_connection` alone would
-        leave behind -- a listener reused after shutdown must never let a
-        recycled fd inherit a departed client's identity.
-        """
+        """Drop every map's state -- shutdown, not one departure."""
         self._readers.clear()
         self._fd_to_client.clear()
         self._client_names.clear()

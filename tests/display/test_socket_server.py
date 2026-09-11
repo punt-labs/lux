@@ -18,7 +18,6 @@ from punt_lux.display.socket_listener_callbacks import SocketListenerCallbacks
 from punt_lux.display.socket_server import SocketListener
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
-    FrameReader,
     ReadyMessage,
     SceneMessage,
     TextElement,
@@ -908,11 +907,11 @@ class TestWantWriteDuringRead:
         server = _make_server()
         client = _WantWriteClient(fd=777, want_write_before=1, data=b"")
         sock = _inject_want_write_client(server, client)
-        server._readers[777] = FrameReader()
+        server._registry.register_connection(777, sock)
 
         server._read_from_client(sock)
 
-        assert 777 in server._want_write
+        assert 777 in server._want_write._fds
 
         seen_write_watch: list[list[object]] = []
 
@@ -933,10 +932,10 @@ class TestWantWriteDuringRead:
         received: list[bytes] = []
         client = _WantWriteClient(fd=778, want_write_before=1, data=b"")
         sock = _inject_want_write_client(server, client)
-        server._readers[778] = FrameReader()
+        server._registry.register_connection(778, sock)
 
         server._read_from_client(sock)
-        assert 778 in server._want_write
+        assert 778 in server._want_write._fds
 
         def fake_select(
             r: list[object], w: list[object], _x: list[object], _t: float
@@ -947,6 +946,6 @@ class TestWantWriteDuringRead:
             mp.setattr("punt_lux.display.socket_server.select.select", fake_select)
             server.poll_clients()
 
-        assert 778 not in server._want_write
+        assert 778 not in server._want_write._fds
         assert received == []  # empty recv() -- the peer closed, client removed
         assert sock not in server.clients
