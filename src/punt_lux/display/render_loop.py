@@ -37,13 +37,12 @@ from punt_lux.display.idle_screen import render_idle
 from punt_lux.display.interaction_delivery import InteractionDelivery
 from punt_lux.display.macos import set_regular_activation_policy
 from punt_lux.display.markdown_font import MarkdownFont
-from punt_lux.display.menus.own_menus import OwnMenus
 from punt_lux.display.paint_clock import PaintClock
 from punt_lux.display.pending_interactions import PendingInteractions
 from punt_lux.display.query_dispatcher import QueryRouter
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.replica import Frame, SceneReplica, WidgetState
-from punt_lux.display.replica.menu_replica import MenuReplica
+from punt_lux.display.replica.menu_replica import MenuReplica, OwnMenus
 from punt_lux.display.scene_inspector import SceneInspector
 from punt_lux.display.socket_server import SocketListener
 from punt_lux.display.texture_cache import TextureCache

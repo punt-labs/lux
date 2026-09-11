@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Self, final
 
 from punt_lux.display.menus import GuardedMenu, MenuBar, MenuModel, Submenu, WorldPanel
 from punt_lux.display.menus.menu_click import MenuHandlers
-from punt_lux.display.menus.own_menus import OwnMenus
+from punt_lux.display.menus.own_menus import OwnMenus as OwnMenus  # reexport
 from punt_lux.display.menus.wire import WireMenu
 from punt_lux.display.replica.menu_stats import MenuStats
 from punt_lux.domain.identity import HubId, HubScopedKey, HubScopedStore
