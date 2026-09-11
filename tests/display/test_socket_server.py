@@ -5,6 +5,7 @@ from __future__ import annotations
 import errno
 import os
 import socket
+import ssl
 import tempfile
 import threading
 import time
@@ -17,6 +18,7 @@ from punt_lux.display.socket_listener_callbacks import SocketListenerCallbacks
 from punt_lux.display.socket_server import SocketListener
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
+    FrameReader,
     ReadyMessage,
     SceneMessage,
     TextElement,
@@ -846,3 +848,105 @@ class TestSetupArbitration:
             server.shutdown()
             if worker is not None:
                 worker.join(timeout=5)
+
+
+class _WantWriteClient:
+    """A socket stand-in whose ``recv()`` raises ``SSLWantWriteError`` on demand.
+
+    Mirrors ``_FakeClient``'s injection shape, but for the read side: a
+    non-blocking TLS ``recv()`` can want a write before it can finish (a
+    normal, rare event) -- the counterpart to ``BoundedSend``'s want-read-
+    during-send case (see ``test_bounded_send.py::TestWantReadDuringSend``).
+    """
+
+    _want_write_left: int
+    _fd: int
+    _data: bytes
+
+    def __new__(
+        cls, *, fd: int, want_write_before: int = 0, data: bytes = b""
+    ) -> _WantWriteClient:
+        self = super().__new__(cls)
+        self._want_write_left = want_write_before
+        self._fd = fd
+        self._data = data
+        return self
+
+    def recv(self, _bufsize: int) -> bytes:
+        if self._want_write_left > 0:
+            self._want_write_left -= 1
+            raise ssl.SSLWantWriteError
+        return self._data
+
+    def fileno(self) -> int:
+        return self._fd
+
+    def close(self) -> None:
+        """No-op -- ``remove_client`` closes an empty-``recv()`` fd."""
+
+
+def _inject_want_write_client(
+    server: SocketListener, client: _WantWriteClient
+) -> socket.socket:
+    """Register ``client`` as if just accepted; return it typed as a socket."""
+    sock = cast("socket.socket", client)
+    server.clients.append(sock)
+    server.fd_to_client[client.fileno()] = sock
+    return sock
+
+
+class TestWantWriteDuringRead:
+    """``poll_clients`` tracks and selects for a ``recv()``-wants-write fd.
+
+    Before the fix, ``_read_from_client`` deferred a ``SSLWantWriteError``
+    to the next poll exactly like a plain want-read -- but the next poll's
+    ``select`` only ever watches for readability, never writability, so
+    nothing was actually waiting on the condition ``recv()`` needed.
+    """
+
+    def test_want_write_is_tracked_and_selected_on_next_poll(self) -> None:
+        server = _make_server()
+        client = _WantWriteClient(fd=777, want_write_before=1, data=b"")
+        sock = _inject_want_write_client(server, client)
+        server._readers[777] = FrameReader()
+
+        server._read_from_client(sock)
+
+        assert 777 in server._want_write
+
+        seen_write_watch: list[list[object]] = []
+
+        def fake_select(
+            r: list[object], w: list[object], _x: list[object], _t: float
+        ) -> tuple[list[object], list[object], list[object]]:
+            seen_write_watch.append(list(w))
+            return ([], [], [])  # not yet ready -- just prove it was watched
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr("punt_lux.display.socket_server.select.select", fake_select)
+            server.poll_clients()
+
+        assert seen_write_watch == [[sock]]  # the want-write fd was in the write set
+
+    def test_becoming_writable_retries_and_clears_the_tracked_fd(self) -> None:
+        server = _make_server()
+        received: list[bytes] = []
+        client = _WantWriteClient(fd=778, want_write_before=1, data=b"")
+        sock = _inject_want_write_client(server, client)
+        server._readers[778] = FrameReader()
+
+        server._read_from_client(sock)
+        assert 778 in server._want_write
+
+        def fake_select(
+            r: list[object], w: list[object], _x: list[object], _t: float
+        ) -> tuple[list[object], list[object], list[object]]:
+            return ([], list(w), [])  # the watched fd is now writable
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr("punt_lux.display.socket_server.select.select", fake_select)
+            server.poll_clients()
+
+        assert 778 not in server._want_write
+        assert received == []  # empty recv() -- the peer closed, client removed
+        assert sock not in server.clients

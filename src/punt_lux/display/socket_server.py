@@ -26,6 +26,8 @@ from punt_lux.protocol import (
 )
 from punt_lux.protocol.messages import Message
 
+__all__ = ["SocketListener", "SocketListenerCallbacks"]
+
 logger = logging.getLogger(__name__)
 
 # Budget for a one-off send (no caller deadline): a full buffer drains in tens of
@@ -57,6 +59,7 @@ class SocketListener:
     _identity: ClientIdentityBook
     _callbacks: SocketListenerCallbacks
     _frame_deadline: float | None  # bounds in-frame sends when set by the render loop
+    _want_write: set[int]  # fds whose recv() wants writability (rare TLS event)
 
     def __new__(cls, callbacks: SocketListenerCallbacks) -> Self:
         self = super().__new__(cls)
@@ -67,6 +70,7 @@ class SocketListener:
         self._identity = ClientIdentityBook()
         self._callbacks = callbacks
         self._frame_deadline = None
+        self._want_write = set()
         return self
 
     # -- public properties --------------------------------------------------
@@ -181,13 +185,17 @@ class SocketListener:
             self.send_to_client(conn, ReadyMessage())
 
     def poll_clients(self) -> None:
-        """Read from all readable clients and dispatch messages."""
+        """Read + dispatch from readable clients, plus any ``recv()``-wants-write fd."""
         if not self._clients:
             return
-        readable, _, errored = select.select(self._clients, [], self._clients, 0)
+        fd2sock = self._fd_to_client
+        watch_write = [fd2sock[fd] for fd in self._want_write if fd in fd2sock]
+        readable, writable, errored = select.select(
+            self._clients, watch_write, self._clients, 0
+        )
         for sock in errored:
             self.remove_client(sock)
-        for sock in readable:
+        for sock in {*readable, *writable}:
             if sock in self._clients:
                 self._read_from_client(sock)
 
@@ -203,6 +211,7 @@ class SocketListener:
             self._readers.pop(fd, None)
             self._fd_to_client.pop(fd, None)
             self._identity.discard(fd)
+            self._want_write.discard(fd)
             self._callbacks.on_client_disconnected(fd)  # domain-specific cleanup
         with contextlib.suppress(OSError):
             sock.close()
@@ -275,9 +284,13 @@ class SocketListener:
 
         ``SSLWantReadError``/``SSLWantWriteError`` (checked ahead of the
         broader ``OSError`` they subclass) mean a non-blocking TLS socket
-        wants more of a record -- not a dead peer -- so this just defers.
+        wants more of a record -- not a dead peer. A want-write fd is
+        tracked so the next ``poll_clients`` also selects it for
+        writability; a plain want-read fd just retries on the next
+        ordinary readable poll.
         """
         fd = sock.fileno()
+        self._want_write.discard(fd)
         reader = self._readers.get(fd)
         if reader is None:
             return
@@ -288,8 +301,10 @@ class SocketListener:
                 return
             reader.feed(data)
             self._dispatch_ready_messages(sock)
-        except (ssl.SSLWantReadError, ssl.SSLWantWriteError):
-            return  # not a full TLS record yet -- retry next poll
+        except ssl.SSLWantWriteError:
+            self._want_write.add(fd)
+        except ssl.SSLWantReadError:
+            return  # not a full TLS record yet -- retry next readable poll
         except (ConnectionError, OSError) as exc:
             self._callbacks.on_error("warning", str(exc), "client_connection")
             self.remove_client(sock)

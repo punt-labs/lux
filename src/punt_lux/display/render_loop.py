@@ -43,8 +43,7 @@ from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.replica import Frame, SceneReplica, WidgetState
 from punt_lux.display.replica.menu_replica import MenuReplica
 from punt_lux.display.scene_inspector import SceneInspector
-from punt_lux.display.socket_listener_callbacks import SocketListenerCallbacks
-from punt_lux.display.socket_server import SocketListener
+from punt_lux.display.socket_server import SocketListener, SocketListenerCallbacks
 from punt_lux.display.texture_cache import TextureCache
 from punt_lux.display.window_chrome import WindowChrome
 from punt_lux.paths import DisplayPaths
