@@ -23,7 +23,7 @@ import ssl
 import time
 from typing import Literal, Self, final
 
-from punt_lux.display.nonblocking import set_nonblocking
+from punt_lux.display.nonblocking import Nonblocking
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +137,7 @@ class CrossHostListener:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.bind((host, port))
             sock.listen(_LISTEN_BACKLOG)
-            set_nonblocking(sock)
+            Nonblocking.set(sock)
         except OSError:
             sock.close()  # never leak the bound fd on a failed setup
             raise
@@ -171,7 +171,7 @@ class CrossHostListener:
             raw, _ = self._server_sock.accept()
         except (BlockingIOError, OSError):
             return
-        set_nonblocking(raw)
+        Nonblocking.set(raw)
         tls_sock = self._ssl_context.wrap_socket(
             raw, server_side=True, do_handshake_on_connect=False
         )

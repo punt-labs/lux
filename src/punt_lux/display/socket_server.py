@@ -14,7 +14,7 @@ from typing import Literal, Self
 
 from punt_lux.bounded_send import BoundedSend
 from punt_lux.display.client_identity_book import ClientIdentityBook
-from punt_lux.display.nonblocking import set_nonblocking
+from punt_lux.display.nonblocking import Nonblocking
 from punt_lux.display.socket_listener_callbacks import SocketListenerCallbacks
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
@@ -138,7 +138,7 @@ class SocketListener:
             try:
                 sock.bind(str(socket_path))
                 sock.listen(_LISTEN_BACKLOG)
-                set_nonblocking(sock)
+                Nonblocking.set(sock)
             except OSError as exc:
                 sock.close()  # close on every failure path — never leak the bound fd
                 if exc.errno not in _BIND_RACE_ERRNOS:
@@ -172,7 +172,7 @@ class SocketListener:
                 conn, _ = self._server_sock.accept()
             except (BlockingIOError, OSError):
                 return
-            set_nonblocking(conn)
+            Nonblocking.set(conn)
             self.register_client(conn)
 
     def register_client(self, conn: socket.socket) -> None:
