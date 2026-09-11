@@ -2358,13 +2358,6 @@
     "max_lcom": 0.0,
     "avg_lcom": 0.0
   },
-  "src/punt_lux/domain/hub/menu_name.py": {
-    "efferent_coupling": 0.0,
-    "public_names": 2.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.286,
-    "avg_lcom": 0.143
-  },
   "src/punt_lux/domain/hub/menu_registry.py": {
     "efferent_coupling": 1.0,
     "public_names": 1.0,
@@ -2644,6 +2637,13 @@
     "circular_imports": 0.0,
     "max_lcom": 0.0,
     "avg_lcom": 0.0
+  },
+  "src/punt_lux/domain/menu_name.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 2.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.286,
+    "avg_lcom": 0.143
   },
   "src/punt_lux/domain/ownership.py": {
     "efferent_coupling": 1.0,
