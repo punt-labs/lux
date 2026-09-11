@@ -975,9 +975,9 @@ class TestWantWriteDuringRead:
         sock = _inject_want_write_client(server, client)
         server._registry.register_connection(777, sock)
 
-        server._read_from_client(sock)
+        server._reader.read(sock)
 
-        assert 777 in server._want_write._fds
+        assert 777 in server._reader._want_write._fds
 
         seen_write_watch: list[list[object]] = []
 
@@ -1000,8 +1000,8 @@ class TestWantWriteDuringRead:
         sock = _inject_want_write_client(server, client)
         server._registry.register_connection(778, sock)
 
-        server._read_from_client(sock)
-        assert 778 in server._want_write._fds
+        server._reader.read(sock)
+        assert 778 in server._reader._want_write._fds
 
         def fake_select(
             r: list[object], w: list[object], _x: list[object], _t: float
@@ -1012,7 +1012,7 @@ class TestWantWriteDuringRead:
             mp.setattr("punt_lux.display.socket_server.select.select", fake_select)
             server.poll_clients()
 
-        assert 778 not in server._want_write._fds
+        assert 778 not in server._reader._want_write._fds
         assert received == []  # empty recv() -- the peer closed, client removed
         assert sock not in server.clients
 
@@ -1030,24 +1030,24 @@ class TestWantWriteCleanup:
         client = _WantWriteClient(fd=779, want_write_before=1, data=b"")
         sock = _inject_want_write_client(server, client)
         server._registry.register_connection(779, sock)
-        server._read_from_client(sock)
-        assert 779 in server._want_write._fds
+        server._reader.read(sock)
+        assert 779 in server._reader._want_write._fds
 
         server.remove_client(sock)
 
-        assert 779 not in server._want_write._fds
+        assert 779 not in server._reader._want_write._fds
 
     def test_shutdown_clears_every_tracked_want_write_fd(self) -> None:
         server = _make_server()
         client = _WantWriteClient(fd=780, want_write_before=1, data=b"")
         sock = _inject_want_write_client(server, client)
         server._registry.register_connection(780, sock)
-        server._read_from_client(sock)
-        assert 780 in server._want_write._fds
+        server._reader.read(sock)
+        assert 780 in server._reader._want_write._fds
 
         server.shutdown()
 
-        assert server._want_write._fds == set()
+        assert server._reader._want_write._fds == set()
 
     def test_a_reused_fd_after_shutdown_does_not_inherit_stale_want_write(
         self,
@@ -1059,8 +1059,8 @@ class TestWantWriteCleanup:
         client = _WantWriteClient(fd=781, want_write_before=1, data=b"")
         sock = _inject_want_write_client(server, client)
         server._registry.register_connection(781, sock)
-        server._read_from_client(sock)
-        assert 781 in server._want_write._fds
+        server._reader.read(sock)
+        assert 781 in server._reader._want_write._fds
 
         server.shutdown()
 

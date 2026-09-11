@@ -371,7 +371,7 @@ class TestPollClientsSkipsRemoved:
 
         # _read_from_client on a removed socket should be a no-op
         # (reader lookup returns None)
-        server._socket_listener._read_from_client(sock)
+        server._socket_listener._reader.read(sock)
         sock.recv.assert_not_called()
 
     def test_double_remove_is_idempotent(self) -> None:
@@ -414,7 +414,7 @@ class TestMalformedMessageDisconnects:
         frame = struct.pack("!I", len(bad_payload)) + bad_payload
         sock.recv.return_value = frame
 
-        server._socket_listener._read_from_client(sock)
+        server._socket_listener._reader.read(sock)
 
         # Client should be disconnected, not crash
         assert sock not in server._socket_listener.clients
@@ -441,7 +441,7 @@ class TestMalformedMessageDisconnects:
         frame = struct.pack("!I", len(payload)) + payload
         sock.recv.return_value = frame
 
-        server._socket_listener._read_from_client(sock)
+        server._socket_listener._reader.read(sock)
 
         assert sock in server._socket_listener.clients
 
@@ -467,7 +467,7 @@ class TestMalformedMessageDisconnects:
         frame = struct.pack("!I", len(payload)) + payload
         sock.recv.return_value = frame
 
-        server._socket_listener._read_from_client(sock)
+        server._socket_listener._reader.read(sock)
 
         assert sock not in server._socket_listener.clients
 
