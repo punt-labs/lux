@@ -91,20 +91,29 @@ class ClientRegistry:
         """Return the declared ``HubId`` for ``fd``, or ``None`` if unidentified."""
         return self._client_hub_ids.get(fd)
 
-    def hub_fd_for(self, name: str) -> int | None:
-        """Return the live fd currently declaring ``kind="hub"`` with this name."""
-        kinds, names = self._client_kinds, self._client_names
-        return next(
-            filter(lambda fd: kinds[fd] == "hub" and names[fd] == name, kinds), None
-        )
+    def hub_fd_for(self, hub_id: HubId) -> int | None:
+        """Return the live fd currently declaring ``kind="hub"`` with this ``HubId``.
+
+        Keyed on ``HubId``, never on the declared ``name`` (W11) -- ``name`` is
+        "what a human calls this connection," not a per-process identity, and
+        every production Hub today declares the identical hardcoded name. Two
+        Hubs sharing a name must coexist; two connections sharing a ``HubId``
+        (a reconnect) must not.
+        """
+        for candidate_fd, kind in self._client_kinds.items():
+            if kind == "hub" and self._client_hub_ids.get(candidate_fd) == hub_id:
+                return candidate_fd
+        return None
 
     def fd_for_hub_token(self, token: str) -> int | None:
-        """Return the live fd declaring this ``HubId.wire_token`` -- a menu's Hub.
-
-        Every fd in ``_client_kinds`` has a paired ``_client_hub_ids`` entry
-        (:meth:`identify` sets both together), so this indexes directly."""
-        hub_ids, kinds = self._client_hub_ids, self._client_kinds
-        return next(filter(lambda fd: hub_ids[fd].wire_token == token, kinds), None)
+        """Return the live ``kind="hub"`` fd declaring this ``HubId.wire_token``
+        -- a menu's Hub. Excludes ``kind="test"`` connections: a scene-less
+        menu click must never route to a test probe standing in for no Hub."""
+        for candidate_fd, kind in self._client_kinds.items():
+            hub_id = self._client_hub_ids.get(candidate_fd)
+            if kind == "hub" and hub_id is not None and hub_id.wire_token == token:
+                return candidate_fd
+        return None
 
     def forget_connection(self, fd: int) -> None:
         """Drop everything but the ``HubId`` -- a caller may still resolve it once."""

@@ -25,6 +25,7 @@ from punt_lux.protocol import (
 
 _HUB_A = HubId("hub-a.invalid", 1)
 _HUB_B = HubId("hub-b.invalid", 2)
+_HUB_C = HubId("hub-c.invalid", 3)
 
 if TYPE_CHECKING:
     import pytest
@@ -82,7 +83,7 @@ class TestHandleConnect:
             sock, ConnectMessage(name="lux-mcp", kind="hub", hub_id="pembroke\x1f123")
         )
 
-        assert listener.hub_fd_for("lux-mcp") == 10
+        assert listener.hub_fd_for(HubId("pembroke", 123)) == 10
 
     def test_a_test_identify_never_preempts_or_marks_hub(self) -> None:
         listener = _make_listener()
@@ -93,11 +94,12 @@ class TestHandleConnect:
         probe = ConnectMessage(name="quarry", kind="test", hub_id="test.invalid\x1f0")
         reconciliation.handle_connect(sock, probe)
 
-        assert listener.hub_fd_for("quarry") is None
+        assert listener.hub_fd_for(HubId("test.invalid", 0)) is None
         assert listener.client_names[10] == "quarry"
         assert listener.kind_of(10) == "test"
 
     def test_a_second_hub_identify_forcibly_disconnects_the_first(self) -> None:
+        """A reconnect under the *same* HubId preempts its own predecessor."""
         listener = _make_listener()
         scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
         reconciliation = _make_reconciliation(listener, scenes)
@@ -109,7 +111,7 @@ class TestHandleConnect:
             old_sock,
             ConnectMessage(name="lux-mcp", kind="hub", hub_id="pembroke\x1f123"),
         )
-        assert listener.hub_fd_for("lux-mcp") == 10
+        assert listener.hub_fd_for(HubId("pembroke", 123)) == 10
 
         listener.clients.append(new_sock)
         listener.fd_to_client[20] = new_sock
@@ -120,7 +122,8 @@ class TestHandleConnect:
 
         old_sock.close.assert_called_once()  # forcibly removed
         assert old_sock not in listener.clients
-        assert listener.hub_fd_for("lux-mcp") == 20  # the new claimant, and only it
+        # the new claimant, and only it
+        assert listener.hub_fd_for(HubId("pembroke", 123)) == 20
 
     def test_a_hub_identify_with_no_predecessor_preempts_nothing(self) -> None:
         """The ordinary restart case: the old process's socket is already gone."""
@@ -135,7 +138,7 @@ class TestHandleConnect:
 
         sock.close.assert_not_called()
 
-    def test_a_different_named_hub_identify_is_not_preempted(self) -> None:
+    def test_a_different_hub_id_identify_is_not_preempted(self) -> None:
         listener = _make_listener()
         scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
         reconciliation = _make_reconciliation(listener, scenes)
@@ -152,8 +155,62 @@ class TestHandleConnect:
         )
 
         first.close.assert_not_called()
-        assert listener.hub_fd_for("a") == 10
-        assert listener.hub_fd_for("b") == 20
+        assert listener.hub_fd_for(HubId("a.example", 1)) == 10
+        assert listener.hub_fd_for(HubId("b.example", 2)) == 20
+
+    def test_two_hub_ids_sharing_the_same_name_both_stay_connected(self) -> None:
+        """W11: preemption keys on HubId, never the declared name -- every
+        production Hub today declares the identical hardcoded name
+        (``_DISPLAY_CLIENT_NAME``), so two genuinely distinct Hubs sharing
+        that name must coexist rather than preempt one another."""
+        listener = _make_listener()
+        scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
+        reconciliation = _make_reconciliation(listener, scenes)
+        first, second = _mock_sock(10), _mock_sock(20)
+        listener.clients.extend([first, second])
+        listener.fd_to_client[10] = first
+        listener.fd_to_client[20] = second
+
+        reconciliation.handle_connect(
+            first, ConnectMessage(name="lux-mcp", kind="hub", hub_id="pembroke\x1f123")
+        )
+        reconciliation.handle_connect(
+            second, ConnectMessage(name="lux-mcp", kind="hub", hub_id="orsett\x1f456")
+        )
+
+        first.close.assert_not_called()
+        assert first in listener.clients
+        assert second in listener.clients
+        assert listener.hub_fd_for(HubId("pembroke", 123)) == 10
+        assert listener.hub_fd_for(HubId("orsett", 456)) == 20
+
+    def test_a_reconnect_under_a_different_name_but_same_hub_id_still_preempts(
+        self,
+    ) -> None:
+        """The declared name plays no role in preemption after W11 -- only
+        the HubId identifies "the same process reconnecting"."""
+        listener = _make_listener()
+        scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
+        reconciliation = _make_reconciliation(listener, scenes)
+        old_sock, new_sock = _mock_sock(10), _mock_sock(20)
+        listener.clients.append(old_sock)
+        listener.fd_to_client[10] = old_sock
+
+        reconciliation.handle_connect(
+            old_sock,
+            ConnectMessage(name="lux-mcp", kind="hub", hub_id="pembroke\x1f123"),
+        )
+        listener.clients.append(new_sock)
+        listener.fd_to_client[20] = new_sock
+        reconciliation.handle_connect(
+            new_sock,
+            ConnectMessage(
+                name="a-different-display-name", kind="hub", hub_id="pembroke\x1f123"
+            ),
+        )
+
+        old_sock.close.assert_called_once()  # preempted despite the new name
+        assert listener.hub_fd_for(HubId("pembroke", 123)) == 20
 
     def test_a_blank_name_is_ignored(self) -> None:
         listener = _make_listener()
@@ -200,9 +257,15 @@ class TestHandleConnect:
         assert not any("test-kind connect" in r.message for r in caplog.records)
 
 
-def _identify_as_hub(listener: SocketListener, fd: int) -> None:
-    """Register ``fd`` as the hub identity a manifest must come from."""
-    listener.register_client_identity(fd, kind="hub", name="lux-mcp", connect_time=0.0)
+def _identify_as_hub(listener: SocketListener, sock: MagicMock) -> None:
+    """Register ``sock`` as an identified, connected ``kind="hub"`` fd --
+    live, not merely identified, so :meth:`HubReconciliation._live_hubs`
+    (which walks ``listener.clients``) sees it exactly as a real connect
+    would leave it."""
+    listener.register_client_identity(
+        sock.fileno(), kind="hub", name="lux-mcp", connect_time=0.0
+    )
+    listener.clients.append(sock)
 
 
 class TestHandleManifest:
@@ -214,7 +277,7 @@ class TestHandleManifest:
         scenes.handle_framed_scene(_make_scene("s1", "f1"), owner_fd=10)
         reconciliation = _make_reconciliation(listener, scenes)
         sock = _mock_sock(20)
-        _identify_as_hub(listener, 20)
+        _identify_as_hub(listener, sock)
 
         reconciliation.handle_manifest(sock, HubManifestMessage(scene_ids=()))
 
@@ -227,7 +290,7 @@ class TestHandleManifest:
         scenes.handle_framed_scene(_make_scene("s1", "f1"), owner_fd=10)
         reconciliation = _make_reconciliation(listener, scenes)
         sock = _mock_sock(20)
-        _identify_as_hub(listener, 20)
+        _identify_as_hub(listener, sock)
 
         reconciliation.handle_manifest(sock, HubManifestMessage(scene_ids=("s1",)))
 
@@ -245,7 +308,7 @@ class TestHandleManifest:
         scenes.handle_framed_scene(_make_scene("s1", "f1"), owner_fd=20)
         reconciliation = _make_reconciliation(listener, scenes)
         sock = _mock_sock(20)
-        _identify_as_hub(listener, 20)
+        _identify_as_hub(listener, sock)
 
         reconciliation.handle_manifest(sock, HubManifestMessage(scene_ids=()))
 
@@ -276,6 +339,34 @@ class TestHandleManifest:
         assert "fB" in scenes.frames
         assert "fA" not in scenes.frames  # Hub A's own was purged
 
+    def test_own_purge_live_survival_and_orphan_sweep_compose_end_to_end(self) -> None:
+        """The full manifest-application path, in one reconciliation: Hub
+        A's own omitted scene is purged, Hub B's still-live scene survives
+        untouched, and Hub C's scene -- never connected here, an orphan --
+        is swept, confirming the manifest applies strictly within the
+        sender's own Hub scope."""
+        listener = _make_listener()
+        scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
+        scenes.handle_framed_scene(_make_scene("s1", "fA"), owner_fd=10, hub=_HUB_A)
+        scenes.handle_framed_scene(_make_scene("s1", "fB"), owner_fd=11, hub=_HUB_B)
+        scenes.handle_framed_scene(_make_scene("s1", "fC"), owner_fd=12, hub=_HUB_C)
+        reconciliation = _make_reconciliation(listener, scenes)
+        sock_a = _mock_sock(10)
+        sock_b = _mock_sock(11)
+        listener.register_client_identity(
+            10, kind="hub", name="lux-mcp", connect_time=0.0, hub_id=_HUB_A
+        )
+        listener.register_client_identity(
+            11, kind="hub", name="lux-mcp", connect_time=0.0, hub_id=_HUB_B
+        )
+        listener._clients.extend([sock_a, sock_b])  # Hub C never connects -- an orphan
+
+        reconciliation.handle_manifest(sock_a, HubManifestMessage(scene_ids=()))
+
+        assert "fA" not in scenes.frames  # A's own omitted scene, purged
+        assert "fB" in scenes.frames  # B's still-live scene, untouched
+        assert "fC" not in scenes.frames  # C's orphaned scene, swept
+
     def test_a_mixed_frame_only_loses_its_ghost_scene(self) -> None:
         listener = _make_listener()
         scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
@@ -283,7 +374,7 @@ class TestHandleManifest:
         scenes.handle_framed_scene(_make_scene("s2", "f1"), owner_fd=10)
         reconciliation = _make_reconciliation(listener, scenes)
         sock = _mock_sock(20)
-        _identify_as_hub(listener, 20)
+        _identify_as_hub(listener, sock)
 
         reconciliation.handle_manifest(sock, HubManifestMessage(scene_ids=("s1",)))
 

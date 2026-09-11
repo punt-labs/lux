@@ -3,9 +3,7 @@
 minting the identical scene id can never clobber one another.
 
 Composed out of :class:`FrameBook <punt_lux.display.replica.frame_book.FrameBook>`
-so FrameBook's own methods cluster around frame storage and this index's own
-methods cluster around scene placement, rather than one class touching four
-disjoint pieces of state.
+so scene-placement methods don't crowd FrameBook's own frame-storage methods.
 """
 
 from __future__ import annotations
@@ -52,9 +50,12 @@ class SceneIndex:
         """The frame id ``key`` is placed in, resolved by its owning Hub only."""
         return self._scene_to_frame.get(key)
 
-    def entries(self) -> Iterator[tuple[HubScopedKey, str]]:
-        """Yield every scene->frame entry with its full Hub-scoped key."""
-        return self._scene_to_frame.entries()
+    def for_hub(self, hub: HubId) -> Iterator[tuple[str, str]]:
+        """Every ``(scene_id, frame_id)`` pair ``hub`` itself owns."""
+        return self._scene_to_frame.for_hub(hub)
+
+    def hubs(self) -> frozenset[HubId]:
+        return self._scene_to_frame.hubs()
 
     def set_frame(self, key: HubScopedKey, frame_id: str) -> None:
         """Record which Hub-scoped scene now holds ``frame_id``."""

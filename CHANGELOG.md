@@ -82,6 +82,15 @@
 
 ### Fixed
 
+- **Stale-connection preemption no longer kills a second, genuinely distinct
+  Hub.** Single-owner preemption keyed on the declared `ConnectMessage.name`,
+  and every production Hub declares the identical hardcoded name
+  (`"lux-mcp"`) — so a second Hub connecting under that name forced the
+  first one off, even though the two were unrelated processes. Preemption
+  now keys on `HubId` (hostname + pid) instead: distinct Hubs sharing a name
+  coexist, and only a reconnect under the *same* `HubId` preempts its own
+  stale predecessor — at most one live connection per `HubId`. See
+  lux-u9gb (W11).
 - **`frame_close` no longer reports success for a frame the caller does not
   own or that does not exist.** The old path operated on the raw local id
   without resolving it against the caller's connection, so it silently
@@ -166,6 +175,16 @@
   and have its fresh writer binding wiped out retroactively — both now run
   under the lock like every other mutator. (bead lux-vvmt; model
   `docs/connection_lease_reaping.tex`, round 3.)
+- **A Hub's manifest can no longer purge another, still-live Hub's scene.**
+  `SceneReplica.scenes_to_purge` conflated two independent rules into one
+  condition: the sending Hub's own manifest scoping, and the orphan sweep
+  for a Hub no longer connected. Both were gated by the same "not named in
+  this manifest" check, so a dead Hub's scene survived whenever its local
+  scene id happened to also appear in an unrelated *live* Hub's own
+  manifest -- a coincidental collision. The two rules are now independent:
+  a manifest is authoritative only over its own sending Hub's scenes, and
+  the orphan sweep depends only on Hub liveness, never on any manifest's
+  content. See lux-fsdo (W14).
 
 ### Security
 

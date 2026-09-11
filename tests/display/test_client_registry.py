@@ -6,6 +6,7 @@ from punt_lux.display.client_registry import ClientRegistry
 from punt_lux.domain.identity import HubId
 
 _HUB = HubId("pembroke", 123)
+_HUB_B = HubId("orsett", 456)
 
 
 def test_register_connection_gives_a_fresh_reader() -> None:
@@ -45,24 +46,36 @@ def test_hub_id_of_before_identify_is_none() -> None:
     assert registry.hub_id_of(10) is None
 
 
-def test_hub_fd_for_finds_the_named_hub_connection() -> None:
+def test_hub_fd_for_finds_the_matching_hub_id_connection() -> None:
     registry = ClientRegistry()
     registry.identify(10, kind="hub", name="lux-mcp", hub_id=_HUB, connect_time=0.0)
 
-    assert registry.hub_fd_for("lux-mcp") == 10
+    assert registry.hub_fd_for(_HUB) == 10
 
 
-def test_hub_fd_for_ignores_a_test_kind_connection_with_the_same_name() -> None:
+def test_hub_fd_for_ignores_a_test_kind_connection_with_the_same_hub_id() -> None:
     registry = ClientRegistry()
     registry.identify(10, kind="test", name="lux-mcp", hub_id=_HUB, connect_time=0.0)
 
-    assert registry.hub_fd_for("lux-mcp") is None
+    assert registry.hub_fd_for(_HUB) is None
 
 
-def test_hub_fd_for_an_absent_name_is_none() -> None:
+def test_hub_fd_for_an_absent_hub_id_is_none() -> None:
     registry = ClientRegistry()
 
-    assert registry.hub_fd_for("lux-mcp") is None
+    assert registry.hub_fd_for(_HUB) is None
+
+
+def test_hub_fd_for_distinguishes_two_hub_ids_sharing_the_same_name() -> None:
+    """W11: preemption keys on HubId, never the declared name -- every
+    production Hub today declares the identical hardcoded name, so two
+    distinct Hubs sharing that name must be found as two distinct entries."""
+    registry = ClientRegistry()
+    registry.identify(10, kind="hub", name="lux-mcp", hub_id=_HUB, connect_time=0.0)
+    registry.identify(20, kind="hub", name="lux-mcp", hub_id=_HUB_B, connect_time=0.0)
+
+    assert registry.hub_fd_for(_HUB) == 10
+    assert registry.hub_fd_for(_HUB_B) == 20
 
 
 def test_fd_for_hub_token_finds_the_declaring_hub_connection() -> None:
@@ -81,6 +94,14 @@ def test_fd_for_hub_token_ignores_an_unidentified_fd() -> None:
 
 def test_fd_for_hub_token_an_absent_token_is_none() -> None:
     registry = ClientRegistry()
+
+    assert registry.fd_for_hub_token(_HUB.wire_token) is None
+
+
+def test_fd_for_hub_token_excludes_a_test_connection() -> None:
+    """A ``kind="test"`` probe stands in for no Hub -- never a routable target."""
+    registry = ClientRegistry()
+    registry.identify(10, kind="test", name="probe", hub_id=_HUB, connect_time=0.0)
 
     assert registry.fd_for_hub_token(_HUB.wire_token) is None
 
@@ -142,4 +163,4 @@ def test_clear_prevents_a_recycled_fd_from_inheriting_a_departed_identity() -> N
 
     assert registry.kind_of(10) is None
     assert registry.hub_id_of(10) is None
-    assert registry.hub_fd_for("lux-mcp") is None
+    assert registry.hub_fd_for(_HUB) is None
