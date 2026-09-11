@@ -11,8 +11,8 @@ import pytest
 from pydantic import ValidationError
 
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
-from punt_lux.domain.hub.id_separator import ID_SEPARATOR
 from punt_lux.domain.hub.session_callback import SessionCallback
+from punt_lux.domain.id_separator import ID_SEPARATOR
 from punt_lux.domain.ids import ConnectionId
 
 

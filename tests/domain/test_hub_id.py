@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import socket
 
-from punt_lux.domain.hub.hub_id import HubId
+from punt_lux.domain.hub_id import HubId
 
 
 def test_current_reports_this_process_fqdn_and_pid() -> None:
