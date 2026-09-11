@@ -30,6 +30,7 @@ from unittest.mock import patch
 
 import pytest
 
+from punt_lux.display.socket_listener_callbacks import SocketListenerCallbacks
 from punt_lux.display.socket_server import SocketListener
 from punt_lux.paths import DisplayPaths, SocketLiveness
 from punt_lux.protocol import HEADER_FORMAT, ReadyMessage, encode_frame, send_message
@@ -1346,9 +1347,11 @@ class TestLockOrdering:
         # setup(): only ever the bind lock — never the spawn lock.
         events.clear()
         server = SocketListener(
-            on_message=noop_message,
-            on_client_disconnected=noop_disconnect,
-            on_error=noop_error,
+            SocketListenerCallbacks(
+                on_message=noop_message,
+                on_client_disconnected=noop_disconnect,
+                on_error=noop_error,
+            )
         )
         try:
             assert server.setup(short_socket()) is True
