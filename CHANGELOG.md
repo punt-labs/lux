@@ -25,6 +25,20 @@
   construction path for a `LuxAddress`, and rejects a `connection_key` or
   `leaf_key` carrying the internal unit separator that joins every rung's
   key into the address's opaque `hidden_id`.
+- **Hub-disambiguated frame window titles (`lux-pgkp`, DES-089).** When more
+  than one Hub is aggregated, a frame's title bar names its Hub so two
+  same-titled frames read apart: a lone frame stays plain (`Vox`), two Hubs
+  contributing a `Vox` frame each read `pembroke :: Vox` and
+  `pembroke (2) :: Vox`. The new `AddressRendering` composes the `AddressBook`
+  and is the one seam a leaf renderer routes through, minting both the visible
+  title (Hub label shown only while ambiguous) and the ImGui window id
+  (`{hub}\x1f{frame_id}`, prepended onto the frame id so two Hubs minting the
+  same id never collide). The window id is invariant to Hub-count changes —
+  only the visible label moves when ambiguity flips — so a second Hub
+  connecting never resets a window's position, scroll, or collapse. The Hub
+  connect/disconnect lifecycle feeds Hub liveness; the connection-scope prefix
+  for a single Hub's sibling sessions, and the Windows-menu/dock-pill surfaces,
+  are follow-ups.
 - **Demand-driven display presence (`lux-81t3.1`).** The Hub no longer treats
   a missing display as an error to route around at every send site — it
   classifies the link (`DisplayLinkage`: disconnected, held, connected-idle,
