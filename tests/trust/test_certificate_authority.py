@@ -34,6 +34,38 @@ def test_save_then_load_preserves_the_root(tmp_path: Path) -> None:
     assert restored.certificate_pem() == original.certificate_pem()
 
 
+def test_create_backdates_not_valid_before_for_clock_skew() -> None:
+    from cryptography import x509
+
+    ca = CertificateAuthority.create()
+    root = x509.load_pem_x509_certificate(ca.certificate_pem())
+    skew = datetime.now(UTC) - root.not_valid_before_utc
+    assert timedelta(minutes=4) < skew < timedelta(minutes=6)
+
+
+def test_load_rejects_a_mismatched_key_and_root_certificate(tmp_path: Path) -> None:
+    paths_a = CaPaths(tmp_path / "a")
+    paths_b = CaPaths(tmp_path / "b")
+    CertificateAuthority.create().save(paths_a)
+    CertificateAuthority.create().save(paths_b)
+    # Splice A's key with B's root certificate — a mixed/partial CA directory.
+    mixed = CaPaths(tmp_path / "mixed")
+    mixed.ensure_dir()
+    mixed.root_key_path.write_bytes(paths_a.root_key_path.read_bytes())
+    mixed.root_cert_path.write_bytes(paths_b.root_cert_path.read_bytes())
+    with pytest.raises(ValueError, match="does not match"):
+        CertificateAuthority.load(mixed)
+
+
+def test_load_raises_a_clear_error_for_a_truncated_key_file(tmp_path: Path) -> None:
+    paths = CaPaths(tmp_path)
+    CertificateAuthority.create().save(paths)
+    # Simulate a save interrupted mid-write: truncate the key to a fragment.
+    paths.root_key_path.write_bytes(paths.root_key_path.read_bytes()[:20])
+    with pytest.raises(ValueError, match="damaged or incomplete"):
+        CertificateAuthority.load(paths)
+
+
 def test_save_writes_the_key_as_0600(tmp_path: Path) -> None:
     import stat
 
@@ -82,6 +114,34 @@ def test_sign_csr_produces_a_leaf_valid_for_about_one_year() -> None:
     leaf = ca.sign_csr(csr)
     delta = leaf.not_valid_after - datetime.now(UTC)
     assert timedelta(days=360) < delta < timedelta(days=370)
+
+
+def test_sign_csr_backdates_not_valid_before_for_clock_skew() -> None:
+    ca = CertificateAuthority.create()
+    csr = CertificateSigningRequest.generate(_HOSTNAME, KeyPair.generate())
+    leaf = ca.sign_csr(csr)
+    skew = datetime.now(UTC) - leaf.not_valid_before
+    assert timedelta(minutes=4) < skew < timedelta(minutes=6)
+
+
+def test_sign_csr_rejects_an_externally_supplied_csr_with_a_non_p256_key() -> None:
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    ca = CertificateAuthority.create()
+    key_pair = KeyPair.generate()
+    csr = CertificateSigningRequest.generate(_HOSTNAME, key_pair)
+    non_p256_public_key = ec.generate_private_key(ec.SECP384R1()).public_key()
+
+    class _ForeignCsr:
+        """A Protocol-conforming CSR from outside this package's own class."""
+
+        is_signature_valid = True
+        hostname = _HOSTNAME
+        subject = csr.subject
+        public_key = non_p256_public_key
+
+    with pytest.raises(ValueError, match="SECP256R1"):
+        ca.sign_csr(_ForeignCsr())  # type: ignore[arg-type]
 
 
 def test_sign_csr_binds_the_csrs_own_public_key() -> None:

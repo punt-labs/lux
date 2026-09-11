@@ -1,10 +1,8 @@
 """CertificateAuthority — the personal CA: a root keypair and self-signed cert.
 
-system.tex §"Authentication and Enrollment", Provider 1: generated once on
-the Display's machine, the CA's private key never leaves it. This class
-signs CSRs into leaves and never itself crosses a machine boundary — only
-the material it produces (a :class:`.trust_anchor.TrustAnchor`, a
-:class:`.leaf_certificate.LeafCertificate`) does.
+Generated once on the Display's machine (system.tex §"Authentication and
+Enrollment", Provider 1); its private key never itself crosses a machine
+boundary — only the material it produces, a TrustAnchor or a leaf, does.
 """
 
 from __future__ import annotations
@@ -17,8 +15,11 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.x509.oid import NameOID
 
 from punt_lux.trust.certificate_signing_request import CertificateSigningRequest
+from punt_lux.trust.curve import Curve
 from punt_lux.trust.key_pair import KeyPair
+from punt_lux.trust.key_pairing import Pairing
 from punt_lux.trust.leaf_certificate import LeafCertificate
+from punt_lux.trust.material_load import MaterialLoad
 from punt_lux.trust.trust_anchor import TrustAnchor
 
 if TYPE_CHECKING:
@@ -28,13 +29,38 @@ __all__ = ["CertificateAuthority"]
 
 _DEFAULT_COMMON_NAME = "Lux Personal CA"
 
-# Long-lived root, regenerated only on full re-enrollment (system.tex
-# §"Certificate lifetime, expiry, and rotation") — not on a schedule.
+# Long-lived root, regenerated only on full re-enrollment, not on a schedule.
 _ROOT_VALIDITY = timedelta(days=3650)
 
-# Short-lived leaf, bounding a leaked key's damage window without the
-# operational cost of rotating the CA itself.
+# Short-lived leaf, bounding a leaked key's damage window, not a CA rotation.
 _LEAF_VALIDITY = timedelta(days=365)
+
+# Backdated so a lagging peer clock still sees a valid cert (ANOTHER host).
+_NOT_BEFORE_SKEW = timedelta(minutes=5)
+
+_CA_KEY_USAGE = x509.KeyUsage(
+    digital_signature=False,
+    content_commitment=False,
+    key_encipherment=False,
+    data_encipherment=False,
+    key_agreement=False,
+    key_cert_sign=True,
+    crl_sign=True,
+    encipher_only=False,
+    decipher_only=False,
+)
+
+_LEAF_KEY_USAGE = x509.KeyUsage(
+    digital_signature=True,
+    content_commitment=False,
+    key_encipherment=True,
+    data_encipherment=False,
+    key_agreement=False,
+    key_cert_sign=False,
+    crl_sign=False,
+    encipher_only=False,
+    decipher_only=False,
+)
 
 
 @final
@@ -46,6 +72,7 @@ class CertificateAuthority:
     __slots__ = ("_certificate", "_key_pair")
 
     def __new__(cls, key_pair: KeyPair, certificate: x509.Certificate) -> Self:
+        Pairing.require_matching_certificate(key_pair, certificate, "the root cert")
         self = super().__new__(cls)
         self._key_pair = key_pair
         self._certificate = certificate
@@ -63,23 +90,10 @@ class CertificateAuthority:
             .issuer_name(name)
             .public_key(key_pair.public_key)
             .serial_number(x509.random_serial_number())
-            .not_valid_before(now)
+            .not_valid_before(now - _NOT_BEFORE_SKEW)
             .not_valid_after(now + _ROOT_VALIDITY)
             .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
-            .add_extension(
-                x509.KeyUsage(
-                    digital_signature=False,
-                    content_commitment=False,
-                    key_encipherment=False,
-                    data_encipherment=False,
-                    key_agreement=False,
-                    key_cert_sign=True,
-                    crl_sign=True,
-                    encipher_only=False,
-                    decipher_only=False,
-                ),
-                critical=True,
-            )
+            .add_extension(_CA_KEY_USAGE, critical=True)
             .add_extension(
                 x509.SubjectKeyIdentifier.from_public_key(key_pair.public_key),
                 critical=False,
@@ -89,9 +103,16 @@ class CertificateAuthority:
 
     @classmethod
     def load(cls, paths: CaPaths) -> Self:
-        """Load a previously-saved CA from *paths*."""
-        key_pair = KeyPair.load(paths.root_key_path)
-        certificate = x509.load_pem_x509_certificate(paths.root_cert_path.read_bytes())
+        """Load a previously-saved CA from *paths*, or raise naming *paths*
+        on damaged or partial material (a save interrupted mid-write).
+        """
+
+        def _read() -> tuple[KeyPair, x509.Certificate]:
+            key_pair = KeyPair.load(paths.root_key_path)
+            cert_pem = paths.root_cert_path.read_bytes()
+            return key_pair, x509.load_pem_x509_certificate(cert_pem)
+
+        key_pair, certificate = MaterialLoad.or_raise_clearly(paths.dir, _read)
         return cls(key_pair, certificate)
 
     def save(self, paths: CaPaths) -> None:
@@ -111,16 +132,14 @@ class CertificateAuthority:
     def sign_csr(self, csr: CertificateSigningRequest) -> LeafCertificate:
         """Sign *csr*, returning a 1-year leaf chaining to this CA.
 
-        Rejects a CSR whose self-signature does not verify (PY-EH-1:
-        validate at the boundary) — this is the offline signing step
-        system.tex's enrollment mechanism performs on the CA's own
-        machine; the CA's private key never leaves it, and only the CSR
-        and the returned leaf ever cross to the requesting machine.
+        Rejects a CSR whose signature or key (P-256, PY-EH-1) don't
+        verify — the offline step that keeps the CA's key from travelling.
         """
         if not csr.is_signature_valid:
             msg = "CSR signature does not verify — refusing to sign"
             raise ValueError(msg)
         hostname = csr.hostname  # raises if SAN is missing/ambiguous
+        Curve.require_p256(csr.public_key)
         now = datetime.now(UTC)
         builder = (
             x509.CertificateBuilder()
@@ -128,7 +147,7 @@ class CertificateAuthority:
             .issuer_name(self._certificate.subject)
             .public_key(csr.public_key)
             .serial_number(x509.random_serial_number())
-            .not_valid_before(now)
+            .not_valid_before(now - _NOT_BEFORE_SKEW)
             .not_valid_after(now + _LEAF_VALIDITY)
             .add_extension(
                 x509.SubjectAlternativeName([x509.DNSName(hostname)]), critical=False
@@ -136,20 +155,7 @@ class CertificateAuthority:
             .add_extension(
                 x509.BasicConstraints(ca=False, path_length=None), critical=True
             )
-            .add_extension(
-                x509.KeyUsage(
-                    digital_signature=True,
-                    content_commitment=False,
-                    key_encipherment=True,
-                    data_encipherment=False,
-                    key_agreement=False,
-                    key_cert_sign=False,
-                    crl_sign=False,
-                    encipher_only=False,
-                    decipher_only=False,
-                ),
-                critical=True,
-            )
+            .add_extension(_LEAF_KEY_USAGE, critical=True)
             .add_extension(
                 x509.ExtendedKeyUsage([x509.OID_SERVER_AUTH, x509.OID_CLIENT_AUTH]),
                 critical=False,
@@ -168,12 +174,10 @@ class CertificateAuthority:
         return LeafCertificate(self._key_pair.sign_certificate_builder(builder))
 
     def issue_leaf(self, hostname: str) -> tuple[KeyPair, LeafCertificate]:
-        """Generate a fresh keypair and sign its own leaf for *hostname*, in one step.
+        """Generate a fresh keypair and sign its own leaf for *hostname*.
 
-        The convenience the Display's own leaf needs (system.tex step 2):
-        when the requester and the CA are the same machine, the CSR
-        round-trip that exists to keep a private key from crossing a
-        machine boundary is unnecessary, because nothing is crossing one.
+        Requester and CA are the same machine here (system.tex step 2), so
+        the CSR round-trip that keeps a key from crossing hosts is moot.
         """
         key_pair = KeyPair.generate()
         csr = CertificateSigningRequest.generate(hostname, key_pair)
