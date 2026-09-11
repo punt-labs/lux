@@ -6944,3 +6944,53 @@ disproportionate for a heuristic; reverted. (b) `os.pidfd_open` — Linux-only,
 would still need a separate macOS path, so it buys nothing over the uniform
 `os.kill`. (c) Treating reaping as a security mechanism — a category error;
 liveness and trust are different questions, and keys answer the second.
+
+## DES-095: The Coupling Ratchet and the Complexity Ratchet Are Reconciled by a Facade, Not by Weakening Either Gate
+
+**Status:** ACCEPTED — leader-ruled 2026-09-11 (COO authority; a tooling-policy
+call, not a product fork).
+
+**Context.** Two independent ratchets gate every change: `check-oo`
+(module-size / complexity / LCOM, committed-baseline model — a touched file may
+regress one metric if it nets an improvement) and `check-coupling` (afferent /
+efferent coupling and circular imports, **merge-base** model — a touched file
+must not regress *any* coupling metric versus `git merge-base(origin/main,
+HEAD)`). The W7 personal-CA work (lux-81b2, #474) exposed a real tension between
+them. The security fixes each required extracting a small cohesive primitive —
+`Curve`, `Pairing`, `MaterialLoad`, `AtomicDirInstall` — to satisfy the
+complexity/module-size ratchet. But every extraction adds an *import edge*, so
+six crypto classes' efferent coupling rose (e.g. `certificate_authority.py`
+4→7, `personal_ca_provider.py` 2→4), all still within the absolute healthy
+threshold (≤7) yet a regression under `check-coupling`'s no-regression rule.
+Complexity said "extract"; coupling said "don't add the edge."
+
+**Decision.** Reconcile them with the codebase's own **PL-CU-1 remedy — a
+facade / mediator** — not by weakening either gate. When a class must compose
+several extracted primitives, it imports *one* facade module that aggregates
+them rather than N primitive modules directly, so its efferent-coupling edge
+count returns to no-regression while the extracted classes (and the complexity
+win) stay intact. This is exactly the move gvr used on #472: `_wiring.py` took
+`protocol/messages/__init__` from efferent 7→1. (Mechanical note: a bare
+re-export module fails the OO *new-file* gate — `method_ratio` /
+`class_to_func_ratio` — so the facade is wrapped as a class with a method, e.g.
+`_MessageWiring.build_registry()`.)
+
+**Why not weaken the gate.** Two alternatives were rejected. (a) A whole-tree
+`--rebaseline` of `check-coupling` — it would launder 14 *unrelated*
+pre-existing coupling regressions already on `main` (tracked separately), so it
+is never an acceptable way to bless one PR's deltas. (b) Aligning
+`check-coupling` with `check-oo`'s committed-baseline bless model (allow a
+reviewed within-threshold regression recorded in the baseline). This is a
+plausible *future* consistency fix and is genuinely tempting — the two ratchets
+using different comparison models (baseline vs merge-base) is the underlying
+friction — but changing a gating CI mechanism to be more permissive is a
+load-bearing decision that should not ride in on a security PR under deadline,
+and the facade remedy resolves the immediate case cleanly without it. The
+merge-base strictness is a feature: it cannot be gamed by editing a committed
+baseline. Deferred to its own bead, not adopted here.
+
+**Consequence.** Security-driven (or any) extraction that the complexity
+ratchet demands never has to choose between the two gates: the facade is the
+sanctioned bridge, and it is already the PL-CU-1 house style. A file that
+genuinely cannot reach no-regression via a facade without harming the design is
+escalated per-file, not blanket-blessed.
