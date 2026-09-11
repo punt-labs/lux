@@ -391,9 +391,15 @@ class LoopbackListener:
         ``pump_ready`` drops the peer in the same frame. That admission flag is
         what keeps a rejection assertion (``ready == []``) from passing
         vacuously against a broken accept that silently dropped the peer on the
-        floor. Stops early once nothing is pending and nothing became ready --
-        the connecting client has either succeeded, been rejected, or not yet
-        arrived; a short sleep gives a not-yet-arrived connect another chance.
+        floor.
+
+        Returns the moment the outcome is *settled* -- a peer was admitted and
+        is now either promoted to ready or accepted-then-dropped (neither
+        pending nor ready). Once settled no further round can change the result,
+        so a rejection returns sub-second instead of sleeping out every round.
+        ``rounds`` is only the timeout backstop for a peer that never arrives or
+        never finishes its handshake; a short sleep between rounds gives a
+        not-yet-arrived connect another chance.
         """
         admitted = False
         for _ in range(rounds):
@@ -403,8 +409,8 @@ class LoopbackListener:
             ready = self._listener.pump_ready()
             if ready:
                 return PumpOutcome(ready, admitted=True)
-            if self._listener.pending_count == 0:
-                time.sleep(delay)
+            if admitted and self._listener.pending_count == 0:
+                return PumpOutcome([], admitted=True)  # accepted, then dropped
             time.sleep(delay)
         return PumpOutcome([], admitted=admitted)
 
