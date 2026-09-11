@@ -1286,19 +1286,6 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/commands/_frame_close_request.py": {
-    "method_ratio": 1.0,
-    "encapsulation_ratio": 1.0,
-    "avg_params": 0.0,
-    "max_complexity": 0.0,
-    "avg_complexity": 0.0,
-    "module_size": 19.0,
-    "classes_per_module": 1.0,
-    "class_to_func_ratio": 1.0,
-    "init_violations": 0.0,
-    "public_attr_violations": 0.0,
-    "future_annotations": 1.0
-  },
   "src/punt_lux/commands/_frame_ports.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
@@ -1307,6 +1294,19 @@
     "avg_complexity": 1.0,
     "module_size": 18.0,
     "classes_per_module": 0.0,
+    "class_to_func_ratio": 1.0,
+    "init_violations": 0.0,
+    "public_attr_violations": 0.0,
+    "future_annotations": 1.0
+  },
+  "src/punt_lux/commands/_frame_remove_request.py": {
+    "method_ratio": 1.0,
+    "encapsulation_ratio": 1.0,
+    "avg_params": 0.0,
+    "max_complexity": 0.0,
+    "avg_complexity": 0.0,
+    "module_size": 19.0,
+    "classes_per_module": 1.0,
     "class_to_func_ratio": 1.0,
     "init_violations": 0.0,
     "public_attr_violations": 0.0,
@@ -1481,7 +1481,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/commands/frame_close.py": {
+  "src/punt_lux/commands/frame_remove.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.67,
@@ -5459,19 +5459,6 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/operations/frame_closing.py": {
-    "method_ratio": 1.0,
-    "encapsulation_ratio": 1.0,
-    "avg_params": 2.0,
-    "max_complexity": 4.0,
-    "avg_complexity": 2.5,
-    "module_size": 51.0,
-    "classes_per_module": 1.0,
-    "class_to_func_ratio": 1.0,
-    "init_violations": 0.0,
-    "public_attr_violations": 0.0,
-    "future_annotations": 1.0
-  },
   "src/punt_lux/operations/frame_grouping.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
@@ -5479,6 +5466,19 @@
     "max_complexity": 1.0,
     "avg_complexity": 1.0,
     "module_size": 41.0,
+    "classes_per_module": 1.0,
+    "class_to_func_ratio": 1.0,
+    "init_violations": 0.0,
+    "public_attr_violations": 0.0,
+    "future_annotations": 1.0
+  },
+  "src/punt_lux/operations/frame_removal.py": {
+    "method_ratio": 1.0,
+    "encapsulation_ratio": 1.0,
+    "avg_params": 2.0,
+    "max_complexity": 4.0,
+    "avg_complexity": 2.5,
+    "module_size": 51.0,
     "classes_per_module": 1.0,
     "class_to_func_ratio": 1.0,
     "init_violations": 0.0,
@@ -6063,7 +6063,7 @@
     "avg_params": 2.17,
     "max_complexity": 5.0,
     "avg_complexity": 2.0,
-    "module_size": 158.0,
+    "module_size": 157.0,
     "classes_per_module": 1.0,
     "class_to_func_ratio": 1.0,
     "init_violations": 0.0,

@@ -2,8 +2,8 @@
 
 Split out of :mod:`punt_lux.commands._ports` (lux-03k6): that module had
 grown into a single file mixing every command family's Protocol, one class
-per unrelated concern. Frame closing is its own family; giving it its own
-module is the same move :mod:`punt_lux.operations.frame_closing` makes on
+per unrelated concern. Frame removal is its own family; giving it its own
+module is the same move :mod:`punt_lux.operations.frame_removal` makes on
 the implementation side.
 """
 
@@ -21,6 +21,6 @@ __all__ = ["FrameOps"]
 class FrameOps(Protocol):
     """The ops surface the frame commands read."""
 
-    def close_frame(self, frame_id: str, *, scope: Scope) -> Ok | OpError:
-        """Close the caller's own frame: tear down its scenes on the Hub."""
+    def remove_frame(self, frame_id: str, *, scope: Scope) -> Ok | OpError:
+        """Remove the caller's own frame's content: tear down its scenes on the Hub."""
         ...

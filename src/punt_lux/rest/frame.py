@@ -1,10 +1,10 @@
-"""The frame routes -- close the caller's own frame (lux-03k6).
+"""The frame routes -- remove the caller's own frame's content (lux-03k6).
 
-Split out of :mod:`punt_lux.rest.display` (a proxy for display-process
-facts): closing a frame is a Hub-side write with its own ownership rule
-(DES-086), not a proxied read, so it gets its own small route class --
-the same per-concern split :class:`~punt_lux.rest.app.RestSurface` already
-uses for scenes, menus, and display-mode config.
+Split out of :mod:`punt_lux.rest.display` (a proxy for display-process facts):
+removing a frame's content is a Hub-side write with its own ownership rule
+(DES-086), not a proxied read, so it gets its own small route class -- the
+same per-concern split :class:`~punt_lux.rest.app.RestSurface` already uses
+for scenes, menus, and display-mode config.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ __all__ = ["FrameRoutes"]
 
 @final
 class FrameRoutes:
-    """Routes that close the caller's own frame."""
+    """Routes that remove the caller's own frame's content."""
 
     _ops: Operations
     _errors: HttpErrorMap
@@ -41,7 +41,7 @@ class FrameRoutes:
         self._errors = deps.errors
         router = APIRouter(tags=["display"])
         router.add_api_route(
-            "/display/frames/{frame_id}/close", self.close_frame, methods=["POST"]
+            "/display/frames/{frame_id}/remove", self.remove_frame, methods=["POST"]
         )
         self._router = router
         return self
@@ -51,6 +51,6 @@ class FrameRoutes:
         """The router to mount on the app."""
         return self._router
 
-    def close_frame(self, frame_id: str, scope: _OwningScope) -> Ok:
-        """Close the caller's own frame: tear down its scenes (DES-057, DES-086)."""
-        return self._errors.respond(self._ops.close_frame(frame_id, scope=scope))
+    def remove_frame(self, frame_id: str, scope: _OwningScope) -> Ok:
+        """Remove the caller's own frame content: tear down its scenes (DES-057/086)."""
+        return self._errors.respond(self._ops.remove_frame(frame_id, scope=scope))
