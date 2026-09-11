@@ -958,6 +958,13 @@
     "max_lcom": 0.833,
     "avg_lcom": 0.833
   },
+  "src/punt_lux/display/client_registry.py": {
+    "efferent_coupling": 1.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.462,
+    "avg_lcom": 0.462
+  },
   "src/punt_lux/display/content_message_gate.py": {
     "efferent_coupling": 0.0,
     "public_names": 1.0,
@@ -1214,8 +1221,8 @@
     "efferent_coupling": 29.0,
     "public_names": 2.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.833,
-    "avg_lcom": 0.833
+    "max_lcom": 0.824,
+    "avg_lcom": 0.824
   },
   "src/punt_lux/display/renderers/__init__.py": {
     "efferent_coupling": 14.0,
@@ -1728,12 +1735,19 @@
     "max_lcom": 0.692,
     "avg_lcom": 0.692
   },
+  "src/punt_lux/display/replica/menu_stats.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
   "src/punt_lux/display/replica/scene_replica.py": {
     "efferent_coupling": 7.0,
     "public_names": 2.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.235,
-    "avg_lcom": 0.235
+    "max_lcom": 0.337,
+    "avg_lcom": 0.337
   },
   "src/punt_lux/display/replica/stale_ids.py": {
     "efferent_coupling": 1.0,
@@ -2596,6 +2610,27 @@
     "max_lcom": 0.0,
     "avg_lcom": 0.0
   },
+  "src/punt_lux/domain/hub_id_token.py": {
+    "efferent_coupling": 2.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_lux/domain/hub_scoped_key.py": {
+    "efferent_coupling": 1.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_lux/domain/hub_scoped_store.py": {
+    "efferent_coupling": 1.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.111,
+    "avg_lcom": 0.111
+  },
   "src/punt_lux/domain/id_separator.py": {
     "efferent_coupling": 0.0,
     "public_names": 1.0,
@@ -2609,6 +2644,13 @@
     "circular_imports": 0.0,
     "max_lcom": 0.667,
     "avg_lcom": 0.667
+  },
+  "src/punt_lux/domain/identity.py": {
+    "efferent_coupling": 4.0,
+    "public_names": 4.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
   },
   "src/punt_lux/domain/ids.py": {
     "efferent_coupling": 0.0,
@@ -4600,6 +4642,13 @@
   },
   "src/punt_lux/trust/_facade.py": {
     "efferent_coupling": 4.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_lux/trust/_race_rename.py": {
+    "efferent_coupling": 0.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
