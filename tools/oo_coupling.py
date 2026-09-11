@@ -20,12 +20,20 @@ Usage:
         # cannot judge "genuinely necessary first edge" -- the human-
         # supplied reason is the accountability. Refuses each named file --
         # per-file, not all-or-nothing -- whose recomputed metric strictly
-        # EXCEEDS that metric's absolute PL-CU-1 threshold (a value exactly
-        # AT the cap is within-threshold and is recorded), or that was not
+        # EXCEEDS that metric's absolute PL-CU-1 threshold AND REGRESSED
+        # against the file's existing baseline value for that metric (a
+        # value exactly AT the cap is within-threshold and is recorded; an
+        # over-cap value that is unchanged or improved vs. baseline is
+        # carried forward, not refused -- it is already grandfathered by
+        # check()/update()'s own no-regression rule), or that was not
         # scored (not in the tree); every other named file is still
-        # blessed. This permits recording a within-threshold coupling
+        # blessed. A file with no existing baseline entry has nothing to
+        # grandfather against, so any over-cap metric on it refuses
+        # unconditionally. This permits recording a within-cap coupling
         # regression -- the first-edge-under-cap case --update's strict
-        # no-regression rule would otherwise refuse.
+        # no-regression rule would otherwise refuse -- on a file that
+        # separately carries an unrelated, unchanged, pre-existing
+        # over-cap metric.
     python oo_coupling.py <file_or_directory> --log           # audit history
     python oo_coupling.py <file_or_directory> --check --base-ref <ref>
         # scope --check's touched-file diff to <ref>..HEAD instead of the
@@ -947,6 +955,44 @@ class CouplingRatchet:
             return current < baseline_val
         return abs(current - target) < abs(baseline_val - target)
 
+    @staticmethod
+    def _over_cap_and_regressed(
+        current: dict[str, float],
+        baseline_entry: dict[str, float] | None,
+        filepath: str,
+    ) -> list[tuple[str, float]]:
+        """Return the ``(metric, value)`` pairs that refuse a rebaseline bless.
+
+        A metric refuses the bless only when it BOTH strictly exceeds its
+        absolute PL-CU-1 cap AND regressed against ``baseline_entry`` (the
+        file's existing committed baseline row, keyed under whatever key
+        this bless will be recorded on -- see ``canonical_key`` at the call
+        site). An over-cap metric that is unchanged or improved versus its
+        baseline is carried forward untouched, not refused -- this is what
+        lets a file with a pre-existing, non-regressing over-cap metric (one
+        ``check()``/``update()`` already grandfather by their own
+        no-regression rule) still receive a bless for a *different* metric's
+        genuine within-cap regression, instead of the whole file being
+        blocked by a violation nobody is asking to change.
+
+        ``baseline_entry`` absent (a genuinely new file, never rebaselined
+        before) or missing this specific metric falls back to the strict
+        rule: any value over cap refuses, exactly as if there were no prior
+        value to grandfather against -- there is nothing to compare against
+        that would justify carrying it forward.
+        """
+        refusals: list[tuple[str, float]] = []
+        for metric, value in current.items():
+            if CouplingRatchet._meets_threshold(metric, value, filepath):
+                continue
+            if baseline_entry is None or metric not in baseline_entry:
+                refusals.append((metric, value))
+                continue
+            baseline_val = baseline_entry[metric]
+            if not CouplingRatchet._is_better_or_equal(metric, value, baseline_val):
+                refusals.append((metric, value))
+        return refusals
+
     # ---- extract per-file metric dicts ----
 
     @staticmethod
@@ -1179,31 +1225,41 @@ class CouplingRatchet:
         paths: list[str],
         reason: str,
     ) -> int:
-        """Record the recomputed baseline for the ``paths`` that clear the cap.
+        """Record the recomputed baseline for the ``paths`` that clear the gate.
 
         The DES-096 bless: a genuinely-necessary new dependency edge that
         stays under its absolute PL-CU-1 threshold may be recorded even
         though it is a regression against the committed baseline --
         ``--update`` refuses any regression outright. Four properties keep
-        this from becoming a suppression loophole: bounded (the guardrail
-        below refuses any value that strictly exceeds threshold -- a value
-        exactly AT the cap is within-threshold and is recorded), tool-computed
-        (every recorded number comes from ``scorer``, never from an
-        argument), scoped (only the named ``paths`` are touched -- every
-        other file's baseline entry is untouched), and audit-logged (every
-        bless appends an entry to ``.oo-coupling-audit.jsonl`` naming the
-        ``reason`` the caller supplied -- the tool cannot judge "genuinely
-        necessary first edge," so the human-supplied reason plus this record
-        are the accountability).
+        this from becoming a suppression loophole: bounded (see the gate
+        rule below), tool-computed (every recorded number comes from
+        ``scorer``, never from an argument), scoped (only the named
+        ``paths`` are touched -- every other file's baseline entry is
+        untouched), and audit-logged (every bless appends an entry to
+        ``.oo-coupling-audit.jsonl`` naming the ``reason`` the caller
+        supplied -- the tool cannot judge "genuinely necessary first edge,"
+        so the human-supplied reason plus this record are the
+        accountability).
+
+        The gate a metric must clear is OVER CAP AND REGRESSED, not over cap
+        alone (see ``_over_cap_and_regressed``). ``check()``/``update()``
+        already grandfather a pre-existing, unchanged-or-improved over-cap
+        metric by their own no-regression rule -- refusing it again here,
+        for a bless of some OTHER metric on the same file, would make one
+        file's already-accepted debt block an unrelated genuinely-necessary
+        edge. A metric exactly AT the cap is within-threshold and never
+        reaches the gate at all. A file with no existing baseline entry (a
+        genuinely new file) has nothing to grandfather against, so every
+        over-cap metric on it is refused unconditionally -- the strict rule.
 
         The refusal is per-metric, per-file, not all-or-nothing across the
-        whole call: a named file with any metric that strictly exceeds its
-        absolute threshold is refused -- excluded from the baseline write,
-        reported, and never recorded -- while every other named file that
-        clears its cap is still blessed. The same holds for a named path
-        absent from the scored tree. The call returns 0 only when every
-        named file was blessed; it returns 1 whenever at least one was
-        refused, even if the rest were written.
+        whole call: a named file with any metric that fails the gate is
+        refused -- excluded from the baseline write, reported, and never
+        recorded -- while every other named file that clears its gate is
+        still blessed. The same holds for a named path absent from the
+        scored tree. The call returns 0 only when every named file was
+        blessed; it returns 1 whenever at least one was refused, even if the
+        rest were written.
 
         ``reason`` must be a non-blank justification for the bless; a blank
         or whitespace-only reason is refused before anything is scored,
@@ -1266,27 +1322,29 @@ class CouplingRatchet:
                 refused.append((requested, "not found in scored tree"))
                 continue
             current = current_by_file[scored_key]
-            over = [
-                (metric, value)
-                for metric, value in current.items()
-                if not self._meets_threshold(metric, value, scored_key)
-            ]
-            if over:
-                detail_parts: list[str] = []
-                for metric, value in over:
-                    op, target = self._threshold_for(metric, scored_key)
-                    detail_parts.append(f"{metric}={value:g} exceeds {op} {target:g}")
-                refused.append((requested, "; ".join(detail_parts)))
-                continue
-            # The key this bless is RECORDED under: the file's existing
+            # The key this bless is RECORDED under -- and the key its
+            # GRANDFATHERING comparison reads from -- is the file's existing
             # baseline key if it has one (an update, never a second key for
             # the same file), else its path relative to this ratchet's own
             # root (the shape a brand-new entry gets from a normal, repo-
-            # root-relative invocation).
+            # root-relative invocation). Computed before the threshold gate
+            # below because the gate needs it too.
             canonical_key = baseline_index.get(
                 resolved,
                 os.path.relpath(resolved, repo_root),
             )
+            over_and_regressed = self._over_cap_and_regressed(
+                current,
+                self._baseline.get(canonical_key),
+                scored_key,
+            )
+            if over_and_regressed:
+                detail_parts: list[str] = []
+                for metric, value in over_and_regressed:
+                    op, target = self._threshold_for(metric, scored_key)
+                    detail_parts.append(f"{metric}={value:g} exceeds {op} {target:g}")
+                refused.append((requested, "; ".join(detail_parts)))
+                continue
             accepted.append(canonical_key)
             accepted_current[canonical_key] = current
 

@@ -1,10 +1,11 @@
 """Baseline mutations: scoped update, whole-tree reconcile, relax, rebaseline.
 
-Every mutation refuses per-metric regressions except ``relax`` (the single
-sanctioned, audited loosening) and ``rebaseline`` (an explicit structural
-reset). All refuse to run under ``GITHUB_ACTIONS`` unless ``--allow-ci-write``.
-The write mechanics live in :class:`PlanApplier`; this layer resolves scope,
-enforces the fail-closed contract, and dispatches.
+Every mutation refuses per-metric regressions except ``relax``,
+``rebaseline-files`` (DES-097's bounded, scoped, audited blesses) and
+``rebaseline`` (an explicit structural reset). All refuse to run under
+``GITHUB_ACTIONS`` unless ``--allow-ci-write``. The write mechanics live in
+:class:`PlanApplier`; this layer resolves scope, enforces the fail-closed
+contract, and dispatches.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from typing import Self
 from .apply import PlanApplier, UpdatePlan
 from .audit import AuditLog
 from .baseline import Baseline
+from .bless import FileBless
 from .gitio import GitRepo
 from .outcome import Outcome
 from .scorer import Scorer
@@ -176,6 +178,41 @@ class BaselineWriter:
             f"\nRelaxed {file} (reason: {justify})",
             f"  baseline: {self._baseline.path}",
         )
+
+    def rebaseline_files(
+        self,
+        scorer: Scorer,
+        paths: list[str],
+        *,
+        reason: str,
+        allow_ci_write: bool,
+        source: str | None,
+    ) -> Outcome:
+        """Record the recomputed baseline for the ``paths`` that clear the gate.
+
+        DES-097's bounded, scoped, tool-computed bless -- the OO-ratchet
+        analog of the coupling ratchet's ``--rebaseline-files`` (DES-096). A
+        metric refuses only when it BOTH exceeds its absolute threshold AND
+        regressed against the file's committed baseline
+        (``PlanApplier.over_cap_and_regressed``); refusal, the baseline
+        write, and the audit entry are the responsibility of
+        :class:`FileBless`. See its module docstring for the full contract.
+
+        ``reason`` must be non-blank; a blank or whitespace-only reason is
+        refused before anything is scored (see ``Cli.run``'s pre-scoring
+        guard, which checks this before ``Scorer`` is even constructed) and
+        again here as defense in depth for direct callers.
+        """
+        blocked = self._guard(allow_ci_write=allow_ci_write)
+        if blocked is not None:
+            return blocked
+        if not reason.strip():
+            return Outcome.failed(
+                "FAIL: --rebaseline-files requires a non-blank --reason"
+            )
+        current = Baseline.metrics_by_file(scorer.results)
+        bless = FileBless(self._baseline, self._audit, self._git)
+        return bless.apply(current, paths, reason=reason, source=source)
 
     def rebaseline(
         self, scorer: Scorer, *, allow_ci_write: bool, source: str | None
