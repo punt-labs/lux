@@ -1774,13 +1774,39 @@ first place.
     the verification set for an incoming client certificate.  Swapping
     providers means swapping what this set contains; nothing else in
     \S\ref{sec:crosshost-fork}'s verification path changes.
-  \item \textbf{Enrollment path.}  The procedure that, given a machine's
-    hostname, produces a private key and a leaf certificate whose SAN
-    equals that hostname and whose chain terminates at the trust anchor
-    above.  \S\ref{sec:crosshost-enroll} specifies the enrollment
-    mechanics for each provider; only the identity of the signer and the
-    issuance channel differ.
+  \item \textbf{Enrollment path.}  The procedure that, given a CSR whose
+    SAN already names the requesting machine's hostname, signs it into a
+    leaf certificate whose chain terminates at the trust anchor above.
+    \S\ref{sec:crosshost-enroll} specifies the enrollment mechanics for
+    each provider; only the identity of the signer and the issuance
+    channel differ.
 \end{enumerate}
+
+\textbf{Implementation (W7, \modpath{punt\_lux.trust}):} the private-key/CSR
+half of enrollment is provider-\emph{independent} and lives outside the
+protocol above it --- generating a keypair and a self-signed CSR naming a
+hostname (\field{EnrollmentRequest.generate}) needs nothing from whichever
+CA will eventually sign it, and AWS Private CA's own \field{IssueCertificate}
+call takes a CSR exactly the same way.  The
+\field{TrustAnchorProvider} protocol (a structural \field{Protocol}, no base
+class) therefore narrows to exactly the two obligations above, expressed as
+two methods --- \field{trust\_anchor() -> TrustAnchor} and
+\field{issue\_leaf\_certificate(csr) -> LeafCertificate} --- and never a
+private key: \field{CertificateAuthority.sign\_csr} rejects a CSR whose
+self-signature does not verify before issuing, and
+\field{EnrollmentRequest.complete} confirms the returned leaf's public key
+matches the request's own before accepting it as an
+\field{EnrolledIdentity}.  \field{PersonalCaProvider} (Provider 1, below)
+is the first implementation; W15's AWS Private CA provider satisfies the
+identical two methods.  A leaf's \field{AuthorityKeyIdentifier} must chain
+to its issuer's \field{SubjectKeyIdentifier} for OpenSSL 3.x's default
+verification policy to accept it (RFC 5280 \S4.2.1.1) --- both CA creation
+and leaf issuance set these extensions; their absence surfaces as
+\emph{"Missing Authority Key Identifier"} at handshake time, not at
+signing time, so it is easy to omit and only discover under a real
+\field{ssl.SSLContext} handshake, which is why the W7 test suite drives one
+over TCP loopback rather than asserting on the \field{cryptography}
+objects alone.
 
 Any implementation satisfying both obligations is a valid trust-anchor
 provider.  The mTLS transport code itself never branches on which one is
@@ -2059,6 +2085,23 @@ more than a corporate PKI's.
     CA both sides already trust --- exactly the material
     \S\ref{sec:crosshost-fork} needs.
 \end{enumerate}
+
+\textbf{Implementation (W7).}  \modpath{punt\_lux.trust.CertificateAuthority}
+implements steps 1--2 above (\field{create}/\field{save}/\field{load},
+\field{issue\_leaf} for the same-machine case);
+\modpath{punt\_lux.trust.EnrollmentRequest}/\modpath{EnrolledIdentity}
+implement step 3's two-machine round trip.  Keys are ECDSA P-256
+(\field{cryptography.hazmat.primitives.asymmetric.ec.SECP256R1}), the
+modern default curve for TLS leaf/CA material.  \textbf{The
+passphrase-protection this section recommends is not yet implemented}:
+\field{KeyPair.to\_pem} serializes with
+\field{serialization.NoEncryption()}, relying solely on the \texttt{0600}
+file-permission discipline stated above.  A passphrase layer belongs at
+whichever surface first collects operator input for key material ---
+plausibly the enrollment CLI a later bead adds, not the
+\field{punt\_lux.trust} value classes themselves, which have no prompt to
+collect one from.  This gap is deliberate-for-now, not silently dropped:
+tracked as follow-on scope, not closed by W7.
 
 A friendlier enrollment flow --- a short-lived pairing code exchanged over
 the LAN, closer to a device-pairing UX --- is a real usability improvement
