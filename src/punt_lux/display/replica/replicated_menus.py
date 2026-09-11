@@ -47,10 +47,6 @@ class ReplicatedMenus:
         a second Hub's push used to overwrite the first's outright."""
         return tuple(chain.from_iterable(self._agent_menus.values()))
 
-    def agent_menus_by_hub(self) -> Iterator[tuple[HubId, WireMenu]]:
-        """Yield every live Hub's agent-defined menus, each paired with its Hub."""
-        return MenuByHub.pairs(self._agent_menus)
-
     def replace_agent_menus(
         self, payloads: Sequence[object], hub: HubId = _NO_HUB
     ) -> None:
@@ -63,16 +59,18 @@ class ReplicatedMenus:
         """Every live Hub's ``Clients`` menu, concatenated (not replaced)."""
         return tuple(chain.from_iterable(self._callback_menus.values()))
 
-    def callback_menus_by_hub(self) -> Iterator[tuple[HubId, WireMenu]]:
-        """Yield every live Hub's ``Clients`` menus, each paired with its Hub."""
-        return MenuByHub.pairs(self._callback_menus)
-
     def replace_callback_menus(
         self, payloads: Sequence[object], hub: HubId = _NO_HUB
     ) -> None:
         """Take one Hub's ``Clients`` submenus; ``hub`` defaults to a stub."""
         menus = WireMenu.accepted(payloads, origin="callback_menus")
         self._callback_menus.put(HubScopedKey(hub, _CALLBACK_MENUS_LOCAL), menus)
+
+    def hub_scoped_menus_by_hub(self) -> Iterator[tuple[HubId, WireMenu]]:
+        """Yield every live Hub's callback then agent-defined menus, each
+        paired with its Hub -- the routing hint a scene-less click carries."""
+        yield from MenuByHub.pairs(self._callback_menus)
+        yield from MenuByHub.pairs(self._agent_menus)
 
     def forget_hub(self, hub: HubId) -> None:
         """Retire a departed Hub's agent and callback menus -- no stale entry."""

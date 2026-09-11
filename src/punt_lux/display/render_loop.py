@@ -1085,10 +1085,7 @@ class RenderLoop:
             )
 
     def _flush_events(self) -> None:
-        """Deliver queued interactions within one frame budget; hold the rest.
-
-        New join the buffer; aged expire and compensate; the unsent remainder holds.
-        """
+        """Deliver queued interactions within one frame budget; hold the rest."""
         if not self._event_queue and self._pending.is_empty:
             return
         self._record_queued_events()
@@ -1097,7 +1094,12 @@ class RenderLoop:
         self._event_queue.clear()
         expired = self._pending.expire(now)
         if self._socket_listener.clients:
-            self._pending.discard_prefix(
-                self._interaction_delivery.deliver(self._pending.pending_events())
+            handled, dropped = self._interaction_delivery.deliver(
+                self._pending.pending_events()
             )
+            self._pending.discard_prefix(handled)
+            if dropped:
+                self._interaction_delivery.compensate_evicted(
+                    self._pending.compensate_dropped(dropped)
+                )
         self._interaction_delivery.compensate_evicted(expired)

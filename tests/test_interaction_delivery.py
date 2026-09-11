@@ -90,7 +90,7 @@ class TestDeliver:
             element_id="b", action="click", scene_id="s1", ts=1.0
         )
 
-        assert delivery.deliver([event]) == 1  # one delivered
+        assert delivery.deliver([event]) == (1, ())  # one delivered, none dropped
         socket_listener.send_to_client.assert_called_once_with(owner_sock, event)
 
     def test_routes_a_scene_less_event_to_its_declared_hub(self) -> None:
@@ -105,7 +105,7 @@ class TestDeliver:
             element_id="m", action="menu", ts=1.0, hub_token="hub-a"
         )
 
-        assert delivery.deliver([event]) == 1
+        assert delivery.deliver([event]) == (1, ())
         socket_listener.send_to_client.assert_called_once_with(hub_sock, event)
 
     def test_a_menu_click_never_reaches_a_second_live_hub(self) -> None:
@@ -130,7 +130,7 @@ class TestDeliver:
         delivery, socket_listener = _build()
         event = RemoteEventHandlerInvocation(element_id="b", action="click", ts=1.0)
 
-        assert delivery.deliver([event]) == 1  # handled: dropped, not sent
+        assert delivery.deliver([event]) == (1, (event,))  # handled: dropped, not sent
         socket_listener.send_to_client.assert_not_called()
 
     def test_an_unresolvable_hub_token_is_dropped_not_held(self) -> None:
@@ -141,7 +141,7 @@ class TestDeliver:
             element_id="m", action="menu", ts=1.0, hub_token="departed-hub"
         )
 
-        assert delivery.deliver([event]) == 1
+        assert delivery.deliver([event]) == (1, (event,))
         socket_listener.send_to_client.assert_not_called()
 
     def test_a_dropped_event_does_not_stall_a_later_deliverable_one(self) -> None:
@@ -158,9 +158,10 @@ class TestDeliver:
             element_id="m2", action="menu", ts=1.0, hub_token="hub-a"
         )
 
-        handled = delivery.deliver([unresolvable, deliverable])
+        handled, dropped = delivery.deliver([unresolvable, deliverable])
 
         assert handled == 2  # both handled -- one dropped, one sent
+        assert dropped == (unresolvable,)
         socket_listener.send_to_client.assert_called_once_with(good_sock, deliverable)
 
     def test_delivery_stops_at_first_unsent_event(self) -> None:
@@ -177,7 +178,7 @@ class TestDeliver:
             element_id="b", action="click", ts=1.0, hub_token="hub-a"
         )
 
-        assert delivery.deliver([first, second]) == 0  # none landed
+        assert delivery.deliver([first, second]) == (0, ())  # none landed
 
     def test_delivered_prefix_counts_before_a_stop(self) -> None:
         good, bad = object(), object()
@@ -196,7 +197,7 @@ class TestDeliver:
             element_id="b", action="click", scene_id="s9", ts=1.0
         )
 
-        assert delivery.deliver([first, second]) == 1  # only the prefix
+        assert delivery.deliver([first, second]) == (1, ())  # only the prefix
 
     def test_missing_owner_socket_stops_delivery(self) -> None:
         delivery, socket_listener = _build(scene_to_owner={"s1": 7})  # fd 7 not mapped
@@ -204,7 +205,7 @@ class TestDeliver:
             element_id="b", action="click", scene_id="s1", ts=1.0
         )
 
-        assert delivery.deliver([event]) == 0
+        assert delivery.deliver([event]) == (0, ())
         socket_listener.send_to_client.assert_not_called()
 
     def test_spent_budget_delivers_nothing(self) -> None:
@@ -219,7 +220,7 @@ class TestDeliver:
             element_id="b", action="click", ts=1.0, hub_token="hub-a"
         )
 
-        assert delivery.deliver([event]) == 0
+        assert delivery.deliver([event]) == (0, ())
         assert socket_listener.send_to_client.call_count == 1
 
 
@@ -402,7 +403,8 @@ class TestSupersededEvictionRevertsNothing:
             fd_to_client={7: owner_sock}, scene_to_owner={"s1": 7}, widget_state=ws
         )
         evicted, buf = _aged_out_while_newer_held("header_toggled", "h")
-        buf.discard_prefix(delivery.deliver(buf.pending_events()))
+        handled, _dropped = delivery.deliver(buf.pending_events())
+        buf.discard_prefix(handled)
         assert buf.is_empty  # the surviving toggle went to the Hub this frame
 
         delivery.compensate_evicted(evicted)

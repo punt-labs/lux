@@ -95,13 +95,7 @@ class MenuReplica:
                     Submenu.from_wire(
                         m, MenuHandlers(emit, raise_frame, hub.wire_token)
                     )
-                    for hub, m in self._menus.callback_menus_by_hub()
-                ),
-                *(
-                    Submenu.from_wire(
-                        m, MenuHandlers(emit, raise_frame, hub.wire_token)
-                    )
-                    for hub, m in self._menus.agent_menus_by_hub()
+                    for hub, m in self._menus.hub_scoped_menus_by_hub()
                 ),
                 *self._own.chrome_sections(),
             ]

@@ -92,14 +92,9 @@ class ClientRegistry:
         return self._client_hub_ids.get(fd)
 
     def hub_fd_for(self, hub_id: HubId) -> int | None:
-        """Return the live fd currently declaring ``kind="hub"`` with this ``HubId``.
-
-        Keyed on ``HubId``, never on the declared ``name`` (W11) -- ``name`` is
-        "what a human calls this connection," not a per-process identity, and
-        every production Hub today declares the identical hardcoded name. Two
-        Hubs sharing a name must coexist; two connections sharing a ``HubId``
-        (a reconnect) must not.
-        """
+        """Return the live fd currently declaring ``kind="hub"`` with this
+        ``HubId`` -- never the declared ``name`` (W11), which every Hub today
+        shares identically and two Hubs must be free to keep sharing."""
         for candidate_fd, kind in self._client_kinds.items():
             if kind == "hub" and self._client_hub_ids.get(candidate_fd) == hub_id:
                 return candidate_fd
@@ -125,8 +120,7 @@ class ClientRegistry:
         self._client_hub_ids.pop(fd, None)
 
     def clear(self) -> None:
-        """Drop every connection's state, all six maps: shutdown, not one
-        departure -- a reused listener must never inherit a departed identity."""
+        """Drop every map's state -- shutdown, not one departure."""
         self._readers.clear()
         self._fd_to_client.clear()
         self._client_names.clear()

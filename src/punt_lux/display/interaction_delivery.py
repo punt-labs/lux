@@ -8,20 +8,20 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal, Self
 
 from punt_lux.display.evicted_compensation import CompensationTable
-from punt_lux.display.evictions import Evictions
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from punt_lux.display.evictions import Evictions
     from punt_lux.display.replica import SceneReplica
     from punt_lux.display.socket_server import SocketListener
     from punt_lux.protocol import RemoteEventHandlerInvocation
 
 __all__ = ["InteractionDelivery"]
 
-# _deliver_one's outcome: sent; dropped (unresolvable, compensated at once);
-# or blocked (send budget/peer -- retried next frame).
+# _deliver_one's outcome: sent; dropped (unresolvable, the caller must
+# compensate); or blocked (send budget/peer -- retried next frame).
 type _SendOutcome = Literal["sent", "dropped", "blocked"]
 
 
@@ -47,22 +47,14 @@ class InteractionDelivery:
         return self
 
     @trace
-    def deliver(self, events: Sequence[RemoteEventHandlerInvocation]) -> int:
-        """Send events under the frame's budget; return the handled prefix
-        count. A ``"blocked"`` event holds it and everything after it for the
-        next frame; a ``"dropped"`` one is compensated now instead, so one
-        unroutable click never stalls a deliverable one behind it."""
-        handled, dropped = self._send_prefix(events)
-        if dropped:
-            survivors = [e for e in events if e not in dropped]
-            self._compensate_dropped(Evictions.of(dropped, survivors))
-        return handled
-
-    def _send_prefix(
+    def deliver(
         self, events: Sequence[RemoteEventHandlerInvocation]
-    ) -> tuple[int, list[RemoteEventHandlerInvocation]]:
-        """Send in order until the first ``"blocked"`` event, sharing the
-        frame deadline the render loop already armed."""
+    ) -> tuple[int, tuple[RemoteEventHandlerInvocation, ...]]:
+        """Send events under the frame's budget; return the handled prefix
+        count and the dropped subset within it, for the caller to compensate.
+        A ``"blocked"`` event holds it and everything after it for the next
+        frame; a ``"dropped"`` one is handled at once instead, so one
+        unroutable click never stalls a deliverable one behind it."""
         dropped: list[RemoteEventHandlerInvocation] = []
         handled = 0
         for event in events:
@@ -74,12 +66,7 @@ class InteractionDelivery:
                     handled += 1
                 case "sent":
                     handled += 1
-        return handled, dropped
-
-    def _compensate_dropped(self, evicted: Evictions) -> None:
-        """Give up the optimism of every event this delivery dropped."""
-        evicted.log_undeliverable(0.0)  # 0.0: dropped now, not aged out
-        self.compensate_evicted(evicted)
+        return handled, tuple(dropped)
 
     def _deliver_one(self, event: RemoteEventHandlerInvocation) -> _SendOutcome:
         """Resolve one event's target and send it -- never a broadcast."""
