@@ -7025,23 +7025,30 @@ addressing PR is untenable.
 `tools/oo_coupling.py` — a `--rebaseline-files <paths>` mode that recomputes and
 records the baseline for *only* the explicitly named files, and **refuses to
 record any file whose recomputed value exceeds that metric's absolute PL-CU-1
-threshold**. A genuinely-necessary new dependency edge that leaves the file
-under its cap can be recorded; a file at or over the cap still hard-fails. The
-`--check` gate is unchanged.
+threshold**. A within-cap value is recorded; a value that would *exceed* the
+cap still hard-fails — the cap is inclusive (`≤`), so a value exactly at it is
+within-threshold and recorded. The tool enforces the *bound*, the *scope*,
+tool-computation, and the audit trail; it cannot itself decide whether a given
+regression is a "genuinely-necessary first edge" — that judgment is the
+leader's at invocation, made reviewable by the bless appearing in the PR diff
+and by a **required `--reason`** recorded in the audit log. The `--check` gate
+is unchanged.
 
 **Why this is a bounded relaxation, not a suppression loophole.** It is honest
 about being *more permissive* than the pure no-regression rule — it permits a
 recorded within-threshold coupling regression, which neither ratchet allowed
 before. Four properties keep it from becoming a blanket escape: (1) **bounded** —
-it cannot bless a value above the absolute threshold, so it never hides a
-genuine coupling problem, only the first-edge-under-cap case; (2)
+it cannot record a value above the absolute threshold, so it never hides a
+genuine (over-cap) coupling problem — only a within-cap regression is
+recordable at all; (2)
 **tool-computed** — the recorded number is measured from the tree, never
 hand-typed (the "never hand-edit baselines" discipline is preserved); (3)
 **scoped** — it acts only on files named explicitly in the invocation, a
 deliberate per-change act, never whole-tree (which would launder the ~14
 unrelated pre-existing coupling regressions already on `main`); (4)
 **audit-logged** — every bless appends to `.oo-coupling-audit.jsonl` with the
-file and old→new values, so the record is reviewable.
+file, its old→new values, and the required `--reason` the leader supplies, so
+every record carries its justification and is reviewable.
 
 **Why now, autonomously.** The same class of block recurred across two
 independent, complete, correct PRs and gates the rest of the epic; DES-095
