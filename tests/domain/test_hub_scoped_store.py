@@ -220,35 +220,6 @@ class TestReassignValue:
         assert store.get(HubScopedKey(_HUB_A, "s1")) == "keep-me"
 
 
-class TestRemoveMatching:
-    """The collision-safe whole-value removal a single scene's placement
-    entry is dropped through (:meth:`forget_scene_from`'s underlying store
-    op)."""
-
-    def test_removes_the_entry_with_matching_local_and_value(self) -> None:
-        store: HubScopedStore[str] = HubScopedStore()
-        store.put(HubScopedKey(_HUB_A, "s1"), "frame-a1")
-
-        removed = store.remove_matching("s1", "frame-a1")
-
-        assert removed == [HubScopedKey(_HUB_A, "s1")]
-        assert store.get(HubScopedKey(_HUB_A, "s1")) is None
-
-    def test_never_touches_a_second_hubs_identically_named_entry(self) -> None:
-        """Two Hubs both place local id ``s1`` at frame ``f1``; removing the
-        match for value ``f2`` (which only Hub A's entry now holds) must
-        leave Hub B's identically-named, identically-valued-at-f1 entry
-        alone -- proven by targeting a value only Hub A holds."""
-        store: HubScopedStore[str] = HubScopedStore()
-        store.put(HubScopedKey(_HUB_A, "s1"), "f2")
-        store.put(HubScopedKey(_HUB_B, "s1"), "f1")
-
-        store.remove_matching("s1", "f2")
-
-        assert store.get(HubScopedKey(_HUB_A, "s1")) is None
-        assert store.get(HubScopedKey(_HUB_B, "s1")) == "f1"
-
-
 class TestRemoveMatchingHubValue:
     """The whole-frame collision-safe removal :meth:`forget_scenes_of_frame`
     is built on -- scoped by owning Hub, not merely by value, so a second

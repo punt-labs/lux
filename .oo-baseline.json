@@ -4955,10 +4955,10 @@
   "src/punt_lux/domain/hub_scoped_store.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
-    "avg_params": 1.0,
+    "avg_params": 0.94,
     "max_complexity": 5.0,
-    "avg_complexity": 2.5,
-    "module_size": 126.0,
+    "avg_complexity": 2.38,
+    "module_size": 120.0,
     "classes_per_module": 1.0,
     "class_to_func_ratio": 1.0,
     "init_violations": 0.0,
