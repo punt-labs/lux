@@ -7,6 +7,7 @@ from typing import Self
 
 from punt_lux.display.replica.frame import Frame
 from punt_lux.display.replica.frame_book import FrameBook
+from punt_lux.display.replica.manifest_purge import ManifestPurge
 from punt_lux.display.replica.stale_ids import OnSceneReplacedFn, StaleIds
 from punt_lux.display.replica.widget_state import WidgetState, WireScalar
 from punt_lux.display.replica.widget_state_store import WidgetStateStore
@@ -30,6 +31,7 @@ class SceneReplica:
     _book: FrameBook
     _widget_state: WidgetStateStore
     _stale: StaleIds
+    _purge: ManifestPurge
 
     def __new__(
         cls,
@@ -40,6 +42,7 @@ class SceneReplica:
         self._book = FrameBook()
         self._widget_state = WidgetStateStore()
         self._stale = StaleIds(self._book, on_scene_replaced)
+        self._purge = ManifestPurge(self._book)
         return self
 
     @property
@@ -122,15 +125,11 @@ class SceneReplica:
     def scenes_to_purge(
         self, hub: HubId, manifest: frozenset[str], live_hubs: frozenset[HubId]
     ) -> list[tuple[HubScopedKey, str]]:
-        """Every ``(frame_key, scene_id)`` pair ``hub``'s manifest disowns --
-        ``frame_key`` addresses the owning frame by its OWN Hub, so a purge
-        can never resolve a second Hub's same-named frame or scene."""
-        return [
-            (HubScopedKey(key.hub, frame_id), key.local)
-            for key, frame_id in self._book.scene_to_frame_entries()
-            if key.local not in manifest
-            and (key.hub == hub or key.hub not in live_hubs)
-        ]
+        """Every ``(frame_key, scene_id)`` pair to purge -- delegated to the
+        composed :class:`ManifestPurge`, which keeps the manifest-purge
+        policy's two independent rules (own-Hub scoping, orphan sweep) in
+        one place."""
+        return self._purge.candidates(hub, manifest, live_hubs)
 
     def frame(self, frame_id: str, hub: HubId = _NO_HUB) -> Frame | None:
         """The frame ``(hub, frame_id)`` addresses -- collision-safe."""
