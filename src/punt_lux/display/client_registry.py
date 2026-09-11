@@ -5,12 +5,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal, Self, final
 
+from punt_lux.domain.hub_id import HubId
 from punt_lux.protocol import FrameReader
 
 if TYPE_CHECKING:
     import socket
-
-    from punt_lux.domain.hub_id import HubId
 
 __all__ = ["ClientRegistry"]
 
@@ -74,13 +73,13 @@ class ClientRegistry:
         *,
         kind: Literal["hub", "test"],
         name: str,
-        hub_id: HubId,
+        hub_id: HubId | None = None,
         connect_time: float,
     ) -> None:
-        """Record a client's declared kind, name, ``HubId``, and connect time."""
+        """Record kind, name, ``HubId``, connect time; omitted ``hub_id`` stubs."""
         self._client_names[fd] = name
         self._client_kinds[fd] = kind
-        self._client_hub_ids[fd] = hub_id
+        self._client_hub_ids[fd] = hub_id if hub_id is not None else HubId.stub()
         self._client_connect_times[fd] = connect_time
 
     def kind_of(self, fd: int) -> Literal["hub", "test"] | None:

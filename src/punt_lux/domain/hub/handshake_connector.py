@@ -1,13 +1,15 @@
-"""HandshakeConnector -- opens the display socket and runs the handshake.
+"""HandshakeConnector -- the ``AF_UNIX`` dialer and the shared handshake.
 
 Extracted from :class:`DisplayLink.connect` (PY-OO-5, PY-IC-6): the
 socket-open, send-timeout, and ``ReadyMessage``/``ConnectMessage`` handshake
 sequence touches none of ``DisplayLink``'s listener-thread or reply-queue
-state -- it only needs a socket path, a spawn policy, a timeout budget, and
-this connection's own declared identity (``kind`` plus :class:`HubId`) to
-build the ``ConnectMessage`` it sends. That is a self-contained collaborator
-``DisplayLink`` delegates to, not a method that happens to live on the
-transport it hands the finished socket to.
+state -- it needs only an endpoint, a spawn policy, a timeout budget, and this
+connection's own declared identity (``kind`` plus :class:`HubId`) to build the
+``ConnectMessage`` it sends. It satisfies the :class:`DisplayDialer` protocol
+for the local leg, and its :meth:`complete_handshake` -- the transport-agnostic
+tail (recv ``ReadyMessage``, send ``ConnectMessage``) -- is what the cross-host
+:class:`~punt_lux.domain.hub.cross_host_connector.CrossHostConnector` reuses on
+a socket it opened over TLS, so the connect sequence is written once.
 """
 
 from __future__ import annotations
@@ -33,32 +35,37 @@ logger = logging.getLogger(__name__)
 
 @final
 class HandshakeConnector:
-    """Opens the display socket and performs the connect handshake.
+    """Dials the display over ``AF_UNIX`` and performs the connect handshake.
 
     Owns this connection's declared identity -- the display-facing ``name``,
     its ``kind``, and its :class:`HubId` -- all fixed for the connection's
-    lifetime, so it can build the ``ConnectMessage`` itself once the
-    ``ReadyMessage`` handshake completes.
+    lifetime, plus the local endpoint (``socket_path``) and whether to spawn
+    the display when it is not already running.
     """
 
     _name: str | None
     _kind: Literal["hub", "test"]
     _hub_id: HubId
+    _socket_path: Path | None
+    _auto_spawn: bool
 
-    def __new__(cls, *, name: str | None, kind: Literal["hub", "test"]) -> Self:
+    def __new__(
+        cls,
+        *,
+        name: str | None,
+        kind: Literal["hub", "test"],
+        socket_path: str | Path | None = None,
+        auto_spawn: bool = True,
+    ) -> Self:
         self = super().__new__(cls)
         self._name = name
         self._kind = kind
         self._hub_id = HubId.current() if kind == "hub" else HubId.stub()
+        self._socket_path = Path(socket_path) if socket_path else None
+        self._auto_spawn = auto_spawn
         return self
 
-    def connect(
-        self,
-        socket_path: Path | None,
-        *,
-        auto_spawn: bool,
-        connect_timeout: float,
-    ) -> HandshakeResult:
+    def dial(self, connect_timeout: float) -> HandshakeResult:
         """Open the display socket and perform the Ready/Connect handshake.
 
         Raises
@@ -69,10 +76,9 @@ class HandshakeConnector:
             send. The opened socket is closed on every failure path -- no
             caller ever sees a half-open connection.
         """
-        dp = DisplayPaths(socket_path)
-        path = dp.socket_path
-        if auto_spawn:
-            path = dp.ensure(timeout=connect_timeout)
+        dp = DisplayPaths(self._socket_path)
+        path = dp.ensure(connect_timeout) if self._auto_spawn else dp.socket_path
+        self._socket_path = path  # cache the resolved default for a later re-dial
 
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
@@ -83,13 +89,26 @@ class HandshakeConnector:
             raise DisplayNotConnectedError(msg) from exc
 
         set_send_timeout(sock)
-        ready = self._recv_ready(sock, path, connect_timeout)
+        return self.complete_handshake(sock, str(path), connect_timeout)
+
+    def complete_handshake(
+        self, sock: socket.socket, endpoint: str, connect_timeout: float
+    ) -> HandshakeResult:
+        """Run the transport-agnostic tail on an already-open ``sock``.
+
+        Receives and validates the ``ReadyMessage``, then sends this
+        connection's ``ConnectMessage``. Shared by the local dial above and
+        by ``CrossHostConnector`` on a TLS socket it has already handshaked,
+        so the wire sequence exists in exactly one place. ``sock`` is closed
+        on every failure path.
+        """
+        ready = self._recv_ready(sock, endpoint, connect_timeout)
         self._send_identity(sock)
-        logger.info("Connected to display (protocol %s)", ready.version)
-        return HandshakeResult(sock=sock, socket_path=path, ready=ready)
+        logger.info("Connected to display at %s (protocol %s)", endpoint, ready.version)
+        return HandshakeResult(sock=sock, endpoint=endpoint, ready=ready)
 
     def _recv_ready(
-        self, sock: socket.socket, path: Path, connect_timeout: float
+        self, sock: socket.socket, endpoint: str, connect_timeout: float
     ) -> ReadyMessage:
         """Receive and validate the ``ReadyMessage``, closing ``sock`` on failure."""
         try:
@@ -99,7 +118,7 @@ class HandshakeConnector:
             raise
         if ready is None:
             sock.close()
-            msg = f"Handshake timed out after {connect_timeout}s at {path}"
+            msg = f"Handshake timed out after {connect_timeout}s at {endpoint}"
             raise DisplayNotConnectedError(msg)
         if not isinstance(ready, ReadyMessage):
             sock.close()

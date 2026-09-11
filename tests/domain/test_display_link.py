@@ -785,7 +785,7 @@ class TestAutoSpawn:
             ) as mock_ensure:
                 client = DisplayLink(sock_path, auto_spawn=True, connect_timeout=2.0)
                 client.connect()
-                mock_ensure.assert_called_once_with(timeout=2.0)
+                mock_ensure.assert_called_once_with(2.0)
                 client.close()
         finally:
             if server_conn:

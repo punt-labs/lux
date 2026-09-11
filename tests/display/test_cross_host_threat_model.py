@@ -122,9 +122,17 @@ class TestT1ConnectAtAll:
         is dropped becomes *admitted* the moment ``CERT_REQUIRED`` is downgraded
         to ``CERT_NONE``. This proves the production ``verify_mode`` is
         load-bearing, not incidental: strip it and T1 reopens.
+
+        ``CrossHostListener`` now refuses a non-``CERT_REQUIRED`` context at
+        construction (DES-090 boundary guard), so the downgrade is applied to
+        the live context *after* the listener is built -- the guard proves the
+        weak context can never be passed in, and this control proves why the
+        guard matters by exercising the handshake it protects.
         """
         material = MtlsMaterial(tmp_path)
-        listener = LoopbackListener.serving(material.cert_optional_server_context())
+        context = material.server_context()  # CERT_REQUIRED -- passes the guard
+        listener = LoopbackListener.serving(context)
+        context.verify_mode = ssl.CERT_NONE  # downgrade the live context post-build
         connect = listener.connect(material.no_cert_client_context())
         try:
             outcome = listener.pump_until_settled()

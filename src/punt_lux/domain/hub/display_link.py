@@ -48,6 +48,7 @@ from punt_lux.tracing import trace
 if TYPE_CHECKING:
     from collections.abc import Generator
 
+    from punt_lux.domain.hub.display_dialer import DisplayDialer
     from punt_lux.protocol import Element, Message
 
 logger = logging.getLogger(__name__)
@@ -72,13 +73,11 @@ class DisplayLink:
     for the display; ``recv_timeout`` is the default for :meth:`recv`.
     """
 
-    _socket_path: Path | None
-    _auto_spawn: bool
     _connect_timeout: float
     _recv_timeout: float
     _sock: socket.socket | None
     _ready: ReadyMessage | None
-    _handshake: HandshakeConnector
+    _dialer: DisplayDialer
     _lock: threading.Lock
     _callbacks: dict[CallbackKey, Callable[[RemoteEventHandlerInvocation], None]]
     _fallback_interaction_handler: Callable[[RemoteEventHandlerInvocation], None] | None
@@ -96,15 +95,18 @@ class DisplayLink:
         auto_spawn: bool = True,
         connect_timeout: float = 5.0,
         recv_timeout: float = DEFAULT_RECV_TIMEOUT,
+        dialer: DisplayDialer | None = None,  # None = default AF_UNIX dialer (PY-TS-14)
     ) -> Self:
         self = super().__new__(cls)
-        self._socket_path = Path(socket_path) if socket_path else None
-        self._auto_spawn = auto_spawn
         self._connect_timeout = connect_timeout
         self._recv_timeout = recv_timeout
         self._sock = None
         self._ready = None
-        self._handshake = HandshakeConnector(name=name, kind=kind)
+        # An injected dialer (a cross-host CrossHostConnector built by
+        # CrossHostEndpoint.dial) overrides the default; _dialer is never None.
+        self._dialer = dialer or HandshakeConnector(
+            name=name, kind=kind, socket_path=socket_path, auto_spawn=auto_spawn
+        )
         self._lock = threading.Lock()
         self._callbacks = {}
         self._fallback_interaction_handler = None
@@ -158,13 +160,8 @@ class DisplayLink:
         if self._sock is not None:
             return
 
-        result = self._handshake.connect(
-            self._socket_path,
-            auto_spawn=self._auto_spawn,
-            connect_timeout=self._connect_timeout,
-        )
+        result = self._dialer.dial(self._connect_timeout)
         self._sock = result.sock
-        self._socket_path = result.socket_path
         self._ready = result.ready
 
         if self._callbacks:  # reconnect resilience: restart a registered listener
@@ -504,19 +501,13 @@ class DisplayLink:
     # -- receiving ---------------------------------------------------------
 
     def poll_event(self, timeout: float | None = None) -> PolledEvent:
-        """Block for the next subscribed business event on this connection.
+        """Block for the next subscribed business event (a :class:`PolledEvent`).
 
-        Returns a :class:`PolledEvent` (topic + payload) from the next
-        ``ObserverMessage``.  Raises ``TimeoutError`` after ``timeout``
-        seconds (default: ``recv_timeout``).  Requires the listener to
-        have been started — observer messages are push-only with no
-        inline polling fallback.
-
-        Gates on ``_listener_thread is not None`` rather than ``is_alive()`` so a
-        listener that started and has since exited surfaces as a ``TimeoutError``
-        naming the exit, not a ``RuntimeError`` claiming it never started — the
-        caller's contract is the same either way, and the exit belongs in the
-        message.
+        Raises ``TimeoutError`` after ``timeout`` seconds (default
+        ``recv_timeout``); requires an active listener (observer messages are
+        push-only). Gates on ``_listener_thread is not None`` so a listener
+        that started and has since exited surfaces as ``TimeoutError`` naming
+        the exit, not a ``RuntimeError`` claiming it never started.
         """
         self._require_connected()
         if self._listener_thread is None:

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import socket
+import ssl
 import time
 from typing import TYPE_CHECKING, Self
 
@@ -64,15 +65,12 @@ class HubReconciliation:
     def handle_connect(self, sock: socket.socket, msg: ConnectMessage) -> None:
         """Record a client's declared identity (idempotent); preempt a stale Hub.
 
-        Gate 2 (system.tex §"Coexistence with the Local Fast Path") runs
-        before any of that: a cross-host peer whose declared ``hub_id``
-        does not match the hostname its mTLS handshake already verified is
-        rejected here, closed, and never reaches
-        :meth:`SocketListener.register_client_identity` -- so it can never
-        become an identified fd, the state content-bearing messages
-        require to be let through (Invariant 1, system.tex §"Invariants").
-        A same-host (``AF_UNIX``) connection is untouched by this gate
-        (Invariant 4).
+        Two cross-host gates run first, both closing the connection before it
+        can become an identified fd -- the state content-bearing messages
+        require (Invariant 1). T6: a TLS peer may never declare ``kind="test"``.
+        Gate 2: a TLS peer's declared ``hub_id`` must match the hostname its
+        handshake verified. A same-host (``AF_UNIX``) connection is untouched by
+        either (Invariant 4).
         """
         name = msg.name.strip()
         if not name:
@@ -87,9 +85,30 @@ class HubReconciliation:
             fd = sock.fileno()
         except OSError:
             return
+        if self._reject_test_kind_cross_host(sock, fd, msg):
+            return
         if self._reject_unverified_cross_host(sock, fd, hub_id):
             return
         self._identify(sock, fd, msg, hub_id)
+
+    def _reject_test_kind_cross_host(
+        self, sock: socket.socket, fd: int, msg: ConnectMessage
+    ) -> bool:
+        """T6: close a cross-host (TLS) peer that declares ``kind="test"``.
+
+        The test-kind backdoor's safety rests on the ``AF_UNIX`` socket's
+        ``0700`` permission, an argument that does not carry across a network
+        -- so a TLS connection declaring it is refused outright, never a
+        read-only observer. A same-host connection is not a
+        :class:`ssl.SSLSocket` and passes through.
+        """
+        if not isinstance(sock, ssl.SSLSocket) or msg.kind != "test":
+            return False
+        self._record_error(
+            "error", f"cross-host test-kind connect refused (fd={fd})", "connect"
+        )
+        self._socket_listener.remove_client(sock)
+        return True
 
     def _reject_unverified_cross_host(
         self, sock: socket.socket, fd: int, hub_id: HubId

@@ -427,6 +427,47 @@ class TestCrossHostHostnameVerification:
         assert listener.hub_fd_for(HubId("HUB1.EXAMPLE.COM", 123)) == 20
 
 
+class TestCrossHostTestKindRefused:
+    """T6 (system.tex §"Connect, cross-host"): the ``kind="test"`` backdoor's
+    safety rests on the ``AF_UNIX`` socket's ``0700`` permission, which does
+    not carry across a network -- so a TLS peer declaring it is refused."""
+
+    _STUB_TOKEN = HubId.stub().wire_token
+
+    def test_a_cross_host_test_kind_connect_is_rejected_closed_and_unidentified(
+        self,
+    ) -> None:
+        listener = _make_listener()
+        scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
+        reconciliation = _make_reconciliation(listener, scenes)
+        sock = _ssl_mock_sock(10, _der_for("hub7.example.com"))
+        listener.clients.append(sock)
+        listener.fd_to_client[10] = sock
+
+        reconciliation.handle_connect(
+            sock, ConnectMessage(name="probe", kind="test", hub_id=self._STUB_TOKEN)
+        )
+
+        assert listener.kind_of(10) is None  # never identified
+        sock.close.assert_called_once()
+        assert sock not in listener.clients
+
+    def test_a_same_host_test_kind_connect_is_still_admitted(self) -> None:
+        """The gate is scoped to TLS sockets: a plain ``AF_UNIX`` test probe
+        (the local development backdoor) still identifies normally."""
+        listener = _make_listener()
+        scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
+        reconciliation = _make_reconciliation(listener, scenes)
+        sock = _mock_sock(10)  # plain MagicMock -- not ssl.SSLSocket
+
+        reconciliation.handle_connect(
+            sock, ConnectMessage(name="probe", kind="test", hub_id=self._STUB_TOKEN)
+        )
+
+        assert listener.kind_of(10) == "test"
+        sock.close.assert_not_called()
+
+
 def _identify_as_hub(listener: SocketListener, sock: MagicMock) -> None:
     """Register ``sock`` as an identified, connected ``kind="hub"`` fd --
     live, not merely identified, so :meth:`HubReconciliation._live_hubs`

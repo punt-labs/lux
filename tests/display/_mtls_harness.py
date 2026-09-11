@@ -282,6 +282,14 @@ class BackgroundConnect:
         """
         return bool(self._result) and isinstance(self._result[0], BaseException)
 
+    @property
+    def socket(self) -> ssl.SSLSocket:
+        """The connected client socket; raises if the handshake never produced one."""
+        if not self._result or isinstance(self._result[0], BaseException):
+            msg = "client handshake did not produce a connected socket"
+            raise RuntimeError(msg)
+        return self._result[0]
+
     def close(self) -> None:
         """Close the connected socket if the handshake produced one."""
         if self._result and isinstance(self._result[0], ssl.SSLSocket):

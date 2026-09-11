@@ -125,6 +125,13 @@ class CrossHostListener:
         max_pending: int = _MAX_PENDING,
         clock: Callable[[], float] = time.monotonic,
     ) -> Self:
+        if ssl_context.verify_mode != ssl.CERT_REQUIRED:
+            # Fail-closed at construction: no call site can hand this listener a
+            # context that accepts a peer without a client certificate. Mutual
+            # auth is the whole cross-host trust argument (system.tex T1); a
+            # server context that skips it would let any TCP peer in.
+            msg = "cross-host ssl_context must set verify_mode=ssl.CERT_REQUIRED"
+            raise ValueError(msg)
         self = super().__new__(cls)
         self._server_sock = None
         self._ssl_context = ssl_context
