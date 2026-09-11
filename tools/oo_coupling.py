@@ -51,6 +51,7 @@ from __future__ import annotations
 import ast
 import datetime
 import json
+import os
 import subprocess
 import sys
 from itertools import combinations
@@ -1222,33 +1223,72 @@ class CouplingRatchet:
         # in the scored tree must not be refused merely for its spelling.
         # Path.resolve() normalizes both sides to the same absolute form
         # before comparing.
-        resolved_index: dict[Path, str] = {
+        scored_index: dict[Path, str] = {
             Path(key).resolve(): key for key in current_by_file
         }
+        # The scorer key and the COMMITTED BASELINE's key for the same file
+        # need not be the same string. .oo-coupling-baseline.json is always
+        # keyed repo-relative (check()/update() intersect it against git's
+        # repo-relative touched-file output), but --rebaseline-files can be
+        # invoked with an absolute --target, which makes the scorer key
+        # absolute. Writing the accepted entry under the scorer's key in
+        # that case would mint a SECOND, differently-shaped key for a file
+        # that already has a baseline entry -- the write lands somewhere
+        # check() never looks, and the bless silently fails to unblock it.
+        # This index maps each EXISTING baseline key's resolved absolute
+        # path back to that key, so an accepted file's entry always lands
+        # on the key the baseline (and therefore check()) already uses.
+        baseline_index: dict[Path, str] = {
+            Path(key).resolve(): key for key in self._baseline
+        }
+        # This ratchet's own root -- the directory its baseline and audit
+        # files live in -- is the repo root for THIS invocation, not
+        # whatever the process's cwd happens to be. A file with no existing
+        # baseline entry (a genuinely new file) falls back to this form,
+        # matching the convention every real invocation (make check-coupling,
+        # make update-coupling) already produces by scoring a target that is
+        # itself relative to the repo root.
+        repo_root = self._baseline_path.parent
 
         accepted: list[str] = []
+        # Canonical key -> its recomputed metrics. Keyed separately from
+        # ``current_by_file`` because the canonical key (what gets WRITTEN)
+        # and the scored key (what the metrics were computed under) can
+        # differ -- see ``canonical_key`` below.
+        accepted_current: dict[str, dict[str, float]] = {}
         refused: list[tuple[str, str]] = []
         for requested in paths:
-            key = requested if requested in current_by_file else None
-            if key is None:
-                key = resolved_index.get(Path(requested).resolve())
-            if key is None:
+            scored_key = requested if requested in current_by_file else None
+            resolved = Path(requested).resolve()
+            if scored_key is None:
+                scored_key = scored_index.get(resolved)
+            if scored_key is None:
                 refused.append((requested, "not found in scored tree"))
                 continue
-            current = current_by_file[key]
+            current = current_by_file[scored_key]
             over = [
                 (metric, value)
                 for metric, value in current.items()
-                if not self._meets_threshold(metric, value, key)
+                if not self._meets_threshold(metric, value, scored_key)
             ]
             if over:
                 detail_parts: list[str] = []
                 for metric, value in over:
-                    op, target = self._threshold_for(metric, key)
+                    op, target = self._threshold_for(metric, scored_key)
                     detail_parts.append(f"{metric}={value:g} exceeds {op} {target:g}")
                 refused.append((requested, "; ".join(detail_parts)))
                 continue
-            accepted.append(key)
+            # The key this bless is RECORDED under: the file's existing
+            # baseline key if it has one (an update, never a second key for
+            # the same file), else its path relative to this ratchet's own
+            # root (the shape a brand-new entry gets from a normal, repo-
+            # root-relative invocation).
+            canonical_key = baseline_index.get(
+                resolved,
+                os.path.relpath(resolved, repo_root),
+            )
+            accepted.append(canonical_key)
+            accepted_current[canonical_key] = current
 
         if accepted:
             new_baseline = dict(self._baseline)
@@ -1256,7 +1296,7 @@ class CouplingRatchet:
             regressed_files: set[str] = set()
             improved_files: set[str] = set()
             for fpath in accepted:
-                current = current_by_file[fpath]
+                current = accepted_current[fpath]
                 baseline_entry = self._baseline.get(fpath, {})
                 # Every accepted file gets a full old->new record for every
                 # metric it has -- unconditionally, not only the metrics

@@ -26,8 +26,13 @@ recomputed values exactly match the existing baseline still gets a full
 audit entry rather than silently vanishing from ``deltas``, (9) a baseline
 write failure never leaves a bless recorded-in-baseline-but-missing-from-
 audit, (10) legacy ``--update``/``--rebaseline`` audit entries omit the
-``reason`` key entirely rather than serializing ``"reason": null``, and (11)
-a refused ``__main__.py`` file cites its own relaxed cap, not the default one.
+``reason`` key entirely rather than serializing ``"reason": null``, (11) a
+refused ``__main__.py`` file cites its own relaxed cap, not the default one,
+and (12) a bless invoked against an ABSOLUTE target -- whose scorer keys are
+therefore absolute -- lands on the file's EXISTING repo-relative baseline
+key (the one ``check()``/``update()`` actually read) instead of minting a
+second, differently-shaped key that leaves the real entry, and therefore
+``--check``, untouched.
 """
 
 from __future__ import annotations
@@ -344,6 +349,71 @@ def test_non_canonical_path_form_is_still_blessed(
     assert exit_code == 0
     recorded = fx.baseline()[canonical]  # written under the scorer's own key
     assert recorded["efferent_coupling"] == 5
+
+
+def test_absolute_target_bless_lands_on_existing_relative_baseline_key(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A bless via an ABSOLUTE ``--target`` updates the EXISTING relative key.
+
+    ``.oo-coupling-baseline.json`` is always keyed repo-relative in real
+    usage -- ``check()``/``update()`` intersect it against git's repo-
+    relative touched-file output, which is how ``make check-coupling`` and
+    ``make update-coupling`` always invoke this tool (target scored relative
+    to the repo root). ``--rebaseline-files`` can be invoked with an
+    absolute ``--target``, which makes the SCORER's keys absolute for that
+    call. Writing the accepted entry under the absolute scorer key would
+    mint a second, differently-shaped key for a file that already has a
+    repo-relative baseline entry -- the bless would report success while
+    the key ``check()`` actually reads stays untouched, so ``check()``
+    still fails afterward. This is the keystone regression guard: it proves
+    the bless writes to the key ``check()`` reads, not merely that it exits
+    0.
+    """
+    fx = RebaselineFilesFixture(tmp_path)
+    for i in range(1, 6):
+        fx.write(f"dep{i}.py", _stub_module(f"dep{i}"))
+    fx.write("target.py", _importer(["dep1", "dep2", "dep3"]))
+
+    # Baseline recorded with REPO-RELATIVE keys, as `make update-coupling`
+    # (scoring "." from the repo root) actually produces.
+    monkeypatch.chdir(tmp_path)
+    relative_baseline = CouplingRatchet._results_by_file(
+        CouplingScorer(Path()).results,
+    )
+    fx.write_baseline(relative_baseline)
+    assert "target.py" in relative_baseline  # the key check() will look up
+
+    # Regress target.py, then bless it via an ABSOLUTE target/scorer --
+    # simulating an operator invoking --rebaseline-files with an absolute
+    # path, which produces absolute scorer keys for this call.
+    fx.write("target.py", _importer(["dep1", "dep2", "dep3", "dep4", "dep5"]))
+    absolute_scorer = fx.scorer()  # CouplingScorer(tmp_path) -- absolute keys
+    absolute_request = fx.path("target.py")  # an absolute path string
+
+    exit_code = fx.ratchet().rebaseline_files(
+        absolute_scorer,
+        [absolute_request],
+        _REASON,
+    )
+    assert exit_code == 0
+
+    baseline = fx.baseline()
+    # (a) the existing repo-relative entry -- the one check() reads -- was
+    # UPDATED, not left alone alongside a second, absolute-keyed entry.
+    assert baseline["target.py"]["efferent_coupling"] == 5
+    assert absolute_request not in baseline  # no duplicate absolute key
+    assert len(baseline) == len(relative_baseline)  # no new key was minted
+
+    # (b) a subsequent --check for target.py now PASSES -- the bless
+    # actually unblocked it, not merely reported success. No git repo
+    # backs tmp_path, so _git_touched_files resolves to None and check()
+    # falls back to treating every scored file as touched (the documented
+    # "fail toward a broader check" behavior) -- exactly what is needed
+    # here to re-examine target.py without a git history to diff.
+    check_exit = fx.ratchet().check(CouplingScorer(Path()), base_ref="HEAD~1")
+    assert check_exit == 0
 
 
 def test_unchanged_file_still_gets_an_audit_entry(tmp_path: Path) -> None:
