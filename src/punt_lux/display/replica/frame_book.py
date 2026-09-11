@@ -22,8 +22,7 @@ if TYPE_CHECKING:
 
 __all__ = ["FrameBook"]
 
-# A content write's own-Hub default; production dispatch always resolves
-# and passes the sender's real HubId.
+# A content write's own-Hub default; production always resolves the real HubId.
 _NO_HUB = HubId.stub()
 
 
@@ -76,9 +75,11 @@ class FrameBook:
             return None
         return self._frames.get(HubScopedKey(key.hub, frame_id))
 
-    def scene_to_frame_entries(self) -> Iterator[tuple[HubScopedKey, str]]:
-        """Yield every scene->frame entry with its full Hub-scoped key."""
-        return self._scene_index.entries()
+    def scene_to_frame_for_hub(self, hub: HubId) -> Iterator[tuple[str, str]]:
+        return self._scene_index.for_hub(hub)
+
+    def scene_hubs(self) -> frozenset[HubId]:
+        return self._scene_index.hubs()
 
     def framed_scenes(self) -> Iterator[SceneMessage]:
         """Yield every scene held by any frame."""

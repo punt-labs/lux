@@ -26,6 +26,7 @@ from punt_lux.protocol import (
 
 _HUB_A = HubId("hub-a.invalid", 1)
 _HUB_B = HubId("hub-b.invalid", 2)
+_HUB_C = HubId("hub-c.invalid", 3)
 
 if TYPE_CHECKING:
     import pytest
@@ -259,9 +260,15 @@ class TestHandleConnect:
         assert not any("test-kind connect" in r.message for r in caplog.records)
 
 
-def _identify_as_hub(listener: SocketListener, fd: int) -> None:
-    """Register ``fd`` as the hub identity a manifest must come from."""
-    listener.register_client_identity(fd, kind="hub", name="lux-mcp", connect_time=0.0)
+def _identify_as_hub(listener: SocketListener, sock: MagicMock) -> None:
+    """Register ``sock`` as an identified, connected ``kind="hub"`` fd --
+    live, not merely identified, so :meth:`HubReconciliation._live_hubs`
+    (which walks ``listener.clients``) sees it exactly as a real connect
+    would leave it."""
+    listener.register_client_identity(
+        sock.fileno(), kind="hub", name="lux-mcp", connect_time=0.0
+    )
+    listener.clients.append(sock)
 
 
 class TestHandleManifest:
@@ -273,7 +280,7 @@ class TestHandleManifest:
         scenes.handle_framed_scene(_make_scene("s1", "f1"), owner_fd=10)
         reconciliation = _make_reconciliation(listener, scenes)
         sock = _mock_sock(20)
-        _identify_as_hub(listener, 20)
+        _identify_as_hub(listener, sock)
 
         reconciliation.handle_manifest(sock, HubManifestMessage(scene_ids=()))
 
@@ -286,7 +293,7 @@ class TestHandleManifest:
         scenes.handle_framed_scene(_make_scene("s1", "f1"), owner_fd=10)
         reconciliation = _make_reconciliation(listener, scenes)
         sock = _mock_sock(20)
-        _identify_as_hub(listener, 20)
+        _identify_as_hub(listener, sock)
 
         reconciliation.handle_manifest(sock, HubManifestMessage(scene_ids=("s1",)))
 
@@ -304,7 +311,7 @@ class TestHandleManifest:
         scenes.handle_framed_scene(_make_scene("s1", "f1"), owner_fd=20)
         reconciliation = _make_reconciliation(listener, scenes)
         sock = _mock_sock(20)
-        _identify_as_hub(listener, 20)
+        _identify_as_hub(listener, sock)
 
         reconciliation.handle_manifest(sock, HubManifestMessage(scene_ids=()))
 
@@ -335,6 +342,34 @@ class TestHandleManifest:
         assert "fB" in scenes.frames
         assert "fA" not in scenes.frames  # Hub A's own was purged
 
+    def test_own_purge_live_survival_and_orphan_sweep_compose_end_to_end(self) -> None:
+        """The full manifest-application path, in one reconciliation: Hub
+        A's own omitted scene is purged, Hub B's still-live scene survives
+        untouched, and Hub C's scene -- never connected here, an orphan --
+        is swept, confirming the manifest applies strictly within the
+        sender's own Hub scope."""
+        listener = _make_listener()
+        scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
+        scenes.handle_framed_scene(_make_scene("s1", "fA"), owner_fd=10, hub=_HUB_A)
+        scenes.handle_framed_scene(_make_scene("s1", "fB"), owner_fd=11, hub=_HUB_B)
+        scenes.handle_framed_scene(_make_scene("s1", "fC"), owner_fd=12, hub=_HUB_C)
+        reconciliation = _make_reconciliation(listener, scenes)
+        sock_a = _mock_sock(10)
+        sock_b = _mock_sock(11)
+        listener.register_client_identity(
+            10, kind="hub", name="lux-mcp", connect_time=0.0, hub_id=_HUB_A
+        )
+        listener.register_client_identity(
+            11, kind="hub", name="lux-mcp", connect_time=0.0, hub_id=_HUB_B
+        )
+        listener._clients.extend([sock_a, sock_b])  # Hub C never connects -- an orphan
+
+        reconciliation.handle_manifest(sock_a, HubManifestMessage(scene_ids=()))
+
+        assert "fA" not in scenes.frames  # A's own omitted scene, purged
+        assert "fB" in scenes.frames  # B's still-live scene, untouched
+        assert "fC" not in scenes.frames  # C's orphaned scene, swept
+
     def test_a_mixed_frame_only_loses_its_ghost_scene(self) -> None:
         listener = _make_listener()
         scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
@@ -342,7 +377,7 @@ class TestHandleManifest:
         scenes.handle_framed_scene(_make_scene("s2", "f1"), owner_fd=10)
         reconciliation = _make_reconciliation(listener, scenes)
         sock = _mock_sock(20)
-        _identify_as_hub(listener, 20)
+        _identify_as_hub(listener, sock)
 
         reconciliation.handle_manifest(sock, HubManifestMessage(scene_ids=("s1",)))
 

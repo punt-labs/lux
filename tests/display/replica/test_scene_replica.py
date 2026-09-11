@@ -19,6 +19,7 @@ from punt_lux.protocol import (
 
 _HUB_A = HubId("hub-a.invalid", 1)
 _HUB_B = HubId("hub-b.invalid", 2)
+_HUB_C = HubId("hub-c.invalid", 3)
 
 
 def _make_scene(
@@ -1116,6 +1117,30 @@ class TestScenesToPurge:
 
         # The orphan's own key -- Hub A, never the reconciling Hub B.
         assert candidates == [(HubScopedKey(_HUB_A, "f1"), "s1")]
+
+    def test_orphan_sweep_ignores_an_unrelated_hubs_coincidentally_matching_manifest(
+        self,
+    ) -> None:
+        """The two policies must not conflate: an orphan (dead-Hub) scene is
+        swept unconditionally, never shielded merely because its local id
+        happens to also appear in a live, unrelated Hub's own manifest."""
+        mgr, _ = _make_manager()
+        # Hub A (about to go dead) owns "s1" in frame "fA".
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s1", frame_id="fA"), owner_fd=10, hub=_HUB_A
+        )
+        # Hub C (live) independently owns its own, unrelated "s1" in frame "fC".
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s1", frame_id="fC"), owner_fd=12, hub=_HUB_C
+        )
+
+        # Hub C reconciles, naming its own "s1" -- A is no longer live.
+        candidates = mgr.scenes_to_purge(_HUB_C, frozenset({"s1"}), frozenset({_HUB_C}))
+
+        # A's orphan is swept regardless of C's manifest content.
+        assert (HubScopedKey(_HUB_A, "fA"), "s1") in candidates
+        # C's own manifested scene survives.
+        assert (HubScopedKey(_HUB_C, "fC"), "s1") not in candidates
 
     def test_widget_state_is_discarded_only_for_the_purged_scene(self) -> None:
         mgr, _ = _make_manager()
