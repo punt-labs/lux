@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from punt_lux.display.replica.frame_book import FrameBook
 from punt_lux.display.replica.stale_ids import StaleIds
+from punt_lux.domain.hub.hub_id import HubId
+from punt_lux.domain.hub.hub_scoped_key import HubScopedKey
 from punt_lux.protocol import (
     ButtonElement,
     SceneMessage,
@@ -44,7 +46,7 @@ def _install(book: FrameBook, msg: SceneMessage, frame_id: str) -> None:
     frame = book.ensure(msg, frame_id, owner_fd=10)
     frame.scenes[msg.id] = msg
     frame.scene_order.append(msg.id)
-    book.set_frame(msg.id, frame_id)
+    book.set_frame(HubScopedKey(HubId.stub(), msg.id), frame_id)
 
 
 class TestInTree:

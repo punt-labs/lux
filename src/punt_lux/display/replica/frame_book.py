@@ -1,12 +1,12 @@
 """FrameBook — the display's frame collection and its scene placement maps.
 
-The frame-management half of the scene graph, split out of ``SceneReplica`` so
-that class keeps to per-scene widget state and stale-id notification.
-``FrameBook`` owns the frames themselves, which frame each scene
-lives in, and which client owns each framed scene, plus the frame's cascade
-placement. It knows nothing about widget state or stale-id notification — those
-are cross-cutting concerns the ``SceneReplica`` layers on top, reacting to the
-frames this book reports as created, placed, or removed.
+Split out of ``SceneReplica``, which keeps to per-scene widget state and
+stale-id notification. The scene-placement maps compose
+:class:`HubScopedStore <punt_lux.domain.hub.hub_scoped_store.HubScopedStore>`
+(`system.tex` "Aggregated Storage") so two Hubs minting the identical scene
+id can never clobber one another's entry -- ``set_frame``/``record_owner``
+are Hub-scoped; removal and the flat read views stay keyed by the bare scene
+id, since a Display-local gesture (a tab close) has no live Hub to supply.
 """
 
 from __future__ import annotations
@@ -18,6 +18,8 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.display.replica.focus_request import FocusRequest
 from punt_lux.display.replica.frame import Frame
 from punt_lux.display.replica.frame_visibility import FrameVisibility
+from punt_lux.domain.hub.hub_scoped_key import HubScopedKey
+from punt_lux.domain.hub.hub_scoped_store import HubScopedStore
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
@@ -33,16 +35,16 @@ class FrameBook:
 
     _frames: dict[str, Frame]
     _focus: FocusRequest
-    _scene_to_frame: dict[str, str]
-    _scene_to_owner: dict[str, int]
+    _scene_to_frame: HubScopedStore[str]
+    _scene_to_owner: HubScopedStore[int]
     __slots__ = ("_focus", "_frames", "_scene_to_frame", "_scene_to_owner")
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
         self._frames = {}
         self._focus = FocusRequest()
-        self._scene_to_frame = {}
-        self._scene_to_owner = {}
+        self._scene_to_frame = HubScopedStore()
+        self._scene_to_owner = HubScopedStore()
         return self
 
     # -- read-only access for the rendering layer ---------------------------
@@ -59,17 +61,21 @@ class FrameBook:
 
     @property
     def scene_to_frame(self) -> Mapping[str, str]:
-        """Return a read-only view of scene id → the frame holding it."""
-        return MappingProxyType(self._scene_to_frame)
+        """Return a flat scene id → frame id view, merged across every Hub.
+
+        A collision resolves last-write-wins here, per
+        :meth:`HubScopedStore.flatten`'s own contract.
+        """
+        return MappingProxyType(self._scene_to_frame.flatten())
 
     @property
     def scene_to_owner(self) -> Mapping[str, int]:
-        """Return a read-only view of framed scene id → its owning client fd."""
-        return MappingProxyType(self._scene_to_owner)
+        """Return a flat scene id → owner fd view, merged across every Hub."""
+        return MappingProxyType(self._scene_to_owner.flatten())
 
     def frame_of_scene(self, scene_id: str) -> Frame | None:
         """Return the frame a scene lives in, or ``None`` if no frame holds it."""
-        frame_id = self._scene_to_frame.get(scene_id)
+        frame_id = self.scene_to_frame.get(scene_id)
         return self._frames.get(frame_id) if frame_id is not None else None
 
     def framed_scenes(self) -> Iterator[SceneMessage]:
@@ -197,29 +203,23 @@ class FrameBook:
             self._reassign_within(frame, departed_fd, orphan_fd)
 
     def _reassign_within(self, frame: Frame, departed_fd: int, orphan_fd: int) -> None:
-        """Pass every scene ``departed_fd`` owned in ``frame`` to one surviving heir.
-
-        The heir is settled once for the frame rather than per scene: the departed
-        fd has already left ``owner_fds``, so every scene it held in this frame
-        goes to the same survivor, and to ``orphan_fd`` when there is none.
-        """
+        """Pass every scene ``departed_fd`` owned in ``frame`` to one heir."""
         heir = next(iter(frame.owner_fds), orphan_fd)
-        for scene_id in frame.scene_order:
-            if self._scene_to_owner.get(scene_id) == departed_fd:
-                self._scene_to_owner[scene_id] = heir
+        scenes = frozenset(frame.scene_order)
+        self._scene_to_owner.reassign_value(departed_fd, heir, scenes)
 
-    def set_frame(self, scene_id: str, frame_id: str) -> None:
-        """Record which frame now holds ``scene_id``."""
-        self._scene_to_frame[scene_id] = frame_id
+    def set_frame(self, key: HubScopedKey, frame_id: str) -> None:
+        """Record which Hub-scoped scene now holds ``frame_id``."""
+        self._scene_to_frame.put(key, frame_id)
 
-    def record_owner(self, scene_id: str, owner_fd: int) -> None:
-        """Record the owning client fd for a framed scene."""
-        self._scene_to_owner[scene_id] = owner_fd
+    def record_owner(self, key: HubScopedKey, owner_fd: int) -> None:
+        """Record the owning client fd for a Hub-scoped framed scene."""
+        self._scene_to_owner.put(key, owner_fd)
 
     def forget_scene(self, scene_id: str) -> None:
-        """Drop a scene's frame and owner mappings."""
-        self._scene_to_frame.pop(scene_id, None)
-        self._scene_to_owner.pop(scene_id, None)
+        """Drop a scene's frame and owner mappings, across every Hub."""
+        self._scene_to_frame.remove_all(scene_id)
+        self._scene_to_owner.remove_all(scene_id)
 
     def pop_frame(self, frame_id: str) -> Frame | None:
         """Remove and return a frame, clearing focus if it held it."""
@@ -232,8 +232,8 @@ class FrameBook:
         """Drop every frame and its scene placement maps."""
         self._frames.clear()
         self._focus.clear()
-        self._scene_to_frame.clear()
-        self._scene_to_owner.clear()
+        self._scene_to_frame = HubScopedStore()
+        self._scene_to_owner = HubScopedStore()
 
     def _next_cascade_index(self) -> int:
         """Return the smallest cascade index no live frame is using."""

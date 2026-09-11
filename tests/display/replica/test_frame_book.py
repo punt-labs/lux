@@ -5,7 +5,16 @@ from __future__ import annotations
 import pytest
 
 from punt_lux.display.replica.frame_book import FrameBook
+from punt_lux.domain.hub.hub_id import HubId
+from punt_lux.domain.hub.hub_scoped_key import HubScopedKey
 from punt_lux.protocol import SceneMessage, TextElement
+
+_HUB_A = HubId("pembroke", 1)
+_HUB_B = HubId("okinos", 2)
+
+
+def _key(scene_id: str, hub: HubId = _HUB_A) -> HubScopedKey:
+    return HubScopedKey(hub, scene_id)
 
 
 def _scene(
@@ -81,8 +90,8 @@ class TestPlacementMaps:
     def test_set_frame_and_record_owner_then_forget(self) -> None:
         book = FrameBook()
         book.ensure(_scene(), "f1", owner_fd=10)
-        book.set_frame("s1", "f1")
-        book.record_owner("s1", 10)
+        book.set_frame(_key("s1"), "f1")
+        book.record_owner(_key("s1"), 10)
         assert book.scene_to_frame["s1"] == "f1"
         assert book.scene_to_owner["s1"] == 10
         assert book.frame_of_scene("s1") is book.frames["f1"]
@@ -94,6 +103,36 @@ class TestPlacementMaps:
 
     def test_frame_of_scene_is_none_for_unknown_scene(self) -> None:
         assert FrameBook().frame_of_scene("nope") is None
+
+    def test_two_hubs_naming_the_same_scene_id_do_not_raise(self) -> None:
+        """Writing the identical local scene id under two Hubs is representable,
+        not a clobber -- the underlying-store proof lives in
+        ``test_hub_scoped_store.py``'s ``TestCollisionSafety``; this proves the
+        wiring accepts two distinct ``hub`` values for one local id."""
+        book = FrameBook()
+        book.ensure(_scene(), "f1", owner_fd=10)
+        book.ensure(_scene(), "f2", owner_fd=11)
+
+        book.set_frame(_key("s1"), "f1")
+        book.record_owner(_key("s1"), 10)
+        book.set_frame(_key("s1", _HUB_B), "f2")
+        book.record_owner(_key("s1", _HUB_B), 11)
+
+        # The flat view resolves last-write-wins on a genuine collision (the
+        # documented caveat), but neither write raised or was silently lost.
+        assert book.scene_to_frame["s1"] in {"f1", "f2"}
+        assert book.scene_to_owner["s1"] in {10, 11}
+
+    def test_forgetting_a_scene_drops_it_for_every_hub_that_named_it(self) -> None:
+        book = FrameBook()
+        book.ensure(_scene(), "f1", owner_fd=10)
+        book.ensure(_scene(), "f2", owner_fd=11)
+        book.set_frame(_key("s1"), "f1")
+        book.set_frame(_key("s1", _HUB_B), "f2")
+
+        book.forget_scene("s1")
+
+        assert "s1" not in book.scene_to_frame
 
 
 class TestPopFrame:
@@ -132,8 +171,8 @@ class TestFramedScenesAndClear:
     def test_clear_drops_everything(self) -> None:
         book = FrameBook()
         book.ensure(_scene(), "f1", owner_fd=10)
-        book.set_frame("s1", "f1")
-        book.record_owner("s1", 10)
+        book.set_frame(_key("s1"), "f1")
+        book.record_owner(_key("s1"), 10)
         book.request_focus("f1")
         book.clear()
         assert not book.frames
@@ -250,8 +289,8 @@ class TestClose:
         """The user shut a window; that says nothing about what it holds."""
         book = FrameBook()
         book.ensure(_scene(), "f1", owner_fd=10)
-        book.set_frame("s1", "f1")
-        book.record_owner("s1", 10)
+        book.set_frame(_key("s1"), "f1")
+        book.record_owner(_key("s1"), 10)
 
         book.close("f1")
 
@@ -323,8 +362,8 @@ class TestReassignScenesOf:
         """Install a framed scene owned by ``owner_fd`` in frame ``f1``."""
         frame = book.ensure(_scene(scene_id=scene_id), "f1", owner_fd=owner_fd)
         frame.scene_order.append(scene_id)
-        book.set_frame(scene_id, "f1")
-        book.record_owner(scene_id, owner_fd)
+        book.set_frame(_key(scene_id), "f1")
+        book.record_owner(_key(scene_id), owner_fd)
 
     def test_transfers_to_a_surviving_co_owner(self) -> None:
         book = FrameBook()
@@ -365,8 +404,8 @@ class TestReadOnlyViews:
 
     def test_scene_maps_are_read_only(self) -> None:
         book = FrameBook()
-        book.set_frame("s1", "f1")
-        book.record_owner("s1", 10)
+        book.set_frame(_key("s1"), "f1")
+        book.record_owner(_key("s1"), 10)
         with pytest.raises(TypeError):
             book.scene_to_frame["s2"] = "f9"  # type: ignore[index]
         with pytest.raises(TypeError):
