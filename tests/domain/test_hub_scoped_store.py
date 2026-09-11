@@ -166,3 +166,115 @@ class TestDropHub:
     def test_a_hub_with_no_entries_drops_nothing(self) -> None:
         store: HubScopedStore[str] = HubScopedStore()
         assert store.drop_hub(_HUB_A) == []
+
+
+class TestReassignValue:
+    """The ownership-transfer primitive a departed client's co-owned scenes
+    reassign through (``FrameBook.reassign_scenes_of``). Collision safety here
+    is sharper than most: the entries being told apart share not just the
+    local id but the *value* being reassigned away from, so a hub-blind
+    implementation would silently reassign a second Hub's identically-placed
+    entry too."""
+
+    def test_reassigns_every_matching_entry_the_hub_owns(self) -> None:
+        store: HubScopedStore[str] = HubScopedStore()
+        store.put(HubScopedKey(_HUB_A, "s1"), "old")
+        store.put(HubScopedKey(_HUB_A, "s2"), "old")
+
+        store.reassign_value(_HUB_A, "old", "new", frozenset({"s1", "s2"}))
+
+        assert store.get(HubScopedKey(_HUB_A, "s1")) == "new"
+        assert store.get(HubScopedKey(_HUB_A, "s2")) == "new"
+
+    def test_never_touches_a_second_hubs_identically_local_and_valued_entry(
+        self,
+    ) -> None:
+        """The collision this method exists to close: Hub B's entry shares the
+        same local id *and* the same old value, yet a reassignment scoped to
+        Hub A must leave it untouched."""
+        store: HubScopedStore[str] = HubScopedStore()
+        store.put(HubScopedKey(_HUB_A, "s1"), "old")
+        store.put(HubScopedKey(_HUB_B, "s1"), "old")
+
+        store.reassign_value(_HUB_A, "old", "new", frozenset({"s1"}))
+
+        assert store.get(HubScopedKey(_HUB_A, "s1")) == "new"
+        assert store.get(HubScopedKey(_HUB_B, "s1")) == "old"
+
+    def test_respects_the_locals_filter(self) -> None:
+        store: HubScopedStore[str] = HubScopedStore()
+        store.put(HubScopedKey(_HUB_A, "s1"), "old")
+        store.put(HubScopedKey(_HUB_A, "s2"), "old")
+
+        store.reassign_value(_HUB_A, "old", "new", frozenset({"s1"}))
+
+        assert store.get(HubScopedKey(_HUB_A, "s1")) == "new"
+        assert store.get(HubScopedKey(_HUB_A, "s2")) == "old"
+
+    def test_leaves_an_entry_whose_value_does_not_match_old_untouched(self) -> None:
+        store: HubScopedStore[str] = HubScopedStore()
+        store.put(HubScopedKey(_HUB_A, "s1"), "keep-me")
+
+        store.reassign_value(_HUB_A, "old", "new", frozenset({"s1"}))
+
+        assert store.get(HubScopedKey(_HUB_A, "s1")) == "keep-me"
+
+
+class TestRemoveMatching:
+    """The collision-safe whole-value removal a single scene's placement
+    entry is dropped through (:meth:`forget_scene_from`'s underlying store
+    op)."""
+
+    def test_removes_the_entry_with_matching_local_and_value(self) -> None:
+        store: HubScopedStore[str] = HubScopedStore()
+        store.put(HubScopedKey(_HUB_A, "s1"), "frame-a1")
+
+        removed = store.remove_matching("s1", "frame-a1")
+
+        assert removed == [HubScopedKey(_HUB_A, "s1")]
+        assert store.get(HubScopedKey(_HUB_A, "s1")) is None
+
+    def test_never_touches_a_second_hubs_identically_named_entry(self) -> None:
+        """Two Hubs both place local id ``s1`` at frame ``f1``; removing the
+        match for value ``f2`` (which only Hub A's entry now holds) must
+        leave Hub B's identically-named, identically-valued-at-f1 entry
+        alone -- proven by targeting a value only Hub A holds."""
+        store: HubScopedStore[str] = HubScopedStore()
+        store.put(HubScopedKey(_HUB_A, "s1"), "f2")
+        store.put(HubScopedKey(_HUB_B, "s1"), "f1")
+
+        store.remove_matching("s1", "f2")
+
+        assert store.get(HubScopedKey(_HUB_A, "s1")) is None
+        assert store.get(HubScopedKey(_HUB_B, "s1")) == "f1"
+
+
+class TestRemoveMatchingHubValue:
+    """The whole-frame collision-safe removal :meth:`forget_scenes_of_frame`
+    is built on -- scoped by owning Hub, not merely by value, so a second
+    Hub's identically-valued entries are never candidates."""
+
+    def test_removes_every_entry_the_hub_owns_with_the_matching_value(self) -> None:
+        store: HubScopedStore[str] = HubScopedStore()
+        store.put(HubScopedKey(_HUB_A, "s1"), "f1")
+        store.put(HubScopedKey(_HUB_A, "s2"), "f1")
+
+        removed = store.remove_matching_hub_value(_HUB_A, "f1")
+
+        assert sorted(k.local for k in removed) == ["s1", "s2"]
+        assert store.get(HubScopedKey(_HUB_A, "s1")) is None
+        assert store.get(HubScopedKey(_HUB_A, "s2")) is None
+
+    def test_never_touches_a_second_hubs_identically_named_and_valued_entry(
+        self,
+    ) -> None:
+        """The collision this method exists to close: Hub B names the same
+        local id *and* points at the same value (its own identically-id'd
+        frame) as Hub A -- a value-only match would remove both."""
+        store: HubScopedStore[str] = HubScopedStore()
+        store.put(HubScopedKey(_HUB_A, "s1"), "f1")
+        store.put(HubScopedKey(_HUB_B, "s1"), "f1")
+
+        store.remove_matching_hub_value(_HUB_A, "f1")
+
+        assert store.get(HubScopedKey(_HUB_B, "s1")) == "f1"
