@@ -30,7 +30,9 @@ class Options:
     threshold: bool
     audit_completeness: bool
     relax: str | None
+    rebaseline_files: tuple[str, ...] | None
     justify: str
+    reason: str
     base_ref: str | None
     require_base: bool
     allow_no_improvement: bool
@@ -53,13 +55,22 @@ class Options:
             threshold=bool(ns.threshold),
             audit_completeness=bool(ns.audit_completeness),
             relax=ns.relax,
+            rebaseline_files=cls._split_paths(ns.rebaseline_files),
             justify=ns.justify or "",
+            reason=ns.reason or "",
             base_ref=ns.base_ref,
             require_base=bool(ns.require_base),
             allow_no_improvement=bool(ns.allow_no_improvement),
             allow_ci_write=bool(ns.allow_ci_write),
             source=ns.source,
         )
+
+    @staticmethod
+    def _split_paths(raw: str | None) -> tuple[str, ...] | None:
+        """Split ``--rebaseline-files``' comma-joined value, or ``None`` if absent."""
+        if raw is None:
+            return None
+        return tuple(p.strip() for p in raw.split(",") if p.strip())
 
     @staticmethod
     def _build_parser() -> argparse.ArgumentParser:
@@ -79,12 +90,20 @@ class Options:
             "--audit-completeness", action="store_true", help="whole-tree completeness"
         )
         action.add_argument("--relax", metavar="FILE", help="relax one file's baseline")
+        action.add_argument(
+            "--rebaseline-files",
+            metavar="PATH[,PATH...]",
+            help="DES-097: bounded scoped bless of named files, --reason required",
+        )
         # --log and --json are distinct views, not modifiers: each selects the
         # operation on its own, so they join the exclusive group rather than be
         # silently ignored when combined with another action.
         action.add_argument("--log", action="store_true", help="show audit history")
         action.add_argument("--json", action="store_true", help="emit JSON scores")
         parser.add_argument("--justify", default="", help="justification for --relax")
+        parser.add_argument(
+            "--reason", default="", help="justification for --rebaseline-files"
+        )
         parser.add_argument("--base-ref", metavar="REF", help="comparison base commit")
         parser.add_argument(
             "--require-base", action="store_true", help="fail if base unresolvable"
@@ -119,6 +138,9 @@ class Cli:
 
     def run(self) -> int:
         """Execute the requested operation and return its exit code."""
+        guard = self._rebaseline_files_guard()
+        if guard is not None:
+            return self._emit(guard)
         if not self._opts.src.exists():
             return self._emit(Outcome.failed(f"Not found: {self._opts.src}"))
         scorer = Scorer(self._opts.src, self._root)
@@ -128,6 +150,24 @@ class Cli:
         except (GitError, AuditError, BaselineError) as exc:
             outcome = Outcome.failed(f"FAIL: {exc}")
         return self._emit(outcome)
+
+    def _rebaseline_files_guard(self) -> Outcome | None:
+        """Validate ``--rebaseline-files``' shape and ``--reason`` before scoring.
+
+        A missing/blank ``--reason``, or an empty path list, is a CLI
+        contract violation, not a scoring outcome -- it must fail before the
+        target is even inspected, let alone scored (before ``src.exists()``
+        and before ``Scorer`` is constructed), mirroring the coupling
+        ratchet's ``--rebaseline-files`` (DES-096) so a missing reason never
+        pays for a directory walk.
+        """
+        if self._opts.rebaseline_files is None:
+            return None
+        if not self._opts.rebaseline_files:
+            return Outcome.failed("FAIL: --rebaseline-files requires at least one path")
+        if not self._opts.reason.strip():
+            return Outcome.failed("FAIL: --rebaseline-files requires --reason <text>")
+        return None
 
     @staticmethod
     def _emit(outcome: Outcome) -> int:
@@ -159,6 +199,14 @@ class Cli:
                 scorer,
                 opts.relax,
                 justify=opts.justify,
+                allow_ci_write=opts.allow_ci_write,
+                source=opts.source,
+            )
+        if opts.rebaseline_files is not None:
+            return writer.rebaseline_files(
+                scorer,
+                list(opts.rebaseline_files),
+                reason=opts.reason,
                 allow_ci_write=opts.allow_ci_write,
                 source=opts.source,
             )
