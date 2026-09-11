@@ -72,6 +72,7 @@ from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
+    from punt_lux.domain.identity import HubId
     from punt_lux.protocol import Message
 
 logger = logging.getLogger(__name__)
@@ -157,7 +158,7 @@ class RenderLoop:
                 get_frames=lambda: self._scenes.frames,
                 on_clear_all=self._clear_all,
                 on_fit_all=self._request_fit_all,
-                on_raise_frame=self._raise_frame,
+                on_raise_frame=self._raise_frame_unscoped,
                 chrome=WindowChrome(),
             ),
         )
@@ -292,8 +293,6 @@ class RenderLoop:
                     return p
             return None
 
-        merge: list[str] = []
-
         if platform.system() == "Darwin":
             primary = _first_existing(
                 "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
@@ -301,16 +300,12 @@ class RenderLoop:
             )
             # Apple Symbols fills gaps (math angle brackets U+27E8/E9, etc.)
             sym = _first_existing("/System/Library/Fonts/Apple Symbols.ttf")
-            if sym:
-                merge.append(sym)
             # STIX Two Math covers Mathematical Alphanumeric Symbols
             # (U+1D400-1D7FF) -- needed for Z notation double-struck letters
             math = _first_existing(
                 "/System/Library/Fonts/Supplemental/STIXTwoMath.otf",
                 "/Library/Fonts/STIXTwoMath.otf",
             )
-            if math:
-                merge.append(math)
         else:
             # Linux -- DejaVu has good symbol coverage; Noto as fallback
             primary = _first_existing(
@@ -325,17 +320,14 @@ class RenderLoop:
                 "/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf",
                 "/usr/share/fonts/noto/NotoSansSymbols2-Regular.ttf",
             )
-            if sym:
-                merge.append(sym)
             # Noto Sans Math covers Mathematical Alphanumeric Symbols
             # (U+1D400-1D7FF) -- needed for Z notation double-struck letters
             math = _first_existing(
                 "/usr/share/fonts/truetype/noto/NotoSansMath-Regular.ttf",
                 "/usr/share/fonts/noto/NotoSansMath-Regular.ttf",
             )
-            if math:
-                merge.append(math)
 
+        merge = [font for font in (sym, math) if font is not None]
         return primary, merge
 
     def _load_fonts(self) -> None:
@@ -539,13 +531,11 @@ class RenderLoop:
         self._scenes.dispose_all_frames()
         self._handle_clear()
 
-    def _raise_frame(self, frame_id: str) -> None:
-        """Callback for MenuReplica: bring one closed frame back on screen.
+    def _raise_frame(self, frame_id: str, hub: HubId) -> None:
+        """Raise a replicated menu's frame in its owning Hub's scope."""
+        self._scenes.raise_frame(frame_id, hub)
 
-        A menu entry has no use for whether the frame was held — it was composed
-        from the frames the display holds — so the answer the query surface reads
-        is dropped here.
-        """
+    def _raise_frame_unscoped(self, frame_id: str) -> None:
         self._scenes.raise_frame(frame_id)
 
     def _request_fit_all(self) -> None:
@@ -737,8 +727,13 @@ class RenderLoop:
         ``RemoteEventHandlerInvocation`` to the Hub, where the real handler
         fires. This method is the socket-send path the ``remote_dispatch``
         closure captures.
+
+        A menu-sourced event already carries its own routing hint
+        (``hub_token``) and no scene -- stamping ``_current_scene_id`` onto it
+        would make it look scene-owned and defeat that routing (W6), so the
+        stamp is skipped whenever ``hub_token`` is set.
         """
-        if event.scene_id is None:
+        if event.scene_id is None and event.hub_token is None:
             event = dataclasses.replace(event, scene_id=self._current_scene_id)
         logger.debug(
             "_emit_event queued element_id=%s action=%s scene_id=%s",
@@ -1089,10 +1084,7 @@ class RenderLoop:
             )
 
     def _flush_events(self) -> None:
-        """Deliver queued interactions within one frame budget; hold the rest.
-
-        New join the buffer; aged expire and compensate; the unsent remainder holds.
-        """
+        """Deliver queued interactions within one frame budget; hold the rest."""
         if not self._event_queue and self._pending.is_empty:
             return
         self._record_queued_events()
@@ -1101,7 +1093,12 @@ class RenderLoop:
         self._event_queue.clear()
         expired = self._pending.expire(now)
         if self._socket_listener.clients:
-            self._pending.discard_prefix(
-                self._interaction_delivery.deliver(self._pending.pending_events())
+            removed, dropped = self._interaction_delivery.deliver(
+                self._pending.pending_events()
             )
+            self._pending.discard_delivered(removed)
+            if dropped:
+                self._interaction_delivery.compensate_evicted(
+                    self._pending.compensate_dropped(dropped)
+                )
         self._interaction_delivery.compensate_evicted(expired)

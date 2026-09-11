@@ -64,6 +64,12 @@ def _mock_sock_fd(fd: int) -> MagicMock:
     return sock
 
 
+def _install_scene_owner(server: RenderLoop, scene_id: str, owner_fd: int) -> None:
+    """Give ``scene_id`` a real owner, so scene-routed delivery can resolve it --
+    the display never falls back to a broadcast once a scene owner is unknown."""
+    server._scenes.handle_framed_scene(_make_scene(scene_id), owner_fd)
+
+
 def _hub_sock(server: RenderLoop) -> MagicMock:
     """Create a mock socket already identified as ``kind="hub"``.
 
@@ -499,8 +505,8 @@ class TestFlushEvents:
 
         sock.send.assert_not_called()
 
-    def test_flush_broadcasts_non_menu_event(self) -> None:
-        """An event with no scene owner broadcasts to every client."""
+    def test_flush_drops_a_scene_less_hub_less_event(self) -> None:
+        """No scene, no declared Hub: dropped, never broadcast (W6)."""
         server = _make_server()
         sock1 = _mock_sock_fd(10)
         sock2 = _mock_sock_fd(20)
@@ -513,34 +519,38 @@ class TestFlushEvents:
 
         server._flush_events()
 
-        sock1.send.assert_called_once()
-        sock2.send.assert_called_once()
+        sock1.send.assert_not_called()
+        sock2.send.assert_not_called()
 
-    def test_flush_broadcasts_menu_bar_click_with_no_scene(self) -> None:
-        """A menu-bar click carries no scene_id, so it broadcasts to every client.
+    def test_flush_routes_a_menu_click_to_its_declared_hub_only(self) -> None:
+        """A menu-bar click carries the Hub its menu was replicated from, so
+        delivery names that one connection -- W6, never a broadcast."""
+        from punt_lux.domain.identity import HubId
 
-        Menu items are no longer owner-routed: a callback-leaf click reaches
-        luxd, whose fallback handler resolves the leaf back to the owning session.
-        """
         server = _make_server()
         sock1 = _mock_sock_fd(10)
         sock2 = _mock_sock_fd(20)
         server._socket_listener.clients.extend([sock1, sock2])
         server._socket_listener._registry._fd_to_client[10] = sock1
         server._socket_listener._registry._fd_to_client[20] = sock2
+        hub = HubId("voxd-host", 99)
+        server._socket_listener.register_client_identity(
+            10, kind="hub", name="voxd", connect_time=0.0, hub_id=hub
+        )
         server._event_queue.append(
             RemoteEventHandlerInvocation(
                 element_id="voxd\x1fmusic",
                 action="menu",
                 ts=1.0,
                 value={"menu": "voxd", "item": "Music"},
+                hub_token=hub.wire_token,
             )
         )
 
         server._flush_events()
 
         sock1.send.assert_called_once()
-        sock2.send.assert_called_once()
+        sock2.send.assert_not_called()
 
 
 class TestModalDismissRevertOnUndeliverable:
@@ -616,6 +626,7 @@ class TestModalDismissRevertOnUndeliverable:
         sock = _mock_sock_fd(10)
         server._socket_listener.clients.append(sock)
         server._socket_listener._registry._fd_to_client[10] = sock
+        _install_scene_owner(server, "s1", 10)
         server._flush_events()  # client back: the held close is delivered
 
         sock.send.assert_called_once()
@@ -628,12 +639,14 @@ class TestModalDismissRevertOnUndeliverable:
         not be compensated the instant the peer dies -- only on aging out.
         """
         server = _make_server()
-        sock = _mock_sock()
+        sock = _mock_sock_fd(10)
         sock.send.side_effect = OSError("boom")
         server._socket_listener.clients.append(sock)
         from punt_lux.protocol import FrameReader
 
-        server._socket_listener._registry._readers[sock.fileno()] = FrameReader()
+        server._socket_listener._registry._readers[10] = FrameReader()
+        server._socket_listener._registry._fd_to_client[10] = sock
+        _install_scene_owner(server, "s1", 10)
         ws = self._latch_modal(server, "s1", "m1")
         self._queue_modal_closed(server, "s1", "m1")
 
@@ -648,6 +661,7 @@ class TestModalDismissRevertOnUndeliverable:
         sock = _mock_sock_fd(10)
         server._socket_listener.clients.append(sock)
         server._socket_listener._registry._fd_to_client[10] = sock
+        _install_scene_owner(server, "s1", 10)
         ws = self._latch_modal(server, "s1", "m1")
         self._queue_modal_closed(server, "s1", "m1")
 
@@ -691,15 +705,23 @@ class TestFrameSendBudget:
         ) -> tuple[list[object], list[object], list[object]]:
             return ([], [], [])
 
+        from punt_lux.domain.identity import HubId
+
         monkeypatch.setattr("punt_lux.bounded_send.select.select", _never_writable)
         server = _make_server()
         slow = _mock_sock_fd(10)
         slow.send.side_effect = BlockingIOError(errno.EAGAIN, "would block")
         server._socket_listener.clients.append(slow)
         server._socket_listener._registry._fd_to_client[10] = slow
-        for i in range(8):  # eight broadcast clicks queued this frame
+        hub = HubId("slow-host", 1)
+        server._socket_listener.register_client_identity(
+            10, kind="hub", name="slow", connect_time=0.0, hub_id=hub
+        )
+        for i in range(8):  # eight menu clicks, all this Hub's, queued this frame
             server._event_queue.append(
-                RemoteEventHandlerInvocation(element_id=f"b{i}", action="click", ts=1.0)
+                RemoteEventHandlerInvocation(
+                    element_id=f"b{i}", action="click", ts=1.0, hub_token=hub.wire_token
+                )
             )
 
         server._flush_events()
@@ -718,6 +740,7 @@ class TestFrameSendBudget:
         first send, and the undelivered suffix must stay held (a reconnect
         delivers it) rather than being destroyed at the failed send.
         """
+        from punt_lux.domain.identity import HubId
         from punt_lux.protocol import FrameReader
 
         server = _make_server()
@@ -726,9 +749,15 @@ class TestFrameSendBudget:
         server._socket_listener.clients.append(dead)
         server._socket_listener._registry._fd_to_client[10] = dead
         server._socket_listener._registry._readers[10] = FrameReader()
+        hub = HubId("dead-host", 1)
+        server._socket_listener.register_client_identity(
+            10, kind="hub", name="dead", connect_time=0.0, hub_id=hub
+        )
         for i in range(4):
             server._event_queue.append(
-                RemoteEventHandlerInvocation(element_id=f"c{i}", action="click", ts=1.0)
+                RemoteEventHandlerInvocation(
+                    element_id=f"c{i}", action="click", ts=1.0, hub_token=hub.wire_token
+                )
             )
 
         server._flush_events()

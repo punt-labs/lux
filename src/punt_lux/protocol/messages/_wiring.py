@@ -46,10 +46,7 @@ from punt_lux.protocol.messages.observer import (
     register_codecs as _register_observer,
 )
 from punt_lux.protocol.messages.registry import MessageRegistry
-from punt_lux.protocol.messages.remote_invocation import (
-    RemoteEventHandlerInvocation,
-    register_codecs as _register_remote_invocation,
-)
+from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
 from punt_lux.protocol.messages.scene import SceneMessage
 
 __all__ = [
@@ -85,6 +82,7 @@ __all__ = [
 
 _register_scene = SceneMessage.register_codecs
 _register_connect = ConnectMessage.register_codecs
+_register_remote_invocation = RemoteEventHandlerInvocation.register_codecs
 
 
 ClientMessage = (

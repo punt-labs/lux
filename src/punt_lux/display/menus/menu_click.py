@@ -1,11 +1,7 @@
-"""The click-time value types a wire menu threads through activation.
-
-Two things travel together through every level of :meth:`Submenu.from_wire`'s
-recursion: the callbacks a click fires (:class:`MenuHandlers`) and what one
-clickable line reports about itself (:class:`ClickTarget`). Bundling each into
-its own frozen value class keeps every method in that recursion to a handful
-of parameters, rather than threading four-to-six loose arguments by hand.
-"""
+"""The click-time value types a wire menu threads through activation: the
+callbacks a click fires (:class:`MenuHandlers`) and what one clickable line
+reports about itself (:class:`ClickTarget`), bundled so every method in
+:meth:`Submenu.from_wire`'s recursion takes a handful of parameters."""
 
 from __future__ import annotations
 
@@ -15,25 +11,27 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from punt_lux.domain.identity import HubId
     from punt_lux.protocol import RemoteEventHandlerInvocation
 
 __all__ = ["ClickTarget", "MenuHandlers"]
 
 type EmitEvent = Callable[[RemoteEventHandlerInvocation], None]
-type RaiseFrame = Callable[[str], None]
+type RaiseFrame = Callable[[str, HubId], None]
 
 
 @dataclass(frozen=True, slots=True)
 class MenuHandlers:
-    """The two click callbacks every wire entry threads through: emit, raise."""
+    """Click callbacks (emit, raise) plus the owning :class:`HubId` they scope to."""
 
     emit: EmitEvent
     raise_frame: RaiseFrame
+    hub: HubId
 
 
 @dataclass(frozen=True, slots=True)
 class ClickTarget:
-    """What one clickable line reports on activation: its labels, id, and frame."""
+    """What one clickable line reports: its labels, id, and frame."""
 
     menu_label: str
     item_label: str

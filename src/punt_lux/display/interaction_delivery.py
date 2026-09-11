@@ -1,18 +1,11 @@
-"""InteractionDelivery — route queued display interactions back to the Hub.
-
-The display renders a replica and forwards each interaction (a
-``RemoteEventHandlerInvocation``) to the Hub that owns the UI. This collaborator
-owns that outbound leg: it resolves each event's target client (scene owner, else
-broadcast) and sends it under one shared frame deadline, so a slow peer cannot
-freeze the render thread per event. Events past the first it cannot send stay the
-caller's to re-hold, in order; one that later ages out of the buffer takes its
-kind's ``Compensation``, giving up what the display held optimistically for it —
-unless a newer gesture of the same kind is still speaking for that element.
+"""InteractionDelivery — route queued display interactions to the Hub that
+owns each one (scene owner, else declared Hub), never a broadcast. What
+cannot be delivered gives up its display-side optimism via ``Compensation``.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Literal, Self
 
 from punt_lux.display.evicted_compensation import CompensationTable
 from punt_lux.tracing import trace
@@ -27,14 +20,20 @@ if TYPE_CHECKING:
 
 __all__ = ["InteractionDelivery"]
 
+# _deliver_one's outcome: sent; dropped (unroutable -- compensate); deferred
+# (Hub absent this instant, perhaps mid-reconnect -- hold without stalling);
+# blocked (send budget/socket -- stop the line, retry next frame).
+type _SendOutcome = Literal["sent", "dropped", "deferred", "blocked"]
+# deliver's report: events to drop from the buffer, then the unroutable subset.
+type _Events = tuple[RemoteEventHandlerInvocation, ...]
+type _DeliveryReport = tuple[_Events, _Events]
+
 
 class InteractionDelivery:
     """Send queued display interactions to their owning Hub client.
 
-    Stateless across frames — it holds only the collaborators it routes through
-    (the socket server and the scene owner / widget-state lookups). The display
-    owns the event queue and calls :meth:`deliver` then :meth:`compensate_evicted`
-    each flush.
+    Stateless across frames — holds only the collaborators it routes through.
+    The display calls :meth:`deliver` then :meth:`compensate_evicted` each flush.
     """
 
     _socket_listener: SocketListener
@@ -52,69 +51,70 @@ class InteractionDelivery:
         return self
 
     @trace
-    def deliver(self, events: Sequence[RemoteEventHandlerInvocation]) -> int:
-        """Send events in order under the frame's shared send budget; return count sent.
+    def deliver(
+        self, events: Sequence[RemoteEventHandlerInvocation]
+    ) -> _DeliveryReport:
+        """Send events under the frame's budget; return the events to drop and
+        the unroutable subset to compensate. ``blocked`` stops the line (retry
+        next frame); ``deferred`` is skipped and kept (its Hub may be
+        mid-reconnect); ``dropped`` is given up now."""
+        removed: list[RemoteEventHandlerInvocation] = []
+        dropped: list[RemoteEventHandlerInvocation] = []
+        for event in events:
+            match self._deliver_one(event):
+                case "sent":
+                    removed.append(event)
+                case "dropped":
+                    removed.append(event)
+                    dropped.append(event)
+                case "deferred":
+                    continue
+                case "blocked":
+                    break
+        return tuple(removed), tuple(dropped)
 
-        The render loop arms ``SocketListener.set_frame_deadline`` before invoking
-        this method, so every send here shares that one budget with the frame's
-        Acks, Pongs, and query responses — a slow-but-alive peer costs at most one
-        frame budget total, not one per event or one per collaborator. Delivery is
-        a prefix: the moment an event cannot be sent — the budget lapsed, the peer
-        is slow, or its client went — that event and every one after it stay the
-        caller's to re-hold, in their original order.
-        """
-        for index, event in enumerate(events):
-            if not self._deliver_one(event):
-                return index
-        return len(events)
+    def _deliver_one(self, event: RemoteEventHandlerInvocation) -> _SendOutcome:
+        """Resolve one event's target and send it -- never a broadcast."""
+        owner_fd = self._resolve_target(event)
+        if owner_fd is None:
+            return self._unresolved(event)
+        target = self._socket_listener.fd_to_client.get(owner_fd)
+        if target is None:
+            return "blocked"
+        sent = self._socket_listener.send_to_client(target, event)
+        return "sent" if sent else "blocked"
 
-    def _deliver_one(self, event: RemoteEventHandlerInvocation) -> bool:
-        """Send one event to its scene owner or broadcast under the frame budget.
+    @staticmethod
+    def _unresolved(event: RemoteEventHandlerInvocation) -> _SendOutcome:
+        """Classify an event with no live target. A menu event (no scene) whose
+        Hub token did not resolve may be mid-reconnect -- ``deferred``, so the
+        bounded buffer holds it for the reconnect window. Everything else -- a
+        scene gone from the replica, an event naming no target -- is ``dropped``."""
+        if event.scene_id is None and event.hub_token is not None:
+            return "deferred"
+        return "dropped"
 
-        A menu-bar click carries no ``scene_id``, so it broadcasts to every
-        display client — reaching luxd, whose fallback handler resolves the
-        callback leaf back to the owning session.
-        """
-        owner_fd = (
-            self._scenes.scene_to_owner.get(event.scene_id) if event.scene_id else None
-        )
-        if owner_fd is not None:
-            target = self._socket_listener.fd_to_client.get(owner_fd)
-            if target is None:
-                return False
-            return self._socket_listener.send_to_client(target, event)
-        # Broadcast to every client — the list comprehension sends to all before
-        # reducing, so one success never short-circuits the rest (a generator in
-        # ``any`` would stop at the first delivered send and skip the others).
-        sent = [
-            self._socket_listener.send_to_client(client, event)
-            for client in list(self._socket_listener.clients)
-        ]
-        return any(sent)
+    def _resolve_target(self, event: RemoteEventHandlerInvocation) -> int | None:
+        """Return one event's target fd: its scene's owner, else the Hub its
+        ``hub_token`` names -- a menu id resolves only within its own Hub."""
+        if event.scene_id:
+            return self._scenes.scene_to_owner.get(event.scene_id)
+        if event.hub_token is not None:
+            return self._socket_listener.fd_for_hub_token(event.hub_token)
+        return None
 
     def compensate_evicted(self, evicted: Evictions) -> None:
-        """Revert optimistic display state whose interaction never reached the Hub.
-
-        An interaction the buffer evicted (aged or overflowed) never reaches the
-        Hub, so no answer for it will come and the display-side latch it fired
-        optimistically would render forever against an unchanged Hub — a modal
-        held shut, a table row held selected, a header held open. Eviction is a
-        rejection that never got said, so each kind's ``Compensation`` drops what
-        it was holding and the next frame renders the Hub's value.
-
-        Only the compensable evictions are reverted: one a newer gesture of the
-        same kind supersedes is left alone, its latch speaking for that gesture.
-        """
+        """Revert optimistic display state for every interaction the buffer
+        lost (aged, overflowed, or dropped) whose element no newer gesture
+        of the same kind is still speaking for -- the next frame then
+        renders the Hub's own value instead of a rejection that never came."""
         for event in evicted.compensable:
             self._compensate_one(event)
 
     def _compensate_one(self, event: RemoteEventHandlerInvocation) -> None:
-        """Give up what one lost interaction's element was holding optimistically.
-
-        An event with no scene — a menu-bar click — and one whose scene has since
-        gone both leave nothing to unwind: the latch lives in per-scene widget
-        state, so no scene means no latch.
-        """
+        """Give up one lost interaction's optimism. A scene-less event (a
+        menu click) and one whose scene is gone both have no latch to give
+        up: it lives in per-scene widget state, so no scene means none."""
         if event.scene_id is None:
             return
         ws = self._scenes.widget_state_for(event.scene_id)

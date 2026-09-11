@@ -56,10 +56,10 @@ class PendingInteractions:
 
     ``admit`` adds this frame's interactions; ``expire`` evicts the ones that
     aged or overflowed past the bound (the caller compensates what it names); a
-    delivery attempt reads ``pending_events`` and then ``discard_prefix`` removes
-    the ones that landed, leaving the rest held -- with their original ages --
-    for the next frame. Ages are held per event, so a stalled frame cannot make
-    an entry immortal: the very next ``expire`` re-checks it.
+    delivery attempt reads ``pending_events`` and then ``discard_delivered``
+    removes the ones that landed, leaving the rest held -- with their original
+    ages -- for the next frame. Ages are held per event, so a stalled frame
+    cannot make an entry immortal: the very next ``expire`` re-checks it.
     """
 
     _events: deque[_Held]
@@ -78,6 +78,9 @@ class PendingInteractions:
         self._max_count = max_count
         return self
 
+    def __len__(self) -> int:
+        return len(self._events)
+
     @property
     def is_empty(self) -> bool:
         """Whether nothing is currently held."""
@@ -88,15 +91,9 @@ class PendingInteractions:
         self._events.extend(_Held(event, now) for event in new)
 
     def expire(self, now: float) -> Evictions:
-        """Remove interactions aged or overflowed past the bound; split them.
-
-        Checked every flush, so an entry a stalled frame carried past ``max_age``
-        is evicted the next time this runs, not left to live forever. The split
-        against what is still held is taken here rather than left to the caller:
-        a newer gesture is outstanding now even if delivery sends it this frame,
-        and only what is outstanding at eviction distinguishes a lost gesture
-        from a superseded one.
-        """
+        """Remove interactions aged or overflowed past the bound, split
+        against what is still held -- a stalled frame's late entry is caught
+        the next time this runs, never left to live forever."""
         lost = self._evict_aged(now)
         lost.extend(self._evict_overflow())
         evicted = Evictions.of(lost, self.pending_events())
@@ -107,21 +104,26 @@ class PendingInteractions:
         """Return the held interactions in order, for a delivery attempt."""
         return [pending.event for pending in self._events]
 
-    def discard_prefix(self, count: int) -> None:
-        """Drop the first ``count`` interactions -- the prefix a delivery landed."""
-        for _ in range(count):
-            self._events.popleft()
+    def discard_delivered(
+        self, delivered: Iterable[RemoteEventHandlerInvocation]
+    ) -> None:
+        """Drop delivered events by identity; a mid-stream deferred one survives."""
+        consumed = {id(event) for event in delivered}
+        self._discard(lambda event: id(event) in consumed)
 
     def evict_all(self) -> Evictions:
-        """Remove every held interaction — the display was cleared.
-
-        A clear removes the UI the held interactions targeted, so they must not
-        deliver against it later. Nothing is left holding, so every gesture's
-        last eviction is the caller's to compensate.
-        """
+        """Remove every held interaction -- the display was cleared, so none
+        may deliver against it later, and nothing is left holding to speak
+        for any gesture."""
         evicted = Evictions.of((held.event for held in self._events), ())
         self._events.clear()
         return evicted
+
+    def compensate_dropped(
+        self, dropped: Iterable[RemoteEventHandlerInvocation]
+    ) -> Evictions:
+        """Split ``dropped`` against pending; call after ``discard_delivered``."""
+        return Evictions.of(dropped, (held.event for held in self._events))
 
     def discard_elements(self, element_ids: set[str]) -> Evictions:
         """Remove held interactions targeting a now-removed element.

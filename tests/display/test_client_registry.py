@@ -78,6 +78,44 @@ def test_hub_fd_for_distinguishes_two_hub_ids_sharing_the_same_name() -> None:
     assert registry.hub_fd_for(_HUB_B) == 20
 
 
+def test_fd_for_hub_token_finds_the_declaring_hub_connection() -> None:
+    registry = ClientRegistry()
+    registry.identify(10, kind="hub", name="lux-mcp", hub_id=_HUB, connect_time=0.0)
+
+    assert registry.fd_for_hub_token(_HUB.wire_token) == 10
+
+
+def test_fd_for_hub_token_ignores_an_unidentified_fd() -> None:
+    registry = ClientRegistry()
+    registry.register_connection(10, sock=object())  # type: ignore[arg-type]  # test double
+
+    assert registry.fd_for_hub_token(_HUB.wire_token) is None
+
+
+def test_fd_for_hub_token_an_absent_token_is_none() -> None:
+    registry = ClientRegistry()
+
+    assert registry.fd_for_hub_token(_HUB.wire_token) is None
+
+
+def test_fd_for_hub_token_excludes_a_test_connection() -> None:
+    """A ``kind="test"`` probe stands in for no Hub -- never a routable target."""
+    registry = ClientRegistry()
+    registry.identify(10, kind="test", name="probe", hub_id=_HUB, connect_time=0.0)
+
+    assert registry.fd_for_hub_token(_HUB.wire_token) is None
+
+
+def test_fd_for_hub_token_distinguishes_two_live_hubs() -> None:
+    other = HubId("okinos", 456)
+    registry = ClientRegistry()
+    registry.identify(10, kind="hub", name="a", hub_id=_HUB, connect_time=0.0)
+    registry.identify(11, kind="hub", name="b", hub_id=other, connect_time=0.0)
+
+    assert registry.fd_for_hub_token(_HUB.wire_token) == 10
+    assert registry.fd_for_hub_token(other.wire_token) == 11
+
+
 def test_forget_connection_drops_everything_but_the_hub_id() -> None:
     registry = ClientRegistry()
     registry.register_connection(10, sock=object())  # type: ignore[arg-type]  # test double

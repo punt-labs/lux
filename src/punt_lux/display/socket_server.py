@@ -247,21 +247,18 @@ class SocketListener:
             fd = -1
         return fd if fd >= 0 else None
 
-    def send_to_client(
-        self, sock: socket.socket, msg: Message, deadline: float | None = None
-    ) -> bool:
-        """Send ``msg`` to ``sock`` before ``deadline``; return whether it landed.
+    def send_to_client(self, sock: socket.socket, msg: Message) -> bool:
+        """Send ``msg`` to ``sock``; return whether it landed before its deadline.
 
         A caller-less send uses the armed frame deadline or its own one-off
         budget. A slow-but-alive peer (``BlockingIOError``) keeps the client and
         defers; only a dead peer (``OSError``) removes it.
         """
-        if deadline is None:
-            deadline = (
-                self._frame_deadline
-                if self._frame_deadline is not None
-                else time.monotonic() + _ONE_OFF_SEND_BUDGET
-            )
+        deadline = (
+            self._frame_deadline
+            if self._frame_deadline is not None
+            else time.monotonic() + _ONE_OFF_SEND_BUDGET
+        )
         try:
             BoundedSend().send(sock, encode_message(msg), deadline)
         except BlockingIOError:
@@ -301,6 +298,10 @@ class SocketListener:
     def hub_fd_for(self, hub_id: HubId) -> int | None:
         """Return the live fd currently declaring ``kind="hub"`` with this ``HubId``."""
         return self._registry.hub_fd_for(hub_id)
+
+    def fd_for_hub_token(self, token: str) -> int | None:
+        """Return the live fd declaring this ``HubId.wire_token`` -- a menu's Hub."""
+        return self._registry.fd_for_hub_token(token)
 
     # -- internal -----------------------------------------------------------
 
