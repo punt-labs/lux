@@ -87,21 +87,15 @@ def _connect_tls_in_background(
 def _register_promoted_client(
     unix_listener: SocketListener, conn: ssl.SSLSocket
 ) -> None:
-    """Install a cross-host-verified socket the same way ``accept_connections``
-    installs an ``AF_UNIX`` one.
+    """Install a cross-host-verified socket through the public promotion door.
 
-    ``SocketListener`` does not yet expose a public promotion entry point --
-    wiring ``CrossHostListener`` into the render loop's per-frame accept
-    cadence is a separate, later change (DES-090 W8 stops at establishing
-    the listener and the mTLS transport). This mirrors
-    ``SocketListener.accept_connections``'s own registration steps exactly,
-    to prove the two legs converge on identical bookkeeping even before that
-    wiring lands.
+    ``SocketListener.promote_connection`` is the single entry point a
+    TLS-verified peer enters the ordinary client set through, once
+    ``CrossHostListener.pump_ready`` hands it back. It registers exactly as
+    ``accept_connections`` does an ``AF_UNIX`` peer -- connection recorded,
+    ``ReadyMessage`` sent -- so the two legs converge on identical bookkeeping.
     """
-    fd = conn.fileno()
-    unix_listener.clients.append(conn)
-    unix_listener._registry.register_connection(fd, conn)
-    unix_listener.send_to_client(conn, ReadyMessage())
+    unix_listener.promote_connection(conn)
 
 
 def _drive_until_tls_ready(
