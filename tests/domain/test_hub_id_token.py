@@ -41,3 +41,10 @@ def test_resolve_rejects_a_non_numeric_pid() -> None:
 def test_resolve_rejects_an_empty_string() -> None:
     with pytest.raises(ValueError, match="not a HubId wire token"):
         HubIdToken("").resolve()
+
+
+def test_resolve_rejects_a_hostname_embedding_a_second_separator() -> None:
+    """A bare ``rpartition`` would accept ``"a\\x1f1"`` as the hostname here --
+    a control character must never reach a registry key or a log line."""
+    with pytest.raises(ValueError, match="not a HubId wire token"):
+        HubIdToken("a\x1f1\x1f2").resolve()

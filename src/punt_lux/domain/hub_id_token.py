@@ -32,10 +32,21 @@ class HubIdToken:
 
         ``ID_SEPARATOR`` can never appear in an FQDN, so the split round-trips
         exactly: ``HubIdToken(x.wire_token).resolve() == x`` for every
-        ``HubId`` a real ``.current()`` or ``.stub()`` ever produces.
+        ``HubId`` a real ``.current()`` or ``.stub()`` ever produces. A
+        ``rpartition`` alone would accept a hostname that itself embeds a
+        second separator (e.g. ``"a\\x1f1\\x1f2"`` splits to hostname
+        ``"a\\x1f1"``, pid ``"2"``) -- rejecting any leftover ``ID_SEPARATOR``
+        in the hostname half closes that hole before the control character
+        ever reaches a registry key or a log line.
         """
         hostname, separator, pid_text = self.raw.rpartition(ID_SEPARATOR)
-        if not separator or not hostname or not pid_text.isdigit():
+        malformed = (
+            not separator
+            or not hostname
+            or not pid_text.isdigit()
+            or ID_SEPARATOR in hostname
+        )
+        if malformed:
             msg = f"not a HubId wire token: {self.raw!r}"
             raise ValueError(msg)
         return HubId(hostname, int(pid_text))
