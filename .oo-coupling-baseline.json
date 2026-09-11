@@ -4493,6 +4493,13 @@
     "max_lcom": 0.0,
     "avg_lcom": 0.0
   },
+  "src/punt_lux/trust/_facade.py": {
+    "efferent_coupling": 4.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
   "src/punt_lux/trust/atomic_dir_install.py": {
     "efferent_coupling": 0.0,
     "public_names": 1.0,
@@ -4560,8 +4567,8 @@
     "efferent_coupling": 0.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.583,
-    "avg_lcom": 0.583
+    "max_lcom": 0.345,
+    "avg_lcom": 0.345
   },
   "src/punt_lux/trust/material_load.py": {
     "efferent_coupling": 0.0,
