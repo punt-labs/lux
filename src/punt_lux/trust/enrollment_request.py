@@ -53,11 +53,11 @@ class EnrollmentRequest:
     def complete(self, leaf: LeafCertificate) -> EnrolledIdentity:
         """Pair this request's private key with the CA's returned *leaf*.
 
-        Raises :class:`ValueError` if *leaf*'s public key does not match
-        this request's — the check that the signature-carrying half of the
-        chain actually corresponds to the key that never left this machine.
+        Raises :class:`ValueError` if *leaf* names a different hostname
+        than requested (a SAN swap); :class:`EnrolledIdentity` itself
+        enforces the matching public-key half of this same invariant.
         """
-        if leaf.public_key_pem() != self._key_pair.public_key_pem():
-            msg = "leaf certificate does not match this enrollment request's key"
+        if leaf.hostname != self._csr.hostname:
+            msg = f"leaf names {leaf.hostname!r}, not requested {self._csr.hostname!r}"
             raise ValueError(msg)
         return EnrolledIdentity(self._key_pair, leaf)

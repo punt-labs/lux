@@ -7,7 +7,9 @@ from pathlib import Path
 import pytest
 
 from punt_lux.trust.certificate_authority import CertificateAuthority
+from punt_lux.trust.certificate_signing_request import CertificateSigningRequest
 from punt_lux.trust.enrollment_request import EnrollmentRequest
+from punt_lux.trust.key_pair import KeyPair
 from punt_lux.trust.leaf_certificate import LeafCertificate
 
 _HOSTNAME = "hub1.example.com"
@@ -47,3 +49,16 @@ def test_complete_rejects_a_leaf_for_a_different_key() -> None:
     with pytest.raises(ValueError, match="does not match"):
         request.complete(other_leaf)
     del other_key_pair
+
+
+def test_complete_rejects_a_leaf_naming_a_different_hostname() -> None:
+    # A SAN swap: the CA signs the *right* key but for a *different*
+    # hostname than this request's CSR asked for.
+    key_pair = KeyPair.generate()
+    csr = CertificateSigningRequest.generate(_HOSTNAME, key_pair)
+    request = EnrollmentRequest(key_pair, csr)
+    ca = CertificateAuthority.create()
+    swapped_csr = CertificateSigningRequest.generate("evil.example.com", key_pair)
+    leaf = ca.sign_csr(swapped_csr)
+    with pytest.raises(ValueError, match="not requested"):
+        request.complete(leaf)
