@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, cast
 import pytest
 
 from punt_lux.display.socket_server import SocketListener
+from punt_lux.domain.identity import HubId
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
     ReadyMessage,
@@ -210,48 +211,70 @@ class TestRemoveClientDeadFd:
     def test_negative_fileno_does_not_pop_an_unrelated_real_fd(self) -> None:
         server = _make_server()
         server.register_client_identity(
-            42, kind="hub", name="lux-mcp", connect_time=1.0
+            42, kind="hub", name="lux-mcp", connect_time=1.0, hub_id=_HUB
         )
         dead = _FakeClient(fd=-1)
         sock = _inject_client(server, dead)
 
         server.remove_client(sock)
 
-        assert server.hub_fd_for("lux-mcp") == 42
+        assert server.hub_fd_for(_HUB) == 42
         assert 42 in server.client_names
 
 
+_HUB = HubId("pembroke", 123)
+_HUB_B = HubId("orsett", 456)
+
+
 class TestHubIdentity:
-    """(kind, name) tracking and hub_fd_for — the DES-068 preemption lookup."""
+    """(kind, HubId) tracking and hub_fd_for — the W11 preemption lookup.
+
+    Keyed on ``HubId``, never on the declared name -- ``name`` keeps its
+    narrower "what a human calls this" meaning and plays no role here.
+    """
 
     def test_hub_fd_for_finds_the_matching_hub_connection(self) -> None:
         server = _make_server()
         server.register_client_identity(
-            10, kind="hub", name="lux-mcp", connect_time=1.0
+            10, kind="hub", name="lux-mcp", connect_time=1.0, hub_id=_HUB
         )
 
-        assert server.hub_fd_for("lux-mcp") == 10
+        assert server.hub_fd_for(_HUB) == 10
 
-    def test_hub_fd_for_ignores_a_test_connection_of_the_same_name(self) -> None:
+    def test_hub_fd_for_ignores_a_test_connection_of_the_same_hub_id(self) -> None:
         server = _make_server()
         server.register_client_identity(
-            10, kind="test", name="lux-mcp", connect_time=1.0
+            10, kind="test", name="lux-mcp", connect_time=1.0, hub_id=_HUB
         )
 
-        assert server.hub_fd_for("lux-mcp") is None
+        assert server.hub_fd_for(_HUB) is None
 
-    def test_hub_fd_for_ignores_a_hub_connection_of_a_different_name(self) -> None:
+    def test_hub_fd_for_ignores_a_hub_connection_of_a_different_hub_id(self) -> None:
         server = _make_server()
         server.register_client_identity(
-            10, kind="hub", name="other-name", connect_time=1.0
+            10, kind="hub", name="lux-mcp", connect_time=1.0, hub_id=_HUB
         )
 
-        assert server.hub_fd_for("lux-mcp") is None
+        assert server.hub_fd_for(_HUB_B) is None
+
+    def test_hub_fd_for_distinguishes_two_hub_ids_sharing_the_same_name(self) -> None:
+        """The coexistence fix: every production Hub declares the identical
+        hardcoded name, so two distinct Hubs sharing it must both stay found."""
+        server = _make_server()
+        server.register_client_identity(
+            10, kind="hub", name="lux-mcp", connect_time=1.0, hub_id=_HUB
+        )
+        server.register_client_identity(
+            20, kind="hub", name="lux-mcp", connect_time=1.0, hub_id=_HUB_B
+        )
+
+        assert server.hub_fd_for(_HUB) == 10
+        assert server.hub_fd_for(_HUB_B) == 20
 
     def test_hub_fd_for_returns_none_when_no_one_is_connected(self) -> None:
         server = _make_server()
 
-        assert server.hub_fd_for("lux-mcp") is None
+        assert server.hub_fd_for(_HUB) is None
 
     def test_kind_of_returns_the_declared_kind(self) -> None:
         server = _make_server()
@@ -276,13 +299,13 @@ class TestHubIdentity:
                 conn = server.clients[0]
                 fd = conn.fileno()
                 server.register_client_identity(
-                    fd, kind="hub", name="lux-mcp", connect_time=1.0
+                    fd, kind="hub", name="lux-mcp", connect_time=1.0, hub_id=_HUB
                 )
-                assert server.hub_fd_for("lux-mcp") == fd
+                assert server.hub_fd_for(_HUB) == fd
 
                 server.remove_client(conn)
 
-                assert server.hub_fd_for("lux-mcp") is None
+                assert server.hub_fd_for(_HUB) is None
             finally:
                 client.close()
         finally:

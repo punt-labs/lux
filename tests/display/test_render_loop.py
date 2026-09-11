@@ -53,10 +53,15 @@ def _make_scene(scene_id: str, frame_id: str | None = None) -> SceneMessage:
     )
 
 
+_HUB = HubId("pembroke", 123)
+_HUB_B = HubId("orsett", 456)
+
+
 class TestHandleConnectDispatch:
     def test_a_second_hub_identify_preempts_the_first_via_the_real_socket_listener(
         self,
     ) -> None:
+        """A reconnect under the *same* HubId preempts its own predecessor."""
         server = _make_server()
         old_sock, new_sock = _mock_sock(10), _mock_sock(20)
         server._socket_listener.clients.append(old_sock)
@@ -66,7 +71,7 @@ class TestHandleConnectDispatch:
             old_sock,
             ConnectMessage(name="lux-mcp", kind="hub", hub_id="pembroke\x1f123"),
         )
-        assert server._socket_listener.hub_fd_for("lux-mcp") == 10
+        assert server._socket_listener.hub_fd_for(_HUB) == 10
 
         server._socket_listener.clients.append(new_sock)
         server._socket_listener.fd_to_client[20] = new_sock
@@ -76,7 +81,34 @@ class TestHandleConnectDispatch:
         )
 
         assert old_sock not in server._socket_listener.clients
-        assert server._socket_listener.hub_fd_for("lux-mcp") == 20
+        assert server._socket_listener.hub_fd_for(_HUB) == 20
+
+    def test_two_distinct_hub_ids_sharing_a_name_both_stay_connected(self) -> None:
+        """W11: preemption keys on HubId, never on the declared name -- every
+        production Hub today declares the identical hardcoded name, so two
+        genuinely distinct Hubs sharing that name must coexist rather than
+        preempt one another."""
+        server = _make_server()
+        first_sock, second_sock = _mock_sock(10), _mock_sock(20)
+        server._socket_listener.clients.append(first_sock)
+        server._socket_listener.fd_to_client[10] = first_sock
+        server._socket_listener.clients.append(second_sock)
+        server._socket_listener.fd_to_client[20] = second_sock
+
+        server._handle_message(
+            first_sock,
+            ConnectMessage(name="lux-mcp", kind="hub", hub_id="pembroke\x1f123"),
+        )
+        server._handle_message(
+            second_sock,
+            ConnectMessage(name="lux-mcp", kind="hub", hub_id="orsett\x1f456"),
+        )
+
+        first_sock.close.assert_not_called()
+        assert first_sock in server._socket_listener.clients
+        assert second_sock in server._socket_listener.clients
+        assert server._socket_listener.hub_fd_for(_HUB) == 10
+        assert server._socket_listener.hub_fd_for(_HUB_B) == 20
 
     def test_a_test_identify_is_recorded_without_preemption(self) -> None:
         server = _make_server()
@@ -87,7 +119,7 @@ class TestHandleConnectDispatch:
         )
 
         assert server._socket_listener.client_names[10] == "quarry"
-        assert server._socket_listener.hub_fd_for("quarry") is None
+        assert server._socket_listener.hub_fd_for(HubId("test.invalid", 0)) is None
 
 
 class TestHandleManifestDispatch:
