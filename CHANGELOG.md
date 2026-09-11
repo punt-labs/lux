@@ -93,9 +93,13 @@
   `merge-base(origin/main, HEAD)` itself when `--base-ref` is absent — the
   identical default `oo_score.py`'s `GitRepo.resolve_base` already computes —
   so both ratchets default the same way and a bare `make check` catches
-  exactly what CI catches. Falls back to `HEAD~1` only when merge-base cannot
-  resolve (no `origin/main` fetched, detached HEAD). CI's explicit
-  `--base-ref` on both triggers is unchanged.
+  exactly what CI catches. Falls back to `HEAD~1` both when merge-base cannot
+  resolve (no `origin/main` ref, no `origin` remote, or no common history)
+  and when the merge-base *is* HEAD (no commits ahead of `origin/main` — the
+  shape of a push whose `origin/main` was just fetched to the pushed tip, so
+  the range would otherwise be empty). The resolver runs only for `--check`,
+  never for `--update`/`--log`/`--json`. CI's explicit `--base-ref` on both
+  triggers is unchanged.
 - **Stale-connection preemption no longer kills a second, genuinely distinct
   Hub.** Single-owner preemption keyed on the declared `ConnectMessage.name`,
   and every production Hub declares the identical hardcoded name

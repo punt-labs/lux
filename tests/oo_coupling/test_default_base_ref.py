@@ -229,6 +229,23 @@ class TestResolveDefaultBaseRef:
 
         assert CouplingRatchet._resolve_default_base_ref() == "HEAD~1"
 
+    def test_falls_back_to_head_tilde_1_when_merge_base_is_head(
+        self, fx: DefaultBaseRefFixture
+    ) -> None:
+        # HEAD sits on origin/main with no commits ahead -- the shape of a
+        # push whose origin/main was just fetched to the pushed tip
+        # (ratchets.yml's bare `make check-coupling` on an all-zeros
+        # github.event.before). merge-base(origin/main, HEAD) == HEAD, an
+        # empty range; falling back to HEAD~1 scores the last commit instead
+        # of vacuously passing.
+        fx.write("sub/w.py", COHESIVE)
+        fx.commit("first commit")
+        fx.write("sub/other.py", OTHER_MODULE)
+        tip = fx.commit("second commit -- the pushed tip")
+        fx.set_origin_main(tip)
+
+        assert CouplingRatchet._resolve_default_base_ref() == "HEAD~1"
+
 
 class TestCliBareCheckDefault:
     """The real repro: the OLD default passes, the FIXED default fails.

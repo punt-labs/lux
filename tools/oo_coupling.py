@@ -919,26 +919,47 @@ class CouplingRatchet:
         locally and only failed in CI, which always overrides explicitly
         (see ``_git_touched_files``).
 
-        Falls back to ``"HEAD~1"`` -- the old, narrower default -- when
-        merge-base cannot resolve: no ``origin/main`` fetched, no
-        ``origin`` remote, a shallow or history-less checkout. That fallback
-        can never regress local usage below what the old default already
-        risked; it only widens the common, resolvable case.
+        Falls back to ``"HEAD~1"`` -- the old, narrower default -- in two
+        cases:
+
+        1. Merge-base cannot resolve: no ``origin/main`` fetched, no
+           ``origin`` remote, or no common history with ``origin/main``.
+        2. The merge-base *is* HEAD -- i.e. HEAD is an ancestor of (or equal
+           to) ``origin/main`` and carries no commits ahead of it, so
+           ``merge-base..HEAD`` is an empty range that would score nothing.
+           This is the shape of a push whose ``origin/main`` was just fetched
+           to the pushed tip (``ratchets.yml``'s bare ``make check-coupling``
+           on an all-zeros ``github.event.before``), and of any local
+           checkout sitting on or behind ``origin/main``. Falling back to
+           ``HEAD~1`` scores the last commit -- exactly the prior default's
+           behavior -- instead of vacuously passing.
+
+        Either fallback can never regress local usage below what the old
+        unconditional ``HEAD~1`` default already risked; the merge-base
+        result only widens the common, resolvable, commits-ahead case.
         """
         try:
-            result = subprocess.run(
+            merge_base = subprocess.run(
                 ["git", "merge-base", "origin/main", "HEAD"],
                 capture_output=True,
                 text=True,
                 timeout=5,
             )
-            if result.returncode == 0:
-                resolved = result.stdout.strip()
-                if resolved:
-                    return resolved
+            head = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
         except (FileNotFoundError, subprocess.TimeoutExpired):
-            pass
-        return "HEAD~1"
+            return "HEAD~1"
+        if merge_base.returncode != 0:
+            return "HEAD~1"
+        resolved = merge_base.stdout.strip()
+        head_sha = head.stdout.strip() if head.returncode == 0 else ""
+        if not resolved or resolved == head_sha:
+            return "HEAD~1"
+        return resolved
 
     # ---- metric comparison helpers ----
 
@@ -1574,18 +1595,23 @@ def main() -> None:
 
     scorer = CouplingScorer(target)
     ratchet = CouplingRatchet()
-    # --base-ref overrides the default comparison base. Omitted, the ratchet
-    # resolves the merge-base of origin/main and HEAD itself -- the same
-    # default oo_score.py's GitRepo.resolve_base already computes -- so a
-    # plain local `make check-coupling` scores the whole fork-to-HEAD range,
-    # matching CI's pull_request trigger, instead of only the last commit.
-    # CI overrides explicitly on both triggers regardless (push-to-main
-    # passes github.event.before; pull_request computes and passes its own
-    # merge-base); --check is the only base_ref consumer -- --update always
-    # scores the whole target, see CouplingRatchet.update.
-    base_ref = _arg_value("--base-ref") or CouplingRatchet._resolve_default_base_ref()
 
     if "--check" in sys.argv:
+        # --check is the only base_ref consumer, so the merge-base default is
+        # resolved only here -- resolving it before the mode dispatch would
+        # spawn `git merge-base` (up to a 5s block) for --update, --log,
+        # --json, and plain metric runs that never use it. --base-ref
+        # overrides the default; omitted, the ratchet resolves the merge-base
+        # of origin/main and HEAD itself -- the same default oo_score.py's
+        # GitRepo.resolve_base already computes -- so a plain local
+        # `make check-coupling` scores the whole fork-to-HEAD range, matching
+        # CI's pull_request trigger, instead of only the last commit. CI
+        # overrides explicitly on both triggers regardless (push-to-main
+        # passes github.event.before; pull_request computes and passes its
+        # own merge-base).
+        base_ref = _arg_value("--base-ref") or (
+            CouplingRatchet._resolve_default_base_ref()
+        )
         sys.exit(ratchet.check(scorer, base_ref))
     elif "--rebaseline-files" in sys.argv:
         sys.exit(ratchet.rebaseline_files(scorer, rebaseline_paths, rebaseline_reason))
