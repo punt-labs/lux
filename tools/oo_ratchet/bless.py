@@ -132,8 +132,6 @@ class FileBless:
             entry = accepted_current[path]
             base_entry = self._baseline.get(path)
             file_deltas = PlanApplier.deltas(entry, base_entry)
-            if file_deltas:
-                deltas[path] = file_deltas
             if base_entry is not None:
                 self._classify(
                     path,
@@ -143,6 +141,9 @@ class FileBless:
                     regressed_files,
                     improved_files,
                 )
+                waived = self._waived_deltas(entry, base_entry, file_deltas)
+                if waived:
+                    deltas[path] = waived
             new_baseline[path] = entry
         # A file with any regressed metric is counted as regressed, not
         # improved, even if another of its metrics also improved -- "improved"
@@ -176,6 +177,29 @@ class FileBless:
                 regressed_files.add(path)
             elif Thresholds.strictly_better(metric, cur, base):
                 improved_files.add(path)
+
+    @staticmethod
+    def _waived_deltas(
+        entry: dict[str, float],
+        base_entry: dict[str, float],
+        file_deltas: dict[str, list[float]],
+    ) -> dict[str, list[float]]:
+        """Return only the ``file_deltas`` metrics that REGRESSED vs ``base_entry``.
+
+        This is the set ``AuditLog.relaxations_since`` reads back as
+        waivable at a future ``check()``. Only a metric the bless is
+        actually granting an exception for -- one worse than its committed
+        baseline -- belongs in it. ``file_deltas`` also carries metrics that
+        merely changed value, including improvements; an improved metric is
+        not something to waive, and recording it here would let a LATER,
+        unrelated regression of that same metric be silently forgiven by
+        this bless's stale record of an improvement it never granted.
+        """
+        return {
+            metric: delta
+            for metric, delta in file_deltas.items()
+            if not Thresholds.better_or_equal(metric, entry[metric], base_entry[metric])
+        }
 
     @staticmethod
     def _report(
