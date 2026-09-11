@@ -57,6 +57,24 @@ def test_hostname_raises_when_san_is_absent() -> None:
         _ = csr.hostname
 
 
+def test_from_pem_rejects_a_csr_whose_key_is_not_p256() -> None:
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.hazmat.primitives.hashes import SHA256
+
+    non_p256 = ec.generate_private_key(ec.SECP384R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "bad-curve")])
+    builder = x509.CertificateSigningRequestBuilder().subject_name(name)
+    builder = builder.add_extension(
+        x509.SubjectAlternativeName([x509.DNSName("bad-curve.example.com")]),
+        critical=False,
+    )
+    csr = builder.sign(non_p256, SHA256())
+    pem = csr.public_bytes(serialization.Encoding.PEM)
+    with pytest.raises(ValueError, match="SECP256R1"):
+        CertificateSigningRequest.from_pem(pem)
+
+
 def test_hostname_raises_when_san_names_more_than_one_host() -> None:
     key_pair = KeyPair.generate()
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "multi")])

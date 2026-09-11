@@ -15,6 +15,8 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 
+from punt_lux.trust.curve import Curve
+
 if TYPE_CHECKING:
     from punt_lux.trust.key_pair import KeyPair
 
@@ -31,6 +33,7 @@ class CertificateSigningRequest:
     def __new__(cls, csr: x509.CertificateSigningRequest) -> Self:
         self = super().__new__(cls)
         self._csr = csr
+        _ = self.public_key  # raises unless the CSR's key is P-256 (DES-090)
         return self
 
     @classmethod
@@ -74,15 +77,12 @@ class CertificateSigningRequest:
         if not isinstance(key, ec.EllipticCurvePublicKey):
             msg = f"expected an EC public key, got {type(key).__name__}"
             raise ValueError(msg)
-        return key
+        return Curve.require_p256(key)
 
     @property
     def is_signature_valid(self) -> bool:
-        """Return whether the CSR's self-signature verifies against its own key.
-
-        A CA must check this before signing (PY-EH-1: validate at the
-        boundary) — it is the proof the requester actually holds the private
-        key it claims, not merely the public half.
+        """Return whether the CSR's self-signature verifies against its key
+        — proof, before signing, that the requester actually holds it.
         """
         return self._csr.is_signature_valid
 
@@ -90,9 +90,8 @@ class CertificateSigningRequest:
     def hostname(self) -> str:
         """Return the single SAN DNSName this CSR requests.
 
-        Raises :class:`ValueError` if the SAN extension is absent or does
-        not name exactly one DNS hostname — DES-090's leaf material is
-        always bound to exactly one machine.
+        Raises :class:`ValueError` unless the SAN names exactly one DNS
+        hostname — DES-090 binds every leaf to exactly one machine.
         """
         names = self._dns_names()
         if len(names) != 1:
