@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from punt_lux.trust.certificate_authority import CertificateAuthority
 from punt_lux.trust.enrolled_identity import EnrolledIdentity
 
@@ -14,6 +16,26 @@ def _identity(hostname: str = _HOSTNAME) -> EnrolledIdentity:
     ca = CertificateAuthority.create()
     key_pair, leaf = ca.issue_leaf(hostname)
     return EnrolledIdentity(key_pair, leaf)
+
+
+def test_constructor_rejects_a_mismatched_key_and_leaf() -> None:
+    ca = CertificateAuthority.create()
+    _key_pair_a, leaf_a = ca.issue_leaf(_HOSTNAME)
+    key_pair_b, _leaf_b = ca.issue_leaf(_HOSTNAME)
+    with pytest.raises(ValueError, match="does not match"):
+        EnrolledIdentity(key_pair_b, leaf_a)
+
+
+def test_load_rejects_a_swapped_key_and_certificate(tmp_path: Path) -> None:
+    ca = CertificateAuthority.create()
+    key_pair_a, _leaf_a = ca.issue_leaf("a.example.com")
+    _key_pair_b, leaf_b = ca.issue_leaf("b.example.com")
+    key_path = tmp_path / "swapped.key"
+    cert_path = tmp_path / "swapped.crt"
+    key_pair_a.save(key_path)
+    leaf_b.save(cert_path)
+    with pytest.raises(ValueError, match="does not match"):
+        EnrolledIdentity.load(key_path, cert_path)
 
 
 def test_hostname_reflects_the_leafs_hostname() -> None:
