@@ -14,7 +14,7 @@ from typing import Self, final
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from punt_lux.domain.hub.id_separator import ID_SEPARATOR
+from punt_lux.domain.id_separator import ID_SEPARATOR
 from punt_lux.domain.ids import ConnectionId
 
 __all__ = ["CallbackInvocation", "SessionCallback"]
