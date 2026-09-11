@@ -14,7 +14,7 @@ from typing import Literal, Self
 
 from punt_lux.bounded_send import BoundedSend
 from punt_lux.display.client_registry import ClientRegistry
-from punt_lux.domain.hub.hub_id import HubId
+from punt_lux.domain.hub.identity import HubId
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
     HEADER_SIZE,

@@ -13,9 +13,7 @@ from punt_lux.display.menus.menu_click import MenuHandlers
 from punt_lux.display.menus.own_menus import OwnMenus
 from punt_lux.display.menus.wire import WireMenu
 from punt_lux.display.replica.menu_stats import MenuStats
-from punt_lux.domain.hub.hub_id import HubId
-from punt_lux.domain.hub.hub_scoped_key import HubScopedKey
-from punt_lux.domain.hub.hub_scoped_store import HubScopedStore
+from punt_lux.domain.hub.identity import HubId, HubScopedKey, HubScopedStore
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence

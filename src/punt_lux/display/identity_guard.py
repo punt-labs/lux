@@ -13,7 +13,7 @@ import logging
 import socket
 from typing import TYPE_CHECKING, Self
 
-from punt_lux.domain.hub.hub_id import HubId
+from punt_lux.domain.hub.identity import HubId
 
 if TYPE_CHECKING:
     from collections.abc import Callable

@@ -18,8 +18,7 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.display.replica.focus_request import FocusRequest
 from punt_lux.display.replica.frame import Frame
 from punt_lux.display.replica.frame_visibility import FrameVisibility
-from punt_lux.domain.hub.hub_scoped_key import HubScopedKey
-from punt_lux.domain.hub.hub_scoped_store import HubScopedStore
+from punt_lux.domain.hub.identity import HubScopedKey, HubScopedStore
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping

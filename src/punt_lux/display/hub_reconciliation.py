@@ -13,8 +13,7 @@ import socket
 import time
 from typing import TYPE_CHECKING, Self
 
-from punt_lux.domain.hub.hub_id import HubId
-from punt_lux.domain.hub.hub_id_token import HubIdToken
+from punt_lux.domain.hub.identity import HubId, HubIdToken
 from punt_lux.socket_owner import SocketOwner
 
 if TYPE_CHECKING:
