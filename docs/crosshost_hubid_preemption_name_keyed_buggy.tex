@@ -26,9 +26,10 @@
 % HI4 there ("preemption scopes to the shared name") described the pre-W11
 % code and is corrected below.
 %
-% Type-check:  fuzz docs/crosshost_hubid_preemption.tex
+% Type-check:  fuzz docs/crosshost_hubid_preemption_name_keyed_buggy.tex
 % Model-check (goal predicates in the Verification section):
-%   probcli docs/crosshost_hubid_preemption.tex -model_check -p DEFAULT_SETSIZE 3
+%   probcli docs/crosshost_hubid_preemption_name_keyed_buggy.tex \
+%       -model_check -p DEFAULT_SETSIZE 3
 %
 % Formatting follows the fuzz house rules: \quad~ for continuation indent,
 % schema lines under 80 columns, predicates broken at \land/\lor/\implies.
@@ -252,145 +253,53 @@ exists.  In the sole state where \texttt{Identify} has no fresh argument
 operation is always enabled.
 
 % ============================================================
-\section{Verification}
+\section{Verification: the goals that must flip}
 \label{sec:verify}
 % ============================================================
 
-Type-checking is a \texttt{fuzz} pass:
+Every command below names \emph{this} buggy file, not the correct spec ---
+a reader who runs them against this variant sees the defect, which is the
+whole point of a fidelity control.  The correct spec
+(\texttt{crosshost\_hubid\_preemption.tex}) returns the opposite verdict on
+each; its Fidelity section narrates the two traces.
+
+Type-checking is a \texttt{fuzz} pass (this variant is well-typed --- the
+defect is semantic, not syntactic):
 \begin{verbatim}
-  fuzz docs/crosshost_hubid_preemption.tex
+  fuzz docs/crosshost_hubid_preemption_name_keyed_buggy.tex
 \end{verbatim}
 
-I1 is a state property, checked by asking ProB whether its negation is
-reachable.  A goal reported \emph{not found} means the invariant holds on
-every reachable state.  It returns \emph{goal not found} against
-\texttt{DEFAULT\_SETSIZE 3}:
+\paragraph{I1's negation must be \emph{found} (the double-owner).} Trace:
+\texttt{Identify}(c1, h1, n1); \texttt{Identify}(c2, h1, n2) --- same
+\texttt{HubId} \texttt{h1}, different name, so name-keyed preemption misses
+\texttt{c1} and both stay live under \texttt{h1}.
 \begin{verbatim}
-  # Invariant 1 (goal NOT found for the correct spec)
-  probcli docs/crosshost_hubid_preemption.tex -model_check -nodead \
+  # must be FOUND against this variant (NOT found against the correct spec)
+  probcli docs/crosshost_hubid_preemption_name_keyed_buggy.tex \
+    -model_check -nodead \
     -goal "#(c1,c2).(c1 : live & c2 : live & not(c1 = c2) &
                      hubOf(c1) = hubOf(c2))" \
     -p DEFAULT_SETSIZE 3
 \end{verbatim}
 
-I2 is the full-state-space deadlock check.  Every state has an enabled
-operation (Section~\ref{sec:inv}), so any deadlock reported would be a
-model defect:
+\paragraph{Witness W2 must be \emph{not found} (coexistence destroyed).}
+Under name-keying a same-name arrival evicts the incumbent, so two live
+connections can never share a name --- even with distinct \texttt{HubId}s,
+both legitimate Hubs on different machines.
 \begin{verbatim}
-  # Invariant 2 / deadlock freedom (no deadlock, all states visited)
-  probcli docs/crosshost_hubid_preemption.tex -model_check \
-    -p DEFAULT_SETSIZE 3
-\end{verbatim}
-
-The witnesses must each be \emph{found}, or the invariant above would
-hold only because the mechanism it guards is unreachable.  Both return
-\emph{goal found} for the correct spec:
-\begin{verbatim}
-  # W1: two different-HubId connections coexist -- preemption is not
-  #     over-eager (goal FOUND)
-  probcli docs/crosshost_hubid_preemption.tex -model_check -nodead \
-    -goal "#(c1,c2).(c1 : live & c2 : live & not(c1 = c2) &
-                     not(hubOf(c1) = hubOf(c2)))" \
-    -p DEFAULT_SETSIZE 3
-
-  # W2: two different-HubId connections that share a NAME coexist --
-  #     the coexistence the name-keyed variant destroys (goal FOUND)
-  probcli docs/crosshost_hubid_preemption.tex -model_check -nodead \
+  # must be NOT found against this variant (FOUND against the correct spec)
+  probcli docs/crosshost_hubid_preemption_name_keyed_buggy.tex \
+    -model_check -nodead \
     -goal "#(c1,c2).(c1 : live & c2 : live & not(c1 = c2) &
                      not(hubOf(c1) = hubOf(c2)) &
                      nameOf(c1) = nameOf(c2))" \
     -p DEFAULT_SETSIZE 3
 \end{verbatim}
 
-% ============================================================
-\section{Fidelity: reproducing the shipped defect}
-\label{sec:fidelity}
-% ============================================================
-
-A model that cannot reproduce the known defect proves nothing.  The buggy
-variant, kept as
-\texttt{docs/crosshost\_hubid\_preemption\_name\_keyed\_buggy.tex}, is the
-pre-W11 design: preemption keys on \texttt{name}, not \texttt{HubId}.
-\texttt{Identify}'s preempted set becomes
-\begin{verbatim}
-  % correct (this spec):
-  preempted == { c : live | hubOf(c) = h? }
-
-  % buggy (name-keyed variant):
-  preempted == { c : live | nameOf(c) = n? }
-\end{verbatim}
-and nothing else changes.  That single substitution reproduces both
-halves of the defect W11 closes.
-
-\paragraph{The double-owner trace (I1 violated).}
-\begin{enumerate}
-  \item \texttt{Identify}(c1, h1, n1): \texttt{live = \{c1\}},
-    \texttt{hubOf = \{c1 \mapsto h1\}}, \texttt{nameOf = \{c1 \mapsto n1\}}.
-  \item \texttt{Identify}(c2, h1, n2): the same \texttt{HubId} \texttt{h1},
-    but a \emph{different} name \texttt{n2}.  Name-keyed preemption looks
-    for a live connection named \texttt{n2}; \texttt{c1} is named
-    \texttt{n1}, so nothing is preempted.  \texttt{c2} joins:
-    \texttt{live = \{c1, c2\}} with \texttt{hubOf(c1) = hubOf(c2) = h1}.
-\end{enumerate}
-Two distinct live connections now own the identical \texttt{HubId} ---
-I1's negation, reachable.  I1's goal returns \emph{found} against this
-variant and \emph{not found} against the correct spec.  This is the
-``double-owner state'' the design's fidelity requirement names: the same
-\texttt{HubId} claimed by two live connections at once, which
-\texttt{HubId}-keyed preemption excludes because step 2 would then find
-\texttt{c1} (same \texttt{HubId}) and evict it.
-
-\paragraph{The wrong-eviction trace (W2 destroyed).}
-The same substitution also breaks the coexistence witness W2.  Under the
-name-keyed variant, any second \texttt{Identify} sharing a \texttt{name}
-with a live connection evicts it, so two live connections can never share
-a name --- even when their \texttt{HubId}s differ and both are legitimate
-Hubs on different machines.  W2's goal, \emph{found} for the correct spec,
-returns \emph{not found} against this variant.  That is the live,
-unrelated Hub wrongly disconnected because it happened to share the
-hardcoded name --- the second half of what W11 fixes.
-
-Both discriminators come from the one key choice, which is why W11 is a
-single change, not two, and why this one buggy variant is sufficient
-fidelity for Invariant 2.
-
-\paragraph{Errata for \texttt{hub\_display\_reconciliation.tex}.}
-That document's HI4 (\texttt{hub\_display\_reconciliation\_coverage.md}:
-``preemption scopes to the shared name'') and its \texttt{hubOwner}
-identity, modeled as a bare \texttt{CONNECTION\_ID} with no
-name/\texttt{HubId} distinction, describe the pre-W11 code.  The corrected
-statement is I1 above: preemption scopes to the shared \texttt{HubId}; two
-connections sharing a name but declaring distinct \texttt{HubId}s coexist,
-and only a same-\texttt{HubId} arrival preempts.  This model, not that
-one, is authoritative for Invariant 2.
-
-% ============================================================
-\section{Test Partitions}
-\label{sec:partitions}
-% ============================================================
-
-Derived from the operations and invariants above, for audit against the
-test suite (see \texttt{docs/crosshost\_transport\_coverage.md}):
-
-\begin{description}
-  \item[Q1 --- a same-\texttt{HubId} reconnect preempts its predecessor.]
-    A second \texttt{Identify} with the \texttt{HubId} of a live
-    connection evicts it; exactly one live owner remains.
-  \item[Q2 --- a different-\texttt{HubId} identify preempts nothing.] Two
-    connections with distinct \texttt{HubId}s coexist (witness W1).
-  \item[Q3 --- a same-name, different-\texttt{HubId} pair coexists.] A
-    shared \texttt{name} does not trigger preemption (witness W2); the
-    regression against name-keying.
-  \item[Q4 --- a same-\texttt{HubId}, different-name reconnect still
-    preempts.] The declared name plays no role: a reconnect under the
-    same \texttt{HubId} but a changed name still evicts its predecessor.
-  \item[Q5 --- an ordinary disconnect releases the identity.] After
-    \texttt{Disconnect}, the freed \texttt{HubId} may be claimed again
-    with no residual owner.
-  \item[Q6 --- N-way interleaving preserves one-per-\texttt{HubId}.] Any
-    interleaving of several Hubs connecting, reconnecting, and
-    disconnecting leaves \texttt{hubOf} injective on \texttt{live} (I1,
-    model-checked exhaustively).
-\end{description}
+Both discriminators come from the one key choice (\texttt{nameOf} in
+\texttt{Identify}'s preempted set where the correct spec has
+\texttt{hubOf}), which is why W11 is a single change and this one variant is
+sufficient fidelity for Invariant 2. Deadlock-freedom is unaffected and
+not the finding here; the correct spec model-checks it.
 
 \end{document}

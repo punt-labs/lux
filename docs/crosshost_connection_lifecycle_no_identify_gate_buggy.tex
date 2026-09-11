@@ -26,10 +26,10 @@
 %   subsection "Invariants", item 1, and subsection "Coexistence with the
 %   Local Fast Path" ("Two distinct gates, not one").
 %
-% Type-check:  fuzz docs/crosshost_connection_lifecycle.tex
+% Type-check:  fuzz docs/crosshost_connection_lifecycle_no_identify_gate_buggy.tex
 % Model-check (goal predicates in the Verification section):
-%   probcli docs/crosshost_connection_lifecycle.tex -model_check \
-%       -p DEFAULT_SETSIZE 3
+%   probcli docs/crosshost_connection_lifecycle_no_identify_gate_buggy.tex \
+%       -model_check -p DEFAULT_SETSIZE 3
 %
 % Formatting follows the fuzz house rules: \quad~ for continuation indent,
 % schema lines under 80 columns, predicates broken at \land/\lor/\implies.
@@ -351,149 +351,52 @@ exists; in the sole state where it has no fresh argument
 always enabled.
 
 % ============================================================
-\section{Verification}
+\section{Verification: the goals that must flip}
 \label{sec:verify}
 % ============================================================
 
-Type-checking is a \texttt{fuzz} pass:
+Every command below names \emph{this} buggy file, not the correct spec ---
+a reader who runs them against this variant sees the defect, which is the
+whole point of a fidelity control.  The correct spec
+(\texttt{crosshost\_connection\_lifecycle.tex}) returns the opposite
+verdict; its Fidelity section narrates the trace.
+
+Type-checking is a \texttt{fuzz} pass (this variant is well-typed --- the
+defect is semantic, not syntactic):
 \begin{verbatim}
-  fuzz docs/crosshost_connection_lifecycle.tex
+  fuzz docs/crosshost_connection_lifecycle_no_identify_gate_buggy.tex
 \end{verbatim}
 
-I1 and I2 are state properties, checked by asking ProB whether their
-negations are reachable.  A goal reported \emph{not found} means the
-invariant holds on every reachable state.  Both return \emph{goal not
-found} against \texttt{DEFAULT\_SETSIZE 3}:
+\paragraph{I2's negation must be \emph{found} (Gate 2 bypassed, the W1 gap).}
+\texttt{ProcessScene}'s guard here is \texttt{c? \in readable} alone --- the
+\texttt{c? \in identified} conjunct is dropped --- so content is processed
+from a readable but unidentified fd.  Trace: \texttt{Accept}(c);
+\texttt{HandshakeComplete}(c) --- readable and handshaken but not
+identified; \texttt{ProcessScene}(c).  A scene installed under a connection
+with no verified \texttt{HubId} to attribute it to.
 \begin{verbatim}
-  # Invariant 1: an identified-but-not-handshaken connection
-  #              (goal NOT found for the correct spec)
-  probcli docs/crosshost_connection_lifecycle.tex -model_check -nodead \
-    -goal "card({c | c : CONN & c : identified & not(c : handshook)}) > 0" \
-    -p DEFAULT_SETSIZE 3
-
-  # Invariant 2: a served-but-not-identified connection
-  #              (goal NOT found for the correct spec)
-  probcli docs/crosshost_connection_lifecycle.tex -model_check -nodead \
+  # must be FOUND against this variant (NOT found against the correct spec)
+  probcli docs/crosshost_connection_lifecycle_no_identify_gate_buggy.tex \
+    -model_check -nodead \
     -goal "card({c | c : CONN & c : served & not(c : identified)}) > 0" \
     -p DEFAULT_SETSIZE 3
 \end{verbatim}
 
-I3 is the full-state-space deadlock check.  Every state has an enabled
-operation (Section~\ref{sec:inv}), so any deadlock reported would be a
-model defect:
+\paragraph{I1 must stay \emph{not found} (this variant isolates Gate 2).}
+\texttt{Accept} still withholds \texttt{readable} until the handshake, so no
+identified-but-not-handshaken state is reachable --- this variant proves
+nothing about Gate 1 and must not be mistaken for a Gate 1 counterexample.
 \begin{verbatim}
-  # Invariant 3 / deadlock freedom (no deadlock, all states visited)
-  probcli docs/crosshost_connection_lifecycle.tex -model_check \
+  # must remain NOT found -- Accept still gates readable on the handshake
+  probcli docs/crosshost_connection_lifecycle_no_identify_gate_buggy.tex \
+    -model_check -nodead \
+    -goal "card({c | c : CONN & c : identified & not(c : handshook)}) > 0" \
     -p DEFAULT_SETSIZE 3
 \end{verbatim}
 
-The witnesses must each be \emph{found}, or the invariants would hold only
-because the mechanism they guard is unreachable.  Both return \emph{goal
-found} for the correct spec:
-\begin{verbatim}
-  # W1: content is actually processed (goal FOUND)
-  probcli docs/crosshost_connection_lifecycle.tex -model_check -nodead \
-    -goal "card(served) > 0" \
-    -p DEFAULT_SETSIZE 3
-
-  # W2: the between-gates window is reachable -- handshaken (Gate 1 done)
-  #     but not yet identified (Gate 2 pending) (goal FOUND)
-  probcli docs/crosshost_connection_lifecycle.tex -model_check -nodead \
-    -goal "card({c | c : CONN & c : handshook & not(c : identified)}) > 0" \
-    -p DEFAULT_SETSIZE 3
-\end{verbatim}
-
-% ============================================================
-\section{Fidelity: reproducing the shipped defect}
-\label{sec:fidelity}
-% ============================================================
-
-A model that cannot reproduce the known defect proves nothing.  Two buggy
-variants, one per gate, each remove exactly one ordering guarantee and
-each surfaces its own invariant violation.
-
-\paragraph{Variant A --- handshake-before-accept removed (Gate 1).}
-Kept as
-\texttt{docs/crosshost\_connection\_lifecycle\_no\_handshake\_gate\_buggy.tex},
-this is the concrete race the design names: an accept path that adds a
-socket to the reader set before its TLS handshake has completed.
-\texttt{Accept} becomes
-\begin{verbatim}
-  % correct (this spec): accepted != readable
-  readable' = readable
-  % buggy (variant A): freshly accepted, immediately readable
-  readable' = readable \cup {c?}
-\end{verbatim}
-Now a \msg{ConnectMessage} can be delivered --- and \texttt{Identify} can
-fire --- on a connection whose TLS handshake never completed.  Trace:
-\texttt{Accept}(c) makes \texttt{c} readable while
-\texttt{c \notin handshook}; \texttt{Identify}(c) fires (guard
-\texttt{c \in readable} holds); \texttt{c} is now identified but not
-handshaken.  I1's negation is reachable: its goal returns \emph{found}
-against variant A and \emph{not found} against the correct spec.  This is
-an unauthenticated peer being honored as an identified Hub --- the mTLS
-handshake and its SAN check bypassed entirely.
-
-\paragraph{Variant B --- identify gate removed (Gate 2, the W1 gap).}
-Kept as
-\texttt{docs/crosshost\_connection\_lifecycle\_no\_identify\_gate\_buggy.tex},
-this is the shipped same-host gap W1 closes: a content handler that
-accepts a \msg{SceneMessage} from any readable fd, not only an identified
-one.  \texttt{ProcessScene}'s guard becomes
-\begin{verbatim}
-  % correct (this spec):
-  c? : readable & c? : identified
-  % buggy (variant B):
-  c? : readable
-\end{verbatim}
-Trace: \texttt{Accept}(c); \texttt{HandshakeComplete}(c) --- \texttt{c}
-readable and handshaken but not yet identified; \texttt{ProcessScene}(c)
-fires (the weakened guard does not require \texttt{identified}).  I2's
-negation is reachable: its goal returns \emph{found} against variant B and
-\emph{not found} against the correct spec.  This is a scene installed
-under a connection with no verified \texttt{HubId} to attribute it to ---
-harmless behind the \texttt{0700} \field{AF\_UNIX} permission, a hole once
-the store is keyed by \texttt{HubId}.
-
-Each variant isolates one gate: variant A leaves I2's guard intact (so
-I2 still holds there --- the failure is purely I1), and variant B leaves
-Gate 1 intact (so I1 still holds there --- the failure is purely I2).
-Together they show the model detects a breach of \emph{either} gate, which
-is why Invariant 1 of the design requires \emph{both}.
-
-% ============================================================
-\section{Test Partitions}
-\label{sec:partitions}
-% ============================================================
-
-Derived from the operations and invariants above, for audit against the
-test suite (see \texttt{docs/crosshost\_transport\_coverage.md}):
-
-\begin{description}
-  \item[R1 --- an accepted, un-handshaken connection is not readable.] A
-    freshly accepted socket sits in the pending set; no frame is read from
-    it.  The Gate 1 ordering.
-  \item[R2 --- Gate 1 promotes on handshake success.] A completed
-    handshake, and only then, moves the fd into the reader set.
-  \item[R3 --- the between-gates window is real.] A handshaken,
-    not-yet-identified connection is readable but content-refused (witness
-    W2).
-  \item[R4 --- Gate 2 identifies on SAN match.] A \msg{ConnectMessage}
-    whose \field{hub\_id} matches the certificate SAN records the fd as
-    \texttt{kind="hub"}.
-  \item[R5 --- Gate 2 rejects, fail-closed, on SAN mismatch.] A mismatch
-    closes the connection; it never becomes identified and never serves
-    content.
-  \item[R6 --- content only past both gates.] A \msg{SceneMessage} is
-    processed only for an identified connection (I2), which is
-    handshaken (I1) --- so served $\subseteq$ handshaken, model-checked
-    exhaustively.
-  \item[R7 --- an un-handshaken connection never serves content.] The
-    Gate 1 regression against variant A.
-  \item[R8 --- an unidentified connection never serves content.] The
-    Gate 2 regression against variant B (the W1 gap).
-  \item[R9 --- a drop at any stage removes the connection cleanly.] No
-    residual membership in any set survives a disconnect.
-\end{description}
+The single change from the correct spec is \texttt{ProcessScene} dropping
+its \texttt{identified} guard; the Gate 1 accept ordering is intact, so I1
+holds and only I2 flips.  Deadlock-freedom is unaffected and not the
+finding here; the correct spec model-checks it.
 
 \end{document}
