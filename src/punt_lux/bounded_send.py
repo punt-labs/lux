@@ -1,11 +1,11 @@
 """BoundedSend — ride out backpressure on a non-blocking socket, or give up.
 
 A full kernel send buffer surfaces as ``BlockingIOError`` (``EAGAIN``) on a
-non-blocking socket. That is transient backpressure — a peer momentarily not
-reading during a busy frame — not a dead peer. Instead of giving up on it, the
-send waits for the socket to become writable and resumes from the unsent offset,
-so a partial write never corrupts the framed message the way a non-blocking
-``sendall`` would.
+non-blocking socket -- transient backpressure from a peer momentarily not
+reading during a busy frame, not a dead peer. The send waits for the socket
+to become writable and resumes from the unsent offset, so a partial write
+never corrupts the framed message the way a non-blocking ``sendall`` would.
+A non-blocking TLS socket signals the same backpressure as ``SSLWantWriteError``.
 
 The wait is bounded by a deadline the *caller* supplies, not a per-send timeout,
 so many sends in one render frame share one budget rather than each blocking the
@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import select
 import socket
+import ssl
 import time
 from typing import Self, final
 
@@ -62,18 +63,17 @@ class BoundedSend:
         """Send all of ``data`` on ``sock`` before ``deadline`` (monotonic), or raise.
 
         Uses ``send`` with an advancing offset rather than ``sendall`` so a
-        would-block resumes cleanly. On the deadline: an untouched frame
-        (``offset == 0``) re-raises ``BlockingIOError`` for the caller to defer; a
-        partial frame raises ``TornStreamError`` because the stream is unusable.
-        A ``send`` that accepts zero bytes is a broken stream (looping would spin
-        forever) and raises ``OSError``; a dead-peer ``OSError`` propagates.
+        would-block resumes cleanly. On the deadline, an untouched frame
+        re-raises ``BlockingIOError`` to defer; a partial one raises
+        ``TornStreamError`` (unusable stream). A zero-byte ``send`` or a
+        dead peer's ``OSError`` also propagates -- looping on zero would spin.
         """
         view = memoryview(data)
         offset = 0
         while offset < len(view):
             try:
                 sent = sock.send(view[offset:])
-            except BlockingIOError:
+            except (BlockingIOError, ssl.SSLWantWriteError, ssl.SSLWantReadError):
                 if self._wait_writable(sock, deadline):
                     continue
                 if offset > 0:

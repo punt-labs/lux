@@ -7,12 +7,15 @@ import errno
 import logging
 import select
 import socket
+import ssl
 import time
-from collections.abc import Callable
 from pathlib import Path
 from typing import Literal, Self
 
 from punt_lux.bounded_send import BoundedSend
+from punt_lux.display.client_identity_book import ClientIdentityBook
+from punt_lux.display.nonblocking import set_nonblocking
+from punt_lux.display.socket_listener_callbacks import SocketListenerCallbacks
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
     HEADER_SIZE,
@@ -51,31 +54,18 @@ class SocketListener:
     _clients: list[socket.socket]
     _readers: dict[int, FrameReader]
     _fd_to_client: dict[int, socket.socket]
-    _client_names: dict[int, str]
-    _client_kinds: dict[int, Literal["hub", "test"]]
-    _client_connect_times: dict[int, float]
-    _on_message: Callable[[socket.socket, Message], None]
-    _on_client_disconnected: Callable[[int], None]
-    _on_error: Callable[[str, str, str], None]
+    _identity: ClientIdentityBook
+    _callbacks: SocketListenerCallbacks
     _frame_deadline: float | None  # bounds in-frame sends when set by the render loop
 
-    def __new__(
-        cls,
-        on_message: Callable[[socket.socket, Message], None],
-        on_client_disconnected: Callable[[int], None],
-        on_error: Callable[[str, str, str], None],
-    ) -> Self:
+    def __new__(cls, callbacks: SocketListenerCallbacks) -> Self:
         self = super().__new__(cls)
         self._server_sock = None
         self._clients = []
         self._readers = {}
         self._fd_to_client = {}
-        self._client_names = {}
-        self._client_kinds = {}
-        self._client_connect_times = {}
-        self._on_message = on_message
-        self._on_client_disconnected = on_client_disconnected
-        self._on_error = on_error
+        self._identity = ClientIdentityBook()
+        self._callbacks = callbacks
         self._frame_deadline = None
         return self
 
@@ -94,12 +84,12 @@ class SocketListener:
     @property
     def client_names(self) -> dict[int, str]:
         """Return fd-to-display-name mapping."""
-        return self._client_names
+        return self._identity.names
 
     @property
     def client_connect_times(self) -> dict[int, float]:
         """Return fd-to-connect-timestamp mapping."""
-        return self._client_connect_times
+        return self._identity.connect_times
 
     @property
     def fd_to_client(self) -> dict[int, socket.socket]:
@@ -148,7 +138,7 @@ class SocketListener:
             try:
                 sock.bind(str(socket_path))
                 sock.listen(_LISTEN_BACKLOG)
-                sock.setblocking(False)  # noqa: FBT003
+                set_nonblocking(sock)
             except OSError as exc:
                 sock.close()  # close on every failure path — never leak the bound fd
                 if exc.errno not in _BIND_RACE_ERRNOS:
@@ -182,13 +172,22 @@ class SocketListener:
                 conn, _ = self._server_sock.accept()
             except (BlockingIOError, OSError):
                 return
-            conn.setblocking(False)  # noqa: FBT003
-            fd = conn.fileno()
-            self._clients.append(conn)
-            self._readers[fd] = FrameReader()
-            self._fd_to_client[fd] = conn
-            logger.debug("Client connected (total: %d)", len(self._clients))
-            self.send_to_client(conn, ReadyMessage())
+            set_nonblocking(conn)
+            self.register_client(conn)
+
+    def register_client(self, conn: socket.socket) -> None:
+        """Install an already-connected, verified socket as a client.
+
+        ``accept_connections`` calls this for the ``AF_UNIX`` leg; a
+        cross-host TLS peer (DES-090 W8) reaches it the same way once its
+        handshake -- including client-cert verification -- fully completes.
+        """
+        fd = conn.fileno()
+        self._clients.append(conn)
+        self._readers[fd] = FrameReader()
+        self._fd_to_client[fd] = conn
+        logger.debug("Client connected (total: %d)", len(self._clients))
+        self.send_to_client(conn, ReadyMessage())
 
     def poll_clients(self) -> None:
         """Read from all readable clients and dispatch messages."""
@@ -212,10 +211,8 @@ class SocketListener:
         if fd is not None:
             self._readers.pop(fd, None)
             self._fd_to_client.pop(fd, None)
-            self._client_names.pop(fd, None)
-            self._client_kinds.pop(fd, None)
-            self._client_connect_times.pop(fd, None)
-            self._on_client_disconnected(fd)  # domain-specific cleanup
+            self._identity.discard(fd)
+            self._callbacks.on_client_disconnected(fd)  # domain-specific cleanup
         with contextlib.suppress(OSError):
             sock.close()
         logger.debug("Client disconnected (remaining: %d)", len(self._clients))
@@ -264,39 +261,31 @@ class SocketListener:
         return True
 
     def register_client_identity(
-        self,
-        fd: int,
-        *,
-        kind: Literal["hub", "test"],
-        name: str,
-        connect_time: float,
+        self, fd: int, *, kind: Literal["hub", "test"], name: str, connect_time: float
     ) -> None:
         """Record a client's declared kind, display name, and connect timestamp."""
-        self._client_names[fd] = name
-        self._client_kinds[fd] = kind
-        self._client_connect_times[fd] = connect_time
+        self._identity.register(fd, kind=kind, name=name, connect_time=connect_time)
 
     def kind_of(self, fd: int) -> Literal["hub", "test"] | None:
         """Return the declared kind for ``fd``, or ``None`` before it identifies."""
-        return self._client_kinds.get(fd)
+        return self._identity.kind_of(fd)
 
     def hub_fd_for(self, name: str) -> int | None:
         """Return the live fd currently declaring ``kind="hub"`` with this name.
 
-        ``None`` when no such connection exists — the ordinary case once a
-        superseded Hub's socket has already closed on its own. Single-owner
-        preemption (DES-068) uses this to find (and evict) a predecessor
-        before recording a new claimant, so at most one ever holds the name.
+        See ``ClientIdentityBook.hub_fd_for`` -- the DES-068 preemption lookup.
         """
-        for candidate_fd, kind in self._client_kinds.items():
-            if kind == "hub" and self._client_names.get(candidate_fd) == name:
-                return candidate_fd
-        return None
+        return self._identity.hub_fd_for(name)
 
     # -- internal -----------------------------------------------------------
 
     def _read_from_client(self, sock: socket.socket) -> None:
-        """Read available data from a client and dispatch complete messages."""
+        """Read available data from a client and dispatch complete messages.
+
+        ``SSLWantReadError``/``SSLWantWriteError`` (checked ahead of the
+        broader ``OSError`` they subclass) mean a non-blocking TLS socket
+        wants more of a record -- not a dead peer -- so this just defers.
+        """
         fd = sock.fileno()
         reader = self._readers.get(fd)
         if reader is None:
@@ -307,23 +296,30 @@ class SocketListener:
                 self.remove_client(sock)
                 return
             reader.feed(data)
-            if reader.buffer_size > MAX_MESSAGE_SIZE + HEADER_SIZE:
-                logger.warning("Buffer overflow from fd %d", fd)
-                self.remove_client(sock)
-                return
-            # malformed wire data (Key/Type/ValueError), not a handler bug
-            try:
-                messages = reader.drain_typed()
-            except (ValueError, KeyError, TypeError) as exc:
-                logger.warning("Malformed message from fd %d", fd)
-                self._on_error("error", str(exc), "message_parse")
-                self.remove_client(sock)
-                return
-            for msg in messages:
-                logger.debug("Received %s from fd=%s", type(msg).__name__, fd)
-                self._on_message(sock, msg)
-                if sock not in self._clients:
-                    return  # removed during handle (e.g. send failed)
+            self._dispatch_ready_messages(sock)
+        except (ssl.SSLWantReadError, ssl.SSLWantWriteError):
+            return  # not a full TLS record yet -- retry next poll
         except (ConnectionError, OSError) as exc:
-            self._on_error("warning", str(exc), "client_connection")
+            self._callbacks.on_error("warning", str(exc), "client_connection")
             self.remove_client(sock)
+
+    def _dispatch_ready_messages(self, sock: socket.socket) -> None:
+        """Drain every complete message ``sock``'s reader now holds and dispatch it."""
+        fd = sock.fileno()
+        reader = self._readers[fd]
+        if reader.buffer_size > MAX_MESSAGE_SIZE + HEADER_SIZE:
+            logger.warning("Buffer overflow from fd %d", fd)
+            self.remove_client(sock)
+            return
+        try:
+            messages = reader.drain_typed()
+        except (ValueError, KeyError, TypeError) as exc:  # malformed wire data
+            logger.warning("Malformed message from fd %d", fd)
+            self._callbacks.on_error("error", str(exc), "message_parse")
+            self.remove_client(sock)
+            return
+        for msg in messages:
+            logger.debug("Received %s from fd=%s", type(msg).__name__, fd)
+            self._callbacks.on_message(sock, msg)
+            if sock not in self._clients:
+                return  # removed during handle (e.g. send failed)

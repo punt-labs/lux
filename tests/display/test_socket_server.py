@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
+from punt_lux.display.socket_listener_callbacks import SocketListenerCallbacks
 from punt_lux.display.socket_server import SocketListener
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
@@ -52,9 +53,11 @@ def _noop_error(_sev: str, _msg: str, _ctx: str) -> None:
 def _make_server() -> SocketListener:
     """Create a SocketListener with no-op callbacks."""
     return SocketListener(
-        on_message=_noop_message,
-        on_client_disconnected=_noop_disconnect,
-        on_error=_noop_error,
+        SocketListenerCallbacks(
+            on_message=_noop_message,
+            on_client_disconnected=_noop_disconnect,
+            on_error=_noop_error,
+        )
     )
 
 
@@ -98,9 +101,11 @@ class TestAcceptAndPoll:
             received.append((sock.fileno(), msg))
 
         server = SocketListener(
-            on_message=on_message,
-            on_client_disconnected=_noop_disconnect,
-            on_error=_noop_error,
+            SocketListenerCallbacks(
+                on_message=on_message,
+                on_client_disconnected=_noop_disconnect,
+                on_error=_noop_error,
+            )
         )
         try:
             server.setup(sock_path)
@@ -149,9 +154,11 @@ class TestRemoveClient:
             disconnected_fds.append(fd)
 
         server = SocketListener(
-            on_message=_noop_message,
-            on_client_disconnected=on_disconnect,
-            on_error=_noop_error,
+            SocketListenerCallbacks(
+                on_message=_noop_message,
+                on_client_disconnected=on_disconnect,
+                on_error=_noop_error,
+            )
         )
         try:
             server.setup(sock_path)
@@ -195,9 +202,11 @@ class TestRemoveClientDeadFd:
     def test_negative_fileno_skips_disconnect_callback(self) -> None:
         disconnected_fds: list[int] = []
         server = SocketListener(
-            on_message=_noop_message,
-            on_client_disconnected=disconnected_fds.append,
-            on_error=_noop_error,
+            SocketListenerCallbacks(
+                on_message=_noop_message,
+                on_client_disconnected=disconnected_fds.append,
+                on_error=_noop_error,
+            )
         )
         dead = _FakeClient(fd=-1)
         sock = _inject_client(server, dead)

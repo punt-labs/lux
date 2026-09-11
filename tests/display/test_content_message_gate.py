@@ -11,6 +11,7 @@ from unittest.mock import MagicMock
 
 from punt_lux.display.content_message_gate import ContentMessageGate
 from punt_lux.display.identity_guard import IdentityGuard
+from punt_lux.display.socket_listener_callbacks import SocketListenerCallbacks
 from punt_lux.display.socket_server import SocketListener
 from punt_lux.protocol import CallbackMenuMessage, MenuMessage, ThemeMessage
 
@@ -23,9 +24,11 @@ def _mock_sock(fd: int) -> MagicMock:
 
 def _make_listener() -> SocketListener:
     return SocketListener(
-        on_message=lambda _sock, _msg: None,
-        on_client_disconnected=lambda _fd: None,
-        on_error=lambda _sev, _msg, _ctx: None,
+        SocketListenerCallbacks(
+            on_message=lambda _sock, _msg: None,
+            on_client_disconnected=lambda _fd: None,
+            on_error=lambda _sev, _msg, _ctx: None,
+        )
     )
 
 
