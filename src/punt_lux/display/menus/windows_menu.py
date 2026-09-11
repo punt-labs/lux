@@ -104,9 +104,13 @@ class WindowsMenu:
         return [MenuSeparator(), *(self._reopen_item(frame) for frame in closed)]
 
     def _reopen_item(self, frame: Frame) -> MenuItem:
-        """Build the entry that brings one closed frame back, by its title."""
+        """Build the reopen entry, ImGui-keyed on ``(frame.hub, frame_id)``."""
         frame_id = frame.frame_id
-        return MenuItem(frame.title, lambda: self._on_raise_frame(frame_id))
+        # ZWSP after each '#' keeps a raw '##'/'###' (title or id) out of the id.
+        zw = "#" + chr(0x200B)
+        suffix = f"{frame.hub.wire_token}:{frame_id}".replace("#", zw)
+        label = f"{frame.title.replace('#', zw)}##{suffix}"
+        return MenuItem(label, lambda: self._on_raise_frame(frame_id))
 
     def _collapse_all(self) -> None:
         """Send every frame that is on screen to the dock."""
@@ -115,11 +119,6 @@ class WindowsMenu:
                 frame.minimize()
 
     def _expand_all(self) -> None:
-        """Bring every frame back on screen — docked and closed alike.
-
-        "Everything back on screen" is the whole meaning of the command, so a
-        closed frame is included. It restores without taking focus: there is at
-        most one focus request, so raising each in turn would keep only the last.
-        """
+        """Bring every frame back on screen (docked and closed), taking no focus."""
         for frame in self._get_frames().values():
             frame.restore()

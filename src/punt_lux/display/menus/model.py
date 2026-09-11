@@ -49,21 +49,22 @@ class Submenu:
 
     @classmethod
     def from_wire(cls, menu: WireMenu, handlers: MenuHandlers) -> Self:
-        """Return the menu a checked replicated menu describes.
+        """Return the menu a checked replicated menu describes, ImGui-keyed on
+        ``(hub, label)`` so two Hubs' same-named menus never collide.
 
-        An agent bar, the ``Clients`` menu, and a client's submenu inside it all
-        arrive in the same shape, so all become menus here and a click on any
-        leaf emits the same ``action="menu"`` invocation back to the Hub. A leaf
-        carrying a ``frame_id`` also raises that frame Display-locally, before
-        the invocation is even sent (DES-088: only the Display moves a frame).
+        A ``frame_id`` leaf raises its frame first (DES-088); every leaf click
+        emits one ``action="menu"`` invocation.
         """
         decoder = WireMenuDecoder(handlers, cls.from_wire)
-        return cls(menu.label, list(decoder.entries(menu)))
+        # Guard the label in BOTH prefix and id suffix (no raw '##'/'###').
+        shown = menu.label.replace("#", "#" + chr(0x200B))
+        label = f"{shown}##{handlers.hub.wire_token}:{shown}"
+        return cls(label, list(decoder.entries(menu)))
 
     @property
     def label(self) -> str:
-        """Return the title this menu shows."""
-        return self._label
+        """Return the title this menu shows -- the part before any ``##`` salt."""
+        return self._label.split("##", 1)[0].replace(chr(0x200B), "")
 
     @property
     def entries(self) -> tuple[MenuEntry, ...]:
@@ -71,10 +72,9 @@ class Submenu:
         return self._entries
 
     def render(self, imgui: Any, id_suffix: str = "") -> bool:
-        """Render the menu, returning whether any of its entries was activated.
+        """Render the menu, reporting any entry activation.
 
-        *id_suffix* separates the ImGui ids of two surfaces rendering this same
-        menu in one frame; it is not shown to the user.
+        *id_suffix* (never shown) separates the two surfaces' ImGui ids.
         """
         if not imgui.begin_menu(f"{self._label}{id_suffix}"):
             return False
