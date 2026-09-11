@@ -890,13 +890,28 @@ class CouplingRatchet:
     # ---- metric comparison helpers ----
 
     @staticmethod
-    def _meets_threshold(metric: str, value: float, filepath: str = "") -> bool:
-        """Return True if value meets the absolute threshold."""
+    def _threshold_for(metric: str, filepath: str = "") -> tuple[str, float]:
+        """Return the (op, target) absolute threshold for ``metric`` on ``filepath``.
+
+        ``__main__.py`` gets ``CouplingScorer.MAIN_THRESHOLDS``' relaxed caps
+        where one is defined for the metric (``efferent_coupling <= 15``,
+        ``public_names <= 100``); every other metric, and every other
+        filepath, uses ``CouplingScorer.THRESHOLDS``. Shared by
+        ``_meets_threshold`` (the pass/fail check) and every caller that
+        formats a threshold into a diagnostic message, so a refusal message
+        can never cite the default cap for a file that was actually judged
+        against the relaxed one.
+        """
         thresholds = CouplingScorer.THRESHOLDS
         is_main = filepath.endswith("__main__.py")
         if is_main and metric in CouplingScorer.MAIN_THRESHOLDS:
             thresholds = {**thresholds, **CouplingScorer.MAIN_THRESHOLDS}
-        op, target = thresholds[metric]
+        return thresholds[metric]
+
+    @staticmethod
+    def _meets_threshold(metric: str, value: float, filepath: str = "") -> bool:
+        """Return True if value meets the absolute threshold."""
+        op, target = CouplingRatchet._threshold_for(metric, filepath)
         if op == ">=":
             return value >= target
         if op == "<=":
@@ -1201,62 +1216,84 @@ class CouplingRatchet:
             return 1
 
         current_by_file = self._results_by_file(scorer.results)
+        # A caller may name a scored file in a form that doesn't match the
+        # scorer's own key byte-for-byte -- absolute vs. repo-relative, a
+        # "./" prefix, a redundant "../x/.." segment -- and a path genuinely
+        # in the scored tree must not be refused merely for its spelling.
+        # Path.resolve() normalizes both sides to the same absolute form
+        # before comparing.
+        resolved_index: dict[Path, str] = {
+            Path(key).resolve(): key for key in current_by_file
+        }
 
         accepted: list[str] = []
         refused: list[tuple[str, str]] = []
-        for fpath in paths:
-            current = current_by_file.get(fpath)
-            if current is None:
-                refused.append((fpath, "not found in scored tree"))
+        for requested in paths:
+            key = requested if requested in current_by_file else None
+            if key is None:
+                key = resolved_index.get(Path(requested).resolve())
+            if key is None:
+                refused.append((requested, "not found in scored tree"))
                 continue
+            current = current_by_file[key]
             over = [
                 (metric, value)
                 for metric, value in current.items()
-                if not self._meets_threshold(metric, value, fpath)
+                if not self._meets_threshold(metric, value, key)
             ]
             if over:
-                op_target = CouplingScorer.THRESHOLDS
-                detail = "; ".join(
-                    f"{metric}={value:g} exceeds "
-                    f"{op_target[metric][0]} {op_target[metric][1]:g}"
-                    for metric, value in over
-                )
-                refused.append((fpath, detail))
+                detail_parts: list[str] = []
+                for metric, value in over:
+                    op, target = self._threshold_for(metric, key)
+                    detail_parts.append(f"{metric}={value:g} exceeds {op} {target:g}")
+                refused.append((requested, "; ".join(detail_parts)))
                 continue
-            accepted.append(fpath)
+            accepted.append(key)
 
         if accepted:
             new_baseline = dict(self._baseline)
             deltas: dict[str, dict[str, list[float]]] = {}
             regressed_files: set[str] = set()
+            improved_files: set[str] = set()
             for fpath in accepted:
                 current = current_by_file[fpath]
                 baseline_entry = self._baseline.get(fpath, {})
+                # Every accepted file gets a full old->new record for every
+                # metric it has -- unconditionally, not only the metrics
+                # that moved -- so a bless whose recomputed values happen to
+                # exactly match the existing baseline is still traceable in
+                # the audit log rather than silently absent from ``deltas``.
                 file_deltas: dict[str, list[float]] = {}
                 for metric in self.METRIC_KEYS:
                     if metric not in current:
                         continue
                     old_val = baseline_entry.get(metric, 0.0)
-                    if current[metric] != old_val:
-                        file_deltas[metric] = [old_val, current[metric]]
-                    if metric in baseline_entry and not self._is_better_or_equal(
-                        metric,
-                        current[metric],
-                        baseline_entry[metric],
-                    ):
+                    new_val = current[metric]
+                    file_deltas[metric] = [old_val, new_val]
+                    if metric not in baseline_entry:
+                        continue
+                    if not self._is_better_or_equal(metric, new_val, old_val):
                         regressed_files.add(fpath)
+                    elif self._is_strictly_better(metric, new_val, old_val):
+                        improved_files.add(fpath)
                 new_baseline[fpath] = current
-                if file_deltas:
-                    deltas[fpath] = file_deltas
+                deltas[fpath] = file_deltas
 
             # A file with any regressed metric is counted as regressed, not
             # improved, even if another one of its metrics also improved --
             # "improved" is reserved for files whose bless recorded a pure
             # improvement, never a regression riding alongside one.
-            files_improved = sum(
-                1 for f, d in deltas.items() if d and f not in regressed_files
-            )
-            self._save_baseline(new_baseline)
+            files_improved = len(improved_files - regressed_files)
+
+            # Audit before baseline, not after: a bless must never end up
+            # recorded in the baseline but missing from the audit log (the
+            # suppression-loophole shape DES-096 exists to prevent). Writing
+            # the audit entry first means a failure writing the baseline
+            # (e.g. disk full) still leaves a trail of what was attempted;
+            # writing the baseline first would mean a failure writing the
+            # audit entry leaves a silently-unlogged baseline mutation.
+            # Neither write is wrapped in try/except -- a failure here
+            # propagates (fails loud) rather than being swallowed.
             self._append_audit(
                 files_scored=len(accepted),
                 files_improved=files_improved,
@@ -1265,6 +1302,7 @@ class CouplingRatchet:
                 deltas=deltas,
                 reason=reason,
             )
+            self._save_baseline(new_baseline)
             _writeln(f"\nBaseline blessed for {len(accepted)} file(s):")
             _writeln(f"  {self._baseline_path}")
             for fpath in accepted:
@@ -1293,7 +1331,7 @@ class CouplingRatchet:
         reason: str | None = None,
     ) -> None:
         commit = self._git_commit_short()
-        entry = {
+        entry: dict[str, object] = {
             "ts": datetime.datetime.now(datetime.UTC).strftime(
                 "%Y-%m-%dT%H:%M:%SZ",
             ),
@@ -1302,9 +1340,13 @@ class CouplingRatchet:
             "files_improved": files_improved,
             "files_regressed": files_regressed,
             "verdict": verdict,
-            "reason": reason,
-            "deltas": deltas,
         }
+        # Only "rebaseline-files" entries carry a "reason" key at all --
+        # "update" and "rebaseline" entries keep their legacy shape
+        # byte-for-byte, with no "reason" key present (not even null).
+        if reason is not None:
+            entry["reason"] = reason
+        entry["deltas"] = deltas
         with self._audit_path.open("a") as f:
             f.write(json.dumps(entry, separators=(",", ":")) + "\n")
 
@@ -1355,9 +1397,33 @@ def main() -> None:
         _writeln(
             f"Usage: {sys.argv[0]} <file_or_directory> "
             f"[--json] [--threshold] [--check] [--update] [--rebaseline] "
-            f"[--rebaseline-files <path>[,<path>...]] [--log] [--base-ref REF]",
+            f"[--rebaseline-files <path>[,<path>...]] "
+            f'[--reason "<text>"] [--log] [--base-ref REF]',
         )
         sys.exit(1)
+
+    # --rebaseline-files' mode-argument validation (paths present, --reason
+    # present and non-blank) runs BEFORE the target is even inspected, let
+    # alone scored. A missing/blank --reason is a CLI contract violation, not
+    # a scoring outcome -- it must fail with its own message before a bad
+    # --target wastes a directory walk scoring the whole tree, or gets masked
+    # behind the less specific "Not found" error below.
+    rebaseline_paths: list[str] = []
+    rebaseline_reason = ""
+    if "--rebaseline-files" in sys.argv:
+        raw = _arg_value("--rebaseline-files") or ""
+        rebaseline_paths = [p.strip() for p in raw.split(",") if p.strip()]
+        if not rebaseline_paths:
+            _writeln("--rebaseline-files requires at least one path")
+            sys.exit(1)
+        # --reason is required: the tool cannot judge "genuinely necessary
+        # first edge" -- the human-supplied reason, recorded to the audit
+        # log alongside the file and its old->new values, is the
+        # accountability DES-096 requires for every bless.
+        rebaseline_reason = _arg_value("--reason") or ""
+        if not rebaseline_reason.strip():
+            _writeln("--rebaseline-files requires --reason <text>")
+            sys.exit(1)
 
     target = Path(sys.argv[1])
     if not target.exists():
@@ -1376,20 +1442,7 @@ def main() -> None:
     if "--check" in sys.argv:
         sys.exit(ratchet.check(scorer, base_ref))
     elif "--rebaseline-files" in sys.argv:
-        raw = _arg_value("--rebaseline-files") or ""
-        paths = [p.strip() for p in raw.split(",") if p.strip()]
-        if not paths:
-            _writeln("--rebaseline-files requires at least one path")
-            sys.exit(1)
-        # --reason is required: the tool cannot judge "genuinely necessary
-        # first edge" -- the human-supplied reason, recorded to the audit
-        # log alongside the file and its old->new values, is the
-        # accountability DES-096 requires for every bless.
-        reason = _arg_value("--reason")
-        if not reason or not reason.strip():
-            _writeln("--rebaseline-files requires --reason <text>")
-            sys.exit(1)
-        sys.exit(ratchet.rebaseline_files(scorer, paths, reason))
+        sys.exit(ratchet.rebaseline_files(scorer, rebaseline_paths, rebaseline_reason))
     elif "--rebaseline" in sys.argv:
         sys.exit(ratchet.rebaseline(scorer))
     elif "--update" in sys.argv:
