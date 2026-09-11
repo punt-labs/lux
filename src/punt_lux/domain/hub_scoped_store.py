@@ -69,17 +69,32 @@ class HubScopedStore[V]:
             del self._entries[key]
         return matches
 
+    def remove_matching_hub_value(self, hub: HubId, value: V) -> list[HubScopedKey]:
+        """Remove every entry ``hub`` owns whose value matches -- the whole-frame
+        counterpart to :meth:`remove_matching`, scoped by owner instead of local
+        id so a second Hub's identically-valued entries are never candidates."""
+        matches = [
+            key for key, v in self._entries.items() if key.hub == hub and v == value
+        ]
+        for key in matches:
+            del self._entries[key]
+        return matches
+
     def keys_for_value(self, value: V) -> list[HubScopedKey]:
         """Return every key currently mapped to ``value``, across every Hub."""
         return [key for key, v in self._entries.items() if v == value]
 
-    def reassign_value(self, old: V, new: V, locals_filter: frozenset[str]) -> None:
-        """Replace ``old`` with ``new`` for every entry whose local id is in
-        ``locals_filter`` -- each entry's own Hub key is untouched, only its
-        value moves. The ownership-transfer primitive a departed client's
-        co-owned entries reassign through, scoped to one frame's scenes."""
+    def reassign_value(
+        self, hub: HubId, old: V, new: V, locals_filter: frozenset[str]
+    ) -> None:
+        """Replace ``old`` with ``new`` for every ``hub``-owned entry whose local
+        id is in ``locals_filter`` -- each entry's own key is otherwise
+        untouched, only its value moves, and a second Hub's identically-named
+        entry is never a candidate. The ownership-transfer primitive a departed
+        client's co-owned entries reassign through, scoped to one frame's
+        scenes."""
         for key, value in list(self._entries.items()):
-            if key.local in locals_filter and value == old:
+            if key.hub == hub and key.local in locals_filter and value == old:
                 self._entries[key] = new
 
     def for_hub(self, hub: HubId) -> Iterator[tuple[str, V]]:

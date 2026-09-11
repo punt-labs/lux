@@ -9,6 +9,8 @@ rather than through :meth:`StaleIds.notify` (DES-088).
 
 from __future__ import annotations
 
+import dataclasses
+
 from punt_lux.display.replica.frame_book import FrameBook
 from punt_lux.display.replica.stale_ids import StaleIds
 from punt_lux.domain.hub_id import HubId
@@ -43,7 +45,8 @@ def _stale_ids() -> tuple[StaleIds, FrameBook, list[list[str]]]:
 
 def _install(book: FrameBook, msg: SceneMessage, frame_id: str) -> None:
     """Put a scene in a frame the way SceneReplica would, without its bookkeeping."""
-    frame = book.ensure(msg, frame_id, owner_fd=10)
+    msg = dataclasses.replace(msg, frame_id=frame_id)
+    frame = book.ensure(msg, owner_fd=10)
     frame.scenes[msg.id] = msg
     frame.scene_order.append(msg.id)
     book.set_frame(HubScopedKey(HubId.stub(), msg.id), frame_id)

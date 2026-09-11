@@ -2,51 +2,48 @@
 
 from __future__ import annotations
 
-from typing import Literal, Self, final
+from typing import TYPE_CHECKING, Literal, Self, final
 
+from punt_lux.display.replica.frame_placement import FramePlacement
 from punt_lux.display.replica.frame_visibility import FrameVisibility
 from punt_lux.display.replica.window_hints import WindowHints
 from punt_lux.protocol import SceneMessage
 
+if TYPE_CHECKING:
+    from punt_lux.domain.identity import HubId
+
 
 @final
 class Frame:
-    """A named inner window in the workspace.
+    """A named inner window in the workspace, owned by one Hub. Where the
+    frame is -- on screen, docked, or put away -- is asked through the
+    three predicates and moved through the three mutators; there is no
+    flag to assign (DES-065 R8). Visibility, active tab, and cascade slot
+    are a composed :class:`FramePlacement`, not three separate fields."""
 
-    Each frame owns one or more scenes contributed by one or more clients.
-    When ``layout`` is ``"tab"`` (default), multiple scenes appear as tabs;
-    when ``"stack"``, they stack vertically with collapsing headers.
-
-    Where the frame is — on screen, docked, or put away — is asked through the
-    three predicates and moved through the three mutators. There is no flag to
-    assign, because assignment is how a content event used to reach in and undo
-    the user's decision (DES-065 R8).
-    """
-
+    _hub: HubId
     _frame_id: str
     _title: str
     _owner_fds: set[int]
     _scenes: dict[str, SceneMessage]
     _scene_order: list[str]
-    _active_tab: str | None
-    _visibility: FrameVisibility
-    _cascade_index: int
+    _placement: FramePlacement
     _hints: WindowHints
     __slots__ = (
-        "_active_tab",
-        "_cascade_index",
         "_frame_id",
         "_hints",
+        "_hub",
         "_owner_fds",
+        "_placement",
         "_scene_order",
         "_scenes",
         "_title",
-        "_visibility",
     )
 
     def __new__(
         cls,
         *,
+        hub: HubId,
         frame_id: str,
         title: str,
         owner_fds: set[int],
@@ -60,54 +57,49 @@ class Frame:
         layout: Literal["tab", "stack"] = "tab",
     ) -> Self:
         self = super().__new__(cls)
+        self._hub = hub
         self._frame_id = frame_id
         self._title = title
         self._owner_fds = owner_fds
         self._scenes = scenes
         self._scene_order = scene_order
-        self._active_tab = active_tab
-        self._visibility = visibility
-        self._cascade_index = cascade_index
+        self._placement = FramePlacement(
+            visibility=visibility, active_tab=active_tab, cascade_index=cascade_index
+        )
         self._hints = WindowHints(initial_size=initial_size, flags=flags, layout=layout)
         return self
 
-    # -- read-only properties ------------------------------------------------
+    @property
+    def hub(self) -> HubId:
+        return self._hub
 
     @property
     def frame_id(self) -> str:
-        """Return the unique identifier for this frame."""
         return self._frame_id
 
     @property
     def cascade_index(self) -> int:
-        """Return the cascade position index."""
-        return self._cascade_index
+        return self._placement.cascade_index
 
     @property
     def initial_size(self) -> tuple[int, int] | None:
-        """Return the initial window size, if set."""
         return self._hints.initial_size
 
     @property
     def hints(self) -> WindowHints:
-        """Return the window's ImGui creation hints: flags and layout."""
+        """The window's ImGui creation hints: flags and layout."""
         return self._hints
 
     @property
     def owner_fds(self) -> set[int]:
-        """Return the set of owning file descriptors."""
         return self._owner_fds
 
     @property
     def scenes(self) -> dict[str, SceneMessage]:
-        """Return the scene map."""
         return self._scenes
-
-    # -- mutable properties --------------------------------------------------
 
     @property
     def scene_order(self) -> list[str]:
-        """Return the ordered list of scene IDs."""
         return self._scene_order
 
     @scene_order.setter
@@ -116,7 +108,6 @@ class Frame:
 
     @property
     def title(self) -> str:
-        """Return the frame title."""
         return self._title
 
     @title.setter
@@ -125,57 +116,47 @@ class Frame:
 
     @property
     def active_tab(self) -> str | None:
-        """Return the active tab scene ID."""
-        return self._active_tab
+        return self._placement.active_tab
 
     @active_tab.setter
     def active_tab(self, value: str | None) -> None:
-        self._active_tab = value
-
-    # -- visibility ----------------------------------------------------------
+        self._placement.active_tab = value
 
     @property
     def visibility(self) -> FrameVisibility:
-        """Return where the frame is: on screen, docked, or put away."""
-        return self._visibility
+        return self._placement.visibility
 
     @property
     def is_on_screen(self) -> bool:
-        """Return whether the frame is painted as an inner window."""
-        return self._visibility.is_on_screen
+        return self._placement.is_on_screen
 
     @property
     def is_docked(self) -> bool:
-        """Return whether the frame is in the dock bar, carrying a pill."""
-        return self._visibility.is_docked
+        """Whether the frame is in the dock bar, carrying a pill."""
+        return self._placement.is_docked
 
     @property
     def is_closed(self) -> bool:
-        """Return whether the user has put the frame away."""
-        return self._visibility.is_closed
+        return self._placement.is_closed
 
     def minimize(self) -> None:
         """Put the frame in the dock: not painted, but still carrying a pill."""
-        self._visibility = FrameVisibility.DOCKED
+        self._placement.minimize()
 
     def close(self) -> None:
-        """Put the frame away: not painted, and carrying no pill.
-
-        Visibility only. The frame keeps its scenes, its widget state, its active
-        tab and its cascade index, so a later restore brings back what the user
-        shut rather than something rebuilt from a fresh push.
-        """
-        self._visibility = FrameVisibility.CLOSED
+        """Put the frame away: not painted, no pill -- visibility only, so a
+        later restore brings back what the user shut, not a fresh rebuild."""
+        self._placement.close()
 
     def restore(self) -> None:
         """Bring the frame back on screen, from docked and closed alike."""
-        self._visibility = FrameVisibility.ON_SCREEN
+        self._placement.restore()
 
     def presentation(self) -> dict[str, object]:
         """Return this frame's Display-owned facts, keyed like ``FramePresentation``."""
         return {
             "frame_id": self._frame_id,
-            "visibility": self._visibility.value,
-            "active_tab": self._active_tab,
-            "cascade_index": self._cascade_index,
+            "visibility": self._placement.visibility.value,
+            "active_tab": self._placement.active_tab,
+            "cascade_index": self._placement.cascade_index,
         }

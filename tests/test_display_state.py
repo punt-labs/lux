@@ -122,6 +122,7 @@ class TestEmitEvent:
         lives in a frame or a top-level tab.
         """
         from punt_lux.display.replica.frame import Frame
+        from punt_lux.domain.identity import HubId, HubScopedKey
 
         server = _make_server()
         # Empty element list — the scene_id assignment lives at the top of
@@ -129,6 +130,7 @@ class TestEmitEvent:
         # test free of ImGui context requirements.
         scene = SceneMessage(id="framed-1", elements=[], frame_id="framed-1")
         frame = Frame(
+            hub=HubId.stub(),
             frame_id="f1",
             title="F1",
             owner_fds={42},
@@ -136,7 +138,7 @@ class TestEmitEvent:
             scene_order=["framed-1"],
             active_tab="framed-1",
         )
-        server._scenes._widget_state.open("framed-1")
+        server._scenes._widget_state.open(HubScopedKey(HubId.stub(), "framed-1"))
 
         # Pretend an earlier tab render set _current_scene_id to a stale value.
         server._current_scene_id = "stale-tab"
@@ -552,7 +554,9 @@ class TestModalDismissRevertOnUndeliverable:
 
     @staticmethod
     def _latch_modal(server: RenderLoop, scene_id: str, element_id: str) -> WidgetState:
-        ws = server._scenes._widget_state.open(scene_id)
+        from punt_lux.domain.identity import HubId, HubScopedKey
+
+        ws = server._scenes._widget_state.open(HubScopedKey(HubId.stub(), scene_id))
         ws.set(f"{element_id}{WidgetState.OPEN_SUFFIX}", 1)
         ws.set(f"{element_id}{WidgetState.DISMISS_SUFFIX}", 1)
         return ws

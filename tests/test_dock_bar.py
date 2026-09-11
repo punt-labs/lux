@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, Self, cast, final
 from punt_lux.display.dock_bar import DOCK_BAR_HEIGHT, DockBar
 from punt_lux.display.replica.frame import Frame
 from punt_lux.display.replica.frame_visibility import FrameVisibility
+from punt_lux.domain.identity import HubId
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -180,6 +181,7 @@ class _FakeScenes:
 
 def _frame(frame_id: str, title: str, *, visibility: FrameVisibility) -> Frame:
     return Frame(
+        hub=HubId.stub(),
         frame_id=frame_id,
         title=title,
         owner_fds=set(),
