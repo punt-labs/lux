@@ -74,7 +74,9 @@ class TestHandleConnect:
         reconciliation = _make_reconciliation(listener, scenes)
         sock = _mock_sock(10)
 
-        reconciliation.handle_connect(sock, ConnectMessage(name="lux-mcp", kind="hub"))
+        reconciliation.handle_connect(
+            sock, ConnectMessage(name="lux-mcp", kind="hub", hub_id="pembroke\x1f123")
+        )
 
         assert listener.hub_fd_for("lux-mcp") == 10
 
@@ -84,7 +86,7 @@ class TestHandleConnect:
         reconciliation = _make_reconciliation(listener, scenes)
         sock = _mock_sock(10)
 
-        probe = ConnectMessage(name="quarry", kind="test")
+        probe = ConnectMessage(name="quarry", kind="test", hub_id="test.invalid\x1f0")
         reconciliation.handle_connect(sock, probe)
 
         assert listener.hub_fd_for("quarry") is None
@@ -100,14 +102,16 @@ class TestHandleConnect:
         listener.fd_to_client[10] = old_sock
 
         reconciliation.handle_connect(
-            old_sock, ConnectMessage(name="lux-mcp", kind="hub")
+            old_sock,
+            ConnectMessage(name="lux-mcp", kind="hub", hub_id="pembroke\x1f123"),
         )
         assert listener.hub_fd_for("lux-mcp") == 10
 
         listener.clients.append(new_sock)
         listener.fd_to_client[20] = new_sock
         reconciliation.handle_connect(
-            new_sock, ConnectMessage(name="lux-mcp", kind="hub")
+            new_sock,
+            ConnectMessage(name="lux-mcp", kind="hub", hub_id="pembroke\x1f123"),
         )
 
         old_sock.close.assert_called_once()  # forcibly removed
@@ -121,7 +125,9 @@ class TestHandleConnect:
         reconciliation = _make_reconciliation(listener, scenes)
         sock = _mock_sock(10)
 
-        reconciliation.handle_connect(sock, ConnectMessage(name="lux-mcp", kind="hub"))
+        reconciliation.handle_connect(
+            sock, ConnectMessage(name="lux-mcp", kind="hub", hub_id="pembroke\x1f123")
+        )
 
         sock.close.assert_not_called()
 
@@ -134,8 +140,12 @@ class TestHandleConnect:
         listener.fd_to_client[10] = first
         listener.fd_to_client[20] = second
 
-        reconciliation.handle_connect(first, ConnectMessage(name="a", kind="hub"))
-        reconciliation.handle_connect(second, ConnectMessage(name="b", kind="hub"))
+        reconciliation.handle_connect(
+            first, ConnectMessage(name="a", kind="hub", hub_id="a.example\x1f1")
+        )
+        reconciliation.handle_connect(
+            second, ConnectMessage(name="b", kind="hub", hub_id="b.example\x1f2")
+        )
 
         first.close.assert_not_called()
         assert listener.hub_fd_for("a") == 10
@@ -147,7 +157,9 @@ class TestHandleConnect:
         reconciliation = _make_reconciliation(listener, scenes)
         sock = _mock_sock(10)
 
-        reconciliation.handle_connect(sock, ConnectMessage(name="   ", kind="hub"))
+        reconciliation.handle_connect(
+            sock, ConnectMessage(name="   ", kind="hub", hub_id="pembroke\x1f123")
+        )
 
         assert 10 not in listener.client_names
 
@@ -160,7 +172,7 @@ class TestHandleConnect:
         reconciliation = _make_reconciliation(listener, scenes)
         sock = _mock_sock(10)
 
-        msg = ConnectMessage(name="probe", kind="test")
+        msg = ConnectMessage(name="probe", kind="test", hub_id="test.invalid\x1f0")
         with caplog.at_level("WARNING"):
             reconciliation.handle_connect(sock, msg)
 
@@ -177,7 +189,7 @@ class TestHandleConnect:
         reconciliation = _make_reconciliation(listener, scenes)
         sock = _mock_sock(10)
 
-        msg = ConnectMessage(name="lux-mcp", kind="hub")
+        msg = ConnectMessage(name="lux-mcp", kind="hub", hub_id="pembroke\x1f123")
         with caplog.at_level("WARNING"):
             reconciliation.handle_connect(sock, msg)
 

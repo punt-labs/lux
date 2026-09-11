@@ -1,17 +1,22 @@
-"""Connection-lifecycle messages — ready, connect, hub manifest, ack, ping/pong."""
+"""Connection-lifecycle messages — ready, hub manifest, ack, ping/pong.
+
+``ConnectMessage`` -- the connection-identity handshake -- lives in its own
+sibling module, ``connect_message.py``: it grew its own required Hub-identity
+field and validation and earned the one-message-per-module treatment this
+package already gives ``remote_invocation.py``.
+"""
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Literal, Self, cast
+from typing import Any, Literal, Self, cast, final
 
 from punt_lux.protocol.messages.unknown_message import UnknownMessage
 
 __all__ = [
     "PROTOCOL_VERSION",
     "AckMessage",
-    "ConnectMessage",
     "HubManifestMessage",
     "PingMessage",
     "PongMessage",
@@ -47,57 +52,6 @@ class PingMessage:
     def from_dict(cls, d: dict[str, Any]) -> Self:
         """Rebuild from a wire dict."""
         return cls(ts=d.get("ts"))
-
-
-@dataclass(frozen=True, slots=True)
-class ConnectMessage:
-    """Client identifies itself to the display server.
-
-    Sent after receiving ``ReadyMessage``.  The *name* field is used for
-    display attribution (e.g. frame titles, menu namespaces).  Sending
-    again updates the name (idempotent).
-
-    ``kind`` is required, with no default — every caller must declare it
-    explicitly.  ``"hub"`` is the one legitimate production writer: luxd's
-    ``ClientRegistry``, whose identify triggers single-owner preemption and
-    expects a ``HubManifestMessage`` immediately after (DES-068). ``"test"``
-    is a deliberately-named test-only backdoor for inspecting a running
-    Display without a Hub in the loop — the name reads as wrong at a
-    production call site on purpose. A ``"test"`` connection may query and
-    observe; a ``SceneMessage`` from one is rejected, not installed (a lux
-    client never talks to the Display directly, per target.md).
-    """
-
-    name: str
-    kind: Literal["hub", "test"]
-    type: Literal["connect"] = "connect"
-
-    def to_dict(self) -> dict[str, Any]:
-        """Serialize to the wire dict."""
-        return {"type": self.type, "name": self.name, "kind": self.kind}
-
-    @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> Self:
-        """Rebuild from a wire dict; raise on a missing/blank name or bad kind."""
-        return cls(name=cls._require_name(d), kind=cls._require_kind(d))
-
-    @staticmethod
-    def _require_name(d: dict[str, Any]) -> str:
-        name = d.get("name")
-        if not isinstance(name, str) or not name.strip():
-            err = "ConnectMessage missing or invalid 'name' field"
-            raise ValueError(err)
-        return name
-
-    @staticmethod
-    def _require_kind(d: dict[str, Any]) -> Literal["hub", "test"]:
-        kind = d.get("kind")
-        if kind == "hub":
-            return "hub"
-        if kind == "test":
-            return "test"
-        err = f"ConnectMessage missing or invalid 'kind' field: {kind!r}"
-        raise ValueError(err)
 
 
 @dataclass(frozen=True, slots=True)
@@ -214,21 +168,35 @@ class PongMessage:
         return cls(ts=d.get("ts"), display_ts=d.get("display_ts"))
 
 
-def register_codecs(register: _Register) -> None:
-    """Register this module's message codecs into a MessageRegistry."""
-    register("ready", ReadyMessage, ReadyMessage.to_dict, ReadyMessage.from_dict)
-    register("ack", AckMessage, AckMessage.to_dict, AckMessage.from_dict)
-    register("pong", PongMessage, PongMessage.to_dict, PongMessage.from_dict)
-    register("ping", PingMessage, PingMessage.to_dict, PingMessage.from_dict)
-    register(
-        "connect", ConnectMessage, ConnectMessage.to_dict, ConnectMessage.from_dict
-    )
-    register(
-        "hub_manifest",
-        HubManifestMessage,
-        HubManifestMessage.to_dict,
-        HubManifestMessage.from_dict,
-    )
-    register(
-        "unknown", UnknownMessage, UnknownMessage.to_dict, UnknownMessage.from_dict
-    )
+@final
+class LifecycleCodecs:
+    """Registers every lifecycle message class's codec into a MessageRegistry.
+
+    ``register`` operates on every class this module defines -- the shared
+    vocabulary that marks it as behavior belonging to the module as a whole
+    (PY-OO-7), not a free function that merely happens to sit beside them.
+    """
+
+    __slots__ = ()
+
+    @staticmethod
+    def register(register: _Register) -> None:
+        """Register this module's message codecs into a MessageRegistry."""
+        register("ready", ReadyMessage, ReadyMessage.to_dict, ReadyMessage.from_dict)
+        register("ack", AckMessage, AckMessage.to_dict, AckMessage.from_dict)
+        register("pong", PongMessage, PongMessage.to_dict, PongMessage.from_dict)
+        register("ping", PingMessage, PingMessage.to_dict, PingMessage.from_dict)
+        register(
+            "hub_manifest",
+            HubManifestMessage,
+            HubManifestMessage.to_dict,
+            HubManifestMessage.from_dict,
+        )
+        register(
+            "unknown", UnknownMessage, UnknownMessage.to_dict, UnknownMessage.from_dict
+        )
+
+
+# The package-wide registration entry point every sibling module exposes
+# under this exact name (see ``messages/__init__.py``).
+register_codecs = LifecycleCodecs.register

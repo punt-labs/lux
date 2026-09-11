@@ -912,7 +912,9 @@ class TestConnectMessagePartitions:
         _register_hub(server, sock)
         server._socket_listener._fd_to_client[10] = sock
 
-        server._handle_connect(sock, ConnectMessage(name="quarry", kind="test"))
+        server._handle_connect(
+            sock, ConnectMessage(name="quarry", kind="test", hub_id="test.invalid\x1f0")
+        )
 
         assert server.client_name(10) == "quarry"
 
@@ -923,8 +925,12 @@ class TestConnectMessagePartitions:
         _register_hub(server, sock)
         server._socket_listener._fd_to_client[10] = sock
 
-        server._handle_connect(sock, ConnectMessage(name="quarry", kind="test"))
-        server._handle_connect(sock, ConnectMessage(name="biff", kind="test"))
+        server._handle_connect(
+            sock, ConnectMessage(name="quarry", kind="test", hub_id="test.invalid\x1f0")
+        )
+        server._handle_connect(
+            sock, ConnectMessage(name="biff", kind="test", hub_id="test.invalid\x1f0")
+        )
 
         assert server.client_name(10) == "biff"
 
@@ -935,7 +941,9 @@ class TestConnectMessagePartitions:
         _register_hub(server, sock)
         server._socket_listener._fd_to_client[10] = sock
 
-        server._handle_connect(sock, ConnectMessage(name="quarry", kind="test"))
+        server._handle_connect(
+            sock, ConnectMessage(name="quarry", kind="test", hub_id="test.invalid\x1f0")
+        )
         server._socket_listener.remove_client(sock)
 
         assert server.client_name(10) is None
