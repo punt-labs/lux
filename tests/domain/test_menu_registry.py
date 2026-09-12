@@ -62,6 +62,31 @@ def test_wire_snapshot_stamps_each_leaf_id_with_its_owner() -> None:
     assert items[0] == {"label": "Run", "id": stamped, "shortcut": "F5"}
 
 
+def test_wire_snapshot_carries_a_frame_id_through_to_the_display() -> None:
+    # gap (a) end to end: a frame-bound item's frame_id survives stamping into the
+    # composed snapshot the display receives — the display raises it on click.
+    reg, clients = _live_registry()
+    owner = ConnectionId("owner-frame")
+    clients.record(owner)
+    reg.set_menus(
+        owner,
+        [
+            Menu(
+                label="Tools",
+                items=[MenuAction(id="run", label="Run", frame_id="dash")],
+            )
+        ],
+    )
+
+    items = reg.wire_snapshot()[0]["items"]
+    assert isinstance(items, list)
+    assert items[0] == {
+        "label": "Run",
+        "id": CallbackInvocation(owner, "run").menu_id,
+        "frame_id": "dash",
+    }
+
+
 def test_set_menus_replaces_only_the_owning_sessions_bar() -> None:
     reg, clients = _live_registry()
     owner = ConnectionId("owner-2")

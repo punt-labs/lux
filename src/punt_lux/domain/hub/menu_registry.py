@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.domain.hub.menu_models import Menu
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Collection, Mapping, Sequence
 
     from punt_lux.domain.hub.callback_ports import LiveSessions
     from punt_lux.domain.ids import ConnectionId
@@ -68,29 +68,38 @@ class HubMenuRegistry:
     def menu_bar(self) -> list[Menu]:
         """Return every live session's bar as deep copies (the agent's own view).
 
-        Copied out because ``frozen=True`` does not freeze ``Menu.items`` (a list),
-        so a caller cannot reach back through a returned menu and mutate state.
+        Reads the live set first and outside the lock, then composes the stored
+        bars under it (so the two locks never nest). Copied out because
+        ``frozen=True`` does not freeze ``Menu.items`` (a list), so a caller
+        cannot reach back through a returned menu and mutate state.
         """
-        return [menu.model_copy(deep=True) for _owner, menu in self._live_menus()]
+        live = self._live.live_sessions()
+        with self._lock:
+            pairs = self._select(self._by_owner, live)
+        return [menu.model_copy(deep=True) for _owner, menu in pairs]
 
     def wire_snapshot(self) -> tuple[Mapping[str, object], ...]:
         """Return the live sessions' bars as wire payloads, each leaf owner-stamped.
 
         Read fresh at send time, so the snapshot is the live registry at that
         instant — a departed owner is already gone and a stale menu cannot exist.
-        """
-        return tuple(
-            menu.stamped_for(owner).to_wire() for owner, menu in self._live_menus()
-        )
-
-    def _live_menus(self) -> list[tuple[ConnectionId, Menu]]:
-        """Return ``(owner, menu)`` for every menu of every live owner, ordered.
-
-        The live-session read runs first and outside this registry's lock, so the
-        client registry's lock and this one never nest; owners are ordered so the
-        composed bar is stable across reads.
+        The live read runs outside the lock, matching :meth:`menu_bar`.
         """
         live = self._live.live_sessions()
         with self._lock:
-            owners = sorted(owner for owner in self._by_owner if owner in live)
-            return [(owner, menu) for owner in owners for menu in self._by_owner[owner]]
+            pairs = self._select(self._by_owner, live)
+        return tuple(menu.stamped_for(owner).to_wire() for owner, menu in pairs)
+
+    @staticmethod
+    def _select(
+        by_owner: Mapping[ConnectionId, tuple[Menu, ...]],
+        live: Collection[ConnectionId],
+    ) -> list[tuple[ConnectionId, Menu]]:
+        """Return ``(owner, menu)`` for every menu of every live owner, ordered.
+
+        Pure selection over the caller's snapshot — no instance state — so both
+        readers share it without either owning the composition. Owners are
+        ordered so the composed bar is stable across reads.
+        """
+        owners = sorted(owner for owner in by_owner if owner in live)
+        return [(owner, menu) for owner in owners for menu in by_owner[owner]]

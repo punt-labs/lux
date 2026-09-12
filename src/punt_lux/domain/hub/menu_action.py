@@ -9,12 +9,13 @@ staticmethods are the wire-decode primitives this leaf's decode needs.
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, ClassVar, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from punt_lux.domain.hub.session_callback import CallbackInvocation
-from punt_lux.domain.id_separator import ID_SEPARATOR
+from punt_lux.domain.id_separator import ID_SEPARATOR, NONBLANK_FRAME_ID
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -46,12 +47,13 @@ class MenuAction(BaseModel):
     def from_wire(cls, entry: Mapping[str, object], *, loc: str) -> Self:
         """Decode one agent-supplied wire item, reading every round-tripped field.
 
-        Reads ``frame_id`` — the byproduct that lets a frame-bound agent item raise
-        its frame on click (gap a). The id is rejected here, at the agent boundary,
-        if it carries the leaf-id separator, so a stamped ``owner<US>id`` never
-        splits ambiguously at dispatch. The rule lives on the decode, not a field
-        validator, because the Hub itself stamps composite ids a validator would
-        then wrongly refuse.
+        Reads ``frame_id`` so a frame-bound agent item can raise its own frame on
+        click. Both leaf keys — the ``id`` and any ``frame_id`` — are validated
+        here at the agent boundary: each must be non-blank and free of the leaf-id
+        separator (the same shape :class:`SessionCallback`'s fields enforce), so a
+        stamped ``owner<US>key`` never splits ambiguously at dispatch. The rule
+        lives on the decode, not a field validator, because the Hub itself stamps
+        composite ids a validator would then wrongly refuse.
         """
         item_id = cls._require_str(entry.get("id"), loc=f"{loc}.id")
         if ID_SEPARATOR in item_id:
@@ -62,7 +64,9 @@ class MenuAction(BaseModel):
             label=cls._require_str(entry.get("label"), loc=f"{loc}.label"),
             shortcut=cls._optional_str(entry.get("shortcut"), loc=f"{loc}.shortcut"),
             icon=cls._optional_str(entry.get("icon"), loc=f"{loc}.icon"),
-            frame_id=cls._optional_str(entry.get("frame_id"), loc=f"{loc}.frame_id"),
+            frame_id=cls._optional_frame_id(
+                entry.get("frame_id"), loc=f"{loc}.frame_id"
+            ),
         )
 
     def stamped_for(self, owner: ConnectionId) -> MenuAction:
@@ -101,7 +105,7 @@ class MenuAction(BaseModel):
         """Return a present string, ``None`` when absent, or reject a non-string.
 
         ``None`` is the "field absent" contract of an optional wire attribute
-        (shortcut, icon, frame_id), not a give-up (PY-TS-14).
+        (shortcut, icon), not a give-up (PY-TS-14).
         """
         if value is None:
             return None
@@ -109,3 +113,19 @@ class MenuAction(BaseModel):
             msg = f"{loc}: expected a string"
             raise ValueError(msg)
         return value
+
+    @staticmethod
+    def _optional_frame_id(value: object, *, loc: str) -> str | None:
+        """Return a present, non-blank, separator-free frame id, or ``None``.
+
+        A present frame id names a frame to raise, so it must be a real leaf key —
+        the same non-blank, separator-free shape :attr:`SessionCallback.frame_id`
+        enforces (the shared :data:`NONBLANK_FRAME_ID` pattern), checked at the
+        agent boundary because the Hub stamps composite ids a field validator would
+        refuse. ``None`` is the documented "no owned frame" state (PY-TS-14).
+        """
+        frame_id = MenuAction._optional_str(value, loc=loc)
+        if frame_id is not None and re.match(NONBLANK_FRAME_ID, frame_id) is None:
+            msg = f"{loc}: must be non-blank and free of the leaf-id separator"
+            raise ValueError(msg)
+        return frame_id

@@ -1,20 +1,16 @@
-"""The Hub-owned menu composite, its trivial separator leaf, and the entry family.
+"""The Hub-owned menu composite, its separator leaf, and the entry family.
 
-Menus are UI the agent submits, and submitted UI is Hub-authoritative state, so
-these types live in the domain layer — the operations layer imports them, keeping
-the one dependency arrow pointing operations → domain (PY-IC-9). The clickable
-:class:`MenuAction` leaf lives in :mod:`punt_lux.domain.hub.menu_action`; this
-module owns the :class:`Menu` container, the trivial :class:`MenuSeparator`, the
-:class:`WireMenuEntry` family Protocol, and the discriminated :data:`MenuEntry`
-union.
+Menus are Hub-authoritative submitted UI, so these types live in the domain layer
+(operations → domain, PY-IC-9). The clickable :class:`MenuAction` leaf lives in
+:mod:`punt_lux.domain.hub.menu_action`; this module owns the :class:`Menu`
+container, the trivial :class:`MenuSeparator`, the :class:`WireMenuEntry` family
+Protocol, and the discriminated :data:`MenuEntry` union.
 
-Every entry owns both halves of its wire round-trip — ``to_wire`` and a
-``from_wire`` classmethod — so the decode reads every field the encode writes
-(PY-OO-5). The family is the structural :class:`WireMenuEntry` Protocol, not a
-base class (families-share-by-Protocol); the pydantic union on ``kind`` stays the
-runtime shape. An entry is discriminated on the *presence of an id*: an entry with
-an id is an action (even one labelled ``"---"``), the id-less ``"---"`` sentinel is
-the only separator, and any other id-less entry is malformed and rejected by name.
+Every entry owns both halves of its wire round-trip (``to_wire`` + a ``from_wire``
+classmethod) and stamps itself for dispatch — the family behaviours the structural
+:class:`WireMenuEntry` Protocol declares (families-share-by-Protocol, not a base
+class); the pydantic union on ``kind`` stays the runtime shape. An entry is
+discriminated on the *presence of an id* (see :meth:`Menu._entry_from_wire`).
 """
 
 from __future__ import annotations
@@ -46,18 +42,23 @@ SEPARATOR_SENTINEL = "---"
 
 @runtime_checkable
 class WireMenuEntry(Protocol):
-    """A menu entry that renders itself to wire. The family contract, structural.
+    """A menu entry that renders and stamps itself. The family contract, structural.
 
     ``TYPE`` is the class-level family tag this Protocol reads; ``kind`` is the
     pydantic discriminator driving the runtime union — the two serve different
-    type systems and carry the same string on purpose. ``isinstance(x,
-    WireMenuEntry)`` is the family-membership test every entry passes.
+    type systems and carry the same string on purpose. The Protocol is
+    load-bearing: :meth:`Menu.stamped_for` recurses over its items as this
+    contract, and ``isinstance(x, WireMenuEntry)`` is the family-membership test.
     """
 
     TYPE: ClassVar[str]
 
     def to_wire(self) -> dict[str, object]:
         """Render as the untyped payload the display consumes."""
+        ...
+
+    def stamped_for(self, owner: ConnectionId, /) -> WireMenuEntry:
+        """Return the entry with each leaf id stamped ``owner<US>id`` for dispatch."""
         ...
 
 

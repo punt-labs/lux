@@ -202,6 +202,31 @@ def test_set_menu_rejects_an_id_carrying_the_leaf_separator() -> None:
     assert "menus.0.items.0.id" in result.reason
 
 
+def test_set_menu_rejects_a_frame_id_carrying_the_leaf_separator() -> None:
+    # A frame_id names a leaf key too, so the same non-blank, separator-free rule
+    # the id gets applies at the agent boundary — rejected by field path.
+    result = SetMenuRequest.parse(
+        [
+            {
+                "label": "File",
+                "items": [{"id": "run", "label": "Run", "frame_id": "a\x1fb"}],
+            }
+        ]
+    )
+    assert isinstance(result, OpError)
+    assert result.code == "invalid_request"
+    assert "menus.0.items.0.frame_id" in result.reason
+
+
+def test_set_menu_rejects_a_blank_frame_id() -> None:
+    result = SetMenuRequest.parse(
+        [{"label": "File", "items": [{"id": "run", "label": "Run", "frame_id": ""}]}]
+    )
+    assert isinstance(result, OpError)
+    assert result.code == "invalid_request"
+    assert "menus.0.items.0.frame_id" in result.reason
+
+
 def test_list_menus_round_trips_the_separator_sentinel() -> None:
     ctx = _Ops()
     scope = ctx.identified()

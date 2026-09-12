@@ -14,7 +14,7 @@ from typing import Self, final
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from punt_lux.domain.id_separator import ID_SEPARATOR
+from punt_lux.domain.id_separator import ID_SEPARATOR, NONBLANK_FRAME_ID
 from punt_lux.domain.ids import ConnectionId
 
 __all__ = ["CallbackInvocation", "SessionCallback"]
@@ -26,10 +26,6 @@ __all__ = ["CallbackInvocation", "SessionCallback"]
 # separator and this id is the remainder.
 _DETAILS_CALLBACK_ID = f"{ID_SEPARATOR}details"
 
-# Mirrors ConnectionScopedId.compose's non-blank, separator-free rule (regex,
-# not lookahead -- unsupported by pydantic-core) so a bad id fails here.
-_NONBLANK_FRAME_ID = rf"^[^{ID_SEPARATOR}]*[^{ID_SEPARATOR}\s][^{ID_SEPARATOR}]*$"
-
 
 class SessionCallback(BaseModel):
     """A named action a session registers so a click fires back to that session."""
@@ -40,7 +36,7 @@ class SessionCallback(BaseModel):
     label: str = Field(min_length=1)  # a label-less callback is not a real state
     # absent = no owned frame (e.g. the Hub's own Details); present must be
     # non-blank and separator-free, same as ConnectionScopedId.compose.
-    frame_id: str | None = Field(default=None, pattern=_NONBLANK_FRAME_ID)
+    frame_id: str | None = Field(default=None, pattern=NONBLANK_FRAME_ID)
 
     @field_validator("id")
     @classmethod
