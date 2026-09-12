@@ -58,9 +58,7 @@ class Submenu:
         emits one ``action="menu"`` invocation.
         """
         decoder = WireMenuDecoder(handlers, cls.from_wire)
-        # Guard the label in BOTH prefix and id suffix (no raw '##'/'###').
-        shown = menu.label.replace("#", "#" + chr(0x200B))
-        label = f"{shown}##{handlers.hub.wire_token}:{menu.owner}:{shown}"
+        label = menu.imgui_label(handlers.hub.wire_token)
         return cls(label, list(decoder.entries(menu)))
 
     @property

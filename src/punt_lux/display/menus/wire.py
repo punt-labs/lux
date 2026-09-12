@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.display.menus.menu_click import ClickTarget
 from punt_lux.display.menus.wire_field import WireField
 
 if TYPE_CHECKING:
@@ -138,6 +139,27 @@ class WireAction:
         """Return the frame this action owns, or ``None`` if it owns none."""
         return self._frame_id
 
+    def imgui_label(self, hub_token: str) -> str:
+        """Return the display's hidden ImGui id for this clickable line.
+
+        The visible label is salted with ``(hub, item id)`` so two lines that
+        read the same never collide, with each ``#`` guarded by a zero-width
+        space so a label or id cannot forge the ``##``/``###`` id syntax. This
+        derivation reads the line's own label and id, so it belongs on the line.
+        """
+        zero_width = "#" + chr(0x200B)
+        salt = f"{hub_token}:{self._item_id}".replace("#", zero_width)
+        return f"{self._label.replace('#', zero_width)}##{salt}"
+
+    def click_target(self, menu_label: str) -> ClickTarget:
+        """Return what a click on this line reports, under the menu ``menu_label``.
+
+        Bundles the line's own label, id, and frame with its parent menu's label
+        — the click identity is the line's own data, so composing it belongs on
+        the line rather than on the decoder that reaches into three fields for it.
+        """
+        return ClickTarget(menu_label, self._label, self._item_id, self._frame_id)
+
     def lines(self, path: tuple[str, ...]) -> Iterator[WireLineAt]:
         """Yield this line and the menus it sits under."""
         yield path, self
@@ -202,18 +224,22 @@ class WireMenu:
         return self._label
 
     @property
-    def owner(self) -> str:
-        """Return the owning session's id, or ``""`` for an owner-less menu.
-
-        The display salts this menu's hidden ImGui identity with it, so two
-        sessions' same-labelled menus never collide on one Hub.
-        """
-        return self._owner
-
-    @property
     def entries(self) -> tuple[WireEntry, ...]:
         """Return the entries under this menu, in the order the Hub sent them."""
         return self._entries
+
+    def imgui_label(self, hub_token: str) -> str:
+        """Return the display's hidden ImGui id for this menu heading.
+
+        The visible label is salted with ``(hub, owner, label)`` so neither two
+        Hubs' nor two sessions' same-named headings collide: the owner segment
+        separates same-labelled menus from different agent sessions aggregated
+        onto one Hub bar. A ``#`` in the label is guarded with a zero-width space
+        so it cannot forge the ``##``/``###`` id syntax. This derivation reads the
+        menu's own label and owner, so it belongs on the menu, not its renderer.
+        """
+        guarded = self._label.replace("#", "#" + chr(0x200B))
+        return f"{guarded}##{hub_token}:{self._owner}:{guarded}"
 
     def lines(self, path: tuple[str, ...] = ()) -> Iterator[WireLineAt]:
         """Yield every line under this menu, each with the menus it sits under."""
