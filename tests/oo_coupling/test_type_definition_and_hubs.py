@@ -109,3 +109,25 @@ def test_wiring_hub_cap_is_not_granted_to_a_same_suffix_path_outside_the_package
 
     real = CouplingScorer._relaxed_thresholds("src/punt_lux/operations/facade.py")
     assert real["efferent_coupling"] == ("<=", 20.0)
+
+
+def test_wiring_hub_cap_survives_a_checkout_parent_that_repeats_the_anchor() -> None:
+    # The bug the last-occurrence slice closes: canonicalization slices from the
+    # package anchor "src/punt_lux/". In the common ~/src/punt_lux/... dev
+    # layout the checkout directory itself repeats the segment, so it appears
+    # twice. Slicing from the FIRST occurrence yields a path outside
+    # WIRING_HUB_PATHS and silently withholds the relaxed cap; slicing from the
+    # LAST occurrence recovers the real package root.
+    double_anchor = "/home/u/src/punt_lux/checkout/src/punt_lux/operations/facade.py"
+    assert CouplingScorer._relaxed_thresholds(double_anchor)["efferent_coupling"] == (
+        "<=",
+        20.0,
+    )
+
+    # A non-member module under the same doubled-anchor layout still gets the
+    # default cap — the last-occurrence slice canonicalizes, it does not relax.
+    non_member = "/home/u/src/punt_lux/checkout/src/punt_lux/operations/other.py"
+    assert CouplingScorer._relaxed_thresholds(non_member)["efferent_coupling"] == (
+        "<=",
+        7.0,
+    )

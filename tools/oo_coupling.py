@@ -309,13 +309,20 @@ class CouplingScorer:
         its ``src/punt_lux/...`` form and tests exact set membership, so a
         same-suffix path outside the package (a fixture or vendored copy) does
         not inherit the relaxed cap.
+
+        Canonicalization slices from the *last* occurrence of the package
+        anchor, not the first: a checkout whose parent directory itself
+        contains ``src/punt_lux`` (the common ``~/src/punt_lux/...`` dev
+        layout) makes the segment appear twice, and only the last occurrence
+        is the real package root. Slicing from the first would yield a path
+        outside ``WIRING_HUB_PATHS`` and silently withhold the relaxed cap.
         """
         thresholds = dict(cls.THRESHOLDS)
         norm = filepath.replace("\\", "/")
         if norm.endswith("__main__.py"):
             thresholds.update(cls.MAIN_THRESHOLDS)
         anchor = cls._PACKAGE_ANCHOR
-        canonical = norm[norm.index(anchor) :] if anchor in norm else norm
+        canonical = norm[norm.rindex(anchor) :] if anchor in norm else norm
         if canonical in cls.WIRING_HUB_PATHS:
             thresholds.update(cls.WIRING_HUB_THRESHOLDS)
         return thresholds
