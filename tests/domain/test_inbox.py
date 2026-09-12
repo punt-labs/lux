@@ -20,6 +20,7 @@ from punt_lux.domain.hub.inbox import (
     next_event,
     offer,
 )
+from punt_lux.domain.hub.inbox_queue import BoundedInbox
 from punt_lux.domain.ids import ConnectionId, Topic
 from punt_lux.protocol.messages.observer import ObserverMessage
 
@@ -72,8 +73,10 @@ def test_offer_puts_under_the_inboxes_lock() -> None:
     """
     connection = ConnectionId("c-offer-d1")
     spy = _LockWatchingQueue()
+    inbox = BoundedInbox(connection)
+    inbox._queue = spy  # watch the inbox's underlying queue at put time
     with inbox_mod._inboxes_lock:
-        inbox_mod._inboxes[connection] = spy
+        inbox_mod._inboxes[connection] = inbox
 
     assert offer(connection, ObserverMessage(topic="t", payload={})) is True
 

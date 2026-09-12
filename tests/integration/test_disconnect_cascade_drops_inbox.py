@@ -10,9 +10,6 @@ exit.
 
 from __future__ import annotations
 
-import contextlib
-import queue
-
 from punt_lux.domain.hub import inbox
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
@@ -31,10 +28,7 @@ def test_drop_session_releases_inbox_queue() -> None:
 
     fresh = inbox.inbox_for(connection_id)
     assert fresh is not q
-    with_timeout: ObserverMessage | None = None
-    with contextlib.suppress(queue.Empty):
-        with_timeout = fresh.get_nowait()
-    assert with_timeout is None
+    assert fresh.get(timeout=0.0) is None  # the fresh inbox holds nothing
 
 
 def test_disconnect_cascade_fires_a_registered_sink() -> None:
