@@ -247,6 +247,39 @@ class TestSubmenuContainerIdentity:
         assert imgui.labels_under() == ("Tools", "Tools")  # labels verbatim
         assert len(set(imgui.raw_ids_under())) == 2  # distinct hidden identities
 
+    def test_owner_hashhashhash_stays_session_scoped(self) -> None:
+        # The whb9 lesson applied to the heading salt's OWNER component: an owner
+        # comes from the MCP session key, whose sanitization does NOT reject '#'.
+        # Two sessions on ONE Hub name a "Tools" menu; both owners end '###b', so
+        # unguarded ImGui's '###' resets each id to "b:Tools" and they collide.
+        # Guarding every salt component keeps the hidden ids distinct.
+        model = MenuModel(
+            [
+                Submenu.from_wire(
+                    checked_menu(
+                        wire_menu(
+                            "Tools", [{"label": "Run", "id": "a\x1frun"}], "a###b"
+                        )
+                    ),
+                    _handlers(_HUB_A),
+                ),
+                Submenu.from_wire(
+                    checked_menu(
+                        wire_menu(
+                            "Tools", [{"label": "Run", "id": "c\x1frun"}], "c###b"
+                        )
+                    ),
+                    _handlers(_HUB_A),  # SAME Hub — only the owner differs
+                ),
+            ]
+        )
+        imgui = FakeImGui(strict_ids=True)
+
+        model.render(imgui)  # no raise — the owner's '###' is guarded
+
+        assert imgui.labels_under() == ("Tools", "Tools")  # labels verbatim
+        assert len(set(imgui.raw_ids_under())) == 2  # distinct hidden identities
+
 
 class TestWindowsMenuReopenIdentity:
     """Closed frames sharing a title stay distinct in the Windows menu."""

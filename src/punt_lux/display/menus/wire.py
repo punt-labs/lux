@@ -44,6 +44,20 @@ SEPARATOR_LABEL = "---"
 _ITEMS = "items"
 
 
+def _hidden_id(label: str, *salt: str) -> str:
+    """Compose an ImGui hidden id from a visible label and its salt components.
+
+    Every component — the visible label AND each ``:``-joined salt part (hub
+    token, owner, item id) — is guarded with a zero-width space after each ``#``
+    so a ``#`` in *any* of them cannot forge the ``##``/``###`` heading syntax
+    ImGui parses (a ``###`` resets the id and collides). The whb9 lesson: guard
+    the whole constructed id, prefix and suffix, not just the visible label.
+    """
+    zero_width = "#" + chr(0x200B)
+    guarded = [component.replace("#", zero_width) for component in (label, *salt)]
+    return f"{guarded[0]}##{':'.join(guarded[1:])}"
+
+
 @final
 class WireSeparator:
     """The rule between groups of entries: a line with nothing to click."""
@@ -143,13 +157,11 @@ class WireAction:
         """Return the display's hidden ImGui id for this clickable line.
 
         The visible label is salted with ``(hub, item id)`` so two lines that
-        read the same never collide, with each ``#`` guarded by a zero-width
-        space so a label or id cannot forge the ``##``/``###`` id syntax. This
+        read the same never collide; :func:`_hidden_id` guards every component so
+        a ``#`` in the label, hub token, or id cannot forge the id syntax. This
         derivation reads the line's own label and id, so it belongs on the line.
         """
-        zero_width = "#" + chr(0x200B)
-        salt = f"{hub_token}:{self._item_id}".replace("#", zero_width)
-        return f"{self._label.replace('#', zero_width)}##{salt}"
+        return _hidden_id(self._label, hub_token, self._item_id)
 
     def click_target(self, menu_label: str) -> ClickTarget:
         """Return what a click on this line reports, under the menu ``menu_label``.
@@ -234,12 +246,12 @@ class WireMenu:
         The visible label is salted with ``(hub, owner, label)`` so neither two
         Hubs' nor two sessions' same-named headings collide: the owner segment
         separates same-labelled menus from different agent sessions aggregated
-        onto one Hub bar. A ``#`` in the label is guarded with a zero-width space
-        so it cannot forge the ``##``/``###`` id syntax. This derivation reads the
-        menu's own label and owner, so it belongs on the menu, not its renderer.
+        onto one Hub bar. :func:`_hidden_id` guards every component — label, hub
+        token, AND owner — so a ``#`` in any of them cannot forge the id syntax.
+        This derivation reads the menu's own label and owner, so it belongs on
+        the menu, not its renderer.
         """
-        guarded = self._label.replace("#", "#" + chr(0x200B))
-        return f"{guarded}##{hub_token}:{self._owner}:{guarded}"
+        return _hidden_id(self._label, hub_token, self._owner, self._label)
 
     def lines(self, path: tuple[str, ...] = ()) -> Iterator[WireLineAt]:
         """Yield every line under this menu, each with the menus it sits under."""
