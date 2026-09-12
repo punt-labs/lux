@@ -180,6 +180,29 @@ class ModuleCouplingMetrics:
         return False
 
     @staticmethod
+    def _is_stateless_value(node: ast.ClassDef) -> bool:
+        """Return True for a stateless value object -- one that stores no ``self._*``.
+
+        LCOM sees cohesion only through ``self._*`` accesses, so a class that
+        never assigns a private instance attribute -- a marker like
+        ``WireSeparator`` (``__slots__ = ()``), or a frozen ``@dataclass`` whose
+        fields the generated ``__init__`` sets outside the AST -- has every
+        method's attr-set empty and reads as LCOM 1.0, a false zero-cohesion. A
+        class with real private state assigns it (in ``__new__`` or a mutator), so
+        one with *disjoint* private state still writes those attrs and is measured.
+        """
+        for sub in ast.walk(node):
+            if (
+                isinstance(sub, ast.Attribute)
+                and isinstance(sub.value, ast.Name)
+                and sub.value.id == "self"
+                and sub.attr.startswith("_")
+                and isinstance(sub.ctx, ast.Store)
+            ):
+                return False
+        return True
+
+    @staticmethod
     def _method_self_attrs(method: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
         """Return set of self._* attribute names accessed in a method."""
         attrs: set[str] = set()
@@ -234,7 +257,7 @@ class ModuleCouplingMetrics:
         for node in ast.iter_child_nodes(self._tree):
             if not isinstance(node, ast.ClassDef):
                 continue
-            if self._is_type_definition(node):
+            if self._is_type_definition(node) or self._is_stateless_value(node):
                 continue
             lcom = self._class_lcom(node)
             if lcom is not None:

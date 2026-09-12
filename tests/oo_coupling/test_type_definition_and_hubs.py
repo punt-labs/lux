@@ -50,6 +50,35 @@ _PLAIN_SRC = (
     "        return self._b\n"
 )
 
+# A stateless marker (WireSeparator's shape): __slots__ = () and methods that
+# touch no self._*. The private-attr heuristic sees every method's attr-set as
+# empty and reads LCOM 1.0 -- a false zero-cohesion for a class with no state.
+_MARKER_SRC = (
+    f"{_HEADER}"
+    "class Separator:\n"
+    "    __slots__ = ()\n\n"
+    "    def label(self) -> str:\n"
+    '        return "---"\n\n'
+    "    def item_id(self) -> str:\n"
+    '        return ""\n'
+)
+
+# A frozen value object: its fields are set by the generated __init__ outside
+# the AST, so there is no self._* store, and its methods read public fields the
+# heuristic cannot see -- the same false LCOM 1.0.
+_FROZEN_SRC = (
+    "from __future__ import annotations\n\n"
+    "from dataclasses import dataclass\n\n\n"
+    "@dataclass(frozen=True)\n"
+    "class Point:\n"
+    "    x: int\n"
+    "    y: int\n\n"
+    "    def left(self) -> int:\n"
+    "        return self.x\n\n"
+    "    def top(self) -> int:\n"
+    "        return self.y\n"
+)
+
 
 def _max_lcom(scorer: CouplingScorer, stem: str) -> float:
     for result in scorer.results:
@@ -72,6 +101,25 @@ def test_basemodel_is_exempt_from_lcom_but_a_plain_class_is_not(
     # The plain class's disjoint private state is a real LCOM the skip leaves
     # measured (its ``use_a``/``use_b`` pair shares nothing), proving the skip
     # is targeted at data-shape classes, not a blanket disabling of LCOM.
+    assert _max_lcom(scorer, "store") > 0.0
+
+
+def test_stateless_value_objects_are_exempt_but_a_stateful_class_is_not(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "separator.py").write_text(_MARKER_SRC)
+    (tmp_path / "point.py").write_text(_FROZEN_SRC)
+    (tmp_path / "store.py").write_text(_PLAIN_SRC)
+
+    scorer = CouplingScorer(tmp_path)
+
+    # A stateless marker and a frozen value object store no ``self._*`` and would
+    # read as zero-cohesion (LCOM 1.0) under the private-attr heuristic; the
+    # stateless-value skip records 0.0 for each.
+    assert _max_lcom(scorer, "separator") == 0.0
+    assert _max_lcom(scorer, "point") == 0.0
+    # A class that DOES assign disjoint private state is still measured, proving
+    # the skip is targeted at stateless value objects, not any low-cohesion class.
     assert _max_lcom(scorer, "store") > 0.0
 
 
