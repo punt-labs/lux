@@ -80,17 +80,18 @@ def test_wiring_hub_efferent_cap_is_relaxed_only_for_the_named_roles() -> None:
     assert default["efferent_coupling"] == ("<=", 7.0)
 
     # The three exact repository-relative members get the relaxed cap, whether
-    # the scored path arrives relative or absolute.
+    # the scored path arrives relative (matched verbatim) or absolute (made
+    # relative to the real repository root before the exact-membership test).
+    repo_root = "/home/dev/lux"
     for member in CouplingScorer.WIRING_HUB_PATHS:
         assert CouplingScorer._relaxed_thresholds(member)["efferent_coupling"] == (
             "<=",
             20.0,
         )
-        absolute = f"/home/dev/lux/{member}"
-        assert CouplingScorer._relaxed_thresholds(absolute)["efferent_coupling"] == (
-            "<=",
-            20.0,
-        )
+        absolute = f"{repo_root}/{member}"
+        assert CouplingScorer._relaxed_thresholds(absolute, repo_root)[
+            "efferent_coupling"
+        ] == ("<=", 20.0)
 
     main = CouplingScorer._relaxed_thresholds("pkg/__main__.py")
     assert main["efferent_coupling"] == ("<=", 15.0)
@@ -112,22 +113,34 @@ def test_wiring_hub_cap_is_not_granted_to_a_same_suffix_path_outside_the_package
 
 
 def test_wiring_hub_cap_survives_a_checkout_parent_that_repeats_the_anchor() -> None:
-    # The bug the last-occurrence slice closes: canonicalization slices from the
-    # package anchor "src/punt_lux/". In the common ~/src/punt_lux/... dev
-    # layout the checkout directory itself repeats the segment, so it appears
-    # twice. Slicing from the FIRST occurrence yields a path outside
-    # WIRING_HUB_PATHS and silently withholds the relaxed cap; slicing from the
-    # LAST occurrence recovers the real package root.
-    double_anchor = "/home/u/src/punt_lux/checkout/src/punt_lux/operations/facade.py"
-    assert CouplingScorer._relaxed_thresholds(double_anchor)["efferent_coupling"] == (
-        "<=",
-        20.0,
-    )
+    # A checkout whose parent directory itself contains a "src/punt_lux"
+    # segment (the ~/src/punt_lux/... dev layout) makes the anchor appear twice
+    # in the absolute path. Making the path relative to the REAL repository
+    # root recovers the package-relative form regardless — no substring search
+    # over a segment that appears more than once.
+    repo_root = "/home/u/src/punt_lux/checkout"
+    double_anchor = f"{repo_root}/src/punt_lux/operations/facade.py"
+    assert CouplingScorer._relaxed_thresholds(double_anchor, repo_root)[
+        "efferent_coupling"
+    ] == ("<=", 20.0)
 
     # A non-member module under the same doubled-anchor layout still gets the
-    # default cap — the last-occurrence slice canonicalizes, it does not relax.
-    non_member = "/home/u/src/punt_lux/checkout/src/punt_lux/operations/other.py"
-    assert CouplingScorer._relaxed_thresholds(non_member)["efferent_coupling"] == (
-        "<=",
-        7.0,
-    )
+    # default cap — the repo-relative form is exact-matched, not relaxed.
+    non_member = f"{repo_root}/src/punt_lux/operations/other.py"
+    assert CouplingScorer._relaxed_thresholds(non_member, repo_root)[
+        "efferent_coupling"
+    ] == ("<=", 7.0)
+
+
+def test_wiring_hub_cap_is_denied_to_a_tree_outside_the_real_repo_root() -> None:
+    # The definitive boundary: a vendored/fixture/temp tree that merely
+    # CONTAINS a "src/punt_lux/..." segment must NOT receive the wiring-hub cap
+    # just because the suffix matches an allowlist entry. Anchored to the real
+    # repository root, such a path has no repository-relative form under the
+    # root, so it falls to the default cap. A substring match (index/rindex)
+    # would wrongly relax it to 20.
+    repo_root = "/home/u/src/punt_lux/checkout"
+    vendored = "/tmp/vendor/src/punt_lux/operations/facade.py"
+    assert CouplingScorer._relaxed_thresholds(vendored, repo_root)[
+        "efferent_coupling"
+    ] == ("<=", 7.0)
