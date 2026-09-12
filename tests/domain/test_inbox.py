@@ -147,6 +147,33 @@ def test_ensure_writer_binds_drop_session_as_the_departure_sink() -> None:
     assert inbox_depth_for(connection) == 0
 
 
+def test_ensure_writer_arms_an_inbox_even_when_a_listener_writer_exists() -> None:
+    """F1: a listener session's menu_set click lands, not offer-dropped.
+
+    A ``HubListenSession`` registers its own Hub writer directly
+    (``deliver_event``), so ``hub.has_writer`` is already True when that session
+    later calls ``menu_set``. ``ensure_writer`` must still create the inbox queue,
+    or ``offer`` (the menu-event delivery path) finds none and drops a LIVE
+    session's click. Fail-on-current: the pre-fix short-circuit returned before
+    creating the inbox, so ``offer`` returned ``False``.
+    """
+    connection = ConnectionId("c-listener-menu")
+    # The listener leg: a Hub writer bound with no inbox, exactly as ws_listen does.
+    hub.register_writer(connection, lambda _msg: None)
+    assert hub.has_writer(connection)
+    assert inbox_depth_for(connection) == 0  # no inbox yet
+
+    ensure_writer(connection)  # menu_set's admit calls this on an identified owner
+
+    # The menu-event path delivers, because the inbox now exists despite the
+    # pre-existing listener writer.
+    assert offer(connection, ObserverMessage(topic="lux.menu", payload={})) is True
+    assert inbox_depth_for(connection) == 1
+
+    hub_display.drop_connection(connection)  # cleanup: production singletons
+    assert inbox_depth_for(connection) == 0
+
+
 def test_ensure_writer_is_idempotent_and_rebinds_nothing_on_a_second_call() -> None:
     """A second ``ensure_writer`` call on an already-writered connection no-ops."""
     connection = ConnectionId("c-depth-ensure-writer-idempotent")

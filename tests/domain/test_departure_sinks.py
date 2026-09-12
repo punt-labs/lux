@@ -8,8 +8,14 @@ order, with each distinct sink bound at most once.
 
 from __future__ import annotations
 
+import logging
+from typing import TYPE_CHECKING
+
 from punt_lux.domain.hub.departure_sinks import DepartureSink, DepartureSinks
 from punt_lux.domain.ids import ConnectionId
+
+if TYPE_CHECKING:
+    import pytest
 
 _CONN = ConnectionId("sink-conn")
 
@@ -108,6 +114,33 @@ def test_drop_on_an_unbound_connection_is_a_noop() -> None:
     sinks = DepartureSinks()
 
     sinks.drop(ConnectionId("never-bound"))  # must not raise
+
+
+def test_fire_isolates_a_raising_sink_so_the_rest_still_run(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """F2: one sink raising does not starve the others, and the failure is logged.
+
+    Departure is best-effort teardown: with two sinks (inbox cleanup + menu-registry
+    prune) bound, a fault in the first must not skip the second. Fail-on-current:
+    the pre-fix loop let the first sink's exception abort ``fire`` mid-loop, so the
+    second never ran.
+    """
+    sinks = DepartureSinks()
+    second_fired, second_sink = _recorder()
+
+    def _raising(connection_id: ConnectionId) -> None:
+        del connection_id
+        raise RuntimeError("inbox cleanup blew up")
+
+    sinks.bind(_CONN, _raising)
+    sinks.bind(_CONN, second_sink)
+
+    with caplog.at_level(logging.ERROR, logger="punt_lux.domain.hub.departure_sinks"):
+        sinks.fire(_CONN)  # must not raise
+
+    assert second_fired == [_CONN]  # the second sink still ran
+    assert any("Departure sink failed" in record.message for record in caplog.records)
 
 
 def test_a_bound_function_satisfies_the_departure_sink_protocol() -> None:

@@ -13,12 +13,15 @@ already have.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
 
 if TYPE_CHECKING:
     from punt_lux.domain.ids import ConnectionId
 
 __all__ = ["DepartureSink", "DepartureSinks"]
+
+logger = logging.getLogger(__name__)
 
 
 @runtime_checkable
@@ -80,6 +83,16 @@ class DepartureSinks:
         job, and leaving them bound forever would leak exactly the kind of
         unbounded per-connection state this class exists to release. Sinks run in
         the order they were bound.
+
+        Each sink is isolated: one raising does not starve the rest. Departure is
+        best-effort teardown, so a failing sink (the inbox cleanup, say) has its
+        error logged and the remaining sinks (the menu-registry prune) still run,
+        rather than one fault silently skipping every cleanup behind it.
         """
         for sink in self._sinks.pop(connection_id, ()):
-            sink(connection_id)
+            try:
+                sink(connection_id)
+            except Exception:
+                logger.exception(
+                    "Departure sink failed for connection %s", connection_id
+                )

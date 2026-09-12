@@ -30,12 +30,43 @@ if TYPE_CHECKING:
     from punt_lux.operations.ports import DirtyMarker
     from punt_lux.operations.scope import Scope
 
-__all__ = ["MenuOperations", "MenuOperationsDeps"]
+__all__ = ["MenuDepartureSink", "MenuOperations", "MenuOperationsDeps"]
 
 # The Hub store's reentrant write lock, entered as a context manager. ``set_menu``
 # holds it across the admit-liveness check AND the registry store so a departure
 # cannot interleave between the gate and the write.
 type WriteLock = Callable[[], AbstractContextManager[bool]]
+
+
+@final
+class MenuDepartureSink:
+    """Withdraw a departed session's agent bar and re-push it, as a departure sink.
+
+    Bound at ``menu_set`` admit and fired by the departure cascade on EVERY
+    trigger — graceful disconnect and the lease timer alike. It prunes the owner's
+    bar from the registry, then marks the menu bar dirty so the replicator
+    re-reads the live set and re-pushes. Without the mark, the lease-lapse path
+    prunes Hub memory but leaves the departed owner's entries rendered on the
+    Display until some later push (the ghost-menu bug). It runs inside the
+    departure coordinator's ``StoreLock``, so it only marks dirty — a
+    non-blocking coalescing signal — and never sends under the lock; the
+    replicator pushes outside it.
+    """
+
+    _registry: HubMenuRegistry
+    _replicator: DirtyMarker
+    __slots__ = ("_registry", "_replicator")
+
+    def __new__(cls, registry: HubMenuRegistry, replicator: DirtyMarker) -> Self:
+        self = super().__new__(cls)
+        self._registry = registry
+        self._replicator = replicator
+        return self
+
+    def __call__(self, connection_id: ConnectionId) -> None:
+        """Prune the departed owner's bar, then mark the menu bar for re-push."""
+        self._registry.drop_session(connection_id)
+        self._replicator.mark_menus()
 
 
 @final
