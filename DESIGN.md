@@ -7155,3 +7155,87 @@ fine," risks over-fragmentation of value types like `HubId`, and is the
 unplanned-scope tax DES-096 already rejected for coupling. (c) Stalling the epic
 until each is individually operator-approved — the recurrence makes that a
 standing tax; this ADR is the standing answer, vetoable.
+
+## DES-098: An Agent Menu Click Reaches Its Owning MCP Session — Unified Menu Dispatch, One Path Forking at Delivery
+
+**Status:** ACCEPTED (design) — bead `lux-m3xr` (P0), operator ruling "no half
+fix; we fix the issue." Full design:
+[docs/architecture/agent-menu-dispatch.md](docs/architecture/agent-menu-dispatch.md).
+
+**Context.** An agent registers a menu with `menu_set`; the item shows, and a
+click does nothing, while an applet item (`lux-beads`' *Beads*) works. Two
+independent defects sit behind the one symptom. **Gap (a):** an agent item
+cannot carry a `frame_id` — `MenuAction.frame_id` exists, `to_wire` serializes
+it, and the display honors it (`display/menus/wire.py:113`,
+`wire_decode.py:86-87`), but `Menu._entry_from_wire`
+(`domain/hub/menu_models.py:111-139`) never reads it, so every agent item is
+`frame_id=None` and the frame-raise never fires. **Gap (b):** a frameless click
+reaches the Hub and is dropped — `wire_decode.py:85-96` always emits
+`RemoteEventHandlerInvocation(action="menu", element_id=<item id>)`, and
+`HubInteractionDispatch._dispatch_menu_callback`
+(`hub_interaction_dispatch.py:91-119`) requires the leaf id to parse as a
+callback composite `connection_id<US>callback_id`
+(`session_callback.py:89-100`); a bare agent id has no separator, so the parse
+raises, the click is logged "non-callback leaf id; ignoring," and dropped.
+Applets sidestep both by registering a *callback* with a routable id and a
+`frame_id`. Two latent bugs sit beside gap (b): the agent bar is a global
+last-writer-wins `list[Menu]` with no owner (`menu_registry.py:45-48`), and a
+departed session's agent menus never leave (no `drop_session`).
+
+**Decision.** Close both gaps and unify the dispatch.
+
+- **Gap (a):** move the wire round-trip onto the value types — add
+  `MenuAction.from_wire` (reading `frame_id`, the fix) and `MenuSeparator.from_wire`,
+  reduce `Menu._entry_from_wire` to a discriminator, and make the family share a
+  `runtime_checkable WireMenuEntry` Protocol, not a base class (PY-OO-5, PY-OO-7,
+  families-share-by-Protocol). `frame_id` stays an optional field, not a
+  discriminated state, because raising a frame and delivering a click *compose*
+  on one item — the same shape `SessionCallback.frame_id` already carries.
+- **Gap (b):** deliver a `menu_set` click to the registering session's existing
+  inbox as a reserved-topic `lux.menu` `ObserverMessage`, drained by the `recv()`
+  the agent already has — making the `menu_set` docstring's promise "clicks
+  arrive via recv()" true, with no new standing MCP tool (DES-040). This resolves
+  the DES-058 "MCP-stream delivery spike" for the plain-MCP-no-listener case in
+  favor of a session inbox drained on the next call.
+- **Unified dispatch:** every menu leaf — applet callback and agent item alike —
+  renders a routable `owner<US>item_id` leaf id (the Hub stamps the owner);
+  `_dispatch_menu_callback` parses every leaf once and forks by the owning **live**
+  session's capability — `Details` → Hub; listener present (applet) →
+  `CallbackRouter` (unchanged); inbox present (plain MCP) → enqueue the `lux.menu`
+  event (new); gone → `provider_gone` + re-push. The bare-id drop is deleted; the
+  two-path split that was the defect collapses to one entry with a delivery fork
+  the settled model already prescribes ("routed by how the session connects").
+  `HubMenuRegistry` becomes session-keyed with a `drop_session`, closing the
+  global-clobber and never-withdrawn bugs.
+
+**Why this does not contradict DES-061.** The 100 ms contract governs
+*callbacks*, which must *launch* work with no model turn and therefore require a
+held listen leg. A `menu_set` event is an agent-in-the-loop notification — "the
+user selected the item you own; act on it next turn" — of the same character as
+an Agent Subscribe business event (ui-model.md lists `item.selected` as exactly
+that). The two registration surfaces keep distinct preconditions
+(`register_callback` requires a listener; `menu_set` requires only an identified
+session with an armed inbox); only the dispatch entry is shared.
+
+**Z-spec determination.** Not newly required. The applet leg is unchanged and
+its departure/reap discipline is proven by `connection_lease_reaping.tex`; the
+new inbox leg reuses Agent Subscribe's per-connection queue and the same
+subs+writer departure sink that model already covers. The one new edge — a menu
+enqueue racing the owner's reap — is the same class as a callback click racing a
+reap, and reduces to the router's proven live-session gate provided the enqueue
+runs under that same store read (invariants M1 never-deliver-to-departed, M2
+at-most-once, M3 no-loss-on-reconnect-race). **Tripwire:** if implementation
+cannot order the enqueue by reusing that read — a new lock across the inbox drop,
+or a new menu-registry ↔ inbox ↔ client-registry acquisition order — the change
+enters the concurrency class and z-spec becomes required (model M1/M2/M3 with a
+fidelity control that drops the gate). The implementer must stop and model rather
+than reason empirically if that ordering appears.
+
+**Rejected alternatives.** (a) *B1 — make `menu_set` items callbacks requiring a
+listen leg* — collapses `menu_set` into `register_callback`, excludes the plain
+MCP session gap (b) exists to reach, deletes the agent-in-the-loop affordance the
+smoke test used. (b) *B2b — a dedicated `menu_recv` tool over a separate inbox* —
+adds a standing tool against DES-040; the reserved `lux.menu` topic keeps the
+event self-identifying on the existing `recv` drain. (c) *B3 — enqueue and push
+when both exist* — double-delivers with no second consumer; the capability-fork
+is the principled hybrid, one item, one leg, chosen by how the owner connects.
