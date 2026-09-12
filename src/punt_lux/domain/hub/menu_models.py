@@ -100,6 +100,11 @@ class Menu(BaseModel):
     kind: Literal["menu"] = "menu"
     label: str = Field(min_length=1)  # a label-less menu is not a real state
     items: list[MenuEntry]
+    # None until stamp time namespaces this heading to its owning session; the
+    # agent never submits it. The display keys a top-level (and nested) menu's
+    # hidden identity on (hub, owner, label), so two sessions' same-labelled menus
+    # never collide (PY-TS-14: absence is the pre-stamp state, not a give-up).
+    owner: str | None = None
 
     @classmethod
     def from_wire(cls, raw: object, *, index: int) -> Menu:
@@ -146,18 +151,32 @@ class Menu(BaseModel):
         raise ValueError(msg)
 
     def stamped_for(self, owner: ConnectionId) -> Menu:
-        """Return a copy with every leaf id stamped ``owner<US>id`` for dispatch.
+        """Return a copy owner-stamped for dispatch and display identity.
 
-        Recurses through nested submenus, so an agent item at any depth round-trips
-        to the session that registered the bar.
+        Records the owning session so the display can key this heading's hidden
+        identity per session, and recurses so every nested submenu and leaf id at
+        any depth is stamped to the session that registered the bar.
         """
         return self.model_copy(
-            update={"items": [entry.stamped_for(owner) for entry in self.items]}
+            update={
+                "owner": str(owner),
+                "items": [entry.stamped_for(owner) for entry in self.items],
+            }
         )
 
     def to_wire(self) -> dict[str, object]:
-        """Render as the untyped menu payload the display consumes."""
-        return {"label": self.label, "items": [entry.to_wire() for entry in self.items]}
+        """Render as the untyped menu payload the display consumes.
+
+        A stamped menu carries its ``owner`` so the display keys its heading's
+        hidden identity on (hub, owner, label); an unstamped menu omits it.
+        """
+        wire: dict[str, object] = {
+            "label": self.label,
+            "items": [entry.to_wire() for entry in self.items],
+        }
+        if self.owner is not None:
+            wire["owner"] = self.owner
+        return wire
 
     @staticmethod
     def _require_mapping(item: object, *, loc: str) -> Mapping[str, object]:

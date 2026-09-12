@@ -89,6 +89,21 @@ def test_wire_snapshot_carries_a_frame_id_through_to_the_display() -> None:
     }
 
 
+def test_two_sessions_same_labelled_menu_carry_distinct_owner_identity() -> None:
+    # gap-a-class collision at the heading level: two sessions both name a "Tools"
+    # menu. The composed snapshot carries each heading's owner so the display keys
+    # them apart, while the visible label stays verbatim for both.
+    reg, clients = _live_registry()
+    a, b = ConnectionId("sess-a"), ConnectionId("sess-b")
+    clients.record(a)
+    clients.record(b)
+    reg.set_menus(a, [Menu(label="Tools", items=[])])
+    reg.set_menus(b, [Menu(label="Tools", items=[])])
+
+    by_owner = {menu["owner"]: menu["label"] for menu in reg.wire_snapshot()}
+    assert by_owner == {"sess-a": "Tools", "sess-b": "Tools"}
+
+
 def test_set_menus_replaces_only_the_owning_sessions_bar() -> None:
     reg, clients = _live_registry()
     owner = ConnectionId("owner-2")

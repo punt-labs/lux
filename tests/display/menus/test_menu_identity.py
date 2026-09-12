@@ -219,6 +219,34 @@ class TestSubmenuContainerIdentity:
         assert imgui.labels_under() == ("voxd", "voxd")
         assert len(set(imgui.raw_ids_under())) == 2
 
+    def test_two_sessions_same_labelled_top_menus_render_without_conflict(self) -> None:
+        # The whb9 collision at the HEADING level, newly possible now the agent
+        # bar aggregates many sessions: two sessions on ONE Hub both name a "Tools"
+        # menu. The owner segment keeps their hidden identities distinct; without
+        # it both salt to the same id and FakeImGui(strict) raises.
+        model = MenuModel(
+            [
+                Submenu.from_wire(
+                    checked_menu(
+                        wire_menu("Tools", [{"label": "Run", "id": "a\x1frun"}], "a")
+                    ),
+                    _handlers(_HUB_A),
+                ),
+                Submenu.from_wire(
+                    checked_menu(
+                        wire_menu("Tools", [{"label": "Run", "id": "b\x1frun"}], "b")
+                    ),
+                    _handlers(_HUB_A),  # SAME Hub — only the owner differs
+                ),
+            ]
+        )
+        imgui = FakeImGui(strict_ids=True)
+
+        model.render(imgui)  # no raise
+
+        assert imgui.labels_under() == ("Tools", "Tools")  # labels verbatim
+        assert len(set(imgui.raw_ids_under())) == 2  # distinct hidden identities
+
 
 class TestWindowsMenuReopenIdentity:
     """Closed frames sharing a title stay distinct in the Windows menu."""

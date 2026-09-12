@@ -148,12 +148,14 @@ class WireMenu:
     """A replicated menu: its label, and the entries the Hub sent under it."""
 
     _label: str
+    _owner: str
     _entries: tuple[WireEntry, ...]
-    __slots__ = ("_entries", "_label")
+    __slots__ = ("_entries", "_label", "_owner")
 
-    def __new__(cls, label: str, entries: Sequence[WireEntry]) -> Self:
+    def __new__(cls, label: str, entries: Sequence[WireEntry], owner: str = "") -> Self:
         self = super().__new__(cls)
         self._label = label
+        self._owner = owner
         self._entries = tuple(entries)
         return self
 
@@ -183,18 +185,30 @@ class WireMenu:
         """
         menu = field.mapping(payload)
         items = field.at(_ITEMS).sequence(menu.get(_ITEMS, ()))
+        raw_owner = menu.get("owner")
+        owner = raw_owner if isinstance(raw_owner, str) else ""
         return cls(
             field.at("label").text(menu.get("label")),
             [
                 cls._entry_of(item, field=field.at(_ITEMS).at(index))
                 for index, item in enumerate(items)
             ],
+            owner,
         )
 
     @property
     def label(self) -> str:
         """Return the title this menu shows."""
         return self._label
+
+    @property
+    def owner(self) -> str:
+        """Return the owning session's id, or ``""`` for an owner-less menu.
+
+        The display salts this menu's hidden ImGui identity with it, so two
+        sessions' same-labelled menus never collide on one Hub.
+        """
+        return self._owner
 
     @property
     def entries(self) -> tuple[WireEntry, ...]:
