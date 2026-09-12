@@ -276,11 +276,23 @@ class CouplingScorer:
     # instantiates the singleton graph; and the thin MCP tool adapter over the
     # Operations facade (a zero-logic parse-call-format shell). Leader-ruled
     # 2026-09-12 (DES-095 escalate-per-file, lux-m3xr).
-    WIRING_HUB_SUFFIXES: ClassVar[tuple[str, ...]] = (
-        "operations/facade.py",
-        "domain/hub/replicator_instance.py",
-        "tools/subscribe_tools.py",
+    #
+    # Matched as EXACT repository-relative paths (set membership on the
+    # canonical ``src/punt_lux/...`` form), never by suffix: a suffix match
+    # would also relax an unrelated ``pkg/other/operations/facade.py`` or a
+    # vendored tree that happens to end the same way, silently widening the
+    # per-module allowlist into a directory-wide one.
+    WIRING_HUB_PATHS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "src/punt_lux/operations/facade.py",
+            "src/punt_lux/domain/hub/replicator_instance.py",
+            "src/punt_lux/tools/subscribe_tools.py",
+        }
     )
+
+    # The package anchor that canonicalizes a scored path (absolute or
+    # relative) to its repository-relative form before the exact allowlist test.
+    _PACKAGE_ANCHOR: ClassVar[str] = "src/punt_lux/"
 
     WIRING_HUB_THRESHOLDS: ClassVar[dict[str, tuple[str, float]]] = {
         "efferent_coupling": ("<=", 20),
@@ -290,14 +302,21 @@ class CouplingScorer:
     def _relaxed_thresholds(cls, filepath: str) -> dict[str, tuple[str, float]]:
         """Return the threshold table for ``filepath``, relaxed for hub roles.
 
-        ``__main__.py`` and the wiring-hub allowlist get their relaxed caps
-        merged over the defaults; every other file uses the defaults untouched.
+        ``__main__.py`` (any package's CLI entry point, a category) and the
+        wiring-hub allowlist (three exact repository-relative paths) get their
+        relaxed caps merged over the defaults; every other file uses the
+        defaults untouched. The wiring-hub match canonicalizes ``filepath`` to
+        its ``src/punt_lux/...`` form and tests exact set membership, so a
+        same-suffix path outside the package (a fixture or vendored copy) does
+        not inherit the relaxed cap.
         """
         thresholds = dict(cls.THRESHOLDS)
         norm = filepath.replace("\\", "/")
         if norm.endswith("__main__.py"):
             thresholds.update(cls.MAIN_THRESHOLDS)
-        if any(norm.endswith(suffix) for suffix in cls.WIRING_HUB_SUFFIXES):
+        anchor = cls._PACKAGE_ANCHOR
+        canonical = norm[norm.index(anchor) :] if anchor in norm else norm
+        if canonical in cls.WIRING_HUB_PATHS:
             thresholds.update(cls.WIRING_HUB_THRESHOLDS)
         return thresholds
 

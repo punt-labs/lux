@@ -76,13 +76,36 @@ def test_basemodel_is_exempt_from_lcom_but_a_plain_class_is_not(
 
 
 def test_wiring_hub_efferent_cap_is_relaxed_only_for_the_named_roles() -> None:
-    default = CouplingScorer._relaxed_thresholds("pkg/operations/other.py")
+    default = CouplingScorer._relaxed_thresholds("src/punt_lux/operations/other.py")
     assert default["efferent_coupling"] == ("<=", 7.0)
 
-    for suffix in CouplingScorer.WIRING_HUB_SUFFIXES:
-        relaxed = CouplingScorer._relaxed_thresholds(f"pkg/{suffix}")
-        assert relaxed["efferent_coupling"] == ("<=", 20.0)
+    # The three exact repository-relative members get the relaxed cap, whether
+    # the scored path arrives relative or absolute.
+    for member in CouplingScorer.WIRING_HUB_PATHS:
+        assert CouplingScorer._relaxed_thresholds(member)["efferent_coupling"] == (
+            "<=",
+            20.0,
+        )
+        absolute = f"/home/dev/lux/{member}"
+        assert CouplingScorer._relaxed_thresholds(absolute)["efferent_coupling"] == (
+            "<=",
+            20.0,
+        )
 
     main = CouplingScorer._relaxed_thresholds("pkg/__main__.py")
     assert main["efferent_coupling"] == ("<=", 15.0)
     assert main["public_names"] == ("<=", 100.0)
+
+
+def test_wiring_hub_cap_is_not_granted_to_a_same_suffix_path_outside_the_package() -> (
+    None
+):
+    # The bug the exact-path match closes: an endswith match relaxed any path
+    # ending "operations/facade.py". A different package (or a fixture/vendor
+    # tree) with the same suffix must get the DEFAULT cap, not the wiring-hub
+    # tier — only the canonical src/punt_lux/... path is a member.
+    impostor = CouplingScorer._relaxed_thresholds("pkg/other/operations/facade.py")
+    assert impostor["efferent_coupling"] == ("<=", 7.0)
+
+    real = CouplingScorer._relaxed_thresholds("src/punt_lux/operations/facade.py")
+    assert real["efferent_coupling"] == ("<=", 20.0)
