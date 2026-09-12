@@ -21,7 +21,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.display.menus.entries import MenuItem, MenuSeparator
-from punt_lux.display.menus.hidden_id import MenuHiddenId
 from punt_lux.display.menus.model import Submenu
 
 if TYPE_CHECKING:
@@ -107,7 +106,10 @@ class WindowsMenu:
     def _reopen_item(self, frame: Frame) -> MenuItem:
         """Build the reopen entry, ImGui-keyed on ``(frame.hub, frame_id)``."""
         frame_id = frame.frame_id
-        label = MenuHiddenId.compose(frame.title, f"{frame.hub.wire_token}:{frame_id}")
+        # ZWSP after each '#' keeps a raw '##'/'###' (title or id) out of the id.
+        zw = "#" + chr(0x200B)
+        suffix = f"{frame.hub.wire_token}:{frame_id}".replace("#", zw)
+        label = f"{frame.title.replace('#', zw)}##{suffix}"
         return MenuItem(label, lambda: self._on_raise_frame(frame_id))
 
     def _collapse_all(self) -> None:
