@@ -272,32 +272,40 @@ events at all" to "menu selections yes, scene-element frames no," which is the
 honest line: a menu selection is what the *user asked the agent to do*, not a
 render-loop input.
 
-### 4.2 One dispatch path, forking by the live session's capability
+### 4.2 One dispatch path, forking by the leaf's kind (as shipped)
 
-`HubInteractionDispatch._dispatch_menu_callback` becomes the single menu-click
-path. Every menu leaf — applet callback and agent item alike — renders a
-routable leaf id `owner_connection_id<US>item_id` (the Hub stamps the owner;
-the agent never sees or supplies a connection id, exactly as the callback path
-works). The dispatch parses *every* leaf once with
-`CallbackInvocation.from_menu_id` and forks on the owning **live** session's
-capability, which is the settled *"routed by how the session connects"*:
+> **Shipped contract.** This section originally proposed forking by the live
+> session's *capability* (infer callback-vs-menu from whether a callback with
+> that id exists). Implementation review found that ambiguous: a session owning
+> both a callback and a `menu_set` item with the same raw id would mis-route the
+> menu click to the callback. The shipped design therefore makes the leaf id
+> **kind-tagged** and forks by the leaf's own kind. The kind-tagged text below is
+> authoritative.
+
+`HubInteractionDispatch._dispatch_menu_click` is the single menu-click path.
+Every menu leaf — applet callback and agent item alike — renders a routable,
+**kind-tagged** leaf id `kind<US>owner_connection_id<US>item_id`, where `kind`
+is `cb` (callback) or `mi` (agent menu item); the Hub stamps the owner (the
+agent never sees or supplies a connection id). The dispatch parses *every* leaf
+once with `MenuLeaf.parse` and forks on the leaf's **own kind** — not by
+inferring capability from callback existence:
 
 ```text
-_dispatch_menu_callback(leaf_id):
-    invocation = CallbackInvocation.from_menu_id(leaf_id)   # one parse, every leaf
-    if invocation.is_details:            -> hub_client_details.run(conn)   # unchanged
-    resolve the owning LIVE session (single client-registry read):
-        session gone                     -> provider_gone: log + re-push menu
-        session has a listener (applet)  -> CallbackRouter.route(...)       # unchanged
-        session has an inbox (plain MCP)  -> enqueue lux.menu event on its inbox  # NEW
+_dispatch_menu_click(leaf_id):
+    leaf = MenuLeaf.parse(leaf_id)          # one parse, every leaf; carries kind
+    if leaf.is_details:        -> hub_client_details.run(conn)        # Hub answers
+    if leaf.kind == "cb":      -> CallbackRouter.route(...)           # applet listener
+    if leaf.kind == "mi":      -> resolve owning LIVE session:
+                                    live inbox  -> enqueue lux.menu event  # agent
+                                    gone/none   -> provider_gone: log + re-push
 ```
 
-The bare-id `ValueError`-drop is deleted. There are no longer two menu-click
-paths — there is one entry, one parse, and a delivery fork the model already
-requires. This is the unification the split defect demanded: an agent item and
-an applet item travel the same dispatch and differ only in which leg carries
-the click, chosen at click time by inspecting the live session, not by which
-registration surface created the entry.
+The bare-id `ValueError`-drop is deleted. There is one entry, one parse, and a
+kind-based fork. The kind tag is load-bearing: it is what keeps a `menu_set`
+item and a same-named callback in one session from being confused — an `mi`
+item is delivered to the inbox even when its owner also holds a listener — so
+the discriminator must not be removed. An agent item and an applet item travel
+the same dispatch and differ only in the kind carried in their leaf id.
 
 `Details` is already on this unified shape today: its leaf id is the composite
 `conn<US><US>details` that parses, `is_details` is true, and the Hub answers it
@@ -356,8 +364,19 @@ session that registered it. `MenuAction.id` gains the same separator rejection
 
 ## 6. Z-spec determination
 
-**Determination: z-spec is NOT newly required — the change reuses proven
-mechanics — with one named tripwire that flips it to required.**
+> **Shipped outcome.** The tripwire named below *fired*: implementation added a
+> new lock discipline (D3's `StoreLock → HubMenuRegistry._lock`) and review
+> surfaced departure/interleaving edges, so z-spec became **required**. The
+> committed artifacts are `docs/menu_lifecycle.tex` + `docs/menu_lifecycle_delivery.tex`
+> (and their `_buggy` fidelity controls + `menu_lifecycle_coverage.md`),
+> `fuzz`-clean and ProB-checked at setsize 3, deadlock-free — proving M1
+> (no orphan-put false delivery), M1b (no live-recipient loss under the
+> offer-then-drop reorder), and MO (ownership integrity), each with a control
+> that reproduces the defect when its guard is removed. The design-time reasoning
+> below is retained as the record of why the tripwire was the right gate.
+
+**Determination (design-time): z-spec is NOT newly required — the change reuses
+proven mechanics — with one named tripwire that flips it to required.**
 
 The delivery fork reuses two already-modeled disciplines and introduces no new
 lock and no new acquisition order:

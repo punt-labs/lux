@@ -7197,16 +7197,24 @@ departed session's agent menus never leave (no `drop_session`).
   arrive via recv()" true, with no new standing MCP tool (DES-040). This resolves
   the DES-058 "MCP-stream delivery spike" for the plain-MCP-no-listener case in
   favor of a session inbox drained on the next call.
-- **Unified dispatch:** every menu leaf — applet callback and agent item alike —
-  renders a routable `owner<US>item_id` leaf id (the Hub stamps the owner);
-  `_dispatch_menu_callback` parses every leaf once and forks by the owning **live**
-  session's capability — `Details` → Hub; listener present (applet) →
-  `CallbackRouter` (unchanged); inbox present (plain MCP) → enqueue the `lux.menu`
-  event (new); gone → `provider_gone` + re-push. The bare-id drop is deleted; the
-  two-path split that was the defect collapses to one entry with a delivery fork
-  the settled model already prescribes ("routed by how the session connects").
-  `HubMenuRegistry` becomes session-keyed with a `drop_session`, closing the
-  global-clobber and never-withdrawn bugs.
+- **Unified dispatch (as shipped — kind-tagged leaves).** Every menu leaf —
+  applet callback and agent item alike — renders a routable, **kind-tagged**
+  leaf id `kind<US>owner<US>item_id` where `kind` is `cb` (callback) or `mi`
+  (agent menu item); the Hub stamps the owner. `HubInteractionDispatch._dispatch_menu_click`
+  parses every leaf once with `MenuLeaf.parse` and forks by the leaf's **own
+  kind**, not by inferring capability from whether a callback with that id
+  exists: a `cb` leaf routes to `CallbackRouter`; an `mi` leaf routes to the
+  owning session's inbox as the `lux.menu` event; `Details` is answered by the
+  Hub; a departed owner → `provider_gone` + re-push. The kind tag is
+  load-bearing — it is what keeps a `menu_set` item and a same-named callback in
+  one session from being confused (an `mi` item goes to the inbox even when its
+  owner also holds a listener), so the discriminator must not be removed. The
+  bare-id drop is deleted; the two-path split that was the defect collapses to
+  one entry with a kind-based fork. `HubMenuRegistry` becomes session-keyed with
+  a `drop_session` (bound as a departure sink on every trigger), closing the
+  global-clobber and never-withdrawn bugs; top-level menu headings carry an
+  owner-scoped hidden identity (visible label unchanged) so same-labelled bars
+  from different sessions do not collide.
 
 **Why this does not contradict DES-061.** The 100 ms contract governs
 *callbacks*, which must *launch* work with no model turn and therefore require a
@@ -7217,19 +7225,40 @@ that). The two registration surfaces keep distinct preconditions
 (`register_callback` requires a listener; `menu_set` requires only an identified
 session with an armed inbox); only the dispatch entry is shared.
 
-**Z-spec determination.** Not newly required. The applet leg is unchanged and
-its departure/reap discipline is proven by `connection_lease_reaping.tex`; the
-new inbox leg reuses Agent Subscribe's per-connection queue and the same
-subs+writer departure sink that model already covers. The one new edge — a menu
-enqueue racing the owner's reap — is the same class as a callback click racing a
-reap, and reduces to the router's proven live-session gate provided the enqueue
-runs under that same store read (invariants M1 never-deliver-to-departed, M2
-at-most-once, M3 no-loss-on-reconnect-race). **Tripwire:** if implementation
-cannot order the enqueue by reusing that read — a new lock across the inbox drop,
-or a new menu-registry ↔ inbox ↔ client-registry acquisition order — the change
-enters the concurrency class and z-spec becomes required (model M1/M2/M3 with a
-fidelity control that drops the gate). The implementer must stop and model rather
-than reason empirically if that ordering appears.
+**Z-spec determination (as shipped — the tripwire fired, a model was built).**
+The design's tripwire (below) fired during implementation and review: the fixes
+introduced a new lock discipline (D3's `StoreLock → HubMenuRegistry._lock`) and
+review surfaced a cluster of departure/interleaving edges, so the change entered
+the concurrency class and z-spec became **required**, not optional. The
+regression artifact is [`docs/menu_lifecycle.tex`](docs/menu_lifecycle.tex) plus
+its companion [`docs/menu_lifecycle_delivery.tex`](docs/menu_lifecycle_delivery.tex)
+and coverage note, `fuzz`-clean and ProB model-checked at `DEFAULT_SETSIZE 3`,
+deadlock-free. Invariants proven, each with a `_buggy` fidelity control that
+reproduces the exact defect when its guard is removed:
+
+- **M1 (no orphan-put false delivery)** and the three departure-lifecycle fixes
+  D1 (inbox get+put atomic under `_inboxes_lock`), D2 (`HubMenuRegistry.drop_session`
+  bound as a departure sink firing on *every* trigger — `_depart` and
+  `_depart_lapsed`), D3 (`set_menu` holds `write_lock` across admit + store; the
+  one new lock edge, proven deadlock-free because it points the same direction as
+  D2's sink).
+- **M1b (no live-recipient loss)** — the offer-then-drop-discard reorder raised
+  in review: the discard only ever strikes a connection already removed from the
+  registry, because `HubDisplay._depart` runs `_clients.discard` before the
+  cascade's `inbox.drop_session` under one `StoreLock`; the reorder control
+  (`menu_lifecycle_delivery_reorder_buggy.tex`) makes M1b FOUND, proving the
+  code ordering load-bearing.
+- **MO (menu-ownership integrity)** — a departed session's bar leaves the
+  registry via every departure trigger.
+
+The applet leg's departure/reap discipline remains anchored in
+`connection_lease_reaping.tex`, which the menu model refines.
+
+**Tripwire (retained for the record).** The determination above replaced the
+design-time "not newly required" reading once the new lock/order appeared — the
+implementer stopped and modelled rather than reasoning empirically, which is
+what caught the D1 orphan-put and the M1b reorder as model-checked results
+rather than empirical rounds.
 
 **Rejected alternatives.** (a) *B1 — make `menu_set` items callbacks requiring a
 listen leg* — collapses `menu_set` into `register_callback`, excludes the plain
