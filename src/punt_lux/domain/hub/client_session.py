@@ -109,6 +109,16 @@ class ClientSession:
         """Whether this session registered a callback with ``callback_id``."""
         return self._slot.owns(callback_id)
 
+    def earns_menu_presence(self) -> bool:
+        """Whether this session earns a Clients submenu, command or not.
+
+        A session earns its place by registering a command; the agent (an
+        mcp-session) is kept present on its kind alone, with its Details, because
+        it drives the display yet registers no command of its own (DES-098).
+        """
+        identity = self._identity
+        return bool(self.callbacks) or (identity is not None and identity.is_agent)
+
     @property
     def lease_term(self) -> LeaseTerm:
         """The term this session idles for — its kind's when it declared none."""

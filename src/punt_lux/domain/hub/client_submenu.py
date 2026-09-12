@@ -47,9 +47,14 @@ class ClientSubmenu:
         return self._label
 
     def menu(self) -> Menu:
-        """This submenu: every member's commands in label order, then Details."""
+        """This submenu: every member's commands in label order, then Details.
+
+        A group with no commands -- a bare agent session (DES-098) -- shows just
+        its Details, with no leading rule above nothing.
+        """
         commands = sorted(self._leaves(), key=lambda action: action.label)
-        entries: list[MenuEntry] = [*commands, MenuSeparator(), self._details()]
+        rule: list[MenuEntry] = [MenuSeparator()] if commands else []
+        entries: list[MenuEntry] = [*commands, *rule, self._details()]
         return Menu(label=self._label, items=entries)
 
     def _leaves(self) -> list[MenuAction]:
