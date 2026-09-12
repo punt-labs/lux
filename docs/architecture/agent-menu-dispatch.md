@@ -146,8 +146,11 @@ class MenuAction(BaseModel):
 
     def to_wire(self) -> dict[str, object]:
         item: dict[str, object] = {"label": self.label, "id": self.id}
-        optional = {"shortcut": self.shortcut, "icon": self.icon,
-                    "frame_id": self.frame_id}
+        optional = {
+            "shortcut": self.shortcut,
+            "icon": self.icon,
+            "frame_id": self.frame_id,
+        }
         item.update((k, v) for k, v in optional.items() if v is not None)
         return item
 
@@ -157,10 +160,12 @@ class Menu(BaseModel):
     def _entry_from_wire(cls, item: object, *, loc: str) -> MenuEntry:
         ...
         if raw_id is not None:
-            return MenuAction(                       # frame_id never read
+            return MenuAction(  # frame_id never read
                 id=cls._require_str(raw_id, loc=f"{loc}.id"),
                 label=cls._require_str(entry.get("label"), loc=f"{loc}.label"),
-                shortcut=cls._optional_str(entry.get("shortcut"), loc=f"{loc}.shortcut"),
+                shortcut=cls._optional_str(
+                    entry.get("shortcut"), loc=f"{loc}.shortcut"
+                ),
                 icon=cls._optional_str(entry.get("icon"), loc=f"{loc}.icon"),
             )
         ...

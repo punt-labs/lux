@@ -388,7 +388,7 @@ COMPOSITION_SCENARIOS: tuple[Scenario, ...] = (
                 }
             ]
         },
-        setup={"session_key": "corpus-set-menu"},
+        setup={"session_key": "corpus-set-menu", "identified": True},
     ),
 )
 

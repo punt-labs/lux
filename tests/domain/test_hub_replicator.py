@@ -27,6 +27,7 @@ from punt_lux.domain.hub.replicator import (
     HubReplicator,
 )
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
+from punt_lux.domain.hub.session_callback import CallbackInvocation
 from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.protocol.elements.text import TextElement
 
@@ -392,7 +393,9 @@ def _replicator(
     sender = _FakeSender()
     provider = _FakeProvider(sender)
     lifecycle = _FakeLifecycle()
-    registry = menu_registry if menu_registry is not None else HubMenuRegistry()
+    registry = (
+        menu_registry if menu_registry is not None else HubMenuRegistry(store.clients)
+    )
     repl = HubReplicator(
         store.reader,
         registry,
@@ -428,16 +431,18 @@ def test_menu_state_is_pushed_from_a_fresh_registry_read() -> None:
     # A menu change is Hub-owned and payload-less: the operation flags it, and this
     # one background writer reads the registry fresh and sends the agent bar.
     store = HubDisplay()
-    registry = HubMenuRegistry()
+    store.register_client(_CONN)
+    registry = HubMenuRegistry(store.clients)
     registry.set_menus(
-        [Menu(label="File", items=[MenuAction(id="open", label="Open")])]
+        _CONN, [Menu(label="File", items=[MenuAction(id="open", label="Open")])]
     )
     repl, sender, _provider, _lifecycle = _replicator(store, registry)
     repl.start()
     try:
         repl.mark_menus()
         assert sender.wait_sent(2.0)
-        expected = [{"label": "File", "items": [{"label": "Open", "id": "open"}]}]
+        stamped = CallbackInvocation(_CONN, "open").menu_id
+        expected = [{"label": "File", "items": [{"label": "Open", "id": stamped}]}]
         assert sender.menus == [expected]
     finally:
         repl.stop()
@@ -467,8 +472,9 @@ def test_a_menu_change_during_a_failed_send_wins_over_the_stale_state() -> None:
     # fail; recovery re-marks the flag and the next send re-reads the registry, so
     # v2 ships. A drained v1 payload can never be re-pushed — there is no payload.
     store = HubDisplay()
-    registry = HubMenuRegistry()
-    registry.set_menus([Menu(label="v1", items=[])])
+    store.register_client(_CONN)
+    registry = HubMenuRegistry(store.clients)
+    registry.set_menus(_CONN, [Menu(label="v1", items=[])])
     repl, sender, _provider, _lifecycle = _replicator(store, registry)
     gate = threading.Event()
     sender.block_next(gate)  # the first send parks here
@@ -477,7 +483,7 @@ def test_a_menu_change_during_a_failed_send_wins_over_the_stale_state() -> None:
     try:
         repl.mark_menus()
         assert sender.wait_entered(2.0)  # worker is provably inside the first send
-        registry.set_menus([Menu(label="v2", items=[])])  # v2 lands during the hold
+        registry.set_menus(_CONN, [Menu(label="v2", items=[])])  # v2 lands mid-hold
         gate.set()  # release -> the first send fails -> recovery re-marks the flag
         assert sender.wait_sent(2.0)
         # The re-read at the next send shipped v2; v1 was never recorded (the send
@@ -498,8 +504,8 @@ def test_a_scene_only_reap_re_pushes_the_agent_bar() -> None:
     # until some unrelated menu write.
     store = HubDisplay()
     scene = _seed(store, "s1")
-    registry = HubMenuRegistry()
-    registry.set_menus([Menu(label="File", items=[])])
+    registry = HubMenuRegistry(store.clients)
+    registry.set_menus(_CONN, [Menu(label="File", items=[])])
     repl, sender, provider, lifecycle = _replicator(store, registry)
     sender.arm_failure(BlockingIOError())  # the scene send wedges → reap/respawn
     repl.start()
@@ -524,8 +530,9 @@ def test_a_wedged_menu_send_is_reaped_and_the_bar_re_delivered() -> None:
     # the bar to the fresh display. This is the wedged/reap counterpart to the
     # dead-peer menu recovery the race test already covers.
     store = HubDisplay()
-    registry = HubMenuRegistry()
-    registry.set_menus([Menu(label="File", items=[])])
+    store.register_client(_CONN)
+    registry = HubMenuRegistry(store.clients)
+    registry.set_menus(_CONN, [Menu(label="File", items=[])])
     repl, sender, provider, lifecycle = _replicator(store, registry)
     sender.arm_failure(BlockingIOError())  # set_menu is the first guarded send
     repl.start()
@@ -549,8 +556,9 @@ def test_a_generic_menu_send_error_restores_the_flag_and_retries() -> None:
     # — and backs off. The retry re-reads the registry and re-delivers the bar;
     # nothing is dropped, and neither reap nor reconnect runs for a generic failure.
     store = HubDisplay()
-    registry = HubMenuRegistry()
-    registry.set_menus([Menu(label="File", items=[])])
+    store.register_client(_CONN)
+    registry = HubMenuRegistry(store.clients)
+    registry.set_menus(_CONN, [Menu(label="File", items=[])])
     repl, sender, provider, lifecycle = _replicator(store, registry)
     sender.arm_failure(RuntimeError("boom"))  # a non-socket error at set_menu
     repl.start()
@@ -967,7 +975,7 @@ def test_the_disconnected_backoff_resets_on_a_clean_send_not_on_dial_success() -
     # must leave the climbed disconnected delay untouched.
     store = HubDisplay()
     scene = _seed(store, "s1")
-    registry = HubMenuRegistry()
+    registry = HubMenuRegistry(store.clients)
     repl, sender, provider, _lifecycle = _replicator(store, registry)
     batch = DrainedBatch(frozenset({scene}), shutting=False)
 
@@ -1326,8 +1334,8 @@ def test_menu_send_failure_does_not_smear_deaths_across_live_scenes() -> None:
     store = HubDisplay()
     a = _seed(store, "a")
     b = _seed(store, "b")
-    registry = HubMenuRegistry()
-    registry.set_menus([Menu(label="poison", items=[])])
+    registry = HubMenuRegistry(store.clients)
+    registry.set_menus(_CONN, [Menu(label="poison", items=[])])
     repl, sender, _provider, _lifecycle = _replicator(store, registry)
     sender.arm_failure(BlockingIOError())  # set_menu is the first guarded send
     repl.start()

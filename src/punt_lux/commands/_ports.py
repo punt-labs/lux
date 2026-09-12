@@ -100,8 +100,10 @@ class SceneOps(Protocol):
 class MenuOps(Protocol):
     """The ops surface the menu commands read."""
 
-    def set_menu(self, request: SetMenuRequest | OpError) -> Ok | OpError:
-        """Replace the Hub-owned menu bar; the replicator pushes it."""
+    def set_menu(
+        self, request: SetMenuRequest | OpError, *, scope: Scope
+    ) -> Ok | OpError:
+        """Replace the caller's Hub-owned menu bar; the replicator pushes it."""
         ...
 
     def list_menus(self) -> MenuList | OpError:

@@ -88,16 +88,19 @@ class ForbiddenPort:
 
 
 class ForbiddenInbox:
-    """Inbox port helpers that fail the test if pub-sub is ever reached.
+    """Inbox port helpers that fail the test if pub-sub *delivery* is reached.
 
-    REST exposes no pub-sub routes, so ``ensure_writer``/``next_event`` must
-    never fire through these fakes. Wiring the process-singleton inbox here
-    would smuggle global state into an otherwise-isolated fixture; failing loud
-    surfaces an unexpected call instead (the ForbiddenPort philosophy).
+    REST exposes no recv route, so ``next_event`` must never fire through these
+    fakes — wiring the process-singleton inbox here would smuggle global state
+    into an otherwise-isolated fixture; failing loud surfaces an unexpected call
+    instead (the ForbiddenPort philosophy). ``ensure_writer`` is a permitted
+    no-op: ``menu_set`` arms the owner's inbox writer so a click has somewhere to
+    land, and that arming is expected on the write path.
     """
 
     def ensure_writer(self, connection_id: ConnectionId) -> None:
-        raise AssertionError(f"unexpected pub-sub: ensure_writer({connection_id!r})")
+        """A permitted no-op: menu_set arms the writer; no queue is stood up here."""
+        del connection_id
 
     def next_event(
         self, connection_id: ConnectionId, timeout: float
@@ -148,7 +151,7 @@ def make_facade(
         display,
         Recorder(),
         hub=Hub(),
-        menu_registry=HubMenuRegistry(),
+        menu_registry=HubMenuRegistry(display.clients),
         callback_router=router or CallbackRouter(display.clients),
         ports=HubPorts(
             element_factory=hub_element_factory,

@@ -24,6 +24,7 @@
   ],
   "response": "ok",
   "setup": {
+    "identified": true,
     "session_key": "corpus-set-menu"
   },
   "tool": "set_menu"

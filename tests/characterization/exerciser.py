@@ -52,6 +52,7 @@ from fastmcp.exceptions import ToolError
 from punt_lux import tools as tools_pkg
 from punt_lux.domain.hub import client_registry, hub
 from punt_lux.domain.hub.callback_hold import CallbackRouter
+from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.inbox import ensure_writer, inbox_depth_for, next_event
@@ -319,11 +320,18 @@ class ToolExerciser:
         # fresh store keeps every replay independent while running the real
         # operations against real collaborators (decode, submission gate, writer).
         display = HubDisplay()
+        if setup.get("identified"):
+            # A write that owns a menu item (set_menu) needs an identified session;
+            # the scenario declares this so the exercised session can own the bar.
+            key = str(setup.get("session_key", "local"))
+            display.identify_client(
+                ConnectionId(key), ClientIdentity(kind="mcp-session", name="corpus")
+            )
         test_ops = Operations.for_store(
             display,
             _StubReplicator(),
             hub=hub,
-            menu_registry=HubMenuRegistry(),
+            menu_registry=HubMenuRegistry(display.clients),
             callback_router=CallbackRouter(display.clients),
             ports=cls._hub_ports(setup),
         )

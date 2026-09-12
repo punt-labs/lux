@@ -86,15 +86,20 @@ class MenuRoutes:
             asyncio.run(menu_ls_command.execute(self._menu_ctx(identity)))
         )
 
-    def set_menu(self, request: SetMenuRequest, identity: _CallerIdentity) -> Ok:
-        """Replace the agent-defined menu bar; the replicator pushes it.
+    def set_menu(
+        self, request: SetMenuRequest, scope: _OwningScope, identity: _CallerIdentity
+    ) -> Ok:
+        """Replace the caller's agent-defined menu bar; the replicator pushes it.
 
         Identity is required (declared via the router's ``dependencies``): the
         menu bar is Hub state a real caller owns, so a request with no identity
-        is refused with the same 401 a scene write meets (DES-057).
+        is refused with the same 401 a scene write meets (DES-057). The owning
+        scope keys the bar so a click routes back to this caller.
         """
         return self._errors.respond(
-            asyncio.run(menu_set_command.execute(self._menu_ctx(identity), request))
+            asyncio.run(
+                menu_set_command.execute(self._menu_ctx(identity), request, scope=scope)
+            )
         )
 
     def register_callback(

@@ -15,12 +15,12 @@ from punt_lux.operations import Ok, OpError
 
 if TYPE_CHECKING:
     from punt_lux.commands._ports import Ctx, MenuOps
-    from punt_lux.operations import SetMenuRequest
+    from punt_lux.operations import Scope, SetMenuRequest
 
 
 @final
 class MenuSetCommand:
-    """Replace the Hub-owned menu bar; the replicator pushes the change."""
+    """Replace the caller's Hub-owned menu bar; the replicator pushes the change."""
 
     __slots__ = ()
 
@@ -28,16 +28,16 @@ class MenuSetCommand:
         return super().__new__(cls)
 
     async def execute(
-        self, ctx: Ctx[MenuOps], request: SetMenuRequest | OpError
+        self, ctx: Ctx[MenuOps], request: SetMenuRequest | OpError, *, scope: Scope
     ) -> Ok | OpError:
-        """Install ``request`` as the new menu bar and return the typed outcome."""
-        return await asyncio.to_thread(ctx.ops.set_menu, request)
+        """Install ``request`` as the caller's menu bar and return the typed outcome."""
+        return await asyncio.to_thread(lambda: ctx.ops.set_menu(request, scope=scope))
 
     async def __call__(
-        self, ctx: Ctx[MenuOps], request: SetMenuRequest | OpError
+        self, ctx: Ctx[MenuOps], request: SetMenuRequest | OpError, *, scope: Scope
     ) -> CommandResult:
         """Run :meth:`execute` and render its outcome into the shared envelope."""
-        result = await self.execute(ctx, request)
+        result = await self.execute(ctx, request, scope=scope)
         if isinstance(result, OpError):
             return render_fault(result)
         return CommandResult(text="ok")

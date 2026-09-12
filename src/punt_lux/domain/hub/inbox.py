@@ -22,6 +22,7 @@ __all__ = [
     "inbox_depth_for",
     "inbox_for",
     "next_event",
+    "offer",
 ]
 
 
@@ -104,3 +105,21 @@ def drop_session(connection_id: ConnectionId) -> None:
     """Release the session's inbox queue on disconnect. Idempotent."""
     with _inboxes_lock:
         _inboxes.pop(connection_id, None)
+
+
+def offer(connection_id: ConnectionId, message: ObserverMessage) -> bool:
+    """Deliver ``message`` to an existing inbox, never resurrecting a dropped one.
+
+    Returns whether an inbox was present to receive it. Unlike the session
+    writer's ``inbox_for(...).put`` — which creates a queue on demand — this reads
+    with ``.get``, so a message for a session whose ``drop_session`` already ran
+    finds no inbox and is not delivered. A queue popped after this read but before
+    the ``put`` receives it into an orphan the caller's reference lets GC reclaim:
+    no delivery to a departed session, no leaked entry (the menu-event M1 gate).
+    """
+    with _inboxes_lock:
+        inbox = _inboxes.get(connection_id)
+    if inbox is None:
+        return False
+    inbox.put(message)
+    return True

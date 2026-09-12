@@ -85,8 +85,10 @@ class StubMenuOps:
         self.last_call = {}
         return self
 
-    def set_menu(self, request: SetMenuRequest | OpError) -> Ok | OpError:
-        self.last_call = {"method": "set_menu", "request": request}
+    def set_menu(
+        self, request: SetMenuRequest | OpError, *, scope: Scope
+    ) -> Ok | OpError:
+        self.last_call = {"method": "set_menu", "request": request, "scope": scope}
         return cast("Ok | OpError", self._set)
 
     def list_menus(self) -> MenuList | OpError:

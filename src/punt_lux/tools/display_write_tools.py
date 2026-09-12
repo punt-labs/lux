@@ -27,14 +27,21 @@ __all__ = ["display_mode", "frame_remove", "set_menu"]
 def set_menu(menus: list[dict[str, Any]]) -> str:
     """Add custom menus to the Lux display menu bar; clicks arrive via recv().
 
-    Each menu: {"label": "Tools", "items": [{"label": "Run", "id": "run_btn"},
-    {"label": "---"}]}  — a ``"---"`` label is a separator. Hub-owned: this
-    writes the Hub menu registry and the replicator pushes the bar down.
+    Each menu: {"label": "Tools", "items": [{"label": "Run", "id": "run_btn",
+    "frame_id": "dash"}, {"label": "---"}]} — a ``"---"`` label is a separator.
+    An item's optional ``frame_id`` names a frame the item raises on click (a
+    frame you created with ``show(..., frame_id=...)``); it raises that frame AND
+    reports the click. On click, a ``{"menu": ..., "item": "<id>"}`` event lands
+    on your inbox — drain it with ``recv()``, no ``topic_subscribe`` needed. The
+    bar is owned by this session, so identify first; two sessions' bars never
+    clobber, and yours leaves the display when the session ends.
     """
     ctx: CommandCtx[MenuOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
     )
-    result = asyncio.run(menu_set_command(ctx, SetMenuRequest.parse(menus)))
+    result = asyncio.run(
+        menu_set_command(ctx, SetMenuRequest.parse(menus), scope=_core._scope())
+    )
     return signal(result)
 
 

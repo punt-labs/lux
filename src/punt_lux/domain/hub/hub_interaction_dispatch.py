@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
+    from punt_lux.domain.hub.session_callback import CallbackInvocation
     from punt_lux.protocol import RemoteEventHandlerInvocation
 
 logger = logging.getLogger(__name__)
@@ -44,7 +45,7 @@ class HubInteractionDispatch:
         fires the scene element on its authoritative copy.
         """
         if msg.action == "menu":
-            HubInteractionDispatch._dispatch_menu_callback(msg.element_id)
+            HubInteractionDispatch._dispatch_menu_click(msg)
             return
         HubInteractionDispatch._fire_scene_element(msg)
 
@@ -89,31 +90,59 @@ class HubInteractionDispatch:
         hub_replicator.mark_dirty(resolved.scene_id)
 
     @staticmethod
-    def _dispatch_menu_callback(menu_id: str) -> None:
-        """Answer a clicked menu leaf: the Hub's own command, or the client's.
+    def _dispatch_menu_click(msg: RemoteEventHandlerInvocation) -> None:
+        """Answer one clicked menu leaf on the single menu-click path.
 
-        The leaf id names the owning connection and the command within it.
-        ``Details`` is the Hub's own and is answered here; every other
-        command belongs to the client that registered it. A malformed or
-        non-callback id, or a click for a departed client, is logged, never
-        crashes, and the menu re-pushes.
+        Every leaf — applet callback and agent ``menu_set`` item alike — carries a
+        routable id ``owner<US>item_id`` and is parsed once. ``Details`` is the
+        Hub's own and answered here. Otherwise the click forks by the live session's
+        capability, which the callback router's own live read already classifies:
+        ``routed`` is an applet callback delivered to its held listener; a live
+        session that owns no such callback (``unknown_callback``) is an agent menu
+        item, delivered to that session's inbox as a reserved ``lux.menu`` event a
+        listening agent drains with ``recv()``; a session gone from the live set
+        (``provider_gone``), or an item whose owner has no inbox, re-pushes the
+        menu. A malformed id — one no real stamped leaf can be — is logged as an
+        invalid request, never crashes, and re-pushes nothing.
         """
         from punt_lux.domain.hub.details_instance import hub_client_details
-        from punt_lux.domain.hub.replicator_instance import (
-            hub_callback_router,
-            hub_replicator,
-        )
+        from punt_lux.domain.hub.replicator_instance import hub_replicator
         from punt_lux.domain.hub.session_callback import CallbackInvocation
 
         try:
-            invocation = CallbackInvocation.from_menu_id(menu_id)
+            invocation = CallbackInvocation.from_menu_id(msg.element_id)
         except ValueError:
-            logger.info("menu click for a non-callback leaf id=%r; ignoring", menu_id)
+            logger.info("malformed menu leaf id=%r; ignoring", msg.element_id)
             return
         if invocation.is_details:
             hub_client_details.run(invocation.connection_id)
             return
-        if hub_callback_router.route(invocation) == "routed":
-            return
-        logger.info("menu callback %r not delivered; re-pushing menu", menu_id)
-        hub_replicator.mark_menus()
+        if not HubInteractionDispatch._route_or_deliver(invocation, msg):
+            logger.info("menu click %r not delivered; re-pushing menu", msg.element_id)
+            hub_replicator.mark_menus()
+
+    @staticmethod
+    def _route_or_deliver(
+        invocation: CallbackInvocation, msg: RemoteEventHandlerInvocation
+    ) -> bool:
+        """Fork one menu click by the owning live session's capability; say if landed.
+
+        The callback router's own live read classifies: ``routed`` is an applet
+        callback pushed to its held listener; a live session that owns no such
+        callback is an agent ``menu_set`` item, delivered to that session's inbox;
+        a departed session (or an owner with no inbox) lands nowhere and the caller
+        re-pushes.
+        """
+        from punt_lux.domain.hub.menu_event import MenuSelection
+        from punt_lux.domain.hub.replicator_instance import (
+            hub_callback_router,
+            hub_menu_event_router,
+        )
+
+        routing = hub_callback_router.route(invocation)
+        if routing == "routed":
+            return True
+        if routing == "unknown_callback":
+            selection = MenuSelection.of(invocation, msg.value)
+            return hub_menu_event_router.deliver(invocation, selection) == "delivered"
+        return False

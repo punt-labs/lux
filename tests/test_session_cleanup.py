@@ -15,14 +15,14 @@ if TYPE_CHECKING:
 class _RaisingMenu:
     """Stand-in whose menu teardown always raises."""
 
-    def drop_session(self) -> None:
-        raise RuntimeError("menu teardown exploded")
+    def drop_session(self, connection_id: ConnectionId) -> None:
+        raise RuntimeError(f"menu teardown exploded for {connection_id}")
 
 
 class _RecordingMenu:
-    """Stand-in that records each drop it was asked to perform."""
+    """Stand-in that records each connection drop it was asked to perform."""
 
-    calls: list[None]
+    calls: list[ConnectionId]
     __slots__ = ("calls",)
 
     def __new__(cls) -> _RecordingMenu:
@@ -30,8 +30,8 @@ class _RecordingMenu:
         self.calls = []
         return self
 
-    def drop_session(self) -> None:
-        self.calls.append(None)
+    def drop_session(self, connection_id: ConnectionId) -> None:
+        self.calls.append(connection_id)
 
 
 class TestSessionCleanup:

@@ -19,6 +19,8 @@ from punt_lux.domain.hub.callback_hold import CallbackRouter
 from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
 from punt_lux.domain.hub.clients import client_registry
 from punt_lux.domain.hub.hub_display import hub_display
+from punt_lux.domain.hub.inbox import offer as inbox_offer
+from punt_lux.domain.hub.menu_event import MenuEventRouter
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.hub.replicator import HubReplicator
 from punt_lux.paths import DisplayPaths
@@ -26,16 +28,27 @@ from punt_lux.paths import DisplayPaths
 if TYPE_CHECKING:
     from punt_lux.domain.hub.replicator_ports import ClientProvider
 
-__all__ = ["hub_callback_router", "hub_menu_registry", "hub_replicator"]
+__all__ = [
+    "hub_callback_router",
+    "hub_menu_event_router",
+    "hub_menu_registry",
+    "hub_replicator",
+]
 
-# The authoritative menu state — read fresh by the replicator worker, written
-# only through MenuOperations, injected into the operations facade by tools.py.
-hub_menu_registry = HubMenuRegistry()
+# The authoritative agent menu bar — read fresh by the replicator worker, keyed by
+# the owning session so two sessions never clobber and a departed one's bar leaves
+# (it reads the shared HubDisplay's live sessions to compose). Written only through
+# MenuOperations, injected into the operations facade by tools.py.
+hub_menu_registry = HubMenuRegistry(hub_display.clients)
 
 # The one process-wide router for menu-callback clicks. Both composition roots
 # inject this instance so a click held on one surface is drained on any other; it
 # routes against the session registry that lives in the shared HubDisplay.
 hub_callback_router = CallbackRouter(hub_display.clients)
+
+# Delivers an agent menu-item click to the owning MCP session's inbox — the same
+# live-session read the callback router uses, then the non-resurrecting inbox sink.
+hub_menu_event_router = MenuEventRouter(hub_display.clients, inbox_offer)
 
 # DisplayLink satisfies the port at runtime — its show_async takes the concrete
 # protocol.Element union every WireElement root is; the cast bridges list invariance.

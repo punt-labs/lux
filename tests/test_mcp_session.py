@@ -95,7 +95,7 @@ class TestUncleanDisconnect:
         legs: list[str] = []
 
         class _Menu:
-            def drop_session(self) -> None:
+            def drop_session(self, connection_id: object) -> None:
                 legs.append("menu")
 
         def _record_disconnect(conn: object) -> None:
@@ -166,7 +166,7 @@ class TestSharedKeyCleanup:
         legs: list[str] = []
 
         class _Menu:
-            def drop_session(self) -> None:
+            def drop_session(self, connection_id: object) -> None:
                 legs.append("menu")
 
         def _record_disconnect(conn: object) -> None:
@@ -316,5 +316,5 @@ class TestSharedKeyDisconnectPreservesSubscriptions:
 class _NoopMenu:
     """A menu-leg stub that does nothing; this test only asserts Hub state."""
 
-    def drop_session(self) -> None:
+    def drop_session(self, connection_id: object) -> None:
         """No menu state is exercised here."""

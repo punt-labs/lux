@@ -87,11 +87,14 @@ def publish(topic: str, payload: dict[str, object] | None = None) -> str:
 def recv() -> str:
     """Take the next business event waiting for the calling session, or none.
 
-    Returns ``"event:<topic>:<json-payload>"`` for a published event the session
-    is subscribed to, or ``"none"`` when the inbox is empty. Never blocks — it
-    drains whatever is queued and returns; to wait, poll on your own schedule.
-    Events come from ``Hub.publish`` scoped to this session; UI wire frames
-    (button clicks, slider drags) are not delivered here.
+    Returns ``"event:<topic>:<json-payload>"`` for a waiting event, or ``"none"``
+    when the inbox is empty. Never blocks — it drains whatever is queued and
+    returns; to wait, poll on your own schedule. Two kinds of event land here:
+    an app event from ``Hub.publish`` on a topic this session subscribed to, and
+    a menu selection on the reserved ``lux.menu`` topic — when the user clicks an
+    item you registered with ``menu_set``, a ``{"menu": ..., "item": "<id>"}``
+    event arrives here with no ``topic_subscribe`` needed. Low-level scene-element
+    wire frames (button clicks, slider drags) are still not delivered here.
     """
     return signal(asyncio.run(topic_recv_command(_topic_ctx(), scope=_scope())))
 

@@ -96,6 +96,22 @@
 
 ### Fixed
 
+- **Agent `menu_set` items now work on click (`lux-m3xr`, DES-098).** An agent's
+  `menu_set` item was dead on click: it could not carry a `frame_id` through the
+  decode (gap a), and a frameless click was dropped at the Hub because the
+  dispatch demanded a callback leaf id an agent item never has (gap b). Both are
+  closed. A `menu_set` item now carries an optional per-item `frame_id` end to
+  end (it raises that frame Display-locally on click, DES-088), and its click is
+  delivered to the owning MCP session as a reserved `lux.menu` event on the
+  session's inbox — drained by the `recv()` tool the agent already holds, with no
+  prior `topic_subscribe`. Menu-click dispatch is unified onto one path that
+  parses every leaf once and forks only at delivery by the live session's
+  capability (applet listener vs. agent inbox); the bare-id drop is gone. The
+  Hub menu registry is now keyed by the owning session, closing two latent bugs
+  on the same code: two sessions' bars no longer clobber each other, and a
+  departed session's bar leaves the display. `menu_set` now requires an
+  identified session, mirroring `register_callback` — nothing anonymous owns a
+  menu item.
 - **Menu-item ID conflict on same-labelled cross-Hub/cross-session items
   (`lux-whb9`).** Dear ImGui derives a widget's identity from its label, so
   the Windows and Clients menus raised "N visible items with conflicting ID"
