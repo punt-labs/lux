@@ -24,7 +24,7 @@ class HubClient(BaseModel):
     subscribed_topics: list[str]
     owned_scenes: list[str]
     writer_bound: bool  # a Hub.register_writer leg is bound to this connection
-    inbox_depth: NonNegativeInt  # queued-but-undelivered events (SimpleQueue.qsize())
+    inbox_depth: NonNegativeInt  # queued-but-undelivered events (BoundedInbox.depth())
 
 
 class ClientList(BaseModel):

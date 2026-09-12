@@ -6,7 +6,7 @@ process-global module state shared across the test session.
 
 from __future__ import annotations
 
-import queue
+from collections import deque
 from typing import Self, final
 
 from punt_lux.domain.hub import inbox as inbox_mod
@@ -26,15 +26,19 @@ from punt_lux.protocol.messages.observer import ObserverMessage
 
 
 @final
-class _LockWatchingQueue(queue.SimpleQueue[ObserverMessage]):
-    """A SimpleQueue that records whether ``_inboxes_lock`` is held during ``put``.
+class _LockWatchingQueue(deque[ObserverMessage]):
+    """A deque that records whether ``_inboxes_lock`` is held during ``append``.
+
+    ``BoundedInbox`` stores its messages in a deque and delivers via ``append``,
+    so the spy watches ``append`` -- the operation ``BoundedInbox.put`` calls once
+    it is inside the inbox's own condition.
 
     D1 fidelity control: ``offer`` must hold ``_inboxes_lock`` across BOTH the
     ``get`` that finds the inbox AND the ``put`` that delivers into it, so a
     concurrent ``drop_session`` cannot pop the queue between the two and turn a
     false ``True`` delivery into an orphan (M1: ``¬(delivered ∧ lost)``, modelled
     in ``docs/menu_lifecycle.tex``). The old code released the lock after the get
-    and put outside it -- observed here as ``locked() == False`` at put time.
+    and put outside it -- observed here as ``locked() == False`` at append time.
     """
 
     _held_at_put: bool
@@ -46,21 +50,19 @@ class _LockWatchingQueue(queue.SimpleQueue[ObserverMessage]):
         self._put_seen = False
         return self
 
-    def put(
-        self, item: ObserverMessage, block: bool = True, timeout: float | None = None
-    ) -> None:
+    def append(self, item: ObserverMessage) -> None:
         self._held_at_put = inbox_mod._inboxes_lock.locked()
         self._put_seen = True
-        super().put(item, block, timeout)
+        super().append(item)
 
     @property
     def held_at_put(self) -> bool:
-        """Whether ``_inboxes_lock`` was held when ``put`` last ran."""
+        """Whether ``_inboxes_lock`` was held when ``append`` last ran."""
         return self._held_at_put
 
     @property
     def put_seen(self) -> bool:
-        """Whether ``put`` was called at all -- guards against a vacuous pass."""
+        """Whether ``append`` ran at all -- guards against a vacuous pass."""
         return self._put_seen
 
 
@@ -74,7 +76,7 @@ def test_offer_puts_under_the_inboxes_lock() -> None:
     connection = ConnectionId("c-offer-d1")
     spy = _LockWatchingQueue()
     inbox = BoundedInbox(connection)
-    inbox._queue = spy  # watch the inbox's underlying queue at put time
+    inbox._queue = spy  # watch the inbox's underlying deque at delivery time
     with inbox_mod._inboxes_lock:
         inbox_mod._inboxes[connection] = inbox
 
