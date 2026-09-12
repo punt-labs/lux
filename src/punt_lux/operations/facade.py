@@ -18,7 +18,7 @@ from punt_lux.operations.display_link import DisplayLinkOperations
 from punt_lux.operations.frame_removal import FrameRemover
 from punt_lux.operations.identity import IdentityOperations
 from punt_lux.operations.menu_arming import MenuArming
-from punt_lux.operations.menus import MenuOperations
+from punt_lux.operations.menus import MenuOperations, MenuOperationsDeps
 from punt_lux.operations.models.inspect_scope import HUB_ONLY, InspectScope
 from punt_lux.operations.pubsub import PubSubOperations
 from punt_lux.operations.queries import QueryOperations
@@ -130,7 +130,11 @@ class Operations:
         deps = SceneOperationsDeps(display, replicator, ports.element_factory, hub)
         scenes = SceneOperations(deps)
         callbacks = CallbackOperations(display.clients, callback_router, replicator)
-        arming = MenuArming(display.clients, ports.ensure_writer)
+        arming = MenuArming(
+            display.clients,
+            ports.ensure_writer,
+            lambda c: display.bind_departure_sink(c, menu_registry.drop_session),
+        )
         clients = ClientListing(display, hub, ports.inbox_depth)
         queries = QueryOperations(display, ports.display_port, clients)
         return cls(
@@ -140,7 +144,15 @@ class Operations:
                 config=DisplayModeOperations(),
                 display=DisplayControlOperations(ports.display_port),
                 queries=queries,
-                menus=MenuOperations(menu_registry, replicator, callbacks, arming),
+                menus=MenuOperations(
+                    MenuOperationsDeps(
+                        registry=menu_registry,
+                        replicator=replicator,
+                        callback_menus=callbacks,
+                        arming=arming,
+                        write_lock=display.write_lock,
+                    )
+                ),
                 identity=IdentityOperations(display),
                 callbacks=callbacks,
                 frame_remover=FrameRemover(display, replicator),

@@ -113,13 +113,18 @@ def offer(connection_id: ConnectionId, message: ObserverMessage) -> bool:
     Returns whether an inbox was present to receive it. Unlike the session
     writer's ``inbox_for(...).put`` — which creates a queue on demand — this reads
     with ``.get``, so a message for a session whose ``drop_session`` already ran
-    finds no inbox and is not delivered. A queue popped after this read but before
-    the ``put`` receives it into an orphan the caller's reference lets GC reclaim:
-    no delivery to a departed session, no leaked entry (the menu-event M1 gate).
+    finds no inbox and is not delivered. The get AND the put run under one hold of
+    ``_inboxes_lock``, so a concurrent ``drop_session`` cannot interleave between
+    them: either the inbox is present and the message is put atomically (``True``),
+    or it is already gone (``False`` → ``provider_gone``). Reading the queue and
+    then putting outside the lock would let a departure pop it in between and
+    deliver into an orphan while still reporting ``True`` — the false-delivery the
+    menu-event M1 gate forbids (``¬(delivered ∧ lost)``, modelled in
+    ``docs/menu_lifecycle.tex``).
     """
     with _inboxes_lock:
         inbox = _inboxes.get(connection_id)
-    if inbox is None:
-        return False
-    inbox.put(message)
-    return True
+        if inbox is None:
+            return False
+        inbox.put(message)
+        return True

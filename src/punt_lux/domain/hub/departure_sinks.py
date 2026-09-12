@@ -39,16 +39,18 @@ class DepartureSink(Protocol):
 
 @final
 class DepartureSinks:
-    """At-most-one departure sink per connection, bound at connect time.
+    """The departure sinks a connection binds at connect time, fired on departure.
 
-    Most connections have no transport-owned side state to release — a
-    ``cli``-kind session never binds an inbox writer, for one — so
-    :meth:`fire` on an unbound connection id is a documented no-op, not an
-    error. Raising there would mean one connection with nothing to clean up
-    blocks an entire swept set from departing behind it.
+    A connection may hold more than one piece of transport-owned side state —
+    an MCP session binds both its inbox queue and, once it owns a menu bar, its
+    menu-registry entry — so each connection carries a *list* of sinks, fired in
+    bind order on departure. Most connections have none — a ``cli``-kind session
+    never binds an inbox writer — so :meth:`fire` on an unbound connection id is a
+    documented no-op, not an error. Raising there would mean one connection with
+    nothing to clean up blocks an entire swept set from departing behind it.
     """
 
-    _sinks: dict[ConnectionId, DepartureSink]
+    _sinks: dict[ConnectionId, list[DepartureSink]]
     __slots__ = ("_sinks",)
 
     def __new__(cls) -> Self:
@@ -57,20 +59,27 @@ class DepartureSinks:
         return self
 
     def bind(self, connection_id: ConnectionId, sink: DepartureSink) -> None:
-        """Make ``sink`` the connection's departure cleanup. Idempotent overwrites."""
-        self._sinks[connection_id] = sink
+        """Add ``sink`` to the connection's departure cleanups. Idempotent per sink.
+
+        A sink already bound for the connection is not added twice, so re-arming
+        on each ``menu_set`` (or a same-identity reconnect) cannot grow the list
+        without bound or fire one cleanup repeatedly.
+        """
+        bound = self._sinks.setdefault(connection_id, [])
+        if sink not in bound:
+            bound.append(sink)
 
     def drop(self, connection_id: ConnectionId) -> None:
-        """Unbind the connection's sink without firing it. No-op if absent."""
+        """Unbind the connection's sinks without firing them. No-op if absent."""
         self._sinks.pop(connection_id, None)
 
     def fire(self, connection_id: ConnectionId) -> None:
-        """Run and unbind the connection's departure sink. No-op if none bound.
+        """Run and unbind every sink bound for the connection. No-op if none.
 
-        Firing also unbinds — a departed connection's sink has done its one
-        job, and leaving it bound forever would leak exactly the kind of
-        unbounded per-connection state this class exists to release.
+        Firing also unbinds — a departed connection's sinks have done their one
+        job, and leaving them bound forever would leak exactly the kind of
+        unbounded per-connection state this class exists to release. Sinks run in
+        the order they were bound.
         """
-        sink = self._sinks.pop(connection_id, None)
-        if sink is not None:
+        for sink in self._sinks.pop(connection_id, ()):
             sink(connection_id)

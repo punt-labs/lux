@@ -15,8 +15,8 @@ from punt_lux.operations.menu_arming import MenuArming
 
 
 @final
-class _WriterSpy:
-    """Records the connections whose inbox writer was armed."""
+class _CallSpy:
+    """Records the connections it was called for — an inbox or departure arm."""
 
     armed: list[ConnectionId]
     __slots__ = ("armed",)
@@ -30,28 +30,35 @@ class _WriterSpy:
         self.armed.append(connection_id)
 
 
-def test_admits_an_identified_session_and_arms_its_inbox() -> None:
+def test_admits_an_identified_session_and_arms_its_inbox_and_departure() -> None:
     clients = HubClientRegistry()
     conn = ConnectionId("agent")
     clients.record(conn, ClientIdentity(kind="mcp-session", name="agent"))
-    writer = _WriterSpy()
+    writer, departure = _CallSpy(), _CallSpy()
 
-    assert MenuArming(clients, writer).admit(conn) is True
+    assert MenuArming(clients, writer, departure).admit(conn) is True
     assert writer.armed == [conn]
+    # D2: admitting a menu owner also arms its menu-registry departure prune, so
+    # every departure trigger (not only the graceful leg) withdraws the bar.
+    assert departure.armed == [conn]
 
 
 def test_refuses_an_anonymous_session_and_arms_nothing() -> None:
     clients = HubClientRegistry()
     conn = ConnectionId("anon")
     clients.record(conn)  # registered, but never identified
-    writer = _WriterSpy()
+    writer, departure = _CallSpy(), _CallSpy()
 
-    assert MenuArming(clients, writer).admit(conn) is False
+    assert MenuArming(clients, writer, departure).admit(conn) is False
     assert writer.armed == []
+    assert departure.armed == []
 
 
 def test_refuses_an_unregistered_session() -> None:
-    writer = _WriterSpy()
-    admitted = MenuArming(HubClientRegistry(), writer).admit(ConnectionId("never"))
+    writer, departure = _CallSpy(), _CallSpy()
+    admitted = MenuArming(HubClientRegistry(), writer, departure).admit(
+        ConnectionId("never")
+    )
     assert admitted is False
     assert writer.armed == []
+    assert departure.armed == []

@@ -38,6 +38,9 @@ if TYPE_CHECKING:
 
 _CONN = ConnectionId("repl-conn")
 
+# The one-menu bar the replication tests expect back on the wire, owner-stamped.
+_FILE_BAR = [[{"label": "File", "items": [], "owner": "repl-conn"}]]
+
 
 def _seed(store: HubDisplay, scene: str, content: str = "x") -> SceneId:
     """Install one owned root in ``scene`` and record a framed presentation."""
@@ -442,7 +445,13 @@ def test_menu_state_is_pushed_from_a_fresh_registry_read() -> None:
         repl.mark_menus()
         assert sender.wait_sent(2.0)
         stamped = MenuLeaf("menu", _CONN, "open").wire_id
-        expected = [{"label": "File", "items": [{"label": "Open", "id": stamped}]}]
+        expected = [
+            {
+                "label": "File",
+                "items": [{"label": "Open", "id": stamped}],
+                "owner": "repl-conn",
+            }
+        ]
         assert sender.menus == [expected]
     finally:
         repl.stop()
@@ -488,8 +497,8 @@ def test_a_menu_change_during_a_failed_send_wins_over_the_stale_state() -> None:
         assert sender.wait_sent(2.0)
         # The re-read at the next send shipped v2; v1 was never recorded (the send
         # raised before recording it).
-        assert [{"label": "v2", "items": []}] in sender.menus
-        assert [{"label": "v1", "items": []}] not in sender.menus
+        assert [{"label": "v2", "items": [], "owner": "repl-conn"}] in sender.menus
+        assert [{"label": "v1", "items": [], "owner": "repl-conn"}] not in sender.menus
     finally:
         repl.stop()
 
@@ -519,7 +528,7 @@ def test_a_scene_only_reap_re_pushes_the_agent_bar() -> None:
         assert lifecycle.calls == ["reap"]
         assert provider.drops == 1
         assert sender.shows == ["s1"]  # the scene repainted
-        assert sender.menus == [[{"label": "File", "items": []}]]  # bar restored
+        assert sender.menus == _FILE_BAR  # bar restored
     finally:
         repl.stop()
 
@@ -545,7 +554,7 @@ def test_a_wedged_menu_send_is_reaped_and_the_bar_re_delivered() -> None:
             threading.Event().wait(0.01)
         assert lifecycle.calls == ["reap"]
         assert provider.drops == 1
-        assert sender.menus == [[{"label": "File", "items": []}]]  # re-delivered
+        assert sender.menus == _FILE_BAR  # re-delivered
     finally:
         repl.stop()
 
@@ -569,7 +578,7 @@ def test_a_generic_menu_send_error_restores_the_flag_and_retries() -> None:
             if sender.menus:
                 break
             threading.Event().wait(0.01)
-        assert sender.menus == [[{"label": "File", "items": []}]]  # re-delivered
+        assert sender.menus == _FILE_BAR  # re-delivered
         assert lifecycle.calls == []  # generic failure never reaps
         assert provider.drops == 0  # nor reconnects
     finally:

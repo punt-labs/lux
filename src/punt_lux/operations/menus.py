@@ -11,12 +11,16 @@ Clients menu.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.menu_results import MenuList, Ok
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+    from contextlib import AbstractContextManager
+
     from punt_lux.domain.hub.menu_models import Menu
     from punt_lux.domain.hub.menu_registry import HubMenuRegistry
     from punt_lux.domain.ids import ConnectionId
@@ -26,7 +30,24 @@ if TYPE_CHECKING:
     from punt_lux.operations.ports import DirtyMarker
     from punt_lux.operations.scope import Scope
 
-__all__ = ["MenuOperations"]
+__all__ = ["MenuOperations", "MenuOperationsDeps"]
+
+# The Hub store's reentrant write lock, entered as a context manager. ``set_menu``
+# holds it across the admit-liveness check AND the registry store so a departure
+# cannot interleave between the gate and the write.
+type WriteLock = Callable[[], AbstractContextManager[bool]]
+
+
+@final
+@dataclass(frozen=True, slots=True)
+class MenuOperationsDeps:
+    """The collaborators :class:`MenuOperations` owns the agent menu bar through."""
+
+    registry: HubMenuRegistry
+    replicator: DirtyMarker
+    callback_menus: CallbackMenuSource
+    arming: MenuArming
+    write_lock: WriteLock
 
 
 @final
@@ -37,20 +58,22 @@ class MenuOperations:
     _replicator: DirtyMarker
     _callback_menus: CallbackMenuSource
     _arming: MenuArming
-    __slots__ = ("_arming", "_callback_menus", "_registry", "_replicator")
+    _write_lock: WriteLock
+    __slots__ = (
+        "_arming",
+        "_callback_menus",
+        "_registry",
+        "_replicator",
+        "_write_lock",
+    )
 
-    def __new__(
-        cls,
-        registry: HubMenuRegistry,
-        replicator: DirtyMarker,
-        callback_menus: CallbackMenuSource,
-        arming: MenuArming,
-    ) -> Self:
+    def __new__(cls, deps: MenuOperationsDeps) -> Self:
         self = super().__new__(cls)
-        self._registry = registry
-        self._replicator = replicator
-        self._callback_menus = callback_menus
-        self._arming = arming
+        self._registry = deps.registry
+        self._replicator = deps.replicator
+        self._callback_menus = deps.callback_menus
+        self._arming = deps.arming
+        self._write_lock = deps.write_lock
         return self
 
     def set_menu(
@@ -61,14 +84,22 @@ class MenuOperations:
         Refuses an anonymous session (nothing anonymous owns a menu item); an
         admitted session's inbox is armed so a click has somewhere to land, and the
         bar is keyed under the caller so it neither clobbers nor is clobbered.
+
+        The admit-liveness check AND the registry store run under one hold of the
+        Hub store's write lock, so a departure cannot interleave between the gate
+        and the write and leave an orphaned owner's bar behind (MO: menuOwner ⊆
+        registered, modelled in ``docs/menu_lifecycle.tex``). The lock is
+        reentrant, so ``admit``'s own ``ensure_writer``/departure-sink binding
+        nests fine; the push is flagged after the lock releases.
         """
         if isinstance(request, OpError):
             return request
-        if not self._arming.admit(scope.connection_id):
-            return OpError.identification_required(
-                "declare an identity to own the menu items this session sets"
-            )
-        self._registry.set_menus(scope.connection_id, request.menus)
+        with self._write_lock():
+            if not self._arming.admit(scope.connection_id):
+                return OpError.identification_required(
+                    "declare an identity to own the menu items this session sets"
+                )
+            self._registry.set_menus(scope.connection_id, request.menus)
         self._push()
         return Ok()
 

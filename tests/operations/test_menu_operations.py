@@ -9,7 +9,8 @@ the typed model, then appends the Clients menu.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Generator, Sequence
+from contextlib import contextmanager, nullcontext
 from typing import Self, final
 
 import pytest
@@ -21,7 +22,7 @@ from punt_lux.domain.hub.menu_models import Menu, MenuAction, MenuSeparator
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.operations.menu_arming import MenuArming
-from punt_lux.operations.menus import MenuOperations
+from punt_lux.operations.menus import MenuOperations, MenuOperationsDeps
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.menu_results import MenuList, Ok, SetMenuRequest
 from punt_lux.operations.scope import Scope
@@ -79,9 +80,15 @@ class _Ops:
         self.clients = HubClientRegistry()
         self.marker = _MenuMarkerSpy()
         self.registry = HubMenuRegistry(self.clients)
-        arming = MenuArming(self.clients, lambda _cid: None)
+        arming = MenuArming(self.clients, lambda _cid: None, lambda _cid: None)
         self.ops = MenuOperations(
-            self.registry, self.marker, _CallbackMenus(callback_menus), arming
+            MenuOperationsDeps(
+                registry=self.registry,
+                replicator=self.marker,
+                callback_menus=_CallbackMenus(callback_menus),
+                arming=arming,
+                write_lock=lambda: nullcontext(True),
+            )
         )
         return self
 
@@ -279,3 +286,153 @@ def test_list_menus_keeps_an_action_labelled_like_the_separator() -> None:
     menu = next(m for m in ctx.ops.list_menus().menus if m.label == "Edit")
     assert isinstance(menu.items[0], MenuAction)
     assert menu.items[0].id == "dash"
+
+
+# -- D3: set_menu holds the write lock across admit AND store -----------------
+
+
+@final
+class _RecordingMarker:
+    """A DirtyMarker that logs its menu push into a shared ordering list."""
+
+    _events: list[str]
+    __slots__ = ("_events",)
+
+    def __new__(cls, events: list[str]) -> Self:
+        self = super().__new__(cls)
+        self._events = events
+        return self
+
+    def mark_dirty(self, scene_id: SceneId) -> None:
+        raise AssertionError("a menu write must not mark a scene dirty")
+
+    def mark_menus(self) -> None:
+        self._events.append("push")
+
+
+@final
+class _WriteLockSpy:
+    """A reentrant write-lock stand-in logging enter/exit into a shared list."""
+
+    _events: list[str]
+    _depth: int
+    __slots__ = ("_depth", "_events")
+
+    def __new__(cls, events: list[str]) -> Self:
+        self = super().__new__(cls)
+        self._events = events
+        self._depth = 0
+        return self
+
+    @contextmanager
+    def __call__(self) -> Generator[bool]:
+        # Reentrant, like the real StoreLock: only the outermost enter/exit is
+        # logged, so a nested admit->ensure_writer hold does not add noise.
+        outer = self._depth == 0
+        self._depth += 1
+        if outer:
+            self._events.append("enter")
+        try:
+            yield True
+        finally:
+            self._depth -= 1
+            if outer:
+                self._events.append("exit")
+
+
+def test_set_menu_holds_the_write_lock_across_admit_and_store(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D3: the admit-liveness gate AND the registry store both run under one hold.
+
+    Records the interleaving of the write lock's enter/exit against admit and
+    set_menus. The store must land inside the hold so a departure cannot slip
+    between the gate and the write (MO, modelled in ``docs/menu_lifecycle.tex``);
+    the push must land after release. Fail-on-current if the store moves outside
+    the ``with`` (``enter, admit, exit, set_menus``) or the push moves inside it.
+    """
+    events: list[str] = []
+    clients = HubClientRegistry()
+    registry = HubMenuRegistry(clients)
+    arming = MenuArming(clients, lambda _cid: None, lambda _cid: None)
+
+    original_admit = MenuArming.admit
+    original_set_menus = HubMenuRegistry.set_menus
+
+    def _rec_admit(self: MenuArming, connection_id: ConnectionId) -> bool:
+        events.append("admit")
+        return original_admit(self, connection_id)
+
+    def _rec_set_menus(
+        self: HubMenuRegistry,
+        connection_id: ConnectionId,
+        menus: Sequence[Menu],
+    ) -> None:
+        events.append("set_menus")
+        original_set_menus(self, connection_id, menus)
+
+    monkeypatch.setattr(MenuArming, "admit", _rec_admit)
+    monkeypatch.setattr(HubMenuRegistry, "set_menus", _rec_set_menus)
+
+    ops = MenuOperations(
+        MenuOperationsDeps(
+            registry=registry,
+            replicator=_RecordingMarker(events),
+            callback_menus=_CallbackMenus(),
+            arming=arming,
+            write_lock=_WriteLockSpy(events),
+        )
+    )
+    conn = ConnectionId("sess")
+    clients.record(conn, ClientIdentity(kind="mcp-session", name="agent"))
+
+    result = ops.set_menu(
+        SetMenuRequest.parse([{"label": "File", "items": []}]), scope=Scope(conn)
+    )
+
+    assert isinstance(result, Ok)
+    assert events == ["enter", "admit", "set_menus", "exit", "push"]
+
+
+def test_set_menu_does_not_store_when_admit_refuses_under_the_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D3 negative: an anonymous session is refused inside the hold, storing nothing.
+
+    The gate runs under the lock and returns before any store, so the lock is
+    entered and exited with no ``set_menus`` and no push between.
+    """
+    events: list[str] = []
+    clients = HubClientRegistry()
+    registry = HubMenuRegistry(clients)
+    arming = MenuArming(clients, lambda _cid: None, lambda _cid: None)
+
+    original_set_menus = HubMenuRegistry.set_menus
+
+    def _rec_set_menus(
+        self: HubMenuRegistry,
+        connection_id: ConnectionId,
+        menus: Sequence[Menu],
+    ) -> None:
+        events.append("set_menus")
+        original_set_menus(self, connection_id, menus)
+
+    monkeypatch.setattr(HubMenuRegistry, "set_menus", _rec_set_menus)
+
+    ops = MenuOperations(
+        MenuOperationsDeps(
+            registry=registry,
+            replicator=_RecordingMarker(events),
+            callback_menus=_CallbackMenus(),
+            arming=arming,
+            write_lock=_WriteLockSpy(events),
+        )
+    )
+    anon = Scope(ConnectionId("anon"))  # never identified
+
+    result = ops.set_menu(
+        SetMenuRequest.parse([{"label": "File", "items": []}]), scope=anon
+    )
+
+    assert isinstance(result, OpError)
+    assert events == ["enter", "exit"]
