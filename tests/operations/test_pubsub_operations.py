@@ -16,10 +16,14 @@ from punt_lux.domain.hub.inbox import (
     ensure_writer,
     inbox_depth_for,
     next_event,
+    offer,
 )
+from punt_lux.domain.hub.menu_event import MENU_TOPIC, MenuSelection
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.domain.update import AddElement
 from punt_lux.operations import PublishRequest
+from punt_lux.operations.models import OpError
+from punt_lux.operations.models.pubsub_acks import Published, Subscribed, Unsubscribed
 from punt_lux.operations.ports import HubPorts
 from punt_lux.operations.pubsub import PubSubOperations
 from punt_lux.operations.scope import Scope
@@ -71,11 +75,14 @@ def scope() -> Iterator[Scope]:
 
 def test_subscribe_publish_receive_roundtrip(scope: Scope) -> None:
     ops = _ops()
-    assert ops.subscribe("work.saved", scope=scope).topic == "work.saved"
+    subscribed = ops.subscribe("work.saved", scope=scope)
+    assert isinstance(subscribed, Subscribed)
+    assert subscribed.topic == "work.saved"
 
     published = ops.publish(
         "work.saved", PublishRequest(payload={"id": "b1"}), scope=scope
     )
+    assert isinstance(published, Published)
     assert published.delivered == 1
 
     received = ops.receive(scope=scope)
@@ -88,11 +95,13 @@ def test_subscribe_publish_receive_roundtrip(scope: Scope) -> None:
 
 def test_publish_with_no_subscribers_delivers_zero(scope: Scope) -> None:
     published = _ops().publish("no.one", PublishRequest(), scope=scope)
+    assert isinstance(published, Published)
     assert published.delivered == 0
 
 
 def test_unsubscribe_without_a_writer_is_a_noop(scope: Scope) -> None:
     result = _ops().unsubscribe("ghost", scope=scope)
+    assert isinstance(result, Unsubscribed)
     assert result.topic == "ghost"
 
 
@@ -157,3 +166,61 @@ def test_a_pubsub_only_client_keeps_its_scene_ownership_past_its_ttl() -> None:
 
     assert display.is_client(owner)
     assert display.owner_of(scene_id, ElementId("t")) == owner
+
+
+def test_subscribe_to_reserved_topic_is_refused(scope: Scope) -> None:
+    result = _ops().subscribe(MENU_TOPIC, scope=scope)
+    assert isinstance(result, OpError)
+    assert result.code == "invalid_request"
+    assert MENU_TOPIC in result.reason
+    # The refusal is total: no subscription was recorded.
+    assert not hub.has_writer(scope.connection_id)
+
+
+def test_publish_to_reserved_topic_is_refused_and_delivers_nothing(
+    scope: Scope,
+) -> None:
+    # A listener is armed on the reserved topic so a leaked publish would land.
+    ensure_writer(scope.connection_id)
+    result = _ops().publish(
+        MENU_TOPIC, PublishRequest(payload={"spoof": 1}), scope=scope
+    )
+    assert isinstance(result, OpError)
+    assert result.code == "invalid_request"
+    # Nothing was fanned out onto the inbox — the spoof never reached recv().
+    assert _ops().receive(scope=scope).event is None
+
+
+def test_unsubscribe_from_reserved_topic_is_refused(scope: Scope) -> None:
+    result = _ops().unsubscribe("lux.future", scope=scope)
+    assert isinstance(result, OpError)
+    assert result.code == "invalid_request"
+
+
+def test_genuine_hub_menu_click_still_lands_on_recv(scope: Scope) -> None:
+    # The reserved gate closes only the public publish/subscribe path. A genuine
+    # menu selection is enqueued by the Hub directly on the inbox and must still
+    # be drained by recv() under the reserved lux.menu topic.
+    ensure_writer(scope.connection_id)
+    delivered = offer(
+        scope.connection_id,
+        MenuSelection.of("save", {"menu": "File"}).observer_message(),
+    )
+    assert delivered is True
+
+    received = _ops().receive(scope=scope)
+    assert received.event is not None
+    assert received.event.topic == MENU_TOPIC
+    assert received.event.payload == {"menu": "File", "item": "save"}
+
+
+def test_non_reserved_topic_is_unaffected(scope: Scope) -> None:
+    ops = _ops()
+    subscribed = ops.subscribe("openTicket", scope=scope)
+    assert isinstance(subscribed, Subscribed)
+    assert subscribed.topic == "openTicket"
+    published = ops.publish(
+        "openTicket", PublishRequest(payload={"id": "t1"}), scope=scope
+    )
+    assert isinstance(published, Published)
+    assert published.delivered == 1

@@ -203,18 +203,18 @@ class Operations:
         """Render a dashboard scene."""
         return self._conveniences.render_dashboard(request, scope=scope)
 
-    def subscribe(self, topic: str, *, scope: Scope) -> Subscribed:
-        """Subscribe the caller's session to a topic."""
+    def subscribe(self, topic: str, *, scope: Scope) -> Subscribed | OpError:
+        """Subscribe the caller's session to a topic (reserved topics refused)."""
         return self._pubsub.subscribe(topic, scope=scope)
 
-    def unsubscribe(self, topic: str, *, scope: Scope) -> Unsubscribed:
-        """Unsubscribe the caller's session from a topic."""
+    def unsubscribe(self, topic: str, *, scope: Scope) -> Unsubscribed | OpError:
+        """Unsubscribe the caller's session from a topic (reserved topics refused)."""
         return self._pubsub.unsubscribe(topic, scope=scope)
 
     def publish(
         self, topic: str, request: PublishRequest, *, scope: Scope
-    ) -> Published:
-        """Publish a payload to a topic's subscribers."""
+    ) -> Published | OpError:
+        """Publish a payload to a topic's subscribers (reserved topics refused)."""
         return self._pubsub.publish(topic, request, scope=scope)
 
     def receive(self, *, scope: Scope) -> Received:

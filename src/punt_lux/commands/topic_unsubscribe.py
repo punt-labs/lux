@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.commands._faults import render_error
 from punt_lux.commands._result import CommandResult
+from punt_lux.operations import OpError
 
 if TYPE_CHECKING:
     from punt_lux.commands._ports import Ctx, TopicOps
@@ -24,8 +26,8 @@ class TopicUnsubscribeCommand:
 
     async def execute(
         self, ctx: Ctx[TopicOps], topic: str, *, scope: Scope
-    ) -> Unsubscribed:
-        """Unsubscribe ``scope`` from ``topic`` and return the typed ack."""
+    ) -> Unsubscribed | OpError:
+        """Unsubscribe ``scope`` from ``topic`` and return the typed ack or refusal."""
         return await asyncio.to_thread(ctx.ops.unsubscribe, topic, scope=scope)
 
     async def __call__(
@@ -33,6 +35,8 @@ class TopicUnsubscribeCommand:
     ) -> CommandResult:
         """Run :meth:`execute` and render its outcome into the shared envelope."""
         result = await self.execute(ctx, topic, scope=scope)
+        if isinstance(result, OpError):
+            return render_error(result)
         return CommandResult(
             text=f"unsubscribed:{result.topic}", json_data={"topic": result.topic}
         )

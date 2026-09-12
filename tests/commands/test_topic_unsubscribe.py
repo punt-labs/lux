@@ -6,12 +6,23 @@ import asyncio
 
 from punt_lux.commands import Ctx, TopicOps, topic_unsubscribe
 from punt_lux.domain.ids import ConnectionId
-from punt_lux.operations import Scope
+from punt_lux.operations import OpError, Scope
 from punt_lux.operations.models.pubsub_acks import Unsubscribed
 from tests.commands._family_stubs import StubTopicOps
 from tests.commands._scene_stub import identity
 
 _SCOPE = Scope(ConnectionId("test-conn"))
+
+
+def test_reserved_topic_refusal_renders_an_error_envelope() -> None:
+    refusal = OpError(code="invalid_request", reason="topic 'lux.future' is reserved")
+    ops = StubTopicOps(unsubscribe=refusal)
+    ctx: Ctx[TopicOps] = Ctx(ops=ops, identity=identity())
+
+    result = asyncio.run(topic_unsubscribe(ctx, "lux.future", scope=_SCOPE))
+
+    assert result.error is True
+    assert result.text == "error: topic 'lux.future' is reserved"
 
 
 def test_success_renders_unsubscribed_line() -> None:

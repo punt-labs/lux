@@ -10,7 +10,9 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.commands._faults import render_error
 from punt_lux.commands._result import CommandResult
+from punt_lux.operations import OpError
 
 if TYPE_CHECKING:
     from punt_lux.commands._ports import Ctx, TopicOps
@@ -35,8 +37,8 @@ class TopicPublishCommand:
         request: PublishRequest,
         *,
         scope: Scope,
-    ) -> Published:
-        """Publish ``request`` to ``topic`` in ``scope`` and return the typed ack."""
+    ) -> Published | OpError:
+        """Publish ``request`` to ``topic`` in ``scope``; return the ack or refusal."""
         return await asyncio.to_thread(ctx.ops.publish, topic, request, scope=scope)
 
     async def __call__(
@@ -49,6 +51,8 @@ class TopicPublishCommand:
     ) -> CommandResult:
         """Run :meth:`execute` and render its outcome into the shared envelope."""
         result = await self.execute(ctx, topic, request, scope=scope)
+        if isinstance(result, OpError):
+            return render_error(result)
         return CommandResult(
             text=f"delivered:{result.delivered}",
             json_data={"topic": topic, "delivered": result.delivered},
