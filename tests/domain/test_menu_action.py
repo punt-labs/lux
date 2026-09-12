@@ -13,7 +13,7 @@ import pytest
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.menu_action import MenuAction
 from punt_lux.domain.hub.menu_models import Menu, MenuSeparator, WireMenuEntry
-from punt_lux.domain.hub.session_callback import CallbackInvocation
+from punt_lux.domain.hub.session_callback import MenuLeaf
 from punt_lux.domain.id_separator import ID_SEPARATOR
 from punt_lux.domain.ids import ConnectionId
 
@@ -46,7 +46,7 @@ def test_stamped_for_owner_composes_both_the_leaf_id_and_the_frame_id() -> None:
     action = MenuAction(id="run", label="Run", frame_id="dash")
     owner = ConnectionId("sess-1")
     stamped = action.stamped_for(owner)
-    assert stamped.id == CallbackInvocation(owner, "run").menu_id
+    assert stamped.id == MenuLeaf("menu", owner, "run").wire_id
     assert stamped.label == "Run"
     # gap (a): the frame_id is owner-composed too, else the display's
     # raise_frame(frame_id) never matches the owner-composed scene key.

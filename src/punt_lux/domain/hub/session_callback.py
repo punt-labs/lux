@@ -10,21 +10,76 @@ its parse live on ``CallbackInvocation`` so the encoding has one home.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Self, final
+from typing import Literal, Self, final
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from punt_lux.domain.id_separator import ID_SEPARATOR, NONBLANK_FRAME_ID
 from punt_lux.domain.ids import ConnectionId
 
-__all__ = ["CallbackInvocation", "SessionCallback"]
+__all__ = ["CallbackInvocation", "MenuLeaf", "MenuLeafKind", "SessionCallback"]
 
 # The callback id luxd's own Details command carries. It opens with the
 # separator, which ``SessionCallback`` refuses, so no client can register a
 # callback that collides with the Hub's own — and the leaf still round-trips
-# through the one leaf-id encoding, because the join splits on the first
-# separator and this id is the remainder.
+# through the one leaf-id encoding, because the split takes the tag and
+# connection off the front and this id is the remainder.
 _DETAILS_CALLBACK_ID = f"{ID_SEPARATOR}details"
+
+# A clicked menu leaf is one of two KINDS, and dispatch must route by the kind,
+# not by guessing from whether a callback exists: an applet callback (held listen
+# leg) versus an agent ``menu_set`` item (inbox notification). The two share one
+# ``owner<US>local_id`` body, so a session owning both under the same local id
+# (e.g. a callback "run" and a menu item "run") would be indistinguishable
+# without this tag.
+type MenuLeafKind = Literal["callback", "menu"]
+
+# The wire tag each kind carries at the front of its leaf id. Kept short and
+# separator-free so the tag splits cleanly off the front.
+_KIND_TAG: dict[MenuLeafKind, str] = {"callback": "cb", "menu": "mi"}
+_TAG_KIND: dict[str, MenuLeafKind] = {tag: kind for kind, tag in _KIND_TAG.items()}
+
+
+@final
+@dataclass(frozen=True, slots=True)
+class MenuLeaf:
+    """The kind-tagged wire id every clicked menu leaf round-trips through.
+
+    A leaf id names its kind first, then the owning connection and the owner's
+    own local id: ``<tag><US><connection><US><local_id>``. The tag is what makes
+    an applet-callback leaf and an agent ``menu_set`` item leaf unambiguous even
+    when a session owns both under the same local id, so dispatch routes by the
+    parsed :attr:`kind` rather than by inferring it from callback existence.
+    """
+
+    kind: MenuLeafKind
+    connection_id: ConnectionId
+    local_id: str
+
+    @property
+    def wire_id(self) -> str:
+        """Render the kind-tagged wire id a rendered leaf carries."""
+        tag = _KIND_TAG[self.kind]
+        return f"{tag}{ID_SEPARATOR}{self.connection_id}{ID_SEPARATOR}{self.local_id}"
+
+    @classmethod
+    def parse(cls, wire_id: str) -> Self:
+        """Parse a clicked leaf id into its kind, session, and local id, or reject.
+
+        Splits the tag and connection off the front; the local id keeps any
+        remaining separators (the Hub's own Details id opens with one). An unknown
+        tag, or a missing segment, never named a real stamped leaf.
+        """
+        parts = wire_id.split(ID_SEPARATOR, 2)
+        if len(parts) != 3:
+            msg = f"not a menu leaf id: {wire_id!r}"
+            raise ValueError(msg)
+        tag, connection, local_id = parts
+        kind = _TAG_KIND.get(tag)
+        if kind is None or not connection or not local_id:
+            msg = f"not a menu leaf id: {wire_id!r}"
+            raise ValueError(msg)
+        return cls(kind, ConnectionId(connection), local_id)
 
 
 class SessionCallback(BaseModel):
@@ -79,18 +134,18 @@ class CallbackInvocation:
 
     @property
     def menu_id(self) -> str:
-        """Render the wire id a rendered leaf carries so a click round-trips here."""
-        return f"{self.connection_id}{ID_SEPARATOR}{self.callback_id}"
+        """Render the callback-kind wire id a rendered leaf carries."""
+        return MenuLeaf("callback", self.connection_id, self.callback_id).wire_id
 
     @classmethod
     def from_menu_id(cls, menu_id: str) -> Self:
-        """Parse a clicked leaf id back into its session and callback, or reject it.
+        """Parse a clicked CALLBACK leaf id back into its session and callback.
 
-        A leaf id joins connection and callback on the unit separator; one
-        lacking the separator or an empty segment never named a real leaf.
+        Rejects an agent menu-item leaf (a different kind) or a malformed id, so
+        the callback path never answers an agent ``menu_set`` item.
         """
-        connection, separator, callback = menu_id.partition(ID_SEPARATOR)
-        if not separator or not connection or not callback:
+        leaf = MenuLeaf.parse(menu_id)
+        if leaf.kind != "callback":
             msg = f"not a callback leaf id: {menu_id!r}"
             raise ValueError(msg)
-        return cls(ConnectionId(connection), callback)
+        return cls(leaf.connection_id, leaf.local_id)

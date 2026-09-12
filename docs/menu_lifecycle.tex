@@ -1,0 +1,770 @@
+%
+% menu_lifecycle.tex
+%
+% A Z specification of the Hub's agent-menu ownership, inbox delivery, and
+% session-departure lifecycle -- the state machine behind bead lux-m3xr
+% (PR #495, design docs/architecture/agent-menu-dispatch.md, DES-098).
+%
+% WHY THIS MODEL EXISTS. The design's own Section 6 named a tripwire: the
+% menu-event enqueue is safe only if it can be ordered by reusing the
+% client-registry read the callback leg already proves, introducing no new
+% lock and no new acquisition order. Review of the implementation found the
+% tripwire tripped -- three concurrency/lifecycle defects, each of the
+% class the repo's z-spec policy makes model-checking mandatory for:
+%
+%   D1 (inbox.py offer) -- the enqueue is NOT atomic with departure. offer
+%     reads the inbox queue under _inboxes_lock, RELEASES the lock, then
+%     puts. If drop_session pops the queue in that window, the put lands in
+%     an orphaned queue and offer returns True: a false "delivered" signal.
+%     MenuEventRouter.deliver then reports "delivered" for a click no recv()
+%     will ever drain -- the click is silently lost.
+%
+%   D2 (departure cascade wiring) -- the inbox sink is bound into the shared
+%     DepartureCascade (via inbox.ensure_writer -> bind_departure_sink) and
+%     so fires on every departure trigger; the HubMenuRegistry sink is wired
+%     ONLY to session_cleanup.py's graceful/SDK-idle teardown leg. On the
+%     lease-lapse path (reap_lapsed_leases -> _depart_lapsed -> cascade)
+%     nothing prunes the menu registry, so a timer-reaped owner's bar entry
+%     never leaves _by_owner. This is the connection_lease_reaping I5/I7
+%     "leaving the registry is one event, however triggered" property, now
+%     applied to the menu registry rather than the inbox.
+%
+%   D3 (operations/menus.py set_menu) -- admit/store is a TOCTOU. admit()
+%     checks the caller live-and-identified and arms its inbox under
+%     StoreLock, but RELEASES it before set_menus() records the bar under
+%     the menu registry's own separate lock. A departure interleaving in
+%     that window stores a bar for an already-departed owner, which the
+%     already-run departure sweep will never revisit -- an orphaned-owner
+%     menu that outlives its session.
+%
+% This model refines connection_lease_reaping's departure cascade: its
+% Depart / _depart_lapsed operations here sweep the MENU registry and the
+% INBOX as cascade legs, and this spec proves the three delivery/ownership
+% invariants over that cascade. The three defects are reproduced as
+% fidelity controls (menu_lifecycle_d1_buggy.tex, _d2_buggy.tex,
+% _d3_buggy.tex), each of which makes the corresponding invariant's
+% negation FOUND when its guard/atomicity is removed.
+%
+% Read first: docs/architecture/agent-menu-dispatch.md (Sections 4-7),
+% docs/connection_lease_reaping.tex (the departure cascade this refines;
+% I1/I5/I7), and the code: src/punt_lux/domain/hub/inbox.py (offer,
+% drop_session, ensure_writer), menu_registry.py (set_menus, drop_session),
+% menu_event.py (MenuEventRouter.deliver), operations/menus.py
+% (MenuOperations.set_menu), operations/menu_arming.py (MenuArming.admit),
+% domain/hub/hub_display.py (_depart, _depart_lapsed, drop_connection),
+% domain/hub/departure_cascade.py, session_cleanup.py.
+%
+% Type-check:  fuzz docs/menu_lifecycle.tex
+% Model-check (deadlock-freedom + structural invariant over the state space):
+%   probcli docs/menu_lifecycle.tex -model_check -p DEFAULT_SETSIZE 3
+% The safety goals (M1, MO) are reachability checks; see the Verification
+% section for the exact -goal predicates, following the same convention as
+% connection_lease_reaping.tex.
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{lux Agent-Menu Lifecycle: a Z Specification}
+\author{Formal model of Hub agent-menu ownership, inbox delivery, and the
+  session-departure cascade -- proving no false-positive delivery and no
+  orphaned-owner menu across every interleaving}
+\date{September 2026}
+\maketitle
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+An agent registers a menu bar with the MCP \texttt{menu\_set} tool; the Hub
+records the bar under the registering session and, when the user clicks an
+item, delivers a reserved \texttt{lux.menu} event to that session's inbox,
+which the agent drains with \texttt{recv()}. Three pieces of state travel
+together through this feature -- who owns which bar, whose inbox is live to
+receive a click, and what happens to both when a session departs -- and the
+defects PR~\#495's review found are all in the seams between them.
+
+This model has one job: to state, over a bounded carrier and every
+interleaving ProB can reach, the two safety properties the feature must
+hold, and to show each of the three reported defects violates exactly one
+of them.
+
+\begin{description}
+  \item[M1 --- no false-positive delivery.] A menu event is delivered to a
+    live, drainable inbox, or the caller learns it was not delivered
+    (\texttt{provider\_gone}). It is never reported delivered into a queue no
+    \texttt{recv()} will drain. This is what D1 breaks: \texttt{offer} reads
+    the queue under its lock, releases the lock, then puts -- so a
+    \texttt{drop\_session} in the window lands the put in an orphan and
+    \texttt{offer} still returns \texttt{True}.
+  \item[MO --- menu-ownership integrity.] No session owns a menu bar in the
+    registry unless it is live. Equivalently, \texttt{menuOwner} $\subseteq$
+    \texttt{registered} on every reachable state. This is what D2 and D3
+    break, from two different sides: D2, a departure that removes the session
+    from the registry without pruning its bar (on the lease-lapse path);
+    D3, a store that records a bar for a session already departed (the
+    admit/store window).
+\end{description}
+
+M1 and MO are deliberately kept out of the state schema. As in
+\texttt{connection\_lease\_reaping.tex}, a safety property placed in the
+state invariant is enforced as a guard on every successor, silently
+disabling the very operation that would break it -- so a violating
+operation would become unreachable rather than a counterexample. The schema
+below carries only structural coherence; M1 and MO are checked as the
+reachability of their negations (Section~\ref{sec:verify}).
+
+The model refines \texttt{connection\_lease\_reaping.tex}'s departure
+cascade. That specification proved, for the client registry and scene
+ownership, that leaving the registry and releasing what one owned are a
+single event no matter which trigger fired it (its I5), extended to the
+subscription/writer/inbox cascade legs (its I7). MO is that same shape
+applied to a fourth cascade leg, the menu registry, and the fix D2 names --
+binding \texttt{HubMenuRegistry.drop\_session} into the shared
+\texttt{DepartureCascade} -- is exactly ``add one more sink that every
+departure path already runs.''
+
+Eight operations realize the fixed design. \texttt{Connect},
+\texttt{Identify}, \texttt{Arm}, and \texttt{LeaseLapse} move a session
+through its registration and lease states. \texttt{SetMenu} models
+\texttt{MenuOperations.set\_menu} \emph{once fixed}: the admit-liveness
+check and the bar store are one atomic step -- the D3 fix, holding
+\texttt{StoreLock} across both. \texttt{SetMenuRefused} is its anonymous
+counterpart. \texttt{DepartGraceful} and \texttt{DepartLapsed} are the two
+departure triggers; both sweep the menu registry and the inbox as cascade
+legs -- the D2 fix, one cascade every trigger runs. \texttt{MenuDeliver}
+and \texttt{MenuProviderGone} model \texttt{MenuEventRouter.deliver}
+\emph{once fixed}: the queue read and the put are one atomic step -- the D1
+fix, \texttt{offer}'s get and put under one \texttt{\_inboxes\_lock} hold.
+
+% ============================================================
+\section{Basic Types}
+% ============================================================
+
+\begin{zed}
+  [CONN]
+\end{zed}
+
+A connection identity -- the \texttt{ConnectionId} keying the client
+registry, the inbox table, and the menu registry alike. Two \texttt{CONN}
+values suffice to exhibit an owner departing while a delivery or a store is
+mid-flight beside a second, unrelated session; the carrier is bounded by
+ProB's \texttt{DEFAULT\_SETSIZE}.
+
+% ============================================================
+\section{Free Types}
+% ============================================================
+
+\begin{zed}
+  DSTATE ::= dnone | ddelivered | dgone
+\end{zed}
+
+The outcome \texttt{MenuEventRouter.deliver} last reported to its caller:
+nothing yet, \texttt{delivered}, or \texttt{provider\_gone}. Prefixed
+constructors, never \fuzz's logical \texttt{true}/\texttt{false}, so a reader
+is never tempted to read \texttt{reported = ddelivered} as a bare
+proposition.
+
+\begin{zed}
+  FSTATE ::= fclear | fset
+\end{zed}
+
+A two-value flag, matching \texttt{connection\_lease\_reaping.tex}'s
+\texttt{FSTATE}. Here it records whether a click reported delivered actually
+landed in an orphaned queue.
+
+\begin{zed}
+  APHASE ::= aidle | astore
+\end{zed}
+
+Whether a \texttt{set\_menu} is between its admit-liveness check and its bar
+store. In the fixed model \texttt{SetMenu} is atomic, so this never leaves
+\texttt{aidle}; the D3 fidelity control splits \texttt{SetMenu} and drives
+it to \texttt{astore}, the window the split exposes.
+
+\begin{zed}
+  OPHASE ::= oidle | oput
+\end{zed}
+
+Whether an \texttt{offer} is between its queue read and its put. In the
+fixed model \texttt{MenuDeliver} is atomic, so this never leaves
+\texttt{oidle}; the D1 fidelity control splits \texttt{offer} and drives it
+to \texttt{oput}.
+
+% ============================================================
+\section{State}
+% ============================================================
+
+One flat schema, structural coherence only. The two safety properties (M1,
+MO) are deliberately absent, so a violating operation is a counterexample
+rather than a disabled transition.
+
+\begin{schema}{MenuReg}
+  registered : \power CONN \\
+  identified : \power CONN \\
+  lapsed : \power CONN \\
+  hasInbox : \power CONN \\
+  menuOwner : \power CONN \\
+  reported : DSTATE \\
+  lost : FSTATE \\
+  admitPhase : APHASE \\
+  admitFor : \power CONN \\
+  offerPhase : OPHASE \\
+  offerFor : \power CONN
+\where
+  identified \subseteq registered \\
+  lapsed \subseteq registered \\
+  \# admitFor \leq 1 \\
+  \# offerFor \leq 1
+\end{schema}
+
+\texttt{registered} is the client registry's live set. \texttt{identified}
+is the subset that has declared an identity -- the ownership gate
+\texttt{menu\_set} demands; a session cannot be identified without being
+registered, hence \texttt{identified} $\subseteq$ \texttt{registered}.
+\texttt{lapsed} is the subset whose lease has expired; again a subset of
+\texttt{registered}, since a departed connection is no longer a lease the
+registry tracks. \texttt{hasInbox} is the set with a live, drainable inbox
+queue (an armed writer, not yet dropped). \texttt{menuOwner} is the set with
+a stored bar in \texttt{HubMenuRegistry.\_by\_owner}.
+
+Crucially, \texttt{menuOwner} is \emph{not} constrained $\subseteq$
+\texttt{registered} here: that containment is MO, the property this model
+proves, not a structural fact assumed. \texttt{hasInbox} is likewise
+unconstrained, so the D1 control can capture a live inbox and then have it
+dropped from under the offer.
+
+\texttt{reported} and \texttt{lost} carry the delivery outcome of the most
+recent \texttt{deliver} call and whether any click has been lost to an
+orphan. \texttt{admitPhase}/\texttt{admitFor} and
+\texttt{offerPhase}/\texttt{offerFor} are the two split-window devices,
+each a phase plus the at-most-one connection currently inside that window --
+the same single-owner device \texttt{connection\_lease\_reaping.tex} uses
+for \texttt{cascadeFor}, and inert (\texttt{aidle}/\texttt{oidle}, both sets
+empty) throughout the fixed model.
+
+% ============================================================
+\section{Initialization}
+% ============================================================
+
+\begin{schema}{Init}
+  MenuReg'
+\where
+  registered' = \emptyset \\
+  identified' = \emptyset \\
+  lapsed' = \emptyset \\
+  hasInbox' = \emptyset \\
+  menuOwner' = \emptyset \\
+  reported' = dnone \\
+  lost' = fclear \\
+  admitPhase' = aidle \\
+  admitFor' = \emptyset \\
+  offerPhase' = oidle \\
+  offerFor' = \emptyset
+\end{schema}
+
+Nothing has connected: every set empty, no delivery reported, nothing lost,
+and neither split window open.
+
+% ============================================================
+\section{Operations}
+% ============================================================
+
+\subsection{Connect --- arrival and reconnect}
+
+Models \texttt{HubDisplay.register\_client}: a session joins the registry
+with a live (un-lapsed) lease. As in \texttt{connection\_lease\_reaping.tex}
+there is no precondition privileging a fresh connection over a reconnecting
+one, and nothing here touches another session's state. A reconnect does not
+resubscribe or re-own anything -- \texttt{identified}, \texttt{hasInbox},
+and \texttt{menuOwner} are left as departure left them.
+
+\begin{schema}{Connect}
+  \Delta MenuReg \\
+  c? : CONN
+\where
+  registered' = registered \cup \{ c? \} \\
+  lapsed' = lapsed \setminus \{ c? \} \\
+  identified' = identified \\
+  hasInbox' = hasInbox \\
+  menuOwner' = menuOwner \\
+  reported' = reported \\
+  lost' = lost \\
+  admitPhase' = admitPhase \\
+  admitFor' = admitFor \\
+  offerPhase' = offerPhase \\
+  offerFor' = offerFor
+\end{schema}
+
+\subsection{Identify --- the ownership gate}
+
+Models a session declaring an identity, the precondition
+\texttt{MenuArming.admit} enforces. Only a registered session may identify.
+
+\begin{schema}{Identify}
+  \Delta MenuReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  identified' = identified \cup \{ c? \} \\
+  registered' = registered \\
+  lapsed' = lapsed \\
+  hasInbox' = hasInbox \\
+  menuOwner' = menuOwner \\
+  reported' = reported \\
+  lost' = lost \\
+  admitPhase' = admitPhase \\
+  admitFor' = admitFor \\
+  offerPhase' = offerPhase \\
+  offerFor' = offerFor
+\end{schema}
+
+\subsection{Arm --- bind the inbox writer}
+
+Models \texttt{inbox.ensure\_writer}: a registered session gains a live
+inbox queue. \texttt{SetMenu} arms the inbox as part of admitting the owner;
+\texttt{Arm} is the standalone form (a plain \texttt{topic\_subscribe} also
+reaches it), included so a delivery target's inbox can exist independently of
+a menu store.
+
+\begin{schema}{Arm}
+  \Delta MenuReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  hasInbox' = hasInbox \cup \{ c? \} \\
+  registered' = registered \\
+  identified' = identified \\
+  lapsed' = lapsed \\
+  menuOwner' = menuOwner \\
+  reported' = reported \\
+  lost' = lost \\
+  admitPhase' = admitPhase \\
+  admitFor' = admitFor \\
+  offerPhase' = offerPhase \\
+  offerFor' = offerFor
+\end{schema}
+
+\subsection{LeaseLapse --- time passes with nothing to renew it}
+
+Models \texttt{SessionLease.is\_live} going false: a registered lease
+lapses. It gates \texttt{DepartLapsed} below, and it is the trigger
+\texttt{connection\_lease\_reaping.tex} showed a purely pull-based design
+cannot service on an idle Hub.
+
+\begin{schema}{LeaseLapse}
+  \Delta MenuReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  c? \notin lapsed \\
+  lapsed' = lapsed \cup \{ c? \} \\
+  registered' = registered \\
+  identified' = identified \\
+  hasInbox' = hasInbox \\
+  menuOwner' = menuOwner \\
+  reported' = reported \\
+  lost' = lost \\
+  admitPhase' = admitPhase \\
+  admitFor' = admitFor \\
+  offerPhase' = offerPhase \\
+  offerFor' = offerFor
+\end{schema}
+
+\subsection{SetMenu --- admit and store, one atomic step (the D3 fix)}
+\label{sec:setmenu}
+
+Models \texttt{MenuOperations.set\_menu} for an admitted (registered and
+identified) caller. \textbf{This is the D3 fix.} The shipped code calls
+\texttt{MenuArming.admit} -- which renews the caller and arms its inbox under
+\texttt{StoreLock}, then releases the lock -- and only afterward calls
+\texttt{HubMenuRegistry.set\_menus} under the registry's own separate lock.
+Here the renewal, the arming, and the store are one atomic step: no
+departure can interleave between the liveness check and the store, which is
+exactly what holding \texttt{StoreLock} across both buys.
+
+\begin{schema}{SetMenu}
+  \Delta MenuReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  c? \in identified \\
+  lapsed' = lapsed \setminus \{ c? \} \\
+  hasInbox' = hasInbox \cup \{ c? \} \\
+  menuOwner' = menuOwner \cup \{ c? \} \\
+  registered' = registered \\
+  identified' = identified \\
+  reported' = reported \\
+  lost' = lost \\
+  admitPhase' = admitPhase \\
+  admitFor' = admitFor \\
+  offerPhase' = offerPhase \\
+  offerFor' = offerFor
+\end{schema}
+
+\subsection{SetMenuRefused --- anonymous ownership refused}
+
+Models \texttt{admit} returning \texttt{False}: a caller that is not
+identified (registered but anonymous, or not registered at all) is refused.
+\texttt{renew\_if\_registered} still renews a registered caller's lease, but
+nothing is armed and no bar is stored -- ``nothing anonymous owns a menu
+item.''
+
+\begin{schema}{SetMenuRefused}
+  \Delta MenuReg \\
+  c? : CONN
+\where
+  c? \notin identified \\
+  lapsed' = lapsed \setminus \{ c? \} \\
+  registered' = registered \\
+  identified' = identified \\
+  hasInbox' = hasInbox \\
+  menuOwner' = menuOwner \\
+  reported' = reported \\
+  lost' = lost \\
+  admitPhase' = admitPhase \\
+  admitFor' = admitFor \\
+  offerPhase' = offerPhase \\
+  offerFor' = offerFor
+\end{schema}
+
+\subsection{DepartGraceful --- clean disconnect / SDK idle-reap}
+\label{sec:departgraceful}
+
+Models \texttt{HubDisplay.drop\_connection} together with
+\texttt{session\_cleanup.py}'s teardown legs: the session leaves the
+registry and every cascade leg it owns is released in the same step -- scene
+ownership (elided here), its inbox, and its menu bar. Removal and release
+are one predicate, so there is no state in which \texttt{c?} has left
+\texttt{registered} under this operation without \texttt{menuOwner} and
+\texttt{hasInbox} already reflecting the release.
+
+\begin{schema}{DepartGraceful}
+  \Delta MenuReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  registered' = registered \setminus \{ c? \} \\
+  identified' = identified \setminus \{ c? \} \\
+  lapsed' = lapsed \setminus \{ c? \} \\
+  hasInbox' = hasInbox \setminus \{ c? \} \\
+  menuOwner' = menuOwner \setminus \{ c? \} \\
+  reported' = reported \\
+  lost' = lost \\
+  admitPhase' = admitPhase \\
+  admitFor' = admitFor \\
+  offerPhase' = offerPhase \\
+  offerFor' = offerFor
+\end{schema}
+
+\subsection{DepartLapsed --- the timed backstop (the D2 fix)}
+\label{sec:departlapsed}
+
+Models \texttt{HubDisplay.reap\_lapsed\_leases} $\to$
+\texttt{\_depart\_lapsed}: the background timer departs a lapsed connection
+with no read, no other connection's write, and no disconnect signal
+required. \textbf{This is the D2 fix.} In the shipped code this path runs
+the \texttt{DepartureCascade}, which fires the inbox sink but not the menu
+registry -- the menu prune is wired only to \texttt{session\_cleanup.py},
+which the timer never runs. Here \texttt{DepartLapsed} sweeps
+\texttt{menuOwner} in the very same predicate that sweeps \texttt{hasInbox}
+and \texttt{registered}: the menu prune is one more cascade leg every
+departure trigger runs, exactly as the inbox prune already is. Its predicate
+is \texttt{DepartGraceful}'s with one added guard, \texttt{c? $\in$ lapsed}.
+
+\begin{schema}{DepartLapsed}
+  \Delta MenuReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  c? \in lapsed \\
+  registered' = registered \setminus \{ c? \} \\
+  identified' = identified \setminus \{ c? \} \\
+  lapsed' = lapsed \setminus \{ c? \} \\
+  hasInbox' = hasInbox \setminus \{ c? \} \\
+  menuOwner' = menuOwner \setminus \{ c? \} \\
+  reported' = reported \\
+  lost' = lost \\
+  admitPhase' = admitPhase \\
+  admitFor' = admitFor \\
+  offerPhase' = offerPhase \\
+  offerFor' = offerFor
+\end{schema}
+
+\subsection{MenuDeliver --- read and put, one atomic step (the D1 fix)}
+\label{sec:menudeliver}
+
+Models \texttt{MenuEventRouter.deliver} landing a click on a live owner's
+inbox. \textbf{This is the D1 fix.} The router reads the live set, then
+calls \texttt{inbox.offer}, whose \texttt{get}-then-\texttt{put} the shipped
+code splits across a lock release. Here the whole delivery -- the target is
+live, its inbox is present, the message is put -- is one atomic step,
+matching \texttt{offer} holding \texttt{\_inboxes\_lock} across its
+\texttt{get} and its \texttt{put}. A live target with a live inbox is
+reported \texttt{delivered}; nothing is ever put into an orphan, so
+\texttt{lost} is untouched.
+
+\begin{schema}{MenuDeliver}
+  \Delta MenuReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  c? \in hasInbox \\
+  reported' = ddelivered \\
+  registered' = registered \\
+  identified' = identified \\
+  lapsed' = lapsed \\
+  hasInbox' = hasInbox \\
+  menuOwner' = menuOwner \\
+  lost' = lost \\
+  admitPhase' = admitPhase \\
+  admitFor' = admitFor \\
+  offerPhase' = offerPhase \\
+  offerFor' = offerFor
+\end{schema}
+
+\subsection{MenuProviderGone --- the honest non-delivery}
+\label{sec:providergone}
+
+Models \texttt{deliver} returning \texttt{provider\_gone}: either the
+router's live-set read fails (\texttt{c? $\notin$ registered}) or
+\texttt{offer} finds no inbox to put into (\texttt{c? $\notin$ hasInbox}).
+Either way the caller is told the truth -- not delivered -- and can re-push.
+The negated conjunction is exactly the complement of \texttt{MenuDeliver}'s
+guard, so between them every target is either delivered to or told
+\texttt{provider\_gone}: there is no third outcome, and in particular no
+silent drop.
+
+\begin{schema}{MenuProviderGone}
+  \Delta MenuReg \\
+  c? : CONN
+\where
+  \lnot (c? \in registered \land c? \in hasInbox) \\
+  reported' = dgone \\
+  registered' = registered \\
+  identified' = identified \\
+  lapsed' = lapsed \\
+  hasInbox' = hasInbox \\
+  menuOwner' = menuOwner \\
+  lost' = lost \\
+  admitPhase' = admitPhase \\
+  admitFor' = admitFor \\
+  offerPhase' = offerPhase \\
+  offerFor' = offerFor
+\end{schema}
+
+% ============================================================
+\section{Invariants}
+\label{sec:inv}
+% ============================================================
+
+Neither property is placed in \texttt{MenuReg}, for the reason
+\texttt{connection\_lease\_reaping.tex} gives: a predicate there is enforced
+as a guard on every successor, silently disabling the operation that would
+break it.
+
+\paragraph{M1 --- no false-positive delivery.}
+\[
+  \lnot\, (reported = ddelivered \land lost = fset).
+\]
+If the caller was told a click was delivered, that click is not sitting in
+an orphaned queue. In the fixed spec no operation ever sets \texttt{lost} to
+\texttt{fset}: \texttt{MenuDeliver} puts only onto a live inbox
+(\texttt{hasInbox}) in the same atomic step it checks the target live, and
+\texttt{MenuProviderGone} reports \texttt{dgone}, never \texttt{ddelivered}.
+So the negation is not reachable. The D1 control
+(Section~\ref{sec:fidelity-d1}) splits the delivery and shows the negation
+becomes reachable the moment a \texttt{drop\_session} lands between the read
+and the put.
+
+\paragraph{MO --- menu-ownership integrity.}
+\[
+  \lnot\, \exists\, c : CONN @ c \in menuOwner \land c \notin registered.
+\]
+No session owns a menu bar unless it is live. Every operation that removes a
+connection from \texttt{registered} -- \texttt{DepartGraceful} and
+\texttt{DepartLapsed} -- removes it from \texttt{menuOwner} in the same
+predicate (Sections~\ref{sec:departgraceful},~\ref{sec:departlapsed}); and
+the one operation that adds to \texttt{menuOwner}, \texttt{SetMenu}, is
+atomic and guarded on \texttt{c? $\in$ registered}, so it never records a bar
+for a departed owner (Section~\ref{sec:setmenu}). MO is the general shape
+both D2 and D3 break: D2, a departure trigger that removes from
+\texttt{registered} without pruning \texttt{menuOwner}; D3, a store that
+adds to \texttt{menuOwner} after the owner has left \texttt{registered}. A
+single invariant rules out both, so a third departure trigger or a third
+store path added later is checked against the same property, not a fresh ad
+hoc patch -- exactly as \texttt{connection\_lease\_reaping.tex}'s I5 absorbs
+its own fourth removal path.
+
+\paragraph{The lock order MO's D3 half requires, stated explicitly.}
+\label{sec:lockorder}
+The design's Section~6 tripwire asked whether the fix introduces a new
+lock-acquisition order. For M1 and D2 the answer is no. M1's fix is
+atomicity \emph{within} \texttt{\_inboxes\_lock} alone -- \texttt{offer}'s
+\texttt{get} and \texttt{put} under one hold of the lock it already takes --
+adding no nesting; and \texttt{MenuEventRouter.deliver}'s live-set read
+(client-registry lock, released) precedes the \texttt{offer}
+(\texttt{\_inboxes\_lock}) with no nesting, the same order
+\texttt{CallbackRouter.route} already uses. D2's fix binds one more sink
+into the \texttt{DepartureCascade}, which already runs under
+\texttt{StoreLock} on every departure path.
+
+D3 is the exception the tripwire named, and it must be stated plainly rather
+than waved past. The D3 fix requires the admit-liveness check and the
+\texttt{set\_menus} store to fall under one hold of \texttt{StoreLock} -- so
+the menu registry's own lock is acquired \emph{inside} \texttt{StoreLock},
+a nesting the shipped code does not have (\texttt{set\_menus} runs under the
+menu lock alone, after \texttt{StoreLock} has been released). This is a new
+order: \texttt{StoreLock} $\to$ menu-registry lock. It introduces no
+deadlock cycle, because it points the same direction as D2's fix: the
+departure cascade's menu sink also fires under \texttt{StoreLock} and then
+takes the menu lock (\texttt{StoreLock} $\to$ menu-registry lock). Both the
+store path and the departure path acquire the two locks in the same order,
+so the acquisition graph gains only edges pointing one way -- and a cycle
+needs two. \texttt{StoreLock} is the outer lock on every path in the Hub
+today; the menu registry lock joining as a consistently-inner lock is one
+more caller taking the locks in the order every existing caller already
+does. In this model that single-critical-section atomicity is represented by
+\texttt{SetMenu} being one schema; the D3 control splits it and shows the
+window the split exposes is where the orphaned-owner menu appears.
+
+% ============================================================
+\section{Fidelity Controls}
+\label{sec:fidelity}
+% ============================================================
+
+Each control differs from this specification in exactly one place, and each
+makes the corresponding invariant's negation \emph{reachable} where the
+fixed spec makes it unreachable. A model that cannot reproduce the defect it
+guards against is too abstract to trust; these three show it can.
+
+\paragraph{D1 --- \texttt{menu\_lifecycle\_d1\_buggy.tex}.}
+\label{sec:fidelity-d1}
+\texttt{MenuDeliver} is replaced by \texttt{OfferBegin}/\texttt{OfferEnd},
+splitting \texttt{offer} at the lock release the shipped code has between its
+\texttt{get} and its \texttt{put}. \texttt{OfferBegin(c?)}, for a live
+\texttt{c?} whose inbox is present, captures \texttt{c?} into
+\texttt{offerFor} and enters \texttt{oput} -- it has snapshotted a queue
+reference and will put into it. \texttt{OfferEnd} puts and reports
+\texttt{ddelivered} \emph{unconditionally}; if \texttt{c?} has since lost its
+inbox, the put lands in an orphan and \texttt{lost} becomes \texttt{fset}.
+The trace \texttt{OfferBegin(c?)}\,;\,\texttt{DepartGraceful(c?)}\,;
+\,\texttt{OfferEnd} reaches \texttt{reported = ddelivered $\land$ lost =
+fset} -- M1's negation, \emph{FOUND}. The fix (atomic \texttt{MenuDeliver})
+removes the window: no \texttt{Depart} can interleave a \texttt{get} and a
+\texttt{put} that are one step.
+
+\paragraph{D2 --- \texttt{menu\_lifecycle\_d2\_buggy.tex}.}
+\label{sec:fidelity-d2}
+\texttt{DepartLapsed} drops the \texttt{menuOwner' = menuOwner $\setminus$
+\{c?\}} conjunct -- the timer's cascade reaching the inbox and the registry
+but not the menu registry, exactly the shipped wiring. \texttt{SetMenu}
+stays atomic (D3 fixed), isolating the defect to the departure path. The
+trace \texttt{Connect(c?)}\,;\,\texttt{Identify(c?)}\,;\,\texttt{SetMenu(c?)}
+\,;\,\texttt{LeaseLapse(c?)}\,;\,\texttt{DepartLapsed(c?)} reaches
+\texttt{c? $\in$ menuOwner $\land$ c? $\notin$ registered} -- MO's negation,
+\emph{FOUND}. The fix sweeps \texttt{menuOwner} on the lapsed path too.
+
+\paragraph{D3 --- \texttt{menu\_lifecycle\_d3\_buggy.tex}.}
+\label{sec:fidelity-d3}
+\texttt{SetMenu} is replaced by \texttt{SetMenuAdmit}/\texttt{SetMenuStore},
+splitting \texttt{set\_menu} at the \texttt{StoreLock} release between
+\texttt{admit} and \texttt{set\_menus}. \texttt{SetMenuAdmit(c?)}, for an
+admitted \texttt{c?}, renews and arms and enters \texttt{astore};
+\texttt{SetMenuStore} records the bar \emph{unconditionally}, without
+re-checking liveness. \texttt{DepartLapsed} stays a full sweep (D2 fixed),
+isolating the defect to the store path. The trace
+\texttt{Connect(c?)}\,;\,\texttt{Identify(c?)}\,;\,\texttt{SetMenuAdmit(c?)}
+\,;\,\texttt{DepartGraceful(c?)}\,;\,\texttt{SetMenuStore} reaches
+\texttt{c? $\in$ menuOwner $\land$ c? $\notin$ registered} -- MO's negation,
+\emph{FOUND}: the departure swept a registry that did not yet hold the bar,
+and the store then wrote it into a registry the owner has left. The fix
+(atomic \texttt{SetMenu}, the \texttt{StoreLock} hold of
+Section~\ref{sec:lockorder}) removes the window.
+
+% ============================================================
+\section{Verification}
+\label{sec:verify}
+% ============================================================
+
+Type-checking is a \texttt{fuzz} pass:
+\begin{verbatim}
+  fuzz docs/menu_lifecycle.tex
+\end{verbatim}
+
+M1 and MO are safety properties, checked by asking ProB whether their
+negation is \emph{reachable}. A goal reported \emph{not found} means the
+invariant holds on every reachable state.
+
+\begin{verbatim}
+  # M1 (goal NOT found in this, the fixed, spec)
+  probcli docs/menu_lifecycle.tex -model_check -nodead \
+    -goal "reported = ddelivered & lost = fset" \
+    -p DEFAULT_SETSIZE 3
+
+  # MO (goal NOT found in this, the fixed, spec)
+  probcli docs/menu_lifecycle.tex -model_check -nodead \
+    -goal "#c.(c : CONN & c : menuOwner & not(c : registered))" \
+    -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+The positive outcomes are confirmed reachable, so the invariants are not
+vacuously true of a model that can never deliver or store at all:
+
+\begin{verbatim}
+  # A click is delivered to a live inbox (goal FOUND)
+  probcli docs/menu_lifecycle.tex -model_check -nodead \
+    -goal "reported = ddelivered & lost = fclear" \
+    -p DEFAULT_SETSIZE 3
+
+  # A live, identified session owns a stored bar (goal FOUND)
+  probcli docs/menu_lifecycle.tex -model_check -nodead \
+    -goal "#c.(c : CONN & c : menuOwner & c : registered)" \
+    -p DEFAULT_SETSIZE 3
+
+  # provider_gone is reachable (goal FOUND)
+  probcli docs/menu_lifecycle.tex -model_check -nodead \
+    -goal "reported = dgone" \
+    -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+Deadlock-freedom and the structural state invariant are checked by a full
+model-check over the reachable state space:
+
+\begin{verbatim}
+  probcli docs/menu_lifecycle.tex -model_check -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+The fidelity controls make the negations \emph{FOUND}:
+
+\begin{verbatim}
+  # D1: M1's negation FOUND against the D1 control, NOT found against fixed
+  probcli docs/menu_lifecycle_d1_buggy.tex -model_check -nodead \
+    -goal "reported = ddelivered & lost = fset" \
+    -p DEFAULT_SETSIZE 3
+
+  # D2: MO's negation FOUND against the D2 control, NOT found against fixed
+  probcli docs/menu_lifecycle_d2_buggy.tex -model_check -nodead \
+    -goal "#c.(c : CONN & c : menuOwner & not(c : registered))" \
+    -p DEFAULT_SETSIZE 3
+
+  # D3: MO's negation FOUND against the D3 control, NOT found against fixed
+  probcli docs/menu_lifecycle_d3_buggy.tex -model_check -nodead \
+    -goal "#c.(c : CONN & c : menuOwner & not(c : registered))" \
+    -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+Re-run \texttt{fuzz} and these goal checks whenever \texttt{inbox.py}'s
+\texttt{offer}/\texttt{drop\_session}, \texttt{menu\_registry.py}'s
+\texttt{set\_menus}/\texttt{drop\_session}, \texttt{menu\_event.py}'s
+\texttt{MenuEventRouter.deliver}, \texttt{operations/menus.py}'s
+\texttt{set\_menu}, \texttt{operations/menu\_arming.py}'s \texttt{admit},
+\texttt{hub\_display.py}'s \texttt{\_depart}/\texttt{\_depart\_lapsed}/
+\texttt{drop\_connection}, \texttt{departure\_cascade.py}, or
+\texttt{session\_cleanup.py} change.
+
+\end{document}

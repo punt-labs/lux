@@ -11,7 +11,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, cast, final
 
 from punt_lux.domain.hub.menu_event import MENU_TOPIC, MenuEventRouter, MenuSelection
-from punt_lux.domain.hub.session_callback import CallbackInvocation
 from punt_lux.domain.ids import ConnectionId
 
 if TYPE_CHECKING:
@@ -57,14 +56,12 @@ class _Sink:
 
 
 def test_selection_reads_the_item_id_and_menu_label() -> None:
-    invocation = CallbackInvocation(ConnectionId("c"), "run_btn")
-    selection = MenuSelection.of(invocation, {"menu": "Tools", "item": "Run"})
+    selection = MenuSelection.of("run_btn", {"menu": "Tools", "item": "Run"})
     assert selection == MenuSelection(menu="Tools", item="run_btn")
 
 
 def test_selection_tolerates_a_valueless_click() -> None:
-    invocation = CallbackInvocation(ConnectionId("c"), "run_btn")
-    assert MenuSelection.of(invocation, None) == MenuSelection(menu="", item="run_btn")
+    assert MenuSelection.of("run_btn", None) == MenuSelection(menu="", item="run_btn")
 
 
 def test_selection_renders_the_reserved_lux_menu_event() -> None:
@@ -77,9 +74,8 @@ def test_deliver_lands_the_event_on_a_live_session_with_an_inbox() -> None:
     conn = ConnectionId("live")
     sink = _Sink(present=True)
     router = MenuEventRouter(_Live(conn), sink)
-    invocation = CallbackInvocation(conn, "run_btn")
 
-    outcome = router.deliver(invocation, MenuSelection(menu="Tools", item="run_btn"))
+    outcome = router.deliver(conn, MenuSelection(menu="Tools", item="run_btn"))
 
     assert outcome == "delivered"
     assert [(c, m.topic) for c, m in sink.puts] == [(conn, MENU_TOPIC)]
@@ -90,9 +86,7 @@ def test_deliver_refuses_a_session_gone_from_the_live_set() -> None:
     sink = _Sink(present=True)
     router = MenuEventRouter(_Live(), sink)  # no live sessions
 
-    outcome = router.deliver(
-        CallbackInvocation(conn, "run_btn"), MenuSelection(menu="", item="run_btn")
-    )
+    outcome = router.deliver(conn, MenuSelection(menu="", item="run_btn"))
 
     assert outcome == "provider_gone"
     assert sink.puts == []  # the live gate refuses before the sink
@@ -105,8 +99,6 @@ def test_deliver_refuses_a_live_session_with_no_inbox() -> None:
     sink = _Sink(present=False)
     router = MenuEventRouter(_Live(conn), sink)
 
-    outcome = router.deliver(
-        CallbackInvocation(conn, "run_btn"), MenuSelection(menu="", item="run_btn")
-    )
+    outcome = router.deliver(conn, MenuSelection(menu="", item="run_btn"))
 
     assert outcome == "provider_gone"

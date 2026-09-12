@@ -296,21 +296,20 @@ def test_frameless_agent_menu_click_is_delivered_to_the_owning_inbox_session() -
     """Gap (b): a frameless agent ``menu_set`` click reaches the owning MCP session.
 
     An agent that called ``menu_set`` holds an inbox (armed by ``ensure_writer``),
-    not a listen leg. Its menu leaf is stamped ``owner<US>item_id``, so the click
-    parses like any leaf, finds the live session owns no *callback* by that id, and
-    is delivered as a reserved ``lux.menu`` business event on that session's inbox —
-    the event ``recv()`` drains, with no prior ``topic_subscribe``. On ``main`` the
-    click was dropped in the non-callback branch; this is the regression that fails
-    there and passes here.
+    not a listen leg. Its menu leaf is a ``menu``-kind :class:`MenuLeaf`, so the
+    click parses to that kind and is delivered as a reserved ``lux.menu`` business
+    event on that session's inbox — the event ``recv()`` drains, with no prior
+    ``topic_subscribe``. On ``main`` the click was dropped in the non-callback
+    branch; this is the regression that fails there and passes here.
     """
     from punt_lux.domain.hub.hub_display import hub_display
     from punt_lux.domain.hub.inbox import drain_inbox, ensure_writer
-    from punt_lux.domain.hub.session_callback import CallbackInvocation
+    from punt_lux.domain.hub.session_callback import MenuLeaf
 
     conn = ConnectionId("agent-menu-inbox-1")
     ensure_writer(conn)  # arms the inbox + registers the client as a live session
     try:
-        leaf_id = CallbackInvocation(conn, "run_btn").menu_id
+        leaf_id = MenuLeaf("menu", conn, "run_btn").wire_id
         HubInteractionDispatch.dispatch(
             RemoteEventHandlerInvocation(
                 scene_id=None,
@@ -338,14 +337,14 @@ def test_a_departed_agent_menu_click_is_not_delivered_and_repushes(
     agent-path counterpart to the callback-path departed test above.
     """
     from punt_lux.domain.hub.inbox import drain_inbox
-    from punt_lux.domain.hub.session_callback import CallbackInvocation
+    from punt_lux.domain.hub.session_callback import MenuLeaf
 
     _registry, _router, replicator = _isolated_router(monkeypatch)
     conn = ConnectionId("agent-departed")  # never registered → not live
     HubInteractionDispatch.dispatch(
         RemoteEventHandlerInvocation(
             scene_id=None,
-            element_id=CallbackInvocation(conn, "run_btn").menu_id,
+            element_id=MenuLeaf("menu", conn, "run_btn").wire_id,
             action="menu",
             ts=1.0,
             value={"menu": "Tools", "item": "Run"},
@@ -353,6 +352,58 @@ def test_a_departed_agent_menu_click_is_not_delivered_and_repushes(
     )
     assert drain_inbox(conn) == ()  # nothing delivered to a departed session
     replicator.mark_menus.assert_called_once_with()  # the click re-pushes the menu
+
+
+def test_a_same_named_callback_and_menu_item_route_apart() -> None:
+    """One session owning BOTH a callback "run" and a menu item "run" routes each
+    by the leaf's KIND, not by whether a callback exists.
+
+    The callback-kind leaf lands on the callback hold; the menu-kind leaf lands on
+    the inbox as ``lux.menu`` carrying the raw item id. On ``main`` both leaves are
+    the same ``owner<US>run`` id, so the menu click is misrouted to the callback
+    and never reaches the inbox — the regression this proves.
+    """
+    from punt_lux.domain.hub.client_identity import ClientIdentity
+    from punt_lux.domain.hub.hub_display import hub_display
+    from punt_lux.domain.hub.inbox import drain_inbox, ensure_writer
+    from punt_lux.domain.hub.replicator_instance import hub_callback_router
+    from punt_lux.domain.hub.session_callback import (
+        CallbackInvocation,
+        MenuLeaf,
+        SessionCallback,
+    )
+
+    conn = ConnectionId("dual-owner")
+    leg = _SilentLeg()
+    clients = hub_display.clients
+    clients.attach_listener(conn, ClientIdentity(kind="app", name="dual"), leg)
+    clients.register_callback(conn, SessionCallback(id="run", label="Run"), leg)
+    ensure_writer(conn)  # arm the inbox; the same session owns a menu item too
+    try:
+        HubInteractionDispatch.dispatch(
+            RemoteEventHandlerInvocation(
+                scene_id=None,
+                element_id=CallbackInvocation(conn, "run").menu_id,
+                action="menu",
+                ts=1.0,
+                value=None,
+            )
+        )
+        HubInteractionDispatch.dispatch(
+            RemoteEventHandlerInvocation(
+                scene_id=None,
+                element_id=MenuLeaf("menu", conn, "run").wire_id,
+                action="menu",
+                ts=1.0,
+                value={"menu": "Tools", "item": "Run"},
+            )
+        )
+        held = [inv.callback_id for inv in hub_callback_router.pending(conn)]
+        delivered = [(m.topic, dict(m.payload)) for m in drain_inbox(conn)]
+        assert held == ["run"]  # only the callback leaf reached the hold
+        assert delivered == [("lux.menu", {"menu": "Tools", "item": "run"})]
+    finally:
+        hub_display.drop_connection(conn)
 
 
 def test_agent_menu_set_click_round_trips_from_set_to_recv() -> None:

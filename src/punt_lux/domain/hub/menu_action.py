@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, ClassVar, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field
 
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
-from punt_lux.domain.hub.session_callback import CallbackInvocation
+from punt_lux.domain.hub.session_callback import MenuLeaf
 from punt_lux.domain.id_separator import ID_SEPARATOR, NONBLANK_FRAME_ID
 
 if TYPE_CHECKING:
@@ -76,9 +76,10 @@ class MenuAction(BaseModel):
         Both keys are namespaced to the owning connection at stamp time, not at
         submit time (the agent submits raw, separator-free values):
 
-        - the leaf ``id`` becomes ``owner<US>id`` via :class:`CallbackInvocation`,
-          the one leaf-id encoding the callback path uses, so a click round-trips
-          to the owning session exactly as a callback leaf does;
+        - the leaf ``id`` becomes a ``menu``-kind :class:`MenuLeaf` wire id, whose
+          kind tag keeps it distinct from an applet-callback leaf even when a
+          session owns both under the same local id, so dispatch routes it to the
+          owner's inbox — never to a same-named callback;
         - a present ``frame_id`` becomes ``owner<US>frame_id`` via
           :meth:`ConnectionScopedId.compose` — the *same* primitive
           ``ScenePresentation`` composes a shown frame's key with, so a
@@ -88,7 +89,7 @@ class MenuAction(BaseModel):
         Copies rather than calling :meth:`from_wire`, so the composite ids are not
         refused by the boundary rule.
         """
-        update: dict[str, object] = {"id": CallbackInvocation(owner, self.id).menu_id}
+        update: dict[str, object] = {"id": MenuLeaf("menu", owner, self.id).wire_id}
         if self.frame_id is not None:
             update["frame_id"] = ConnectionScopedId.compose(owner, self.frame_id)
         return self.model_copy(update=update)

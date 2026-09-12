@@ -26,7 +26,6 @@ from punt_lux.protocol.messages.observer import ObserverMessage
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.callback_ports import LiveSessions
-    from punt_lux.domain.hub.session_callback import CallbackInvocation
     from punt_lux.domain.ids import ConnectionId
 
 __all__ = ["MenuDelivery", "MenuEventRouter", "MenuEventSink", "MenuSelection"]
@@ -56,19 +55,19 @@ class MenuSelection:
     item: str
 
     @classmethod
-    def of(cls, invocation: CallbackInvocation, value: object) -> Self:
-        """Build from a click's parsed invocation and its wire ``value`` payload.
+    def of(cls, item_id: str, value: object) -> Self:
+        """Build from the leaf's raw item id and its wire ``value`` payload.
 
-        The item id is the invocation's own (un-stamped) callback id — what the
-        agent registered — and the menu label is read off the click value, or left
-        empty when the value carries none.
+        ``item_id`` is the agent's own (un-stamped) id — the ``local_id`` the
+        stamped ``menu``-kind leaf carries — and the menu label is read off the
+        click value, or left empty when the value carries none.
         """
         menu_label = ""
         if isinstance(value, Mapping):
             raw_menu = cast("Mapping[str, object]", value).get("menu")
             if isinstance(raw_menu, str):
                 menu_label = raw_menu
-        return cls(menu=menu_label, item=invocation.callback_id)
+        return cls(menu=menu_label, item=item_id)
 
     def observer_message(self) -> ObserverMessage:
         """Render as the reserved ``lux.menu`` event ``recv()`` returns."""
@@ -92,7 +91,7 @@ class MenuEventRouter:
         return self
 
     def deliver(
-        self, invocation: CallbackInvocation, selection: MenuSelection
+        self, connection_id: ConnectionId, selection: MenuSelection
     ) -> MenuDelivery:
         """Land ``selection`` on the owner's inbox if the session is live and has one.
 
@@ -102,8 +101,8 @@ class MenuEventRouter:
         whose inbox has already been dropped (a listener-only session, or a
         departure that raced the read) finds no sink and is likewise not delivered.
         """
-        if invocation.connection_id not in self._live.live_sessions():
+        if connection_id not in self._live.live_sessions():
             return "provider_gone"
-        if self._sink(invocation.connection_id, selection.observer_message()):
+        if self._sink(connection_id, selection.observer_message()):
             return "delivered"
         return "provider_gone"

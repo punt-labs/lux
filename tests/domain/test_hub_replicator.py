@@ -27,7 +27,7 @@ from punt_lux.domain.hub.replicator import (
     HubReplicator,
 )
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
-from punt_lux.domain.hub.session_callback import CallbackInvocation
+from punt_lux.domain.hub.session_callback import MenuLeaf
 from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.protocol.elements.text import TextElement
 
@@ -441,7 +441,7 @@ def test_menu_state_is_pushed_from_a_fresh_registry_read() -> None:
     try:
         repl.mark_menus()
         assert sender.wait_sent(2.0)
-        stamped = CallbackInvocation(_CONN, "open").menu_id
+        stamped = MenuLeaf("menu", _CONN, "open").wire_id
         expected = [{"label": "File", "items": [{"label": "Open", "id": stamped}]}]
         assert sender.menus == [expected]
     finally:

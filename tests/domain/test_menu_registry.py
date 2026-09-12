@@ -12,7 +12,7 @@ from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.hub.menu_models import Menu, MenuAction
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
-from punt_lux.domain.hub.session_callback import CallbackInvocation
+from punt_lux.domain.hub.session_callback import MenuLeaf
 from punt_lux.domain.ids import ConnectionId
 
 
@@ -59,7 +59,7 @@ def test_wire_snapshot_stamps_each_leaf_id_with_its_owner() -> None:
     wire = reg.wire_snapshot()
     items = wire[0]["items"]
     assert isinstance(items, list)
-    stamped = CallbackInvocation(owner, "run").menu_id
+    stamped = MenuLeaf("menu", owner, "run").wire_id
     assert items[0] == {"label": "Run", "id": stamped, "shortcut": "F5"}
 
 
@@ -84,7 +84,7 @@ def test_wire_snapshot_carries_a_frame_id_through_to_the_display() -> None:
     assert isinstance(items, list)
     assert items[0] == {
         "label": "Run",
-        "id": CallbackInvocation(owner, "run").menu_id,
+        "id": MenuLeaf("menu", owner, "run").wire_id,
         "frame_id": ConnectionScopedId.compose(owner, "dash"),
     }
 
