@@ -148,6 +148,25 @@ def test_menu_bar_returns_copies_the_caller_cannot_mutate() -> None:
     assert first.id == "open"
 
 
+def test_set_menus_snapshots_against_later_mutation_of_the_request() -> None:
+    # Ingress aliasing: a frozen Menu does not freeze its items list, so storing
+    # the caller's object by reference would let a later mutation of the original
+    # request reach the stored — and about-to-be-sent — tree. set_menus deep-copies
+    # on ingress. Fail-on-current if it stored by reference: the appended "ghost"
+    # leaks into wire_snapshot.
+    reg, clients = _live_registry()
+    owner = ConnectionId("owner-mut")
+    clients.record(owner)
+    original = Menu(label="Tools", items=[MenuAction(id="run", label="Run")])
+    reg.set_menus(owner, [original])
+
+    original.items.append(MenuAction(id="ghost", label="Ghost"))
+
+    items = reg.wire_snapshot()[0]["items"]
+    assert isinstance(items, list)
+    assert [item["id"] for item in items] == [MenuLeaf("menu", owner, "run").wire_id]
+
+
 def test_wire_snapshot_of_an_empty_registry_is_empty() -> None:
     reg, _clients = _live_registry()
     assert reg.wire_snapshot() == ()

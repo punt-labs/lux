@@ -51,9 +51,18 @@ class HubMenuRegistry:
         return self
 
     def set_menus(self, connection_id: ConnectionId, menus: Sequence[Menu]) -> None:
-        """Replace the bar the session ``connection_id`` owns, leaving others' bars."""
+        """Replace the bar the session ``connection_id`` owns, leaving others' bars.
+
+        Deep-copies each menu on the way in, mirroring :meth:`menu_bar`'s egress
+        copy: ``frozen=True`` does not freeze ``Menu.items`` (a list), so storing
+        the caller's objects by reference would let a later mutation of the
+        original request's items reach the stored — and about-to-be-sent — tree.
+        The snapshot severs that alias.
+        """
         with self._lock:
-            self._by_owner[connection_id] = tuple(menus)
+            self._by_owner[connection_id] = tuple(
+                m.model_copy(deep=True) for m in menus
+            )
 
     def drop_session(self, connection_id: ConnectionId) -> None:
         """Prune the session's bar on departure. Idempotent.
