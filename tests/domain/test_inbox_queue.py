@@ -9,6 +9,8 @@ undrained inbox never grows without end.
 from __future__ import annotations
 
 import logging
+import sys
+import threading
 from typing import TYPE_CHECKING
 
 from punt_lux.domain.hub.inbox_queue import INBOX_CAPACITY, BoundedInbox
@@ -79,3 +81,62 @@ def test_default_capacity_is_the_shared_backstop() -> None:
     topics = [m.topic for m in inbox.drain()]
     assert topics[0] == "m5"
     assert topics[-1] == f"m{INBOX_CAPACITY + 4}"
+
+
+def test_two_producers_at_capacity_keep_the_bound_exact() -> None:
+    """Two producers hammering one full inbox never overshoot the bound.
+
+    The inbox has two unsynchronized producers -- the ``Hub.publish`` writer
+    closure and ``offer`` -- and its admission is a compound check-then-act
+    (``qsize`` -> ``_drop_oldest`` -> ``put``). Without the inbox's own lock the
+    two race: one pops before the other's ``qsize`` read, so the second sees a
+    stale sub-capacity size, skips its drop, and both ``put`` -- overshooting the
+    cap. Because every ``put`` here starts from a full queue, each must drop
+    exactly one, so ``final == capacity`` iff drops equalled puts; a single
+    skipped drop leaves the deficit permanently (later puts drop at most one each
+    and never catch up), so ``final > capacity``. This asserts the leaf lock makes
+    the bound EXACT: the queue is at ``capacity`` at the end, and no producer ever
+    observed it above ``capacity``.
+    """
+    capacity = 4
+    inbox = BoundedInbox(_CONN, capacity=capacity)
+    for index in range(capacity):  # start full so every put is an at-capacity drop
+        inbox.put(_msg(f"seed-{index}"))
+
+    puts_per_producer = 3000
+    start = threading.Barrier(2)
+    max_observed: list[int] = []
+
+    def hammer(tag: str) -> None:
+        local_max = 0
+        start.wait()
+        for index in range(puts_per_producer):
+            inbox.put(_msg(f"{tag}-{index}"))
+            local_max = max(local_max, inbox.depth())
+        max_observed.append(local_max)
+
+    # CPython's default 5ms thread-switch interval lets each producer run whole
+    # ``put`` calls uninterrupted, so a hand-off almost never lands in the narrow
+    # window between the ``qsize`` check and the ``put``. Shrink the interval so
+    # the GIL hands off constantly and the race is reliably exercised -- this is
+    # what makes the test FAIL if the leaf lock is ever removed (verified: without
+    # the lock the queue overshoots to capacity+1), and it stays deterministic
+    # WITH the lock, which serializes the compound act regardless of hand-offs.
+    previous_interval = sys.getswitchinterval()
+    sys.setswitchinterval(1e-6)
+    try:
+        producers = [
+            threading.Thread(target=hammer, args=(tag,)) for tag in ("writer", "offer")
+        ]
+        for producer in producers:
+            producer.start()
+        for producer in producers:
+            producer.join()
+    finally:
+        sys.setswitchinterval(previous_interval)
+
+    # Exact bound: no producer ever saw the queue above capacity...
+    assert max(max_observed) == capacity
+    # ...and it settled at exactly capacity -- drops equalled puts, one per
+    # admission, never zero (overshoot) and never two (structurally impossible).
+    assert inbox.depth() == capacity

@@ -179,6 +179,7 @@ class ClientSession:
             self._slot.occupied_by(listener),
         )
 
+    # None == stale: not this listener's session; a normal decline, not a failure.
     def detached(self, listener: CallbackListener) -> ClientSession | None:
         """Return this session with an empty slot, or ``None`` if it is not its own.
 
@@ -201,7 +202,7 @@ class ClientSession:
 
     def registering(
         self, callback: SessionCallback, now: float
-    ) -> ClientSession | None:
+    ) -> ClientSession | None:  # None == decline (unidentified/lapsed), a normal case
         """Return a copy owning ``callback``, or ``None`` if the session declines.
 
         A session accepts a callback only while it is identified and in lease; an
