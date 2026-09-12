@@ -1,0 +1,598 @@
+%
+% menu_lifecycle_bounded_inbox.tex
+%
+% A Z specification of the bounded per-connection Agent-Subscribe inbox and the
+% leaf lock that serializes its drop-oldest overflow -- the concurrency axis
+% docs/menu_lifecycle.tex and docs/menu_lifecycle_delivery.tex leave abstract.
+% Bead lux-wk3p (branch chore/lux-m3xr-quality-followups); reviews the leaf-lock
+% fix gvr is building for src/punt_lux/domain/hub/inbox_queue.py's BoundedInbox.
+%
+% WHY THIS MODEL EXISTS. lux-wk3p bounded the inbox: BoundedInbox.put drops the
+% oldest undelivered message when the queue is at capacity (INBOX_CAPACITY = 32),
+% a backstop against a subscriber whose recv leg has stopped draining. Review of
+% that change found put's overflow logic is a non-atomic check-then-act,
+%
+%     if self._queue.qsize() >= self._capacity:   # (1) check
+%         self._drop_oldest()                      # (2) drop the front
+%     self._queue.put(message)                     # (3) enqueue
+%
+% run by TWO producers that do NOT share a lock:
+%
+%   * PUBLISH fan-out -- Hub.publish -> the session's Hub writer (inbox.py's
+%     _writer) -> inbox_for(cid).put(msg). inbox_for takes the registry lock
+%     _inboxes_lock only to look the inbox up, then RELEASES it; the put runs
+%     with no lock held.
+%   * MENU-CLICK offer -- MenuEventRouter.deliver -> inbox.offer(cid, msg), whose
+%     get-then-put runs INSIDE _inboxes_lock (the D1 hold of menu_lifecycle.tex).
+%
+% So one producer runs put outside _inboxes_lock and the other inside it: the
+% registry lock does not serialize them against each other. Their check-then-act
+% puts interleave, and the compound (1)(2)(3) is torn:
+%
+%   OVERSHOOT. Two puts arrive at depth = cap - 1. Both read qsize < cap at (1),
+%     so neither drops; both enqueue at (3). depth ends cap + 1 -- the bound the
+%     inbox exists to hold is broken.
+%   DOUBLE-DROP. Two puts arrive at depth = cap. Both read qsize >= cap at (1),
+%     so both will drop. The first drops (depth cap -> cap-1) then the second
+%     drops (cap-1 -> cap-2) -- a get_nowait fired while the queue was no longer
+%     full, discarding a message that had room. Two messages discarded where one
+%     over-capacity admission calls for exactly one.
+%
+% THE FIX gives BoundedInbox its OWN internal lock, held across the whole
+% compound put (and across _drop_oldest, get, drain, depth). It is a fresh lock,
+% distinct from the registry's _inboxes_lock. The implementer's earlier
+% "no new lock" self-assessment was wrong: this IS a new lock, and the repo's
+% z-spec policy requires deadlock-freedom to be PROVEN, not assumed, for any lock
+% change -- especially one that nests.
+%
+% WHAT THIS MODEL PROVES, over a bounded carrier and every interleaving ProB
+% reaches (two producers, capacity 2):
+%
+%   B1 -- bound integrity: depth never exceeds capacity.
+%   B2 -- drop minimality (no double-drop): a drop fires only when the inbox is
+%     genuinely full; a single over-capacity admission drops exactly one oldest.
+%   DEADLOCK-FREEDOM: the two locks form a one-way acquisition edge
+%     regLock -> boxLock (the offer path), the publish path takes boxLock with no
+%     outer lock, and no path takes regLock while holding boxLock. The
+%     acquisition graph gains only edges pointing one way; a cycle needs two. This
+%     is the same one-direction-edge structure menu_lifecycle.tex proved safe for
+%     the D3 StoreLock -> menu-registry-lock edge.
+%
+% and it reproduces both defects as fidelity controls that a model too abstract
+% to trust could not:
+%
+%   menu_lifecycle_bounded_inbox_nolock_buggy.tex -- remove the inbox lock, so
+%     the compound put's check/drop/enqueue interleave across the two producers.
+%     B1's negation (depth > cap) and B2's negation (a drop at depth < cap) both
+%     become reachable -- overshoot AND double-drop, the exact review finding.
+%   menu_lifecycle_bounded_inbox_deadlock_buggy.tex -- add the reverse edge: the
+%     publish path acquires regLock WHILE holding boxLock. The one-way property
+%     is destroyed and ProB's deadlock check FINDS the cycle.
+%
+% Read first: src/punt_lux/domain/hub/inbox_queue.py (BoundedInbox.put,
+% _drop_oldest), inbox.py (offer -- put under _inboxes_lock; _writer -- put with
+% _inboxes_lock released; inbox_for, drop_session, inbox_depth_for, drain_inbox),
+% and the companions docs/menu_lifecycle.tex (M1, MO) and
+% docs/menu_lifecycle_delivery.tex (M1b), whose delivery invariants this change
+% must not disturb (see the M1/M1b section below).
+%
+% Type-check:  fuzz docs/menu_lifecycle_bounded_inbox.tex
+% Model-check (deadlock-freedom + the structural invariant over the state space):
+%   probcli docs/menu_lifecycle_bounded_inbox.tex -model_check -p DEFAULT_SETSIZE 2
+% The safety goals (B1, B2) are reachability checks; see the Verification section.
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{lux Bounded Agent-Subscribe Inbox: the Leaf-Lock Refinement}
+\author{Proving the drop-oldest overflow holds its bound and drops exactly once
+  under two concurrent producers, and that the inbox lock is a deadlock-free leaf}
+\date{September 2026}
+\maketitle
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+The Agent-Subscribe inbox is a bounded FIFO. When a full inbox admits a new
+message the oldest undelivered one is dropped, so a subscriber whose
+\texttt{recv} leg has stopped draining cannot grow the queue without bound. Two
+producers write to that inbox, and they do not share a lock: the \emph{publish}
+fan-out runs \texttt{BoundedInbox.put} with the registry lock
+\texttt{\_inboxes\_lock} already released, while the \emph{menu-click}
+\texttt{offer} runs its \texttt{put} with \texttt{\_inboxes\_lock} held. The
+registry lock therefore serializes neither producer against the other, and
+\texttt{put}'s overflow logic --- read the size, drop the front if full, enqueue
+--- is a non-atomic check-then-act two producers can tear.
+
+This model states, over a bounded carrier and every interleaving ProB reaches,
+the two safety properties the bounded inbox must hold, proves the leaf lock the
+fix adds restores them, and proves that lock introduces no deadlock.
+
+\begin{description}
+  \item[B1 --- bound integrity.] The inbox depth never exceeds its capacity:
+    \[ depth \leq cap. \]
+    This is what the un-serialized check-then-act breaks by \emph{overshoot}:
+    two puts at $depth = cap - 1$ both read ``not full'' and both enqueue,
+    leaving $depth = cap + 1$.
+  \item[B2 --- drop minimality (no double-drop).] A message is dropped only from
+    a genuinely full inbox; a drop never discards a message that had room:
+    \[ \lnot\, (spuriousDrop = fset). \]
+    This is what the un-serialized check-then-act breaks by \emph{double-drop}:
+    two puts at $depth = cap$ both decide to drop, and the second
+    \texttt{get\_nowait} fires after the first has already made room --- a drop
+    at $depth < cap$, one over-capacity admission costing two discarded messages.
+\end{description}
+
+Alongside the two safety properties, the model carries the two locks explicitly
+and proves the third obligation the repo's z-spec policy attaches to any lock
+change:
+
+\begin{description}
+  \item[Deadlock-freedom.] The inbox lock (\texttt{boxLock}) is a leaf. The only
+    nesting is \texttt{regLock} $\to$ \texttt{boxLock}, on the offer path; the
+    publish path takes \texttt{boxLock} with no outer lock; no path takes
+    \texttt{regLock} while holding \texttt{boxLock}. The acquisition graph gains
+    only edges pointing one way, and a cycle needs two. A full model-check finds
+    no deadlock.
+\end{description}
+
+As in the companions, the safety properties are kept out of the state schema:
+a predicate placed in the state invariant is enforced as a guard on every
+successor, silently disabling the very operation that would break it, so a
+violating operation becomes unreachable rather than a counterexample. The schema
+below carries only structural coherence; B1 and B2 are checked as the
+reachability of their negations (Section~\ref{sec:verify}), and deadlock-freedom
+by the full model-check.
+
+% ============================================================
+\section{Constants}
+% ============================================================
+
+The capacity is bounded small; two suffices to exhibit both the overshoot at
+$cap - 1$ and the double-drop at $cap$. \texttt{maxDepth} is one above capacity,
+the least bound that can \emph{represent} an overshoot --- the fixed model never
+reaches it, and the no-lock control does.
+
+\begin{axdef}
+  cap : \nat \\
+  maxDepth : \nat
+\where
+  cap = 2 \\
+  maxDepth = 3
+\end{axdef}
+
+% ============================================================
+\section{Free Types}
+% ============================================================
+
+\begin{zed}
+  FSTATE ::= fclear | fset
+\end{zed}
+
+A two-value flag, matching the companions' \texttt{FSTATE}. Here \texttt{spuriousDrop}
+carries it: whether any \texttt{\_drop\_oldest} has fired while the inbox was not
+full.
+
+\begin{zed}
+  REGH ::= rfree | roffer
+\end{zed}
+
+Who holds the registry lock \texttt{\_inboxes\_lock}. In the fixed model only the
+offer path holds it (the publish path's transient hold inside \texttt{inbox\_for}
+is released before \texttt{put} runs, so it never coexists with \texttt{boxLock}
+and is not modelled); the reverse-edge control adds a publish holder.
+
+\begin{zed}
+  BOXH ::= bfree | boffer | bpublish
+\end{zed}
+
+Who holds the inbox's own lock \texttt{boxLock} --- free, the offer producer, or
+the publish producer. At most one holder: this is the mutual exclusion that makes
+the compound \texttt{put} atomic.
+
+\begin{zed}
+  OPHASE ::= oidle | oreg | oboth
+\end{zed}
+
+Where the offer producer is in its two-lock climb: idle, holding
+\texttt{regLock} and waiting for \texttt{boxLock} (\texttt{oreg} --- the blockable
+wait that a reverse edge would turn into half a deadlock), or holding both and
+ready to put.
+
+\begin{zed}
+  PPHASE ::= pidle | pbox
+\end{zed}
+
+Where the publish producer is: idle, or holding \texttt{boxLock} and ready to
+put. It never waits for a second lock --- the property the deadlock proof turns
+on.
+
+% ============================================================
+\section{State}
+% ============================================================
+
+One flat schema. \texttt{depth} is the queued-but-undelivered count
+(\texttt{qsize}); \texttt{spuriousDrop} records whether any drop fired below
+capacity. \texttt{regLock} and \texttt{boxLock} are the two lock holders, and the
+two phases place each producer in its lock climb. The at-most-one-holder
+discipline is structural: a lock is held by exactly one value of its holder type.
+
+\begin{schema}{InboxLock}
+  depth : \nat \\
+  spuriousDrop : FSTATE \\
+  regLock : REGH \\
+  boxLock : BOXH \\
+  oPhase : OPHASE \\
+  pPhase : PPHASE
+\where
+  depth \leq maxDepth \\
+  (oPhase = oidle \iff regLock = rfree) \\
+  (oPhase = oboth \implies boxLock = boffer) \\
+  (pPhase = pbox \iff boxLock = bpublish)
+\end{schema}
+
+The coherence predicates tie the phases to the locks: the offer producer holds
+\texttt{regLock} exactly when it is past \texttt{oidle}, holds \texttt{boxLock}
+when it reaches \texttt{oboth}, and the publish producer holds \texttt{boxLock}
+exactly when it is in \texttt{pbox}. \texttt{depth} $\leq$ \texttt{maxDepth} is a
+carrier bound, not the safety property: it says the count fits the modelled
+range, and it is deliberately one \emph{above} \texttt{cap} so an overshoot is
+representable. B1, the real bound, is checked as reachability.
+
+% ============================================================
+\section{Initialization}
+% ============================================================
+
+\begin{schema}{Init}
+  InboxLock'
+\where
+  depth' = 0 \\
+  spuriousDrop' = fclear \\
+  regLock' = rfree \\
+  boxLock' = bfree \\
+  oPhase' = oidle \\
+  pPhase' = pidle
+\end{schema}
+
+An empty inbox, both locks free, both producers idle, nothing dropped.
+
+% ============================================================
+\section{Operations}
+% ============================================================
+
+The compound \texttt{put} appears as one atomic operation per producer
+(\texttt{OfferPut}, \texttt{PubPut}), each performed while that producer holds
+\texttt{boxLock}. Representing a lock-protected critical section as a single Z
+operation is the standard abstraction, and it is exactly how
+\texttt{menu\_lifecycle.tex} models the D1 fix: because \texttt{boxLock} is
+mutually exclusive and held across the whole compound, no other producer's put
+can interleave the check, the drop, and the enqueue. The no-lock control drops
+that hold and splits the compound into its three tearable steps.
+
+\subsection{OfferAcqReg --- the offer path takes the registry lock}
+
+Models entering \texttt{offer}'s \texttt{with \_inboxes\_lock} block. The offer
+producer takes \texttt{regLock} and advances to \texttt{oreg}, where it will wait
+for \texttt{boxLock}.
+
+\begin{schema}{OfferAcqReg}
+  \Delta InboxLock \\
+\where
+  oPhase = oidle \\
+  regLock = rfree \\
+  regLock' = roffer \\
+  oPhase' = oreg \\
+  depth' = depth \\
+  spuriousDrop' = spuriousDrop \\
+  boxLock' = boxLock \\
+  pPhase' = pPhase
+\end{schema}
+
+\subsection{OfferAcqBox --- the offer path takes the inbox lock, nested}
+
+Models \texttt{inbox.put} entering the inbox's own lock \emph{while
+\texttt{\_inboxes\_lock} is still held}. This is the one nesting in the design:
+\texttt{regLock} $\to$ \texttt{boxLock}. The step is guarded on
+\texttt{boxLock} free, so if the publish producer holds it the offer producer
+waits here in \texttt{oreg} --- the blockable wait.
+
+\begin{schema}{OfferAcqBox}
+  \Delta InboxLock \\
+\where
+  oPhase = oreg \\
+  boxLock = bfree \\
+  boxLock' = boffer \\
+  oPhase' = oboth \\
+  depth' = depth \\
+  spuriousDrop' = spuriousDrop \\
+  regLock' = regLock \\
+  pPhase' = pPhase
+\end{schema}
+
+\subsection{OfferPut --- the compound put, atomic under boxLock}
+
+Models the whole of \texttt{BoundedInbox.put} running under the inbox lock: if
+the inbox is full one message is dropped and one enqueued (depth unchanged); else
+one is enqueued (depth up one). The drop, when it fires, fires at $depth = cap$,
+so it never lowers a queue that had room --- \texttt{spuriousDrop} stays clear.
+Both locks release as the two \texttt{with} blocks close.
+
+\begin{schema}{OfferPut}
+  \Delta InboxLock \\
+\where
+  oPhase = oboth \\
+  (depth < cap \implies depth' = depth + 1) \\
+  (depth \geq cap \implies depth' = depth) \\
+  spuriousDrop' = spuriousDrop \\
+  boxLock' = bfree \\
+  regLock' = rfree \\
+  oPhase' = oidle \\
+  pPhase' = pPhase
+\end{schema}
+
+\subsection{PubAcqBox --- the publish path takes the inbox lock, un-nested}
+
+Models the publish \texttt{\_writer}'s \texttt{inbox\_for(cid).put}. The registry
+lock \texttt{inbox\_for} took to look the inbox up has already been released, so
+the publish producer takes \texttt{boxLock} with \emph{no} outer lock held. It
+never climbs to a second lock --- there is no \texttt{PubAcqReg} in the fixed
+model.
+
+\begin{schema}{PubAcqBox}
+  \Delta InboxLock \\
+\where
+  pPhase = pidle \\
+  boxLock = bfree \\
+  boxLock' = bpublish \\
+  pPhase' = pbox \\
+  depth' = depth \\
+  spuriousDrop' = spuriousDrop \\
+  regLock' = regLock \\
+  oPhase' = oPhase
+\end{schema}
+
+\subsection{PubPut --- the publish compound put, atomic under boxLock}
+
+The same atomic compound as \texttt{OfferPut}, under the publish producer's hold
+of \texttt{boxLock}. Releases only \texttt{boxLock}: the publish path never held
+\texttt{regLock}.
+
+\begin{schema}{PubPut}
+  \Delta InboxLock \\
+\where
+  pPhase = pbox \\
+  (depth < cap \implies depth' = depth + 1) \\
+  (depth \geq cap \implies depth' = depth) \\
+  spuriousDrop' = spuriousDrop \\
+  boxLock' = bfree \\
+  pPhase' = pidle \\
+  regLock' = regLock \\
+  oPhase' = oPhase
+\end{schema}
+
+\subsection{Drain --- recv consumes one message}
+
+Models a subscriber's \texttt{recv} (\texttt{get}) draining one message. In the
+fix \texttt{get} also runs under the inbox lock, so \texttt{Drain} is guarded on
+\texttt{boxLock} free --- it cannot run while a producer holds the lock, and
+holds no lock in a wait state of its own, so it contributes no deadlock edge. It
+lets \texttt{depth} fall so contention recurs and B1/B2 are not vacuous.
+
+\begin{schema}{Drain}
+  \Delta InboxLock \\
+\where
+  boxLock = bfree \\
+  depth > 0 \\
+  depth' = depth - 1 \\
+  spuriousDrop' = spuriousDrop \\
+  regLock' = regLock \\
+  boxLock' = boxLock \\
+  oPhase' = oPhase \\
+  pPhase' = pPhase
+\end{schema}
+
+% ============================================================
+\section{Invariants}
+\label{sec:inv}
+% ============================================================
+
+\paragraph{B1 --- bound integrity.}
+\[ depth \leq cap. \]
+No operation can push \texttt{depth} past \texttt{cap}. \texttt{OfferPut} and
+\texttt{PubPut} each require their producer to hold \texttt{boxLock}, and
+\texttt{boxLock} admits one holder, so the two compounds never interleave: each
+runs atomically against a \texttt{depth} it alone is changing. From
+$depth \leq cap$ an atomic compound leaves $depth + 1 \leq cap$ (if it was below)
+or $depth$ (if it was full), so $depth \leq cap$ is preserved. \texttt{maxDepth}
+is reachable only if the bound breaks; against the fixed model $depth = maxDepth$
+is not found. The no-lock control removes the \texttt{boxLock} hold, and
+$depth = maxDepth$ becomes reachable at once.
+
+\paragraph{B2 --- drop minimality.}
+\[ \lnot\, (spuriousDrop = fset). \]
+A drop fires only inside an atomic compound, and only on the $depth \geq cap$
+branch, so it only ever discards the oldest message of a genuinely full inbox.
+\texttt{spuriousDrop} is never set in the fixed model. The no-lock control lets
+one producer's drop-decision go stale --- taken at $depth = cap$, executed after
+another producer has already dropped, at $depth < cap$ --- and
+\texttt{spuriousDrop} becomes reachable: two discards for one over-capacity
+admission.
+
+\paragraph{Deadlock-freedom and the one-way lock edge.}
+\label{sec:lockorder}
+The inbox lock is new, and it nests: \texttt{offer} holds \texttt{regLock}
+(\texttt{\_inboxes\_lock}) across \texttt{inbox.put}, which now takes
+\texttt{boxLock} --- the edge \texttt{regLock} $\to$ \texttt{boxLock}. Every other
+holder of \texttt{boxLock} takes it alone: the publish \texttt{\_writer} runs
+\texttt{put} after \texttt{inbox\_for} has released \texttt{regLock};
+\texttt{inbox\_depth\_for} and \texttt{drain\_inbox} read the inbox out under
+\texttt{regLock}, release it, and only then take \texttt{boxLock} for
+\texttt{depth}/\texttt{drain}; and \texttt{drop\_session} takes \texttt{regLock}
+alone and never touches \texttt{boxLock} at all. No path takes \texttt{regLock}
+while holding \texttt{boxLock}. The acquisition graph is the single edge
+\texttt{regLock} $\to$ \texttt{boxLock}; there is no reverse edge, so no cycle,
+so no deadlock. This is the same shape \texttt{menu\_lifecycle.tex}'s
+Section~``lock order'' establishes for the D3 edge \texttt{StoreLock} $\to$
+menu-registry lock: one more caller taking two locks in the one order every
+caller already uses. The model carries the two locks and the offer producer's
+blockable \texttt{oreg} wait so a full model-check exercises the contention; it
+finds no deadlock. The reverse-edge control adds the missing back edge --- the
+publish path acquiring \texttt{regLock} while holding \texttt{boxLock} --- and the
+deadlock check FINDS the cycle, so the one-way property is shown load-bearing,
+not assumed.
+
+% ============================================================
+\section{Fidelity Controls}
+\label{sec:fidelity}
+% ============================================================
+
+Each control differs from this specification in one place and makes an
+obligation's negation reachable where the fixed spec makes it unreachable.
+
+\paragraph{No lock --- \texttt{menu\_lifecycle\_bounded\_inbox\_nolock\_buggy.tex}.}
+\label{sec:fidelity-nolock}
+The inbox lock is removed, so the compound \texttt{put} is no longer atomic: it
+splits into \texttt{PutCheck} (read \texttt{depth}, decide whether to drop),
+\texttt{PutDrop} (the \texttt{get\_nowait}), and \texttt{PutEnq} (the enqueue),
+one triple per producer, freely interleaved. Two traces make the negations
+reachable. \emph{Overshoot:} from $depth = cap - 1$, both producers
+\texttt{PutCheck} (neither will drop), then both \texttt{PutEnq} ---
+$depth = cap + 1 = maxDepth$, B1's negation, FOUND. \emph{Double-drop:} from
+$depth = cap$, both \texttt{PutCheck} (both will drop), the first \texttt{PutDrop}
+lowers $depth$ to $cap - 1$, the second \texttt{PutDrop} then fires at
+$depth < cap$ --- \texttt{spuriousDrop} $=$ \texttt{fset}, B2's negation, FOUND.
+The fix (atomic compound under \texttt{boxLock}) removes both windows: no second
+producer can interleave a check, a drop, and an enqueue that are one step.
+
+\paragraph{Reverse edge --- \texttt{menu\_lifecycle\_bounded\_inbox\_deadlock\_buggy.tex}.}
+\label{sec:fidelity-deadlock}
+The publish path is made to acquire \texttt{regLock} \emph{while holding}
+\texttt{boxLock} --- a hypothetical in which \texttt{\_writer} reached back into
+the registry lock under the inbox lock. The one nesting \texttt{regLock} $\to$
+\texttt{boxLock} now has its reverse, \texttt{boxLock} $\to$ \texttt{regLock}, and
+the acquisition graph has a cycle. The trace
+\texttt{OfferAcqReg}\,;\,\texttt{PubAcqBox} reaches the state where the offer
+producer holds \texttt{regLock} and waits for \texttt{boxLock} while the publish
+producer holds \texttt{boxLock} and waits for \texttt{regLock}: no operation is
+enabled --- a deadlock, FOUND by ProB. This is the counterfactual the fixed
+model's one-way edge rules out, shown load-bearing.
+
+% ============================================================
+\section{The Delivery Invariants M1 and M1b Are Preserved}
+\label{sec:m1}
+% ============================================================
+
+The bounded inbox and its lock do not disturb the delivery properties the
+companions prove. Three facts carry that.
+
+First, \textbf{M1} (\texttt{menu\_lifecycle.tex}, no false-positive delivery) is
+the orphan-put property: \texttt{offer} must not report \texttt{delivered} for a
+put into an inbox \texttt{drop\_session} has already removed. Its guarantee is
+\texttt{offer} holding \texttt{\_inboxes\_lock} (\texttt{regLock}) across its
+\texttt{get} and \texttt{put}, serialized against \texttt{drop\_session}'s hold of
+the same lock. The new lock is \texttt{boxLock}, \emph{internal to} the
+\texttt{BoundedInbox} the \texttt{get} returned; it neither loosens nor moves the
+\texttt{regLock} hold M1 rests on. M1 is unaffected.
+
+Second, \textbf{M1b} (\texttt{menu\_lifecycle\_delivery.tex}, no live-recipient
+loss) is the property that no \emph{undrained} event is discarded from a
+still-registered connection by the departure race --- guaranteed by the departure
+removing the connection from the registry before the cascade tears the inbox down.
+The bounded inbox changes neither the departure ordering nor the registry-discard
+step, and the second producer (publish) only ever calls \texttt{put}: it moves no
+departure and discards nothing on teardown. M1b's race-freedom is unaffected.
+
+Third, the bounded drop is a \emph{separate, intentional} loss policy, not an M1b
+violation. \texttt{\_drop\_oldest} discards the oldest undelivered message of a
+full inbox belonging to a possibly still-registered but non-draining subscriber
+--- by design, the overflow backstop \texttt{INBOX\_CAPACITY} exists to apply, the
+same policy the callback hold's \texttt{\_HOLD\_CAPACITY} applies. M1b forbids
+loss from the delivery/departure \emph{race}; it does not forbid the capacity
+backstop, which is the documented behaviour of a bounded queue and is what B1/B2
+above govern. Reading the capacity drop as an M1b breach would be a category
+error: M1b is about races, the bound is about overflow.
+
+Because the change touches none of the transitions \texttt{menu\_lifecycle.tex}
+and \texttt{menu\_lifecycle\_delivery.tex} model, those specs continue to hold
+unchanged; re-running their \texttt{fuzz} and goal checks confirms M1 and M1b
+still pass with the bound and the lock in place.
+
+% ============================================================
+\section{Verification}
+\label{sec:verify}
+% ============================================================
+
+Type-checking is a \texttt{fuzz} pass:
+\begin{verbatim}
+  fuzz docs/menu_lifecycle_bounded_inbox.tex
+\end{verbatim}
+
+B1 and B2 are safety properties, checked by asking ProB whether their negation
+is reachable. A goal reported \emph{not found} means the invariant holds on every
+reachable state.
+
+\begin{verbatim}
+  # B1 -- bound integrity (goal NOT found in this, the fixed, spec)
+  probcli docs/menu_lifecycle_bounded_inbox.tex -model_check -nodead \
+    -goal "depth > cap" \
+    -p DEFAULT_SETSIZE 2
+
+  # B2 -- drop minimality (goal NOT found in this, the fixed, spec)
+  probcli docs/menu_lifecycle_bounded_inbox.tex -model_check -nodead \
+    -goal "spuriousDrop = fset" \
+    -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+The positive outcomes are confirmed reachable, so the invariants are not
+vacuously true of a model that can never fill or drain the inbox:
+
+\begin{verbatim}
+  # the inbox reaches capacity (goal FOUND)
+  probcli docs/menu_lifecycle_bounded_inbox.tex -model_check -nodead \
+    -goal "depth = cap" \
+    -p DEFAULT_SETSIZE 2
+
+  # both producers can hold the lock over the run, one at a time (goal FOUND)
+  probcli docs/menu_lifecycle_bounded_inbox.tex -model_check -nodead \
+    -goal "boxLock = bpublish" \
+    -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+Deadlock-freedom and the structural state invariant are checked by a full
+model-check over the reachable state space (deadlock detection is on by default):
+
+\begin{verbatim}
+  probcli docs/menu_lifecycle_bounded_inbox.tex -model_check -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+The fidelity controls make the negations \emph{FOUND}:
+
+\begin{verbatim}
+  # No lock: B1's negation FOUND (overshoot)
+  probcli docs/menu_lifecycle_bounded_inbox_nolock_buggy.tex -model_check -nodead \
+    -goal "depth > cap" \
+    -p DEFAULT_SETSIZE 2
+
+  # No lock: B2's negation FOUND (double-drop)
+  probcli docs/menu_lifecycle_bounded_inbox_nolock_buggy.tex -model_check -nodead \
+    -goal "spuriousDrop = fset" \
+    -p DEFAULT_SETSIZE 2
+
+  # Reverse edge: the deadlock check FINDS a deadlock
+  probcli docs/menu_lifecycle_bounded_inbox_deadlock_buggy.tex -model_check \
+    -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+Re-run \texttt{fuzz} and these goal checks whenever \texttt{inbox\_queue.py}'s
+\texttt{put}/\texttt{\_drop\_oldest} or its lock, or \texttt{inbox.py}'s
+\texttt{offer}/\texttt{\_writer}/\texttt{inbox\_for}/\texttt{drop\_session}
+(the lock nesting), change. Re-run the companions' checks too: M1 and M1b are
+proved there, and this change is designed to leave them untouched.
+
+\end{document}
