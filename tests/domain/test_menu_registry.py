@@ -8,6 +8,7 @@ sessions never clobber and a departed session's bar leaves the composed snapshot
 
 from __future__ import annotations
 
+from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.hub.menu_models import Menu, MenuAction
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
@@ -63,8 +64,9 @@ def test_wire_snapshot_stamps_each_leaf_id_with_its_owner() -> None:
 
 
 def test_wire_snapshot_carries_a_frame_id_through_to_the_display() -> None:
-    # gap (a) end to end: a frame-bound item's frame_id survives stamping into the
-    # composed snapshot the display receives — the display raises it on click.
+    # gap (a) end to end: a frame-bound item's frame_id is OWNER-COMPOSED into the
+    # snapshot the display receives — byte-identical to the scene frame key
+    # ScenePresentation composes for the same owner, so raise_frame finds it.
     reg, clients = _live_registry()
     owner = ConnectionId("owner-frame")
     clients.record(owner)
@@ -83,7 +85,7 @@ def test_wire_snapshot_carries_a_frame_id_through_to_the_display() -> None:
     assert items[0] == {
         "label": "Run",
         "id": CallbackInvocation(owner, "run").menu_id,
-        "frame_id": "dash",
+        "frame_id": ConnectionScopedId.compose(owner, "dash"),
     }
 
 

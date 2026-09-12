@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import pytest
 
+from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.menu_action import MenuAction
 from punt_lux.domain.hub.menu_models import Menu, MenuSeparator, WireMenuEntry
 from punt_lux.domain.hub.session_callback import CallbackInvocation
@@ -41,14 +42,34 @@ def test_from_wire_rejects_a_non_string_frame_id() -> None:
         MenuAction.from_wire({"id": "run", "label": "Run", "frame_id": 7}, loc="m")
 
 
-def test_stamped_for_renders_the_owner_composite_leaf_id() -> None:
+def test_stamped_for_owner_composes_both_the_leaf_id_and_the_frame_id() -> None:
     action = MenuAction(id="run", label="Run", frame_id="dash")
     owner = ConnectionId("sess-1")
     stamped = action.stamped_for(owner)
     assert stamped.id == CallbackInvocation(owner, "run").menu_id
-    # Stamping touches only the id; label and frame_id ride along unchanged.
     assert stamped.label == "Run"
-    assert stamped.frame_id == "dash"
+    # gap (a): the frame_id is owner-composed too, else the display's
+    # raise_frame(frame_id) never matches the owner-composed scene key.
+    assert stamped.frame_id == ConnectionScopedId.compose(owner, "dash")
+
+
+def test_stamped_frame_id_matches_the_scene_key_scene_presentation_composes() -> None:
+    # The crux: a frame-bound agent item's stamped frame_id must be byte-identical
+    # to the key ScenePresentation composes for the same (owner, raw frame_id) —
+    # both use ConnectionScopedId.compose — so a click's raise_frame finds the
+    # actual shown frame. A raw pass-through (the shipped bug) fails this.
+    owner = ConnectionId("917218c0")
+    raw = "demo-frame"
+    stamped = MenuAction(id="run", label="Run", frame_id=raw).stamped_for(owner)
+    scene_key = ConnectionScopedId.compose(owner, raw)
+    assert stamped.frame_id == scene_key
+    assert stamped.frame_id != raw  # proves it is composed, not passed through
+
+
+def test_stamped_for_leaves_a_frameless_item_frame_id_none() -> None:
+    # gap (b) delivery is unaffected: no frame to raise, frame_id stays None.
+    stamped = MenuAction(id="run", label="Run").stamped_for(ConnectionId("sess-1"))
+    assert stamped.frame_id is None
 
 
 def test_every_entry_kind_satisfies_the_wire_menu_entry_protocol() -> None:

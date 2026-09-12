@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, ClassVar, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.session_callback import CallbackInvocation
 from punt_lux.domain.id_separator import ID_SEPARATOR, NONBLANK_FRAME_ID
 
@@ -70,16 +71,27 @@ class MenuAction(BaseModel):
         )
 
     def stamped_for(self, owner: ConnectionId) -> MenuAction:
-        """Return a copy whose leaf id is stamped ``owner<US>id`` for dispatch.
+        """Return a copy whose leaf id and frame id are owner-stamped for dispatch.
 
-        Uses the one leaf-id encoding the callback path uses
-        (:class:`CallbackInvocation`), so an agent item's click round-trips to the
-        owning session exactly as a callback leaf does — the shared ownership
-        stamping both menu families rely on. Copies rather than calling
-        :meth:`from_wire`, so the composite id is not refused by the boundary rule.
+        Both keys are namespaced to the owning connection at stamp time, not at
+        submit time (the agent submits raw, separator-free values):
+
+        - the leaf ``id`` becomes ``owner<US>id`` via :class:`CallbackInvocation`,
+          the one leaf-id encoding the callback path uses, so a click round-trips
+          to the owning session exactly as a callback leaf does;
+        - a present ``frame_id`` becomes ``owner<US>frame_id`` via
+          :meth:`ConnectionScopedId.compose` — the *same* primitive
+          ``ScenePresentation`` composes a shown frame's key with, so a
+          frame-bound item's ``frame_id`` matches the actual scene key and
+          ``raise_frame`` finds it. ``None`` (no owned frame) stays ``None``.
+
+        Copies rather than calling :meth:`from_wire`, so the composite ids are not
+        refused by the boundary rule.
         """
-        stamped = CallbackInvocation(owner, self.id).menu_id
-        return self.model_copy(update={"id": stamped})
+        update: dict[str, object] = {"id": CallbackInvocation(owner, self.id).menu_id}
+        if self.frame_id is not None:
+            update["frame_id"] = ConnectionScopedId.compose(owner, self.frame_id)
+        return self.model_copy(update=update)
 
     def to_wire(self) -> dict[str, object]:
         """Render as the untyped menu-item payload the display consumes."""
