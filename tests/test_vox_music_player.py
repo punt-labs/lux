@@ -15,8 +15,9 @@ leg:
 Both legs drive the production :class:`HubListenTransport` over Starlette's
 ``TestClient`` with fresh domain objects, so no display process and no uvicorn
 thread is involved. What a real display would add is the GLFW pixel hit-test that
-turns a click into the invocation; the Hub-side invoke stands in for exactly that
-step, and the leaf id and the button event it carries are byte-identical to what
+turns a click into the invocation; the Hub-side ``CallbackRouter.route`` stands in
+for exactly that step, and the leaf id and the button event it carries are
+byte-identical to what
 the display would send. The publish sink is :class:`HubPublishSink`'s own shape —
 a connection-scoped adapter onto ``Hub.publish`` — bound to this test's Hub so the
 button's declared topic reaches the very subscriber the WebSocket registered.
@@ -42,9 +43,6 @@ from punt_lux.domain.hub.menu_models import Menu, MenuAction
 from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
 from punt_lux.domain.ids import ClientId, ElementId, SceneId, Topic
 from punt_lux.domain.interaction import ButtonClicked
-from punt_lux.operations.callbacks import CallbackOperations
-from punt_lux.operations.models.common import OpError
-from punt_lux.operations.models.menu_results import Ok
 from punt_lux.protocol.element_factory import JsonElementFactory
 from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.renderers.raising import RaisingRendererFactory
@@ -62,25 +60,6 @@ _HEADERS = {
 # machine, not to a checkout, which is also why the menu calls it ``voxd``.
 _IDENTITY = ClientIdentity(kind="app", name="voxd")
 _CONN = connection_for({"kind": "app", "name": "voxd"})
-
-
-@final
-class _Replicator:
-    """A ``DirtyMarker`` stub recording the flags the operations raise."""
-
-    _marks: list[str]
-    __slots__ = ("_marks",)
-
-    def __new__(cls) -> Self:
-        self = super().__new__(cls)
-        self._marks = []
-        return self
-
-    def mark_dirty(self, scene_id: SceneId) -> None:
-        self._marks.append(f"dirty:{scene_id}")
-
-    def mark_menus(self) -> None:
-        self._marks.append("menus")
 
 
 @final
@@ -206,7 +185,6 @@ def test_the_music_build_shows_one_voxd_submenu_with_a_music_leaf() -> None:
 
 def test_a_music_leaf_click_reaches_voxds_live_websocket() -> None:
     client, _hub, clients, router = _wired()
-    callbacks = CallbackOperations(clients, router, _Replicator())
     leaf_id = CallbackInvocation(_CONN, "music").menu_id
 
     with client.websocket_connect("/ws", headers=_HEADERS) as ws:
@@ -220,20 +198,16 @@ def test_a_music_leaf_click_reaches_voxds_live_websocket() -> None:
             _CONN, SessionCallback(id="music", label="Music"), leg
         )
         assert registration == "registered"
-        # The display-less stand-in for a leaf click: the invoke a menu-leaf click
-        # dispatches, driven with the exact id the built leaf carries.
-        outcome = callbacks.invoke_callback(leaf_id)
-        assert isinstance(outcome, Ok)
+        # The display-less stand-in for a leaf click: the exact route() call the
+        # interaction dispatch fires, driven with the id the built leaf carries.
+        assert router.route(CallbackInvocation.from_menu_id(leaf_id)) == "routed"
         assert ws.receive_json() == {"kind": "callback", "callback_id": "music"}
 
 
 def test_a_stale_leaf_click_after_the_session_is_gone_fails_gracefully() -> None:
-    _client, _hub, clients, router = _wired()
-    callbacks = CallbackOperations(clients, router, _Replicator())
+    _client, _hub, _clients, router = _wired()
     # No session was ever recorded for _CONN, so its leaf id resolves to nobody.
-    outcome = callbacks.invoke_callback(CallbackInvocation(_CONN, "music").menu_id)
-    assert isinstance(outcome, OpError)
-    assert outcome.code == "not_found"
+    assert router.route(CallbackInvocation(_CONN, "music")) == "provider_gone"
 
 
 def test_a_play_row_publish_button_reaches_voxds_music_subscriber() -> None:

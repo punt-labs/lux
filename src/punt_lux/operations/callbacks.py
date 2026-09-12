@@ -1,10 +1,12 @@
-"""CallbackOperations — register menu callbacks, route their clicks, read the menu.
+"""CallbackOperations — register menu callbacks and read the callback menu.
 
-A menu item is a session's callback. This concern owns the three Hub-side moves of
-the callback model: a push-reachable, identified session *registers* a callback (a
-menu write the replicator pushes); a click *invokes* a callback, which the router
-routes to the owning session's live listener; and the *menu build* reads the live
-sessions into the uniform ``Clients`` tree.
+A menu item is a session's callback. This concern owns two Hub-side moves of the
+callback model: a push-reachable, identified session *registers* a callback (a
+menu write the replicator pushes), and the *menu build* reads the live sessions
+into the uniform ``Clients`` tree. Routing a click to the owning session's live
+listener is the ``CallbackRouter``'s own move, driven from the interaction
+dispatch, not from this facade; this concern only *peeks* at what a router has
+buffered, through :meth:`pending_callbacks`.
 
 Registration has two preconditions and refuses rather than half-granting either.
 The connection must hold a listen leg, because a menu item that cannot be
@@ -26,7 +28,7 @@ from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.menu_results import Ok
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.callback_hold import CallbackRouter, CallbackRouting
+    from punt_lux.domain.hub.callback_hold import CallbackRouter
     from punt_lux.domain.hub.hub_clients import HubClientRegistry
     from punt_lux.domain.hub.menu_models import Menu
     from punt_lux.domain.hub.registry_outcomes import CallbackRegistration
@@ -121,19 +123,6 @@ class CallbackOperations:
         self._replicator.mark_menus()
         return Ok()
 
-    def invoke_callback(self, menu_id: str) -> Ok | OpError:
-        """Route a clicked leaf's invocation to its owning session, or say why not.
-
-        ``menu_id`` is the leaf id a click carries — the owning session and callback
-        joined. A malformed id is an ``invalid_request``; a click for a departed
-        session or an unregistered callback is ``not_found`` naming which.
-        """
-        try:
-            invocation = CallbackInvocation.from_menu_id(menu_id)
-        except ValueError as exc:
-            return OpError(code="invalid_request", reason=str(exc))
-        return self._result_for(self._router.route(invocation))
-
     def callback_menus(self) -> list[Menu]:
         """Build the uniform ``Clients`` menu from one read of the named clients."""
         return CallbackMenu.from_named(self._clients.named_sessions())
@@ -159,15 +148,3 @@ class CallbackOperations:
         agent bar uses.
         """
         self._replicator.mark_menus()
-
-    @staticmethod
-    def _result_for(routing: CallbackRouting) -> Ok | OpError:
-        """Map a routing outcome to the operation result the surfaces return."""
-        if routing == "routed":
-            return Ok()
-        if routing == "provider_gone":
-            return OpError(
-                code="not_found",
-                reason="the session that owns this menu item is gone",
-            )
-        return OpError(code="not_found", reason="this session has no such callback")

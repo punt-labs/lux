@@ -17,7 +17,6 @@ from punt_lux.domain.hub.callback_hold import CallbackRouter
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.hub.menu_models import Menu
-from punt_lux.domain.hub.session_callback import CallbackInvocation
 from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.operations.callbacks import CallbackOperations
 from punt_lux.operations.models.callback_fields import CallbackFields
@@ -98,12 +97,12 @@ class _Wired:
     _ops: CallbackOperations
     __slots__ = ("_clients", "_marker", "_ops", "_router")
 
-    def __new__(cls, *, clock: _Clock | None = None, capacity: int = 32) -> Self:
+    def __new__(cls, *, clock: _Clock | None = None) -> Self:
         self = super().__new__(cls)
         self._clients = (
             HubClientRegistry(clock) if clock is not None else HubClientRegistry()
         )
-        self._router = CallbackRouter(self._clients, capacity)
+        self._router = CallbackRouter(self._clients)
         self._marker = _MarkerSpy()
         self._ops = CallbackOperations(self._clients, self._router, self._marker)
         return self
@@ -111,10 +110,6 @@ class _Wired:
     @property
     def ops(self) -> CallbackOperations:
         return self._ops
-
-    @property
-    def router(self) -> CallbackRouter:
-        return self._router
 
     @property
     def pushed(self) -> int:
@@ -141,12 +136,6 @@ class _Wired:
     def register(self, conn: ConnectionId, callback_id: str = "beads") -> Ok | OpError:
         request = RegisterCallbackRequest.parse(CallbackFields(callback_id, "Beads"))
         return self._ops.register_callback(request, scope=Scope(conn))
-
-    def click(self, conn: ConnectionId, callback_id: str = "beads") -> Ok | OpError:
-        return self._ops.invoke_callback(CallbackInvocation(conn, callback_id).menu_id)
-
-    def held(self, conn: ConnectionId) -> tuple[str, ...]:
-        return tuple(inv.callback_id for inv in self._router.pending(conn))
 
 
 def _identity(name: str = "claude", repo: str = "/w/lux") -> ClientIdentity:
@@ -222,72 +211,6 @@ def test_a_malformed_request_passes_through_without_pushing() -> None:
     assert isinstance(result, OpError)
     assert result.code == "invalid_request"
     assert wired.pushed == 0
-
-
-def test_a_click_routes_to_the_owning_session_and_wakes_its_listener() -> None:
-    wired = _Wired()
-    conn = ConnectionId("mcp")
-    listener = wired.connect(conn, _identity())
-    wired.register(conn)
-
-    assert isinstance(wired.click(conn), Ok)
-    assert listener.woken == 1  # pushed, not left for a poll
-    assert wired.held(conn) == ("beads",)  # and buffered until the leg drains it
-
-
-def test_the_hold_is_bounded() -> None:
-    wired = _Wired(capacity=2)
-    conn = ConnectionId("mcp")
-    wired.connect(conn, _identity())
-    wired.register(conn)
-
-    for _ in range(5):
-        wired.click(conn)
-    assert wired.held(conn) == ("beads", "beads")  # capped at 2
-
-
-def test_a_click_for_a_departed_session_is_not_found() -> None:
-    clock = _Clock()
-    wired = _Wired(clock=clock)
-    conn = ConnectionId("cli")
-    wired.connect(conn, ClientIdentity(kind="cli", name="lux", repo="/w/lux"))
-    wired.register(conn)
-
-    clock.advance(91.0)  # past the 90s cli lease — the session leaves the live set
-    result = wired.click(conn)
-    assert isinstance(result, OpError)
-    assert result.code == "not_found"
-    assert "gone" in result.reason
-
-
-def test_a_click_for_an_unregistered_callback_is_not_found() -> None:
-    wired = _Wired()
-    conn = ConnectionId("mcp")
-    wired.connect(conn, _identity())
-    wired.register(conn)
-
-    result = wired.click(conn, "other")
-    assert isinstance(result, OpError)
-    assert result.code == "not_found"
-
-
-def test_a_malformed_leaf_id_is_invalid_request() -> None:
-    result = _Wired().ops.invoke_callback("no-separator")
-    assert isinstance(result, OpError)
-    assert result.code == "invalid_request"
-
-
-def test_a_click_is_held_for_only_its_own_session() -> None:
-    wired = _Wired()
-    vox, lux = ConnectionId("vox"), ConnectionId("lux")
-    wired.connect(vox, _identity("vox", "/w/vox"))
-    wired.connect(lux, _identity("lux", "/w/lux"))
-    wired.register(vox)
-    wired.register(lux)
-
-    wired.click(vox)
-    assert wired.held(vox) == ("beads",)
-    assert wired.held(lux) == ()  # the peer's hold is untouched
 
 
 def test_a_dropped_listener_closes_the_door_to_new_registrations() -> None:
