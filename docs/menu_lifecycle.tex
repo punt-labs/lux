@@ -100,7 +100,14 @@ of them.
     \texttt{recv()} will drain. This is what D1 breaks: \texttt{offer} reads
     the queue under its lock, releases the lock, then puts -- so a
     \texttt{drop\_session} in the window lands the put in an orphan and
-    \texttt{offer} still returns \texttt{True}.
+    \texttt{offer} still returns \texttt{True}. M1 is the \emph{orphan-put}
+    property: it forbids a \texttt{delivered} report for a put into a queue that
+    was \emph{already gone at put time}. The distinct question of a put that
+    lands on a \emph{live} inbox which a departure then tears down --- the
+    offer-then-drop-discards ordering a later review raised --- is a different
+    property, treated in the companion refinement
+    \texttt{menu\_lifecycle\_delivery.tex} (see
+    Section~\ref{sec:delivery-refinement}).
   \item[MO --- menu-ownership integrity.] No session owns a menu bar in the
     registry unless it is live. Equivalently, \texttt{menuOwner} $\subseteq$
     \texttt{registered} on every reachable state. This is what D2 and D3
@@ -685,6 +692,50 @@ isolating the defect to the store path. The trace
 and the store then wrote it into a registry the owner has left. The fix
 (atomic \texttt{SetMenu}, the \texttt{StoreLock} hold of
 Section~\ref{sec:lockorder}) removes the window.
+
+% ============================================================
+\section{The Delivery Refinement: offer-then-drop-discards}
+\label{sec:delivery-refinement}
+% ============================================================
+
+M1 above is the orphan-put property: no \texttt{delivered} report for a put
+into a queue already gone at put time, closed by \texttt{offer} holding
+\texttt{\_inboxes\_lock} across its \texttt{get} and \texttt{put}. A round-6
+review of PR~\#495 raised a \emph{different} window, one this model's atomic
+\texttt{MenuDeliver} abstracts away rather than rules on: the router's
+live-set read passes, a departure then removes the connection, \texttt{offer}
+then wins its lock and puts onto the \emph{still-present} inbox (returning
+\texttt{True}), and only then the cascade's \texttt{drop\_session} discards
+that inbox with the just-enqueued event in it. This is offer-\emph{then}-drop,
+\emph{after} a fully-completed \texttt{offer} --- the D1 fix does not touch it,
+because no lock can stop a recipient from departing once delivered to.
+
+The abstraction is real: \texttt{MenuDeliver} here reports \texttt{ddelivered}
+and carries no token for the enqueued message, and departure is one atomic
+step, so this model cannot represent an enqueued event being discarded and
+therefore cannot say whether that discard is a false delivery. The companion
+\texttt{menu\_lifecycle\_delivery.tex} supplies exactly the missing detail: a
+\texttt{pending} token for the undrained event, a \texttt{Drain} for
+\texttt{recv()}, and a \emph{two-phase} departure whose registry-discard and
+inbox-teardown are separate steps --- the ``separate critical sections'' the
+review named. Over that refinement it proves
+
+\[ \textbf{M1b} \quad \lnot\, (lostLive = fset), \]
+
+no undrained event is discarded from a still-registered connection. The
+discard can only ever strike a connection that has \emph{already} left the
+registry, because the code's departure removes the connection
+(\texttt{HubDisplay.\_depart} $\to$ \texttt{\_clients.discard}) before the
+cascade fires \texttt{inbox.drop\_session}, under one \texttt{StoreLock} hold
+--- the order the companion's \texttt{DepartRegistry}-before-\texttt{DepartInbox}
+encodes and its reorder control shows to be load-bearing. A departed recipient
+has no \texttt{recv()} to miss, so the loss is the correct disposal of a click
+for a session that is gone, not a false delivery to a live one. The review's
+further worry, that the click path ``will not re-push the menu,'' does not
+follow: the same departure fires \texttt{MenuDepartureSink}
+(\texttt{operations/menus.py}), which prunes the owner's bar and calls
+\texttt{mark\_menus()} on every trigger, so the re-push happens on the
+departure path regardless of what the click path reported.
 
 % ============================================================
 \section{Verification}

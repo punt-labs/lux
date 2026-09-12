@@ -59,11 +59,30 @@ the reachability of its **negation**: `NOT found` against the fixed spec
 means the invariant holds on every reachable state; `FOUND` against a
 fidelity control means the control reproduces the defect.
 
-- **M1 — no false-positive delivery.**
+- **M1 — no false-positive delivery (orphan put).**
   `¬(reported = ddelivered ∧ lost = fset)`. A click reported delivered is
-  not sitting in an orphaned queue. **`NOT found`** against
-  `menu_lifecycle.tex` at `DEFAULT_SETSIZE 3` (3,993 states, 10 operations
-  covered, no deadlock). **`FOUND`** against `menu_lifecycle_d1_buggy.tex`.
+  not sitting in a queue that was *already gone at put time*. **`NOT found`**
+  against `menu_lifecycle.tex` at `DEFAULT_SETSIZE 3` (3,993 states, 10
+  operations covered, no deadlock). **`FOUND`** against
+  `menu_lifecycle_d1_buggy.tex`.
+- **M1b — no live-recipient loss (offer-then-drop-discards).**
+  `¬(lostLive = fset)`. A menu event put onto a *live* inbox that a departure
+  then tears down is never lost to a connection *still in the registry* — the
+  discard only ever strikes an already-departed recipient. This is the distinct
+  window a round-6 review raised: the base model's atomic `MenuDeliver`
+  abstracts it away (no token for the enqueued event, atomic departure), so it
+  is proved in the companion refinement `menu_lifecycle_delivery.tex`, which
+  adds a `pending` token, a `Drain`, and a two-phase departure (registry
+  discard then inbox teardown — the code's `HubDisplay._depart` order).
+  **`NOT found`** against `menu_lifecycle_delivery.tex` at `DEFAULT_SETSIZE 3`
+  (1,220 states, 8 operations covered, no deadlock). **`FOUND`** against
+  `menu_lifecycle_delivery_reorder_buggy.tex` (cascade legs reversed). The
+  reviewer's exact interleaving — a stale-read delivery landing in the
+  doomed-but-present inbox of an already-deregistered connection — is confirmed
+  *reachable and benign*: `Connect(c); Arm(c); DepartRegistry(c);
+  MenuDeliver(c)` reaches `c ∈ pending ∩ hasInbox ∧ c ∉ registered ∧
+  departPhase = tinbox`, and the subsequent `DepartInbox(c)` discards it with
+  `lostLive = fclear`.
 - **MO — menu-ownership integrity.**
   `¬∃ c: c ∈ menuOwner ∧ c ∉ registered`, i.e. `menuOwner ⊆ registered`. No
   session owns a bar unless it is live. **`NOT found`** against
@@ -88,6 +107,19 @@ violates exactly one invariant:
 | `menu_lifecycle_d1_buggy.tex` | `MenuDeliver` → `OfferBegin*`/`OfferEnd` (offer split) | **FOUND** | `NOT found` |
 | `menu_lifecycle_d2_buggy.tex` | `DepartLapsed` drops the `menuOwner` sweep | `NOT found` | **FOUND** |
 | `menu_lifecycle_d3_buggy.tex` | `SetMenu` → `SetMenuAdmit`/`SetMenuStore` (admit/store split) | `NOT found` | **FOUND** |
+
+The companion delivery refinement (`menu_lifecycle_delivery.tex`) carries its
+own control for the M1b window:
+
+| Control | Differs in | M1b negation (`lostLive = fset`) |
+|---|---|---|
+| `menu_lifecycle_delivery_reorder_buggy.tex` | departure legs run in the wrong order — `DepartInboxFirst` (inbox teardown) before `DepartRegistryAfter` (registry discard) | **FOUND** |
+
+Against the fixed `menu_lifecycle_delivery.tex` the same goal is `NOT found`.
+The control demonstrates that the code's discard-before-cascade order
+(`HubDisplay._depart` runs `_clients.discard` before `_cascade.run` →
+`inbox.drop_session`, under one `StoreLock` hold) is load-bearing: reverse it
+and a delivered-but-undrained click is lost to a still-live recipient.
 
 The witness traces are the ones named in the spec's Fidelity section: D1,
 `OfferBeginPresent(c); DepartGraceful(c); OfferEnd`; D2,
@@ -146,6 +178,7 @@ Replace each placeholder with the real test name when the fix lands.
 | **MD2 (offer atomic, the D1 regression)** | a `drop_session` racing an `offer` never yields a reported-delivered click in a dropped queue — either the put lands on the live inbox and reports delivered, or the inbox is already gone and it reports `provider_gone`; never delivered-into-orphan | `tests/domain/hub/test_inbox.py::test_offer_racing_drop_session_never_reports_a_false_delivery` — the direct regression test for D1 |
 | MD3 (provider-gone, live-check) | a click for a session gone from the live set is `provider_gone`, not delivered | `tests/domain/hub/test_menu_event.py::test_a_click_for_a_departed_session_is_provider_gone` |
 | MD4 (provider-gone, no inbox) | a click for a live session with no inbox (never armed / already dropped) is `provider_gone`, not delivered | `tests/domain/hub/test_inbox.py::test_offer_to_a_session_without_an_inbox_returns_false` |
+| MD5 (offer-then-drop-discards, benign) | a click delivered onto a live inbox that a departure then tears down is lost only when its recipient has already departed — never for a still-registered session — and the departed owner's bar is re-pushed by the departure cascade, not the click path | `tests/domain/hub/test_menu_event.py::test_a_click_delivered_then_departed_is_lost_only_for_a_gone_recipient` (proved by `menu_lifecycle_delivery.tex` M1b; the test asserts the departure re-push, not click-path re-push) |
 | **MW1 (all-paths-withdraw, the D2 regression)** | a session's bar leaves the menu registry on **every** departure trigger — graceful disconnect, SDK idle-reap, **and** the lease-lapse timed sweep | `tests/domain/hub/test_menu_registry.py::test_a_timer_reaped_owners_bar_leaves_the_registry` — the direct regression test for D2 |
 | MW2 (graceful withdraw) | `drop_connection` prunes the departing session's bar in the same step it removes it from the registry | `tests/domain/hub/test_hub_display.py::test_graceful_disconnect_prunes_the_menu_bar` |
 | MW3 (departed bar never renders) | `wire_snapshot`/`menu_bar` filter to the live set, so a stale bar never renders even in the pre-prune window | `tests/domain/hub/test_menu_registry.py::test_wire_snapshot_excludes_a_departed_owner` (existing behaviour the fix must not weaken) |
@@ -163,8 +196,10 @@ z-spec mandate names, here caught before a third empirical review round.
 
 ## When to re-run
 
-Re-run `fuzz docs/menu_lifecycle.tex` and the `probcli` goal checks in the
-spec's Verification section whenever `inbox.py`'s `offer`/`drop_session`/
+Re-run `fuzz` and the `probcli` goal checks for **both**
+`docs/menu_lifecycle.tex` (M1 orphan-put, MO) and its companion
+`docs/menu_lifecycle_delivery.tex` (M1b live-recipient loss) whenever
+`inbox.py`'s `offer`/`drop_session`/
 `ensure_writer`, `menu_registry.py`'s `set_menus`/`drop_session`,
 `menu_event.py`'s `MenuEventRouter.deliver`, `operations/menus.py`'s
 `set_menu`, `operations/menu_arming.py`'s `admit`, `hub_display.py`'s
