@@ -29,7 +29,7 @@ from punt_lux.cli._shared import (
     run,
 )
 from punt_lux.commands import Ctx, MenuOps, menu_ls, menu_set
-from punt_lux.operations import OpError, SetMenuRequest
+from punt_lux.operations import OpError, Scope, SetMenuRequest
 
 menu_app = typer.Typer(
     name="menu",
@@ -89,4 +89,4 @@ def set_(
         typer.echo(f"error: {request.reason}", err=True)
         raise typer.Exit(code=1)
     ctx: Ctx[MenuOps] = Ctx(ops=connect_client(identity=identity), identity=identity)
-    run(menu_set(ctx, request), flags)
+    run(menu_set(ctx, request, scope=Scope(identity.connection_id)), flags)

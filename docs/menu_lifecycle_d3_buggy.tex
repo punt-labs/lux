@@ -1,0 +1,307 @@
+%
+% menu_lifecycle_d3_buggy.tex
+%
+% FIDELITY CONTROL for docs/menu_lifecycle.tex, defect D3.
+%
+% This spec differs from the fixed menu_lifecycle.tex in exactly one place:
+% SetMenu (the atomic admit-then-store, the D3 fix) is replaced by the
+% shipped code's two-phase set_menu -- SetMenuAdmit runs MenuArming.admit
+% (renew, arm, liveness check) under StoreLock, the lock is RELEASED, then
+% SetMenuStore records the bar under the menu registry's own separate lock.
+% A departure interleaving between the two removes the owner AND sweeps its
+% (still-empty) menu entry; SetMenuStore then writes a bar for a session
+% already gone -- an orphaned-owner menu the departure will never revisit.
+%
+% Expected: MO's negation is reachable.
+%   probcli docs/menu_lifecycle_d3_buggy.tex -model_check -nodead \
+%     -goal "#c.(c : CONN & c : menuOwner & not(c : registered))" \
+%     -p DEFAULT_SETSIZE 3
+%   => goal FOUND (Connect; Identify; SetMenuAdmit; DepartGraceful; SetMenuStore).
+%
+% Against the fixed spec the same goal is NOT found. This control isolates
+% D3: DepartLapsed stays a full sweep (D2 fixed), so the only reachable
+% violation is the admit/store window.
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{lux Agent-Menu Lifecycle --- D3 Fidelity Control}
+\author{The admit/store TOCTOU: a bar recorded for a departed owner}
+\date{September 2026}
+\maketitle
+
+This is a fidelity control for \texttt{menu\_lifecycle.tex}. Only the
+\texttt{set\_menu} operation differs; every other schema is copied verbatim.
+
+\begin{zed}
+  [CONN]
+\end{zed}
+
+\begin{zed}
+  DSTATE ::= dnone | ddelivered | dgone
+\end{zed}
+
+\begin{zed}
+  FSTATE ::= fclear | fset
+\end{zed}
+
+\begin{zed}
+  APHASE ::= aidle | astore
+\end{zed}
+
+\begin{zed}
+  OPHASE ::= oidle | oput
+\end{zed}
+
+\begin{schema}{MenuReg}
+  registered : \power CONN \\
+  identified : \power CONN \\
+  lapsed : \power CONN \\
+  hasInbox : \power CONN \\
+  menuOwner : \power CONN \\
+  reported : DSTATE \\
+  lost : FSTATE \\
+  admitPhase : APHASE \\
+  admitFor : \power CONN \\
+  offerPhase : OPHASE \\
+  offerFor : \power CONN
+\where
+  identified \subseteq registered \\
+  lapsed \subseteq registered \\
+  \# admitFor \leq 1 \\
+  \# offerFor \leq 1
+\end{schema}
+
+\begin{schema}{Init}
+  MenuReg'
+\where
+  registered' = \emptyset \\
+  identified' = \emptyset \\
+  lapsed' = \emptyset \\
+  hasInbox' = \emptyset \\
+  menuOwner' = \emptyset \\
+  reported' = dnone \\
+  lost' = fclear \\
+  admitPhase' = aidle \\
+  admitFor' = \emptyset \\
+  offerPhase' = oidle \\
+  offerFor' = \emptyset
+\end{schema}
+
+\begin{schema}{Connect}
+  \Delta MenuReg \\
+  c? : CONN
+\where
+  registered' = registered \cup \{ c? \} \\
+  lapsed' = lapsed \setminus \{ c? \} \\
+  identified' = identified \\
+  hasInbox' = hasInbox \\
+  menuOwner' = menuOwner \\
+  reported' = reported \\
+  lost' = lost \\
+  admitPhase' = admitPhase \\
+  admitFor' = admitFor \\
+  offerPhase' = offerPhase \\
+  offerFor' = offerFor
+\end{schema}
+
+\begin{schema}{Identify}
+  \Delta MenuReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  identified' = identified \cup \{ c? \} \\
+  registered' = registered \\
+  lapsed' = lapsed \\
+  hasInbox' = hasInbox \\
+  menuOwner' = menuOwner \\
+  reported' = reported \\
+  lost' = lost \\
+  admitPhase' = admitPhase \\
+  admitFor' = admitFor \\
+  offerPhase' = offerPhase \\
+  offerFor' = offerFor
+\end{schema}
+
+\begin{schema}{Arm}
+  \Delta MenuReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  hasInbox' = hasInbox \cup \{ c? \} \\
+  registered' = registered \\
+  identified' = identified \\
+  lapsed' = lapsed \\
+  menuOwner' = menuOwner \\
+  reported' = reported \\
+  lost' = lost \\
+  admitPhase' = admitPhase \\
+  admitFor' = admitFor \\
+  offerPhase' = offerPhase \\
+  offerFor' = offerFor
+\end{schema}
+
+\begin{schema}{LeaseLapse}
+  \Delta MenuReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  c? \notin lapsed \\
+  lapsed' = lapsed \cup \{ c? \} \\
+  registered' = registered \\
+  identified' = identified \\
+  hasInbox' = hasInbox \\
+  menuOwner' = menuOwner \\
+  reported' = reported \\
+  lost' = lost \\
+  admitPhase' = admitPhase \\
+  admitFor' = admitFor \\
+  offerPhase' = offerPhase \\
+  offerFor' = offerFor
+\end{schema}
+
+% -- THE DEFECT: admit and store split across a StoreLock release --------
+
+% SetMenuAdmit models MenuArming.admit: renew, arm the inbox, pass the
+% liveness/identity check -- all under StoreLock, which is then RELEASED.
+% The bar is NOT yet stored; the connection is captured into admitFor.
+\begin{schema}{SetMenuAdmit}
+  \Delta MenuReg \\
+  c? : CONN
+\where
+  admitPhase = aidle \\
+  c? \in registered \\
+  c? \in identified \\
+  lapsed' = lapsed \setminus \{ c? \} \\
+  hasInbox' = hasInbox \cup \{ c? \} \\
+  admitPhase' = astore \\
+  admitFor' = \{ c? \} \\
+  registered' = registered \\
+  identified' = identified \\
+  menuOwner' = menuOwner \\
+  reported' = reported \\
+  lost' = lost \\
+  offerPhase' = offerPhase \\
+  offerFor' = offerFor
+\end{schema}
+
+% SetMenuStore models HubMenuRegistry.set_menus under the menu lock alone,
+% AFTER StoreLock was released. It records the bar UNCONDITIONALLY, never
+% re-checking whether the captured owner is still live -- the bug. If the
+% owner departed in the window, the bar is written for a session already
+% gone, and the departure that swept the registry will never revisit it.
+\begin{schema}{SetMenuStore}
+  \Delta MenuReg
+\where
+  admitPhase = astore \\
+  menuOwner' = menuOwner \cup admitFor \\
+  admitPhase' = aidle \\
+  admitFor' = \emptyset \\
+  registered' = registered \\
+  identified' = identified \\
+  lapsed' = lapsed \\
+  hasInbox' = hasInbox \\
+  reported' = reported \\
+  lost' = lost \\
+  offerPhase' = offerPhase \\
+  offerFor' = offerFor
+\end{schema}
+
+\begin{schema}{SetMenuRefused}
+  \Delta MenuReg \\
+  c? : CONN
+\where
+  c? \notin identified \\
+  lapsed' = lapsed \setminus \{ c? \} \\
+  registered' = registered \\
+  identified' = identified \\
+  hasInbox' = hasInbox \\
+  menuOwner' = menuOwner \\
+  reported' = reported \\
+  lost' = lost \\
+  admitPhase' = admitPhase \\
+  admitFor' = admitFor \\
+  offerPhase' = offerPhase \\
+  offerFor' = offerFor
+\end{schema}
+
+\begin{schema}{DepartGraceful}
+  \Delta MenuReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  registered' = registered \setminus \{ c? \} \\
+  identified' = identified \setminus \{ c? \} \\
+  lapsed' = lapsed \setminus \{ c? \} \\
+  hasInbox' = hasInbox \setminus \{ c? \} \\
+  menuOwner' = menuOwner \setminus \{ c? \} \\
+  reported' = reported \\
+  lost' = lost \\
+  admitPhase' = admitPhase \\
+  admitFor' = admitFor \\
+  offerPhase' = offerPhase \\
+  offerFor' = offerFor
+\end{schema}
+
+\begin{schema}{DepartLapsed}
+  \Delta MenuReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  c? \in lapsed \\
+  registered' = registered \setminus \{ c? \} \\
+  identified' = identified \setminus \{ c? \} \\
+  lapsed' = lapsed \setminus \{ c? \} \\
+  hasInbox' = hasInbox \setminus \{ c? \} \\
+  menuOwner' = menuOwner \setminus \{ c? \} \\
+  reported' = reported \\
+  lost' = lost \\
+  admitPhase' = admitPhase \\
+  admitFor' = admitFor \\
+  offerPhase' = offerPhase \\
+  offerFor' = offerFor
+\end{schema}
+
+\begin{schema}{MenuDeliver}
+  \Delta MenuReg \\
+  c? : CONN
+\where
+  c? \in registered \\
+  c? \in hasInbox \\
+  reported' = ddelivered \\
+  registered' = registered \\
+  identified' = identified \\
+  lapsed' = lapsed \\
+  hasInbox' = hasInbox \\
+  menuOwner' = menuOwner \\
+  lost' = lost \\
+  admitPhase' = admitPhase \\
+  admitFor' = admitFor \\
+  offerPhase' = offerPhase \\
+  offerFor' = offerFor
+\end{schema}
+
+\begin{schema}{MenuProviderGone}
+  \Delta MenuReg \\
+  c? : CONN
+\where
+  \lnot (c? \in registered \land c? \in hasInbox) \\
+  reported' = dgone \\
+  registered' = registered \\
+  identified' = identified \\
+  lapsed' = lapsed \\
+  hasInbox' = hasInbox \\
+  menuOwner' = menuOwner \\
+  lost' = lost \\
+  admitPhase' = admitPhase \\
+  admitFor' = admitFor \\
+  offerPhase' = offerPhase \\
+  offerFor' = offerFor
+\end{schema}
+
+\end{document}

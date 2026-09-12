@@ -137,7 +137,7 @@ def _isolated_ops(*, listening: bool = True) -> Generator[tuple[Operations, _Rig
         display,
         _StubReplicator(),
         hub=hub,
-        menu_registry=HubMenuRegistry(),
+        menu_registry=HubMenuRegistry(display.clients),
         callback_router=router,
         ports=ports,
     )

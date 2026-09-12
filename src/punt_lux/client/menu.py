@@ -10,7 +10,7 @@ from punt_lux.commands._ports import Ctx
 if TYPE_CHECKING:
     from punt_lux.commands._ports import MenuOps
     from punt_lux.domain.hub.client_identity import ClientIdentity
-    from punt_lux.operations import MenuList, Ok, OpError
+    from punt_lux.operations import MenuList, Ok, OpError, Scope
     from punt_lux.operations.models.menu_results import SetMenuRequest
 
 
@@ -24,12 +24,14 @@ class MenuAccessor:
 
     _ops: MenuOps
     _identity: ClientIdentity
-    __slots__ = ("_identity", "_ops")
+    _scope: Scope
+    __slots__ = ("_identity", "_ops", "_scope")
 
-    def __new__(cls, ops: MenuOps, identity: ClientIdentity) -> Self:
+    def __new__(cls, ops: MenuOps, identity: ClientIdentity, scope: Scope) -> Self:
         self = super().__new__(cls)
         self._ops = ops
         self._identity = identity
+        self._scope = scope
         return self
 
     def _ctx(self) -> Ctx[MenuOps]:
@@ -41,4 +43,4 @@ class MenuAccessor:
 
     async def set(self, request: SetMenuRequest | OpError) -> Ok | OpError:
         """Install ``request`` as the new menu bar."""
-        return await menu_set.execute(self._ctx(), request)
+        return await menu_set.execute(self._ctx(), request, scope=self._scope)

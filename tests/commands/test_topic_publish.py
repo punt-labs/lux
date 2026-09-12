@@ -6,13 +6,26 @@ import asyncio
 
 from punt_lux.commands import Ctx, TopicOps, topic_publish
 from punt_lux.domain.ids import ConnectionId
-from punt_lux.operations import Scope
+from punt_lux.operations import OpError, Scope
 from punt_lux.operations.models.pubsub import PublishRequest
 from punt_lux.operations.models.pubsub_acks import Published
 from tests.commands._family_stubs import StubTopicOps
 from tests.commands._scene_stub import identity
 
 _SCOPE = Scope(ConnectionId("test-conn"))
+
+
+def test_reserved_topic_refusal_renders_an_error_envelope() -> None:
+    refusal = OpError(code="invalid_request", reason="topic 'lux.menu' is reserved")
+    ops = StubTopicOps(publish=refusal)
+    ctx: Ctx[TopicOps] = Ctx(ops=ops, identity=identity())
+
+    result = asyncio.run(
+        topic_publish(ctx, "lux.menu", PublishRequest(payload={}), scope=_SCOPE)
+    )
+
+    assert result.error is True
+    assert result.text == "error: topic 'lux.menu' is reserved"
 
 
 def test_success_renders_delivered_count() -> None:

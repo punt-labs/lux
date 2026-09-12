@@ -435,9 +435,18 @@ def make_menu_replica(**overrides: Any) -> MenuReplica:
     )
 
 
-def wire_menu(label: str, items: Iterable[dict[str, Any]]) -> dict[str, Any]:
-    """Return a replicated menu payload in the shape the Hub sends."""
-    return {"label": label, "items": list(items)}
+def wire_menu(
+    label: str, items: Iterable[dict[str, Any]], owner: str | None = None
+) -> dict[str, Any]:
+    """Return a replicated menu payload in the shape the Hub sends.
+
+    ``owner`` is the owning-session id the Hub stamps onto an agent bar menu so
+    the display keys its heading per session; omit it for an owner-less menu.
+    """
+    payload: dict[str, Any] = {"label": label, "items": list(items)}
+    if owner is not None:
+        payload["owner"] = owner
+    return payload
 
 
 def checked_menu(payload: dict[str, Any]) -> WireMenu:

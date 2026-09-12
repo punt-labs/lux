@@ -159,8 +159,15 @@ class ModuleCouplingMetrics:
 
     @staticmethod
     def _is_type_definition(node: ast.ClassDef) -> bool:
-        """Return True for Protocol and TypedDict classes (skip for LCOM)."""
-        type_bases = {"Protocol", "TypedDict"}
+        """Return True for data-shape classes (Protocol, TypedDict, BaseModel).
+
+        BaseModel joins Protocol/TypedDict as a data-shape class exempt from the
+        private-attr LCOM heuristic: a pydantic model's cohesion lives in its
+        public fields (``self.label``), which ``_method_self_attrs`` — counting
+        only ``self._*`` — structurally cannot see, so every such model reads as
+        zero-cohesion (LCOM 1.0). Skipping it removes that false positive.
+        """
+        type_bases = {"Protocol", "TypedDict", "BaseModel"}
         for base in node.bases:
             if isinstance(base, ast.Name) and base.id in type_bases:
                 return True
@@ -259,6 +266,86 @@ class CouplingScorer:
         "efferent_coupling": ("<=", 15),
     }
 
+    # Wiring-hub modules aggregate the engine by design: like ``__main__.py``'s
+    # CLI entry point, they legitimately import many internal modules, so their
+    # high efferent coupling is their role, not debt. This is an explicit
+    # allowlist (a deliberate per-module act, never a directory-wide relaxation)
+    # matching PL-CU-1's own "extract a facade/mediator" remedy -- these ARE the
+    # facades/roots. Members: the single all-concern Operations facade
+    # (DES-010/DES-095, one code path); the process composition root that
+    # instantiates the singleton graph; and the thin MCP tool adapter over the
+    # Operations facade (a zero-logic parse-call-format shell). Leader-ruled
+    # 2026-09-12 (DES-095 escalate-per-file, lux-m3xr).
+    #
+    # Matched as EXACT repository-relative paths (set membership on the
+    # canonical ``src/punt_lux/...`` form), never by suffix: a suffix match
+    # would also relax an unrelated ``pkg/other/operations/facade.py`` or a
+    # vendored tree that happens to end the same way, silently widening the
+    # per-module allowlist into a directory-wide one.
+    WIRING_HUB_PATHS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "src/punt_lux/operations/facade.py",
+            "src/punt_lux/domain/hub/replicator_instance.py",
+            "src/punt_lux/tools/subscribe_tools.py",
+        }
+    )
+
+    WIRING_HUB_THRESHOLDS: ClassVar[dict[str, tuple[str, float]]] = {
+        "efferent_coupling": ("<=", 20),
+    }
+
+    @classmethod
+    def _relaxed_thresholds(
+        cls, filepath: str, repo_root: str | None = None
+    ) -> dict[str, tuple[str, float]]:
+        """Return the threshold table for ``filepath``, relaxed for hub roles.
+
+        ``__main__.py`` (any package's CLI entry point, a category) and the
+        wiring-hub allowlist (three exact repository-relative paths) get their
+        relaxed caps merged over the defaults; every other file uses the
+        defaults untouched.
+
+        The wiring-hub match is exact set membership on the path made
+        *relative to the real repository root* -- never a substring search for
+        a ``src/punt_lux/`` segment anywhere in the string. A relative input
+        (the normal CI/local invocation) is already repository-relative and is
+        matched verbatim; an absolute input is made relative to ``repo_root``
+        (the current working directory when none is given). A path that does
+        not live under the real repository root -- a vendored, fixture, or temp
+        tree that merely *contains* a ``src/punt_lux`` segment -- has no
+        repository-relative form in the allowlist and gets the default cap.
+        Anchoring at the repository-relative boundary, rather than finding the
+        segment as an arbitrary substring, is what keeps the per-module
+        allowlist from silently widening to any same-suffix path outside the
+        package.
+        """
+        thresholds = dict(cls.THRESHOLDS)
+        norm = filepath.replace("\\", "/")
+        if norm.endswith("__main__.py"):
+            thresholds.update(cls.MAIN_THRESHOLDS)
+        if cls._repo_relative(norm, repo_root) in cls.WIRING_HUB_PATHS:
+            thresholds.update(cls.WIRING_HUB_THRESHOLDS)
+        return thresholds
+
+    @staticmethod
+    def _repo_relative(norm: str, repo_root: str | None) -> str:
+        """Return ``norm`` as a repository-root-relative POSIX path.
+
+        A relative input is already repository-relative and is returned
+        verbatim. An absolute input is resolved against ``repo_root`` (the
+        current working directory when none is given); one that does not live
+        under that root has no repository-relative form and is returned
+        unchanged -- which, being absolute, can never equal an allowlist entry.
+        """
+        path = Path(norm)
+        if not path.is_absolute():
+            return path.as_posix()
+        root = (Path(repo_root) if repo_root is not None else Path.cwd()).resolve()
+        try:
+            return path.resolve().relative_to(root).as_posix()
+        except ValueError:
+            return norm
+
     def __new__(cls, target: Path) -> Self:
         self = super().__new__(cls)
         self._thresholds = cls.THRESHOLDS
@@ -292,9 +379,7 @@ class CouplingScorer:
         return sum(1 for g in self.grades.values() if g == "FAIL")
 
     def _check(self, metric: str, value: float | int, filepath: str = "") -> bool:
-        thresholds = self._thresholds
-        if filepath.endswith("__main__.py") and metric in self.MAIN_THRESHOLDS:
-            thresholds = {**self._thresholds, **self.MAIN_THRESHOLDS}
+        thresholds = self._relaxed_thresholds(filepath)
         if metric not in thresholds:
             return True
         op, target = thresholds[metric]
@@ -964,28 +1049,30 @@ class CouplingRatchet:
     # ---- metric comparison helpers ----
 
     @staticmethod
-    def _threshold_for(metric: str, filepath: str = "") -> tuple[str, float]:
+    def _threshold_for(
+        metric: str, filepath: str = "", repo_root: str | None = None
+    ) -> tuple[str, float]:
         """Return the (op, target) absolute threshold for ``metric`` on ``filepath``.
 
-        ``__main__.py`` gets ``CouplingScorer.MAIN_THRESHOLDS``' relaxed caps
-        where one is defined for the metric (``efferent_coupling <= 15``,
-        ``public_names <= 100``); every other metric, and every other
-        filepath, uses ``CouplingScorer.THRESHOLDS``. Shared by
-        ``_meets_threshold`` (the pass/fail check) and every caller that
-        formats a threshold into a diagnostic message, so a refusal message
-        can never cite the default cap for a file that was actually judged
-        against the relaxed one.
+        ``__main__.py`` and the wiring-hub allowlist get their relaxed caps
+        where one is defined for the metric (``efferent_coupling <= 15`` for
+        ``__main__``, ``<= 20`` for a wiring hub; ``public_names <= 100`` for
+        ``__main__``); every other metric, and every other filepath, uses
+        ``CouplingScorer.THRESHOLDS``. ``repo_root`` anchors the wiring-hub
+        exact-membership test (see ``_relaxed_thresholds``). Shared by
+        ``_meets_threshold`` (the pass/fail check) and every caller that formats
+        a threshold into a diagnostic message, so a refusal message can never
+        cite the default cap for a file that was actually judged against the
+        relaxed one.
         """
-        thresholds = CouplingScorer.THRESHOLDS
-        is_main = filepath.endswith("__main__.py")
-        if is_main and metric in CouplingScorer.MAIN_THRESHOLDS:
-            thresholds = {**thresholds, **CouplingScorer.MAIN_THRESHOLDS}
-        return thresholds[metric]
+        return CouplingScorer._relaxed_thresholds(filepath, repo_root)[metric]
 
     @staticmethod
-    def _meets_threshold(metric: str, value: float, filepath: str = "") -> bool:
+    def _meets_threshold(
+        metric: str, value: float, filepath: str = "", repo_root: str | None = None
+    ) -> bool:
         """Return True if value meets the absolute threshold."""
-        op, target = CouplingRatchet._threshold_for(metric, filepath)
+        op, target = CouplingRatchet._threshold_for(metric, filepath, repo_root)
         if op == ">=":
             return value >= target
         if op == "<=":
@@ -1025,6 +1112,7 @@ class CouplingRatchet:
         current: dict[str, float],
         baseline_entry: dict[str, float] | None,
         filepath: str,
+        repo_root: str | None = None,
     ) -> list[tuple[str, float]]:
         """Return the ``(metric, value)`` pairs that refuse a rebaseline bless.
 
@@ -1048,7 +1136,7 @@ class CouplingRatchet:
         """
         refusals: list[tuple[str, float]] = []
         for metric, value in current.items():
-            if CouplingRatchet._meets_threshold(metric, value, filepath):
+            if CouplingRatchet._meets_threshold(metric, value, filepath, repo_root):
                 continue
             if baseline_entry is None or metric not in baseline_entry:
                 refusals.append((metric, value))
@@ -1402,11 +1490,12 @@ class CouplingRatchet:
                 current,
                 self._baseline.get(canonical_key),
                 scored_key,
+                str(repo_root),
             )
             if over_and_regressed:
                 detail_parts: list[str] = []
                 for metric, value in over_and_regressed:
-                    op, target = self._threshold_for(metric, scored_key)
+                    op, target = self._threshold_for(metric, scored_key, str(repo_root))
                     detail_parts.append(f"{metric}={value:g} exceeds {op} {target:g}")
                 refused.append((requested, "; ".join(detail_parts)))
                 continue

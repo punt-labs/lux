@@ -22,6 +22,7 @@ __all__ = [
     "inbox_depth_for",
     "inbox_for",
     "next_event",
+    "offer",
 ]
 
 
@@ -72,25 +73,32 @@ def next_event(connection_id: ConnectionId, timeout: float) -> ObserverMessage |
 
 
 def ensure_writer(connection_id: ConnectionId) -> None:
-    """Bind an inbox writer, register the client, and arm ``drop_session``.
+    """Ensure the connection's inbox queue and cleanup, and a Hub writer.
 
-    The whole sequence -- registering, the has-writer check, and binding --
-    runs under the Hub store's write lock, so it can never straddle a
-    departure cascade the way a same-identity reconnect could otherwise land
-    inside.
+    The inbox queue and its ``drop_session`` cleanup are armed for EVERY caller,
+    even one that already has a Hub writer: a ``menu_set`` owner needs an inbox
+    for its menu clicks to land on -- ``offer`` never resurrects a missing one --
+    and a listener session installs its own Hub writer (``deliver_event``)
+    without ever creating an inbox. The Hub writer is registered only when none
+    exists, so a listener's writer is never clobbered by the inbox writer. The
+    whole sequence runs under the Hub store's write lock, so it can never
+    straddle a departure cascade the way a same-identity reconnect could
+    otherwise land inside.
     """
     with hub_display.write_lock():
         hub_display.register_client(connection_id)
-        if hub.has_writer(connection_id):
-            return
+        # The inbox and its cleanup exist independently of any Hub writer, so a
+        # listener session (writer already bound) still receives menu_set clicks.
         # Resolves the live queue per call, so a ``drain_inbox`` swap doesn't strand it.
         inbox_for(connection_id)
+        hub_display.bind_departure_sink(connection_id, drop_session)
+        if hub.has_writer(connection_id):
+            return
 
         def _writer(message: ObserverMessage) -> None:
             inbox_for(connection_id).put(message)
 
         hub.register_writer(connection_id, _writer)
-        hub_display.bind_departure_sink(connection_id, drop_session)
 
 
 def inbox_depth_for(connection_id: ConnectionId) -> int:
@@ -104,3 +112,26 @@ def drop_session(connection_id: ConnectionId) -> None:
     """Release the session's inbox queue on disconnect. Idempotent."""
     with _inboxes_lock:
         _inboxes.pop(connection_id, None)
+
+
+def offer(connection_id: ConnectionId, message: ObserverMessage) -> bool:
+    """Deliver ``message`` to an existing inbox, never resurrecting a dropped one.
+
+    Returns whether an inbox was present to receive it. Unlike the session
+    writer's ``inbox_for(...).put`` — which creates a queue on demand — this reads
+    with ``.get``, so a message for a session whose ``drop_session`` already ran
+    finds no inbox and is not delivered. The get AND the put run under one hold of
+    ``_inboxes_lock``, so a concurrent ``drop_session`` cannot interleave between
+    them: either the inbox is present and the message is put atomically (``True``),
+    or it is already gone (``False`` → ``provider_gone``). Reading the queue and
+    then putting outside the lock would let a departure pop it in between and
+    deliver into an orphan while still reporting ``True`` — the false-delivery the
+    menu-event M1 gate forbids (``¬(delivered ∧ lost)``, modelled in
+    ``docs/menu_lifecycle.tex``).
+    """
+    with _inboxes_lock:
+        inbox = _inboxes.get(connection_id)
+        if inbox is None:
+            return False
+        inbox.put(message)
+        return True

@@ -1,0 +1,476 @@
+%
+% menu_lifecycle_delivery.tex
+%
+% A refinement of docs/menu_lifecycle.tex along the ONE axis that model's
+% delivery abstraction collapses: the fate of an enqueued-but-undrained menu
+% event across a session departure. It exists to adjudicate a round-6 review
+% challenge (PR #495, bead lux-m3xr) to the M1 "no false-positive delivery"
+% invariant.
+%
+% THE CHALLENGE. The base model's MenuDeliver is one atomic step guarded on
+% (registered AND hasInbox): it fuses MenuEventRouter.deliver's live-set read
+% and inbox.offer's get-then-put, and it carries no token for the message once
+% enqueued. So it cannot represent, and therefore cannot rule on, the ordering
+% the reviewer named:
+%
+%   t0  deliver() reads live_sessions(): the target c is live. (registry lock,
+%       released)
+%   t1  a departure removes c from the client registry.
+%   t2  deliver() calls offer(). offer wins _inboxes_lock, the inbox is STILL
+%       present, it puts the event and returns True -> deliver reports
+%       "delivered".
+%   t3  the departure cascade's inbox drop_session runs, discarding that inbox
+%       WITH the just-enqueued event still in it.
+%
+% This is offer-THEN-drop-discards, distinct from the base model's D1
+% (drop-BETWEEN-get-and-put, an orphan put). The D1 fix -- offer's get and put
+% under one _inboxes_lock hold -- does NOT close t0..t3: the discard at t3 is a
+% separate lock acquisition that legitimately follows a fully-completed offer.
+% No queue can forbid its recipient from departing after a delivery.
+%
+% THE QUESTION this model answers. Is t0..t3 a false delivery? It is a false
+% delivery only if the discarded event had a LIVE recipient that could have
+% drained it. So this model gives the enqueued event a token (pending), a drain
+% (recv), and -- crucially -- a TWO-PHASE departure whose registry-discard and
+% inbox-teardown are separate steps, exactly the "separate critical sections"
+% the reviewer says the base model fused. It then checks:
+%
+%   M1b -- no live-recipient loss:  NOT (lostLive = fset).
+%     No undrained menu event is discarded from a connection that is still in
+%     the registry. Equivalently: a discard can only ever befall a connection
+%     that has already departed, which has no recv() to miss.
+%
+% WHY t0..t3 IS BENIGN, and why the model proves it. The code's departure
+% (hub_display.py _depart / _depart_lapsed) removes the connection from the
+% registry (self._clients.discard) and only THEN runs the cascade tail
+% (self._cascade.run -> inbox.drop_session), under one StoreLock hold; the
+% cascade's own docstring states "connection_id has already been irreversibly
+% removed from the registry by the time this runs". So at t3 the recipient is
+% already gone from live_sessions(): the discarded event had no live drain to
+% lose. DepartRegistry-then-DepartInbox encodes that order; M1b is NOT found.
+%
+% The reviewer's stated consequence -- "will not re-push the menu" -- does not
+% occur either: the SAME departure fires MenuDepartureSink (operations/menus.py),
+% which prunes the owner's bar and calls mark_menus() to re-push, on every
+% trigger. The click-dispatch path's "delivered" report is irrelevant to the
+% re-push; the departure re-pushes regardless. This model carries menuOwner and
+% prunes it in DepartRegistry (the same step that deregisters) to show the
+% Hub-side half of that fact (menuOwner subset of registered, MO); the display
+% re-push is the F3 mechanism, outside this Hub-state model's scope, as
+% rendering is throughout menu_lifecycle.tex.
+%
+% The fidelity control menu_lifecycle_delivery_reorder_buggy.tex runs the two
+% departure legs in the WRONG order (inbox teardown before registry discard) and
+% makes M1b's negation FOUND -- so the discard-before-cascade order the code
+% guarantees is shown to be load-bearing, not assumed.
+%
+% Type-check:  fuzz docs/menu_lifecycle_delivery.tex
+% Model-check:
+%   probcli docs/menu_lifecycle_delivery.tex -model_check -p DEFAULT_SETSIZE 3
+% Safety goal (NOT found in this, the fixed, spec):
+%   probcli docs/menu_lifecycle_delivery.tex -model_check -nodead \
+%     -goal "lostLive = fset" -p DEFAULT_SETSIZE 3
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{lux Agent-Menu Delivery: the Undrained-Event Refinement}
+\author{Proving no menu click reported delivered is lost to a still-live
+  recipient --- the offer-then-drop-discards question the base model abstracts}
+\date{September 2026}
+\maketitle
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+This specification refines \texttt{menu\_lifecycle.tex} along one axis: the
+life of a menu event \emph{after} \texttt{offer} has enqueued it. The base
+model's \texttt{MenuDeliver} reports \texttt{delivered} and stops; it carries
+no token for the enqueued message, models departure as a single atomic step,
+and so cannot state what becomes of a click that was put onto a live inbox
+which is then torn down by a departure. A round-6 review of PR~\#495 asked
+precisely that: if \texttt{MenuEventRouter.deliver}'s live-set read passes,
+then a departure removes the connection, then \texttt{offer} wins its lock and
+puts (returning \texttt{True}), and only then the cascade's
+\texttt{drop\_session} discards the inbox with the event still in it --- is the
+\texttt{delivered} report a false positive?
+
+The base model's D1 addresses a different window: a \texttt{drop\_session}
+\emph{between} \texttt{offer}'s \texttt{get} and its \texttt{put} (an orphan
+put), closed by holding \texttt{\_inboxes\_lock} across both. The window here is
+\emph{after} a fully-completed \texttt{offer}. No lock can prevent a recipient
+from departing once it has been delivered to; the honest question is whether
+the loss matters, and the honest answer is a property about \emph{who} loses.
+
+\begin{description}
+  \item[M1b --- no live-recipient loss.] No undrained menu event is discarded
+    from a connection still present in the registry:
+    \[ \lnot\, (lostLive = fset). \]
+    A click reported \texttt{delivered} may still be discarded --- but only
+    when its recipient has already departed, and a departed recipient has no
+    \texttt{recv()} left to drain it. The loss is then not a lost service but
+    the correct disposal of a click for a session that is gone.
+\end{description}
+
+As in \texttt{menu\_lifecycle.tex}, M1b is kept out of the state schema and
+checked as the reachability of its negation: \texttt{lostLive = fset} is
+\emph{not found} against this fixed spec, and \emph{FOUND} against the
+reorder control.
+
+% ============================================================
+\section{Basic Types}
+% ============================================================
+
+\begin{zed}
+  [CONN]
+\end{zed}
+
+A connection identity, the \texttt{ConnectionId} keying the client registry,
+the inbox table, and the menu registry. Connection ids are unique and never
+reused; \texttt{Connect} below encodes that a departing id cannot reconnect
+mid-departure. Two \texttt{CONN} suffice to exhibit one owner departing while a
+delivery is mid-flight beside a second session; the carrier is bounded by
+ProB's \texttt{DEFAULT\_SETSIZE}.
+
+% ============================================================
+\section{Free Types}
+% ============================================================
+
+\begin{zed}
+  DSTATE ::= dnone | ddelivered | dgone
+\end{zed}
+
+The outcome \texttt{MenuEventRouter.deliver} last reported to its caller.
+
+\begin{zed}
+  FSTATE ::= fclear | fset
+\end{zed}
+
+A two-value flag. \texttt{lostLive} carries it: whether any undrained event has
+been discarded from a still-registered connection.
+
+\begin{zed}
+  TPHASE ::= tidle | tinbox
+\end{zed}
+
+Where a departure is in its two-leg cascade: \texttt{tidle} between departures,
+\texttt{tinbox} after the registry-and-ownership leg has run and before the
+inbox-teardown leg does. This is the interleaving point the base model's atomic
+departure hides.
+
+% ============================================================
+\section{State}
+% ============================================================
+
+\begin{schema}{MenuFlow}
+  registered : \power CONN \\
+  hasInbox : \power CONN \\
+  menuOwner : \power CONN \\
+  pending : \power CONN \\
+  reported : DSTATE \\
+  lostLive : FSTATE \\
+  departPhase : TPHASE \\
+  departFor : \power CONN
+\where
+  \# departFor \leq 1
+\end{schema}
+
+\texttt{registered} is the client registry's live set --- what
+\texttt{live\_sessions()} returns. \texttt{hasInbox} is the set with a live
+inbox queue. \texttt{menuOwner} is the set with a stored bar.
+\texttt{pending} is the set whose inbox holds an enqueued-but-undrained menu
+event; this is the token the base model lacks. \texttt{reported} is the last
+\texttt{deliver} outcome. \texttt{lostLive} records a live-recipient loss.
+\texttt{departPhase} and \texttt{departFor} (the at-most-one connection whose
+departure cascade is in flight) split the departure into its two code legs.
+
+No containment is assumed: \texttt{menuOwner} $\subseteq$ \texttt{registered}
+is MO, proved in the base model, and \texttt{hasInbox} is unconstrained so a
+delivered-to inbox can be torn down from under a completed \texttt{offer}.
+
+% ============================================================
+\section{Initialization}
+% ============================================================
+
+\begin{schema}{Init}
+  MenuFlow'
+\where
+  registered' = \emptyset \\
+  hasInbox' = \emptyset \\
+  menuOwner' = \emptyset \\
+  pending' = \emptyset \\
+  reported' = dnone \\
+  lostLive' = fclear \\
+  departPhase' = tidle \\
+  departFor' = \emptyset
+\end{schema}
+
+% ============================================================
+\section{Operations}
+% ============================================================
+
+\subsection{Connect --- arrival and reconnect}
+
+A session joins the registry. A departing connection id cannot reconnect while
+its cascade is in flight (\texttt{c?} $\notin$ \texttt{departFor}), because
+connection ids are unique --- a reconnect is a fresh id, never the one being
+retired. This forbids the one spurious interleaving the two-phase departure
+would otherwise admit: a same-id ``reconnect'' re-registering between the
+registry leg and the inbox leg, which would make the inbox teardown appear to
+strike a live connection.
+
+\begin{schema}{Connect}
+  \Delta MenuFlow \\
+  c? : CONN
+\where
+  c? \notin departFor \\
+  registered' = registered \cup \{ c? \} \\
+  hasInbox' = hasInbox \\
+  menuOwner' = menuOwner \\
+  pending' = pending \\
+  reported' = reported \\
+  lostLive' = lostLive \\
+  departPhase' = departPhase \\
+  departFor' = departFor
+\end{schema}
+
+\subsection{Arm --- bind the inbox writer}
+
+Models \texttt{inbox.ensure\_writer}: a registered session gains a live inbox.
+
+\begin{schema}{Arm}
+  \Delta MenuFlow \\
+  c? : CONN
+\where
+  c? \in registered \\
+  hasInbox' = hasInbox \cup \{ c? \} \\
+  registered' = registered \\
+  menuOwner' = menuOwner \\
+  pending' = pending \\
+  reported' = reported \\
+  lostLive' = lostLive \\
+  departPhase' = departPhase \\
+  departFor' = departFor
+\end{schema}
+
+\subsection{Own --- store a menu bar}
+
+Models \texttt{MenuOperations.set\_menu} for an admitted caller, atomic as the
+base model's \texttt{SetMenu} (identity gating and the D3 store window are the
+base model's concern). A registered session gains an inbox and a stored bar.
+
+\begin{schema}{Own}
+  \Delta MenuFlow \\
+  c? : CONN
+\where
+  c? \in registered \\
+  hasInbox' = hasInbox \cup \{ c? \} \\
+  menuOwner' = menuOwner \cup \{ c? \} \\
+  registered' = registered \\
+  pending' = pending \\
+  reported' = reported \\
+  lostLive' = lostLive \\
+  departPhase' = departPhase \\
+  departFor' = departFor
+\end{schema}
+
+\subsection{MenuDeliver --- the offer leg, guarded on the inbox alone}
+\label{sec:menudeliver}
+
+Models \texttt{offer} succeeding: the inbox is present, the message is put, and
+the caller is told \texttt{delivered}. The guard is \texttt{c?} $\in$
+\texttt{hasInbox} \emph{only}, not \texttt{registered}: this is the faithful
+part the base model fuses away. \texttt{MenuEventRouter.deliver} checks the
+live set first and then calls \texttt{offer}, which re-checks only the inbox;
+by the time \texttt{offer} runs the live-set read may be stale, so a delivery
+into the inbox of a connection already removed from the registry (the reviewer's
+$t_2$) is exactly a reachable \texttt{MenuDeliver} here. The enqueued event
+becomes \texttt{pending}. Any \texttt{hasInbox} connection was registered when
+its inbox was armed, so no \texttt{MenuDeliver} fires that the router could not
+have reached; guarding on the inbox alone over-approximates delivery, which
+only strengthens an M1b that holds.
+
+\begin{schema}{MenuDeliver}
+  \Delta MenuFlow \\
+  c? : CONN
+\where
+  c? \in hasInbox \\
+  pending' = pending \cup \{ c? \} \\
+  reported' = ddelivered \\
+  registered' = registered \\
+  hasInbox' = hasInbox \\
+  menuOwner' = menuOwner \\
+  lostLive' = lostLive \\
+  departPhase' = departPhase \\
+  departFor' = departFor
+\end{schema}
+
+\subsection{MenuProviderGone --- the honest non-delivery}
+
+Models \texttt{offer} finding no inbox, and equally the router's earlier
+live-set read failing: either way nothing is put and the caller is told
+\texttt{provider\_gone}.
+
+\begin{schema}{MenuProviderGone}
+  \Delta MenuFlow \\
+  c? : CONN
+\where
+  c? \notin hasInbox \\
+  reported' = dgone \\
+  registered' = registered \\
+  hasInbox' = hasInbox \\
+  menuOwner' = menuOwner \\
+  pending' = pending \\
+  lostLive' = lostLive \\
+  departPhase' = departPhase \\
+  departFor' = departFor
+\end{schema}
+
+\subsection{Drain --- recv consumes the event}
+
+Models the owning session draining its inbox with \texttt{recv()}: a live inbox
+with a pending event has it consumed. This is the honest fate of a delivered
+click and keeps M1b non-vacuous --- delivered events are not \emph{always}
+discarded.
+
+\begin{schema}{Drain}
+  \Delta MenuFlow \\
+  c? : CONN
+\where
+  c? \in hasInbox \\
+  c? \in pending \\
+  pending' = pending \setminus \{ c? \} \\
+  registered' = registered \\
+  hasInbox' = hasInbox \\
+  menuOwner' = menuOwner \\
+  reported' = reported \\
+  lostLive' = lostLive \\
+  departPhase' = departPhase \\
+  departFor' = departFor
+\end{schema}
+
+\subsection{DepartRegistry --- the registry-and-ownership leg (discard first)}
+\label{sec:departregistry}
+
+Models the first half of \texttt{HubDisplay.\_depart}: under \texttt{StoreLock},
+\texttt{self.\_clients.discard(c?)} removes the connection from the registry and
+ownership is released, \emph{before} the cascade tail runs. The connection
+leaves \texttt{registered} and \texttt{menuOwner} in the same step --- the
+Hub-side of the ghost-menu re-push (MenuDepartureSink's prune) --- and the
+cascade enters its inbox-teardown leg (\texttt{tinbox}), capturing \texttt{c?}.
+The inbox is deliberately \emph{not} yet torn down: that is the window in which
+a stale-read \texttt{MenuDeliver} can still put onto \texttt{c?}'s live inbox.
+
+\begin{schema}{DepartRegistry}
+  \Delta MenuFlow \\
+  c? : CONN
+\where
+  c? \in registered \\
+  departPhase = tidle \\
+  registered' = registered \setminus \{ c? \} \\
+  menuOwner' = menuOwner \setminus \{ c? \} \\
+  departPhase' = tinbox \\
+  departFor' = \{ c? \} \\
+  hasInbox' = hasInbox \\
+  pending' = pending \\
+  reported' = reported \\
+  lostLive' = lostLive
+\end{schema}
+
+\subsection{DepartInbox --- the cascade inbox-teardown leg (after the discard)}
+\label{sec:departinbox}
+
+Models the cascade tail: \texttt{inbox.drop\_session(c?)} tears down the inbox
+and discards any undrained event. It runs only after \texttt{DepartRegistry}
+(\texttt{departPhase} = \texttt{tinbox}, \texttt{c?} $\in$ \texttt{departFor}),
+so by the code's own guarantee \texttt{c?} has already left \texttt{registered}.
+The \texttt{lostLive} guard fires only if a discarded pending event belonged to
+a \emph{still-registered} connection --- which cannot happen here, since
+\texttt{DepartRegistry} removed \texttt{c?} and \texttt{Connect} cannot re-add
+it while its cascade is in flight. So \texttt{lostLive} stays \texttt{fclear}:
+the discard is the correct disposal of a click for a departed session.
+
+\begin{schema}{DepartInbox}
+  \Delta MenuFlow \\
+  c? : CONN
+\where
+  departPhase = tinbox \\
+  c? \in departFor \\
+  hasInbox' = hasInbox \setminus \{ c? \} \\
+  pending' = pending \setminus \{ c? \} \\
+  (c? \in pending \land c? \in registered \implies lostLive' = fset) \\
+  (\lnot (c? \in pending \land c? \in registered) \implies lostLive' = lostLive) \\
+  departPhase' = tidle \\
+  departFor' = \emptyset \\
+  registered' = registered \\
+  menuOwner' = menuOwner \\
+  reported' = reported
+\end{schema}
+
+% ============================================================
+\section{Verification}
+\label{sec:verify}
+% ============================================================
+
+Type-checking is a \texttt{fuzz} pass:
+\begin{verbatim}
+  fuzz docs/menu_lifecycle_delivery.tex
+\end{verbatim}
+
+M1b is checked as the reachability of its negation. \emph{Not found} means no
+reachable state discards an undrained event from a still-registered connection.
+
+\begin{verbatim}
+  # M1b (goal NOT found in this, the fixed, spec)
+  probcli docs/menu_lifecycle_delivery.tex -model_check -nodead \
+    -goal "lostLive = fset" \
+    -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+The reviewer's own interleaving is confirmed \emph{reachable} and benign: a
+click reported \texttt{delivered} whose recipient then fully departs, with
+nothing lost to a live session.
+
+\begin{verbatim}
+  # offer-then-drop-discards, benign (goal FOUND):
+  #   Connect(c); Arm(c); MenuDeliver(c); DepartRegistry(c); DepartInbox(c)
+  #   leaves reported=ddelivered, registered empty, lostLive=fclear.
+  probcli docs/menu_lifecycle_delivery.tex -model_check -nodead \
+    -goal "reported = ddelivered & registered = {} & lostLive = fclear" \
+    -p DEFAULT_SETSIZE 3
+
+  # the happy path -- delivered AND drained to a live recipient (goal FOUND)
+  probcli docs/menu_lifecycle_delivery.tex -model_check -nodead \
+    -goal "reported = ddelivered & pending = {} & not(registered = {})" \
+    -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+Deadlock-freedom and the structural invariant over the reachable state space:
+
+\begin{verbatim}
+  probcli docs/menu_lifecycle_delivery.tex -model_check -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+The reorder control makes M1b's negation \emph{FOUND}:
+
+\begin{verbatim}
+  # cascade legs in the wrong order -> live-recipient loss (goal FOUND)
+  probcli docs/menu_lifecycle_delivery_reorder_buggy.tex -model_check -nodead \
+    -goal "lostLive = fset" \
+    -p DEFAULT_SETSIZE 3
+\end{verbatim}
+
+Re-run \texttt{fuzz} and these goal checks whenever
+\texttt{menu\_event.py}'s \texttt{deliver}, \texttt{inbox.py}'s
+\texttt{offer}/\texttt{drop\_session}, \texttt{operations/menus.py}'s
+\texttt{MenuDepartureSink}, or \texttt{hub\_display.py}'s
+\texttt{\_depart}/\texttt{\_depart\_lapsed} (the discard-before-cascade order)
+change.
+
+\end{document}

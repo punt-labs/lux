@@ -19,6 +19,12 @@ from __future__ import annotations
 
 from typing import Final
 
-__all__ = ["ID_SEPARATOR"]
+__all__ = ["ID_SEPARATOR", "NONBLANK_FRAME_ID"]
 
 ID_SEPARATOR: Final = "\x1f"
+
+# A leaf key an agent supplies (a callback or menu-item ``frame_id``) must be
+# non-blank and free of the separator, so a stamped ``owner<US>key`` splits
+# cleanly at dispatch. Shared by ``SessionCallback`` and ``MenuAction`` so the
+# rule is written once. Regex, not a lookahead (pydantic-core rejects those).
+NONBLANK_FRAME_ID: Final = rf"^[^{ID_SEPARATOR}]*[^{ID_SEPARATOR}\s][^{ID_SEPARATOR}]*$"

@@ -184,7 +184,7 @@ def _stack() -> tuple[
     provider = _Provider(sender, store)
     repl = HubReplicator(
         store.reader,
-        HubMenuRegistry(),
+        HubMenuRegistry(store.clients),
         _NoCallbackMenus(),
         provider,
         _Lifecycle(),

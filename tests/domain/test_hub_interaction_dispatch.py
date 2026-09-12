@@ -272,10 +272,17 @@ def test_a_details_click_for_a_client_that_never_registered_still_reaches_the_hu
     replicator.mark_menus.assert_not_called()
 
 
-def test_menu_click_for_a_non_callback_id_is_ignored(
+def test_menu_click_for_a_malformed_leaf_id_is_rejected_without_crash(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A legacy menu id without the leaf separator is ignored, never routed."""
+    """A leaf id without the owner separator is malformed: rejected, no crash.
+
+    Every real leaf a click can carry is now stamped ``owner<US>item_id`` by the
+    registry (agent bar) or by ``CallbackInvocation`` (Clients menu), so a bare id
+    never names a real leaf. It is not the agent-item drop path any more — that
+    path is gone — it is an ``invalid_request`` guard: logged, no delivery, no
+    re-push (there is no real leaf to re-push for).
+    """
     _registry, _router, replicator = _isolated_router(monkeypatch)
     HubInteractionDispatch.dispatch(
         RemoteEventHandlerInvocation(
@@ -283,6 +290,167 @@ def test_menu_click_for_a_non_callback_id_is_ignored(
         )
     )
     replicator.mark_menus.assert_not_called()
+
+
+def test_frameless_agent_menu_click_is_delivered_to_the_owning_inbox_session() -> None:
+    """Gap (b): a frameless agent ``menu_set`` click reaches the owning MCP session.
+
+    An agent that called ``menu_set`` holds an inbox (armed by ``ensure_writer``),
+    not a listen leg. Its menu leaf is a ``menu``-kind :class:`MenuLeaf`, so the
+    click parses to that kind and is delivered as a reserved ``lux.menu`` business
+    event on that session's inbox — the event ``recv()`` drains, with no prior
+    ``topic_subscribe``. On ``main`` the click was dropped in the non-callback
+    branch; this is the regression that fails there and passes here.
+    """
+    from punt_lux.domain.hub.hub_display import hub_display
+    from punt_lux.domain.hub.inbox import drain_inbox, ensure_writer
+    from punt_lux.domain.hub.session_callback import MenuLeaf
+
+    conn = ConnectionId("agent-menu-inbox-1")
+    ensure_writer(conn)  # arms the inbox + registers the client as a live session
+    try:
+        leaf_id = MenuLeaf("menu", conn, "run_btn").wire_id
+        HubInteractionDispatch.dispatch(
+            RemoteEventHandlerInvocation(
+                scene_id=None,
+                element_id=leaf_id,
+                action="menu",
+                ts=1.0,
+                value={"menu": "Tools", "item": "Run"},
+            )
+        )
+        delivered = drain_inbox(conn)
+        assert [(m.topic, dict(m.payload)) for m in delivered] == [
+            ("lux.menu", {"menu": "Tools", "item": "run_btn"}),
+        ]
+    finally:
+        hub_display.drop_connection(conn)
+
+
+def test_a_departed_agent_menu_click_is_not_delivered_and_repushes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A frameless agent click for a session gone from the live set is not delivered.
+
+    The delivery gate reuses the router's live read, so a departed owner is
+    ``provider_gone``: nothing lands on any inbox and the menu re-pushes — the
+    agent-path counterpart to the callback-path departed test above.
+    """
+    from punt_lux.domain.hub.inbox import drain_inbox
+    from punt_lux.domain.hub.session_callback import MenuLeaf
+
+    _registry, _router, replicator = _isolated_router(monkeypatch)
+    conn = ConnectionId("agent-departed")  # never registered → not live
+    HubInteractionDispatch.dispatch(
+        RemoteEventHandlerInvocation(
+            scene_id=None,
+            element_id=MenuLeaf("menu", conn, "run_btn").wire_id,
+            action="menu",
+            ts=1.0,
+            value={"menu": "Tools", "item": "Run"},
+        )
+    )
+    assert drain_inbox(conn) == ()  # nothing delivered to a departed session
+    replicator.mark_menus.assert_called_once_with()  # the click re-pushes the menu
+
+
+def test_a_same_named_callback_and_menu_item_route_apart() -> None:
+    """One session owning BOTH a callback "run" and a menu item "run" routes each
+    by the leaf's KIND, not by whether a callback exists.
+
+    The callback-kind leaf lands on the callback hold; the menu-kind leaf lands on
+    the inbox as ``lux.menu`` carrying the raw item id. On ``main`` both leaves are
+    the same ``owner<US>run`` id, so the menu click is misrouted to the callback
+    and never reaches the inbox — the regression this proves.
+    """
+    from punt_lux.domain.hub.client_identity import ClientIdentity
+    from punt_lux.domain.hub.hub_display import hub_display
+    from punt_lux.domain.hub.inbox import drain_inbox, ensure_writer
+    from punt_lux.domain.hub.replicator_instance import hub_callback_router
+    from punt_lux.domain.hub.session_callback import (
+        CallbackInvocation,
+        MenuLeaf,
+        SessionCallback,
+    )
+
+    conn = ConnectionId("dual-owner")
+    leg = _SilentLeg()
+    clients = hub_display.clients
+    clients.attach_listener(conn, ClientIdentity(kind="app", name="dual"), leg)
+    clients.register_callback(conn, SessionCallback(id="run", label="Run"), leg)
+    ensure_writer(conn)  # arm the inbox; the same session owns a menu item too
+    try:
+        HubInteractionDispatch.dispatch(
+            RemoteEventHandlerInvocation(
+                scene_id=None,
+                element_id=CallbackInvocation(conn, "run").menu_id,
+                action="menu",
+                ts=1.0,
+                value=None,
+            )
+        )
+        HubInteractionDispatch.dispatch(
+            RemoteEventHandlerInvocation(
+                scene_id=None,
+                element_id=MenuLeaf("menu", conn, "run").wire_id,
+                action="menu",
+                ts=1.0,
+                value={"menu": "Tools", "item": "Run"},
+            )
+        )
+        held = [inv.callback_id for inv in hub_callback_router.pending(conn)]
+        delivered = [(m.topic, dict(m.payload)) for m in drain_inbox(conn)]
+        assert held == ["run"]  # only the callback leaf reached the hold
+        assert delivered == [("lux.menu", {"menu": "Tools", "item": "run"})]
+    finally:
+        hub_display.drop_connection(conn)
+
+
+def test_agent_menu_set_click_round_trips_from_set_to_recv() -> None:
+    """The full agent loop: menu_set → click → recv, through the operations facade.
+
+    An identified session sets a bar; the registry stamps its leaf id; a click on
+    that stamped id is delivered to the session's inbox; ``receive`` returns the
+    reserved ``lux.menu`` event carrying the agent's own item id.
+    """
+    from punt_lux.domain.hub.client_identity import ClientIdentity
+    from punt_lux.domain.hub.hub_display import hub_display
+    from punt_lux.domain.hub.replicator_instance import hub_menu_registry
+    from punt_lux.operations import Scope, SetMenuRequest
+    from punt_lux.tools.tools import OPERATIONS
+
+    conn = ConnectionId("surface-loop-1")
+    scope = Scope(conn)
+    hub_display.identify_client(conn, ClientIdentity(kind="mcp-session", name="agent"))
+    try:
+        OPERATIONS.set_menu(
+            SetMenuRequest.parse(
+                [{"label": "Tools", "items": [{"label": "Run", "id": "run_btn"}]}]
+            ),
+            scope=scope,
+        )
+        leaf = hub_menu_registry.wire_snapshot()[0]["items"]
+        assert isinstance(leaf, list)
+        leaf_id = leaf[0]["id"]
+        assert isinstance(leaf_id, str)
+
+        HubInteractionDispatch.dispatch(
+            RemoteEventHandlerInvocation(
+                scene_id=None,
+                element_id=leaf_id,
+                action="menu",
+                ts=1.0,
+                value={"menu": "Tools", "item": "Run"},
+            )
+        )
+
+        received = OPERATIONS.receive(scope=scope)
+        assert received.event is not None
+        assert received.event.topic == "lux.menu"
+        assert received.event.payload == {"menu": "Tools", "item": "run_btn"}
+    finally:
+        hub_display.drop_connection(conn)
+        hub_menu_registry.drop_session(conn)
 
 
 def test_hub_interaction_dispatch_missing_scene_id_returns_silently(

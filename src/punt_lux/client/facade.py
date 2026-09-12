@@ -98,7 +98,7 @@ class LuxClient:
     @cached_property
     def menu(self) -> MenuAccessor:
         """The ``client.menu.*`` verbs."""
-        return MenuAccessor(self._transport, self._identity)
+        return MenuAccessor(self._transport, self._identity, self._scope)
 
     @cached_property
     def session(self) -> SessionAccessor:

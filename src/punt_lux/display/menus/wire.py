@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.display.menus.menu_click import ClickTarget
 from punt_lux.display.menus.wire_field import WireField
 
 if TYPE_CHECKING:
@@ -41,6 +42,20 @@ SEPARATOR_LABEL = "---"
 
 # The key that makes an entry a nested menu rather than a line.
 _ITEMS = "items"
+
+
+def _hidden_id(label: str, *salt: str) -> str:
+    """Compose an ImGui hidden id from a visible label and its salt components.
+
+    Every component — the visible label AND each ``:``-joined salt part (hub
+    token, owner, item id) — is guarded with a zero-width space after each ``#``
+    so a ``#`` in *any* of them cannot forge the ``##``/``###`` heading syntax
+    ImGui parses (a ``###`` resets the id and collides). The whb9 lesson: guard
+    the whole constructed id, prefix and suffix, not just the visible label.
+    """
+    zero_width = "#" + chr(0x200B)
+    guarded = [component.replace("#", zero_width) for component in (label, *salt)]
+    return f"{guarded[0]}##{':'.join(guarded[1:])}"
 
 
 @final
@@ -138,6 +153,25 @@ class WireAction:
         """Return the frame this action owns, or ``None`` if it owns none."""
         return self._frame_id
 
+    def imgui_label(self, hub_token: str) -> str:
+        """Return the display's hidden ImGui id for this clickable line.
+
+        The visible label is salted with ``(hub, item id)`` so two lines that
+        read the same never collide; :func:`_hidden_id` guards every component so
+        a ``#`` in the label, hub token, or id cannot forge the id syntax. This
+        derivation reads the line's own label and id, so it belongs on the line.
+        """
+        return _hidden_id(self._label, hub_token, self._item_id)
+
+    def click_target(self, menu_label: str) -> ClickTarget:
+        """Return what a click on this line reports, under the menu ``menu_label``.
+
+        Bundles the line's own label, id, and frame with its parent menu's label
+        — the click identity is the line's own data, so composing it belongs on
+        the line rather than on the decoder that reaches into three fields for it.
+        """
+        return ClickTarget(menu_label, self._label, self._item_id, self._frame_id)
+
     def lines(self, path: tuple[str, ...]) -> Iterator[WireLineAt]:
         """Yield this line and the menus it sits under."""
         yield path, self
@@ -148,12 +182,14 @@ class WireMenu:
     """A replicated menu: its label, and the entries the Hub sent under it."""
 
     _label: str
+    _owner: str
     _entries: tuple[WireEntry, ...]
-    __slots__ = ("_entries", "_label")
+    __slots__ = ("_entries", "_label", "_owner")
 
-    def __new__(cls, label: str, entries: Sequence[WireEntry]) -> Self:
+    def __new__(cls, label: str, entries: Sequence[WireEntry], owner: str = "") -> Self:
         self = super().__new__(cls)
         self._label = label
+        self._owner = owner
         self._entries = tuple(entries)
         return self
 
@@ -183,12 +219,15 @@ class WireMenu:
         """
         menu = field.mapping(payload)
         items = field.at(_ITEMS).sequence(menu.get(_ITEMS, ()))
+        raw_owner = menu.get("owner")
+        owner = raw_owner if isinstance(raw_owner, str) else ""
         return cls(
             field.at("label").text(menu.get("label")),
             [
                 cls._entry_of(item, field=field.at(_ITEMS).at(index))
                 for index, item in enumerate(items)
             ],
+            owner,
         )
 
     @property
@@ -200,6 +239,19 @@ class WireMenu:
     def entries(self) -> tuple[WireEntry, ...]:
         """Return the entries under this menu, in the order the Hub sent them."""
         return self._entries
+
+    def imgui_label(self, hub_token: str) -> str:
+        """Return the display's hidden ImGui id for this menu heading.
+
+        The visible label is salted with ``(hub, owner, label)`` so neither two
+        Hubs' nor two sessions' same-named headings collide: the owner segment
+        separates same-labelled menus from different agent sessions aggregated
+        onto one Hub bar. :func:`_hidden_id` guards every component — label, hub
+        token, AND owner — so a ``#`` in any of them cannot forge the id syntax.
+        This derivation reads the menu's own label and owner, so it belongs on
+        the menu, not its renderer.
+        """
+        return _hidden_id(self._label, hub_token, self._owner, self._label)
 
     def lines(self, path: tuple[str, ...] = ()) -> Iterator[WireLineAt]:
         """Yield every line under this menu, each with the menus it sits under."""

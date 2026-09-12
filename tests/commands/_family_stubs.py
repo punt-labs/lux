@@ -85,8 +85,10 @@ class StubMenuOps:
         self.last_call = {}
         return self
 
-    def set_menu(self, request: SetMenuRequest | OpError) -> Ok | OpError:
-        self.last_call = {"method": "set_menu", "request": request}
+    def set_menu(
+        self, request: SetMenuRequest | OpError, *, scope: Scope
+    ) -> Ok | OpError:
+        self.last_call = {"method": "set_menu", "request": request, "scope": scope}
         return cast("Ok | OpError", self._set)
 
     def list_menus(self) -> MenuList | OpError:
@@ -169,18 +171,18 @@ class StubCallbackOps:
 class StubTopicOps:
     """``TopicOps`` stub returning one preset outcome per method."""
 
-    _publish: Published | None
-    _subscribe: Subscribed | None
-    _unsubscribe: Unsubscribed | None
+    _publish: Published | OpError | None
+    _subscribe: Subscribed | OpError | None
+    _unsubscribe: Unsubscribed | OpError | None
     _receive: Received | None
     last_call: dict[str, object]
     __slots__ = ("_publish", "_receive", "_subscribe", "_unsubscribe", "last_call")
 
     def __new__(
         cls,
-        publish: Published | None = None,
-        subscribe: Subscribed | None = None,
-        unsubscribe: Unsubscribed | None = None,
+        publish: Published | OpError | None = None,
+        subscribe: Subscribed | OpError | None = None,
+        unsubscribe: Unsubscribed | OpError | None = None,
         receive: Received | None = None,
     ) -> Self:
         self = super().__new__(cls)
@@ -193,22 +195,22 @@ class StubTopicOps:
 
     def publish(
         self, topic: str, request: PublishRequest, *, scope: Scope
-    ) -> Published:
+    ) -> Published | OpError:
         self.last_call = {
             "method": "publish",
             "topic": topic,
             "request": request,
             "scope": scope,
         }
-        return cast("Published", self._publish)
+        return cast("Published | OpError", self._publish)
 
-    def subscribe(self, topic: str, *, scope: Scope) -> Subscribed:
+    def subscribe(self, topic: str, *, scope: Scope) -> Subscribed | OpError:
         self.last_call = {"method": "subscribe", "topic": topic, "scope": scope}
-        return cast("Subscribed", self._subscribe)
+        return cast("Subscribed | OpError", self._subscribe)
 
-    def unsubscribe(self, topic: str, *, scope: Scope) -> Unsubscribed:
+    def unsubscribe(self, topic: str, *, scope: Scope) -> Unsubscribed | OpError:
         self.last_call = {"method": "unsubscribe", "topic": topic, "scope": scope}
-        return cast("Unsubscribed", self._unsubscribe)
+        return cast("Unsubscribed | OpError", self._unsubscribe)
 
     def receive(self, *, scope: Scope) -> Received:
         self.last_call = {"method": "receive", "scope": scope}

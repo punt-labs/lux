@@ -1,0 +1,220 @@
+%
+% menu_lifecycle_delivery_reorder_buggy.tex
+%
+% FIDELITY CONTROL for docs/menu_lifecycle_delivery.tex.
+%
+% This spec differs from the fixed menu_lifecycle_delivery.tex in exactly one
+% place: the two departure legs run in the WRONG order. The cascade's inbox
+% teardown (DepartInboxFirst) runs BEFORE the registry discard
+% (DepartRegistryAfter), so the inbox -- and any undrained menu event in it --
+% is torn down while the connection is STILL in the registry. A click reported
+% delivered is then discarded from a live recipient that still holds a recv():
+% a genuine live-recipient loss, M1b's violation.
+%
+% This is the counterfactual the fixed model's ordering rules out. The shipped
+% code guarantees the fixed order -- HubDisplay._depart runs
+% self._clients.discard(c) (registry) BEFORE self._cascade.run(c) (which fires
+% inbox.drop_session), under one StoreLock hold, and the cascade's docstring
+% states "connection_id has already been irreversibly removed from the registry
+% by the time this runs". This control removes that guarantee to show it is
+% load-bearing: reverse the legs and the loss becomes reachable.
+%
+% Expected: M1b's negation is reachable.
+%   probcli docs/menu_lifecycle_delivery_reorder_buggy.tex -model_check -nodead \
+%     -goal "lostLive = fset" -p DEFAULT_SETSIZE 3
+%   => goal FOUND
+%      (Connect(c); Arm(c); MenuDeliver(c); DepartInboxFirst(c)).
+%
+% Against the fixed spec the same goal is NOT found.
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{lux Agent-Menu Delivery --- Reorder Fidelity Control}
+\author{The cascade that tears down the inbox before the registry discard}
+\date{September 2026}
+\maketitle
+
+This is a fidelity control for \texttt{menu\_lifecycle\_delivery.tex}. Only the
+departure legs differ: they run in the wrong order. Every other schema is
+copied verbatim.
+
+\begin{zed}
+  [CONN]
+\end{zed}
+
+\begin{zed}
+  DSTATE ::= dnone | ddelivered | dgone
+\end{zed}
+
+\begin{zed}
+  FSTATE ::= fclear | fset
+\end{zed}
+
+\begin{zed}
+  TPHASE ::= tidle | tinbox
+\end{zed}
+
+\begin{schema}{MenuFlow}
+  registered : \power CONN \\
+  hasInbox : \power CONN \\
+  menuOwner : \power CONN \\
+  pending : \power CONN \\
+  reported : DSTATE \\
+  lostLive : FSTATE \\
+  departPhase : TPHASE \\
+  departFor : \power CONN
+\where
+  \# departFor \leq 1
+\end{schema}
+
+\begin{schema}{Init}
+  MenuFlow'
+\where
+  registered' = \emptyset \\
+  hasInbox' = \emptyset \\
+  menuOwner' = \emptyset \\
+  pending' = \emptyset \\
+  reported' = dnone \\
+  lostLive' = fclear \\
+  departPhase' = tidle \\
+  departFor' = \emptyset
+\end{schema}
+
+\begin{schema}{Connect}
+  \Delta MenuFlow \\
+  c? : CONN
+\where
+  c? \notin departFor \\
+  registered' = registered \cup \{ c? \} \\
+  hasInbox' = hasInbox \\
+  menuOwner' = menuOwner \\
+  pending' = pending \\
+  reported' = reported \\
+  lostLive' = lostLive \\
+  departPhase' = departPhase \\
+  departFor' = departFor
+\end{schema}
+
+\begin{schema}{Arm}
+  \Delta MenuFlow \\
+  c? : CONN
+\where
+  c? \in registered \\
+  hasInbox' = hasInbox \cup \{ c? \} \\
+  registered' = registered \\
+  menuOwner' = menuOwner \\
+  pending' = pending \\
+  reported' = reported \\
+  lostLive' = lostLive \\
+  departPhase' = departPhase \\
+  departFor' = departFor
+\end{schema}
+
+\begin{schema}{Own}
+  \Delta MenuFlow \\
+  c? : CONN
+\where
+  c? \in registered \\
+  hasInbox' = hasInbox \cup \{ c? \} \\
+  menuOwner' = menuOwner \cup \{ c? \} \\
+  registered' = registered \\
+  pending' = pending \\
+  reported' = reported \\
+  lostLive' = lostLive \\
+  departPhase' = departPhase \\
+  departFor' = departFor
+\end{schema}
+
+\begin{schema}{MenuDeliver}
+  \Delta MenuFlow \\
+  c? : CONN
+\where
+  c? \in hasInbox \\
+  pending' = pending \cup \{ c? \} \\
+  reported' = ddelivered \\
+  registered' = registered \\
+  hasInbox' = hasInbox \\
+  menuOwner' = menuOwner \\
+  lostLive' = lostLive \\
+  departPhase' = departPhase \\
+  departFor' = departFor
+\end{schema}
+
+\begin{schema}{MenuProviderGone}
+  \Delta MenuFlow \\
+  c? : CONN
+\where
+  c? \notin hasInbox \\
+  reported' = dgone \\
+  registered' = registered \\
+  hasInbox' = hasInbox \\
+  menuOwner' = menuOwner \\
+  pending' = pending \\
+  lostLive' = lostLive \\
+  departPhase' = departPhase \\
+  departFor' = departFor
+\end{schema}
+
+\begin{schema}{Drain}
+  \Delta MenuFlow \\
+  c? : CONN
+\where
+  c? \in hasInbox \\
+  c? \in pending \\
+  pending' = pending \setminus \{ c? \} \\
+  registered' = registered \\
+  hasInbox' = hasInbox \\
+  menuOwner' = menuOwner \\
+  reported' = reported \\
+  lostLive' = lostLive \\
+  departPhase' = departPhase \\
+  departFor' = departFor
+\end{schema}
+
+% -- THE DEFECT: the inbox teardown runs BEFORE the registry discard ---------
+
+% DepartInboxFirst models inbox.drop_session firing as the FIRST departure leg,
+% while the connection is still in the registry. If it discards an undrained
+% pending event, that event belonged to a still-live recipient -- a genuine
+% live-recipient loss, so lostLive becomes fset.
+\begin{schema}{DepartInboxFirst}
+  \Delta MenuFlow \\
+  c? : CONN
+\where
+  c? \in registered \\
+  departPhase = tidle \\
+  hasInbox' = hasInbox \setminus \{ c? \} \\
+  pending' = pending \setminus \{ c? \} \\
+  (c? \in pending \implies lostLive' = fset) \\
+  (\lnot (c? \in pending) \implies lostLive' = lostLive) \\
+  departPhase' = tinbox \\
+  departFor' = \{ c? \} \\
+  registered' = registered \\
+  menuOwner' = menuOwner \\
+  reported' = reported
+\end{schema}
+
+% DepartRegistryAfter completes the deregister after the inbox was already gone.
+\begin{schema}{DepartRegistryAfter}
+  \Delta MenuFlow \\
+  c? : CONN
+\where
+  departPhase = tinbox \\
+  c? \in departFor \\
+  registered' = registered \setminus \{ c? \} \\
+  menuOwner' = menuOwner \setminus \{ c? \} \\
+  departPhase' = tidle \\
+  departFor' = \emptyset \\
+  hasInbox' = hasInbox \\
+  pending' = pending \\
+  reported' = reported \\
+  lostLive' = lostLive
+\end{schema}
+
+\end{document}

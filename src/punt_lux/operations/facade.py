@@ -17,7 +17,12 @@ from punt_lux.operations.display_control import DisplayControlOperations
 from punt_lux.operations.display_link import DisplayLinkOperations
 from punt_lux.operations.frame_removal import FrameRemover
 from punt_lux.operations.identity import IdentityOperations
-from punt_lux.operations.menus import MenuOperations
+from punt_lux.operations.menu_arming import MenuArming
+from punt_lux.operations.menus import (
+    MenuDepartureSink,
+    MenuOperations,
+    MenuOperationsDeps,
+)
 from punt_lux.operations.models.inspect_scope import HUB_ONLY, InspectScope
 from punt_lux.operations.pubsub import PubSubOperations
 from punt_lux.operations.queries import QueryOperations
@@ -32,6 +37,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.hub.menu_registry import HubMenuRegistry
     from punt_lux.domain.hub.session_callback import CallbackInvocation
+    from punt_lux.domain.ids import ConnectionId
     from punt_lux.operations.display_link import ReplicatorLink
     from punt_lux.operations.models import (
         Cleared,
@@ -128,6 +134,12 @@ class Operations:
         deps = SceneOperationsDeps(display, replicator, ports.element_factory, hub)
         scenes = SceneOperations(deps)
         callbacks = CallbackOperations(display.clients, callback_router, replicator)
+        menu_departure = MenuDepartureSink(menu_registry, replicator)
+        arming = MenuArming(
+            display.clients,
+            ports.ensure_writer,
+            lambda c: display.bind_departure_sink(c, menu_departure),
+        )
         clients = ClientListing(display, hub, ports.inbox_depth)
         queries = QueryOperations(display, ports.display_port, clients)
         return cls(
@@ -137,7 +149,15 @@ class Operations:
                 config=DisplayModeOperations(),
                 display=DisplayControlOperations(ports.display_port),
                 queries=queries,
-                menus=MenuOperations(menu_registry, replicator, callbacks),
+                menus=MenuOperations(
+                    MenuOperationsDeps(
+                        registry=menu_registry,
+                        replicator=replicator,
+                        callback_menus=callbacks,
+                        arming=arming,
+                        write_lock=display.write_lock,
+                    )
+                ),
                 identity=IdentityOperations(display),
                 callbacks=callbacks,
                 frame_remover=FrameRemover(display, replicator),
@@ -183,18 +203,18 @@ class Operations:
         """Render a dashboard scene."""
         return self._conveniences.render_dashboard(request, scope=scope)
 
-    def subscribe(self, topic: str, *, scope: Scope) -> Subscribed:
-        """Subscribe the caller's session to a topic."""
+    def subscribe(self, topic: str, *, scope: Scope) -> Subscribed | OpError:
+        """Subscribe the caller's session to a topic (reserved topics refused)."""
         return self._pubsub.subscribe(topic, scope=scope)
 
-    def unsubscribe(self, topic: str, *, scope: Scope) -> Unsubscribed:
-        """Unsubscribe the caller's session from a topic."""
+    def unsubscribe(self, topic: str, *, scope: Scope) -> Unsubscribed | OpError:
+        """Unsubscribe the caller's session from a topic (reserved topics refused)."""
         return self._pubsub.unsubscribe(topic, scope=scope)
 
     def publish(
         self, topic: str, request: PublishRequest, *, scope: Scope
-    ) -> Published:
-        """Publish a payload to a topic's subscribers."""
+    ) -> Published | OpError:
+        """Publish a payload to a topic's subscribers (reserved topics refused)."""
         return self._pubsub.publish(topic, request, scope=scope)
 
     def receive(self, *, scope: Scope) -> Received:
@@ -262,9 +282,11 @@ class Operations:
         return self._queries.display_state(scope)
 
     @Timed("set_menu")
-    def set_menu(self, request: SetMenuRequest | OpError) -> Ok | OpError:
-        """Replace the Hub-owned menu bar; the replicator pushes it."""
-        return self._menus.set_menu(request)
+    def set_menu(
+        self, request: SetMenuRequest | OpError, *, scope: Scope
+    ) -> Ok | OpError:
+        """Replace the caller's Hub-owned menu bar; the replicator pushes it."""
+        return self._menus.set_menu(request, scope=scope)
 
     def list_menus(self) -> MenuList:
         """Return the Hub-authoritative menu bar, including the callback submenus."""
@@ -291,8 +313,14 @@ class Operations:
         """Return the identity already declared for ``scope``, or ``None``."""
         return self._identity.current(scope)
 
-    def drop_session(self) -> None:
-        """Re-push the menu after a session departs so its submenu vanishes."""
+    def drop_session(self, connection_id: ConnectionId) -> None:
+        """Drop the departed session's agent menu bar and re-push both families.
+
+        Prunes the session's own agent bar from the registry, then one
+        ``mark_menus`` re-reads the live set at send time — dropping both this
+        session's agent bar and its Clients submenu.
+        """
+        self._menus.drop_session(connection_id)
         self._callbacks.drop_session()
 
     def get_link(self) -> DisplayLinkState:

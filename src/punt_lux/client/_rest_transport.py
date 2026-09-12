@@ -252,8 +252,15 @@ class _RestTransport:
         call = HttpCall.read("/display/link", self._headers)
         return LinkReply.read(self._transport.request(call))
 
-    def set_menu(self, request: SetMenuRequest | OpError) -> Ok | OpError:
-        """Replace the Hub-owned menu bar through ``PUT /menus``."""
+    def set_menu(
+        self, request: SetMenuRequest | OpError, *, scope: Scope
+    ) -> Ok | OpError:
+        """Replace the Hub-owned menu bar through ``PUT /menus``.
+
+        ``scope`` satisfies :class:`~punt_lux.commands._ports.MenuOps`'s call
+        signature -- unused over REST, which composes scope from headers.
+        """
+        del scope  # REST composes scope from headers, same as identify()
         if isinstance(request, OpError):
             return request
         call = HttpCall.write("/menus", request, self._headers)

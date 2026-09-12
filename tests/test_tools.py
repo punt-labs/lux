@@ -443,9 +443,16 @@ class TestSetMenuTool:
     def test_set_menu_writes_the_hub_registry(self) -> None:
         # set_menu is a Hub write now: it stores the bar in the Hub menu
         # registry (the replicator pushes it) instead of reaching the display.
-        # list_menus reads that same registry, so it confirms the write.
+        # It also requires an identified session — nothing anonymous owns a menu
+        # item — so the caller identifies first. list_menus reads that same
+        # registry, so it confirms the write.
+        from punt_lux.domain.hub.client_identity import ClientIdentity
+        from punt_lux.domain.hub.hub_display import hub_display
+        from punt_lux.domain.hub.replicator_instance import hub_menu_registry
         from punt_lux.tools import list_menus
 
+        conn = ConnectionId("local")  # the default MCP session key
+        hub_display.identify_client(conn, ClientIdentity(kind="mcp-session", name="a"))
         menus = [{"label": "Tools", "items": [{"label": "Run", "id": "run"}]}]
         try:
             result = set_menu(menus)
@@ -454,7 +461,8 @@ class TestSetMenuTool:
             assert not isinstance(listed, OpError)
             assert any(m.label == "Tools" for m in listed.menus)
         finally:
-            set_menu([])
+            hub_menu_registry.drop_session(conn)
+            hub_display.drop_connection(conn)
 
 
 class TestShowTool:
@@ -955,7 +963,7 @@ def _bind_store(monkeypatch: pytest.MonkeyPatch, store: HubDisplay) -> MagicMock
         store,
         spy,
         hub=hub,
-        menu_registry=HubMenuRegistry(),
+        menu_registry=HubMenuRegistry(store.clients),
         callback_router=CallbackRouter(store.clients),
         ports=HubPorts(
             element_factory=hub_element_factory,
@@ -991,7 +999,7 @@ def _bind_pubsub(
         display,
         _ReplicatorSpy(),
         hub=hub,
-        menu_registry=HubMenuRegistry(),
+        menu_registry=HubMenuRegistry(display.clients),
         callback_router=CallbackRouter(display.clients),
         ports=HubPorts(
             element_factory=hub_element_factory,

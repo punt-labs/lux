@@ -1,18 +1,21 @@
-"""HubMenuRegistry — the Hub-owned agent menu bar.
+"""HubMenuRegistry — the Hub-owned agent menu bar, keyed by the owning session.
 
 Menus are UI the agent submits, and the Hub is the authority for submitted UI.
-This registry holds the authoritative agent-defined menu bar as typed models so
-``list_menus`` reads it with no reach-around and the replicator pushes it like
-any scene. ``set_menus`` replaces the bar; the replicator reads ``wire_snapshot``
-fresh at send time so the newest bar always wins.
+This registry holds each session's agent-defined bar as typed models, keyed by the
+``ConnectionId`` that registered it, so two sessions never clobber one another's
+bar and a departed session's bar leaves the display.
 
-State is guarded by one independent lock. The lock is never held across another
-lock or any I/O — tool threads mutate and read the registry, and the typed state
-is handed out as deep copies — so it is deadlock-free by construction (a single
-mutex with no acquisition ordering). The class binds no singleton of its own: the
-one authoritative instance is built at module scope in ``replicator_instance.py``
-and injected at the tools composition root, and the replicator is the sole writer
-that pushes its state to the display.
+``wire_snapshot`` composes only the *live* sessions' bars, stamping each leaf id
+``owner<US>item_id`` so a click round-trips to the session that owns it — the same
+read-at-send discipline the Clients menu uses, so a departed owner's bar drops on
+the next push whether or not :meth:`drop_session` has pruned it yet. The live read
+runs first and outside this registry's lock — the client registry sweeps under
+*its* lock — so the two never nest (the ``CallbackRouter`` discipline).
+
+State is guarded by one independent lock, never held across another lock or any
+I/O; ``stamped_for``/``to_wire`` build fresh models, so composing under the lock
+aliases nothing. The one authoritative instance is built at module scope in
+``replicator_instance.py`` and injected at the tools composition root.
 """
 
 from __future__ import annotations
@@ -23,47 +26,89 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.domain.hub.menu_models import Menu
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Collection, Mapping, Sequence
+
+    from punt_lux.domain.hub.callback_ports import LiveSessions
+    from punt_lux.domain.ids import ConnectionId
 
 __all__ = ["HubMenuRegistry"]
 
 
 @final
 class HubMenuRegistry:
-    """The authoritative agent-defined menu bar."""
+    """The authoritative agent-defined menu bar, keyed by owning session."""
 
+    _live: LiveSessions
     _lock: threading.Lock
-    _menus: list[Menu]
-    __slots__ = ("_lock", "_menus")
+    _by_owner: dict[ConnectionId, tuple[Menu, ...]]
+    __slots__ = ("_by_owner", "_live", "_lock")
 
-    def __new__(cls) -> Self:
+    def __new__(cls, live: LiveSessions) -> Self:
         self = super().__new__(cls)
+        self._live = live
         self._lock = threading.Lock()
-        self._menus = []
+        self._by_owner = {}
         return self
 
-    def set_menus(self, menus: Sequence[Menu]) -> None:
-        """Replace the agent-defined menu bar."""
+    def set_menus(self, connection_id: ConnectionId, menus: Sequence[Menu]) -> None:
+        """Replace the bar the session ``connection_id`` owns, leaving others' bars.
+
+        Deep-copies each menu on the way in, mirroring :meth:`menu_bar`'s egress
+        copy: ``frozen=True`` does not freeze ``Menu.items`` (a list), so storing
+        the caller's objects by reference would let a later mutation of the
+        original request's items reach the stored — and about-to-be-sent — tree.
+        The snapshot severs that alias.
+        """
         with self._lock:
-            self._menus = list(menus)
+            self._by_owner[connection_id] = tuple(
+                m.model_copy(deep=True) for m in menus
+            )
+
+    def drop_session(self, connection_id: ConnectionId) -> None:
+        """Prune the session's bar on departure. Idempotent.
+
+        Correctness does not depend on this running: :meth:`wire_snapshot` and
+        :meth:`menu_bar` already filter to the live set, so a departed owner's bar
+        never renders. This reclaims the entry and lets the next push drop it.
+        """
+        with self._lock:
+            self._by_owner.pop(connection_id, None)
 
     def menu_bar(self) -> list[Menu]:
-        """Return a deep copy of the agent-defined menu bar (the display's bar).
+        """Return every live session's bar as deep copies (the agent's own view).
 
-        ``frozen=True`` blocks field reassignment but not mutation of ``Menu.items``
-        (a list), so the stored models are deep-copied out — a caller cannot reach
-        back through a returned menu and mutate registry state after the lock.
+        Reads the live set first and outside the lock, then composes the stored
+        bars under it (so the two locks never nest). Copied out because
+        ``frozen=True`` does not freeze ``Menu.items`` (a list), so a caller
+        cannot reach back through a returned menu and mutate state.
         """
+        live = self._live.live_sessions()
         with self._lock:
-            return [menu.model_copy(deep=True) for menu in self._menus]
+            pairs = self._select(self._by_owner, live)
+        return [menu.model_copy(deep=True) for _owner, menu in pairs]
 
     def wire_snapshot(self) -> tuple[Mapping[str, object], ...]:
-        """Return the agent bar as wire payloads, composed under one lock.
+        """Return the live sessions' bars as wire payloads, each leaf owner-stamped.
 
-        The replicator reads this fresh at send time, so the snapshot is the
-        registry's state at that instant — the read-at-send discipline that makes
-        a stale menu push impossible (there is no payload to go stale). ``to_wire``
-        builds new dicts and lists, so this read never aliases a stored model.
+        Read fresh at send time, so the snapshot is the live registry at that
+        instant — a departed owner is already gone and a stale menu cannot exist.
+        The live read runs outside the lock, matching :meth:`menu_bar`.
         """
+        live = self._live.live_sessions()
         with self._lock:
-            return tuple(menu.to_wire() for menu in self._menus)
+            pairs = self._select(self._by_owner, live)
+        return tuple(menu.stamped_for(owner).to_wire() for owner, menu in pairs)
+
+    @staticmethod
+    def _select(
+        by_owner: Mapping[ConnectionId, tuple[Menu, ...]],
+        live: Collection[ConnectionId],
+    ) -> list[tuple[ConnectionId, Menu]]:
+        """Return ``(owner, menu)`` for every menu of every live owner, ordered.
+
+        Pure selection over the caller's snapshot — no instance state — so both
+        readers share it without either owning the composition. Owners are
+        ordered so the composed bar is stable across reads.
+        """
+        owners = sorted(owner for owner in by_owner if owner in live)
+        return [(owner, menu) for owner in owners for menu in by_owner[owner]]

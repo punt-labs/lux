@@ -6,6 +6,10 @@ process-global module state shared across the test session.
 
 from __future__ import annotations
 
+import queue
+from typing import Self, final
+
+from punt_lux.domain.hub import inbox as inbox_mod
 from punt_lux.domain.hub.hub import hub
 from punt_lux.domain.hub.hub_display import hub_display
 from punt_lux.domain.hub.inbox import (
@@ -14,9 +18,83 @@ from punt_lux.domain.hub.inbox import (
     inbox_depth_for,
     inbox_for,
     next_event,
+    offer,
 )
 from punt_lux.domain.ids import ConnectionId, Topic
 from punt_lux.protocol.messages.observer import ObserverMessage
+
+
+@final
+class _LockWatchingQueue(queue.SimpleQueue[ObserverMessage]):
+    """A SimpleQueue that records whether ``_inboxes_lock`` is held during ``put``.
+
+    D1 fidelity control: ``offer`` must hold ``_inboxes_lock`` across BOTH the
+    ``get`` that finds the inbox AND the ``put`` that delivers into it, so a
+    concurrent ``drop_session`` cannot pop the queue between the two and turn a
+    false ``True`` delivery into an orphan (M1: ``¬(delivered ∧ lost)``, modelled
+    in ``docs/menu_lifecycle.tex``). The old code released the lock after the get
+    and put outside it -- observed here as ``locked() == False`` at put time.
+    """
+
+    _held_at_put: bool
+    _put_seen: bool
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._held_at_put = False
+        self._put_seen = False
+        return self
+
+    def put(
+        self, item: ObserverMessage, block: bool = True, timeout: float | None = None
+    ) -> None:
+        self._held_at_put = inbox_mod._inboxes_lock.locked()
+        self._put_seen = True
+        super().put(item, block, timeout)
+
+    @property
+    def held_at_put(self) -> bool:
+        """Whether ``_inboxes_lock`` was held when ``put`` last ran."""
+        return self._held_at_put
+
+    @property
+    def put_seen(self) -> bool:
+        """Whether ``put`` was called at all -- guards against a vacuous pass."""
+        return self._put_seen
+
+
+def test_offer_puts_under_the_inboxes_lock() -> None:
+    """D1: ``offer`` delivers with ``_inboxes_lock`` held, closing the get/put race.
+
+    Places a spy queue in ``_inboxes`` and asserts the lock is held at the moment
+    ``offer`` puts into it. Fails on the pre-fix code, which released the lock
+    between the lookup and the put.
+    """
+    connection = ConnectionId("c-offer-d1")
+    spy = _LockWatchingQueue()
+    with inbox_mod._inboxes_lock:
+        inbox_mod._inboxes[connection] = spy
+
+    assert offer(connection, ObserverMessage(topic="t", payload={})) is True
+
+    assert spy.put_seen
+    assert spy.held_at_put
+
+    drop_session(connection)  # cleanup: process-global _inboxes
+
+
+def test_offer_on_a_dropped_session_does_not_resurrect_an_inbox() -> None:
+    """D1: a message for a session whose inbox is gone is refused, never delivered.
+
+    The ``provider_gone`` half of M1 -- ``offer`` returns ``False`` and creates no
+    queue, so nothing lands in an orphan.
+    """
+    connection = ConnectionId("c-offer-gone")
+    inbox_for(connection)
+    drop_session(connection)
+
+    assert offer(connection, ObserverMessage(topic="t", payload={})) is False
+    assert inbox_depth_for(connection) == 0
 
 
 def test_an_unknown_connection_reports_zero() -> None:
@@ -66,6 +144,33 @@ def test_ensure_writer_binds_drop_session_as_the_departure_sink() -> None:
     hub_display.drop_connection(connection)
 
     assert not hub.has_writer(connection)
+    assert inbox_depth_for(connection) == 0
+
+
+def test_ensure_writer_arms_an_inbox_even_when_a_listener_writer_exists() -> None:
+    """F1: a listener session's menu_set click lands, not offer-dropped.
+
+    A ``HubListenSession`` registers its own Hub writer directly
+    (``deliver_event``), so ``hub.has_writer`` is already True when that session
+    later calls ``menu_set``. ``ensure_writer`` must still create the inbox queue,
+    or ``offer`` (the menu-event delivery path) finds none and drops a LIVE
+    session's click. Fail-on-current: the pre-fix short-circuit returned before
+    creating the inbox, so ``offer`` returned ``False``.
+    """
+    connection = ConnectionId("c-listener-menu")
+    # The listener leg: a Hub writer bound with no inbox, exactly as ws_listen does.
+    hub.register_writer(connection, lambda _msg: None)
+    assert hub.has_writer(connection)
+    assert inbox_depth_for(connection) == 0  # no inbox yet
+
+    ensure_writer(connection)  # menu_set's admit calls this on an identified owner
+
+    # The menu-event path delivers, because the inbox now exists despite the
+    # pre-existing listener writer.
+    assert offer(connection, ObserverMessage(topic="lux.menu", payload={})) is True
+    assert inbox_depth_for(connection) == 1
+
+    hub_display.drop_connection(connection)  # cleanup: production singletons
     assert inbox_depth_for(connection) == 0
 
 

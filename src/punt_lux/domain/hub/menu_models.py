@@ -1,53 +1,65 @@
-"""The Hub-owned menu types: the entries and the menu.
+"""The Hub-owned menu composite, its separator leaf, and the entry family.
 
-Menus are UI the agent submits, and submitted UI is Hub-authoritative state, so
-these types live in the domain layer — the operations layer imports them, keeping
-the one dependency arrow pointing operations → domain (PY-IC-9).
+Menus are Hub-authoritative submitted UI, so these types live in the domain layer
+(operations → domain, PY-IC-9). The clickable :class:`MenuAction` leaf lives in
+:mod:`punt_lux.domain.hub.menu_action`; this module owns the :class:`Menu`
+container, the trivial :class:`MenuSeparator`, the :class:`WireMenuEntry` family
+Protocol, and the discriminated :data:`MenuEntry` union.
 
-A menu entry is an action or a separator, never a half-formed action: the
-discriminated :data:`MenuEntry` makes each shape explicit, and ``MenuAction``
-requires a non-empty id so an id-less action cannot exist. An entry is
-discriminated on the *presence of an id*, not its label: an entry with an id is an
-action (even one labelled ``"---"``, which round-trips as an action), and the
-id-less ``"---"`` sentinel is the only separator. Any other id-less entry is
-malformed and rejected with a named-field error rather than silently coerced.
+Every entry owns both halves of its wire round-trip (``to_wire`` + a ``from_wire``
+classmethod) and stamps itself for dispatch — the family behaviours the structural
+:class:`WireMenuEntry` Protocol declares (families-share-by-Protocol, not a base
+class); the pydantic union on ``kind`` stays the runtime shape. An entry is
+discriminated on the *presence of an id* (see :meth:`Menu._entry_from_wire`).
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Annotated, Literal, cast
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    ClassVar,
+    Literal,
+    Protocol,
+    Self,
+    cast,
+    runtime_checkable,
+)
 
 from pydantic import BaseModel, ConfigDict, Field
 
-__all__ = ["Menu", "MenuAction", "MenuEntry", "MenuSeparator"]
+from punt_lux.domain.hub.menu_action import MenuAction
+
+if TYPE_CHECKING:
+    from punt_lux.domain.ids import ConnectionId
+
+__all__ = ["Menu", "MenuAction", "MenuEntry", "MenuSeparator", "WireMenuEntry"]
 
 # The wire label that stands in for a separator in the untyped menu payload.
-_SEPARATOR_SENTINEL = "---"
+SEPARATOR_SENTINEL = "---"
 
 
-class MenuAction(BaseModel):
-    """A clickable menu item that fires an interaction when chosen."""
+@runtime_checkable
+class WireMenuEntry(Protocol):
+    """A menu entry that renders and stamps itself. The family contract, structural.
 
-    model_config = ConfigDict(frozen=True)
+    ``TYPE`` is the class-level family tag this Protocol reads; ``kind`` is the
+    pydantic discriminator driving the runtime union — the two serve different
+    type systems and carry the same string on purpose. The Protocol is
+    load-bearing: :meth:`Menu.stamped_for` recurses over its items as this
+    contract, and ``isinstance(x, WireMenuEntry)`` is the family-membership test.
+    """
 
-    kind: Literal["action"] = "action"
-    id: str = Field(min_length=1)  # an id-less action is not a real state
-    label: str = Field(min_length=1)  # a label-less action is not a real state
-    shortcut: str | None = None  # None when the item has no accelerator
-    icon: str | None = None  # None when the item has no icon
-    frame_id: str | None = None  # None when the action owns no frame to raise
+    TYPE: ClassVar[str]
 
     def to_wire(self) -> dict[str, object]:
-        """Render as the untyped menu-item payload the display consumes."""
-        item: dict[str, object] = {"label": self.label, "id": self.id}
-        optional = {
-            "shortcut": self.shortcut,
-            "icon": self.icon,
-            "frame_id": self.frame_id,
-        }
-        item.update((k, v) for k, v in optional.items() if v is not None)
-        return item
+        """Render as the untyped payload the display consumes."""
+        ...
+
+    def stamped_for(self, owner: ConnectionId, /) -> WireMenuEntry:
+        """Return the entry with each leaf id stamped ``owner<US>id`` for dispatch."""
+        ...
 
 
 class MenuSeparator(BaseModel):
@@ -55,11 +67,22 @@ class MenuSeparator(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
+    TYPE: ClassVar[str] = "separator"
+
     kind: Literal["separator"] = "separator"
+
+    @classmethod
+    def from_wire(cls) -> Self:
+        """Build the separator; it carries no wire fields to read."""
+        return cls()
+
+    def stamped_for(self, _owner: ConnectionId) -> MenuSeparator:
+        """Return the separator unchanged: it owns no leaf id to stamp."""
+        return self
 
     def to_wire(self) -> dict[str, object]:
         """Render as the ``"---"`` separator sentinel the display consumes."""
-        return {"label": _SEPARATOR_SENTINEL}
+        return {"label": SEPARATOR_SENTINEL}
 
 
 class Menu(BaseModel):
@@ -67,30 +90,33 @@ class Menu(BaseModel):
 
     A menu may itself appear as an entry of another menu — the display nests a
     per-client submenu under its Applications menu — so :data:`MenuEntry` includes
-    ``Menu``.
+    ``Menu``. It delegates each entry's decode to that entry's own ``from_wire``.
     """
 
     model_config = ConfigDict(frozen=True)
 
+    TYPE: ClassVar[str] = "menu"
+
     kind: Literal["menu"] = "menu"
     label: str = Field(min_length=1)  # a label-less menu is not a real state
     items: list[MenuEntry]
+    # None until stamp time namespaces this heading to its owning session; the
+    # agent never submits it. The display keys a top-level (and nested) menu's
+    # hidden identity on (hub, owner, label), so two sessions' same-labelled menus
+    # never collide (PY-TS-14: absence is the pre-stamp state, not a give-up).
+    owner: str | None = None
 
     @classmethod
     def from_wire(cls, raw: object, *, index: int) -> Menu:
         """Build from one untyped menu, rejecting a malformed one by name.
 
-        ``index`` names the menu's position for a field-located error; a menu
-        that is not a mapping, that carries a missing/empty/non-string label, or
-        that carries a present-but-non-list ``items`` or a malformed entry, is
-        rejected rather than silently dropped or coerced to a blank menu. A
-        missing ``items`` key is the one absence that defaults to no entries.
+        ``index`` names the menu's position for a field-located error; a menu that
+        is not a mapping, carries a missing/empty/non-string label, or a
+        present-but-non-list ``items`` or a malformed entry, is rejected rather
+        than silently coerced. A missing ``items`` key defaults to no entries.
         """
         loc = f"menus.{index}"
-        if not isinstance(raw, Mapping):
-            msg = f"{loc}: expected a menu mapping, got {type(raw).__name__}"
-            raise ValueError(msg)
-        menu: Mapping[str, object] = cast("Mapping[str, object]", raw)
+        menu = cls._require_mapping(raw, loc=loc)
         label = menu.get("label")
         if not isinstance(label, str) or not label:
             msg = f"{loc}.label: expected a non-empty string"
@@ -110,55 +136,55 @@ class Menu(BaseModel):
 
     @classmethod
     def _entry_from_wire(cls, item: object, *, loc: str) -> MenuEntry:
-        """Map one wire item to an action or the sentinel separator, or reject it.
+        """Discriminate one wire item to an action or the separator, delegating.
 
-        Every field is validated, never coerced: an entry with an id is an
-        action whose id and label must both be non-empty strings and whose
-        optional shortcut/icon, when present, must be strings. A malformed field
-        is rejected by name (``{loc}.<field>``) rather than papered over with a
-        ``str()`` or a blank default.
+        An entry with an id is an action (whatever its label — even ``"---"``),
+        decoded by :meth:`MenuAction.from_wire`; the id-less ``"---"`` sentinel is
+        the separator; any other id-less entry is malformed and rejected by name.
         """
-        if not isinstance(item, Mapping):
-            msg = f"{loc}: expected a menu item mapping, got {type(item).__name__}"
-            raise ValueError(msg)
-        entry: Mapping[str, object] = cast("Mapping[str, object]", item)
-        raw_id = entry.get("id")
-        if raw_id is not None:
-            # An id makes this an action, whatever its label — even "---".
-            return MenuAction(
-                id=cls._require_str(raw_id, loc=f"{loc}.id"),
-                label=cls._require_str(entry.get("label"), loc=f"{loc}.label"),
-                shortcut=cls._optional_str(
-                    entry.get("shortcut"), loc=f"{loc}.shortcut"
-                ),
-                icon=cls._optional_str(entry.get("icon"), loc=f"{loc}.icon"),
-            )
-        if entry.get("label") == _SEPARATOR_SENTINEL:
-            return MenuSeparator()
-        msg = f"{loc}: an id-less entry must be the {_SEPARATOR_SENTINEL!r} separator"
+        entry = cls._require_mapping(item, loc=loc)
+        if entry.get("id") is not None:
+            return MenuAction.from_wire(entry, loc=loc)
+        if entry.get("label") == SEPARATOR_SENTINEL:
+            return MenuSeparator.from_wire()
+        msg = f"{loc}: an id-less entry must be the {SEPARATOR_SENTINEL!r} separator"
         raise ValueError(msg)
 
-    @staticmethod
-    def _require_str(value: object, *, loc: str) -> str:
-        """Return ``value`` when it is a non-empty string, else reject it by name."""
-        if not isinstance(value, str) or not value:
-            msg = f"{loc}: expected a non-empty string"
-            raise ValueError(msg)
-        return value
+    def stamped_for(self, owner: ConnectionId) -> Menu:
+        """Return a copy owner-stamped for dispatch and display identity.
 
-    @staticmethod
-    def _optional_str(value: object, *, loc: str) -> str | None:
-        """Return a present string, ``None`` when absent, or reject a non-string."""
-        if value is None:
-            return None
-        if not isinstance(value, str):
-            msg = f"{loc}: expected a string"
-            raise ValueError(msg)
-        return value
+        Records the owning session so the display can key this heading's hidden
+        identity per session, and recurses so every nested submenu and leaf id at
+        any depth is stamped to the session that registered the bar.
+        """
+        return self.model_copy(
+            update={
+                "owner": str(owner),
+                "items": [entry.stamped_for(owner) for entry in self.items],
+            }
+        )
 
     def to_wire(self) -> dict[str, object]:
-        """Render as the untyped menu payload the display consumes."""
-        return {"label": self.label, "items": [entry.to_wire() for entry in self.items]}
+        """Render as the untyped menu payload the display consumes.
+
+        A stamped menu carries its ``owner`` so the display keys its heading's
+        hidden identity on (hub, owner, label); an unstamped menu omits it.
+        """
+        wire: dict[str, object] = {
+            "label": self.label,
+            "items": [entry.to_wire() for entry in self.items],
+        }
+        if self.owner is not None:
+            wire["owner"] = self.owner
+        return wire
+
+    @staticmethod
+    def _require_mapping(item: object, *, loc: str) -> Mapping[str, object]:
+        """Return ``item`` as a mapping, or reject a non-mapping by name."""
+        if not isinstance(item, Mapping):
+            msg = f"{loc}: expected a menu mapping, got {type(item).__name__}"
+            raise ValueError(msg)
+        return cast("Mapping[str, object]", item)
 
 
 # A menu entry is an action, a separator, or a nested submenu, discriminated on

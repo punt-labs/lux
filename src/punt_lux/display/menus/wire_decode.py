@@ -63,13 +63,9 @@ class WireMenuDecoder:
 
     def _wire_item(self, menu_label: str, action: WireAction) -> MenuItem:
         """Return the clickable line, ImGui-keyed on its ``(Hub, item id)`` salt."""
-        target = ClickTarget(menu_label, action.label, action.item_id, action.frame_id)
-        # ZWSP after each '#' keeps a raw '##'/'###' (label or id) out of the id.
-        zw = "#" + chr(0x200B)
-        salt = f"{self._handlers.hub.wire_token}:{action.item_id}".replace("#", zw)
         return MenuItem(
-            f"{action.label.replace('#', zw)}##{salt}",
-            self._invoke(target),
+            action.imgui_label(self._handlers.hub.wire_token),
+            self._invoke(action.click_target(menu_label)),
             shortcut=action.shortcut,
             enabled=action.enabled,
         )

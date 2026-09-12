@@ -45,7 +45,7 @@ class SessionCleanup:
         Legs are independent and idempotent; each is isolated so one failing leg
         never starves the other.
         """
-        self._leg("menu", key, OPERATIONS.drop_session)
+        self._leg("menu", key, lambda: OPERATIONS.drop_session(self._connection_id))
         self._leg("disconnect", key, lambda: disconnect_connection(self._connection_id))
 
     def _leg(self, leg: str, key: str, step: Callable[[], None]) -> None:
