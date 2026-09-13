@@ -190,7 +190,14 @@ class ModuleCouplingMetrics:
         method's attr-set empty and reads as LCOM 1.0, a false zero-cohesion. A
         class with real private state assigns it (in ``__new__`` or a mutator), so
         one with *disjoint* private state still writes those attrs and is measured.
+
+        A hand-written immutable value class establishes that same private state
+        via ``object.__setattr__(self, "_x", ...)`` (the idiom frozen classes use
+        to bypass their own blocked ``__setattr__``) rather than a direct
+        ``self._x = ...`` store -- that write must count as state too, or such a
+        class is wrongly exempted from LCOM despite genuinely having it.
         """
+        is_private_setattr = ModuleCouplingMetrics._is_private_setattr_call
         for sub in ast.walk(node):
             if (
                 isinstance(sub, ast.Attribute)
@@ -200,7 +207,43 @@ class ModuleCouplingMetrics:
                 and isinstance(sub.ctx, ast.Store)
             ):
                 return False
+            if isinstance(sub, ast.Call) and is_private_setattr(sub):
+                return False
         return True
+
+    @staticmethod
+    def _is_private_setattr_call(call: ast.Call) -> bool:
+        """Return True for ``<receiver>.__setattr__(self, "_x", ...)``.
+
+        ``<receiver>`` is ``object``, ``super()``, or ``type(self)`` -- the three
+        forms a frozen/immutable class uses to write a private field outside its
+        own blocked ``__setattr__``. This is the AST shape ``_is_stateless_value``
+        cannot see through a direct-assignment scan, so it is matched explicitly.
+        """
+        if not (
+            isinstance(call.func, ast.Attribute)
+            and call.func.attr == "__setattr__"
+            and len(call.args) >= 2
+        ):
+            return False
+        receiver = call.func.value
+        is_known_receiver = (
+            isinstance(receiver, ast.Name) and receiver.id == "object"
+        ) or (
+            isinstance(receiver, ast.Call)
+            and isinstance(receiver.func, ast.Name)
+            and receiver.func.id in ("super", "type")
+        )
+        if not is_known_receiver:
+            return False
+        target, field = call.args[0], call.args[1]
+        return (
+            isinstance(target, ast.Name)
+            and target.id == "self"
+            and isinstance(field, ast.Constant)
+            and isinstance(field.value, str)
+            and field.value.startswith("_")
+        )
 
     @staticmethod
     def _method_self_attrs(method: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:

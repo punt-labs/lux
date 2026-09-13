@@ -79,6 +79,27 @@ _FROZEN_SRC = (
     "        return self.y\n"
 )
 
+# A hand-written immutable value class: it bypasses its own blocked
+# __setattr__ with object.__setattr__ to establish two DISJOINT private
+# fields -- real state the stateless-value skip must not hide. Unlike
+# _FROZEN_SRC (whose fields never appear in the AST at all), this class's
+# state IS visible to the AST, via a Call rather than a direct Attribute
+# store, so the exemption must not fire.
+_OBJECT_SETATTR_SRC = (
+    f"{_HEADER}"
+    "class Coord:\n"
+    "    __slots__ = ('_x', '_y')\n\n"
+    "    def __new__(cls, x: int, y: int) -> Coord:\n"
+    "        self = super().__new__(cls)\n"
+    '        object.__setattr__(self, "_x", x)\n'
+    '        object.__setattr__(self, "_y", y)\n'
+    "        return self\n\n"
+    "    def use_x(self) -> int:\n"
+    "        return self._x\n\n"
+    "    def use_y(self) -> int:\n"
+    "        return self._y\n"
+)
+
 
 def _max_lcom(scorer: CouplingScorer, stem: str) -> float:
     for result in scorer.results:
@@ -121,6 +142,20 @@ def test_stateless_value_objects_are_exempt_but_a_stateful_class_is_not(
     # A class that DOES assign disjoint private state is still measured, proving
     # the skip is targeted at stateless value objects, not any low-cohesion class.
     assert _max_lcom(scorer, "store") > 0.0
+
+
+def test_object_setattr_private_state_is_not_treated_as_stateless(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "coord.py").write_text(_OBJECT_SETATTR_SRC)
+
+    scorer = CouplingScorer(tmp_path)
+
+    # object.__setattr__(self, "_x", ...) is a Call, not an Attribute store, so
+    # the direct-assignment scan alone would miss it and wrongly read this class
+    # as stateless. Its two private fields are disjoint, so a correctly-detected
+    # class scores a real LCOM rather than the false 0.0 exemption.
+    assert _max_lcom(scorer, "coord") > 0.0
 
 
 def test_wiring_hub_efferent_cap_is_relaxed_only_for_the_named_roles() -> None:
