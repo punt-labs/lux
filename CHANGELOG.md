@@ -101,6 +101,13 @@
 
 ### Fixed
 
+- **Session-writer publish is now atomic (`lux-wk3p`).** The per-connection
+  publish path (`_writer`) looked up the inbox and enqueued in two steps
+  across a lock release, so a concurrent session departure could drop the
+  message (orphan-put) or, with a same-id reconnect, deliver it into the new
+  session's inbox (a cross-session leak). The lookup-and-put now share one
+  `_inboxes_lock` hold, mirroring the menu-click `offer` path (model-checked
+  in `docs/writer_publish_generation.tex`, invariant WG).
 - **Bounded the per-connection Agent Subscribe inbox (`lux-wk3p`).** Each
   connection's reserved `lux.menu` delivery inbox is now a `BoundedInbox`
   (capacity 32, drop-oldest with a warning) serialized by a

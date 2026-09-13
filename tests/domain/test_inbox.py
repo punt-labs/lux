@@ -88,6 +88,33 @@ def test_offer_puts_under_the_inboxes_lock() -> None:
     drop_session(connection)  # cleanup: process-global _inboxes
 
 
+def test_writer_puts_under_the_inboxes_lock() -> None:
+    """WG: the Hub-writer's put runs with ``_inboxes_lock`` held, same as ``offer``.
+
+    Places a spy queue in ``_inboxes`` before ``ensure_writer`` binds a fresh
+    writer, then publishes through the Hub and asserts the lock was held at the
+    moment the writer's ``put`` delivered. Fails on the pre-fix code, which
+    released the lock between ``inbox_for``'s lookup and the put.
+    """
+    connection = ConnectionId("c-writer-wg")
+    topic = Topic("wg.topic")
+    spy = _LockWatchingQueue()
+    inbox = BoundedInbox(connection)
+    inbox._queue = spy  # watch the inbox's underlying deque at delivery time
+    with inbox_mod._inboxes_lock:
+        inbox_mod._inboxes[connection] = inbox
+
+    ensure_writer(connection)
+    hub.subscribe(connection, topic)
+    delivered = hub.publish(connection, topic, {"k": "v"})
+
+    assert delivered == 1
+    assert spy.put_seen
+    assert spy.held_at_put
+
+    hub_display.drop_connection(connection)  # cleanup: production singletons
+
+
 def test_offer_on_a_dropped_session_does_not_resurrect_an_inbox() -> None:
     """D1: a message for a session whose inbox is gone is refused, never delivered.
 

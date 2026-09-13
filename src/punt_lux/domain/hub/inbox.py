@@ -38,13 +38,18 @@ _inboxes: dict[ConnectionId, BoundedInbox] = {}
 _inboxes_lock = threading.Lock()
 
 
+def _inbox_for_locked(connection_id: ConnectionId) -> BoundedInbox:
+    """Return (creating if needed) the connection's inbox; caller holds the lock."""
+    if (existing := _inboxes.get(connection_id)) is not None:
+        return existing
+    _inboxes[connection_id] = BoundedInbox(connection_id)
+    return _inboxes[connection_id]
+
+
 def inbox_for(connection_id: ConnectionId) -> BoundedInbox:
     """Return (creating if needed) the connection's inbox."""
     with _inboxes_lock:
-        if (existing := _inboxes.get(connection_id)) is not None:
-            return existing
-        _inboxes[connection_id] = BoundedInbox(connection_id)
-        return _inboxes[connection_id]
+        return _inbox_for_locked(connection_id)
 
 
 def drain_inbox(connection_id: ConnectionId) -> tuple[ObserverMessage, ...]:
@@ -90,7 +95,12 @@ def ensure_writer(connection_id: ConnectionId) -> None:
             return
 
         def _writer(message: ObserverMessage) -> None:
-            inbox_for(connection_id).put(message)
+            """Deliver atomically, sharing ``offer``'s WG guarantee.
+
+            See ``docs/writer_publish_generation.tex``.
+            """
+            with _inboxes_lock:
+                _inbox_for_locked(connection_id).put(message)
 
         hub.register_writer(connection_id, _writer)
 
@@ -121,7 +131,8 @@ def offer(connection_id: ConnectionId, message: ObserverMessage) -> bool:
     inbox and then putting outside the lock would let a departure pop it in between
     and deliver into an orphan while still reporting ``True`` -- the false-delivery
     the menu-event M1 gate forbids (``not (delivered and lost)``, modelled in
-    ``docs/menu_lifecycle.tex``).
+    ``docs/menu_lifecycle.tex``). ``_writer`` shares this atomicity (WG,
+    ``docs/writer_publish_generation.tex``).
     """
     with _inboxes_lock:
         inbox = _inboxes.get(connection_id)
