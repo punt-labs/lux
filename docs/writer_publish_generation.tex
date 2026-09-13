@@ -107,8 +107,14 @@
 % Model-check (WG2, this fixed spec): probcli docs/writer_publish_generation.tex
 %   -model_check -nodead -goal "genMismatch2 = fset" -p DEFAULT_SETSIZE 2
 %   => NOT found. Against writer_publish_generation_snapshot_buggy.tex (the
-%   shipped code AS IT STANDS TODAY -- no generation check exists yet) the
-%   same goal is FOUND. See the Verification section.
+%   PRE-FIX code -- before the currency check landed, c7454787) the same
+%   goal is FOUND. See the Verification section.
+%
+% SHIPPED. The WG2 fix landed in c7454787: inbox.py's `_writer` checks
+% `hub.writer_is_current(connection_id, _writer)` -- backed by
+% `WriterRegistry.is_current` -- under the same `_inboxes_lock` hold as the
+% put, exactly as Section~\ref{sec:codechange} specifies. Regression:
+% tests/domain/test_inbox.py::test_stale_writer_after_reconnect_does_not_deliver_into_the_new_session.
 %
 
 \documentclass[a4paper,10pt,fleqn]{article}
@@ -721,9 +727,10 @@ be recorded against. The snapshot-buggy control
 % ============================================================
 
 \paragraph{Snapshot --- \texttt{writer\_publish\_generation\_snapshot\_buggy.tex}.}
-This is not a hypothetical regression test for a fix that has already
-shipped, the way the split control is. It is a model of \texttt{\_writer} AS
-IT STANDS TODAY, after the round-2 atomicity fix (\texttt{c2f1c289}): the fix
+Like the split control, this is now a regression control for a fix that has
+shipped: the WG2 currency check landed in \texttt{c7454787}. It models
+\texttt{\_writer} as it stood after the round-2 atomicity fix
+(\texttt{c2f1c289}) but before that currency check: the round-2 fix
 closes the WITHIN-one-firing window WG names, but adds no check of any kind
 against a firing that is itself stale relative to \texttt{Hub.publish}'s own
 snapshot. \texttt{PublishInvokeFixed} is replaced by
@@ -818,29 +825,28 @@ Re-run \texttt{fuzz} and these goal checks whenever \texttt{inbox.py}'s
 \label{sec:codechange}
 % ============================================================
 
-WG2's fix is not yet implemented; this section is the write set for the
-Python worker who implements it, precise enough to hand off without
-prescribing files or line numbers Python does not yet have.
+WG2's fix is implemented, in \texttt{c7454787}. This section records what
+was built, in the same shape it was originally handed off as a write set,
+so the two remain traceable to each other.
 
 \begin{enumerate}
-  \item Give \texttt{inbox.py}'s \texttt{ensure\_writer} a way to check, at
-    put time, whether the \texttt{\_writer} closure about to run is still
-    the one \texttt{hub}'s \texttt{WriterRegistry} currently binds for
+  \item \texttt{inbox.py}'s \texttt{ensure\_writer} gives \texttt{\_writer} a
+    way to check, at put time, whether the closure about to run is still the
+    one \texttt{hub}'s \texttt{WriterRegistry} currently binds for
     \texttt{connection\_id}. The comparison \texttt{WriterRegistry.release}
-    already performs (\texttt{self.\_writers.get(connection\_id) ==
-    writer}) is the exact shape needed; whether it is exposed as a new
-    \texttt{Hub}/\texttt{WriterRegistry} query method (e.g.
-    \texttt{hub.writer\_is\_current(connection\_id, writer)}) or the closure
-    captures a comparable identity token at registration time is an
-    implementation choice PublishInvokeFixed does not prescribe -- either
-    realizes \texttt{capturedWriterGen(c?) = writerGen(c?)}.
+    already performed (\texttt{self.\_writers.get(connection\_id) ==
+    writer}) turned out to be the exact shape needed, exposed as a new query
+    method, \texttt{WriterRegistry.is\_current}, reached through
+    \texttt{Hub.writer\_is\_current(connection\_id, writer)} -- this realizes
+    \texttt{capturedWriterGen(c?) = writerGen(c?)}.
   \item \texttt{\_writer} performs that check UNDER \texttt{\_inboxes\_lock},
-    in the same atomic step \texttt{WriterPut} already establishes (do not
-    reopen the WG window to close the WG2 one): if current, proceed with
-    today's \texttt{\_inbox\_for\_locked(connection\_id).put(message)}; if
-    not current, return without touching \texttt{\_inboxes} at all -- the
-    message is dropped, not written into an orphan or a successor.
-  \item The check must NOT fire against \texttt{drain\_inbox}'s inbox swap.
+    in the same atomic step \texttt{WriterPut} already establishes (the WG
+    window was not reopened to close the WG2 one): if current, it proceeds
+    with the pre-existing \texttt{\_inbox\_for\_locked(connection\_id).put
+    (message)}; if not current, it returns without touching
+    \texttt{\_inboxes} at all -- the message is dropped, not written into an
+    orphan or a successor.
+  \item The check does not fire against \texttt{drain\_inbox}'s inbox swap.
     \texttt{drain\_inbox} replaces \texttt{\_inboxes[connection\_id]} with a
     fresh \texttt{BoundedInbox} for a SESSION THAT HAS NOT DEPARTED (used by
     tests) -- it never touches the writer registry, so a currently-bound
@@ -851,16 +857,52 @@ prescribing files or line numbers Python does not yet have.
     (bumped by \texttt{Arm} AND, implicitly, anything that recreates the
     inbox) is exactly what makes this guarantee checkable: \texttt{Arm} is
     the only operation that moves \texttt{writerGen}, and \texttt{drain\_inbox}
-    is not modelled as touching it.
-  \item Add a regression test reproducing
-    Section~\ref{sec:fidelity2}'s trace at the Python level: register a
-    writer, capture it (simulating \texttt{Hub.publish}'s snapshot by holding
-    a reference to the bound handler), drive a full disconnect-and-reconnect
-    cycle under the same \texttt{ConnectionId}, then invoke the captured
-    handler and assert the reconnected session's inbox did NOT receive the
-    message (and, ideally, that a debug-level log line records the drop, the
-    same posture \texttt{BoundedInbox.\_drop\_oldest} already takes for its
-    own backstop).
+    is not modelled as touching it -- confirmed by
+    \texttt{test\_current\_writer\_delivers\_after\_a\_drain\_inbox\_swap}.
+  \item The regression test reproducing Section~\ref{sec:fidelity2}'s trace
+    at the Python level is
+    \texttt{tests/domain/test\_inbox.py::test\_stale\_writer\_after\_reconnect\_does\_not\_deliver\_into\_the\_new\_session}:
+    it registers a writer, captures it (standing in for \texttt{Hub.publish}'s
+    snapshot by holding a reference to the bound handler), drives a full
+    disconnect-and-reconnect cycle under the same \texttt{ConnectionId}, then
+    invokes the captured handler and asserts the reconnected session's inbox
+    did NOT receive the message.
 \end{enumerate}
+
+\subsection{Why \texttt{WriterRegistry}'s own lock-free dict does not reopen the window}
+
+A round-4 review of \texttt{c7454787} asked whether the currency check is
+undermined by \texttt{WriterRegistry} holding no lock of its own:
+\texttt{WriterRegistry.bind}/\texttt{drop}/\texttt{release} mutate
+\texttt{self.\_writers} with no synchronization against \texttt{\_inboxes\_lock}
+at all, so \texttt{Hub.on\_disconnect}'s writer-drop half can run on another
+thread at any point during \texttt{\_writer}'s check-then-put, including in
+the instant between the two. That interleaving is real. It does not
+reopen WG2, because WG2's invariant is about which INBOX a put lands in, not
+about whether the writer-registry read that triggered the put was itself
+read a moment before it changed.
+
+The two writes that could move a connection's inbox to a different
+generation -- \texttt{Depart} (\texttt{drop\_session}) and a reconnecting
+\texttt{Arm} (\texttt{inbox\_for} inside \texttt{ensure\_writer}) -- both
+require \texttt{\_inboxes\_lock} to touch \texttt{\_inboxes[connection\_id]},
+and both run inside a \texttt{hub\_display.write\_lock()} hold shared, per
+\texttt{departure\_cascade.py}'s own docstring, between
+\texttt{DepartureCascade} and \texttt{ensure\_writer}. \texttt{\_writer}'s
+check-then-put holds \texttt{\_inboxes\_lock} for its entire duration
+(Item~2 above), so \texttt{Depart}'s \texttt{drop\_session} call blocks until
+\texttt{\_writer} releases it -- which in turn means a reconnecting
+\texttt{Arm}, itself serialized against \texttt{Depart} by the SAME
+\texttt{write\_lock()}, cannot install a fresh inbox until after
+\texttt{drop\_session} has run, which cannot happen until after
+\texttt{\_writer}'s put has already committed. The unsynchronized
+\texttt{\_writers} dict can go stale relative to \texttt{\_writer}'s already-taken
+read at any moment; \texttt{\_inboxes[connection\_id]} cannot, for the
+duration of that read. The worst reachable outcome of the interleaving the
+review raised is a put landing in the departing session's OWN inbox an
+instant before \texttt{drop\_session} discards it -- ordinary,
+unavoidable departure-loss, the same class WG's own "orphan loss" face
+already names (Section~\ref{sec:fidelity}) -- never delivery into a
+different, live session's inbox, which is the one outcome WG2 forbids.
 
 \end{document}
