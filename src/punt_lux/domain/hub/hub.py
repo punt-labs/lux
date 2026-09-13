@@ -82,6 +82,17 @@ class Hub:
         """Return whether a writer is registered for ``connection_id``."""
         return self._writers.has(connection_id)
 
+    def writer_is_current(self, connection_id: ConnectionId, writer: Handler) -> bool:
+        """Whether ``writer`` is still the connection's currently bound writer.
+
+        A subscriber handler this Hub's ``publish`` snapshotted can call this
+        right before acting, so a stale invocation -- captured before a
+        same-identity reconnect replaced the binding -- recognizes its own
+        staleness and no-ops instead of touching the successor's state
+        (``docs/writer_publish_generation.tex``, WG2).
+        """
+        return self._writers.is_current(connection_id, writer)
+
     def subscribe(self, connection_id: ConnectionId, topic: Topic) -> None:
         """Register the caller's connection for ``topic``.
 

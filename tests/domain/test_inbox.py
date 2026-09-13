@@ -13,6 +13,7 @@ from punt_lux.domain.hub import inbox as inbox_mod
 from punt_lux.domain.hub.hub import hub
 from punt_lux.domain.hub.hub_display import hub_display
 from punt_lux.domain.hub.inbox import (
+    drain_inbox,
     drop_session,
     ensure_writer,
     inbox_depth_for,
@@ -214,6 +215,64 @@ def test_ensure_writer_is_idempotent_and_rebinds_nothing_on_a_second_call() -> N
     ensure_writer(connection)  # must not raise, must not rebind
 
     assert hub.has_writer(connection)
+    hub_display.drop_connection(connection)  # cleanup: production singletons
+
+
+def test_stale_writer_after_reconnect_does_not_deliver_into_the_new_session() -> None:
+    """WG2: a publish snapshotted under a departed session drops after reconnect.
+
+    ``stale_writer`` stands in for the closure ``Hub.publish``'s
+    snapshot-then-invoke fan-out captured before the departure -- exactly
+    what a slow invocation holds onto across the window between the
+    snapshot and the actual call. Firing it after a same-identity reconnect
+    must not land in the reconnected session's live inbox; the currency
+    check recognizes the staleness and drops the message instead of
+    delivering it to the wrong recipient
+    (``docs/writer_publish_generation.tex``, WG2).
+    """
+    connection = ConnectionId("c-writer-stale-gen")
+    topic = Topic("wg2.stale")
+
+    ensure_writer(connection)  # G1
+    # The writer Hub.publish's snapshot would have captured for G1.
+    stale_writer = hub._writers.writer_for(connection)
+
+    hub_display.drop_connection(connection)  # G1 departs
+    ensure_writer(connection)  # G2 reconnects on the same ConnectionId
+
+    spy = _LockWatchingQueue()
+    inbox_for(connection)._queue = spy  # watch G2's live inbox for a delivery
+
+    stale_writer(ObserverMessage(topic=topic, payload={"k": "v"}))
+
+    assert not spy.put_seen  # dropped, never delivered into the successor's inbox
+
+    hub_display.drop_connection(connection)  # cleanup: production singletons
+
+
+def test_current_writer_delivers_after_a_drain_inbox_swap() -> None:
+    """The currency check never fires against a live writer or ``drain_inbox``.
+
+    ``drain_inbox`` replaces the connection's ``BoundedInbox`` with a fresh
+    one for a session that has NOT departed -- it never touches the writer
+    registry, so the still-current writer's next publish must still deliver
+    normally after the swap.
+    """
+    connection = ConnectionId("c-writer-current-gen")
+    topic = Topic("wg2.current")
+
+    ensure_writer(connection)
+    hub.subscribe(connection, topic)
+
+    drain_inbox(connection)  # swaps the inbox; leaves the writer registration alone
+
+    delivered = hub.publish(connection, topic, {"k": "v"})
+    assert delivered == 1
+
+    event = next_event(connection, timeout=1.0)
+    assert event is not None
+    assert event.payload == {"k": "v"}
+
     hub_display.drop_connection(connection)  # cleanup: production singletons
 
 

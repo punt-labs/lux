@@ -5,10 +5,10 @@
 ### Added
 
 - **Agent sessions appear in the Clients menu (`lux-1qyy`).** An identified
-  agent session — an MCP session with an `agent` handle — now earns menu
-  presence and is grouped under **Clients** like an applet, with a **Details**
-  entry (`earns_menu_presence = has_callbacks OR is_agent`). Previously only
-  sessions with registered callbacks or menus appeared.
+  MCP session now earns menu presence and is grouped under **Clients** like
+  an applet, with a **Details** entry (`earns_menu_presence = has_callbacks OR
+  is_agent`). Previously only sessions with registered callbacks or menus
+  appeared.
 - **`TreeNode` stable identity + Hub-authoritative tree selection
   (`lux-kob7`).** `TreeNode` gains an `id` field (default `""` — unaddressable)
   naming a node across a wire re-push, mirroring a table row's `key_column`.
@@ -108,6 +108,12 @@
   session's inbox (a cross-session leak). The lookup-and-put now share one
   `_inboxes_lock` hold, mirroring the menu-click `offer` path (model-checked
   in `docs/writer_publish_generation.tex`, invariant WG).
+- **Writer publish rejects a stale generation (`lux-wk3p`).** A publish
+  snapshotted under a departed session and invoked after a same-id reconnect
+  no longer delivers into the successor session's inbox; `_writer` now
+  verifies it is still the current registered writer (under
+  `_inboxes_lock`) before enqueuing (model-checked:
+  `docs/writer_publish_generation.tex`, invariant WG2).
 - **Bounded the per-connection Agent Subscribe inbox (`lux-wk3p`).** Each
   connection's reserved `lux.menu` delivery inbox is now a `BoundedInbox`
   (capacity 32, drop-oldest with a warning) serialized by a

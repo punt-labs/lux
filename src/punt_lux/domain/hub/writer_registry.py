@@ -63,6 +63,18 @@ class WriterRegistry:
         """Whether the connection has a writer bound."""
         return connection_id in self._writers
 
+    def is_current(self, connection_id: ConnectionId, writer: Handler) -> bool:
+        """Whether ``writer`` is still the connection's bound writer.
+
+        The same identity comparison :meth:`release` performs before a
+        departing session withdraws its own binding, reused here on the read
+        side: a closure snapshotted long before it fires (``Hub.publish``'s
+        snapshot-then-invoke fan-out) can ask, right before it acts, whether
+        it is still the registration this connection currently answers to
+        (``docs/writer_publish_generation.tex``, WG2).
+        """
+        return self._writers.get(connection_id) == writer
+
     def writer_for(self, connection_id: ConnectionId) -> Handler:
         """The connection's writer; raise ``KeyError`` if it has none.
 

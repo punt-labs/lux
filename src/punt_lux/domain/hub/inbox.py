@@ -10,6 +10,7 @@ does, including the bounded drop-oldest backstop.
 
 from __future__ import annotations
 
+import logging
 import threading
 from typing import TYPE_CHECKING
 
@@ -31,6 +32,7 @@ __all__ = [
     "offer",
 ]
 
+logger = logging.getLogger(__name__)
 
 # The lock guards allocation of a new inbox on first subscribe so two callers
 # never see different instances for the same connection.
@@ -95,11 +97,28 @@ def ensure_writer(connection_id: ConnectionId) -> None:
             return
 
         def _writer(message: ObserverMessage) -> None:
-            """Deliver atomically, sharing ``offer``'s WG guarantee.
+            """Deliver atomically, checked for writer-generation currency.
 
-            See ``docs/writer_publish_generation.tex``.
+            Shares ``offer``'s WG guarantee -- the resolve and the put are one
+            atomic step under ``_inboxes_lock`` -- and closes WG2:
+            ``Hub.publish``'s snapshot-then-invoke fan-out can capture this
+            closure long before it fires, long enough for a same-identity
+            reconnect to already own a fresh writer by the time this one
+            finally runs. The currency check, under the SAME lock hold as the
+            put, asks whether ``_writer`` is still the registration ``hub``
+            currently binds for this connection; if not, the put is skipped
+            entirely rather than landing in the reconnected session's live
+            inbox. See ``docs/writer_publish_generation.tex`` (WG2).
             """
             with _inboxes_lock:
+                if not hub.writer_is_current(connection_id, _writer):
+                    logger.debug(
+                        "%s writer stale (superseded by reconnect); "
+                        "dropping publish on %r",
+                        connection_id,
+                        message.topic,
+                    )
+                    return
                 _inbox_for_locked(connection_id).put(message)
 
         hub.register_writer(connection_id, _writer)
