@@ -118,18 +118,21 @@ class Hub:
         """Fan ``payload`` out to ``topic``'s subscribers in the caller's scope.
 
         Returns the number of subscribers that actually received the
-        message. Snapshot-then-iterate: the registry takes the lock just
-        long enough to copy the subscriber set, releases, then the Hub
-        iterates outside the lock to invoke each handler. A handler that
-        raises is logged and skipped; one bad subscriber must not abort
-        fan-out to the remaining well-behaved subscribers.
+        message -- a handler counts only by returning ``True``; a stale
+        writer that recognizes itself as superseded (WG2) returns
+        ``False`` and is not counted, even though it raised nothing.
+        Snapshot-then-iterate: the registry takes the lock just long
+        enough to copy the subscriber set, releases, then the Hub iterates
+        outside the lock to invoke each handler. A handler that raises is
+        logged and skipped; one bad subscriber must not abort fan-out to
+        the remaining well-behaved subscribers.
         """
         message = ObserverMessage(topic=topic, payload=payload)
         subscribers = self._subscriptions.snapshot_subscribers(connection_id, topic)
         delivered = 0
         for handler in subscribers:
             try:
-                handler(message)
+                received = handler(message)
             except Exception:
                 logger.exception(
                     "subscriber raised handling publish "
@@ -138,7 +141,8 @@ class Hub:
                     topic,
                 )
                 continue
-            delivered += 1
+            if received:
+                delivered += 1
         return delivered
 
     def on_disconnect(self, connection_id: ConnectionId) -> None:

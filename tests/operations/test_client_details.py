@@ -150,7 +150,7 @@ class TestWhatDetailsReports:
         # raw name, never the composed key with its embedded separator.
         store, hub = HubDisplay(), Hub()
         _named(store, "c1", _identity())
-        hub.register_writer(ConnectionId("c1"), lambda _msg: None)
+        hub.register_writer(ConnectionId("c1"), lambda _msg: True)
         hub.subscribe(ConnectionId("c1"), Topic("work.saved"))
         group = hub_element_factory(ConnectionId("c1")).element_from_dict(
             {"kind": "text", "id": "t1", "content": "hi"}

@@ -18,8 +18,9 @@ def _writer() -> tuple[Handler, list[ObserverMessage]]:
     """A writer and the messages it received — distinct objects per call."""
     received: list[ObserverMessage] = []
 
-    def _handler(message: ObserverMessage) -> None:
+    def _handler(message: ObserverMessage) -> bool:
         received.append(message)
+        return True
 
     return _handler, received
 

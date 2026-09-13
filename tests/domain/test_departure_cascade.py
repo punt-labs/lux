@@ -29,7 +29,7 @@ def _recorder() -> tuple[list[ConnectionId], DepartureSink]:
 def test_run_drops_subscriptions_and_writer_via_hub() -> None:
     """The cascade's ``run`` leg reaches ``Hub.on_disconnect``, not a copy of it."""
     hub = Hub()
-    hub.register_writer(_CONN, lambda _msg: None)
+    hub.register_writer(_CONN, lambda _msg: True)
     hub.subscribe(_CONN, Topic("t"))
     cascade = DepartureCascade(hub)
 
@@ -66,8 +66,8 @@ def test_run_all_runs_the_cascade_for_every_connection_in_the_set() -> None:
     hub = Hub()
     first = ConnectionId("swept-1")
     second = ConnectionId("swept-2")
-    hub.register_writer(first, lambda _msg: None)
-    hub.register_writer(second, lambda _msg: None)
+    hub.register_writer(first, lambda _msg: True)
+    hub.register_writer(second, lambda _msg: True)
     cascade = DepartureCascade(hub)
     fired: list[ConnectionId] = []
 
@@ -120,7 +120,7 @@ def test_run_still_fires_the_sink_when_on_disconnect_raises() -> None:
 def test_run_does_not_raise_when_the_sink_raises() -> None:
     """A raising sink must not surface as an externally visible failure."""
     hub = Hub()
-    hub.register_writer(_CONN, lambda _msg: None)
+    hub.register_writer(_CONN, lambda _msg: True)
     cascade = DepartureCascade(hub)
 
     def _raising_sink(connection_id: ConnectionId) -> None:
@@ -150,7 +150,7 @@ def test_run_all_isolates_a_raising_connections_cascade_from_the_rest(
     bad = ConnectionId("swept-bad")
     good_last = ConnectionId("swept-good-last")
     for connection_id in (good_first, bad, good_last):
-        hub.register_writer(connection_id, lambda _msg: None)
+        hub.register_writer(connection_id, lambda _msg: True)
     cascade = DepartureCascade(hub)
 
     def _raising_sink(connection_id: ConnectionId) -> None:

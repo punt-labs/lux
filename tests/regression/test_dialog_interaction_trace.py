@@ -258,7 +258,12 @@ class _ConfirmTrace:
         connection_id = self.hub.connect(agent)
         pubsub = Hub()
         self.received = []
-        pubsub.register_writer(connection_id, self.received.append)
+
+        def _record(message: ObserverMessage) -> bool:
+            self.received.append(message)
+            return True
+
+        pubsub.register_writer(connection_id, _record)
         pubsub.subscribe(connection_id, _TOPIC)
 
         def _publish_sink(topic: str, payload: Mapping[str, object]) -> None:

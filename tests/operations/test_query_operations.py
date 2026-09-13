@@ -495,7 +495,7 @@ def test_list_clients_reads_the_hub_session_registry() -> None:
     store = HubDisplay()
     _seed_scene(store, scene="s1", connection="c1")
     hub = Hub()
-    hub.register_writer(ConnectionId("c1"), lambda _msg: None)
+    hub.register_writer(ConnectionId("c1"), lambda _msg: True)
     hub.subscribe(ConnectionId("c1"), Topic("work.saved"))
     ops = QueryOperations(
         store, _ForbiddenPort(), ClientListing(store, hub, _zero_inbox_depth)
@@ -522,7 +522,7 @@ def test_list_clients_reports_writer_bound_true_only_for_a_registered_writer() -
     _seed_scene(store, scene="s1", connection="c1")
     _seed_scene(store, scene="s2", connection="c2")
     hub = Hub()
-    hub.register_writer(ConnectionId("c1"), lambda _msg: None)
+    hub.register_writer(ConnectionId("c1"), lambda _msg: True)
     ops = QueryOperations(
         store, _ForbiddenPort(), ClientListing(store, hub, _zero_inbox_depth)
     )
@@ -537,7 +537,7 @@ def test_list_clients_reports_inbox_depth_from_the_injected_port() -> None:
     store = HubDisplay()
     _seed_scene(store, scene="s1", connection="c1")
     hub = Hub()
-    hub.register_writer(ConnectionId("c1"), lambda _msg: None)
+    hub.register_writer(ConnectionId("c1"), lambda _msg: True)
     depths = {ConnectionId("c1"): 3}
     clients = ClientListing(store, hub, lambda cid: depths.get(cid, 0))
     ops = QueryOperations(store, _ForbiddenPort(), clients)
@@ -554,7 +554,7 @@ def test_list_clients_owned_scenes_round_trips_into_inspect_scene() -> None:
     store = HubDisplay()
     _seed_scene(store, scene="foo", connection="c1")
     hub = Hub()
-    hub.register_writer(ConnectionId("c1"), lambda _msg: None)
+    hub.register_writer(ConnectionId("c1"), lambda _msg: True)
     ops = QueryOperations(
         store, _ForbiddenPort(), ClientListing(store, hub, _zero_inbox_depth)
     )
@@ -573,8 +573,8 @@ def test_list_clients_owned_scenes_reports_two_connections_separately() -> None:
     _seed_scene(store, scene="foo", connection="c1")
     _seed_scene(store, scene="foo", connection="c2")
     hub = Hub()
-    hub.register_writer(ConnectionId("c1"), lambda _msg: None)
-    hub.register_writer(ConnectionId("c2"), lambda _msg: None)
+    hub.register_writer(ConnectionId("c1"), lambda _msg: True)
+    hub.register_writer(ConnectionId("c2"), lambda _msg: True)
     ops = QueryOperations(
         store, _ForbiddenPort(), ClientListing(store, hub, _zero_inbox_depth)
     )

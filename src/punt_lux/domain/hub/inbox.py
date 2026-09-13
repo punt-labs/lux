@@ -96,7 +96,7 @@ def ensure_writer(connection_id: ConnectionId) -> None:
         if hub.has_writer(connection_id):
             return
 
-        def _writer(message: ObserverMessage) -> None:
+        def _writer(message: ObserverMessage) -> bool:
             """Deliver atomically, checked for writer-generation currency.
 
             Shares ``offer``'s WG guarantee -- the resolve and the put are one
@@ -108,7 +108,8 @@ def ensure_writer(connection_id: ConnectionId) -> None:
             put, asks whether ``_writer`` is still the registration ``hub``
             currently binds for this connection; if not, the put is skipped
             entirely rather than landing in the reconnected session's live
-            inbox. See ``docs/writer_publish_generation.tex`` (WG2).
+            inbox, and ``False`` reports the non-delivery to ``Hub.publish``'s
+            count. See ``docs/writer_publish_generation.tex`` (WG2).
             """
             with _inboxes_lock:
                 if not hub.writer_is_current(connection_id, _writer):
@@ -118,8 +119,9 @@ def ensure_writer(connection_id: ConnectionId) -> None:
                         connection_id,
                         message.topic,
                     )
-                    return
+                    return False
                 _inbox_for_locked(connection_id).put(message)
+                return True
 
         hub.register_writer(connection_id, _writer)
 

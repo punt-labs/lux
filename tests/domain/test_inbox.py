@@ -192,7 +192,7 @@ def test_ensure_writer_arms_an_inbox_even_when_a_listener_writer_exists() -> Non
     """
     connection = ConnectionId("c-listener-menu")
     # The listener leg: a Hub writer bound with no inbox, exactly as ws_listen does.
-    hub.register_writer(connection, lambda _msg: None)
+    hub.register_writer(connection, lambda _msg: True)
     assert hub.has_writer(connection)
     assert inbox_depth_for(connection) == 0  # no inbox yet
 
@@ -246,6 +246,58 @@ def test_stale_writer_after_reconnect_does_not_deliver_into_the_new_session() ->
     stale_writer(ObserverMessage(topic=topic, payload={"k": "v"}))
 
     assert not spy.put_seen  # dropped, never delivered into the successor's inbox
+
+    hub_display.drop_connection(connection)  # cleanup: production singletons
+
+
+def test_stale_writer_publish_reports_zero_delivered_not_one() -> None:
+    """WG2 + the delivered-count contract: a stale no-op must not be counted.
+
+    ``Hub.publish``'s docstring promises the count of subscribers that
+    *actually received* the message. Before this fix, the loop counted every
+    handler invocation that did not raise -- so a stale writer's WG2 no-op
+    (module docstring above) was silently counted as a delivery, reporting
+    ``delivered=1`` for a message that reached nobody. Rebinding the
+    connection's writer without departing leaves the STALE writer's own
+    subscription in place -- exactly the shape ``Hub.publish``'s
+    snapshot-then-invoke fan-out produces when a reconnect lands between the
+    snapshot and the call -- so the currency check inside ``_writer`` fires
+    for real, and the count must reflect that nothing was delivered.
+    """
+    connection = ConnectionId("c-writer-stale-not-delivered")
+    topic = Topic("wg2.notdelivered")
+
+    ensure_writer(connection)  # G1 binds a writer + inbox
+    hub.subscribe(connection, topic)  # subscription references G1's writer
+    stale_writer = hub._writers.writer_for(connection)
+
+    def _new_writer(_message: ObserverMessage) -> bool:
+        return True
+
+    # G2 takes over the connection's writer slot without a departure, so the
+    # existing subscription -- still bound to G1's `stale_writer` closure --
+    # survives the rebind untouched.
+    hub.register_writer(connection, _new_writer)
+    assert hub._subscriptions.snapshot_subscribers(connection, topic) == (stale_writer,)
+
+    delivered = hub.publish(connection, topic, {"k": "v"})
+
+    assert delivered == 0
+
+    hub_display.drop_connection(connection)  # cleanup: production singletons
+
+
+def test_live_writer_publish_reports_one_delivered() -> None:
+    """The normal case the stale-count fix must not disturb: a live delivery."""
+    connection = ConnectionId("c-writer-live-delivered")
+    topic = Topic("wg2.delivered")
+
+    ensure_writer(connection)
+    hub.subscribe(connection, topic)
+
+    delivered = hub.publish(connection, topic, {"k": "v"})
+
+    assert delivered == 1
 
     hub_display.drop_connection(connection)  # cleanup: production singletons
 

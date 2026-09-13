@@ -16,8 +16,11 @@ __all__ = ["Handler", "SubscriptionRegistry"]
 
 # A Handler is the outbound writer for the subscribing connection. The Hub
 # typically registers one handler per connection: the wire writer that
-# serializes an ObserverMessage and sends it back over that connection.
-type Handler = Callable[["ObserverMessage"], None]
+# serializes an ObserverMessage and sends it back over that connection. The
+# bool return reports whether the message actually reached a recipient --
+# a writer that recognizes itself as stale (superseded by a reconnect, WG2)
+# returns False instead of delivering into a connection it no longer owns.
+type Handler = Callable[["ObserverMessage"], bool]
 
 
 class SubscriptionRegistry:

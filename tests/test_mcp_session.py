@@ -238,8 +238,9 @@ class TestSharedKeyDisconnectPreservesSubscriptions:
         display = HubDisplay(hub=hub)
         conn = ConnectionId("sess-shared")
 
-        def _writer(_message: object) -> None:
+        def _writer(_message: object) -> bool:
             """The shared connection's one Hub-side outbound writer."""
+            return True
 
         display.register_client(conn)
         hub.register_writer(conn, _writer)
