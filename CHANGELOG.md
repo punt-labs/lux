@@ -4,6 +4,11 @@
 
 ### Added
 
+- **Agent sessions appear in the Clients menu (`lux-1qyy`).** An identified
+  agent session — an MCP session with an `agent` handle — now earns menu
+  presence and is grouped under **Clients** like an applet, with a **Details**
+  entry (`earns_menu_presence = has_callbacks OR is_agent`). Previously only
+  sessions with registered callbacks or menus appeared.
 - **`TreeNode` stable identity + Hub-authoritative tree selection
   (`lux-kob7`).** `TreeNode` gains an `id` field (default `""` — unaddressable)
   naming a node across a wire re-push, mirroring a table row's `key_column`.
@@ -96,6 +101,13 @@
 
 ### Fixed
 
+- **Bounded the per-connection Agent Subscribe inbox (`lux-wk3p`).** Each
+  connection's reserved `lux.menu` delivery inbox is now a `BoundedInbox`
+  (capacity 32, drop-oldest with a warning) serialized by a
+  `threading.Condition`, so `put`/`get`/`drain`/`depth` cannot tear one
+  another — closing an unbounded-growth hazard and a spurious-drop race
+  (model-checked in `docs/menu_lifecycle_bounded_inbox.tex`). A non-positive
+  inbox capacity is now rejected at construction.
 - **Agent `menu_set` items now work on click (`lux-m3xr`, DES-098).** An agent's
   `menu_set` item was dead on click: it could not carry a `frame_id` through the
   decode (gap a), and a frameless click was dropped at the Hub because the

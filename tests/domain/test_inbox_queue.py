@@ -12,15 +12,13 @@ import logging
 import sys
 import threading
 from collections import deque
-from typing import TYPE_CHECKING
+
+import pytest
 
 from punt_lux.domain.hub import inbox_queue as inbox_queue_module
 from punt_lux.domain.hub.inbox_queue import INBOX_CAPACITY, BoundedInbox
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.protocol.messages.observer import ObserverMessage
-
-if TYPE_CHECKING:
-    import pytest
 
 _CONN = ConnectionId("inbox-queue-test")
 
@@ -54,6 +52,12 @@ class _TearOnCheckDeque(deque[ObserverMessage]):
             self._armed = False
             super().popleft()
         return length
+
+
+@pytest.mark.parametrize("capacity", [0, -1])
+def test_a_non_positive_capacity_is_rejected_at_construction(capacity: int) -> None:
+    with pytest.raises(ValueError, match=str(capacity)):
+        BoundedInbox(_CONN, capacity=capacity)
 
 
 def test_under_capacity_is_a_plain_fifo() -> None:

@@ -78,6 +78,9 @@ class BoundedInbox:
     def __new__(
         cls, connection_id: ConnectionId, capacity: int = INBOX_CAPACITY
     ) -> Self:
+        if capacity < 1:
+            msg = f"BoundedInbox capacity must be positive, got {capacity!r}"
+            raise ValueError(msg)
         self = super().__new__(cls)
         self._connection_id = connection_id
         self._capacity = capacity
