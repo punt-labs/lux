@@ -1,0 +1,423 @@
+%
+% writer_publish_generation.tex
+%
+% A Z specification of the Hub-writer publish path's inbox delivery --
+% src/punt_lux/domain/hub/inbox.py's `_writer` closure (registered by
+% `ensure_writer`, invoked by `Hub.publish`'s fan-out) -- prompted by a
+% Copilot review finding on PR #498 (bead lux-m3xr) against
+% inbox.py:92-93.
+%
+% WHY THIS MODEL EXISTS. `docs/menu_lifecycle.tex` proved D1: `offer`'s
+% get-then-put across a released `_inboxes_lock` hold lets a `drop_session`
+% land in the window and produce a false "delivered" report. That fix --
+% get and put under one lock hold -- was applied to `offer` only. The
+% session writer's own put,
+%
+%   def _writer(message: ObserverMessage) -> None:
+%       inbox_for(connection_id).put(message)
+%
+% (inbox.py:92-93) still calls `inbox_for` -- which takes and releases
+% `_inboxes_lock` internally -- and THEN calls `.put` on the object it
+% returned, outside any lock. `offer`'s own docstring already names this
+% as a different case ("Unlike the session writer's
+% `inbox_for(...).put` -- which creates an inbox on demand -- this reads
+% with `.get`..."); it does not claim the writer's put shares `offer`'s
+% atomicity fix, and it does not.
+%
+% This model asks a sharper question than D1's presence-only check: not
+% just whether the target is PRESENT when the put lands, but whether it
+% is the connection's CURRENT inbox. `connection_lease_reaping.tex`'s I6
+% and I7 establish that a live writer keeps its registry-level BINDING
+% (`hasWriter`) and that departure clears all three cascade-leg flags,
+% but that model's own commentary is explicit that it "has no way to
+% distinguish a fresh writer from a stale one [by identity]" -- it
+% tracks a boolean per connection, never an inbox's generation. Neither
+% `menu_lifecycle.tex`'s M1 (offer only) nor `menu_lifecycle_delivery.tex`'s
+% M1b (offer only, live-recipient loss) reaches the writer's put at all.
+% This model closes that gap: it gives each connection's inbox a
+% GENERATION -- the object identity a fresh `BoundedInbox()` gets on
+% every (re)creation -- and proves a writer's put always lands in the
+% generation live at PUT time, not the one live when it started looking.
+%
+% Read first: src/punt_lux/domain/hub/inbox.py (`inbox_for`, `_writer`,
+% `ensure_writer`, `drop_session`, `offer`), docs/menu_lifecycle.tex (D1,
+% the offer-path analogue this refines by scope), docs/connection_lease_reaping.tex
+% (I6/I7, the coarse `hasWriter`/`inboxNonEmpty` boolean this sharpens
+% into an object generation).
+%
+% Type-check:  fuzz docs/writer_publish_generation.tex
+% Model-check: probcli docs/writer_publish_generation.tex -model_check -p DEFAULT_SETSIZE 3
+% WG is a reachability check; see the Verification section for the exact
+% -goal predicates.
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{lux Hub-Writer Publish Path: a Z Specification}
+\author{Formal model of the session writer's inbox put -- proving a
+  publish always lands in the connection's currently-live inbox, never a
+  detached predecessor or an unrelated successor}
+\date{September 2026}
+\maketitle
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+Every MCP session with a live inbox has a writer closure registered
+against its \texttt{ConnectionId} in the Hub's per-connection writer
+registry. \texttt{Hub.publish} fans a message out by calling each
+subscriber's writer; for the inbox writer, that call is
+\texttt{inbox\_for(connection\_id).put(message)} -- look the inbox up
+(creating it if none exists), then put into whatever was returned.
+
+A connection's inbox is not fixed for the life of the \texttt{ConnectionId}:
+\texttt{drop\_session} removes it on departure, and a later
+\texttt{ensure\_writer} call -- on a same-identity reconnect, a scenario
+\texttt{connection\_lease\_reaping.tex} already treats as a first-class
+case -- creates a brand new one. Two calls a millisecond apart can
+therefore be talking about two different inbox objects for the identical
+\texttt{ConnectionId}. This model names that fact a \emph{generation}: the
+inbox a connection has right now, distinct from any inbox it had before or
+will have after.
+
+\begin{description}
+  \item[WG --- a publish lands only in the live generation.] A writer's put
+    is committed against the inbox it is the CURRENT one for a connection at
+    the moment the put actually happens, not the moment the writer began
+    resolving which inbox to use. Violating this has two faces, both closed
+    by the same property: the target has since been dropped and never
+    recreated (the message is written into a detached, unreachable object --
+    silent loss), or the target has since been dropped and recreated for a
+    reconnected session (the message is written into a \emph{different, live}
+    session's inbox -- delivery to the wrong recipient, not merely loss).
+\end{description}
+
+WG is deliberately kept out of the state schema, for the reason
+\texttt{connection\_lease\_reaping.tex} and \texttt{menu\_lifecycle.tex}
+both give: a property enforced as a guard on every successor would make the
+violating operation unreachable rather than a counterexample. The schema
+below carries only structural coherence; WG is checked as the reachability
+of its negation (Section~\ref{sec:verify}).
+
+Five operations realize the fixed design. \texttt{Arm} models
+\texttt{inbox\_for} creating (or finding) a connection's inbox, called
+standalone by a reconnecting \texttt{ensure\_writer}. \texttt{Depart} models
+\texttt{drop\_session}. \texttt{WriterPut} models \texttt{\_writer}
+\emph{once fixed}: the lookup-or-create and the put are one atomic step,
+mirroring \texttt{offer}'s D1 fix of holding \texttt{\_inboxes\_lock} across
+both instead of releasing it in between.
+
+% ============================================================
+\section{Basic Types}
+% ============================================================
+
+\begin{zed}
+  [CONN]
+\end{zed}
+
+A connection identity -- the \texttt{ConnectionId} keying the inbox
+registry. One \texttt{CONN} value suffices to exhibit a self-race between
+one connection's own stalled writer and its own departure-then-reconnect;
+the carrier is bounded by ProB's \texttt{DEFAULT\_SETSIZE}.
+
+% ============================================================
+\section{Free Types}
+% ============================================================
+
+\begin{zed}
+  GEN ::= gen0 | gen1
+\end{zed}
+
+The generation of a connection's inbox: which incarnation of
+\texttt{BoundedInbox} is the one \texttt{\_inboxes[connection\_id]} names
+right now. Two values suffice: one recreation is enough to show a stalled
+writer's captured generation diverging from the live one. Prefixed
+constructors, matching the convention every companion model in this repo
+uses for a small enumerated carrier.
+
+\begin{zed}
+  FSTATE ::= fclear | fset
+\end{zed}
+
+A two-value flag, matching \texttt{connection\_lease\_reaping.tex}'s and
+\texttt{menu\_lifecycle.tex}'s \texttt{FSTATE}. Here it records whether any
+put has ever landed against a generation other than the one live when the
+put actually happened.
+
+\begin{zed}
+  PPHASE ::= pidle | pput
+\end{zed}
+
+Whether a writer's put is between resolving which inbox to use and
+committing into it. In this, the fixed model, \texttt{WriterPut} is atomic,
+so this never leaves \texttt{pidle}; the split fidelity control drives it to
+\texttt{pput}, the window the real \texttt{inbox\_for(...).put(...)} split
+exposes.
+
+% ============================================================
+\section{State}
+% ============================================================
+
+One flat schema, structural coherence only. WG is checked as the
+reachability of its negation (Section~\ref{sec:verify}), not carried here.
+
+\begin{schema}{WriterReg}
+  hasInbox : \power CONN \\
+  inboxGen : CONN \fun GEN \\
+  putPhase : PPHASE \\
+  putFor : \power CONN \\
+  capturedGen : CONN \fun GEN \\
+  genMismatch : FSTATE
+\where
+  \# putFor \leq 1
+\end{schema}
+
+\texttt{hasInbox} is the set of connections with a live, present inbox --
+\texttt{connection\_id in \_inboxes}. \texttt{inboxGen} is total over
+\texttt{CONN} for the same reason \texttt{connection\_lease\_reaping.tex}
+keeps \texttt{owner} total over \texttt{SCENE}: a partial function keyed
+like this would force every operation that touches a connection to decide,
+separately, whether it is being seen for the first time; a generation value
+persisting for a connection currently \emph{outside} \texttt{hasInbox} is
+exactly what lets \texttt{Depart} preserve it and a stalled writer's earlier
+capture be compared against it later. \texttt{putPhase}/\texttt{putFor} are
+the split-window device \texttt{menu\_lifecycle.tex} uses for
+\texttt{offerPhase}/\texttt{offerFor}: a phase plus the at-most-one
+connection currently inside that window, inert (\texttt{pidle}, empty)
+throughout this fixed model. \texttt{capturedGen} holds, for a writer
+mid-put, the generation it resolved \texttt{inbox\_for} to; like
+\texttt{inboxGen} it is kept total for the same reason.
+
+% ============================================================
+\section{Initialization}
+% ============================================================
+
+\begin{schema}{Init}
+  WriterReg'
+\where
+  hasInbox' = \emptyset \\
+  inboxGen' = (\lambda c : CONN @ gen0) \\
+  putPhase' = pidle \\
+  putFor' = \emptyset \\
+  capturedGen' = (\lambda c : CONN @ gen0) \\
+  genMismatch' = fclear
+\end{schema}
+
+No connection has an inbox, no put in flight, nothing yet mismatched.
+
+% ============================================================
+\section{Operations}
+% ============================================================
+
+\subsection{Arm --- resolve (creating if absent) a connection's inbox}
+
+Models \texttt{inbox\_for(connection\_id)} called on its own, as
+\texttt{ensure\_writer} calls it on every (re)connect. If the connection has
+no inbox, one is created and its generation is set to a value distinct from
+whatever the connection's generation last was -- a fresh
+\texttt{BoundedInbox()} instance is never the departed one, whether this is
+the connection's first inbox or its third. If an inbox is already present,
+\texttt{inbox\_for} returns the existing one unchanged.
+
+\begin{schema}{Arm}
+  \Delta WriterReg \\
+  c? : CONN
+\where
+  putPhase' = putPhase \\
+  putFor' = putFor \\
+  capturedGen' = capturedGen \\
+  genMismatch' = genMismatch \\
+  c? \notin hasInbox \implies
+    (hasInbox' = hasInbox \cup \{ c? \} \land
+     (\exists g : GEN | g \neq inboxGen(c?) @
+       inboxGen' = inboxGen \oplus \{ c? \mapsto g \})) \\
+  c? \in hasInbox \implies
+    (hasInbox' = hasInbox \land inboxGen' = inboxGen)
+\end{schema}
+
+\subsection{Depart --- drop a connection's inbox}
+
+Models \texttt{drop\_session}: the inbox is removed from \texttt{hasInbox}.
+Its generation value is left exactly as it was -- \texttt{drop\_session}
+does not overwrite anything, it pops a dict entry -- so a generation
+persisting after departure is not a modeling convenience, it is the literal
+behavior: the dropped \texttt{BoundedInbox} object still exists, still holds
+whatever generation it was created with, and any reference to it a stalled
+caller is holding remains valid to call \texttt{.put} on.
+
+\begin{schema}{Depart}
+  \Delta WriterReg \\
+  c? : CONN
+\where
+  c? \in hasInbox \\
+  hasInbox' = hasInbox \setminus \{ c? \} \\
+  inboxGen' = inboxGen \\
+  putPhase' = putPhase \\
+  putFor' = putFor \\
+  capturedGen' = capturedGen \\
+  genMismatch' = genMismatch
+\end{schema}
+
+\subsection{WriterPut --- resolve and put, one atomic step (the fix)}
+\label{sec:writerput}
+
+Models \texttt{\_writer} \emph{once fixed}: the shipped code calls
+\texttt{inbox\_for(connection\_id)} -- which takes and releases
+\texttt{\_inboxes\_lock} on its own -- and only then calls \texttt{.put} on
+whatever it returned, outside any lock. Here the whole operation -- resolve
+or create, then put -- is one atomic step, matching \texttt{offer}'s D1 fix
+of holding \texttt{\_inboxes\_lock} across both instead of releasing it in
+between. Because the resolution and the put are the same step, the put
+always lands in the inbox this step itself just resolved; there is no
+window for a \texttt{Depart} or a reconnecting \texttt{Arm} to change which
+inbox that is before the put runs. The put itself carries no observable
+message identity in this model -- like \texttt{connection\_lease\_reaping.tex}'s
+\texttt{Activate}, "modeled abstractly," since WG needs only that a put
+landed against the live generation, not which message or which topic --
+so \texttt{WriterPut}'s effect on \texttt{hasInbox}/\texttt{inboxGen} is
+identical to \texttt{Arm}'s; the operative difference the fix supplies is
+that resolution and put are one step, which the split control below breaks
+apart.
+
+\begin{schema}{WriterPut}
+  \Delta WriterReg \\
+  c? : CONN
+\where
+  putPhase = pidle \\
+  putPhase' = putPhase \\
+  putFor' = putFor \\
+  capturedGen' = capturedGen \\
+  genMismatch' = genMismatch \\
+  c? \notin hasInbox \implies
+    (hasInbox' = hasInbox \cup \{ c? \} \land
+     (\exists g : GEN | g \neq inboxGen(c?) @
+       inboxGen' = inboxGen \oplus \{ c? \mapsto g \})) \\
+  c? \in hasInbox \implies
+    (hasInbox' = hasInbox \land inboxGen' = inboxGen)
+\end{schema}
+
+% ============================================================
+\section{Invariant}
+\label{sec:inv}
+% ============================================================
+
+\paragraph{WG --- a publish lands only in the live generation.}
+\[
+  \lnot\, (genMismatch = fset).
+\]
+No operation in this, the fixed, model ever sets \texttt{genMismatch}:
+\texttt{Arm}, \texttt{Depart}, and \texttt{WriterPut} all carry
+\texttt{genMismatch' = genMismatch} unconditionally. WG therefore holds by
+inspection of every operation's predicate, not merely by the absence of a
+witness ProB happens not to have found -- and Section~\ref{sec:verify}
+confirms the same conclusion empirically. \texttt{WriterPut}'s atomicity is
+the reason no operation \emph{needs} to touch \texttt{genMismatch}: because
+resolution and put are the same step, the generation a put commits against
+is always, trivially, the generation live at that instant. The split
+fidelity control (Section~\ref{sec:fidelity}) shows what breaks when that
+one step becomes two.
+
+% ============================================================
+\section{Fidelity Control}
+\label{sec:fidelity}
+% ============================================================
+
+\paragraph{Split --- \texttt{writer\_publish\_generation\_split\_buggy.tex}.}
+\texttt{WriterPut} is replaced by \texttt{WriterPutBegin}/\texttt{WriterPutEnd},
+splitting the shipped code's \texttt{inbox\_for(connection\_id).put(message)}
+at the exact point \texttt{inbox\_for} returns and releases
+\texttt{\_inboxes\_lock}. \texttt{WriterPutBegin(c?)} resolves (creating if
+absent, exactly as \texttt{Arm} does) and captures the resolved generation
+into \texttt{capturedGen}, entering \texttt{pput}. \texttt{WriterPutEnd}
+commits the put \emph{unconditionally} against whatever \texttt{capturedGen}
+holds; only if the connection is \emph{still} present with that \emph{same}
+generation does the put land correctly, and \texttt{genMismatch} is set the
+moment it does not.
+
+Two traces witness WG's negation, one for each face named in the
+Introduction.
+
+\emph{Orphan loss.} \texttt{Arm}$(c_1)$;
+\texttt{WriterPutBegin}$(c_1)$; \texttt{Depart}$(c_1)$;
+\texttt{WriterPutEnd} -- the departure runs in the window, and at
+\texttt{WriterPutEnd} the connection is no longer in \texttt{hasInbox} at
+all: the put lands in a detached object nothing will ever read again.
+
+\emph{Cross-generation delivery -- the worse case.}
+\texttt{Arm}$(c_1)$; \texttt{WriterPutBegin}$(c_1)$; \texttt{Depart}$(c_1)$;
+\texttt{Arm}$(c_1)$; \texttt{WriterPutEnd}. The second \texttt{Arm} models a
+same-identity reconnect's own \texttt{ensure\_writer} call, landing between
+the stalled writer's resolution and its put -- exactly the scenario
+\texttt{connection\_lease\_reaping.tex} already treats as ordinary
+(\texttt{Connect}, "no precondition privileging a fresh connection over a
+reconnecting one"). It creates a fresh inbox at the OTHER generation value.
+At \texttt{WriterPutEnd} the connection IS present -- \texttt{hasInbox}
+includes $c_1$ -- but \texttt{capturedGen}$(c_1)$ is the generation the
+\emph{first} \texttt{Arm} set, not the one the second one just did. The put
+commits anyway: a message published under the departed session's writer
+lands in the reconnected session's live inbox, not lost, delivered to the
+wrong recipient.
+
+Both traces are \emph{FOUND} against the split control and \emph{NOT found}
+against this, the fixed, spec, because \texttt{WriterPut}'s single step
+gives a \texttt{Depart} or a reconnecting \texttt{Arm} no window to land in
+between a resolution and a put that are the same transition.
+
+% ============================================================
+\section{Verification}
+\label{sec:verify}
+% ============================================================
+
+Type-checking is a \texttt{fuzz} pass:
+\begin{verbatim}
+  fuzz docs/writer_publish_generation.tex
+\end{verbatim}
+
+WG is a safety property, checked by asking ProB whether its negation is
+\emph{reachable}. A goal reported \emph{not found} means the invariant
+holds on every reachable state.
+
+\begin{verbatim}
+  # WG (goal NOT found in this, the fixed, spec)
+  probcli docs/writer_publish_generation.tex -model_check -nodead \
+    -goal "genMismatch = fset" \
+    -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+A correct put is reachable, so the model is not vacuously safe by never
+putting at all:
+
+\begin{verbatim}
+  # A connection has a live, current inbox (goal FOUND)
+  probcli docs/writer_publish_generation.tex -model_check -nodead \
+    -goal "#c.(c : CONN & c : hasInbox)" \
+    -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+Deadlock-freedom and the structural state invariant are checked by a full
+model-check over the reachable state space:
+
+\begin{verbatim}
+  probcli docs/writer_publish_generation.tex -model_check -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+The fidelity control makes the negation \emph{FOUND}:
+
+\begin{verbatim}
+  # Split: WG's negation FOUND against the split control, NOT found against fixed
+  probcli docs/writer_publish_generation_split_buggy.tex -model_check -nodead \
+    -goal "genMismatch = fset" \
+    -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+Re-run \texttt{fuzz} and these goal checks whenever \texttt{inbox.py}'s
+\texttt{inbox\_for}, \texttt{ensure\_writer}, \texttt{\_writer}, or
+\texttt{drop\_session} change.
+
+\end{document}
