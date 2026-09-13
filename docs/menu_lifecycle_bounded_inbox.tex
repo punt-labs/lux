@@ -52,11 +52,12 @@
 %   B2 -- drop minimality (no double-drop): a drop fires only when the inbox is
 %     genuinely full; a single over-capacity admission drops exactly one oldest.
 %   DEADLOCK-FREEDOM: the two locks form a one-way acquisition edge
-%     regLock -> boxLock (the offer path), the publish path takes boxLock with no
-%     outer lock, and no path takes regLock while holding boxLock. The
-%     acquisition graph gains only edges pointing one way; a cycle needs two. This
-%     is the same one-direction-edge structure menu_lifecycle.tex proved safe for
-%     the D3 StoreLock -> menu-registry-lock edge.
+%     regLock -> boxLock, taken by BOTH producers as of the round-3 fix (the
+%     offer path always took it this way; the publish path now does too), and
+%     no path takes regLock while holding boxLock. The acquisition graph gains
+%     only edges pointing one way; a cycle needs two. This is the same
+%     one-direction-edge structure menu_lifecycle.tex proved safe for the D3
+%     StoreLock -> menu-registry-lock edge.
 %
 % and it reproduces both defects as fidelity controls that a model too abstract
 % to trust could not:
@@ -70,11 +71,31 @@
 %     is destroyed and ProB's deadlock check FINDS the cycle.
 %
 % Read first: src/punt_lux/domain/hub/inbox_queue.py (BoundedInbox.put,
-% _drop_oldest), inbox.py (offer -- put under _inboxes_lock; _writer -- put with
-% _inboxes_lock released; inbox_for, drop_session, inbox_depth_for, drain_inbox),
-% and the companions docs/menu_lifecycle.tex (M1, MO) and
-% docs/menu_lifecycle_delivery.tex (M1b), whose delivery invariants this change
-% must not disturb (see the M1/M1b section below).
+% _drop_oldest), inbox.py (offer -- put under _inboxes_lock; _writer -- put
+% under _inboxes_lock too, as of the round-3 fix below; inbox_for, drop_session,
+% inbox_depth_for, drain_inbox), and the companions docs/menu_lifecycle.tex (M1,
+% MO) and docs/menu_lifecycle_delivery.tex (M1b), whose delivery invariants this
+% change must not disturb (see the M1/M1b section below).
+%
+% ROUND 3 (Copilot review of PR #498, bead lux-wk3p round 3). The round-1 fix
+% above closed the tear inside BoundedInbox.put with boxLock, but left
+% inbox.py's `_writer` calling `inbox_for(connection_id).put(message)` with
+% `_inboxes_lock` released before `.put` ran -- exactly the un-nested publish
+% path this model originally described. The shipped round-3 fix moves the
+% acquisition of `_inboxes_lock` to ENCLOSE the whole put:
+%
+%     def _writer(message: ObserverMessage) -> None:
+%         with _inboxes_lock:
+%             _inbox_for_locked(connection_id).put(message)
+%
+% so the publish path now nests regLock -> boxLock exactly as the offer path
+% already did (`with _inboxes_lock: ... inbox.put(message)`). This model is
+% revised to reflect that: PPHASE gains the publish producer's own two-step
+% climb (preg, mirroring the offer producer's oreg), a PubAcqReg operation
+% precedes PubAcqBox, and PubPut releases both locks together, matching
+% OfferPut. The deadlock argument is unchanged in conclusion -- still one edge
+% direction, still no cycle -- but is now stated for two callers of that edge
+% instead of one.
 %
 % Type-check:  fuzz docs/menu_lifecycle_bounded_inbox.tex
 % Model-check (deadlock-freedom + the structural invariant over the state space):
@@ -180,13 +201,15 @@ carries it: whether any \texttt{\_drop\_oldest} has fired while the inbox was no
 full.
 
 \begin{zed}
-  REGH ::= rfree | roffer
+  REGH ::= rfree | roffer | rpublish
 \end{zed}
 
-Who holds the registry lock \texttt{\_inboxes\_lock}. In the fixed model only the
-offer path holds it (the publish path's transient hold inside \texttt{inbox\_for}
-is released before \texttt{put} runs, so it never coexists with \texttt{boxLock}
-and is not modelled); the reverse-edge control adds a publish holder.
+Who holds the registry lock \texttt{\_inboxes\_lock}. Both producers hold it in
+this, the fixed, model: the offer path across its own compound, and -- as of
+the round-3 fix -- the publish path's \texttt{\_writer}, which now holds
+\texttt{\_inboxes\_lock} for the whole of \texttt{BoundedInbox.put}, not merely
+to resolve which inbox to use. \texttt{rpublish} is therefore live here, not
+only in the reverse-edge control that introduced it.
 
 \begin{zed}
   BOXH ::= bfree | boffer | bpublish
@@ -206,12 +229,18 @@ wait that a reverse edge would turn into half a deadlock), or holding both and
 ready to put.
 
 \begin{zed}
-  PPHASE ::= pidle | pbox
+  PPHASE ::= pidle | preg | pboth
 \end{zed}
 
-Where the publish producer is: idle, or holding \texttt{boxLock} and ready to
-put. It never waits for a second lock --- the property the deadlock proof turns
-on.
+Where the publish producer is in its own two-lock climb -- as of the round-3
+fix, the identical shape \texttt{OPHASE} already gave the offer producer:
+idle, holding \texttt{regLock} and waiting for \texttt{boxLock}
+(\texttt{preg}), or holding both and ready to put (\texttt{pboth}). The
+earlier two-value \texttt{PPHASE} (\texttt{pidle}, \texttt{pbox}) modelled the
+pre-round-3 \texttt{\_writer}, which took \texttt{boxLock} alone and never
+waited for a second lock; \texttt{inbox.py}'s \texttt{\_writer} now holds
+\texttt{\_inboxes\_lock} across the whole put, so it climbs both locks exactly
+as \texttt{offer} does.
 
 % ============================================================
 \section{State}
@@ -232,18 +261,25 @@ discipline is structural: a lock is held by exactly one value of its holder type
   pPhase : PPHASE
 \where
   depth \leq maxDepth \\
-  (oPhase = oidle \iff regLock = rfree) \\
-  (oPhase = oboth \implies boxLock = boffer) \\
-  (pPhase = pbox \iff boxLock = bpublish)
+  (oPhase \neq oidle \iff regLock = roffer) \\
+  (oPhase = oboth \iff boxLock = boffer) \\
+  (pPhase \neq pidle \iff regLock = rpublish) \\
+  (pPhase = pboth \iff boxLock = bpublish)
 \end{schema}
 
 The coherence predicates tie the phases to the locks: the offer producer holds
-\texttt{regLock} exactly when it is past \texttt{oidle}, holds \texttt{boxLock}
-when it reaches \texttt{oboth}, and the publish producer holds \texttt{boxLock}
-exactly when it is in \texttt{pbox}. \texttt{depth} $\leq$ \texttt{maxDepth} is a
-carrier bound, not the safety property: it says the count fits the modelled
-range, and it is deliberately one \emph{above} \texttt{cap} so an overshoot is
-representable. B1, the real bound, is checked as reachability.
+\texttt{regLock} exactly when it is past \texttt{oidle}, and \texttt{boxLock}
+exactly when it reaches \texttt{oboth}; the publish producer, since the
+round-3 fix gave it the same two-step climb, holds \texttt{regLock} exactly
+when it is past \texttt{pidle}, and \texttt{boxLock} exactly when it reaches
+\texttt{pboth}. \texttt{REGH} admitting two distinct non-\texttt{rfree}
+values (\texttt{roffer}, \texttt{rpublish}) as one field, rather than a set,
+is what makes the mutual exclusion of the two producers' holds structural: the
+two ``past idle'' predicates cannot both be satisfied by one value of
+\texttt{regLock}. \texttt{depth} $\leq$ \texttt{maxDepth} is a carrier bound,
+not the safety property: it says the count fits the modelled range, and it is
+deliberately one \emph{above} \texttt{cap} so an overshoot is representable.
+B1, the real bound, is checked as reachability.
 
 % ============================================================
 \section{Initialization}
@@ -336,43 +372,67 @@ Both locks release as the two \texttt{with} blocks close.
   pPhase' = pPhase
 \end{schema}
 
-\subsection{PubAcqBox --- the publish path takes the inbox lock, un-nested}
+\subsection{PubAcqReg --- the publish path takes the registry lock}
 
-Models the publish \texttt{\_writer}'s \texttt{inbox\_for(cid).put}. The registry
-lock \texttt{inbox\_for} took to look the inbox up has already been released, so
-the publish producer takes \texttt{boxLock} with \emph{no} outer lock held. It
-never climbs to a second lock --- there is no \texttt{PubAcqReg} in the fixed
-model.
+Models entering \texttt{\_writer}'s \texttt{with \_inboxes\_lock} block --- as
+of the round-3 fix, this now encloses the whole put, not merely the lookup.
+The publish producer takes \texttt{regLock} and advances to \texttt{preg},
+where it will wait for \texttt{boxLock}: identical in shape to
+\texttt{OfferAcqReg}.
+
+\begin{schema}{PubAcqReg}
+  \Delta InboxLock \\
+\where
+  pPhase = pidle \\
+  regLock = rfree \\
+  regLock' = rpublish \\
+  pPhase' = preg \\
+  depth' = depth \\
+  spuriousDrop' = spuriousDrop \\
+  boxLock' = boxLock \\
+  oPhase' = oPhase
+\end{schema}
+
+\subsection{PubAcqBox --- the publish path takes the inbox lock, nested}
+
+Models \texttt{BoundedInbox.put} entering its own condition lock \emph{while
+\texttt{\_inboxes\_lock} is still held} --- the same nesting the offer path
+uses. The pre-round-3 model had this schema fire from \texttt{pidle} with no
+outer lock; the round-3 fix removed that un-nested path, so this step is now
+guarded on \texttt{preg}, and, symmetrically with \texttt{OfferAcqBox}, waits
+here if the offer producer already holds \texttt{boxLock}.
 
 \begin{schema}{PubAcqBox}
   \Delta InboxLock \\
 \where
-  pPhase = pidle \\
+  pPhase = preg \\
   boxLock = bfree \\
   boxLock' = bpublish \\
-  pPhase' = pbox \\
+  pPhase' = pboth \\
   depth' = depth \\
   spuriousDrop' = spuriousDrop \\
   regLock' = regLock \\
   oPhase' = oPhase
 \end{schema}
 
-\subsection{PubPut --- the publish compound put, atomic under boxLock}
+\subsection{PubPut --- the publish compound put, atomic under boxLock, releasing both locks}
 
-The same atomic compound as \texttt{OfferPut}, under the publish producer's hold
-of \texttt{boxLock}. Releases only \texttt{boxLock}: the publish path never held
-\texttt{regLock}.
+The same atomic compound as \texttt{OfferPut}, under the publish producer's
+hold of both locks. Both locks release together, exactly as \texttt{OfferPut}
+already models: the round-3 \texttt{with \_inboxes\_lock:} block encloses the
+completed put, so \texttt{regLock} does not outlive \texttt{boxLock} the way
+the pre-round-3 \texttt{PubPut} (releasing only \texttt{boxLock}) had it.
 
 \begin{schema}{PubPut}
   \Delta InboxLock \\
 \where
-  pPhase = pbox \\
+  pPhase = pboth \\
   (depth < cap \implies depth' = depth + 1) \\
   (depth \geq cap \implies depth' = depth) \\
   spuriousDrop' = spuriousDrop \\
   boxLock' = bfree \\
+  regLock' = rfree \\
   pPhase' = pidle \\
-  regLock' = regLock \\
   oPhase' = oPhase
 \end{schema}
 
@@ -427,25 +487,28 @@ admission.
 \paragraph{Deadlock-freedom and the one-way lock edge.}
 \label{sec:lockorder}
 The inbox lock is new, and it nests: \texttt{offer} holds \texttt{regLock}
-(\texttt{\_inboxes\_lock}) across \texttt{inbox.put}, which now takes
-\texttt{boxLock} --- the edge \texttt{regLock} $\to$ \texttt{boxLock}. Every other
-holder of \texttt{boxLock} takes it alone: the publish \texttt{\_writer} runs
-\texttt{put} after \texttt{inbox\_for} has released \texttt{regLock};
+(\texttt{\_inboxes\_lock}) across \texttt{inbox.put}, which takes
+\texttt{boxLock} --- the edge \texttt{regLock} $\to$ \texttt{boxLock} --- and, as
+of the round-3 fix, the publish \texttt{\_writer} holds \texttt{regLock} across
+the whole of \texttt{BoundedInbox.put} too, climbing the identical edge.
 \texttt{inbox\_depth\_for} and \texttt{drain\_inbox} read the inbox out under
 \texttt{regLock}, release it, and only then take \texttt{boxLock} for
-\texttt{depth}/\texttt{drain}; and \texttt{drop\_session} takes \texttt{regLock}
+\texttt{depth}/\texttt{drain}; \texttt{drop\_session} takes \texttt{regLock}
 alone and never touches \texttt{boxLock} at all. No path takes \texttt{regLock}
-while holding \texttt{boxLock}. The acquisition graph is the single edge
-\texttt{regLock} $\to$ \texttt{boxLock}; there is no reverse edge, so no cycle,
-so no deadlock. This is the same shape \texttt{menu\_lifecycle.tex}'s
+while holding \texttt{boxLock}, and no path takes \texttt{boxLock} with no outer
+lock and then reaches for \texttt{regLock}. The acquisition graph therefore has
+exactly one edge \emph{direction}, \texttt{regLock} $\to$ \texttt{boxLock}, now
+used by \emph{two} callers instead of one; there is no reverse edge, so no
+cycle, so no deadlock. This is the same shape \texttt{menu\_lifecycle.tex}'s
 Section~``lock order'' establishes for the D3 edge \texttt{StoreLock} $\to$
-menu-registry lock: one more caller taking two locks in the one order every
-caller already uses. The model carries the two locks and the offer producer's
-blockable \texttt{oreg} wait so a full model-check exercises the contention; it
-finds no deadlock. The reverse-edge control adds the missing back edge --- the
-publish path acquiring \texttt{regLock} while holding \texttt{boxLock} --- and the
-deadlock check FINDS the cycle, so the one-way property is shown load-bearing,
-not assumed.
+menu-registry lock, and it is the same shape this model itself already used for
+the offer path alone --- the round-3 fix brings the publish path into the same
+discipline rather than introducing a new one. The model carries both
+producers' blockable waits (\texttt{oreg}, \texttt{preg}) so a full model-check
+exercises the contention symmetrically; it finds no deadlock. The reverse-edge
+control inverts the publish path's own order --- \texttt{boxLock} first, then
+\texttt{regLock} --- and the deadlock check FINDS the cycle, so the one-way
+property is shown load-bearing, not assumed.
 
 % ============================================================
 \section{Fidelity Controls}
@@ -472,11 +535,12 @@ producer can interleave a check, a drop, and an enqueue that are one step.
 
 \paragraph{Reverse edge --- \texttt{menu\_lifecycle\_bounded\_inbox\_deadlock\_buggy.tex}.}
 \label{sec:fidelity-deadlock}
-The publish path is made to acquire \texttt{regLock} \emph{while holding}
-\texttt{boxLock} --- a hypothetical in which \texttt{\_writer} reached back into
-the registry lock under the inbox lock. The one nesting \texttt{regLock} $\to$
-\texttt{boxLock} now has its reverse, \texttt{boxLock} $\to$ \texttt{regLock}, and
-the acquisition graph has a cycle. The trace
+The publish path is made to acquire \texttt{boxLock} \emph{first} and only then
+reach for \texttt{regLock} --- inverting the order the round-3 fix actually
+gives it (\texttt{regLock}, then \texttt{boxLock}) into the reverse,
+\texttt{boxLock} $\to$ \texttt{regLock}. The one nesting \texttt{regLock} $\to$
+\texttt{boxLock}, now shared by both producers in the fixed model, has its
+reverse from the publish side, and the acquisition graph has a cycle. The trace
 \texttt{OfferAcqReg}\,;\,\texttt{PubAcqBox} reaches the state where the offer
 producer holds \texttt{regLock} and waits for \texttt{boxLock} while the publish
 producer holds \texttt{boxLock} and waits for \texttt{regLock}: no operation is

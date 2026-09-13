@@ -50,6 +50,66 @@
 % WG is a reachability check; see the Verification section for the exact
 % -goal predicates.
 %
+% PART TWO (Copilot's second review pass on PR #498, bead lux-wk3p, this time
+% re-reviewing the writer-atomicity fix c2f1c289 -- the SAME commit
+% menu_lifecycle_bounded_inbox.tex calls its own "round 3"; the numbering
+% there tracks a different file's code-commit history and is unrelated to
+% this file's Part One/Part Two split). WG above proves that a single
+% firing of `_writer` -- the resolve and the put -- is atomic against `Depart`
+% and a reconnecting `Arm`. It does NOT prove anything about WHEN that firing
+% happens relative to `Depart`/`Arm`, because it treats "the writer fires" as
+% instantaneous. But `_writer` never fires on its own: it fires because
+% `Hub.publish` (hub.py) calls it, and `Hub.publish` is deliberately
+% snapshot-then-invoke -- `SubscriptionRegistry.snapshot_subscribers` copies
+% the (connection_id, topic) handler set under its OWN lock, releases that
+% lock, and only THEN does `Hub.publish` iterate the snapshot and call each
+% handler, "so a slow handler cannot stall concurrent publishes on other
+% topics" (hub.py's own docstring). That gap between snapshot and invocation
+% is a second, OUTER window this model's Part One never represented: a
+% snapshot can capture connection C's writer closure while C is still G1's
+% session, and the actual invocation of that closure can run arbitrarily
+% later -- after G1 has fully departed (`Hub.on_disconnect` drops the
+% subscription AND the writer binding, under `hub_display.write_lock()`) and
+% a same-identity reconnect (`connection_identity.py`'s `connection_for`, and
+% `SessionKey`'s reuse of `?session_key=`, both derive a DETERMINISTIC,
+% REUSED `ConnectionId` -- this is not a corner case, it is the documented
+% behavior for same-identity reconnect) has minted G2's fresh writer for the
+% SAME `ConnectionId`. Because `_writer`'s body resolves `_inboxes[connection_id]`
+% dynamically at call time -- exactly what WG's atomicity fix requires -- the
+% stale, snapshotted G1 closure, invoked after the reconnect, delivers the
+% message into G2's LIVE inbox. WG's atomicity says nothing about this: it
+% only guarantees that whichever inbox is live AT THE MOMENT OF THE PUT is
+% the one the put lands in: it never asks whether the closure invoking that
+% put still has any business speaking for this connection at all.
+%
+% WG2 -- a publish invocation never delivers across a WRITER-generation
+% boundary -- is the property this closes. It requires one further concept
+% WG's state does not carry: which registration of `_writer` -- which
+% `ensure_writer` call's `hub.register_writer` -- currently occupies the
+% Hub's writer slot for a connection. Part One's `inboxGen` tracks the INBOX
+% object's identity; Part Two's `writerGen` tracks the WRITER CLOSURE's
+% identity, the thing `Hub.publish`'s snapshot captures and that the fix
+% must check is still current before it puts.
+%
+% Read first (in addition to Part One's list): src/punt_lux/domain/hub/hub.py
+% (`Hub.publish`, `SubscriptionRegistry.snapshot_subscribers` -- the
+% snapshot-then-invoke pattern), src/punt_lux/domain/hub/writer_registry.py
+% (`WriterRegistry.bind`/`release` -- the identity-comparison mechanism a fix
+% can reuse for free), src/punt_lux/connection_identity.py and
+% src/punt_lux/session_key.py (both derive a `ConnectionId` that IS reused
+% across a same-identity reconnect -- the precondition for this hazard to be
+% reachable at all), src/punt_lux/domain/hub/departure_cascade.py
+% (`DepartureCascade.run` -- `on_disconnect` drops the writer binding under
+% the SAME `hub_display.write_lock()` hold `ensure_writer` uses, which is
+% what closes the registration race but not the snapshot race).
+%
+% Type-check:  fuzz docs/writer_publish_generation.tex
+% Model-check (WG2, this fixed spec): probcli docs/writer_publish_generation.tex
+%   -model_check -nodead -goal "genMismatch2 = fset" -p DEFAULT_SETSIZE 2
+%   => NOT found. Against writer_publish_generation_snapshot_buggy.tex (the
+%   shipped code AS IT STANDS TODAY -- no generation check exists yet) the
+%   same goal is FOUND. See the Verification section.
+%
 
 \documentclass[a4paper,10pt,fleqn]{article}
 \usepackage[margin=1in]{geometry}
@@ -61,8 +121,10 @@
 \title{lux Hub-Writer Publish Path: a Z Specification}
 \author{Formal model of the session writer's inbox put -- proving a
   publish always lands in the connection's currently-live inbox, never a
-  detached predecessor or an unrelated successor}
-\date{September 2026}
+  detached predecessor or an unrelated successor (Part One, WG), and that a
+  publish invocation itself never fires on behalf of a writer generation
+  that is no longer current (Part Two, WG2)}
+\date{September 2026, revised for the Part Two extension}
 \maketitle
 
 % ============================================================
@@ -113,6 +175,19 @@ standalone by a reconnecting \texttt{ensure\_writer}. \texttt{Depart} models
 mirroring \texttt{offer}'s D1 fix of holding \texttt{\_inboxes\_lock} across
 both instead of releasing it in between.
 
+This is Part One of the model, and it proves exactly one thing: WHICHEVER
+inbox is live at the instant a put happens, that instant's atomicity keeps
+the put honest. It says nothing about a separate question -- WHEN that
+instant happens relative to the writer closure's own registration -- because
+it treats "the writer fires" as a single indivisible step with no history.
+Part Two, after the Fidelity Control and Verification sections below, adds
+that history: \texttt{Hub.publish}'s snapshot-then-invoke pattern can capture
+a writer closure long before it actually fires, and the generation the
+closure captured at snapshot time can go stale in the interim. \texttt{WG2}
+is the property that closes that gap; it is additive to \texttt{WG}, not a
+replacement for it, and the two are verified together, over the same joint
+state, in Section~\ref{sec:parttwo}.
+
 % ============================================================
 \section{Basic Types}
 % ============================================================
@@ -160,8 +235,33 @@ so this never leaves \texttt{pidle}; the split fidelity control drives it to
 \texttt{pput}, the window the real \texttt{inbox\_for(...).put(...)} split
 exposes.
 
+\begin{zed}
+  WRITERGEN ::= wgen0 | wgen1
+\end{zed}
+
+Part Two's counterpart to \texttt{GEN}: not which \texttt{BoundedInbox}
+object is live for a connection, but which \emph{registration} of
+\texttt{\_writer} -- which \texttt{ensure\_writer} call's
+\texttt{hub.register\_writer} -- currently occupies the Hub's writer slot
+for it. Two values suffice for the same reason \texttt{GEN} needed only two:
+one re-registration is enough to show a stalled snapshot's captured
+generation diverging from the live one.
+
+\begin{zed}
+  SNAPPHASE ::= snapidle | snaptaken
+\end{zed}
+
+Whether \texttt{Hub.publish} has taken its subscriber snapshot for a
+connection and not yet finished invoking the handler it captured -- the
+window between \texttt{SubscriptionRegistry.snapshot\_subscribers} releasing
+its lock and the Hub's fan-out loop actually calling that handler. This is
+the OUTER window Part One's \texttt{PPHASE} does not represent: \texttt{PPHASE}
+is internal to one firing of \texttt{\_writer}; \texttt{SNAPPHASE} is the
+gap before that firing even starts.
+
 % ============================================================
 \section{State}
+\label{sec:state}
 % ============================================================
 
 One flat schema, structural coherence only. WG is checked as the
@@ -173,9 +273,15 @@ reachability of its negation (Section~\ref{sec:verify}), not carried here.
   putPhase : PPHASE \\
   putFor : \power CONN \\
   capturedGen : CONN \fun GEN \\
-  genMismatch : FSTATE
+  genMismatch : FSTATE \\
+  writerGen : CONN \fun WRITERGEN \\
+  snapPhase : SNAPPHASE \\
+  snapFor : \power CONN \\
+  capturedWriterGen : CONN \fun WRITERGEN \\
+  genMismatch2 : FSTATE
 \where
-  \# putFor \leq 1
+  \# putFor \leq 1 \\
+  \# snapFor \leq 1
 \end{schema}
 
 \texttt{hasInbox} is the set of connections with a live, present inbox --
@@ -194,6 +300,21 @@ throughout this fixed model. \texttt{capturedGen} holds, for a writer
 mid-put, the generation it resolved \texttt{inbox\_for} to; like
 \texttt{inboxGen} it is kept total for the same reason.
 
+The last five components are Part Two's, added for \texttt{WG2}
+(Section~\ref{sec:parttwo}). \texttt{writerGen} tracks, per connection,
+which registration of \texttt{\_writer} is current -- \texttt{Arm} mints a
+fresh value together with \texttt{inboxGen} exactly when it mints a fresh
+inbox, because both events happen inside the same \texttt{ensure\_writer}
+call, under the same \texttt{hub\_display.write\_lock()} hold, and only when
+the connection has neither (a true reconnect after departure, never an
+ordinary re-subscribe on a still-live session). \texttt{snapPhase}/
+\texttt{snapFor} are the same split-window device as
+\texttt{putPhase}/\texttt{putFor}, one level up: which connection currently
+has a \texttt{Hub.publish} snapshot taken and not yet invoked.
+\texttt{capturedWriterGen} holds, for a snapshot in flight, the writer
+generation it captured at snapshot time -- the value \texttt{PublishInvokeFixed}
+(Section~\ref{sec:parttwo}) checks for currency before it acts.
+
 % ============================================================
 \section{Initialization}
 % ============================================================
@@ -206,10 +327,17 @@ mid-put, the generation it resolved \texttt{inbox\_for} to; like
   putPhase' = pidle \\
   putFor' = \emptyset \\
   capturedGen' = (\lambda c : CONN @ gen0) \\
-  genMismatch' = fclear
+  genMismatch' = fclear \\
+  writerGen' = (\lambda c : CONN @ wgen0) \\
+  snapPhase' = snapidle \\
+  snapFor' = \emptyset \\
+  capturedWriterGen' = (\lambda c : CONN @ wgen0) \\
+  genMismatch2' = fclear
 \end{schema}
 
-No connection has an inbox, no put in flight, nothing yet mismatched.
+No connection has an inbox, no put in flight, nothing yet mismatched; no
+connection has a writer registration yet, no publish snapshot in flight,
+nothing yet mismatched across a writer generation.
 
 % ============================================================
 \section{Operations}
@@ -225,6 +353,15 @@ whatever the connection's generation last was -- a fresh
 the connection's first inbox or its third. If an inbox is already present,
 \texttt{inbox\_for} returns the existing one unchanged.
 
+Since \texttt{ensure\_writer} both arms the inbox (\texttt{inbox\_for}) and,
+only when no writer yet exists, registers a fresh one
+(\texttt{if hub.has\_writer(connection\_id): return}), \texttt{Arm} models
+both effects together: a fresh arm (\texttt{c? \notin hasInbox}, meaning
+either a first-ever connect or a reconnect after \texttt{Depart} cleared
+both) mints a writer generation distinct from the connection's last one in
+the same step it mints a fresh inbox generation; an ordinary re-subscribe on
+a still-live connection (\texttt{c? \in hasInbox}) touches neither.
+
 \begin{schema}{Arm}
   \Delta WriterReg \\
   c? : CONN
@@ -233,12 +370,18 @@ the connection's first inbox or its third. If an inbox is already present,
   putFor' = putFor \\
   capturedGen' = capturedGen \\
   genMismatch' = genMismatch \\
+  snapPhase' = snapPhase \\
+  snapFor' = snapFor \\
+  capturedWriterGen' = capturedWriterGen \\
+  genMismatch2' = genMismatch2 \\
   c? \notin hasInbox \implies
     (hasInbox' = hasInbox \cup \{ c? \} \land
      (\exists g : GEN | g \neq inboxGen(c?) @
-       inboxGen' = inboxGen \oplus \{ c? \mapsto g \})) \\
+       inboxGen' = inboxGen \oplus \{ c? \mapsto g \}) \land
+     (\exists wg : WRITERGEN | wg \neq writerGen(c?) @
+       writerGen' = writerGen \oplus \{ c? \mapsto wg \})) \\
   c? \in hasInbox \implies
-    (hasInbox' = hasInbox \land inboxGen' = inboxGen)
+    (hasInbox' = hasInbox \land inboxGen' = inboxGen \land writerGen' = writerGen)
 \end{schema}
 
 \subsection{Depart --- drop a connection's inbox}
@@ -261,8 +404,20 @@ caller is holding remains valid to call \texttt{.put} on.
   putPhase' = putPhase \\
   putFor' = putFor \\
   capturedGen' = capturedGen \\
-  genMismatch' = genMismatch
+  genMismatch' = genMismatch \\
+  writerGen' = writerGen \\
+  snapPhase' = snapPhase \\
+  snapFor' = snapFor \\
+  capturedWriterGen' = capturedWriterGen \\
+  genMismatch2' = genMismatch2
 \end{schema}
+
+\texttt{writerGen} is left exactly as it was, for the same reason
+\texttt{inboxGen} is: \texttt{DepartureCascade.run} pops the connection out
+of the writer registry (\texttt{Hub.on\_disconnect}) and the inbox registry
+(\texttt{drop\_session}) -- it does not touch either generation value. A
+generation persisting after departure is what lets a stalled snapshot's
+earlier capture be compared against it later, in both parts of this model.
 
 \subsection{WriterPut --- resolve and put, one atomic step (the fix)}
 \label{sec:writerput}
@@ -294,6 +449,11 @@ apart.
   putFor' = putFor \\
   capturedGen' = capturedGen \\
   genMismatch' = genMismatch \\
+  writerGen' = writerGen \\
+  snapPhase' = snapPhase \\
+  snapFor' = snapFor \\
+  capturedWriterGen' = capturedWriterGen \\
+  genMismatch2' = genMismatch2 \\
   c? \notin hasInbox \implies
     (hasInbox' = hasInbox \cup \{ c? \} \land
      (\exists g : GEN | g \neq inboxGen(c?) @
@@ -419,5 +579,288 @@ The fidelity control makes the negation \emph{FOUND}:
 Re-run \texttt{fuzz} and these goal checks whenever \texttt{inbox.py}'s
 \texttt{inbox\_for}, \texttt{ensure\_writer}, \texttt{\_writer}, or
 \texttt{drop\_session} change.
+
+% ============================================================
+\part{Part Two: the \texttt{Hub.publish} Snapshot Window}
+\label{sec:parttwo}
+% ============================================================
+
+Part One proves that one firing of \texttt{\_writer} is honest about which
+inbox it puts into. It says nothing about whether that firing itself is
+honest about which \emph{connection generation} it is speaking for --
+because \texttt{\_writer} never fires except in response to
+\texttt{Hub.publish} calling it, and \texttt{Hub.publish} snapshots its
+subscriber list under one lock, releases that lock, and invokes the
+snapshot's handlers afterward, with no bound on how long "afterward" is
+(hub.py's own docstring: released "so a slow handler cannot stall concurrent
+publishes on other topics"). A \texttt{Depart} followed by a reconnecting
+\texttt{Arm} can run to completion, in full, inside that window, because
+neither is serialized against \texttt{Hub.publish}'s already-taken snapshot
+-- \texttt{DepartureCascade}/\texttt{ensure\_writer} share
+\texttt{hub\_display.write\_lock()} with EACH OTHER, but \texttt{Hub.publish}
+takes no such lock at all.
+
+\begin{description}
+  \item[WG2 --- a publish invocation never delivers across a writer-generation
+    boundary.] The writer closure \texttt{Hub.publish} finally calls must
+    still be the CURRENT writer for its connection at the moment it is
+    called, not merely at the moment it was snapshotted. Violating this
+    delivers a message captured under a departed session's subscription into
+    a reconnected session's live inbox -- the cross-generation delivery WG
+    already names as "the worse case," reachable here through an entirely
+    different mechanism (a stale snapshot, not a stale in-flight resolution).
+\end{description}
+
+Two new operations extend the joint state
+(Section~\ref{sec:state} above already carries \texttt{writerGen},
+\texttt{snapPhase}, \texttt{snapFor}, and \texttt{capturedWriterGen} for
+this purpose; \texttt{Arm} already mints a fresh \texttt{writerGen} whenever
+it mints a fresh \texttt{inboxGen}, and \texttt{Depart} already leaves
+\texttt{writerGen} untouched, exactly paralleling Part One's treatment of
+\texttt{inboxGen}).
+
+% ============================================================
+\section{Part Two Operations}
+% ============================================================
+
+\subsection{PublishSnapshot --- Hub.publish captures the connection's current writer}
+
+Models \texttt{SubscriptionRegistry.snapshot\_subscribers}: it copies
+whichever writer generation is live for the connection right now into
+\texttt{capturedWriterGen}, and the connection enters \texttt{snaptaken} --
+the window before the Hub's fan-out loop actually calls that writer.
+
+\begin{schema}{PublishSnapshot}
+  \Delta WriterReg \\
+  c? : CONN
+\where
+  snapPhase = snapidle \\
+  snapPhase' = snaptaken \\
+  snapFor' = \{ c? \} \\
+  capturedWriterGen' = capturedWriterGen \oplus \{ c? \mapsto writerGen(c?) \} \\
+  hasInbox' = hasInbox \\
+  inboxGen' = inboxGen \\
+  writerGen' = writerGen \\
+  putPhase' = putPhase \\
+  putFor' = putFor \\
+  capturedGen' = capturedGen \\
+  genMismatch' = genMismatch \\
+  genMismatch2' = genMismatch2
+\end{schema}
+
+\subsection{PublishInvokeFixed --- the snapshotted writer fires, checked for currency}
+\label{sec:publishinvokefixed}
+
+Models the writer closure \texttt{Hub.publish}'s fan-out loop finally calls,
+\emph{with the fix this section proposes}: before doing \texttt{WriterPut}'s
+resolve-and-put, the writer confirms \texttt{capturedWriterGen(c?) =
+writerGen(c?)} -- is this closure still the one \texttt{WriterRegistry}
+currently binds for the connection? \texttt{WriterRegistry.release} already
+performs exactly this kind of identity comparison (\texttt{self.\_writers.get
+(connection\_id) == writer}) when a departing session withdraws its own
+binding; the fix reuses the same shape of check on the read side, before a
+put, rather than only on the write side, at departure. If the generation is
+still current, the put proceeds exactly as \texttt{WriterPut} -- including
+its own orphan-loss branch, which is Part One's territory and unaffected
+by this check, since orphan loss (departure with no reconnect) never moves
+\texttt{writerGen}. If a \texttt{Depart}-then-\texttt{Arm} has since moved
+the writer generation on, the put is REJECTED: the message is dropped rather
+than delivered to a connection identity that never subscribed to receive it
+in this generation.
+
+\begin{schema}{PublishInvokeFixed}
+  \Delta WriterReg \\
+  c? : CONN
+\where
+  snapPhase = snaptaken \\
+  c? \in snapFor \\
+  snapPhase' = snapidle \\
+  snapFor' = \emptyset \\
+  capturedWriterGen' = capturedWriterGen \\
+  putPhase' = putPhase \\
+  putFor' = putFor \\
+  capturedGen' = capturedGen \\
+  genMismatch' = genMismatch \\
+  writerGen' = writerGen \\
+  genMismatch2' = genMismatch2 \\
+  capturedWriterGen(c?) = writerGen(c?) \implies
+    ( c? \notin hasInbox \implies
+        (hasInbox' = hasInbox \cup \{ c? \} \land
+         (\exists g : GEN | g \neq inboxGen(c?) @
+           inboxGen' = inboxGen \oplus \{ c? \mapsto g \})) ) \land
+    ( c? \in hasInbox \implies
+        (hasInbox' = hasInbox \land inboxGen' = inboxGen) ) \\
+  capturedWriterGen(c?) \neq writerGen(c?) \implies
+    (hasInbox' = hasInbox \land inboxGen' = inboxGen)
+\end{schema}
+
+% ============================================================
+\section{Invariant WG2}
+\label{sec:inv2}
+% ============================================================
+
+\paragraph{WG2 --- a publish invocation never delivers across a writer-generation
+boundary.}
+\[
+  \lnot\, (genMismatch2 = fset).
+\]
+No operation in this, the fixed, model ever sets \texttt{genMismatch2}:
+\texttt{Arm}, \texttt{Depart}, \texttt{WriterPut}, and
+\texttt{PublishSnapshot} all carry \texttt{genMismatch2' = genMismatch2}
+unconditionally, and \texttt{PublishInvokeFixed}'s only two branches --
+current generation (proceed) or stale generation (reject, touching neither
+\texttt{hasInbox} nor \texttt{inboxGen}) -- never set it either. WG2 holds
+because the check IS the fix: a stale invocation is turned into a no-op
+before it can touch the inbox at all, so there is no state for a mismatch to
+be recorded against. The snapshot-buggy control
+(Section~\ref{sec:fidelity2}) shows what breaks when that check is absent.
+
+% ============================================================
+\section{Fidelity Control (Part Two)}
+\label{sec:fidelity2}
+% ============================================================
+
+\paragraph{Snapshot --- \texttt{writer\_publish\_generation\_snapshot\_buggy.tex}.}
+This is not a hypothetical regression test for a fix that has already
+shipped, the way the split control is. It is a model of \texttt{\_writer} AS
+IT STANDS TODAY, after the round-2 atomicity fix (\texttt{c2f1c289}): the fix
+closes the WITHIN-one-firing window WG names, but adds no check of any kind
+against a firing that is itself stale relative to \texttt{Hub.publish}'s own
+snapshot. \texttt{PublishInvokeFixed} is replaced by
+\texttt{PublishInvokeUnchecked}, which commits the put unconditionally --
+exactly \texttt{WriterPut}'s effect -- regardless of whether
+\texttt{capturedWriterGen} still matches \texttt{writerGen}, and sets
+\texttt{genMismatch2} to \texttt{fset} exactly when it does not.
+
+\emph{Cross-generation delivery via a stale snapshot.}
+\texttt{Arm}$(c_1)$; \texttt{PublishSnapshot}$(c_1)$; \texttt{Depart}$(c_1)$;
+\texttt{Arm}$(c_1)$; \texttt{PublishInvokeUnchecked}$(c_1)$. The snapshot
+captures the first \texttt{Arm}'s writer generation; the departure and
+second \texttt{Arm} model a full same-identity reconnect completing entirely
+inside the snapshot's window (unlike Part One's split-buggy witness, no
+in-flight resolution needs to be caught mid-step -- the snapshot was taken
+and the whole reconnect cycle ran to completion before the writer ever
+fired). At \texttt{PublishInvokeUnchecked}, the connection IS present with a
+live inbox, but at the SECOND \texttt{Arm}'s generation, not the first's:
+the put commits anyway, and \texttt{genMismatch2} becomes \texttt{fset} -- a
+message the departed session's subscription captured lands in the
+reconnected session's live inbox.
+
+This trace is \emph{FOUND} against the snapshot control and \emph{NOT found}
+against \texttt{PublishInvokeFixed}, because the fixed operation's guard
+rejects exactly the state the control's unconditional commit accepts. ProB's
+search order need not return this exact trace -- against the snapshot control
+it in fact finds a shorter one, \texttt{PublishSnapshot}$(c_1)$;
+\texttt{Arm}$(c_1)$; \texttt{PublishInvokeUnchecked}$(c_1)$, which skips the
+initial \texttt{Arm} because the model's own \texttt{gen0}/\texttt{wgen0}
+initial values already stand in for "some earlier generation," so a single
+\texttt{Arm} after the snapshot is enough to diverge from it -- the
+\emph{FOUND}/\emph{NOT found} verdict is what the gate checks, not the
+specific trace length.
+
+% ============================================================
+\section{Verification (Part Two)}
+\label{sec:verify2}
+% ============================================================
+
+Type-checking is a \texttt{fuzz} pass, over the whole file (both parts share
+one state):
+\begin{verbatim}
+  fuzz docs/writer_publish_generation.tex
+\end{verbatim}
+
+WG2 is checked the same way WG is, by reachability of its negation:
+
+\begin{verbatim}
+  # WG2 (goal NOT found in this, the fixed, spec)
+  probcli docs/writer_publish_generation.tex -model_check -nodead \
+    -goal "genMismatch2 = fset" \
+    -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+A snapshot actually firing correctly is reachable, so WG2 is not vacuously
+true of a model that never invokes a captured writer:
+
+\begin{verbatim}
+  # A snapshot fires and lands correctly (goal FOUND)
+  probcli docs/writer_publish_generation.tex -model_check -nodead \
+    -goal "snapPhase = snapidle & #c.(c : CONN & c : hasInbox)" \
+    -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+Deadlock-freedom and the structural state invariant, over BOTH parts' joint
+operations, are checked by a full model-check over the reachable state
+space:
+
+\begin{verbatim}
+  probcli docs/writer_publish_generation.tex -model_check -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+The snapshot control makes the negation \emph{FOUND}:
+
+\begin{verbatim}
+  # Snapshot: WG2's negation FOUND against the snapshot control,
+  # NOT found against fixed
+  probcli docs/writer_publish_generation_snapshot_buggy.tex -model_check -nodead \
+    -goal "genMismatch2 = fset" \
+    -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+Re-run \texttt{fuzz} and these goal checks whenever \texttt{inbox.py}'s
+\texttt{ensure\_writer}/\texttt{\_writer}, \texttt{hub.py}'s
+\texttt{Hub.publish}/\texttt{Hub.subscribe}/\texttt{Hub.on\_disconnect},
+\texttt{writer\_registry.py}, \texttt{subscription\_registry.py}, or the
+\texttt{ConnectionId} derivation in \texttt{connection\_identity.py}/
+\texttt{session\_key.py} change.
+
+% ============================================================
+\section{The Code Change This Model Specifies}
+\label{sec:codechange}
+% ============================================================
+
+WG2's fix is not yet implemented; this section is the write set for the
+Python worker who implements it, precise enough to hand off without
+prescribing files or line numbers Python does not yet have.
+
+\begin{enumerate}
+  \item Give \texttt{inbox.py}'s \texttt{ensure\_writer} a way to check, at
+    put time, whether the \texttt{\_writer} closure about to run is still
+    the one \texttt{hub}'s \texttt{WriterRegistry} currently binds for
+    \texttt{connection\_id}. The comparison \texttt{WriterRegistry.release}
+    already performs (\texttt{self.\_writers.get(connection\_id) ==
+    writer}) is the exact shape needed; whether it is exposed as a new
+    \texttt{Hub}/\texttt{WriterRegistry} query method (e.g.
+    \texttt{hub.writer\_is\_current(connection\_id, writer)}) or the closure
+    captures a comparable identity token at registration time is an
+    implementation choice PublishInvokeFixed does not prescribe -- either
+    realizes \texttt{capturedWriterGen(c?) = writerGen(c?)}.
+  \item \texttt{\_writer} performs that check UNDER \texttt{\_inboxes\_lock},
+    in the same atomic step \texttt{WriterPut} already establishes (do not
+    reopen the WG window to close the WG2 one): if current, proceed with
+    today's \texttt{\_inbox\_for\_locked(connection\_id).put(message)}; if
+    not current, return without touching \texttt{\_inboxes} at all -- the
+    message is dropped, not written into an orphan or a successor.
+  \item The check must NOT fire against \texttt{drain\_inbox}'s inbox swap.
+    \texttt{drain\_inbox} replaces \texttt{\_inboxes[connection\_id]} with a
+    fresh \texttt{BoundedInbox} for a SESSION THAT HAS NOT DEPARTED (used by
+    tests) -- it never touches the writer registry, so a currently-bound
+    \texttt{\_writer} closes over the same identity token before and after a
+    \texttt{drain\_inbox} call, and the currency check does not observe that
+    swap at all. This model's separation of \texttt{writerGen} (bumped only
+    by \texttt{Arm}'s fresh-registration branch) from \texttt{inboxGen}
+    (bumped by \texttt{Arm} AND, implicitly, anything that recreates the
+    inbox) is exactly what makes this guarantee checkable: \texttt{Arm} is
+    the only operation that moves \texttt{writerGen}, and \texttt{drain\_inbox}
+    is not modelled as touching it.
+  \item Add a regression test reproducing
+    Section~\ref{sec:fidelity2}'s trace at the Python level: register a
+    writer, capture it (simulating \texttt{Hub.publish}'s snapshot by holding
+    a reference to the bound handler), drive a full disconnect-and-reconnect
+    cycle under the same \texttt{ConnectionId}, then invoke the captured
+    handler and assert the reconnected session's inbox did NOT receive the
+    message (and, ideally, that a debug-level log line records the drop, the
+    same posture \texttt{BoundedInbox.\_drop\_oldest} already takes for its
+    own backstop).
+\end{enumerate}
 
 \end{document}

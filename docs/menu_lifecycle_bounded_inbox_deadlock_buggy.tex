@@ -4,16 +4,18 @@
 % FIDELITY CONTROL for docs/menu_lifecycle_bounded_inbox.tex.
 %
 % This spec differs from the fixed model in one place: the publish path acquires
-% the registry lock regLock WHILE holding the inbox lock boxLock. That adds the
-% reverse of the one nesting the design has -- the fixed model's only edge is
-% regLock -> boxLock (the offer path); this control adds boxLock -> regLock
-% (the publish path). The acquisition graph now has a cycle.
+% boxLock FIRST and only then reaches for regLock -- the reverse of the order
+% the round-3 fix actually gives it. The fixed model's one edge direction,
+% regLock -> boxLock, is now taken by BOTH producers (offer always took it this
+% way; the round-3 fix brought the publish path's _writer into the same order,
+% holding _inboxes_lock across the whole of BoundedInbox.put). This control
+% inverts the publish path's own climb into boxLock -> regLock. The acquisition
+% graph now has a cycle.
 %
-% It is the counterfactual the fixed model's leaf-lock property rules out. In
-% the shipped design the publish writer runs put AFTER inbox_for has released
-% regLock, so it never holds regLock and boxLock together; this control is the
-% hypothetical in which _writer reached back into the registry lock under the
-% inbox lock. ProB's deadlock check FINDS the cycle:
+% It is the counterfactual the fixed model's leaf-lock property rules out: the
+% shipped _writer takes regLock BEFORE boxLock, never the reverse; this control
+% is the hypothetical in which it climbed the other way. ProB's deadlock check
+% FINDS the cycle:
 %
 %   OfferAcqReg  -- offer takes regLock, waits for boxLock (holds regLock)
 %   PubAcqBox    -- publish takes boxLock, will want regLock (holds boxLock)

@@ -87,19 +87,86 @@ Z text required:
   lock, which is what the single-step `Drain` operation abstracts.
 - **The one-way edge `regLock → boxLock`** ↔ `inbox.offer` holding
   `_inboxes_lock` across `inbox.put(message)`, which enters `with self._cond:`
-  while still inside the `with _inboxes_lock:` block. Every other caller of a
-  `BoundedInbox` method (`_writer`, `inbox_depth_for`, `drain_inbox`) releases
-  `_inboxes_lock` before calling into the inbox, and `drop_session` never
-  touches the inbox's lock at all — so the graph has the single edge the model
-  proves acyclic. `inbox_queue.py` holds no reference to `_inboxes_lock`, so
-  the reverse edge the deadlock control adds is not merely avoided by
-  discipline, it is unreachable by construction.
+  while still inside the `with _inboxes_lock:` block. At the time of this
+  round, `inbox_depth_for` and `drain_inbox` release `_inboxes_lock` before
+  calling into the inbox, and `drop_session` never touches the inbox's lock at
+  all — so the graph has the single edge the model proves acyclic.
+  `inbox_queue.py` holds no reference to `_inboxes_lock`, so the reverse edge
+  the deadlock control adds is not merely avoided by discipline, it is
+  unreachable by construction. (`_writer` is corrected below in round 3 — at
+  this round it still released `_inboxes_lock` before calling `put`, the
+  un-nested shape the round-3 section replaces.)
 
-No revision to `menu_lifecycle_bounded_inbox.tex`'s schemas is needed: the
-model states `boxLock`'s guard and release abstractly enough to cover the
-Condition mechanism without naming it, and the round-1 `Lock` design's failure
-to guard `get` is exactly the case the model's Drain guard was already written
-to reject.
+No revision to `menu_lifecycle_bounded_inbox.tex`'s schemas was needed for
+*this* round: the model states `boxLock`'s guard and release abstractly enough
+to cover the Condition mechanism without naming it, and the round-1 `Lock`
+design's failure to guard `get` is exactly the case the model's Drain guard
+was already written to reject. Round 3, below, is the round that does revise
+the schemas — a different producer's lock nesting, not this round's Condition
+substitution.
+
+## Fidelity: the publish path's own `regLock → boxLock` nesting (round 3, `c2f1c289`)
+
+Copilot's re-review of `c2f1c289` (bead `lux-wk3p` round 2 of the PR, this
+model's round 3) found that the schemas above still gave the publish producer
+an un-nested `boxLock`: `PubAcqBox` fired straight from `pidle` with no
+`regLock` precondition, modelling `_writer` calling `inbox_for(cid).put(msg)`
+with the registry lock already released. That was accurate for the code as it
+stood through round 2, but `c2f1c289` changed `_writer` itself:
+
+```python
+def _writer(message: ObserverMessage) -> None:
+    with _inboxes_lock:
+        _inbox_for_locked(connection_id).put(message)
+```
+
+`_inboxes_lock` (`regLock`) now encloses the whole `BoundedInbox.put` call,
+which internally still acquires and releases its own condition lock
+(`boxLock`). The publish path therefore nests `regLock → boxLock` exactly as
+`offer` already did — the same edge, now climbed by both producers instead of
+one.
+
+`menu_lifecycle_bounded_inbox.tex` is revised to match:
+
+- `REGH` gains no new values beyond what the deadlock control already had
+  (`rfree | roffer | rpublish`) — `rpublish` is now live in the fixed model,
+  not only in the reverse-edge control.
+- `PPHASE` changes from `pidle | pbox` to `pidle | preg | pboth`, the same
+  three-phase shape `OPHASE` already gives the offer producer.
+- A new operation, `PubAcqReg`, precedes `PubAcqBox` and models entering the
+  `with _inboxes_lock:` block. `PubAcqBox` is now guarded on `preg` (was
+  `pidle`) and `PubPut` releases *both* locks together (was `boxLock` alone),
+  matching `OfferPut`.
+
+The deadlock argument's conclusion is unchanged — one edge direction, no
+cycle — but it is now stated for two callers of that edge instead of one; see
+the revised "Deadlock-freedom and the one-way lock edge" section of the
+`.tex` file. Re-running the full suite after the revision:
+
+- `fuzz menu_lifecycle_bounded_inbox.tex` — clean.
+- `probcli -model_check -p DEFAULT_SETSIZE 2` — **no deadlock**, all 7
+  operations covered (`OfferAcqReg`, `OfferAcqBox`, `OfferPut`, `PubAcqReg`,
+  `PubAcqBox`, `PubPut`, `Drain`), 16 states, 26 transitions — the same state
+  count as before the revision, because the publish producer's extra phase
+  value replaces states the old un-nested `pbox` phase already occupied
+  rather than adding new ones.
+- B1 (`depth > cap`) — **NOT found**. B2 (`spuriousDrop = fset`) — **NOT
+  found**. Both re-checked against the revised schemas.
+- Positive reachability (`depth = cap`, `boxLock = bpublish`) — both **FOUND**,
+  so the revision is not vacuously safe by never exercising the publish path.
+- `menu_lifecycle_bounded_inbox_nolock_buggy.tex` — unaffected by this round
+  (it never referenced `REGH`/`regLock` at all); B1 and B2 negations still
+  **FOUND**.
+- `menu_lifecycle_bounded_inbox_deadlock_buggy.tex` — its own header comment
+  is corrected to describe the reverse-edge hypothetical against the
+  round-3-fixed baseline rather than the pre-round-3 "publish never holds
+  `regLock`" claim; its schemas (already carrying `rpublish` and a
+  three-value `PPHASE` from when this control was first written) needed no
+  change. Deadlock still **FOUND**.
+
+This closes the specific gap Copilot named: the model, the coverage verdict,
+and the shipped lock graph now agree that `_writer` holds `regLock` across the
+whole put.
 
 ## The obligations, and how they are checked
 
@@ -113,9 +180,9 @@ deadlock check.
 
 - **B1 — bound integrity.** `depth ≤ cap`, checked as `depth > cap`.
   **`NOT found`** against `menu_lifecycle_bounded_inbox.tex` at
-  `DEFAULT_SETSIZE 2` (16 states, 6 operations covered, no deadlock).
-  **`FOUND`** against `menu_lifecycle_bounded_inbox_nolock_buggy.tex`
-  (overshoot).
+  `DEFAULT_SETSIZE 2` (16 states, all 7 operations covered — `PubAcqReg`
+  joined the count in round 3 — no deadlock). **`FOUND`** against
+  `menu_lifecycle_bounded_inbox_nolock_buggy.tex` (overshoot).
 - **B2 — drop minimality (no double-drop).** `¬(spuriousDrop = fset)`: a
   `_drop_oldest` fires only from a genuinely full inbox, never discarding a
   message that had room. Checked as `spuriousDrop = fset`. **`NOT found`**
@@ -123,10 +190,11 @@ deadlock check.
   (double-drop).
 - **Deadlock-freedom.** Full `-model_check` over the reachable state space:
   **no deadlock**, all operations covered, at `DEFAULT_SETSIZE 2` (16 states).
-  The inbox lock is a **leaf**: the only nesting is `regLock → boxLock` (offer
-  path); the publish path takes `boxLock` alone; no path takes `regLock` while
-  holding `boxLock`. **`FOUND`** (a deadlock) against
-  `menu_lifecycle_bounded_inbox_deadlock_buggy.tex`, which adds the reverse edge.
+  The inbox lock is a **leaf**: the only nesting is `regLock → boxLock`, taken
+  by both the offer path and — as of round 3 (`c2f1c289`) — the publish path;
+  no path takes `regLock` while holding `boxLock`. **`FOUND`** (a deadlock)
+  against `menu_lifecycle_bounded_inbox_deadlock_buggy.tex`, which inverts the
+  publish path's own climb into the reverse order.
 - **Positive outcomes reachable** (the invariants are not vacuous):
   `depth = cap` **FOUND**; `boxLock = bpublish` **FOUND** (the publish producer
   is exercised) — both against the fixed spec.
@@ -153,20 +221,26 @@ Witness traces (ProB's search order need not return these exact traces; the
 
 ## The lock/order the fix requires, stated explicitly
 
-The fix adds one nesting: `offer` holds `regLock` (`_inboxes_lock`) across
-`inbox.put`, which now takes `boxLock` — the edge **`regLock → boxLock`**. Every
-other `boxLock` holder takes it alone:
+The fix adds one nesting, `regLock → boxLock`, and as of round 3 (`c2f1c289`)
+**both** producers climb it the same way:
 
-- the publish `_writer` runs `put` after `inbox_for` released `regLock`;
+- `offer` holds `regLock` (`_inboxes_lock`) across `inbox.put`, which takes
+  `boxLock`;
+- the publish `_writer` now holds `regLock` across the whole of
+  `BoundedInbox.put` too — it no longer releases `regLock` before calling
+  `put`;
 - `inbox_depth_for` and `drain_inbox` read the inbox out under `regLock`,
-  release it, then take `boxLock` for `depth`/`drain`;
+  release it, then take `boxLock` alone for `depth`/`drain`;
 - `drop_session` takes `regLock` alone and never touches `boxLock`.
 
-No path takes `regLock` while holding `boxLock`. The acquisition graph is the
-single edge `regLock → boxLock`; a cycle needs two, so there is no deadlock —
-the same one-direction-edge structure `menu_lifecycle.tex` established for the
-D3 `StoreLock → HubMenuRegistry._lock` edge. The reverse-edge control shows the
-property is load-bearing: add `boxLock → regLock` and ProB finds the cycle.
+No path takes `regLock` while holding `boxLock`, and no path takes `boxLock`
+with no outer lock and then reaches for `regLock`. The acquisition graph has
+exactly one edge *direction*, `regLock → boxLock`, now used by two callers
+instead of one; a cycle needs two, so there is no deadlock — the same
+one-direction-edge structure `menu_lifecycle.tex` established for the D3
+`StoreLock → HubMenuRegistry._lock` edge. The reverse-edge control shows the
+property is load-bearing: invert the publish path's own climb into
+`boxLock → regLock` and ProB finds the cycle.
 
 ## M1 and M1b are preserved
 
@@ -202,7 +276,7 @@ names the real test in the file the fix landed in,
 | BB3 (put under capacity) | a `put` into an inbox below capacity enqueues without dropping; `depth` rises by one | `tests/domain/test_inbox_queue.py::test_under_capacity_is_a_plain_fifo` |
 | BB4 (put at capacity) | a single `put` into a full inbox drops the oldest and enqueues the newest; `depth` stays at `cap` | `tests/domain/test_inbox_queue.py::test_at_capacity_drops_the_oldest_and_keeps_the_newest` (drop-and-admit) and `tests/domain/test_inbox_queue.py::test_a_full_inbox_warns_when_it_drops` (the loss is logged) |
 | BB5 (drain under the lock) | a `recv`/`drain`/`depth` racing a `put` never observes or produces a torn queue (the `get`/`drain`/`depth` legs are under `boxLock`) | `tests/domain/test_inbox_queue.py::test_a_real_guarded_consumer_never_tears_puts_compound` |
-| **DL1 (leaf-lock deadlock-freedom)** | the offer path (`_inboxes_lock` → inbox lock) and the publish path (inbox lock alone) never deadlock; no path takes `_inboxes_lock` while holding the inbox lock | covered by `probcli -model_check` in this spec; the grep-provable code check is that no `BoundedInbox` method acquires `_inboxes_lock` |
+| **DL1 (leaf-lock deadlock-freedom)** | the offer path and, as of round 3, the publish path (both `_inboxes_lock` → inbox lock) never deadlock; no path takes `_inboxes_lock` while holding the inbox lock, and no path takes the inbox lock and then reaches back for `_inboxes_lock` | covered by `probcli -model_check` in this spec; the grep-provable code check is that no `BoundedInbox` method acquires `_inboxes_lock` |
 
 Partitions in **bold** are the direct regression requirement for overshoot
 (BB1), double-drop (BB2), and deadlock-freedom (DL1). A suite that covers the
