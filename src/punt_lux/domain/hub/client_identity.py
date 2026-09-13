@@ -154,6 +154,11 @@ class ClientIdentity(BaseModel):
         return connection_for(self.model_dump())
 
     @property
+    def is_agent(self) -> bool:
+        """True for the Claude Code MCP session that drives the display (DES-098)."""
+        return self.kind == "mcp-session"
+
+    @property
     def menu_label(self) -> str:
         """The name a human calls this client where a menu has to name it.
 

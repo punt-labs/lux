@@ -15,12 +15,13 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 
-def _recorder() -> tuple[Callable[[ObserverMessage], None], list[ObserverMessage]]:
+def _recorder() -> tuple[Callable[[ObserverMessage], bool], list[ObserverMessage]]:
     """Build a handler that appends every received ObserverMessage to a list."""
     received: list[ObserverMessage] = []
 
-    def _handler(message: ObserverMessage) -> None:
+    def _handler(message: ObserverMessage) -> bool:
         received.append(message)
+        return True
 
     return _handler, received
 
@@ -218,12 +219,13 @@ def test_publish_snapshot_iterates_outside_lock() -> None:
     registry = SubscriptionRegistry()
     received: list[ObserverMessage] = []
 
-    def _self_subscribing(message: ObserverMessage) -> None:
+    def _self_subscribing(message: ObserverMessage) -> bool:
         received.append(message)
         # Re-entering subscribe from inside a handler proves the publish
         # iteration is not holding the registry lock — if it were, this
         # call would deadlock waiting on the lock the publish holds.
         registry.subscribe(ConnectionId("c1"), Topic("topic"), _self_subscribing)
+        return True
 
     registry.subscribe(ConnectionId("c1"), Topic("topic"), _self_subscribing)
     # Snapshot was taken at publish entry — only the initial subscriber set runs.

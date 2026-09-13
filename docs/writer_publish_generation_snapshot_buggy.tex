@@ -1,0 +1,222 @@
+%
+% writer_publish_generation_snapshot_buggy.tex
+%
+% FIDELITY CONTROL for docs/writer_publish_generation.tex, Part Two (WG2).
+%
+% Unlike the split control, this is NOT a hypothetical regression test for a
+% fix that has already shipped -- it is a model of `_writer` AS IT STANDS
+% TODAY, after the round-2 atomicity fix (c2f1c289). That fix closed the
+% WITHIN-one-firing window WG names (inbox.py's `_writer` now holds
+% `_inboxes_lock` across the whole `inbox_for(...).put(...)`). It added no
+% check of any kind against a firing that is itself stale relative to
+% `Hub.publish`'s own snapshot: `Hub.publish` copies the (connection_id,
+% topic) subscriber set under `SubscriptionRegistry`'s own lock, releases
+% that lock, and invokes the snapshotted handlers afterward with no bound on
+% how long "afterward" is. This spec differs from the fixed
+% writer_publish_generation.tex in exactly one place: PublishInvokeFixed (the
+% currency-check fix Section "The Code Change This Model Specifies" of the
+% fixed spec proposes) is replaced by PublishInvokeUnchecked, which commits
+% the put UNCONDITIONALLY -- exactly WriterPut's effect -- regardless of
+% whether capturedWriterGen still matches writerGen.
+%
+% Expected: WG2's negation is reachable.
+%   probcli docs/writer_publish_generation_snapshot_buggy.tex -model_check -nodead \
+%     -goal "genMismatch2 = fset" -p DEFAULT_SETSIZE 2
+%   => goal FOUND (witness: Arm;PublishSnapshot;Depart;Arm;PublishInvokeUnchecked
+%      -- a full same-identity reconnect completes entirely inside the
+%      snapshot's window, and the stale snapshot's put commits into the
+%      reconnected session's live inbox).
+%
+% Against the fixed spec (PublishInvokeFixed in place of PublishInvokeUnchecked)
+% the same goal is NOT found.
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{lux Hub-Writer Publish Path --- Snapshot Fidelity Control}
+\author{The publish snapshot fired long after the writer it captured went stale}
+\date{September 2026}
+\maketitle
+
+This is a fidelity control for \texttt{writer\_publish\_generation.tex}'s
+Part Two. Only the publish-invocation operation differs; every other schema
+is copied verbatim, including Part One's, since WG2 is checked jointly with
+WG over the same state.
+
+\begin{zed}
+  [CONN]
+\end{zed}
+
+\begin{zed}
+  GEN ::= gen0 | gen1
+\end{zed}
+
+\begin{zed}
+  FSTATE ::= fclear | fset
+\end{zed}
+
+\begin{zed}
+  PPHASE ::= pidle | pput
+\end{zed}
+
+\begin{zed}
+  WRITERGEN ::= wgen0 | wgen1
+\end{zed}
+
+\begin{zed}
+  SNAPPHASE ::= snapidle | snaptaken
+\end{zed}
+
+\begin{schema}{WriterReg}
+  hasInbox : \power CONN \\
+  inboxGen : CONN \fun GEN \\
+  putPhase : PPHASE \\
+  putFor : \power CONN \\
+  capturedGen : CONN \fun GEN \\
+  genMismatch : FSTATE \\
+  writerGen : CONN \fun WRITERGEN \\
+  snapPhase : SNAPPHASE \\
+  snapFor : \power CONN \\
+  capturedWriterGen : CONN \fun WRITERGEN \\
+  genMismatch2 : FSTATE
+\where
+  \# putFor \leq 1 \\
+  \# snapFor \leq 1
+\end{schema}
+
+\begin{schema}{Init}
+  WriterReg'
+\where
+  hasInbox' = \emptyset \\
+  inboxGen' = (\lambda c : CONN @ gen0) \\
+  putPhase' = pidle \\
+  putFor' = \emptyset \\
+  capturedGen' = (\lambda c : CONN @ gen0) \\
+  genMismatch' = fclear \\
+  writerGen' = (\lambda c : CONN @ wgen0) \\
+  snapPhase' = snapidle \\
+  snapFor' = \emptyset \\
+  capturedWriterGen' = (\lambda c : CONN @ wgen0) \\
+  genMismatch2' = fclear
+\end{schema}
+
+% -- Part One, copied verbatim from the fixed spec ---------------------------
+
+\begin{schema}{Arm}
+  \Delta WriterReg \\
+  c? : CONN
+\where
+  putPhase' = putPhase \\
+  putFor' = putFor \\
+  capturedGen' = capturedGen \\
+  genMismatch' = genMismatch \\
+  snapPhase' = snapPhase \\
+  snapFor' = snapFor \\
+  capturedWriterGen' = capturedWriterGen \\
+  genMismatch2' = genMismatch2 \\
+  c? \notin hasInbox \implies
+    (hasInbox' = hasInbox \cup \{ c? \} \land
+     (\exists g : GEN | g \neq inboxGen(c?) @
+       inboxGen' = inboxGen \oplus \{ c? \mapsto g \}) \land
+     (\exists wg : WRITERGEN | wg \neq writerGen(c?) @
+       writerGen' = writerGen \oplus \{ c? \mapsto wg \})) \\
+  c? \in hasInbox \implies
+    (hasInbox' = hasInbox \land inboxGen' = inboxGen \land writerGen' = writerGen)
+\end{schema}
+
+\begin{schema}{Depart}
+  \Delta WriterReg \\
+  c? : CONN
+\where
+  c? \in hasInbox \\
+  hasInbox' = hasInbox \setminus \{ c? \} \\
+  inboxGen' = inboxGen \\
+  putPhase' = putPhase \\
+  putFor' = putFor \\
+  capturedGen' = capturedGen \\
+  genMismatch' = genMismatch \\
+  writerGen' = writerGen \\
+  snapPhase' = snapPhase \\
+  snapFor' = snapFor \\
+  capturedWriterGen' = capturedWriterGen \\
+  genMismatch2' = genMismatch2
+\end{schema}
+
+\begin{schema}{WriterPut}
+  \Delta WriterReg \\
+  c? : CONN
+\where
+  putPhase = pidle \\
+  putPhase' = putPhase \\
+  putFor' = putFor \\
+  capturedGen' = capturedGen \\
+  genMismatch' = genMismatch \\
+  writerGen' = writerGen \\
+  snapPhase' = snapPhase \\
+  snapFor' = snapFor \\
+  capturedWriterGen' = capturedWriterGen \\
+  genMismatch2' = genMismatch2 \\
+  c? \notin hasInbox \implies
+    (hasInbox' = hasInbox \cup \{ c? \} \land
+     (\exists g : GEN | g \neq inboxGen(c?) @
+       inboxGen' = inboxGen \oplus \{ c? \mapsto g \})) \\
+  c? \in hasInbox \implies
+    (hasInbox' = hasInbox \land inboxGen' = inboxGen)
+\end{schema}
+
+% -- Part Two ------------------------------------------------------------
+
+\begin{schema}{PublishSnapshot}
+  \Delta WriterReg \\
+  c? : CONN
+\where
+  snapPhase = snapidle \\
+  snapPhase' = snaptaken \\
+  snapFor' = \{ c? \} \\
+  capturedWriterGen' = capturedWriterGen \oplus \{ c? \mapsto writerGen(c?) \} \\
+  hasInbox' = hasInbox \\
+  inboxGen' = inboxGen \\
+  writerGen' = writerGen \\
+  putPhase' = putPhase \\
+  putFor' = putFor \\
+  capturedGen' = capturedGen \\
+  genMismatch' = genMismatch \\
+  genMismatch2' = genMismatch2
+\end{schema}
+
+% THE DEFECT: PublishInvokeUnchecked commits the put UNCONDITIONALLY against
+% whatever capturedWriterGen holds -- no currency check at all, exactly
+% today's shipped `_writer`. Only when the connection is still present AND
+% its writer generation still matches does the put land correctly;
+% otherwise genMismatch2 becomes fset, a message delivered under a departed
+% session's writer landing in a reconnected session's live inbox.
+\begin{schema}{PublishInvokeUnchecked}
+  \Delta WriterReg \\
+  c? : CONN
+\where
+  snapPhase = snaptaken \\
+  c? \in snapFor \\
+  snapPhase' = snapidle \\
+  snapFor' = \emptyset \\
+  capturedWriterGen' = capturedWriterGen \\
+  putPhase' = putPhase \\
+  putFor' = putFor \\
+  capturedGen' = capturedGen \\
+  genMismatch' = genMismatch \\
+  writerGen' = writerGen \\
+  ( c? \notin hasInbox \implies
+      (hasInbox' = hasInbox \cup \{ c? \} \land
+       (\exists g : GEN | g \neq inboxGen(c?) @
+         inboxGen' = inboxGen \oplus \{ c? \mapsto g \})) ) \\
+  ( c? \in hasInbox \implies
+      (hasInbox' = hasInbox \land inboxGen' = inboxGen) ) \\
+  ( capturedWriterGen(c?) \neq writerGen(c?) \implies genMismatch2' = fset ) \\
+  ( capturedWriterGen(c?) = writerGen(c?) \implies genMismatch2' = genMismatch2 )
+\end{schema}
+
+\end{document}

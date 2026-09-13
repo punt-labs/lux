@@ -6,13 +6,14 @@ process-global module state shared across the test session.
 
 from __future__ import annotations
 
-import queue
+from collections import deque
 from typing import Self, final
 
 from punt_lux.domain.hub import inbox as inbox_mod
 from punt_lux.domain.hub.hub import hub
 from punt_lux.domain.hub.hub_display import hub_display
 from punt_lux.domain.hub.inbox import (
+    drain_inbox,
     drop_session,
     ensure_writer,
     inbox_depth_for,
@@ -20,20 +21,25 @@ from punt_lux.domain.hub.inbox import (
     next_event,
     offer,
 )
+from punt_lux.domain.hub.inbox_queue import BoundedInbox
 from punt_lux.domain.ids import ConnectionId, Topic
 from punt_lux.protocol.messages.observer import ObserverMessage
 
 
 @final
-class _LockWatchingQueue(queue.SimpleQueue[ObserverMessage]):
-    """A SimpleQueue that records whether ``_inboxes_lock`` is held during ``put``.
+class _LockWatchingQueue(deque[ObserverMessage]):
+    """A deque that records whether ``_inboxes_lock`` is held during ``append``.
+
+    ``BoundedInbox`` stores its messages in a deque and delivers via ``append``,
+    so the spy watches ``append`` -- the operation ``BoundedInbox.put`` calls once
+    it is inside the inbox's own condition.
 
     D1 fidelity control: ``offer`` must hold ``_inboxes_lock`` across BOTH the
     ``get`` that finds the inbox AND the ``put`` that delivers into it, so a
     concurrent ``drop_session`` cannot pop the queue between the two and turn a
     false ``True`` delivery into an orphan (M1: ``¬(delivered ∧ lost)``, modelled
     in ``docs/menu_lifecycle.tex``). The old code released the lock after the get
-    and put outside it -- observed here as ``locked() == False`` at put time.
+    and put outside it -- observed here as ``locked() == False`` at append time.
     """
 
     _held_at_put: bool
@@ -45,21 +51,19 @@ class _LockWatchingQueue(queue.SimpleQueue[ObserverMessage]):
         self._put_seen = False
         return self
 
-    def put(
-        self, item: ObserverMessage, block: bool = True, timeout: float | None = None
-    ) -> None:
+    def append(self, item: ObserverMessage) -> None:
         self._held_at_put = inbox_mod._inboxes_lock.locked()
         self._put_seen = True
-        super().put(item, block, timeout)
+        super().append(item)
 
     @property
     def held_at_put(self) -> bool:
-        """Whether ``_inboxes_lock`` was held when ``put`` last ran."""
+        """Whether ``_inboxes_lock`` was held when ``append`` last ran."""
         return self._held_at_put
 
     @property
     def put_seen(self) -> bool:
-        """Whether ``put`` was called at all -- guards against a vacuous pass."""
+        """Whether ``append`` ran at all -- guards against a vacuous pass."""
         return self._put_seen
 
 
@@ -72,8 +76,10 @@ def test_offer_puts_under_the_inboxes_lock() -> None:
     """
     connection = ConnectionId("c-offer-d1")
     spy = _LockWatchingQueue()
+    inbox = BoundedInbox(connection)
+    inbox._queue = spy  # watch the inbox's underlying deque at delivery time
     with inbox_mod._inboxes_lock:
-        inbox_mod._inboxes[connection] = spy
+        inbox_mod._inboxes[connection] = inbox
 
     assert offer(connection, ObserverMessage(topic="t", payload={})) is True
 
@@ -81,6 +87,33 @@ def test_offer_puts_under_the_inboxes_lock() -> None:
     assert spy.held_at_put
 
     drop_session(connection)  # cleanup: process-global _inboxes
+
+
+def test_writer_puts_under_the_inboxes_lock() -> None:
+    """WG: the Hub-writer's put runs with ``_inboxes_lock`` held, same as ``offer``.
+
+    Places a spy queue in ``_inboxes`` before ``ensure_writer`` binds a fresh
+    writer, then publishes through the Hub and asserts the lock was held at the
+    moment the writer's ``put`` delivered. Fails on the pre-fix code, which
+    released the lock between ``inbox_for``'s lookup and the put.
+    """
+    connection = ConnectionId("c-writer-wg")
+    topic = Topic("wg.topic")
+    spy = _LockWatchingQueue()
+    inbox = BoundedInbox(connection)
+    inbox._queue = spy  # watch the inbox's underlying deque at delivery time
+    with inbox_mod._inboxes_lock:
+        inbox_mod._inboxes[connection] = inbox
+
+    ensure_writer(connection)
+    hub.subscribe(connection, topic)
+    delivered = hub.publish(connection, topic, {"k": "v"})
+
+    assert delivered == 1
+    assert spy.put_seen
+    assert spy.held_at_put
+
+    hub_display.drop_connection(connection)  # cleanup: production singletons
 
 
 def test_offer_on_a_dropped_session_does_not_resurrect_an_inbox() -> None:
@@ -159,7 +192,7 @@ def test_ensure_writer_arms_an_inbox_even_when_a_listener_writer_exists() -> Non
     """
     connection = ConnectionId("c-listener-menu")
     # The listener leg: a Hub writer bound with no inbox, exactly as ws_listen does.
-    hub.register_writer(connection, lambda _msg: None)
+    hub.register_writer(connection, lambda _msg: True)
     assert hub.has_writer(connection)
     assert inbox_depth_for(connection) == 0  # no inbox yet
 
@@ -182,6 +215,116 @@ def test_ensure_writer_is_idempotent_and_rebinds_nothing_on_a_second_call() -> N
     ensure_writer(connection)  # must not raise, must not rebind
 
     assert hub.has_writer(connection)
+    hub_display.drop_connection(connection)  # cleanup: production singletons
+
+
+def test_stale_writer_after_reconnect_does_not_deliver_into_the_new_session() -> None:
+    """WG2: a publish snapshotted under a departed session drops after reconnect.
+
+    ``stale_writer`` stands in for the closure ``Hub.publish``'s
+    snapshot-then-invoke fan-out captured before the departure -- exactly
+    what a slow invocation holds onto across the window between the
+    snapshot and the actual call. Firing it after a same-identity reconnect
+    must not land in the reconnected session's live inbox; the currency
+    check recognizes the staleness and drops the message instead of
+    delivering it to the wrong recipient
+    (``docs/writer_publish_generation.tex``, WG2).
+    """
+    connection = ConnectionId("c-writer-stale-gen")
+    topic = Topic("wg2.stale")
+
+    ensure_writer(connection)  # G1
+    # The writer Hub.publish's snapshot would have captured for G1.
+    stale_writer = hub._writers.writer_for(connection)
+
+    hub_display.drop_connection(connection)  # G1 departs
+    ensure_writer(connection)  # G2 reconnects on the same ConnectionId
+
+    spy = _LockWatchingQueue()
+    inbox_for(connection)._queue = spy  # watch G2's live inbox for a delivery
+
+    stale_writer(ObserverMessage(topic=topic, payload={"k": "v"}))
+
+    assert not spy.put_seen  # dropped, never delivered into the successor's inbox
+
+    hub_display.drop_connection(connection)  # cleanup: production singletons
+
+
+def test_stale_writer_publish_reports_zero_delivered_not_one() -> None:
+    """WG2 + the delivered-count contract: a stale no-op must not be counted.
+
+    ``Hub.publish``'s docstring promises the count of subscribers that
+    *actually received* the message. Before this fix, the loop counted every
+    handler invocation that did not raise -- so a stale writer's WG2 no-op
+    (module docstring above) was silently counted as a delivery, reporting
+    ``delivered=1`` for a message that reached nobody. Rebinding the
+    connection's writer without departing leaves the STALE writer's own
+    subscription in place -- exactly the shape ``Hub.publish``'s
+    snapshot-then-invoke fan-out produces when a reconnect lands between the
+    snapshot and the call -- so the currency check inside ``_writer`` fires
+    for real, and the count must reflect that nothing was delivered.
+    """
+    connection = ConnectionId("c-writer-stale-not-delivered")
+    topic = Topic("wg2.notdelivered")
+
+    ensure_writer(connection)  # G1 binds a writer + inbox
+    hub.subscribe(connection, topic)  # subscription references G1's writer
+    stale_writer = hub._writers.writer_for(connection)
+
+    def _new_writer(_message: ObserverMessage) -> bool:
+        return True
+
+    # G2 takes over the connection's writer slot without a departure, so the
+    # existing subscription -- still bound to G1's `stale_writer` closure --
+    # survives the rebind untouched.
+    hub.register_writer(connection, _new_writer)
+    assert hub._subscriptions.snapshot_subscribers(connection, topic) == (stale_writer,)
+
+    delivered = hub.publish(connection, topic, {"k": "v"})
+
+    assert delivered == 0
+
+    hub_display.drop_connection(connection)  # cleanup: production singletons
+
+
+def test_live_writer_publish_reports_one_delivered() -> None:
+    """The normal case the stale-count fix must not disturb: a live delivery."""
+    connection = ConnectionId("c-writer-live-delivered")
+    topic = Topic("wg2.delivered")
+
+    ensure_writer(connection)
+    hub.subscribe(connection, topic)
+
+    delivered = hub.publish(connection, topic, {"k": "v"})
+
+    assert delivered == 1
+
+    hub_display.drop_connection(connection)  # cleanup: production singletons
+
+
+def test_current_writer_delivers_after_a_drain_inbox_swap() -> None:
+    """The currency check never fires against a live writer or ``drain_inbox``.
+
+    ``drain_inbox`` replaces the connection's ``BoundedInbox`` with a fresh
+    one for a session that has NOT departed -- it never touches the writer
+    registry, so the still-current writer's next publish must still deliver
+    normally after the swap.
+    """
+    connection = ConnectionId("c-writer-current-gen")
+    topic = Topic("wg2.current")
+
+    ensure_writer(connection)
+    hub.subscribe(connection, topic)
+
+    drain_inbox(connection)  # swaps the inbox; leaves the writer registration alone
+
+    delivered = hub.publish(connection, topic, {"k": "v"})
+    assert delivered == 1
+
+    event = next_event(connection, timeout=1.0)
+    assert event is not None
+    assert event.payload == {"k": "v"}
+
     hub_display.drop_connection(connection)  # cleanup: production singletons
 
 

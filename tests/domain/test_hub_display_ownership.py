@@ -581,7 +581,7 @@ def test_a_timer_reaped_connection_loses_its_full_cascade_not_just_registry_and_
         conn,
         AddElement(scene_id=_SCENE, element=_WireLeaf(id="track"), parent_id=None),
     )
-    isolated_hub.register_writer(conn, lambda _msg: None)
+    isolated_hub.register_writer(conn, lambda _msg: True)
     isolated_hub.subscribe(conn, Topic("t"))
     fired: list[ConnectionId] = []
 
@@ -611,7 +611,7 @@ def test_apply_clears_a_swept_connections_full_cascade_as_a_side_effect() -> Non
         dead,
         AddElement(scene_id=_SCENE, element=_WireLeaf(id="track"), parent_id=None),
     )
-    isolated_hub.register_writer(dead, lambda _msg: None)
+    isolated_hub.register_writer(dead, lambda _msg: True)
     isolated_hub.subscribe(dead, Topic("t"))
     fired: list[ConnectionId] = []
 
@@ -691,7 +691,7 @@ def test_a_reconnect_never_lands_inside_an_open_departure_cascade() -> None:
     def _reconnect() -> None:
         tail_reached.wait(timeout=2.0)
         hub_display.register_client(conn)  # blocks on StoreLock when fixed
-        isolated_hub.register_writer(conn, lambda _msg: None)
+        isolated_hub.register_writer(conn, lambda _msg: True)
         new_writer_installed.set()
 
     reconnect_thread = threading.Thread(target=_reconnect)

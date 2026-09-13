@@ -111,14 +111,16 @@ class NamedSessions:
         return self._names.get(connection_id, fallback)
 
     def commanding(self) -> Iterator[NamedSession]:
-        """Yield each named client that registered commands, in connection order.
+        """Yield each named client that earns a submenu, in connection order.
 
-        A client with no commands is named but contributes no submenu: it keeps
-        its number so that registering one later does not renumber the bar.
+        A client earns one per :meth:`ClientSession.earns_menu_presence`: a
+        registered command, or being the agent that drives the display. A
+        non-agent with no command is named but contributes no submenu, keeping
+        its number so a later registration does not renumber the bar.
         """
         for connection_id, name in self._names.items():
             session = self._sessions[connection_id]
-            if session.callbacks:
+            if session.earns_menu_presence():
                 yield NamedSession(connection_id, name, session)
 
     def commanding_groups(self) -> Iterator[NamedGroup]:

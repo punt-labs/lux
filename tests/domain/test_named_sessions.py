@@ -107,8 +107,16 @@ class TestCommandingClients:
         assert [client.name for client in clients] == ["lux"]
         assert [client.callbacks for client in clients] == [(_beads(),)]
 
-    def test_a_named_client_with_no_command_is_left_out(self) -> None:
-        named = _over(("a", _session()))
+    def test_a_named_non_agent_with_no_command_is_left_out(self) -> None:
+        # A cli is not the display's agent, so with no command it earns nothing;
+        # an agent (mcp-session) would earn a Details-only submenu (DES-098).
+        cli = (
+            ClientSession(0.0)
+            .with_identity(ClientIdentity(kind="cli", name="lux-cli"))
+            .attached(_SilentLeg())
+        )
+
+        named = _over(("a", cli))
 
         assert list(named.commanding()) == []
 

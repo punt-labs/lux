@@ -1,0 +1,204 @@
+%
+% menu_lifecycle_bounded_inbox_deadlock_buggy.tex
+%
+% FIDELITY CONTROL for docs/menu_lifecycle_bounded_inbox.tex.
+%
+% This spec differs from the fixed model in one place: the publish path acquires
+% boxLock FIRST and only then reaches for regLock -- the reverse of the order
+% the round-3 fix actually gives it. The fixed model's one edge direction,
+% regLock -> boxLock, is now taken by BOTH producers (offer always took it this
+% way; the round-3 fix brought the publish path's _writer into the same order,
+% holding _inboxes_lock across the whole of BoundedInbox.put). This control
+% inverts the publish path's own climb into boxLock -> regLock. The acquisition
+% graph now has a cycle.
+%
+% It is the counterfactual the fixed model's leaf-lock property rules out: the
+% shipped _writer takes regLock BEFORE boxLock, never the reverse; this control
+% is the hypothetical in which it climbed the other way. ProB's deadlock check
+% FINDS the cycle:
+%
+%   OfferAcqReg  -- offer takes regLock, waits for boxLock (holds regLock)
+%   PubAcqBox    -- publish takes boxLock, will want regLock (holds boxLock)
+%   => offer holds regLock wanting boxLock, publish holds boxLock wanting regLock
+%      -- no operation enabled: DEADLOCK.
+%
+%   probcli docs/menu_lifecycle_bounded_inbox_deadlock_buggy.tex -model_check \
+%     -p DEFAULT_SETSIZE 2   => DEADLOCK found (a state with no enabled operation)
+%
+% Against the fixed spec the same model-check finds NO deadlock: the publish path
+% never waits for a second lock, so no thread can hold boxLock while waiting for
+% regLock.
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{lux Bounded Inbox --- Reverse-Edge Deadlock Fidelity Control}
+\author{The publish path that takes the registry lock while holding the inbox lock}
+\date{September 2026}
+\maketitle
+
+This is a fidelity control for \texttt{menu\_lifecycle\_bounded\_inbox.tex}. Only
+the publish path differs: it acquires \texttt{regLock} while holding
+\texttt{boxLock}, adding the reverse of the design's one nesting.
+
+\begin{axdef}
+  cap : \nat \\
+  maxDepth : \nat
+\where
+  cap = 2 \\
+  maxDepth = 3
+\end{axdef}
+
+\begin{zed}
+  FSTATE ::= fclear | fset
+\end{zed}
+
+\begin{zed}
+  REGH ::= rfree | roffer | rpublish
+\end{zed}
+
+\begin{zed}
+  BOXH ::= bfree | boffer | bpublish
+\end{zed}
+
+\begin{zed}
+  OPHASE ::= oidle | oreg | oboth
+\end{zed}
+
+\begin{zed}
+  PPHASE ::= pidle | pboxwant | pboth
+\end{zed}
+
+The publish phase now has a middle state, \texttt{pboxwant}: holding
+\texttt{boxLock} and waiting for \texttt{regLock}. That wait is the reverse edge.
+
+\begin{schema}{InboxLock}
+  depth : \nat \\
+  spuriousDrop : FSTATE \\
+  regLock : REGH \\
+  boxLock : BOXH \\
+  oPhase : OPHASE \\
+  pPhase : PPHASE
+\where
+  depth \leq maxDepth \\
+  (regLock = roffer \iff oPhase \in \{ oreg, oboth \}) \\
+  (regLock = rpublish \iff pPhase = pboth) \\
+  (boxLock = boffer \iff oPhase = oboth) \\
+  (boxLock = bpublish \iff pPhase \in \{ pboxwant, pboth \})
+\end{schema}
+
+\begin{schema}{Init}
+  InboxLock'
+\where
+  depth' = 0 \\
+  spuriousDrop' = fclear \\
+  regLock' = rfree \\
+  boxLock' = bfree \\
+  oPhase' = oidle \\
+  pPhase' = pidle
+\end{schema}
+
+% -- Offer path: regLock then boxLock (the design's one, forward, edge) --------
+
+\begin{schema}{OfferAcqReg}
+  \Delta InboxLock \\
+\where
+  oPhase = oidle \\
+  regLock = rfree \\
+  regLock' = roffer \\
+  oPhase' = oreg \\
+  depth' = depth \\
+  spuriousDrop' = spuriousDrop \\
+  boxLock' = boxLock \\
+  pPhase' = pPhase
+\end{schema}
+
+\begin{schema}{OfferAcqBox}
+  \Delta InboxLock \\
+\where
+  oPhase = oreg \\
+  boxLock = bfree \\
+  boxLock' = boffer \\
+  oPhase' = oboth \\
+  depth' = depth \\
+  spuriousDrop' = spuriousDrop \\
+  regLock' = regLock \\
+  pPhase' = pPhase
+\end{schema}
+
+\begin{schema}{OfferPut}
+  \Delta InboxLock \\
+\where
+  oPhase = oboth \\
+  (depth < cap \implies depth' = depth + 1) \\
+  (depth \geq cap \implies depth' = depth) \\
+  spuriousDrop' = spuriousDrop \\
+  boxLock' = bfree \\
+  regLock' = rfree \\
+  oPhase' = oidle \\
+  pPhase' = pPhase
+\end{schema}
+
+% -- Publish path: THE DEFECT -- boxLock then regLock (the reverse edge) -------
+
+\begin{schema}{PubAcqBox}
+  \Delta InboxLock \\
+\where
+  pPhase = pidle \\
+  boxLock = bfree \\
+  boxLock' = bpublish \\
+  pPhase' = pboxwant \\
+  depth' = depth \\
+  spuriousDrop' = spuriousDrop \\
+  regLock' = regLock \\
+  oPhase' = oPhase
+\end{schema}
+
+% PubAcqReg is the reverse edge the fixed model does not have: publish reaches
+% for regLock WHILE holding boxLock. Guarded on regLock free, so it blocks when
+% the offer path holds regLock -- half the deadlock.
+\begin{schema}{PubAcqReg}
+  \Delta InboxLock \\
+\where
+  pPhase = pboxwant \\
+  regLock = rfree \\
+  regLock' = rpublish \\
+  pPhase' = pboth \\
+  depth' = depth \\
+  spuriousDrop' = spuriousDrop \\
+  boxLock' = boxLock \\
+  oPhase' = oPhase
+\end{schema}
+
+\begin{schema}{PubPut}
+  \Delta InboxLock \\
+\where
+  pPhase = pboth \\
+  (depth < cap \implies depth' = depth + 1) \\
+  (depth \geq cap \implies depth' = depth) \\
+  spuriousDrop' = spuriousDrop \\
+  boxLock' = bfree \\
+  regLock' = rfree \\
+  pPhase' = pidle \\
+  oPhase' = oPhase
+\end{schema}
+
+\begin{schema}{Drain}
+  \Delta InboxLock \\
+\where
+  boxLock = bfree \\
+  depth > 0 \\
+  depth' = depth - 1 \\
+  spuriousDrop' = spuriousDrop \\
+  regLock' = regLock \\
+  boxLock' = boxLock \\
+  oPhase' = oPhase \\
+  pPhase' = pPhase
+\end{schema}
+
+\end{document}

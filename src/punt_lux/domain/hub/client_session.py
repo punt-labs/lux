@@ -109,6 +109,16 @@ class ClientSession:
         """Whether this session registered a callback with ``callback_id``."""
         return self._slot.owns(callback_id)
 
+    def earns_menu_presence(self) -> bool:
+        """Whether this session earns a Clients submenu, command or not.
+
+        A session earns its place by registering a command; the agent (an
+        mcp-session) is kept present on its kind alone, with its Details, because
+        it drives the display yet registers no command of its own (DES-098).
+        """
+        identity = self._identity
+        return bool(self.callbacks) or (identity is not None and identity.is_agent)
+
     @property
     def lease_term(self) -> LeaseTerm:
         """The term this session idles for — its kind's when it declared none."""
@@ -169,6 +179,7 @@ class ClientSession:
             self._slot.occupied_by(listener),
         )
 
+    # None == stale: not this listener's session; a normal decline, not a failure.
     def detached(self, listener: CallbackListener) -> ClientSession | None:
         """Return this session with an empty slot, or ``None`` if it is not its own.
 
@@ -191,7 +202,7 @@ class ClientSession:
 
     def registering(
         self, callback: SessionCallback, now: float
-    ) -> ClientSession | None:
+    ) -> ClientSession | None:  # None == decline (unidentified/lapsed), a normal case
         """Return a copy owning ``callback``, or ``None`` if the session declines.
 
         A session accepts a callback only while it is identified and in lease; an

@@ -25,6 +25,7 @@ from punt_lux.operations.scene_submission import SceneSubmission
 from punt_lux.operations.scenes import SceneOperations
 from punt_lux.operations.scope import Scope
 from punt_lux.protocol import CollapsingHeaderElement
+from punt_lux.protocol.messages.observer import ObserverMessage
 
 _CONNECTION = ConnectionId("local")
 _LOCAL = Scope(_CONNECTION)
@@ -516,9 +517,12 @@ class TestQuarantinedScenes:
         )
         hub = Hub()
         received: list[Mapping[str, object]] = []
-        hub.register_writer(
-            _LOCAL.connection_id, lambda msg: received.append(msg.payload)
-        )
+
+        def _record(msg: ObserverMessage) -> bool:
+            received.append(msg.payload)
+            return True
+
+        hub.register_writer(_LOCAL.connection_id, _record)
         hub.subscribe(_LOCAL.connection_id, Topic("scene:s1:quarantined"))
         request = UpdateRequest.parse([{"id": "hdr", "set": {"open": True}}])
         _ops(store, recorder, hub).update("s1", request, scope=_LOCAL)

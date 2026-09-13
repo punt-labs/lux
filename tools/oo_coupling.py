@@ -180,6 +180,72 @@ class ModuleCouplingMetrics:
         return False
 
     @staticmethod
+    def _is_stateless_value(node: ast.ClassDef) -> bool:
+        """Return True for a stateless value object -- one that stores no ``self._*``.
+
+        LCOM sees cohesion only through ``self._*`` accesses, so a class that
+        never assigns a private instance attribute -- a marker like
+        ``WireSeparator`` (``__slots__ = ()``), or a frozen ``@dataclass`` whose
+        fields the generated ``__init__`` sets outside the AST -- has every
+        method's attr-set empty and reads as LCOM 1.0, a false zero-cohesion. A
+        class with real private state assigns it (in ``__new__`` or a mutator), so
+        one with *disjoint* private state still writes those attrs and is measured.
+
+        A hand-written immutable value class establishes that same private state
+        via ``object.__setattr__(self, "_x", ...)`` (the idiom frozen classes use
+        to bypass their own blocked ``__setattr__``) rather than a direct
+        ``self._x = ...`` store -- that write must count as state too, or such a
+        class is wrongly exempted from LCOM despite genuinely having it.
+        """
+        is_private_setattr = ModuleCouplingMetrics._is_private_setattr_call
+        for sub in ast.walk(node):
+            if (
+                isinstance(sub, ast.Attribute)
+                and isinstance(sub.value, ast.Name)
+                and sub.value.id == "self"
+                and sub.attr.startswith("_")
+                and isinstance(sub.ctx, ast.Store)
+            ):
+                return False
+            if isinstance(sub, ast.Call) and is_private_setattr(sub):
+                return False
+        return True
+
+    @staticmethod
+    def _is_private_setattr_call(call: ast.Call) -> bool:
+        """Return True for ``<receiver>.__setattr__(self, "_x", ...)``.
+
+        ``<receiver>`` is ``object``, ``super()``, or ``type(self)`` -- the three
+        forms a frozen/immutable class uses to write a private field outside its
+        own blocked ``__setattr__``. This is the AST shape ``_is_stateless_value``
+        cannot see through a direct-assignment scan, so it is matched explicitly.
+        """
+        if not (
+            isinstance(call.func, ast.Attribute)
+            and call.func.attr == "__setattr__"
+            and len(call.args) >= 2
+        ):
+            return False
+        receiver = call.func.value
+        is_known_receiver = (
+            isinstance(receiver, ast.Name) and receiver.id == "object"
+        ) or (
+            isinstance(receiver, ast.Call)
+            and isinstance(receiver.func, ast.Name)
+            and receiver.func.id in ("super", "type")
+        )
+        if not is_known_receiver:
+            return False
+        target, field = call.args[0], call.args[1]
+        return (
+            isinstance(target, ast.Name)
+            and target.id == "self"
+            and isinstance(field, ast.Constant)
+            and isinstance(field.value, str)
+            and field.value.startswith("_")
+        )
+
+    @staticmethod
     def _method_self_attrs(method: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
         """Return set of self._* attribute names accessed in a method."""
         attrs: set[str] = set()
@@ -234,7 +300,7 @@ class ModuleCouplingMetrics:
         for node in ast.iter_child_nodes(self._tree):
             if not isinstance(node, ast.ClassDef):
                 continue
-            if self._is_type_definition(node):
+            if self._is_type_definition(node) or self._is_stateless_value(node):
                 continue
             lcom = self._class_lcom(node)
             if lcom is not None:

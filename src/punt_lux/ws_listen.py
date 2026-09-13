@@ -179,14 +179,18 @@ class HubListenSession:
         """CallbackListener: a click was routed to this session — schedule a drain."""
         self._loop.call_soon_threadsafe(self._drain_callbacks)
 
-    def deliver_event(self, message: ObserverMessage) -> None:
+    def deliver_event(self, message: ObserverMessage) -> bool:
         """Hub pub-sub writer: enqueue a subscribed topic's event onto the loop.
 
         Runs on the publisher's thread, so it hops to the loop rather than touching
-        the WebSocket or the asyncio queue directly.
+        the WebSocket or the asyncio queue directly. Always reports delivery: this
+        session, unlike the MCP inbox writer, has no stale-generation case -- the
+        listener slot's own ownership compare (module docstring) is what keeps a
+        superseded session's binding out of the writer registry in the first place.
         """
         frame = EventFrame(topic=message.topic, payload=dict(message.payload))
         self._loop.call_soon_threadsafe(self._outbound.put_nowait, frame)
+        return True
 
     async def _read_loop(self) -> None:
         """Apply inbound frames until the client disconnects; any frame renews.

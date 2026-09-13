@@ -1,0 +1,160 @@
+%
+% menu_lifecycle_bounded_inbox_nolock_buggy.tex
+%
+% FIDELITY CONTROL for docs/menu_lifecycle_bounded_inbox.tex.
+%
+% This spec differs from the fixed model in one place: the inbox lock is
+% removed, so BoundedInbox.put is no longer an atomic critical section. Its
+% check-then-act -- (1) read qsize, (2) drop the front if full, (3) enqueue --
+% splits into three separately-schedulable steps, and the TWO producers (the
+% menu-click offer and the publish fan-out) interleave them freely, exactly as
+% they do in the shipped code where offer's put runs under _inboxes_lock and the
+% writer's put runs with it released.
+%
+% It reproduces BOTH defects the review found:
+%
+%   OVERSHOOT (B1's negation, depth > cap): from depth = cap - 1 both producers
+%     Check (qsize < cap, neither will drop) then both Enq -- depth = cap + 1.
+%       probcli ... -model_check -nodead -goal "depth > cap" => goal FOUND
+%       (e.g. OfferCheck; OfferEnqPlain reaching depth 1, then
+%        OfferCheck; PubCheck; OfferEnqPlain; PubEnqPlain -> depth 3).
+%
+%   DOUBLE-DROP (B2's negation, spuriousDrop = fset): from depth = cap both
+%     producers Check (qsize >= cap, both will drop); the first DropStep lowers
+%     depth to cap - 1, the second DropStep then fires at depth < cap -- a
+%     get_nowait discarding a message that had room.
+%       probcli ... -model_check -nodead -goal "spuriousDrop = fset" => goal FOUND
+%
+% Against the fixed spec both goals are NOT found: the lock makes the compound
+% atomic, so no producer can interleave another's check, drop, and enqueue.
+%
+% The two producers are modelled as the two elements of THREAD and the per-thread
+% put state as functions THREAD -> PUTPHASE and THREAD -> FSTATE, because without
+% the lock the producers are symmetric -- both run the same un-serialized put.
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{lux Bounded Inbox --- No-Lock Fidelity Control}
+\author{The check-then-act put torn by two producers without the inbox lock}
+\date{September 2026}
+\maketitle
+
+This is a fidelity control for \texttt{menu\_lifecycle\_bounded\_inbox.tex}. The
+inbox lock is removed and the compound \texttt{put} splits into its three
+schedulable steps, run by two symmetric producers.
+
+\begin{axdef}
+  cap : \nat \\
+  maxDepth : \nat
+\where
+  cap = 2 \\
+  maxDepth = 3
+\end{axdef}
+
+\begin{zed}
+  FSTATE ::= fclear | fset
+\end{zed}
+
+\begin{zed}
+  THREAD ::= toffer | tpublish
+\end{zed}
+
+\begin{zed}
+  PUTPHASE ::= pidle | pchecked | pdropped
+\end{zed}
+
+\begin{schema}{Inbox}
+  depth : \nat \\
+  spuriousDrop : FSTATE \\
+  phase : THREAD \fun PUTPHASE \\
+  willDrop : THREAD \fun FSTATE
+\where
+  depth \leq maxDepth
+\end{schema}
+
+\begin{schema}{Init}
+  Inbox'
+\where
+  depth' = 0 \\
+  spuriousDrop' = fclear \\
+  phase' = \{ toffer \mapsto pidle, tpublish \mapsto pidle \} \\
+  willDrop' = \{ toffer \mapsto fclear, tpublish \mapsto fclear \}
+\end{schema}
+
+% -- Check: read qsize, decide whether the front will be dropped --------------
+% Models step (1). The decision is snapshotted into willDrop(t?) and can go
+% stale before the drop executes -- the tear the lock forbids.
+\begin{schema}{Check}
+  \Delta Inbox \\
+  t? : THREAD
+\where
+  phase~t? = pidle \\
+  (depth \geq cap \implies willDrop' = willDrop \oplus \{ t? \mapsto fset \}) \\
+  (depth < cap \implies willDrop' = willDrop \oplus \{ t? \mapsto fclear \}) \\
+  phase' = phase \oplus \{ t? \mapsto pchecked \} \\
+  depth' = depth \\
+  spuriousDrop' = spuriousDrop
+\end{schema}
+
+% -- DropStep: the get_nowait for a thread that decided to drop ----------------
+% Models step (2). If depth has fallen below cap since the check, this drop
+% discards a message that had room: spuriousDrop is set.
+\begin{schema}{DropStep}
+  \Delta Inbox \\
+  t? : THREAD
+\where
+  phase~t? = pchecked \\
+  willDrop~t? = fset \\
+  (depth < cap \implies spuriousDrop' = fset) \\
+  (depth \geq cap \implies spuriousDrop' = spuriousDrop) \\
+  (depth > 0 \implies depth' = depth - 1) \\
+  (depth = 0 \implies depth' = 0) \\
+  phase' = phase \oplus \{ t? \mapsto pdropped \} \\
+  willDrop' = willDrop
+\end{schema}
+
+% -- EnqAfterDrop: the enqueue following a drop -------------------------------
+\begin{schema}{EnqAfterDrop}
+  \Delta Inbox \\
+  t? : THREAD
+\where
+  phase~t? = pdropped \\
+  depth' = depth + 1 \\
+  phase' = phase \oplus \{ t? \mapsto pidle \} \\
+  spuriousDrop' = spuriousDrop \\
+  willDrop' = willDrop
+\end{schema}
+
+% -- EnqPlain: the enqueue for a thread that did NOT drop ----------------------
+% Models step (3) for a not-full check. Two of these from depth = cap - 1
+% overshoot to cap + 1.
+\begin{schema}{EnqPlain}
+  \Delta Inbox \\
+  t? : THREAD
+\where
+  phase~t? = pchecked \\
+  willDrop~t? = fclear \\
+  depth' = depth + 1 \\
+  phase' = phase \oplus \{ t? \mapsto pidle \} \\
+  spuriousDrop' = spuriousDrop \\
+  willDrop' = willDrop
+\end{schema}
+
+% -- Drain: recv consumes one, so contention recurs ---------------------------
+\begin{schema}{Drain}
+  \Delta Inbox
+\where
+  depth > 0 \\
+  depth' = depth - 1 \\
+  spuriousDrop' = spuriousDrop \\
+  phase' = phase \\
+  willDrop' = willDrop
+\end{schema}
+
+\end{document}

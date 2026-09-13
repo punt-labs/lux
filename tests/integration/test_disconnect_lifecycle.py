@@ -34,8 +34,9 @@ def test_orphan_handler_publish_after_disconnect_is_safe_noop() -> None:
     isolated_hub = Hub()
     received: list[ObserverMessage] = []
 
-    def _writer(message: ObserverMessage) -> None:
+    def _writer(message: ObserverMessage) -> bool:
         received.append(message)
+        return True
 
     connection = ConnectionId("orphan-1")
     topic = Topic("save.pressed")

@@ -1,0 +1,155 @@
+%
+% writer_publish_generation_split_buggy.tex
+%
+% FIDELITY CONTROL for docs/writer_publish_generation.tex.
+%
+% This spec differs from the fixed writer_publish_generation.tex in exactly
+% one place: WriterPut (the atomic resolve-then-put fix) is replaced by the
+% shipped code's two-phase _writer -- WriterPutBegin resolves (creating if
+% absent) and captures the generation under _inboxes_lock, the lock is
+% RELEASED, then WriterPutEnd puts unconditionally against whatever
+% generation was captured. A Depart -- optionally followed by a reconnecting
+% Arm -- interleaving between the two either strands the put in a detached
+% object (orphan loss) or lands it in a different, live generation
+% (cross-generation delivery to the wrong recipient).
+%
+% Expected: WG's negation is reachable, by two distinct traces.
+%   probcli docs/writer_publish_generation_split_buggy.tex -model_check -nodead \
+%     -goal "genMismatch = fset" -p DEFAULT_SETSIZE 2
+%   => goal FOUND (witnesses: Arm;WriterPutBegin;Depart;WriterPutEnd -- orphan
+%      loss; and Arm;WriterPutBegin;Depart;Arm;WriterPutEnd -- cross-generation
+%      delivery, the worse case).
+%
+% Against the fixed spec the same goal is NOT found.
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{lux Hub-Writer Publish Path --- Split Fidelity Control}
+\author{The non-atomic writer put: resolve-then-put across a lock release}
+\date{September 2026}
+\maketitle
+
+This is a fidelity control for \texttt{writer\_publish\_generation.tex}.
+Only the put operation differs; every other schema is copied verbatim.
+
+\begin{zed}
+  [CONN]
+\end{zed}
+
+\begin{zed}
+  GEN ::= gen0 | gen1
+\end{zed}
+
+\begin{zed}
+  FSTATE ::= fclear | fset
+\end{zed}
+
+\begin{zed}
+  PPHASE ::= pidle | pput
+\end{zed}
+
+\begin{schema}{WriterReg}
+  hasInbox : \power CONN \\
+  inboxGen : CONN \fun GEN \\
+  putPhase : PPHASE \\
+  putFor : \power CONN \\
+  capturedGen : CONN \fun GEN \\
+  genMismatch : FSTATE
+\where
+  \# putFor \leq 1
+\end{schema}
+
+\begin{schema}{Init}
+  WriterReg'
+\where
+  hasInbox' = \emptyset \\
+  inboxGen' = (\lambda c : CONN @ gen0) \\
+  putPhase' = pidle \\
+  putFor' = \emptyset \\
+  capturedGen' = (\lambda c : CONN @ gen0) \\
+  genMismatch' = fclear
+\end{schema}
+
+\begin{schema}{Arm}
+  \Delta WriterReg \\
+  c? : CONN
+\where
+  putPhase' = putPhase \\
+  putFor' = putFor \\
+  capturedGen' = capturedGen \\
+  genMismatch' = genMismatch \\
+  c? \notin hasInbox \implies
+    (hasInbox' = hasInbox \cup \{ c? \} \land
+     (\exists g : GEN | g \neq inboxGen(c?) @
+       inboxGen' = inboxGen \oplus \{ c? \mapsto g \})) \\
+  c? \in hasInbox \implies
+    (hasInbox' = hasInbox \land inboxGen' = inboxGen)
+\end{schema}
+
+\begin{schema}{Depart}
+  \Delta WriterReg \\
+  c? : CONN
+\where
+  c? \in hasInbox \\
+  hasInbox' = hasInbox \setminus \{ c? \} \\
+  inboxGen' = inboxGen \\
+  putPhase' = putPhase \\
+  putFor' = putFor \\
+  capturedGen' = capturedGen \\
+  genMismatch' = genMismatch
+\end{schema}
+
+% -- THE DEFECT: the writer's resolve and put split across a lock release --
+
+% WriterPutBegin models `inbox_for(connection_id)` running to completion
+% (creating the inbox if none exists, exactly as Arm does) and RELEASING
+% _inboxes_lock while the caller holds only a reference to whatever it
+% returned. The generation it resolved to is captured; the connection is
+% marked mid-put.
+\begin{schema}{WriterPutBegin}
+  \Delta WriterReg \\
+  c? : CONN
+\where
+  putPhase = pidle \\
+  c? \notin hasInbox \implies
+    (hasInbox' = hasInbox \cup \{ c? \} \land
+     (\exists g : GEN | g \neq inboxGen(c?) @
+       inboxGen' = inboxGen \oplus \{ c? \mapsto g \})) \\
+  c? \in hasInbox \implies
+    (hasInbox' = hasInbox \land inboxGen' = inboxGen) \\
+  capturedGen' = capturedGen \oplus \{ c? \mapsto inboxGen'(c?) \} \\
+  putPhase' = pput \\
+  putFor' = \{ c? \} \\
+  genMismatch' = genMismatch
+\end{schema}
+
+% WriterPutEnd commits the put UNCONDITIONALLY against whatever
+% capturedGen holds -- the bug. Only when the captured connection is
+% still present AND still at the same generation does the put land
+% correctly; otherwise genMismatch becomes fset, whether the target is
+% now absent (orphan loss) or present at a different, live generation
+% (cross-generation delivery).
+\begin{schema}{WriterPutEnd}
+  \Delta WriterReg
+\where
+  putPhase = pput \\
+  (putFor \subseteq
+     \{ c : CONN | c \in hasInbox \land capturedGen(c) = inboxGen(c) \}
+   \implies genMismatch' = genMismatch) \\
+  (\lnot (putFor \subseteq
+     \{ c : CONN | c \in hasInbox \land capturedGen(c) = inboxGen(c) \})
+   \implies genMismatch' = fset) \\
+  putPhase' = pidle \\
+  putFor' = \emptyset \\
+  hasInbox' = hasInbox \\
+  inboxGen' = inboxGen \\
+  capturedGen' = capturedGen
+\end{schema}
+
+\end{document}

@@ -1,11 +1,14 @@
 """CallbackMenu — the uniform ``Clients ▸ <client> ▸ <command>`` menu build.
 
-One ``Clients`` menu holds one submenu per identified live client that has
-callbacks, named by the roster, that client's commands as the leaves, and the
-Hub's own ``Details`` at the foot. The rule is the same for every kind of client
-and every count, and two clients are never merged. Unidentified clients and
-clients with no callbacks contribute nothing, and each leaf id round-trips a
-click to whoever owns it — the client, or the Hub for ``Details``.
+One ``Clients`` menu holds one submenu per identified live client that earns a
+place, named by the roster, that client's commands as the leaves, and the Hub's
+own ``Details`` at the foot. The rule is the same for every kind of client and
+every count, and two clients are never merged. A client earns a submenu by
+registering a command, or by being the agent (an mcp-session) that drives the
+display — kept present with only its ``Details`` even before it registers
+anything (DES-098). Unidentified clients, and non-agent clients with no
+callbacks, contribute nothing; each leaf id round-trips a click to whoever owns
+it — the client, or the Hub for ``Details``.
 """
 
 from __future__ import annotations
@@ -376,20 +379,22 @@ class TestWhatContributesNothing:
 
         assert _menus(("bare", bare)) == []
 
-    def test_an_identified_client_with_no_callbacks_contributes_nothing(self) -> None:
-        session = _session("claude", "/w/lux")  # identified, registered no command
+    def test_a_non_agent_client_with_no_callbacks_contributes_nothing(self) -> None:
+        # A cli is not the display's agent, so with no command it earns no submenu.
+        session = _session("lux-cli", "/w/lux", kind="cli")
 
         assert _menus(("lux", session)) == []
 
-    def test_a_client_with_no_entry_is_still_named(self) -> None:
+    def test_a_non_agent_client_with_no_entry_is_still_named(self) -> None:
         """Naming is presence; membership is registration. They are not the same.
 
-        A client that holds no command has no submenu, but it is on the roster,
-        so the moment it registers one it appears under the name it already had.
+        A non-agent client that holds no command has no submenu, but it is on the
+        roster, so the moment it registers one it appears under the name it had.
         """
         roster = ClientRoster()
+        cli = _session("lux-cli", "/w/lux", kind="cli")
 
-        menus = _menus(("lux", _session("claude", "/w/lux")), roster=roster)
+        menus = _menus(("lux", cli), roster=roster)
 
         assert menus == []
         assert roster.held() == {ConnectionId("lux"): "lux"}
@@ -402,6 +407,42 @@ class TestWhatContributesNothing:
         _menus(("bare", bare), roster=roster)
 
         assert roster.held() == {}
+
+
+class TestTheAgentSession:
+    """The mcp-session that drives the display earns a place with only Details.
+
+    DES-098: the agent registers no menu callback of its own, yet the user must
+    be able to reach it — so it is grouped under Clients like any client, with a
+    connection-Details entry at minimum, even before it registers anything.
+    """
+
+    def test_an_identified_agent_with_no_callbacks_shows_only_details(self) -> None:
+        # A bare mcp-session, no command registered — the acting agent's shape.
+        menus = _menus(("mcp", _session("claude", "/w/lux")))
+
+        # It earns a submenu under Clients, named for its repo, showing just
+        # Details — one entry, no leading rule above nothing.
+        assert _labels_under(_clients_menu(menus)) == ["lux"]
+        (only,) = _submenu(menus, "lux").items  # exactly one entry, no separator
+        assert isinstance(only, MenuAction)
+        assert only.label == "Details"
+
+    def test_the_bare_agents_details_names_the_hub(self) -> None:
+        conn = ConnectionId("mcp")
+        menus = _menus(("mcp", _session("claude", "/w/lux")))
+
+        (details,) = _submenu(menus, "lux").items
+        assert isinstance(details, MenuAction)
+        invocation = CallbackInvocation.from_menu_id(details.id)
+        assert invocation.connection_id == conn
+        assert invocation.is_details
+
+    def test_an_unidentified_session_does_not_appear(self) -> None:
+        # No identity means no kind to earn presence on — nothing is shown.
+        bare = ClientSession(0.0).attached(_SilentLeg())
+
+        assert _menus(("bare", bare)) == []
 
 
 def _applet_identity(pid: int, program: str, *, repo: str = "/w/lux") -> ClientIdentity:
@@ -638,13 +679,12 @@ class TestTheReplica:
         assert isinstance(clients, list)
         assert [client["label"] for client in clients] == ["lux"]
 
-    def test_replica_is_empty_when_no_client_has_a_callback(self) -> None:
+    def test_replica_is_empty_when_only_a_non_agent_holds_no_callback(self) -> None:
         from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
         from punt_lux.domain.hub.hub_clients import HubClientRegistry
 
         registry = HubClientRegistry()
-        registry.record(
-            ConnectionId("lux"), ClientIdentity(kind="mcp-session", name="lux")
-        )
+        # A cli is not the agent, so with no callback it earns no submenu.
+        registry.record(ConnectionId("cli"), ClientIdentity(kind="cli", name="lux-cli"))
 
         assert CallbackMenuReplica(registry).callback_menu_wire() == []
