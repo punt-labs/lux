@@ -135,9 +135,15 @@ class SceneReplica:
         """The frame ``(hub, frame_id)`` addresses -- collision-safe."""
         return self._book.frame(frame_id, hub)
 
-    def owner_facts_for(self, frame_id: str) -> tuple[tuple[str, str], ...] | None:
-        """``frame_id``'s last-known owner facts, or ``None`` if untracked."""
-        return self._owner_facts.rows_for(frame_id)
+    def owner_facts_for(
+        self, frame_id: str, hub: HubId = _NO_HUB
+    ) -> tuple[tuple[str, str], ...] | None:
+        """``(hub, frame_id)``'s last-known owner facts, or ``None`` if untracked.
+
+        Hub-scoped like :meth:`frame`: two Hubs minting the identical frame id
+        never share one entry.
+        """
+        return self._owner_facts.rows_for(HubScopedKey(hub, frame_id))
 
     def handle_framed_scene(
         self, msg: SceneMessage, owner_fd: int, hub: HubId = _NO_HUB
@@ -148,7 +154,9 @@ class SceneReplica:
             self._remove_emptied_scene(key)
             return
         frame = self._book.ensure(msg, owner_fd, hub)
-        self._owner_facts.adopt(frame.frame_id, msg.frame_owner_facts)
+        self._owner_facts.adopt(
+            HubScopedKey(frame.hub, frame.frame_id), msg.frame_owner_facts
+        )
         self._vacate_other_frame(frame, key)
         is_new = msg.id not in frame.scenes
         old_scene = frame.scenes.get(msg.id)
@@ -213,7 +221,7 @@ class SceneReplica:
         frame = self._book.pop_frame(frame_id, hub)
         if frame is None:
             return []
-        self._owner_facts.prune(frame_id)
+        self._owner_facts.prune(HubScopedKey(frame.hub, frame_id))
         removed_ids = self._stale.of_frame(frame)
         for scene_id in frame.scene_order:
             self._widget_state.discard(HubScopedKey(frame.hub, scene_id))
@@ -224,6 +232,7 @@ class SceneReplica:
         """Remove all scenes, frames, and associated state."""
         self._book.clear()
         self._widget_state.clear()
+        self._owner_facts.clear()
 
     def dispose_all_frames(self) -> None:
         """Throw out every frame by its own Hub, notifying stale ids per frame."""

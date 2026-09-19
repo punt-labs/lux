@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import logging
 import pickle
 from typing import Any
 
@@ -526,6 +527,26 @@ class TestSerialization:
             }
         )
         assert restored.frame_owner_facts is None
+
+    @pytest.mark.parametrize("bad_rows", [[["only-one"]], [42]])
+    def test_scene_decode_logs_a_malformed_owner_facts_entry(
+        self, caplog: pytest.LogCaptureFixture, bad_rows: list[object]
+    ) -> None:
+        # A well-typed list the Hub's own serializer produced, but with an
+        # entry decode can't parse, signals a real protocol skew -- unlike a
+        # legitimately absent field, it must not be dropped invisibly.
+        with caplog.at_level(logging.WARNING):
+            restored = SceneMessage.from_dict(
+                {
+                    "id": "s1",
+                    "frame_id": "s1",
+                    "elements": [],
+                    "frame_owner_facts": bad_rows,
+                }
+            )
+        assert restored.frame_owner_facts is None
+        assert any("frame_owner_facts" in record.message for record in caplog.records)
+        assert all(record.levelno == logging.WARNING for record in caplog.records)
 
     def test_scene_decode_rejects_an_out_of_set_layout(self):
         # The layout field is a Literal; decode must reject an out-of-set value

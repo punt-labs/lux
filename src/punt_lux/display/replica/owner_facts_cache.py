@@ -2,13 +2,16 @@
 of its owner's facts, and the keyed store that holds one per live frame.
 
 The two classes are close collaborators, not an unrelated pair (PY-OO-2): the
-store is a dict of frame_id -> cache, and its only job is picking the right
-cache and pruning it when the frame it belongs to is gone.
+store is a dict of ``HubScopedKey`` -> cache, and its only job is picking the
+right cache and pruning it when the frame it belongs to is gone.
 """
 
 from __future__ import annotations
 
-from typing import Self, final
+from typing import TYPE_CHECKING, Self, final
+
+if TYPE_CHECKING:
+    from punt_lux.domain.identity import HubScopedKey
 
 
 @final
@@ -42,36 +45,46 @@ class OwnerFactsCache:
 
 @final
 class OwnerFactsStore:
-    """One :class:`OwnerFactsCache` per live frame, keyed by frame id.
+    """One :class:`OwnerFactsCache` per live frame, keyed by ``HubScopedKey``.
 
     Deliberately not a field on ``Frame`` (DES-c7xi round 2): the snapshot is
     Display-local bookkeeping the popup reads by id, not an aggregate-root
     concern -- keeping it here, in its own single-responsibility class, is
-    what keeps ``Frame``'s cohesion from absorbing an unrelated field. An
-    entry outlives nothing on its own; :meth:`prune` must be called when the
-    frame it belongs to is disposed, or it leaks for the life of the process.
+    what keeps ``Frame``'s cohesion from absorbing an unrelated field.
+
+    Keyed by ``HubScopedKey`` -- a bare frame id, not the ``(hub, frame_id)``
+    pair -- would collide when two Hubs mint the identical frame id (e.g. both
+    naming a frame "main"), exactly the collision ``FrameBook``/
+    ``HubScopedStore`` already guard against for the frame itself. An entry
+    outlives nothing on its own; :meth:`prune` must be called when the frame
+    it belongs to is disposed, or it leaks for the life of the process --
+    and only that Hub's entry, never a same-named sibling's.
     """
 
-    _by_frame: dict[str, OwnerFactsCache]
-    __slots__ = ("_by_frame",)
+    _by_key: dict[HubScopedKey, OwnerFactsCache]
+    __slots__ = ("_by_key",)
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
-        self._by_frame = {}
+        self._by_key = {}
         return self
 
     def adopt(
-        self, frame_id: str, incoming: tuple[tuple[str, str], ...] | None
+        self, key: HubScopedKey, incoming: tuple[tuple[str, str], ...] | None
     ) -> None:
-        """Adopt a push's owner facts for ``frame_id``, honoring the guarantee."""
-        cache = self._by_frame.setdefault(frame_id, OwnerFactsCache())
+        """Adopt a push's owner facts for ``key``, honoring the guarantee."""
+        cache = self._by_key.setdefault(key, OwnerFactsCache())
         cache.update(incoming)
 
-    def rows_for(self, frame_id: str) -> tuple[tuple[str, str], ...] | None:
-        """Return ``frame_id``'s cached snapshot, or ``None`` if untracked."""
-        cache = self._by_frame.get(frame_id)
+    def rows_for(self, key: HubScopedKey) -> tuple[tuple[str, str], ...] | None:
+        """Return ``key``'s cached snapshot, or ``None`` if untracked."""
+        cache = self._by_key.get(key)
         return cache.rows if cache is not None else None
 
-    def prune(self, frame_id: str) -> None:
-        """Drop ``frame_id``'s entry. A no-op if it holds none."""
-        self._by_frame.pop(frame_id, None)
+    def prune(self, key: HubScopedKey) -> None:
+        """Drop ``key``'s entry. A no-op if it holds none."""
+        self._by_key.pop(key, None)
+
+    def clear(self) -> None:
+        """Drop every entry -- the owner-facts half of a Clear All."""
+        self._by_key.clear()

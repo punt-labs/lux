@@ -15,6 +15,10 @@ menu model — its rows are a plain snapshot the Hub already formatted
 render-loop-cheap: no live read, no per-frame lookup, just the last cached
 snapshot for whichever frame is currently open.
 
+Both classes address a frame by ``(hub, frame_id)``, never a bare id: two
+Hubs can mint the identical frame id, and ``FrameBook``/``HubScopedStore``
+already resolve every other frame lookup that way (DES-c7xi round 3).
+
 ``imgui`` is typed ``Any``: imgui_bundle ships no type stubs.
 """
 
@@ -22,12 +26,20 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Self, final
 
+from imgui_bundle import ImVec2
+
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable
 
     from punt_lux.display.replica.frame import Frame
+    from punt_lux.domain.identity import HubId
 
 __all__ = ["FrameInfoButton", "FrameInfoPopup"]
+
+# What the popup shows when the Hub has no facts for the frame's owner yet --
+# untracked or the owning connection has already departed. Distinguished from
+# a resolved-but-genuinely-empty result so a click is never a silent no-op.
+_UNKNOWN_OWNER_ROWS: tuple[tuple[str, str], ...] = (("Owner", "unknown"),)
 
 
 @final
@@ -38,23 +50,26 @@ class FrameInfoPopup:
     was open, rather than stacking a second window.
     """
 
-    _get_frames: Callable[[], Mapping[str, Frame]]
+    _frame_for: Callable[[str, HubId], Frame | None]
     _open_frame_id: str | None
+    _open_hub: HubId | None
     _rows: tuple[tuple[str, str], ...]
     _spawn_pos: tuple[float, float]
     _placed: bool
     __slots__ = (
-        "_get_frames",
+        "_frame_for",
         "_open_frame_id",
+        "_open_hub",
         "_placed",
         "_rows",
         "_spawn_pos",
     )
 
-    def __new__(cls, get_frames: Callable[[], Mapping[str, Frame]]) -> Self:
+    def __new__(cls, frame_for: Callable[[str, HubId], Frame | None]) -> Self:
         self = super().__new__(cls)
-        self._get_frames = get_frames
+        self._frame_for = frame_for
         self._open_frame_id = None
+        self._open_hub = None
         self._rows = ()
         self._spawn_pos = (0.0, 0.0)
         self._placed = True
@@ -65,14 +80,27 @@ class FrameInfoPopup:
         """Return whether the popup is currently showing."""
         return self._open_frame_id is not None
 
+    @property
+    def spawn_pos(self) -> tuple[float, float]:
+        """The anchor the popup will place itself at on its next render."""
+        return self._spawn_pos
+
+    @property
+    def rows(self) -> tuple[tuple[str, str], ...]:
+        """The label/value rows the popup will render."""
+        return self._rows
+
     def open_for(
         self,
         frame_id: str,
+        hub: HubId,
         rows: tuple[tuple[str, str], ...],
         anchor: tuple[float, float],
     ) -> None:
-        """Open (or replace) the popup for ``frame_id``, anchored at ``anchor``."""
+        """Open (or replace) the popup for ``(hub, frame_id)``, anchored at
+        ``anchor``."""
         self._open_frame_id = frame_id
+        self._open_hub = hub
         self._rows = rows
         self._spawn_pos = anchor
         self._placed = False
@@ -80,6 +108,7 @@ class FrameInfoPopup:
     def close(self) -> None:
         """Close the popup, if open. A no-op otherwise."""
         self._open_frame_id = None
+        self._open_hub = None
 
     def check_background_click(self, imgui: Any) -> None:
         """Dismiss the popup on a left click that lands on the workspace background.
@@ -101,9 +130,9 @@ class FrameInfoPopup:
 
     def render(self, imgui: Any) -> None:
         """Render the popup while open; auto-closes if its frame is gone."""
-        if self._open_frame_id is None:
+        if self._open_frame_id is None or self._open_hub is None:
             return
-        if self._open_frame_id not in self._get_frames():
+        if self._frame_for(self._open_frame_id, self._open_hub) is None:
             self.close()
             return
         self._place(imgui)
@@ -154,9 +183,18 @@ class FrameInfoButton:
     Clicking it opens the :class:`FrameInfoPopup` it was built to drive,
     anchored at the glyph, showing the frame's owning-connection facts the
     Hub attached to its last push. Facts are read from ``facts_for`` by
-    frame id, not from the frame itself -- the snapshot lives in the
-    :class:`~punt_lux.display.replica.owner_facts_cache.OwnerFactsStore`
+    ``(hub, frame_id)``, not from the frame itself -- the snapshot lives in
+    the :class:`~punt_lux.display.replica.owner_facts_cache.OwnerFactsStore`
     ``SceneReplica`` owns, not on the ``Frame`` aggregate root.
+
+    Painted on the foreground draw list rather than as a normal ImGui item:
+    a title bar sits outside the window's content-area clip rect, so an item
+    placed there (``small_button`` included) is silently culled by ImGui's
+    own visibility check before it ever draws -- no error, just nothing on
+    screen and no click ever reaches it. The foreground draw list has no
+    such clip rect (mirrors ``DockPill``'s identical rationale), so this
+    paints the glyph by hand and hit-tests the raw mouse position instead of
+    relying on an ImGui item to claim the click.
     """
 
     # ASCII "i" -- the primary font and its merged fallback do not cover
@@ -165,13 +203,13 @@ class FrameInfoButton:
     _GAP = 4.0
 
     _popup: FrameInfoPopup
-    _facts_for: Callable[[str], tuple[tuple[str, str], ...] | None]
+    _facts_for: Callable[[str, HubId], tuple[tuple[str, str], ...] | None]
     __slots__ = ("_facts_for", "_popup")
 
     def __new__(
         cls,
         popup: FrameInfoPopup,
-        facts_for: Callable[[str], tuple[tuple[str, str], ...] | None],
+        facts_for: Callable[[str, HubId], tuple[tuple[str, str], ...] | None],
     ) -> Self:
         self = super().__new__(cls)
         self._popup = popup
@@ -181,10 +219,38 @@ class FrameInfoButton:
     def render(self, frame: Frame, imgui: Any) -> None:
         """Draw the glyph for ``frame``; a click opens its info popup."""
         pos = imgui.get_window_pos()
+        size = imgui.get_window_size()
         button_size = imgui.get_frame_height()
-        x = pos.x + imgui.get_window_size().x - 2 * button_size - self._GAP
-        imgui.set_cursor_screen_pos((x, pos.y))
-        if imgui.small_button(f"{self._LABEL}##frame_info_{frame.frame_id}"):
-            anchor = imgui.get_item_rect_min()
-            rows = self._facts_for(frame.frame_id) or ()
-            self._popup.open_for(frame.frame_id, rows, (anchor.x, anchor.y))
+        low = ImVec2(pos.x + size.x - 2 * button_size - self._GAP, pos.y)
+        high = ImVec2(low.x + button_size, low.y + button_size)
+        hovered = self._hovered(imgui, low, high)
+        self._paint(imgui, low, high, hovered=hovered)
+        if hovered and imgui.is_mouse_clicked(imgui.MouseButton_.left):
+            resolved = self._facts_for(frame.frame_id, frame.hub)
+            rows = resolved if resolved is not None else _UNKNOWN_OWNER_ROWS
+            self._popup.open_for(frame.frame_id, frame.hub, rows, (low.x, low.y))
+
+    @staticmethod
+    def _hovered(imgui: Any, low: ImVec2, high: ImVec2) -> bool:
+        """Whether the mouse sits inside the glyph's rect -- a raw geometry
+        check, since the glyph is not a real ImGui item for ImGui to hover."""
+        mouse = imgui.get_mouse_pos()
+        return bool(low.x <= mouse.x <= high.x and low.y <= mouse.y <= high.y)
+
+    def _paint(self, imgui: Any, low: ImVec2, high: ImVec2, *, hovered: bool) -> None:
+        """Fill the glyph's rect and center its label, in theme colours."""
+        draw = imgui.get_foreground_draw_list()
+        style = imgui.get_style()
+        fill = imgui.Col_.button_hovered if hovered else imgui.Col_.button
+        rounding = (high.x - low.x) * 0.5
+        draw.add_rect_filled(
+            low, high, imgui.get_color_u32(style.color_(fill)), rounding
+        )
+        text_size = imgui.calc_text_size(self._LABEL)
+        text_pos = ImVec2(
+            low.x + (high.x - low.x - text_size.x) * 0.5,
+            low.y + (high.y - low.y - text_size.y) * 0.5,
+        )
+        draw.add_text(
+            text_pos, imgui.get_color_u32(style.color_(imgui.Col_.text)), self._LABEL
+        )

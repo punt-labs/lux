@@ -1,9 +1,13 @@
 """The title-bar info button: drawn on an expanded frame only, opens the popup.
 
+Painted on the foreground draw list and hit-tested by raw mouse position --
+a title bar sits outside a window's content-area clip rect, so a normal
+ImGui item there (``small_button`` included) is silently culled before it
+ever draws or can be clicked. Mirrors ``test_dock_bar.py``'s fake for the
+identical reason (``DockPill``'s draw-list-plus-manual-hit-test pattern).
+
 Extends the ``_render_single_frame`` fixture from
-``tests/test_frame_geometry_timing.py`` with the button-facing ImGui surface
-(``small_button``, ``get_window_pos``/``get_window_size``/``get_frame_height``,
-``set_cursor_screen_pos``, ``get_item_rect_min``).
+``tests/test_frame_geometry_timing.py``.
 """
 
 from __future__ import annotations
@@ -23,6 +27,13 @@ if TYPE_CHECKING:
 
 _DEFAULT_SIZE = (800.0, 600.0)
 _PLACEMENT = FramePlacement(fitting=False, tile_layout={}, default_size=_DEFAULT_SIZE)
+
+# Matches _render_single_frame's window geometry below: pos (100, 100),
+# size (400, 300), a 20-tall title bar, and FrameInfoButton's own 4.0 gap
+# from the native close x -- the button's rect is [(456, 100), (476, 120)].
+_ON_BUTTON = (460.0, 105.0)
+_OFF_BUTTON = (0.0, 0.0)
+_EXPECTED_ANCHOR = (456.0, 100.0)
 
 
 def _make_server() -> RenderLoop:
@@ -45,9 +56,10 @@ def _adopt_owner_facts(
 ) -> None:
     """Seed the server's owner-facts store for frame ``f1`` via the real push path.
 
-    The store lives on ``SceneReplica``, keyed by frame id -- not on ``Frame``
-    -- so a test that wants the button to find rows pushes a scene naming
-    ``f1`` with ``frame_owner_facts``, exactly as a real Hub replication would.
+    The store lives on ``SceneReplica``, keyed by ``(hub, frame_id)`` -- not
+    on ``Frame`` -- so a test that wants the button to find rows pushes a
+    scene naming ``f1`` with ``frame_owner_facts``, exactly as a real Hub
+    replication would.
     """
     server._scenes.handle_framed_scene(
         SceneMessage(
@@ -68,34 +80,68 @@ class _Vec2:
         self.y = y
 
 
+class _DrawList:
+    """Record what was painted, so a test can assert the geometry."""
+
+    rects: list[tuple[float, float, float, float]]
+    texts: list[tuple[float, float, str]]
+    __slots__ = ("rects", "texts")
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self.rects = []
+        self.texts = []
+        return self
+
+    def add_rect_filled(
+        self, p_min: _Vec2, p_max: _Vec2, _col: int, _rounding: float = 0.0
+    ) -> None:
+        self.rects.append((p_min.x, p_min.y, p_max.x, p_max.y))
+
+    def add_text(self, pos: _Vec2, _col: int, text: str) -> None:
+        self.texts.append((pos.x, pos.y, text))
+
+
+class _Colors:
+    button = "button"
+    button_hovered = "button_hovered"
+    text = "text"
+
+
+class _Buttons:
+    left = "left"
+
+
+class _Style:
+    @staticmethod
+    def color_(name: str) -> str:
+        return name
+
+
 class _FakeImgui:
     """A minimal ImGui stand-in scripting ``begin`` plus the button surface."""
-
-    _expanded: bool
-    _clicked: bool
-    _cursor_positions: list[object]
-    _button_labels: list[str]
-    _item_rect_min: _Vec2
-    __slots__ = (
-        "_button_labels",
-        "_clicked",
-        "_cursor_positions",
-        "_expanded",
-        "_item_rect_min",
-    )
 
     Cond_ = SimpleNamespace(
         always=SimpleNamespace(value=0), first_use_ever=SimpleNamespace(value=0)
     )
     HoveredFlags_ = SimpleNamespace(root_and_child_windows=SimpleNamespace(value=0))
+    Col_ = _Colors
+    MouseButton_ = _Buttons
 
-    def __new__(cls, *, expanded: bool, clicked: bool) -> Self:
+    _expanded: bool
+    _clicked: bool
+    _mouse: _Vec2
+    draw: _DrawList
+    __slots__ = ("_clicked", "_expanded", "_mouse", "draw")
+
+    def __new__(
+        cls, *, expanded: bool, clicked: bool, mouse: tuple[float, float] = _OFF_BUTTON
+    ) -> Self:
         self = super().__new__(cls)
         self._expanded = expanded
         self._clicked = clicked
-        self._cursor_positions = []
-        self._button_labels = []
-        self._item_rect_min = _Vec2(370.0, 100.0)
+        self._mouse = _Vec2(*mouse)
+        self.draw = _DrawList()
         return self
 
     def set_next_window_pos(self, _pos: object, _cond: int) -> None: ...
@@ -124,15 +170,23 @@ class _FakeImgui:
     def get_frame_height(self) -> float:
         return 20.0
 
-    def set_cursor_screen_pos(self, pos: object) -> None:
-        self._cursor_positions.append(pos)
+    def get_foreground_draw_list(self) -> _DrawList:
+        return self.draw
 
-    def small_button(self, label: str) -> bool:
-        self._button_labels.append(label)
+    def get_style(self) -> type[_Style]:
+        return _Style
+
+    def get_color_u32(self, name: str) -> int:
+        return hash(name)
+
+    def calc_text_size(self, text: str) -> _Vec2:
+        return _Vec2(len(text) * 7.0, 13.0)
+
+    def get_mouse_pos(self) -> _Vec2:
+        return self._mouse
+
+    def is_mouse_clicked(self, _button: str) -> bool:
         return self._clicked
-
-    def get_item_rect_min(self) -> _Vec2:
-        return self._item_rect_min
 
 
 def _record_frame_no_op(_self: object, _frame_id: str) -> None:
@@ -158,7 +212,8 @@ def test_the_button_is_drawn_on_an_expanded_frame(
 
     server._render_single_frame(_frame(), fake, _PLACEMENT)
 
-    assert fake._button_labels  # a button was drawn
+    assert fake.draw.rects  # the glyph's background was painted
+    assert fake.draw.texts  # and its label
 
 
 def test_the_button_is_not_drawn_on_a_collapsed_frame(
@@ -170,7 +225,8 @@ def test_the_button_is_not_drawn_on_a_collapsed_frame(
 
     server._render_single_frame(_frame(), fake, _PLACEMENT)
 
-    assert not fake._button_labels  # collapsed -- no contents, no button
+    assert not fake.draw.rects  # collapsed -- no contents, no button
+    assert not fake.draw.texts
 
 
 def test_clicking_the_button_opens_the_popup_at_the_anchor(
@@ -180,20 +236,51 @@ def test_clicking_the_button_opens_the_popup_at_the_anchor(
     server = _make_server()
     rows = (("Client", "lux"),)
     _adopt_owner_facts(server, rows)
-    fake = _FakeImgui(expanded=True, clicked=True)
+    fake = _FakeImgui(expanded=True, clicked=True, mouse=_ON_BUTTON)
 
     server._render_single_frame(_frame(), fake, _PLACEMENT)
 
     assert server._frame_info_popup.is_open
+    assert server._frame_info_popup.spawn_pos == _EXPECTED_ANCHOR
 
 
-def test_a_frame_with_no_owner_facts_still_opens_an_empty_popup(
+def test_a_click_off_the_button_does_not_open_the_popup(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _no_op_geometry(monkeypatch)
     server = _make_server()
-    fake = _FakeImgui(expanded=True, clicked=True)
+    fake = _FakeImgui(expanded=True, clicked=True, mouse=_OFF_BUTTON)
+
+    server._render_single_frame(_frame(), fake, _PLACEMENT)
+
+    assert not server._frame_info_popup.is_open
+
+
+def test_a_frame_with_no_owner_facts_still_opens_an_explanatory_popup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An untracked/unresolved owner is never a silent no-op: the popup opens
+    with an explicit row rather than staying blank."""
+    _no_op_geometry(monkeypatch)
+    server = _make_server()
+    fake = _FakeImgui(expanded=True, clicked=True, mouse=_ON_BUTTON)
 
     server._render_single_frame(_frame(), fake, _PLACEMENT)
 
     assert server._frame_info_popup.is_open
+    assert server._frame_info_popup.rows == (("Owner", "unknown"),)
+
+
+def test_a_resolved_but_empty_result_is_not_treated_as_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A genuinely resolved, empty row set is distinct from an untracked owner --
+    only ``None`` (never adopted) gets the explanatory row."""
+    _no_op_geometry(monkeypatch)
+    server = _make_server()
+    _adopt_owner_facts(server, ())
+    fake = _FakeImgui(expanded=True, clicked=True, mouse=_ON_BUTTON)
+
+    server._render_single_frame(_frame(), fake, _PLACEMENT)
+
+    assert server._frame_info_popup.rows == ()

@@ -810,6 +810,28 @@ class TestClearAll:
         assert len(mgr.scene_to_owner) == 0
         assert mgr.widget_state_count == 0
 
+    def test_owner_facts_are_cleared_too(self) -> None:
+        """Its own contract says "and associated state" -- owner facts included.
+
+        Without this, a frame id reused after Clear All inherits the pre-clear
+        snapshot: the departure guarantee (never blank on a None push) then
+        resurfaces stale facts as if they were current.
+        """
+        mgr, _ = _make_manager()
+        rows = (("Client", "lux"), ("Kind", "agent"))
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s1", frame_id="f0", frame_owner_facts=rows),
+            owner_fd=10,
+        )
+
+        mgr.clear_all()
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s1", frame_id="f0", frame_owner_facts=None),
+            owner_fd=10,
+        )
+
+        assert mgr.owner_facts_for("f0") is None
+
     def test_clear_all_idempotent(self) -> None:
         """Calling clear_all on empty state does not fail."""
         mgr, _ = _make_manager()
@@ -1355,3 +1377,46 @@ class TestOwnerFactsAdoption:
         mgr.handle_framed_scene(_make_scene(frame_owner_facts=None), owner_fd=10)
 
         assert mgr.owner_facts_for("s1") is None
+
+
+class TestOwnerFactsHubScoping:
+    """Two Hubs minting the identical frame id must never share one entry
+    (frame_book.py already keys frames by ``HubScopedKey`` for exactly this
+    collision; the owner-facts store must too, DES-c7xi round 3)."""
+
+    _ROWS_A = (("Client", "lux"), ("Kind", "agent"))
+    _ROWS_B = (("Client", "quarry"), ("Kind", "cli"))
+
+    def test_two_hubs_naming_the_same_frame_id_each_show_their_own_facts(self) -> None:
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s1", frame_id="main", frame_owner_facts=self._ROWS_A),
+            owner_fd=10,
+            hub=_HUB_A,
+        )
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s2", frame_id="main", frame_owner_facts=self._ROWS_B),
+            owner_fd=11,
+            hub=_HUB_B,
+        )
+
+        assert mgr.owner_facts_for("main", _HUB_A) == self._ROWS_A
+        assert mgr.owner_facts_for("main", _HUB_B) == self._ROWS_B
+
+    def test_disposing_one_hubs_frame_does_not_wipe_the_others(self) -> None:
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s1", frame_id="main", frame_owner_facts=self._ROWS_A),
+            owner_fd=10,
+            hub=_HUB_A,
+        )
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s2", frame_id="main", frame_owner_facts=self._ROWS_B),
+            owner_fd=11,
+            hub=_HUB_B,
+        )
+
+        mgr.dispose_frame("main", _HUB_A)
+
+        assert mgr.owner_facts_for("main", _HUB_A) is None
+        assert mgr.owner_facts_for("main", _HUB_B) == self._ROWS_B

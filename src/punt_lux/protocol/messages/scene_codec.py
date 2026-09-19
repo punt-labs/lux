@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from punt_lux.protocol.elements import _strip_none
@@ -13,6 +14,8 @@ if TYPE_CHECKING:
     from punt_lux.protocol.messages.scene import SceneMessage
 
 __all__ = ["SceneCodec"]
+
+logger = logging.getLogger(__name__)
 
 _ELEMENTS = PickledElementCodec()
 
@@ -100,8 +103,13 @@ class SceneCodec:
     def _parse_owner_facts(raw: object) -> tuple[tuple[str, str], ...] | None:
         """Return the owning connection's rows, or ``None`` on absence/malformed.
 
-        Malformed degrades the same way a missing field does — absent already
-        means "no change", so a wire value that fails to parse is no worse.
+        Malformed degrades to ``None`` the same way a missing field does --
+        absent already means "no change" on the display side (the departure
+        guarantee keeps whatever was cached), so the decoded *value* is no
+        worse. But a malformed *non-None list* is not a legitimate absence:
+        the Hub's own serializer produced the list, so an entry it can't parse
+        signals a real Hub/display protocol skew and is logged rather than
+        dropped invisibly.
         """
         if not isinstance(raw, list):
             return None
@@ -109,4 +117,5 @@ class SceneCodec:
         try:
             return tuple((str(pair[0]), str(pair[1])) for pair in pairs)
         except (TypeError, ValueError, IndexError):
+            logger.warning("frame_owner_facts contained a malformed entry: %r", pairs)
             return None

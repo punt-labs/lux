@@ -168,7 +168,7 @@ class RenderLoop:
                 chrome=WindowChrome(),
             ),
         )
-        self._frame_info_popup = FrameInfoPopup(get_frames=lambda: self._scenes.frames)
+        self._frame_info_popup = FrameInfoPopup(frame_for=self._scenes.frame)
         self._frame_info_button = FrameInfoButton(
             self._frame_info_popup, self._scenes.owner_facts_for
         )

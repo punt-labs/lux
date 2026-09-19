@@ -12,11 +12,13 @@ from typing import cast
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.lease_term import LeaseTerms
 from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.domain.update import AddElement
 from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.frame_owner_facts import FrameOwnerFacts
 from punt_lux.operations.queries import QueryOperations
+from punt_lux.protocol.compositions.client_details import ClientDetails
 from punt_lux.protocol.elements.text import TextElement
 
 
@@ -72,25 +74,26 @@ class TestASceneWithALiveOwner:
         assert fields["Connection"] == "c1"
 
     def test_field_order_matches_client_details_rows(self) -> None:
+        # Proves the shared-source reuse the module docstring claims: the
+        # labels come from a live ClientDetails.rows() call, not a parallel
+        # hardcoded snapshot that could silently drift from the real order.
         store, hub = HubDisplay(), Hub()
         scene_id = _identified_scene(store, "c1")
         reader = _reader(store, hub)
 
         rows = reader.facts_for(scene_id)
 
+        canonical = ClientDetails(
+            label="lux",
+            connection_id="c1",
+            kind="cli",
+            name="lux",
+            connected_seconds=0.0,
+            lease=LeaseTerms.of(float("inf")),
+        ).rows()
+
         assert rows is not None
-        assert [label for label, _ in rows] == [
-            "Client",
-            "Kind",
-            "Declared name",
-            "Repository",
-            "Agent",
-            "Connection",
-            "Connected",
-            "Lease",
-            "Topics",
-            "Scenes",
-        ]
+        assert [label for label, _ in rows] == [label for label, _ in canonical]
 
     def test_uses_the_senior_first_appearance_owner(self) -> None:
         # Two connections both install roots in one scene (AddElement, not
