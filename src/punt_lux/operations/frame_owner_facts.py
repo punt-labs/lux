@@ -15,11 +15,14 @@ from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.named_sessions import NamedSession
 from punt_lux.operations.client_identity_facts import ClientIdentityFacts
+from punt_lux.operations.client_listing import ClientListing
+from punt_lux.operations.queries import QueryOperations
 
 if TYPE_CHECKING:
+    from punt_lux.domain.hub.hub import Hub
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.ids import ConnectionId, SceneId
-    from punt_lux.operations.queries import QueryOperations
+    from punt_lux.operations.ports import HubPorts
 
 __all__ = ["FrameOwnerFacts"]
 
@@ -41,6 +44,18 @@ class FrameOwnerFacts:
         self._display = display
         self._queries = queries
         return self
+
+    @classmethod
+    def for_store(cls, display: HubDisplay, *, hub: Hub, ports: HubPorts) -> Self:
+        """Wire the reader from the collaborators the facade is wired from.
+
+        Mirrors :meth:`ClientDetailsPort.for_store` — the composition root hands
+        over the same primitives (the store, the Hub, the port bundle) and this
+        builds its own ``ClientListing``/``QueryOperations``, so a composition
+        root doesn't need those two imports just to bind this one reader.
+        """
+        clients = ClientListing(display, hub, ports.inbox_depth)
+        return cls(display, QueryOperations(display, ports.display_port, clients))
 
     def facts_for(self, scene_id: SceneId) -> tuple[tuple[str, str], ...] | None:
         """Return the senior owner's rows, or ``None`` if unowned or departed.

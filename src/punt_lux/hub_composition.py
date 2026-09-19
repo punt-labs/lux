@@ -26,10 +26,8 @@ from punt_lux.domain.hub.replicator_instance import (
 )
 from punt_lux.operations import HubPorts, Operations
 from punt_lux.operations.client_details_port import ClientDetailsPort
-from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.display_connection import HubDisplayConnection
 from punt_lux.operations.frame_owner_facts import FrameOwnerFacts
-from punt_lux.operations.queries import QueryOperations
 from punt_lux.paths import DisplayPaths
 
 if TYPE_CHECKING:
@@ -67,9 +65,9 @@ class HubComposition:
         wires the real reader once operations are composed. Idempotent, so
         either composition root -- MCP or REST -- may run it; last wins.
         """
-        clients = ClientListing(hub_display, hub, ports.inbox_depth)
-        queries = QueryOperations(hub_display, ports.display_port, clients)
-        hub_frame_owner_facts.bind(FrameOwnerFacts(hub_display, queries))
+        hub_frame_owner_facts.bind(
+            FrameOwnerFacts.for_store(hub_display, hub=hub, ports=ports)
+        )
 
     @classmethod
     def bind_client_details(cls) -> None:

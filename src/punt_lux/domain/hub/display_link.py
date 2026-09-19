@@ -376,20 +376,24 @@ class DisplayLink:
         frame_flags: dict[str, bool] | None = None,
         frame_layout: Literal["tab", "stack"] | None = None,
     ) -> AckMessage | None:
-        """Send a scene and wait for acknowledgement, delegating the build to
-        :meth:`show_async`. Returns the :class:`AckMessage` or ``None`` on timeout.
+        """Send a scene to the display and wait for acknowledgement.
+
+        Every scene is framed: an omitted *frame_id* self-frames by *scene_id* (as
+        the Hub does), so a bare ``show`` still lands in a named frame. Returns the
+        :class:`AckMessage` or ``None`` on timeout.
         """
-        self.show_async(
-            scene_id,
-            elements,
+        msg = SceneMessage(
+            id=scene_id,
+            elements=elements,
             title=title,
             layout=layout,
-            frame_id=frame_id,
+            frame_id=frame_id if frame_id is not None else scene_id,
             frame_title=frame_title,
             frame_size=frame_size,
             frame_flags=frame_flags,
             frame_layout=frame_layout,
         )
+        self._send(self._require_connected(), msg)
         return self._recv_ack()
 
     def show_async(
