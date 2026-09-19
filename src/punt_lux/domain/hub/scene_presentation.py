@@ -52,6 +52,7 @@ class ScenePusher(Protocol):
         frame_size: tuple[int, int] | None = ...,
         frame_flags: dict[str, bool] | None = ...,
         frame_layout: Literal["tab", "stack"] | None = ...,
+        frame_owner_facts: tuple[tuple[str, str], ...] | None = ...,
     ) -> None:
         """Send a whole scene to the display without waiting for an ack."""
 
@@ -78,6 +79,11 @@ class ScenePresentation:
         pusher: ScenePusher,
         scene_id: SceneId,
         elements: Sequence[WireElement],
+        *,
+        # Resolved fresh at send time (like the menu bar), not part of "how
+        # a scene is shown" -- so it is a push-time parameter, never a field
+        # this frozen presentation carries or the registry persists.
+        frame_owner_facts: tuple[tuple[str, str], ...] | None = None,
     ) -> None:
         """Resend ``elements`` as the whole scene, with this presentation."""
         pusher.show_async(
@@ -92,6 +98,7 @@ class ScenePresentation:
                 dict(self.frame_flags) if self.frame_flags is not None else None
             ),
             frame_layout=self.frame_layout,
+            frame_owner_facts=frame_owner_facts,
         )
 
 

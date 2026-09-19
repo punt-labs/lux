@@ -480,6 +480,7 @@ class _SnapshotLabels:
         frame_size: tuple[int, int] | None = None,
         frame_flags: dict[str, bool] | None = None,
         frame_layout: Literal["tab", "stack"] | None = None,
+        frame_owner_facts: tuple[tuple[str, str], ...] | None = None,
     ) -> None:
         """Keep the pushed roots' labels — the ``ScenePusher`` side of a resend."""
         del scene_id, title, layout, frame_id, frame_title
