@@ -24,7 +24,6 @@ def _scene(
     frame_title: str | None = None,
     frame_flags: dict[str, bool] | None = None,
     frame_layout: str | None = None,
-    frame_owner_facts: tuple[tuple[str, str], ...] | None = None,
 ) -> SceneMessage:
     return SceneMessage(
         id=scene_id,
@@ -33,7 +32,6 @@ def _scene(
         frame_title=frame_title,
         frame_flags=frame_flags,
         frame_layout=frame_layout,  # type: ignore[arg-type]
-        frame_owner_facts=frame_owner_facts,
     )
 
 
@@ -85,41 +83,6 @@ class TestEnsure:
         book.pop_frame("f1")
         book.ensure(_scene(scene_id="s3", frame_id="f3"), owner_fd=10)
         assert book.frames["f3"].cascade_index == 0
-
-
-class TestOwnerFactsCache:
-    """A push carrying facts updates the cache; an omitted one leaves it be."""
-
-    def test_a_facts_bearing_push_populates_the_cache_on_first_show(self) -> None:
-        book = FrameBook()
-        rows = (("Client", "lux"), ("Kind", "agent"))
-        frame = book.ensure(_scene(frame_owner_facts=rows), owner_fd=10)
-        assert frame.owner_facts == rows
-
-    def test_a_facts_bearing_push_updates_an_existing_frames_cache(self) -> None:
-        book = FrameBook()
-        book.ensure(_scene(), owner_fd=10)
-        rows = (("Client", "lux"),)
-        book.ensure(_scene(frame_owner_facts=rows), owner_fd=10)
-        assert book.frames["f1"].owner_facts == rows
-
-    def test_a_later_none_push_preserves_the_cached_snapshot(self) -> None:
-        # The departure guarantee (lux-c7xi): once the owning connection
-        # departs, the Hub can no longer resolve its facts and sends None on
-        # every subsequent push -- that must never blank what was cached
-        # while the connection was still live.
-        book = FrameBook()
-        rows = (("Client", "lux"), ("Kind", "agent"))
-        book.ensure(_scene(frame_owner_facts=rows), owner_fd=10)
-
-        book.ensure(_scene(frame_owner_facts=None), owner_fd=10)
-
-        assert book.frames["f1"].owner_facts == rows
-
-    def test_a_frame_with_no_facts_ever_sent_reads_none(self) -> None:
-        book = FrameBook()
-        frame = book.ensure(_scene(), owner_fd=10)
-        assert frame.owner_facts is None
 
 
 class TestPlacementMaps:

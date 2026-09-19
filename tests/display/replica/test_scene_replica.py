@@ -30,6 +30,7 @@ def _make_scene(
     frame_size: tuple[int, int] | None = None,
     frame_flags: dict[str, bool] | None = None,
     frame_layout: str | None = None,
+    frame_owner_facts: tuple[tuple[str, str], ...] | None = None,
     elements: list[object] | None = None,
     title: str | None = None,
 ) -> SceneMessage:
@@ -52,6 +53,7 @@ def _make_scene(
         frame_size=frame_size,
         frame_flags=frame_flags,
         frame_layout=frame_layout,  # type: ignore[arg-type]
+        frame_owner_facts=frame_owner_facts,
         title=title,
     )
 
@@ -1304,3 +1306,52 @@ class TestFramePresentations:
     def test_an_empty_replica_yields_no_frames(self) -> None:
         mgr, _ = _make_manager()
         assert mgr.frame_presentations() == []
+
+
+class TestOwnerFactsAdoption:
+    """The owner-facts snapshot lives on SceneReplica (DES-c7xi round 2), not
+    on Frame -- adopted from the same push that frames a scene, read by frame
+    id, and pruned when its frame is disposed."""
+
+    _ROWS = (("Client", "lux"), ("Kind", "agent"))
+
+    def test_a_facts_bearing_push_populates_the_store(self) -> None:
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(_make_scene(frame_owner_facts=self._ROWS), owner_fd=10)
+        assert mgr.owner_facts_for("s1") == self._ROWS
+
+    def test_a_frame_with_no_facts_ever_sent_reads_none(self) -> None:
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(_make_scene(), owner_fd=10)
+        assert mgr.owner_facts_for("s1") is None
+
+    def test_a_later_none_push_preserves_the_cached_snapshot(self) -> None:
+        # The departure guarantee (lux-c7xi): once the owning connection
+        # departs, the Hub can no longer resolve its facts and sends None on
+        # every subsequent push -- that must never blank what was cached
+        # while the connection was still live.
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(_make_scene(frame_owner_facts=self._ROWS), owner_fd=10)
+
+        mgr.handle_framed_scene(_make_scene(frame_owner_facts=None), owner_fd=10)
+
+        assert mgr.owner_facts_for("s1") == self._ROWS
+
+    def test_dispose_frame_prunes_its_owner_facts_entry(self) -> None:
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(_make_scene(frame_owner_facts=self._ROWS), owner_fd=10)
+
+        mgr.dispose_frame("s1")
+
+        assert mgr.owner_facts_for("s1") is None
+
+    def test_a_frame_id_reused_after_disposal_starts_fresh_not_stale(self) -> None:
+        """A pruned then reused frame id must never read the departed frame's
+        snapshot -- the id genuinely names a new frame, not a resurrection."""
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(_make_scene(frame_owner_facts=self._ROWS), owner_fd=10)
+        mgr.dispose_frame("s1")
+
+        mgr.handle_framed_scene(_make_scene(frame_owner_facts=None), owner_fd=10)
+
+        assert mgr.owner_facts_for("s1") is None

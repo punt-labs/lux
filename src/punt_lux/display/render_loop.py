@@ -169,7 +169,9 @@ class RenderLoop:
             ),
         )
         self._frame_info_popup = FrameInfoPopup(get_frames=lambda: self._scenes.frames)
-        self._frame_info_button = FrameInfoButton(self._frame_info_popup)
+        self._frame_info_button = FrameInfoButton(
+            self._frame_info_popup, self._scenes.owner_facts_for
+        )
         # QueryRouter must precede SocketListener -- it supplies on_error.
         self._query_router = QueryRouter(
             scenes=self._scenes,

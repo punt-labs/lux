@@ -29,15 +29,10 @@ class Frame:
     _scene_order: list[str]
     _placement: FramePlacement
     _hints: WindowHints
-    # The Hub's last-known facts for this frame's owning connection, snapshot-
-    # cached: a later push carrying None (owner departed/unresolved) must
-    # never blank an already-cached snapshot (the departure guarantee).
-    _owner_facts: tuple[tuple[str, str], ...] | None
     __slots__ = (
         "_frame_id",
         "_hints",
         "_hub",
-        "_owner_facts",
         "_owner_fds",
         "_placement",
         "_scene_order",
@@ -60,7 +55,6 @@ class Frame:
         initial_size: tuple[int, int] | None = None,
         flags: dict[str, bool] | None = None,
         layout: Literal["tab", "stack"] = "tab",
-        owner_facts: tuple[tuple[str, str], ...] | None = None,
     ) -> Self:
         self = super().__new__(cls)
         self._hub = hub
@@ -73,7 +67,6 @@ class Frame:
             visibility=visibility, active_tab=active_tab, cascade_index=cascade_index
         )
         self._hints = WindowHints(initial_size=initial_size, flags=flags, layout=layout)
-        self._owner_facts = owner_facts
         return self
 
     @property
@@ -120,15 +113,6 @@ class Frame:
     @title.setter
     def title(self, value: str) -> None:
         self._title = value
-
-    @property
-    def owner_facts(self) -> tuple[tuple[str, str], ...] | None:
-        """The Hub's last-known facts for this frame's owning connection."""
-        return self._owner_facts
-
-    @owner_facts.setter
-    def owner_facts(self, value: tuple[tuple[str, str], ...] | None) -> None:
-        self._owner_facts = value
 
     @property
     def active_tab(self) -> str | None:

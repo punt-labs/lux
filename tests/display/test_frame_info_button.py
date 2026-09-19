@@ -16,6 +16,7 @@ from punt_lux.display.frame_placement import FramePlacement
 from punt_lux.display.geometry_capture import GeometryCapture
 from punt_lux.display.replica.frame import Frame
 from punt_lux.domain.identity import HubId
+from punt_lux.protocol import SceneMessage, TextElement
 
 if TYPE_CHECKING:
     import pytest
@@ -28,7 +29,7 @@ def _make_server() -> RenderLoop:
     return RenderLoop("/tmp/test-lux-frame-info-button.sock")
 
 
-def _frame(owner_facts: tuple[tuple[str, str], ...] | None = None) -> Frame:
+def _frame() -> Frame:
     return Frame(
         hub=HubId.stub(),
         frame_id="f1",
@@ -36,7 +37,26 @@ def _frame(owner_facts: tuple[tuple[str, str], ...] | None = None) -> Frame:
         owner_fds=set(),
         scenes={},
         scene_order=[],
-        owner_facts=owner_facts,
+    )
+
+
+def _adopt_owner_facts(
+    server: RenderLoop, rows: tuple[tuple[str, str], ...] | None
+) -> None:
+    """Seed the server's owner-facts store for frame ``f1`` via the real push path.
+
+    The store lives on ``SceneReplica``, keyed by frame id -- not on ``Frame``
+    -- so a test that wants the button to find rows pushes a scene naming
+    ``f1`` with ``frame_owner_facts``, exactly as a real Hub replication would.
+    """
+    server._scenes.handle_framed_scene(
+        SceneMessage(
+            id="s1",
+            elements=[TextElement(id="t1", content="Hi")],
+            frame_id="f1",
+            frame_owner_facts=rows,
+        ),
+        owner_fd=1,
     )
 
 
@@ -159,9 +179,10 @@ def test_clicking_the_button_opens_the_popup_at_the_anchor(
     _no_op_geometry(monkeypatch)
     server = _make_server()
     rows = (("Client", "lux"),)
+    _adopt_owner_facts(server, rows)
     fake = _FakeImgui(expanded=True, clicked=True)
 
-    server._render_single_frame(_frame(owner_facts=rows), fake, _PLACEMENT)
+    server._render_single_frame(_frame(), fake, _PLACEMENT)
 
     assert server._frame_info_popup.is_open
 
@@ -173,6 +194,6 @@ def test_a_frame_with_no_owner_facts_still_opens_an_empty_popup(
     server = _make_server()
     fake = _FakeImgui(expanded=True, clicked=True)
 
-    server._render_single_frame(_frame(owner_facts=None), fake, _PLACEMENT)
+    server._render_single_frame(_frame(), fake, _PLACEMENT)
 
     assert server._frame_info_popup.is_open

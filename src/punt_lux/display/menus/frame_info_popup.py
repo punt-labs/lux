@@ -153,7 +153,10 @@ class FrameInfoButton:
 
     Clicking it opens the :class:`FrameInfoPopup` it was built to drive,
     anchored at the glyph, showing the frame's owning-connection facts the
-    Hub attached to its last push.
+    Hub attached to its last push. Facts are read from ``facts_for`` by
+    frame id, not from the frame itself -- the snapshot lives in the
+    :class:`~punt_lux.display.replica.owner_facts_cache.OwnerFactsStore`
+    ``SceneReplica`` owns, not on the ``Frame`` aggregate root.
     """
 
     # ASCII "i" -- the primary font and its merged fallback do not cover
@@ -162,11 +165,17 @@ class FrameInfoButton:
     _GAP = 4.0
 
     _popup: FrameInfoPopup
-    __slots__ = ("_popup",)
+    _facts_for: Callable[[str], tuple[tuple[str, str], ...] | None]
+    __slots__ = ("_facts_for", "_popup")
 
-    def __new__(cls, popup: FrameInfoPopup) -> Self:
+    def __new__(
+        cls,
+        popup: FrameInfoPopup,
+        facts_for: Callable[[str], tuple[tuple[str, str], ...] | None],
+    ) -> Self:
         self = super().__new__(cls)
         self._popup = popup
+        self._facts_for = facts_for
         return self
 
     def render(self, frame: Frame, imgui: Any) -> None:
@@ -177,6 +186,5 @@ class FrameInfoButton:
         imgui.set_cursor_screen_pos((x, pos.y))
         if imgui.small_button(f"{self._LABEL}##frame_info_{frame.frame_id}"):
             anchor = imgui.get_item_rect_min()
-            self._popup.open_for(
-                frame.frame_id, frame.owner_facts or (), (anchor.x, anchor.y)
-            )
+            rows = self._facts_for(frame.frame_id) or ()
+            self._popup.open_for(frame.frame_id, rows, (anchor.x, anchor.y))
