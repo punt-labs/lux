@@ -4,6 +4,17 @@
 
 ### Added
 
+- **Frame title-bar connection-info affordance (`lux-c7xi`).** Every frame's
+  title bar carries a small **i** glyph; clicking it opens a popup showing
+  the frame's owning-connection details (Client/Kind/Declared name/
+  Repository/Agent/Connection/Connected/Lease/Topics/Scenes), reusing the
+  Clients menu's own Details facts and formatting. The Hub resolves the
+  scene's senior owner (`FrameOwnerFacts`, first-appearance order) and
+  attaches it to the existing whole-scene resend as an optional
+  `frame_owner_facts` wire field; the display caches the last-known snapshot
+  on the frame, so the popup still shows correctly after the owning
+  connection departs (a later, unowned push never blanks the cache). Purely
+  additive — the menu's own "Details" entry is unchanged for now.
 - **Agent sessions appear in the Clients menu (`lux-1qyy`).** An identified
   MCP session now earns menu presence and is grouped under **Clients** like
   an applet, with a **Details** entry (`earns_menu_presence = has_callbacks OR
