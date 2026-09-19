@@ -123,20 +123,25 @@ class FrameBook:
             initial_size=msg.frame_size,
             flags=msg.frame_flags,
             layout=msg.frame_layout or "tab",
+            owner_facts=msg.frame_owner_facts,
         )
         self._frames.put(HubScopedKey(hub, frame_id), frame)
         return frame
 
     @staticmethod
     def _adopt_presentation(frame: Frame, msg: SceneMessage) -> None:
-        """Take the title, flags and layout a push carries; an omitted field
-        means "leave it", never "reset it"."""
+        """Take the title, flags, layout, and owner facts a push carries; an
+        omitted field means "leave it", never "reset it" -- the departure
+        guarantee for owner facts: a later push with none never blanks the
+        cached snapshot."""
         if msg.frame_title:
             frame.title = msg.frame_title
         if msg.frame_flags is not None:
             frame.hints.flags = msg.frame_flags
         if msg.frame_layout is not None:
             frame.hints.layout = msg.frame_layout
+        if msg.frame_owner_facts is not None:
+            frame.owner_facts = msg.frame_owner_facts
 
     def hub_count(self) -> int:
         return self._frames.hub_count()
