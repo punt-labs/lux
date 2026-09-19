@@ -489,6 +489,44 @@ class TestSerialization:
         assert restored.frame_size is None
         assert restored.frame_flags is None
 
+    def test_framed_scene_with_owner_facts_roundtrip(self):
+        original = SceneMessage(
+            id="s1",
+            elements=[TextElement(id="t1", content="hello")],
+            frame_id="f1",
+            frame_owner_facts=(("Client", "lux"), ("Kind", "agent")),
+        )
+        d = message_to_dict(original)
+        assert d["frame_owner_facts"] == [["Client", "lux"], ["Kind", "agent"]]
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        assert restored.frame_owner_facts == (("Client", "lux"), ("Kind", "agent"))
+
+    def test_framed_scene_without_owner_facts_omits_the_field(self):
+        original = SceneMessage(
+            id="s1",
+            elements=[TextElement(id="t1", content="hello")],
+            frame_id="f1",
+        )
+        d = message_to_dict(original)
+        assert "frame_owner_facts" not in d
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        assert restored.frame_owner_facts is None
+
+    def test_scene_decode_tolerates_a_malformed_owner_facts_field(self):
+        # A wire boundary degrades a malformed optional field to absent --
+        # already the "no change" contract -- rather than raising.
+        restored = SceneMessage.from_dict(
+            {
+                "id": "s1",
+                "frame_id": "s1",
+                "elements": [],
+                "frame_owner_facts": "not-a-list-of-pairs",
+            }
+        )
+        assert restored.frame_owner_facts is None
+
     def test_scene_decode_rejects_an_out_of_set_layout(self):
         # The layout field is a Literal; decode must reject an out-of-set value
         # with the same named error the RenderRequest boundary raises, not smuggle
