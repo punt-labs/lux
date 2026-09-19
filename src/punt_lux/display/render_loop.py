@@ -32,9 +32,10 @@ from punt_lux.display.idle_screen import render_idle
 from punt_lux.display.interaction_delivery import InteractionDelivery
 from punt_lux.display.macos import set_regular_activation_policy
 from punt_lux.display.markdown_font import MarkdownFont
+from punt_lux.display.menus.frame_info_popup import FrameInfoButton, FrameInfoPopup
 from punt_lux.display.paint_clock import PaintClock
 from punt_lux.display.pending_interactions import PendingInteractions
-from punt_lux.display.query_dispatcher import QueryRouter
+from punt_lux.display.query_dispatcher import DisplayQueryHandlers, QueryRouter
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.replica import Frame, SceneReplica, WidgetState
 from punt_lux.display.replica.menu_replica import MenuReplica, OwnMenus
@@ -63,7 +64,6 @@ from punt_lux.protocol import (
     ThemeMessage,
     UnknownMessage,
 )
-from punt_lux.protocol.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
 from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 from punt_lux.tracing import trace
 
@@ -99,6 +99,8 @@ class RenderLoop:
     _paint_clock: PaintClock
     _widget_state: WidgetState
     _menus: MenuReplica
+    _frame_info_popup: FrameInfoPopup
+    _frame_info_button: FrameInfoButton
     _themes: list[Any]
     _decorated: bool
     _opacity: float
@@ -110,6 +112,7 @@ class RenderLoop:
     _current_theme: str
     _current_scene_id: str | None
     _query_router: QueryRouter
+    _display_queries: DisplayQueryHandlers
     _scene_inspector: SceneInspector
     _display_paths: DisplayPaths
     _imgui_renderer_factory: ImGuiRendererFactory
@@ -165,6 +168,8 @@ class RenderLoop:
                 chrome=WindowChrome(),
             ),
         )
+        self._frame_info_popup = FrameInfoPopup(get_frames=lambda: self._scenes.frames)
+        self._frame_info_button = FrameInfoButton(self._frame_info_popup)
         # QueryRouter must precede SocketListener -- it supplies on_error.
         self._query_router = QueryRouter(
             scenes=self._scenes,
@@ -241,12 +246,24 @@ class RenderLoop:
             scenes=self._scenes,
             geometry=self._imgui_renderer_factory.geometry.recorder,
         )
+        self._display_queries = DisplayQueryHandlers(
+            get_start_time=lambda: self._start_time,
+            get_opacity=lambda: self._opacity,
+            get_font_scale=lambda: self._font_scale,
+            get_decorated=lambda: self._decorated,
+            get_current_theme=lambda: self._current_theme,
+            get_themes=lambda: self._themes,
+        )
         router = self._query_router
         router.register_handler("inspect_scene", self._scene_inspector.inspect)
-        router.register_handler("screenshot", self._query_screenshot)
-        router.register_handler("get_display_info", self._query_get_display_info)
-        router.register_handler("get_window_settings", self._query_get_window_settings)
-        router.register_handler("get_theme", self._query_get_theme)
+        router.register_handler("screenshot", self._display_queries.screenshot)
+        router.register_handler(
+            "get_display_info", self._display_queries.get_display_info
+        )
+        router.register_handler(
+            "get_window_settings", self._display_queries.get_window_settings
+        )
+        router.register_handler("get_theme", self._display_queries.get_theme)
         frames = FrameCommands(self._scenes)
         router.register_handler("set_frame_state", frames.set_state)
         return self
@@ -627,55 +644,6 @@ class RenderLoop:
         resp = self._query_router.handle_query(msg.method, msg.params)
         self._socket_listener.send_to_client(sock, resp)
 
-    def _query_screenshot(self, **_kwargs: Any) -> dict[str, Any]:
-        """Query handler for screenshot.
-
-        Screenshots require GL context (post-swap capture).  The generic
-        query path cannot defer to the frame loop.
-        """
-        msg = "Use the dedicated screenshot_request message"
-        raise RuntimeError(msg)
-
-    def _query_get_display_info(self, **_kwargs: Any) -> dict[str, Any]:
-        """Return display server metadata."""
-        import os
-
-        from imgui_bundle import hello_imgui
-
-        backend = str(hello_imgui.get_runner_params().renderer_backend_type)
-        screen_size = (
-            hello_imgui.get_runner_params().app_window_params.window_geometry.size
-        )
-
-        return {
-            "backend": backend,
-            "window_width": screen_size[0],
-            "window_height": screen_size[1],
-            "fps": round(hello_imgui.frame_rate(), 1),
-            "pid": os.getpid(),
-            "uptime_seconds": round(time.time() - self._start_time, 1),
-            "protocol_version": "1.0",
-            "element_kinds": len(DEFAULT_ABC_REGISTRY.all_kinds),
-        }
-
-    def _query_get_window_settings(self, **_kwargs: Any) -> dict[str, Any]:
-        """Return opacity, the stored 0.5-3.0 font scale, decoration, and idle rate."""
-        from imgui_bundle import hello_imgui
-
-        return {
-            "opacity": self._opacity,
-            "font_scale": self._font_scale,
-            "decorated": self._decorated,
-            "fps_idle": hello_imgui.get_runner_params().fps_idling.fps_idle,
-        }
-
-    def _query_get_theme(self, **_kwargs: Any) -> dict[str, Any]:
-        """Return the current theme and the switchable themes as bare names."""
-        return {
-            "current": self._current_theme,
-            "available": [t.name for t in self._themes if t.name != "count"],
-        }
-
     @trace
     def _emit_event(self, event: RemoteEventHandlerInvocation) -> None:
         """Stamp scene_id and queue for delivery to the Hub.
@@ -765,6 +733,10 @@ class RenderLoop:
         # World menu: background click to toggle, floating panel.
         self._menus.check_world_menu_background_click(imgui)
         self._menus.render_world_panel(imgui)
+
+        # Frame title-bar info popup: background click to dismiss.
+        self._frame_info_popup.check_background_click(imgui)
+        self._frame_info_popup.render(imgui)
 
         # Every scene renders inside a frame (workspace model); there is no
         # unframed scene surface — the Hub frames every scene at the boundary.
@@ -864,6 +836,7 @@ class RenderLoop:
                 imgui.end()
                 return "minimized", hovered
         else:
+            self._frame_info_button.render(frame, imgui)
             self._render_frame_contents(frame, imgui)
         # Record the painted rect after contents lay out, so an auto-resized frame
         # captures its final size, not a stale one. Display-local, never Hub state.

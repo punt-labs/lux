@@ -176,3 +176,88 @@ class QueryRouter:
         """Query handler for display_state: curated widget/frame facts, unkeyed."""
         sm = self._scenes
         return {"scenes": sm.all_widget_snapshots(), "frames": sm.frame_presentations()}
+
+
+class DisplayQueryHandlers:
+    """The generic-query handlers RenderLoop registers for ImGui/window facts.
+
+    Reads through getter callables (the ``OwnMenus`` idiom) rather than
+    holding RenderLoop's fields directly, so this class needs no reference
+    back to it.
+    """
+
+    _get_start_time: Callable[[], float]
+    _get_opacity: Callable[[], float]
+    _get_font_scale: Callable[[], float]
+    _get_decorated: Callable[[], bool]
+    _get_current_theme: Callable[[], str]
+    _get_themes: Callable[[], Sequence[Any]]
+
+    def __new__(
+        cls,
+        *,
+        get_start_time: Callable[[], float],
+        get_opacity: Callable[[], float],
+        get_font_scale: Callable[[], float],
+        get_decorated: Callable[[], bool],
+        get_current_theme: Callable[[], str],
+        get_themes: Callable[[], Sequence[Any]],
+    ) -> Self:
+        self = super().__new__(cls)
+        self._get_start_time = get_start_time
+        self._get_opacity = get_opacity
+        self._get_font_scale = get_font_scale
+        self._get_decorated = get_decorated
+        self._get_current_theme = get_current_theme
+        self._get_themes = get_themes
+        return self
+
+    def screenshot(self, **_kwargs: Any) -> dict[str, Any]:
+        """Query handler for screenshot.
+
+        Screenshots require GL context (post-swap capture). The generic
+        query path cannot defer to the frame loop.
+        """
+        msg = "Use the dedicated screenshot_request message"
+        raise RuntimeError(msg)
+
+    def get_display_info(self, **_kwargs: Any) -> dict[str, Any]:
+        """Return display server metadata."""
+        import os
+
+        from imgui_bundle import hello_imgui
+
+        from punt_lux.protocol.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
+
+        backend = str(hello_imgui.get_runner_params().renderer_backend_type)
+        screen_size = (
+            hello_imgui.get_runner_params().app_window_params.window_geometry.size
+        )
+        return {
+            "backend": backend,
+            "window_width": screen_size[0],
+            "window_height": screen_size[1],
+            "fps": round(hello_imgui.frame_rate(), 1),
+            "pid": os.getpid(),
+            "uptime_seconds": round(time.time() - self._get_start_time(), 1),
+            "protocol_version": "1.0",
+            "element_kinds": len(DEFAULT_ABC_REGISTRY.all_kinds),
+        }
+
+    def get_window_settings(self, **_kwargs: Any) -> dict[str, Any]:
+        """Return opacity, the stored 0.5-3.0 font scale, decoration, and idle rate."""
+        from imgui_bundle import hello_imgui
+
+        return {
+            "opacity": self._get_opacity(),
+            "font_scale": self._get_font_scale(),
+            "decorated": self._get_decorated(),
+            "fps_idle": hello_imgui.get_runner_params().fps_idling.fps_idle,
+        }
+
+    def get_theme(self, **_kwargs: Any) -> dict[str, Any]:
+        """Return the current theme and the switchable themes as bare names."""
+        return {
+            "current": self._get_current_theme(),
+            "available": [t.name for t in self._get_themes() if t.name != "count"],
+        }
