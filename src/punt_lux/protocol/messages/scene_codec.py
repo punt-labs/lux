@@ -9,8 +9,6 @@ from punt_lux.protocol.elements import _strip_none
 from punt_lux.protocol.messages.pickled_element_codec import PickledElementCodec
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-
     from punt_lux.protocol.messages.scene import SceneMessage
 
 __all__ = ["SceneCodec"]
@@ -103,19 +101,20 @@ class SceneCodec:
     def _parse_owner_facts(raw: object) -> tuple[tuple[str, str], ...] | None:
         """Return the owning connection's rows, or ``None`` on absence/malformed.
 
-        Malformed degrades to ``None`` the same way a missing field does --
-        absent already means "no change" on the display side (the departure
-        guarantee keeps whatever was cached), so the decoded *value* is no
-        worse. But a malformed *non-None list* is not a legitimate absence:
-        the Hub's own serializer produced the list, so an entry it can't parse
-        signals a real Hub/display protocol skew and is logged rather than
-        dropped invisibly.
+        Absent and malformed both decode to ``None``. A non-None list the Hub
+        serialized whose entries are not two-string rows signals protocol skew:
+        the whole field degrades to ``None`` and is logged, never partly kept.
         """
         if not isinstance(raw, list):
             return None
-        pairs = cast("list[Sequence[object]]", raw)
-        try:
-            return tuple((str(pair[0]), str(pair[1])) for pair in pairs)
-        except (TypeError, ValueError, IndexError):
-            logger.warning("frame_owner_facts contained a malformed entry: %r", pairs)
-            return None
+        rows: list[tuple[str, str]] = []
+        for entry in cast("list[object]", raw):
+            match entry:
+                case [str(first), str(second)]:
+                    rows.append((first, second))
+                case _:
+                    logger.warning(
+                        "frame_owner_facts contained a malformed entry: %r", entry
+                    )
+                    return None
+        return tuple(rows)

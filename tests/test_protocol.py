@@ -528,13 +528,23 @@ class TestSerialization:
         )
         assert restored.frame_owner_facts is None
 
-    @pytest.mark.parametrize("bad_rows", [[["only-one"]], [42]])
+    @pytest.mark.parametrize(
+        "bad_rows",
+        [
+            [["only-one"]],
+            [42],
+            [{"label": "Client"}],
+            [[1, 2]],
+        ],
+    )
     def test_scene_decode_logs_a_malformed_owner_facts_entry(
         self, caplog: pytest.LogCaptureFixture, bad_rows: list[object]
     ) -> None:
         # A well-typed list the Hub's own serializer produced, but with an
         # entry decode can't parse, signals a real protocol skew -- unlike a
-        # legitimately absent field, it must not be dropped invisibly.
+        # legitimately absent field, it must not be dropped invisibly. A dict
+        # entry (no numeric keys) and a two-number entry are the cases that
+        # once crashed on ``pair[0]`` or were silently accepted as ``str``.
         with caplog.at_level(logging.WARNING):
             restored = SceneMessage.from_dict(
                 {
