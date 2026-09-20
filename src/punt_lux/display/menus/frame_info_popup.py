@@ -197,10 +197,10 @@ class FrameInfoButton:
     relying on an ImGui item to claim the click.
     """
 
-    # ASCII "i" -- the primary font and its merged fallback do not cover
-    # U+24D8 "ⓘ", which would render as tofu.
+    # ASCII "i": primary font + fallback lack U+24D8 "ⓘ", which renders as tofu.
     _LABEL = "i"
     _GAP = 4.0
+    _SCALE = 0.625  # glyph diameter as a fraction of the title-bar band
 
     _popup: FrameInfoPopup
     _facts_for: Callable[[str, HubId], tuple[tuple[str, str], ...] | None]
@@ -220,9 +220,9 @@ class FrameInfoButton:
         """Draw the glyph for ``frame``; a click opens its info popup."""
         pos = imgui.get_window_pos()
         size = imgui.get_window_size()
-        button_size = imgui.get_frame_height()
-        low = ImVec2(pos.x + size.x - 2 * button_size - self._GAP, pos.y)
-        high = ImVec2(low.x + button_size, low.y + button_size)
+        glyph = (band := imgui.get_frame_height()) * self._SCALE
+        high = ImVec2(pos.x + size.x - band - self._GAP, pos.y + (band + glyph) / 2)
+        low = ImVec2(high.x - glyph, high.y - glyph)
         hovered = self._hovered(imgui, low, high)
         self._paint(imgui, low, high, hovered=hovered)
         if hovered and imgui.is_mouse_clicked(imgui.MouseButton_.left):

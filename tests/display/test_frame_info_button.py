@@ -29,11 +29,12 @@ _DEFAULT_SIZE = (800.0, 600.0)
 _PLACEMENT = FramePlacement(fitting=False, tile_layout={}, default_size=_DEFAULT_SIZE)
 
 # Matches _render_single_frame's window geometry below: pos (100, 100),
-# size (400, 300), a 20-tall title bar, and FrameInfoButton's own 4.0 gap
-# from the native close x -- the button's rect is [(456, 100), (476, 120)].
-_ON_BUTTON = (460.0, 105.0)
+# size (400, 300), a 20-tall title bar, FrameInfoButton's own 4.0 gap from
+# the native close x, and its 0.625 scale -- the button's rect is
+# [(463.5, 103.75), (476.0, 116.25)].
+_ON_BUTTON = (470.0, 110.0)
 _OFF_BUTTON = (0.0, 0.0)
-_EXPECTED_ANCHOR = (456.0, 100.0)
+_EXPECTED_ANCHOR = (463.5, 103.75)
 
 
 def _make_server() -> RenderLoop:
