@@ -25,9 +25,9 @@ from punt_lux.domain.hub.replicator_instance import (
     hub_replicator,
 )
 from punt_lux.operations import HubPorts, Operations
+from punt_lux.operations.canonical_frame_owner import CanonicalFrameOwner
 from punt_lux.operations.client_details_port import ClientDetailsPort
 from punt_lux.operations.display_connection import HubDisplayConnection
-from punt_lux.operations.frame_owner_facts import FrameOwnerFacts
 from punt_lux.paths import DisplayPaths
 
 if TYPE_CHECKING:
@@ -66,7 +66,7 @@ class HubComposition:
         either composition root -- MCP or REST -- may run it; last wins.
         """
         hub_frame_owner_facts.bind(
-            FrameOwnerFacts.for_store(hub_display, hub=hub, ports=ports)
+            CanonicalFrameOwner.for_store(hub_display, hub=hub, ports=ports)
         )
 
     @classmethod
