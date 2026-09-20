@@ -67,6 +67,15 @@ class TestOpening:
         popup.render(imgui)
         assert imgui.table_rows == _ROWS
 
+    def test_opening_raises_the_popup_to_the_front_exactly_once(self) -> None:
+        popup = FrameInfoPopup(_frame_for("f1"))
+        popup.open_for("f1", _HUB, _ROWS, (10.0, 20.0))
+        imgui = FakeImGui()
+        popup.render(imgui)
+        assert imgui.focus_requests == 1
+        popup.render(imgui)
+        assert imgui.focus_requests == 1
+
 
 class TestOneAtATime:
     def test_opening_a_second_frame_replaces_the_first(self) -> None:

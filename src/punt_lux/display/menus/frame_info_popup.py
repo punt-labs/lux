@@ -97,8 +97,7 @@ class FrameInfoPopup:
         rows: tuple[tuple[str, str], ...],
         anchor: tuple[float, float],
     ) -> None:
-        """Open (or replace) the popup for ``(hub, frame_id)``, anchored at
-        ``anchor``."""
+        """Open (or replace) the popup for ``(hub, frame_id)`` at ``anchor``."""
         self._open_frame_id = frame_id
         self._open_hub = hub
         self._rows = rows
@@ -163,10 +162,11 @@ class FrameInfoPopup:
             imgui.end_table()
 
     def _place(self, imgui: Any) -> None:
-        """Put the popup where the glyph was clicked, the first frame only."""
+        """Put the popup where the glyph was clicked and raise it, the first frame."""
         if self._placed:
             return
         imgui.set_next_window_pos(self._spawn_pos, imgui.Cond_.always.value)
+        imgui.set_next_window_focus()  # one-shot: every-frame focus blocks dragging
         self._placed = True
 
     @staticmethod

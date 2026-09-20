@@ -188,10 +188,12 @@ class FakeImGui:
     _window_hovered: bool
     _table_rows: list[tuple[str, ...]]
     _current_row: list[str]
+    _focus_requests: int
     __slots__ = (
         "_clicks",
         "_close_button",
         "_current_row",
+        "_focus_requests",
         "_item_hovered",
         "_lines",
         "_menus_open",
@@ -229,6 +231,7 @@ class FakeImGui:
         self._window_hovered = True
         self._table_rows = []
         self._current_row = []
+        self._focus_requests = 0
         return self
 
     # -- what was drawn -----------------------------------------------------
@@ -333,6 +336,15 @@ class FakeImGui:
 
     def set_next_window_pos(self, _pos: Any, _cond: int) -> None:
         """Accept the panel's requested position."""
+
+    def set_next_window_focus(self) -> None:
+        """Record a request to raise the next window to the front."""
+        self._focus_requests += 1
+
+    @property
+    def focus_requests(self) -> int:
+        """Return how many times a window was asked to the front this fixture."""
+        return self._focus_requests
 
     def set_cursor_screen_pos(self, _pos: Any) -> None:
         """Accept a cursor placement request."""
