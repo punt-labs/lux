@@ -77,6 +77,25 @@ class TestAFrameComposingScenesWithDifferentOwners:
         assert by_first == by_second
         assert dict(by_first)["Connection"] == "c1"
 
+    def test_seniority_is_first_appearance_not_lexical_scene_id(self) -> None:
+        # The frame first receives "z-scene" (owner "z"), then "a-scene"
+        # (owner "a"). Seniority is first-appearance order, so the canonical
+        # owner is "z" -- lexical scene-id order would wrongly pick "a".
+        store, hub = HubDisplay(), Hub()
+        senior = _identified_scene(store, "z", name="alpha")
+        junior = _identified_scene(store, "a", name="beta")
+        frame = ScenePresentation(frame_id="shared-frame")
+        store.frames.record(senior, frame)
+        store.frames.record(junior, frame)
+        reader = _reader(store, hub)
+
+        by_senior = reader.facts_for(senior)
+        by_junior = reader.facts_for(junior)
+
+        assert by_senior is not None
+        assert by_senior == by_junior  # order-independent of the triggering send
+        assert dict(by_senior)["Connection"] == "z"
+
 
 class TestASelfFramedScene:
     def test_reports_its_own_owner(self) -> None:

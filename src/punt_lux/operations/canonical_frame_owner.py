@@ -50,23 +50,21 @@ class CanonicalFrameOwner:
     def _canonical_scene(self, scene_id: SceneId) -> SceneId:
         """Return the senior owned scene of ``scene_id``'s frame, deterministic.
 
-        The frame's live scenes are walked in a stable id order and the first
-        that still has a root owner is the canonical one -- so the owner depends
-        only on the frame's membership, never on which scene was sent last. With
-        no owned scene, ``scene_id`` stands in and the inner reader reports it
-        unowned.
+        The frame's live scenes are walked in first-appearance order -- the
+        order in which they first received a root, which ``live_scene_ids`` and
+        ``scene_owners`` both preserve -- and the first that still has a root
+        owner is the canonical one. Seniority is defined by registration order
+        everywhere else, so the owner is the frame's earliest-appearing owned
+        scene and depends only on the frame's membership, never on which scene
+        was sent last. With no owned scene, ``scene_id`` stands in and the inner
+        reader reports it unowned.
         """
         frames = self._display.frames
         frame_id = frames.presentation_for(scene_id).frame_id
-        cohort = sorted(
-            (
-                sid
-                for sid in self._display.live_scene_ids()
-                if frames.presentation_for(sid).frame_id == frame_id
-            ),
-            key=str,
+        owned_in_frame = (
+            sid
+            for sid in self._display.live_scene_ids()
+            if frames.presentation_for(sid).frame_id == frame_id
+            and self._display.scene_owners(sid)
         )
-        for sid in cohort:
-            if self._display.scene_owners(sid):
-                return sid
-        return scene_id
+        return next(owned_in_frame, scene_id)
