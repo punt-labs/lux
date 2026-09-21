@@ -124,6 +124,52 @@ class MouseButton:
 
 
 @final
+class Col:
+    """ImGui's ``Col_`` enum, narrowed to the title-bar glyph's colors."""
+
+    button = Flag(21)
+    button_hovered = Flag(22)
+    text = Flag(0)
+
+
+@final
+class FakeStyle:
+    """ImGui's style, narrowed to what the info popup's header reads."""
+
+    __slots__ = ()
+
+    def __new__(cls) -> Self:
+        return super().__new__(cls)
+
+    @property
+    def frame_padding(self) -> Vec2:
+        """Return the frame padding the header's right-align subtracts."""
+        return Vec2(4.0, 3.0)
+
+    def color_(self, _which: Flag) -> Vec2:
+        """Return a style color; the value is unused by the recording double."""
+        return Vec2(0.0, 0.0)
+
+
+@final
+class FakeDrawList:
+    """A draw list whose primitive calls only need to be accepted."""
+
+    __slots__ = ()
+
+    def __new__(cls) -> Self:
+        return super().__new__(cls)
+
+    def add_rect_filled(
+        self, _low: Vec2, _high: Vec2, _color: int, _rounding: float = 0.0
+    ) -> None:
+        """Accept a filled-rect request."""
+
+    def add_text(self, _pos: Vec2, _color: int, _text: str) -> None:
+        """Accept a text-draw request."""
+
+
+@final
 class FakeChrome:
     """A window whose chrome commands only record that they were asked."""
 
@@ -172,6 +218,7 @@ class FakeImGui:
     Cond_ = Cond
     WindowFlags_ = WindowFlags
     MouseButton_ = MouseButton
+    Col_ = Col
 
     _clicks: frozenset[str]
     _menus_open: bool
@@ -188,15 +235,19 @@ class FakeImGui:
     _window_hovered: bool
     _table_rows: list[tuple[str, ...]]
     _current_row: list[str]
+    _in_table: bool
     _focus_requests: int
     _open_popups: set[str]
     _opened_popup_ids: list[str]
     _rendered_popups: list[str]
+    _current_popup: str | None
     __slots__ = (
         "_clicks",
         "_close_button",
+        "_current_popup",
         "_current_row",
         "_focus_requests",
+        "_in_table",
         "_item_hovered",
         "_lines",
         "_menus_open",
@@ -237,10 +288,12 @@ class FakeImGui:
         self._window_hovered = True
         self._table_rows = []
         self._current_row = []
+        self._in_table = False
         self._focus_requests = 0
         self._open_popups = set()
         self._opened_popup_ids = []
         self._rendered_popups = []
+        self._current_popup = None
         return self
 
     # -- what was drawn -----------------------------------------------------
@@ -370,11 +423,22 @@ class FakeImGui:
             return False
         self._rendered_popups.append(popup_id)
         self._open_windows += 1
+        self._current_popup = popup_id
         return True
+
+    def close_current_popup(self) -> None:
+        """Dismiss the popup ImGui currently has open — the close button's call.
+
+        The next ``begin_popup`` for that id reports it shut, as real ImGui does
+        once a popup calls ``close_current_popup`` from inside its own body.
+        """
+        if self._current_popup is not None:
+            self._open_popups.discard(self._current_popup)
 
     def end_popup(self) -> None:
         """Close the current popup, taking it off the stack."""
         self._open_windows -= 1
+        self._current_popup = None
 
     @property
     def opened_popup_ids(self) -> tuple[str, ...]:
@@ -407,6 +471,7 @@ class FakeImGui:
 
     def begin_table(self, _id: str, _columns: int) -> bool:
         """Open a table; every call succeeds."""
+        self._in_table = True
         return True
 
     def table_next_row(self) -> None:
@@ -419,14 +484,43 @@ class FakeImGui:
         """Advance to the next column; ``text`` fills it."""
 
     def text(self, value: str) -> None:
-        """Record one cell's text into the current row."""
-        self._current_row.append(value)
+        """Record one cell's text, but only inside a table.
+
+        A ``text`` drawn outside a table — the popup header's title — is a plain
+        line, not a table cell, so it must not leak into the recorded rows.
+        """
+        if self._in_table:
+            self._current_row.append(value)
 
     def end_table(self) -> None:
         """Close the table, flushing any row still open."""
         if self._current_row:
             self._table_rows.append(tuple(self._current_row))
             self._current_row = []
+        self._in_table = False
+
+    def get_content_region_avail(self) -> Vec2:
+        """Return the width the header's right-aligned button subtracts from."""
+        return Vec2(240.0, 200.0)
+
+    def same_line(self, _offset: float = 0.0, _spacing: float = -1.0) -> None:
+        """Accept a same-line request; pixel layout is not modeled."""
+
+    def get_style(self) -> FakeStyle:
+        """Return the style the header reads for its frame padding."""
+        return FakeStyle()
+
+    def calc_text_size(self, _text: str) -> Vec2:
+        """Return a fixed text extent for the header's width computation."""
+        return Vec2(8.0, 12.0)
+
+    def get_foreground_draw_list(self) -> FakeDrawList:
+        """Return the draw list the title-bar glyph paints onto."""
+        return FakeDrawList()
+
+    def get_color_u32(self, _color: Any) -> int:
+        """Return a packed color; the value is unused by the recording double."""
+        return 0
 
     def is_mouse_clicked(self, _button: Flag) -> bool:
         """Report whether the left button went down, and consume the click.
@@ -471,6 +565,11 @@ class FakeImGui:
     def click_close_button(self) -> None:
         """Arm the window's own close button — ImGui answers through ``begin``."""
         self._close_button = True
+
+    def click_at(self, pos: Vec2) -> None:
+        """Arm a left click at *pos* — for hit-testing a hand-painted glyph."""
+        self._mouse_clicked = True
+        self._mouse_pos = pos
 
     def dismiss_popup(self, popup_id: str) -> None:
         """Simulate ImGui's own dismissal of a popup — an outside click/Escape.

@@ -32,7 +32,7 @@ from punt_lux.display.idle_screen import render_idle
 from punt_lux.display.interaction_delivery import InteractionDelivery
 from punt_lux.display.macos import set_regular_activation_policy
 from punt_lux.display.markdown_font import MarkdownFont
-from punt_lux.display.menus.frame_info_popup import FrameInfoButton, FrameInfoPopup
+from punt_lux.display.menus.frame_info_button import FrameInfoButton
 from punt_lux.display.paint_clock import PaintClock
 from punt_lux.display.pending_interactions import PendingInteractions
 from punt_lux.display.query_dispatcher import DisplayQueryHandlers, QueryRouter
@@ -99,7 +99,6 @@ class RenderLoop:
     _paint_clock: PaintClock
     _widget_state: WidgetState
     _menus: MenuReplica
-    _frame_info_popup: FrameInfoPopup
     _frame_info_button: FrameInfoButton
     _themes: list[Any]
     _decorated: bool
@@ -168,9 +167,8 @@ class RenderLoop:
                 chrome=WindowChrome(),
             ),
         )
-        self._frame_info_popup = FrameInfoPopup(frame_for=self._scenes.frame)
         self._frame_info_button = FrameInfoButton(
-            self._frame_info_popup, self._scenes.owner_facts_for
+            frame_for=self._scenes.frame, facts_for=self._scenes.owner_facts_for
         )
         # QueryRouter must precede SocketListener -- it supplies on_error.
         self._query_router = QueryRouter(
@@ -738,7 +736,7 @@ class RenderLoop:
 
         # Frame title-bar info popup: rendered in ImGui's popup layer, above
         # the frame that spawned it; ImGui dismisses it on an outside click.
-        self._frame_info_popup.render(imgui)
+        self._frame_info_button.popup.render(imgui)
 
         # Every scene renders inside a frame (workspace model); there is no
         # unframed scene surface — the Hub frames every scene at the boundary.

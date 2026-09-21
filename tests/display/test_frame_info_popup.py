@@ -11,10 +11,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from punt_lux.display.menus.frame_info_button import FrameInfoButton
 from punt_lux.display.menus.frame_info_popup import FrameInfoPopup
 from punt_lux.display.replica.frame_visibility import FrameVisibility
 from punt_lux.domain.identity import HubId
-from tests.menu_doubles import FakeImGui, make_frame
+from tests.menu_doubles import FakeImGui, Vec2, make_frame
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -36,6 +37,24 @@ def _frame_for(*ids: str, hub: HubId = _HUB) -> Callable[[str, HubId], Frame | N
 
     def resolve(frame_id: str, resolved_hub: HubId) -> Frame | None:
         return frames.get(frame_id) if resolved_hub == hub else None
+
+    return resolve
+
+
+# A screen point inside the title-bar glyph's hit rect, given menu_doubles'
+# fixed window origin (100, 100), size (400, 300), and 20px frame height.
+_GLYPH_CLICK = Vec2(470.0, 110.0)
+
+
+def _facts_for(
+    *ids: str, hub: HubId = _HUB
+) -> Callable[[str, HubId], tuple[tuple[str, str], ...] | None]:
+    """A ``facts_for`` double: the named ids resolve to ``_ROWS`` under ``hub``."""
+
+    def resolve(
+        frame_id: str, resolved_hub: HubId
+    ) -> tuple[tuple[str, str], ...] | None:
+        return _ROWS if frame_id in ids and resolved_hub == hub else None
 
     return resolve
 
@@ -156,3 +175,70 @@ class TestHubScoping:
         imgui = FakeImGui()
         popup.render(imgui)
         assert popup.is_open
+
+
+class TestCloseButton:
+    def test_the_close_button_shuts_the_popup(self) -> None:
+        popup = FrameInfoPopup(_frame_for("f1"))
+        popup.open_for("f1", _HUB, _ROWS, (10.0, 20.0))
+        imgui = FakeImGui(clicks={"x"})
+        popup.render(imgui)  # header close button clicked -> close_current_popup
+        popup.render(imgui)  # begin_popup now reports the popup shut
+        assert not popup.is_open
+
+    def test_the_close_button_draws_nothing_after_dismissal(self) -> None:
+        popup = FrameInfoPopup(_frame_for("f1"))
+        popup.open_for("f1", _HUB, _ROWS, (10.0, 20.0))
+        imgui = FakeImGui(clicks={"x"})
+        popup.render(imgui)  # the close button arms the pending dismissal
+        popup.render(imgui)  # the pending dismissal routes through close_current_popup
+        drawn = len(imgui.popups)
+        popup.render(imgui)  # dismissed: begin_popup now reports it shut
+        assert len(imgui.popups) == drawn  # the third frame drew nothing more
+        assert not popup.is_open
+
+    def test_without_a_close_click_the_popup_stays_open(self) -> None:
+        popup = FrameInfoPopup(_frame_for("f1"))
+        popup.open_for("f1", _HUB, _ROWS, (10.0, 20.0))
+        imgui = FakeImGui()  # nothing clicked
+        popup.render(imgui)
+        popup.render(imgui)
+        assert popup.is_open
+
+
+class TestGlyphToggle:
+    def test_clicking_the_glyph_opens_the_popup(self) -> None:
+        button = FrameInfoButton(_frame_for("f1"), _facts_for("f1"))
+        imgui = FakeImGui()
+        imgui.click_at(_GLYPH_CLICK)
+        button.render(make_frame("f1", hub=_HUB), imgui)
+        assert button.popup.is_open_for("f1", _HUB)
+
+    def test_clicking_the_glyph_again_dismisses_the_open_popup(self) -> None:
+        button = FrameInfoButton(_frame_for("f1"), _facts_for("f1"))
+        frame = make_frame("f1", hub=_HUB)
+        popup = button.popup
+        popup.open_for("f1", _HUB, _ROWS, (10.0, 20.0))
+        imgui = FakeImGui()
+        popup.render(imgui)  # the popup is open and drawn
+        imgui.click_at(_GLYPH_CLICK)
+        button.render(frame, imgui)  # a second glyph click requests dismissal
+        popup.render(imgui)  # the pending close routes through close_current_popup
+        assert not popup.is_open
+
+    def test_the_glyph_reopens_the_popup_after_a_toggle_close(self) -> None:
+        button = FrameInfoButton(_frame_for("f1"), _facts_for("f1"))
+        frame = make_frame("f1", hub=_HUB)
+        popup = button.popup
+        popup.open_for("f1", _HUB, _ROWS, (10.0, 20.0))
+        toggle = FakeImGui()
+        popup.render(toggle)
+        toggle.click_at(_GLYPH_CLICK)
+        button.render(frame, toggle)
+        popup.render(toggle)
+        assert not popup.is_open
+
+        reopen = FakeImGui()
+        reopen.click_at(_GLYPH_CLICK)
+        button.render(frame, reopen)
+        assert button.popup.is_open_for("f1", _HUB)

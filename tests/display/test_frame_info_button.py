@@ -241,8 +241,8 @@ def test_clicking_the_button_opens_the_popup_at_the_anchor(
 
     server._render_single_frame(_frame(), fake, _PLACEMENT)
 
-    assert server._frame_info_popup.is_open
-    assert server._frame_info_popup.spawn_pos == _EXPECTED_ANCHOR
+    assert server._frame_info_button.popup.is_open
+    assert server._frame_info_button.popup.spawn_pos == _EXPECTED_ANCHOR
 
 
 def test_a_click_off_the_button_does_not_open_the_popup(
@@ -254,7 +254,7 @@ def test_a_click_off_the_button_does_not_open_the_popup(
 
     server._render_single_frame(_frame(), fake, _PLACEMENT)
 
-    assert not server._frame_info_popup.is_open
+    assert not server._frame_info_button.popup.is_open
 
 
 def test_a_frame_with_no_owner_facts_still_opens_an_explanatory_popup(
@@ -268,8 +268,8 @@ def test_a_frame_with_no_owner_facts_still_opens_an_explanatory_popup(
 
     server._render_single_frame(_frame(), fake, _PLACEMENT)
 
-    assert server._frame_info_popup.is_open
-    assert server._frame_info_popup.rows == (("Owner", "unknown"),)
+    assert server._frame_info_button.popup.is_open
+    assert server._frame_info_button.popup.rows == (("Owner", "unknown"),)
 
 
 def test_a_resolved_but_empty_result_is_not_treated_as_unknown(
@@ -284,4 +284,4 @@ def test_a_resolved_but_empty_result_is_not_treated_as_unknown(
 
     server._render_single_frame(_frame(), fake, _PLACEMENT)
 
-    assert server._frame_info_popup.rows == ()
+    assert server._frame_info_button.popup.rows == ()
