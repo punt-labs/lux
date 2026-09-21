@@ -189,6 +189,9 @@ class FakeImGui:
     _table_rows: list[tuple[str, ...]]
     _current_row: list[str]
     _focus_requests: int
+    _open_popups: set[str]
+    _opened_popup_ids: list[str]
+    _rendered_popups: list[str]
     __slots__ = (
         "_clicks",
         "_close_button",
@@ -199,8 +202,11 @@ class FakeImGui:
         "_menus_open",
         "_mouse_clicked",
         "_mouse_pos",
+        "_open_popups",
         "_open_windows",
+        "_opened_popup_ids",
         "_path",
+        "_rendered_popups",
         "_seen_ids",
         "_strict_ids",
         "_table_rows",
@@ -232,6 +238,9 @@ class FakeImGui:
         self._table_rows = []
         self._current_row = []
         self._focus_requests = 0
+        self._open_popups = set()
+        self._opened_popup_ids = []
+        self._rendered_popups = []
         return self
 
     # -- what was drawn -----------------------------------------------------
@@ -346,6 +355,37 @@ class FakeImGui:
         """Return how many times a window was asked to the front this fixture."""
         return self._focus_requests
 
+    def open_popup(self, popup_id: str) -> None:
+        """Mark a popup-stack id as open, recording the request in order."""
+        self._open_popups.add(popup_id)
+        self._opened_popup_ids.append(popup_id)
+
+    def begin_popup(self, popup_id: str, _flags: int = 0) -> bool:
+        """Draw a popup-layer window while its id is open; record it if so.
+
+        Returns False for an id that was never opened (or has been dismissed),
+        exactly as ImGui does — the caller must skip ``end_popup`` in that case.
+        """
+        if popup_id not in self._open_popups:
+            return False
+        self._rendered_popups.append(popup_id)
+        self._open_windows += 1
+        return True
+
+    def end_popup(self) -> None:
+        """Close the current popup, taking it off the stack."""
+        self._open_windows -= 1
+
+    @property
+    def opened_popup_ids(self) -> tuple[str, ...]:
+        """Return the ids ``open_popup`` was asked to open, in order."""
+        return tuple(self._opened_popup_ids)
+
+    @property
+    def popups(self) -> tuple[str, ...]:
+        """Return the popup ids ``begin_popup`` drew this fixture, in order."""
+        return tuple(self._rendered_popups)
+
     def set_cursor_screen_pos(self, _pos: Any) -> None:
         """Accept a cursor placement request."""
 
@@ -431,6 +471,14 @@ class FakeImGui:
     def click_close_button(self) -> None:
         """Arm the window's own close button — ImGui answers through ``begin``."""
         self._close_button = True
+
+    def dismiss_popup(self, popup_id: str) -> None:
+        """Simulate ImGui's own dismissal of a popup — an outside click/Escape.
+
+        The next ``begin_popup`` for *popup_id* reports it shut, as real ImGui
+        does once the user clicks away from a non-modal popup.
+        """
+        self._open_popups.discard(popup_id)
 
     def _note_id(self, label: str) -> None:
         """Record *label*'s ImGui id, raising on a conflict under strict mode.

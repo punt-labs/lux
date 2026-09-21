@@ -6,11 +6,13 @@ The button and the popup are the two collaborating halves of one affordance
 once opened), so they share this module rather than each earning its own
 file (PY-OO-2: a class and its close collaborator, not an unrelated pair).
 
-``FrameInfoPopup`` is modeled on
-:class:`~punt_lux.display.menus.projections.WorldPanel`: a small,
-self-managed floating window, one at a time, placed at the click that opened
-it and dismissed on a click elsewhere. Unlike the World panel it renders no
-menu model — its rows are a plain snapshot the Hub already formatted
+``FrameInfoPopup`` renders in ImGui's dedicated popup layer -- always above
+every normal and docked window by construction -- so a popup spawned from a
+frame's own title-bar glyph sits above that frame rather than behind it. A
+plain floating window cannot: the click that opens the popup focuses the
+frame it lands in, and a same-click same-frame focus outranks a floating
+window. One popup at a time, anchored at the glyph, dismissed by ImGui itself
+on an outside click. Its rows are a plain snapshot the Hub already formatted
 (``FrameOwnerFacts``, DES-c7xi's Hub->display replication), so rendering is
 render-loop-cheap: no live read, no per-frame lookup, just the last cached
 snapshot for whichever frame is currently open.
@@ -49,6 +51,11 @@ class FrameInfoPopup:
     One popup at a time: opening a different frame's glyph replaces whichever
     was open, rather than stacking a second window.
     """
+
+    # A stable, title-independent popup-stack id. ImGui keys the popup-layer
+    # entry off this, so the popup never re-hashes and self-dismisses when its
+    # rows change, and one id enforces the one-at-a-time rule for free.
+    _POPUP_ID = "frame_info_popup"
 
     _frame_for: Callable[[str, HubId], Frame | None]
     _open_frame_id: str | None
@@ -109,43 +116,26 @@ class FrameInfoPopup:
         self._open_frame_id = None
         self._open_hub = None
 
-    def check_background_click(self, imgui: Any) -> None:
-        """Dismiss the popup on a left click that lands on the workspace background.
-
-        Mirrors ``WorldPanel.check_background_click``'s detection, called at
-        the same point in the render loop -- before any frame or the popup
-        itself paints this frame, so "the current window" here is still the
-        background dockspace.
-        """
-        if self._open_frame_id is None:
-            return
-        if not imgui.is_mouse_clicked(imgui.MouseButton_.left):
-            return
-        if imgui.is_any_item_hovered():
-            return
-        if not imgui.is_window_hovered():
-            return
-        self.close()
-
     def render(self, imgui: Any) -> None:
-        """Render the popup while open; auto-closes if its frame is gone."""
+        """Render the popup in ImGui's always-on-top popup layer while open.
+
+        Auto-closes if its frame is gone, and syncs to ImGui's own dismissal
+        (an outside click or Escape) the frame ``begin_popup`` reports the
+        popup shut. ``end_popup`` balances only a ``begin_popup`` that opened.
+        """
         if self._open_frame_id is None or self._open_hub is None:
             return
         if self._frame_for(self._open_frame_id, self._open_hub) is None:
             self.close()
             return
         self._place(imgui)
-        wants_open = True  # ImGui writes the close-button's answer back into this
-        _, still_open = imgui.begin(
-            "Connection###frame_info_popup", wants_open, self._flags(imgui)
-        )
+        if not imgui.begin_popup(self._POPUP_ID, self._flags(imgui)):
+            self.close()
+            return
         try:
-            if not still_open:
-                self.close()
-                return
             self._render_rows(imgui)
         finally:
-            imgui.end()  # a raising action must not leave the window stack unbalanced
+            imgui.end_popup()
 
     def _render_rows(self, imgui: Any) -> None:
         """Render the facts as a compact 2-column label/value grid."""
@@ -162,11 +152,16 @@ class FrameInfoPopup:
             imgui.end_table()
 
     def _place(self, imgui: Any) -> None:
-        """Put the popup where the glyph was clicked and raise it, the first frame."""
+        """Open the popup in the popup layer and anchor it at the glyph, once.
+
+        ``open_popup`` and ``begin_popup`` (in ``render``) must fire at the
+        same ID-stack scope for ImGui to match them; both live here at the
+        render loop's root scope, never in the title-bar button's frame scope.
+        """
         if self._placed:
             return
+        imgui.open_popup(self._POPUP_ID)
         imgui.set_next_window_pos(self._spawn_pos, imgui.Cond_.always.value)
-        imgui.set_next_window_focus()  # one-shot: every-frame focus blocks dragging
         self._placed = True
 
     @staticmethod
@@ -223,8 +218,7 @@ class FrameInfoButton:
         glyph = (band := imgui.get_frame_height()) * self._SCALE
         high = ImVec2(pos.x + size.x - band - self._GAP, pos.y + (band + glyph) / 2)
         low = ImVec2(high.x - glyph, high.y - glyph)
-        hovered = self._hovered(imgui, low, high)
-        self._paint(imgui, low, high, hovered=hovered)
+        hovered = self._paint(imgui, low, high)
         if hovered and imgui.is_mouse_clicked(imgui.MouseButton_.left):
             resolved = self._facts_for(frame.frame_id, frame.hub)
             rows = resolved if resolved is not None else _UNKNOWN_OWNER_ROWS
@@ -237,8 +231,14 @@ class FrameInfoButton:
         mouse = imgui.get_mouse_pos()
         return bool(low.x <= mouse.x <= high.x and low.y <= mouse.y <= high.y)
 
-    def _paint(self, imgui: Any, low: ImVec2, high: ImVec2, *, hovered: bool) -> None:
-        """Fill the glyph's rect and center its label, in theme colours."""
+    def _paint(self, imgui: Any, low: ImVec2, high: ImVec2) -> bool:
+        """Fill the glyph's rect and center its label; return whether hovered.
+
+        Reports its own hover state the way an ImGui widget returns its
+        interaction result, so the caller reads it once for the click test
+        rather than hit-testing the glyph a second time.
+        """
+        hovered = self._hovered(imgui, low, high)
         draw = imgui.get_foreground_draw_list()
         style = imgui.get_style()
         fill = imgui.Col_.button_hovered if hovered else imgui.Col_.button
@@ -254,3 +254,4 @@ class FrameInfoButton:
         draw.add_text(
             text_pos, imgui.get_color_u32(style.color_(imgui.Col_.text)), self._LABEL
         )
+        return hovered

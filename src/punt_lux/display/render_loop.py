@@ -736,8 +736,8 @@ class RenderLoop:
         self._menus.check_world_menu_background_click(imgui)
         self._menus.render_world_panel(imgui)
 
-        # Frame title-bar info popup: background click to dismiss.
-        self._frame_info_popup.check_background_click(imgui)
+        # Frame title-bar info popup: rendered in ImGui's popup layer, above
+        # the frame that spawned it; ImGui dismisses it on an outside click.
         self._frame_info_popup.render(imgui)
 
         # Every scene renders inside a frame (workspace model); there is no

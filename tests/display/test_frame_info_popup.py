@@ -1,7 +1,8 @@
 """FrameInfoPopup — the title-bar glyph's popup, opened by open_for().
 
-Modeled on WorldPanel: one popup at a time, placed at the anchor on first
-render, dismissed on a click elsewhere, auto-closed if its frame disappears.
+Rendered in ImGui's always-on-top popup layer (``open_popup`` +
+``begin_popup``), so it sits above the frame that spawned it: one popup at a
+time, anchored at the glyph, dismissed by ImGui itself on an outside click.
 Addressed by ``(frame_id, hub)``, never a bare id, since two Hubs can mint
 the identical frame id (DES-c7xi round 3).
 """
@@ -23,6 +24,7 @@ if TYPE_CHECKING:
 _ROWS = (("Client", "lux"), ("Kind", "agent"))
 _HUB = HubId.stub()
 _OTHER_HUB = HubId("okinos", 2)
+_POPUP_ID = "frame_info_popup"  # the stable popup-stack id FrameInfoPopup uses
 
 
 def _frame_for(*ids: str, hub: HubId = _HUB) -> Callable[[str, HubId], Frame | None]:
@@ -51,14 +53,14 @@ class TestOpening:
         popup = FrameInfoPopup(_frame_for("f1"))
         imgui = FakeImGui()
         popup.render(imgui)
-        assert imgui.windows == ()
+        assert imgui.popups == ()
 
-    def test_an_open_popup_renders_its_window(self) -> None:
+    def test_an_open_popup_renders_in_the_popup_layer(self) -> None:
         popup = FrameInfoPopup(_frame_for("f1"))
         popup.open_for("f1", _HUB, _ROWS, (10.0, 20.0))
         imgui = FakeImGui()
         popup.render(imgui)
-        assert imgui.windows == ("Connection",)
+        assert imgui.popups == (_POPUP_ID,)
 
     def test_an_open_popup_renders_its_rows_verbatim(self) -> None:
         popup = FrameInfoPopup(_frame_for("f1"))
@@ -67,14 +69,14 @@ class TestOpening:
         popup.render(imgui)
         assert imgui.table_rows == _ROWS
 
-    def test_opening_raises_the_popup_to_the_front_exactly_once(self) -> None:
+    def test_opening_opens_the_popup_stack_exactly_once(self) -> None:
         popup = FrameInfoPopup(_frame_for("f1"))
         popup.open_for("f1", _HUB, _ROWS, (10.0, 20.0))
         imgui = FakeImGui()
         popup.render(imgui)
-        assert imgui.focus_requests == 1
-        popup.render(imgui)
-        assert imgui.focus_requests == 1
+        assert imgui.opened_popup_ids == (_POPUP_ID,)
+        popup.render(imgui)  # the second frame must not re-open the popup stack
+        assert imgui.opened_popup_ids == (_POPUP_ID,)
 
 
 class TestOneAtATime:
@@ -88,46 +90,33 @@ class TestOneAtATime:
         popup.render(imgui)
         assert imgui.table_rows == (("Client", "quarry"),)
 
-    def test_only_one_window_is_ever_open(self) -> None:
+    def test_only_one_popup_is_ever_open(self) -> None:
         popup = FrameInfoPopup(_frame_for("f1", "f2"))
         popup.open_for("f1", _HUB, _ROWS, (10.0, 20.0))
         popup.open_for("f2", _HUB, _ROWS, (30.0, 40.0))
         imgui = FakeImGui()
         popup.render(imgui)
-        assert imgui.windows == ("Connection",)
+        assert imgui.popups == (_POPUP_ID,)
 
 
 class TestDismissal:
-    def test_the_close_button_shuts_the_popup(self) -> None:
+    def test_an_outside_click_shuts_the_popup(self) -> None:
         popup = FrameInfoPopup(_frame_for("f1"))
         popup.open_for("f1", _HUB, _ROWS, (10.0, 20.0))
         imgui = FakeImGui()
-        imgui.click_close_button()
+        popup.render(imgui)  # opens and draws it in the popup layer
+        imgui.dismiss_popup(_POPUP_ID)  # ImGui's own outside-click dismissal
+        popup.render(imgui)  # begin_popup now reports it shut
+        assert not popup.is_open
+
+    def test_a_dismissed_popup_draws_nothing_further(self) -> None:
+        popup = FrameInfoPopup(_frame_for("f1"))
+        popup.open_for("f1", _HUB, _ROWS, (10.0, 20.0))
+        imgui = FakeImGui()
         popup.render(imgui)
-        assert not popup.is_open
-
-    def test_a_background_click_dismisses_the_open_popup(self) -> None:
-        popup = FrameInfoPopup(_frame_for("f1"))
-        popup.open_for("f1", _HUB, _ROWS, (10.0, 20.0))
-        imgui = FakeImGui()
-        imgui.click_background()
-        popup.check_background_click(imgui)
-        assert not popup.is_open
-
-    def test_a_background_click_on_a_shut_popup_is_a_no_op(self) -> None:
-        popup = FrameInfoPopup(_frame_for("f1"))
-        imgui = FakeImGui()
-        imgui.click_background()
-        popup.check_background_click(imgui)  # never raises; nothing to close
-        assert not popup.is_open
-
-    def test_a_click_on_a_widget_leaves_the_popup_open(self) -> None:
-        popup = FrameInfoPopup(_frame_for("f1"))
-        popup.open_for("f1", _HUB, _ROWS, (10.0, 20.0))
-        imgui = FakeImGui()
-        imgui.click_widget()
-        popup.check_background_click(imgui)
-        assert popup.is_open
+        imgui.dismiss_popup(_POPUP_ID)
+        popup.render(imgui)
+        assert imgui.popups == (_POPUP_ID,)  # drawn on the first frame only
 
 
 class TestAutoClose:
@@ -137,7 +126,7 @@ class TestAutoClose:
         imgui = FakeImGui()
         popup.render(imgui)
         assert not popup.is_open
-        assert imgui.windows == ()
+        assert imgui.popups == ()
 
     def test_the_popup_stays_open_while_its_frame_still_exists(self) -> None:
         popup = FrameInfoPopup(_frame_for("f1"))
@@ -159,7 +148,7 @@ class TestHubScoping:
         imgui = FakeImGui()
         popup.render(imgui)
         assert not popup.is_open
-        assert imgui.windows == ()
+        assert imgui.popups == ()
 
     def test_a_frame_that_exists_under_its_own_hub_stays_open(self) -> None:
         popup = FrameInfoPopup(_frame_for("main", hub=_HUB))
