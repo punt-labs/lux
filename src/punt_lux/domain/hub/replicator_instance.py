@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, cast
 from punt_lux.domain.hub.callback_hold import CallbackRouter
 from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
 from punt_lux.domain.hub.clients import client_registry
+from punt_lux.domain.hub.frame_owner_facts_instance import hub_frame_owner_facts
 from punt_lux.domain.hub.hub_display import hub_display
 from punt_lux.domain.hub.inbox import offer as inbox_offer
 from punt_lux.domain.hub.menu_event import MenuEventRouter
@@ -60,6 +61,7 @@ hub_replicator = HubReplicator(
     cast("ClientProvider", client_registry),
     DisplayPaths(),
     hub_display,
+    hub_frame_owner_facts,
 )
 
 # Closes the bootstrap ordering gap: client_registry (clients.py) is built

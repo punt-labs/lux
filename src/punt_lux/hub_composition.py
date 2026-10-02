@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, final
 
 from punt_lux.domain.hub import client_registry, hub, hub_display
 from punt_lux.domain.hub.details_instance import hub_client_details
+from punt_lux.domain.hub.frame_owner_facts_instance import hub_frame_owner_facts
 from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.inbox import ensure_writer, inbox_depth_for, next_event
 from punt_lux.domain.hub.replicator_instance import (
@@ -24,6 +25,7 @@ from punt_lux.domain.hub.replicator_instance import (
     hub_replicator,
 )
 from punt_lux.operations import HubPorts, Operations
+from punt_lux.operations.canonical_frame_owner import CanonicalFrameOwner
 from punt_lux.operations.client_details_port import ClientDetailsPort
 from punt_lux.operations.display_connection import HubDisplayConnection
 from punt_lux.paths import DisplayPaths
@@ -43,13 +45,28 @@ class HubComposition:
     @classmethod
     def operations(cls) -> Operations:
         """Compose the operations facade every surface calls."""
+        ports = cls.ports()
+        cls._bind_frame_owner_facts(ports)
         return Operations.for_store(
             hub_display,
             hub_replicator,
             hub=hub,
             menu_registry=hub_menu_registry,
             callback_router=hub_callback_router,
-            ports=cls.ports(),
+            ports=ports,
+        )
+
+    @staticmethod
+    def _bind_frame_owner_facts(ports: HubPorts) -> None:
+        """Bind the reader the replicator resolves a scene's owner facts through.
+
+        Mirrors :meth:`bind_client_details`: the replicator is built before the
+        operations layer exists, so it holds a Null Object from the start; this
+        wires the real reader once operations are composed. Idempotent, so
+        either composition root -- MCP or REST -- may run it; last wins.
+        """
+        hub_frame_owner_facts.bind(
+            CanonicalFrameOwner.for_store(hub_display, hub=hub, ports=ports)
         )
 
     @classmethod

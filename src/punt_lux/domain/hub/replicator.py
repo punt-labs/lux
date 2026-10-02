@@ -41,6 +41,7 @@ from punt_lux.domain.hub.respawn_backoff import RespawnBackoff
 if TYPE_CHECKING:
     from punt_lux.domain.hub.crash_attribution import QuarantinePort
     from punt_lux.domain.hub.dirty_signal import DrainedBatch
+    from punt_lux.domain.hub.frame_owner_facts import FrameOwnerFactsReader
     from punt_lux.domain.hub.replicator_ports import (
         CallbackMenuReader,
         ClientProvider,
@@ -110,6 +111,7 @@ class HubReplicator:
     _backoff: float
     _current_suspect: frozenset[SceneId]
     _disconnected_retry: DisconnectedRetry
+    _owner_facts: FrameOwnerFactsReader
     __slots__ = (
         "_attribution",
         "_backoff",
@@ -118,6 +120,7 @@ class HubReplicator:
         "_current_suspect",
         "_disconnected_retry",
         "_menu_reader",
+        "_owner_facts",
         "_reader",
         "_recovery",
         "_signal",
@@ -132,12 +135,14 @@ class HubReplicator:
         clients: ClientProvider,
         lifecycle: DisplayLifecycle,
         quarantine: QuarantinePort,
+        owner_facts: FrameOwnerFactsReader,
     ) -> Self:
         self = super().__new__(cls)
         self._reader = reader
         self._menu_reader = menu_reader
         self._callback_reader = callback_reader
         self._clients = clients
+        self._owner_facts = owner_facts
         self._signal = DirtySignal()
         self._attribution = CrashAttribution(quarantine)
         # Wire the tally reset to the quarantine-clear cascade so a fixed
@@ -380,10 +385,15 @@ class HubReplicator:
         """Send a copy of the scene; return whether it was empty (a reclaim candidate).
 
         The store returns a snapshot whose roots are already copied out, so the
-        send runs with no store lock held. An empty scene blanks its own frame.
+        send runs with no store lock held. An empty scene blanks its own frame;
+        owner facts resolve fresh here (like the menu bar) and ``None`` leaves
+        the display's cached snapshot alone rather than blanking it.
         """
         snapshot = self._reader.snapshot(scene_id)
-        snapshot.push(self._clients.get())
+        snapshot.push(
+            self._clients.get(),
+            frame_owner_facts=self._owner_facts.facts_for(scene_id),
+        )
         return snapshot.is_empty
 
     def _reclaim_emptied(self, scenes: tuple[SceneId, ...]) -> None:

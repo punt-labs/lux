@@ -186,9 +186,14 @@ class FakeImGui:
     _mouse_pos: Vec2
     _item_hovered: bool
     _window_hovered: bool
+    _table_rows: list[tuple[str, ...]]
+    _current_row: list[str]
+    _focus_requests: int
     __slots__ = (
         "_clicks",
         "_close_button",
+        "_current_row",
+        "_focus_requests",
         "_item_hovered",
         "_lines",
         "_menus_open",
@@ -198,6 +203,7 @@ class FakeImGui:
         "_path",
         "_seen_ids",
         "_strict_ids",
+        "_table_rows",
         "_window_hovered",
         "_windows",
     )
@@ -223,6 +229,9 @@ class FakeImGui:
         self._mouse_pos = Vec2(0.0, 0.0)
         self._item_hovered = False
         self._window_hovered = True
+        self._table_rows = []
+        self._current_row = []
+        self._focus_requests = 0
         return self
 
     # -- what was drawn -----------------------------------------------------
@@ -241,6 +250,11 @@ class FakeImGui:
     def open_windows(self) -> int:
         """Return how many windows are still on the stack — 0 when balanced."""
         return self._open_windows
+
+    @property
+    def table_rows(self) -> tuple[tuple[str, ...], ...]:
+        """Return every row drawn by ``begin_table``/``table_next_row``, in order."""
+        return tuple(self._table_rows)
 
     def labels_under(self, *path: str) -> tuple[str, ...]:
         """Return the labels drawn directly under *path*."""
@@ -313,15 +327,66 @@ class FakeImGui:
         """Close the current window, taking it off the stack."""
         self._open_windows -= 1
 
-    def small_button(self, _label: str) -> bool:
-        """Report a button the user did not press."""
-        return False
+    def small_button(self, label: str) -> bool:
+        """Report whether the user clicked this button, by its visible label."""
+        return self._visible(label) in self._clicks
 
     def set_next_window_size(self, _size: Any, _cond: int) -> None:
         """Accept the panel's requested size."""
 
     def set_next_window_pos(self, _pos: Any, _cond: int) -> None:
         """Accept the panel's requested position."""
+
+    def set_next_window_focus(self) -> None:
+        """Record a request to raise the next window to the front."""
+        self._focus_requests += 1
+
+    @property
+    def focus_requests(self) -> int:
+        """Return how many times a window was asked to the front this fixture."""
+        return self._focus_requests
+
+    def set_cursor_screen_pos(self, _pos: Any) -> None:
+        """Accept a cursor placement request."""
+
+    def get_window_pos(self) -> Vec2:
+        """Return a fixed window origin."""
+        return Vec2(100.0, 100.0)
+
+    def get_window_size(self) -> Vec2:
+        """Return a fixed window extent."""
+        return Vec2(400.0, 300.0)
+
+    def get_frame_height(self) -> float:
+        """Return a fixed title-bar/button height."""
+        return 20.0
+
+    def get_item_rect_min(self) -> Vec2:
+        """Return the last-drawn item's top-left corner, as a fixed anchor."""
+        return Vec2(370.0, 100.0)
+
+    def begin_table(self, _id: str, _columns: int) -> bool:
+        """Open a table; every call succeeds."""
+        return True
+
+    def table_next_row(self) -> None:
+        """Flush the current row and start a new one."""
+        if self._current_row:
+            self._table_rows.append(tuple(self._current_row))
+            self._current_row = []
+
+    def table_next_column(self) -> None:
+        """Advance to the next column; ``text`` fills it."""
+
+    def text(self, value: str) -> None:
+        """Record one cell's text into the current row."""
+        self._current_row.append(value)
+
+    def end_table(self) -> None:
+        """Close the table, flushing any row still open."""
+        if self._current_row:
+            self._table_rows.append(tuple(self._current_row))
+            self._current_row = []
 
     def is_mouse_clicked(self, _button: Flag) -> bool:
         """Report whether the left button went down, and consume the click.

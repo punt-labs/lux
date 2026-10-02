@@ -36,6 +36,7 @@ class _RecordingPusher:
         frame_size: tuple[int, int] | None = None,
         frame_flags: dict[str, bool] | None = None,
         frame_layout: Literal["tab", "stack"] | None = None,
+        frame_owner_facts: tuple[tuple[str, str], ...] | None = None,
     ) -> None:
         self.calls.append(
             {
@@ -48,6 +49,7 @@ class _RecordingPusher:
                 "frame_size": frame_size,
                 "frame_flags": frame_flags,
                 "frame_layout": frame_layout,
+                "frame_owner_facts": frame_owner_facts,
             }
         )
 
@@ -141,6 +143,25 @@ def test_push_resends_every_presentation_field() -> None:
     assert call["frame_flags"] == {"no_resize": True}
     assert call["frame_layout"] == "stack"
     assert call["title"] == "Board"
+
+
+def test_push_forwards_the_owner_facts_it_is_given() -> None:
+    # Owner facts are resolved fresh at send time, never part of the
+    # presentation's own persisted fields -- a push-time parameter only.
+    pres = ScenePresentation(frame_id="board")
+    pusher = _RecordingPusher()
+    rows = (("Client", "lux"),)
+    pres.push(pusher, SceneId("beads"), [], frame_owner_facts=rows)
+    (call,) = pusher.calls
+    assert call["frame_owner_facts"] == rows
+
+
+def test_push_defaults_owner_facts_to_none() -> None:
+    pres = ScenePresentation(frame_id="board")
+    pusher = _RecordingPusher()
+    pres.push(pusher, SceneId("beads"), [])
+    (call,) = pusher.calls
+    assert call["frame_owner_facts"] is None
 
 
 def test_frame_id_for_local_resolves_a_recorded_scoped_frame() -> None:

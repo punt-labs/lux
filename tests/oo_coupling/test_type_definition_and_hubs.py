@@ -181,6 +181,19 @@ def test_wiring_hub_efferent_cap_is_relaxed_only_for_the_named_roles() -> None:
     assert main["public_names"] == ("<=", 100.0)
 
 
+def test_hub_composition_is_pinned_as_a_wiring_hub() -> None:
+    # Leader-ruled 2026-09-19 (lux-c7xi): the Hub composition root joined the
+    # allowlist alongside facade/replicator_instance -- pinned explicitly, not
+    # just covered by the generic membership loop above, so a future removal
+    # of this specific path fails loud rather than silently narrowing the set.
+    path = "src/punt_lux/hub_composition.py"
+    assert path in CouplingScorer.WIRING_HUB_PATHS
+    assert CouplingScorer._relaxed_thresholds(path)["efferent_coupling"] == (
+        "<=",
+        20.0,
+    )
+
+
 def test_wiring_hub_cap_is_not_granted_to_a_same_suffix_path_outside_the_package() -> (
     None
 ):

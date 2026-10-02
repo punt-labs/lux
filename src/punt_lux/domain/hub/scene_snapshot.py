@@ -54,9 +54,19 @@ class SceneSnapshot:
         """Whether the scene had no roots — an emptied or departed scene."""
         return not self._roots
 
-    def push(self, sender: ScenePusher) -> None:
+    def push(
+        self,
+        sender: ScenePusher,
+        *,
+        frame_owner_facts: tuple[tuple[str, str], ...] | None = None,
+    ) -> None:
         """Resend the copied scene; an empty scene sends no roots to blank its frame."""
-        self._presentation.push(sender, self._scene_id, self._roots)
+        self._presentation.push(
+            sender,
+            self._scene_id,
+            self._roots,
+            frame_owner_facts=frame_owner_facts,
+        )
 
 
 @final

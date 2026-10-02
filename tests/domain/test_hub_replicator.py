@@ -18,6 +18,7 @@ import pytest
 
 from punt_lux.domain.hub.dirty_signal import DrainedBatch
 from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
+from punt_lux.domain.hub.frame_owner_facts import NoFrameOwnerFacts
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.menu_models import Menu, MenuAction
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
@@ -35,6 +36,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from punt_lux.domain.element import Element as WireElement
+    from punt_lux.domain.hub.frame_owner_facts import FrameOwnerFactsReader
 
 _CONN = ConnectionId("repl-conn")
 
@@ -65,6 +67,7 @@ class _FakeSender:
     shows: list[str]
     frames: list[str | None]
     roots: list[list[WireElement]]
+    owner_facts: list[tuple[tuple[str, str], ...] | None]
     menus: list[list[dict[str, object]]]
     callback_submenus: list[list[dict[str, object]]]
     timeline: list[str]
@@ -90,6 +93,7 @@ class _FakeSender:
         "callback_submenus",
         "frames",
         "menus",
+        "owner_facts",
         "roots",
         "shows",
         "timeline",
@@ -100,6 +104,7 @@ class _FakeSender:
         self.shows = []
         self.frames = []
         self.roots = []
+        self.owner_facts = []
         self.menus = []
         self.callback_submenus = []
         self.timeline = []
@@ -177,6 +182,7 @@ class _FakeSender:
         elements: list[WireElement],
         *,
         frame_id: str | None = None,
+        frame_owner_facts: tuple[tuple[str, str], ...] | None = None,
         **_kwargs: object,
     ) -> None:
         self._guard()
@@ -194,6 +200,7 @@ class _FakeSender:
             self.shows.append(scene_id)
             self.frames.append(frame_id)
             self.roots.append(list(elements))
+            self.owner_facts.append(frame_owner_facts)
             self.timeline.append(f"show:{scene_id}")
         if self._defer_after == scene_id:
             # The send succeeded, but the display crashes on render — the
@@ -392,6 +399,7 @@ def _replicator(
     store: HubDisplay,
     menu_registry: HubMenuRegistry | None = None,
     callback_wire: list[dict[str, object]] | None = None,
+    owner_facts: FrameOwnerFactsReader | None = None,
 ) -> tuple[HubReplicator, _FakeSender, _FakeProvider, _FakeLifecycle]:
     sender = _FakeSender()
     provider = _FakeProvider(sender)
@@ -406,6 +414,7 @@ def _replicator(
         provider,
         lifecycle,
         store,  # HubDisplay satisfies QuarantinePort structurally
+        owner_facts if owner_facts is not None else NoFrameOwnerFacts(),
     )
 
     def _reconcile() -> None:
@@ -581,6 +590,56 @@ def test_a_generic_menu_send_error_restores_the_flag_and_retries() -> None:
         assert sender.menus == _FILE_BAR  # re-delivered
         assert lifecycle.calls == []  # generic failure never reaps
         assert provider.drops == 0  # nor reconnects
+    finally:
+        repl.stop()
+
+
+class _FakeOwnerFacts:
+    """A FrameOwnerFactsReader returning a fixed rows tuple for one scene id."""
+
+    _rows: dict[str, tuple[tuple[str, str], ...] | None]
+    __slots__ = ("_rows",)
+
+    def __new__(cls, rows: dict[str, tuple[tuple[str, str], ...] | None]) -> Self:
+        self = super().__new__(cls)
+        self._rows = rows
+        return self
+
+    def facts_for(self, scene_id: SceneId) -> tuple[tuple[str, str], ...] | None:
+        return self._rows.get(str(scene_id))
+
+
+def test_the_resend_carries_the_owner_facts_the_reader_resolves() -> None:
+    # The replicator attaches whatever the bound FrameOwnerFactsReader resolves
+    # for the scene id -- populated fresh at every send, like the menu bar.
+    store = HubDisplay()
+    scene = _seed(store, "s1")
+    rows = (("Client", "lux"), ("Kind", "agent"))
+    repl, sender, _provider, _lifecycle = _replicator(
+        store, owner_facts=_FakeOwnerFacts({"s1": rows})
+    )
+    repl.start()
+    try:
+        repl.mark_dirty(scene)
+        assert sender.wait_sent(2.0)
+        assert sender.owner_facts == [rows]
+    finally:
+        repl.stop()
+
+
+def test_an_unowned_scene_sends_none_owner_facts() -> None:
+    # The reader reporting no facts for a scene (never resolved, or the
+    # dict simply has no entry) sends None -- the display keeps its cache.
+    store = HubDisplay()
+    scene = _seed(store, "s1")
+    repl, sender, _provider, _lifecycle = _replicator(
+        store, owner_facts=_FakeOwnerFacts({})
+    )
+    repl.start()
+    try:
+        repl.mark_dirty(scene)
+        assert sender.wait_sent(2.0)
+        assert sender.owner_facts == [None]
     finally:
         repl.stop()
 

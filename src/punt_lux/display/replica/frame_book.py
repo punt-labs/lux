@@ -129,7 +129,7 @@ class FrameBook:
 
     @staticmethod
     def _adopt_presentation(frame: Frame, msg: SceneMessage) -> None:
-        """Take the title, flags and layout a push carries; an omitted field
+        """Take the title, flags, and layout a push carries; an omitted field
         means "leave it", never "reset it"."""
         if msg.frame_title:
             frame.title = msg.frame_title

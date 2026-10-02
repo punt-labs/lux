@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from punt_lux.protocol.elements import _strip_none
@@ -11,6 +12,8 @@ if TYPE_CHECKING:
     from punt_lux.protocol.messages.scene import SceneMessage
 
 __all__ = ["SceneCodec"]
+
+logger = logging.getLogger(__name__)
 
 _ELEMENTS = PickledElementCodec()
 
@@ -41,6 +44,11 @@ class SceneCodec:
                 "frame_size": list(msg.frame_size) if msg.frame_size else None,
                 "frame_flags": msg.frame_flags,
                 "frame_layout": msg.frame_layout,
+                "frame_owner_facts": (
+                    [[label, value] for label, value in msg.frame_owner_facts]
+                    if msg.frame_owner_facts is not None
+                    else None
+                ),
             }
         )
 
@@ -59,13 +67,10 @@ class SceneCodec:
             layout=layout,
             title=d.get("title"),
             frame_title=d.get("frame_title"),
-            frame_size=cls._parse_frame_size(s) if (s := d.get("frame_size")) else None,
-            frame_flags=cast("dict[str, bool]", f)
-            if isinstance(f := d.get("frame_flags"), dict)
-            else None,
-            frame_layout=cast("Literal['tab', 'stack']", rl)  # pyright: ignore[reportUnnecessaryCast]
-            if (rl := d.get("frame_layout")) in ("tab", "stack")
-            else None,
+            frame_size=cls._parse_frame_size(d.get("frame_size")),
+            frame_flags=cls._parse_frame_flags(d.get("frame_flags")),
+            frame_layout=cls._parse_frame_layout(d.get("frame_layout")),
+            frame_owner_facts=cls._parse_owner_facts(d.get("frame_owner_facts")),
         )
 
     @staticmethod
@@ -76,8 +81,40 @@ class SceneCodec:
 
     @staticmethod
     def _parse_frame_size(raw: object) -> tuple[int, int] | None:
+        if not raw:
+            return None
         try:
             a, b = cast("tuple[int, int]", raw)
             return (int(a), int(b))
         except (TypeError, ValueError):
             return None
+
+    @staticmethod
+    def _parse_frame_flags(raw: object) -> dict[str, bool] | None:
+        return cast("dict[str, bool]", raw) if isinstance(raw, dict) else None
+
+    @staticmethod
+    def _parse_frame_layout(raw: object) -> Literal["tab", "stack"] | None:
+        return raw if raw in ("tab", "stack") else None
+
+    @staticmethod
+    def _parse_owner_facts(raw: object) -> tuple[tuple[str, str], ...] | None:
+        """Return the owning connection's rows, or ``None`` on absence/malformed.
+
+        Absent and malformed both decode to ``None``. A non-None list the Hub
+        serialized whose entries are not two-string rows signals protocol skew:
+        the whole field degrades to ``None`` and is logged, never partly kept.
+        """
+        if not isinstance(raw, list):
+            return None
+        rows: list[tuple[str, str]] = []
+        for entry in cast("list[object]", raw):
+            match entry:
+                case [str(first), str(second)]:
+                    rows.append((first, second))
+                case _:
+                    logger.warning(
+                        "frame_owner_facts contained a malformed entry: %r", entry
+                    )
+                    return None
+        return tuple(rows)

@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Self
 from punt_lux.display import RenderLoop
 from punt_lux.display.frame_placement import FramePlacement
 from punt_lux.display.geometry_capture import GeometryCapture
+from punt_lux.display.menus.frame_info_popup import FrameInfoButton
 from punt_lux.display.replica.frame import Frame
 from punt_lux.domain.identity import HubId
 
@@ -88,6 +89,9 @@ def _spy(monkeypatch: pytest.MonkeyPatch, server: RenderLoop, order: list[str]) 
     def render_contents(*_args: object) -> None:
         order.append("contents")
 
+    def render_info_button(_self: object, *_args: object) -> None:
+        """No-op: the button is irrelevant to the capture-order this file proves."""
+
     def resolve_flags(*_args: object) -> int:
         return 0
 
@@ -95,6 +99,7 @@ def _spy(monkeypatch: pytest.MonkeyPatch, server: RenderLoop, order: list[str]) 
         order.append("record")
 
     monkeypatch.setattr(server, "_render_frame_contents", render_contents)
+    monkeypatch.setattr(FrameInfoButton, "render", render_info_button)
     monkeypatch.setattr(server, "_resolve_frame_flags", resolve_flags)
     monkeypatch.setattr(GeometryCapture, "record_frame", record_frame)
 
