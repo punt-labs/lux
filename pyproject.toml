@@ -20,7 +20,7 @@ classifiers = [
 dependencies = [
     "typer>=0.15.0,<1",
     "rich>=15,<16",
-    "fastmcp>=3.0.0,<4",
+    "fastmcp>=3.0.0,<5",
     # luxd imports the SDK's streamable-HTTP session manager and transport
     # security settings directly. Floor past three HIGH advisories (Host/Origin
     # validation, HTTP session principal verification, cross-client task access);
