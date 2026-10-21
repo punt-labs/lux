@@ -18,6 +18,7 @@ _HUB = HubId.stub()
 _ROWS = (("Client", "lux"), ("Kind", "agent"))
 _UNKNOWN = (("Owner", "unknown"),)
 _GLYPH_CLICK = Vec2(470.0, 110.0)  # inside the glyph for menu_doubles' window
+_OFF_GLYPH = Vec2(150.0, 250.0)  # inside that window, nowhere near the glyph
 
 
 class _Facts:
@@ -93,3 +94,111 @@ def test_rereading_facts_each_frame_stays_silent(
             button.render_popup(imgui)
 
     assert len(caplog.records) == before
+
+
+def _frame(
+    button: FrameInfoButton,
+    imgui: FakeImGui,
+    frame_id: str = "f1",
+    *,
+    draws_frame: bool = True,
+) -> None:
+    """Run one display frame: the frame's glyph (if drawn), then the popup pass."""
+    if draws_frame:
+        button.render(make_frame(frame_id, hub=_HUB), imgui)
+    button.render_popup(imgui)
+
+
+def _press(pos: Vec2) -> FakeImGui:
+    imgui = FakeImGui()
+    imgui.press_at(pos)
+    return imgui
+
+
+def _release(pos: Vec2) -> FakeImGui:
+    imgui = FakeImGui()
+    imgui.release_at(pos)
+    return imgui
+
+
+def _button() -> FrameInfoButton:
+    return FrameInfoButton(_frame_for, _Facts(_ROWS))
+
+
+def test_a_press_and_release_on_the_glyph_across_frames_opens_the_popup() -> None:
+    button = _button()
+    _frame(button, _press(_GLYPH_CLICK))
+    _frame(button, _release(_GLYPH_CLICK))
+
+    assert button.popup.is_open
+
+
+def test_a_release_on_the_glyph_whose_press_began_off_it_does_nothing() -> None:
+    button = _button()
+    _frame(button, _press(_OFF_GLYPH))
+    _frame(button, _release(_GLYPH_CLICK))
+
+    assert not button.popup.is_open
+
+
+def test_a_proper_click_opens_the_popup_after_an_ignored_release() -> None:
+    button = _button()
+    _frame(button, _press(_OFF_GLYPH))
+    _frame(button, _release(_GLYPH_CLICK))
+    _frame(button, _press(_GLYPH_CLICK))
+    _frame(button, _release(_GLYPH_CLICK))
+
+    assert button.popup.is_open
+
+
+def test_a_press_on_one_frames_glyph_released_on_anothers_does_nothing() -> None:
+    button = _button()
+    _frame(button, _press(_GLYPH_CLICK), "f1")
+    _frame(button, _release(_GLYPH_CLICK), "f2")
+
+    assert not button.popup.is_open
+
+
+def test_a_release_after_the_pressed_frame_vanished_leaves_no_press_behind() -> None:
+    button = _button()
+    _frame(button, _press(_GLYPH_CLICK))
+    _frame(button, _release(_OFF_GLYPH), draws_frame=False)
+    _frame(button, _release(_GLYPH_CLICK))
+
+    assert not button.popup.is_open
+
+
+def test_a_drag_released_off_the_glyph_leaves_no_press_behind() -> None:
+    button = _button()
+    _frame(button, _press(_GLYPH_CLICK))
+    _frame(button, _release(_OFF_GLYPH))
+    _frame(button, _release(_GLYPH_CLICK))
+
+    assert not button.popup.is_open
+
+
+def test_a_press_in_flight_survives_the_frames_it_is_held_across() -> None:
+    button = _button()
+    _frame(button, _press(_GLYPH_CLICK))
+    _frame(button, FakeImGui())
+    _frame(button, FakeImGui())
+    _frame(button, _release(_GLYPH_CLICK))
+
+    assert button.popup.is_open
+
+
+def test_an_ignored_release_is_logged_once_at_debug_with_the_frame(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    button = _button()
+    with caplog.at_level(logging.DEBUG, logger="punt_lux.display.menus"):
+        _frame(button, _release(_GLYPH_CLICK))
+        _frame(button, FakeImGui())
+
+    ignored = [r for r in caplog.records if "ignored" in r.getMessage()]
+    assert [(r.levelno, r.getMessage()) for r in ignored] == [
+        (
+            logging.DEBUG,
+            f"glyph release for hub={_HUB} frame=f1 ignored: its press began elsewhere",
+        )
+    ]

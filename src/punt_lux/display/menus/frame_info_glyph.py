@@ -7,22 +7,19 @@ draw list has no such clip rect (as ``DockPill`` relies on too), so the glyph
 paints itself by hand and hit-tests the raw mouse position.
 
 Mouse edges on it are read by
-:class:`~punt_lux.display.menus.glyph_click.GlyphClick`: a click is the release
-of a press that did not drag, and the press edge is reported too.
+:class:`~punt_lux.display.menus.glyph_reading.GlyphReading`: a click is the
+release of a press that did not drag, and the press edge is reported too.
 
 ``imgui`` is typed ``Any``: imgui_bundle ships no type stubs.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Self, final
+from typing import Any, Self, final
 
 from imgui_bundle import ImVec2
 
-from punt_lux.display.menus.glyph_click import GlyphClick
-
-if TYPE_CHECKING:
-    from punt_lux.display.menus.glyph_click import GlyphReading
+from punt_lux.display.menus.glyph_reading import GlyphReading
 
 __all__ = ["FrameInfoGlyph"]
 
@@ -52,7 +49,7 @@ class FrameInfoGlyph:
         high = ImVec2(pos.x + size.x - band - self._GAP, pos.y + (band + glyph) / 2)
         low = ImVec2(high.x - glyph, high.y - glyph)
         hovered = self._paint(imgui, low, high)
-        return GlyphClick.read(imgui, (low.x, low.y), hovered=hovered)
+        return GlyphReading.read(imgui, (low.x, low.y), hovered=hovered)
 
     @staticmethod
     def _hovered(imgui: Any, low: ImVec2, high: ImVec2) -> bool:

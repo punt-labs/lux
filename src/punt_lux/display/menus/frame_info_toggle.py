@@ -1,8 +1,7 @@
-"""FrameInfoToggle — the title-bar glyph, and what its clicks do to the popup.
+"""FrameInfoToggle — draws one frame's title-bar glyph and feeds its mouse edges on.
 
-A click closes the popup it found open, else opens it. "Found open" is read at
-the *press*: a press outside the popup shuts it that frame, so by the release
-only the press tells a toggle-close from a fresh open.
+A click closes the popup it found open, else opens it; the
+:class:`~punt_lux.display.menus.popup_controller.PopupController` settles which.
 """
 
 from __future__ import annotations
@@ -10,8 +9,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Self, final
 
 from punt_lux.display.menus.frame_info_glyph import FrameInfoGlyph
+from punt_lux.display.menus.glyph_reading import GlyphReading
 from punt_lux.display.menus.open_popup import OpenFrame
 from punt_lux.display.menus.owner_rows import OwnerRows
+from punt_lux.display.menus.popup_controller import PopupController
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -28,10 +29,8 @@ class FrameInfoToggle:
     """Draw one frame's glyph and apply what the mouse did to it to the popup."""
 
     _glyph: FrameInfoGlyph
-    _popup: FrameInfoPopup
-    _rows: OwnerRows
-    _was_open_at_press: bool
-    __slots__ = ("_glyph", "_popup", "_rows", "_was_open_at_press")
+    _controller: PopupController
+    __slots__ = ("_controller", "_glyph")
 
     def __new__(
         cls,
@@ -40,33 +39,18 @@ class FrameInfoToggle:
     ) -> Self:
         self = super().__new__(cls)
         self._glyph = FrameInfoGlyph()
-        self._popup = popup
-        self._rows = OwnerRows(facts_for)
-        self._was_open_at_press = False
+        self._controller = PopupController(popup, OwnerRows(facts_for))
         return self
 
     def render(self, frame: Frame, imgui: Any) -> None:
-        """Draw ``frame``'s glyph, record a press, and act on a click."""
+        """Draw ``frame``'s glyph and apply its press, release, and click."""
         reading = self._glyph.render(imgui)
-        here = OpenFrame(frame.frame_id, frame.hub)
-        if reading.pressed:
-            self._was_open_at_press = self._popup.is_open_for(here)
-        if reading.clicked:
-            self._toggle(here, reading.anchor)
+        self._controller.observe(reading, OpenFrame(frame.frame_id, frame.hub))
+
+    def end_frame(self, imgui: Any) -> None:
+        """Close out the frame: a release anywhere ends the press in flight."""
+        self._controller.end_frame(is_released=GlyphReading.is_release(imgui))
 
     def refresh_rows(self) -> None:
         """Re-read the open popup's facts, which may have arrived since it opened."""
-        open_frame = self._popup.open_frame
-        if open_frame is not None:
-            self._popup.replace_rows(self._rows.for_refresh(open_frame))
-
-    def _toggle(self, here: OpenFrame, anchor: tuple[float, float]) -> None:
-        """Close the popup this click found open, else open it."""
-        was_open, self._was_open_at_press = self._was_open_at_press, False
-        if was_open:
-            # ImGui may have shut it on the press already: then nothing to close.
-            if self._popup.is_open_for(here):
-                self._popup.request_close()
-            return
-        rows = self._rows.for_open(here)
-        self._popup.open_for(here, rows, anchor)
+        self._controller.refresh_rows()

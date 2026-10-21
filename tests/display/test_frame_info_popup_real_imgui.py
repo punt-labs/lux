@@ -128,6 +128,24 @@ class _HeadlessDisplay:
         self.release()
         self.frames(1)
 
+    def near_miss_click(self) -> None:
+        """Press just outside the glyph, ease inside it, and release there.
+
+        The press lands on the title bar a hair off the glyph and travels less
+        than the drag threshold, so it is no window move -- yet it never began
+        on the glyph, and a release over the glyph must not count as its click.
+        """
+        x, y = self.glyph_centre()
+        half = imgui.get_frame_height() * 0.625 / 2
+        self.move_mouse((x + half + 1.5, y))
+        self.frames(1)
+        self.press()
+        self.frames(2)
+        self.move_mouse((x + half - 1.0, y))
+        self.frames(2)
+        self.release()
+        self.frames(1)
+
 
 @pytest.fixture
 def display() -> Iterator[_HeadlessDisplay]:
@@ -219,3 +237,24 @@ def test_a_second_click_closes_a_popup_that_does_not_cover_the_glyph(
     display.frames(4)
 
     assert not display.popup_is_open
+
+
+def test_a_release_on_the_glyph_whose_press_began_beside_it_does_not_open(
+    display: _HeadlessDisplay,
+) -> None:
+    display.near_miss_click()
+    display.frames(4)
+
+    assert not display.popup_is_open
+
+
+def test_a_proper_click_opens_the_popup_after_a_near_miss(
+    display: _HeadlessDisplay,
+) -> None:
+    display.near_miss_click()
+    display.frames(4)
+
+    display.click_glyph(held_frames=3)
+    display.frames(4)
+
+    assert display.popup_is_open

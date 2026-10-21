@@ -4,9 +4,8 @@ Clicking the glyph opens the
 :class:`~punt_lux.display.menus.frame_info_popup.FrameInfoPopup` the button owns,
 anchored at the glyph with the frame's owning-connection facts; a second click
 dismisses it. The glyph is the popup's only opener, so the render loop holds
-just the button and renders the popup through :meth:`render_popup` at the
-popup-layer root scope. The click logic lives in
-:class:`~punt_lux.display.menus.frame_info_toggle.FrameInfoToggle`.
+just the button and renders the popup via :meth:`render_popup` at root scope.
+Clicks go to :class:`~punt_lux.display.menus.frame_info_toggle.FrameInfoToggle`.
 
 ``imgui`` is typed ``Any``: imgui_bundle ships no type stubs.
 """
@@ -46,9 +45,10 @@ class FrameInfoButton:
         return self
 
     def render_popup(self, imgui: Any) -> None:
-        """Render the popup at the popup-layer root scope, with fresh facts."""
+        """Render the popup at root scope with fresh facts; close out the frame."""
         self._toggle.refresh_rows()
         self._popup.render(imgui)
+        self._toggle.end_frame(imgui)
 
     @property
     def popup(self) -> FrameInfoPopup:

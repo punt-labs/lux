@@ -601,6 +601,18 @@ class FakeImGui:
         self._mouse_released = True
         self._mouse_pos = pos
 
+    def press_at(self, pos: Vec2) -> None:
+        """Arm only the press edge of a left click at *pos* -- no release yet."""
+        self._mouse_clicked = True
+        self._mouse_released = False
+        self._mouse_pos = pos
+
+    def release_at(self, pos: Vec2) -> None:
+        """Arm only the release edge of a left click at *pos* -- no new press."""
+        self._mouse_clicked = False
+        self._mouse_released = True
+        self._mouse_pos = pos
+
     def dismiss_popup(self, popup_id: str) -> None:
         """Simulate ImGui's own dismissal of a popup — an outside click/Escape.
 
