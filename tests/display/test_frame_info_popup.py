@@ -245,6 +245,36 @@ class TestCloseButton:
         assert len(imgui.popups) == drawn  # the third frame drew nothing more
         assert not popup.is_open
 
+    def test_the_close_button_is_logged_once_with_the_frame(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        popup = FrameInfoPopup(_frame_for("f1"))
+        popup.open_for(OpenFrame("f1", _HUB), _ROWS, (10.0, 20.0))
+        imgui = FakeImGui(clicks={"x"})
+        with caplog.at_level(logging.INFO, logger="punt_lux.display.menus"):
+            for _ in range(3):
+                popup.render(imgui)
+        closes = [r.getMessage() for r in caplog.records if "closed:" in r.getMessage()]
+        assert closes == [
+            f"frame-info popup for hub={_HUB} frame=f1 closed: dismissed by the user"
+        ]
+
+    def test_a_second_glyph_click_is_logged_once_with_the_frame(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        popup = FrameInfoPopup(_frame_for("f1"))
+        popup.open_for(OpenFrame("f1", _HUB), _ROWS, (10.0, 20.0))
+        imgui = FakeImGui()
+        popup.render(imgui)
+        popup.request_close()
+        with caplog.at_level(logging.INFO, logger="punt_lux.display.menus"):
+            popup.render(imgui)
+            popup.render(imgui)
+        closes = [r.getMessage() for r in caplog.records if "closed:" in r.getMessage()]
+        assert closes == [
+            f"frame-info popup for hub={_HUB} frame=f1 closed: dismissed by the user"
+        ]
+
     def test_without_a_close_click_the_popup_stays_open(self) -> None:
         popup = FrameInfoPopup(_frame_for("f1"))
         popup.open_for(OpenFrame("f1", _HUB), _ROWS, (10.0, 20.0))

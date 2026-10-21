@@ -52,7 +52,7 @@ class FrameInfoButton:
 
     @property
     def popup(self) -> FrameInfoPopup:
-        """The popup this glyph opens; the render loop renders it at root scope."""
+        """The popup this glyph opens; exposed so tests can inspect it."""
         return self._popup
 
     def render(self, frame: Frame, imgui: Any) -> None:

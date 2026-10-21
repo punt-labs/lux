@@ -132,10 +132,10 @@ class FrameInfoPopup:
     def _close_because(self, reason: str) -> None:
         """Log why the popup shut, then close it.
 
-        Neither a vanished frame nor ImGui's own dismissal (outside click,
-        Escape, a focus change over the window it opened from) reports itself,
-        and a popup that vanishes without a trace is undiagnosable. Closing
-        clears the open state, so each shutting logs exactly once.
+        A vanished frame and ImGui's own dismissal (outside click, Escape, a
+        focus change over the window it opened from) report nothing themselves,
+        and a popup that vanishes without a trace is undiagnosable. Every close
+        the render pass makes comes through here, so each logs exactly once.
         """
         logger.info("frame-info popup for %s closed: %s", self._site.frame, reason)
         self._site.close()
@@ -150,7 +150,7 @@ class FrameInfoPopup:
         """
         if self._site.is_close_requested:
             imgui.close_current_popup()
-            self._site.close()
+            self._close_because("dismissed by the user")
             return
         if self._site.draw(imgui):
             self._site.request_close()
