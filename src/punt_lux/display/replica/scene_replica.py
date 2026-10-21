@@ -10,6 +10,7 @@ from punt_lux.display.replica._wiring import (
     FrameBook,
     ManifestPurge,
     OnSceneReplacedFn,
+    SceneRemoval,
     StaleIds,
     WidgetState,
     WidgetStateStore,
@@ -66,11 +67,11 @@ class SceneReplica:
     @property
     def frame_count(self) -> int:
         """Every Hub's own frame count; a collision never undercounts it here."""
-        return len(self)
+        return len(self._book)
 
     @property
     def is_empty(self) -> bool:
-        return not len(self)
+        return not len(self._book)
 
     @property
     def hub_count(self) -> int:
@@ -150,14 +151,15 @@ class SceneReplica:
     ) -> None:
         """Route a scene into its frame; an empty push removes it, husk and all."""
         key = HubScopedKey(hub, msg.id)
+        removal = SceneRemoval(self._book, self._owner_facts, self)
         if not msg.elements:
-            self._remove_emptied_scene(key)
+            removal.of_empty_push(key, msg.frame_owner_facts)
             return
         frame = self._book.ensure(msg, owner_fd, hub)
         self._owner_facts.adopt(
             HubScopedKey(frame.hub, frame.frame_id), msg.frame_owner_facts
         )
-        self._vacate_other_frame(frame, key)
+        removal.from_other_frame(frame, key)
         is_new = msg.id not in frame.scenes
         old_scene = frame.scenes.get(msg.id)
         frame.scenes[msg.id] = msg
@@ -166,20 +168,6 @@ class SceneReplica:
         else:
             self._replace_scene_state(key, msg, old_scene)
         self._book.record_owner(key, owner_fd)
-
-    def _remove_emptied_scene(self, key: HubScopedKey) -> None:
-        """Drop a scene an empty push named, resolved by its own Hub only."""
-        stale = self._book.frame_of_hub_scene(key)
-        if stale is not None and self.dismiss_framed_scene(stale, key.local):
-            self.dispose_frame(stale.frame_id, stale.hub)
-
-    def _vacate_other_frame(self, frame: Frame, key: HubScopedKey) -> None:
-        """Take ``key`` out of any other frame owning it, disposing an emptied one."""
-        old_frame = self._book.frame_of_hub_scene(key)
-        if old_frame is None or old_frame.frame_id == frame.frame_id:
-            return
-        if self.dismiss_framed_scene(old_frame, key.local):
-            self.dispose_frame(old_frame.frame_id, old_frame.hub)
 
     def _admit_new_scene(self, frame: Frame, key: HubScopedKey) -> None:
         """Place a scene the frame did not hold; active tab only for its first."""
@@ -246,7 +234,7 @@ class SceneReplica:
         return frozenset(f.hub for f in self._book.frames.values())
 
     def scene_ids(self) -> frozenset[str]:
-        return frozenset(self.scene_to_frame)
+        return frozenset(self._book.scene_to_frame)
 
     def widget_state_for(
         self, scene_id: str, hub: HubId = _NO_HUB

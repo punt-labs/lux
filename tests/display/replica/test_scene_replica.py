@@ -1379,6 +1379,69 @@ class TestOwnerFactsAdoption:
         assert mgr.owner_facts_for("s1") is None
 
 
+class TestOwnerFactsAcrossAnEmptyPush:
+    """An empty push removes a scene, but it still carries the Hub's current
+    canonical owner -- which may be a different connection once the senior
+    scene is gone -- so a frame that survives the removal adopts those facts."""
+
+    _OLD = (("Client", "departed"),)
+    _NEW = (("Client", "survivor"),)
+
+    def _two_scene_frame(self) -> SceneReplica:
+        mgr, _ = _make_manager()
+        for scene_id in ("s1", "s2"):
+            mgr.handle_framed_scene(
+                _make_scene(scene_id, frame_id="f", frame_owner_facts=self._OLD),
+                owner_fd=10,
+            )
+        return mgr
+
+    def test_the_removal_of_the_senior_scene_adopts_the_new_owners_facts(self) -> None:
+        mgr = self._two_scene_frame()
+
+        mgr.handle_framed_scene(
+            _make_scene("s1", frame_id="f", elements=[], frame_owner_facts=self._NEW),
+            owner_fd=10,
+        )
+
+        assert mgr.owner_facts_for("f") == self._NEW
+
+    def test_the_removal_of_the_last_scene_leaves_no_entry_behind(self) -> None:
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(
+            _make_scene("s1", frame_id="f", frame_owner_facts=self._OLD), owner_fd=10
+        )
+
+        mgr.handle_framed_scene(
+            _make_scene("s1", frame_id="f", elements=[], frame_owner_facts=self._NEW),
+            owner_fd=10,
+        )
+
+        assert mgr.owner_facts_for("f") is None
+
+    def test_an_empty_push_with_no_facts_keeps_the_prior_snapshot(self) -> None:
+        mgr = self._two_scene_frame()
+
+        mgr.handle_framed_scene(
+            _make_scene("s1", frame_id="f", elements=[], frame_owner_facts=None),
+            owner_fd=10,
+        )
+
+        assert mgr.owner_facts_for("f") == self._OLD
+
+    def test_an_empty_push_for_a_scene_no_frame_holds_creates_no_entry(self) -> None:
+        mgr, _ = _make_manager()
+
+        mgr.handle_framed_scene(
+            _make_scene(
+                "ghost", frame_id="f", elements=[], frame_owner_facts=self._NEW
+            ),
+            owner_fd=10,
+        )
+
+        assert mgr.owner_facts_for("f") is None
+
+
 class TestOwnerFactsHubScoping:
     """Two Hubs minting the identical frame id must never share one entry
     (frame_book.py already keys frames by ``HubScopedKey`` for exactly this
