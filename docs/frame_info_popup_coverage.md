@@ -90,7 +90,7 @@ renders and captures input); the concrete methods live in
 | ID3 | the popup's frame is gone → closed, logged once | `P::TestAutoClose::test_the_popup_closes_when_its_frame_is_gone`, `test_a_vanished_frame_is_logged_once_with_hub_and_frame`; `P::TestHubScoping::test_a_frame_that_exists_only_under_another_hub_is_treated_as_gone` | double (the replica is a function; nothing stubbed that the partition is about) |
 | ID4 | the popup's frame still exists (folded or not) → stays | `P::TestAutoClose::test_the_popup_stays_open_while_its_frame_still_exists`; `P::TestHubScoping::test_a_frame_that_exists_under_its_own_hub_stays_open` | double |
 | ID5 | a held title-bar press moves a window while a popup stands | **not covered, not coverable headlessly** — see Gap 3 | — |
-| FC1 | a frame appears, vanishes, folds or unfolds between press and release | RL9, RL11; the glyph of a folded frame is not drawn: `B::test_the_button_is_not_drawn_on_a_collapsed_frame` | double |
+| FC1 | a frame appears, vanishes, folds or unfolds between press and release | RL9, RL11; the glyph of a folded frame is not drawn: `B::test_the_button_is_not_drawn_on_a_collapsed_frame`; neither is a frame's with no title bar, which the model reads as `folded` (no glyph, so never a target): `B::test_a_frame_without_a_title_bar_draws_no_glyph`, `R::test_a_frame_without_a_title_bar_has_no_glyph_to_click`, `tests/display/test_glyph_set.py` | double |
 | DG1 | the pointer leaves the threshold | the RL5 real tests | real |
 | DG2 | the pointer returns; the latch stays | `R::test_dragging_away_and_back_before_releasing_does_not_open_the_popup` | real |
 

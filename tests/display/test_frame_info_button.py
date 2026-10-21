@@ -136,6 +136,7 @@ class _FakeImgui:
         allow_when_blocked_by_popup=SimpleNamespace(value=0),
         allow_when_blocked_by_active_item=SimpleNamespace(value=0),
     )
+    WindowFlags_ = SimpleNamespace(no_title_bar=SimpleNamespace(value=1))
     Col_ = _Colors
     MouseButton_ = _Buttons
 
@@ -343,5 +344,34 @@ def test_a_click_on_the_button_of_an_occluded_frame_does_not_open_the_popup(
     fake = _FakeImgui(expanded=True, clicked=True, mouse=_ON_BUTTON, occluded=True)
 
     server._render_single_frame(_frame(), fake, _PLACEMENT)
+
+    assert not server._frame_info_button.popup.is_open
+
+
+def test_a_frame_without_a_title_bar_draws_no_glyph(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _no_op_geometry(monkeypatch)
+    server = _make_server()
+    fake = _FakeImgui(expanded=True, clicked=False)
+    frame = _frame()
+    frame.hints.flags = {"no_title_bar": True}
+
+    server._render_single_frame(frame, fake, _PLACEMENT)
+
+    assert not fake.draw.rects
+    assert not fake.draw.texts
+
+
+def test_a_click_where_a_title_barless_frames_glyph_would_be_opens_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _no_op_geometry(monkeypatch)
+    server = _make_server()
+    fake = _FakeImgui(expanded=True, clicked=True, mouse=_ON_BUTTON)
+    frame = _frame()
+    frame.hints.flags = {"no_title_bar": True}
+
+    server._render_single_frame(frame, fake, _PLACEMENT)
 
     assert not server._frame_info_button.popup.is_open

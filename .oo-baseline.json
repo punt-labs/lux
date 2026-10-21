@@ -2274,6 +2274,19 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
+  "src/punt_lux/display/menus/glyph_set.py": {
+    "method_ratio": 1.0,
+    "encapsulation_ratio": 1.0,
+    "avg_params": 0.5,
+    "max_complexity": 2.0,
+    "avg_complexity": 1.25,
+    "module_size": 36.0,
+    "classes_per_module": 2.0,
+    "class_to_func_ratio": 1.0,
+    "init_violations": 0.0,
+    "public_attr_violations": 0.0,
+    "future_annotations": 1.0
+  },
   "src/punt_lux/display/menus/hidden_id.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,

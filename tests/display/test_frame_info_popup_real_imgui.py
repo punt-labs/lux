@@ -65,9 +65,12 @@ class _HeadlessDisplay:
         """Tear the ImGui context down."""
         imgui.destroy_context()
 
-    def add_frame(self, frame_id: str) -> None:
+    def add_frame(
+        self, frame_id: str, frame_flags: dict[str, bool] | None = None
+    ) -> None:
         """Replicate a second one-scene frame, as a second agent's would arrive."""
         msg = SceneMessage(
+            frame_flags=frame_flags,
             id=f"scene-{frame_id}",
             elements=[TextElement(id=f"text-{frame_id}", content="Hi")],
             frame_id=frame_id,
@@ -421,3 +424,16 @@ def test_the_glyph_paints_on_its_own_window_so_a_front_frame_covers_it(
     display.frames(2)
 
     assert display.foreground_vertex_count == 0
+
+
+def test_a_frame_without_a_title_bar_has_no_glyph_to_click(
+    display: _HeadlessDisplay,
+) -> None:
+    """With no title bar there is nothing to host the glyph: it would paint over
+    the content and its hit test would intercept clicks meant for it."""
+    display.add_frame("f2", {"no_title_bar": True})
+
+    display.click_glyph(held_frames=3, frame_id="f2")
+    display.frames(4)
+
+    assert not display.popup_is_open

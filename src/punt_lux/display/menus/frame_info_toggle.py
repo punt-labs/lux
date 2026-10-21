@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Self, final
 
-from punt_lux.display.menus.frame_info_glyph import FrameInfoGlyph
 from punt_lux.display.menus.glyph_reading import GlyphReading
+from punt_lux.display.menus.glyph_set import GlyphSet
 from punt_lux.display.menus.open_popup import OpenFrame
 from punt_lux.display.menus.owner_rows import OwnerRows
 from punt_lux.display.menus.popup_controller import PopupController
@@ -28,9 +28,9 @@ __all__ = ["FrameInfoToggle"]
 class FrameInfoToggle:
     """Draw one frame's glyph and apply what the mouse did to it to the popup."""
 
-    _glyph: FrameInfoGlyph
+    _glyphs: GlyphSet
     _controller: PopupController
-    __slots__ = ("_controller", "_glyph")
+    __slots__ = ("_controller", "_glyphs")
 
     def __new__(
         cls,
@@ -38,13 +38,13 @@ class FrameInfoToggle:
         facts_for: Callable[[str, HubId], tuple[tuple[str, str], ...] | None],
     ) -> Self:
         self = super().__new__(cls)
-        self._glyph = FrameInfoGlyph()
+        self._glyphs = GlyphSet()
         self._controller = PopupController(popup, OwnerRows(facts_for))
         return self
 
     def render(self, frame: Frame, imgui: Any) -> None:
         """Draw ``frame``'s glyph and apply its press, release, and click."""
-        reading = self._glyph.render(imgui)
+        reading = self._glyphs.for_frame(frame).render(imgui)
         self._controller.observe(reading, OpenFrame(frame.frame_id, frame.hub))
 
     def end_frame(self, imgui: Any) -> None:
