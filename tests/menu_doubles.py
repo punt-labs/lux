@@ -159,9 +159,9 @@ class FakeStyle:
         return super().__new__(cls)
 
     @property
-    def frame_padding(self) -> Vec2:
-        """Return the frame padding the header's right-align subtracts."""
-        return Vec2(4.0, 3.0)
+    def item_spacing(self) -> Vec2:
+        """Return the gap ImGui leaves between items on a line."""
+        return Vec2(8.0, 4.0)
 
     def color_(self, _which: Flag) -> Vec2:
         """Return a style color; the value is unused by the recording double."""
@@ -261,6 +261,7 @@ class FakeImGui:
     _item_hovered: bool
     _window_hovered: bool
     _table_rows: list[tuple[str, ...]]
+    _same_lines: list[tuple[float, float]]
     _current_row: list[str]
     _in_table: bool
     _focus_requests: int
@@ -286,6 +287,7 @@ class FakeImGui:
         "_opened_popup_ids",
         "_path",
         "_rendered_popups",
+        "_same_lines",
         "_seen_ids",
         "_strict_ids",
         "_table_rows",
@@ -316,6 +318,7 @@ class FakeImGui:
         self._item_hovered = False
         self._window_hovered = True
         self._table_rows = []
+        self._same_lines = []
         self._current_row = []
         self._in_table = False
         self._focus_requests = 0
@@ -528,19 +531,21 @@ class FakeImGui:
             self._current_row = []
         self._in_table = False
 
-    def get_content_region_avail(self) -> Vec2:
-        """Return the width the header's right-aligned button subtracts from."""
-        return Vec2(240.0, 200.0)
+    def same_line(self, offset: float = 0.0, spacing: float = -1.0) -> None:
+        """Record a same-line request as (offset from the start, spacing)."""
+        self._same_lines.append((offset, spacing))
 
-    def same_line(self, _offset: float = 0.0, _spacing: float = -1.0) -> None:
-        """Accept a same-line request; pixel layout is not modeled."""
+    @property
+    def same_lines(self) -> tuple[tuple[float, float], ...]:
+        """Every same-line request so far, as (offset from the start, spacing)."""
+        return tuple(self._same_lines)
 
     def get_style(self) -> FakeStyle:
-        """Return the style the header reads for its frame padding."""
+        """Return the style the header reads for its item spacing."""
         return FakeStyle()
 
     def calc_text_size(self, _text: str) -> Vec2:
-        """Return a fixed text extent for the header's width computation."""
+        """Return a fixed text extent for the glyph's label centering."""
         return Vec2(8.0, 12.0)
 
     def get_window_draw_list(self) -> FakeDrawList:

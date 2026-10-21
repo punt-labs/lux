@@ -2,7 +2,9 @@
 
 A plain snapshot the Hub already formatted (``FrameOwnerFacts``, the Hub->display
 replication), so drawing it is render-loop-cheap. It only draws; whether it is
-shown, where, and when it shuts belongs to the popup that hosts it.
+shown, where, and when it shuts belongs to the popup that hosts it. The close
+button follows the title at a fixed gap, never a right edge derived from the
+width left over: the popup auto-sizes, so that would feed back into its width.
 
 ``imgui`` is typed ``Any``: imgui_bundle ships no type stubs.
 """
@@ -43,11 +45,9 @@ class ConnectionPanel:
         return is_close_pressed
 
     def _render_header(self, imgui: Any) -> bool:
-        """Draw the title and a right-aligned close button, above a rule."""
-        button_width = imgui.calc_text_size(self._CLOSE_LABEL).x
-        button_width += imgui.get_style().frame_padding.x * 2.0
+        """Draw the title and its close button on one line, above a rule."""
         imgui.text(self._TITLE)
-        imgui.same_line(imgui.get_content_region_avail().x - button_width)
+        imgui.same_line(0.0, imgui.get_style().item_spacing.x * 2.0)
         is_close_pressed = bool(imgui.small_button(self._CLOSE_LABEL))
         imgui.separator()
         return is_close_pressed

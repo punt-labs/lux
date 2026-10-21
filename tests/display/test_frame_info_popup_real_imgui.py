@@ -108,6 +108,12 @@ class _HeadlessDisplay:
         return bool(hovered) and hovered.name.startswith("##Popup")
 
     @property
+    def popup_width(self) -> float:
+        """The open popup window's current width."""
+        windows = imgui.get_current_context().windows
+        return next(w for w in windows if w.name.startswith("##Popup")).size.x
+
+    @property
     def foreground_vertex_count(self) -> int:
         """Vertices on the global foreground draw list in the last rendered frame."""
         return self._foreground_vertices
@@ -437,3 +443,20 @@ def test_a_frame_without_a_title_bar_has_no_glyph_to_click(
     display.frames(4)
 
     assert not display.popup_is_open
+
+
+def test_the_open_popup_keeps_one_width_across_frames(
+    display: _HeadlessDisplay,
+) -> None:
+    """A close button placed from leftover width would feed the popup's own
+    auto-sized width back into the layout and make it breathe frame to frame."""
+    display.click_glyph(held_frames=3)
+    display.frames(4)
+    assert display.popup_is_open
+
+    widths = []
+    for _ in range(6):
+        display.frames(1)
+        widths.append(display.popup_width)
+
+    assert len(set(widths)) == 1
