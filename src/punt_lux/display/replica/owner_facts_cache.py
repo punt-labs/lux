@@ -47,7 +47,7 @@ class OwnerFactsCache:
 class OwnerFactsStore:
     """One :class:`OwnerFactsCache` per live frame, keyed by ``HubScopedKey``.
 
-    Deliberately not a field on ``Frame`` (DES-c7xi round 2): the snapshot is
+    Deliberately not a field on ``Frame``: the snapshot is
     Display-local bookkeeping the popup reads by id, not an aggregate-root
     concern -- keeping it here, in its own single-responsibility class, is
     what keeps ``Frame``'s cohesion from absorbing an unrelated field.

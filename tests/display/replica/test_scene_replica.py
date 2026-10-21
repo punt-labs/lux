@@ -1331,7 +1331,7 @@ class TestFramePresentations:
 
 
 class TestOwnerFactsAdoption:
-    """The owner-facts snapshot lives on SceneReplica (DES-c7xi round 2), not
+    """The owner-facts snapshot lives on SceneReplica, not
     on Frame -- adopted from the same push that frames a scene, read by frame
     id, and pruned when its frame is disposed."""
 
@@ -1348,7 +1348,7 @@ class TestOwnerFactsAdoption:
         assert mgr.owner_facts_for("s1") is None
 
     def test_a_later_none_push_preserves_the_cached_snapshot(self) -> None:
-        # The departure guarantee (lux-c7xi): once the owning connection
+        # The departure guarantee: once the owning connection
         # departs, the Hub can no longer resolve its facts and sends None on
         # every subsequent push -- that must never blank what was cached
         # while the connection was still live.
@@ -1382,7 +1382,7 @@ class TestOwnerFactsAdoption:
 class TestOwnerFactsHubScoping:
     """Two Hubs minting the identical frame id must never share one entry
     (frame_book.py already keys frames by ``HubScopedKey`` for exactly this
-    collision; the owner-facts store must too, DES-c7xi round 3)."""
+    collision; the owner-facts store must too)."""
 
     _ROWS_A = (("Client", "lux"), ("Kind", "agent"))
     _ROWS_B = (("Client", "quarry"), ("Kind", "cli"))

@@ -54,9 +54,9 @@ class TestStoreAdopt:
         assert store.rows_for(_F1) == _ROWS
 
     def test_a_later_none_adopt_preserves_the_frames_cached_snapshot(self) -> None:
-        # The departure guarantee (lux-c7xi round 2): moved off Frame entirely
-        # and onto this keyed store -- a later push carrying None must still
-        # never blank what was cached while the connection was live.
+        # The departure guarantee: the snapshot lives on this keyed store, not
+        # on Frame -- a later push carrying None must still never blank what
+        # was cached while the connection was live.
         store = OwnerFactsStore()
         store.adopt(_F1, _ROWS)
 

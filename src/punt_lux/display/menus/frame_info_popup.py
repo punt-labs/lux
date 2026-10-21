@@ -8,11 +8,10 @@ ImGui's own ``close_current_popup`` so the popup and this object's state shut
 together: the header's close button, and a second click on the title-bar glyph
 (:class:`~punt_lux.display.menus.frame_info_button.FrameInfoButton` calls
 :meth:`request_close`). Its rows are a plain snapshot the Hub already formatted
-(``FrameOwnerFacts``, DES-c7xi's Hub->display replication), so rendering is
-render-loop-cheap.
+(``FrameOwnerFacts``, replicated Hub->display), so rendering is render-loop-cheap.
 
 Addressed by ``(hub, frame_id)``, never a bare id: two Hubs can mint the
-identical frame id (DES-c7xi round 3).
+identical frame id.
 
 ``imgui`` is typed ``Any``: imgui_bundle ships no type stubs.
 """
@@ -22,7 +21,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Self, final
 
-from punt_lux.display.menus.connection_panel import ConnectionPanel
+from punt_lux.display.menus.popup_site import OpenFrame, PopupSite
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -49,51 +48,38 @@ class FrameInfoPopup:
     _POPUP_ID = "frame_info_popup"
 
     _frame_for: Callable[[str, HubId], Frame | None]
-    _open_frame_id: str | None
-    _open_hub: HubId | None
-    _panel: ConnectionPanel
-    _spawn_pos: tuple[float, float]
-    _placed: bool
-    _pending_close: bool
-    __slots__ = (
-        "_frame_for",
-        "_open_frame_id",
-        "_open_hub",
-        "_panel",
-        "_pending_close",
-        "_placed",
-        "_spawn_pos",
-    )
+    _site: PopupSite
+    __slots__ = ("_frame_for", "_site")
 
     def __new__(cls, frame_for: Callable[[str, HubId], Frame | None]) -> Self:
         self = super().__new__(cls)
         self._frame_for = frame_for
-        self._open_frame_id = None
-        self._open_hub = None
-        self._panel = ConnectionPanel(())
-        self._spawn_pos = (0.0, 0.0)
-        self._placed = True
-        self._pending_close = False
+        self._site = PopupSite()
         return self
 
     @property
     def is_open(self) -> bool:
         """Return whether the popup is currently showing."""
-        return self._open_frame_id is not None
+        return self._site.frame is not None
 
     @property
     def spawn_pos(self) -> tuple[float, float]:
         """The anchor the popup will place itself at on its next render."""
-        return self._spawn_pos
+        return self._site.pos
+
+    @property
+    def open_frame(self) -> OpenFrame | None:
+        """The frame the popup is open for, or ``None`` while it is closed."""
+        return self._site.frame
 
     @property
     def rows(self) -> tuple[tuple[str, str], ...]:
         """The label/value rows the popup will render."""
-        return self._panel.rows
+        return self._site.rows
 
     def is_open_for(self, frame_id: str, hub: HubId) -> bool:
         """Return whether the popup is open for exactly ``(hub, frame_id)``."""
-        return self._open_frame_id == frame_id and self._open_hub == hub
+        return self._site.frame == OpenFrame(frame_id, hub)
 
     def open_for(
         self,
@@ -103,12 +89,11 @@ class FrameInfoPopup:
         anchor: tuple[float, float],
     ) -> None:
         """Open (or replace) the popup for ``(hub, frame_id)`` at ``anchor``."""
-        self._open_frame_id = frame_id
-        self._open_hub = hub
-        self._panel = ConnectionPanel(rows)
-        self._spawn_pos = anchor
-        self._placed = False
-        self._pending_close = False
+        self._site.open(OpenFrame(frame_id, hub), rows, anchor)
+
+    def replace_rows(self, rows: tuple[tuple[str, str], ...]) -> None:
+        """Show ``rows`` instead, so facts replicated after opening appear."""
+        self._site.replace_rows(rows)
 
     def request_close(self) -> None:
         """Ask the next render to dismiss the popup through ImGui.
@@ -117,13 +102,11 @@ class FrameInfoPopup:
         runs on the next ``render`` via ``close_current_popup`` so ImGui's popup
         stack and this object's state shut in the same step.
         """
-        self._pending_close = True
+        self._site.request_close()
 
     def close(self) -> None:
         """Close the popup, if open. A no-op otherwise."""
-        self._open_frame_id = None
-        self._open_hub = None
-        self._pending_close = False
+        self._site.close()
 
     def render(self, imgui: Any) -> None:
         """Render the popup in ImGui's always-on-top popup layer while open.
@@ -132,61 +115,43 @@ class FrameInfoPopup:
         (outside click/Escape) that ``begin_popup`` reports shut. ``end_popup``
         balances only a ``begin_popup`` that opened.
         """
-        if self._open_frame_id is None or self._open_hub is None:
+        frame = self._site.frame
+        if frame is None:
             return
-        if self._frame_for(self._open_frame_id, self._open_hub) is None:
-            self.close()
+        if self._frame_for(frame.frame_id, frame.hub) is None:
+            self._close_because("its frame is gone")
             return
-        self._place(imgui)
-        if not imgui.begin_popup(self._POPUP_ID, self._flags(imgui)):
-            self._on_dismissed_by_imgui()
+        self._site.place(imgui, self._POPUP_ID)
+        if not imgui.begin_popup(self._POPUP_ID, self._site.flags(imgui)):
+            self._close_because("dismissed by imgui")
             return
         try:
             self._render_body(imgui)
         finally:
             imgui.end_popup()
 
-    def _on_dismissed_by_imgui(self) -> None:
-        """Record that ImGui shut the popup and sync this object's state to it.
+    def _close_because(self, reason: str) -> None:
+        """Log why the popup shut, then close it.
 
-        ImGui closes a popup for an outside click, Escape, or a focus change
-        over the window it opened from. It reports none of them, so name the
-        frame here: a popup that vanishes without a trace is undiagnosable.
+        Neither a vanished frame nor ImGui's own dismissal (outside click,
+        Escape, a focus change over the window it opened from) reports itself,
+        and a popup that vanishes without a trace is undiagnosable. Closing
+        clears the open state, so each shutting logs exactly once.
         """
-        logger.info(
-            "frame-info popup for frame=%s closed by imgui", self._open_frame_id
-        )
-        self.close()
+        logger.info("frame-info popup for %s closed: %s", self._site.frame, reason)
+        self._site.close()
 
     def _render_body(self, imgui: Any) -> None:
         """Dismiss on a pending close, else draw the header and the rows.
 
-        Both dismiss gestures land on ``_pending_close`` -- the header's close
+        Both dismiss gestures land on a close request -- the header's close
         button and the glyph's :meth:`request_close` -- and this one place turns
         that into ``close_current_popup``, so ImGui's popup stack and this
         object's state always shut together on the next ``begin_popup``.
         """
-        if self._pending_close:
+        if self._site.is_close_requested:
             imgui.close_current_popup()
-            self.close()
+            self._site.close()
             return
-        if self._panel.render(imgui):
-            self._pending_close = True
-
-    def _place(self, imgui: Any) -> None:
-        """Open the popup in the popup layer and anchor it at the glyph, once.
-
-        ``open_popup`` and ``begin_popup`` must fire at the same ID-stack scope
-        for ImGui to match them; both live here at the render loop's root scope.
-        """
-        if self._placed:
-            return
-        imgui.open_popup(self._POPUP_ID)
-        imgui.set_next_window_pos(self._spawn_pos, imgui.Cond_.always.value)
-        self._placed = True
-
-    @staticmethod
-    def _flags(imgui: Any) -> int:
-        """Return the window flags: no collapse arrow, sized to its contents."""
-        flags = imgui.WindowFlags_
-        return int(flags.no_collapse.value | flags.always_auto_resize.value)
+        if self._site.draw(imgui):
+            self._site.request_close()

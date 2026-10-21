@@ -1,10 +1,8 @@
 """FrameInfoToggle — the title-bar glyph, and what its clicks do to the popup.
 
-A click closes the popup it found open and otherwise opens it. "Found open"
-is read at the *press*, not the release: a press outside the popup makes ImGui
-shut it on that very frame, so by the release the popup reads closed whether
-the press closed it or never found it open, and only the moment of the press
-tells a toggle-close from a fresh open.
+A click closes the popup it found open, else opens it. "Found open" is read at
+the *press*: a press outside the popup makes ImGui shut it on that very frame,
+so by the release only the press tells a toggle-close from a fresh open.
 """
 
 from __future__ import annotations
@@ -12,6 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Self, final
 
 from punt_lux.display.menus.frame_info_glyph import FrameInfoGlyph
+from punt_lux.display.menus.owner_rows import OwnerRows
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -22,11 +21,6 @@ if TYPE_CHECKING:
 
 __all__ = ["FrameInfoToggle"]
 
-# What the popup shows when the Hub has no facts for the frame's owner yet --
-# untracked or the owning connection has already departed. Distinguished from
-# a resolved-but-genuinely-empty result so a click is never a silent no-op.
-_UNKNOWN_OWNER_ROWS: tuple[tuple[str, str], ...] = (("Owner", "unknown"),)
-
 
 @final
 class FrameInfoToggle:
@@ -34,9 +28,9 @@ class FrameInfoToggle:
 
     _glyph: FrameInfoGlyph
     _popup: FrameInfoPopup
-    _facts_for: Callable[[str, HubId], tuple[tuple[str, str], ...] | None]
+    _rows: OwnerRows
     _was_open_at_press: bool
-    __slots__ = ("_facts_for", "_glyph", "_popup", "_was_open_at_press")
+    __slots__ = ("_glyph", "_popup", "_rows", "_was_open_at_press")
 
     def __new__(
         cls,
@@ -46,7 +40,7 @@ class FrameInfoToggle:
         self = super().__new__(cls)
         self._glyph = FrameInfoGlyph()
         self._popup = popup
-        self._facts_for = facts_for
+        self._rows = OwnerRows(facts_for)
         self._was_open_at_press = False
         return self
 
@@ -58,15 +52,21 @@ class FrameInfoToggle:
         if reading.clicked:
             self._toggle(frame, reading.anchor)
 
+    def refresh_rows(self) -> None:
+        """Re-read the open popup's facts, which may have arrived since it opened."""
+        open_frame = self._popup.open_frame
+        if open_frame is not None:
+            self._popup.replace_rows(
+                self._rows.for_refresh(open_frame.frame_id, open_frame.hub)
+            )
+
     def _toggle(self, frame: Frame, anchor: tuple[float, float]) -> None:
         """Close the popup this click found open, else open it."""
         was_open, self._was_open_at_press = self._was_open_at_press, False
         if was_open:
-            # ImGui may already have shut it on the press; then there is no
-            # dismissal left to request.
+            # ImGui may already have shut it on the press: nothing left to close.
             if self._popup.is_open_for(frame.frame_id, frame.hub):
                 self._popup.request_close()
             return
-        resolved = self._facts_for(frame.frame_id, frame.hub)
-        rows = resolved if resolved is not None else _UNKNOWN_OWNER_ROWS
+        rows = self._rows.for_open(frame.frame_id, frame.hub)
         self._popup.open_for(frame.frame_id, frame.hub, rows, anchor)

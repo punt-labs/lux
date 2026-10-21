@@ -740,7 +740,7 @@ class RenderLoop:
 
         # Info popup in ImGui's popup layer, above its frame: after the frames, so
         # a glyph press sees it still open on the frame ImGui shuts it.
-        self._frame_info_button.popup.render(imgui)
+        self._frame_info_button.render_popup(imgui)
 
         # Promote this frame's rects into the snapshot the next frame's query
         # reads (that query runs in poll_clients before the next render).

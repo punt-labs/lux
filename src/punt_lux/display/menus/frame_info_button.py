@@ -1,14 +1,12 @@
 """FrameInfoButton — the title-bar info glyph that owns and drives its popup.
 
-The glyph sits just left of a frame's native close x. Clicking it opens the
-:class:`~punt_lux.display.menus.frame_info_popup.FrameInfoPopup` the button
-owns, anchored at the glyph, showing the frame's owning-connection facts; a
-second click while that popup is still open dismisses it, so the glyph toggles
-rather than reopening what is already shown. The button owns the popup because
-they are one affordance -- the glyph is the popup's only opener -- so the
-render loop holds just the button and reaches the popup through :attr:`popup`
-to render it at the popup-layer root scope. Painting and click detection live
-in :class:`~punt_lux.display.menus.frame_info_glyph.FrameInfoGlyph`.
+Clicking the glyph opens the
+:class:`~punt_lux.display.menus.frame_info_popup.FrameInfoPopup` the button owns,
+anchored at the glyph with the frame's owning-connection facts; a second click
+dismisses it. The glyph is the popup's only opener, so the render loop holds
+just the button and renders the popup through :meth:`render_popup` at the
+popup-layer root scope. The click logic lives in
+:class:`~punt_lux.display.menus.frame_info_toggle.FrameInfoToggle`.
 
 ``imgui`` is typed ``Any``: imgui_bundle ships no type stubs.
 """
@@ -31,12 +29,7 @@ __all__ = ["FrameInfoButton"]
 
 @final
 class FrameInfoButton:
-    """The title-bar info glyph and the popup it toggles.
-
-    Facts are read from ``facts_for`` by ``(hub, frame_id)``, not from the
-    frame itself -- the snapshot lives in the ``OwnerFactsStore``
-    ``SceneReplica`` owns, not on the ``Frame`` aggregate root.
-    """
+    """The title-bar info glyph and the popup it toggles."""
 
     _popup: FrameInfoPopup
     _toggle: FrameInfoToggle
@@ -51,6 +44,11 @@ class FrameInfoButton:
         self._popup = FrameInfoPopup(frame_for)
         self._toggle = FrameInfoToggle(self._popup, facts_for)
         return self
+
+    def render_popup(self, imgui: Any) -> None:
+        """Render the popup at the popup-layer root scope, with fresh facts."""
+        self._toggle.refresh_rows()
+        self._popup.render(imgui)
 
     @property
     def popup(self) -> FrameInfoPopup:

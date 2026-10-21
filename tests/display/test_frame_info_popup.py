@@ -4,7 +4,7 @@ Rendered in ImGui's always-on-top popup layer (``open_popup`` +
 ``begin_popup``), so it sits above the frame that spawned it: one popup at a
 time, anchored at the glyph, dismissed by ImGui itself on an outside click.
 Addressed by ``(frame_id, hub)``, never a bare id, since two Hubs can mint
-the identical frame id (DES-c7xi round 3).
+the identical frame id.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 
 from punt_lux.display.menus.frame_info_button import FrameInfoButton
 from punt_lux.display.menus.frame_info_popup import FrameInfoPopup
+from punt_lux.display.menus.popup_site import OpenFrame
 from punt_lux.display.replica.frame_visibility import FrameVisibility
 from punt_lux.domain.identity import HubId
 from tests.menu_doubles import FakeImGui, Vec2, make_frame
@@ -141,7 +142,7 @@ class TestDismissal:
         imgui.dismiss_popup(_POPUP_ID)
         with caplog.at_level(logging.INFO, logger="punt_lux.display.menus"):
             popup.render(imgui)
-        assert "frame=f1 closed by imgui" in caplog.text
+        assert f"hub={_HUB} frame=f1 closed: dismissed by imgui" in caplog.text
 
     def test_a_dismissed_popup_draws_nothing_further(self) -> None:
         popup = FrameInfoPopup(_frame_for("f1"))
@@ -162,12 +163,44 @@ class TestAutoClose:
         assert not popup.is_open
         assert imgui.popups == ()
 
+    def test_a_vanished_frame_is_logged_once_with_hub_and_frame(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        popup = FrameInfoPopup(_frame_for())
+        popup.open_for("f1", _HUB, _ROWS, (10.0, 20.0))
+        imgui = FakeImGui()
+        with caplog.at_level(logging.INFO, logger="punt_lux.display.menus"):
+            popup.render(imgui)
+            popup.render(imgui)  # already closed: nothing further to say
+        closes = [r for r in caplog.records if "closed:" in r.getMessage()]
+        assert [r.getMessage() for r in closes] == [
+            f"frame-info popup for hub={_HUB} frame=f1 closed: its frame is gone"
+        ]
+
     def test_the_popup_stays_open_while_its_frame_still_exists(self) -> None:
         popup = FrameInfoPopup(_frame_for("f1"))
         popup.open_for("f1", _HUB, _ROWS, (10.0, 20.0))
         imgui = FakeImGui()
         popup.render(imgui)
         assert popup.is_open
+
+
+class TestReplaceRows:
+    def test_replacing_rows_changes_what_the_open_popup_renders(self) -> None:
+        popup = FrameInfoPopup(_frame_for("f1"))
+        popup.open_for("f1", _HUB, (("Owner", "unknown"),), (10.0, 20.0))
+        popup.replace_rows(_ROWS)
+        imgui = FakeImGui()
+        popup.render(imgui)
+        assert imgui.table_rows == _ROWS
+
+    def test_the_open_frame_is_addressed_by_hub_and_id(self) -> None:
+        popup = FrameInfoPopup(_frame_for("f1", hub=_OTHER_HUB))
+        popup.open_for("f1", _OTHER_HUB, _ROWS, (10.0, 20.0))
+        assert popup.open_frame == OpenFrame("f1", _OTHER_HUB)
+
+    def test_a_closed_popup_has_no_open_frame(self) -> None:
+        assert FrameInfoPopup(_frame_for("f1")).open_frame is None
 
 
 class TestHubScoping:
