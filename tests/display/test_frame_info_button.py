@@ -178,7 +178,7 @@ class _FakeImgui:
 
     @staticmethod
     def get_current_context() -> SimpleNamespace:
-        return SimpleNamespace(hovered_window=None)
+        return SimpleNamespace(hovered_window=None, nav_window=None)
 
     def is_window_docked(self) -> bool:
         return False

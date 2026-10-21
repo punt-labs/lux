@@ -143,9 +143,12 @@ exists.
 
 What the pointer is over at a mouse edge: nothing of interest, or the glyph of
 a frame.  A glyph can be the target only while its frame is \texttt{shown}
-\emph{and} its window is the one ImGui reports under the pointer, or only the
-info popup is in front of it.  A glyph hidden under another frame is therefore
-never a target: a press there is a press on something else (\texttt{tnone}).
+\emph{and} its window is the one ImGui reports under the pointer, or the only
+window in front of it is that same frame's own info popup, while the popup is
+open for it.  A glyph covered by any other window --- another frame, an
+unrelated popup or dialog, or the info popup open for a different frame --- is
+therefore never a target: a press there is a press on something else
+(\texttt{tnone}).
 Which window is in front is thus an input to the model, chosen by the
 environment together with the target, not state the model tracks; the
 occlusion test lives wholly in the glyph's hit test, below the abstraction

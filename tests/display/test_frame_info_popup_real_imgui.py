@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 _DISPLAY = (1000.0, 800.0)
 _FRAME_ID = "f1"
 _LEFT = 0
+_FOREIGN_POPUP = "foreign_popup"
 
 
 @final
@@ -37,7 +38,14 @@ class _HeadlessDisplay:
     _server: RenderLoop
     _frames_run: int
     _foreground_vertices: int
-    __slots__ = ("_foreground_vertices", "_frames_run", "_server")
+    # Where an unrelated popup (a combo dropdown, a dialog) is pinned, if open.
+    _foreign_popup_pos: tuple[float, float] | None
+    __slots__ = (
+        "_foreground_vertices",
+        "_foreign_popup_pos",
+        "_frames_run",
+        "_server",
+    )
 
     def __new__(cls, facts: tuple[tuple[str, str], ...] = (("Client", "lux"),)) -> Self:
         self = super().__new__(cls)
@@ -50,6 +58,7 @@ class _HeadlessDisplay:
         self._server = RenderLoop("/tmp/test-lux-frame-info-real.sock")
         self._frames_run = 0
         self._foreground_vertices = 0
+        self._foreign_popup_pos = None
         msg = SceneMessage(
             id="s1",
             elements=[TextElement(id="t1", content="Hi")],
@@ -194,9 +203,31 @@ class _HeadlessDisplay:
             imgui.get_io().delta_time = 1 / 60
             imgui.new_frame()
             self._server._render_scene()
+            self._render_foreign_popup()
             self._foreground_vertices = len(imgui.get_foreground_draw_list().vtx_buffer)
             imgui.render()
             self._frames_run += 1
+
+    def open_foreign_popup_at(self, pos: tuple[float, float]) -> None:
+        """Open a popup unrelated to the info popup, pinned at ``pos``."""
+        self._foreign_popup_pos = pos
+        imgui.get_io().delta_time = 1 / 60
+        imgui.new_frame()
+        self._server._render_scene()
+        imgui.open_popup(_FOREIGN_POPUP)
+        self._render_foreign_popup()
+        imgui.render()
+        self._frames_run += 1
+        self.frames(3)  # let it place and take focus
+
+    def _render_foreign_popup(self) -> None:
+        """Draw the unrelated popup, when one is open, at the root ID scope."""
+        if self._foreign_popup_pos is None:
+            return
+        imgui.set_next_window_pos(imgui.ImVec2(*self._foreign_popup_pos))
+        if imgui.begin_popup(_FOREIGN_POPUP):
+            imgui.dummy(imgui.ImVec2(200.0, 120.0))
+            imgui.end_popup()
 
     def move_frame_to(
         self, pos: tuple[float, float], frame_id: str = _FRAME_ID
@@ -219,6 +250,21 @@ class _HeadlessDisplay:
         high_x = window.pos.x + window.size.x - band - 4.0
         high_y = window.pos.y + (band + glyph) / 2
         return high_x - glyph / 2, high_y - glyph / 2
+
+    def put_glyph_at(self, frame_id: str, spot: tuple[float, float]) -> None:
+        """Teleport ``frame_id`` so its glyph's centre is at ``spot``."""
+        self.move_frame_to((0.0, 0.0), frame_id)
+        home_x, home_y = self.glyph_centre(frame_id)
+        self.move_frame_to((spot[0] - home_x, spot[1] - home_y), frame_id)
+
+    def click_at(self, spot: tuple[float, float]) -> None:
+        """Press, hold, and release the left button at ``spot``."""
+        self.move_mouse(spot)
+        self.frames(1)
+        self.press()
+        self.frames(3)
+        self.release()
+        self.frames(1)
 
     def move_mouse(self, pos: tuple[float, float]) -> None:
         """Queue a mouse move."""
@@ -448,6 +494,37 @@ def test_a_click_on_another_frames_glyph_moves_the_popup_to_it(
 
     assert display.popup_is_open
     assert display.popup_frame_id == "f2"
+
+
+def test_a_click_on_a_glyph_under_an_unrelated_popup_does_not_open_the_info_popup(
+    display: _HeadlessDisplay,
+) -> None:
+    """A dialog or combo dropdown over a glyph owns the click, not the glyph."""
+    x, y = display.glyph_centre()
+    display.open_foreign_popup_at((x - 20.0, y - 20.0))
+
+    display.click_glyph(held_frames=3)
+    display.frames(4)
+
+    assert not display.popup_is_open
+
+
+def test_a_click_on_the_info_popup_over_another_frames_glyph_leaves_the_popup(
+    display: _HeadlessDisplay,
+) -> None:
+    """The popup is in front of the buried glyph: the click is the popup's."""
+    display.add_frame("f2")
+    display.move_frame_to((200.0, 300.0), "f2")
+    display.click_glyph(held_frames=3)
+    display.frames(4)
+    assert display.popup_frame_id == _FRAME_ID
+    ax, ay = display.glyph_centre()
+    display.put_glyph_at("f2", (ax + 60.0, ay + 20.0))
+
+    display.click_at((ax + 60.0, ay + 20.0))
+    display.frames(4)
+
+    assert display.popup_frame_id == _FRAME_ID
 
 
 def test_dragging_away_and_back_over_an_open_popup_neither_closes_nor_reopens_it(

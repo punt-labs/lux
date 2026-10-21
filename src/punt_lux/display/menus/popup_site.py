@@ -1,9 +1,8 @@
 """PopupSite — whether the info popup is open, and the ImGui calls that place it.
 
-Closed is ``None`` and nothing else: closing drops the whole
-:class:`~punt_lux.display.menus.open_popup.OpenPopup`, so no remnant of a shut
-popup can be read back. Asking a closed site for anything an open popup owns
-(rows, anchor, a pending close) is a caller error and raises ``ValueError``.
+Closed is ``None`` and nothing else: closing drops the whole ``OpenPopup``, so no
+remnant of a shut popup can be read back. Asking a closed site for what an open
+popup owns (rows, anchor, a pending close) raises ``ValueError``.
 
 ``imgui`` is typed ``Any``: imgui_bundle ships no type stubs.
 """
@@ -39,6 +38,11 @@ class PopupSite:
     def frame(self) -> OpenFrame | None:
         """The frame the popup is open for, or ``None`` while it is closed."""
         return self._open.frame if self._open else None
+
+    @property
+    def window_id(self) -> int | None:
+        """The ImGui id of the open popup's window; ``None`` before it is placed."""
+        return self._open.window_id if self._open else None
 
     @property
     def rows(self) -> tuple[tuple[str, str], ...]:
@@ -77,11 +81,7 @@ class PopupSite:
         self._open = None
 
     def place(self, imgui: Any, popup_id: str) -> None:
-        """Open ``popup_id`` in the popup layer at the anchor, once per opening.
-
-        ``open_popup`` and ``begin_popup`` must fire at the same ID-stack scope
-        for ImGui to match them; the caller begins at the render loop's root.
-        """
+        """Open ``popup_id`` in the popup layer at the anchor, once per opening."""
         self._open = self._require_open().placed_in(imgui, popup_id)
 
     def draw(self, imgui: Any) -> bool:

@@ -13,6 +13,9 @@ if TYPE_CHECKING:
 
 __all__ = ["OwnerRows"]
 
+# The Hub's replicated facts for a frame; ``None`` when none were ever replicated.
+type FactsFor = Callable[[str, HubId], tuple[tuple[str, str], ...] | None]
+
 logger = logging.getLogger(__name__)
 
 # Shown when no facts were ever replicated for the frame. A departed owner is
@@ -27,12 +30,10 @@ _UNKNOWN_OWNER_ROWS: tuple[tuple[str, str], ...] = (("Owner", "unknown"),)
 class OwnerRows:
     """Replicated owner facts by ``(hub, frame_id)``, with an explicit unknown row."""
 
-    _facts_for: Callable[[str, HubId], tuple[tuple[str, str], ...] | None]
+    _facts_for: FactsFor
     __slots__ = ("_facts_for",)
 
-    def __new__(
-        cls, facts_for: Callable[[str, HubId], tuple[tuple[str, str], ...] | None]
-    ) -> Self:
+    def __new__(cls, facts_for: FactsFor) -> Self:
         self = super().__new__(cls)
         self._facts_for = facts_for
         return self

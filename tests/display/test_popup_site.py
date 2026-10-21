@@ -129,3 +129,17 @@ def test_a_close_does_not_leave_the_old_popup_placed_for_the_next_opening() -> N
     site.open(OpenFrame("f2", _HUB), _ROWS, (0.0, 0.0))
     site.place(imgui, "p")
     assert imgui.opened_popup_ids == ("p", "p")
+
+
+def test_a_site_that_is_closed_or_not_yet_placed_has_no_window_id() -> None:
+    site = PopupSite()
+    assert site.window_id is None
+    site.open(OpenFrame("f1", _HUB), _ROWS, (0.0, 0.0))
+    assert site.window_id is None
+
+
+def test_placing_records_the_id_imgui_gave_the_popup_window() -> None:
+    site = _open_site()
+    imgui = FakeImGui()
+    site.place(imgui, "p")
+    assert site.window_id == imgui.get_id("p")

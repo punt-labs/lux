@@ -36,7 +36,7 @@ class OpenPopup:
     frame: OpenFrame
     panel: ConnectionPanel
     pos: tuple[float, float]
-    is_placed: bool = False
+    window_id: int | None = None  # ImGui names the window at open_popup
     is_close_requested: bool = False
 
     @classmethod
@@ -64,10 +64,10 @@ class OpenPopup:
 
         ``open_popup`` and ``begin_popup`` must fire at the same ID-stack scope
         for ImGui to match them; the caller begins at the render loop's root.
-        Returns this popup, marked placed.
+        Returns this popup, carrying the id ImGui gave its window.
         """
-        if self.is_placed:
+        if self.window_id is not None:
             return self
         imgui.open_popup(popup_id)
         imgui.set_next_window_pos(self.pos, imgui.Cond_.always.value)
-        return replace(self, is_placed=True)
+        return replace(self, window_id=imgui.get_id(popup_id))

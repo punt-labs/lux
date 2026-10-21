@@ -63,6 +63,23 @@ def _facts_for(
     return resolve
 
 
+class TestWindowId:
+    def test_a_closed_popup_has_no_window(self) -> None:
+        assert FrameInfoPopup(_frame_for("f1")).window_id is None
+
+    def test_an_open_popup_has_none_until_it_is_placed(self) -> None:
+        popup = FrameInfoPopup(_frame_for("f1"))
+        popup.open_for(OpenFrame("f1", _HUB), _ROWS, (10.0, 20.0))
+        assert popup.window_id is None
+
+    def test_a_placed_popup_carries_the_id_imgui_gave_its_window(self) -> None:
+        popup = FrameInfoPopup(_frame_for("f1"))
+        popup.open_for(OpenFrame("f1", _HUB), _ROWS, (10.0, 20.0))
+        imgui = FakeImGui()
+        popup.render(imgui)
+        assert popup.window_id == imgui.get_id(_POPUP_ID)
+
+
 class TestOpening:
     def test_a_fresh_popup_is_closed(self) -> None:
         assert not FrameInfoPopup(_frame_for()).is_open

@@ -73,6 +73,11 @@ class FrameInfoPopup:
         return self._site.frame
 
     @property
+    def window_id(self) -> int | None:
+        """The ImGui id of the popup's window; ``None`` before it is placed."""
+        return self._site.window_id
+
+    @property
     def rows(self) -> tuple[tuple[str, str], ...]:
         """The label/value rows the popup will render; none while it is closed."""
         return self._site.rows
@@ -95,12 +100,7 @@ class FrameInfoPopup:
         self._site.replace_rows(rows)
 
     def request_close(self) -> None:
-        """Ask the next render to dismiss the popup through ImGui.
-
-        The glyph that opened the popup calls this on a second click; the close
-        runs on the next ``render`` via ``close_current_popup`` so ImGui's popup
-        stack and this object's state shut in the same step.
-        """
+        """Ask the next render to dismiss the popup through ImGui."""
         self._site.request_close()
 
     def close(self) -> None:
@@ -143,10 +143,9 @@ class FrameInfoPopup:
     def _render_body(self, imgui: Any) -> None:
         """Dismiss on a pending close, else draw the header and the rows.
 
-        Both dismiss gestures land on a close request -- the header's close
-        button and the glyph's :meth:`request_close` -- and this one place turns
-        that into ``close_current_popup``, so ImGui's popup stack and this
-        object's state always shut together on the next ``begin_popup``.
+        Both dismiss gestures land on a close request; this one place turns it
+        into ``close_current_popup``, so ImGui's popup stack and this object's
+        state always shut together on the next ``begin_popup``.
         """
         if self._site.is_close_requested:
             imgui.close_current_popup()

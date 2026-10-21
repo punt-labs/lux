@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 from punt_lux.display.menus.frame_info_glyph import FrameInfoGlyph
+from punt_lux.display.menus.glyph_canvas import GlyphCanvas
+from punt_lux.display.menus.open_popup import OpenFrame
+from punt_lux.display.menus.popup_cover import PopupCover
+from punt_lux.domain.identity import HubId
 from tests.display.test_frame_info_button import (
     _EXPECTED_ANCHOR,
     _OFF_BUTTON,
@@ -10,14 +14,17 @@ from tests.display.test_frame_info_button import (
     _FakeImgui,
 )
 
+_FRAME = OpenFrame("f1", HubId.stub())
+_NO_COVER = PopupCover(None, is_for_frame=False)
+
 
 def _clicks(fake: _FakeImgui) -> list[tuple[float, float]]:
-    reading = FrameInfoGlyph().render(fake)
+    reading = FrameInfoGlyph().render(GlyphCanvas(fake, _FRAME, _NO_COVER))
     return [reading.anchor] if reading.clicked else []
 
 
 def _presses(fake: _FakeImgui) -> int:
-    return int(FrameInfoGlyph().render(fake).pressed)
+    return int(FrameInfoGlyph().render(GlyphCanvas(fake, _FRAME, _NO_COVER)).pressed)
 
 
 def test_a_release_on_the_glyph_reports_its_anchor() -> None:

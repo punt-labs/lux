@@ -2,18 +2,17 @@
 
 A frame flagged ``no_title_bar`` has nothing to host the disc, which would paint
 over its content and intercept the clicks meant for it.
-
-``imgui`` is typed ``Any``: imgui_bundle ships no type stubs.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Self, final
+from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.display.menus.frame_info_glyph import FrameInfoGlyph
 from punt_lux.display.menus.glyph_reading import GlyphReading
 
 if TYPE_CHECKING:
+    from punt_lux.display.menus.glyph_canvas import GlyphCanvas
     from punt_lux.display.replica.frame import Frame
 
 __all__ = ["AbsentGlyph", "GlyphSet"]
@@ -28,7 +27,7 @@ class AbsentGlyph:
     def __new__(cls) -> Self:
         return super().__new__(cls)
 
-    def render(self, _imgui: Any) -> GlyphReading:
+    def render(self, _canvas: GlyphCanvas) -> GlyphReading:
         """Report a reading with no press, release, or click."""
         return GlyphReading((0.0, 0.0), pressed=False, released=False, clicked=False)
 

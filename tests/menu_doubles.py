@@ -671,7 +671,7 @@ class FakeImGui:
     @staticmethod
     def get_current_context() -> SimpleNamespace:
         """Return a context whose hovered window is never a popup."""
-        return SimpleNamespace(hovered_window=None)
+        return SimpleNamespace(hovered_window=None, nav_window=None)
 
     def occlude_window(self) -> None:
         """Put another window in front of the current one, under the mouse."""
