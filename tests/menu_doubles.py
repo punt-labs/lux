@@ -276,7 +276,8 @@ class FakeImGui:
     _cursor: Vec2
     _max_x: float
     _table_right: float
-    _buttons: dict[str, Vec2]
+    _close_buttons: dict[int, Vec2]
+    _ids: dict[int, str]
     _current_row: list[str]
     _in_table: bool
     _focus_requests: int
@@ -285,13 +286,14 @@ class FakeImGui:
     _rendered_popups: list[str]
     _current_popup: str | None
     __slots__ = (
-        "_buttons",
         "_clicks",
         "_close_button",
+        "_close_buttons",
         "_current_popup",
         "_current_row",
         "_cursor",
         "_focus_requests",
+        "_ids",
         "_in_table",
         "_item_hovered",
         "_lines",
@@ -342,7 +344,8 @@ class FakeImGui:
         self._cursor = Vec2(*_CURSOR_START)
         self._max_x = 0.0
         self._table_right = table_right
-        self._buttons = {}
+        self._close_buttons = {}
+        self._ids = {}
         self._current_row = []
         self._in_table = False
         self._focus_requests = 0
@@ -447,7 +450,6 @@ class FakeImGui:
 
     def small_button(self, label: str) -> bool:
         """Report whether the user clicked this button, by its visible label."""
-        self._buttons[self._visible(label)] = self._cursor
         return self._visible(label) in self._clicks
 
     def set_next_window_size(self, _size: Any, _cond: int) -> None:
@@ -523,11 +525,38 @@ class FakeImGui:
         window = SimpleNamespace(
             dc=SimpleNamespace(cursor_max_pos=Vec2(self._max_x, self._cursor.y))
         )
-        return SimpleNamespace(get_current_window_read=lambda: window)
+        return SimpleNamespace(
+            get_current_window_read=lambda: window,
+            close_button=self._native_close_button,
+        )
 
-    def button_pos(self, label: str) -> Vec2:
-        """Return the screen position the button reading *label* was drawn at."""
-        return self._buttons[label]
+    def get_id(self, label: str) -> int:
+        """Return a stable id for *label*, remembering which label it was."""
+        value = len(label) * 7919 + sum(map(ord, label))
+        self._ids[value] = label
+        return value
+
+    def get_font_size(self) -> float:
+        """Return the font size: the side of ImGui's close button."""
+        return 12.0
+
+    def get_text_line_height(self) -> float:
+        """Return a text line's height, taller than the font so a centre shows."""
+        return 16.0
+
+    def dummy(self, size: Vec2) -> None:
+        """Reserve *size* at the cursor, as ImGui does: widen, then advance."""
+        self._max_x = max(self._max_x, self._cursor.x + size.x)
+        self._cursor = Vec2(self._cursor.x, self._cursor.y + size.y)
+
+    def _native_close_button(self, button_id: int, pos: Vec2) -> bool:
+        """Record where ImGui's native close button was drawn; report a click."""
+        self._close_buttons[button_id] = pos
+        return self._ids[button_id] in self._clicks
+
+    def close_button_pos(self, label: str) -> Vec2:
+        """Return where the native close button with id *label* was drawn."""
+        return self._close_buttons[self.get_id(label)]
 
     def get_window_pos(self) -> Vec2:
         """Return a fixed window origin."""

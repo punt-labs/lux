@@ -124,25 +124,57 @@ class _HeadlessDisplay:
         window = self._popup_window()
         return window.pos.x + window.size.x - imgui.get_style().window_padding.x
 
-    def close_button_span(self) -> tuple[float, float]:
-        """The close button's (left, right) screen x, found by hovering it.
+    def _hover_span(self, *, along_x: bool, fixed: float) -> tuple[float, float]:
+        """The (low, high) screen coordinate where the close button is hovered.
 
         The button is an ImGui item with no rect the test can read back, so the
-        mouse sweeps the title's line and the span is where ImGui says the
-        button, and nothing else, is hovered.
+        mouse sweeps a line across the popup (a quarter pixel at a time) and the
+        span is where ImGui says the button, and nothing else, is hovered.
         """
         window = self._popup_window()
-        button_id = window.get_id("x")
-        y = window.pos.y + imgui.get_style().window_padding.y + 4.0
+        button_id = window.get_id("##close")
+        start = window.pos.x if along_x else window.pos.y
+        extent = window.size.x if along_x else window.size.y
         hits = []
-        x = window.pos.x
-        while x < window.pos.x + window.size.x:
-            self.move_mouse((x, y))
+        offset = 0.0
+        while offset < extent:
+            at = start + offset
+            self.move_mouse((at, fixed) if along_x else (fixed, at))
             self.frames(1)
             if imgui.get_current_context().hovered_id == button_id:
-                hits.append(x)
-            x += 1.0
-        return min(hits), max(hits) + 1.0
+                hits.append(at)
+            offset += 0.25
+        return min(hits), max(hits) + 0.25
+
+    def close_button_span(self) -> tuple[float, float]:
+        """The close button's (left, right) screen x."""
+        window = self._popup_window()
+        return self._hover_span(
+            along_x=True, fixed=window.pos.y + imgui.get_style().window_padding.y + 4.0
+        )
+
+    def close_button_centre_y(self) -> float:
+        """The close button's vertical centre on screen."""
+        left, right = self.close_button_span()
+        top, bottom = self._hover_span(along_x=False, fixed=(left + right) / 2)
+        return (top + bottom) / 2
+
+    @property
+    def title_line_centre_y(self) -> float:
+        """The vertical centre of the popup's "Connection" title line."""
+        window = self._popup_window()
+        top = window.pos.y + imgui.get_style().window_padding.y
+        return top + imgui.get_text_line_height() / 2
+
+    def click_close_button(self) -> None:
+        """Press and release the left button on the close button's centre."""
+        left, right = self.close_button_span()
+        self.move_mouse(((left + right) / 2, self.close_button_centre_y()))
+        self.frames(1)
+        self.press()
+        self.frames(2)
+        self.release()
+        self.frames(3)
 
     @property
     def title_right(self) -> float:
@@ -565,5 +597,23 @@ def test_a_title_wider_than_the_rows_keeps_one_width_across_frames() -> None:
             display.frames(1)
             widths.append(display.popup_width)
         assert len(set(widths)) == 1
+    finally:
+        display.close()
+
+
+def test_the_close_button_is_vertically_centred_on_the_title_line() -> None:
+    display = _open_popup(_LONG_FACTS)
+    try:
+        centre = display.close_button_centre_y()
+        assert abs(centre - display.title_line_centre_y) <= 0.5
+    finally:
+        display.close()
+
+
+def test_clicking_the_close_button_closes_the_popup() -> None:
+    display = _open_popup(_LONG_FACTS)
+    try:
+        display.click_close_button()
+        assert not display.popup_is_open
     finally:
         display.close()

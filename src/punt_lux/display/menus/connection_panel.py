@@ -20,10 +20,7 @@ __all__ = ["ConnectionPanel"]
 class ConnectionPanel:
     """One frame's owning-connection facts, drawn as a header and a 2-column grid."""
 
-    # The header title and the ASCII close-button label. "x" stands in for
-    # U+2715, which renders as tofu (as the title-bar glyph is ASCII "i").
     _TITLE = "Connection"
-    _CLOSE_LABEL = "x"
 
     _rows: tuple[tuple[str, str], ...]
     __slots__ = ("_rows",)
@@ -43,7 +40,7 @@ class ConnectionPanel:
         origin = self._render_header(imgui)
         self._render_rows(imgui)
         # Last, so the button can aim at the rows' right edge.
-        return CornerCloseButton(self._CLOSE_LABEL, self._TITLE, origin).render(imgui)
+        return CornerCloseButton(self._TITLE, origin).render(imgui)
 
     def _render_header(self, imgui: Any) -> Any:  # an ImVec2: no stubs
         """Draw the title above a rule; return where the title began."""

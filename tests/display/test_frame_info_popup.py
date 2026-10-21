@@ -229,7 +229,7 @@ class TestCloseButton:
     def test_the_close_button_shuts_the_popup(self) -> None:
         popup = FrameInfoPopup(_frame_for("f1"))
         popup.open_for(OpenFrame("f1", _HUB), _ROWS, (10.0, 20.0))
-        imgui = FakeImGui(clicks={"x"})
+        imgui = FakeImGui(clicks={"##close"})
         popup.render(imgui)  # header close button clicked -> close_current_popup
         popup.render(imgui)  # begin_popup now reports the popup shut
         assert not popup.is_open
@@ -237,7 +237,7 @@ class TestCloseButton:
     def test_the_close_button_draws_nothing_after_dismissal(self) -> None:
         popup = FrameInfoPopup(_frame_for("f1"))
         popup.open_for(OpenFrame("f1", _HUB), _ROWS, (10.0, 20.0))
-        imgui = FakeImGui(clicks={"x"})
+        imgui = FakeImGui(clicks={"##close"})
         popup.render(imgui)  # the close button arms the pending dismissal
         popup.render(imgui)  # the pending dismissal routes through close_current_popup
         drawn = len(imgui.popups)
@@ -250,7 +250,7 @@ class TestCloseButton:
     ) -> None:
         popup = FrameInfoPopup(_frame_for("f1"))
         popup.open_for(OpenFrame("f1", _HUB), _ROWS, (10.0, 20.0))
-        imgui = FakeImGui(clicks={"x"})
+        imgui = FakeImGui(clicks={"##close"})
         with caplog.at_level(logging.INFO, logger="punt_lux.display.menus"):
             for _ in range(3):
                 popup.render(imgui)
