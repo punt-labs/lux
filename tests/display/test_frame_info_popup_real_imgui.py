@@ -359,3 +359,25 @@ def test_a_click_on_another_frames_glyph_moves_the_popup_to_it(
 
     assert display.popup_is_open
     assert display.popup_frame_id == "f2"
+
+
+def test_dragging_away_and_back_over_an_open_popup_neither_closes_nor_reopens_it(
+    display: _HeadlessDisplay,
+) -> None:
+    """A press that travelled is a window move: it toggles the popup neither way."""
+    display.click_glyph(held_frames=3)
+    display.frames(4)
+    assert display.popup_is_open
+    x, y = display.glyph_centre()
+    display.move_mouse((x, y))
+    display.frames(1)
+    display.press()
+    display.frames(2)
+    display.move_mouse((x + 40.0, y + 30.0))
+    display.frames(2)
+    display.move_mouse((x, y))
+    display.frames(2)
+    display.release()
+    display.frames(4)
+
+    assert display.popup_is_open

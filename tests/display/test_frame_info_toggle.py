@@ -275,3 +275,18 @@ def test_a_press_survives_its_frame_vanishing_and_returning_before_the_release()
     _frame(button, imgui)
 
     assert button.popup.is_open_for(OpenFrame("f1", _HUB))
+
+
+def test_a_click_on_a_glyph_under_the_open_popup_moves_the_popup_to_its_frame() -> None:
+    """The press lands on the popup, so ImGui does not shut it: the release still
+    finds the popup open for another frame and replaces it."""
+    button = _button()
+    imgui = FakeImGui()
+    _open_by_click(button, imgui)
+
+    imgui.press_at(_GLYPH_CLICK)
+    _frame(button, imgui, "f2")
+    imgui.release_at(_GLYPH_CLICK)
+    _frame(button, imgui, "f2")
+
+    assert button.popup.open_frame == OpenFrame("f2", _HUB)
