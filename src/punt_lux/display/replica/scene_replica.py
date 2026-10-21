@@ -8,9 +8,8 @@ from typing import Self
 from punt_lux.display.replica._wiring import (
     Frame,
     FrameBook,
-    ManifestPurge,
     OnSceneReplacedFn,
-    SceneRemoval,
+    SceneDeparture,
     StaleIds,
     WidgetState,
     WidgetStateStore,
@@ -36,8 +35,8 @@ class SceneReplica:
     _book: FrameBook
     _widget_state: WidgetStateStore
     _stale: StaleIds
-    _purge: ManifestPurge
     _owner_facts: OwnerFactsStore
+    _departure: SceneDeparture
 
     def __new__(
         cls,
@@ -48,8 +47,8 @@ class SceneReplica:
         self._book = FrameBook()
         self._widget_state = WidgetStateStore()
         self._stale = StaleIds(self._book, on_scene_replaced)
-        self._purge = ManifestPurge(self._book)
         self._owner_facts = OwnerFactsStore()
+        self._departure = SceneDeparture(self._book, self._owner_facts, self)
         return self
 
     @property
@@ -129,8 +128,8 @@ class SceneReplica:
     def scenes_to_purge(
         self, hub: HubId, manifest: frozenset[str], live_hubs: frozenset[HubId]
     ) -> list[tuple[HubScopedKey, str]]:
-        """Every ``(frame_key, scene_id)`` to purge -- via :class:`ManifestPurge`."""
-        return self._purge.candidates(hub, manifest, live_hubs)
+        """Every ``(frame_key, scene_id)`` to purge -- via :class:`SceneDeparture`."""
+        return self._departure.purge_candidates(hub, manifest, live_hubs)
 
     def frame(self, frame_id: str, hub: HubId = _NO_HUB) -> Frame | None:
         """The frame ``(hub, frame_id)`` addresses -- collision-safe."""
@@ -151,15 +150,14 @@ class SceneReplica:
     ) -> None:
         """Route a scene into its frame; an empty push removes it, husk and all."""
         key = HubScopedKey(hub, msg.id)
-        removal = SceneRemoval(self._book, self._owner_facts, self)
         if not msg.elements:
-            removal.of_empty_push(key, msg.frame_owner_facts)
+            self._departure.of_empty_push(key, msg.frame_owner_facts)
             return
         frame = self._book.ensure(msg, owner_fd, hub)
         self._owner_facts.adopt(
             HubScopedKey(frame.hub, frame.frame_id), msg.frame_owner_facts
         )
-        removal.from_other_frame(frame, key)
+        self._departure.from_other_frame(frame, key)
         is_new = msg.id not in frame.scenes
         old_scene = frame.scenes.get(msg.id)
         frame.scenes[msg.id] = msg

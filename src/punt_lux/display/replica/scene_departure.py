@@ -1,14 +1,15 @@
-"""SceneRemoval — takes scenes out of frames, disposing a frame the removal empties.
+"""SceneDeparture — takes scenes out of frames, disposing a frame the departure empties.
 
-Two removals share the shape: an empty push names a scene to drop, and a scene
-re-pushed under a new frame leaves the old one. Either may empty a frame, and an
-emptied frame goes with it, husk and all.
+Three things take a scene out: an empty push names it, a re-push under a new
+frame leaves the old one, and a Hub's manifest (or death) disowns it. Departure
+may empty a frame, and an emptied frame goes with it, husk and all.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, Self, final
 
+from punt_lux.display.replica.manifest_purge import ManifestPurge
 from punt_lux.domain.identity import HubScopedKey
 
 if TYPE_CHECKING:
@@ -17,11 +18,11 @@ if TYPE_CHECKING:
     from punt_lux.display.replica.owner_facts_cache import OwnerFactsStore
     from punt_lux.domain.identity import HubId
 
-__all__ = ["FrameDisposer", "SceneRemoval"]
+__all__ = ["FrameDisposer", "SceneDeparture"]
 
 
 class FrameDisposer(Protocol):
-    """What removal needs from the replica: dismiss one scene, dispose a frame."""
+    """What a departure needs from the replica: dismiss one scene, dispose a frame."""
 
     def dismiss_framed_scene(self, frame: Frame, scene_id: str) -> bool:
         """Remove a scene from ``frame``; return True if the frame is now empty."""
@@ -33,13 +34,14 @@ class FrameDisposer(Protocol):
 
 
 @final
-class SceneRemoval:
+class SceneDeparture:
     """Drops scenes from the frames holding them, in their own Hub's scope."""
 
     _book: FrameBook
     _owner_facts: OwnerFactsStore
     _disposer: FrameDisposer
-    __slots__ = ("_book", "_disposer", "_owner_facts")
+    _purge: ManifestPurge
+    __slots__ = ("_book", "_disposer", "_owner_facts", "_purge")
 
     def __new__(
         cls, book: FrameBook, owner_facts: OwnerFactsStore, disposer: FrameDisposer
@@ -48,7 +50,14 @@ class SceneRemoval:
         self._book = book
         self._owner_facts = owner_facts
         self._disposer = disposer
+        self._purge = ManifestPurge(book)
         return self
+
+    def purge_candidates(
+        self, hub: HubId, manifest: frozenset[str], live_hubs: frozenset[HubId]
+    ) -> list[tuple[HubScopedKey, str]]:
+        """Every ``(frame_key, scene_id)`` a Hub's manifest or death orphans."""
+        return self._purge.candidates(hub, manifest, live_hubs)
 
     def of_empty_push(
         self, key: HubScopedKey, owner_facts: tuple[tuple[str, str], ...] | None

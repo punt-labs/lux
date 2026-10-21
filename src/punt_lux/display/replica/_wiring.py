@@ -9,8 +9,7 @@ from __future__ import annotations
 
 from punt_lux.display.replica.frame import Frame
 from punt_lux.display.replica.frame_book import FrameBook
-from punt_lux.display.replica.manifest_purge import ManifestPurge
-from punt_lux.display.replica.scene_removal import SceneRemoval
+from punt_lux.display.replica.scene_departure import SceneDeparture
 from punt_lux.display.replica.stale_ids import OnSceneReplacedFn, StaleIds
 from punt_lux.display.replica.widget_state import WidgetState, WireScalar
 from punt_lux.display.replica.widget_state_store import WidgetStateStore
@@ -18,9 +17,8 @@ from punt_lux.display.replica.widget_state_store import WidgetStateStore
 __all__ = [
     "Frame",
     "FrameBook",
-    "ManifestPurge",
     "OnSceneReplacedFn",
-    "SceneRemoval",
+    "SceneDeparture",
     "StaleIds",
     "WidgetState",
     "WidgetStateStore",
