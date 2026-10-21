@@ -43,6 +43,12 @@ __all__ = [
 # The label a separator records under — a rule the user sees between groups.
 SEPARATOR = "---"
 
+# Where the fake window's content starts, in screen coordinates.
+_CURSOR_START = (108.0, 108.0)
+
+# Pixels per character in the fake's text measurement.
+_CHAR_WIDTH = 8.0
+
 # Where a background click lands unless a test names somewhere else.
 _MIDDLE_OF_THE_WINDOW = (400.0, 300.0)
 
@@ -163,6 +169,11 @@ class FakeStyle:
         """Return the gap ImGui leaves between items on a line."""
         return Vec2(8.0, 4.0)
 
+    @property
+    def frame_padding(self) -> Vec2:
+        """Return the padding ImGui puts inside a button around its label."""
+        return Vec2(4.0, 3.0)
+
     def color_(self, _which: Flag) -> Vec2:
         """Return a style color; the value is unused by the recording double."""
         return Vec2(0.0, 0.0)
@@ -262,6 +273,10 @@ class FakeImGui:
     _window_hovered: bool
     _table_rows: list[tuple[str, ...]]
     _same_lines: list[tuple[float, float]]
+    _cursor: Vec2
+    _max_x: float
+    _table_right: float
+    _buttons: dict[str, Vec2]
     _current_row: list[str]
     _in_table: bool
     _focus_requests: int
@@ -270,14 +285,17 @@ class FakeImGui:
     _rendered_popups: list[str]
     _current_popup: str | None
     __slots__ = (
+        "_buttons",
         "_clicks",
         "_close_button",
         "_current_popup",
         "_current_row",
+        "_cursor",
         "_focus_requests",
         "_in_table",
         "_item_hovered",
         "_lines",
+        "_max_x",
         "_menus_open",
         "_mouse_clicked",
         "_mouse_pos",
@@ -290,6 +308,7 @@ class FakeImGui:
         "_same_lines",
         "_seen_ids",
         "_strict_ids",
+        "_table_right",
         "_table_rows",
         "_window_hovered",
         "_windows",
@@ -301,6 +320,7 @@ class FakeImGui:
         *,
         menus_open: bool = True,
         strict_ids: bool = False,
+        table_right: float = 0.0,
     ) -> Self:
         self = super().__new__(cls)
         self._clicks = frozenset(clicks)
@@ -319,6 +339,10 @@ class FakeImGui:
         self._window_hovered = True
         self._table_rows = []
         self._same_lines = []
+        self._cursor = Vec2(*_CURSOR_START)
+        self._max_x = 0.0
+        self._table_right = table_right
+        self._buttons = {}
         self._current_row = []
         self._in_table = False
         self._focus_requests = 0
@@ -423,6 +447,7 @@ class FakeImGui:
 
     def small_button(self, label: str) -> bool:
         """Report whether the user clicked this button, by its visible label."""
+        self._buttons[self._visible(label)] = self._cursor
         return self._visible(label) in self._clicks
 
     def set_next_window_size(self, _size: Any, _cond: int) -> None:
@@ -482,8 +507,27 @@ class FakeImGui:
         """Return the popup ids ``begin_popup`` drew this fixture, in order."""
         return tuple(self._rendered_popups)
 
-    def set_cursor_screen_pos(self, _pos: Any) -> None:
-        """Accept a cursor placement request."""
+    ImVec2 = Vec2
+
+    def set_cursor_screen_pos(self, pos: Vec2) -> None:
+        """Move the cursor, as the next item will be drawn from there."""
+        self._cursor = pos
+
+    def get_cursor_screen_pos(self) -> Vec2:
+        """Return where the next item will be drawn."""
+        return self._cursor
+
+    @property
+    def internal(self) -> SimpleNamespace:
+        """Return the internal API narrowed to the window's widest extent so far."""
+        window = SimpleNamespace(
+            dc=SimpleNamespace(cursor_max_pos=Vec2(self._max_x, self._cursor.y))
+        )
+        return SimpleNamespace(get_current_window_read=lambda: window)
+
+    def button_pos(self, label: str) -> Vec2:
+        """Return the screen position the button reading *label* was drawn at."""
+        return self._buttons[label]
 
     def get_window_pos(self) -> Vec2:
         """Return a fixed window origin."""
@@ -523,6 +567,10 @@ class FakeImGui:
         """
         if self._in_table:
             self._current_row.append(value)
+        else:
+            self._max_x = max(
+                self._max_x, self._cursor.x + self.calc_text_size(value).x
+            )
 
     def end_table(self) -> None:
         """Close the table, flushing any row still open."""
@@ -530,6 +578,7 @@ class FakeImGui:
             self._table_rows.append(tuple(self._current_row))
             self._current_row = []
         self._in_table = False
+        self._max_x = max(self._max_x, self._table_right)
 
     def same_line(self, offset: float = 0.0, spacing: float = -1.0) -> None:
         """Record a same-line request as (offset from the start, spacing)."""
@@ -544,9 +593,9 @@ class FakeImGui:
         """Return the style the header reads for its item spacing."""
         return FakeStyle()
 
-    def calc_text_size(self, _text: str) -> Vec2:
-        """Return a fixed text extent for the glyph's label centering."""
-        return Vec2(8.0, 12.0)
+    def calc_text_size(self, text: str) -> Vec2:
+        """Return a fixed-pitch text extent: a character is 8 px wide, 12 high."""
+        return Vec2(_CHAR_WIDTH * len(text), 12.0)
 
     def get_window_draw_list(self) -> FakeDrawList:
         """Return the draw list the title-bar glyph paints onto."""

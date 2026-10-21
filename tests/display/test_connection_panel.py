@@ -28,25 +28,34 @@ def test_the_panel_reports_no_close_when_nothing_was_pressed() -> None:
     assert not ConnectionPanel(_ROWS).render(FakeImGui())
 
 
-def test_the_close_button_follows_the_title_on_its_line_with_a_gap() -> None:
-    """Placed after the title, not from leftover width: the popup auto-sizes to
-    its contents, so a width-derived offset would feed back into itself."""
-    imgui = FakeImGui()
+# The fake lays text out at 8 px a character from x=108: "Connection" ends at 188.
+_TITLE_END = 108.0 + 8.0 * len("Connection")
+# "x" in a button: one 8 px character plus 4 px of padding either side.
+_BUTTON_WIDTH = 16.0
+_ITEM_SPACING = 8.0
+
+
+def test_the_close_button_is_flush_with_the_right_content_edge() -> None:
+    imgui = FakeImGui(table_right=440.0)
     ConnectionPanel(_ROWS).render(imgui)
-    offset, spacing = imgui.same_lines[0]
-    assert (offset, spacing) == (0.0, 2 * imgui.get_style().item_spacing.x)
+    assert imgui.button_pos("x").x == 440.0 - _BUTTON_WIDTH
+
+
+def test_the_close_button_never_overlaps_a_title_wider_than_the_rows() -> None:
+    imgui = FakeImGui(table_right=150.0)
+    ConnectionPanel(_ROWS).render(imgui)
+    assert imgui.button_pos("x").x == _TITLE_END + _ITEM_SPACING
+
+
+def test_the_close_button_sits_on_the_titles_line() -> None:
+    imgui = FakeImGui(table_right=440.0)
+    ConnectionPanel(_ROWS).render(imgui)
+    assert imgui.button_pos("x").y == 108.0
 
 
 def test_the_header_layout_is_the_same_on_every_render() -> None:
-    first, second = FakeImGui(), FakeImGui()
+    first, second = FakeImGui(table_right=300.0), FakeImGui(table_right=300.0)
     panel = ConnectionPanel(_ROWS)
     panel.render(first)
     panel.render(second)
-    assert first.same_lines == second.same_lines
-
-
-def test_the_header_layout_does_not_depend_on_the_rows() -> None:
-    short, long = FakeImGui(), FakeImGui()
-    ConnectionPanel(()).render(short)
-    ConnectionPanel(_ROWS).render(long)
-    assert short.same_lines == long.same_lines
+    assert first.button_pos("x") == second.button_pos("x")

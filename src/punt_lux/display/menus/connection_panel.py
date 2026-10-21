@@ -2,9 +2,7 @@
 
 A plain snapshot the Hub already formatted (``FrameOwnerFacts``, the Hub->display
 replication), so drawing it is render-loop-cheap. It only draws; whether it is
-shown, where, and when it shuts belongs to the popup that hosts it. The close
-button follows the title at a fixed gap, never a right edge derived from the
-width left over: the popup auto-sizes, so that would feed back into its width.
+shown, where, and when it shuts belongs to the popup that hosts it.
 
 ``imgui`` is typed ``Any``: imgui_bundle ships no type stubs.
 """
@@ -12,6 +10,8 @@ width left over: the popup auto-sizes, so that would feed back into its width.
 from __future__ import annotations
 
 from typing import Any, Self, final
+
+from punt_lux.display.menus.corner_close_button import CornerCloseButton
 
 __all__ = ["ConnectionPanel"]
 
@@ -40,17 +40,17 @@ class ConnectionPanel:
 
     def render(self, imgui: Any) -> bool:
         """Draw the header and the rows; return whether close was pressed."""
-        is_close_pressed = self._render_header(imgui)
+        origin = self._render_header(imgui)
         self._render_rows(imgui)
-        return is_close_pressed
+        # Last, so the button can aim at the rows' right edge.
+        return CornerCloseButton(self._CLOSE_LABEL, self._TITLE, origin).render(imgui)
 
-    def _render_header(self, imgui: Any) -> bool:
-        """Draw the title and its close button on one line, above a rule."""
+    def _render_header(self, imgui: Any) -> Any:  # an ImVec2: no stubs
+        """Draw the title above a rule; return where the title began."""
+        origin = imgui.get_cursor_screen_pos()
         imgui.text(self._TITLE)
-        imgui.same_line(0.0, imgui.get_style().item_spacing.x * 2.0)
-        is_close_pressed = bool(imgui.small_button(self._CLOSE_LABEL))
         imgui.separator()
-        return is_close_pressed
+        return origin
 
     def _render_rows(self, imgui: Any) -> None:
         """Render the facts as a compact 2-column label/value grid."""

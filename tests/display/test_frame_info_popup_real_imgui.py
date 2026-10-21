@@ -39,7 +39,7 @@ class _HeadlessDisplay:
     _foreground_vertices: int
     __slots__ = ("_foreground_vertices", "_frames_run", "_server")
 
-    def __new__(cls) -> Self:
+    def __new__(cls, facts: tuple[tuple[str, str], ...] = (("Client", "lux"),)) -> Self:
         self = super().__new__(cls)
         imgui.create_context()
         io = imgui.get_io()
@@ -54,7 +54,7 @@ class _HeadlessDisplay:
             id="s1",
             elements=[TextElement(id="t1", content="Hi")],
             frame_id=_FRAME_ID,
-            frame_owner_facts=(("Client", "lux"),),
+            frame_owner_facts=facts,
         )
         self._server._wrap_abc_elements(msg)
         self._server._scenes.handle_framed_scene(msg, owner_fd=1)
@@ -112,6 +112,44 @@ class _HeadlessDisplay:
         """The open popup window's current width."""
         windows = imgui.get_current_context().windows
         return next(w for w in windows if w.name.startswith("##Popup")).size.x
+
+    def _popup_window(self) -> imgui.internal.Window:
+        """The open popup's ImGui window."""
+        windows = imgui.get_current_context().windows
+        return next(w for w in windows if w.name.startswith("##Popup"))
+
+    @property
+    def popup_content_right(self) -> float:
+        """The popup's right content edge: its right edge less the window padding."""
+        window = self._popup_window()
+        return window.pos.x + window.size.x - imgui.get_style().window_padding.x
+
+    def close_button_span(self) -> tuple[float, float]:
+        """The close button's (left, right) screen x, found by hovering it.
+
+        The button is an ImGui item with no rect the test can read back, so the
+        mouse sweeps the title's line and the span is where ImGui says the
+        button, and nothing else, is hovered.
+        """
+        window = self._popup_window()
+        button_id = window.get_id("x")
+        y = window.pos.y + imgui.get_style().window_padding.y + 4.0
+        hits = []
+        x = window.pos.x
+        while x < window.pos.x + window.size.x:
+            self.move_mouse((x, y))
+            self.frames(1)
+            if imgui.get_current_context().hovered_id == button_id:
+                hits.append(x)
+            x += 1.0
+        return min(hits), max(hits) + 1.0
+
+    @property
+    def title_right(self) -> float:
+        """The right edge of the popup's "Connection" title."""
+        window = self._popup_window()
+        title = imgui.calc_text_size("Connection").x
+        return window.pos.x + imgui.get_style().window_padding.x + title
 
     @property
     def foreground_vertex_count(self) -> int:
@@ -460,3 +498,72 @@ def test_the_open_popup_keeps_one_width_across_frames(
         widths.append(display.popup_width)
 
     assert len(set(widths)) == 1
+
+
+_LONG_FACTS = (
+    ("Client", "claude-code-session-with-a-long-name"),
+    ("Hub", "hub-0123456789abcdef0123456789abcdef"),
+    ("Connection", "unix:///home/someone/.punt-labs/lux/run/display.sock"),
+    ("Kind", "agent"),
+)
+
+
+def _open_popup(facts: tuple[tuple[str, str], ...]) -> _HeadlessDisplay:
+    shown = _HeadlessDisplay(facts)
+    shown.click_glyph(held_frames=3)
+    shown.frames(4)
+    assert shown.popup_is_open
+    return shown
+
+
+def test_the_close_button_sits_in_the_popups_top_right_corner() -> None:
+    display = _open_popup(_LONG_FACTS)
+    try:
+        _, right = display.close_button_span()
+        assert abs(right - display.popup_content_right) <= 2.0
+    finally:
+        display.close()
+
+
+def test_the_popup_width_is_identical_across_consecutive_frames_with_long_rows() -> (
+    None
+):
+    display = _open_popup(_LONG_FACTS)
+    try:
+        widths = []
+        for _ in range(8):
+            display.frames(1)
+            widths.append(display.popup_width)
+        assert len(set(widths)) == 1
+    finally:
+        display.close()
+
+
+def test_the_close_button_does_not_overlap_the_title() -> None:
+    display = _open_popup(_LONG_FACTS)
+    try:
+        left, _ = display.close_button_span()
+        assert left > display.title_right
+    finally:
+        display.close()
+
+
+def test_a_title_wider_than_the_rows_still_keeps_the_button_clear_of_it() -> None:
+    display = _open_popup((("A", "b"),))
+    try:
+        left, _ = display.close_button_span()
+        assert left > display.title_right
+    finally:
+        display.close()
+
+
+def test_a_title_wider_than_the_rows_keeps_one_width_across_frames() -> None:
+    display = _open_popup((("A", "b"),))
+    try:
+        widths = []
+        for _ in range(8):
+            display.frames(1)
+            widths.append(display.popup_width)
+        assert len(set(widths)) == 1
+    finally:
+        display.close()
