@@ -6,6 +6,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from punt_lux.display.menus.frame_info_button import FrameInfoButton
+from punt_lux.display.menus.open_popup import OpenFrame
 from punt_lux.domain.identity import HubId
 from tests.menu_doubles import FakeImGui, Vec2, make_frame
 
@@ -19,6 +20,7 @@ _ROWS = (("Client", "lux"), ("Kind", "agent"))
 _UNKNOWN = (("Owner", "unknown"),)
 _GLYPH_CLICK = Vec2(470.0, 110.0)  # inside the glyph for menu_doubles' window
 _OFF_GLYPH = Vec2(150.0, 250.0)  # inside that window, nowhere near the glyph
+_POPUP_ID = "frame_info_popup"  # the stable popup-stack id FrameInfoPopup uses
 
 
 class _Facts:
@@ -202,3 +204,74 @@ def test_an_ignored_release_is_logged_once_at_debug_with_the_frame(
             f"glyph release for hub={_HUB} frame=f1 ignored: its press began elsewhere",
         )
     ]
+
+
+def _open_by_click(button: FrameInfoButton, imgui: FakeImGui) -> None:
+    """Press then release the glyph of ``f1`` on one persistent ImGui double."""
+    imgui.press_at(_GLYPH_CLICK)
+    _frame(button, imgui)
+    imgui.release_at(_GLYPH_CLICK)
+    _frame(button, imgui)
+
+
+def test_a_second_click_released_the_frame_after_the_press_closes_the_popup() -> None:
+    """ImGui shuts the popup at the end of the press frame; the release, one frame
+    on, finds the code still holding it open and closes it."""
+    button = _button()
+    imgui = FakeImGui()
+    _open_by_click(button, imgui)
+    assert button.popup.is_open
+
+    imgui.press_at(_GLYPH_CLICK)
+    _frame(button, imgui)
+    imgui.dismiss_popup(_POPUP_ID)
+    imgui.release_at(_GLYPH_CLICK)
+    _frame(button, imgui)
+
+    assert not button.popup.is_open
+
+
+def test_a_second_click_released_after_a_held_frame_does_not_reopen_the_popup() -> None:
+    """By the release the code has seen ImGui shut the popup: nothing to toggle,
+    and the release must not read the closed popup as a reason to open it."""
+    button = _button()
+    imgui = FakeImGui()
+    _open_by_click(button, imgui)
+
+    imgui.press_at(_GLYPH_CLICK)
+    _frame(button, imgui)
+    imgui.dismiss_popup(_POPUP_ID)
+    _frame(button, imgui)
+    imgui.release_at(_GLYPH_CLICK)
+    _frame(button, imgui)
+
+    assert not button.popup.is_open
+
+
+def test_a_click_on_another_frames_glyph_moves_the_popup_to_it() -> None:
+    button = _button()
+    imgui = FakeImGui()
+    _open_by_click(button, imgui)
+    assert button.popup.open_frame == OpenFrame("f1", _HUB)
+
+    imgui.press_at(_GLYPH_CLICK)
+    _frame(button, imgui, "f2")
+    imgui.dismiss_popup(_POPUP_ID)
+    imgui.release_at(_GLYPH_CLICK)
+    _frame(button, imgui, "f2")
+
+    assert button.popup.open_frame == OpenFrame("f2", _HUB)
+
+
+def test_a_press_survives_its_frame_vanishing_and_returning_before_the_release() -> (
+    None
+):
+    button = _button()
+    imgui = FakeImGui()
+    imgui.press_at(_GLYPH_CLICK)
+    _frame(button, imgui)
+    _frame(button, imgui, draws_frame=False)
+    imgui.release_at(_GLYPH_CLICK)
+    _frame(button, imgui)
+
+    assert button.popup.is_open_for(OpenFrame("f1", _HUB))

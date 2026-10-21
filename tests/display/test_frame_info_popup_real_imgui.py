@@ -61,10 +61,37 @@ class _HeadlessDisplay:
         """Tear the ImGui context down."""
         imgui.destroy_context()
 
+    def add_frame(self, frame_id: str) -> None:
+        """Replicate a second one-scene frame, as a second agent's would arrive."""
+        msg = SceneMessage(
+            id=f"scene-{frame_id}",
+            elements=[TextElement(id=f"text-{frame_id}", content="Hi")],
+            frame_id=frame_id,
+            frame_owner_facts=(("Client", frame_id),),
+        )
+        self._server._wrap_abc_elements(msg)
+        self._server._scenes.handle_framed_scene(msg, owner_fd=1)
+        self.frames(3)  # let ImGui place and size the new window
+
     @property
     def popup_is_open(self) -> bool:
         """Whether the popup believes itself open."""
         return self._server._frame_info_button.popup.is_open
+
+    @property
+    def popup_frame_id(self) -> str:
+        """The id of the frame the open popup belongs to."""
+        opened = self._server._frame_info_button.popup.open_frame
+        assert opened is not None
+        return opened.frame_id
+
+    def _window_name(self, frame_id: str) -> str:
+        """The ImGui window name of the on-screen frame ``frame_id``."""
+        frame = next(
+            f for f in self._server._scenes.on_screen_frames() if f.frame_id == frame_id
+        )
+        addressing = self._server._addressing
+        return f"{addressing.frame_title(frame)}##{addressing.frame_window_id(frame)}"
 
     @property
     def hovered_window_is_popup(self) -> bool:
@@ -82,11 +109,11 @@ class _HeadlessDisplay:
             imgui.render()
             self._frames_run += 1
 
-    def move_frame_to(self, pos: tuple[float, float]) -> None:
+    def move_frame_to(
+        self, pos: tuple[float, float], frame_id: str = _FRAME_ID
+    ) -> None:
         """Teleport the frame window, as a resize, Fit All, or raise would."""
-        frame = self._server._scenes.on_screen_frames()[0]
-        addressing = self._server._addressing
-        name = f"{addressing.frame_title(frame)}##{addressing.frame_window_id(frame)}"
+        name = self._window_name(frame_id)
         imgui.get_io().delta_time = 1 / 60
         imgui.new_frame()
         imgui.set_window_pos(name, imgui.ImVec2(*pos))
@@ -95,12 +122,9 @@ class _HeadlessDisplay:
         self._frames_run += 1
         self.frames(3)  # let the move settle before the next click
 
-    def glyph_centre(self) -> tuple[float, float]:
+    def glyph_centre(self, frame_id: str = _FRAME_ID) -> tuple[float, float]:
         """The title-bar glyph's centre, derived from the live window rect."""
-        frame = self._server._scenes.on_screen_frames()[0]
-        addressing = self._server._addressing
-        name = f"{addressing.frame_title(frame)}##{addressing.frame_window_id(frame)}"
-        window = imgui.internal.find_window_by_name(name)
+        window = imgui.internal.find_window_by_name(self._window_name(frame_id))
         band = imgui.get_frame_height()
         glyph = band * 0.625
         high_x = window.pos.x + window.size.x - band - 4.0
@@ -119,9 +143,9 @@ class _HeadlessDisplay:
         """Queue a left-button release."""
         imgui.get_io().add_mouse_button_event(_LEFT, False)
 
-    def click_glyph(self, *, held_frames: int) -> None:
+    def click_glyph(self, *, held_frames: int, frame_id: str = _FRAME_ID) -> None:
         """Press the glyph, hold ``held_frames`` frames, release, settle."""
-        self.move_mouse(self.glyph_centre())
+        self.move_mouse(self.glyph_centre(frame_id))
         self.frames(1)
         self.press()
         self.frames(held_frames)
@@ -258,3 +282,80 @@ def test_a_proper_click_opens_the_popup_after_a_near_miss(
     display.frames(4)
 
     assert display.popup_is_open
+
+
+def _reopen_beside_the_glyph(display: _HeadlessDisplay) -> None:
+    """Open the popup, then move the frame so its glyph is no longer under it.
+
+    A press on the glyph is then a press outside the popup, which ImGui shuts.
+    """
+    display.click_glyph(held_frames=3)
+    display.frames(4)
+    assert display.popup_is_open
+    display.move_frame_to((500.0, 500.0))
+    display.move_mouse(display.glyph_centre())
+    display.frames(1)
+
+
+def test_imgui_shuts_the_popup_at_the_end_of_the_press_frame_not_during_it(
+    display: _HeadlessDisplay,
+) -> None:
+    """The code is told a frame late: the glyph's press still finds it open.
+
+    This is the premise of the press record -- a glyph reading the popup at the
+    press sees it open on the frame ImGui shuts it, and by the release it is
+    closed -- so a change in ImGui's timing must fail here, loudly.
+    """
+    _reopen_beside_the_glyph(display)
+
+    display.press()
+    display.frames(1)
+    assert display.popup_is_open
+
+    display.frames(1)
+    assert not display.popup_is_open
+
+
+def test_a_second_click_released_on_the_frame_after_the_press_closes_the_popup(
+    display: _HeadlessDisplay,
+) -> None:
+    """The release finds the popup still open on the code's side: it closes it."""
+    _reopen_beside_the_glyph(display)
+
+    display.press()
+    display.frames(1)
+    display.release()
+    display.frames(1)
+    display.frames(3)
+
+    assert not display.popup_is_open
+
+
+def test_a_second_click_released_after_a_held_frame_does_not_reopen_the_popup(
+    display: _HeadlessDisplay,
+) -> None:
+    """By the release the code has seen ImGui shut the popup: nothing to toggle."""
+    _reopen_beside_the_glyph(display)
+
+    display.press()
+    display.frames(2)
+    display.release()
+    display.frames(3)
+
+    assert not display.popup_is_open
+
+
+def test_a_click_on_another_frames_glyph_moves_the_popup_to_it(
+    display: _HeadlessDisplay,
+) -> None:
+    display.add_frame("f2")
+    display.move_frame_to((200.0, 300.0), "f2")
+    display.click_glyph(held_frames=3)
+    display.frames(4)
+    assert display.popup_frame_id == _FRAME_ID
+
+    display.click_glyph(held_frames=3, frame_id="f2")
+    display.frames(4)
+
+    assert display.popup_is_open
+    assert display.popup_frame_id == "f2"
