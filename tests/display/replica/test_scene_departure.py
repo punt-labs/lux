@@ -67,7 +67,7 @@ def test_an_empty_push_for_a_held_scene_dismisses_it() -> None:
     departure, book, _ = _departure(disposer)
     _hold(book, "s1", "f")
 
-    departure.of_empty_push(HubScopedKey(_HUB, "s1"), _ROWS)
+    departure.of_empty_push(HubScopedKey(_HUB, "s1"), _scene("s1", "f", empty=True))
 
     assert disposer.dismissed == [("f", "s1")]
 
@@ -77,7 +77,7 @@ def test_a_frame_the_removal_emptied_is_disposed() -> None:
     departure, book, _ = _departure(disposer)
     _hold(book, "s1", "f")
 
-    departure.of_empty_push(HubScopedKey(_HUB, "s1"), _ROWS)
+    departure.of_empty_push(HubScopedKey(_HUB, "s1"), _scene("s1", "f", empty=True))
 
     assert disposer.disposed == ["f"]
 
@@ -87,7 +87,7 @@ def test_a_frame_the_removal_left_occupied_is_kept() -> None:
     departure, book, _ = _departure(disposer)
     _hold(book, "s1", "f")
 
-    departure.of_empty_push(HubScopedKey(_HUB, "s1"), _ROWS)
+    departure.of_empty_push(HubScopedKey(_HUB, "s1"), _scene("s1", "f", empty=True))
 
     assert disposer.disposed == []
 
@@ -96,7 +96,9 @@ def test_an_empty_push_for_an_unheld_scene_touches_nothing() -> None:
     disposer = _Disposer(emptied=True)
     departure, _, facts = _departure(disposer)
 
-    departure.of_empty_push(HubScopedKey(_HUB, "ghost"), _ROWS)
+    departure.of_empty_push(
+        HubScopedKey(_HUB, "ghost"), _scene("ghost", "f", empty=True)
+    )
 
     assert (disposer.dismissed, facts.rows_for(HubScopedKey(_HUB, "f"))) == ([], None)
 
@@ -120,3 +122,43 @@ def test_a_scene_already_in_the_target_frame_is_left_alone() -> None:
     departure.from_other_frame(frame, HubScopedKey(_HUB, "s1"))
 
     assert disposer.dismissed == []
+
+
+def test_a_frame_left_occupied_adopts_the_facts_the_empty_push_carries() -> None:
+    disposer = _Disposer(emptied=False)
+    departure, book, facts = _departure(disposer)
+    _hold(book, "s1", "f")
+
+    departure.of_empty_push(HubScopedKey(_HUB, "s1"), _scene("s1", "f", empty=True))
+
+    assert facts.rows_for(HubScopedKey(_HUB, "f")) == _ROWS
+
+
+def test_a_frame_the_removal_emptied_gets_no_facts_entry() -> None:
+    disposer = _Disposer(emptied=True)
+    departure, book, facts = _departure(disposer)
+    _hold(book, "s1", "f")
+
+    departure.of_empty_push(HubScopedKey(_HUB, "s1"), _scene("s1", "f", empty=True))
+
+    assert facts.rows_for(HubScopedKey(_HUB, "f")) is None
+
+
+def test_a_dismissed_scene_leaves_its_frame() -> None:
+    disposer = _Disposer(emptied=False)
+    departure, book, _ = _departure(disposer)
+    frame = _hold(book, "s1", "f")
+
+    departure.of_dismissal(frame, "s1")
+
+    assert disposer.dismissed == [("f", "s1")]
+
+
+def test_a_dismissal_that_empties_its_frame_disposes_it() -> None:
+    disposer = _Disposer(emptied=True)
+    departure, book, _ = _departure(disposer)
+    frame = _hold(book, "s1", "f")
+
+    departure.of_dismissal(frame, "s1")
+
+    assert disposer.disposed == ["f"]

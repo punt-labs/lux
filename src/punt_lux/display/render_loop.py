@@ -915,9 +915,7 @@ class RenderLoop:
                     closed_tabs.append(scene_id)
             imgui.end_tab_bar()
             for sid in closed_tabs:
-                frame_empty = self._scenes.dismiss_framed_scene(frame, sid)
-                if frame_empty:
-                    self._scenes.dispose_frame(frame.frame_id, frame.hub)
+                self._scenes.departure.of_dismissal(frame, sid)
 
     def _render_frame_stack(self, frame: Frame, imgui: Any) -> None:
         """Render multi-scene frame as vertically stacked collapsing headers.

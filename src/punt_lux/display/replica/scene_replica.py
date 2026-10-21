@@ -125,11 +125,10 @@ class SceneReplica:
         """Transfer a departed client's framed scenes to a surviving co-owner."""
         self._book.reassign_scenes_of(departed_fd, orphan_fd)
 
-    def scenes_to_purge(
-        self, hub: HubId, manifest: frozenset[str], live_hubs: frozenset[HubId]
-    ) -> list[tuple[HubScopedKey, str]]:
-        """Every ``(frame_key, scene_id)`` to purge -- via :class:`SceneDeparture`."""
-        return self._departure.purge_candidates(hub, manifest, live_hubs)
+    @property
+    def departure(self) -> SceneDeparture:
+        """How a scene leaves a frame: the one path for every departure."""
+        return self._departure
 
     def frame(self, frame_id: str, hub: HubId = _NO_HUB) -> Frame | None:
         """The frame ``(hub, frame_id)`` addresses -- collision-safe."""
@@ -151,7 +150,7 @@ class SceneReplica:
         """Route a scene into its frame; an empty push removes it, husk and all."""
         key = HubScopedKey(hub, msg.id)
         if not msg.elements:
-            self._departure.of_empty_push(key, msg.frame_owner_facts)
+            self._departure.of_empty_push(key, msg)
             return
         frame = self._book.ensure(msg, owner_fd, hub)
         self._owner_facts.adopt(

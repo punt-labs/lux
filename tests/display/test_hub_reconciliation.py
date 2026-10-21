@@ -495,6 +495,29 @@ class TestHandleManifest:
         assert scenes.resolve_scene("s1") is None
         assert "f1" not in scenes.frames  # the pass emptied it, so the husk goes too
 
+    def test_a_purge_that_leaves_the_frame_occupied_forgets_the_departed_owner(
+        self,
+    ) -> None:
+        listener = _make_listener()
+        scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
+        for scene_id in ("s1", "s2"):
+            scenes.handle_framed_scene(
+                SceneMessage(
+                    id=scene_id,
+                    elements=[TextElement(id=f"{scene_id}-t", content="x")],
+                    frame_id="f1",
+                    frame_owner_facts=(("Client", "departed"),),
+                ),
+                owner_fd=10,
+            )
+        reconciliation = _make_reconciliation(listener, scenes)
+        sock = _mock_sock(20)
+        _identify_as_hub(listener, sock)
+
+        reconciliation.handle_manifest(sock, HubManifestMessage(scene_ids=("s2",)))
+
+        assert scenes.owner_facts_for("f1") is None
+
     def test_a_scene_in_the_manifest_survives(self) -> None:
         listener = _make_listener()
         scenes = SceneReplica(on_scene_replaced=lambda _ids: None)

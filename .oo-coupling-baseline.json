@@ -1889,6 +1889,13 @@
     "max_lcom": 0.394,
     "avg_lcom": 0.394
   },
+  "src/punt_lux/display/replica/frame_disposer.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
   "src/punt_lux/display/replica/frame_placement.py": {
     "efferent_coupling": 1.0,
     "public_names": 1.0,
@@ -1952,6 +1959,13 @@
     "max_lcom": 0.0,
     "avg_lcom": 0.0
   },
+  "src/punt_lux/display/replica/purge_sweep.py": {
+    "efferent_coupling": 1.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
   "src/punt_lux/display/replica/replicated_menus.py": {
     "efferent_coupling": 4.0,
     "public_names": 1.0,
@@ -1961,10 +1975,17 @@
   },
   "src/punt_lux/display/replica/scene_departure.py": {
     "efferent_coupling": 2.0,
-    "public_names": 2.0,
+    "public_names": 1.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.5,
-    "avg_lcom": 0.5
+    "max_lcom": 0.3,
+    "avg_lcom": 0.3
+  },
+  "src/punt_lux/display/replica/scene_eviction.py": {
+    "efferent_coupling": 1.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.333,
+    "avg_lcom": 0.333
   },
   "src/punt_lux/display/replica/scene_index.py": {
     "efferent_coupling": 1.0,

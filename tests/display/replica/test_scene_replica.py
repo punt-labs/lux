@@ -8,7 +8,7 @@ as a pure state machine — no ImGui, no sockets, no RenderLoop.
 from __future__ import annotations
 
 from punt_lux.display.replica import SceneReplica, WidgetState
-from punt_lux.domain.identity import HubId, HubScopedKey
+from punt_lux.domain.identity import HubId
 from punt_lux.protocol import (
     ButtonElement,
     SceneMessage,
@@ -1075,30 +1075,34 @@ class TestEmptySceneRemovesFrame:
         assert "f1" not in mgr.frames
 
 
-class TestScenesToPurge:
-    """DES-068's manifest-driven purge query — every ghost scene, not frame."""
+class TestPurgeScenes:
+    """DES-068's manifest-driven purge -- every ghost scene, not frame."""
 
-    def test_a_scene_outside_the_manifest_is_a_candidate(self) -> None:
+    @staticmethod
+    def _held(mgr: SceneReplica, scene_id: str, hub: HubId) -> bool:
+        return mgr.widget_state_for(scene_id, hub) is not None
+
+    def test_a_scene_outside_the_manifest_is_purged(self) -> None:
         mgr, _ = _make_manager()
         mgr.handle_framed_scene(
             _make_scene(scene_id="s1", frame_id="f1"), owner_fd=10, hub=_HUB_A
         )
 
-        candidates = mgr.scenes_to_purge(_HUB_A, frozenset(), frozenset({_HUB_A}))
+        mgr.departure.sweep.run(_HUB_A, frozenset(), frozenset({_HUB_A}))
 
-        assert candidates == [(HubScopedKey(_HUB_A, "f1"), "s1")]
+        assert not self._held(mgr, "s1", _HUB_A)
 
-    def test_a_scene_named_in_the_manifest_is_not_a_candidate(self) -> None:
+    def test_a_scene_named_in_the_manifest_is_kept(self) -> None:
         mgr, _ = _make_manager()
         mgr.handle_framed_scene(
             _make_scene(scene_id="s1", frame_id="f1"), owner_fd=10, hub=_HUB_A
         )
 
-        candidates = mgr.scenes_to_purge(_HUB_A, frozenset({"s1"}), frozenset({_HUB_A}))
+        mgr.departure.sweep.run(_HUB_A, frozenset({"s1"}), frozenset({_HUB_A}))
 
-        assert candidates == []
+        assert self._held(mgr, "s1", _HUB_A)
 
-    def test_another_live_hubs_scene_is_never_a_candidate(self) -> None:
+    def test_another_live_hubs_scene_is_never_purged(self) -> None:
         """The collision-safe property: Hub A's manifest never disowns Hub B's."""
         mgr, _ = _make_manager()
         mgr.handle_framed_scene(
@@ -1109,38 +1113,39 @@ class TestScenesToPurge:
         )
 
         # Hub A's own manifest is empty -- it disowns its own s1, never Hub B's.
-        candidates = mgr.scenes_to_purge(
-            _HUB_A, frozenset(), frozenset({_HUB_A, _HUB_B})
-        )
+        mgr.departure.sweep.run(_HUB_A, frozenset(), frozenset({_HUB_A, _HUB_B}))
 
-        assert candidates == [(HubScopedKey(_HUB_A, "f1"), "s1")]
+        assert (self._held(mgr, "s1", _HUB_A), self._held(mgr, "s1", _HUB_B)) == (
+            False,
+            True,
+        )
 
     def test_a_mixed_frame_loses_only_its_ghost_scene(self) -> None:
         """Per-scene: a manifested scene shields its frame, not its ghost sibling."""
         mgr, _ = _make_manager()
-        mgr.handle_framed_scene(
-            _make_scene(scene_id="s1", frame_id="f1"), owner_fd=10, hub=_HUB_A
-        )
-        mgr.handle_framed_scene(
-            _make_scene(scene_id="s2", frame_id="f1"), owner_fd=10, hub=_HUB_A
-        )
+        for scene_id in ("s1", "s2"):
+            mgr.handle_framed_scene(
+                _make_scene(scene_id=scene_id, frame_id="f1"), owner_fd=10, hub=_HUB_A
+            )
 
-        candidates = mgr.scenes_to_purge(_HUB_A, frozenset({"s1"}), frozenset({_HUB_A}))
+        mgr.departure.sweep.run(_HUB_A, frozenset({"s1"}), frozenset({_HUB_A}))
 
-        assert candidates == [(HubScopedKey(_HUB_A, "f1"), "s2")]
+        assert (self._held(mgr, "s1", _HUB_A), self._held(mgr, "s2", _HUB_A)) == (
+            True,
+            False,
+        )
 
     def test_an_orphaned_hubs_scene_is_swept_once_it_leaves_live_hubs(self) -> None:
-        """A scene from a Hub no longer connected is candidate like any other."""
+        """A scene from a Hub no longer connected is swept like any other."""
         mgr, _ = _make_manager()
         mgr.handle_framed_scene(
             _make_scene(scene_id="s1", frame_id="f1"), owner_fd=10, hub=_HUB_A
         )
 
         # Hub B's manifest reconciles; Hub A is no longer among the live Hubs.
-        candidates = mgr.scenes_to_purge(_HUB_B, frozenset(), frozenset({_HUB_B}))
+        mgr.departure.sweep.run(_HUB_B, frozenset(), frozenset({_HUB_B}))
 
-        # The orphan's own key -- Hub A, never the reconciling Hub B.
-        assert candidates == [(HubScopedKey(_HUB_A, "f1"), "s1")]
+        assert not self._held(mgr, "s1", _HUB_A)
 
     def test_orphan_sweep_ignores_an_unrelated_hubs_coincidentally_matching_manifest(
         self,
@@ -1159,27 +1164,22 @@ class TestScenesToPurge:
         )
 
         # Hub C reconciles, naming its own "s1" -- A is no longer live.
-        candidates = mgr.scenes_to_purge(_HUB_C, frozenset({"s1"}), frozenset({_HUB_C}))
+        mgr.departure.sweep.run(_HUB_C, frozenset({"s1"}), frozenset({_HUB_C}))
 
-        # A's orphan is swept regardless of C's manifest content.
-        assert (HubScopedKey(_HUB_A, "fA"), "s1") in candidates
-        # C's own manifested scene survives.
-        assert (HubScopedKey(_HUB_C, "fC"), "s1") not in candidates
+        # A's orphan is swept regardless of C's manifest content; C's survives.
+        assert (self._held(mgr, "s1", _HUB_A), self._held(mgr, "s1", _HUB_C)) == (
+            False,
+            True,
+        )
 
     def test_widget_state_is_discarded_only_for_the_purged_scene(self) -> None:
         mgr, _ = _make_manager()
-        mgr.handle_framed_scene(
-            _make_scene(scene_id="s1", frame_id="f1"), owner_fd=10, hub=_HUB_A
-        )
-        mgr.handle_framed_scene(
-            _make_scene(scene_id="s2", frame_id="f1"), owner_fd=10, hub=_HUB_A
-        )
+        for scene_id in ("s1", "s2"):
+            mgr.handle_framed_scene(
+                _make_scene(scene_id=scene_id, frame_id="f1"), owner_fd=10, hub=_HUB_A
+            )
 
-        purge = mgr.scenes_to_purge(_HUB_A, frozenset({"s1"}), frozenset({_HUB_A}))
-        for frame_key, scene_id in purge:
-            frame = mgr.frame(frame_key.local, frame_key.hub)
-            assert frame is not None
-            mgr.dismiss_framed_scene(frame, scene_id)
+        mgr.departure.sweep.run(_HUB_A, frozenset({"s1"}), frozenset({_HUB_A}))
 
         assert mgr.widget_state_for("s2", _HUB_A) is None  # purged
         assert mgr.widget_state_for("s1", _HUB_A) is not None  # retained, untouched
@@ -1419,16 +1419,6 @@ class TestOwnerFactsAcrossAnEmptyPush:
 
         assert mgr.owner_facts_for("f") is None
 
-    def test_an_empty_push_with_no_facts_keeps_the_prior_snapshot(self) -> None:
-        mgr = self._two_scene_frame()
-
-        mgr.handle_framed_scene(
-            _make_scene("s1", frame_id="f", elements=[], frame_owner_facts=None),
-            owner_fd=10,
-        )
-
-        assert mgr.owner_facts_for("f") == self._OLD
-
     def test_an_empty_push_for_a_scene_no_frame_holds_creates_no_entry(self) -> None:
         mgr, _ = _make_manager()
 
@@ -1440,6 +1430,83 @@ class TestOwnerFactsAcrossAnEmptyPush:
         )
 
         assert mgr.owner_facts_for("f") is None
+
+
+class TestOwnerFactsAcrossSceneDeparture:
+    """A scene that leaves a frame the others still hold takes its owner with it.
+
+    The cached rows describe the frame's senior owner. Once the scene that owner
+    stood for is gone the rows are not current, however the scene went, so they
+    are replaced by what the Hub says about what remains, or forgotten -- which
+    is not the owner *connection* departing, where the scenes stay and the Hub's
+    ``None`` leaves the last-known snapshot standing.
+    """
+
+    _OLD = (("Client", "departed"),)
+    _NEW = (("Client", "survivor"),)
+
+    def _two_scene_frame(self) -> SceneReplica:
+        mgr, _ = _make_manager()
+        for scene_id in ("s1", "s2"):
+            mgr.handle_framed_scene(
+                _make_scene(scene_id, frame_id="f", frame_owner_facts=self._OLD),
+                owner_fd=10,
+            )
+        return mgr
+
+    def test_an_empty_push_without_facts_forgets_the_departed_owner(self) -> None:
+        mgr = self._two_scene_frame()
+
+        mgr.handle_framed_scene(
+            _make_scene("s1", frame_id="f", elements=[], frame_owner_facts=None),
+            owner_fd=10,
+        )
+
+        assert mgr.owner_facts_for("f") is None
+
+    def test_a_manifest_purge_forgets_the_departed_owner(self) -> None:
+        mgr = self._two_scene_frame()
+
+        mgr.departure.sweep.run(
+            HubId.stub(), frozenset({"s2"}), frozenset({HubId.stub()})
+        )
+
+        assert mgr.owner_facts_for("f") is None
+
+    def test_a_closed_tab_forgets_the_departed_owner(self) -> None:
+        mgr = self._two_scene_frame()
+
+        mgr.departure.of_dismissal(mgr.frames["f"], "s1")
+
+        assert mgr.owner_facts_for("f") is None
+
+    def test_a_scene_moved_to_another_frame_forgets_the_old_frames_owner(self) -> None:
+        mgr = self._two_scene_frame()
+
+        mgr.handle_framed_scene(
+            _make_scene("s1", frame_id="g", frame_owner_facts=self._NEW), owner_fd=10
+        )
+
+        assert (mgr.owner_facts_for("f"), mgr.owner_facts_for("g")) == (None, self._NEW)
+
+    def test_a_departure_leaves_another_frames_owner_alone(self) -> None:
+        mgr = self._two_scene_frame()
+        mgr.handle_framed_scene(
+            _make_scene("t1", frame_id="g", frame_owner_facts=self._NEW), owner_fd=11
+        )
+
+        mgr.departure.of_dismissal(mgr.frames["f"], "s1")
+
+        assert mgr.owner_facts_for("g") == self._NEW
+
+    def test_the_owner_connection_departing_still_keeps_the_last_snapshot(self) -> None:
+        mgr = self._two_scene_frame()
+
+        mgr.handle_framed_scene(
+            _make_scene("s2", frame_id="f", frame_owner_facts=None), owner_fd=10
+        )
+
+        assert mgr.owner_facts_for("f") == self._OLD
 
 
 class TestOwnerFactsHubScoping:

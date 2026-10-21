@@ -14,7 +14,7 @@ are named where the design fixes them):
 | Spec operation | Design element |
 |---|---|
 | `HubIdentify` | `HubReconciliation.handle_connect` + `._preempt_stale_hub` (`display/hub_reconciliation.py`) |
-| `HubManifest` | `HubReconciliation.handle_manifest` + `SceneReplica.scenes_to_purge` (`display/replica/scene_replica.py`) |
+| `HubManifest` | `HubReconciliation.handle_manifest` + `SceneReplica.departure.sweep.run` (`display/replica/scene_replica.py`) |
 | `SceneInstall` | `RenderLoop._handle_scene` → `SceneReplica.handle_framed_scene` — unchanged by this design; modelled to show it is unaffected once its source connection is live |
 | `ConnectionDrop` | `SocketListener.remove_client` → `RenderLoop._on_client_disconnected` → `SceneReplica.reassign_scenes_of` |
 
