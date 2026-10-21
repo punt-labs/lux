@@ -12,6 +12,7 @@ user reads.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Self, final
 
 from punt_lux.display.menus.own_menus import OwnMenus
@@ -125,6 +126,14 @@ class WindowFlags:
 
 
 @final
+class HoveredFlags:
+    """ImGui's ``HoveredFlags_`` enum, narrowed to the glyph's flags."""
+
+    allow_when_blocked_by_popup = Flag(8)
+    allow_when_blocked_by_active_item = Flag(32)
+
+
+@final
 class MouseButton:
     """ImGui's ``MouseButton_`` enum."""
 
@@ -176,6 +185,14 @@ class FakeDrawList:
     def add_text(self, _pos: Vec2, _color: int, _text: str) -> None:
         """Accept a text-draw request."""
 
+    def push_clip_rect(
+        self, _low: Vec2, _high: Vec2, *, intersect_with_current_clip_rect: bool
+    ) -> None:
+        """Accept a clip-rect push."""
+
+    def pop_clip_rect(self) -> None:
+        """Accept a clip-rect pop."""
+
 
 @final
 class FakeChrome:
@@ -226,6 +243,7 @@ class FakeImGui:
     Cond_ = Cond
     WindowFlags_ = WindowFlags
     MouseButton_ = MouseButton
+    HoveredFlags_ = HoveredFlags
     Col_ = Col
 
     _clicks: frozenset[str]
@@ -525,7 +543,7 @@ class FakeImGui:
         """Return a fixed text extent for the header's width computation."""
         return Vec2(8.0, 12.0)
 
-    def get_foreground_draw_list(self) -> FakeDrawList:
+    def get_window_draw_list(self) -> FakeDrawList:
         """Return the draw list the title-bar glyph paints onto."""
         return FakeDrawList()
 
@@ -563,9 +581,18 @@ class FakeImGui:
         """Report whether the mouse is over a widget."""
         return self._item_hovered
 
-    def is_window_hovered(self) -> bool:
+    def is_window_hovered(self, _flags: int = 0) -> bool:
         """Report whether the mouse is over the current window."""
         return self._window_hovered
+
+    @staticmethod
+    def get_current_context() -> SimpleNamespace:
+        """Return a context whose hovered window is never a popup."""
+        return SimpleNamespace(hovered_window=None)
+
+    def occlude_window(self) -> None:
+        """Put another window in front of the current one, under the mouse."""
+        self._window_hovered = False
 
     def get_mouse_pos(self) -> Vec2:
         """Return where the mouse is."""

@@ -61,6 +61,7 @@ renders and captures input); the concrete methods live in
 | PR6 | press on no glyph, popup closed (including a near miss beside a glyph) | `R::test_a_release_on_the_glyph_whose_press_began_beside_it_does_not_open`; `T::test_a_release_on_the_glyph_whose_press_began_off_it_does_nothing` | real; double |
 | PR7 | press on no glyph, popup open (outside the popup) | the dismissal itself is ImGui's, covered by the PR2 real tests; the code's reaction to a shut popup: `P::TestDismissal::test_an_outside_click_shuts_the_popup` | real (mechanism); double (reaction) |
 | PR8 | press on the popup's own body, not a glyph | **not covered** — see Gap 2 | — |
+| PR10 | press on a glyph hidden under a front frame: not on a glyph at all (`tnone`) | `R::test_a_click_on_a_glyph_hidden_under_a_front_frame_does_not_open_its_popup`; `R::test_the_glyph_paints_on_its_own_window_so_a_front_frame_covers_it`; `B::test_a_click_on_the_button_of_an_occluded_frame_does_not_open_the_popup` | real; double |
 | PR9 | Escape in the same frame | not applicable — see Gap 4 | — |
 
 ### FrameRelease
@@ -164,16 +165,29 @@ counter-example was found, so there is no trace to report against the code.
    are therefore unreachable today. The model keeps Escape as an input anyway
    (a superset), and the code's reaction to *any* dismissal is covered by ID2.
    If keyboard navigation is ever enabled, add a real Escape test then.
-5. **Overlapping glyphs are not modelled.** The glyph hit-test is raw geometry, so
-   two frames whose glyphs overlap would both read a press at one point. The
-   controller keeps one press record, so the later glyph wins; no test covers it,
-   and neither does the model.
+5. **Overlapping glyphs are a hit-test matter, not a model state.** A glyph
+   hidden under a front frame is never a target (the `TARGET` paragraph of the
+   spec): the glyph counts the mouse only while ImGui reports its window as the
+   one under the pointer, or only the info popup in front of it, and paints on
+   its own window's draw list so z-order hides it. The model takes the target
+   as an input, so occlusion needs no new state and the model-check is
+   unchanged (all of I1-I5 hold and there is no deadlock over 2 and 3 frames,
+   re-run). Two glyphs that are both front-most at one point (adjacent windows
+   sharing an edge, a docked tab strip) are still not modelled; the controller
+   keeps one press record, so the later glyph wins.
 6. **Late-arriving owner facts** change only the popup's rows and are covered by
    `T::test_facts_arriving_after_opening_replace_the_unknown_row` and its
    neighbours; they are outside the model's state because they cannot affect
    which frame the popup is open for.
 
 ## Tests added by this audit
+
+- `R::test_a_click_on_a_glyph_hidden_under_a_front_frame_does_not_open_its_popup`,
+  `R::test_the_glyph_paints_on_its_own_window_so_a_front_frame_covers_it` and
+  `B::test_a_click_on_the_button_of_an_occluded_frame_does_not_open_the_popup` --
+  the occlusion half of the glyph's hit test and paint (PR10); unit level:
+  `tests/display/test_glyph_hit.py` (a covered rect is not hit, a popup in front
+  is looked through) and `tests/display/test_glyph_painter.py` (the clip rect).
 
 Pure tests; no source file changed.
 

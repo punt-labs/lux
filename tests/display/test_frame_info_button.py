@@ -1,6 +1,6 @@
 """The title-bar info button: drawn on an expanded frame only, opens the popup.
 
-Painted on the foreground draw list and hit-tested by raw mouse position --
+Painted on the window's own draw list and hit-tested by raw mouse position --
 a title bar sits outside a window's content-area clip rect, so a normal
 ImGui item there (``small_button`` included) is silently culled before it
 ever draws or can be clicked. Mirrors ``test_dock_bar.py``'s fake for the
@@ -102,6 +102,12 @@ class _DrawList:
     def add_text(self, pos: _Vec2, _col: int, text: str) -> None:
         self.texts.append((pos.x, pos.y, text))
 
+    def push_clip_rect(
+        self, _low: _Vec2, _high: _Vec2, *, intersect_with_current_clip_rect: bool
+    ) -> None: ...
+
+    def pop_clip_rect(self) -> None: ...
+
 
 class _Colors:
     button = "button"
@@ -125,7 +131,11 @@ class _FakeImgui:
     Cond_ = SimpleNamespace(
         always=SimpleNamespace(value=0), first_use_ever=SimpleNamespace(value=0)
     )
-    HoveredFlags_ = SimpleNamespace(root_and_child_windows=SimpleNamespace(value=0))
+    HoveredFlags_ = SimpleNamespace(
+        root_and_child_windows=SimpleNamespace(value=0),
+        allow_when_blocked_by_popup=SimpleNamespace(value=0),
+        allow_when_blocked_by_active_item=SimpleNamespace(value=0),
+    )
     Col_ = _Colors
     MouseButton_ = _Buttons
 
@@ -133,8 +143,9 @@ class _FakeImgui:
     _clicked: bool
     _mouse: _Vec2
     _drag: tuple[float, float]  # farthest the press travelled from where it began
+    _occluded: bool  # another window is in front of this one, under the mouse
     draw: _DrawList
-    __slots__ = ("_clicked", "_drag", "_expanded", "_mouse", "draw")
+    __slots__ = ("_clicked", "_drag", "_expanded", "_mouse", "_occluded", "draw")
 
     def __new__(
         cls,
@@ -143,12 +154,14 @@ class _FakeImgui:
         clicked: bool,
         mouse: tuple[float, float] = _OFF_BUTTON,
         drag: tuple[float, float] = (0.0, 0.0),
+        occluded: bool = False,
     ) -> Self:
         self = super().__new__(cls)
         self._expanded = expanded
         self._clicked = clicked
         self._mouse = _Vec2(*mouse)
         self._drag = drag
+        self._occluded = occluded
         self.draw = _DrawList()
         return self
 
@@ -160,7 +173,11 @@ class _FakeImgui:
         return self._expanded, still_open
 
     def is_window_hovered(self, _flags: int) -> bool:
-        return False
+        return not self._occluded
+
+    @staticmethod
+    def get_current_context() -> SimpleNamespace:
+        return SimpleNamespace(hovered_window=None)
 
     def is_window_docked(self) -> bool:
         return False
@@ -178,7 +195,7 @@ class _FakeImgui:
     def get_frame_height(self) -> float:
         return 20.0
 
-    def get_foreground_draw_list(self) -> _DrawList:
+    def get_window_draw_list(self) -> _DrawList:
         return self.draw
 
     def get_style(self) -> type[_Style]:
@@ -315,3 +332,16 @@ def test_a_resolved_but_empty_result_is_not_treated_as_unknown(
     server._render_single_frame(_frame(), fake, _PLACEMENT)
 
     assert server._frame_info_button.popup.rows == ()
+
+
+def test_a_click_on_the_button_of_an_occluded_frame_does_not_open_the_popup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The mouse is over the glyph's rect, but another window is in front."""
+    _no_op_geometry(monkeypatch)
+    server = _make_server()
+    fake = _FakeImgui(expanded=True, clicked=True, mouse=_ON_BUTTON, occluded=True)
+
+    server._render_single_frame(_frame(), fake, _PLACEMENT)
+
+    assert not server._frame_info_button.popup.is_open

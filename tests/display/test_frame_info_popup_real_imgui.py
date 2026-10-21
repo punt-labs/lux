@@ -8,6 +8,8 @@ move is live ImGui re-focuses the frame every frame, and focusing the frame
 closes every popup stacked over it. A popup opened on the press frame therefore
 lived exactly one frame. Real clicks hold the button for several frames, so the
 popup must open on the *release* of a press that did not drag the window.
+The live application shows that dismissal; this headless harness does not, so
+these tests pin the release-time behaviour, not the dismissal mechanism.
 """
 
 from __future__ import annotations
@@ -34,7 +36,8 @@ class _HeadlessDisplay:
 
     _server: RenderLoop
     _frames_run: int
-    __slots__ = ("_frames_run", "_server")
+    _foreground_vertices: int
+    __slots__ = ("_foreground_vertices", "_frames_run", "_server")
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
@@ -46,6 +49,7 @@ class _HeadlessDisplay:
         io.backend_flags |= imgui.BackendFlags_.renderer_has_textures.value
         self._server = RenderLoop("/tmp/test-lux-frame-info-real.sock")
         self._frames_run = 0
+        self._foreground_vertices = 0
         msg = SceneMessage(
             id="s1",
             elements=[TextElement(id="t1", content="Hi")],
@@ -100,12 +104,18 @@ class _HeadlessDisplay:
         # pybind yields None when nothing is hovered, though the stub says Window.
         return bool(hovered) and hovered.name.startswith("##Popup")
 
+    @property
+    def foreground_vertex_count(self) -> int:
+        """Vertices on the global foreground draw list in the last rendered frame."""
+        return self._foreground_vertices
+
     def frames(self, count: int) -> None:
         """Run ``count`` full render passes."""
         for _ in range(count):
             imgui.get_io().delta_time = 1 / 60
             imgui.new_frame()
             self._server._render_scene()
+            self._foreground_vertices = len(imgui.get_foreground_draw_list().vtx_buffer)
             imgui.render()
             self._frames_run += 1
 
@@ -381,3 +391,33 @@ def test_dragging_away_and_back_over_an_open_popup_neither_closes_nor_reopens_it
     display.frames(4)
 
     assert display.popup_is_open
+
+
+def _cover_glyph_with_second_frame(display: _HeadlessDisplay) -> tuple[float, float]:
+    """Put a second, front frame over the first frame's glyph; return that spot."""
+    display.add_frame("f2")
+    x, y = display.glyph_centre()
+    display.move_frame_to((x - 60.0, y - 60.0), "f2")
+    return x, y
+
+
+def test_a_click_on_a_glyph_hidden_under_a_front_frame_does_not_open_its_popup(
+    display: _HeadlessDisplay,
+) -> None:
+    _cover_glyph_with_second_frame(display)
+
+    display.click_glyph(held_frames=3)
+    display.frames(4)
+
+    assert not display.popup_is_open
+
+
+def test_the_glyph_paints_on_its_own_window_so_a_front_frame_covers_it(
+    display: _HeadlessDisplay,
+) -> None:
+    """Only a window's own draw list obeys z-order; the global foreground list
+    would draw a hidden frame's glyph on top of whatever is in front."""
+    _cover_glyph_with_second_frame(display)
+    display.frames(2)
+
+    assert display.foreground_vertex_count == 0

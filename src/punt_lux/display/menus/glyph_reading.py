@@ -4,7 +4,7 @@ The glyph overlaps the title bar, so a press on it also starts ImGui's window
 move, which re-focuses the frame every frame it is held -- and focusing the
 frame closes every popup stacked over it. A popup opened on the press would be
 shut a frame later; opened on the release, after the move has ended, it stays.
-A press that dragged is a window move, not a click.
+(Seen in the live app, not reproduced headlessly.) A drag is a move, no click.
 
 ``imgui`` is typed ``Any``: imgui_bundle ships no type stubs.
 """

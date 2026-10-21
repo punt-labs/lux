@@ -53,8 +53,8 @@
 Every frame's title bar carries a small ``i'' glyph.  A click on it opens a
 popup of the frame's owning-connection facts; a second click closes it.  That
 sentence hides a good deal of machinery.  The glyph is not an ImGui item: it is
-painted on the foreground draw list and hit-tested against the raw mouse
-position, so ImGui knows nothing of it.  A press on it is, to ImGui, a press on
+painted on the frame window's own draw list and hit-tested against the raw
+mouse position, so ImGui knows nothing of it.  A press on it is, to ImGui, a press on
 the frame's title bar, and a press on a title bar starts a window move.  While
 that move is live ImGui re-focuses the frame on every frame, and focusing a
 frame closes every popup stacked over it --- so the code's documentation says,
@@ -142,7 +142,14 @@ exists.
 \end{zed}
 
 What the pointer is over at a mouse edge: nothing of interest, or the glyph of
-a frame.  A glyph can be the target only while its frame is \texttt{shown}.
+a frame.  A glyph can be the target only while its frame is \texttt{shown}
+\emph{and} its window is the one ImGui reports under the pointer, or only the
+info popup is in front of it.  A glyph hidden under another frame is therefore
+never a target: a press there is a press on something else (\texttt{tnone}).
+Which window is in front is thus an input to the model, chosen by the
+environment together with the target, not state the model tracks; the
+occlusion test lives wholly in the glyph's hit test, below the abstraction
+this model draws.
 
 \begin{zed}
   ORIGIN ::= onone | oaway | oglyph \ldata FRAME \rdata
