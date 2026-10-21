@@ -532,6 +532,19 @@ class FakeImGui:
         self._mouse_clicked = False
         return clicked
 
+    def is_mouse_released(self, button: Flag) -> bool:
+        """Report whether an armed click completed, consuming it like a click.
+
+        The double models a click as one atomic press-and-release, so the armed
+        click is both the press edge and the release edge.
+        """
+        return self.is_mouse_clicked(button)
+
+    @staticmethod
+    def get_mouse_drag_delta(_button: Flag) -> Vec2:
+        """Report no drag: an armed click never moves the mouse."""
+        return Vec2(0.0, 0.0)
+
     def is_any_item_hovered(self) -> bool:
         """Report whether the mouse is over a widget."""
         return self._item_hovered

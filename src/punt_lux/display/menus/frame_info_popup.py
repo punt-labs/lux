@@ -19,7 +19,10 @@ identical frame id (DES-c7xi round 3).
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any, Self, final
+
+from punt_lux.display.menus.connection_panel import ConnectionPanel
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -28,6 +31,8 @@ if TYPE_CHECKING:
     from punt_lux.domain.identity import HubId
 
 __all__ = ["FrameInfoPopup"]
+
+logger = logging.getLogger(__name__)
 
 
 @final
@@ -43,15 +48,10 @@ class FrameInfoPopup:
     # rows change, and one id enforces the one-at-a-time rule for free.
     _POPUP_ID = "frame_info_popup"
 
-    # The header title and the ASCII close-button label. "x" stands in for
-    # U+2715, which renders as tofu (as the title-bar glyph is ASCII "i").
-    _TITLE = "Connection"
-    _CLOSE_LABEL = "x"
-
     _frame_for: Callable[[str, HubId], Frame | None]
     _open_frame_id: str | None
     _open_hub: HubId | None
-    _rows: tuple[tuple[str, str], ...]
+    _panel: ConnectionPanel
     _spawn_pos: tuple[float, float]
     _placed: bool
     _pending_close: bool
@@ -59,9 +59,9 @@ class FrameInfoPopup:
         "_frame_for",
         "_open_frame_id",
         "_open_hub",
+        "_panel",
         "_pending_close",
         "_placed",
-        "_rows",
         "_spawn_pos",
     )
 
@@ -70,7 +70,7 @@ class FrameInfoPopup:
         self._frame_for = frame_for
         self._open_frame_id = None
         self._open_hub = None
-        self._rows = ()
+        self._panel = ConnectionPanel(())
         self._spawn_pos = (0.0, 0.0)
         self._placed = True
         self._pending_close = False
@@ -89,7 +89,7 @@ class FrameInfoPopup:
     @property
     def rows(self) -> tuple[tuple[str, str], ...]:
         """The label/value rows the popup will render."""
-        return self._rows
+        return self._panel.rows
 
     def is_open_for(self, frame_id: str, hub: HubId) -> bool:
         """Return whether the popup is open for exactly ``(hub, frame_id)``."""
@@ -105,7 +105,7 @@ class FrameInfoPopup:
         """Open (or replace) the popup for ``(hub, frame_id)`` at ``anchor``."""
         self._open_frame_id = frame_id
         self._open_hub = hub
-        self._rows = rows
+        self._panel = ConnectionPanel(rows)
         self._spawn_pos = anchor
         self._placed = False
         self._pending_close = False
@@ -139,12 +139,24 @@ class FrameInfoPopup:
             return
         self._place(imgui)
         if not imgui.begin_popup(self._POPUP_ID, self._flags(imgui)):
-            self.close()
+            self._on_dismissed_by_imgui()
             return
         try:
             self._render_body(imgui)
         finally:
             imgui.end_popup()
+
+    def _on_dismissed_by_imgui(self) -> None:
+        """Record that ImGui shut the popup and sync this object's state to it.
+
+        ImGui closes a popup for an outside click, Escape, or a focus change
+        over the window it opened from. It reports none of them, so name the
+        frame here: a popup that vanishes without a trace is undiagnosable.
+        """
+        logger.info(
+            "frame-info popup for frame=%s closed by imgui", self._open_frame_id
+        )
+        self.close()
 
     def _render_body(self, imgui: Any) -> None:
         """Dismiss on a pending close, else draw the header and the rows.
@@ -158,36 +170,8 @@ class FrameInfoPopup:
             imgui.close_current_popup()
             self.close()
             return
-        self._render_header(imgui)
-        self._render_rows(imgui)
-
-    def _render_header(self, imgui: Any) -> None:
-        """Draw the title and a right-aligned close button, above a rule.
-
-        The close button arms ``_pending_close`` rather than dismissing inline,
-        so it shares the one dismissal path :meth:`_render_body` owns.
-        """
-        button_width = imgui.calc_text_size(self._CLOSE_LABEL).x
-        button_width += imgui.get_style().frame_padding.x * 2.0
-        imgui.text(self._TITLE)
-        imgui.same_line(imgui.get_content_region_avail().x - button_width)
-        if imgui.small_button(self._CLOSE_LABEL):
+        if self._panel.render(imgui):
             self._pending_close = True
-        imgui.separator()
-
-    def _render_rows(self, imgui: Any) -> None:
-        """Render the facts as a compact 2-column label/value grid."""
-        if not imgui.begin_table("##frame_info_rows", 2):
-            return
-        try:
-            for label, value in self._rows:
-                imgui.table_next_row()
-                imgui.table_next_column()
-                imgui.text(label)
-                imgui.table_next_column()
-                imgui.text(value)
-        finally:
-            imgui.end_table()
 
     def _place(self, imgui: Any) -> None:
         """Open the popup in the popup layer and anchor it at the glyph, once.

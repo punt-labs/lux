@@ -132,16 +132,23 @@ class _FakeImgui:
     _expanded: bool
     _clicked: bool
     _mouse: _Vec2
+    _drag: tuple[float, float]
     draw: _DrawList
-    __slots__ = ("_clicked", "_expanded", "_mouse", "draw")
+    __slots__ = ("_clicked", "_drag", "_expanded", "_mouse", "draw")
 
     def __new__(
-        cls, *, expanded: bool, clicked: bool, mouse: tuple[float, float] = _OFF_BUTTON
+        cls,
+        *,
+        expanded: bool,
+        clicked: bool,
+        mouse: tuple[float, float] = _OFF_BUTTON,
+        drag: tuple[float, float] = (0.0, 0.0),
     ) -> Self:
         self = super().__new__(cls)
         self._expanded = expanded
         self._clicked = clicked
         self._mouse = _Vec2(*mouse)
+        self._drag = drag
         self.draw = _DrawList()
         return self
 
@@ -186,8 +193,11 @@ class _FakeImgui:
     def get_mouse_pos(self) -> _Vec2:
         return self._mouse
 
-    def is_mouse_clicked(self, _button: str) -> bool:
+    def is_mouse_released(self, _button: str) -> bool:
         return self._clicked
+
+    def get_mouse_drag_delta(self, _button: str) -> _Vec2:
+        return _Vec2(*self._drag)
 
 
 def _record_frame_no_op(_self: object, _frame_id: str) -> None:
@@ -243,6 +253,19 @@ def test_clicking_the_button_opens_the_popup_at_the_anchor(
 
     assert server._frame_info_button.popup.is_open
     assert server._frame_info_button.popup.spawn_pos == _EXPECTED_ANCHOR
+
+
+def test_a_drag_that_ends_on_the_button_does_not_open_the_popup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A press that moved the frame is a window move, not a click on the glyph."""
+    _no_op_geometry(monkeypatch)
+    server = _make_server()
+    fake = _FakeImgui(expanded=True, clicked=True, mouse=_ON_BUTTON, drag=(40.0, 12.0))
+
+    server._render_single_frame(_frame(), fake, _PLACEMENT)
+
+    assert not server._frame_info_button.popup.is_open
 
 
 def test_a_click_off_the_button_does_not_open_the_popup(

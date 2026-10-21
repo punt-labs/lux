@@ -9,6 +9,7 @@ the identical frame id (DES-c7xi round 3).
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from punt_lux.display.menus.frame_info_button import FrameInfoButton
@@ -19,6 +20,8 @@ from tests.menu_doubles import FakeImGui, Vec2, make_frame
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    import pytest
 
     from punt_lux.display.replica.frame import Frame
 
@@ -127,6 +130,18 @@ class TestDismissal:
         imgui.dismiss_popup(_POPUP_ID)  # ImGui's own outside-click dismissal
         popup.render(imgui)  # begin_popup now reports it shut
         assert not popup.is_open
+
+    def test_a_dismissal_by_imgui_is_logged_with_the_frame(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        popup = FrameInfoPopup(_frame_for("f1"))
+        popup.open_for("f1", _HUB, _ROWS, (10.0, 20.0))
+        imgui = FakeImGui()
+        popup.render(imgui)
+        imgui.dismiss_popup(_POPUP_ID)
+        with caplog.at_level(logging.INFO, logger="punt_lux.display.menus"):
+            popup.render(imgui)
+        assert "frame=f1 closed by imgui" in caplog.text
 
     def test_a_dismissed_popup_draws_nothing_further(self) -> None:
         popup = FrameInfoPopup(_frame_for("f1"))
