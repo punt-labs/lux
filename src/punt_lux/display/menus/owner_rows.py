@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Self, final
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from punt_lux.display.menus.open_popup import OpenFrame
     from punt_lux.domain.identity import HubId
 
 __all__ = ["OwnerRows"]
@@ -36,22 +37,20 @@ class OwnerRows:
         self._facts_for = facts_for
         return self
 
-    def for_open(self, frame_id: str, hub: HubId) -> tuple[tuple[str, str], ...]:
+    def for_open(self, frame: OpenFrame) -> tuple[tuple[str, str], ...]:
         """Return the rows for opening the popup, warning when none were replicated.
 
         Runs once per click, so the warning is one line per event.
         """
-        resolved = self._facts_for(frame_id, hub)
+        resolved = self._facts_for(frame.frame_id, frame.hub)
         if resolved is None:
             logger.warning(
-                "no owner facts replicated for hub=%s frame=%s; popup shows unknown",
-                hub,
-                frame_id,
+                "no owner facts replicated for %s; popup shows unknown", frame
             )
             return _UNKNOWN_OWNER_ROWS
         return resolved
 
-    def for_refresh(self, frame_id: str, hub: HubId) -> tuple[tuple[str, str], ...]:
+    def for_refresh(self, frame: OpenFrame) -> tuple[tuple[str, str], ...]:
         """Return the current rows; silent, as it runs every frame the popup is open."""
-        resolved = self._facts_for(frame_id, hub)
+        resolved = self._facts_for(frame.frame_id, frame.hub)
         return resolved if resolved is not None else _UNKNOWN_OWNER_ROWS

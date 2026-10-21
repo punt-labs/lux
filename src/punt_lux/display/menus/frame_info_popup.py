@@ -1,14 +1,13 @@
 """FrameInfoPopup — the title-bar info glyph's popup, opened by open_for().
 
-Renders in ImGui's dedicated popup layer -- always above every normal and
-docked window by construction -- so a popup spawned from a frame's own
-title-bar glyph sits above that frame rather than behind it. One popup at a
-time, anchored at the glyph. Two gestures dismiss it, both routed through
-ImGui's own ``close_current_popup`` so the popup and this object's state shut
-together: the header's close button, and a second click on the title-bar glyph
-(:class:`~punt_lux.display.menus.frame_info_button.FrameInfoButton` calls
+Renders in ImGui's popup layer, always above every normal and docked window, so
+a popup spawned from a frame's own title-bar glyph sits above that frame. One
+popup at a time, anchored at the glyph. Two gestures dismiss it, both routed
+through ImGui's ``close_current_popup`` so the popup and this object's state
+shut together: the header's close button, and a second click on the glyph
+(:class:`~punt_lux.display.menus.frame_info_toggle.FrameInfoToggle` calls
 :meth:`request_close`). Its rows are a plain snapshot the Hub already formatted
-(``FrameOwnerFacts``, replicated Hub->display), so rendering is render-loop-cheap.
+(``FrameOwnerFacts``, replicated Hub->display), so rendering is cheap.
 
 Addressed by ``(hub, frame_id)``, never a bare id: two Hubs can mint the
 identical frame id.
@@ -21,11 +20,12 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Self, final
 
-from punt_lux.display.menus.popup_site import OpenFrame, PopupSite
+from punt_lux.display.menus.popup_site import PopupSite
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from punt_lux.display.menus.open_popup import OpenFrame
     from punt_lux.display.replica.frame import Frame
     from punt_lux.domain.identity import HubId
 
@@ -60,11 +60,11 @@ class FrameInfoPopup:
     @property
     def is_open(self) -> bool:
         """Return whether the popup is currently showing."""
-        return self._site.frame is not None
+        return self._site.is_open
 
     @property
     def spawn_pos(self) -> tuple[float, float]:
-        """The anchor the popup will place itself at on its next render."""
+        """The anchor the popup places itself at; ``ValueError`` while closed."""
         return self._site.pos
 
     @property
@@ -74,22 +74,21 @@ class FrameInfoPopup:
 
     @property
     def rows(self) -> tuple[tuple[str, str], ...]:
-        """The label/value rows the popup will render."""
+        """The label/value rows the popup will render; none while it is closed."""
         return self._site.rows
 
-    def is_open_for(self, frame_id: str, hub: HubId) -> bool:
-        """Return whether the popup is open for exactly ``(hub, frame_id)``."""
-        return self._site.frame == OpenFrame(frame_id, hub)
+    def is_open_for(self, frame: OpenFrame) -> bool:
+        """Return whether the popup is open for exactly ``frame``."""
+        return self._site.frame == frame
 
     def open_for(
         self,
-        frame_id: str,
-        hub: HubId,
+        frame: OpenFrame,
         rows: tuple[tuple[str, str], ...],
         anchor: tuple[float, float],
     ) -> None:
-        """Open (or replace) the popup for ``(hub, frame_id)`` at ``anchor``."""
-        self._site.open(OpenFrame(frame_id, hub), rows, anchor)
+        """Open (or replace) the popup for ``frame`` at ``anchor``."""
+        self._site.open(frame, rows, anchor)
 
     def replace_rows(self, rows: tuple[tuple[str, str], ...]) -> None:
         """Show ``rows`` instead, so facts replicated after opening appear."""
