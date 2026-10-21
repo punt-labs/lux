@@ -390,10 +390,7 @@ class HubReplicator:
         the display's cached snapshot alone rather than blanking it.
         """
         snapshot = self._reader.snapshot(scene_id)
-        snapshot.push(
-            self._clients.get(),
-            frame_owner_facts=self._owner_facts.facts_for(scene_id),
-        )
+        snapshot.push(self._clients.get(), self._owner_facts)
         return snapshot.is_empty
 
     def _reclaim_emptied(self, scenes: tuple[SceneId, ...]) -> None:

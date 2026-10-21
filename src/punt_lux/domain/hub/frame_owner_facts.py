@@ -1,34 +1,31 @@
-"""FrameOwnerFactsReader — the port the replicator resolves a scene's owner
+"""FrameOwnerFactsReader — the port the replicator resolves a frame's owner
 facts on, and the pieces that make the domain safe to use before it is bound.
 
 The replicator's scene-send path is domain code and the dependency arrow runs
 operations -> domain, never back (mirrors ``ClientDetailsRenderer`` /
 ``DetailsBinding`` for the retiring Details command, ``client_details_port.py``
-/ ``details_binding.py``). So the domain declares what it needs — a scene id
+/ ``details_binding.py``). So the domain declares what it needs — a frame id
 in, the owning connection's field/value rows out, or ``None`` when unowned —
 and the composition root binds the operations-layer implementation once it
 exists.
 
-Until bound, every scene resolves as unowned: ``None`` is already the wire
+Until bound, every frame resolves as unowned: ``None`` is already the wire
 field's own "no change / owner unknown" contract (PY-TS-14), so a send that
 races composition needs no special case.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
-
-if TYPE_CHECKING:
-    from punt_lux.domain.ids import SceneId
+from typing import Protocol, Self, final, runtime_checkable
 
 __all__ = ["FrameOwnerFactsBinding", "FrameOwnerFactsReader", "NoFrameOwnerFacts"]
 
 
 @runtime_checkable
 class FrameOwnerFactsReader(Protocol):
-    """Resolves a scene's senior owner into the popup's field/value rows."""
+    """Resolves a frame's senior owner into the popup's field/value rows."""
 
-    def facts_for(self, scene_id: SceneId) -> tuple[tuple[str, str], ...] | None:
+    def facts_for_frame(self, frame_id: str) -> tuple[tuple[str, str], ...] | None:
         """Return the owning connection's rows, or ``None`` if unowned."""
         ...
 
@@ -39,9 +36,9 @@ class NoFrameOwnerFacts:
 
     __slots__ = ()
 
-    def facts_for(self, scene_id: SceneId) -> tuple[tuple[str, str], ...] | None:
-        """Report every scene as unowned — the honest answer before binding."""
-        _ = scene_id  # Null Object: the port's contract, unused by design
+    def facts_for_frame(self, frame_id: str) -> tuple[tuple[str, str], ...] | None:
+        """Report every frame as unowned — the honest answer before binding."""
+        _ = frame_id  # Null Object: the port's contract, unused by design
         return None
 
 
@@ -65,6 +62,6 @@ class FrameOwnerFactsBinding:
         """
         self._reader = reader
 
-    def facts_for(self, scene_id: SceneId) -> tuple[tuple[str, str], ...] | None:
+    def facts_for_frame(self, frame_id: str) -> tuple[tuple[str, str], ...] | None:
         """Delegate to the bound reader (or the Null Object before binding)."""
-        return self._reader.facts_for(scene_id)
+        return self._reader.facts_for_frame(frame_id)

@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Literal, Self
 import pytest
 
 from punt_lux.domain.container_interaction import ModalClosed
+from punt_lux.domain.hub.frame_owner_facts import NoFrameOwnerFacts
 from punt_lux.domain.hub.hub_display import (
     HubDisplay,
     HubOwnershipError,
@@ -465,7 +466,7 @@ class _SnapshotLabels:
 
     def captured(self) -> list[str]:
         """Push the snapshot into this collector and return the labels it held."""
-        self._snapshot.push(self)
+        self._snapshot.push(self, NoFrameOwnerFacts())
         return self._labels
 
     def show_async(

@@ -6,7 +6,7 @@ same owner, whichever scene the replicator sent last.
 
 from __future__ import annotations
 
-from typing import cast
+from typing import TYPE_CHECKING, Self, cast, final
 
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.hub import Hub
@@ -18,6 +18,12 @@ from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.frame_owner_facts import FrameOwnerFacts
 from punt_lux.operations.queries import QueryOperations
 from punt_lux.protocol.elements.text import TextElement
+from tests.domain.test_hub_replicator import _replicator
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from punt_lux.domain.hub.scene_snapshot import SceneReader, SceneSnapshot
 
 
 class _ForbiddenPort:
@@ -58,24 +64,20 @@ def _identified_scene(store: HubDisplay, connection: str, name: str) -> SceneId:
 
 
 class TestAFrameComposingScenesWithDifferentOwners:
-    def test_resolves_one_canonical_owner_regardless_of_send_order(self) -> None:
-        # Two scenes, each owned by a different senior connection, share one
-        # frame. The replicator resends each scene separately; the owner must
-        # resolve the same whichever scene was sent (asked about) last.
+    def test_resolves_the_earliest_appearing_owner(self) -> None:
+        # Two scenes, each owned by a different connection, share one frame;
+        # the frame's owner is the one of the scene that appeared first.
         store, hub = HubDisplay(), Hub()
         first = _identified_scene(store, "c1", name="alpha")
         second = _identified_scene(store, "c2", name="beta")
         frame = ScenePresentation(frame_id="shared-frame")
         store.frames.record(first, frame)
         store.frames.record(second, frame)
-        reader = _reader(store, hub)
 
-        by_first = reader.facts_for(first)
-        by_second = reader.facts_for(second)
+        rows = _reader(store, hub).facts_for_frame("shared-frame")
 
-        assert by_first is not None
-        assert by_first == by_second
-        assert dict(by_first)["Connection"] == "c1"
+        assert rows is not None
+        assert dict(rows)["Connection"] == "c1"
 
     def test_seniority_is_first_appearance_not_lexical_scene_id(self) -> None:
         # The frame first receives "z-scene" (owner "z"), then "a-scene"
@@ -87,30 +89,101 @@ class TestAFrameComposingScenesWithDifferentOwners:
         frame = ScenePresentation(frame_id="shared-frame")
         store.frames.record(senior, frame)
         store.frames.record(junior, frame)
-        reader = _reader(store, hub)
 
-        by_senior = reader.facts_for(senior)
-        by_junior = reader.facts_for(junior)
+        rows = _reader(store, hub).facts_for_frame("shared-frame")
 
-        assert by_senior is not None
-        assert by_senior == by_junior  # order-independent of the triggering send
-        assert dict(by_senior)["Connection"] == "z"
+        assert rows is not None
+        assert dict(rows)["Connection"] == "z"
+
+    def test_a_scene_shown_elsewhere_no_longer_names_the_frames_owner(self) -> None:
+        store, hub = HubDisplay(), Hub()
+        first = _identified_scene(store, "c1", name="alpha")
+        second = _identified_scene(store, "c2", name="beta")
+        store.frames.record(first, ScenePresentation(frame_id="elsewhere"))
+        store.frames.record(second, ScenePresentation(frame_id="shared-frame"))
+
+        rows = _reader(store, hub).facts_for_frame("shared-frame")
+
+        assert rows is not None
+        assert dict(rows)["Connection"] == "c2"
 
 
 class TestASelfFramedScene:
     def test_reports_its_own_owner(self) -> None:
-        # A scene with no shared frame resolves to its own owner unchanged.
+        # A scene with no recorded presentation is framed by its own id.
         store, hub = HubDisplay(), Hub()
         scene_id = _identified_scene(store, "c1", name="alpha")
-        reader = _reader(store, hub)
 
-        rows = reader.facts_for(scene_id)
+        rows = _reader(store, hub).facts_for_frame(str(scene_id))
 
         assert rows is not None
         assert dict(rows)["Connection"] == "c1"
 
-    def test_an_unowned_scene_reports_none(self) -> None:
+    def test_a_frame_nobody_shows_reports_none(self) -> None:
         store, hub = HubDisplay(), Hub()
-        reader = _reader(store, hub)
 
-        assert reader.facts_for(SceneId("nobody-installed-this")) is None
+        assert _reader(store, hub).facts_for_frame("nobody-framed-this") is None
+
+
+@final
+class _ReshowingReader:
+    """A scene reader that runs ``after_snapshot`` between capture and the send.
+
+    Models a re-show or move that lands in the window after the worker copied a
+    scene out of the store and before it resolves that scene's owner facts.
+    """
+
+    _inner: SceneReader
+    _after_snapshot: Callable[[], None]
+    __slots__ = ("_after_snapshot", "_inner")
+
+    def __new__(cls, inner: SceneReader, after_snapshot: Callable[[], None]) -> Self:
+        self = super().__new__(cls)
+        self._inner = inner
+        self._after_snapshot = after_snapshot
+        return self
+
+    def snapshot(self, scene_id: SceneId) -> SceneSnapshot:
+        captured = self._inner.snapshot(scene_id)
+        self._after_snapshot()
+        return captured
+
+    def live_scene_ids(self) -> tuple[SceneId, ...]:
+        return self._inner.live_scene_ids()
+
+    def reclaim_if_rootless(self, scene_id: SceneId) -> None:
+        self._inner.reclaim_if_rootless(scene_id)
+
+
+class TestAReplicatorSendRacingAReshow:
+    def test_the_pushed_facts_belong_to_the_pushed_frame(self) -> None:
+        # Frame "old" holds a1 (owner c1) and a2 (owner c2); frame "new" holds
+        # b1 (owner c3). a1 is copied out for the "old" frame, then re-shown
+        # into "new" before its facts resolve. The push still lands in "old",
+        # so the facts it carries must be "old"'s owner now -- c2 -- and not
+        # "new"'s canonical owner, which is a1's own owner, c1.
+        store, hub = HubDisplay(), Hub()
+        a1 = _identified_scene(store, "c1", name="alpha")
+        a2 = _identified_scene(store, "c2", name="beta")
+        b1 = _identified_scene(store, "c3", name="gamma")
+        store.frames.record(a1, ScenePresentation(frame_id="old"))
+        store.frames.record(a2, ScenePresentation(frame_id="old"))
+        store.frames.record(b1, ScenePresentation(frame_id="new"))
+
+        def reshow() -> None:
+            store.frames.record(a1, ScenePresentation(frame_id="new"))
+
+        repl, sender, _provider, _lifecycle = _replicator(
+            store,
+            owner_facts=_reader(store, hub),
+            reader=cast("SceneReader", _ReshowingReader(store.reader, reshow)),
+        )
+        repl.start()
+        try:
+            repl.mark_dirty(a1)
+            assert sender.wait_sent(3.0)
+        finally:
+            repl.stop()
+
+        (rows,) = sender.owner_facts
+        assert (sender.frames[0], dict(rows or ())["Connection"]) == ("old", "c2")

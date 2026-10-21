@@ -43,12 +43,13 @@ class CanonicalFrameOwner:
         """Wrap a store-wired :class:`FrameOwnerFacts` with frame-level lifting."""
         return cls(display, FrameOwnerFacts.for_store(display, hub=hub, ports=ports))
 
-    def facts_for(self, scene_id: SceneId) -> tuple[tuple[str, str], ...] | None:
-        """Return the frame's canonical owner rows, or ``None`` if unowned."""
-        return self._facts.facts_for(self._canonical_scene(scene_id))
+    def facts_for_frame(self, frame_id: str) -> tuple[tuple[str, str], ...] | None:
+        """Return the frame's canonical owner rows, or ``None`` if none is owned."""
+        canonical = self._canonical_scene(frame_id)
+        return None if canonical is None else self._facts.facts_for(canonical)
 
-    def _canonical_scene(self, scene_id: SceneId) -> SceneId:
-        """Return the senior owned scene of ``scene_id``'s frame, deterministic.
+    def _canonical_scene(self, frame_id: str) -> SceneId | None:
+        """Return the senior owned scene of ``frame_id``; ``None`` if none is owned.
 
         The frame's live scenes are walked in first-appearance order -- the
         order in which they first received a root, which ``live_scene_ids`` and
@@ -56,15 +57,13 @@ class CanonicalFrameOwner:
         owner is the canonical one. Seniority is defined by registration order
         everywhere else, so the owner is the frame's earliest-appearing owned
         scene and depends only on the frame's membership, never on which scene
-        was sent last. With no owned scene, ``scene_id`` stands in and the inner
-        reader reports it unowned.
+        was sent last.
         """
         frames = self._display.frames
-        frame_id = frames.presentation_for(scene_id).frame_id
         owned_in_frame = (
             sid
             for sid in self._display.live_scene_ids()
             if frames.presentation_for(sid).frame_id == frame_id
             and self._display.scene_owners(sid)
         )
-        return next(owned_in_frame, scene_id)
+        return next(owned_in_frame, None)

@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.element import Element as WireElement
     from punt_lux.domain.hub.element_index import ElementIndex
     from punt_lux.domain.hub.frame_lifecycle import FrameLifecycle
+    from punt_lux.domain.hub.frame_owner_facts import FrameOwnerFactsReader
     from punt_lux.domain.hub.scene_presentation import (
         ScenePresentation,
         ScenePusher,
@@ -54,18 +55,18 @@ class SceneSnapshot:
         """Whether the scene had no roots — an emptied or departed scene."""
         return not self._roots
 
-    def push(
-        self,
-        sender: ScenePusher,
-        *,
-        frame_owner_facts: tuple[tuple[str, str], ...] | None = None,
-    ) -> None:
-        """Resend the copied scene; an empty scene sends no roots to blank its frame."""
+    def push(self, sender: ScenePusher, owners: FrameOwnerFactsReader) -> None:
+        """Resend the copied scene; an empty scene sends no roots to blank its frame.
+
+        Owner facts are resolved for the frame this snapshot captured, not the
+        scene's live frame: a re-show may have moved it since the copy was taken.
+        """
+        frame_id = self._presentation.frame_id
         self._presentation.push(
             sender,
             self._scene_id,
             self._roots,
-            frame_owner_facts=frame_owner_facts,
+            frame_owner_facts=owners.facts_for_frame(frame_id),
         )
 
 

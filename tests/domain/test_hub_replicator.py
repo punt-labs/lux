@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 
     from punt_lux.domain.element import Element as WireElement
     from punt_lux.domain.hub.frame_owner_facts import FrameOwnerFactsReader
+    from punt_lux.domain.hub.scene_snapshot import SceneReader
 
 _CONN = ConnectionId("repl-conn")
 
@@ -400,6 +401,7 @@ def _replicator(
     menu_registry: HubMenuRegistry | None = None,
     callback_wire: list[dict[str, object]] | None = None,
     owner_facts: FrameOwnerFactsReader | None = None,
+    reader: SceneReader | None = None,
 ) -> tuple[HubReplicator, _FakeSender, _FakeProvider, _FakeLifecycle]:
     sender = _FakeSender()
     provider = _FakeProvider(sender)
@@ -408,7 +410,7 @@ def _replicator(
         menu_registry if menu_registry is not None else HubMenuRegistry(store.clients)
     )
     repl = HubReplicator(
-        store.reader,
+        reader if reader is not None else store.reader,
         registry,
         _FakeCallbackReader(callback_wire),
         provider,
@@ -595,7 +597,7 @@ def test_a_generic_menu_send_error_restores_the_flag_and_retries() -> None:
 
 
 class _FakeOwnerFacts:
-    """A FrameOwnerFactsReader returning a fixed rows tuple for one scene id."""
+    """A FrameOwnerFactsReader returning a fixed rows tuple for one frame id."""
 
     _rows: dict[str, tuple[tuple[str, str], ...] | None]
     __slots__ = ("_rows",)
@@ -605,8 +607,8 @@ class _FakeOwnerFacts:
         self._rows = rows
         return self
 
-    def facts_for(self, scene_id: SceneId) -> tuple[tuple[str, str], ...] | None:
-        return self._rows.get(str(scene_id))
+    def facts_for_frame(self, frame_id: str) -> tuple[tuple[str, str], ...] | None:
+        return self._rows.get(frame_id)
 
 
 def test_the_resend_carries_the_owner_facts_the_reader_resolves() -> None:
