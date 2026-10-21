@@ -101,6 +101,14 @@ class Flag:
 
 
 @final
+class FakeIO:
+    """ImGui's ``io``, narrowed to the drag-distance fields the glyph reads."""
+
+    mouse_drag_threshold = 6.0
+    mouse_drag_max_distance_sqr = (0.0, 0.0, 0.0, 0.0, 0.0)
+
+
+@final
 class Cond:
     """ImGui's ``Cond_`` enum, narrowed to the conditions the panel uses."""
 
@@ -230,6 +238,7 @@ class FakeImGui:
     _open_windows: int
     _close_button: bool
     _mouse_clicked: bool
+    _mouse_released: bool
     _mouse_pos: Vec2
     _item_hovered: bool
     _window_hovered: bool
@@ -253,6 +262,7 @@ class FakeImGui:
         "_menus_open",
         "_mouse_clicked",
         "_mouse_pos",
+        "_mouse_released",
         "_open_popups",
         "_open_windows",
         "_opened_popup_ids",
@@ -283,6 +293,7 @@ class FakeImGui:
         self._open_windows = 0
         self._close_button = False
         self._mouse_clicked = False
+        self._mouse_released = False
         self._mouse_pos = Vec2(0.0, 0.0)
         self._item_hovered = False
         self._window_hovered = True
@@ -532,18 +543,21 @@ class FakeImGui:
         self._mouse_clicked = False
         return clicked
 
-    def is_mouse_released(self, button: Flag) -> bool:
+    def is_mouse_released(self, _button: Flag) -> bool:
         """Report whether an armed click completed, consuming it like a click.
 
         The double models a click as one atomic press-and-release, so the armed
-        click is both the press edge and the release edge.
+        click is both the press edge and the release edge -- each consumed
+        independently, so reading one does not hide the other.
         """
-        return self.is_mouse_clicked(button)
+        released = self._mouse_released
+        self._mouse_released = False
+        return released
 
     @staticmethod
-    def get_mouse_drag_delta(_button: Flag) -> Vec2:
-        """Report no drag: an armed click never moves the mouse."""
-        return Vec2(0.0, 0.0)
+    def get_io() -> FakeIO:
+        """Return an io reporting no drag: an armed click never moves the mouse."""
+        return FakeIO()
 
     def is_any_item_hovered(self) -> bool:
         """Report whether the mouse is over a widget."""
@@ -566,6 +580,7 @@ class FakeImGui:
     def click_background(self, pos: Vec2 | None = None) -> None:
         """Arm a left click on the window background at *pos*."""
         self._mouse_clicked = True
+        self._mouse_released = True
         self._mouse_pos = pos if pos is not None else Vec2(*_MIDDLE_OF_THE_WINDOW)
         self._item_hovered = False
         self._window_hovered = True
@@ -573,6 +588,7 @@ class FakeImGui:
     def click_widget(self) -> None:
         """Arm a left click that lands on a widget rather than the background."""
         self._mouse_clicked = True
+        self._mouse_released = True
         self._item_hovered = True
 
     def click_close_button(self) -> None:
@@ -582,6 +598,7 @@ class FakeImGui:
     def click_at(self, pos: Vec2) -> None:
         """Arm a left click at *pos* — for hit-testing a hand-painted glyph."""
         self._mouse_clicked = True
+        self._mouse_released = True
         self._mouse_pos = pos
 
     def dismiss_popup(self, popup_id: str) -> None:

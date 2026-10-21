@@ -110,7 +110,7 @@ class _Colors:
 
 
 class _Buttons:
-    left = "left"
+    left = SimpleNamespace(value=0)
 
 
 class _Style:
@@ -132,7 +132,7 @@ class _FakeImgui:
     _expanded: bool
     _clicked: bool
     _mouse: _Vec2
-    _drag: tuple[float, float]
+    _drag: tuple[float, float]  # farthest the press travelled from where it began
     draw: _DrawList
     __slots__ = ("_clicked", "_drag", "_expanded", "_mouse", "draw")
 
@@ -193,11 +193,18 @@ class _FakeImgui:
     def get_mouse_pos(self) -> _Vec2:
         return self._mouse
 
-    def is_mouse_released(self, _button: str) -> bool:
+    def is_mouse_clicked(self, _button: SimpleNamespace) -> bool:
         return self._clicked
 
-    def get_mouse_drag_delta(self, _button: str) -> _Vec2:
-        return _Vec2(*self._drag)
+    def is_mouse_released(self, _button: SimpleNamespace) -> bool:
+        return self._clicked
+
+    def get_io(self) -> SimpleNamespace:
+        dx, dy = self._drag
+        return SimpleNamespace(
+            mouse_drag_threshold=6.0,
+            mouse_drag_max_distance_sqr=[dx * dx + dy * dy, 0.0, 0.0, 0.0, 0.0],
+        )
 
 
 def _record_frame_no_op(_self: object, _frame_id: str) -> None:

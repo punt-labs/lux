@@ -17,8 +17,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Self, final
 
-from punt_lux.display.menus.frame_info_glyph import FrameInfoGlyph
 from punt_lux.display.menus.frame_info_popup import FrameInfoPopup
+from punt_lux.display.menus.frame_info_toggle import FrameInfoToggle
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -27,11 +27,6 @@ if TYPE_CHECKING:
     from punt_lux.domain.identity import HubId
 
 __all__ = ["FrameInfoButton"]
-
-# What the popup shows when the Hub has no facts for the frame's owner yet --
-# untracked or the owning connection has already departed. Distinguished from
-# a resolved-but-genuinely-empty result so a click is never a silent no-op.
-_UNKNOWN_OWNER_ROWS: tuple[tuple[str, str], ...] = (("Owner", "unknown"),)
 
 
 @final
@@ -43,10 +38,9 @@ class FrameInfoButton:
     ``SceneReplica`` owns, not on the ``Frame`` aggregate root.
     """
 
-    _glyph: FrameInfoGlyph
     _popup: FrameInfoPopup
-    _facts_for: Callable[[str, HubId], tuple[tuple[str, str], ...] | None]
-    __slots__ = ("_facts_for", "_glyph", "_popup")
+    _toggle: FrameInfoToggle
+    __slots__ = ("_popup", "_toggle")
 
     def __new__(
         cls,
@@ -54,9 +48,8 @@ class FrameInfoButton:
         facts_for: Callable[[str, HubId], tuple[tuple[str, str], ...] | None],
     ) -> Self:
         self = super().__new__(cls)
-        self._glyph = FrameInfoGlyph()
         self._popup = FrameInfoPopup(frame_for)
-        self._facts_for = facts_for
+        self._toggle = FrameInfoToggle(self._popup, facts_for)
         return self
 
     @property
@@ -66,13 +59,4 @@ class FrameInfoButton:
 
     def render(self, frame: Frame, imgui: Any) -> None:
         """Draw the glyph for ``frame``; a click opens or toggles its popup."""
-        self._glyph.render(imgui, lambda anchor: self._toggle(frame, anchor))
-
-    def _toggle(self, frame: Frame, anchor: tuple[float, float]) -> None:
-        """Dismiss the popup if it already shows this frame, else open it."""
-        if self._popup.is_open_for(frame.frame_id, frame.hub):
-            self._popup.request_close()
-            return
-        resolved = self._facts_for(frame.frame_id, frame.hub)
-        rows = resolved if resolved is not None else _UNKNOWN_OWNER_ROWS
-        self._popup.open_for(frame.frame_id, frame.hub, rows, anchor)
+        self._toggle.render(frame, imgui)

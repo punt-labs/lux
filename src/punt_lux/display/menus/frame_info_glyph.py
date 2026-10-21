@@ -6,12 +6,9 @@ item placed there (``small_button`` included) before it drew. The foreground
 draw list has no such clip rect (as ``DockPill`` relies on too), so the glyph
 paints itself by hand and hit-tests the raw mouse position.
 
-A click is the *release* of a press that did not drag. The glyph overlaps the
-title bar, so the press also starts ImGui's window move, which re-focuses the
-frame every frame it is held -- and focusing the frame closes every popup
-stacked over it. A popup opened on the press would be shut a frame later;
-opened on the release, after the move has ended, it stays. A press that dragged
-is a window move, not a click, and reports nothing.
+Mouse edges on it are read by
+:class:`~punt_lux.display.menus.glyph_click.GlyphClick`: a click is the release
+of a press that did not drag, and the press edge is reported too.
 
 ``imgui`` is typed ``Any``: imgui_bundle ships no type stubs.
 """
@@ -22,8 +19,10 @@ from typing import TYPE_CHECKING, Any, Self, final
 
 from imgui_bundle import ImVec2
 
+from punt_lux.display.menus.glyph_click import GlyphClick
+
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from punt_lux.display.menus.glyph_click import GlyphReading
 
 __all__ = ["FrameInfoGlyph"]
 
@@ -42,12 +41,10 @@ class FrameInfoGlyph:
     def __new__(cls) -> Self:
         return super().__new__(cls)
 
-    def render(
-        self, imgui: Any, on_click: Callable[[tuple[float, float]], None]
-    ) -> None:
-        """Paint the glyph into the current window; report a click to ``on_click``.
+    def render(self, imgui: Any) -> GlyphReading:
+        """Paint the glyph into the current window and read the mouse on it.
 
-        ``on_click`` receives the glyph's top-left corner, where the popup anchors.
+        The reading's anchor is the glyph's top-left corner, where the popup sits.
         """
         pos = imgui.get_window_pos()
         size = imgui.get_window_size()
@@ -55,17 +52,7 @@ class FrameInfoGlyph:
         high = ImVec2(pos.x + size.x - band - self._GAP, pos.y + (band + glyph) / 2)
         low = ImVec2(high.x - glyph, high.y - glyph)
         hovered = self._paint(imgui, low, high)
-        if hovered and self._is_click_release(imgui):
-            on_click((low.x, low.y))
-
-    @staticmethod
-    def _is_click_release(imgui: Any) -> bool:
-        """Whether the left button was released this frame without dragging."""
-        left = imgui.MouseButton_.left
-        if not imgui.is_mouse_released(left):
-            return False
-        drag = imgui.get_mouse_drag_delta(left)
-        return bool(drag.x == 0.0 and drag.y == 0.0)
+        return GlyphClick.read(imgui, (low.x, low.y), hovered=hovered)
 
     @staticmethod
     def _hovered(imgui: Any, low: ImVec2, high: ImVec2) -> bool:

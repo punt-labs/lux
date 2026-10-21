@@ -734,13 +734,13 @@ class RenderLoop:
         self._menus.check_world_menu_background_click(imgui)
         self._menus.render_world_panel(imgui)
 
-        # Frame title-bar info popup: rendered in ImGui's popup layer, above
-        # the frame that spawned it; ImGui dismisses it on an outside click.
-        self._frame_info_button.popup.render(imgui)
-
         # Every scene renders inside a frame (workspace model); there is no
         # unframed scene surface — the Hub frames every scene at the boundary.
         self._render_frames(imgui)
+
+        # Info popup in ImGui's popup layer, above its frame: after the frames, so
+        # a glyph press sees it still open on the frame ImGui shuts it.
+        self._frame_info_button.popup.render(imgui)
 
         # Promote this frame's rects into the snapshot the next frame's query
         # reads (that query runs in poll_clients before the next render).

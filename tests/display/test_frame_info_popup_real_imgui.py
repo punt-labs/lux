@@ -82,6 +82,19 @@ class _HeadlessDisplay:
             imgui.render()
             self._frames_run += 1
 
+    def move_frame_to(self, pos: tuple[float, float]) -> None:
+        """Teleport the frame window, as a resize, Fit All, or raise would."""
+        frame = self._server._scenes.on_screen_frames()[0]
+        addressing = self._server._addressing
+        name = f"{addressing.frame_title(frame)}##{addressing.frame_window_id(frame)}"
+        imgui.get_io().delta_time = 1 / 60
+        imgui.new_frame()
+        imgui.set_window_pos(name, imgui.ImVec2(*pos))
+        self._server._render_scene()
+        imgui.render()
+        self._frames_run += 1
+        self.frames(3)  # let the move settle before the next click
+
     def glyph_centre(self) -> tuple[float, float]:
         """The title-bar glyph's centre, derived from the live window rect."""
         frame = self._server._scenes.on_screen_frames()[0]
@@ -167,6 +180,42 @@ def test_dragging_the_frame_by_the_glyph_does_not_open_the_popup(
     display.move_mouse((x - 120.0, y + 90.0))
     display.frames(2)
     display.release()
+    display.frames(4)
+
+    assert not display.popup_is_open
+
+
+def test_dragging_away_and_back_before_releasing_does_not_open_the_popup(
+    display: _HeadlessDisplay,
+) -> None:
+    """A press that travelled is a window move even if it ends where it began."""
+    x, y = display.glyph_centre()
+    display.move_mouse((x, y))
+    display.frames(1)
+    display.press()
+    display.frames(2)
+    display.move_mouse((x + 40.0, y + 30.0))
+    display.frames(2)
+    display.move_mouse((x, y))
+    display.frames(2)
+    display.release()
+    display.frames(4)
+
+    assert not display.popup_is_open
+
+
+def test_a_second_click_closes_a_popup_that_does_not_cover_the_glyph(
+    display: _HeadlessDisplay,
+) -> None:
+    """The popup is anchored where the glyph was; once the frame moves away the
+    second press lands outside the popup, so ImGui itself shuts it on the press.
+    The release must read that as a toggle-close, not reopen what it just shut."""
+    display.click_glyph(held_frames=3)
+    display.frames(4)
+    assert display.popup_is_open
+    display.move_frame_to((500.0, 500.0))
+
+    display.click_glyph(held_frames=3)
     display.frames(4)
 
     assert not display.popup_is_open
