@@ -29,16 +29,13 @@ __all__ = [
     "ScenePusher",
 ]
 
+
 type SceneLayout = Literal["single", "rows", "columns", "grid"]
 
 
 @runtime_checkable
 class ScenePusher(Protocol):
-    """The one operation the replicator needs from the display connection.
-
-    Structural, so the presentation owns how it is sent without naming the
-    concrete ``DisplayLink``.
-    """
+    """The one operation the replicator needs from the display connection."""
 
     def show_async(
         self,
@@ -120,7 +117,16 @@ class ScenePresentationRegistry:
         return self
 
     def record(self, scene_id: SceneId, presentation: ScenePresentation) -> None:
-        """Remember how a scene was shown, for a later whole-scene resend."""
+        """Remember how a scene was shown, for a later whole-scene resend.
+
+        Dict order is each frame's entry order, the rule the Display's
+        ``Frame.scene_order`` follows too: a scene moved into a frame joins its
+        end, a re-show in place keeps its seat. Overwriting a key keeps its slot,
+        so a move drops the old entry first.
+        """
+        held = self._presentations.get(scene_id, presentation)
+        if held.frame_id != presentation.frame_id:
+            del self._presentations[scene_id]
         self._presentations[scene_id] = presentation
 
     def forget(self, scene_id: SceneId) -> None:
@@ -133,20 +139,14 @@ class ScenePresentationRegistry:
         return self._presentations.get(scene_id, default)
 
     def scenes_in_frame(self, frame_id: str) -> list[SceneId]:
-        """Return every recorded scene shown in ``frame_id`` -- for closing it."""
-        return [s for s, p in self._presentations.items() if p.frame_id == frame_id]
+        """Return every recorded scene shown in ``frame_id``, oldest entrant first."""
+        here = filter(lambda e: e[1].frame_id == frame_id, self._presentations.items())
+        return [scene_id for scene_id, _ in here]
 
     def frame_id_for_local(
         self, local_id: str, *, connection: ConnectionId
     ) -> str | None:
-        """Return ``connection``'s own frame id named ``local_id``, or None.
-
-        Composed deterministically from the caller's own connection
-        (DES-086): two connections can never collide on the composed id, so
-        there is no search across other connections' frames and no
-        ambiguity to refuse — only whether this connection ever recorded a
-        presentation under the id its own local name composes to.
-        """
+        """Return ``connection``'s own frame id named ``local_id``, or None."""
         scoped_id = ConnectionScopedId.compose(connection, local_id)
         frame_ids = map(attrgetter("frame_id"), self._presentations.values())
         return scoped_id if scoped_id in frame_ids else None

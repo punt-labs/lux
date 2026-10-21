@@ -220,3 +220,40 @@ def test_frame_id_for_local_is_scoped_to_the_callers_own_connection() -> None:
         reg.frame_id_for_local("issues", connection=ConnectionId("c2"))
         == "c2\x1fissues"
     )
+
+
+def test_scenes_in_frame_lists_them_in_the_order_they_entered() -> None:
+    registry = ScenePresentationRegistry()
+    registry.record(SceneId("s1"), ScenePresentation(frame_id="f"))
+    registry.record(SceneId("s2"), ScenePresentation(frame_id="f"))
+
+    assert registry.scenes_in_frame("f") == [SceneId("s1"), SceneId("s2")]
+
+
+def test_a_scene_moved_into_a_frame_enters_at_its_end() -> None:
+    # s1 was recorded first overall, but it enters "shared" after s2 did.
+    registry = ScenePresentationRegistry()
+    registry.record(SceneId("s1"), ScenePresentation(frame_id="a"))
+    registry.record(SceneId("s2"), ScenePresentation(frame_id="shared"))
+    registry.record(SceneId("s1"), ScenePresentation(frame_id="shared"))
+
+    assert registry.scenes_in_frame("shared") == [SceneId("s2"), SceneId("s1")]
+
+
+def test_a_scene_re_shown_in_its_own_frame_keeps_its_place() -> None:
+    registry = ScenePresentationRegistry()
+    registry.record(SceneId("s1"), ScenePresentation(frame_id="f"))
+    registry.record(SceneId("s2"), ScenePresentation(frame_id="f"))
+    registry.record(SceneId("s1"), ScenePresentation(frame_id="f", title="again"))
+
+    assert registry.scenes_in_frame("f") == [SceneId("s1"), SceneId("s2")]
+
+
+def test_a_forgotten_scene_shown_again_enters_at_the_end() -> None:
+    registry = ScenePresentationRegistry()
+    registry.record(SceneId("s1"), ScenePresentation(frame_id="f"))
+    registry.record(SceneId("s2"), ScenePresentation(frame_id="f"))
+    registry.forget(SceneId("s1"))
+    registry.record(SceneId("s1"), ScenePresentation(frame_id="f"))
+
+    assert registry.scenes_in_frame("f") == [SceneId("s2"), SceneId("s1")]

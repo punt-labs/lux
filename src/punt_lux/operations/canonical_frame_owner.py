@@ -1,17 +1,17 @@
 """CanonicalFrameOwner — owner facts keyed to a frame, not to a single scene.
 
-The replicator resends each scene of a frame separately, and a frame can
-compose several scenes owned by different connections. Resolving owner facts
-per scene would let the popup show whichever scene was sent last. This reader
-wraps :class:`~punt_lux.operations.frame_owner_facts.FrameOwnerFacts` and lifts
-the resolution to the frame: it picks the frame's canonical scene and asks the
-inner reader for that scene's facts, so every scene-send for a frame carries
-identical facts.
+The replicator resends each scene of a frame separately, and a frame can compose
+scenes owned by different connections. Resolving owner facts per scene would let
+the popup show whichever scene was sent last. This reader wraps
+:class:`~punt_lux.operations.frame_owner_facts.FrameOwnerFacts` and lifts the
+resolution to the frame: it picks the frame's canonical scene and asks the inner
+reader for that scene's facts, so every scene-send for a frame carries identical
+facts.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self, final
+from typing import TYPE_CHECKING, Self, cast, final
 
 from punt_lux.operations.frame_owner_facts import FrameOwnerFacts
 
@@ -49,21 +49,23 @@ class CanonicalFrameOwner:
         return None if canonical is None else self._facts.facts_for(canonical)
 
     def _canonical_scene(self, frame_id: str) -> SceneId | None:
-        """Return the senior owned scene of ``frame_id``; ``None`` if none is owned.
+        """Return the oldest live scene of ``frame_id``; ``None`` if it holds none.
 
-        The frame's live scenes are walked in first-appearance order -- the
-        order in which they first received a root, which ``live_scene_ids`` and
-        ``scene_owners`` both preserve -- and the first that still has a root
-        owner is the canonical one. Seniority is defined by registration order
-        everywhere else, so the owner is the frame's earliest-appearing owned
-        scene and depends only on the frame's membership, never on which scene
-        was sent last.
+        "Oldest" is the frame's own entry order -- the order of the Display's
+        ``Frame.scene_order`` -- so the Display can tell locally whether a
+        departing scene was the canonical one.
+        """
+        live = frozenset(self._display.live_scene_ids())
+        return next(filter(live.__contains__, self._entrants(frame_id)), None)
+
+    def _entrants(self, frame_id: str) -> list[SceneId]:
+        """Return the scenes shown in ``frame_id``, oldest entrant first.
+
+        A scene never explicitly shown is framed by its own id, so with nothing
+        recorded it is the sole entrant of the frame that id names.
         """
         frames = self._display.frames
-        owned_in_frame = (
-            sid
-            for sid in self._display.live_scene_ids()
-            if frames.presentation_for(sid).frame_id == frame_id
-            and self._display.scene_owners(sid)
-        )
-        return next(owned_in_frame, None)
+        recorded = frames.scenes_in_frame(frame_id)
+        own = cast("SceneId", frame_id)  # a never-shown scene is framed by its id
+        is_own = frames.presentation_for(own).frame_id == frame_id
+        return recorded if recorded else [own] if is_own else []

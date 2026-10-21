@@ -187,3 +187,48 @@ class TestAReplicatorSendRacingAReshow:
 
         (rows,) = sender.owner_facts
         assert (sender.frames[0], dict(rows or ())["Connection"]) == ("old", "c2")
+
+
+class TestTheFramesCanonicalOwnerFollowsFrameEntryOrder:
+    def test_a_scene_moved_into_the_frame_is_junior_to_one_already_there(self) -> None:
+        # s1 is registered first overall, but s2 entered "shared" first and s1
+        # was only re-shown into it afterwards: the frame's entry order is
+        # s2, s1, so s2's owner is canonical -- not global registration order's s1.
+        store, hub = HubDisplay(), Hub()
+        s1 = _identified_scene(store, "c1", name="alpha")
+        s2 = _identified_scene(store, "c2", name="beta")
+        store.frames.record(s1, ScenePresentation(frame_id="a"))
+        store.frames.record(s2, ScenePresentation(frame_id="shared"))
+        store.frames.record(s1, ScenePresentation(frame_id="shared"))
+
+        rows = _reader(store, hub).facts_for_frame("shared")
+
+        assert rows is not None
+        assert dict(rows)["Connection"] == "c2"
+
+    def test_a_re_show_in_place_keeps_the_canonical_owner(self) -> None:
+        store, hub = HubDisplay(), Hub()
+        s1 = _identified_scene(store, "c1", name="alpha")
+        s2 = _identified_scene(store, "c2", name="beta")
+        store.frames.record(s1, ScenePresentation(frame_id="shared"))
+        store.frames.record(s2, ScenePresentation(frame_id="shared"))
+        store.frames.record(s1, ScenePresentation(frame_id="shared", title="again"))
+
+        rows = _reader(store, hub).facts_for_frame("shared")
+
+        assert rows is not None
+        assert dict(rows)["Connection"] == "c1"
+
+    def test_when_the_canonical_scene_leaves_the_next_oldest_takes_over(self) -> None:
+        store, hub = HubDisplay(), Hub()
+        s1 = _identified_scene(store, "c1", name="alpha")
+        s2 = _identified_scene(store, "c2", name="beta")
+        s3 = _identified_scene(store, "c3", name="gamma")
+        for scene in (s1, s2, s3):
+            store.frames.record(scene, ScenePresentation(frame_id="shared"))
+        store.frames.record(s1, ScenePresentation(frame_id="elsewhere"))
+
+        rows = _reader(store, hub).facts_for_frame("shared")
+
+        assert rows is not None
+        assert dict(rows)["Connection"] == "c2"

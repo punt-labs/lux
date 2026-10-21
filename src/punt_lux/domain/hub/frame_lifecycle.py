@@ -9,13 +9,9 @@ read or written half-applied. This component composes the presentation registry,
 the subtree remover (the teardown walk), the :class:`FrameExpiry` deadlines, and
 the store lock.
 
-There used to be a *third* teardown — a user closing a frame on the Display sent
-a ``frame_close`` event the Hub answered by removing the frame's scenes. That is
-gone (DES-088): where a window sits is the Display's own business, so a *user
-gesture on the Display* is no longer one of the ways a frame is torn down here.
-What remains is a caller *asking* to remove a frame outright — :meth:`remove_frame`
-— and the client taking its content away: an empty push or manifest purge through
-:meth:`forget`, a deadline passing through :meth:`expire_due`.
+A frame is torn down only by a caller *asking* to remove it (:meth:`remove_frame`),
+the client taking its content away (an empty push or manifest purge through
+:meth:`forget`), or its deadline passing (:meth:`expire_due`).
 
 Recording a presentation, arming a deadline, and sweeping expiry all take the same
 lock every store write takes, so a frame re-armed with a fresh TTL is never torn
@@ -123,6 +119,11 @@ class FrameLifecycle:
         """Return how a scene was shown, or a self-framed default, read under lock."""
         with self._lock.read():
             return self._frames.presentation_for(scene_id)
+
+    def scenes_in_frame(self, frame_id: str) -> list[SceneId]:
+        """Return ``frame_id``'s scenes, oldest entrant first, read under lock."""
+        with self._lock.read():
+            return self._frames.scenes_in_frame(frame_id)
 
     def frame_id_for_local(
         self, local_id: str, *, connection: ConnectionId
