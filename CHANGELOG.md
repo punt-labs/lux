@@ -123,6 +123,14 @@
   scene, so a closed window reopens on the next click without
   `Windows → Clear All`. Identifying a connection, and its later departure,
   now re-push the Clients menu, so the entry appears and disappears on screen.
+- **Clients-menu entries track their connection's lease exactly
+  (`lux-ghhf`).** An agent's entry no longer goes missing after its lease
+  lapses and it renews, after a listen socket outlives a reap, or when an
+  identify races a disconnect. Ghost entries no longer survive their
+  connection either. Every change to who the menu lists is now one step under
+  the store lock that re-pushes the menu and binds one shared departure hook,
+  so repeated reconnects no longer pile up hooks. The design is
+  model-checked in `docs/menu_presence.tex`.
 - **Session-writer publish is now atomic (`lux-wk3p`).** The per-connection
   publish path (`_writer`) looked up the inbox and enqueued in two steps
   across a lock release, so a concurrent session departure could drop the

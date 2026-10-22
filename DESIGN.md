@@ -7555,3 +7555,68 @@ change).
 **Consequences.** Hub-to-Display only; vox and z-spec unaffected. Additive
 wire field, no coordinated release. Not a z-spec candidate: no new lock, no
 new interleaving, convergence by the existing dirty-then-fresh-read rule.
+
+## DES-101: The Client Door Is a Lifecycle Callers Hold, Not a Store They Ask
+
+**Status:** SETTLED (leader-ruled 2026-10-22; mission m-2026-10-22-034,
+evaluator rmh accepted). Bead `lux-ghhf`. Design:
+`docs/architecture/hub-display-narrowing.md`.
+
+**Context.** The menu-presence fix (`docs/menu_presence.tex`) made every
+change to who the Clients menu lists one `ClientLifecycle` step under the
+store lock. `HubDisplay` still fronted that step through eleven forwarding
+members. That pushed `hub_display.py` to LCOM 0.737 and 27 imports,
+regressing a file already over the 0.5 cap, which DES-096 cannot bless. The
+operator's bar was SOLID design with ratchet numbers as signals. Three
+attempts that moved the number without improving the design were rejected:
+a `StoreLookups` grab-bag, a `HubParts` bundle reached through
+`HubDisplay.parts`, and per-verb scene commands that pushed `facade.py` past
+its cap.
+
+**Decision.**
+
+- **`HubDisplay` has no client member.** Each consumer is constructed with
+  the concrete class it uses: `ClientLifecycle` for door writes,
+  `HubClientRegistry` for door reads, `ListenerLegs` for listen legs. No new
+  Protocol, no bundle, no reach-through.
+- **The store owns its contact rules.** `HubDisplay.writing_as(connection)`
+  renews the caller and holds the store lock for a write. `arriving_as`
+  arrives the caller and holds the same lock across the show path.
+  `apply`'s prologue (renew, then depart the lapsed) is unchanged
+  (`connection_lease_reaping.tex` I6). The Details install path goes through
+  `SceneInstaller` directly and never arrives the client it inspects.
+- **One composition root.** `HubStoreFactory` builds the shared `StoreLock`
+  and `OwnerTracker`, then the door, then the store over them. Neither side
+  can create a shared primitive alone. The process singletons
+  (`hub_display`, `hub_lifecycle`, `hub_clients`) are exported by name from
+  that module.
+- **`ClientLifecycle.exclusive()`** returns the store write lock, for the
+  two callers (`ws_listen`, `inbox.ensure_writer`) that hold the door's
+  compound section without a store.
+
+**Invariants kept.** menu_presence P1/P2: the registry's presence-changing
+writes are called only from `ClientLifecycle`, except `register_callback` and
+`detach`, tracked in bead `lux-s9rl` to be modeled first. The
+store-then-registry lock order and the DES-098 D3 edge gain no new edge.
+`arriving_as` runs the submission gate, scoping and `mark_dirty` under the
+store lock, and the dirty signal is a leaf.
+
+**Ratchet outcome.** `hub_display.py` efferent 26 → 21 and LCOM 0.636 →
+0.580. Consumers that now name their collaborators show small within-cap
+growth in parameters and size, each blessed per file under DES-096/097 with
+a recorded reason. The classless `store_instance.py` failed the strict
+new-file rule and was folded into `hub_store_factory.py`.
+
+**Rejected.** `StoreLookups` (a second read facade forwarding to `HubReads`,
+plus a service locator). `HubParts` (a bundle handed out for callers to reach
+through). Forwarding methods on `HubDisplay` (the wide facade that caused the
+regression). Eleven single-method port Protocols (over-engineering; a fake one
+method shorter is no reason for a type). An AST confinement guard (guards a
+design already deleted). Per-verb scene commands in this unit (pushed
+`facade.py` over its cap; the Command conversion and the naming of
+`Operations`/`Concerns` belong to bead `lux-x4ex`, across all concerns at
+once).
+
+**Consequences.** Constructors name what they use. Narrowing `HubDisplay`'s
+scene reads, frames, writer and quarantine forwards remains `main`'s
+wide-facade debt and is a separate unit.
