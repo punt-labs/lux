@@ -19,6 +19,7 @@ from punt_lux.operations.frame_removal import FrameRemover
 from punt_lux.operations.identity import IdentityOperations
 from punt_lux.operations.menu_arming_deps import MenuArmingDeps
 from punt_lux.operations.menus import (
+    CallbackMenuSource,
     MenuDepartureSink,
     MenuOperations,
     MenuOperationsDeps,
@@ -40,7 +41,6 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.menu_registry import HubMenuRegistry
     from punt_lux.domain.hub.session_callback import CallbackInvocation
     from punt_lux.domain.ids import ConnectionId
-    from punt_lux.operations.callbacks import CallbackMenuSource
     from punt_lux.operations.display_link import ReplicatorLink
     from punt_lux.operations.models import (
         Cleared,

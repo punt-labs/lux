@@ -1,13 +1,12 @@
 """HubClientRegistry — the Hub sessions, each with its connect time, identity, lease.
 
 The one identity store, keyed by ``ConnectionId`` and serialized by ``_lock``.
-Each session carries a lease; the live reads (:meth:`live_sessions`,
-:meth:`repos`) filter to sessions still in lease without removing anyone —
-a read changes nothing here. Departure is the province of ``ClientLifecycle``'s
-single atomic deregister-and-release step, which reaches
-:meth:`reap_lapsed_locked` — one lock hold that finds and removes the lapsed
-set together, so a renewal racing in between can't be evicted anyway. The
-clock is injected for deterministic tests.
+Each session carries a lease; the live read (:meth:`live_sessions`) filters to
+sessions still in lease without removing anyone — a read changes nothing here.
+Departure is the province of ``ClientLifecycle``'s single atomic
+deregister-and-release step, which reaches :meth:`reap_lapsed_locked` — one lock
+hold that finds and removes the lapsed set together, so a renewal racing in
+between can't be evicted anyway. The clock is injected for deterministic tests.
 
 The registry also holds each connection's listen leg, so the leg and its
 callbacks are written under this same lock, through :attr:`legs`.
@@ -22,7 +21,6 @@ from __future__ import annotations
 import threading
 import time
 from collections import deque
-from operator import attrgetter
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.client_roster import ClientRoster
@@ -137,12 +135,6 @@ class HubClientRegistry:
             deque(map(self._sessions.pop, lapsed), maxlen=0)
             self._roster.release(lapsed)
             return lapsed
-
-    def repos(self) -> frozenset[str]:
-        """Return the distinct repositories the live identified sessions declared."""
-        with self._lock:
-            declared = map(attrgetter("declared_repo"), self._live_locked().values())
-            return frozenset(filter(None, declared))
 
     def _live_locked(self) -> dict[ConnectionId, ClientSession]:
         """The sessions whose lease has not lapsed, as of now. Caller locks."""

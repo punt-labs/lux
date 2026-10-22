@@ -12,7 +12,7 @@ Clients menu.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Self, final
+from typing import TYPE_CHECKING, Protocol, Self, final
 
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.menu_results import MenuList, Ok
@@ -24,18 +24,30 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.menu_models import Menu
     from punt_lux.domain.hub.menu_registry import HubMenuRegistry
     from punt_lux.domain.ids import ConnectionId
-    from punt_lux.operations.callbacks import CallbackMenuSource
     from punt_lux.operations.menu_arming import MenuArming
     from punt_lux.operations.models.menu_results import SetMenuRequest
     from punt_lux.operations.ports import DirtyMarker
     from punt_lux.operations.scope import Scope
 
-__all__ = ["MenuDepartureSink", "MenuOperations", "MenuOperationsDeps"]
+__all__ = [
+    "CallbackMenuSource",
+    "MenuDepartureSink",
+    "MenuOperations",
+    "MenuOperationsDeps",
+]
 
 # The Hub store's reentrant write lock, entered as a context manager. ``set_menu``
 # holds it across the admit-liveness check AND the registry store so a departure
 # cannot interleave between the gate and the write.
 type WriteLock = Callable[[], AbstractContextManager[bool]]
+
+
+class CallbackMenuSource(Protocol):
+    """The read the menu surface composes into its bar — the Clients menu."""
+
+    def callback_menus(self) -> list[Menu]:
+        """Return the uniform ``Clients`` menu built from the live sessions."""
+        ...
 
 
 @final

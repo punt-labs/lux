@@ -74,15 +74,6 @@ class ClientSession:
         return self._identity
 
     @property
-    def declared_repo(self) -> str | None:
-        """The repository this session declared, or ``None`` if it declared none.
-
-        ``None`` for an unidentified session, a headless CLI, or the app — the
-        value the registry's repository projection filters out.
-        """
-        return self._identity.repo if self._identity is not None else None
-
-    @property
     def callbacks(self) -> tuple[SessionCallback, ...]:
         """The callbacks this session registered, in registration order."""
         return self._slot.callbacks

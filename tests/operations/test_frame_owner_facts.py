@@ -8,7 +8,10 @@ record of a connection always agree.
 from __future__ import annotations
 
 from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
 from punt_lux.domain.hub.hub import Hub
+from punt_lux.domain.hub.hub_clients import HubClientRegistry
+from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.lease_term import LeaseTerms
 from punt_lux.domain.ids import ConnectionId, SceneId
@@ -24,30 +27,36 @@ def _zero_inbox_depth(_connection_id: ConnectionId) -> int:
     return 0
 
 
-def _reader(factory: HubStoreFactory, hub: Hub) -> FrameOwnerFacts:
-    store = factory.display
-    listing = ClientListing(store, factory.clients, hub, _zero_inbox_depth)
+def _reader(store: HubDisplay, clients: HubClientRegistry, hub: Hub) -> FrameOwnerFacts:
+    listing = ClientListing(store, clients, hub, _zero_inbox_depth)
     return FrameOwnerFacts(store, listing)
 
 
 def _identified_scene(
-    factory: HubStoreFactory, connection: str, name: str = "lux"
+    store: HubDisplay,
+    lifecycle: ClientLifecycle,
+    clients: HubClientRegistry,
+    connection: str,
+    name: str = "lux",
 ) -> SceneId:
     """Register a named client and install one root it owns, returning its scene id."""
     conn = ConnectionId(connection)
-    factory.lifecycle.identify(conn, ClientIdentity(kind="cli", name=name))
-    factory.clients.named_sessions()  # the read that names it, as the menu build does
+    lifecycle.identify(conn, ClientIdentity(kind="cli", name=name))
+    clients.named_sessions()  # the read that names it, as the menu build does
     scene_id = SceneId(f"{connection}-scene")
-    factory.display.replace_scene(conn, scene_id, [TextElement(id="t1", content="hi")])
+    store.replace_scene(conn, scene_id, [TextElement(id="t1", content="hi")])
     return scene_id
 
 
 class TestASceneWithALiveOwner:
     def test_reports_the_owners_rows(self) -> None:
         factory = HubStoreFactory()
+        store = factory.display
+        lifecycle = factory.lifecycle
+        clients = factory.clients
         hub = Hub()
-        scene_id = _identified_scene(factory, "c1")
-        reader = _reader(factory, hub)
+        scene_id = _identified_scene(store, lifecycle, clients, "c1")
+        reader = _reader(store, clients, hub)
 
         rows = reader.facts_for(scene_id)
 
@@ -62,9 +71,12 @@ class TestASceneWithALiveOwner:
         # labels come from a live ClientDetails.rows() call, not a parallel
         # hardcoded snapshot that could silently drift from the real order.
         factory = HubStoreFactory()
+        store = factory.display
+        lifecycle = factory.lifecycle
+        clients = factory.clients
         hub = Hub()
-        scene_id = _identified_scene(factory, "c1")
-        reader = _reader(factory, hub)
+        scene_id = _identified_scene(store, lifecycle, clients, "c1")
+        reader = _reader(store, clients, hub)
 
         rows = reader.facts_for(scene_id)
 
@@ -112,7 +124,7 @@ class TestASceneWithALiveOwner:
                 parent_id=None,
             ),
         )
-        reader = _reader(factory, hub)
+        reader = _reader(store, clients, hub)
 
         rows = reader.facts_for(scene_id)
 
@@ -123,8 +135,10 @@ class TestASceneWithALiveOwner:
 class TestASceneWithNoOwner:
     def test_an_unowned_scene_reports_none(self) -> None:
         factory = HubStoreFactory()
+        store = factory.display
+        clients = factory.clients
         hub = Hub()
-        reader = _reader(factory, hub)
+        reader = _reader(store, clients, hub)
 
         assert reader.facts_for(SceneId("nobody-installed-this")) is None
 
@@ -134,10 +148,12 @@ class TestASceneWithNoOwner:
         # for it -- the display's cached snapshot from before departure is
         # what preserves the popup's last-known facts, not this reader.
         factory = HubStoreFactory()
+        store = factory.display
+        clients = factory.clients
         lifecycle = factory.lifecycle
         hub = Hub()
-        scene_id = _identified_scene(factory, "c1")
+        scene_id = _identified_scene(store, lifecycle, clients, "c1")
         lifecycle.depart(ConnectionId("c1"))
-        reader = _reader(factory, hub)
+        reader = _reader(store, clients, hub)
 
         assert reader.facts_for(scene_id) is None

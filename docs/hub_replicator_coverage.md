@@ -203,7 +203,7 @@ the real worker.
 |---|---|---|
 | BL1 | a scene emptied without a clear (an update to nothing, or a departed session) is marked dirty | pushed with no roots to blank its own frame, using the frame it was shown in |
 | BL2 | an empty scene in a batch that also carried a clear | skipped — the clear already blanked the whole display |
-| BL3 | a connection drops | every scene it touched is returned and marked dirty, blanking the emptied ones and repainting the shared ones |
+| BL3 | a connection drops | its scenes are left standing and nothing is blanked or marked: departure releases ownership, never content |
 | BL4 | the worker blanks an emptied scene | the scene's presentation is forgotten once the blank lands, so the frame map does not grow for the process lifetime |
 | BL5 | a whole-display clear empties the scenes | each cleared scene's presentation is forgotten at the source, so a churning-id clear workload does not grow the frame map |
 | BL6 | a re-show lands during the blank send | the reclaim re-checks rootless under the lock; the scene now has roots, so its new frame is kept, not clobbered |
@@ -283,7 +283,7 @@ display-lifecycle audit applied.
 | RR3 | test_hub_replicator::test_a_recovered_cycle_backs_off_and_a_clean_cycle_resets | COVERED |
 | BL1 | test_hub_replicator::test_an_emptied_scene_is_blanked_into_its_frame | COVERED |
 | BL2 | test_hub_replicator::test_a_show_then_clear_ends_blank | COVERED |
-| BL3 | test_lifecycle::test_disconnect_marks_each_scene_the_drop_touched_dirty; test_hub_display_frames::test_drop_connection_returns_the_scenes_it_touched | COVERED |
+| BL3 | test_lifecycle::test_disconnect_leaves_the_sessions_scenes_standing; test_hub_display_frames::test_drop_connection_leaves_the_scenes_standing | COVERED |
 | BL4 | test_hub_replicator::test_blanking_an_emptied_scene_reclaims_its_presentation; test_hub_replicator::test_a_failed_blank_is_re_marked_then_retried_and_the_frame_reclaimed | COVERED |
 | BL5 | test_hub_display_frames::test_clear_forgets_each_scenes_frame | COVERED |
 | BL6 | test_hub_replicator::test_a_reshow_during_the_blank_send_keeps_its_new_presentation | COVERED |

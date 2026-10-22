@@ -129,28 +129,6 @@ def test_discard_drops_the_identity_with_the_connection() -> None:
     assert reg.sessions() == {}
 
 
-def test_repos_projects_the_distinct_declared_repositories() -> None:
-    reg = HubClientRegistry()
-    reg.record(ConnectionId("a"), ClientIdentity(kind="cli", name="lux", repo="/w/lux"))
-    reg.record(ConnectionId("b"), ClientIdentity(kind="cli", name="vox", repo="/w/vox"))
-    # A second session in an already-listed repo does not double it.
-    reg.record(
-        ConnectionId("c"),
-        ClientIdentity(
-            kind="mcp-session", name="claude", repo="/w/lux", agent="claude"
-        ),
-    )
-    assert reg.repos() == frozenset({"/w/lux", "/w/vox"})
-
-
-def test_repos_excludes_headless_and_unidentified_sessions() -> None:
-    reg = HubClientRegistry()
-    reg.record(ConnectionId("unidentified"))
-    reg.record(ConnectionId("headless"), ClientIdentity(kind="cli", name="lux-cli"))
-    reg.record(ConnectionId("app"), ClientIdentity(kind="app", name="lux"))
-    assert reg.repos() == frozenset()
-
-
 def _cli(name: str = "lux") -> ClientIdentity:
     return ClientIdentity(kind="cli", name=name, repo="/w/lux")
 
@@ -312,15 +290,6 @@ def test_continuous_renewal_prevents_lease_lapse() -> None:
 
     assert reg.reap_lapsed_locked() == frozenset()
     assert conn in reg.sessions()
-
-
-def test_repos_excludes_a_session_whose_lease_lapsed() -> None:
-    clock = _Clock()
-    reg = HubClientRegistry(clock)
-    reg.record(ConnectionId("cli"), _cli())
-    assert reg.repos() == frozenset({"/w/lux"})
-    clock.advance(91.0)
-    assert reg.repos() == frozenset()  # the lapsed session drops from live-context
 
 
 def _beads() -> SessionCallback:

@@ -1,12 +1,13 @@
-"""CallbackOperations — register menu callbacks and read the callback menu.
+"""CallbackOperations — register menu callbacks.
 
-A menu item is a session's callback. This concern owns two Hub-side moves of the
-callback model: a push-reachable, identified session *registers* a callback (a
-menu write the replicator pushes), and the *menu build* reads the live sessions
-into the uniform ``Clients`` tree. Routing a click to the owning session's live
-listener is the ``CallbackRouter``'s own move, driven from the interaction
-dispatch, not from this facade; this concern only *peeks* at what a router has
-buffered, through :meth:`pending_callbacks`.
+A menu item is a session's callback. This concern owns the Hub-side move of the
+callback model that is a write: a push-reachable, identified session *registers*
+a callback (a menu write the replicator pushes). The *menu build*, which reads the
+live sessions into the uniform ``Clients`` tree, is the read of
+:class:`~punt_lux.domain.hub.callback_menu.CallbackMenuReplica`. Routing a click
+to the owning session's live listener is the ``CallbackRouter``'s own move,
+driven from the interaction dispatch, not from this facade; this concern only
+*peeks* at what a router has buffered, through :meth:`pending_callbacks`.
 
 Registration has two preconditions and refuses rather than half-granting either.
 The connection must hold a listen leg, because a menu item that cannot be
@@ -20,7 +21,7 @@ under.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
+from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.session_callback import CallbackInvocation
 from punt_lux.operations.models.common import OpError
@@ -30,13 +31,12 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.callback_hold import CallbackRouter
     from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
     from punt_lux.domain.hub.listener_legs import ListenerLegs
-    from punt_lux.domain.hub.menu_models import Menu
     from punt_lux.domain.hub.registry_outcomes import CallbackRegistration
     from punt_lux.operations.models.callbacks import RegisterCallbackRequest
     from punt_lux.operations.ports import DirtyMarker
     from punt_lux.operations.scope import Scope
 
-__all__ = ["CallbackMenuSource", "CallbackOperations"]
+__all__ = ["CallbackOperations"]
 
 # What a caller that cannot be pushed to is told, naming both the requirement and
 # the way to meet it. A session reaching the Hub over MCP or a one-shot REST call
@@ -51,18 +51,9 @@ _PUSH_REQUIRED = OpError(
 )
 
 
-@runtime_checkable
-class CallbackMenuSource(Protocol):
-    """The read the menu surface composes into its bar — the Clients menu."""
-
-    def callback_menus(self) -> list[Menu]:
-        """Return the uniform ``Clients`` menu built from the live sessions."""
-        ...
-
-
 @final
 class CallbackOperations:
-    """Register callbacks, route their clicks, and read the callback menu."""
+    """Register callbacks, route their clicks, and re-push the menu."""
 
     _lifecycle: ClientLifecycle
     _legs: ListenerLegs

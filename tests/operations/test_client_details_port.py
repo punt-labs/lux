@@ -13,10 +13,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, cast
 
 from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.details_outcome import DetailsRefused, DetailsShown
 from punt_lux.domain.hub.details_renderer import ClientDetailsRenderer
 from punt_lux.domain.hub.hub import Hub
+from punt_lux.domain.hub.hub_clients import HubClientRegistry
+from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.inbox import inbox_depth_for
@@ -72,22 +75,25 @@ def _ports() -> HubPorts:
     )
 
 
-def _wired(factory: HubStoreFactory, hub: Hub) -> tuple[ClientDetailsPort, _Marks]:
+def _wired(
+    store: HubDisplay, clients: HubClientRegistry, hub: Hub
+) -> tuple[ClientDetailsPort, _Marks]:
     """Build the port the way a composition root does."""
     marks = _Marks()
-    return ClientDetailsPort.for_store(
-        factory.display, factory.clients, marks, hub=hub, ports=_ports()
-    ), marks
+    port = ClientDetailsPort.for_store(store, clients, marks, hub=hub, ports=_ports())
+    return port, marks
 
 
-def _named(factory: HubStoreFactory, connection: str) -> ConnectionId:
+def _named(
+    lifecycle: ClientLifecycle, clients: HubClientRegistry, connection: str
+) -> ConnectionId:
     """Record a client and take the read that names it, as the menu build does."""
     conn = ConnectionId(connection)
     identity = ClientIdentity(
         kind="applet", name="lux · lux · #4b97 · lux-beads", repo="/w/lux"
     )
-    factory.lifecycle.identify(conn, identity)
-    factory.clients.named_sessions()
+    lifecycle.identify(conn, identity)
+    clients.named_sessions()
     return conn
 
 
@@ -96,24 +102,30 @@ class TestWhatTheDispatchGetsBack:
 
     def test_a_live_client_is_shown(self) -> None:
         factory = HubStoreFactory()
+        store = factory.display
+        lifecycle = factory.lifecycle
+        clients = factory.clients
         hub = Hub()
-        port, _marks = _wired(factory, hub)
+        port, _marks = _wired(store, clients, hub)
 
-        assert port.render_details(_named(factory, "c1")) == DetailsShown()
+        assert port.render_details(_named(lifecycle, clients, "c1")) == DetailsShown()
 
     def test_a_client_the_hub_no_longer_holds_is_refused(self) -> None:
         factory = HubStoreFactory()
+        store = factory.display
+        clients = factory.clients
         hub = Hub()
-        port, _marks = _wired(factory, hub)
+        port, _marks = _wired(store, clients, hub)
         gone = ConnectionId("gone")
 
         assert port.render_details(gone) == DetailsRefused(gone)
 
     def test_a_refusal_installs_no_scene(self) -> None:
         factory = HubStoreFactory()
+        clients = factory.clients
         store = factory.display
         hub = Hub()
-        port, marks = _wired(factory, hub)
+        port, marks = _wired(store, clients, hub)
 
         port.render_details(ConnectionId("gone"))
 
@@ -122,8 +134,10 @@ class TestWhatTheDispatchGetsBack:
 
     def test_the_port_satisfies_the_contract_the_dispatch_binds(self) -> None:
         factory = HubStoreFactory()
+        store = factory.display
+        clients = factory.clients
         hub = Hub()
-        port, _marks = _wired(factory, hub)
+        port, _marks = _wired(store, clients, hub)
 
         assert isinstance(port, ClientDetailsRenderer)
 
@@ -133,9 +147,12 @@ class TestHowACompositionRootBuildsIt:
 
     def test_the_recipe_wires_a_working_command_over_the_store(self) -> None:
         factory = HubStoreFactory()
+        store = factory.display
+        lifecycle = factory.lifecycle
+        clients = factory.clients
         hub = Hub()
-        conn = _named(factory, "c1")
-        port, marks = _wired(factory, hub)
+        conn = _named(lifecycle, clients, "c1")
+        port, marks = _wired(store, clients, hub)
 
         assert port.render_details(conn) == DetailsShown()
         composed = ConnectionScopedId.compose(conn, f"lux.client-details.{conn}")
@@ -143,11 +160,13 @@ class TestHowACompositionRootBuildsIt:
 
     def test_either_root_shows_into_the_same_scene(self) -> None:
         factory = HubStoreFactory()
+        lifecycle = factory.lifecycle
+        clients = factory.clients
         store = factory.display
         hub = Hub()
-        conn = _named(factory, "c1")
-        mcp, _mcp_marks = _wired(factory, hub)
-        rest, _rest_marks = _wired(factory, hub)
+        conn = _named(lifecycle, clients, "c1")
+        mcp, _mcp_marks = _wired(store, clients, hub)
+        rest, _rest_marks = _wired(store, clients, hub)
 
         assert mcp.render_details(conn) == DetailsShown()
         assert rest.render_details(conn) == DetailsShown()

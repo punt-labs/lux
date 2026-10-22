@@ -11,8 +11,10 @@ from typing import TYPE_CHECKING, Self, cast, final
 
 from punt_lux.display.replica import SceneReplica
 from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.hub import Hub
+from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
@@ -38,19 +40,26 @@ def _zero_inbox_depth(_connection_id: ConnectionId) -> int:
     return 0
 
 
-def _reader(factory: HubStoreFactory, hub: Hub) -> CanonicalFrameOwner:
-    store = factory.display
-    listing = ClientListing(store, factory.clients, hub, _zero_inbox_depth)
+def _reader(
+    store: HubDisplay, clients: HubClientRegistry, hub: Hub
+) -> CanonicalFrameOwner:
+    listing = ClientListing(store, clients, hub, _zero_inbox_depth)
     return CanonicalFrameOwner(store, FrameOwnerFacts(store, listing))
 
 
-def _identified_scene(factory: HubStoreFactory, connection: str, name: str) -> SceneId:
+def _identified_scene(
+    store: HubDisplay,
+    lifecycle: ClientLifecycle,
+    clients: HubClientRegistry,
+    connection: str,
+    name: str,
+) -> SceneId:
     """Register a named client and install one root it owns, returning its scene id."""
     conn = ConnectionId(connection)
-    factory.lifecycle.identify(conn, ClientIdentity(kind="cli", name=name))
-    factory.clients.named_sessions()  # the read that names it, as the menu build does
+    lifecycle.identify(conn, ClientIdentity(kind="cli", name=name))
+    clients.named_sessions()  # the read that names it, as the menu build does
     scene_id = SceneId(f"{connection}-scene")
-    factory.display.replace_scene(conn, scene_id, [TextElement(id="t1", content="hi")])
+    store.replace_scene(conn, scene_id, [TextElement(id="t1", content="hi")])
     return scene_id
 
 
@@ -59,15 +68,17 @@ class TestAFrameComposingScenesWithDifferentOwners:
         # Two scenes, each owned by a different connection, share one frame;
         # the frame's owner is the one of the scene that appeared first.
         factory = HubStoreFactory()
+        lifecycle = factory.lifecycle
+        clients = factory.clients
         store = factory.display
         hub = Hub()
-        first = _identified_scene(factory, "c1", name="alpha")
-        second = _identified_scene(factory, "c2", name="beta")
+        first = _identified_scene(store, lifecycle, clients, "c1", name="alpha")
+        second = _identified_scene(store, lifecycle, clients, "c2", name="beta")
         frame = ScenePresentation(frame_id="shared-frame")
         store.frames.record(first, frame)
         store.frames.record(second, frame)
 
-        rows = _reader(factory, hub).facts_for_frame("shared-frame")
+        rows = _reader(store, clients, hub).facts_for_frame("shared-frame")
 
         assert rows is not None
         assert dict(rows)["Connection"] == "c1"
@@ -77,29 +88,33 @@ class TestAFrameComposingScenesWithDifferentOwners:
         # (owner "a"). Seniority is first-appearance order, so the canonical
         # owner is "z" -- lexical scene-id order would wrongly pick "a".
         factory = HubStoreFactory()
+        lifecycle = factory.lifecycle
+        clients = factory.clients
         store = factory.display
         hub = Hub()
-        senior = _identified_scene(factory, "z", name="alpha")
-        junior = _identified_scene(factory, "a", name="beta")
+        senior = _identified_scene(store, lifecycle, clients, "z", name="alpha")
+        junior = _identified_scene(store, lifecycle, clients, "a", name="beta")
         frame = ScenePresentation(frame_id="shared-frame")
         store.frames.record(senior, frame)
         store.frames.record(junior, frame)
 
-        rows = _reader(factory, hub).facts_for_frame("shared-frame")
+        rows = _reader(store, clients, hub).facts_for_frame("shared-frame")
 
         assert rows is not None
         assert dict(rows)["Connection"] == "z"
 
     def test_a_scene_shown_elsewhere_no_longer_names_the_frames_owner(self) -> None:
         factory = HubStoreFactory()
+        lifecycle = factory.lifecycle
+        clients = factory.clients
         store = factory.display
         hub = Hub()
-        first = _identified_scene(factory, "c1", name="alpha")
-        second = _identified_scene(factory, "c2", name="beta")
+        first = _identified_scene(store, lifecycle, clients, "c1", name="alpha")
+        second = _identified_scene(store, lifecycle, clients, "c2", name="beta")
         store.frames.record(first, ScenePresentation(frame_id="elsewhere"))
         store.frames.record(second, ScenePresentation(frame_id="shared-frame"))
 
-        rows = _reader(factory, hub).facts_for_frame("shared-frame")
+        rows = _reader(store, clients, hub).facts_for_frame("shared-frame")
 
         assert rows is not None
         assert dict(rows)["Connection"] == "c2"
@@ -109,19 +124,26 @@ class TestASelfFramedScene:
     def test_reports_its_own_owner(self) -> None:
         # A scene with no recorded presentation is framed by its own id.
         factory = HubStoreFactory()
+        store = factory.display
+        lifecycle = factory.lifecycle
+        clients = factory.clients
         hub = Hub()
-        scene_id = _identified_scene(factory, "c1", name="alpha")
+        scene_id = _identified_scene(store, lifecycle, clients, "c1", name="alpha")
 
-        rows = _reader(factory, hub).facts_for_frame(str(scene_id))
+        rows = _reader(store, clients, hub).facts_for_frame(str(scene_id))
 
         assert rows is not None
         assert dict(rows)["Connection"] == "c1"
 
     def test_a_frame_nobody_shows_reports_none(self) -> None:
         factory = HubStoreFactory()
+        store = factory.display
+        clients = factory.clients
         hub = Hub()
 
-        assert _reader(factory, hub).facts_for_frame("nobody-framed-this") is None
+        assert (
+            _reader(store, clients, hub).facts_for_frame("nobody-framed-this") is None
+        )
 
 
 @final
@@ -162,11 +184,13 @@ class TestAReplicatorSendRacingAReshow:
         # so the facts it carries must be "old"'s owner now -- c2 -- and not
         # "new"'s canonical owner, which is a1's own owner, c1.
         factory = HubStoreFactory()
+        lifecycle = factory.lifecycle
+        clients = factory.clients
         store = factory.display
         hub = Hub()
-        a1 = _identified_scene(factory, "c1", name="alpha")
-        a2 = _identified_scene(factory, "c2", name="beta")
-        b1 = _identified_scene(factory, "c3", name="gamma")
+        a1 = _identified_scene(store, lifecycle, clients, "c1", name="alpha")
+        a2 = _identified_scene(store, lifecycle, clients, "c2", name="beta")
+        b1 = _identified_scene(store, lifecycle, clients, "c3", name="gamma")
         store.frames.record(a1, ScenePresentation(frame_id="old"))
         store.frames.record(a2, ScenePresentation(frame_id="old"))
         store.frames.record(b1, ScenePresentation(frame_id="new"))
@@ -175,8 +199,9 @@ class TestAReplicatorSendRacingAReshow:
             store.frames.record(a1, ScenePresentation(frame_id="new"))
 
         repl, sender, _provider, _lifecycle = _replicator(
-            factory,
-            owner_facts=_reader(factory, hub),
+            store,
+            clients,
+            owner_facts=_reader(store, clients, hub),
             reader=cast("SceneReader", _ReshowingReader(store.reader, reshow)),
         )
         repl.start()
@@ -196,46 +221,52 @@ class TestTheFramesCanonicalOwnerFollowsFrameEntryOrder:
         # was only re-shown into it afterwards: the frame's entry order is
         # s2, s1, so s2's owner is canonical -- not global registration order's s1.
         factory = HubStoreFactory()
+        lifecycle = factory.lifecycle
+        clients = factory.clients
         store = factory.display
         hub = Hub()
-        s1 = _identified_scene(factory, "c1", name="alpha")
-        s2 = _identified_scene(factory, "c2", name="beta")
+        s1 = _identified_scene(store, lifecycle, clients, "c1", name="alpha")
+        s2 = _identified_scene(store, lifecycle, clients, "c2", name="beta")
         store.frames.record(s1, ScenePresentation(frame_id="a"))
         store.frames.record(s2, ScenePresentation(frame_id="shared"))
         store.frames.record(s1, ScenePresentation(frame_id="shared"))
 
-        rows = _reader(factory, hub).facts_for_frame("shared")
+        rows = _reader(store, clients, hub).facts_for_frame("shared")
 
         assert rows is not None
         assert dict(rows)["Connection"] == "c2"
 
     def test_a_re_show_in_place_keeps_the_canonical_owner(self) -> None:
         factory = HubStoreFactory()
+        lifecycle = factory.lifecycle
+        clients = factory.clients
         store = factory.display
         hub = Hub()
-        s1 = _identified_scene(factory, "c1", name="alpha")
-        s2 = _identified_scene(factory, "c2", name="beta")
+        s1 = _identified_scene(store, lifecycle, clients, "c1", name="alpha")
+        s2 = _identified_scene(store, lifecycle, clients, "c2", name="beta")
         store.frames.record(s1, ScenePresentation(frame_id="shared"))
         store.frames.record(s2, ScenePresentation(frame_id="shared"))
         store.frames.record(s1, ScenePresentation(frame_id="shared", title="again"))
 
-        rows = _reader(factory, hub).facts_for_frame("shared")
+        rows = _reader(store, clients, hub).facts_for_frame("shared")
 
         assert rows is not None
         assert dict(rows)["Connection"] == "c1"
 
     def test_when_the_canonical_scene_leaves_the_next_oldest_takes_over(self) -> None:
         factory = HubStoreFactory()
+        lifecycle = factory.lifecycle
+        clients = factory.clients
         store = factory.display
         hub = Hub()
-        s1 = _identified_scene(factory, "c1", name="alpha")
-        s2 = _identified_scene(factory, "c2", name="beta")
-        s3 = _identified_scene(factory, "c3", name="gamma")
+        s1 = _identified_scene(store, lifecycle, clients, "c1", name="alpha")
+        s2 = _identified_scene(store, lifecycle, clients, "c2", name="beta")
+        s3 = _identified_scene(store, lifecycle, clients, "c3", name="gamma")
         for scene in (s1, s2, s3):
             store.frames.record(scene, ScenePresentation(frame_id="shared"))
         store.frames.record(s1, ScenePresentation(frame_id="elsewhere"))
 
-        rows = _reader(factory, hub).facts_for_frame("shared")
+        rows = _reader(store, clients, hub).facts_for_frame("shared")
 
         assert rows is not None
         assert dict(rows)["Connection"] == "c2"
@@ -256,12 +287,12 @@ class _Pipeline:
     _cursor: int
     __slots__ = ("_cursor", "_repl", "_replica", "_sender", "_store")
 
-    def __new__(cls, factory: HubStoreFactory, hub: Hub) -> Self:
+    def __new__(cls, store: HubDisplay, clients: HubClientRegistry, hub: Hub) -> Self:
         self = super().__new__(cls)
-        self._store = factory.display
+        self._store = store
         self._replica = SceneReplica(on_scene_replaced=_ignore_stale)
         self._repl, self._sender, _provider, _lifecycle = _replicator(
-            factory, owner_facts=_reader(factory, hub)
+            store, clients, owner_facts=_reader(store, clients, hub)
         )
         self._cursor = 0
         return self
@@ -311,18 +342,21 @@ class TestTheDisplayAdoptsTheNextCanonicalOwnerWhenTheCanonicalSceneLeaves:
     @staticmethod
     def _two_scene_frame() -> tuple[HubStoreFactory, Hub, SceneId, SceneId]:
         factory = HubStoreFactory()
+        lifecycle = factory.lifecycle
+        clients = factory.clients
         store = factory.display
         hub = Hub()
-        s1 = _identified_scene(factory, "c1", name="alpha")
-        s2 = _identified_scene(factory, "c2", name="beta")
+        s1 = _identified_scene(store, lifecycle, clients, "c1", name="alpha")
+        s2 = _identified_scene(store, lifecycle, clients, "c2", name="beta")
         store.frames.record(s1, ScenePresentation(frame_id="shared"))
         store.frames.record(s2, ScenePresentation(frame_id="shared"))
         return factory, hub, s1, s2
 
     def test_a_blanked_canonical_scene_hands_the_frame_to_the_next_oldest(self) -> None:
         factory, hub, s1, s2 = self._two_scene_frame()
+        clients = factory.clients
         store = factory.display
-        with _Pipeline(factory, hub) as pipe:
+        with _Pipeline(store, clients, hub) as pipe:
             before = [pipe.resend(s1), pipe.resend(s2)]
             store.replace_scene(ConnectionId("c1"), s1, [])
             after = pipe.resend(s1)
@@ -333,8 +367,9 @@ class TestTheDisplayAdoptsTheNextCanonicalOwnerWhenTheCanonicalSceneLeaves:
         self,
     ) -> None:
         factory, hub, s1, s2 = self._two_scene_frame()
+        clients = factory.clients
         store = factory.display
-        with _Pipeline(factory, hub) as pipe:
+        with _Pipeline(store, clients, hub) as pipe:
             pipe.resend(s1)
             pipe.resend(s2)
             store.frames.record(s1, ScenePresentation(frame_id="elsewhere"))
@@ -345,8 +380,9 @@ class TestTheDisplayAdoptsTheNextCanonicalOwnerWhenTheCanonicalSceneLeaves:
 
     def test_a_moved_younger_scene_never_disturbs_the_frames_owner(self) -> None:
         factory, hub, s1, s2 = self._two_scene_frame()
+        clients = factory.clients
         store = factory.display
-        with _Pipeline(factory, hub) as pipe:
+        with _Pipeline(store, clients, hub) as pipe:
             pipe.resend(s1)
             pipe.resend(s2)
             store.frames.record(s2, ScenePresentation(frame_id="elsewhere"))
@@ -397,8 +433,9 @@ class TestAMoveOutOfAFrameNeedsNoManualResend:
 
     def test_the_canonical_scene_moving_out_hands_the_frame_to_the_next(self) -> None:
         factory, hub, frame = self._shared()
+        clients = factory.clients
         store = factory.display
-        with _Pipeline(factory, hub) as pipe:
+        with _Pipeline(store, clients, hub) as pipe:
             installer = self._populated(pipe, store, frame)
             self._show(installer, "s1", "elsewhere")
 
@@ -406,8 +443,9 @@ class TestAMoveOutOfAFrameNeedsNoManualResend:
 
     def test_a_junior_scene_moving_out_leaves_the_frames_owner(self) -> None:
         factory, hub, frame = self._shared()
+        clients = factory.clients
         store = factory.display
-        with _Pipeline(factory, hub) as pipe:
+        with _Pipeline(store, clients, hub) as pipe:
             installer = self._populated(pipe, store, frame)
             self._show(installer, "s2", "elsewhere")
 

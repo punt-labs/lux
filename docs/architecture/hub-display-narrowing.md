@@ -305,7 +305,7 @@ cycle arises: everything that imported `store_instance` already imported through
 this module.)
 
 ```python
-_store = HubStoreFactory(hub)
+_store = HubStoreFactory()  # (clock, hub), both defaulted; a test passes keywords
 hub_display: HubDisplay = _store.display
 hub_lifecycle: ClientLifecycle = _store.lifecycle
 hub_clients: HubClientRegistry = _store.clients
