@@ -208,6 +208,10 @@ function pr_loop(unit):
 
     # A. BUILD — missions, one at a time
     branch from main
+    consult the decision log before any design or design proposal:
+        grep '^## DES-' DESIGN.md for the topic; read every match in full
+        cite the ADRs consulted in the contract, the design, and any
+        proposal to the operator — no citation means the step was skipped
     if unit is architectural (new contract, new types, cross-cutting flow):
         design mission first, with no prescribed write-set
         leader reviews the design end-to-end
@@ -280,6 +284,9 @@ EnterPR ≙ [ LoopState; unit : ℙ BEAD |
   ∧ rollbackCoherent(unit)                -- reverts together sensibly
   ∧ inThroughputBand(unit)                -- above transaction cost,
                                           --   below reviewer degradation
+  ∧ adrsConsulted(unit)                   -- the decision log was searched for
+                                          --   the topic and the governing ADRs
+                                          --   are cited
   ∧ (architectural(unit) ⇒ designRatified(unit)) ]  -- operator has ruled
 
 ExitPR ≙ [ Δ LoopState; pr : PR |
@@ -403,7 +410,10 @@ itself.
    write-set; the specialist decides what to create, split, or extract. For
    protocol or data work the contract cites the OO rules with an example,
    because sub-agents revert to procedural habits when the prompt is not
-   explicit.
+   explicit. Every design contract lists the `DESIGN.md` entries that bound
+   the work, and every design result states which ADRs it builds on or
+   supersedes — a design that cites none on a topic the log covers is
+   returned unread.
 2. **Dispatch is two operations.** Creating the mission writes the contract;
    a separate background agent spawn starts the worker. Verify the worker is
    actually running — a contract with no agent behind it is orphaned work.
