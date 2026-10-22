@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Self, cast, final
 
 from punt_lux.display.replica import SceneReplica
 from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
@@ -19,6 +20,8 @@ from punt_lux.operations.canonical_frame_owner import CanonicalFrameOwner
 from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.frame_owner_facts import FrameOwnerFacts
 from punt_lux.operations.queries import QueryOperations
+from punt_lux.operations.scene_installer import SceneInstaller
+from punt_lux.operations.scene_submission import SceneSubmission
 from punt_lux.protocol import Element, SceneMessage
 from punt_lux.protocol.elements.text import TextElement
 from tests.domain.test_hub_replicator import _FakeSender, _replicator
@@ -270,14 +273,24 @@ class _Pipeline:
     def __exit__(self, *_exc: object) -> None:
         self._repl.stop()
 
+    @property
+    def marker(self) -> HubReplicator:
+        """The replicator, as the dirty marker the installer reports to."""
+        return self._repl
+
     def resend(self, scene: SceneId) -> str | None:
         """Resend ``scene``; return the owner connection the Display then shows."""
         self._repl.mark_dirty(scene)
+        return self.collect(1)
+
+    def collect(self, sends: int, frame: str = "shared") -> str | None:
+        """Replay the next ``sends`` pushes; return ``frame``'s owner connection."""
+        target = self._cursor + sends
         deadline = time.monotonic() + 3.0
-        while len(self._sender.shows) <= self._cursor:
+        while len(self._sender.shows) < target:
             assert time.monotonic() < deadline, "the replicator never sent"
             time.sleep(0.005)
-        for index in range(self._cursor, len(self._sender.shows)):
+        for index in range(self._cursor, target):
             self._replica.handle_framed_scene(
                 SceneMessage(
                     id=self._sender.shows[index],
@@ -287,8 +300,8 @@ class _Pipeline:
                 ),
                 owner_fd=1,
             )
-        self._cursor = len(self._sender.shows)
-        rows = self._replica.owner_facts_for("shared")
+        self._cursor = target
+        rows = self._replica.owner_facts_for(frame)
         return None if rows is None else dict(rows)["Connection"]
 
 
@@ -335,3 +348,57 @@ class TestTheDisplayAdoptsTheNextCanonicalOwnerWhenTheCanonicalSceneLeaves:
             after_move = pipe.resend(s2)
 
         assert after_move == "c1"
+
+
+class TestAMoveOutOfAFrameNeedsNoManualResend:
+    """Installing a scene into another frame resends the frame it left."""
+
+    @staticmethod
+    def _shared() -> tuple[HubDisplay, Hub, str]:
+        store, hub = HubDisplay(), Hub()
+        for connection, name in (("c1", "alpha"), ("c2", "beta")):
+            store.identify_client(
+                ConnectionId(connection), ClientIdentity(kind="cli", name=name)
+            )
+        store.clients.named_sessions()
+        return store, hub, ConnectionScopedId.compose(ConnectionId("c1"), "shared")
+
+    @staticmethod
+    def _show(installer: SceneInstaller, scene: str, frame: str) -> None:
+        installer.install(
+            SceneSubmission.of(
+                [TextElement(id="t", content="x")],
+                scene,
+                ScenePresentation(frame_id=frame),
+                None,
+            ),
+            owner=ConnectionId("c1"),
+        )
+
+    def _populated(
+        self, pipe: _Pipeline, store: HubDisplay, frame: str
+    ) -> SceneInstaller:
+        installer = SceneInstaller(store, pipe.marker)
+        self._show(installer, "s1", "shared")
+        self._show(installer, "s2", "shared")
+        pipe.collect(2, frame)
+        # s2's root now belongs to c2; the frame's first scene stays c1's.
+        s2 = SceneId(ConnectionScopedId.compose(ConnectionId("c1"), "s2"))
+        store.replace_scene(ConnectionId("c2"), s2, [TextElement(id="t", content="x")])
+        return installer
+
+    def test_the_canonical_scene_moving_out_hands_the_frame_to_the_next(self) -> None:
+        store, hub, frame = self._shared()
+        with _Pipeline(store, hub) as pipe:
+            installer = self._populated(pipe, store, frame)
+            self._show(installer, "s1", "elsewhere")
+
+            assert pipe.collect(2, frame) == "c2"
+
+    def test_a_junior_scene_moving_out_leaves_the_frames_owner(self) -> None:
+        store, hub, frame = self._shared()
+        with _Pipeline(store, hub) as pipe:
+            installer = self._populated(pipe, store, frame)
+            self._show(installer, "s2", "elsewhere")
+
+            assert pipe.collect(2, frame) == "c1"
