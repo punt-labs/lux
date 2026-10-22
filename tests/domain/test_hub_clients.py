@@ -442,8 +442,14 @@ def test_a_new_leg_starts_with_none_of_its_predecessors_callbacks() -> None:
 def test_a_first_leg_clears_nothing_and_says_so() -> None:
     """An empty slot has no entries to lose, so the bar is already right."""
     reg = HubClientRegistry()
-    conn = ConnectionId("mcp")
-    assert reg.attach_listener(conn, _mcp(), _Leg()) == "attached"
+    app = ClientIdentity(kind="app", name="voxd", repo="/w/vox")
+    assert reg.attach_listener(ConnectionId("app"), app, _Leg()) == "attached"
+
+
+def test_a_first_leg_of_an_agent_is_listed_so_the_bar_must_be_re_pushed() -> None:
+    reg = HubClientRegistry()
+    outcome = reg.attach_listener(ConnectionId("mcp"), _mcp(), _Leg())
+    assert outcome == "attached_over_callbacks"
 
 
 def test_a_teardown_by_a_session_that_lost_the_slot_removes_nothing() -> None:

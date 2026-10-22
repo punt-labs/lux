@@ -1,8 +1,4 @@
-"""The Operations facade — one object exposing every capability.
-
-Composes the concern classes so a single caller — MCP, REST, or a test — has
-one object to call. Every collaborator is injected into ``for_store``.
-"""
+"""The Operations facade: one object exposing every capability."""
 
 from __future__ import annotations
 
@@ -17,7 +13,7 @@ from punt_lux.operations.display_control import DisplayControlOperations
 from punt_lux.operations.display_link import DisplayLinkOperations
 from punt_lux.operations.frame_removal import FrameRemover
 from punt_lux.operations.identity import IdentityOperations
-from punt_lux.operations.menu_arming import MenuArming
+from punt_lux.operations.menu_arming_deps import MenuArmingDeps
 from punt_lux.operations.menus import (
     MenuDepartureSink,
     MenuOperations,
@@ -135,11 +131,12 @@ class Operations:
         scenes = SceneOperations(deps)
         callbacks = CallbackOperations(display.clients, callback_router, replicator)
         menu_departure = MenuDepartureSink(menu_registry, replicator)
-        arming = MenuArming(
+        arming = MenuArmingDeps(
             display.clients,
             ports.ensure_writer,
             lambda c: display.bind_departure_sink(c, menu_departure),
-        )
+            replicator.mark_menus,
+        ).arming()
         clients = ClientListing(display, hub, ports.inbox_depth)
         queries = QueryOperations(display, ports.display_port, clients)
         return cls(
@@ -307,8 +304,9 @@ class Operations:
         self, declaration: dict[str, object], *, scope: Scope
     ) -> Identified | OpError:
         """Record the caller's declared identity, or reject a malformed one."""
+        before = self._identity.current(scope)
         result = self._identity.identify(declaration, scope=scope)
-        self._menus.identified(scope.connection_id)
+        self._menus.identified(scope.connection_id, before)
         return result
 
     def identity_of(self, *, scope: Scope) -> ClientIdentity | None:

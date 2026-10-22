@@ -22,6 +22,7 @@ from punt_lux.domain.hub.menu_models import Menu, MenuAction, MenuSeparator
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.operations.menu_arming import MenuArming
+from punt_lux.operations.menu_arming_deps import MenuArmingDeps
 from punt_lux.operations.menus import MenuOperations, MenuOperationsDeps
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.menu_results import MenuList, Ok, SetMenuRequest
@@ -80,7 +81,11 @@ class _Ops:
         self.clients = HubClientRegistry()
         self.marker = _MenuMarkerSpy()
         self.registry = HubMenuRegistry(self.clients)
-        arming = MenuArming(self.clients, lambda _cid: None, lambda _cid: None)
+        arming = MenuArming(
+            MenuArmingDeps(
+                self.clients, lambda _cid: None, lambda _cid: None, lambda: None
+            )
+        )
         self.ops = MenuOperations(
             MenuOperationsDeps(
                 registry=self.registry,
@@ -354,7 +359,9 @@ def test_set_menu_holds_the_write_lock_across_admit_and_store(
     events: list[str] = []
     clients = HubClientRegistry()
     registry = HubMenuRegistry(clients)
-    arming = MenuArming(clients, lambda _cid: None, lambda _cid: None)
+    arming = MenuArming(
+        MenuArmingDeps(clients, lambda _cid: None, lambda _cid: None, lambda: None)
+    )
 
     original_admit = MenuArming.admit
     original_set_menus = HubMenuRegistry.set_menus
@@ -405,7 +412,9 @@ def test_set_menu_does_not_store_when_admit_refuses_under_the_lock(
     events: list[str] = []
     clients = HubClientRegistry()
     registry = HubMenuRegistry(clients)
-    arming = MenuArming(clients, lambda _cid: None, lambda _cid: None)
+    arming = MenuArming(
+        MenuArmingDeps(clients, lambda _cid: None, lambda _cid: None, lambda: None)
+    )
 
     original_set_menus = HubMenuRegistry.set_menus
 

@@ -26,11 +26,13 @@ from starlette.websockets import WebSocketDisconnect
 
 from punt_lux.connection_identity import connection_for
 from punt_lux.domain.hub.callback_hold import CallbackRouter
+from punt_lux.domain.hub.callback_menu import CallbackMenu
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.departure_cascade import DepartureCascade
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.menu_models import Menu, MenuAction
 from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
 from punt_lux.domain.ids import ConnectionId, SceneId, Topic
 from punt_lux.protocol.messages.listen import CallbackFrame
@@ -627,3 +629,48 @@ def test_a_same_identity_ws_reconnect_never_lands_inside_an_open_departure_casca
 
     assert new_writer_installed.is_set()
     assert hub.has_writer(_CONN)
+
+
+_AGENT_IDENTITY = ClientIdentity(kind="mcp-session", name="claude", repo="/w/lux")
+
+
+def _agent_labels(display: HubDisplay) -> list[str]:
+    """Every entry label under the Clients menu, as the next send would carry."""
+    return [
+        entry.label
+        for menu in CallbackMenu.from_named(display.clients.named_sessions())
+        for submenu in menu.items
+        if isinstance(submenu, Menu)
+        for entry in submenu.items
+        if isinstance(entry, MenuAction)
+    ]
+
+
+def test_a_listen_attach_of_an_agent_marks_menus_and_its_lapse_withdraws_it() -> None:
+    """The second identify path: the handshake identity must reach the Display too."""
+    clock, menus, hub = _Clock(), _MenuFlag(), Hub()
+    display = HubDisplay(clock, hub=hub)
+    app = FastAPI()
+    # Production hands the transport the display's own registry, so the reaper
+    # and the listen leg see one set of sessions.
+    HubListenTransport(
+        hub, display.clients, display, CallbackRouter(display.clients), menus
+    ).mount(app)
+    headers = {
+        "X-Lux-Client-Kind": "mcp-session",
+        "X-Lux-Client-Name": "claude",
+        "X-Lux-Client-Repo": "/w/lux",
+        "X-Lux-Client-Lease-Ttl": "5",
+    }
+
+    with TestClient(app).websocket_connect("/ws", headers=headers) as ws:
+        ws.receive_json()  # ready
+        assert menus.pushes >= 1
+        assert _agent_labels(display) == ["claude"]
+        before = menus.pushes
+
+        clock.advance(6.0)  # past the declared lease; nothing renews it
+        display.reap_lapsed_leases()
+
+        assert menus.pushes > before
+        assert _agent_labels(display) == []

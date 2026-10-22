@@ -127,22 +127,18 @@ class HubListenSession:
 
         Everything from the first piece of registered state onward is inside the
         teardown's guard. A client that goes away between the accept and the
-        handshake write is the case that needs it: the listener is registered by
-        then, and if the failing write escaped un-torn-down the Hub would hold a
-        listener for a connection nothing can reach — and would then admit a
-        menu callback from that identity, because holding a listener is exactly
-        what the registration gate checks for.
+        handshake write needs it: otherwise the Hub would hold a listener for a
+        connection nothing can reach, and admit a menu callback from it, because
+        holding a listener is exactly what the registration gate checks for.
 
         The prologue runs as one uninterrupted stretch between the accept and the
         handshake write, so no other loop-side step can land inside it. Recording
-        the identity and taking the connection's listener slot are one registry
-        call for the same reason at thread scope: nothing may observe this session
-        identified but unreachable, or holding the slot but anonymous.
+        the identity and taking the listener slot are one registry call for the
+        same reason at thread scope: nothing may observe this session identified
+        but unreachable, or holding the slot but anonymous.
 
-        Taking the slot clears the entries its previous occupant owned, and the bar
-        is re-pushed when it does. Nothing else would: this session may register
-        nothing of its own, and a user clicking a cleared entry discovers the fault
-        rather than repairing it.
+        The bar is re-pushed when taking the slot clears entries, and when an agent
+        attaches: it is listed with no entries of its own, so nothing else would.
         """
         await self._ws.accept()
         self._loop = asyncio.get_running_loop()
@@ -159,10 +155,17 @@ class HubListenSession:
             self._teardown()
 
     def _attach_and_register_writer(self) -> ListenerAttachment:
-        """Take the listener slot and bind the writer -- see module docstring."""
+        """Take the listener slot and bind the writer -- see module docstring.
+
+        The departure is bound to re-push the menu: an agent is listed in it
+        without registering anything, and nothing else would tell the Display.
+        """
         with self._display.write_lock():
             attachment = self._clients.attach_listener(self._conn, self._identity, self)
             self._hub.register_writer(self._conn, self.deliver_event)
+            self._display.bind_departure_sink(
+                self._conn, lambda _cid: self._menus.mark_menus()
+            )
             return attachment
 
     async def _pump(self) -> None:
@@ -183,10 +186,9 @@ class HubListenSession:
         """Hub pub-sub writer: enqueue a subscribed topic's event onto the loop.
 
         Runs on the publisher's thread, so it hops to the loop rather than touching
-        the WebSocket or the asyncio queue directly. Always reports delivery: this
-        session, unlike the MCP inbox writer, has no stale-generation case -- the
-        listener slot's own ownership compare (module docstring) is what keeps a
-        superseded session's binding out of the writer registry in the first place.
+        the WebSocket or the asyncio queue directly. Always reports delivery: unlike
+        the MCP inbox writer there is no stale-generation case, because the listener
+        slot's ownership compare keeps a superseded session out of the registry.
         """
         frame = EventFrame(topic=message.topic, payload=dict(message.payload))
         self._loop.call_soon_threadsafe(self._outbound.put_nowait, frame)
@@ -196,9 +198,8 @@ class HubListenSession:
         """Apply inbound frames until the client disconnects; any frame renews.
 
         A frame the wire does not define is a protocol violation, not a server
-        fault: the connection is closed cleanly (1002) rather than letting the
-        parse error bubble into a 1011 internal error, which would also mislog a
-        misbehaving client as a server bug.
+        fault: the connection is closed cleanly (1002), not with a 1011 error that
+        would mislog a misbehaving client as a server bug.
         """
         while True:
             try:

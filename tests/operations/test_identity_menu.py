@@ -7,12 +7,14 @@ the same. Driven through the real facade, so the wiring is what is under test.
 
 from __future__ import annotations
 
+import threading
 import time
 from collections.abc import Callable
 from typing import Self, final
 
 from punt_lux.domain.hub import client_registry, hub
 from punt_lux.domain.hub.callback_hold import CallbackRouter
+from punt_lux.domain.hub.departure_sinks import DepartureSink
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.inbox import ensure_writer, inbox_depth_for, next_event
@@ -135,3 +137,37 @@ def test_a_lease_lapse_reap_marks_menus_and_the_entry_is_gone() -> None:
     assert reaped == frozenset({_CONN})
     assert spy.menu_marks > before
     assert _sent_entries(ops) == []
+
+
+def test_repeating_an_identical_identify_marks_menus_once() -> None:
+    """REST re-declares identity on every write; that must not re-push the menu."""
+    ops, _store, spy = _rig()
+    ops.identify(_AGENT, scope=Scope(_CONN))
+    after_first = spy.menu_marks
+
+    for _ in range(3):
+        ops.identify(_AGENT, scope=Scope(_CONN))
+
+    assert spy.menu_marks == after_first
+
+
+def test_a_departure_cannot_interleave_with_binding_the_sink() -> None:
+    """Check-then-bind is one step under the store's write lock."""
+    ops, store, _spy = _rig()
+    ops.identify(_AGENT, scope=Scope(_CONN))
+    real_bind = store.bind_departure_sink
+    intruder = threading.Thread(target=store.drop_connection, args=(_CONN,))
+    overlapped: list[bool] = []
+
+    def _bind(connection_id: ConnectionId, sink: DepartureSink) -> None:
+        if not intruder.is_alive() and not overlapped:
+            intruder.start()
+            intruder.join(timeout=0.3)
+            overlapped.append(not intruder.is_alive())
+        real_bind(connection_id, sink)
+
+    store.bind_departure_sink = _bind  # type: ignore[method-assign]  # spy
+    ops.identify({**_AGENT, "repo": "/w/other"}, scope=Scope(_CONN))
+    intruder.join(timeout=2.0)
+
+    assert overlapped == [False]

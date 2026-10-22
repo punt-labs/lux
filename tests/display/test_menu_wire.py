@@ -312,7 +312,7 @@ class TestTheFrameIdRoundTrip:
         (raised_id,) = raised
 
         # The exact key a real scene push establishes for this connection's
-        # frame (DES-086) -- and the exact reopen-a-closed-board scenario.
+        # frame -- and the exact reopen-a-closed-board scenario.
         real_key = ConnectionScopedId.compose(conn, "beads-lux")
         book = FrameBook()
         book.ensure(_scene(frame_id=real_key), owner_fd=1)
@@ -333,7 +333,7 @@ class TestTheFrameIdRoundTrip:
 
         raised = _click(named, "claude")
 
-        # The key the installed Details scene is recorded under (DES-086).
+        # The key the installed Details scene is recorded under.
         real_key = ConnectionScopedId.compose(conn, f"lux.client-details.{conn}")
         book = FrameBook()
         book.ensure(_scene(frame_id=real_key), owner_fd=1)

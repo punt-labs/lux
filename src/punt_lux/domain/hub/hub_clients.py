@@ -96,15 +96,15 @@ class HubClientRegistry:
     ) -> ListenerAttachment:
         """Install ``listener`` as the connection's leg, recording ``identity``.
 
-        Records and takes the slot in one step; taking it clears the previous
-        occupant's callbacks and reports ``attached_over_callbacks``.
+        One step; reports ``attached_over_callbacks`` if the menu changed.
         """
         with self._lock:
             base = self._renewed(connection_id)
             self._sessions[connection_id] = base.with_identity(identity).attached(
                 listener
             )
-            return "attached_over_callbacks" if base.callbacks else "attached"
+            listed = any((base.callbacks, identity.is_agent))
+            return "attached_over_callbacks" if listed else "attached"
 
     def detach_listener(
         self, connection_id: ConnectionId, listener: CallbackListener
@@ -157,11 +157,11 @@ class HubClientRegistry:
         with self._lock:
             return self._sessions.get(connection_id)
 
-    def is_identified(self, connection_id: ConnectionId) -> bool:
-        """Whether the connection is registered and has declared an identity."""
+    def identity_of(self, connection_id: ConnectionId) -> ClientIdentity | None:
+        """The identity the connection declared; None if unregistered or anonymous."""
         with self._lock:
-            sessions = filter(None, [self._sessions.get(connection_id)])
-            return any(map(attrgetter("identity"), sessions))
+            session = self._sessions.get(connection_id)
+            return session.identity if session is not None else None
 
     def discard(self, connection_id: ConnectionId) -> None:
         """Drop the registration, its identity, and the menu name it held."""

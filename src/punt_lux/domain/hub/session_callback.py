@@ -86,8 +86,7 @@ class SessionCallback(BaseModel):
 
     id: str = Field(min_length=1)  # an id-less callback is not a real state
     label: str = Field(min_length=1)  # a label-less callback is not a real state
-    # absent = no owned frame (e.g. the Hub's own Details); present must be
-    # non-blank and separator-free, same as ConnectionScopedId.compose.
+    # absent = no owned frame; present must be non-blank and separator-free.
     frame_id: str | None = Field(default=None, pattern=NONBLANK_FRAME_ID)
 
     @field_validator("id")
@@ -116,8 +115,9 @@ class CallbackInvocation:
     def details(cls, connection_id: ConnectionId) -> Self:
         """The invocation the Hub's own Details command on *connection_id* fires.
 
-        Every submenu carries this command; the Hub answers it itself,
-        reporting that connection's own state rather than routing to a session.
+        The entry a connection with no registered command contributes. The Hub
+        answers it itself, reporting that connection's own state rather than
+        routing the click to a session.
         """
         return cls(connection_id, _DETAILS_CALLBACK_ID)
 
