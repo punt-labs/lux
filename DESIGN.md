@@ -7289,10 +7289,16 @@ one case the `i` cannot serve — a connection with no frame to click:
   gets no Details entry; its frames carry the `i`.
 - There is **one entry per such connection**, attached to that exact
   connection — no seniority selection.
-- The entry's menu label and the window's frame title **name the connection
-  uniquely** — its declared identity name (e.g.
-  `lux · ethos · #1f349f · z-spec`) — never a generic "Details" or a
-  disambiguating "Details (2)".
+- The entry is **named by the existing naming ADRs, not a new scheme** — never
+  a generic "Details", a "Details (2)", or the raw identity string
+  (`lux · ethos · #1f349f · z-spec`). Its menu label is the plain program
+  token (DES-064 point 3: the hierarchy carries the disambiguation), placed in
+  the connection's `(repo, session)` submenu (DES-067, whose collision
+  numbering — `ethos`, `ethos (2)` — tells sessions apart). Its window title is
+  the connection's DES-089 address title, built by the Display's `AddressBook`
+  (`LuxAddress.title`): a rung elided whenever unambiguous — `z-spec` alone,
+  `ethos (2) :: z-spec` beside another ethos session, Hub-prefixed across
+  Hubs.
 - The entry carries its composed `frame_id` (the mechanism below), so closing
   the window and re-clicking reopens it without Clear All.
 
