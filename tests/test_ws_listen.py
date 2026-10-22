@@ -112,10 +112,10 @@ class _Wiring:
 def _wired(clock: Callable[[], float] = time.monotonic) -> _Wiring:
     hub = Hub()
     display = HubDisplay(clock, hub=hub)
-    clients = display.clients
+    clients = display.parts.clients
     router = CallbackRouter(clients)
     menus = _MenuFlag()
-    display.lifecycle.present_as(menus, MarkMenusSink(menus))
+    display.parts.lifecycle.present_as(menus, MarkMenusSink(menus))
     app = FastAPI()
     HubListenTransport(hub, display, router, menus).mount(app)
     return _Wiring(TestClient(app), hub, clients, display, router, menus)
@@ -285,7 +285,7 @@ def _session_over(send_error: Exception) -> HubListenSession:
         ClientIdentity(kind="app", name="voxd", repo="/w/vox"),
         hub,
         display,
-        CallbackRouter(display.clients),
+        CallbackRouter(display.parts.clients),
         _MenuFlag(),
     )
 
@@ -323,7 +323,7 @@ def test_a_peer_that_dies_before_the_handshake_leaves_no_listener() -> None:
     """
     hub = Hub()
     display = HubDisplay(hub=hub)
-    clients = display.clients
+    clients = display.parts.clients
     router = CallbackRouter(clients)
 
     async def _drive() -> None:
@@ -571,7 +571,7 @@ def _listen_session(hub: Hub, display: HubDisplay) -> HubListenSession:
             _VOX_IDENTITY,
             hub,
             display,
-            CallbackRouter(display.clients),
+            CallbackRouter(display.parts.clients),
             _MenuFlag(),
         )
 
@@ -588,7 +588,7 @@ def _agent_listen_session(hub: Hub, display: HubDisplay) -> HubListenSession:
             _AGENT_IDENTITY,
             hub,
             display,
-            CallbackRouter(display.clients),
+            CallbackRouter(display.parts.clients),
             _MenuFlag(),
         )
 
@@ -643,7 +643,7 @@ def test_a_same_identity_ws_reconnect_never_lands_inside_an_open_departure_casca
     with pytest.MonkeyPatch.context() as monkeypatch:
         monkeypatch.setattr(DepartureCascade, "run_all", _paused_run_all)
         reconnect_thread.start()
-        display.reap_lapsed_leases()
+        display.parts.lifecycle.depart_lapsed()
         reconnect_thread.join(timeout=2.0)
 
     assert new_writer_installed.is_set()
@@ -657,7 +657,7 @@ def _agent_labels(display: HubDisplay) -> list[str]:
     """Every entry label under the Clients menu, as the next send would carry."""
     return [
         entry.label
-        for menu in CallbackMenu.from_named(display.clients.named_sessions())
+        for menu in CallbackMenu.from_named(display.parts.clients.named_sessions())
         for submenu in menu.items
         if isinstance(submenu, Menu)
         for entry in submenu.items
@@ -669,11 +669,13 @@ def test_a_listen_attach_of_an_agent_marks_menus_and_its_lapse_withdraws_it() ->
     """The second identify path: the handshake identity must reach the Display too."""
     clock, menus, hub = _Clock(), _MenuFlag(), Hub()
     display = HubDisplay(clock, hub=hub)
-    display.lifecycle.present_as(menus, MarkMenusSink(menus))
+    display.parts.lifecycle.present_as(menus, MarkMenusSink(menus))
     app = FastAPI()
     # Production hands the transport the display's own registry, so the reaper
     # and the listen leg see one set of sessions.
-    HubListenTransport(hub, display, CallbackRouter(display.clients), menus).mount(app)
+    HubListenTransport(
+        hub, display, CallbackRouter(display.parts.clients), menus
+    ).mount(app)
     headers = {
         "X-Lux-Client-Kind": "mcp-session",
         "X-Lux-Client-Name": "claude",
@@ -688,7 +690,7 @@ def test_a_listen_attach_of_an_agent_marks_menus_and_its_lapse_withdraws_it() ->
         before = menus.pushes
 
         clock.advance(6.0)  # past the declared lease; nothing renews it
-        display.reap_lapsed_leases()
+        display.parts.lifecycle.depart_lapsed()
 
         assert menus.pushes > before
         assert _agent_labels(display) == []
@@ -718,16 +720,18 @@ class _AgentRig:
     def departure_marks(self) -> int:
         """How many menu marks one departure of the agent raises: its sinks."""
         before = self.menus.pushes
-        self.display.drop_connection(_AGENT_CONN)
+        self.display.parts.lifecycle.depart(_AGENT_CONN)
         return self.menus.pushes - before
 
 
 def _agent_rig() -> _AgentRig:
     clock, menus, hub = _Clock(), _MenuFlag(), Hub()
     display = HubDisplay(clock, hub=hub)
-    display.lifecycle.present_as(menus, MarkMenusSink(menus))
+    display.parts.lifecycle.present_as(menus, MarkMenusSink(menus))
     app = FastAPI()
-    HubListenTransport(hub, display, CallbackRouter(display.clients), menus).mount(app)
+    HubListenTransport(
+        hub, display, CallbackRouter(display.parts.clients), menus
+    ).mount(app)
     return _AgentRig(TestClient(app), display, clock, menus)
 
 
@@ -739,7 +743,9 @@ def test_a_read_loop_frame_on_a_live_session_only_renews() -> None:
 
         ws.send_json(_RENEW)
         ws.send_json(_RENEW)
-        _eventually(lambda: rig.display.is_client(_AGENT_CONN))
+        _eventually(
+            lambda: rig.display.parts.clients.session_of(_AGENT_CONN) is not None
+        )
 
         assert rig.menus.pushes == before
 
@@ -768,13 +774,15 @@ def test_a_swept_session_with_an_open_socket_is_revived_by_the_next_frame_markin
     with rig.client.websocket_connect("/ws", headers=_AGENT_HEADERS) as ws:
         ws.receive_json()  # ready
         rig.clock.advance(_FAR_FUTURE)
-        rig.display.reap_lapsed_leases()
-        assert not rig.display.is_client(_AGENT_CONN)
+        rig.display.parts.lifecycle.depart_lapsed()
+        assert rig.display.parts.clients.session_of(_AGENT_CONN) is None
         before = rig.menus.pushes
 
         ws.send_json(_RENEW)
 
-        _eventually(lambda: rig.display.is_client(_AGENT_CONN))
+        _eventually(
+            lambda: rig.display.parts.clients.session_of(_AGENT_CONN) is not None
+        )
         assert rig.menus.pushes > before
         assert _agent_labels(rig.display) == ["claude"]
         assert rig.departure_marks() == 1
@@ -785,12 +793,14 @@ def test_a_revived_session_departs_with_a_mark_not_a_ghost() -> None:
     with rig.client.websocket_connect("/ws", headers=_AGENT_HEADERS) as ws:
         ws.receive_json()  # ready
         rig.clock.advance(_FAR_FUTURE)
-        rig.display.reap_lapsed_leases()
+        rig.display.parts.lifecycle.depart_lapsed()
         ws.send_json(_RENEW)
-        _eventually(lambda: rig.display.is_client(_AGENT_CONN))
+        _eventually(
+            lambda: rig.display.parts.clients.session_of(_AGENT_CONN) is not None
+        )
         before = rig.menus.pushes
 
-        rig.display.drop_connection(_AGENT_CONN)
+        rig.display.parts.lifecycle.depart(_AGENT_CONN)
 
         assert rig.menus.pushes > before
         assert _agent_labels(rig.display) == []

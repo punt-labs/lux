@@ -63,8 +63,9 @@ def _reader(store: HubDisplay, hub: Hub) -> CanonicalFrameOwner:
 def _identified_scene(store: HubDisplay, connection: str, name: str) -> SceneId:
     """Register a named client and install one root it owns, returning its scene id."""
     conn = ConnectionId(connection)
-    store.identify_client(conn, ClientIdentity(kind="cli", name=name))
-    store.clients.named_sessions()  # the read that names it, as the menu build does
+    store.parts.lifecycle.identify(conn, ClientIdentity(kind="cli", name=name))
+    # the read that names it, as the menu build does
+    store.parts.clients.named_sessions()
     scene_id = SceneId(f"{connection}-scene")
     store.replace_scene(conn, scene_id, [TextElement(id="t1", content="hi")])
     return scene_id
@@ -78,8 +79,8 @@ class TestAFrameComposingScenesWithDifferentOwners:
         first = _identified_scene(store, "c1", name="alpha")
         second = _identified_scene(store, "c2", name="beta")
         frame = ScenePresentation(frame_id="shared-frame")
-        store.frames.record(first, frame)
-        store.frames.record(second, frame)
+        store.parts.frames.record(first, frame)
+        store.parts.frames.record(second, frame)
 
         rows = _reader(store, hub).facts_for_frame("shared-frame")
 
@@ -94,8 +95,8 @@ class TestAFrameComposingScenesWithDifferentOwners:
         senior = _identified_scene(store, "z", name="alpha")
         junior = _identified_scene(store, "a", name="beta")
         frame = ScenePresentation(frame_id="shared-frame")
-        store.frames.record(senior, frame)
-        store.frames.record(junior, frame)
+        store.parts.frames.record(senior, frame)
+        store.parts.frames.record(junior, frame)
 
         rows = _reader(store, hub).facts_for_frame("shared-frame")
 
@@ -106,8 +107,8 @@ class TestAFrameComposingScenesWithDifferentOwners:
         store, hub = HubDisplay(), Hub()
         first = _identified_scene(store, "c1", name="alpha")
         second = _identified_scene(store, "c2", name="beta")
-        store.frames.record(first, ScenePresentation(frame_id="elsewhere"))
-        store.frames.record(second, ScenePresentation(frame_id="shared-frame"))
+        store.parts.frames.record(first, ScenePresentation(frame_id="elsewhere"))
+        store.parts.frames.record(second, ScenePresentation(frame_id="shared-frame"))
 
         rows = _reader(store, hub).facts_for_frame("shared-frame")
 
@@ -173,17 +174,17 @@ class TestAReplicatorSendRacingAReshow:
         a1 = _identified_scene(store, "c1", name="alpha")
         a2 = _identified_scene(store, "c2", name="beta")
         b1 = _identified_scene(store, "c3", name="gamma")
-        store.frames.record(a1, ScenePresentation(frame_id="old"))
-        store.frames.record(a2, ScenePresentation(frame_id="old"))
-        store.frames.record(b1, ScenePresentation(frame_id="new"))
+        store.parts.frames.record(a1, ScenePresentation(frame_id="old"))
+        store.parts.frames.record(a2, ScenePresentation(frame_id="old"))
+        store.parts.frames.record(b1, ScenePresentation(frame_id="new"))
 
         def reshow() -> None:
-            store.frames.record(a1, ScenePresentation(frame_id="new"))
+            store.parts.frames.record(a1, ScenePresentation(frame_id="new"))
 
         repl, sender, _provider, _lifecycle = _replicator(
             store,
             owner_facts=_reader(store, hub),
-            reader=cast("SceneReader", _ReshowingReader(store.reader, reshow)),
+            reader=cast("SceneReader", _ReshowingReader(store.parts.reader, reshow)),
         )
         repl.start()
         try:
@@ -204,9 +205,9 @@ class TestTheFramesCanonicalOwnerFollowsFrameEntryOrder:
         store, hub = HubDisplay(), Hub()
         s1 = _identified_scene(store, "c1", name="alpha")
         s2 = _identified_scene(store, "c2", name="beta")
-        store.frames.record(s1, ScenePresentation(frame_id="a"))
-        store.frames.record(s2, ScenePresentation(frame_id="shared"))
-        store.frames.record(s1, ScenePresentation(frame_id="shared"))
+        store.parts.frames.record(s1, ScenePresentation(frame_id="a"))
+        store.parts.frames.record(s2, ScenePresentation(frame_id="shared"))
+        store.parts.frames.record(s1, ScenePresentation(frame_id="shared"))
 
         rows = _reader(store, hub).facts_for_frame("shared")
 
@@ -217,9 +218,11 @@ class TestTheFramesCanonicalOwnerFollowsFrameEntryOrder:
         store, hub = HubDisplay(), Hub()
         s1 = _identified_scene(store, "c1", name="alpha")
         s2 = _identified_scene(store, "c2", name="beta")
-        store.frames.record(s1, ScenePresentation(frame_id="shared"))
-        store.frames.record(s2, ScenePresentation(frame_id="shared"))
-        store.frames.record(s1, ScenePresentation(frame_id="shared", title="again"))
+        store.parts.frames.record(s1, ScenePresentation(frame_id="shared"))
+        store.parts.frames.record(s2, ScenePresentation(frame_id="shared"))
+        store.parts.frames.record(
+            s1, ScenePresentation(frame_id="shared", title="again")
+        )
 
         rows = _reader(store, hub).facts_for_frame("shared")
 
@@ -232,8 +235,8 @@ class TestTheFramesCanonicalOwnerFollowsFrameEntryOrder:
         s2 = _identified_scene(store, "c2", name="beta")
         s3 = _identified_scene(store, "c3", name="gamma")
         for scene in (s1, s2, s3):
-            store.frames.record(scene, ScenePresentation(frame_id="shared"))
-        store.frames.record(s1, ScenePresentation(frame_id="elsewhere"))
+            store.parts.frames.record(scene, ScenePresentation(frame_id="shared"))
+        store.parts.frames.record(s1, ScenePresentation(frame_id="elsewhere"))
 
         rows = _reader(store, hub).facts_for_frame("shared")
 
@@ -313,8 +316,8 @@ class TestTheDisplayAdoptsTheNextCanonicalOwnerWhenTheCanonicalSceneLeaves:
         store, hub = HubDisplay(), Hub()
         s1 = _identified_scene(store, "c1", name="alpha")
         s2 = _identified_scene(store, "c2", name="beta")
-        store.frames.record(s1, ScenePresentation(frame_id="shared"))
-        store.frames.record(s2, ScenePresentation(frame_id="shared"))
+        store.parts.frames.record(s1, ScenePresentation(frame_id="shared"))
+        store.parts.frames.record(s2, ScenePresentation(frame_id="shared"))
         return store, hub, s1, s2
 
     def test_a_blanked_canonical_scene_hands_the_frame_to_the_next_oldest(self) -> None:
@@ -333,7 +336,7 @@ class TestTheDisplayAdoptsTheNextCanonicalOwnerWhenTheCanonicalSceneLeaves:
         with _Pipeline(store, hub) as pipe:
             pipe.resend(s1)
             pipe.resend(s2)
-            store.frames.record(s1, ScenePresentation(frame_id="elsewhere"))
+            store.parts.frames.record(s1, ScenePresentation(frame_id="elsewhere"))
             after_move = pipe.resend(s1)
             after_resend = pipe.resend(s2)
 
@@ -344,7 +347,7 @@ class TestTheDisplayAdoptsTheNextCanonicalOwnerWhenTheCanonicalSceneLeaves:
         with _Pipeline(store, hub) as pipe:
             pipe.resend(s1)
             pipe.resend(s2)
-            store.frames.record(s2, ScenePresentation(frame_id="elsewhere"))
+            store.parts.frames.record(s2, ScenePresentation(frame_id="elsewhere"))
             after_move = pipe.resend(s2)
 
         assert after_move == "c1"
@@ -357,10 +360,10 @@ class TestAMoveOutOfAFrameNeedsNoManualResend:
     def _shared() -> tuple[HubDisplay, Hub, str]:
         store, hub = HubDisplay(), Hub()
         for connection, name in (("c1", "alpha"), ("c2", "beta")):
-            store.identify_client(
+            store.parts.lifecycle.identify(
                 ConnectionId(connection), ClientIdentity(kind="cli", name=name)
             )
-        store.clients.named_sessions()
+        store.parts.clients.named_sessions()
         return store, hub, ConnectionScopedId.compose(ConnectionId("c1"), "shared")
 
     @staticmethod

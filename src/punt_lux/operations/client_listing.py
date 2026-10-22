@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.client_session import ClientSession
     from punt_lux.domain.hub.hub import Hub
     from punt_lux.domain.hub.hub_display import HubDisplay
+    from punt_lux.domain.hub.hub_parts import HubParts
     from punt_lux.domain.hub.named_sessions import NamedSession
     from punt_lux.domain.ids import ConnectionId
     from punt_lux.operations.hub_collaborators import InboxDepth
@@ -28,14 +29,14 @@ __all__ = ["ClientListing"]
 class ClientListing:
     """Every connected client's facts, read from the authoritative session registry."""
 
-    _display: HubDisplay
+    _parts: HubParts
     _hub: Hub
     _inbox_depth: InboxDepth
-    __slots__ = ("_display", "_hub", "_inbox_depth")
+    __slots__ = ("_hub", "_inbox_depth", "_parts")
 
     def __new__(cls, display: HubDisplay, hub: Hub, inbox_depth: InboxDepth) -> Self:
         self = super().__new__(cls)
-        self._display = display
+        self._parts = display.parts
         self._hub = hub
         self._inbox_depth = inbox_depth
         return self
@@ -47,12 +48,8 @@ class ClientListing:
         ``connected_seconds`` never goes negative under a wall-clock step.
         """
         now = time.monotonic()
-        return ClientList(
-            clients=[
-                self._client(entry, now)
-                for entry in self._display.client_sessions().items()
-            ]
-        )
+        sessions = self._parts.reads.client_sessions()
+        return ClientList(clients=[self._client(e, now) for e in sessions.items()])
 
     def facts(self, named: NamedSession) -> HubClient:
         """Return one session's facts — what Details renders and :meth:`read` lists."""
@@ -81,7 +78,7 @@ class ClientListing:
             owned_scenes=sorted(
                 {
                     SceneListing.local_id_of(s)
-                    for s, _ in self._display.elements_owned_by(connection_id)
+                    for s, _ in self._parts.reads.elements_owned_by(connection_id)
                 }
             ),
             writer_bound=self._hub.has_writer(connection_id),

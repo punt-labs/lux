@@ -1,7 +1,7 @@
 """Connection-lifecycle cleanup — single entry point for disconnect.
 
 The transport layer (``luxd``) calls ``disconnect_connection`` when an MCP
-session ends. ``HubDisplay.drop_connection`` runs the full departure cascade
+session ends. ``ClientLifecycle.depart`` runs the full departure cascade
 atomically — registry, ownership, subscriptions, writer, and each
 connection's registered transport sink (see
 :class:`~punt_lux.domain.hub.departure_cascade.DepartureCascade`) — so this
@@ -36,4 +36,4 @@ def disconnect_connection(
     Defaults to the production singleton; tests pass their own isolated
     ``HubDisplay``.
     """
-    hub_display.drop_connection(connection_id)
+    hub_display.parts.lifecycle.depart(connection_id)

@@ -31,7 +31,7 @@ class SceneEviction:
     """Drop a scene's roots and lift any quarantine on it, in that order.
 
     The lift callback funnels through
-    :meth:`~punt_lux.domain.hub.hub_display.HubDisplay._lift_quarantine`, so
+    :meth:`~punt_lux.domain.hub.scene_quarantine.SceneQuarantine.lift`, so
     a teardown-driven clear and an owner-driven empty-scene clear both fire
     the same observer cascade (in particular
     :meth:`CrashAttribution.clear_tally`).

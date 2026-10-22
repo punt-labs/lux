@@ -113,7 +113,7 @@ def test_writer_puts_under_the_inboxes_lock() -> None:
     assert spy.put_seen
     assert spy.held_at_put
 
-    hub_display.drop_connection(connection)  # cleanup: production singletons
+    hub_display.parts.lifecycle.depart(connection)  # cleanup: production singletons
 
 
 def test_offer_on_a_dropped_session_does_not_resurrect_an_inbox() -> None:
@@ -174,7 +174,7 @@ def test_ensure_writer_binds_drop_session_as_the_departure_sink() -> None:
     ensure_writer(connection)
     assert hub.has_writer(connection)
 
-    hub_display.drop_connection(connection)
+    hub_display.parts.lifecycle.depart(connection)
 
     assert not hub.has_writer(connection)
     assert inbox_depth_for(connection) == 0
@@ -203,7 +203,7 @@ def test_ensure_writer_arms_an_inbox_even_when_a_listener_writer_exists() -> Non
     assert offer(connection, ObserverMessage(topic="lux.menu", payload={})) is True
     assert inbox_depth_for(connection) == 1
 
-    hub_display.drop_connection(connection)  # cleanup: production singletons
+    hub_display.parts.lifecycle.depart(connection)  # cleanup: production singletons
     assert inbox_depth_for(connection) == 0
 
 
@@ -215,7 +215,7 @@ def test_ensure_writer_is_idempotent_and_rebinds_nothing_on_a_second_call() -> N
     ensure_writer(connection)  # must not raise, must not rebind
 
     assert hub.has_writer(connection)
-    hub_display.drop_connection(connection)  # cleanup: production singletons
+    hub_display.parts.lifecycle.depart(connection)  # cleanup: production singletons
 
 
 def test_stale_writer_after_reconnect_does_not_deliver_into_the_new_session() -> None:
@@ -237,7 +237,7 @@ def test_stale_writer_after_reconnect_does_not_deliver_into_the_new_session() ->
     # The writer Hub.publish's snapshot would have captured for G1.
     stale_writer = hub._writers.writer_for(connection)
 
-    hub_display.drop_connection(connection)  # G1 departs
+    hub_display.parts.lifecycle.depart(connection)  # G1 departs
     ensure_writer(connection)  # G2 reconnects on the same ConnectionId
 
     spy = _LockWatchingQueue()
@@ -247,7 +247,7 @@ def test_stale_writer_after_reconnect_does_not_deliver_into_the_new_session() ->
 
     assert not spy.put_seen  # dropped, never delivered into the successor's inbox
 
-    hub_display.drop_connection(connection)  # cleanup: production singletons
+    hub_display.parts.lifecycle.depart(connection)  # cleanup: production singletons
 
 
 def test_stale_writer_publish_reports_zero_delivered_not_one() -> None:
@@ -284,7 +284,7 @@ def test_stale_writer_publish_reports_zero_delivered_not_one() -> None:
 
     assert delivered == 0
 
-    hub_display.drop_connection(connection)  # cleanup: production singletons
+    hub_display.parts.lifecycle.depart(connection)  # cleanup: production singletons
 
 
 def test_live_writer_publish_reports_one_delivered() -> None:
@@ -299,7 +299,7 @@ def test_live_writer_publish_reports_one_delivered() -> None:
 
     assert delivered == 1
 
-    hub_display.drop_connection(connection)  # cleanup: production singletons
+    hub_display.parts.lifecycle.depart(connection)  # cleanup: production singletons
 
 
 def test_current_writer_delivers_after_a_drain_inbox_swap() -> None:
@@ -325,7 +325,7 @@ def test_current_writer_delivers_after_a_drain_inbox_swap() -> None:
     assert event is not None
     assert event.payload == {"k": "v"}
 
-    hub_display.drop_connection(connection)  # cleanup: production singletons
+    hub_display.parts.lifecycle.depart(connection)  # cleanup: production singletons
 
 
 def test_ensure_writer_installs_a_fresh_writer_after_a_same_identity_reap() -> None:
@@ -348,7 +348,7 @@ def test_ensure_writer_installs_a_fresh_writer_after_a_same_identity_reap() -> N
     assert hub.topics_for(connection) == frozenset({topic})
 
     # Depart -- the full cascade drops the writer and subscriptions together.
-    hub_display.drop_connection(connection)
+    hub_display.parts.lifecycle.depart(connection)
     assert not hub.has_writer(connection)
     assert hub.topics_for(connection) == frozenset()
 
@@ -370,4 +370,4 @@ def test_ensure_writer_installs_a_fresh_writer_after_a_same_identity_reap() -> N
     assert event is not None
     assert event.payload == {"k": "v"}
 
-    hub_display.drop_connection(connection)  # cleanup: production singletons
+    hub_display.parts.lifecycle.depart(connection)  # cleanup: production singletons

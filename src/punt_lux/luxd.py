@@ -169,8 +169,8 @@ def serve(
         from punt_lux.domain.hub.lease_reap_sweep import LeaseReapSweep
 
         display_workers.start()
-        expiry = ExpirySweep(hub_display.frames, display_workers.replicator)
-        lease_reap = LeaseReapSweep(hub_display)
+        expiry = ExpirySweep(hub_display.parts.frames, display_workers.replicator)
+        lease_reap = LeaseReapSweep(hub_display.parts.lifecycle)
         try:
             # Both sweeps are cancelled and awaited on exit, before the
             # replicator stops; the lease reap has no dependency on it, so

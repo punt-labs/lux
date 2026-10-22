@@ -62,8 +62,8 @@ class ElementInvocationResolver:
         sid = SceneId(scene_id)
         eid = ElementId(element_id)
         try:
-            element = self._hub_display.resolve(sid, eid)
-            owner = self._hub_display.owner_of(sid, eid)
+            element = self._hub_display.parts.reads.resolve(sid, eid)
+            owner = self._hub_display.parts.reads.owner_of(sid, eid)
         except (KeyError, LookupError) as exc:
             logger.warning(
                 "hub dispatch resolve failed scene_id=%s element_id=%s: %s",
@@ -79,7 +79,7 @@ class ElementInvocationResolver:
                 type(element).__name__,
             )
             return None
-        dismissed = self._hub_display.dismissal.nearest_dismissed(sid, eid)
+        dismissed = self._hub_display.parts.dismissal.nearest_dismissed(sid, eid)
         if dismissed is not None:
             logger.warning(
                 "hub dispatch dropped for %s: element_id=%s dismissed_id=%s",

@@ -158,7 +158,7 @@ class ClientRegistry:
         marked dirty, and a failed ``send_manifest`` force-closes the link.
         """
         client.connect()
-        scene_ids = hub_display.live_scene_ids()
+        scene_ids = hub_display.parts.reader.replicable_scene_ids()
         try:
             client.send_manifest(scene_ids)
         except OSError:

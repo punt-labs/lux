@@ -77,7 +77,7 @@ def test_remove_of_another_connections_frame_is_not_found() -> None:
     assert isinstance(result, OpError)
     assert result.code == "not_found"
     assert recorder.dirtied == []
-    assert store.scene_roots(_scoped(stranger, "s1")) != []
+    assert store.parts.reads.scene_roots(_scoped(stranger, "s1")) != []
 
 
 def test_remove_of_a_blank_local_id_is_invalid_request() -> None:
@@ -108,7 +108,7 @@ def test_remove_removes_the_callers_own_frame_and_marks_dirty() -> None:
     result = FrameRemover(store, recorder).remove("board", _CONNECTION)
 
     assert isinstance(result, Ok)
-    assert store.scene_roots(_scoped(_CONNECTION, "s1")) == []
+    assert store.parts.reads.scene_roots(_scoped(_CONNECTION, "s1")) == []
     assert recorder.dirtied == [_scoped(_CONNECTION, "s1")]
 
 

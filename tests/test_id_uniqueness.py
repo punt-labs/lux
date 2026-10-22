@@ -181,7 +181,7 @@ class TestShowRejectsDuplicateIds:
         assert "duplicate element id 'dup'" in result
         assert "unique" in result
         client.show.assert_not_called()
-        assert hub_display.scene_roots(SceneId(scene)) == []
+        assert hub_display.parts.reads.scene_roots(SceneId(scene)) == []
 
     @patch(_CLIENT_GET)
     def test_show_rejects_two_roots_sharing_an_id(self, mock_get: MagicMock) -> None:
@@ -200,7 +200,7 @@ class TestShowRejectsDuplicateIds:
         assert result.startswith("error: scene not rendered")
         assert "duplicate element id 'x'" in result
         client.show.assert_not_called()
-        assert hub_display.scene_roots(SceneId(scene)) == []
+        assert hub_display.parts.reads.scene_roots(SceneId(scene)) == []
 
 
 def _assert_show_rejects_dup(
@@ -214,7 +214,7 @@ def _assert_show_rejects_dup(
     assert f"duplicate element id '{dup_id}'" in result
     assert "unique" in result
     client.show.assert_not_called()
-    assert hub_display.scene_roots(SceneId(scene)) == []
+    assert hub_display.parts.reads.scene_roots(SceneId(scene)) == []
 
 
 class TestShowRejectsNestedDuplicates:

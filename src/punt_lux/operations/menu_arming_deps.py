@@ -32,7 +32,7 @@ class MenuArmingDeps:
         ensure_writer: EnsureWriter,
     ) -> Self:
         """Wire arming over the Hub store, seating the production menu sink on it."""
-        display.lifecycle.present_as(
+        display.parts.lifecycle.present_as(
             replicator, MenuDepartureSink(registry, replicator)
         )
         return cls(display, ensure_writer)

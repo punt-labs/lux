@@ -11,6 +11,7 @@ import os
 import socket
 from typing import TYPE_CHECKING, Self, cast
 
+from punt_lux.domain.ids import SceneId
 from punt_lux.operations.display_link import DisplayLinkOperations
 from punt_lux.operations.models.display_link import (
     ConnectedLinkState,
@@ -18,8 +19,7 @@ from punt_lux.operations.models.display_link import (
 )
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.hub_display import HubDisplay
-    from punt_lux.domain.ids import SceneId
+    from punt_lux.domain.hub.scene_snapshot import SceneReader
     from punt_lux.operations.display_link import ReplicatorLink
     from punt_lux.operations.display_port import DisplayPort
 
@@ -37,17 +37,17 @@ class _FakePort:
 
 
 class _FakeDisplay:
-    """A store whose ``live_scene_ids`` returns a preset count of ids."""
+    """A scene source whose ``replicable_scene_ids`` returns a preset count of ids."""
 
-    _scene_ids: tuple[str, ...]
+    _scene_ids: tuple[SceneId, ...]
     __slots__ = ("_scene_ids",)
 
     def __new__(cls, *, scene_count: int) -> Self:
         self = super().__new__(cls)
-        self._scene_ids = tuple(f"s{i}" for i in range(scene_count))
+        self._scene_ids = tuple(SceneId(f"s{i}") for i in range(scene_count))
         return self
 
-    def live_scene_ids(self) -> tuple[str, ...]:
+    def replicable_scene_ids(self) -> tuple[SceneId, ...]:
         return self._scene_ids
 
 
@@ -74,7 +74,7 @@ def _link(
 ) -> DisplayLinkOperations:
     return DisplayLinkOperations(
         cast("DisplayPort", _FakePort(connected=connected)),
-        cast("HubDisplay", _FakeDisplay(scene_count=scene_count)),
+        cast("SceneReader", _FakeDisplay(scene_count=scene_count)),
         cast("ReplicatorLink", _FakeReplicator(delay=delay)),
     )
 

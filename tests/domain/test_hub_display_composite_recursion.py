@@ -72,7 +72,7 @@ class _Composite:
 def test_apply_add_element_installs_every_composite_descendant() -> None:
     """Every descendant of a composite root lands in the index."""
     hub_display = HubDisplay()
-    hub_display.register_client(_CONN)
+    hub_display.parts.lifecycle.arrive(_CONN)
     root = _Composite(
         id=str(_ROOT_ID),
         children=(
@@ -89,16 +89,18 @@ def test_apply_add_element_installs_every_composite_descendant() -> None:
         AddElement(scene_id=_SCENE, element=root, parent_id=None),
     )
 
-    assert hub_display.resolve(_SCENE, _ROOT_ID) is root
-    assert hub_display.resolve(_SCENE, _CHILD_A_ID).id == str(_CHILD_A_ID)
-    assert hub_display.resolve(_SCENE, _CHILD_B_ID).id == str(_CHILD_B_ID)
-    assert hub_display.resolve(_SCENE, _GRANDCHILD_ID).id == str(_GRANDCHILD_ID)
+    assert hub_display.parts.reads.resolve(_SCENE, _ROOT_ID) is root
+    assert hub_display.parts.reads.resolve(_SCENE, _CHILD_A_ID).id == str(_CHILD_A_ID)
+    assert hub_display.parts.reads.resolve(_SCENE, _CHILD_B_ID).id == str(_CHILD_B_ID)
+    assert hub_display.parts.reads.resolve(_SCENE, _GRANDCHILD_ID).id == str(
+        _GRANDCHILD_ID
+    )
 
 
 def test_remove_element_walks_subtree_recorded_by_install_recursion() -> None:
     """RemoveElement at the root drops every descendant installed by recursion."""
     hub_display = HubDisplay()
-    hub_display.register_client(_CONN)
+    hub_display.parts.lifecycle.arrive(_CONN)
     inner = _Composite(
         id=str(_CHILD_B_ID),
         children=(_Leaf(id=str(_GRANDCHILD_ID)),),
@@ -109,7 +111,7 @@ def test_remove_element_walks_subtree_recorded_by_install_recursion() -> None:
     hub_display.apply(_CONN, RemoveElement(scene_id=_SCENE, element_id=_ROOT_ID))
 
     with pytest.raises(UnknownElementError):
-        hub_display.resolve(_SCENE, _GRANDCHILD_ID)
+        hub_display.parts.reads.resolve(_SCENE, _GRANDCHILD_ID)
 
 
 # -- scene_roots returns only roots (re-push must not hoist children) --------
@@ -118,7 +120,7 @@ def test_remove_element_walks_subtree_recorded_by_install_recursion() -> None:
 def _install_tab_bar_scene() -> HubDisplay:
     """Install an ABC tab_bar (tabs → text children) as the sole scene root."""
     hub_display = HubDisplay()
-    hub_display.register_client(_CONN)
+    hub_display.parts.lifecycle.arrive(_CONN)
     bar = TabBarElement(
         id="tb",
         tabs=(
@@ -148,7 +150,7 @@ def test_scene_roots_excludes_composite_children() -> None:
     """
     hub_display = _install_tab_bar_scene()
 
-    roots = hub_display.scene_roots(_SCENE)
+    roots = hub_display.parts.reads.scene_roots(_SCENE)
 
     assert [r.id for r in roots] == ["tb"]
 
@@ -162,7 +164,7 @@ def test_tab_change_repush_keeps_single_root_no_duplication() -> None:
     root set.
     """
     hub_display = _install_tab_bar_scene()
-    initial_roots = [r.id for r in hub_display.scene_roots(_SCENE)]
+    initial_roots = [r.id for r in hub_display.parts.reads.scene_roots(_SCENE)]
 
     hub_display.apply(
         _CONN,
@@ -173,18 +175,18 @@ def test_tab_change_repush_keeps_single_root_no_duplication() -> None:
             value="tab-2",
         ),
     )
-    repushed_roots = [r.id for r in hub_display.scene_roots(_SCENE)]
+    repushed_roots = [r.id for r in hub_display.parts.reads.scene_roots(_SCENE)]
 
     assert repushed_roots == initial_roots == ["tb"]
     # The child text elements stay reachable as children, never promoted.
-    assert hub_display.resolve(_SCENE, ElementId("t1")).id == "t1"
-    assert hub_display.resolve(_SCENE, ElementId("t2")).id == "t2"
+    assert hub_display.parts.reads.resolve(_SCENE, ElementId("t1")).id == "t1"
+    assert hub_display.parts.reads.resolve(_SCENE, ElementId("t2")).id == "t2"
 
 
 def test_header_toggle_repush_keeps_single_root_no_duplication() -> None:
     """A collapsing_header toggle re-push leaves exactly the original root."""
     hub_display = HubDisplay()
-    hub_display.register_client(_CONN)
+    hub_display.parts.lifecycle.arrive(_CONN)
     header = CollapsingHeaderElement(
         id="ch",
         label="Section",
@@ -197,7 +199,7 @@ def test_header_toggle_repush_keeps_single_root_no_duplication() -> None:
     hub_display.apply(
         _CONN, AddElement(scene_id=_SCENE, element=header, parent_id=None)
     )
-    initial_roots = [r.id for r in hub_display.scene_roots(_SCENE)]
+    initial_roots = [r.id for r in hub_display.parts.reads.scene_roots(_SCENE)]
 
     hub_display.apply(
         _CONN,
@@ -208,8 +210,8 @@ def test_header_toggle_repush_keeps_single_root_no_duplication() -> None:
             value=True,
         ),
     )
-    repushed_roots = [r.id for r in hub_display.scene_roots(_SCENE)]
+    repushed_roots = [r.id for r in hub_display.parts.reads.scene_roots(_SCENE)]
 
     assert repushed_roots == initial_roots == ["ch"]
-    assert hub_display.resolve(_SCENE, ElementId("t1")).id == "t1"
-    assert hub_display.resolve(_SCENE, ElementId("b1")).id == "b1"
+    assert hub_display.parts.reads.resolve(_SCENE, ElementId("t1")).id == "t1"
+    assert hub_display.parts.reads.resolve(_SCENE, ElementId("b1")).id == "b1"

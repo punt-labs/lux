@@ -51,7 +51,7 @@ class IsolatedHub:
     def connect(self, name: str) -> ConnectionId:
         """Register a connection as a Hub client and return its id."""
         connection_id = ConnectionId(name)
-        self.display.register_client(connection_id)
+        self.display.parts.lifecycle.arrive(connection_id)
         return connection_id
 
     def install(

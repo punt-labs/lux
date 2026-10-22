@@ -61,7 +61,7 @@ class ClientDetailsPort:
             ClientDetailsOperations(
                 QueryOperations(display, ports.display_port, clients),
                 SceneInstaller(display, replicator),
-                display.clients,
+                display.parts.clients,
             )
         )
 

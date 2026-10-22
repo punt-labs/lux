@@ -149,7 +149,7 @@ def test_a_pubsub_only_client_keeps_its_scene_ownership_past_its_ttl() -> None:
     clock = _Clock()
     display = HubDisplay(clock)
     owner = ConnectionId("pubsub-only")
-    display.register_client(owner)
+    display.parts.lifecycle.arrive(owner)
     scene_id = SceneId("pubsub-scene")
     display.apply(
         owner,
@@ -162,10 +162,10 @@ def test_a_pubsub_only_client_keeps_its_scene_ownership_past_its_ttl() -> None:
     for _ in range(3):
         clock.advance(1801.0)  # past the 1800s unidentified-session lease
         ops.unsubscribe("some.topic", scope=Scope(owner))
-        assert display.reap_lapsed_leases() == frozenset()
+        assert display.parts.lifecycle.depart_lapsed() == frozenset()
 
-    assert display.is_client(owner)
-    assert display.owner_of(scene_id, ElementId("t")) == owner
+    assert display.parts.clients.session_of(owner) is not None
+    assert display.parts.reads.owner_of(scene_id, ElementId("t")) == owner
 
 
 def test_subscribe_to_reserved_topic_is_refused(scope: Scope) -> None:

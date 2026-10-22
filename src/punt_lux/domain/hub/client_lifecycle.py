@@ -110,7 +110,7 @@ class ClientLifecycle:
             self._cascade.run(connection_id)
 
     def depart_lapsed(
-        self, exclude: frozenset[ConnectionId]
+        self, exclude: frozenset[ConnectionId] = frozenset()
     ) -> frozenset[ConnectionId]:
         """Depart every lapsed connection except ``exclude``; return who left."""
         with self._lock.write():

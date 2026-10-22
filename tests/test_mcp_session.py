@@ -242,7 +242,7 @@ class TestSharedKeyDisconnectPreservesSubscriptions:
             """The shared connection's one Hub-side outbound writer."""
             return True
 
-        display.register_client(conn)
+        display.parts.lifecycle.arrive(conn)
         hub.register_writer(conn, _writer)
         hub.subscribe(conn, Topic("work.saved"))
 

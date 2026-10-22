@@ -55,7 +55,7 @@ class CanonicalFrameOwner:
         ``Frame.scene_order`` -- so the Display can tell locally whether a
         departing scene was the canonical one.
         """
-        live = frozenset(self._display.live_scene_ids())
+        live = frozenset(self._display.parts.reader.replicable_scene_ids())
         return next(filter(live.__contains__, self._entrants(frame_id)), None)
 
     def _entrants(self, frame_id: str) -> list[SceneId]:
@@ -64,7 +64,7 @@ class CanonicalFrameOwner:
         A scene never explicitly shown is framed by its own id, so with nothing
         recorded it is the sole entrant of the frame that id names.
         """
-        frames = self._display.frames
+        frames = self._display.parts.frames
         recorded = frames.scenes_in_frame(frame_id)
         own = cast("SceneId", frame_id)  # a never-shown scene is framed by its id
         is_own = frames.presentation_for(own).frame_id == frame_id

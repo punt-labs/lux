@@ -35,13 +35,13 @@ def test_disconnect_cascade_fires_a_registered_sink() -> None:
     """The cascade's transport-sink leg fires whatever sink was bound."""
     connection_id = ConnectionId("cascade-sink-1")
     store = HubDisplay(hub=Hub())
-    store.register_client(connection_id)
+    store.parts.lifecycle.arrive(connection_id)
     invocations: list[ConnectionId] = []
 
     def _sink(conn: ConnectionId) -> None:
         invocations.append(conn)
 
-    store.bind_departure_sink(connection_id, _sink)
+    store.parts.lifecycle.bind_sink(connection_id, _sink)
 
     disconnect_connection(connection_id, hub_display=store)
 
@@ -54,7 +54,7 @@ def test_disconnect_cascade_drops_real_inbox() -> None:
     original = inbox.inbox_for(connection_id)
     original.put(ObserverMessage(topic="t", payload={}))
     store = HubDisplay(hub=Hub())
-    store.bind_departure_sink(connection_id, inbox.drop_session)
+    store.parts.lifecycle.bind_sink(connection_id, inbox.drop_session)
 
     disconnect_connection(connection_id, hub_display=store)
 

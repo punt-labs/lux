@@ -32,6 +32,9 @@ from punt_lux.operations.scope import Scope
 if TYPE_CHECKING:
     import pytest
 
+    from punt_lux.domain.hub.hub_clients import HubClientRegistry
+    from punt_lux.domain.hub.menu_listing import PresenceChange
+
 _AGENT: dict[str, object] = {"kind": "mcp-session", "name": "claude", "repo": "/w/lux"}
 _CONN = ConnectionId("c1")
 
@@ -72,8 +75,8 @@ def _rig(
         store,
         spy,
         hub=hub,
-        menu_registry=HubMenuRegistry(store.clients),
-        callback_router=CallbackRouter(store.clients),
+        menu_registry=HubMenuRegistry(store.parts.clients),
+        callback_router=CallbackRouter(store.parts.clients),
         ports=HubPorts(
             element_factory=hub_element_factory,
             ensure_writer=ensure_writer,
@@ -123,7 +126,7 @@ def test_its_departure_marks_menus_and_the_entry_is_gone() -> None:
     ops.identify(_AGENT, scope=Scope(_CONN))
     before = spy.menu_marks
 
-    store.drop_connection(_CONN)
+    store.parts.lifecycle.depart(_CONN)
 
     assert spy.menu_marks > before
     assert _sent_entries(ops) == []
@@ -137,7 +140,7 @@ def test_a_lease_lapse_reap_marks_menus_and_the_entry_is_gone() -> None:
     before = spy.menu_marks
 
     now[0] += 1_000_000.0  # far past any kind's lease; nothing renews
-    reaped = LeaseReapSweep(store).sweep()
+    reaped = LeaseReapSweep(store.parts.lifecycle).sweep()
 
     assert reaped == frozenset({_CONN})
     assert spy.menu_marks > before
@@ -163,7 +166,7 @@ def test_a_departure_cannot_interleave_with_binding_the_sink(
     ops, store, _spy = _rig()
     ops.identify(_AGENT, scope=Scope(_CONN))
     real_bind = DepartureCascade.bind_sink
-    intruder = threading.Thread(target=store.drop_connection, args=(_CONN,))
+    intruder = threading.Thread(target=store.parts.lifecycle.depart, args=(_CONN,))
     overlapped: list[bool] = []
 
     def _bind(
@@ -189,7 +192,7 @@ _FAR_FUTURE = 1_000_000.0  # past any kind's lease; nothing renews
 def _departure_marks(store: HubDisplay, spy: _MarkerSpy, conn: ConnectionId) -> int:
     """How many menu marks one departure of ``conn`` raises: the sinks it fires."""
     before = spy.menu_marks
-    store.drop_connection(conn)
+    store.parts.lifecycle.depart(conn)
     return spy.menu_marks - before
 
 
@@ -197,7 +200,7 @@ def test_identifying_an_anonymous_registered_connection_as_an_agent_marks_menus_
     None
 ):
     ops, store, spy = _rig()
-    store.register_client(_CONN)  # registered, anonymous: the Connect step first
+    store.parts.lifecycle.arrive(_CONN)  # registered, anonymous: the Connect step first
     assert spy.menu_marks == 0
 
     ops.identify(_AGENT, scope=Scope(_CONN))
@@ -226,9 +229,9 @@ def test_identify_binds_exactly_one_menu_sink() -> None:
     assert _departure_marks(store, spy, _CONN) == 1
 
 
-def test_a_departure_between_the_before_snapshot_and_the_record_still_marks_and_binds() -> (  # noqa: E501
-    None
-):
+def test_a_departure_between_the_before_snapshot_and_the_record_still_marks_and_binds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A departure landing just before the record leaves no ghost (D5).
 
     The intruder drops the connection as the record begins, so the identify that
@@ -238,15 +241,20 @@ def test_a_departure_between_the_before_snapshot_and_the_record_still_marks_and_
     """
     ops, store, spy = _rig()
     ops.identify(_AGENT, scope=Scope(_CONN))
-    real_identify = store.identify_client
+    registry_type = type(store.parts.clients)
+    real_record = registry_type.record
     marks_after_intrusion: list[int] = []
 
-    def _intruded(connection_id: ConnectionId, identity: ClientIdentity) -> None:
-        store.drop_connection(connection_id)
+    def _intruded(
+        registry: HubClientRegistry,
+        connection_id: ConnectionId,
+        identity: ClientIdentity | None = None,
+    ) -> PresenceChange:
+        store.parts.lifecycle.depart(connection_id)
         marks_after_intrusion.append(spy.menu_marks)
-        real_identify(connection_id, identity)
+        return real_record(registry, connection_id, identity)
 
-    store.identify_client = _intruded  # type: ignore[method-assign]  # spy
+    monkeypatch.setattr(registry_type, "record", _intruded)
     ops.identify(_AGENT, scope=Scope(_CONN))
 
     assert spy.menu_marks > marks_after_intrusion[0]
@@ -275,7 +283,7 @@ def test_another_clients_push_drops_a_lapsed_unswept_agent() -> None:
 
     now[0] += _FAR_FUTURE
 
-    assert store.is_client(_CONN)  # no sweep has run
+    assert store.parts.clients.session_of(_CONN) is not None  # no sweep has run
     assert _sent_entries(ops) == []
 
 
@@ -329,7 +337,7 @@ def test_the_sweep_removes_every_lapsed_agent_with_a_mark() -> None:
     before = spy.menu_marks
     now[0] += _FAR_FUTURE
 
-    reaped = LeaseReapSweep(store).sweep()
+    reaped = LeaseReapSweep(store.parts.lifecycle).sweep()
 
     assert reaped == frozenset({_CONN, other})
     assert spy.menu_marks > before
@@ -339,7 +347,7 @@ def test_the_sweep_removes_every_lapsed_agent_with_a_mark() -> None:
 def test_a_non_agent_departure_marks_nothing() -> None:
     ops, store, spy = _rig()
     ops.identify(_CLI, scope=Scope(_CONN))
-    store.register_client(ConnectionId("anon"))
+    store.parts.lifecycle.arrive(ConnectionId("anon"))
 
     assert _departure_marks(store, spy, ConnectionId("anon")) == 0
     assert _departure_marks(store, spy, _CONN) == 0

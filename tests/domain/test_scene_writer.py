@@ -48,7 +48,7 @@ class _Clock:
 def _seed_one_text() -> HubDisplay:
     """Install a single ABC text root owned by ``_OWNER``."""
     hub_display = HubDisplay()
-    hub_display.register_client(_OWNER)
+    hub_display.parts.lifecycle.arrive(_OWNER)
     text = TextElement(id=str(_ELEM_ID), content="hello")
     hub_display.apply(_OWNER, AddElement(scene_id=_SCENE, element=text, parent_id=None))
     return hub_display
@@ -80,7 +80,7 @@ def test_remove_present_owned_element_evicts_it() -> None:
 
     assert isinstance(result, WriteAccepted)
     with pytest.raises(UnknownElementError):
-        hub_display.resolve(_SCENE, _ELEM_ID)
+        hub_display.parts.reads.resolve(_SCENE, _ELEM_ID)
 
 
 def test_absent_removal_skip_is_logged(
@@ -114,14 +114,14 @@ def test_remove_absent_by_non_owner_is_accepted() -> None:
     idempotent ``ack`` is correct even when the caller owns nothing in the scene.
     """
     hub_display = _seed_one_text()
-    hub_display.register_client(_OTHER)
+    hub_display.parts.lifecycle.arrive(_OTHER)
     writer = HubSceneWriter(hub_display)
 
     result = writer.apply(SceneScope(_OTHER, _SCENE), [{"id": "ghost", "remove": True}])
 
     assert isinstance(result, WriteAccepted)
     # The stranger's phantom remove left the owned element untouched.
-    assert isinstance(hub_display.resolve(_SCENE, _ELEM_ID), TextElement)
+    assert isinstance(hub_display.parts.reads.resolve(_SCENE, _ELEM_ID), TextElement)
 
 
 def test_mixed_batch_absent_skip_does_not_abort_field_or_present_removal() -> None:
@@ -144,12 +144,12 @@ def test_mixed_batch_absent_skip_does_not_abort_field_or_present_removal() -> No
 
     assert isinstance(result, WriteAccepted)
     # The field patch committed.
-    patched = hub_display.resolve(_SCENE, _ELEM_ID)
+    patched = hub_display.parts.reads.resolve(_SCENE, _ELEM_ID)
     assert isinstance(patched, TextElement)
     assert patched.content == "patched"
     # The present removal evicted t2.
     with pytest.raises(UnknownElementError):
-        hub_display.resolve(_SCENE, _SECOND_ID)
+        hub_display.parts.reads.resolve(_SCENE, _SECOND_ID)
 
 
 def test_remove_absent_element_is_idempotent_no_op() -> None:
@@ -161,10 +161,10 @@ def test_remove_absent_element_is_idempotent_no_op() -> None:
 
     assert isinstance(result, WriteAccepted)
     # The installed element survives, and the absent target stays absent.
-    stored = hub_display.resolve(_SCENE, _ELEM_ID)
+    stored = hub_display.parts.reads.resolve(_SCENE, _ELEM_ID)
     assert isinstance(stored, TextElement)
     with pytest.raises(UnknownElementError):
-        hub_display.resolve(_SCENE, ElementId("ghost"))
+        hub_display.parts.reads.resolve(_SCENE, ElementId("ghost"))
 
 
 def test_a_patch_only_client_keeps_its_lease_and_ownership_past_its_ttl() -> None:
@@ -181,7 +181,7 @@ def test_a_patch_only_client_keeps_its_lease_and_ownership_past_its_ttl() -> Non
     """
     clock = _Clock()
     hub_display = HubDisplay(clock)
-    hub_display.register_client(_OWNER)
+    hub_display.parts.lifecycle.arrive(_OWNER)
     text = TextElement(id=str(_ELEM_ID), content="hello")
     hub_display.apply(_OWNER, AddElement(scene_id=_SCENE, element=text, parent_id=None))
     writer = HubSceneWriter(hub_display)
@@ -193,10 +193,10 @@ def test_a_patch_only_client_keeps_its_lease_and_ownership_past_its_ttl() -> Non
             [{"id": str(_ELEM_ID), "set": {"content": f"patch-{i}"}}],
         )
         assert isinstance(result, WriteAccepted)
-        assert hub_display.reap_lapsed_leases() == frozenset()
+        assert hub_display.parts.lifecycle.depart_lapsed() == frozenset()
 
-    assert hub_display.is_client(_OWNER)
-    patched = hub_display.resolve(_SCENE, _ELEM_ID)
+    assert hub_display.parts.clients.session_of(_OWNER) is not None
+    patched = hub_display.parts.reads.resolve(_SCENE, _ELEM_ID)
     assert isinstance(patched, TextElement)
     assert patched.content == "patch-2"
 
@@ -204,7 +204,7 @@ def test_a_patch_only_client_keeps_its_lease_and_ownership_past_its_ttl() -> Non
 def test_remove_owned_by_another_connection_is_rejected() -> None:
     """A remove of an installed element owned by another connection fails loud."""
     hub_display = _seed_one_text()
-    hub_display.register_client(_OTHER)
+    hub_display.parts.lifecycle.arrive(_OTHER)
     writer = HubSceneWriter(hub_display)
 
     result = writer.apply(
@@ -213,5 +213,5 @@ def test_remove_owned_by_another_connection_is_rejected() -> None:
 
     assert isinstance(result, WriteRejected)
     # The rejection leaves the owned element in place.
-    stored = hub_display.resolve(_SCENE, _ELEM_ID)
+    stored = hub_display.parts.reads.resolve(_SCENE, _ELEM_ID)
     assert isinstance(stored, TextElement)

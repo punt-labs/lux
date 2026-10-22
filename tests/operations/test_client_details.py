@@ -95,7 +95,7 @@ def _wired(store: HubDisplay, hub: Hub) -> tuple[ClientDetailsOperations, _Marks
         clients,
     )
     installer = SceneInstaller(store, marks)
-    return ClientDetailsOperations(queries, installer, store.clients), marks
+    return ClientDetailsOperations(queries, installer, store.parts.clients), marks
 
 
 def _identity(name: str = "lux · lux · #4b97 · lux-beads") -> ClientIdentity:
@@ -104,8 +104,8 @@ def _identity(name: str = "lux · lux · #4b97 · lux-beads") -> ClientIdentity:
 
 def _named(store: HubDisplay, connection: str, identity: ClientIdentity) -> None:
     """Record a client and take the read that names it, as the menu build does."""
-    store.identify_client(ConnectionId(connection), identity)
-    store.clients.named_sessions()
+    store.parts.lifecycle.identify(ConnectionId(connection), identity)
+    store.parts.clients.named_sessions()
 
 
 def _scoped(owner: str, scene_id: str) -> SceneId:
@@ -120,7 +120,7 @@ def _scoped(owner: str, scene_id: str) -> SceneId:
 
 def _rows(store: HubDisplay, owner: str, scene_id: str) -> dict[str, str]:
     """Read the field/value pairs out of the installed details table."""
-    root = store.scene_roots(_scoped(owner, scene_id))[0]
+    root = store.parts.reads.scene_roots(_scoped(owner, scene_id))[0]
     assert isinstance(root, TableElement)
     return {str(row[0]): str(row[1]) for row in root.rows}
 
@@ -229,7 +229,7 @@ class TestHowItIsShown:
         result = details.show_client_details(ConnectionId("c1"))
 
         assert isinstance(result, SceneShown)
-        owners = store.scene_owners(_scoped("c1", result.scene_id))
+        owners = store.parts.reads.scene_owners(_scoped("c1", result.scene_id))
         assert [str(owner.connection_id) for owner in owners] == ["c1"]
 
     def test_the_frame_is_titled_with_the_program_it_runs(self) -> None:
@@ -240,7 +240,9 @@ class TestHowItIsShown:
         result = details.show_client_details(ConnectionId("c1"))
 
         assert isinstance(result, SceneShown)
-        presentation = store.frames.presentation_for(_scoped("c1", result.scene_id))
+        presentation = store.parts.frames.presentation_for(
+            _scoped("c1", result.scene_id)
+        )
         assert presentation.frame_title == "lux-beads"  # the program; Display qualifies
 
     def test_two_clients_details_are_two_scenes(self) -> None:
@@ -303,7 +305,7 @@ class TestAClickThatOutlivedItsClient:
         details.show_client_details(ConnectionId("gone"))
 
         assert marks.marked == []
-        assert list(store.live_scene_ids()) == []
+        assert list(store.parts.reader.replicable_scene_ids()) == []
 
     def test_a_client_that_departed_after_the_paint_is_refused_and_not_recreated(
         self,
@@ -317,16 +319,16 @@ class TestAClickThatOutlivedItsClient:
         """
         store, hub = HubDisplay(), Hub()
         _named(store, "c1", _identity())
-        store.drop_connection(ConnectionId("c1"))
+        store.parts.lifecycle.depart(ConnectionId("c1"))
         details, marks = _wired(store, hub)
 
         result = details.show_client_details(ConnectionId("c1"))
 
         assert isinstance(result, OpError)
         assert result.code == "not_found"
-        assert dict(store.client_sessions()) == {}
+        assert dict(store.parts.reads.client_sessions()) == {}
         assert marks.marked == []
-        assert list(store.live_scene_ids()) == []
+        assert list(store.parts.reader.replicable_scene_ids()) == []
 
     def test_a_lease_that_lapses_by_the_read_is_refused_and_not_recreated(self) -> None:
         """The read that would name the client is the read that carries it off.
@@ -355,6 +357,6 @@ class TestAClickThatOutlivedItsClient:
 
         assert isinstance(result, OpError)
         assert result.code == "not_found"
-        assert dict(store.client_sessions()) == {}
+        assert dict(store.parts.reads.client_sessions()) == {}
         assert marks.marked == []
-        assert list(store.live_scene_ids()) == []
+        assert list(store.parts.reader.replicable_scene_ids()) == []

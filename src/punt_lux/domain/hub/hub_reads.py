@@ -1,14 +1,16 @@
 """HubReads — the authoritative introspection reads over the Hub store.
 
-The read half of ``HubDisplay``: a scene's roots, element count, and distinct root
-owners (each taking the store's read lock, so that discipline stays here), plus the
-live client sessions and the repositories they declared. The client registry keeps
-its own consistency, so the two client reads take no store lock.
+The read half of ``HubDisplay``: an element and its owner, what a connection
+installed, a scene's roots, element count, and distinct root owners (each taking the
+store's read lock, so that discipline stays here), plus the live client sessions.
+The client registry keeps its own consistency, so that read takes no store lock.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
+
+from punt_lux.domain.hub.element_index import UnknownElementError
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -20,7 +22,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.owner import Owner
     from punt_lux.domain.hub.owner_tracker import OwnerTracker
     from punt_lux.domain.hub.store_lock import StoreLock
-    from punt_lux.domain.ids import ConnectionId, SceneId
+    from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 
 __all__ = ["HubReads"]
 
@@ -48,6 +50,29 @@ class HubReads:
         self._clients = clients
         self._lock = lock
         return self
+
+    def resolve(self, scene_id: SceneId, element_id: ElementId) -> WireElement:
+        """Return the indexed Element or raise the matching lookup error."""
+        return self._index.lookup(scene_id, element_id)
+
+    def owner_of(self, scene_id: SceneId, element_id: ElementId) -> ConnectionId | None:
+        """Return the element's owner, or ``None`` if installed but unowned.
+
+        ``None`` is a distinct, valid state (a departure released it), not an
+        error; ``UnknownElementError`` is for an element the index never held.
+        """
+        with self._lock.read():
+            if not self._index.contains(scene_id, element_id):
+                raise UnknownElementError(scene_id=scene_id, element_id=element_id)
+            owner = self._owners.get(scene_id, element_id)
+            return owner.connection_id if owner is not None else None
+
+    def elements_owned_by(
+        self, connection_id: ConnectionId
+    ) -> tuple[tuple[SceneId, ElementId], ...]:
+        """Return every ``(scene, element)`` pair this connection installed."""
+        with self._lock.read():
+            return self._owners.keys_for(connection_id)
 
     def scene_roots(self, scene_id: SceneId) -> list[WireElement]:
         """Return non-removed root elements for a scene, read under the lock."""

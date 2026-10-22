@@ -65,12 +65,12 @@ class QueryOperations:
         )
         if isinstance(sid, OpError):
             return sid
-        if sid not in self._display.all_scene_ids():
+        if sid not in self._display.parts.reader.live_scene_ids():
             return OpError(code="not_found", reason=f"scene {scene_id!r} not found")
         # Domain elements are structurally the wire Element (PY-TS-12 bridge).
         elements = [
             self._inspect(cast("WireElement", root))
-            for root in self._display.scene_roots(sid)
+            for root in self._display.parts.reads.scene_roots(sid)
         ]
         geometry = self._facts.facts(str(sid), facts)
         return SceneInspection(

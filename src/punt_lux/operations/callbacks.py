@@ -102,12 +102,12 @@ class CallbackOperations:
         """
         if isinstance(request, OpError):
             return request
-        self._display.renew_contact(scope.connection_id)
-        expected = self._display.clients.legs.listener_for(scope.connection_id)
+        self._display.parts.lifecycle.renew(scope.connection_id)
+        expected = self._display.parts.clients.legs.listener_for(scope.connection_id)
         if expected is None:
             return _PUSH_REQUIRED
         return self._registered(
-            self._display.clients.legs.register_callback(
+            self._display.parts.clients.legs.register_callback(
                 scope.connection_id, request.callback, expected
             )
         )
@@ -125,7 +125,7 @@ class CallbackOperations:
 
     def callback_menus(self) -> list[Menu]:
         """Build the uniform ``Clients`` menu from one read of the named clients."""
-        return CallbackMenu.from_named(self._display.clients.named_sessions())
+        return CallbackMenu.from_named(self._display.parts.clients.named_sessions())
 
     def pending_callbacks(self, *, scope: Scope) -> tuple[CallbackInvocation, ...]:
         """Return the caller's held callback invocations without clearing them.

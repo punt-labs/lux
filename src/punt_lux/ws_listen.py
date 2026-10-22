@@ -12,7 +12,7 @@ the WebSocket lives on the server's event loop. So the pub-sub writer and the
 the loop with ``call_soon_threadsafe`` and enqueue a frame the write task drains.
 Taking the listener slot and binding the writer run under the Hub store's write
 lock, nesting the client registry's own lock inside it exactly as
-``HubDisplay.register_client`` does — so a same-identity reconnect can never
+``ClientLifecycle.arrive`` does — so a same-identity reconnect can never
 land inside a departure cascade's registry-removal-to-cascade-tail span and
 have its fresh listener and writer wiped out by the stale cascade's tail.
 
@@ -155,7 +155,7 @@ class HubListenSession:
         for an agent that newly appears, so nothing here is bound per attach.
         """
         with self._display.write_lock():
-            self._display.lifecycle.attach(self._conn, self._identity, self)
+            self._display.parts.lifecycle.attach(self._conn, self._identity, self)
             self._hub.register_writer(self._conn, self.deliver_event)
 
     async def _pump(self) -> None:
@@ -196,7 +196,7 @@ class HubListenSession:
                 raw = await self._ws.receive_text()
             except WebSocketDisconnect:
                 return
-            self._display.identify_client(self._conn, self._identity)
+            self._display.parts.lifecycle.identify(self._conn, self._identity)
             try:
                 frame = ClientFrames.validate_json(raw)
             except ValidationError:
@@ -278,7 +278,7 @@ class HubListenSession:
         can interleave among them. Adding an ``await`` here reopens that window and
         invalidates the model this design was checked against.
         """
-        detachment = self._display.clients.legs.detach(self._conn, self)
+        detachment = self._display.parts.clients.legs.detach(self._conn, self)
         if detachment in {"released_with_callbacks", "released_with_session"}:
             self._menus.mark_menus()
         self._hub.release_writer(self._conn, self.deliver_event)

@@ -52,8 +52,9 @@ def _reader(store: HubDisplay, hub: Hub) -> FrameOwnerFacts:
 def _identified_scene(store: HubDisplay, connection: str, name: str = "lux") -> SceneId:
     """Register a named client and install one root it owns, returning its scene id."""
     conn = ConnectionId(connection)
-    store.identify_client(conn, ClientIdentity(kind="cli", name=name))
-    store.clients.named_sessions()  # the read that names it, as the menu build does
+    store.parts.lifecycle.identify(conn, ClientIdentity(kind="cli", name=name))
+    # the read that names it, as the menu build does
+    store.parts.clients.named_sessions()
     scene_id = SceneId(f"{connection}-scene")
     store.replace_scene(conn, scene_id, [TextElement(id="t1", content="hi")])
     return scene_id
@@ -101,11 +102,11 @@ class TestASceneWithALiveOwner:
         # appearance order) is the one Details points at too.
         store, hub = HubDisplay(), Hub()
         c1, c2 = ConnectionId("c1"), ConnectionId("c2")
-        store.register_client(c1)
-        store.register_client(c2)
-        store.identify_client(c1, ClientIdentity(kind="app", name="a"))
-        store.identify_client(c2, ClientIdentity(kind="app", name="b"))
-        store.clients.named_sessions()
+        store.parts.lifecycle.arrive(c1)
+        store.parts.lifecycle.arrive(c2)
+        store.parts.lifecycle.identify(c1, ClientIdentity(kind="app", name="a"))
+        store.parts.lifecycle.identify(c2, ClientIdentity(kind="app", name="b"))
+        store.parts.clients.named_sessions()
         scene_id = SceneId("shared")
         store.apply(
             c1,
@@ -145,7 +146,7 @@ class TestASceneWithNoOwner:
         # what preserves the popup's last-known facts, not this reader.
         store, hub = HubDisplay(), Hub()
         scene_id = _identified_scene(store, "c1")
-        store.drop_connection(ConnectionId("c1"))
+        store.parts.lifecycle.depart(ConnectionId("c1"))
         reader = _reader(store, hub)
 
         assert reader.facts_for(scene_id) is None

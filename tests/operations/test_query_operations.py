@@ -136,7 +136,7 @@ def _seed_scene(store: HubDisplay, *, scene: str, connection: str) -> None:
     the composed key a real show() would produce, so a caller-scoped
     inspect_scene(scene, scope=Scope(connection)) finds it (DES-086).
     """
-    store.register_client(ConnectionId(connection))
+    store.parts.lifecycle.arrive(ConnectionId(connection))
     group = agent_element_factory().element_from_dict(
         {
             "kind": "group",
@@ -300,7 +300,7 @@ def test_inspect_scene_a_quarantined_scene_stays_inspectable() -> None:
     # replication decision, not a deletion.
     store = HubDisplay()
     _seed_scene(store, scene="s1", connection="c1")
-    store.quarantine(
+    store.parts.quarantines.quarantine(
         _scoped("c1", "s1"),
         QuarantineRecord(death_count=2, last_death_at=42.0, render_error="boom"),
     )
@@ -451,7 +451,7 @@ def test_list_scenes_surfaces_the_owner_declared_identity() -> None:
 
     store = HubDisplay()
     identity = ClientIdentity(kind="cli", name="lux", repo="/w/lux")
-    store.identify_client(ConnectionId("c1"), identity)
+    store.parts.lifecycle.identify(ConnectionId("c1"), identity)
     _seed_scene(store, scene="s1", connection="c1")
     ops = QueryOperations(
         store, _ForbiddenPort(), ClientListing(store, Hub(), _zero_inbox_depth)
@@ -477,7 +477,7 @@ def test_list_scenes_reports_live_status_by_default() -> None:
 def test_list_scenes_reports_a_quarantined_scene() -> None:
     store = HubDisplay()
     _seed_scene(store, scene="s1", connection="c1")
-    store.quarantine(
+    store.parts.quarantines.quarantine(
         _scoped("c1", "s1"), QuarantineRecord(death_count=2, last_death_at=99.0)
     )
     ops = QueryOperations(

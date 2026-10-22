@@ -83,7 +83,7 @@ class SceneClearer:
         ownership rejection. Named by ``local_id`` — the caller's own raw
         name — never the composed store key it never chose (DES-086).
         """
-        if not self._display.scene_roots(composed):
+        if not self._display.parts.reads.scene_roots(composed):
             return OpError(code="not_found", reason=f"scene {local_id!r} not found")
         return OpError(
             code="rejected", reason=f"scene {local_id!r} holds nothing you own"

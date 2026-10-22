@@ -61,7 +61,7 @@ def test_identify_records_the_identity_and_echoes_it() -> None:
     assert isinstance(result, Identified)
     assert result.identity.name == "claude"
     assert result.identity.repo == "/w/lux"
-    session = store.client_sessions()[ConnectionId("c1")]
+    session = store.parts.reads.client_sessions()[ConnectionId("c1")]
     assert session.identity == result.identity
 
 
@@ -83,7 +83,7 @@ def test_bad_kind_is_invalid_request_and_records_nothing() -> None:
     assert result.code == "invalid_request"
     assert "kind" in result.reason
     # A rejected declaration binds nothing — the connection stays unregistered.
-    assert store.client_sessions() == {}
+    assert store.parts.reads.client_sessions() == {}
 
 
 def test_missing_name_is_invalid_request() -> None:
@@ -109,7 +109,7 @@ def test_list_clients_shows_the_record_only_for_identified_sessions() -> None:
     IdentityOperations(store).identify(
         {"kind": "cli", "name": "lux", "repo": "/w/lux"}, scope=_scope("identified")
     )
-    store.register_client(ConnectionId("anonymous"))
+    store.parts.lifecycle.arrive(ConnectionId("anonymous"))
     reader = QueryOperations(
         store, _ForbiddenPort(), ClientListing(store, Hub(), _zero_inbox_depth)
     )

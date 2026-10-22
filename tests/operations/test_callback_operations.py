@@ -101,7 +101,7 @@ class _Wired:
     def __new__(cls, *, clock: _Clock | None = None) -> Self:
         self = super().__new__(cls)
         display = HubDisplay(clock) if clock is not None else HubDisplay()
-        self._clients = display.clients
+        self._clients = display.parts.clients
         self._router = CallbackRouter(self._clients)
         self._marker = _MarkerSpy()
         self._ops = CallbackOperations(display, self._router, self._marker)

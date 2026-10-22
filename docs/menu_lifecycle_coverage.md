@@ -29,7 +29,7 @@ departure, and the store paths — the recurrence signal:
   false — the caller is *told delivered*.
 - **D2** (departure cascade wiring) — `inbox.drop_session` is bound into the
   shared `DepartureCascade` (via `inbox.ensure_writer` →
-  `HubDisplay.bind_departure_sink`) and fires on every departure trigger;
+  `HubDisplay.lifecycle.bind_sink`) and fires on every departure trigger;
   the menu prune (`OPERATIONS.drop_session` → `MenuOperations.drop_session`
   → `HubMenuRegistry.drop_session`) is wired **only** to
   `session_cleanup.py:48`, the graceful/SDK-idle teardown leg. On the
@@ -163,7 +163,7 @@ corresponding invariant hold, and the model proves it does.
 | Defect | File | Fix the model proves |
 |---|---|---|
 | **D1** | `src/punt_lux/domain/hub/inbox.py` (`offer`) | Hold `_inboxes_lock` across **both** the `get` and the `put` — move `inbox.put(message)` inside the `with _inboxes_lock:` block. Then a `drop_session` cannot interleave: a present inbox receives the put atomically (`return True`), an absent one returns `False` (→ `provider_gone`). Correct the docstring: the orphan case does *not* occur under the fix; the pre-fix code reported delivered into it. (Equivalent-but-inferior: re-check membership after the put and `return False` on an orphan — the model proves the one-hold form; prefer it.) |
-| **D2** | departure cascade wiring — `src/punt_lux/domain/hub/inbox.py`/`menu_registry.py`/`operations/menu_arming.py` + `hub_display.py` cascade | Bind `HubMenuRegistry.drop_session` (or `MenuOperations.drop_session`) as a `DepartureSink` via `HubDisplay.bind_departure_sink`, the same way `inbox.drop_session` is bound in `inbox.ensure_writer`. Arm it when the owner is admitted (the `MenuArming.admit` → `ensure_writer` moment is the natural site). It then fires from `_depart` **and** `_depart_lapsed` (every trigger), under `StoreLock`, not only from `session_cleanup.py`'s graceful leg. |
+| **D2** | departure cascade wiring — `src/punt_lux/domain/hub/inbox.py`/`menu_registry.py`/`operations/menu_arming.py` + `hub_display.py` cascade | Bind `HubMenuRegistry.drop_session` (or `MenuOperations.drop_session`) as a `DepartureSink` via `HubDisplay.lifecycle.bind_sink`, the same way `inbox.drop_session` is bound in `inbox.ensure_writer`. Arm it when the owner is admitted (the `MenuArming.admit` → `ensure_writer` moment is the natural site). It then fires from `_depart` **and** `_depart_lapsed` (every trigger), under `StoreLock`, not only from `session_cleanup.py`'s graceful leg. |
 | **D3** | `src/punt_lux/operations/menus.py` (`set_menu`) | Hold `StoreLock` across the admit-liveness check and the `set_menus` store — run the `set_menu` body inside `hub_display.write_lock()` (reentrant, so `admit`→`ensure_writer`'s own acquisition nests), with `set_menus` called within that hold. No departure can interleave between the liveness gate and the store. Introduces the `StoreLock → HubMenuRegistry._lock` nesting named above (deadlock-free). |
 
 ## Operation partitions and their tests

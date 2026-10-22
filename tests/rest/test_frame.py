@@ -43,7 +43,7 @@ def test_remove_frame_removes_the_callers_own_frame() -> None:
     assert resp.status_code == 200
     assert resp.json() == {"kind": "ok"}
     scoped = SceneId(ConnectionScopedId.compose(DEFAULT_CONNECTION, "s1"))
-    assert store.scene_roots(scoped) == []
+    assert store.parts.reads.scene_roots(scoped) == []
 
 
 def test_remove_frame_of_another_connections_frame_is_not_found() -> None:
@@ -74,7 +74,7 @@ def test_remove_frame_of_another_connections_frame_is_not_found() -> None:
         {"kind": "cli", "name": "owner", "repo": "/w/owner"}
     )
     scoped = SceneId(ConnectionScopedId.compose(owner_connection, "s1"))
-    assert store.scene_roots(scoped) != []
+    assert store.parts.reads.scene_roots(scoped) != []
 
 
 def test_remove_frame_of_a_malformed_frame_id_is_a_422_not_a_500() -> None:

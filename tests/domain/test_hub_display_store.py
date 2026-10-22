@@ -73,7 +73,7 @@ def _store(*connections: str) -> tuple[HubDisplay, tuple[ConnectionId, ...]]:
     display = HubDisplay()
     ids = tuple(ConnectionId(name) for name in connections)
     for connection_id in ids:
-        display.register_client(connection_id)
+        display.parts.lifecycle.arrive(connection_id)
     return display, ids
 
 
@@ -90,14 +90,14 @@ def _install(
 
 def _button(display: HubDisplay, element_id: str) -> ButtonElement:
     """Narrow the stored element to the ButtonElement these tests installed."""
-    elem = display.resolve(_SCENE, ElementId(element_id))
+    elem = display.parts.reads.resolve(_SCENE, ElementId(element_id))
     assert isinstance(elem, ButtonElement)
     return elem
 
 
 def _progress(display: HubDisplay, element_id: str) -> ProgressElement:
     """Narrow the stored element to the ProgressElement these tests installed."""
-    elem = display.resolve(_SCENE, ElementId(element_id))
+    elem = display.parts.reads.resolve(_SCENE, ElementId(element_id))
     assert isinstance(elem, ProgressElement)
     return elem
 
@@ -108,25 +108,25 @@ def _progress(display: HubDisplay, element_id: str) -> ProgressElement:
 def test_registered_connections_are_distinct_clients() -> None:
     display, (alice, bob) = _store("alice", "bob")
     assert alice != bob
-    assert display.is_client(alice)
-    assert display.is_client(bob)
-    assert set(display.client_sessions()) == {alice, bob}
+    assert display.parts.clients.session_of(alice) is not None
+    assert display.parts.clients.session_of(bob) is not None
+    assert set(display.parts.reads.client_sessions()) == {alice, bob}
 
 
 def test_an_unregistered_connection_is_not_a_client() -> None:
     display, _ = _store()
-    assert not display.is_client(ConnectionId("ghost"))
+    assert display.parts.clients.session_of(ConnectionId("ghost")) is None
 
 
 def test_a_scene_comes_into_existence_with_its_first_root() -> None:
     """The Hub has no ``add_scene``: installing a root is what creates a scene."""
     display, (alice,) = _store("alice")
-    assert display.live_scene_ids() == ()
+    assert display.parts.reader.replicable_scene_ids() == ()
 
     _install(display, alice, ButtonElement(id="b1", label="hi"))
     _install(display, alice, ButtonElement(id="b2", label="bye"))
 
-    assert display.live_scene_ids() == (_SCENE,)
+    assert display.parts.reader.replicable_scene_ids() == (_SCENE,)
 
 
 # -- AddElement -------------------------------------------------------------
@@ -138,9 +138,9 @@ def test_add_element_installs_it_and_records_its_owner() -> None:
 
     _install(display, alice, btn)
 
-    assert display.resolve(_SCENE, ElementId("b1")) is btn
-    assert display.owner_of(_SCENE, ElementId("b1")) == alice
-    assert display.element_count(_SCENE) == 1
+    assert display.parts.reads.resolve(_SCENE, ElementId("b1")) is btn
+    assert display.parts.reads.owner_of(_SCENE, ElementId("b1")) == alice
+    assert display.parts.reads.element_count(_SCENE) == 1
 
 
 def test_re_adding_an_id_replaces_the_element_under_it() -> None:
@@ -155,7 +155,7 @@ def test_re_adding_an_id_replaces_the_element_under_it() -> None:
 
     _install(display, alice, ButtonElement(id="b1", label="hello"))
 
-    assert [e.id for e in display.scene_roots(_SCENE)] == ["b1"]
+    assert [e.id for e in display.parts.reads.scene_roots(_SCENE)] == ["b1"]
     assert _button(display, "b1").label == "hello"
 
 
@@ -165,7 +165,7 @@ def test_add_element_reaches_a_scene_that_holds_nothing_yet() -> None:
 
     _install(display, alice, ButtonElement(id="b1", label="hi"), scene_id=ghost_scene)
 
-    assert display.resolve(ghost_scene, ElementId("b1")).id == "b1"
+    assert display.parts.reads.resolve(ghost_scene, ElementId("b1")).id == "b1"
 
 
 # -- RemoveElement ----------------------------------------------------------
@@ -178,8 +178,8 @@ def test_remove_element_drops_it_from_the_index() -> None:
     display.apply(alice, RemoveElement(scene_id=_SCENE, element_id=ElementId("b1")))
 
     with pytest.raises(UnknownElementError):
-        display.resolve(_SCENE, ElementId("b1"))
-    assert display.scene_roots(_SCENE) == []
+        display.parts.reads.resolve(_SCENE, ElementId("b1"))
+    assert display.parts.reads.scene_roots(_SCENE) == []
 
 
 def test_removing_an_unknown_element_is_a_no_op() -> None:
@@ -189,7 +189,7 @@ def test_removing_an_unknown_element_is_a_no_op() -> None:
 
     display.apply(alice, RemoveElement(scene_id=_SCENE, element_id=ElementId("ghost")))
 
-    assert display.element_count(_SCENE) == 1
+    assert display.parts.reads.element_count(_SCENE) == 1
 
 
 # -- SetProperty ------------------------------------------------------------
@@ -344,7 +344,7 @@ def test_cross_connection_remove_is_refused() -> None:
     with pytest.raises(HubOwnershipError):
         display.apply(bob, RemoveElement(scene_id=_SCENE, element_id=ElementId("b1")))
 
-    assert display.resolve(_SCENE, ElementId("b1")).id == "b1"
+    assert display.parts.reads.resolve(_SCENE, ElementId("b1")).id == "b1"
 
 
 def test_an_unregistered_connection_still_owns_what_it_installs() -> None:
@@ -359,8 +359,8 @@ def test_an_unregistered_connection_still_owns_what_it_installs() -> None:
 
     _install(display, ghost, ButtonElement(id="b1", label="hi"))
 
-    assert display.owner_of(_SCENE, ElementId("b1")) == ghost
-    assert not display.is_client(ghost)
+    assert display.parts.reads.owner_of(_SCENE, ElementId("b1")) == ghost
+    assert display.parts.clients.session_of(ghost) is None
     with pytest.raises(HubOwnershipError):
         display.apply(alice, RemoveElement(scene_id=_SCENE, element_id=ElementId("b1")))
 
@@ -374,17 +374,17 @@ def test_dropping_a_connection_releases_ownership_but_keeps_its_elements() -> No
     _install(display, alice, ButtonElement(id="b1", label="hi"))
     _install(display, alice, ButtonElement(id="b2", label="bye"))
 
-    display.drop_connection(alice)
+    display.parts.lifecycle.depart(alice)
 
-    assert not display.is_client(alice)
-    assert display.element_count(_SCENE) == 2  # content stands
-    assert display.elements_owned_by(alice) == ()  # ownership released
+    assert display.parts.clients.session_of(alice) is None
+    assert display.parts.reads.element_count(_SCENE) == 2  # content stands
+    assert display.parts.reads.elements_owned_by(alice) == ()  # ownership released
 
 
 def test_dropping_an_unknown_connection_is_a_no_op() -> None:
     display, _ = _store()
-    display.drop_connection(ConnectionId("ghost"))
-    assert display.client_sessions() == {}
+    display.parts.lifecycle.depart(ConnectionId("ghost"))
+    assert display.parts.reads.client_sessions() == {}
 
 
 # -- Observer cascade -------------------------------------------------------
@@ -404,7 +404,7 @@ def test_a_root_dismissing_itself_leaves_the_index() -> None:
     modal.mark_removed()
 
     with pytest.raises(UnknownElementError):
-        display.resolve(_SCENE, ElementId("m1"))
+        display.parts.reads.resolve(_SCENE, ElementId("m1"))
 
 
 def test_a_refused_write_notifies_nothing() -> None:
@@ -433,7 +433,7 @@ def test_a_snapshot_is_decoupled_from_later_mutation() -> None:
     """The replicator reads copies: a later patch cannot tear an in-flight send."""
     display, (alice,) = _store("alice")
     _install(display, alice, ButtonElement(id="b1", label="hi"))
-    before = display.reader.snapshot(_SCENE)
+    before = display.parts.reader.snapshot(_SCENE)
 
     display.apply(
         alice,
@@ -498,7 +498,7 @@ def test_scene_roots_forgets_a_removed_root() -> None:
 
     display.apply(alice, RemoveElement(scene_id=_SCENE, element_id=ElementId("b1")))
 
-    assert [e.id for e in display.scene_roots(_SCENE)] == ["b2"]
+    assert [e.id for e in display.parts.reads.scene_roots(_SCENE)] == ["b2"]
 
 
 # -- Interaction dispatch ---------------------------------------------------

@@ -106,7 +106,7 @@ class SceneOperations:
         lease: a client that only ever shows is still a client, and stays one for
         as long as it keeps showing.
         """
-        self._display.register_client(scope.connection_id)
+        self._display.parts.lifecycle.arrive(scope.connection_id)
         return self._installer.install(submission, owner=scope.connection_id)
 
     def update(
@@ -144,7 +144,7 @@ class SceneOperations:
             return sid
         record: QuarantineRecord | None
         with self._display.write_lock():
-            record = self._display.quarantine_record(sid)
+            record = self._display.parts.quarantines.quarantine_record(sid)
             if record is None:
                 writer = HubSceneWriter(self._display)
                 target = SceneScope(scope.connection_id, sid)

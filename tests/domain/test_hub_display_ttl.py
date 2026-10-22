@@ -80,13 +80,13 @@ def test_a_ttl_frame_expires_its_scene_after_the_deadline() -> None:
     display = HubDisplay(clock)
     scene = SceneId("s")
     _show(display, scene, ttl_seconds=5.0)
-    assert display.scene_roots(scene)  # installed
+    assert display.parts.reads.scene_roots(scene)  # installed
 
     clock.advance(5.0)
-    expired = display.frames.expire_due()
+    expired = display.parts.frames.expire_due()
 
     assert expired == frozenset({scene})
-    assert not display.scene_roots(scene)  # torn down
+    assert not display.parts.reads.scene_roots(scene)  # torn down
 
 
 def test_expire_due_is_empty_before_the_deadline() -> None:
@@ -96,8 +96,8 @@ def test_expire_due_is_empty_before_the_deadline() -> None:
     _show(display, scene, ttl_seconds=5.0)
 
     clock.advance(4.9)
-    assert display.frames.expire_due() == frozenset()
-    assert display.scene_roots(scene)  # still standing
+    assert display.parts.frames.expire_due() == frozenset()
+    assert display.parts.reads.scene_roots(scene)  # still standing
 
 
 def test_a_frame_without_ttl_never_expires() -> None:
@@ -107,9 +107,9 @@ def test_a_frame_without_ttl_never_expires() -> None:
     _show(display, scene, ttl_seconds=None)
 
     clock.advance(10_000.0)
-    assert display.frames.expire_due() == frozenset()
-    assert display.scene_roots(scene)
-    assert display.frames.seconds_until_next() is None
+    assert display.parts.frames.expire_due() == frozenset()
+    assert display.parts.reads.scene_roots(scene)
+    assert display.parts.frames.seconds_until_next() is None
 
 
 def test_a_reshow_with_a_new_ttl_refreshes_the_deadline() -> None:
@@ -122,10 +122,10 @@ def test_a_reshow_with_a_new_ttl_refreshes_the_deadline() -> None:
     _show(display, scene, ttl_seconds=5.0)  # re-show resets the countdown
 
     clock.advance(4.0)  # 8s since first show, 4s since re-show
-    assert display.frames.expire_due() == frozenset()
+    assert display.parts.frames.expire_due() == frozenset()
 
     clock.advance(1.0)  # 5s since re-show
-    assert display.frames.expire_due() == frozenset({scene})
+    assert display.parts.frames.expire_due() == frozenset({scene})
 
 
 def test_a_reshow_without_a_ttl_makes_the_frame_permanent() -> None:
@@ -137,8 +137,8 @@ def test_a_reshow_without_a_ttl_makes_the_frame_permanent() -> None:
     _show(display, scene, ttl_seconds=None)  # re-show clears the deadline
 
     clock.advance(100.0)
-    assert display.frames.expire_due() == frozenset()
-    assert display.scene_roots(scene)
+    assert display.parts.frames.expire_due() == frozenset()
+    assert display.parts.reads.scene_roots(scene)
 
 
 def test_forget_disarms_the_ttl_once_the_frame_empties() -> None:
@@ -147,8 +147,8 @@ def test_forget_disarms_the_ttl_once_the_frame_empties() -> None:
     scene = SceneId("s")
     _show(display, scene, ttl_seconds=5.0)
 
-    display.frames.forget(scene)  # the scene is blanked and reclaimed
-    assert display.frames.seconds_until_next() is None  # no armed deadline left
+    display.parts.frames.forget(scene)  # the scene is blanked and reclaimed
+    assert display.parts.frames.seconds_until_next() is None  # no armed deadline left
 
 
 def test_forget_keeps_the_ttl_while_another_scene_holds_the_frame() -> None:
@@ -159,11 +159,13 @@ def test_forget_keeps_the_ttl_while_another_scene_holds_the_frame() -> None:
     _show(display, first, ttl_seconds=5.0)
     _show(display, second, ttl_seconds=5.0)  # same frame
 
-    display.frames.forget(first)
-    assert display.frames.seconds_until_next() == 5.0  # b still holds the frame
+    display.parts.frames.forget(first)
+    assert display.parts.frames.seconds_until_next() == 5.0  # b still holds the frame
 
-    display.frames.forget(second)
-    assert display.frames.seconds_until_next() is None  # frame now empty, disarmed
+    display.parts.frames.forget(second)
+    assert (
+        display.parts.frames.seconds_until_next() is None
+    )  # frame now empty, disarmed
 
 
 def test_expire_due_removes_every_scene_the_frame_holds() -> None:
@@ -175,11 +177,11 @@ def test_expire_due_removes_every_scene_the_frame_holds() -> None:
     _show(display, second, ttl_seconds=5.0)  # same frame, re-arms the one deadline
 
     clock.advance(5.0)
-    expired = display.frames.expire_due()
+    expired = display.parts.frames.expire_due()
 
     assert expired == frozenset({first, second})
-    assert not display.scene_roots(first)
-    assert not display.scene_roots(second)
+    assert not display.parts.reads.scene_roots(first)
+    assert not display.parts.reads.scene_roots(second)
 
 
 def test_seconds_until_next_expiry_reports_the_soonest_deadline() -> None:
@@ -187,7 +189,7 @@ def test_seconds_until_next_expiry_reports_the_soonest_deadline() -> None:
     display = HubDisplay(clock)
     _show(display, SceneId("a"), frame_id="fa", ttl_seconds=3.0)
     _show(display, SceneId("b"), frame_id="fb", ttl_seconds=1.0)
-    assert display.frames.seconds_until_next() == 1.0
+    assert display.parts.frames.seconds_until_next() == 1.0
 
 
 def test_reclaiming_a_blanked_ttl_frame_disarms_its_deadline() -> None:
@@ -204,12 +206,16 @@ def test_reclaiming_a_blanked_ttl_frame_disarms_its_deadline() -> None:
     _show(display, scene, ttl_seconds=5.0)
 
     display.replace_scene(_OWNER, scene, ())  # update-to-empty: blanked, frame kept
-    assert display.frames.seconds_until_next() == 5.0  # still armed pre-reclaim
+    assert display.parts.frames.seconds_until_next() == 5.0  # still armed pre-reclaim
 
-    display.reader.reclaim_if_rootless(scene)  # replicator reclaims the delivered blank
+    display.parts.reader.reclaim_if_rootless(
+        scene
+    )  # replicator reclaims the delivered blank
 
-    assert display.frames.seconds_until_next() is None  # deadline disarmed
-    assert display.frames.presentation_for(scene).frame_id == str(scene)  # reclaimed
+    assert display.parts.frames.seconds_until_next() is None  # deadline disarmed
+    assert display.parts.frames.presentation_for(scene).frame_id == str(
+        scene
+    )  # reclaimed
 
 
 def test_a_reused_frame_id_does_not_inherit_a_reclaimed_frames_deadline() -> None:
@@ -224,13 +230,13 @@ def test_a_reused_frame_id_does_not_inherit_a_reclaimed_frames_deadline() -> Non
     first = SceneId("first")
     _show(display, first, ttl_seconds=5.0)  # _FRAME armed at 5s
     display.replace_scene(_OWNER, first, ())
-    display.reader.reclaim_if_rootless(first)  # disarms _FRAME
+    display.parts.reader.reclaim_if_rootless(first)  # disarms _FRAME
 
     second = SceneId("second")
     display.replace_scene(_OWNER, second, [_WireLeaf(id="r2")])
     # Record into the reused frame with no TTL of its own.
-    display.frames.record(second, ScenePresentation(frame_id=_FRAME))
+    display.parts.frames.record(second, ScenePresentation(frame_id=_FRAME))
 
     clock.advance(100.0)  # well past the departed scene's would-be deadline
-    assert display.frames.expire_due() == frozenset()  # no stale deadline fired
-    assert display.scene_roots(second)  # the reused-frame scene stands
+    assert display.parts.frames.expire_due() == frozenset()  # no stale deadline fired
+    assert display.parts.reads.scene_roots(second)  # the reused-frame scene stands

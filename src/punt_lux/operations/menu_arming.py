@@ -45,9 +45,9 @@ class MenuArming:
         nothing.
         """
         deps = self._deps
-        deps.display.renew_contact(connection_id)
-        if deps.display.clients.identity_of(connection_id) is None:
+        deps.display.parts.lifecycle.renew(connection_id)
+        if deps.display.parts.clients.identity_of(connection_id) is None:
             return False
         deps.ensure_writer(connection_id)
-        deps.display.lifecycle.arm(connection_id)
+        deps.display.parts.lifecycle.arm(connection_id)
         return True
