@@ -23,9 +23,9 @@ _SCENE = SceneId("s1")
 def _seeded_with_quarantine(record: QuarantineRecord) -> HubDisplay:
     """Return a store holding one owned root under _SCENE, quarantined."""
     store = HubDisplay()
-    store.parts.lifecycle.arrive(_CONN)
+    store.register_client(_CONN)
     store.replace_scene(_CONN, _SCENE, [TextElement(id="t1", content="x")])
-    store.parts.quarantines.quarantine(_SCENE, record)
+    store.quarantine(_SCENE, record)
     return store
 
 
@@ -36,23 +36,23 @@ def _record() -> QuarantineRecord:
 def test_replace_scene_fires_the_quarantine_cleared_observers() -> None:
     store = _seeded_with_quarantine(_record())
     observed: list[SceneId] = []
-    store.parts.quarantines.add_quarantine_cleared_observer(observed.append)
+    store.add_quarantine_cleared_observer(observed.append)
 
     store.replace_scene(_CONN, _SCENE, [TextElement(id="t2", content="fixed")])
 
     assert observed == [_SCENE]
-    assert not store.parts.quarantines.is_quarantined(_SCENE)
+    assert not store.is_quarantined(_SCENE)
 
 
 def test_remove_element_that_empties_scene_fires_observers() -> None:
     store = _seeded_with_quarantine(_record())
     observed: list[SceneId] = []
-    store.parts.quarantines.add_quarantine_cleared_observer(observed.append)
+    store.add_quarantine_cleared_observer(observed.append)
 
     store.apply(_CONN, RemoveElement(scene_id=_SCENE, element_id=ElementId("t1")))
 
     assert observed == [_SCENE]
-    assert not store.parts.quarantines.is_quarantined(_SCENE)
+    assert not store.is_quarantined(_SCENE)
 
 
 def test_ttl_expiry_fires_quarantine_cleared_observers() -> None:
@@ -63,7 +63,7 @@ def test_ttl_expiry_fires_quarantine_cleared_observers() -> None:
     # no longer reaches the Hub at all (DES-088).
     now = [1000.0]
     store = HubDisplay(clock=lambda: now[0])
-    store.parts.lifecycle.arrive(_CONN)
+    store.register_client(_CONN)
     store.show_scene(
         _CONN,
         _SCENE,
@@ -71,16 +71,16 @@ def test_ttl_expiry_fires_quarantine_cleared_observers() -> None:
         ScenePresentation(frame_id="ttl-frame"),
         ttl_seconds=1.0,
     )
-    store.parts.quarantines.quarantine(_SCENE, _record())
+    store.quarantine(_SCENE, _record())
     observed: list[SceneId] = []
-    store.parts.quarantines.add_quarantine_cleared_observer(observed.append)
+    store.add_quarantine_cleared_observer(observed.append)
 
     now[0] = 1002.0
-    expired = store.parts.frames.expire_due()
+    expired = store.frames.expire_due()
 
     assert expired == frozenset({_SCENE})
     assert observed == [_SCENE]
-    assert not store.parts.quarantines.is_quarantined(_SCENE)
+    assert not store.is_quarantined(_SCENE)
 
 
 def test_observers_are_not_fired_on_a_clean_scene() -> None:
@@ -88,10 +88,10 @@ def test_observers_are_not_fired_on_a_clean_scene() -> None:
     # observer event — the callback names a real quarantine lift, not every
     # teardown.
     store = HubDisplay()
-    store.parts.lifecycle.arrive(_CONN)
+    store.register_client(_CONN)
     store.replace_scene(_CONN, _SCENE, [TextElement(id="t1", content="x")])
     observed: list[SceneId] = []
-    store.parts.quarantines.add_quarantine_cleared_observer(observed.append)
+    store.add_quarantine_cleared_observer(observed.append)
 
     store.apply(_CONN, RemoveElement(scene_id=_SCENE, element_id=ElementId("t1")))
 
@@ -103,10 +103,8 @@ def test_live_scene_ids_excludes_quarantined_scenes() -> None:
     # replication-facing read, so a quarantined scene must never appear here
     # for the DES-068 reconnect hook to re-mark.
     store = _seeded_with_quarantine(_record())
-    assert store.parts.reader.live_scene_ids() == (
-        _SCENE,
-    )  # still installed for inspection
-    assert store.parts.reader.replicable_scene_ids() == ()  # but never replicated
+    assert store.all_scene_ids() == (_SCENE,)  # still installed for inspection
+    assert store.live_scene_ids() == ()  # but never replicated
 
 
 def test_a_reshow_after_quarantine_needs_full_threshold_before_re_quarantine() -> None:
@@ -116,7 +114,7 @@ def test_a_reshow_after_quarantine_needs_full_threshold_before_re_quarantine() -
     # is a fresh full accumulation — never a re-quarantine off one death.
     store = _seeded_with_quarantine(_record())
     calls: list[SceneId] = []
-    store.parts.quarantines.add_quarantine_cleared_observer(calls.append)
+    store.add_quarantine_cleared_observer(calls.append)
     store.replace_scene(_CONN, _SCENE, [TextElement(id="t2", content="fixed")])
-    assert not store.parts.quarantines.is_quarantined(_SCENE)
+    assert not store.is_quarantined(_SCENE)
     assert calls == [_SCENE]

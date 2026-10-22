@@ -80,7 +80,7 @@ class _Ops:
     def __new__(cls, callback_menus: Sequence[Menu] = ()) -> Self:
         self = super().__new__(cls)
         display = HubDisplay()
-        self.clients = display.parts.clients
+        self.clients = display.clients
         self.marker = _MenuMarkerSpy()
         self.registry = HubMenuRegistry(self.clients)
         arming = MenuArming(MenuArmingDeps(display, lambda _cid: None))
@@ -356,7 +356,7 @@ def test_set_menu_holds_the_write_lock_across_admit_and_store(
     """
     events: list[str] = []
     display = HubDisplay()
-    clients = display.parts.clients
+    clients = display.clients
     registry = HubMenuRegistry(clients)
     arming = MenuArming(MenuArmingDeps(display, lambda _cid: None))
 
@@ -408,7 +408,7 @@ def test_set_menu_does_not_store_when_admit_refuses_under_the_lock(
     """
     events: list[str] = []
     display = HubDisplay()
-    clients = display.parts.clients
+    clients = display.clients
     registry = HubMenuRegistry(clients)
     arming = MenuArming(MenuArmingDeps(display, lambda _cid: None))
 

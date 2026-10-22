@@ -151,7 +151,7 @@ def test_a_single_connections_re_show_is_idempotent() -> None:
     # The second payload actually reached the store — a no-op replace_scene
     # on a matching key would still leave the count at 1 but the content stale.
     sid = SceneId(music_player_scenes[0].scene_id)
-    widget = store.parts.reads.resolve(sid, ElementId("widget"))
+    widget = store.resolve(sid, ElementId("widget"))
     assert isinstance(widget, TextElement)
     assert widget.content == "second-payload"
 
@@ -207,12 +207,8 @@ def test_update_from_one_connection_never_touches_the_others_scene() -> None:
     result = scenes.update(_MUSIC_PLAYER, patch, scope=_SCOPE_A)
     assert isinstance(result, SceneShown)
 
-    a_widget = store.parts.reads.resolve(
-        _owned_scene_id(queries, _A), ElementId("widget")
-    )
-    b_widget = store.parts.reads.resolve(
-        _owned_scene_id(queries, _B), ElementId("widget")
-    )
+    a_widget = store.resolve(_owned_scene_id(queries, _A), ElementId("widget"))
+    b_widget = store.resolve(_owned_scene_id(queries, _B), ElementId("widget"))
     assert isinstance(a_widget, TextElement)
     assert isinstance(b_widget, TextElement)
     assert a_widget.content == "patched-by-a"

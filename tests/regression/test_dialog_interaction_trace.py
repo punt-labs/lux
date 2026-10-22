@@ -290,7 +290,7 @@ class _ConfirmTrace:
     def assert_dialog_dropped_from_hub_index(self) -> None:
         """Assert the dialog is no longer resolvable in the Hub store."""
         try:
-            self.hub.display.parts.reads.resolve(_SCENE, _DIALOG_ID)
+            self.hub.display.resolve(_SCENE, _DIALOG_ID)
         except UnknownElementError:
             return
         msg = "expected dialog to be dropped from HubDisplay index after dismiss"
@@ -330,7 +330,7 @@ def test_confirm_click_traces_end_to_end_through_every_tier(
     assert pre_visible is True
     assert len(pre_children) == 1
     assert pre_children[0] is dialog
-    assert trace.hub.display.parts.reads.resolve(_SCENE, _DIALOG_ID) is dialog
+    assert trace.hub.display.resolve(_SCENE, _DIALOG_ID) is dialog
 
     # --- The act: a wire RemoteEventHandlerInvocation for the Confirm click ---
     trace.confirm()

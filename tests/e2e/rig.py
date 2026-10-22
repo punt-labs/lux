@@ -257,6 +257,6 @@ class SyncReplicator:
         """Snapshot the scene from the Hub store and re-push it to the replica."""
         from punt_lux.domain.hub import hub_display
 
-        roots = hub_display.parts.reads.scene_roots(scene_id)
-        presentation = hub_display.parts.frames.presentation_for(scene_id)
+        roots = hub_display.scene_roots(scene_id)
+        presentation = hub_display.frames.presentation_for(scene_id)
         presentation.push(self._rig.repush_client, scene_id, roots)

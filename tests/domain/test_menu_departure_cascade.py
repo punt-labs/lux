@@ -91,18 +91,16 @@ def test_a_lease_lapse_departure_withdraws_the_sessions_menu() -> None:
     """
     clock = _Clock()
     hub_display = HubDisplay(clock)
-    registry = HubMenuRegistry(hub_display.parts.clients)
+    registry = HubMenuRegistry(hub_display.clients)
     arming = _armed(hub_display, registry, _MarkerSpy())
 
     conn = ConnectionId("agent")
-    hub_display.parts.lifecycle.identify(conn, _cli("agent"))
+    hub_display.identify_client(conn, _cli("agent"))
     registry.set_menus(conn, [Menu(label="Tools", items=[])])
     assert arming.admit(conn) is True  # binds the registry prune as a departure sink
 
     clock.advance(91.0)  # past the 90s cli lease; nothing renews
-    reaped = (
-        hub_display.parts.lifecycle.depart_lapsed()
-    )  # the timer's own sweep, nothing else
+    reaped = hub_display.reap_lapsed_leases()  # the timer's own sweep, nothing else
 
     assert reaped == frozenset({conn})
     # MO: no menuOwner outlives its registration — the prune sink ran on departure.
@@ -121,17 +119,17 @@ def test_a_lease_lapse_departure_marks_the_menu_bar_for_re_push() -> None:
     """
     clock = _Clock()
     hub_display = HubDisplay(clock)
-    registry = HubMenuRegistry(hub_display.parts.clients)
+    registry = HubMenuRegistry(hub_display.clients)
     marker = _MarkerSpy()
     arming = _armed(hub_display, registry, marker)
 
     conn = ConnectionId("agent")
-    hub_display.parts.lifecycle.identify(conn, _cli("agent"))
+    hub_display.identify_client(conn, _cli("agent"))
     registry.set_menus(conn, [Menu(label="Tools", items=[])])
     assert arming.admit(conn) is True
 
     clock.advance(91.0)  # past the 90s cli lease; nothing renews
-    assert hub_display.parts.lifecycle.depart_lapsed() == frozenset({conn})
+    assert hub_display.reap_lapsed_leases() == frozenset({conn})
 
     # The re-push was flagged, so the replicator drops the ghost bar next send.
     assert marker.menu_marks == 1
@@ -142,19 +140,19 @@ def test_a_renewing_menu_owner_keeps_its_bar_across_reap_opportunities() -> None
     """D2 companion: an owner that keeps renewing is never swept, so its bar stands."""
     clock = _Clock()
     hub_display = HubDisplay(clock)
-    registry = HubMenuRegistry(hub_display.parts.clients)
+    registry = HubMenuRegistry(hub_display.clients)
     marker = _MarkerSpy()
     arming = _armed(hub_display, registry, marker)
 
     conn = ConnectionId("steady")
-    hub_display.parts.lifecycle.identify(conn, _cli("steady"))
+    hub_display.identify_client(conn, _cli("steady"))
     registry.set_menus(conn, [Menu(label="Tools", items=[])])
     assert arming.admit(conn) is True
 
     for _ in range(3):
         clock.advance(60.0)  # inside the 90s cli lease if renewed each time
-        hub_display.parts.lifecycle.arrive(conn)  # a bare contact renews the lease
-        assert hub_display.parts.lifecycle.depart_lapsed() == frozenset()
+        hub_display.register_client(conn)  # a bare contact renews the lease
+        assert hub_display.reap_lapsed_leases() == frozenset()
 
     assert [menu.label for menu in registry.menu_bar()] == ["Tools"]
     assert marker.menu_marks == 0  # a renewed owner is never swept, so never re-marked

@@ -5,8 +5,9 @@ reading each scene's owners and quarantine status, is one cohesive concern,
 distinct from listing the Hub's connected clients
 (:class:`~punt_lux.operations.client_listing.ClientListing`) or walking one
 scene's element tree (``QueryOperations._inspect``) -- three different
-reasons to change that ``queries.py`` used to bundle into one class. It reads the
-authoritative store's collaborators (``HubParts``), never the display replica.
+reasons to change that ``queries.py`` used to bundle into one class. This is
+part of the reach-around removal: it reads ``HubDisplay`` directly, the
+authoritative store, never the display replica.
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ from punt_lux.operations.models.query_scenes import (
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.hub_display import HubDisplay
-    from punt_lux.domain.hub.hub_parts import HubParts
+    from punt_lux.domain.hub.quarantine_record import QuarantineRecord
     from punt_lux.domain.hub.scene_presentation import ScenePresentation
     from punt_lux.domain.ids import SceneId
     from punt_lux.operations.frame_visibility_proxy import FrameVisibilityProxy
@@ -41,13 +42,13 @@ logger = logging.getLogger(__name__)
 class SceneListing:
     """Every scene and frame in the authoritative store, grouped and summarized."""
 
-    _parts: HubParts
+    _display: HubDisplay
     _seen: FrameVisibilityProxy
-    __slots__ = ("_parts", "_seen")
+    __slots__ = ("_display", "_seen")
 
     def __new__(cls, display: HubDisplay, seen: FrameVisibilityProxy) -> Self:
         self = super().__new__(cls)
-        self._parts = display.parts
+        self._display = display
         self._seen = seen
         return self
 
@@ -59,7 +60,7 @@ class SceneListing:
         about the scenes the store still holds. Each summary carries a
         ``status`` discriminator (``"live"`` or ``"quarantined"``) and, when
         quarantined, the :class:`QuarantineInfo` record explaining why.
-        Replication reads through :meth:`SceneReader.replicable_scene_ids` instead,
+        Replication reads through :meth:`HubDisplay.live_scene_ids` instead,
         which excludes quarantined scenes at the source.
 
         ``facts`` may ask for each frame's visibility, which is the one thing
@@ -71,8 +72,8 @@ class SceneListing:
         """
         scenes: list[SceneSummary] = []
         frames: dict[str, FrameAccumulator] = {}
-        for sid in self._parts.reader.live_scene_ids():
-            presentation = self._parts.frames.presentation_for(sid)
+        for sid in self._display.all_scene_ids():
+            presentation = self._display.frames.presentation_for(sid)
             scenes.append(self._scene_summary(sid, presentation))
             self._gather(frames, presentation).add(str(sid))
         return SceneList(scenes=scenes, frames=self._frame_summaries(frames, facts))
@@ -83,7 +84,7 @@ class SceneListing:
         Shared with ``QueryOperations.inspect_scene``, which reports the same
         record for the one scene it reads.
         """
-        record = self._parts.quarantines.quarantine_record(scene_id)
+        record: QuarantineRecord | None = self._display.quarantine_record(scene_id)
         if record is None:
             return None
         return QuarantineInfo.of(record)
@@ -96,7 +97,7 @@ class SceneListing:
         return SceneSummary(
             scene_id=str(sid),
             local_id=self.local_id_of(sid),
-            element_count=self._parts.reads.element_count(sid),
+            element_count=self._display.element_count(sid),
             frame_id=presentation.frame_id,
             owners=self._owners_of(sid),
             status="quarantined" if quarantine is not None else "live",
@@ -130,7 +131,7 @@ class SceneListing:
 
     def _owners_of(self, scene_id: SceneId) -> list[SceneOwner]:
         """Return the scene's distinct owners as introspection read shapes."""
-        return [SceneOwner.of(o) for o in self._parts.reads.scene_owners(scene_id)]
+        return [SceneOwner.of(owner) for owner in self._display.scene_owners(scene_id)]
 
     @staticmethod
     def local_id_of(scene_id: SceneId | str) -> str:

@@ -243,7 +243,7 @@ class SimulatedAgent:
                     value=patch.value,
                 ),
             )
-        roots = hub_display.parts.reads.scene_roots(SceneId(scene_id))
+        roots = hub_display.scene_roots(SceneId(scene_id))
         self._rig.push_scene(scene_id, roots)
 
     def inspect(self, scene_id: str) -> dict[str, object]:

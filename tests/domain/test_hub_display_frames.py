@@ -67,12 +67,12 @@ class _FakeClock:
 def _seed_framed_scene() -> HubDisplay:
     """Install one owned root in ``_SCENE`` and record its custom frame."""
     hub_display = HubDisplay()
-    hub_display.parts.lifecycle.arrive(_OWNER)
+    hub_display.register_client(_OWNER)
     hub_display.apply(
         _OWNER,
         AddElement(scene_id=_SCENE, element=_WireLeaf(id="root"), parent_id=None),
     )
-    hub_display.parts.frames.record(_SCENE, ScenePresentation(frame_id=_FRAME))
+    hub_display.frames.record(_SCENE, ScenePresentation(frame_id=_FRAME))
     return hub_display
 
 
@@ -84,12 +84,12 @@ def test_frame_persists_after_an_empty_replace() -> None:
     only after the blank is delivered.
     """
     hub_display = _seed_framed_scene()
-    assert hub_display.parts.frames.presentation_for(_SCENE).frame_id == _FRAME
+    assert hub_display.frames.presentation_for(_SCENE).frame_id == _FRAME
 
     hub_display.replace_scene(_OWNER, _SCENE, ())
 
     # The scene is empty but its frame is kept, so a blank push lands in it.
-    assert hub_display.parts.frames.presentation_for(_SCENE).frame_id == _FRAME
+    assert hub_display.frames.presentation_for(_SCENE).frame_id == _FRAME
 
 
 def test_clear_keeps_each_emptied_scenes_frame_for_the_replicator_to_blank() -> None:
@@ -103,14 +103,14 @@ def test_clear_keeps_each_emptied_scenes_frame_for_the_replicator_to_blank() -> 
     to the replicator's post-blank step.
     """
     hub_display = _seed_framed_scene()
-    assert hub_display.parts.frames.presentation_for(_SCENE).frame_id == _FRAME
+    assert hub_display.frames.presentation_for(_SCENE).frame_id == _FRAME
 
     touched = HubSceneWriter(hub_display).clear(_OWNER)
 
     assert touched == frozenset({_SCENE})
-    assert not hub_display.parts.reads.scene_roots(_SCENE)  # emptied
+    assert not hub_display.scene_roots(_SCENE)  # emptied
     # kept — the empty-push blanks this real frame, not the self-framed default
-    assert hub_display.parts.frames.presentation_for(_SCENE).frame_id == _FRAME
+    assert hub_display.frames.presentation_for(_SCENE).frame_id == _FRAME
 
 
 def test_clear_keeps_the_frame_of_a_scene_a_survivor_still_holds() -> None:
@@ -123,7 +123,7 @@ def test_clear_keeps_the_frame_of_a_scene_a_survivor_still_holds() -> None:
     actually emptied.
     """
     hub_display = _seed_framed_scene()  # _OWNER holds root "root", frame _FRAME
-    hub_display.parts.lifecycle.arrive(_OTHER)
+    hub_display.register_client(_OTHER)
     hub_display.apply(
         _OTHER,
         AddElement(scene_id=_SCENE, element=_WireLeaf(id="other"), parent_id=None),
@@ -132,18 +132,18 @@ def test_clear_keeps_the_frame_of_a_scene_a_survivor_still_holds() -> None:
     HubSceneWriter(hub_display).clear(_OWNER)
 
     # _OWNER's root is gone, _OTHER's survives, so the scene keeps its frame.
-    assert {e.id for e in hub_display.parts.reads.scene_roots(_SCENE)} == {"other"}
-    assert hub_display.parts.frames.presentation_for(_SCENE).frame_id == _FRAME
+    assert {e.id for e in hub_display.scene_roots(_SCENE)} == {"other"}
+    assert hub_display.frames.presentation_for(_SCENE).frame_id == _FRAME
 
 
 def test_frame_persists_after_connection_drop() -> None:
     """Dropping the owning connection keeps its scenes' frames — the UI survives."""
     hub_display = _seed_framed_scene()
-    assert hub_display.parts.frames.presentation_for(_SCENE).frame_id == _FRAME
+    assert hub_display.frames.presentation_for(_SCENE).frame_id == _FRAME
 
-    hub_display.parts.lifecycle.depart(_OWNER)
+    hub_display.drop_connection(_OWNER)
 
-    assert hub_display.parts.frames.presentation_for(_SCENE).frame_id == _FRAME
+    assert hub_display.frames.presentation_for(_SCENE).frame_id == _FRAME
 
 
 def test_drop_connection_leaves_the_scenes_standing() -> None:
@@ -153,9 +153,9 @@ def test_drop_connection_leaves_the_scenes_standing() -> None:
     close, clear, or TTL can remove them); only the Hub-client registration goes.
     """
     hub_display = _seed_framed_scene()  # _OWNER holds a root in _SCENE
-    hub_display.parts.lifecycle.depart(_OWNER)
-    assert hub_display.parts.reads.scene_roots(_SCENE)
-    assert hub_display.parts.clients.session_of(_OWNER) is None
+    hub_display.drop_connection(_OWNER)
+    assert hub_display.scene_roots(_SCENE)
+    assert not hub_display.is_client(_OWNER)
 
 
 def test_the_ttl_sweep_tears_down_a_scene_whose_owner_departed() -> None:
@@ -171,20 +171,20 @@ def test_the_ttl_sweep_tears_down_a_scene_whose_owner_departed() -> None:
     """
     clock = _FakeClock()
     hub_display = HubDisplay(clock)
-    hub_display.parts.lifecycle.arrive(_OWNER)
+    hub_display.register_client(_OWNER)
     hub_display.apply(
         _OWNER,
         AddElement(scene_id=_SCENE, element=_WireLeaf(id="root"), parent_id=None),
     )
-    hub_display.parts.frames.present(
+    hub_display.frames.present(
         _SCENE, ScenePresentation(frame_id=_FRAME), ttl_seconds=5.0
     )
-    hub_display.parts.lifecycle.depart(_OWNER)  # session gone, scene stands
+    hub_display.drop_connection(_OWNER)  # session gone, scene stands
 
     clock.advance(10.0)
 
-    assert hub_display.parts.frames.expire_due() == frozenset({_SCENE})
-    assert hub_display.parts.reads.scene_roots(_SCENE) == []
+    assert hub_display.frames.expire_due() == frozenset({_SCENE})
+    assert hub_display.scene_roots(_SCENE) == []
 
 
 def test_non_empty_replace_keeps_the_frame() -> None:
@@ -199,7 +199,7 @@ def test_non_empty_replace_keeps_the_frame() -> None:
 
     hub_display.replace_scene(_OWNER, _SCENE, [_WireLeaf(id="fresh")])
 
-    assert hub_display.parts.frames.presentation_for(_SCENE).frame_id == _FRAME
+    assert hub_display.frames.presentation_for(_SCENE).frame_id == _FRAME
 
 
 def test_dropping_one_owner_keeps_both_roots_of_a_shared_scene() -> None:
@@ -210,19 +210,16 @@ def test_dropping_one_owner_keeps_both_roots_of_a_shared_scene() -> None:
     only by an explicit act (frame close, clear, TTL), never by the disconnect.
     """
     hub_display = _seed_framed_scene()  # _OWNER holds root "root"
-    hub_display.parts.lifecycle.arrive(_OTHER)
+    hub_display.register_client(_OTHER)
     hub_display.apply(
         _OTHER,
         AddElement(scene_id=_SCENE, element=_WireLeaf(id="other"), parent_id=None),
     )
 
-    hub_display.parts.lifecycle.depart(_OWNER)
+    hub_display.drop_connection(_OWNER)
 
-    assert {e.id for e in hub_display.parts.reads.scene_roots(_SCENE)} == {
-        "root",
-        "other",
-    }
-    assert hub_display.parts.frames.presentation_for(_SCENE).frame_id == _FRAME
+    assert {e.id for e in hub_display.scene_roots(_SCENE)} == {"root", "other"}
+    assert hub_display.frames.presentation_for(_SCENE).frame_id == _FRAME
 
 
 def test_dropping_a_child_only_owner_keeps_frame() -> None:
@@ -233,7 +230,7 @@ def test_dropping_a_child_only_owner_keeps_frame() -> None:
     would wrongly evict here; keyed on remaining roots, it does not.
     """
     hub_display = _seed_framed_scene()  # _OWNER holds root "root"
-    hub_display.parts.lifecycle.arrive(_OTHER)
+    hub_display.register_client(_OTHER)
     hub_display.apply(
         _OTHER,
         AddElement(
@@ -243,11 +240,11 @@ def test_dropping_a_child_only_owner_keeps_frame() -> None:
         ),
     )
 
-    hub_display.parts.lifecycle.depart(_OTHER)
+    hub_display.drop_connection(_OTHER)
 
     # The root remains, so the frame is kept.
-    assert {e.id for e in hub_display.parts.reads.scene_roots(_SCENE)} == {"root"}
-    assert hub_display.parts.frames.presentation_for(_SCENE).frame_id == _FRAME
+    assert {e.id for e in hub_display.scene_roots(_SCENE)} == {"root"}
+    assert hub_display.frames.presentation_for(_SCENE).frame_id == _FRAME
 
 
 def test_removing_last_root_via_update_keeps_the_frame() -> None:
@@ -257,19 +254,19 @@ def test_removing_last_root_via_update_keeps_the_frame() -> None:
     resend blanks it into the frame it was shown in rather than a default one.
     """
     hub_display = HubDisplay()
-    hub_display.parts.lifecycle.arrive(_OWNER)
+    hub_display.register_client(_OWNER)
     text = TextElement(id="t1", content="hello")
     hub_display.apply(_OWNER, AddElement(scene_id=_SCENE, element=text, parent_id=None))
-    hub_display.parts.frames.record(_SCENE, ScenePresentation(frame_id=_FRAME))
-    assert hub_display.parts.frames.presentation_for(_SCENE).frame_id == _FRAME
+    hub_display.frames.record(_SCENE, ScenePresentation(frame_id=_FRAME))
+    assert hub_display.frames.presentation_for(_SCENE).frame_id == _FRAME
 
     result = HubSceneWriter(hub_display).apply(
         SceneScope(_OWNER, _SCENE), [{"id": "t1", "remove": True}]
     )
 
     assert isinstance(result, WriteAccepted)
-    assert not hub_display.parts.reads.scene_roots(_SCENE)
-    assert hub_display.parts.frames.presentation_for(_SCENE).frame_id == _FRAME
+    assert not hub_display.scene_roots(_SCENE)
+    assert hub_display.frames.presentation_for(_SCENE).frame_id == _FRAME
 
 
 def test_show_scene_commits_roots_and_frame_under_one_lock() -> None:
@@ -296,9 +293,9 @@ def test_show_scene_commits_roots_and_frame_under_one_lock() -> None:
         worker.start()
         assert not committed.wait(0.3)  # provably blocked on the store lock
         # Neither half has changed: old root and old frame both still present.
-        assert {e.id for e in hub_display.parts.reads.scene_roots(_SCENE)} == {"root"}
-        assert hub_display.parts.frames.presentation_for(_SCENE).frame_id == _FRAME
+        assert {e.id for e in hub_display.scene_roots(_SCENE)} == {"root"}
+        assert hub_display.frames.presentation_for(_SCENE).frame_id == _FRAME
     assert committed.wait(2.0)  # lock released; the reshow commits both together
     worker.join(timeout=2.0)
-    assert {e.id for e in hub_display.parts.reads.scene_roots(_SCENE)} == {"fresh"}
-    assert hub_display.parts.frames.presentation_for(_SCENE).frame_id == "new-frame"
+    assert {e.id for e in hub_display.scene_roots(_SCENE)} == {"fresh"}
+    assert hub_display.frames.presentation_for(_SCENE).frame_id == "new-frame"

@@ -51,7 +51,7 @@ class LoopHarness:
         """Run the disconnect cascade for each connection, then close the rig."""
         for connection_id in self._created:
             hub.on_disconnect(connection_id)
-            hub_display.parts.lifecycle.depart(connection_id)
+            hub_display.drop_connection(connection_id)
             drop_session(connection_id)
         self._rig.close()
 

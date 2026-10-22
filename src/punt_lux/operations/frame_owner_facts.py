@@ -65,7 +65,7 @@ class FrameOwnerFacts:
         live session for (a departure raced this read) reports ``None`` too;
         the display keeps its last cached snapshot rather than blanking it.
         """
-        owners = self._display.parts.reads.scene_owners(scene_id)
+        owners = self._display.scene_owners(scene_id)
         if not owners:
             return None
         named = self._named(owners[0].connection_id)
@@ -76,7 +76,7 @@ class FrameOwnerFacts:
 
     def _named(self, connection_id: ConnectionId) -> NamedSession | None:
         """Read one connection's live session and menu name together, or ``None``."""
-        live = self._display.parts.clients.named_sessions()
+        live = self._display.clients.named_sessions()
         session = live.sessions.get(connection_id)
         name = live.name_of(connection_id, _UNNAMED)
         return None if session is None else NamedSession(connection_id, name, session)

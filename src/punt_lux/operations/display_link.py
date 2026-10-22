@@ -20,7 +20,7 @@ from punt_lux.operations.models.display_link import (
 from punt_lux.operations.ports import DirtyMarker
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.scene_snapshot import SceneReader
+    from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.operations.display_port import DisplayPort
 
 __all__ = ["DisplayLinkOperations", "ReplicatorLink"]
@@ -50,19 +50,19 @@ class DisplayLinkOperations:
     """Classify the Hub's display link from local state only — no round-trip."""
 
     _display_port: DisplayPort
-    _scenes: SceneReader
+    _display: HubDisplay
     _replicator: ReplicatorLink
-    __slots__ = ("_display_port", "_replicator", "_scenes")
+    __slots__ = ("_display", "_display_port", "_replicator")
 
     def __new__(
         cls,
         display_port: DisplayPort,
-        scenes: SceneReader,
+        display: HubDisplay,
         replicator: ReplicatorLink,
     ) -> Self:
         self = super().__new__(cls)
         self._display_port = display_port
-        self._scenes = scenes
+        self._display = display
         self._replicator = replicator
         return self
 
@@ -72,7 +72,7 @@ class DisplayLinkOperations:
         ``hub_host``/``hub_pid`` name which Hub, on which machine, holds this
         state (design §9) -- an agent seeing ``HELD`` needs to know where to
         look, not just that content is waiting somewhere."""
-        count = len(self._scenes.replicable_scene_ids())
+        count = len(self._display.live_scene_ids())
         host, pid = socket.gethostname(), os.getpid()
         linkage = DisplayLinkage.classify(
             connected=self._display_port.is_connected, live_scene_count=count

@@ -116,12 +116,10 @@ def _isolated_ops(*, listening: bool = True) -> Generator[tuple[Operations, _Rig
     bare MCP session — no applet behind it — actually has.
     """
     display = HubDisplay()
-    router = CallbackRouter(display.parts.clients)
+    router = CallbackRouter(display.clients)
     listener = _Listener()
     if listening:
-        display.parts.clients.legs.attach(
-            ConnectionId(_SESSION), _tool_identity(), listener
-        )
+        display.clients.legs.attach(ConnectionId(_SESSION), _tool_identity(), listener)
     ports = HubPorts(
         element_factory=hub_element_factory,
         ensure_writer=ensure_writer,
@@ -137,7 +135,7 @@ def _isolated_ops(*, listening: bool = True) -> Generator[tuple[Operations, _Rig
         display,
         _StubReplicator(),
         hub=hub,
-        menu_registry=HubMenuRegistry(display.parts.clients),
+        menu_registry=HubMenuRegistry(display.clients),
         callback_router=router,
         ports=ports,
     )

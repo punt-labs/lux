@@ -85,7 +85,7 @@ def test_render_installs_scene_and_marks_dirty() -> None:
     assert isinstance(result, SceneShown)
     assert result.scene_id == "s1"  # the caller's own raw name, unchanged
     assert recorder.dirtied == [_scoped("s1")]
-    assert store.parts.reads.resolve(_scoped("s1"), ElementId("t1")).id == "t1"
+    assert store.resolve(_scoped("s1"), ElementId("t1")).id == "t1"
 
 
 def test_render_without_a_frame_synthesizes_one_at_the_scene_id() -> None:
@@ -98,7 +98,7 @@ def test_render_without_a_frame_synthesizes_one_at_the_scene_id() -> None:
     )
     result = _ops(store, recorder).render(request, scope=_LOCAL)
     assert isinstance(result, SceneShown)
-    presentation = store.parts.frames.presentation_for(_scoped("s1"))
+    presentation = store.frames.presentation_for(_scoped("s1"))
     assert presentation.frame_id == str(_scoped("s1"))
     assert presentation.frame_title == "s1"  # never composed — a human-facing label
 
@@ -114,16 +114,14 @@ def test_synthesized_frame_is_a_lifecycle_citizen_the_sweep_retires_it() -> None
         {"scene_id": "s1", "elements": [{"kind": "text", "id": "t1", "content": "Hi"}]}
     )
     _ops(store, recorder).render(request, scope=_LOCAL)
-    store.parts.frames.present(
-        _scoped("s1"),
-        store.parts.frames.presentation_for(_scoped("s1")),
-        ttl_seconds=5.0,
+    store.frames.present(
+        _scoped("s1"), store.frames.presentation_for(_scoped("s1")), ttl_seconds=5.0
     )
 
     now[0] += 10.0
 
-    assert store.parts.frames.expire_due() == frozenset({_scoped("s1")})
-    assert store.parts.reads.scene_roots(_scoped("s1")) == []
+    assert store.frames.expire_due() == frozenset({_scoped("s1")})
+    assert store.scene_roots(_scoped("s1")) == []
 
 
 def test_a_frameless_request_arms_no_ttl_the_synthesized_frame_is_permanent() -> None:
@@ -209,7 +207,7 @@ def test_render_with_a_blank_scene_id_is_rejected_before_composition() -> None:
     assert isinstance(result, OpError)
     assert result.code == "invalid_request"
     assert recorder.dirtied == []
-    assert list(store.parts.reader.live_scene_ids()) == []
+    assert list(store.all_scene_ids()) == []
 
 
 def test_render_with_a_separator_in_the_scene_id_is_rejected() -> None:
@@ -224,7 +222,7 @@ def test_render_with_a_separator_in_the_scene_id_is_rejected() -> None:
     assert isinstance(result, OpError)
     assert result.code == "invalid_request"
     assert recorder.dirtied == []
-    assert list(store.parts.reader.live_scene_ids()) == []
+    assert list(store.all_scene_ids()) == []
 
 
 def test_render_rejects_a_legacy_missing_id_without_raising() -> None:
@@ -247,7 +245,7 @@ def test_update_sets_a_field_and_marks_dirty() -> None:
     request = UpdateRequest.parse([{"id": "hdr", "set": {"open": True}}])
     result = _ops(store, recorder).update("s1", request, scope=_LOCAL)
     assert isinstance(result, SceneShown)
-    header = store.parts.reads.resolve(_scoped("s1"), ElementId("hdr"))
+    header = store.resolve(_scoped("s1"), ElementId("hdr"))
     assert isinstance(header, CollapsingHeaderElement)
     assert header.open is True
     assert recorder.dirtied == [_scoped("s1")]
@@ -263,7 +261,7 @@ def test_update_rejects_an_unknown_element_and_leaves_the_store_untouched() -> N
     # The reason is bare — the writer names the element; the adapter adds the prefix.
     assert "ghost" in result.reason
     assert recorder.dirtied == []
-    assert store.parts.reads.resolve(_scoped("s1"), ElementId("hdr")).id == "hdr"
+    assert store.resolve(_scoped("s1"), ElementId("hdr")).id == "hdr"
     # The writer's own UnknownElementError.__str__ names the composed store key
     # via repr() — the caller must see its own raw local name instead, never
     # the composed key with its embedded unit separator (locks the .replace()
@@ -305,7 +303,7 @@ def test_update_with_a_blank_scene_id_is_rejected_before_composition() -> None:
     assert isinstance(result, OpError)
     assert result.code == "invalid_request"
     assert recorder.dirtied == []
-    header = store.parts.reads.resolve(_scoped("s1"), ElementId("hdr"))
+    header = store.resolve(_scoped("s1"), ElementId("hdr"))
     assert isinstance(header, CollapsingHeaderElement)
     assert header.open is False
 
@@ -318,7 +316,7 @@ def test_update_with_a_separator_in_the_scene_id_is_rejected() -> None:
     assert isinstance(result, OpError)
     assert result.code == "invalid_request"
     assert recorder.dirtied == []
-    header = store.parts.reads.resolve(_scoped("s1"), ElementId("hdr"))
+    header = store.resolve(_scoped("s1"), ElementId("hdr"))
     assert isinstance(header, CollapsingHeaderElement)
     assert header.open is False
 
@@ -335,8 +333,8 @@ def test_clear_empties_every_owned_scene_and_marks_each_dirty() -> None:
         [CollapsingHeaderElement(id="hdr2", label="More", open=False)],
     )
     _ops(store, recorder).clear(scope=_LOCAL)
-    assert store.parts.reads.scene_roots(_scoped("s1")) == []
-    assert store.parts.reads.scene_roots(_scoped("s2")) == []
+    assert store.scene_roots(_scoped("s1")) == []
+    assert store.scene_roots(_scoped("s2")) == []
     assert set(recorder.dirtied) == {_scoped("s1"), _scoped("s2")}
 
 
@@ -352,8 +350,8 @@ def test_scene_scoped_clear_empties_only_the_named_scene() -> None:
     )
     result = _ops(store, recorder).clear(scope=_LOCAL, scene_id="s1")
     assert isinstance(result, Cleared)
-    assert store.parts.reads.scene_roots(_scoped("s1")) == []
-    assert store.parts.reads.resolve(_scoped("s2"), ElementId("hdr2")).id == "hdr2"
+    assert store.scene_roots(_scoped("s1")) == []
+    assert store.resolve(_scoped("s2"), ElementId("hdr2")).id == "hdr2"
     assert recorder.dirtied == [_scoped("s1")]
 
 
@@ -384,7 +382,7 @@ def test_scene_scoped_clear_of_an_unowned_scene_is_rejected() -> None:
     result = _ops(store, recorder).clear(scope=_LOCAL, scene_id="theirs")
     assert isinstance(result, OpError)
     assert result.code == "rejected"
-    assert store.parts.reads.resolve(_scoped("theirs"), ElementId("x")).id == "x"
+    assert store.resolve(_scoped("theirs"), ElementId("x")).id == "x"
     assert recorder.dirtied == []
 
 
@@ -397,7 +395,7 @@ def test_scene_scoped_clear_with_a_blank_scene_id_is_rejected_before_composition
     assert isinstance(result, OpError)
     assert result.code == "invalid_request"
     assert recorder.dirtied == []
-    assert store.parts.reads.resolve(_scoped("s1"), ElementId("hdr")).id == "hdr"
+    assert store.resolve(_scoped("s1"), ElementId("hdr")).id == "hdr"
 
 
 def test_scene_scoped_clear_with_a_separator_in_the_scene_id_is_rejected() -> None:
@@ -407,7 +405,7 @@ def test_scene_scoped_clear_with_a_separator_in_the_scene_id_is_rejected() -> No
     assert isinstance(result, OpError)
     assert result.code == "invalid_request"
     assert recorder.dirtied == []
-    assert store.parts.reads.resolve(_scoped("s1"), ElementId("hdr")).id == "hdr"
+    assert store.resolve(_scoped("s1"), ElementId("hdr")).id == "hdr"
 
 
 class TestWhoAnInstallRegisters:
@@ -425,7 +423,7 @@ class TestWhoAnInstallRegisters:
         )
         result = _ops(store, recorder).render(request, scope=_LOCAL)
         assert isinstance(result, SceneShown)
-        assert [str(c) for c in store.parts.reads.client_sessions()] == ["local"]
+        assert [str(c) for c in store.client_sessions()] == ["local"]
 
     def test_a_scene_written_for_a_departed_client_does_not_recreate_it(self) -> None:
         # The ghost: the Hub writes a per-client scene for a connection that has
@@ -433,15 +431,15 @@ class TestWhoAnInstallRegisters:
         # install must leave the registry as the departure left it.
         store, recorder = HubDisplay(), _Recorder()
         departed = ConnectionId("gone")
-        store.parts.lifecycle.arrive(departed)
-        store.parts.lifecycle.depart(departed)
+        store.register_client(departed)
+        store.drop_connection(departed)
 
         result = SceneInstaller(store, recorder).install(
             _submitted("lux.client-details.gone"), owner=departed
         )
 
         assert isinstance(result, SceneShown)
-        assert dict(store.parts.reads.client_sessions()) == {}
+        assert dict(store.client_sessions()) == {}
 
     def test_a_scene_written_for_an_unknown_client_registers_nobody(self) -> None:
         # The same rule where no session ever existed: nothing the Hub writes on a
@@ -450,7 +448,7 @@ class TestWhoAnInstallRegisters:
         SceneInstaller(store, recorder).install(
             _submitted("lux.client-details.never"), owner=ConnectionId("never")
         )
-        assert dict(store.parts.reads.client_sessions()) == {}
+        assert dict(store.client_sessions()) == {}
 
 
 def test_scene_scoped_clear_preserves_a_custom_frame_binding() -> None:
@@ -466,8 +464,8 @@ def test_scene_scoped_clear_preserves_a_custom_frame_binding() -> None:
         ttl_seconds=None,
     )
     _ops(store, recorder).clear(scope=_LOCAL, scene_id="board")
-    assert store.parts.reads.scene_roots(_scoped("board")) == []
-    assert store.parts.frames.presentation_for(_scoped("board")).frame_id == "beads-lux"
+    assert store.scene_roots(_scoped("board")) == []
+    assert store.frames.presentation_for(_scoped("board")).frame_id == "beads-lux"
 
 
 class TestQuarantinedScenes:
@@ -476,7 +474,7 @@ class TestQuarantinedScenes:
     def test_update_against_a_quarantined_scene_is_rejected(self) -> None:
         store, recorder = HubDisplay(), _Recorder()
         _seed_header(store)
-        store.parts.quarantines.quarantine(
+        store.quarantine(
             _scoped("s1"),
             QuarantineRecord(death_count=2, last_death_at=123.0),
         )
@@ -492,13 +490,13 @@ class TestQuarantinedScenes:
     ) -> None:
         store, recorder = HubDisplay(), _Recorder()
         _seed_header(store, is_open=False)
-        store.parts.quarantines.quarantine(
+        store.quarantine(
             _scoped("s1"),
             QuarantineRecord(death_count=2, last_death_at=123.0),
         )
         request = UpdateRequest.parse([{"id": "hdr", "set": {"open": True}}])
         _ops(store, recorder).update("s1", request, scope=_LOCAL)
-        header = store.parts.reads.resolve(_scoped("s1"), ElementId("hdr"))
+        header = store.resolve(_scoped("s1"), ElementId("hdr"))
         assert isinstance(header, CollapsingHeaderElement)
         assert header.open is False  # the patch never applied
 
@@ -513,7 +511,7 @@ class TestQuarantinedScenes:
         # sees and could not construct.
         store, recorder = HubDisplay(), _Recorder()
         _seed_header(store)
-        store.parts.quarantines.quarantine(
+        store.quarantine(
             _scoped("s1"),
             QuarantineRecord(death_count=2, last_death_at=123.0, render_error="boom"),
         )
@@ -548,7 +546,7 @@ class TestQuarantinedScenes:
             _scoped("s1"),
             [CollapsingHeaderElement(id="hdr", label="Details", open=False)],
         )
-        store.parts.quarantines.quarantine(
+        store.quarantine(
             _scoped("s1"),
             QuarantineRecord(death_count=2, last_death_at=123.0),
         )
@@ -560,7 +558,7 @@ class TestQuarantinedScenes:
         )
         result = _ops(store, recorder).render(request, scope=_LOCAL)
         assert isinstance(result, SceneShown)
-        assert not store.parts.quarantines.is_quarantined(_scoped("s1"))
+        assert not store.is_quarantined(_scoped("s1"))
         assert recorder.dirtied == [_scoped("s1")]
 
     def test_scene_scoped_clear_of_a_quarantined_scene_lifts_the_quarantine(
@@ -572,13 +570,13 @@ class TestQuarantinedScenes:
         # could not re-show later without first hitting a spurious rejection.
         store, recorder = HubDisplay(), _Recorder()
         _seed_header(store)
-        store.parts.quarantines.quarantine(
+        store.quarantine(
             _scoped("s1"), QuarantineRecord(death_count=2, last_death_at=1.0)
         )
         result = _ops(store, recorder).clear(scope=_LOCAL, scene_id="s1")
         assert isinstance(result, Cleared)
-        assert store.parts.reads.scene_roots(_scoped("s1")) == []
-        assert not store.parts.quarantines.is_quarantined(_scoped("s1"))
+        assert store.scene_roots(_scoped("s1")) == []
+        assert not store.is_quarantined(_scoped("s1"))
         # And re-showing under the same id must succeed, not hit a spurious
         # quarantine rejection.
         request = RenderRequest.parse(

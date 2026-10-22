@@ -452,9 +452,7 @@ class TestSetMenuTool:
         from punt_lux.tools import list_menus
 
         conn = ConnectionId("local")  # the default MCP session key
-        hub_display.parts.lifecycle.identify(
-            conn, ClientIdentity(kind="mcp-session", name="a")
-        )
+        hub_display.identify_client(conn, ClientIdentity(kind="mcp-session", name="a"))
         menus = [{"label": "Tools", "items": [{"label": "Run", "id": "run"}]}]
         try:
             result = set_menu(menus)
@@ -464,7 +462,7 @@ class TestSetMenuTool:
             assert any(m.label == "Tools" for m in listed.menus)
         finally:
             hub_menu_registry.drop_session(conn)
-            hub_display.parts.lifecycle.depart(conn)
+            hub_display.drop_connection(conn)
 
 
 class TestShowTool:
@@ -498,7 +496,7 @@ class TestShowTool:
         show("s1", [{"kind": "text", "id": "t1", "content": "Hi"}])
 
         # The authoritative store carries the scene before any send happens.
-        assert store.parts.reads.resolve(_scoped("s1"), ElementId("t1")).id == "t1"
+        assert store.resolve(_scoped("s1"), ElementId("t1")).id == "t1"
 
     def test_show_records_the_frame_for_the_scene(
         self, monkeypatch: pytest.MonkeyPatch
@@ -513,7 +511,7 @@ class TestShowTool:
         )
 
         # The recorded presentation is what the replicator resends the scene with.
-        presentation = store.parts.frames.presentation_for(_scoped("s1"))
+        presentation = store.frames.presentation_for(_scoped("s1"))
         assert presentation.frame_id == str(_scoped("dash"))
 
     def test_show_without_a_frame_synthesizes_one_at_the_scene_id(
@@ -526,7 +524,7 @@ class TestShowTool:
 
         show("s1", [{"kind": "text", "id": "t1", "content": "Hi"}])
 
-        presentation = store.parts.frames.presentation_for(_scoped("s1"))
+        presentation = store.frames.presentation_for(_scoped("s1"))
         assert presentation.frame_id == str(_scoped("s1"))
         assert presentation.frame_title == "s1"  # never composed — a human label
 
@@ -792,7 +790,7 @@ class TestShowTableTool:
             rows=[["Alice", 95], ["Bob", 87]],
         )
         assert result == "shown:t1"
-        elements: list[object] = list(store.parts.reads.scene_roots(_scoped("t1")))
+        elements: list[object] = list(store.scene_roots(_scoped("t1")))
         # No chrome — the basic grid is the sole root (no wrapping group).
         assert len(elements) == 1
         table = elements[0]
@@ -825,7 +823,7 @@ class TestShowTableTool:
         assert result == "shown:t2"
         # Chrome is composed from primitives under one group root; the grid and
         # detail share the frame through a draggable split pane below the filters.
-        root: object = store.parts.reads.scene_roots(_scoped("t2"))[0]
+        root: object = store.scene_roots(_scoped("t2"))[0]
         assert isinstance(root, GroupElement)
         kinds = [type(child).__name__ for child in root.children]
         assert kinds == [
@@ -849,7 +847,7 @@ class TestShowTableTool:
 
         show_table("t3", columns=["A"], rows=[["x"]], flags=["borders", "resizable"])
 
-        table: object = store.parts.reads.scene_roots(_scoped("t3"))[0]
+        table: object = store.scene_roots(_scoped("t3"))[0]
         assert isinstance(table, TableElement)
         assert table.flags.to_wire() == ["borders", "resizable"]
 
@@ -867,7 +865,7 @@ class TestShowDashboardTool:
             ],
         )
         assert result == "shown:d1"
-        elements: list[object] = list(store.parts.reads.scene_roots(_scoped("d1")))
+        elements: list[object] = list(store.scene_roots(_scoped("d1")))
         # metrics group only (no trailing separator for single section)
         assert len(elements) == 1
         group = elements[0]
@@ -892,7 +890,7 @@ class TestShowDashboardTool:
             table_rows=[["test", "pass"]],
             title="Dashboard",
         )
-        kinds = [e.kind for e in store.parts.reads.scene_roots(_scoped("d2"))]
+        kinds = [e.kind for e in store.scene_roots(_scoped("d2"))]
         assert "group" in kinds  # metrics
         assert "plot" in kinds  # chart
         assert "table" in kinds  # table
@@ -905,7 +903,7 @@ class TestShowDashboardTool:
         result = show_dashboard("d3")
 
         assert result == "shown:d3"
-        assert store.parts.reads.scene_roots(SceneId("d3")) == []
+        assert store.scene_roots(SceneId("d3")) == []
 
 
 def _seed_store(
@@ -965,8 +963,8 @@ def _bind_store(monkeypatch: pytest.MonkeyPatch, store: HubDisplay) -> MagicMock
         store,
         spy,
         hub=hub,
-        menu_registry=HubMenuRegistry(store.parts.clients),
-        callback_router=CallbackRouter(store.parts.clients),
+        menu_registry=HubMenuRegistry(store.clients),
+        callback_router=CallbackRouter(store.clients),
         ports=HubPorts(
             element_factory=hub_element_factory,
             ensure_writer=ensure_writer,
@@ -1001,8 +999,8 @@ def _bind_pubsub(
         display,
         _ReplicatorSpy(),
         hub=hub,
-        menu_registry=HubMenuRegistry(display.parts.clients),
-        callback_router=CallbackRouter(display.parts.clients),
+        menu_registry=HubMenuRegistry(display.clients),
+        callback_router=CallbackRouter(display.clients),
         ports=HubPorts(
             element_factory=hub_element_factory,
             ensure_writer=_no_writer,
@@ -1062,7 +1060,7 @@ class TestUpdateTool:
 
         assert result == "shown:s1"
         # Authoritative store — NOT a display copy — carries the new value.
-        header = store.parts.reads.resolve(_scoped("s1"), ElementId("hdr"))
+        header = store.resolve(_scoped("s1"), ElementId("hdr"))
         assert isinstance(header, CollapsingHeaderElement)
         assert header.open is True
         # The scene is marked dirty; the replicator resends it from the store.
@@ -1079,9 +1077,9 @@ class TestUpdateTool:
         result = update("s1", [{"id": "hdr", "remove": True}])
 
         assert result == "shown:s1"
-        assert store.parts.reads.scene_roots(_scoped("s1")) == []
+        assert store.scene_roots(_scoped("s1")) == []
         with pytest.raises(LookupError):
-            store.parts.reads.resolve(_scoped("s1"), ElementId("hdr"))
+            store.resolve(_scoped("s1"), ElementId("hdr"))
         assert client.replicator.dirtied == [_scoped("s1")]
 
     def test_update_rejects_patch_that_invalidates_element(
@@ -1098,7 +1096,7 @@ class TestUpdateTool:
 
         assert result.startswith("error: scene not updated")
         # The authoritative store is untouched; nothing is re-pushed.
-        header = store.parts.reads.resolve(_scoped("s1"), ElementId("hdr"))
+        header = store.resolve(_scoped("s1"), ElementId("hdr"))
         assert isinstance(header, CollapsingHeaderElement)
         assert header.label == "Details"
         client.show_async.assert_not_called()
@@ -1117,7 +1115,7 @@ class TestUpdateTool:
 
         assert result.startswith("error: scene not updated")
         # The store is untouched — the seeded header survives the rejection.
-        assert store.parts.reads.resolve(_scoped("s1"), ElementId("hdr")).id == "hdr"
+        assert store.resolve(_scoped("s1"), ElementId("hdr")).id == "hdr"
         client.show_async.assert_not_called()
 
     def test_update_rejects_patch_with_no_set_and_no_remove(
@@ -1192,7 +1190,7 @@ class TestUpdateTool:
         assert result.startswith("error: scene not updated")
         assert "hdr" in result
         # The seeded header survives untouched.
-        header = store.parts.reads.resolve(_scoped("s1"), ElementId("hdr"))
+        header = store.resolve(_scoped("s1"), ElementId("hdr"))
         assert isinstance(header, CollapsingHeaderElement)
         assert header.open is False
         client.show_async.assert_not_called()
@@ -1216,7 +1214,7 @@ class TestUpdateTool:
         assert result.startswith("error: scene not updated")
         assert "hdr" in result
         # The seeded header survives — the malformed remove never landed.
-        assert store.parts.reads.resolve(_scoped("s1"), ElementId("hdr")).id == "hdr"
+        assert store.resolve(_scoped("s1"), ElementId("hdr")).id == "hdr"
         client.show_async.assert_not_called()
 
     def test_update_rejects_patch_missing_id(
@@ -1252,7 +1250,7 @@ class TestUpdateTool:
         )
 
         assert result == "shown:s1"
-        header = store.parts.reads.resolve(_scoped("s1"), ElementId("hdr"))
+        header = store.resolve(_scoped("s1"), ElementId("hdr"))
         assert isinstance(header, CollapsingHeaderElement)
         assert header.open is True
         assert header.label == "Renamed"
@@ -1282,7 +1280,7 @@ class TestUpdateTool:
         result = str(_exc.value)
 
         assert result.startswith("error: scene not updated")
-        header = store.parts.reads.resolve(_scoped("s1"), ElementId("hdr"))
+        header = store.resolve(_scoped("s1"), ElementId("hdr"))
         assert isinstance(header, CollapsingHeaderElement)
         assert header.open is False
         assert header.label == "Details"
@@ -1313,7 +1311,7 @@ class TestUpdateTool:
         result = str(_exc.value)
 
         assert result.startswith("error: scene not updated")
-        valid = store.parts.reads.resolve(_scoped("s1"), ElementId("a"))
+        valid = store.resolve(_scoped("s1"), ElementId("a"))
         assert isinstance(valid, CollapsingHeaderElement)
         assert valid.open is False
         client.show_async.assert_not_called()
@@ -1344,7 +1342,7 @@ class TestUpdateTool:
 
         assert result.startswith("error: scene not updated")
         # The removal never happened — the invalid set rejects the whole batch.
-        assert store.parts.reads.resolve(_scoped("s1"), ElementId("drop")).id == "drop"
+        assert store.resolve(_scoped("s1"), ElementId("drop")).id == "drop"
         client.show_async.assert_not_called()
 
     def test_update_mutates_once_and_marks_dirty_once(
@@ -1363,9 +1361,9 @@ class TestUpdateTool:
         result = update("s1", [{"id": "hdr", "remove": True}])
 
         assert result == "shown:s1"
-        assert store.parts.reads.scene_roots(_scoped("s1")) == []
+        assert store.scene_roots(_scoped("s1")) == []
         with pytest.raises(LookupError):
-            store.parts.reads.resolve(_scoped("s1"), ElementId("hdr"))
+            store.resolve(_scoped("s1"), ElementId("hdr"))
         assert client.replicator.dirtied == [_scoped("s1")]
 
     def test_update_cross_connection_ownership_is_rejected(
@@ -1385,7 +1383,7 @@ class TestUpdateTool:
             _session_key.reset(token)
 
         assert result.startswith("error: scene not updated")
-        header = store.parts.reads.resolve(_scoped("s1"), ElementId("hdr"))
+        header = store.resolve(_scoped("s1"), ElementId("hdr"))
         assert isinstance(header, CollapsingHeaderElement)
         assert header.open is False
         client.show_async.assert_not_called()
@@ -1415,7 +1413,7 @@ class TestUpdateTool:
             _session_key.reset(token)
 
         assert result == "shown:s1"  # vacuous — intruder's own "s1" never existed
-        assert store.parts.reads.resolve(_scoped("s1"), ElementId("hdr")).id == "hdr"
+        assert store.resolve(_scoped("s1"), ElementId("hdr")).id == "hdr"
         client.show_async.assert_not_called()
 
     def test_update_patches_nested_child(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1427,7 +1425,7 @@ class TestUpdateTool:
         result = update("s1", [{"id": "t1", "set": {"content": "updated"}}])
 
         assert result == "shown:s1"
-        child = store.parts.reads.resolve(_scoped("s1"), ElementId("t1"))
+        child = store.resolve(_scoped("s1"), ElementId("t1"))
         assert isinstance(child, TextElement)
         assert child.content == "updated"
         assert client.replicator.dirtied == [_scoped("s1")]
@@ -1446,7 +1444,7 @@ class TestUpdateTool:
 
         assert result.startswith("error: scene not updated")
         assert "immutable" in result
-        assert store.parts.reads.resolve(_scoped("s1"), ElementId("hdr")).id == "hdr"
+        assert store.resolve(_scoped("s1"), ElementId("hdr")).id == "hdr"
         client.show_async.assert_not_called()
 
     def test_update_rejects_unknown_field_abc(
@@ -1495,10 +1493,10 @@ class TestUpdateTool:
         )
 
         assert result == "shown:s1"
-        patched_header = store.parts.reads.resolve(_scoped("s1"), ElementId("hdr"))
+        patched_header = store.resolve(_scoped("s1"), ElementId("hdr"))
         assert isinstance(patched_header, CollapsingHeaderElement)
         assert patched_header.open is True
-        patched_selectable = store.parts.reads.resolve(_scoped("s1"), ElementId("sl1"))
+        patched_selectable = store.resolve(_scoped("s1"), ElementId("sl1"))
         assert isinstance(patched_selectable, SelectableElement)
         assert patched_selectable.selected is True
         assert client.replicator.dirtied == [_scoped("s1")]
@@ -1538,8 +1536,8 @@ class TestClearTool:
         result = clear()
 
         assert result == "cleared"
-        assert store.parts.reads.scene_roots(_scoped("s1")) == []
-        assert store.parts.reads.elements_owned_by(ConnectionId("local")) == ()
+        assert store.scene_roots(_scoped("s1")) == []
+        assert store.elements_owned_by(ConnectionId("local")) == ()
         # Per-scene dirty, never a global blank: the display drops only the caller's
         # emptied scenes, so another agent's UI cannot be wiped by this clear.
         assert client.replicator.dirtied == [_scoped("s1")]
@@ -1556,8 +1554,8 @@ class TestClearTool:
         result = clear_scene("s1")
 
         assert result == "cleared"
-        assert store.parts.reads.scene_roots(_scoped("s1")) == []
-        assert store.parts.reads.resolve(_scoped("s2"), ElementId("b")).id == "b"
+        assert store.scene_roots(_scoped("s1")) == []
+        assert store.resolve(_scoped("s2"), ElementId("b")).id == "b"
         assert client.replicator.dirtied == [_scoped("s1")]
 
     def test_clear_scene_of_an_unknown_scene_reports_an_error_not_cleared(
@@ -1593,12 +1591,9 @@ class TestClearTool:
         result = clear()
 
         assert result == "cleared"
-        assert store.parts.reads.scene_roots(_scoped("s1")) == []
+        assert store.scene_roots(_scoped("s1")) == []
         # agent-b's scene is untouched by local's clear.
-        assert (
-            store.parts.reads.resolve(SceneId("s-other"), ElementId("other")).id
-            == "other"
-        )
+        assert store.resolve(SceneId("s-other"), ElementId("other")).id == "other"
 
     def test_clear_empties_all_scenes_the_caller_owns(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1612,9 +1607,9 @@ class TestClearTool:
         result = clear()
 
         assert result == "cleared"
-        assert store.parts.reads.scene_roots(_scoped("s1")) == []
-        assert store.parts.reads.scene_roots(SceneId("s2")) == []
-        assert store.parts.reads.elements_owned_by(ConnectionId("local")) == ()
+        assert store.scene_roots(_scoped("s1")) == []
+        assert store.scene_roots(SceneId("s2")) == []
+        assert store.elements_owned_by(ConnectionId("local")) == ()
 
 
 class TestPingTool:
@@ -1766,8 +1761,8 @@ class TestClearIsDisplayIndependent:
         result = clear()
 
         assert result == "cleared"
-        assert store.parts.reads.scene_roots(_scoped("s1")) == []
-        assert store.parts.reads.elements_owned_by(ConnectionId("local")) == ()
+        assert store.scene_roots(_scoped("s1")) == []
+        assert store.elements_owned_by(ConnectionId("local")) == ()
         assert client.replicator.dirtied == [_scoped("s1")]
 
     @patch("punt_lux.domain.hub.clients.client_registry.get")

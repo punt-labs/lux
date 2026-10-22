@@ -75,13 +75,13 @@ def test_dropped_connection_keeps_its_elements_but_releases_ownership(
     fired: list[ButtonClicked] = []
     button.add_handler(ButtonClicked, fired.append)
     hub.install(connection_id, scene_id, button)
-    assert hub.display.parts.clients.session_of(connection_id) is not None
+    assert hub.display.is_client(connection_id)
 
-    hub.display.parts.lifecycle.depart(connection_id)
+    hub.display.drop_connection(connection_id)
 
-    assert hub.display.parts.clients.session_of(connection_id) is None
-    assert hub.display.parts.reads.elements_owned_by(connection_id) == ()
-    assert hub.display.parts.reads.resolve(scene_id, element_id) is button
+    assert not hub.display.is_client(connection_id)
+    assert hub.display.elements_owned_by(connection_id) == ()
+    assert hub.display.resolve(scene_id, element_id) is button
 
     hub.click(scene_id, element_id)
 

@@ -84,8 +84,8 @@ def _named(store: HubDisplay, connection: str) -> ConnectionId:
     identity = ClientIdentity(
         kind="applet", name="lux · lux · #4b97 · lux-beads", repo="/w/lux"
     )
-    store.parts.lifecycle.identify(conn, identity)
-    store.parts.clients.named_sessions()
+    store.identify_client(conn, identity)
+    store.clients.named_sessions()
     return conn
 
 
@@ -112,7 +112,7 @@ class TestWhatTheDispatchGetsBack:
         port.render_details(ConnectionId("gone"))
 
         assert marks.marked == []
-        assert list(store.parts.reader.replicable_scene_ids()) == []
+        assert list(store.live_scene_ids()) == []
 
     def test_the_port_satisfies_the_contract_the_dispatch_binds(self) -> None:
         store, hub = HubDisplay(), Hub()
@@ -142,4 +142,4 @@ class TestHowACompositionRootBuildsIt:
         assert mcp.render_details(conn) == DetailsShown()
         assert rest.render_details(conn) == DetailsShown()
         composed = ConnectionScopedId.compose(conn, f"lux.client-details.{conn}")
-        assert list(store.parts.reader.replicable_scene_ids()) == [SceneId(composed)]
+        assert list(store.live_scene_ids()) == [SceneId(composed)]

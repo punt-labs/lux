@@ -324,15 +324,15 @@ class ToolExerciser:
             # A write that owns a menu item (set_menu) needs an identified session;
             # the scenario declares this so the exercised session can own the bar.
             key = str(setup.get("session_key", "local"))
-            display.parts.lifecycle.identify(
+            display.identify_client(
                 ConnectionId(key), ClientIdentity(kind="mcp-session", name="corpus")
             )
         test_ops = Operations.for_store(
             display,
             _StubReplicator(),
             hub=hub,
-            menu_registry=HubMenuRegistry(display.parts.clients),
-            callback_router=CallbackRouter(display.parts.clients),
+            menu_registry=HubMenuRegistry(display.clients),
+            callback_router=CallbackRouter(display.clients),
             ports=cls._hub_ports(setup),
         )
         # All tools resolve the DisplayLink through the Hub-side

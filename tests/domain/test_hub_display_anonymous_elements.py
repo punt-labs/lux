@@ -91,7 +91,7 @@ def test_multiple_separators_survive_install() -> None:
     _show(hub, sep_top, text, sep_bottom)
 
     expected: list[Element] = [sep_top, text, sep_bottom]
-    assert hub.parts.reads.scene_roots(_SCENE) == expected
+    assert hub.scene_roots(_SCENE) == expected
 
 
 def test_both_separators_survive_a_re_push() -> None:
@@ -106,8 +106,8 @@ def test_both_separators_survive_a_re_push() -> None:
 
     _show(hub, sep_top, TextElement(id="a", content="one"), sep_bottom)
 
-    first = hub.parts.reads.scene_roots(_SCENE)
-    second = hub.parts.reads.scene_roots(_SCENE)
+    first = hub.scene_roots(_SCENE)
+    second = hub.scene_roots(_SCENE)
     separators = [r for r in first if isinstance(r, SeparatorElement)]
     assert len(separators) == 2
     assert first == second
@@ -125,7 +125,7 @@ def test_re_show_does_not_accumulate_separators() -> None:
     _show(hub, SeparatorElement(), TextElement(id="a", content="1"), SeparatorElement())
     _show(hub, SeparatorElement(), TextElement(id="a", content="2"), SeparatorElement())
 
-    roots = hub.parts.reads.scene_roots(_SCENE)
+    roots = hub.scene_roots(_SCENE)
     separators = [r for r in roots if isinstance(r, SeparatorElement)]
     assert len(roots) == 3
     assert len(separators) == 2
@@ -138,10 +138,10 @@ def test_named_lookup_and_removal_unaffected_by_anonymous_repeats() -> None:
     sep_bottom = SeparatorElement()
     _show(hub, sep_top, TextElement(id="a", content="one"), sep_bottom)
 
-    assert hub.parts.reads.resolve(_SCENE, ElementId("a")).id == "a"
+    assert hub.resolve(_SCENE, ElementId("a")).id == "a"
 
     hub.apply(_CONN, RemoveElement(scene_id=_SCENE, element_id=ElementId("a")))
 
     with pytest.raises(UnknownElementError):
-        hub.parts.reads.resolve(_SCENE, ElementId("a"))
-    assert hub.parts.reads.scene_roots(_SCENE) == [sep_top, sep_bottom]
+        hub.resolve(_SCENE, ElementId("a"))
+    assert hub.scene_roots(_SCENE) == [sep_top, sep_bottom]

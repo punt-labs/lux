@@ -67,52 +67,52 @@ def test_sweep_reaps_a_lapsed_connection_with_no_other_activity() -> None:
     clock = _FakeClock()
     display = HubDisplay(clock)
     dead = ConnectionId("dead-conn")
-    display.parts.lifecycle.identify(dead, _cli("dead"))
+    display.identify_client(dead, _cli("dead"))
     display.apply(
         dead,
         AddElement(scene_id=_SCENE, element=_WireLeaf(id="track"), parent_id=None),
     )
-    sweep = LeaseReapSweep(display.parts.lifecycle)
+    sweep = LeaseReapSweep(display)
 
     clock.advance(91.0)  # past the 90s cli lease; nothing else ever touches it
     reaped = sweep.sweep()
 
     assert reaped == frozenset({dead})
-    assert display.parts.clients.session_of(dead) is None
-    assert display.parts.reads.elements_owned_by(dead) == ()
+    assert not display.is_client(dead)
+    assert display.elements_owned_by(dead) == ()
 
 
 def test_sweep_is_empty_when_nothing_has_lapsed() -> None:
     clock = _FakeClock()
     display = HubDisplay(clock)
     live = ConnectionId("live-conn")
-    display.parts.lifecycle.identify(live, _cli("live"))
-    sweep = LeaseReapSweep(display.parts.lifecycle)
+    display.identify_client(live, _cli("live"))
+    sweep = LeaseReapSweep(display)
 
     assert sweep.sweep() == frozenset()
-    assert display.parts.clients.session_of(live) is not None
+    assert display.is_client(live)
 
 
 def test_run_sweeps_until_cancelled() -> None:
     clock = _FakeClock()
     display = HubDisplay(clock)
     dead = ConnectionId("dead-conn")
-    display.parts.lifecycle.identify(dead, _cli("dead"))
+    display.identify_client(dead, _cli("dead"))
     clock.advance(91.0)  # already lapsed when the loop starts
-    sweep = LeaseReapSweep(display.parts.lifecycle, interval_seconds=0.01)
+    sweep = LeaseReapSweep(display, interval_seconds=0.01)
 
     async def drive() -> None:
         task = asyncio.create_task(sweep.run())
         for _ in range(200):  # poll up to ~2s for the first tick to fire
             await asyncio.sleep(0.01)
-            if display.parts.clients.session_of(dead) is None:
+            if not display.is_client(dead):
                 break
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
 
     asyncio.run(drive())
-    assert display.parts.clients.session_of(dead) is None
+    assert not display.is_client(dead)
 
 
 @final
@@ -133,7 +133,7 @@ class _RaiseOnceReaper:
     def calls(self) -> int:
         return self._calls
 
-    def depart_lapsed(self) -> frozenset[ConnectionId]:
+    def reap_lapsed_leases(self) -> frozenset[ConnectionId]:
         self._calls += 1
         if self._calls == 1:
             msg = "reap boom"

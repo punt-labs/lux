@@ -124,7 +124,7 @@ class _Provider:
 
     def get(self) -> _FaultInjectingSender:
         if self._needs_reconcile and self._replicator is not None:
-            for scene_id in self._store.parts.reader.replicable_scene_ids():
+            for scene_id in self._store.live_scene_ids():
                 self._replicator.mark_dirty(scene_id)
             self._replicator.mark_menus()
             self._needs_reconcile = False
@@ -184,12 +184,12 @@ def _stack() -> tuple[
     sender = _FaultInjectingSender()
     provider = _Provider(sender, store)
     repl = HubReplicator(
-        store.parts.reader,
-        HubMenuRegistry(store.parts.clients),
+        store.reader,
+        HubMenuRegistry(store.clients),
         _NoCallbackMenus(),
         provider,
         _Lifecycle(),
-        store.parts.quarantines,
+        store,
         NoFrameOwnerFacts(),
     )
     provider.attach(repl)
@@ -213,10 +213,8 @@ def test_a_scene_that_crashes_the_display_is_quarantined_at_the_threshold() -> N
     repl.start()
     try:
         repl.mark_dirty(SceneId("poison"))
-        assert _wait_until(
-            lambda: store.parts.quarantines.is_quarantined(SceneId("poison"))
-        )
-        record = store.parts.quarantines.quarantine_record(SceneId("poison"))
+        assert _wait_until(lambda: store.is_quarantined(SceneId("poison")))
+        record = store.quarantine_record(SceneId("poison"))
         assert record is not None
         assert record.death_count >= ATTRIBUTION_THRESHOLD
     finally:
@@ -237,12 +235,10 @@ def test_a_quarantined_scene_is_excluded_from_replication() -> None:
     repl.start()
     try:
         repl.mark_dirty(SceneId("poison"))
-        assert _wait_until(
-            lambda: store.parts.quarantines.is_quarantined(SceneId("poison"))
-        )
+        assert _wait_until(lambda: store.is_quarantined(SceneId("poison")))
         # live_scene_ids() is the replication-facing read; it must exclude a
         # quarantined scene at the source, not merely at the send filter.
-        assert SceneId("poison") not in store.parts.reader.replicable_scene_ids()
+        assert SceneId("poison") not in store.live_scene_ids()
         assert "poison" not in sender.shows  # never a single successful send
     finally:
         repl.stop()
@@ -251,7 +247,7 @@ def test_a_quarantined_scene_is_excluded_from_replication() -> None:
 def test_an_owner_write_to_a_quarantined_scene_is_rejected_with_the_record() -> None:
     store, _repl, _sender, ops = _stack()
     store.replace_scene(_CONN, _scoped("poison"), [TextElement(id="t1", content="x")])
-    store.parts.quarantines.quarantine(
+    store.quarantine(
         _scoped("poison"), QuarantineRecord(death_count=2, last_death_at=1.0)
     )
 
@@ -262,17 +258,17 @@ def test_an_owner_write_to_a_quarantined_scene_is_rejected_with_the_record() -> 
     assert result.code == "rejected"
     assert "quarantined" in result.reason
     # The store is untouched — a patch is not the recovery path.
-    element = store.parts.reads.resolve(_scoped("poison"), ElementId("t1"))
+    element = store.resolve(_scoped("poison"), ElementId("t1"))
     assert element.to_dict()["content"] == "x"
 
 
 def test_quarantine_clears_on_a_wholesale_re_show() -> None:
     store, _repl, _sender, ops = _stack()
     store.replace_scene(_CONN, _scoped("poison"), [TextElement(id="t1", content="x")])
-    store.parts.quarantines.quarantine(
+    store.quarantine(
         _scoped("poison"), QuarantineRecord(death_count=2, last_death_at=1.0)
     )
-    assert store.parts.quarantines.is_quarantined(_scoped("poison"))
+    assert store.is_quarantined(_scoped("poison"))
 
     request = RenderRequest.parse(
         {
@@ -283,4 +279,4 @@ def test_quarantine_clears_on_a_wholesale_re_show() -> None:
     result = ops.render(request, scope=_SCOPE)
 
     assert isinstance(result, SceneShown)
-    assert not store.parts.quarantines.is_quarantined(_scoped("poison"))
+    assert not store.is_quarantined(_scoped("poison"))

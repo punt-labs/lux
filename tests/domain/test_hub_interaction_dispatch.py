@@ -30,7 +30,7 @@ def test_hub_interaction_dispatch_runs_grouped_button_handlers_once(
     scene_id = SceneId("scene")
     element_id = ElementId("confirm")
     owner = ConnectionId("agent-1")
-    isolated_display.parts.lifecycle.arrive(owner)
+    isolated_display.register_client(owner)
 
     button = ButtonElement(id=str(element_id), label="Confirm")
     seen: list[tuple[str, str]] = []
@@ -90,8 +90,8 @@ def test_an_owner_literally_named_unowned_is_distinct_from_a_genuinely_unowned_e
     scene_id = SceneId("scene")
     mischievous_owner = ConnectionId("unowned")  # a real, live owner named that
     departed_owner = ConnectionId("departed")
-    isolated_display.parts.lifecycle.arrive(mischievous_owner)
-    isolated_display.parts.lifecycle.arrive(departed_owner)
+    isolated_display.register_client(mischievous_owner)
+    isolated_display.register_client(departed_owner)
 
     live_owned = ButtonElement(id="live-owned", label="Owned")
     genuinely_unowned = ButtonElement(id="unowned-elem", label="Unowned")
@@ -110,9 +110,7 @@ def test_an_owner_literally_named_unowned_is_distinct_from_a_genuinely_unowned_e
         departed_owner,
         AddElement(scene_id=scene_id, element=genuinely_unowned, parent_id=None),
     )
-    isolated_display.parts.lifecycle.depart(
-        departed_owner
-    )  # releases it; content stays
+    isolated_display.drop_connection(departed_owner)  # releases it; content stays
 
     import punt_lux.domain.hub as hub_module
 
@@ -330,7 +328,7 @@ def test_frameless_agent_menu_click_is_delivered_to_the_owning_inbox_session() -
             ("lux.menu", {"menu": "Tools", "item": "run_btn"}),
         ]
     finally:
-        hub_display.parts.lifecycle.depart(conn)
+        hub_display.drop_connection(conn)
 
 
 def test_a_departed_agent_menu_click_is_not_delivered_and_repushes(
@@ -381,7 +379,7 @@ def test_a_same_named_callback_and_menu_item_route_apart() -> None:
 
     conn = ConnectionId("dual-owner")
     leg = _SilentLeg()
-    clients = hub_display.parts.clients
+    clients = hub_display.clients
     clients.legs.attach(conn, ClientIdentity(kind="app", name="dual"), leg)
     clients.legs.register_callback(conn, SessionCallback(id="run", label="Run"), leg)
     ensure_writer(conn)  # arm the inbox; the same session owns a menu item too
@@ -409,7 +407,7 @@ def test_a_same_named_callback_and_menu_item_route_apart() -> None:
         assert held == ["run"]  # only the callback leaf reached the hold
         assert delivered == [("lux.menu", {"menu": "Tools", "item": "run"})]
     finally:
-        hub_display.parts.lifecycle.depart(conn)
+        hub_display.drop_connection(conn)
 
 
 def test_agent_menu_set_click_round_trips_from_set_to_recv() -> None:
@@ -427,9 +425,7 @@ def test_agent_menu_set_click_round_trips_from_set_to_recv() -> None:
 
     conn = ConnectionId("surface-loop-1")
     scope = Scope(conn)
-    hub_display.parts.lifecycle.identify(
-        conn, ClientIdentity(kind="mcp-session", name="agent")
-    )
+    hub_display.identify_client(conn, ClientIdentity(kind="mcp-session", name="agent"))
     try:
         OPERATIONS.set_menu(
             SetMenuRequest.parse(
@@ -457,7 +453,7 @@ def test_agent_menu_set_click_round_trips_from_set_to_recv() -> None:
         assert received.event.topic == "lux.menu"
         assert received.event.payload == {"menu": "Tools", "item": "run_btn"}
     finally:
-        hub_display.parts.lifecycle.depart(conn)
+        hub_display.drop_connection(conn)
         hub_menu_registry.drop_session(conn)
 
 
@@ -527,7 +523,7 @@ def test_hub_interaction_dispatch_non_abc_element_returns_silently(
     isolated_display = HubDisplay()
     scene_id = SceneId("scene")
     owner = ConnectionId("agent")
-    isolated_display.parts.lifecycle.arrive(owner)
+    isolated_display.register_client(owner)
     wire_leaf = _WireLeaf(id="leaf")
     isolated_display.apply(
         owner,
@@ -565,7 +561,7 @@ def test_hub_interaction_dispatch_marks_dirty_without_display_io(
     scene_id = SceneId("scene")
     element_id = ElementId("confirm")
     owner = ConnectionId("agent-1")
-    isolated_display.parts.lifecycle.arrive(owner)
+    isolated_display.register_client(owner)
 
     button = ButtonElement(id=str(element_id), label="Confirm")
     fired: list[str] = []
@@ -603,7 +599,7 @@ def test_hub_interaction_dispatch_runs_checkbox_value_changed_handler(
     scene_id = SceneId("scene")
     element_id = ElementId("toggle")
     owner = ConnectionId("agent-1")
-    isolated_display.parts.lifecycle.arrive(owner)
+    isolated_display.register_client(owner)
 
     checkbox = CheckboxElement(id=str(element_id), label="Toggle")
     seen: list[tuple[str, bool | int | float | str]] = []
@@ -651,7 +647,7 @@ def test_hub_interaction_dispatch_unknown_event_kind_returns_silently(
     scene_id = SceneId("scene")
     element_id = ElementId("btn")
     owner = ConnectionId("agent")
-    isolated_display.parts.lifecycle.arrive(owner)
+    isolated_display.register_client(owner)
 
     button = ButtonElement(id=str(element_id), label="OK")
     fired: list[str] = []
@@ -702,7 +698,7 @@ def test_hub_interaction_dispatch_never_deletes_a_frames_scenes(
     scene_id = SceneId("framed")
     owner = ConnectionId("agent")
     frame_id = "f1"
-    isolated_display.parts.lifecycle.arrive(owner)
+    isolated_display.register_client(owner)
     isolated_display.apply(
         owner,
         AddElement(
@@ -711,7 +707,7 @@ def test_hub_interaction_dispatch_never_deletes_a_frames_scenes(
             parent_id=None,
         ),
     )
-    isolated_display.parts.frames.present(
+    isolated_display.frames.present(
         scene_id, ScenePresentation(frame_id=frame_id), ttl_seconds=60.0
     )
 
@@ -730,13 +726,9 @@ def test_hub_interaction_dispatch_never_deletes_a_frames_scenes(
         )
     )
 
-    assert (
-        isolated_display.parts.reads.scene_roots(scene_id) != []
-    )  # the content is untouched
+    assert isolated_display.scene_roots(scene_id) != []  # the content is untouched
     mock_replicator.mark_dirty.assert_not_called()
-    assert (
-        isolated_display.parts.frames.seconds_until_next() is not None
-    )  # TTL still armed
+    assert isolated_display.frames.seconds_until_next() is not None  # TTL still armed
 
 
 def test_frame_close_is_not_a_branch_of_the_dispatch() -> None:
@@ -760,7 +752,7 @@ def test_hub_interaction_dispatch_value_changed_rejects_non_scalar(
     scene_id = SceneId("scene")
     element_id = ElementId("cb")
     owner = ConnectionId("agent")
-    isolated_display.parts.lifecycle.arrive(owner)
+    isolated_display.register_client(owner)
 
     cb = CheckboxElement(id=str(element_id), label="Toggle")
     fired: list[str] = []
@@ -801,7 +793,7 @@ def test_hub_interaction_dispatch_kindless_invocation_denied(
     scene_id = SceneId("scene")
     element_id = ElementId("btn")
     owner = ConnectionId("agent")
-    isolated_display.parts.lifecycle.arrive(owner)
+    isolated_display.register_client(owner)
 
     button = ButtonElement(id=str(element_id), label="OK")
     fired: list[str] = []
@@ -848,7 +840,7 @@ def test_hub_interaction_dispatch_drops_click_on_dismissed_ancestors_child(
     isolated_display = HubDisplay()
     scene_id = SceneId("scene")
     owner = ConnectionId("agent-1")
-    isolated_display.parts.lifecycle.arrive(owner)
+    isolated_display.register_client(owner)
 
     button = ButtonElement(id="confirm", label="Confirm")
     fired: list[str] = []
@@ -907,7 +899,7 @@ def test_hub_interaction_dispatch_drops_click_on_the_dismissed_element_itself(
     isolated_display = HubDisplay()
     scene_id = SceneId("scene")
     owner = ConnectionId("agent-1")
-    isolated_display.parts.lifecycle.arrive(owner)
+    isolated_display.register_client(owner)
 
     button = ButtonElement(id="confirm", label="Confirm")
     fired: list[str] = []

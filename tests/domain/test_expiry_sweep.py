@@ -124,13 +124,13 @@ def test_sweep_marks_and_tears_down_a_due_frame() -> None:
     scene = SceneId("s")
     _seed(display, scene, ttl_seconds=5.0)
     marker = SpyMarker()
-    sweep = ExpirySweep(display.parts.frames, marker)
+    sweep = ExpirySweep(display.frames, marker)
 
     clock.advance(5.0)
     sweep.sweep()
 
     assert marker.marked == [scene]
-    assert not display.parts.reads.scene_roots(scene)
+    assert not display.scene_roots(scene)
 
 
 def test_sweep_marks_nothing_before_the_deadline() -> None:
@@ -138,7 +138,7 @@ def test_sweep_marks_nothing_before_the_deadline() -> None:
     display = HubDisplay(clock)
     _seed(display, SceneId("s"), ttl_seconds=5.0)
     marker = SpyMarker()
-    sweep = ExpirySweep(display.parts.frames, marker)
+    sweep = ExpirySweep(display.frames, marker)
 
     clock.advance(4.0)
     sweep.sweep()
@@ -344,7 +344,7 @@ def test_run_expires_a_real_frame_end_to_end() -> None:
         ttl_seconds=0.05,
     )
     marker = SpyMarker()
-    sweep = ExpirySweep(display.parts.frames, marker)
+    sweep = ExpirySweep(display.frames, marker)
 
     async def drive() -> None:
         task = asyncio.create_task(sweep.run())
@@ -358,7 +358,7 @@ def test_run_expires_a_real_frame_end_to_end() -> None:
 
     asyncio.run(drive())
     assert marker.marked == [scene]
-    assert not display.parts.reads.scene_roots(scene)
+    assert not display.scene_roots(scene)
 
 
 @pytest.mark.integration
@@ -381,7 +381,7 @@ def test_run_sweeps_a_short_deadline_armed_after_a_far_one() -> None:
         ttl_seconds=3600.0,
     )
     marker = SpyMarker()
-    sweep = ExpirySweep(display.parts.frames, marker)
+    sweep = ExpirySweep(display.frames, marker)
 
     async def drive() -> None:
         task = asyncio.create_task(sweep.run())
@@ -404,5 +404,5 @@ def test_run_sweeps_a_short_deadline_armed_after_a_far_one() -> None:
     asyncio.run(drive())
     assert near in marker.marked  # the near frame fired
     assert far not in marker.marked  # the far one is still an hour out
-    assert not display.parts.reads.scene_roots(near)
-    assert display.parts.reads.scene_roots(far)
+    assert not display.scene_roots(near)
+    assert display.scene_roots(far)

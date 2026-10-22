@@ -75,7 +75,7 @@ def _assert_gate_names_field_under_adversarial_seed(
 def _seed_tab_bar() -> HubDisplay:
     """Install a ``TabBarElement`` root whose tab holds a child."""
     hub_display = HubDisplay()
-    hub_display.parts.lifecycle.arrive(_CONN)
+    hub_display.register_client(_CONN)
     bar = TabBarElement(
         id=str(_TAB_BAR_ID),
         tabs=(
@@ -122,11 +122,11 @@ def test_update_set_tabs_is_rejected() -> None:
     assert "tabs" in result.reason
     assert "show" in result.reason
 
-    stored = hub_display.parts.reads.resolve(_SCENE, _TAB_BAR_ID)
+    stored = hub_display.resolve(_SCENE, _TAB_BAR_ID)
     assert isinstance(stored, TabBarElement)
     assert stored.tabs[0].label == "One"
     with pytest.raises(UnknownElementError):
-        hub_display.parts.reads.resolve(_SCENE, ElementId("new-child"))
+        hub_display.resolve(_SCENE, ElementId("new-child"))
 
 
 def test_set_property_structural_field_is_rejected_fail_loud() -> None:
@@ -138,7 +138,7 @@ def test_set_property_structural_field_is_rejected_fail_loud() -> None:
     cannot reopen the desync.
     """
     hub_display = HubDisplay()
-    hub_display.parts.lifecycle.arrive(_CONN)
+    hub_display.register_client(_CONN)
     bar = TabBarElement(
         id=str(_TAB_BAR_ID),
         tabs=(Tab(tab_id="tab-1", label="One", children=()),),
@@ -147,7 +147,7 @@ def test_set_property_structural_field_is_rejected_fail_loud() -> None:
     hub_display.apply(_CONN, AddElement(scene_id=_SCENE, element=bar, parent_id=None))
 
     with pytest.raises(StructuralFieldWriteError):
-        hub_display.parts.seam.set_property(_SCENE, _TAB_BAR_ID, "tabs", [])
+        hub_display.write_seam.set_property(_SCENE, _TAB_BAR_ID, "tabs", [])
 
 
 def test_reject_names_highest_precedence_immutable_field() -> None:
@@ -194,7 +194,7 @@ def test_reject_names_highest_precedence_structural_field() -> None:
 def test_set_property_non_structural_field_still_applies() -> None:
     """The gate blocks only structural fields — a scalar set still commits."""
     hub_display = HubDisplay()
-    hub_display.parts.lifecycle.arrive(_CONN)
+    hub_display.register_client(_CONN)
     bar = TabBarElement(
         id=str(_TAB_BAR_ID),
         tabs=(
@@ -205,8 +205,8 @@ def test_set_property_non_structural_field_still_applies() -> None:
     )
     hub_display.apply(_CONN, AddElement(scene_id=_SCENE, element=bar, parent_id=None))
 
-    hub_display.parts.seam.set_property(_SCENE, _TAB_BAR_ID, "active_tab", "tab-2")
+    hub_display.write_seam.set_property(_SCENE, _TAB_BAR_ID, "active_tab", "tab-2")
 
-    stored = hub_display.parts.reads.resolve(_SCENE, _TAB_BAR_ID)
+    stored = hub_display.resolve(_SCENE, _TAB_BAR_ID)
     assert isinstance(stored, TabBarElement)
     assert stored.active_tab == "tab-2"

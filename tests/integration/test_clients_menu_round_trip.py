@@ -124,10 +124,10 @@ class _Wired:
                     clients,
                 ),
                 SceneInstaller(self._store, marks),
-                self._store.parts.clients,
+                self._store.clients,
             )
         )
-        self._router = CallbackRouter(self._store.parts.clients)
+        self._router = CallbackRouter(self._store.clients)
         self._legs = {}
         self._sent = []
         return self
@@ -136,13 +136,13 @@ class _Wired:
         """Bring a client up the way the listen route does, and register a command."""
         leg = _Leg()
         self._legs[connection_id] = leg
-        self._store.parts.clients.legs.attach(connection_id, identity, leg)
+        self._store.clients.legs.attach(connection_id, identity, leg)
         command = (
             SessionCallback(id="music", label="Music")
             if connection_id == _VOXD
             else SessionCallback(id="beads", label="Beads")
         )
-        self._store.parts.clients.legs.register_callback(connection_id, command, leg)
+        self._store.clients.legs.register_callback(connection_id, command, leg)
 
     def draw(self, *clicks: str) -> FakeImGui:
         """Decode the wire the Hub would send and draw it, clicking what is named.
@@ -153,7 +153,7 @@ class _Wired:
         """
         imgui = FakeImGui(clicks)
         field = WireField("callback_menus")
-        for wire in CallbackMenuReplica(self._store.parts.clients).callback_menu_wire():
+        for wire in CallbackMenuReplica(self._store.clients).callback_menu_wire():
             menu = WireMenu.of_payload(wire, field=field)
             handlers = MenuHandlers(self._sent.append, ignore, HubId.stub())
             Submenu.from_wire(menu, handlers).render(imgui)
@@ -174,14 +174,11 @@ class _Wired:
 
     def sweep(self, connection_id: ConnectionId) -> None:
         """Drop a client the way the lease sweep does, after the menu was drawn."""
-        self._store.parts.clients.discard(connection_id)
+        self._store.clients.discard(connection_id)
 
     def has_details(self, connection_id: ConnectionId) -> bool:
         """Whether the Hub holds a details scene for this client."""
-        return (
-            self._scene(connection_id)
-            in self._store.parts.reader.replicable_scene_ids()
-        )
+        return self._scene(connection_id) in self._store.live_scene_ids()
 
     @staticmethod
     def _scene(connection_id: ConnectionId) -> SceneId:
@@ -198,7 +195,7 @@ class _Wired:
 
     def scene_rows(self, connection_id: ConnectionId) -> dict[str, str]:
         """Read back the details table the Hub installed for one client."""
-        root = self._store.parts.reads.scene_roots(self._scene(connection_id))[0]
+        root = self._store.scene_roots(self._scene(connection_id))[0]
         assert isinstance(root, TableElement)
         return {str(row[0]): str(row[1]) for row in root.rows}
 

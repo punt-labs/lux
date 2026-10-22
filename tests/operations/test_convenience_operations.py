@@ -50,7 +50,7 @@ def test_render_table_installs_a_table_element() -> None:
     )
     result = _conveniences(store).render_table(request, scope=_LOCAL)
     assert isinstance(result, SceneShown)
-    table = store.parts.reads.resolve(_scoped("tbl"), ElementId("table"))
+    table = store.resolve(_scoped("tbl"), ElementId("table"))
     assert table.kind == "table"
 
 
@@ -66,14 +66,8 @@ def test_render_dashboard_installs_metric_and_table_sections() -> None:
     )
     result = _conveniences(store).render_dashboard(request, scope=_LOCAL)
     assert isinstance(result, SceneShown)
-    assert (
-        store.parts.reads.resolve(_scoped("dash"), ElementId("metrics-row")).kind
-        == "group"
-    )
-    assert (
-        store.parts.reads.resolve(_scoped("dash"), ElementId("dashboard-table")).kind
-        == "table"
-    )
+    assert store.resolve(_scoped("dash"), ElementId("metrics-row")).kind == "group"
+    assert store.resolve(_scoped("dash"), ElementId("dashboard-table")).kind == "table"
 
 
 def test_render_table_rejects_a_bad_filter_shape_without_raising() -> None:

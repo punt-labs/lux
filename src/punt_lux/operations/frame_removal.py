@@ -51,13 +51,13 @@ class FrameRemover:
         unhandled fault.
         """
         try:
-            frame_id = self._display.parts.frames.frame_id_for_local(
+            frame_id = self._display.frames.frame_id_for_local(
                 local_id, connection=owner
             )
         except ValueError as exc:
             return OpError(code="invalid_request", reason=str(exc))
         if frame_id is None:
             return OpError(code="not_found", reason=f"no frame named {local_id!r}")
-        for scene_id in self._display.parts.frames.remove_frame(frame_id):
+        for scene_id in self._display.frames.remove_frame(frame_id):
             self._replicator.mark_dirty(scene_id)
         return Ok()

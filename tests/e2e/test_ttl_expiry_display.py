@@ -53,7 +53,7 @@ def test_ttl_expiry_removes_the_frame_from_the_display_tier() -> None:
         deadline = time.monotonic() + 2.0
         expired: frozenset[SceneId] = frozenset()
         while time.monotonic() < deadline:
-            expired = hub_display.parts.frames.expire_due()
+            expired = hub_display.frames.expire_due()
             if expired:
                 break
             time.sleep(0.01)
@@ -66,4 +66,4 @@ def test_ttl_expiry_removes_the_frame_from_the_display_tier() -> None:
         # The sweep above already tore the scene down; dropping the connection
         # clears whatever a failed assertion left behind.
         hub.on_disconnect(conn)
-        hub_display.parts.lifecycle.depart(conn)
+        hub_display.drop_connection(conn)

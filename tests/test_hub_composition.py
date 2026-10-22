@@ -39,9 +39,7 @@ def test_both_surfaces_are_wired_over_the_one_process_store() -> None:
     second = HubComposition.operations()
 
     assert first.list_scenes().scenes == second.list_scenes().scenes
-    assert len(first.list_clients().clients) == len(
-        hub_display.parts.clients.live_sessions()
-    )
+    assert len(first.list_clients().clients) == len(hub_display.clients.live_sessions())
 
 
 def test_binding_details_installs_a_renderer_the_dispatch_can_run(

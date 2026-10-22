@@ -40,27 +40,27 @@ __all__ = [
 # the owning session so two sessions never clobber and a departed one's bar leaves
 # (it reads the shared HubDisplay's live sessions to compose). Written only through
 # MenuOperations, injected into the operations facade by tools.py.
-hub_menu_registry = HubMenuRegistry(hub_display.parts.clients)
+hub_menu_registry = HubMenuRegistry(hub_display.clients)
 
 # The one process-wide router for menu-callback clicks. Both composition roots
 # inject this instance so a click held on one surface is drained on any other; it
 # routes against the session registry that lives in the shared HubDisplay.
-hub_callback_router = CallbackRouter(hub_display.parts.clients)
+hub_callback_router = CallbackRouter(hub_display.clients)
 
 # Delivers an agent menu-item click to the owning MCP session's inbox — the same
 # live-session read the callback router uses, then the non-resurrecting inbox sink.
-hub_menu_event_router = MenuEventRouter(hub_display.parts.clients, inbox_offer)
+hub_menu_event_router = MenuEventRouter(hub_display.clients, inbox_offer)
 
 # DisplayLink satisfies the port at runtime — its show_async takes the concrete
 # protocol.Element union every WireElement root is; the cast bridges list invariance.
-# SceneQuarantine satisfies QuarantinePort structurally (quarantine / is_quarantined).
+# hub_display satisfies QuarantinePort structurally (quarantine / is_quarantined).
 hub_replicator = HubReplicator(
-    hub_display.parts.reader,
+    hub_display.reader,
     hub_menu_registry,
-    CallbackMenuReplica(hub_display.parts.clients),
+    CallbackMenuReplica(hub_display.clients),
     cast("ClientProvider", client_registry),
     DisplayPaths(),
-    hub_display.parts.quarantines,
+    hub_display,
     hub_frame_owner_facts,
 )
 

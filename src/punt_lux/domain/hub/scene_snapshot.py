@@ -19,7 +19,6 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
-from itertools import filterfalse
 from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
@@ -31,7 +30,6 @@ if TYPE_CHECKING:
         ScenePresentation,
         ScenePusher,
     )
-    from punt_lux.domain.hub.scene_quarantine import SceneQuarantine
     from punt_lux.domain.hub.store_lock import StoreLock
     from punt_lux.domain.ids import SceneId
 
@@ -87,21 +85,18 @@ class SceneReader:
     _index: ElementIndex
     _frames: FrameLifecycle
     _lock: StoreLock
-    _quarantine: SceneQuarantine
-    __slots__ = ("_frames", "_index", "_lock", "_quarantine")
+    __slots__ = ("_frames", "_index", "_lock")
 
     def __new__(
         cls,
         index: ElementIndex,
         frames: FrameLifecycle,
         lock: StoreLock,
-        quarantine: SceneQuarantine,
     ) -> Self:
         self = super().__new__(cls)
         self._index = index
         self._frames = frames
         self._lock = lock
-        self._quarantine = quarantine
         return self
 
     def snapshot(self, scene_id: SceneId) -> SceneSnapshot:
@@ -115,17 +110,6 @@ class SceneReader:
         """Return every scene still holding a non-removed root, read under lock."""
         with self._lock.read():
             return tuple(s for s in self._index.scenes() if self._index.scene_roots(s))
-
-    def replicable_scene_ids(self) -> tuple[SceneId, ...]:
-        """Return the live scenes the replicator may send: none that is quarantined.
-
-        Quarantined scenes are excluded at the source, so no caller re-marks one
-        for a fresh Display to crash on again; ``live_scene_ids`` keeps them
-        visible for introspection.
-        """
-        with self._lock.read():
-            quarantined = self._quarantine.quarantined_ids()
-            return tuple(filterfalse(quarantined.__contains__, self.live_scene_ids()))
 
     def reclaim_if_rootless(self, scene_id: SceneId) -> None:
         """Reclaim a blanked scene's frame, but only if it is still rootless.

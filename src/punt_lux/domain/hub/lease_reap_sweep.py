@@ -34,9 +34,9 @@ _POLL_SECONDS = 15.0
 
 @runtime_checkable
 class LeaseReaper(Protocol):
-    """The one question the sweep asks — satisfied by ``ClientLifecycle``."""
+    """The one question the sweep asks — satisfied by ``HubDisplay``."""
 
-    def depart_lapsed(self) -> frozenset[ConnectionId]:
+    def reap_lapsed_leases(self) -> frozenset[ConnectionId]:
         """Depart every lapsed connection now; return the ids that left."""
         ...
 
@@ -59,7 +59,7 @@ class LeaseReapSweep:
 
     def sweep(self) -> frozenset[ConnectionId]:
         """Run one reap pass; return the ids departed. The deterministic test hook."""
-        return self._reaper.depart_lapsed()
+        return self._reaper.reap_lapsed_leases()
 
     async def run(self) -> None:
         """Sweep-wait-repeat until the task is cancelled at shutdown.

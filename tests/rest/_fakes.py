@@ -151,8 +151,8 @@ def make_facade(
         display,
         Recorder(),
         hub=Hub(),
-        menu_registry=HubMenuRegistry(display.parts.clients),
-        callback_router=router or CallbackRouter(display.parts.clients),
+        menu_registry=HubMenuRegistry(display.clients),
+        callback_router=router or CallbackRouter(display.clients),
         ports=HubPorts(
             element_factory=hub_element_factory,
             ensure_writer=inbox.ensure_writer,
@@ -181,9 +181,9 @@ def make_client(
     port = display_port if display_port is not None else ForbiddenPort()
     app = FastAPI()
     display = store if store is not None else HubDisplay()
-    router = CallbackRouter(display.parts.clients)
+    router = CallbackRouter(display.clients)
     if listening:
-        display.parts.clients.legs.attach(
+        display.clients.legs.attach(
             DEFAULT_CONNECTION, DEFAULT_IDENTITY_MODEL, SilentListener()
         )
     facade = make_facade(display_port=port, store=display, router=router)

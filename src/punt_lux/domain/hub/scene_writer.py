@@ -82,7 +82,7 @@ class HubSceneWriter:
         # One store-lock hold spans the whole batch so the replicator never
         # snapshots it half-applied; reentrant, so nested writes re-enter freely.
         with self._display.write_lock():
-            self._display.parts.lifecycle.renew(scope.connection_id)
+            self._display.renew_contact(scope.connection_id)
             try:
                 batch = PatchBatch.from_wire(patches)
                 realizations = self._field_realizations(scope, batch)
@@ -115,8 +115,8 @@ class HubSceneWriter:
         """
         touched: set[SceneId] = set()
         with self._display.write_lock():
-            self._display.parts.lifecycle.renew(connection_id)
-            for owned_scene, element_id in self._display.parts.reads.elements_owned_by(
+            self._display.renew_contact(connection_id)
+            for owned_scene, element_id in self._display.elements_owned_by(
                 connection_id
             ):
                 if scene_id is not None and owned_scene != scene_id:
@@ -130,7 +130,7 @@ class HubSceneWriter:
         self, scope: SceneScope, batch: PatchBatch
     ) -> list[FieldRealization]:
         """Resolve one owner-checked field realization per field patch."""
-        seam = self._display.parts.seam
+        seam = self._display.write_seam
         realizations: list[FieldRealization] = []
         for patch in batch.field_patches:
             self._require_owner(scope, patch.element_id)
@@ -145,7 +145,7 @@ class HubSceneWriter:
         An absent target is skipped, not rejected -- ``RemoveElement`` is
         idempotent -- but logged, so a mistyped id leaves a diagnosable trace.
         """
-        seam = self._display.parts.seam
+        seam = self._display.write_seam
         for element_id in removals:
             if not seam.is_present(scope.scene_id, element_id):
                 _log.debug(
@@ -192,7 +192,7 @@ class HubSceneWriter:
         ``None`` (installed but unowned, e.g. a departure released it) is
         writable by anyone, matching ``OwnerTracker.require_ownership``.
         """
-        owner = self._display.parts.reads.owner_of(scope.scene_id, element_id)
+        owner = self._display.owner_of(scope.scene_id, element_id)
         if owner not in (None, scope.connection_id):
             raise HubOwnershipError(
                 scene_id=scope.scene_id,

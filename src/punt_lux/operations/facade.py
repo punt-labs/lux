@@ -128,18 +128,20 @@ class Operations:
     ) -> Self:
         """Wire every concern class from injected collaborators — no singletons."""
         deps = SceneOperationsDeps(display, replicator, ports.element_factory, hub)
+        scenes = SceneOperations(deps)
         callbacks = CallbackOperations(display, callback_router, replicator)
         arming = MenuArmingDeps.over(
             display, menu_registry, replicator, ports.ensure_writer
         ).arming()
         clients = ClientListing(display, hub, ports.inbox_depth)
+        queries = QueryOperations(display, ports.display_port, clients)
         return cls(
             OperationsConcerns(
-                scenes=SceneOperations(deps),
+                scenes=scenes,
                 pubsub=PubSubOperations(hub, display, ports),
                 config=DisplayModeOperations(),
                 display=DisplayControlOperations(ports.display_port),
-                queries=QueryOperations(display, ports.display_port, clients),
+                queries=queries,
                 menus=MenuOperations(
                     MenuOperationsDeps(
                         registry=menu_registry,
@@ -152,9 +154,7 @@ class Operations:
                 identity=IdentityOperations(display),
                 callbacks=callbacks,
                 frame_remover=FrameRemover(display, replicator),
-                link=DisplayLinkOperations(
-                    ports.display_port, display.parts.reader, replicator
-                ),
+                link=DisplayLinkOperations(ports.display_port, display, replicator),
             )
         )
 

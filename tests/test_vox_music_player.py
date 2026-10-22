@@ -110,7 +110,7 @@ def _wired() -> tuple[TestClient, Hub, HubClientRegistry, CallbackRouter]:
     """Mount the production listen transport over fresh domain objects."""
     hub = Hub()
     display = HubDisplay(hub=hub)
-    clients = display.parts.clients
+    clients = display.clients
     router = CallbackRouter(clients)
     app = FastAPI()
     HubListenTransport(hub, display, router, _MenuFlag()).mount(app)

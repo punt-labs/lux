@@ -59,7 +59,7 @@ class SceneInstaller:
         scoped = CompositionBoundary.compose_or_reject(lambda: submission.scoped(owner))
         if isinstance(scoped, OpError):
             return scoped
-        left = self._display.parts.frames.presentation_for(scoped.scene_id).frame_id
+        left = self._display.frames.presentation_for(scoped.scene_id).frame_id
         self._display.show_scene(
             owner,
             scoped.scene_id,
@@ -74,7 +74,7 @@ class SceneInstaller:
     def _resend_survivors(self, left: str, entered: str) -> None:
         """Resend what a move out of ``left`` leaves, for the new canonical owner."""
         survivors = (
-            self._display.parts.frames.scenes_in_frame(left) if left != entered else ()
+            self._display.frames.scenes_in_frame(left) if left != entered else ()
         )
         for survivor in survivors:
             self._replicator.mark_dirty(survivor)

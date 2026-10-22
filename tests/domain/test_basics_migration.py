@@ -97,7 +97,7 @@ def test_text_element_wire_path_through_hub_apply() -> None:
     """Wire-decoded TextElement reaches HubDisplay.apply and is installed."""
     display = HubDisplay()
     client = ConnectionId("alice")
-    display.parts.lifecycle.arrive(client)
+    display.register_client(client)
 
     wire = {"kind": "text", "id": "t1", "content": "hello"}
     elem = agent_element_factory().element_from_dict(wire)
@@ -105,8 +105,8 @@ def test_text_element_wire_path_through_hub_apply() -> None:
 
     display.apply(client, AddElement(scene_id=SceneId("s1"), element=elem))
 
-    assert display.parts.reads.owner_of(SceneId("s1"), ElementId("t1")) == client
-    stored = display.parts.reads.resolve(SceneId("s1"), ElementId("t1"))
+    assert display.owner_of(SceneId("s1"), ElementId("t1")) == client
+    stored = display.resolve(SceneId("s1"), ElementId("t1"))
     assert isinstance(stored, TextElement)
     assert stored.content == "hello"
 
@@ -187,7 +187,7 @@ def test_every_basics_kind_flows_through_hub_apply() -> None:
     """PY-RF-2: every new domain type has a production caller from day one."""
     display = HubDisplay()
     client = ConnectionId("alice")
-    display.parts.lifecycle.arrive(client)
+    display.register_client(client)
 
     elements: list[Element] = [
         TextElement(id="t1", content="hi"),
@@ -200,7 +200,7 @@ def test_every_basics_kind_flows_through_hub_apply() -> None:
     for elem in elements:
         display.apply(client, AddElement(scene_id=SceneId("s1"), element=elem))
 
-    roots = display.parts.reads.scene_roots(SceneId("s1"))
+    roots = display.scene_roots(SceneId("s1"))
     assert [e.id for e in roots] == [e.id for e in elements]
 
 

@@ -88,11 +88,11 @@ def ensure_writer(connection_id: ConnectionId) -> None:
     otherwise land inside.
     """
     with hub_display.write_lock():
-        hub_display.parts.lifecycle.arrive(connection_id)
+        hub_display.register_client(connection_id)
         # The inbox and its cleanup exist independently of any Hub writer, so a
         # listener session (writer already bound) still receives menu_set clicks.
         inbox_for(connection_id)
-        hub_display.parts.lifecycle.bind_sink(connection_id, drop_session)
+        hub_display.bind_departure_sink(connection_id, drop_session)
         if hub.has_writer(connection_id):
             return
 

@@ -223,7 +223,7 @@ def test_every_inputs_kind_flows_through_hub_apply() -> None:
     """PY-RF-2: every domain-routed wire kind has a production caller from day one."""
     display = HubDisplay()
     client = ConnectionId("alice")
-    display.parts.lifecycle.arrive(client)
+    display.register_client(client)
 
     elements: list[Element] = [
         ButtonElement(id="b1", label="OK"),
@@ -239,7 +239,7 @@ def test_every_inputs_kind_flows_through_hub_apply() -> None:
     for elem in elements:
         display.apply(client, AddElement(scene_id=SceneId("s1"), element=elem))
 
-    roots = display.parts.reads.scene_roots(SceneId("s1"))
+    roots = display.scene_roots(SceneId("s1"))
     assert [e.id for e in roots] == [e.id for e in elements]
 
 
@@ -275,7 +275,7 @@ def test_button_click_routes_through_the_hub_to_element_handlers(
     assert click_event.owner_id == ClientId(str(alice))
     assert observed_b == [click_event]
 
-    stored = hub.display.parts.reads.resolve(SceneId("s1"), ElementId("b1"))
+    stored = hub.display.resolve(SceneId("s1"), ElementId("b1"))
     assert isinstance(stored, ButtonElement)
     assert stored.label == "OK"
 

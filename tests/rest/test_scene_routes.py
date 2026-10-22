@@ -303,9 +303,7 @@ def test_a_permanent_lease_survives_the_json_round_trip() -> None:
     this drives the real route to prove it — serialise, and parse back.
     """
     store = HubDisplay()
-    store.parts.lifecycle.identify(
-        ConnectionId("voxd"), ClientIdentity(kind="app", name="voxd")
-    )
+    store.identify_client(ConnectionId("voxd"), ClientIdentity(kind="app", name="voxd"))
     client = make_client(store=store)
 
     resp = client.get("/clients")
@@ -319,7 +317,7 @@ def test_a_permanent_lease_survives_the_json_round_trip() -> None:
 
 def test_an_expiring_lease_round_trips_with_its_length() -> None:
     store = HubDisplay()
-    store.parts.lifecycle.identify(
+    store.identify_client(
         ConnectionId("applet"),
         ClientIdentity(
             kind="applet", name="lux · lux · #4b97 · lux-beads", repo="/w/lux"
@@ -353,8 +351,7 @@ def test_render_table_route_installs_the_live_composition() -> None:
     resp = client.put("/scenes/issues/table", json=_TABLE_BODY)
     assert resp.status_code == 200
     search = cast(
-        "AbcElement",
-        store.parts.reads.resolve(_scoped("issues"), ElementId("table-search")),
+        "AbcElement", store.resolve(_scoped("issues"), ElementId("table-search"))
     )
     # the search input carries the composition's SearchFilterHandler on top of its
     # built-in value mirror — two ValueChanged handlers, live chrome.
@@ -371,7 +368,7 @@ def test_replacing_a_composed_scene_does_not_leak_the_old_model() -> None:
     store = HubDisplay()
     client = make_client(store=store)
     client.put("/scenes/issues/table", json=_TABLE_BODY)
-    old_table = store.parts.reads.resolve(_scoped("issues"), ElementId("table"))
+    old_table = store.resolve(_scoped("issues"), ElementId("table"))
     ref = weakref.ref(old_table)
     del old_table
     client.put("/scenes/issues/table", json=_TABLE_BODY)  # replace with fresh build
@@ -409,10 +406,8 @@ def test_beads_board_request_installs_live_chrome_through_the_table_route() -> N
     scene = _scoped("beads-proj")
     # The composed chrome is present as real elements, not a lone dead table.
     for element_id in ("table-search", "table", "table-detail"):
-        assert store.parts.reads.resolve(scene, ElementId(element_id)) is not None
-    search = cast(
-        "AbcElement", store.parts.reads.resolve(scene, ElementId("table-search"))
-    )
+        assert store.resolve(scene, ElementId(element_id)) is not None
+    search = cast("AbcElement", store.resolve(scene, ElementId("table-search")))
     # The search input carries the composition's live SearchFilterHandler on top
     # of its built-in value mirror — two ValueChanged handlers, live chrome.
     assert search.handler_count(ValueChanged) == 2
@@ -443,8 +438,7 @@ def test_generic_render_of_composed_json_loses_the_composition_handlers() -> Non
     resp = client.put("/scenes/issues", json={"scene_id": "issues", "elements": wire})
     assert resp.status_code == 200
     search = cast(
-        "AbcElement",
-        store.parts.reads.resolve(_scoped("issues"), ElementId("table-search")),
+        "AbcElement", store.resolve(_scoped("issues"), ElementId("table-search"))
     )
     # The constructed SearchFilterHandler was stripped on decode — dead chrome.
     assert search.handler_count(ValueChanged) < 2
