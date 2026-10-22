@@ -174,13 +174,7 @@ class HubReconciliation:
             return
         manifest = frozenset(msg.scene_ids)
         hub = self.hub_of(sock)
-        purge = self._scenes.scenes_to_purge(hub, manifest, self._live_hubs())
-        for frame_key, scene_id in purge:
-            frame = self._scenes.frame(frame_key.local, frame_key.hub)
-            if frame is None:
-                continue
-            if self._scenes.dismiss_framed_scene(frame, scene_id):
-                self._scenes.dispose_frame(frame_key.local, frame_key.hub)
+        self._scenes.departure.sweep.run(hub, manifest, self._live_hubs())
 
     def _live_hubs(self) -> frozenset[HubId]:
         """Return the ``HubId`` of every currently connected ``kind="hub"`` fd."""

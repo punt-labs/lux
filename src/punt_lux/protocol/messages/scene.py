@@ -40,6 +40,9 @@ class SceneMessage:
     frame_size: tuple[int, int] | None = None
     frame_flags: dict[str, bool] | None = None
     frame_layout: Literal["tab", "stack"] | None = None
+    # Absent = no change / owner unknown -- the display keeps its last cached
+    # snapshot rather than blanking it (the departure guarantee, PY-TS-14).
+    frame_owner_facts: tuple[tuple[str, str], ...] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to the wire dict (delegates to :class:`SceneCodec`)."""

@@ -353,6 +353,10 @@ class CouplingScorer:
             "src/punt_lux/operations/facade.py",
             "src/punt_lux/domain/hub/replicator_instance.py",
             "src/punt_lux/tools/subscribe_tools.py",
+            # Leader-ruled 2026-09-19: Hub composition root (wiring hub),
+            # lux-c7xi -- same class as facade/replicator_instance; efferent
+            # grows per bound operation, <=20 tier per DES-095.
+            "src/punt_lux/hub_composition.py",
         }
     )
 

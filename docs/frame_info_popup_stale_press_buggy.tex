@@ -1,0 +1,806 @@
+%
+% frame_info_popup_stale_press_buggy.tex
+%
+% FIDELITY CONTROL for frame_info_popup.tex -- NOT the design.
+%
+% This is the specification with exactly one rule changed, so that a
+% defect the design closes becomes reachable.
+%
+% The edit:
+%   FrameRelease clears the press record only when it judged a click;
+%   any other release leaves it in place.
+%
+% Must find:
+%   probcli frame_info_popup_stale_press_buggy.tex -model_check -nodead \
+%     -goal "i4 : bad" -p DEFAULT_SETSIZE 2 -p MAX_OPERATIONS 1000
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{The lux Frame-Info Popup: Fidelity Control, (d), the Press Record Kept After a Release That Was Not a Click}
+\author{Formal model of the glyph press / hold / release state machine}
+\date{October 2026}
+\maketitle
+
+\paragraph{This file is a fidelity control.}
+It is \texttt{frame\_info\_popup.tex} with one rule changed ((d), the Press Record Kept After a Release That Was Not a Click), so that
+the defect the design closes is reachable.  Where the prose below describes
+the intact rule, the edited schema governs.  See Section~\ref{sec:fidelity} of
+the specification for the trace it must reproduce.
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+Every frame's title bar carries a small ``i'' glyph.  A click on it opens a
+popup of the frame's owning-connection facts; a second click closes it.  That
+sentence hides a good deal of machinery.  The glyph is not an ImGui item: it is
+painted on the foreground draw list and hit-tested against the raw mouse
+position, so ImGui knows nothing of it.  A press on it is, to ImGui, a press on
+the frame's title bar, and a press on a title bar starts a window move.  While
+that move is live ImGui re-focuses the frame on every frame, and focusing a
+frame closes every popup stacked over it --- so the code's documentation says,
+and Section~\ref{sec:assume} records how much of that could be confirmed.  A
+popup opened on the \emph{press} would then not survive the held button; a
+popup opened on the \emph{release}, after the move has ended, does.  So the glyph
+must judge a click, not a press.
+
+A click is the release over a glyph of a press that began on \emph{that}
+glyph and never strayed past the drag threshold.  Each clause of that
+definition has been wrong in the code at some point, and each time the popup
+did something the user had not asked for or nothing at all:
+\begin{itemize}
+  \item The popup was opened on the press, and ImGui's per-frame refocus shut
+    it before the button came up: the popup was never visible for a held
+    click.
+  \item The drag test compared the \emph{current} offset from the press point
+    with the threshold, so dragging away and returning before the release
+    opened the popup although the frame had been moved.
+  \item The toggle was decided on the release from the popup's \emph{current}
+    state.  ImGui shuts a popup on a press outside it --- a press on the glyph
+    that the popup does not cover is such a press --- so by the release the
+    popup was already closed, and the second click reopened what it had just
+    seen close.
+  \item A single press record, kept across glyphs and cleared only by a
+    click, survived a release that was not one; a later release over some
+    glyph whose press had never begun there was misjudged against it.
+\end{itemize}
+Four defects of one family across successive review rounds is the recurrence
+signal: the problem is not a missing test but a state space, and the state space
+is small enough to enumerate.  This document is that enumeration.
+
+The model is a finite state machine over a bounded set of frames.  It has the
+code's own state --- the popup, and the one press record the controller holds
+--- and, beside it, the \emph{physical gesture} the user is making: whether the
+button is down, where it went down, whether the pointer has strayed.  The
+physical gesture is the oracle.  It is never consulted by an operation to
+decide what the code does; it is consulted only to decide whether what the code
+did was right.
+
+% ============================================================
+\section{Free Types and Constants}
+% ============================================================
+
+\begin{zed}
+  [FRAME]
+\end{zed}
+
+A frame, addressed as the code addresses it: by identity, so that a frame that
+vanishes and is re-created under the same identity is the same \texttt{FRAME}.
+(The code pairs the frame id with its Hub; two Hubs may mint one id, and the
+pair is the identity.  The model needs only that identity be a single value.)
+
+\begin{zed}
+  ZBOOL ::= ztrue | zfalse
+\end{zed}
+
+A two-valued flag as a free type, so ProB animates it as a small enumerated
+set.
+
+\begin{zed}
+  STATUS ::= gone | shown | folded
+\end{zed}
+
+What the replica and the renderer know of a frame.  \texttt{gone}: the replica
+holds no such frame.  \texttt{shown}: it exists and its window is expanded, so
+its glyph is drawn and can be hovered.  \texttt{folded}: it exists but its
+glyph is not drawn this frame --- minimized to the dock bar, put away by the
+user, or its window collapsed.  The distinction between \texttt{gone} and
+\texttt{folded} is the one the popup's own test draws: it asks the replica
+whether the frame \emph{exists}, not whether it is drawn.
+
+\begin{zed}
+  POPUP ::= closed | opened \ldata FRAME \rdata
+\end{zed}
+
+The one info popup is either closed or open for exactly one frame.  That the
+popup is open for \emph{at most one} frame is not a property to be proved: it is
+what the type says, exactly as the code's single \texttt{OpenPopup | None}
+says it.  Invariant~5 concerns the other half, whether that one frame still
+exists.
+
+\begin{zed}
+  TARGET ::= tnone | tglyph \ldata FRAME \rdata
+\end{zed}
+
+What the pointer is over at a mouse edge: nothing of interest, or the glyph of
+a frame.  A glyph can be the target only while its frame is \texttt{shown}.
+
+\begin{zed}
+  ORIGIN ::= onone | oaway | oglyph \ldata FRAME \rdata
+\end{zed}
+
+Where the button went down, for the gesture in progress: \texttt{onone} when
+the button is up, \texttt{oaway} when it went down on anything other than a
+glyph, \texttt{oglyph~f} when it went down on the glyph of~\texttt{f}.
+
+\begin{zed}
+  PRESS ::= nopress | gpress \ldata FRAME \cross ZBOOL \rdata
+\end{zed}
+
+The controller's press record: nothing, or the press that began on the glyph
+of a frame together with whether the popup was open for that frame when it
+fell.  The slot is either empty or holds a value; as a free type there is no
+two-element value to constrain away.
+
+\begin{zed}
+  EDGE ::= eidle | epress | erelease
+\end{zed}
+
+What the left button did this ImGui frame.
+
+\begin{zed}
+  KEY ::= nokey | escape
+\end{zed}
+
+Whether Escape is pressed in this frame.
+
+\begin{zed}
+  COVER ::= uncovered | covered
+\end{zed}
+
+Whether a press lands on the popup window (\texttt{covered}) or outside it
+(\texttt{uncovered}).
+
+\begin{zed}
+  INV ::= i1 | i2 | i3 | i4 | i5
+\end{zed}
+
+The names of the five safety invariants, so that the model can record which have
+been violated in a single latch (Section~\ref{sec:state}).
+
+% ============================================================
+\section{State}
+\label{sec:state}
+% ============================================================
+
+The state is flat: one schema, eleven components, and no predicate at all.  The
+types carry what a predicate would otherwise have to assert, and the safety
+properties (Section~\ref{sec:inv}) are deliberately \emph{absent} here, so that
+a violating state remains reachable and ProB can find it.
+
+\begin{schema}{Glyphs}
+  fstat : FRAME \fun STATUS \\
+  site : POPUP \\
+  press : PRESS \\
+  hold : ZBOOL \\
+  origin : ORIGIN \\
+  moving : ZBOOL \\
+  drag : ZBOOL \\
+  cur : ZBOOL \\
+  atpress : ZBOOL \\
+  shut : ZBOOL \\
+  bad : \power INV
+\end{schema}
+
+The first three components are the code's.  \texttt{fstat} is the replica and
+renderer's view of each frame.  \texttt{site} is the popup
+(\texttt{PopupSite}), closed or open for one frame.  \texttt{press} is the
+single press record of \texttt{PopupController}.
+
+The next five describe the physical gesture and are not the code's state.
+\texttt{hold} is whether the button is down.  \texttt{origin} is where it went
+down.  \texttt{moving} is whether that press began a window move: it did if it
+went down on a glyph that no popup covered, because then ImGui took it for a
+press on the frame's title bar.  \texttt{drag} is the farthest-travelled latch:
+true as soon as the pointer has strayed past the drag threshold at any moment
+since the press, and never cleared until the button comes up.  \texttt{cur}
+is the \emph{current} offset: true while the pointer is beyond the threshold,
+false again if it returns.  The two differ exactly on a drag-away-and-return,
+which is the second defect above.
+
+\texttt{atpress} is a ghost: whether the popup was open for the pressed
+frame's glyph when the press fell.  It is what Invariants~1 and~2 are judged
+against.
+
+\texttt{shut} is a shadow of ImGui's own popup stack: true when ImGui has
+closed the popup but the code has not yet been told.  ImGui closes a popup on
+a press outside it, and on every frame of a title-bar window move, at the
+\emph{end} of the frame; the code finds out only when the next frame's
+\texttt{begin\_popup} reports it shut.  For one frame, therefore, the code's
+\texttt{site} says open while ImGui's popup is already gone.  That window is
+exactly where the third defect lived, and it is the reason the press record
+exists.  \texttt{bad} is the latch of violated invariants, written only by the
+oracle and read only by the goals.
+
+% ============================================================
+\section{Three Recurring Expressions}
+% ============================================================
+
+Three expressions recur in the frame operations of Section~\ref{sec:frame}.
+They are written out in each operation rather than abstracted into functions,
+so that every operation can be read, and every fidelity variant edited, in one
+place.
+
+\paragraph{The surviving popup.}
+\texttt{kept!} is the popup after the render pass has asked the replica
+whether its frame still exists: the popup survives unless its frame is
+\texttt{gone}.  This is \texttt{FrameInfoPopup.render}'s first test (``its frame
+is gone'').  Replacing it by the popup itself is the buggy variant of
+Section~\ref{sec:fidelity}, defect~(e).
+
+\paragraph{Whether the popup was open for a frame.}
+The press record's flag is \texttt{is\_open\_for(frame)} read at the press
+edge: \texttt{ztrue} if \texttt{site~=~opened~f}, \texttt{zfalse} otherwise.
+
+\paragraph{The audit.}
+After every frame the oracle checks the two invariants that are properties of a
+state rather than of a gesture.  Invariant~5 is violated if the popup is open
+for a frame the replica no longer holds.  The state half of Invariant~4 is
+violated if the press record names a frame the physical button did not go down
+on --- which includes any record that outlives the button coming up, since then
+\texttt{origin} is \texttt{onone}.  The audit adds the names of the invariants
+the post-state violates to \texttt{bad}.
+
+% ============================================================
+\section{Initialization}
+% ============================================================
+
+\begin{schema}{Init}
+  Glyphs'
+\where
+  fstat' = (\lambda f : FRAME @ gone) \\
+  site' = closed \\
+  press' = nopress \\
+  hold' = zfalse \\
+  origin' = onone \\
+  moving' = zfalse \\
+  drag' = zfalse \\
+  cur' = zfalse \\
+  atpress' = zfalse \\
+  shut' = zfalse \\
+  bad' = \emptyset
+\end{schema}
+
+A single initial state: no frame exists, the popup is closed, the button is up,
+no press is recorded, no invariant is violated.
+
+% ============================================================
+\section{Operations Between Frames}
+% ============================================================
+
+Two kinds of event happen between ImGui frames and are visible to the code only
+at the next one: the replica changing under it, and the pointer moving.
+
+\begin{schema}{FrameChange}
+  \Delta Glyphs \\
+  f? : FRAME \\
+  s? : STATUS
+\where
+  fstat~f? \neq s? \\
+  fstat' = fstat \oplus \{ f? \mapsto s? \} \\
+  site' = site \\
+  press' = press \\
+  hold' = hold \\
+  origin' = origin \\
+  moving' = moving \\
+  drag' = drag \\
+  cur' = cur \\
+  atpress' = atpress \\
+  shut' = shut \\
+  bad' = bad
+\end{schema}
+
+\texttt{FrameChange} makes a frame appear, vanish, fold or unfold, at any
+moment, including between a press and its release.  It deliberately touches
+nothing else: the popup is not told, because in the code it is not.  The popup
+learns that its frame has gone only when the next render pass asks.
+
+\begin{schema}{DragOut}
+  \Delta Glyphs
+\where
+  hold = ztrue \\
+  cur = zfalse \\
+  cur' = ztrue \\
+  drag' = ztrue \\
+  fstat' = fstat \\
+  site' = site \\
+  press' = press \\
+  hold' = hold \\
+  origin' = origin \\
+  moving' = moving \\
+  atpress' = atpress \\
+  shut' = shut \\
+  bad' = bad
+\end{schema}
+
+\begin{schema}{DragBack}
+  \Delta Glyphs
+\where
+  hold = ztrue \\
+  cur = ztrue \\
+  cur' = zfalse \\
+  fstat' = fstat \\
+  site' = site \\
+  press' = press \\
+  hold' = hold \\
+  origin' = origin \\
+  moving' = moving \\
+  drag' = drag \\
+  atpress' = atpress \\
+  shut' = shut \\
+  bad' = bad
+\end{schema}
+
+\texttt{DragOut} moves the held pointer beyond the drag threshold; it sets
+both the current offset and the farthest-travelled latch.  \texttt{DragBack}
+returns the pointer to within the threshold: the current offset clears and the
+latch does not.  ImGui's \texttt{mouse\_drag\_max\_distance\_sqr} is the latch;
+the current offset is what the drag test compared before it was corrected
+(defect~(b) of Section~\ref{sec:fidelity}).
+
+% ============================================================
+\section{The ImGui Frame}
+\label{sec:frame}
+% ============================================================
+
+An ImGui frame is atomic in the model, but it has an internal order that the
+code depends on, and the model keeps it:
+\begin{enumerate}
+  \item ImGui starts the frame.  Escape, if pressed, shuts the popup now.
+  \item Each drawn glyph is read and its reading is fed to the controller.  The
+    controller sees the popup as the \emph{code} holds it, which is stale by
+    one frame if ImGui shut it at the end of the last: this is why the press
+    record stores whether the popup was open, rather than the release asking.
+  \item The popup is rendered.  The popup the code held closes if its frame is
+    gone, if ImGui shut it (\texttt{shut}, from the end of the last frame or
+    Escape this one), or if a close was requested in step~2.  A popup opened in
+    step~2 is placed fresh, in the popup layer, and survives all of these.
+  \item ImGui ends the frame.  A press that does not land on the popup shuts
+    the popup that was open when it fell, and every frame of a title-bar window
+    move shuts a popup that stands (assumptions A1 and A2,
+    Section~\ref{sec:assume}); the code learns of it in the next frame's
+    step~3.  A release shuts nothing.
+  \item The controller closes out the frame: a release anywhere discards the
+    press record.
+\end{enumerate}
+The three frame operations differ in the button edge, and so in what steps 2
+and~4 do.  In every one of them \texttt{site'} is the popup after step~3,
+\texttt{shut'} is what step~4 left behind, and the oracle audits the
+post-state; the invariants that concern a gesture are judged in
+\texttt{FrameRelease}, the frame the gesture ends on.
+
+\texttt{FrameIdle} is a frame with no button edge: the button is up or held.
+Whatever is held across it is held across a real frame in which ImGui
+refocuses a moving window.
+
+\begin{schema}{FrameIdle}
+  \Delta Glyphs \\
+  k? : KEY \\
+  kept! : POPUP
+\where
+  kept! = (\IF shut = ztrue \lor (\exists f : FRAME @ \\
+  \quad~ site = opened~f \land fstat~f = gone) \THEN closed \ELSE site) \\
+  site' = (\IF k? = escape \THEN closed \ELSE kept!) \\
+  shut' = ztrue \iff (site' \neq closed \land hold = ztrue \\
+  \quad~ \land moving = ztrue) \\
+  bad' = bad \cup \{ i : INV | \\
+  \quad~ (i = i5 \land (\exists f : FRAME @ \\
+  \quad~ \quad~ site' = opened~f \land fstat~f = gone)) \\
+  \quad~ \lor (i = i4 \land (\exists f : FRAME; w : ZBOOL @ \\
+  \quad~ \quad~ press = gpress(f, w) \land origin \neq oglyph~f)) \} \\
+  fstat' = fstat \\
+  press' = press \\
+  hold' = hold \\
+  origin' = origin \\
+  moving' = moving \\
+  drag' = drag \\
+  cur' = cur \\
+  atpress' = atpress
+\end{schema}
+
+\texttt{k?} is Escape.  A frame with no edge neither opens nor closes the popup
+on the code's say-so; it can only be shut by ImGui (Escape, or the refocus of a
+moving window, which sets \texttt{shut'} for the next frame) or by the render
+pass finding the frame gone.  The refocus is the conjunct
+\texttt{hold~=~ztrue~$\land$~moving~=~ztrue} of the \texttt{shut'} equation; a
+popup that is already closed has nothing to shut.
+
+\begin{schema}{FramePress}
+  \Delta Glyphs \\
+  t? : TARGET \\
+  c? : COVER \\
+  k? : KEY \\
+  kept! : POPUP
+\where
+  hold = zfalse \\
+  (\forall f : FRAME | t? = tglyph~f @ fstat~f = shown) \\
+  c? = covered \implies site \neq closed \\
+  hold' = ztrue \\
+  drag' = zfalse \\
+  cur' = zfalse \\
+  (\forall f : FRAME | t? = tglyph~f @ origin' = oglyph~f) \\
+  t? = tnone \implies origin' = oaway \\
+  moving' = ztrue \iff (t? \neq tnone \land c? = uncovered) \\
+  (\forall f : FRAME | t? = tglyph~f @ \\
+  \quad~ press' = gpress(f, \IF site = opened~f \THEN ztrue \ELSE zfalse) \\
+  \quad~ \land atpress' = (\IF site = opened~f \THEN ztrue \ELSE zfalse)) \\
+  t? = tnone \implies press' = press \land atpress' = zfalse \\
+  kept! = (\IF shut = ztrue \lor (\exists f : FRAME @ \\
+  \quad~ site = opened~f \land fstat~f = gone) \THEN closed \ELSE site) \\
+  site' = (\IF k? = escape \THEN closed \ELSE kept!) \\
+  shut' = ztrue \iff (site' \neq closed \land c? = uncovered) \\
+  bad' = bad \cup \{ i : INV | \\
+  \quad~ (i = i5 \land (\exists f : FRAME @ \\
+  \quad~ \quad~ site' = opened~f \land fstat~f = gone)) \\
+  \quad~ \lor (i = i4 \land (\exists f : FRAME; w : ZBOOL @ \\
+  \quad~ \quad~ press' = gpress(f, w) \land origin' \neq oglyph~f)) \} \\
+  fstat' = fstat
+\end{schema}
+
+\texttt{t?} is what the pointer is over when the button goes down.  \texttt{c?}
+is whether the press lands on the popup window itself (the popup is above the
+frames, and may cover a glyph); a press that does not is a press ``outside''
+and ImGui shuts the popup on it.  The press is recorded against the glyph it
+fell on, with whether the popup was open for \emph{that} frame at that moment
+--- read from \texttt{site}, the code's view.  A press that fell on no glyph
+leaves the record as it was --- which, when the previous release was properly
+handled, is empty.
+
+The guard \texttt{c?~=~covered~$\implies$~site~$\neq$~closed} excludes the
+meaningless combination of a press on a popup that is not there.  The
+\texttt{moving} flag is set exactly for a press that went down on a glyph and
+was not swallowed by the popup.  \texttt{shut'} is set for a press that is not
+on the popup while a popup stands: ImGui shuts the popup that was open when the
+press fell.  (A popup opened \emph{during} the press frame is not shut by that
+press; see the assumptions of Section~\ref{sec:assume}.)
+
+\begin{schema}{FrameRelease}
+  \Delta Glyphs \\
+  t? : TARGET \\
+  k? : KEY \\
+  acted! : ZBOOL \\
+  kept! : POPUP
+\where
+  hold = ztrue \\
+  (\forall f : FRAME | t? = tglyph~f @ fstat~f = shown) \\
+  acted! = ztrue \iff (\exists f : FRAME @ t? = tglyph~f \land drag = zfalse \\
+  \quad~ \land (press = gpress(f, zfalse) \\
+  \quad~ \quad~ \lor (press = gpress(f, ztrue) \land site = opened~f))) \\
+  (\forall f : FRAME | t? = tglyph~f \land drag = zfalse \\
+  \quad~ \land press = gpress(f, zfalse) @ site' = opened~f) \\
+  (\forall f : FRAME | t? = tglyph~f \land drag = zfalse \\
+  \quad~ \land press = gpress(f, ztrue) \land site = opened~f @ site' = closed) \\
+  kept! = (\IF shut = ztrue \lor (\exists f : FRAME @ \\
+  \quad~ site = opened~f \land fstat~f = gone) \THEN closed \ELSE site) \\
+  acted! = zfalse \implies \\
+  \quad~ site' = (\IF k? = escape \THEN closed \ELSE kept!) \\
+  hold' = zfalse \\
+  origin' = onone \\
+  moving' = zfalse \\
+  drag' = zfalse \\
+  cur' = zfalse \\
+  atpress' = zfalse \\
+  shut' = zfalse \\
+  press' = (\IF (\exists f : FRAME; w : ZBOOL @ t? = tglyph~f \\
+  \quad~ \land drag = zfalse \land press = gpress(f, w)) \\
+  \quad~ \THEN nopress \ELSE press) \\
+  fstat' = fstat \\
+  bad' = bad \cup \{ i : INV | \\
+  \quad~ (i = i5 \land (\exists f : FRAME @ \\
+  \quad~ \quad~ site' = opened~f \land fstat~f = gone)) \\
+  \quad~ \lor (i = i4 \land (\exists f : FRAME; w : ZBOOL @ \\
+  \quad~ \quad~ press' = gpress(f, w) \land origin' \neq oglyph~f)) \\
+  \quad~ \lor (i = i1 \land (\exists f : FRAME @ origin = oglyph~f \\
+  \quad~ \quad~ \land t? = tglyph~f \land drag = zfalse \\
+  \quad~ \quad~ \land atpress = zfalse \land site' \neq opened~f)) \\
+  \quad~ \lor (i = i2 \land (\exists f : FRAME @ origin = oglyph~f \\
+  \quad~ \quad~ \land t? = tglyph~f \land drag = zfalse \\
+  \quad~ \quad~ \land atpress = ztrue \land site' \neq closed)) \\
+  \quad~ \lor (i = i3 \land drag = ztrue \land acted! = ztrue) \\
+  \quad~ \lor (i = i4 \land acted! = ztrue \\
+  \quad~ \quad~ \land (\forall f : FRAME @ \\
+  \quad~ \quad~ \quad~ origin \neq oglyph~f \lor t? \neq tglyph~f)) \}
+\end{schema}
+
+\texttt{t?} is what the pointer is over at the release.  The three universally
+quantified lines are the controller's decision, taken in the order the code
+takes it.  A release is a click on a glyph if the pointer is over it and the
+farthest-travelled latch is clear (\texttt{drag~=~zfalse}); a click acts only
+if the press record names \emph{that} frame.  If the record says the popup was
+\emph{not} open when the press fell, the click opens it for the frame
+(\texttt{open\_for}).  If it says the popup \emph{was} open, the click closes
+it --- but only if the popup is still open for the frame; if ImGui shut it on
+the press already there is nothing to close (the \texttt{elif} in
+\texttt{\_click}).  \texttt{acted!} reports whether the controller called
+\texttt{open\_for} or \texttt{request\_close} at all.
+
+A release that does not act leaves the popup to ImGui and the render pass: it
+is shut by Escape, by \texttt{shut}, or by its frame having gone, and otherwise
+stays.  The release is not itself an ImGui dismissal --- ImGui dismisses on a
+press --- and the refocus of a window move has ended with the button, so
+\texttt{shut'} is false.  The press record is discarded on every release,
+whatever happened (\texttt{end\_frame}).
+
+The last conjunct is the oracle.  It reads the physical gesture
+(\texttt{origin}, \texttt{drag}, \texttt{atpress}), which no operation uses to
+decide anything, and records which invariants the outcome contradicts.
+
+% ============================================================
+\section{Invariants}
+\label{sec:inv}
+% ============================================================
+
+Five safety properties must hold across all reachable states, plus
+deadlock-freedom.  They are stated as predicates over \texttt{Glyphs} and its
+oracle fields; how each is discharged is given in
+Section~\ref{sec:verify}.  None is placed in the \texttt{Glyphs} schema: a
+predicate placed there would be enforced as a guard on every successor, silently
+disabling any operation that would break it and thereby masking the very defect
+this model exists to catch.
+
+\paragraph{Invariant 1 --- a click on a closed popup opens it.}
+Every click on the glyph of $F$ --- a release over $F$'s glyph of a press that
+began on $F$'s glyph and never strayed --- with the popup not open for $F$ when
+the press fell, ends with the popup open for $F$:
+\[
+  i1 \notin bad.
+\]
+This includes the press that found the popup open for \emph{another} frame:
+$F$'s popup replaces it.
+
+\paragraph{Invariant 2 --- a click on an open popup closes it.}
+Every such click with the popup open for $F$ when the press fell ends with the
+popup closed, whether the click itself closed it or ImGui had already shut it on
+the press:
+\[
+  i2 \notin bad.
+\]
+
+\paragraph{Invariant 3 --- a drag never toggles.}
+A press that strayed past the drag threshold, at any moment before the release,
+never causes the controller to open or close the popup.  Only ImGui's own
+dismissal --- which a press outside the popup always causes --- may close it:
+\[
+  i3 \notin bad.
+\]
+
+\paragraph{Invariant 4 --- a release acts only on the press it came from.}
+A release acts only if the button went down on that same glyph, and the press
+record is a function of the physical press: it never names a frame the button
+did not go down on, and it does not outlive the button coming up:
+\[
+  i4 \notin bad.
+\]
+
+\paragraph{Invariant 5 --- the popup is open for a frame that exists.}
+At the end of every ImGui frame the popup is closed or is open for a frame the
+replica still holds:
+\[
+  i5 \notin bad.
+\]
+It is judged at the end of a frame and not between frames.  A frame can vanish
+at any moment, but the popup is drawn only in the render pass, and the render
+pass closes it first; there is no frame in which a popup is shown for a frame
+that is gone.  That the popup is open for \emph{at most one} frame is in the
+type (\texttt{POPUP}).
+
+\paragraph{Invariant 6 --- deadlock freedom.}
+No reachable state leaves the machine unable to progress.  \texttt{FrameIdle}
+is enabled in every state, so a frame can always be rendered.
+
+% ============================================================
+\section{Verification}
+\label{sec:verify}
+% ============================================================
+
+Type-checking is a \texttt{fuzz} pass:
+\begin{verbatim}
+  fuzz -t docs/frame_info_popup.tex
+\end{verbatim}
+
+Invariants 1--5 are checked by asking ProB whether the negation is
+\emph{reachable}.  A goal that is not found means the invariant holds on every
+reachable state.  \texttt{MAX\_OPERATIONS} is raised because the frame
+operations take enough inputs to exceed ProB's default of ten enabled
+operations per state, and a silent truncation would make a ``not found''
+meaningless:
+\begin{verbatim}
+  # Invariants 1-5 (each must report: No counter example found.
+  #                 ALL states visited.)
+  probcli docs/frame_info_popup.tex -model_check -nodead \
+    -goal "i1 : bad" -p DEFAULT_SETSIZE 2 -p MAX_OPERATIONS 1000
+  (and likewise i2, i3, i4, i5)
+\end{verbatim}
+
+Invariant 6 is the deadlock check over the full reachable state space:
+\begin{verbatim}
+  probcli docs/frame_info_popup.tex -model_check \
+    -p DEFAULT_SETSIZE 2 -p MAX_OPERATIONS 1000
+\end{verbatim}
+
+Results, over two frames (the smallest carrier in which one frame's popup can
+be replaced by another's) and three:
+\begin{center}
+\begin{tabular}{lrrl}
+  carrier & states & transitions & result \\ \hline
+  2 frames & 594 & 6172 & all of Invariants 1--5 hold; no deadlock \\
+  3 frames & 3105 & 40582 & all of Invariants 1--5 hold; no deadlock \\
+\end{tabular}
+\end{center}
+Every state is visited, so ``holds'' is exhaustive over the bounded carrier and
+not a sample.
+
+% ============================================================
+\section{Fidelity: reproducing the defects}
+\label{sec:fidelity}
+% ============================================================
+
+A model that cannot reproduce a known defect proves nothing.  Each defect below
+is this specification with one rule changed, in its own file, and each then
+makes one invariant's negation reachable.  Defects (a)--(d) are the four defects
+of the Introduction; defect (e) is the Invariant~5 control, included because
+Invariant~5 otherwise has no counterexample to show it can fail.  Each is run
+breadth-first (\texttt{-bf}) so the trace is a shortest one:
+\begin{verbatim}
+  probcli docs/frame_info_popup_<defect>_buggy.tex -model_check -bf \
+    -nodead -goal "<inv> : bad" -p DEFAULT_SETSIZE 2 -p MAX_OPERATIONS 1000
+\end{verbatim}
+Where the shortest trace ProB reports happens to use Escape or a press on the
+popup, the trace below is the equivalent one with both excluded, which is the
+user's own sequence and is also found.
+
+\paragraph{Defect (a) --- the popup opened on the press.}
+File: \texttt{frame\_info\_popup\_press\_opens\_buggy.tex}.  \texttt{FramePress}
+opens the popup for the pressed glyph's frame (closing it if it was open for
+that frame), and \texttt{FrameRelease} no longer acts.  Goal: \texttt{i1 : bad}.
+Trace, four steps:
+\begin{enumerate}
+  \item \texttt{FrameChange(F, shown)}.
+  \item \texttt{FramePress(uncovered, nokey, glyph of F)}: the popup opens for
+    $F$.  The press is on a title bar, so the window is now moving
+    (\texttt{moving = ztrue}).
+  \item \texttt{FrameIdle(nokey)}: the button is held; the moving window
+    refocuses and ImGui shuts the popup at the end of the frame (A2).
+  \item \texttt{FrameRelease(nokey, glyph of F)}: the render pass finds the
+    popup shut, and the controller no longer acts on a release.  The click on a
+    closed popup has ended with it closed: \texttt{i1} is latched.
+\end{enumerate}
+This is the defect as described: the popup is never visible for a held click.
+The trace needs the held frame, and so needs A2; without it the press-opened
+popup survives and the variant is not a defect at all.
+
+\paragraph{Defect (b) --- the drag judged by the current offset.}
+File: \texttt{frame\_info\_popup\_current\_offset\_buggy.tex}.
+\texttt{FrameRelease} reads \texttt{cur} where it should read \texttt{drag}.
+Goal: \texttt{i3 : bad}.  Trace, five steps: \texttt{FrameChange(F, shown)};
+\texttt{FramePress} on $F$'s glyph; \texttt{DragOut}; \texttt{DragBack};
+\texttt{FrameRelease} on $F$'s glyph.  The pointer left and returned, so the
+current offset is clear and the latch is set: the buggy release reads a click
+and opens the popup, though the press was a window move.
+
+\paragraph{Defect (c) --- the toggle decided on the release.}
+File: \texttt{frame\_info\_popup\_release\_toggle\_buggy.tex}.
+\texttt{FrameRelease} chooses between open and close by whether the popup is
+open \emph{now}, and ignores the flag recorded at the press.  Goal:
+\texttt{i2 : bad}.  Trace, six steps:
+\begin{enumerate}
+  \item \texttt{FrameChange(F, shown)}.
+  \item \texttt{FramePress} on $F$'s glyph; \texttt{FrameRelease} on $F$'s glyph:
+    the click opens the popup for $F$.
+  \item \texttt{FramePress(uncovered, \ldots)} on $F$'s glyph: the popup is open
+    (\texttt{atpress = ztrue}); the press is outside it, so ImGui shuts it at
+    the end of this frame.
+  \item \texttt{FrameIdle}: the render pass finds the popup shut and closes
+    \texttt{site}.
+  \item \texttt{FrameRelease} on $F$'s glyph: the buggy controller sees
+    \texttt{site = closed} and opens the popup.  The second click has ended with
+    the popup open.  \texttt{i2} is latched.
+\end{enumerate}
+The intact controller takes the decision from the press record, which still
+says ``open'', finds nothing to close, and leaves the popup closed.
+
+\paragraph{Defect (d) --- the press record not cleared by a release that is
+not a click.}
+File: \texttt{frame\_info\_popup\_stale\_press\_buggy.tex}.
+\texttt{FrameRelease} discards the record only when it judged a click.  Goal:
+\texttt{i4 : bad}.  Trace, three steps: \texttt{FrameChange(F, shown)};
+\texttt{FramePress} on $F$'s glyph; \texttt{FrameRelease} over no glyph.  The
+button is up and the record still names $F$: the state half of Invariant~4.  The
+consequence the invariant exists to prevent follows, and ProB finds it too with
+the state half switched off, so that only an \emph{action} can latch the
+invariant: the same three steps, then \texttt{FramePress} over no glyph and
+\texttt{FrameRelease} over $F$'s glyph.  The second release acts on the stale
+record --- it opens the popup for a press that began nowhere near the glyph.
+
+\paragraph{Defect (e) --- the popup surviving its frame.}
+File: \texttt{frame\_info\_popup\_frame\_gone\_buggy.tex}.  \texttt{kept!}
+ignores the replica: the popup is closed only by \texttt{shut}.  Goal:
+\texttt{i5 : bad}.  Trace, five steps: \texttt{FrameChange(F, shown)}; a click
+on $F$'s glyph (a press and a release) that opens the popup;
+\texttt{FrameChange(F, gone)}; \texttt{FrameIdle}.  The popup is open for a
+frame the replica no longer holds.
+
+% ============================================================
+\section{Assumptions About ImGui}
+\label{sec:assume}
+% ============================================================
+
+The model is exact about the controller and the popup, which are the code under
+test, and takes three facts about ImGui, which is not.  Each is stated with the
+evidence for it and with what rests on it.
+
+\paragraph{A1 --- a press outside the popup shuts it, at the end of that frame.}
+ImGui closes the popup that is open when a press lands outside it, but only
+after the frame's widgets have been drawn, so the code's \texttt{begin\_popup}
+reports it shut on the \emph{following} frame.  This was measured in the
+headless ImGui harness, and a regression test pins it
+(\texttt{test\_imgui\_shuts\_the\_popup\_at\_the\_end\_of\_the\_press\_frame\_not\_during\_it}).
+The first version of this model took the shutting to be immediate; the harness
+showed otherwise, and \texttt{shut} was added.  The invariants hold under
+\emph{both} timings: the immediate model had 432 states and the present one 594,
+and neither has a violation.  The measurement concerns a popup that was already
+open; a popup opened \emph{during} the press frame is not shut by that press
+(the harness shows it surviving), and the model treats it so.
+
+\paragraph{A2 --- a title-bar press that is moving a window shuts a standing
+popup, on each frame it is held.}
+This is the mechanism the code's own documentation gives for the first defect.
+It was not reproduced in the headless harness: with the controller altered to open
+the popup on the press, the popup stayed open through four held frames and four
+dragging frames.  The model keeps it, because the first defect is stated in
+these terms, but nothing about the intact controller rests on it.  The popup is
+never standing during a title-bar press in the intact controller (a press outside
+it shuts it by A1, and a press on it is not a title-bar press), and the model with
+the rule deleted visits the same 594 states and has the same verdicts.  Defect~(a)
+of Section~\ref{sec:fidelity} is therefore reproduced \emph{given} A2, and is the
+one fidelity control whose real-ImGui counterpart is in doubt.
+
+\paragraph{A3 --- Escape shuts the popup.}
+The harness showed that, in this application's ImGui configuration (no keyboard
+navigation), Escape does not dismiss the popup.  The model allows it anyway:
+it can only add behaviours, and a conclusion drawn over a superset of the
+real behaviours holds over the real ones.
+
+% ============================================================
+\section{From the Model to the Code}
+% ============================================================
+
+\texttt{press} is \texttt{PopupController.\_press}; \texttt{site} is
+\texttt{PopupSite.\_open}, the popup's whole state, \texttt{None} when closed.
+\texttt{FramePress} is \texttt{PopupController.observe} when the reading says
+\texttt{pressed}: it stores a \texttt{GlyphPress(frame, was\_open)}.
+\texttt{FrameRelease} is \texttt{observe} when the reading says \texttt{clicked}
+(\texttt{\_click}) followed by \texttt{end\_frame}.  \texttt{drag} is
+\texttt{GlyphReading.\_is\_undragged}'s
+\texttt{mouse\_drag\_max\_distance\_sqr}; \texttt{cur} is the quantity it used to
+read instead.  \texttt{kept!} and the ``dismissed by imgui'' rule are
+\texttt{FrameInfoPopup.render}, and the order of steps in
+Section~\ref{sec:frame} is \texttt{RenderLoop.\_render\_scene}'s: the glyphs
+inside \texttt{\_render\_frames}, then \texttt{render\_popup}, whose
+\texttt{end\_frame} closes the press.
+
+\paragraph{What the model abstracts.}
+A press and its release are never in the same ImGui frame; ImGui's input queue
+splits a fast click.  Only one glyph is under the pointer at a time, so two
+overlapping glyphs are not modelled.  A frame's owner facts, which arrive late
+and are re-read each frame, change only the popup's \emph{rows}, never whether it
+is open or for which frame, and are not in the state.  The drag threshold is a
+single boolean.  Time passes only as frames.
+
+\end{document}

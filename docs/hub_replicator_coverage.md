@@ -13,6 +13,29 @@ it, and the overlap on paths that route through `ClientRegistry` is a
 harmless, idempotent double-mark reading the same source of truth. No
 invariant or partition below changed; this spec was not re-verified.
 
+**Owner-facts note.** A scene send resolves the frame-info popup's owner
+facts for the frame its snapshot captured (`SceneSnapshot.push` passes the
+snapshot's own `frame_id` to `FrameOwnerFactsReader.facts_for_frame`), not for
+the scene's live frame, so a re-show that lands between the snapshot and the
+facts read cannot attach one frame's owner to another frame's resend
+(`tests/operations/test_canonical_frame_owner.py::TestAReplicatorSendRacingAReshow`).
+No lock was added and no acquisition order changed: the facts resolution makes
+the same store reads, after the snapshot's lock is released and before the
+client lock, that it made before; it only stopped re-deriving the frame from
+the scene's live presentation. I3 (the store lock and the client send lock are
+never held together) is untouched, and owner facts are not part of the model's
+state. The spec was not re-verified.
+
+**Move-out resend note.** Installing a scene into a different frame now also
+marks the scenes still in the frame it left dirty, so the next push for that
+frame carries its new canonical owner's facts
+(`tests/operations/test_canonical_frame_owner.py::TestAMoveOutOfAFrameNeedsNoManualResend`,
+`tests/operations/test_scene_installer.py`). This is more instances of the
+existing `MarkDirty` operation (`dirty' = dirty \cup {s?}`, partitions M3, M5,
+D2, D3), each on the installing thread after the commit, so the dirty set
+coalesces them exactly as it does any other marks. No lock, acquisition order
+or invariant premise changed; the spec was not re-verified.
+
 Companion to `docs/hub_replicator.tex`. Derives the test partitions (Test
 Template Framework style) from the Z operation schemas, then maps them against
 the tests that cover them, exactly as `docs/display_lifecycle_coverage.md` maps

@@ -408,6 +408,7 @@ class DisplayLink:
         frame_size: tuple[int, int] | None = None,
         frame_flags: dict[str, bool] | None = None,
         frame_layout: Literal["tab", "stack"] | None = None,
+        frame_owner_facts: tuple[tuple[str, str], ...] | None = None,
     ) -> None:
         """Send a scene without waiting for ack (an omitted *frame_id* self-frames)."""
         msg = SceneMessage(
@@ -420,6 +421,7 @@ class DisplayLink:
             frame_size=frame_size,
             frame_flags=frame_flags,
             frame_layout=frame_layout,
+            frame_owner_facts=frame_owner_facts,
         )
         self._send(self._require_connected(), msg)
 

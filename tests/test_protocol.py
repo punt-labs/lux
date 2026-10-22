@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import logging
 import pickle
 from typing import Any
 
@@ -488,6 +489,74 @@ class TestSerialization:
         assert isinstance(restored, SceneMessage)
         assert restored.frame_size is None
         assert restored.frame_flags is None
+
+    def test_framed_scene_with_owner_facts_roundtrip(self):
+        original = SceneMessage(
+            id="s1",
+            elements=[TextElement(id="t1", content="hello")],
+            frame_id="f1",
+            frame_owner_facts=(("Client", "lux"), ("Kind", "agent")),
+        )
+        d = message_to_dict(original)
+        assert d["frame_owner_facts"] == [["Client", "lux"], ["Kind", "agent"]]
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        assert restored.frame_owner_facts == (("Client", "lux"), ("Kind", "agent"))
+
+    def test_framed_scene_without_owner_facts_omits_the_field(self):
+        original = SceneMessage(
+            id="s1",
+            elements=[TextElement(id="t1", content="hello")],
+            frame_id="f1",
+        )
+        d = message_to_dict(original)
+        assert "frame_owner_facts" not in d
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        assert restored.frame_owner_facts is None
+
+    def test_scene_decode_tolerates_a_malformed_owner_facts_field(self):
+        # A wire boundary degrades a malformed optional field to absent --
+        # already the "no change" contract -- rather than raising.
+        restored = SceneMessage.from_dict(
+            {
+                "id": "s1",
+                "frame_id": "s1",
+                "elements": [],
+                "frame_owner_facts": "not-a-list-of-pairs",
+            }
+        )
+        assert restored.frame_owner_facts is None
+
+    @pytest.mark.parametrize(
+        "bad_rows",
+        [
+            [["only-one"]],
+            [42],
+            [{"label": "Client"}],
+            [[1, 2]],
+        ],
+    )
+    def test_scene_decode_logs_a_malformed_owner_facts_entry(
+        self, caplog: pytest.LogCaptureFixture, bad_rows: list[object]
+    ) -> None:
+        # A well-typed list the Hub's own serializer produced, but with an
+        # entry decode can't parse, signals a real protocol skew -- unlike a
+        # legitimately absent field, it must not be dropped invisibly. A dict
+        # entry (no numeric keys) and a two-number entry are the cases that
+        # once crashed on ``pair[0]`` or were silently accepted as ``str``.
+        with caplog.at_level(logging.WARNING):
+            restored = SceneMessage.from_dict(
+                {
+                    "id": "s1",
+                    "frame_id": "s1",
+                    "elements": [],
+                    "frame_owner_facts": bad_rows,
+                }
+            )
+        assert restored.frame_owner_facts is None
+        assert any("frame_owner_facts" in record.message for record in caplog.records)
+        assert all(record.levelno == logging.WARNING for record in caplog.records)
 
     def test_scene_decode_rejects_an_out_of_set_layout(self):
         # The layout field is a Literal; decode must reject an out-of-set value

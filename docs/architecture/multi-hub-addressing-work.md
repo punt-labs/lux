@@ -87,7 +87,7 @@ W7/W8 pair but is not part of that critical path — it is an optional,
 opt-in alternative to Provider 1 and ships (or doesn't) independent of
 W9–W13 and the W11/W12 gate.
 
-**W14** is the manifest-purge correction: `SceneReplica.scenes_to_purge`
+**W14** is the manifest-purge correction: `SceneReplica.departure.sweep.run`
 disowns any scene neither owned by the identifying fd nor named in the
 sending manifest — orphan-sweep logic that, unscoped, just as readily
 disowns a second, live Hub's own scenes once more than one Hub can send a

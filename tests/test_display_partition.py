@@ -1571,6 +1571,30 @@ class TestTabCloseDisposes:
         assert server._scenes.resolve_scene("s2") is not None
 
 
+class TestTabCloseForgetsTheDepartedOwner:
+    """Closing a tab takes its scene's owner out of the frame's popup too."""
+
+    def test_closing_one_tab_of_several_forgets_the_cached_owner(self):
+        server = _server()
+        sock = _sock(fd=10)
+        _register_hub(server, sock)
+        for sid in ("s1", "s2"):
+            server._handle_message(
+                sock,
+                SceneMessage(
+                    id=sid,
+                    elements=[TextElement(id=f"t-{sid}", content="A")],
+                    frame_id="f1",
+                    frame_owner_facts=(("Client", "owner-of-s1"),),
+                ),
+            )
+        frame = server._scenes.frames["f1"]
+
+        server._render_frame_tabs(frame, _TabBarClosingOneTab("s1"))
+
+        assert server._scenes.owner_facts_for("f1") is None
+
+
 class TestFrameVisibilityPartitions:
     """Where a frame is, and which gestures are entitled to move it."""
 

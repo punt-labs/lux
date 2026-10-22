@@ -120,3 +120,11 @@ def test_frame_id_for_local_reads_through_to_the_registry() -> None:
     c1 = ConnectionId("c1")
     assert fl.frame_id_for_local("board", connection=c1) == "c1\x1fboard"
     assert fl.frame_id_for_local("never-shown", connection=c1) is None
+
+
+def test_scenes_in_frame_reads_the_registrys_entry_order() -> None:
+    lifecycle = _lifecycle(FakeClock(), _Remover())
+    lifecycle.record(SceneId("s1"), ScenePresentation(frame_id="f"))
+    lifecycle.record(SceneId("s2"), ScenePresentation(frame_id="f"))
+
+    assert lifecycle.scenes_in_frame("f") == [SceneId("s1"), SceneId("s2")]

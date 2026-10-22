@@ -21,6 +21,7 @@ import pytest
 
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.crash_attribution import ATTRIBUTION_THRESHOLD
+from punt_lux.domain.hub.frame_owner_facts import NoFrameOwnerFacts
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
@@ -189,6 +190,7 @@ def _stack() -> tuple[
         provider,
         _Lifecycle(),
         store,
+        NoFrameOwnerFacts(),
     )
     provider.attach(repl)
     deps = SceneOperationsDeps(store, repl, hub_element_factory, Hub())

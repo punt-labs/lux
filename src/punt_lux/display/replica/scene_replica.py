@@ -8,13 +8,14 @@ from typing import Self
 from punt_lux.display.replica._wiring import (
     Frame,
     FrameBook,
-    ManifestPurge,
     OnSceneReplacedFn,
+    SceneDeparture,
     StaleIds,
     WidgetState,
     WidgetStateStore,
     WireScalar,
 )
+from punt_lux.display.replica.owner_facts_cache import OwnerFactsStore
 from punt_lux.domain.identity import HubId, HubScopedKey
 from punt_lux.protocol import SceneMessage
 
@@ -34,7 +35,8 @@ class SceneReplica:
     _book: FrameBook
     _widget_state: WidgetStateStore
     _stale: StaleIds
-    _purge: ManifestPurge
+    _owner_facts: OwnerFactsStore
+    _departure: SceneDeparture
 
     def __new__(
         cls,
@@ -45,7 +47,8 @@ class SceneReplica:
         self._book = FrameBook()
         self._widget_state = WidgetStateStore()
         self._stale = StaleIds(self._book, on_scene_replaced)
-        self._purge = ManifestPurge(self._book)
+        self._owner_facts = OwnerFactsStore()
+        self._departure = SceneDeparture(self._book, self._owner_facts, self)
         return self
 
     @property
@@ -63,11 +66,11 @@ class SceneReplica:
     @property
     def frame_count(self) -> int:
         """Every Hub's own frame count; a collision never undercounts it here."""
-        return len(self)
+        return len(self._book)
 
     @property
     def is_empty(self) -> bool:
-        return not len(self)
+        return not len(self._book)
 
     @property
     def hub_count(self) -> int:
@@ -122,15 +125,24 @@ class SceneReplica:
         """Transfer a departed client's framed scenes to a surviving co-owner."""
         self._book.reassign_scenes_of(departed_fd, orphan_fd)
 
-    def scenes_to_purge(
-        self, hub: HubId, manifest: frozenset[str], live_hubs: frozenset[HubId]
-    ) -> list[tuple[HubScopedKey, str]]:
-        """Every ``(frame_key, scene_id)`` to purge -- via :class:`ManifestPurge`."""
-        return self._purge.candidates(hub, manifest, live_hubs)
+    @property
+    def departure(self) -> SceneDeparture:
+        """How a scene leaves a frame: the one path for every departure."""
+        return self._departure
 
     def frame(self, frame_id: str, hub: HubId = _NO_HUB) -> Frame | None:
         """The frame ``(hub, frame_id)`` addresses -- collision-safe."""
         return self._book.frame(frame_id, hub)
+
+    def owner_facts_for(
+        self, frame_id: str, hub: HubId = _NO_HUB
+    ) -> tuple[tuple[str, str], ...] | None:
+        """``(hub, frame_id)``'s last-known owner facts, or ``None`` if untracked.
+
+        Hub-scoped like :meth:`frame`: two Hubs minting the identical frame id
+        never share one entry.
+        """
+        return self._owner_facts.rows_for(HubScopedKey(hub, frame_id))
 
     def handle_framed_scene(
         self, msg: SceneMessage, owner_fd: int, hub: HubId = _NO_HUB
@@ -138,10 +150,13 @@ class SceneReplica:
         """Route a scene into its frame; an empty push removes it, husk and all."""
         key = HubScopedKey(hub, msg.id)
         if not msg.elements:
-            self._remove_emptied_scene(key)
+            self._departure.of_empty_push(key, msg)
             return
         frame = self._book.ensure(msg, owner_fd, hub)
-        self._vacate_other_frame(frame, key)
+        self._owner_facts.adopt(
+            HubScopedKey(frame.hub, frame.frame_id), msg.frame_owner_facts
+        )
+        self._departure.from_other_frame(frame, key)
         is_new = msg.id not in frame.scenes
         old_scene = frame.scenes.get(msg.id)
         frame.scenes[msg.id] = msg
@@ -150,20 +165,6 @@ class SceneReplica:
         else:
             self._replace_scene_state(key, msg, old_scene)
         self._book.record_owner(key, owner_fd)
-
-    def _remove_emptied_scene(self, key: HubScopedKey) -> None:
-        """Drop a scene an empty push named, resolved by its own Hub only."""
-        stale = self._book.frame_of_hub_scene(key)
-        if stale is not None and self.dismiss_framed_scene(stale, key.local):
-            self.dispose_frame(stale.frame_id, stale.hub)
-
-    def _vacate_other_frame(self, frame: Frame, key: HubScopedKey) -> None:
-        """Take ``key`` out of any other frame owning it, disposing an emptied one."""
-        old_frame = self._book.frame_of_hub_scene(key)
-        if old_frame is None or old_frame.frame_id == frame.frame_id:
-            return
-        if self.dismiss_framed_scene(old_frame, key.local):
-            self.dispose_frame(old_frame.frame_id, old_frame.hub)
 
     def _admit_new_scene(self, frame: Frame, key: HubScopedKey) -> None:
         """Place a scene the frame did not hold; active tab only for its first."""
@@ -205,6 +206,7 @@ class SceneReplica:
         frame = self._book.pop_frame(frame_id, hub)
         if frame is None:
             return []
+        self._owner_facts.prune(HubScopedKey(frame.hub, frame_id))
         removed_ids = self._stale.of_frame(frame)
         for scene_id in frame.scene_order:
             self._widget_state.discard(HubScopedKey(frame.hub, scene_id))
@@ -215,6 +217,7 @@ class SceneReplica:
         """Remove all scenes, frames, and associated state."""
         self._book.clear()
         self._widget_state.clear()
+        self._owner_facts.clear()
 
     def dispose_all_frames(self) -> None:
         """Throw out every frame by its own Hub, notifying stale ids per frame."""
@@ -228,7 +231,7 @@ class SceneReplica:
         return frozenset(f.hub for f in self._book.frames.values())
 
     def scene_ids(self) -> frozenset[str]:
-        return frozenset(self.scene_to_frame)
+        return frozenset(self._book.scene_to_frame)
 
     def widget_state_for(
         self, scene_id: str, hub: HubId = _NO_HUB

@@ -5,14 +5,8 @@ client submitted it over the wire or the Hub constructed it itself (target.md �
 the Hub decodes *or constructs* UI). It runs the submission gate first, so a
 tree with any invalid element is refused whole and nothing partial is installed.
 
-Installing registers nobody. The owner named here is attribution — whose scene
-this is, so it appears among that client's scenes and goes when they are cleared
-— and attribution is not contact. The Hub writes per-client scenes for clients
-that are not calling and may already have gone; an install that registered its
-owner would recreate the session that client's departure removed, leaving a
-client in the roster with nothing on the other end of it. A connection that is
-really there says so through its own arrival, which is
-:meth:`~punt_lux.operations.scenes.SceneOperations.install`.
+Installing registers nobody: the owner is attribution, not contact, so an install
+never recreates a session its client's departure removed.
 """
 
 from __future__ import annotations
@@ -52,14 +46,10 @@ class SceneInstaller:
     ) -> SceneShown | OpError:
         """Install ``submission`` as ``owner``'s scene, or return why it was refused.
 
-        The install and the dirty mark are one step: the Hub writes its own store
-        and tells the replicator, which does every send. The store key is never
-        the raw ``scene_id``/``frame_id`` the caller submitted — ``.scoped(owner)``
-        composes both against ``owner`` here, the one choke point every scene
-        install passes through, so two owners' identical raw ids can never
-        alias one store key (DES-086). The result still reports the caller's
-        own raw name, unchanged — composition is a store-key concern the wire
-        contract never surfaces.
+        The install and the dirty mark are one step. The store key is never the
+        raw id the caller submitted: ``.scoped(owner)`` composes scene and frame
+        ids against ``owner`` here, so two owners' identical raw ids can never
+        alias one store key. The result still reports the caller's own raw name.
         """
         rejection = SubmissionGate().first_rejection(
             submission.scene_id, submission.elements
@@ -69,6 +59,7 @@ class SceneInstaller:
         scoped = CompositionBoundary.compose_or_reject(lambda: submission.scoped(owner))
         if isinstance(scoped, OpError):
             return scoped
+        left = self._display.frames.presentation_for(scoped.scene_id).frame_id
         self._display.show_scene(
             owner,
             scoped.scene_id,
@@ -77,4 +68,13 @@ class SceneInstaller:
             ttl_seconds=scoped.ttl_seconds,
         )
         self._replicator.mark_dirty(scoped.scene_id)
+        self._resend_survivors(left, scoped.presentation.frame_id)
         return SceneShown(scene_id=submission.name)
+
+    def _resend_survivors(self, left: str, entered: str) -> None:
+        """Resend what a move out of ``left`` leaves, for the new canonical owner."""
+        survivors = (
+            self._display.frames.scenes_in_frame(left) if left != entered else ()
+        )
+        for survivor in survivors:
+            self._replicator.mark_dirty(survivor)

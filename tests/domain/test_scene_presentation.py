@@ -36,6 +36,7 @@ class _RecordingPusher:
         frame_size: tuple[int, int] | None = None,
         frame_flags: dict[str, bool] | None = None,
         frame_layout: Literal["tab", "stack"] | None = None,
+        frame_owner_facts: tuple[tuple[str, str], ...] | None = None,
     ) -> None:
         self.calls.append(
             {
@@ -48,6 +49,7 @@ class _RecordingPusher:
                 "frame_size": frame_size,
                 "frame_flags": frame_flags,
                 "frame_layout": frame_layout,
+                "frame_owner_facts": frame_owner_facts,
             }
         )
 
@@ -143,6 +145,25 @@ def test_push_resends_every_presentation_field() -> None:
     assert call["title"] == "Board"
 
 
+def test_push_forwards_the_owner_facts_it_is_given() -> None:
+    # Owner facts are resolved fresh at send time, never part of the
+    # presentation's own persisted fields -- a push-time parameter only.
+    pres = ScenePresentation(frame_id="board")
+    pusher = _RecordingPusher()
+    rows = (("Client", "lux"),)
+    pres.push(pusher, SceneId("beads"), [], frame_owner_facts=rows)
+    (call,) = pusher.calls
+    assert call["frame_owner_facts"] == rows
+
+
+def test_push_defaults_owner_facts_to_none() -> None:
+    pres = ScenePresentation(frame_id="board")
+    pusher = _RecordingPusher()
+    pres.push(pusher, SceneId("beads"), [])
+    (call,) = pusher.calls
+    assert call["frame_owner_facts"] is None
+
+
 def test_frame_id_for_local_resolves_a_recorded_scoped_frame() -> None:
     # This is the read raise_frame needs: a caller names its frame by the
     # plain local id it gave it, resolved within its OWN connection.
@@ -199,3 +220,40 @@ def test_frame_id_for_local_is_scoped_to_the_callers_own_connection() -> None:
         reg.frame_id_for_local("issues", connection=ConnectionId("c2"))
         == "c2\x1fissues"
     )
+
+
+def test_scenes_in_frame_lists_them_in_the_order_they_entered() -> None:
+    registry = ScenePresentationRegistry()
+    registry.record(SceneId("s1"), ScenePresentation(frame_id="f"))
+    registry.record(SceneId("s2"), ScenePresentation(frame_id="f"))
+
+    assert registry.scenes_in_frame("f") == [SceneId("s1"), SceneId("s2")]
+
+
+def test_a_scene_moved_into_a_frame_enters_at_its_end() -> None:
+    # s1 was recorded first overall, but it enters "shared" after s2 did.
+    registry = ScenePresentationRegistry()
+    registry.record(SceneId("s1"), ScenePresentation(frame_id="a"))
+    registry.record(SceneId("s2"), ScenePresentation(frame_id="shared"))
+    registry.record(SceneId("s1"), ScenePresentation(frame_id="shared"))
+
+    assert registry.scenes_in_frame("shared") == [SceneId("s2"), SceneId("s1")]
+
+
+def test_a_scene_re_shown_in_its_own_frame_keeps_its_place() -> None:
+    registry = ScenePresentationRegistry()
+    registry.record(SceneId("s1"), ScenePresentation(frame_id="f"))
+    registry.record(SceneId("s2"), ScenePresentation(frame_id="f"))
+    registry.record(SceneId("s1"), ScenePresentation(frame_id="f", title="again"))
+
+    assert registry.scenes_in_frame("f") == [SceneId("s1"), SceneId("s2")]
+
+
+def test_a_forgotten_scene_shown_again_enters_at_the_end() -> None:
+    registry = ScenePresentationRegistry()
+    registry.record(SceneId("s1"), ScenePresentation(frame_id="f"))
+    registry.record(SceneId("s2"), ScenePresentation(frame_id="f"))
+    registry.forget(SceneId("s1"))
+    registry.record(SceneId("s1"), ScenePresentation(frame_id="f"))
+
+    assert registry.scenes_in_frame("f") == [SceneId("s2"), SceneId("s1")]
