@@ -307,19 +307,16 @@ class Operations:
         self, declaration: dict[str, object], *, scope: Scope
     ) -> Identified | OpError:
         """Record the caller's declared identity, or reject a malformed one."""
-        return self._identity.identify(declaration, scope=scope)
+        result = self._identity.identify(declaration, scope=scope)
+        self._menus.identified(scope.connection_id)
+        return result
 
     def identity_of(self, *, scope: Scope) -> ClientIdentity | None:
         """Return the identity already declared for ``scope``, or ``None``."""
         return self._identity.current(scope)
 
     def drop_session(self, connection_id: ConnectionId) -> None:
-        """Drop the departed session's agent menu bar and re-push both families.
-
-        Prunes the session's own agent bar from the registry, then one
-        ``mark_menus`` re-reads the live set at send time — dropping both this
-        session's agent bar and its Clients submenu.
-        """
+        """Drop the departed session's agent menu bar and re-push both families."""
         self._menus.drop_session(connection_id)
         self._callbacks.drop_session()
 

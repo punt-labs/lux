@@ -60,13 +60,13 @@ class MenuArming:
         is refused, arming nothing.
         """
         self._clients.renew_if_registered(connection_id)
-        if not self._identified(connection_id):
+        if not self._clients.is_identified(connection_id):
             return False
         self._ensure_writer(connection_id)
         self._arm_departure(connection_id)
         return True
 
-    def _identified(self, connection_id: ConnectionId) -> bool:
-        """Whether the session has declared an identity — the ownership gate."""
-        session = self._clients.session_of(connection_id)
-        return session is not None and session.identity is not None
+    def track(self, connection_id: ConnectionId) -> None:
+        """Bind the prune to the departure of a connection that has identified."""
+        if self._clients.is_identified(connection_id):
+            self._arm_departure(connection_id)

@@ -121,7 +121,8 @@
   more than one Hub is connected. The entry names the frame its scene is
   installed into, through one `DetailsFrame` value shared by the menu and the
   scene, so a closed window reopens on the next click without
-  `Windows → Clear All`.
+  `Windows → Clear All`. Identifying a connection, and its later departure,
+  now re-push the Clients menu, so the entry appears and disappears on screen.
 - **Session-writer publish is now atomic (`lux-wk3p`).** The per-connection
   publish path (`_writer`) looked up the inbox and enqueued in two steps
   across a lock release, so a concurrent session departure could drop the

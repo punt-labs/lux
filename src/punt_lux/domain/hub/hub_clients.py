@@ -6,8 +6,7 @@ Each session carries a lease; the live reads (:meth:`live_sessions`,
 a read changes nothing here. Departure is the province of ``HubDisplay``'s
 single atomic deregister-and-release coordinator, which reaches
 :meth:`reap_lapsed_locked` — one lock hold that finds and removes the lapsed
-set together, so a renewal racing in between can't be evicted anyway. The
-clock is injected for deterministic tests.
+set together. The clock is injected for deterministic tests.
 
 The registry also holds each connection's listen leg, so the leg and its
 callbacks are written under this same lock. One connection is shared by
@@ -85,8 +84,7 @@ class HubClientRegistry:
         """Renew the lease iff already registered; a write must never register."""
         with self._lock:
             existing = self._sessions.get(connection_id)
-            # Merging an empty update is a true no-op -- never a `None`-valued
-            # insert -- so "renew" and "absent" are one write, not a branch.
+            # An empty update is a true no-op, so "renew" and "absent" are one write.
             renewed = None if existing is None else existing.renewed(self._clock())
             self._sessions.update({connection_id: renewed} if renewed else {})
 
@@ -159,6 +157,12 @@ class HubClientRegistry:
         with self._lock:
             return self._sessions.get(connection_id)
 
+    def is_identified(self, connection_id: ConnectionId) -> bool:
+        """Whether the connection is registered and has declared an identity."""
+        with self._lock:
+            sessions = filter(None, [self._sessions.get(connection_id)])
+            return any(map(attrgetter("identity"), sessions))
+
     def discard(self, connection_id: ConnectionId) -> None:
         """Drop the registration, its identity, and the menu name it held."""
         with self._lock:
@@ -185,11 +189,7 @@ class HubClientRegistry:
     def reap_lapsed_locked(
         self, exclude: frozenset[ConnectionId] = frozenset()
     ) -> frozenset[ConnectionId]:
-        """Atomically find-and-remove every lapsed connection except ``exclude``.
-
-        One lock hold, not two -- a renewal racing between a separate compute
-        and a separate discard would otherwise still get evicted.
-        """
+        """Atomically find-and-remove every lapsed connection except ``exclude``."""
         with self._lock:
             lapsed = self._lapsed_locked() - exclude
             deque(map(self._sessions.pop, lapsed), maxlen=0)

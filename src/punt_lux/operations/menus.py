@@ -118,10 +118,8 @@ class MenuOperations:
 
         The admit-liveness check AND the registry store run under one hold of the
         Hub store's write lock, so a departure cannot interleave between the gate
-        and the write and leave an orphaned owner's bar behind (MO: menuOwner ⊆
-        registered, modelled in ``docs/menu_lifecycle.tex``). The lock is
-        reentrant, so ``admit``'s own ``ensure_writer``/departure-sink binding
-        nests fine; the push is flagged after the lock releases.
+        and the write and leave an orphaned owner's bar behind (modelled in
+        ``docs/menu_lifecycle.tex``); the push is flagged after the lock releases.
         """
         if isinstance(request, OpError):
             return request
@@ -134,23 +132,26 @@ class MenuOperations:
         self._push()
         return Ok()
 
+    def identified(self, connection_id: ConnectionId) -> None:
+        """Re-push the Clients menu, and re-push again when this connection leaves."""
+        self._arming.track(connection_id)
+        self._replicator.mark_menus()
+
     def list_menus(self) -> MenuList:
-        """Return the live agent menu bar plus the ``Clients`` menu, no reach-around."""
-        menus = list(self._registry.menu_bar())
-        menus.extend(self._callback_menus.callback_menus())
+        """Return the live agent menu bar plus the ``Clients`` menu."""
+        menus = [*self._registry.menu_bar(), *self._callback_menus.callback_menus()]
         return MenuList(menus=menus)
 
     def get_menu(self, label: str) -> Menu | OpError:
-        """Return the one menu named ``label``, or a ``not_found`` error."""
+        """Return the menu named ``label``, or ``not_found``."""
         matches = filter(lambda m: m.label == label, self.list_menus().menus)
         return next(matches, self._not_found(label))
 
     def drop_session(self, connection_id: ConnectionId) -> None:
         """Prune the departed session's bar; the caller re-pushes.
 
-        Correctness does not hinge on this — the registry filters to the live set
-        at send time — but it reclaims the entry so a departed owner's bar cannot
-        linger even in memory.
+        The registry filters to the live set at send time, so this only reclaims
+        the entry.
         """
         self._registry.drop_session(connection_id)
 
