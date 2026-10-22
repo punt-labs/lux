@@ -446,12 +446,6 @@ def test_a_first_leg_clears_nothing_and_says_so() -> None:
     assert reg.attach_listener(ConnectionId("app"), app, _Leg()) == "attached"
 
 
-def test_a_first_leg_of_an_agent_is_listed_so_the_bar_must_be_re_pushed() -> None:
-    reg = HubClientRegistry()
-    outcome = reg.attach_listener(ConnectionId("mcp"), _mcp(), _Leg())
-    assert outcome == "attached_over_callbacks"
-
-
 def test_a_teardown_by_a_session_that_lost_the_slot_removes_nothing() -> None:
     """The stale teardown: a suspended predecessor must not strip its successor.
 

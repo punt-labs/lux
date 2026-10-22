@@ -6,6 +6,7 @@ unregistered one — nothing anonymous owns a menu item.
 
 from __future__ import annotations
 
+from contextlib import AbstractContextManager, nullcontext
 from typing import Self, final
 
 from punt_lux.domain.hub.client_identity import ClientIdentity
@@ -13,6 +14,11 @@ from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.operations.menu_arming import MenuArming
 from punt_lux.operations.menu_arming_deps import MenuArmingDeps
+
+
+def _write_lock() -> AbstractContextManager[bool]:
+    """A write lock that excludes nobody: these tests are single-threaded."""
+    return nullcontext(True)
 
 
 @final
@@ -38,7 +44,9 @@ def test_admits_an_identified_session_and_arms_its_inbox_and_departure() -> None
     writer, departure = _CallSpy(), _CallSpy()
 
     assert (
-        MenuArming(MenuArmingDeps(clients, writer, departure, lambda: None)).admit(conn)
+        MenuArming(
+            MenuArmingDeps(clients, writer, departure, lambda: None, _write_lock)
+        ).admit(conn)
         is True
     )
     assert writer.armed == [conn]
@@ -54,7 +62,9 @@ def test_refuses_an_anonymous_session_and_arms_nothing() -> None:
     writer, departure = _CallSpy(), _CallSpy()
 
     assert (
-        MenuArming(MenuArmingDeps(clients, writer, departure, lambda: None)).admit(conn)
+        MenuArming(
+            MenuArmingDeps(clients, writer, departure, lambda: None, _write_lock)
+        ).admit(conn)
         is False
     )
     assert writer.armed == []
@@ -64,7 +74,9 @@ def test_refuses_an_anonymous_session_and_arms_nothing() -> None:
 def test_refuses_an_unregistered_session() -> None:
     writer, departure = _CallSpy(), _CallSpy()
     admitted = MenuArming(
-        MenuArmingDeps(HubClientRegistry(), writer, departure, lambda: None)
+        MenuArmingDeps(
+            HubClientRegistry(), writer, departure, lambda: None, _write_lock
+        )
     ).admit(ConnectionId("never"))
     assert admitted is False
     assert writer.armed == []

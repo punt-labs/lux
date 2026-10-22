@@ -1,8 +1,4 @@
-"""OperationsConcerns — the concern objects one ``Operations`` facade composes.
-
-Bundled into one value object so ``Operations.__new__`` takes one parameter
-instead of one per concern (PY-OO-3), constructed once by :meth:`Operations.for_store`.
-"""
+"""OperationsConcerns — the concern objects one ``Operations`` facade composes."""
 
 from __future__ import annotations
 
@@ -16,6 +12,7 @@ if TYPE_CHECKING:
     from punt_lux.operations.display_link import DisplayLinkOperations
     from punt_lux.operations.frame_removal import FrameRemover
     from punt_lux.operations.identity import IdentityOperations
+    from punt_lux.operations.menu_arming import MenuArming
     from punt_lux.operations.menus import MenuOperations
     from punt_lux.operations.pubsub import PubSubOperations
     from punt_lux.operations.queries import QueryOperations
@@ -27,7 +24,7 @@ __all__ = ["OperationsConcerns"]
 @final
 @dataclass(frozen=True, slots=True)
 class OperationsConcerns:
-    """The ten concern objects one ``Operations`` facade composes."""
+    """The eleven concerns, bundled so ``Operations.__new__`` takes one (PY-OO-3)."""
 
     scenes: SceneOperations
     pubsub: PubSubOperations
@@ -35,6 +32,7 @@ class OperationsConcerns:
     display: DisplayControlOperations
     queries: QueryOperations
     menus: MenuOperations
+    arming: MenuArming
     identity: IdentityOperations
     callbacks: CallbackOperations
     frame_remover: FrameRemover

@@ -22,7 +22,6 @@ from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.operations.menu_arming import MenuArming
 from punt_lux.operations.menu_arming_deps import MenuArmingDeps
-from punt_lux.operations.menus import MenuDepartureSink
 
 
 class _Clock:
@@ -75,15 +74,12 @@ def _armed(
     The third argument — the departure arm — binds the production
     :class:`MenuDepartureSink`, which prunes the registry AND marks the bar dirty.
     """
-    sink = MenuDepartureSink(registry, marker)
-    return MenuArming(
-        MenuArmingDeps(
-            hub_display.clients,
-            lambda _cid: None,  # ensure_writer: incidental to the departure leg
-            lambda cid: hub_display.bind_departure_sink(cid, sink),
-            marker.mark_menus,
-        )
-    )
+    return MenuArmingDeps.over(
+        hub_display,
+        registry,
+        marker,
+        lambda _cid: None,  # ensure_writer: incidental to the departure leg
+    ).arming()
 
 
 def test_a_lease_lapse_departure_withdraws_the_sessions_menu() -> None:

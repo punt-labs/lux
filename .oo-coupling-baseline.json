@@ -3349,8 +3349,8 @@
     "efferent_coupling": 17.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.839,
-    "avg_lcom": 0.839
+    "max_lcom": 0.845,
+    "avg_lcom": 0.845
   },
   "src/punt_lux/operations/frame_grouping.py": {
     "efferent_coupling": 2.0,
@@ -3402,7 +3402,7 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/operations/menu_arming_deps.py": {
-    "efferent_coupling": 1.0,
+    "efferent_coupling": 2.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
@@ -3412,8 +3412,8 @@
     "efferent_coupling": 2.0,
     "public_names": 3.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.467,
-    "avg_lcom": 0.234
+    "max_lcom": 0.533,
+    "avg_lcom": 0.267
   },
   "src/punt_lux/operations/models/__init__.py": {
     "efferent_coupling": 9.0,

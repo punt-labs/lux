@@ -10,7 +10,7 @@ the typed model, then appends the Clients menu.
 from __future__ import annotations
 
 from collections.abc import Generator, Sequence
-from contextlib import contextmanager, nullcontext
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from typing import Self, final
 
 import pytest
@@ -27,6 +27,11 @@ from punt_lux.operations.menus import MenuOperations, MenuOperationsDeps
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.menu_results import MenuList, Ok, SetMenuRequest
 from punt_lux.operations.scope import Scope
+
+
+def _write_lock() -> AbstractContextManager[bool]:
+    """A write lock that excludes nobody: these tests are single-threaded."""
+    return nullcontext(True)
 
 
 @final
@@ -83,7 +88,11 @@ class _Ops:
         self.registry = HubMenuRegistry(self.clients)
         arming = MenuArming(
             MenuArmingDeps(
-                self.clients, lambda _cid: None, lambda _cid: None, lambda: None
+                self.clients,
+                lambda _cid: None,
+                lambda _cid: None,
+                lambda: None,
+                _write_lock,
             )
         )
         self.ops = MenuOperations(
@@ -360,7 +369,9 @@ def test_set_menu_holds_the_write_lock_across_admit_and_store(
     clients = HubClientRegistry()
     registry = HubMenuRegistry(clients)
     arming = MenuArming(
-        MenuArmingDeps(clients, lambda _cid: None, lambda _cid: None, lambda: None)
+        MenuArmingDeps(
+            clients, lambda _cid: None, lambda _cid: None, lambda: None, _write_lock
+        )
     )
 
     original_admit = MenuArming.admit
@@ -413,7 +424,9 @@ def test_set_menu_does_not_store_when_admit_refuses_under_the_lock(
     clients = HubClientRegistry()
     registry = HubMenuRegistry(clients)
     arming = MenuArming(
-        MenuArmingDeps(clients, lambda _cid: None, lambda _cid: None, lambda: None)
+        MenuArmingDeps(
+            clients, lambda _cid: None, lambda _cid: None, lambda: None, _write_lock
+        )
     )
 
     original_set_menus = HubMenuRegistry.set_menus

@@ -1,4 +1,8 @@
-"""The Operations facade: one object exposing every capability."""
+"""The Operations facade — one object exposing every capability.
+
+Composes the concern classes so a single caller — MCP, REST, or a test — has
+one object to call, every collaborator injected into ``for_store``.
+"""
 
 from __future__ import annotations
 
@@ -14,11 +18,7 @@ from punt_lux.operations.display_link import DisplayLinkOperations
 from punt_lux.operations.frame_removal import FrameRemover
 from punt_lux.operations.identity import IdentityOperations
 from punt_lux.operations.menu_arming_deps import MenuArmingDeps
-from punt_lux.operations.menus import (
-    MenuDepartureSink,
-    MenuOperations,
-    MenuOperationsDeps,
-)
+from punt_lux.operations.menus import MenuOperations, MenuOperationsDeps
 from punt_lux.operations.models.inspect_scope import HUB_ONLY, InspectScope
 from punt_lux.operations.pubsub import PubSubOperations
 from punt_lux.operations.queries import QueryOperations
@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.session_callback import CallbackInvocation
     from punt_lux.domain.ids import ConnectionId
     from punt_lux.operations.display_link import ReplicatorLink
+    from punt_lux.operations.menu_arming import MenuArming
     from punt_lux.operations.models import (
         Cleared,
         DisplayModeState,
@@ -82,11 +83,13 @@ class Operations:
     _display: DisplayControlOperations
     _queries: QueryOperations
     _menus: MenuOperations
+    _arming: MenuArming
     _identity: IdentityOperations
     _callbacks: CallbackOperations
     _frame_remover: FrameRemover
     _link: DisplayLinkOperations
     __slots__ = (
+        "_arming",
         "_callbacks",
         "_config",
         "_conveniences",
@@ -109,6 +112,7 @@ class Operations:
         self._display = concerns.display
         self._queries = concerns.queries
         self._menus = concerns.menus
+        self._arming = concerns.arming
         self._identity = concerns.identity
         self._callbacks = concerns.callbacks
         self._frame_remover = concerns.frame_remover
@@ -130,12 +134,8 @@ class Operations:
         deps = SceneOperationsDeps(display, replicator, ports.element_factory, hub)
         scenes = SceneOperations(deps)
         callbacks = CallbackOperations(display.clients, callback_router, replicator)
-        menu_departure = MenuDepartureSink(menu_registry, replicator)
-        arming = MenuArmingDeps(
-            display.clients,
-            ports.ensure_writer,
-            lambda c: display.bind_departure_sink(c, menu_departure),
-            replicator.mark_menus,
+        arming = MenuArmingDeps.over(
+            display, menu_registry, replicator, ports.ensure_writer
         ).arming()
         clients = ClientListing(display, hub, ports.inbox_depth)
         queries = QueryOperations(display, ports.display_port, clients)
@@ -146,6 +146,7 @@ class Operations:
                 config=DisplayModeOperations(),
                 display=DisplayControlOperations(ports.display_port),
                 queries=queries,
+                arming=arming,
                 menus=MenuOperations(
                     MenuOperationsDeps(
                         registry=menu_registry,
@@ -306,7 +307,7 @@ class Operations:
         """Record the caller's declared identity, or reject a malformed one."""
         before = self._identity.current(scope)
         result = self._identity.identify(declaration, scope=scope)
-        self._menus.identified(scope.connection_id, before)
+        self._arming.track(scope.connection_id, before)
         return result
 
     def identity_of(self, *, scope: Scope) -> ClientIdentity | None:
@@ -314,7 +315,11 @@ class Operations:
         return self._identity.current(scope)
 
     def drop_session(self, connection_id: ConnectionId) -> None:
-        """Drop the departed session's agent menu bar and re-push both families."""
+        """Drop the departed session's agent menu bar and re-push both families.
+
+        One ``mark_menus`` re-reads the live set at send time, dropping both this
+        session's agent bar and its Clients submenu.
+        """
         self._menus.drop_session(connection_id)
         self._callbacks.drop_session()
 

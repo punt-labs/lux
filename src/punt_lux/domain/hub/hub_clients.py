@@ -6,7 +6,8 @@ Each session carries a lease; the live reads (:meth:`live_sessions`,
 a read changes nothing here. Departure is the province of ``HubDisplay``'s
 single atomic deregister-and-release coordinator, which reaches
 :meth:`reap_lapsed_locked` — one lock hold that finds and removes the lapsed
-set together. The clock is injected for deterministic tests.
+set together, so a renewal racing in between can't be evicted anyway. The
+clock is injected for deterministic tests.
 
 The registry also holds each connection's listen leg, so the leg and its
 callbacks are written under this same lock. One connection is shared by
@@ -25,7 +26,7 @@ from __future__ import annotations
 import threading
 import time
 from collections import deque
-from operator import attrgetter, itemgetter
+from operator import attrgetter
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.client_roster import ClientRoster
@@ -46,6 +47,9 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.session_callback import SessionCallback
 
 __all__ = ["HubClientRegistry"]
+
+
+_ANONYMOUS = ClientSession(0.0)  # a connection with no session has declared nothing
 
 
 @final
@@ -84,7 +88,7 @@ class HubClientRegistry:
         """Renew the lease iff already registered; a write must never register."""
         with self._lock:
             existing = self._sessions.get(connection_id)
-            # An empty update is a true no-op, so "renew" and "absent" are one write.
+            # An empty update is a true no-op: "renew" and "absent" are one write.
             renewed = None if existing is None else existing.renewed(self._clock())
             self._sessions.update({connection_id: renewed} if renewed else {})
 
@@ -96,15 +100,15 @@ class HubClientRegistry:
     ) -> ListenerAttachment:
         """Install ``listener`` as the connection's leg, recording ``identity``.
 
-        One step; reports ``attached_over_callbacks`` if the menu changed.
+        Records and takes the slot in one step; taking it clears the previous
+        occupant's callbacks and reports ``attached_over_callbacks``.
         """
         with self._lock:
             base = self._renewed(connection_id)
             self._sessions[connection_id] = base.with_identity(identity).attached(
                 listener
             )
-            listed = any((base.callbacks, identity.is_agent))
-            return "attached_over_callbacks" if listed else "attached"
+            return "attached_over_callbacks" if base.callbacks else "attached"
 
     def detach_listener(
         self, connection_id: ConnectionId, listener: CallbackListener
@@ -159,9 +163,7 @@ class HubClientRegistry:
 
     def identity_of(self, connection_id: ConnectionId) -> ClientIdentity | None:
         """The identity the connection declared; None if unregistered or anonymous."""
-        with self._lock:
-            session = self._sessions.get(connection_id)
-            return session.identity if session is not None else None
+        return self._sessions.get(connection_id, _ANONYMOUS).identity
 
     def discard(self, connection_id: ConnectionId) -> None:
         """Drop the registration, its identity, and the menu name it held."""
@@ -189,7 +191,10 @@ class HubClientRegistry:
     def reap_lapsed_locked(
         self, exclude: frozenset[ConnectionId] = frozenset()
     ) -> frozenset[ConnectionId]:
-        """Atomically find-and-remove every lapsed connection except ``exclude``."""
+        """Atomically find-and-remove every lapsed connection except ``exclude``.
+
+        One lock hold: a renewal cannot slip between the find and the remove.
+        """
         with self._lock:
             lapsed = self._lapsed_locked() - exclude
             deque(map(self._sessions.pop, lapsed), maxlen=0)
@@ -208,9 +213,7 @@ class HubClientRegistry:
 
     def _lapsed_locked(self) -> frozenset[ConnectionId]:
         """Every registered connection whose lease has lapsed. Caller locks."""
-        now = self._clock()
-        stale = filter(lambda kv: not kv[1].is_live(now), self._sessions.items())
-        return frozenset(map(itemgetter(0), stale))
+        return frozenset(self._sessions) - self._live_locked().keys()
 
     def _renewed(self, connection_id: ConnectionId) -> ClientSession:
         """The connection's session, renewed now, or a fresh one; caller locks."""

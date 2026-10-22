@@ -86,13 +86,17 @@ class SessionCallback(BaseModel):
 
     id: str = Field(min_length=1)  # an id-less callback is not a real state
     label: str = Field(min_length=1)  # a label-less callback is not a real state
-    # absent = no owned frame; present must be non-blank and separator-free.
+    # absent = no owned frame; present must be non-blank and separator-free,
+    # same as ConnectionScopedId.compose.
     frame_id: str | None = Field(default=None, pattern=NONBLANK_FRAME_ID)
 
     @field_validator("id")
     @classmethod
     def _reject_separator(cls, value: str) -> str:
-        """Reject a separator: it would split ambiguously in the leaf id."""
+        """Reject an id carrying the leaf-id separator.
+
+        It would split ambiguously in the composite leaf id at dispatch.
+        """
         if ID_SEPARATOR in value:
             msg = "callback id must not contain the unit separator"
             raise ValueError(msg)
