@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from punt_lux.display.replica.address_book import AddressBook
+from punt_lux.display.replica.lux_address import Rung
 from punt_lux.domain.hub_id import HubId
 from punt_lux.domain.id_separator import ID_SEPARATOR
 
@@ -18,7 +19,7 @@ class TestAddressFor:
         book = AddressBook()
         book.note_connection(_PEMBROKE_1, "vox-session")
         addr = book.address_for(
-            _PEMBROKE_1, "vox-session", "lux", "music-player", "Vox"
+            _PEMBROKE_1, Rung("vox-session", "lux"), Rung("music-player", "Vox")
         )
         assert addr.hub.key == _PEMBROKE_1.wire_token
         assert addr.connection.key == "vox-session"
@@ -29,13 +30,15 @@ class TestAddressFor:
     def test_passes_the_connection_and_leaf_labels_through_unchanged(self) -> None:
         book = AddressBook()
         book.note_connection(_PEMBROKE_1, "c1")
-        addr = book.address_for(_PEMBROKE_1, "c1", "lux (2)", "leaf1", "Beads")
+        addr = book.address_for(
+            _PEMBROKE_1, Rung("c1", "lux (2)"), Rung("leaf1", "Beads")
+        )
         assert addr.connection.label == "lux (2)"
         assert addr.leaf.label == "Beads"
 
     def test_an_unregistered_hub_labels_itself_by_bare_hostname(self) -> None:
         book = AddressBook()
-        addr = book.address_for(_PEMBROKE_1, "c1", "lux", "leaf1", "Vox")
+        addr = book.address_for(_PEMBROKE_1, Rung("c1", "lux"), Rung("leaf1", "Vox"))
         assert addr.hub.label == "pembroke"
 
     def test_propagates_lux_address_rejection_of_a_separator_bearing_key(
@@ -45,7 +48,9 @@ class TestAddressFor:
         book = AddressBook()
         with pytest.raises(ValueError, match="unit separator"):
             book.address_for(
-                _PEMBROKE_1, f"c1{ID_SEPARATOR}evil", "lux", "leaf1", "Vox"
+                _PEMBROKE_1,
+                Rung(f"c1{ID_SEPARATOR}evil", "lux"),
+                Rung("leaf1", "Vox"),
             )
 
 
@@ -53,15 +58,15 @@ class TestHubLabelNumbering:
     def test_a_solo_hub_gets_the_bare_hostname(self) -> None:
         book = AddressBook()
         book.note_connection(_PEMBROKE_1, "c1")
-        addr = book.address_for(_PEMBROKE_1, "c1", "lux", "leaf1", "Vox")
+        addr = book.address_for(_PEMBROKE_1, Rung("c1", "lux"), Rung("leaf1", "Vox"))
         assert addr.hub.label == "pembroke"
 
     def test_two_hubs_on_the_same_host_get_des_064_style_numbering(self) -> None:
         book = AddressBook()
         book.note_connection(_PEMBROKE_1, "c1")
         book.note_connection(_PEMBROKE_2, "c2")
-        first = book.address_for(_PEMBROKE_1, "c1", "lux", "leaf1", "Vox")
-        second = book.address_for(_PEMBROKE_2, "c2", "lux", "leaf1", "Vox")
+        first = book.address_for(_PEMBROKE_1, Rung("c1", "lux"), Rung("leaf1", "Vox"))
+        second = book.address_for(_PEMBROKE_2, Rung("c2", "lux"), Rung("leaf1", "Vox"))
         assert first.hub.label == "pembroke"
         assert second.hub.label == "pembroke (2)"
 
@@ -69,8 +74,8 @@ class TestHubLabelNumbering:
         book = AddressBook()
         book.note_connection(_PEMBROKE_1, "c1")
         book.note_connection(_OKINOS, "c2")
-        first = book.address_for(_PEMBROKE_1, "c1", "lux", "leaf1", "Vox")
-        second = book.address_for(_OKINOS, "c2", "lux", "leaf1", "Vox")
+        first = book.address_for(_PEMBROKE_1, Rung("c1", "lux"), Rung("leaf1", "Vox"))
+        second = book.address_for(_OKINOS, Rung("c2", "lux"), Rung("leaf1", "Vox"))
         assert first.hub.label == "pembroke"
         assert second.hub.label == "okinos"
 
@@ -79,7 +84,9 @@ class TestHubLabelNumbering:
         book.note_connection(_PEMBROKE_1, "c1")
         book.note_connection(_PEMBROKE_2, "c2")
         book.forget_connection(_PEMBROKE_1, "c1")
-        survivor = book.address_for(_PEMBROKE_2, "c2", "lux", "leaf1", "Vox")
+        survivor = book.address_for(
+            _PEMBROKE_2, Rung("c2", "lux"), Rung("leaf1", "Vox")
+        )
         assert survivor.hub.label == "pembroke"
 
     def test_forgetting_an_unnoted_connection_is_not_an_error(self) -> None:
@@ -110,63 +117,75 @@ class TestHubAmbiguous:
         assert book.hub_ambiguous() is False
 
 
-class TestConnectionAmbiguous:
-    def test_false_with_one_connection_on_the_hub(self) -> None:
-        book = AddressBook()
-        book.note_connection(_PEMBROKE_1, "c1")
-        assert book.connection_ambiguous(_PEMBROKE_1) is False
+class TestConnectionRungIsNotCounted:
+    """DES-100: whether the connection rung shows is the item's own fact.
 
-    def test_true_with_two_connections_on_the_same_hub(self) -> None:
+    Counting a Hub's connections answered the wrong question (links, not
+    clients), so the book no longer offers the count at all.
+    """
+
+    def test_the_book_has_no_connection_ambiguity_query(self) -> None:
+        assert "connection_ambiguous" not in dir(AddressBook)
+
+    def test_two_connections_on_one_hub_do_not_make_the_hub_ambiguous(self) -> None:
         book = AddressBook()
         book.note_connection(_PEMBROKE_1, "c1")
         book.note_connection(_PEMBROKE_1, "c2")
-        assert book.connection_ambiguous(_PEMBROKE_1) is True
+        assert book.hub_ambiguous() is False
 
-    def test_is_scoped_to_one_hub_not_the_whole_book(self) -> None:
+    def test_forgetting_one_of_two_connections_keeps_the_hub_label(self) -> None:
         book = AddressBook()
         book.note_connection(_PEMBROKE_1, "c1")
-        book.note_connection(_OKINOS, "c2")
-        book.note_connection(_OKINOS, "c3")
-        assert book.connection_ambiguous(_PEMBROKE_1) is False
-        assert book.connection_ambiguous(_OKINOS) is True
+        book.note_connection(_PEMBROKE_1, "c2")
+        book.forget_connection(_PEMBROKE_1, "c1")
+        address = book.address_for(_PEMBROKE_1, Rung("c2", "lux"), Rung("leaf", "Vox"))
+        assert address.hub.label == "pembroke"
 
-    def test_false_for_a_hub_the_book_has_never_seen(self) -> None:
-        assert AddressBook().connection_ambiguous(_PEMBROKE_1) is False
+    def test_forgetting_a_connection_never_noted_is_not_an_error(self) -> None:
+        book = AddressBook()
+        book.forget_connection(_PEMBROKE_1, "never-seen")
+        assert book.hub_ambiguous() is False
 
 
 class TestFullyDisambiguatedTitleFlow:
     def test_matches_the_target_examples(self) -> None:
         book = AddressBook()
 
-        # One Hub, one connection: "Vox".
+        # One Hub, one connection, an unlabelled owner: the plain "Vox".
         book.note_connection(_PEMBROKE_1, "vox-session")
         solo = book.address_for(
-            _PEMBROKE_1, "vox-session", "lux", "music-player", "Vox"
+            _PEMBROKE_1, Rung("vox-session", "lux"), Rung("music-player", "Vox")
         )
+        plain_title = solo.title(
+            hub_ambiguous=book.hub_ambiguous(), connection_shown=False
+        )
+        assert plain_title == "Vox"
+
+        # The same item once the Hub names its owner: one session is not a
+        # reason to hide whose window it is (DES-100).
         solo_title = solo.title(
-            hub_ambiguous=book.hub_ambiguous(),
-            connection_ambiguous=book.connection_ambiguous(_PEMBROKE_1),
+            hub_ambiguous=book.hub_ambiguous(), connection_shown=True
         )
-        assert solo_title == "Vox"
+        assert solo_title == "lux :: Vox"
 
         # Two connections sharing a repo, one Hub: "lux (2) :: Vox".
         book.note_connection(_PEMBROKE_1, "beads-session")
         second_conn = book.address_for(
-            _PEMBROKE_1, "beads-session", "lux (2)", "music-player", "Vox"
+            _PEMBROKE_1, Rung("beads-session", "lux (2)"), Rung("music-player", "Vox")
         )
         second_title = second_conn.title(
             hub_ambiguous=book.hub_ambiguous(),
-            connection_ambiguous=book.connection_ambiguous(_PEMBROKE_1),
+            connection_shown=True,
         )
         assert second_title == "lux (2) :: Vox"
 
         # A second Hub arrives: "pembroke :: lux (2) :: Vox".
         book.note_connection(_OKINOS, "other-session")
         with_hub = book.address_for(
-            _PEMBROKE_1, "beads-session", "lux (2)", "music-player", "Vox"
+            _PEMBROKE_1, Rung("beads-session", "lux (2)"), Rung("music-player", "Vox")
         )
         with_hub_title = with_hub.title(
             hub_ambiguous=book.hub_ambiguous(),
-            connection_ambiguous=book.connection_ambiguous(_PEMBROKE_1),
+            connection_shown=True,
         )
         assert with_hub_title == "pembroke :: lux (2) :: Vox"

@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.display.replica.address_book import AddressBook
+from punt_lux.display.replica.lux_address import Rung
 from punt_lux.domain.id_separator import ID_SEPARATOR
 
 if TYPE_CHECKING:
@@ -59,13 +60,13 @@ class AddressRendering:
         while more than one Hub is aggregated.
 
         The connection rung is not shown on this path -- its scope label does
-        not reach the Display today (system.tex Sec:addressing) -- so a lone
+        not reach the Display yet (system.tex Sec:addressing) -- so a lone
         item reads as its plain ``leaf_label``. The Hub rung's label is taken
         from the book, so a second Hub sharing a host reads ``pembroke (2)``.
         """
-        address = self._book.address_for(hub, "", "", "", leaf_label)
+        address = self._book.address_for(hub, Rung("", ""), Rung("", leaf_label))
         return address.title(
-            hub_ambiguous=self._book.hub_ambiguous(), connection_ambiguous=False
+            hub_ambiguous=self._book.hub_ambiguous(), connection_shown=False
         )
 
     def frame_title(self, frame: Frame) -> str:
