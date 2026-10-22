@@ -362,6 +362,23 @@ class TestTheDetailsCommand:
         assert invocation.connection_id == conn
         assert invocation.is_details
 
+    def test_details_carries_the_frame_it_opens(self) -> None:
+        menus = _menus(("lux", _session("claude", "/w/lux", _beads())))
+
+        details = _submenu(menus, "lux").items[-1]
+        assert isinstance(details, MenuAction)
+        assert details.frame_id is not None
+
+    def test_details_frame_is_the_one_the_scene_installer_keys_it_by(self) -> None:
+        conn = ConnectionId("lux")
+        menus = _menus(("lux", _session("claude", "/w/lux", _beads())))
+
+        details = _submenu(menus, "lux").items[-1]
+        assert isinstance(details, MenuAction)
+        assert details.frame_id == ConnectionScopedId.compose(
+            conn, f"lux.client-details.{conn}"
+        )
+
     def test_a_clients_own_command_is_not_the_details_command(self) -> None:
         menus = _menus(("lux", _session("claude", "/w/lux", _beads())))
 
@@ -607,6 +624,9 @@ class TestTheReplica:
                             {
                                 "label": "Details",
                                 "id": CallbackInvocation.details(conn).menu_id,
+                                "frame_id": ConnectionScopedId.compose(
+                                    conn, f"lux.client-details.{conn}"
+                                ),
                             },
                         ],
                     }

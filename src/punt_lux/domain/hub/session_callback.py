@@ -70,11 +70,8 @@ class MenuLeaf:
         remaining separators (the Hub's own Details id opens with one). An unknown
         tag, or a missing segment, never named a real stamped leaf.
         """
-        parts = wire_id.split(ID_SEPARATOR, 2)
-        if len(parts) != 3:
-            msg = f"not a menu leaf id: {wire_id!r}"
-            raise ValueError(msg)
-        tag, connection, local_id = parts
+        tag, _, rest = wire_id.partition(ID_SEPARATOR)
+        connection, _, local_id = rest.partition(ID_SEPARATOR)
         kind = _TAG_KIND.get(tag)
         if kind is None or not connection or not local_id:
             msg = f"not a menu leaf id: {wire_id!r}"
@@ -96,10 +93,7 @@ class SessionCallback(BaseModel):
     @field_validator("id")
     @classmethod
     def _reject_separator(cls, value: str) -> str:
-        """Reject an id carrying the leaf-id separator.
-
-        It would split ambiguously in the composite leaf id at dispatch.
-        """
+        """Reject a separator: it would split ambiguously in the leaf id."""
         if ID_SEPARATOR in value:
             msg = "callback id must not contain the unit separator"
             raise ValueError(msg)

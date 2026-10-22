@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
+from punt_lux.domain.hub.menu_frames import MenuFrames
 from punt_lux.domain.hub.menu_models import Menu, MenuAction, MenuSeparator
 from punt_lux.domain.hub.session_callback import CallbackInvocation
 
@@ -18,7 +18,6 @@ if TYPE_CHECKING:
 
 __all__ = ["ClientSubmenu"]
 
-# What the Hub's own per-client command reads as.
 _DETAILS_LABEL = "Details"
 
 
@@ -49,34 +48,30 @@ class ClientSubmenu:
     def menu(self) -> Menu:
         """This submenu: every member's commands in label order, then Details.
 
-        A group with no commands -- a bare agent session (DES-098) -- shows just
-        its Details, with no leading rule above nothing.
+        A group with no commands -- a bare agent session -- shows just its
+        Details, with no leading rule above nothing.
         """
         commands = sorted(self._leaves(), key=lambda action: action.label)
         rule: list[MenuEntry] = [MenuSeparator()] if commands else []
-        entries: list[MenuEntry] = [*commands, *rule, self._details()]
-        return Menu(label=self._label, items=entries)
+        return Menu(label=self._label, items=[*commands, *rule, self._details()])
 
     def _leaves(self) -> list[MenuAction]:
-        """Every command a member registered; frame_id scoped to its owner (DES-086)."""
+        """Every command a member registered, its frame scoped to the owner."""
         return [
             MenuAction(
                 id=CallbackInvocation(member.connection_id, callback.id).menu_id,
                 label=callback.label,
-                frame_id=(
-                    ConnectionScopedId.compose(member.connection_id, callback.frame_id)
-                    if callback.frame_id is not None
-                    else None
-                ),
+                frame_id=MenuFrames(member.connection_id).of(callback),
             )
             for member in self._members
             for callback in member.callbacks
         ]
 
     def _details(self) -> MenuAction:
-        """The Hub's own command, aimed at the senior member of this group."""
+        """The Hub's own command, aimed at the senior member, naming its frame."""
         senior = self._members[0]
         return MenuAction(
             id=CallbackInvocation.details(senior.connection_id).menu_id,
             label=_DETAILS_LABEL,
+            frame_id=MenuFrames(senior.connection_id).details,
         )
