@@ -7271,8 +7271,34 @@ is the principled hybrid, one item, one leg, chosen by how the owner connects.
 
 ## DES-099 (draft): A Hub-Native Menu Command Must Carry the Frame It Opens, or a Second Click Is a Silent No-Op
 
-**Status:** Accepted — implemented on branch `fix/lux-ghhf-details-frame-id`
+**Status:** Accepted, then narrowed by operator ruling (2026-10-22) — see
+"Ruling" immediately below; it supersedes the per-repo-group Details design
+that the rest of this entry analyses. Branch `fix/lux-ghhf-details-frame-id`
 (bead `lux-ghhf`, P1).
+
+**Ruling (operator, 2026-10-22).** A per-repo-group `Details` item that
+describes whichever connection is "senior" in the group is rejected: it
+reports an arbitrary process, so it answers no question the operator actually
+has. "Where did this window come from" is answered by the per-frame `i` glyph
+(the frame title-bar connection-info popup), which reports the frame's own
+canonical owner. The Clients-menu Details command is therefore narrowed to the
+one case the `i` cannot serve — a connection with no frame to click:
+
+- A Details entry exists **only for a connection that has zero registered
+  callbacks** (no applet menu items). A connection that registered any callback
+  gets no Details entry; its frames carry the `i`.
+- There is **one entry per such connection**, attached to that exact
+  connection — no seniority selection.
+- The entry's menu label and the window's frame title **name the connection
+  uniquely** — its declared identity name (e.g.
+  `lux · ethos · #1f349f · z-spec`) — never a generic "Details" or a
+  disambiguating "Details (2)".
+- The entry carries its composed `frame_id` (the mechanism below), so closing
+  the window and re-clicking reopens it without Clear All.
+
+The analysis that follows (why a Hub-native command must carry the frame it
+opens, and the shared `DetailsFrame` naming) still holds for that narrowed
+entry.
 
 **Symptom (operator-reproduced).** A window opened from a menu — `Clients →
 <repo> → Details`, or an applet item (`Beads`, `Vox`, `Z-Spec`) — opens on the
