@@ -6267,7 +6267,8 @@ Every surface the Display aggregates — menus, frames/windows, scenes, and
 rung's key — never a label, never a bare Rung-2 id alone) and a **visible**
 title (`LuxAddress.title(...)`, hostname-anchored, a rung elided the
 moment it is unambiguous: `"Vox"` when solo, `"lux (2) :: Vox"` under one
-ambiguous Hub, `"pembroke :: lux (2) :: Vox"` under two). A single
+ambiguous Hub, `"pembroke :: lux (2) :: Vox"` under two; *amended by
+DES-100: the connection rung is never elided — `"lux :: Vox"` when solo*). A single
 Display-side `AddressBook` component computes rung ambiguity once per
 frame/menu build and is the one construction path every leaf renderer
 must use — mirroring DES-059's "one `MenuModel`, two projections" shape:
@@ -7301,6 +7302,27 @@ one case the `i` cannot serve — a connection with no frame to click:
   Hubs.
 - The entry carries its composed `frame_id` (the mechanism below), so closing
   the window and re-clicking reopens it without Clear All.
+- *Title amended by DES-100:* the connection rung is always shown, not
+  elided when unambiguous.
+
+**Amendment — where the connection comes from (operator, 2026-10-22).** The
+`i` popup and the Details window also report the connection's hosts — the one
+fact neither carried and the one an operator needs once clients and Hubs span
+machines:
+
+- **Client host** — the peer address the Hub observed on the connection's
+  transport when it connected (`127.0.0.1` locally, the remote address
+  cross-host). Recorded by the Hub at connect, never taken from the client's
+  declaration: the DES-090 rule that a self-reported host is not trusted
+  applies on this leg too.
+- **Hub host** — the frame's Hub by `HubId.hostname`, transport-verified for
+  a cross-host Hub (DES-090).
+
+Both ride the existing owner facts (`frame_owner_facts`) and the Details
+scene; no new message, no new mechanism. Rejected: a client-declared hostname
+(unverifiable, and the observed address answers the question); reverse DNS at
+connect (a blocking lookup on the accept path, for a name the address already
+identifies).
 
 The analysis that follows (why a Hub-native command must carry the frame it
 opens, and the shared `DetailsFrame` naming) still holds for that narrowed
@@ -7484,3 +7506,52 @@ folded into this data-plumbing fix.
   for this specific caller.
 - Regression guard: the two existing "resend never re-raises a closed frame"
   tests keep passing unmodified.
+
+## DES-100: The Connection Rung Is Always Shown — Every Owned Frame Carries Its Session Label
+
+**Status:** SETTLED (operator ruling, 2026-10-22). Amends DES-089's elision
+rule for the connection rung only. Bead `lux-xrli`. Design:
+`docs/architecture/connection-rung-design.md`.
+
+**Problem.** Two sessions in one repo on one Hub produce frames with
+identical titles (`claude`, `Vox`). DES-089 specifies a connection rung
+(`lux (2) :: Vox`) but the Display never received its label:
+`AddressRendering.title_for` hard-coded `connection_ambiguous=False`, and
+`AddressBook.connection_ambiguous` counted Display-to-Hub links, never a
+Hub's clients.
+
+**Ruling.** DES-089 elides a rung "the moment it is unambiguous". For the
+connection rung that is wrong: the same applets run in many repos by design,
+so a bare `Beads` or `Vox` never says whose window it is, even when it is the
+only one. Every frame with an owning session shows its session label —
+`lux :: Beads`, `vox :: Vox`, `lux (2) :: Vox` — with one session or many.
+The Hub rung keeps DES-089's rule (elided while one Hub is connected,
+`pembroke :: lux :: Vox` across two).
+
+**Decision.** `SceneMessage` carries `frame_scope_label: str | None`, the
+DES-064/067 roster name of the frame's canonical owner, resolved with the
+same canonical-owner rule as `frame_owner_facts`. The Display composes
+`label :: title` whenever the label is present; there is no ambiguity test
+for this rung. The label is visible text only: `hidden_id` is unchanged, so
+window position and state survive a relabel. A roster release that moves a
+survivor's label (DES-064 renumbering), and identification, mark that
+connection's scenes dirty outside the registry lock; the normal replicator
+resend carries the new label. Windows menu and dock pills render the same
+title through the one `AddressRendering` seam.
+
+**Optional, not required.** Absence has one meaning shared with
+`frame_owner_facts` — the Hub has no name for the owner (an anonymous
+`show()`) — and such a frame stays plain. DES-089's `hub_id` correction
+(every sender can populate it) does not apply.
+
+**Alternatives rejected.** Showing the rung only on a title collision
+(DES-089's elision; the design's first draft) — leaves single-repo frames
+unattributed, which is the common case the ruling targets. A Hub-composed
+full title (duplicates `LuxAddress`, cannot see the Hub rung). A per-scene
+label (a frame's title would follow the last scene sent). Polling the roster
+for label changes (the dirty signal already carries every other content
+change).
+
+**Consequences.** Hub-to-Display only; vox and z-spec unaffected. Additive
+wire field, no coordinated release. Not a z-spec candidate: no new lock, no
+new interleaving, convergence by the existing dirty-then-fresh-read rule.
