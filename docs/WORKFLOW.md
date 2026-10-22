@@ -445,6 +445,31 @@ itself.
    recommendation — before any dependent mission dispatches. Then close the
    mission.
 
+   **Never accept a worker's report on its own word.** For every worker
+   commit, the leader runs `make check` itself and audits the ratchet files
+   against `main`:
+
+   ```bash
+   git diff main...HEAD -- .oo-audit.jsonl .oo-coupling-audit.jsonl
+   git log -p main..HEAD -- .oo-audit.jsonl .oo-coupling-audit.jsonl
+   git diff main...HEAD -- .oo-baseline.json .oo-coupling-baseline.json
+   ```
+
+   The commit is untampered only if all three hold:
+
+   1. **Append-only.** The audit logs gain lines only at the end — no `-`
+      line or changed line in any commit. A deleted or rewritten entry is a
+      rewritten history.
+   2. **Every appended line passed.** Each new audit line reads
+      `"verdict":"pass"`. A `"fail"` line means the ratchet failed and the
+      commit landed anyway.
+   3. **Baselines match the audit.** Every metric that moved in a baseline
+      file appears as a delta in an appended audit line. A baseline change no
+      audit line accounts for was not written by the tool.
+
+   Any failure rejects the commit: the worker's result is returned, not
+   repaired by the leader, and the report is treated as untrustworthy.
+
 ## Invariants
 
 1. **Beads are the single funnel.** Every piece of work is a bead before it
