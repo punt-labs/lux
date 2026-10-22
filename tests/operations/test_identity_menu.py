@@ -7,6 +7,8 @@ the same. Driven through the real facade, so the wiring is what is under test.
 
 from __future__ import annotations
 
+import time
+from collections.abc import Callable
 from typing import Self, final
 
 from punt_lux.domain.hub import client_registry, hub
@@ -14,6 +16,7 @@ from punt_lux.domain.hub.callback_hold import CallbackRouter
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.inbox import ensure_writer, inbox_depth_for, next_event
+from punt_lux.domain.hub.lease_reap_sweep import LeaseReapSweep
 from punt_lux.domain.hub.menu_models import Menu, MenuAction
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.ids import ConnectionId, SceneId
@@ -54,8 +57,10 @@ class _MarkerSpy:
         return self._menus
 
 
-def _rig() -> tuple[Operations, HubDisplay, _MarkerSpy]:
-    store, spy = HubDisplay(), _MarkerSpy()
+def _rig(
+    clock: Callable[[], float] = time.monotonic,
+) -> tuple[Operations, HubDisplay, _MarkerSpy]:
+    store, spy = HubDisplay(clock), _MarkerSpy()
     ops = Operations.for_store(
         store,
         spy,
@@ -113,5 +118,20 @@ def test_its_departure_marks_menus_and_the_entry_is_gone() -> None:
 
     store.drop_connection(_CONN)
 
+    assert spy.menu_marks > before
+    assert _sent_entries(ops) == []
+
+
+def test_a_lease_lapse_reap_marks_menus_and_the_entry_is_gone() -> None:
+    """The timer's own sweep -- no disconnect signal -- withdraws the entry."""
+    now = [0.0]
+    ops, store, spy = _rig(lambda: now[0])
+    ops.identify(_AGENT, scope=Scope(_CONN))
+    before = spy.menu_marks
+
+    now[0] += 1_000_000.0  # far past any kind's lease; nothing renews
+    reaped = LeaseReapSweep(store).sweep()
+
+    assert reaped == frozenset({_CONN})
     assert spy.menu_marks > before
     assert _sent_entries(ops) == []
