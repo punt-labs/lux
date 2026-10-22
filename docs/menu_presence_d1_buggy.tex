@@ -12,7 +12,7 @@
 %
 % Expected: P1's negation is REACHABLE.
 %   probcli docs/menu_presence_d1_buggy.tex -model_check -nodead \
-%     -goal "dirty = fclear & shown /= earns" -p DEFAULT_SETSIZE 3
+%     -goal "dirty = fclear & (not((earns \ lapsed) <: shown) or not(shown <: earns))" -p DEFAULT_SETSIZE 3
 % Trace: Identify(c) leaves earns = {c}, dirty = fclear, shown = {}.
 %
 % The remaining operations are those of menu_presence.tex, whose prose
@@ -69,8 +69,8 @@
   earns' = earns \cup \{ c? \} \\
   lapsed' = lapsed \setminus \{ c? \} \\
   sinks' = sinks \oplus \{ c? \mapsto 1 \} \\
-  (c? \in earns \land dirty' = dirty) \lor
-    (c? \notin earns \land dirty' = fset) \\
+  (c? \in earns \land c? \notin lapsed \land dirty' = dirty) \lor
+    ((c? \notin earns \lor c? \in lapsed) \land dirty' = fset) \\
   shown' = shown
 \end{schema}
 
@@ -101,6 +101,8 @@
     [\Delta MenuPres; c? : CONN | open' = open \land c? \in open]
 \end{zed}
 
+
+
 \begin{schema}{Connect}
   \Delta MenuPres \\
   c? : CONN
@@ -109,8 +111,10 @@
   earns' = earns \\
   lapsed' = lapsed \setminus \{ c? \} \\
   open' = open \\
-  sinks' = sinks \\
-  dirty' = dirty \\
+  (c? \in earns \land sinks' = sinks \oplus \{ c? \mapsto 1 \}) \lor
+    (c? \notin earns \land sinks' = sinks) \\
+  (c? \in earns \land c? \in lapsed \land dirty' = fset) \lor
+    (\lnot (c? \in earns \land c? \in lapsed) \land dirty' = dirty) \\
   shown' = shown
 \end{schema}
 
@@ -123,8 +127,10 @@
   earns' = earns \\
   lapsed' = lapsed \setminus \{ c? \} \\
   open' = open \\
-  sinks' = sinks \\
-  dirty' = dirty \\
+  (c? \in earns \land sinks' = sinks \oplus \{ c? \mapsto 1 \}) \lor
+    (c? \notin earns \land sinks' = sinks) \\
+  (c? \in earns \land c? \in lapsed \land dirty' = fset) \lor
+    (\lnot (c? \in earns \land c? \in lapsed) \land dirty' = dirty) \\
   shown' = shown
 \end{schema}
 
@@ -190,7 +196,7 @@
   open' = open \\
   sinks' = sinks \\
   dirty' = fclear \\
-  shown' = earns
+  shown' = earns \setminus lapsed
 \end{schema}
 
 \end{document}

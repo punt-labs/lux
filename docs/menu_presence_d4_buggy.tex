@@ -3,23 +3,23 @@
 %
 % FIDELITY CONTROL for docs/menu_presence.tex, defect D4.
 %
-% Differs from menu_presence.tex in exactly one place: Push shows the
-% earning sessions that are not lapsed -- presence is TIME-FILTERED, as
-% NamedSessions.over(_live_locked(), ...) filters it in the shipped code. A
-% lease lapsing is then a presence change with no transition to carry a mark,
-% and so is the renewal that undoes it; the entry a push dropped does not
-% come back until something unrelated marks.
+% Differs from menu_presence.tex in exactly one place: Connect and Renew, the
+% contacts that renew a lease, do not treat the renewal of a LAPSED earning
+% session as a presence transition. Presence is lease-filtered (Push shows
+% earns \ lapsed, as NamedSessions.over(_live_locked(), ...) does), so a push
+% that ran during the lapse dropped the entry; the renewal puts the session
+% back in the live set, but nothing marks, so the entry stays missing until an
+% unrelated event marks. (The shipped path: another client's push drops the
+% lapsed agent; the agent's next call revives it via record -> _renewed;
+% MenuArming.track compares identity only.)
 %
-% Expected: P1's negation is REACHABLE, and still reachable once nothing is
-% lapsed any more (the goal below adds `lapsed = {}` so the witness is the
-% persistent missing entry, not merely the transient state before a renewal).
+% Expected: P1's negation is REACHABLE (conjunct (i): a live earning session
+% missing from the Display with no mark pending).
 %   probcli docs/menu_presence_d4_buggy.tex -model_check -nodead \
-%     -goal "dirty = fclear & lapsed = {} & shown /= earns" \
+%     -goal "dirty = fclear & (not((earns \ lapsed) <: shown) or not(shown <: earns))" \
 %     -p DEFAULT_SETSIZE 3
 % Trace: Identify(c); LeaseLapse(c); Push; Renew(c) leaves earns = {c},
-% lapsed = {}, dirty = fclear, shown = {}: the entry is missing, though every
-% step was individually correct (the push dropped the lapsed c; c's renewal
-% marked nothing). The fixed spec: same goal, NOT found.
+% lapsed = {}, dirty = fclear, shown = {}.
 %
 % The remaining operations are those of menu_presence.tex, whose prose
 % describes them.
@@ -31,7 +31,7 @@
 
 \begin{document}
 
-\title{lux Menu Presence, D4 control: presence filtered by lease time}
+\title{lux Menu Presence, D4 control: renewing a lapsed agent never marks}
 \maketitle
 
 \begin{zed}
@@ -75,8 +75,8 @@
   earns' = earns \cup \{ c? \} \\
   lapsed' = lapsed \setminus \{ c? \} \\
   sinks' = sinks \oplus \{ c? \mapsto 1 \} \\
-  (c? \in earns \land dirty' = dirty) \lor
-    (c? \notin earns \land dirty' = fset) \\
+  (c? \in earns \land c? \notin lapsed \land dirty' = dirty) \lor
+    ((c? \notin earns \lor c? \in lapsed) \land dirty' = fset) \\
   shown' = shown
 \end{schema}
 
@@ -185,6 +185,7 @@
   shown' = earns \setminus lapsed
 \end{schema}
 
-The defect: \texttt{shown'} $=$ \texttt{earns} $\setminus$ \texttt{lapsed}.
+\texttt{Push} shows the lease-filtered set, as in the fixed model; the defect
+is in \texttt{Connect} and \texttt{Renew} above, which never mark.
 
 \end{document}

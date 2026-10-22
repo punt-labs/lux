@@ -43,11 +43,12 @@
 % make the corresponding invariant's negation reachable.
 %
 % THE DESIGN THE MODEL PROVES (see also the Design section below).
-%   (a) Presence is EVENT-DRIVEN: a session earns presence while it is
-%       registered and an agent; only a registry departure (sweep or
-%       graceful drop) takes it away. A lapsed-but-unswept lease is NOT a
-%       presence change. This deletes D4 by construction: there is no
-%       time-filter for a renewal to undo.
+%   (a) Presence is the LEASE-FILTERED set (DES-058, DES-064 s.1, DES-057):
+%       registered, an agent, and its lease live. A lapse is time passing
+%       with no Hub event, so it cannot mark; the entry may linger until the
+%       sweep (<= one sweep interval) or the next push. A renewal that
+%       revives a lapsed session IS a presence transition and marks (D4);
+%       the sweep departs every lapsed session and marks.
 %   (b) The transitions that do change presence (absent to present, present
 %       to absent) mark and bind/unbind under the Hub store's write lock, in
 %       one step, and are all routed through HubDisplay (the outer lock);
@@ -105,11 +106,12 @@ when the session leaves the registry.
 Two obligations follow, and every defect in this class breaks one of them.
 
 \begin{description}
-  \item[P1 --- the Display converges.] When no mark is pending, the set the
-    Display shows is the set of sessions that earn presence. A change to the
-    second without a mark leaves the first wrong until some unrelated event
-    marks: a missing entry (D1--D5) or, worse, a ghost entry (D3, D5) that
-    outlives its session.
+  \item[P1 --- the Display converges.] When no mark is pending, no live
+    session that earns presence is missing from the Display, and nothing the
+    Display shows is unregistered; a lapsed entry may linger only until the
+    sweep or the next push. A change to the presence set without a mark leaves
+    the Display wrong until some unrelated event marks: a missing entry
+    (D1--D5) or, worse, a ghost entry (D3, D5) that outlives its session.
   \item[P2 --- exactly one sink.] Every registered session that earns
     presence has exactly one departure sink bound, and no departed session
     has any. Zero sinks is the ghost: the departure fires nothing, so
@@ -207,8 +209,9 @@ that is an agent is recorded: the upsert \texttt{HubClientRegistry.record}
 performs for \texttt{identify\_client}, for \texttt{attach\_listener}, and for
 the read loop's per-frame \texttt{record(conn, identity)}. It registers the
 connection if absent, renews its lease, and adds it to the presence set. If
-that changed the presence set (the connection was not already earning) it
-raises the mark; in every case it leaves exactly one sink bound. Everything
+that changed the presence set (the connection was not already earning, or
+was earning but lapsed, so the record revives it) it raises the mark; in
+every case it leaves exactly one sink bound. Everything
 happens in one step, because the fixed design performs it under the store's
 write lock (Section~\ref{sec:design}); the registry reports whether presence
 changed and the caller of record is not asked to compare anything.
@@ -221,8 +224,8 @@ changed and the caller of record is not asked to compare anything.
   earns' = earns \cup \{ c? \} \\
   lapsed' = lapsed \setminus \{ c? \} \\
   sinks' = sinks \oplus \{ c? \mapsto 1 \} \\
-  (c? \in earns \land dirty' = dirty) \lor
-    (c? \notin earns \land dirty' = fset) \\
+  (c? \in earns \land c? \notin lapsed \land dirty' = dirty) \lor
+    ((c? \notin earns \lor c? \in lapsed) \land dirty' = fset) \\
   shown' = shown
 \end{schema}
 
@@ -266,13 +269,17 @@ and is by construction the same transition as a first attach: mark and sink.
   earns' = earns \\
   lapsed' = lapsed \setminus \{ c? \} \\
   open' = open \\
-  sinks' = sinks \\
-  dirty' = dirty \\
+  (c? \in earns \land sinks' = sinks \oplus \{ c? \mapsto 1 \}) \lor
+    (c? \notin earns \land sinks' = sinks) \\
+  (c? \in earns \land c? \in lapsed \land dirty' = fset) \lor
+    (\lnot (c? \in earns \land c? \in lapsed) \land dirty' = dirty) \\
   shown' = shown
 \end{schema}
 
-An anonymous contact (\texttt{register\_client}, a REST call): registers and
-renews, earns nothing, so owes nothing.
+A contact that is not an identify (\texttt{register\_client}, a REST call):
+registers and renews. For a session that earns nothing it owes nothing; for
+an earning session whose lease had lapsed it is a revival, hence a presence
+transition: it marks, and leaves the one sink bound.
 
 \begin{schema}{Renew}
   \Delta MenuPres \\
@@ -283,15 +290,18 @@ renews, earns nothing, so owes nothing.
   earns' = earns \\
   lapsed' = lapsed \setminus \{ c? \} \\
   open' = open \\
-  sinks' = sinks \\
-  dirty' = dirty \\
+  (c? \in earns \land sinks' = sinks \oplus \{ c? \mapsto 1 \}) \lor
+    (c? \notin earns \land sinks' = sinks) \\
+  (c? \in earns \land c? \in lapsed \land dirty' = fset) \lor
+    (\lnot (c? \in earns \land c? \in lapsed) \land dirty' = dirty) \\
   shown' = shown
 \end{schema}
 
 Any contact from a registered session renews its lease
 (\texttt{renew\_if\_registered}, the \texttt{\_renewed} step of \texttt{record}).
-In the fixed design a renewal is not a presence change, because a lapse was
-not one either, so \texttt{dirty} is untouched.
+A renewal of a lapsed earning session puts it back in the lease-filtered
+presence set: it marks and re-asserts the one sink (D4). A renewal of a live
+session changes nothing the Display is told about.
 
 \begin{schema}{LeaseLapse}
   \Delta MenuPres \\
@@ -308,9 +318,11 @@ not one either, so \texttt{dirty} is untouched.
   shown' = shown
 \end{schema}
 
-Time passes with nothing to renew the lease. No sweep has run, so this changes
-nothing the Display is told about: a lapse is not a presence change
-(Section~\ref{sec:design}).
+Time passes with nothing to renew the lease. It leaves the presence set
+(a lapsed session is no longer live) but it is not a Hub event, so nothing can
+mark: the Display may keep showing the entry until the sweep departs it or the
+next push re-reads the roster. P1 states exactly how long this may last
+(Section~\ref{sec:inv}).
 
 \subsection{Departure}
 
@@ -377,11 +389,12 @@ sink persist; a reconnect within the lease finds them.
   open' = open \\
   sinks' = sinks \\
   dirty' = fclear \\
-  shown' = earns
+  shown' = earns \setminus lapsed
 \end{schema}
 
 The replicator consumes a pending mark: it clears the flag and sends the
-Display the whole presence set. Atomic here for the reason a standard
+Display the whole lease-filtered presence set
+(\texttt{NamedSessions.over(\_live\_locked(), ...)}). Atomic here for the reason a standard
 dirty-flag protocol is: the flag is cleared before the roster is read, so a
 mark raised after the read survives for the next tick.
 
@@ -392,14 +405,28 @@ mark raised after the read survives for the next tick.
 
 \paragraph{P1 --- the Display converges.}
 \[
-  dirty = fclear \;\Rightarrow\; shown = earns .
+  dirty = fclear \;\Rightarrow\;
+    (earns \setminus lapsed) \subseteq shown \;\land\; shown \subseteq earns .
 \]
-Every transition that changes \texttt{earns} (\texttt{AgentRecord} when the
-session was not earning, \texttt{Departure} of an earning session) sets
-\texttt{dirty} in the same step; \texttt{Push} is the only operation that sets
-\texttt{shown}, and it sets it to \texttt{earns} while clearing the flag.
-The negation, checked as a goal, is
-$dirty = fclear \land shown \neq earns$.
+Presence is the lease-filtered set $earns \setminus lapsed$ (DES-058, DES-064
+\S1, DES-057). With no mark pending, (i) no live earning session is ever
+missing from the Display, and (ii) the Display shows nothing that is not a
+registered earning session, so no ghost. What it may show beyond the live set is
+exactly a \emph{lapsed, unswept} entry that was shown when the lease ran out:
+$shown = (earns \setminus lapsed) \cup (shown \cap lapsed)$. A lapse is time
+passing with no Hub event, so nothing can mark it; the entry lingers until the
+sweep departs it (which marks) or the next push re-reads the roster, never
+longer. The bound is the \emph{sweep obligation}: \texttt{Sweep(c)} is enabled
+for every lapsed registered $c$ and departs it and marks, so the lingering set
+$lapsed$ is emptied by operations the Hub's timer is bound to run
+(\texttt{connection\_lease\_reaping.tex} I1). Every transition that adds to
+$earns \setminus lapsed$ (\texttt{AgentRecord}, and \texttt{Connect} or
+\texttt{Renew} on a lapsed earning session) sets \texttt{dirty} in the same
+step; every transition that removes from \texttt{earns} (\texttt{Departure})
+does too; \texttt{Push} sets \texttt{shown} to the live set while clearing
+the flag. The negation, checked as a goal, is
+$dirty = fclear \land (\lnot((earns \setminus lapsed) \subseteq shown) \lor
+\lnot(shown \subseteq earns))$.
 
 \paragraph{P2 --- exactly one sink.}
 \[
@@ -411,40 +438,33 @@ An earning session has one sink; no session has more than one; a departed
 session has none. The first conjunct is the ghost (D3, D5), the second the leak
 (D6), the third the dangling hook.
 
-\paragraph{Why P1 is stated on \texttt{earns}, not on the live set.}
-The roster the Display shows is read by \texttt{NamedSessions.over(\_live\_locked(),
-...)}, which today filters out sessions whose lease has lapsed. If presence
-is time-filtered, P1 cannot hold: a lease passing is a presence change that
-no transition performs and nothing marks. One might weaken P1 to ``equality
-modulo the lapsed set''; the shipped code satisfies that only until a
-renewal removes the session from the lapsed set (D4), after which the weak
-form is violated for good. The model therefore takes the other branch of the
-fork, and the D4 control is the time-filtered design. Its witness is
-checked with the extra conjunct \texttt{lapsed = \{\}}, which no weakening
-can excuse.
+\paragraph{Why P1 has this shape.}
+The roster the Display shows is read by
+\texttt{NamedSessions.over(\_live\_locked(), ...)}, which filters out sessions
+whose lease has lapsed, as the ADRs require. A lease passing is therefore a
+presence change that no Hub transition performs. P1 cannot demand equality
+with the live set at every quiescent instant; it demands the strongest thing
+that is true: nothing live is missing, nothing unregistered is shown, and a
+lapsed entry's lingering is cut off by the sweep. D4 is the renewal that ends
+a lapse without marking: the live set grows, the flag stays clear, and conjunct
+(i) fails \emph{for good}, since no later event is owed to repair it.
 
 % ============================================================
 \section{The Design the Model Proves}
 \label{sec:design}
 % ============================================================
 
-\paragraph{Presence is event-driven.}
-A session earns presence while it is registered and an agent. Lease lapse
-does not remove it; the sweep does, within the sweep interval of the lapse
-(\texttt{connection\_lease\_reaping.tex} I1 guarantees the sweep). The
-alternative, a time-filtered presence, makes \texttt{LeaseLapse} a presence
-change with no event to hang a mark on, and makes \texttt{Renew} one too; the
-only repair is to mark on both, which turns every contact into a potential
-mark and re-opens the question of what ``lapsed'' means at the moment a
-push samples it. The event-driven shape is also what the rest of the Hub
-already assumes: \texttt{menu\_lifecycle.tex}'s MO is stated over
-\texttt{registered}, not over liveness, and DES-057 expires state by leases
-whose expiry is the reap. The cost is that a lapsed-but-unswept agent shows
-for at most one sweep interval longer than it does today, where today it
-shows until the next unrelated push drops it -- an interval nothing bounds.
-It is a one-line amendment to DES-064 (``an entry exists while its
-registrant is registered; registration ends at the lease reap'') and is
-recorded as such in the coverage note.
+\paragraph{Presence is lease-filtered; a revival is a transition.}
+A session earns presence while it is registered, an agent, and its lease is
+live: DES-058 (``entries live on the session's lease and leave when it
+lapses''), DES-064 \S1 (``an entry exists exactly while its registrant holds a
+lease''), DES-057 (``leases expire state whose owner left''). No ADR is
+amended. The consequences the model makes explicit: a lapse is time, not an
+event, so it cannot mark and the entry may linger until the sweep or the next
+push; a renewal that ends a lapse \emph{is} an event that grows the presence
+set, so it must mark and re-assert the one sink (\texttt{Renew}, \texttt{Connect},
+and \texttt{AgentRecord} on a lapsed session); and the sweep must depart every
+lapsed session and mark. D4 is the middle one forgotten.
 
 \paragraph{The registry owns the transition; the caller owns nothing.}
 \texttt{AgentRecord} is one step, so a caller cannot forget the mark or bind
@@ -490,7 +510,8 @@ state.
 \begin{verbatim}
   # P1 (goal NOT found in this, the fixed, spec)
   probcli docs/menu_presence.tex -model_check -nodead \
-    -goal "dirty = fclear & shown /= earns" -p DEFAULT_SETSIZE 3
+    -goal "dirty = fclear & (not((earns \ lapsed) <: shown) or not(shown <: earns))" \
+    -p DEFAULT_SETSIZE 3
 
   # P2 (goal NOT found in this, the fixed, spec)
   probcli docs/menu_presence.tex -model_check -nodead \
@@ -506,15 +527,15 @@ vacuously true of a model that never shows an entry:
   probcli docs/menu_presence.tex -model_check -nodead \
     -goal "dirty = fclear & shown /= {}" -p DEFAULT_SETSIZE 3
 
-  # event-driven presence: a lapsed, unswept agent with an open socket is
-  # still shown, with no mark pending (FOUND -- the intended consequence)
+  # the permitted lingering: a lapsed, unswept agent is still shown with no
+  # mark pending (FOUND -- the honest cost of a lapse being time, not an event)
   probcli docs/menu_presence.tex -model_check -nodead \
-    -goal "dirty = fclear & #c.(c : shown & c : open & c : lapsed)" \
+    -goal "dirty = fclear & #c.(c : shown & c : lapsed)" \
     -p DEFAULT_SETSIZE 3
 
-  # D4's witness goal, NOT found against the fixed spec
+  # a live agent is shown, nothing lapsed, no mark pending (FOUND)
   probcli docs/menu_presence.tex -model_check -nodead \
-    -goal "dirty = fclear & lapsed = {} & shown /= earns" \
+    -goal "dirty = fclear & lapsed = {} & shown /= {} & earns = shown" \
     -p DEFAULT_SETSIZE 3
 \end{verbatim}
 
@@ -530,8 +551,8 @@ operation:
 \begin{verbatim}
   menu_presence_d1_buggy.tex   P1 negation FOUND (identify never marks)
   menu_presence_d3_buggy.tex   P1 and P2 negations FOUND (revival by record)
-  menu_presence_d4_buggy.tex   P1 negation FOUND (time-filtered presence;
-                               use the lapsed = {} goal above)
+  menu_presence_d4_buggy.tex   P1 negation FOUND (renewal of a lapsed
+                               agent does not mark)
   menu_presence_d5_buggy.tex   P1 and P2 negations FOUND (stale before-read)
   menu_presence_d6_buggy.tex   P2 negation FOUND (a sink per attach)
 \end{verbatim}

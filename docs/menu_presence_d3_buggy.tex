@@ -11,9 +11,11 @@
 %
 % Expected: BOTH negations are REACHABLE.
 %   P1: probcli docs/menu_presence_d3_buggy.tex -model_check -nodead \
-%         -goal "dirty = fclear & shown /= earns" -p DEFAULT_SETSIZE 3
-%       Trace: Attach(c); DropGraceful(c) (or LeaseLapse(c); Sweep(c)); Push;
-%       ReadLoopRecord(c) leaves earns = {c}, dirty = fclear, shown = {}: the entry is missing.
+%         -goal "dirty = fclear & (not((earns \ lapsed) <: shown) or not(shown <: earns))" -p DEFAULT_SETSIZE 3
+%       Shortest trace: Attach(c); LeaseLapse(c); Push; ReadLoopRecord(c)
+%       (the frame revives a lapsed, unswept session and does not mark); the
+%       swept variant Attach(c); DropGraceful(c); Push; ReadLoopRecord(c)
+%       also leaves earns = {c}, dirty = fclear, shown = {}.
 %   P2: probcli docs/menu_presence_d3_buggy.tex -model_check -nodead \
 %         -goal "#c.(c : CONN & ((c : earns & sinks(c) /= 1) or sinks(c) > 1 \
 %           or (c /: registered & sinks(c) /= 0)))" -p DEFAULT_SETSIZE 3
@@ -74,8 +76,8 @@
   earns' = earns \cup \{ c? \} \\
   lapsed' = lapsed \setminus \{ c? \} \\
   sinks' = sinks \oplus \{ c? \mapsto 1 \} \\
-  (c? \in earns \land dirty' = dirty) \lor
-    (c? \notin earns \land dirty' = fset) \\
+  (c? \in earns \land c? \notin lapsed \land dirty' = dirty) \lor
+    ((c? \notin earns \lor c? \in lapsed) \land dirty' = fset) \\
   shown' = shown
 \end{schema}
 
@@ -107,6 +109,8 @@
   ReadLoopRecord \defs BareRecord
 \end{zed}
 
+
+
 \begin{schema}{Connect}
   \Delta MenuPres \\
   c? : CONN
@@ -115,8 +119,10 @@
   earns' = earns \\
   lapsed' = lapsed \setminus \{ c? \} \\
   open' = open \\
-  sinks' = sinks \\
-  dirty' = dirty \\
+  (c? \in earns \land sinks' = sinks \oplus \{ c? \mapsto 1 \}) \lor
+    (c? \notin earns \land sinks' = sinks) \\
+  (c? \in earns \land c? \in lapsed \land dirty' = fset) \lor
+    (\lnot (c? \in earns \land c? \in lapsed) \land dirty' = dirty) \\
   shown' = shown
 \end{schema}
 
@@ -129,8 +135,10 @@
   earns' = earns \\
   lapsed' = lapsed \setminus \{ c? \} \\
   open' = open \\
-  sinks' = sinks \\
-  dirty' = dirty \\
+  (c? \in earns \land sinks' = sinks \oplus \{ c? \mapsto 1 \}) \lor
+    (c? \notin earns \land sinks' = sinks) \\
+  (c? \in earns \land c? \in lapsed \land dirty' = fset) \lor
+    (\lnot (c? \in earns \land c? \in lapsed) \land dirty' = dirty) \\
   shown' = shown
 \end{schema}
 
@@ -196,7 +204,7 @@
   open' = open \\
   sinks' = sinks \\
   dirty' = fclear \\
-  shown' = earns
+  shown' = earns \setminus lapsed
 \end{schema}
 
 \end{document}

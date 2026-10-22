@@ -71,8 +71,8 @@
   earns' = earns \cup \{ c? \} \\
   lapsed' = lapsed \setminus \{ c? \} \\
   sinks' = sinks \oplus \{ c? \mapsto 1 \} \\
-  (c? \in earns \land dirty' = dirty) \lor
-    (c? \notin earns \land dirty' = fset) \\
+  (c? \in earns \land c? \notin lapsed \land dirty' = dirty) \lor
+    ((c? \notin earns \lor c? \in lapsed) \land dirty' = fset) \\
   shown' = shown
 \end{schema}
 
@@ -86,8 +86,8 @@
   lapsed' = lapsed \setminus \{ c? \} \\
   open' = open \cup \{ c? \} \\
   sinks' = sinks \oplus \{ c? \mapsto sinks(c?) + 1 \} \\
-  (c? \in earns \land dirty' = dirty) \lor
-    (c? \notin earns \land dirty' = fset) \\
+  (c? \in earns \land c? \notin lapsed \land dirty' = dirty) \lor
+    ((c? \notin earns \lor c? \in lapsed) \land dirty' = fset) \\
   shown' = shown
 \end{schema}
 
@@ -107,6 +107,8 @@ idempotent.
     [\Delta MenuPres; c? : CONN | open' = open \land c? \in open]
 \end{zed}
 
+
+
 \begin{schema}{Connect}
   \Delta MenuPres \\
   c? : CONN
@@ -115,8 +117,10 @@ idempotent.
   earns' = earns \\
   lapsed' = lapsed \setminus \{ c? \} \\
   open' = open \\
-  sinks' = sinks \\
-  dirty' = dirty \\
+  (c? \in earns \land sinks' = sinks \oplus \{ c? \mapsto 1 \}) \lor
+    (c? \notin earns \land sinks' = sinks) \\
+  (c? \in earns \land c? \in lapsed \land dirty' = fset) \lor
+    (\lnot (c? \in earns \land c? \in lapsed) \land dirty' = dirty) \\
   shown' = shown
 \end{schema}
 
@@ -129,8 +133,10 @@ idempotent.
   earns' = earns \\
   lapsed' = lapsed \setminus \{ c? \} \\
   open' = open \\
-  sinks' = sinks \\
-  dirty' = dirty \\
+  (c? \in earns \land sinks' = sinks \oplus \{ c? \mapsto 1 \}) \lor
+    (c? \notin earns \land sinks' = sinks) \\
+  (c? \in earns \land c? \in lapsed \land dirty' = fset) \lor
+    (\lnot (c? \in earns \land c? \in lapsed) \land dirty' = dirty) \\
   shown' = shown
 \end{schema}
 
@@ -196,7 +202,7 @@ idempotent.
   open' = open \\
   sinks' = sinks \\
   dirty' = fclear \\
-  shown' = earns
+  shown' = earns \setminus lapsed
 \end{schema}
 
 \end{document}
