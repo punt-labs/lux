@@ -7268,3 +7268,187 @@ adds a standing tool against DES-040; the reserved `lux.menu` topic keeps the
 event self-identifying on the existing `recv` drain. (c) *B3 — enqueue and push
 when both exist* — double-delivers with no second consumer; the capability-fork
 is the principled hybrid, one item, one leg, chosen by how the owner connects.
+
+## DES-099 (draft): A Hub-Native Menu Command Must Carry the Frame It Opens, or a Second Click Is a Silent No-Op
+
+**Status:** Accepted — implemented on branch `fix/lux-ghhf-details-frame-id`
+(bead `lux-ghhf`, P1).
+
+**Symptom (operator-reproduced).** A window opened from a menu — `Clients →
+<repo> → Details`, or an applet item (`Beads`, `Vox`, `Z-Spec`) — opens on the
+first click. After the user closes it, re-clicking the *same* menu item does
+nothing. `Windows → Clear All` (which purges frame content) is the only
+workaround; the next click then opens a fresh window. `menu_ls` shows the
+asymmetry directly: `Beads` carries a `frame_id`
+(`238236c3faf1ada6␟beads-biff`), `Vox`/`Details` carry `frame_id: null`.
+
+**Diagnosis — confirmed for one root cause, one leg already fixed.** This is a
+DES-088 content-vs-visibility defect, but tracing the code shows the fix DES-098
+(`lux-m3xr`, PR #495, merged before this design) already closed it for every
+menu leaf that *carries* a `frame_id`. Two distinct mechanisms are in play, and
+only one of them is still broken:
+
+- **The raise mechanism itself (fixed, tested).**
+  `WireMenuDecoder._invoke` (`display/menus/wire_decode.py:73-94`) raises the
+  clicked item's frame **Display-locally, before** the click is even reported
+  to the Hub: `if target.frame_id is not None: handlers.raise_frame(...)`
+  (line 82-83) — `raise_frame` → `SceneReplica.raise_frame`
+  (`display/replica/scene_replica.py:105-107`) → `FrameBook.restore`
+  (`display/replica/frame_book.py:171-185`), which calls `Frame.restore()`
+  regardless of whether the frame is currently closed — exactly the un-close a
+  reopen needs. This path is exercised end-to-end, using the Hub's *real*
+  submenu-composition code (`ClientSubmenu`/`CallbackMenu`), by
+  `tests/display/test_menu_wire.py::TestTheFrameIdRoundTrip::test_a_click_raises_the_exact_id_a_real_frame_book_keys_the_frame_by`
+  (lines 271-322): it builds a session with a registered callback carrying a
+  raw `frame_id`, serializes the resulting `ClientSubmenu` to the wire, decodes
+  it Display-side, fires a real click, and asserts the raised id is
+  byte-identical to the key a real `FrameBook.ensure()` + `.close()` would use,
+  then asserts `book.restore(raised_id) is True`. **This is the Beads shape,
+  and it already passes on current `main`.** DES-088's opposite invariant — a
+  content resend must never re-raise a frame the user closed — is separately
+  covered by `tests/display/replica/test_scene_replica.py::test_a_replace_leaves_a_closed_frame_closed`
+  and `::test_a_new_scene_leaves_a_closed_frame_closed`. Neither test path is
+  touched by this design.
+- **The gap (unfixed).** A menu leaf's `frame_id` has to be known *at
+  menu-build time*, Hub-side, before any click happens — the raise is
+  Display-local and pre-emit, so the Display can only raise a frame it was
+  told about. `MenuAction(...)` is constructed in exactly two places in the
+  whole domain layer (`grep MenuAction( src/punt_lux/domain/hub/` returns only
+  these two): `ClientSubmenu._leaves()` (`domain/hub/client_submenu.py:60-74`),
+  which composes a real `frame_id` for every applet callback that registered
+  one (the Beads shape, above) — and `ClientSubmenu._details()`
+  (`domain/hub/client_submenu.py:76-82`), the Hub's own built-in `Details`
+  command, which constructs `MenuAction(id=..., label=_DETAILS_LABEL)` with
+  **no `frame_id` at all**, so it defaults to `None`
+  (`domain/hub/menu_action.py:45`). `Details` is answered entirely Hub-side
+  (`hub_interaction_dispatch.py:123-129` → `ClientDetailsPort.render_details`
+  → `ClientDetailsOperations.show_client_details`
+  (`operations/client_details.py:61-91`)), which installs the client's Details
+  scene into a **deterministic, stable frame**:
+  `DetailsScene.scene_id` = `f"lux.client-details.{connection_id}"`
+  (`operations/details_scene.py:30,47-50`), used as both scene id and
+  `ScenePresentation(frame_id=self.scene_id, ...)` (`details_scene.py:59-64`).
+  `SceneInstaller.install` (`operations/scene_installer.py:69`) then composes
+  that raw id against the owner via `ConnectionScopedId.compose` (the store
+  key `.scoped(owner)` produces) — the exact composition `ClientSubmenu._leaves()`
+  already performs by hand for applet callbacks
+  (`ConnectionScopedId.compose(member.connection_id, callback.frame_id)`,
+  `client_submenu.py:66-69`). Because `_details()` never performs the parallel
+  computation, the Display never learns which frame `Details` owns, the
+  pre-emit raise never fires (`target.frame_id is not None` is false), the
+  click still reaches the Hub and resends the *content* into the same
+  (now-closed) frame, and DES-088's own rule — a content event never writes
+  visibility — correctly, faithfully leaves it closed. The Hub answered the
+  click; nothing appeared; the user has no way to tell the difference from a
+  swallowed click.
+
+**The applet items — resolved live (2026-10-22).** The repro listed `Vox`,
+`Music`, and `Z-Spec` alongside `Details`. `menu_ls` on the live Hub showed every
+`Beads` item carrying a composed `frame_id` and every `Vox`, `Music`, `Z-Spec
+Browser`, and `Z-Spec Tutorial` item carrying `frame_id: null` — so the
+mechanism above was sound and the defect was in the applets' registration, in
+their own repos. vox and z-spec registered their callbacks without a
+`frame_id`, then tried to compensate after each click with
+`client.frame.raise_`, an operation DES-088 removed (PR #446); luxd answered
+404 and the window stayed closed. That PR also removed the raise without the
+coordinated applet update the rename-train rule
+(`punt-kit/standards/architecture.md`) requires. Both applets were fixed in
+their repos — register `frame_id="vox.music"` / `"vox.panel"` /
+`"z-spec-picker"` / `"z-spec-tutorial"` and delete the dead raise calls — and
+the operator confirmed close-then-reopen from the menu, without Clear All, for
+Music, Vox, and Z-Spec against lux `main`. `Details` is the one remaining
+`frame_id: null` item, and it is lux's own.
+
+**Decision.** Give `Details` — the one Hub-native command that opens a
+deterministic frame — the same treatment `_leaves()` already gives every
+framed applet callback: compute its real, composed frame key at menu-build
+time and carry it on the `MenuAction`. Do this without duplicating the
+`"lux.client-details.{connection_id}"` naming convention, which today lives
+only in `operations/details_scene.py` — a layer `domain/hub/` may not import
+from (`operations → domain`, PY-IC-9; the reverse is a layering violation,
+PL-MD-1). Extract the naming convention itself down into a small value class
+in the domain layer that both `operations/details_scene.py` (which needs the
+raw id) and `domain/hub/client_submenu.py` (which needs the raw id composed
+against the owner, exactly as `SceneInstaller.install`'s `.scoped(owner)` will
+compose it) can share — one definition of "the frame a client's Details lives
+in," read from two call sites instead of typed twice.
+
+**Write set (design-phase output; the implementer owns exact shaping):**
+
+- **New:** `src/punt_lux/domain/hub/details_frame.py` — a small `@final`
+  frozen value class (e.g. `DetailsFrame`) wrapping one `ConnectionId`, exposing
+  the raw id (`f"lux.client-details.{connection_id}"`) and the store-scoped id
+  (`ConnectionScopedId.compose(connection_id, raw_id)` — the exact key
+  `SceneInstaller.install` produces for it). This is the one place the naming
+  convention is spelled out.
+- **Modify:** `src/punt_lux/operations/details_scene.py` — `DetailsScene.scene_id`
+  delegates its raw-id computation to the new class instead of re-deriving
+  `f"{_SCENE_PREFIX}.{connection_id}"` inline (`_SCENE_PREFIX` stays for the
+  table sub-element id, a separate concern).
+- **Modify:** `src/punt_lux/domain/hub/client_submenu.py` — `_details()` sets
+  `frame_id=` the new class's scoped id for `senior.connection_id`, mirroring
+  `_leaves()`'s existing composition.
+- **New/modify tests:**
+  - `tests/domain/hub/test_details_frame.py` (or co-located with an existing
+    `client_submenu`/`session_callback` test file) — unit coverage for the new
+    value class: raw id shape, scoped id shape, and that the scoped id matches
+    `ConnectionScopedId.compose` byte-for-byte (boundary: two different
+    `connection_id`s never collide; invalid: no invalid input surface beyond
+    what `ConnectionId` already validates).
+  - `tests/domain/hub/test_client_submenu.py` (or wherever `ClientSubmenu` is
+    currently tested) — assert `_details()`'s `MenuAction.frame_id` is no longer
+    `None`, and equals the new class's scoped id for the same connection.
+  - `tests/display/test_menu_wire.py` — a new test in the
+    `TestTheFrameIdRoundTrip` class, shaped exactly like
+    `test_a_click_raises_the_exact_id_a_real_frame_book_keys_the_frame_by` but
+    for a session with **no registered callbacks** (only `Details` shows): build
+    `ClientSubmenu`/`CallbackMenu` from a real named session, wire-roundtrip,
+    decode, click, and assert the raised id equals
+    `ConnectionScopedId.compose(conn, DetailsScene.scene_id-equivalent)` — the
+    "open → close → re-click reopens, without Clear All" regression this design
+    exists to close. Pair it with a boundary case (a session with *both* a
+    registered callback and `Details` — assert each raises its own, distinct
+    frame) and an invalid/missing case (a click naming a connection the Hub no
+    longer holds — already covered by `DetailsRefused`/`_no_client`
+    (`operations/client_details.py:93-98`); confirm no exception on the
+    Display-side raise for that same scenario, since the raise is
+    Display-local and does not know the Hub will refuse the click).
+  - Do **not** touch `test_a_replace_leaves_a_closed_frame_closed` /
+    `test_a_new_scene_leaves_a_closed_frame_closed` — the resend-never-raises
+    half of DES-088 is untouched by this change and must keep passing
+    unmodified as the regression guard that the fix does not weaken it.
+
+**Z-spec determination: NOT z-spec class.** This is a sequential Hub-side
+computation — a menu-composition function starts returning a populated string
+field instead of `None` — feeding an *existing, already-proven* mechanism
+(the pre-emit Display-local raise, and the resend-never-raises fork) that
+introduces no new lock, no new ordering, and no new interleaving. It does not
+touch the D21 handler-dispatch fork, the DES-098 `HubMenuRegistry`
+concurrency/departure machinery already modeled in `menu_lifecycle.tex` /
+`menu_lifecycle_delivery.tex`, or the DES-088 visibility state machine modeled
+in `frame-visibility-lifecycle.tex` — it only changes which value is fed into
+inputs those models already treat as arbitrary strings. Per the repo's z-spec
+tripwire rule: if the open question above ("is the applet-callback shape also
+broken live") turns up a genuine new hazard — e.g. a connection-churn race
+between a lease reap minting a new `connection_id` and a menu click still
+carrying the old one's composed `frame_id` — that would be a *new*, separate
+concurrency question, to be modeled on its own bead once reproduced, not
+folded into this data-plumbing fix.
+
+**Test plan summary (happy / invalid / boundary):**
+
+- Happy: `Details` click on a closed Details frame re-raises it, end-to-end,
+  proven the same way the Beads shape already is.
+- Happy: a session with both a callback and `Details` — each raises only its
+  own frame; no cross-talk.
+- Boundary: two different clients' `Details` frames never collide (already
+  guaranteed by `ConnectionScopedId`'s per-connection composition; add a
+  two-connection assertion to the new value-class test).
+- Invalid/missing: a `Details` click for a connection the Hub no longer holds
+  — the existing `DetailsRefused` path is unaffected; add a Display-side
+  assertion that raising a frame id for a frame the Display has never seen
+  (`FrameBook.restore` returns `False`) is a silent, safe no-op, not an
+  exception — already true of `FrameBook.restore`'s contract but worth pinning
+  for this specific caller.
+- Regression guard: the two existing "resend never re-raises a closed frame"
+  tests keep passing unmodified.
