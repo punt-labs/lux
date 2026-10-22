@@ -18,12 +18,11 @@ submenu is named for the repository its clients work in
 (:attr:`ClientIdentity.menu_label`); a leaf is named for the command alone
 — ``Beads``, not ``lux · lux · #4b97 Beads``.
 
-Every submenu carries the Hub's own ``Details`` command below its own
-entries; it points at the senior member of the group, whose connection
-state stands in for the whole session. A leaf's id is the owning connection
-and the callback joined into one wire id (:class:`CallbackInvocation`), so
-a click on a leaf round-trips to exactly the applet that registered it —
-even when its sibling registered the entry next to it.
+A member that registered no command -- the agent session -- is listed by its
+own name below the group's commands; the Hub answers that entry itself. A
+leaf's id is the owning connection and the callback joined into one wire id
+(:class:`CallbackInvocation`), so a click on a leaf round-trips to exactly the
+applet that registered it — even when its sibling registered the entry next to it.
 """
 
 from __future__ import annotations
@@ -67,7 +66,8 @@ class CallbackMenu:
         Submenus are ordered by label so the bar is stable across reads.
         """
         return cls._clients_menu(
-            ClientSubmenu.of(group) for group in clients.commanding_groups()
+            ClientSubmenu(group.name, group.members)
+            for group in clients.commanding_groups()
         )
 
     @staticmethod

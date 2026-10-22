@@ -112,11 +112,16 @@
 
 ### Fixed
 
-- **`Clients → <client> → Details` reopens after you close it (`lux-ghhf`).**
-  The Details menu item carried no frame, so the Display could not reopen a
-  Details window the user had closed and the click did nothing until
-  `Windows → Clear All`. The item now names the frame its scene is installed
-  into, through one `DetailsFrame` value shared by the menu and the scene.
+- **The Clients menu entry for a connection with no commands reopens after you
+  close it (`lux-ghhf`).** The per-group `Details` item, which described an
+  arbitrary "senior" process, is gone; the per-frame `i` glyph answers where a
+  window came from. A connection that registered no menu command (the agent
+  session) now gets one entry of its own, named for the program it runs, and
+  the window it opens carries the same name, which the Display qualifies when
+  more than one Hub is connected. The entry names the frame its scene is
+  installed into, through one `DetailsFrame` value shared by the menu and the
+  scene, so a closed window reopens on the next click without
+  `Windows → Clear All`.
 - **Session-writer publish is now atomic (`lux-wk3p`).** The per-connection
   publish path (`_writer`) looked up the inbox and enqueued in two steps
   across a lock release, so a concurrent session departure could drop the

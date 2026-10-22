@@ -1,14 +1,12 @@
 """CallbackMenu — the uniform ``Clients ▸ <client> ▸ <command>`` menu build.
 
 One ``Clients`` menu holds one submenu per identified live client that earns a
-place, named by the roster, that client's commands as the leaves, and the Hub's
-own ``Details`` at the foot. The rule is the same for every kind of client and
-every count, and two clients are never merged. A client earns a submenu by
-registering a command, or by being the agent (an mcp-session) that drives the
-display — kept present with only its ``Details`` even before it registers
-anything (DES-098). Unidentified clients, and non-agent clients with no
-callbacks, contribute nothing; each leaf id round-trips a click to whoever owns
-it — the client, or the Hub for ``Details``.
+place, named by the roster, that client's commands as the leaves. A client
+earns a submenu by registering a command, or by being the agent (an
+mcp-session) that drives the display; the agent registers none, so it shows one
+Hub-answered entry named for itself. Unidentified clients, and non-agent clients
+with no callbacks, contribute nothing; each leaf id round-trips a click to
+whoever owns it.
 """
 
 from __future__ import annotations
@@ -101,7 +99,7 @@ class TestTheClientsMenu:
         menus = _menus(("lux", _session("claude", "/w/lux", _beads())))
 
         client = _submenu(menus, "lux")
-        assert _labels_under(client) == ["Beads", "Details"]
+        assert _labels_under(client) == ["Beads"]
         assert client.items[0] == MenuAction(
             id=CallbackInvocation(conn, "beads").menu_id, label="Beads"
         )
@@ -137,7 +135,7 @@ class TestTheClientsMenu:
         # One Clients menu, one submenu in it, several leaves — no flattening
         # and no count-dependent shape.
         assert len(_clients_menu(menus).items) == 1
-        assert _labels_under(_submenu(menus, "lux")) == ["Beads", "Build", "Details"]
+        assert _labels_under(_submenu(menus, "lux")) == ["Beads", "Build"]
 
     def test_a_leaf_is_named_for_the_command_alone(self) -> None:
         """The hierarchy disambiguates, so the leaf label carries nothing else."""
@@ -145,7 +143,7 @@ class TestTheClientsMenu:
             ("s", _session("lux · lux · #4b97 · lux-beads", "/w/lux", _beads()))
         )
 
-        assert _labels_under(_submenu(menus, "lux")) == ["Beads", "Details"]
+        assert _labels_under(_submenu(menus, "lux")) == ["Beads"]
 
     def test_two_clients_are_two_submenus_under_the_one_menu(self) -> None:
         vox, lux = ConnectionId("vox"), ConnectionId("lux")
@@ -187,7 +185,7 @@ class TestEveryKindIsAClient:
         menus = _menus(("vox", voxd))
 
         assert _labels_under(_clients_menu(menus)) == ["voxd"]
-        assert _labels_under(_submenu(menus, "voxd")) == ["Music", "Details"]
+        assert _labels_under(_submenu(menus, "voxd")) == ["Music"]
 
     def test_a_daemon_and_a_session_are_two_submenus_of_one_menu(self) -> None:
         """No species split: one menu, one rule, whatever kind a client is."""
@@ -243,7 +241,7 @@ class TestWhatANameIs:
         """
         menus = _menus(("root", _session("lux-cli", "/", _beads(), kind="cli")))
 
-        assert _labels_under(_submenu(menus, "lux-cli")) == ["Beads", "Details"]
+        assert _labels_under(_submenu(menus, "lux-cli")) == ["Beads"]
 
     def test_a_client_at_the_root_does_not_take_the_bar_down_with_it(self) -> None:
         """The whole menu is composed at once, so one bad label cost everyone."""
@@ -335,49 +333,61 @@ class TestWhatANameIs:
         assert roster.held()[ConnectionId("third")] == "lux (2)"
 
 
-class TestTheDetailsCommand:
-    """Every client's submenu carries the Hub's own command, in the same place."""
+class TestTheDetailsEntry:
+    """A connection with no callbacks gets one entry, named for itself."""
 
-    def test_details_is_the_last_entry_under_a_rule(self) -> None:
-        menus = _menus(("lux", _session("claude", "/w/lux", _beads())))
+    def test_a_callbackless_connection_gets_one_entry_named_for_it(self) -> None:
+        conn = ConnectionId("mcp")
+        menus = _menus(("mcp", _session("claude", "/w/lux")))
 
-        items = _submenu(menus, "lux").items
-        assert isinstance(items[-2], MenuSeparator)
-        assert isinstance(items[-1], MenuAction)
-        assert items[-1].label == "Details"
+        (entry,) = _submenu(menus, "lux").items
+        assert isinstance(entry, MenuAction)
+        assert entry.label == "claude"
+        assert CallbackInvocation.from_menu_id(entry.id).connection_id == conn
+        assert CallbackInvocation.from_menu_id(entry.id).is_details
 
-    def test_a_client_with_only_details_still_shows_the_same_shape(self) -> None:
-        """Details never stands alone: the client registered something to be here."""
-        menus = _menus(("lux", _session("claude", "/w/lux", _beads())))
+    def test_the_entry_carries_the_frame_the_scene_installer_keys_it_by(self) -> None:
+        conn = ConnectionId("mcp")
+        menus = _menus(("mcp", _session("claude", "/w/lux")))
 
-        assert _labels_under(_submenu(menus, "lux"))[-1] == "Details"
-
-    def test_the_details_id_names_the_hub_not_the_client(self) -> None:
-        conn = ConnectionId("lux")
-        menus = _menus(("lux", _session("claude", "/w/lux", _beads())))
-
-        details = _submenu(menus, "lux").items[-1]
-        assert isinstance(details, MenuAction)
-        invocation = CallbackInvocation.from_menu_id(details.id)
-        assert invocation.connection_id == conn
-        assert invocation.is_details
-
-    def test_details_carries_the_frame_it_opens(self) -> None:
-        menus = _menus(("lux", _session("claude", "/w/lux", _beads())))
-
-        details = _submenu(menus, "lux").items[-1]
-        assert isinstance(details, MenuAction)
-        assert details.frame_id is not None
-
-    def test_details_frame_is_the_one_the_scene_installer_keys_it_by(self) -> None:
-        conn = ConnectionId("lux")
-        menus = _menus(("lux", _session("claude", "/w/lux", _beads())))
-
-        details = _submenu(menus, "lux").items[-1]
-        assert isinstance(details, MenuAction)
-        assert details.frame_id == ConnectionScopedId.compose(
+        (entry,) = _submenu(menus, "lux").items
+        assert isinstance(entry, MenuAction)
+        assert entry.frame_id == ConnectionScopedId.compose(
             conn, f"lux.client-details.{conn}"
         )
+
+    def test_a_connection_with_a_callback_gets_no_entry(self) -> None:
+        menus = _menus(("lux", _session("claude", "/w/lux", _beads())))
+
+        assert _labels_under(_submenu(menus, "lux")) == ["Beads"]
+
+    def test_two_callbackless_connections_in_one_repo_get_two_entries(self) -> None:
+        menus = _menus(
+            ("a", _session("claude-a", "/w/lux")),
+            ("b", _session("claude-b", "/w/lux")),
+        )
+
+        entries = [
+            label
+            for submenu in _clients_menu(menus).items
+            if isinstance(submenu, Menu)
+            for label in _labels_under(submenu)
+        ]
+        assert sorted(entries) == ["claude-a", "claude-b"]
+
+    def test_two_sessions_with_the_same_program_are_told_apart_by_their_submenus(
+        self,
+    ) -> None:
+        menus = _menus(
+            ("a", _session("claude", "/w/lux")),
+            ("b", _session("claude", "/w/lux")),
+        )
+
+        assert _labels_under(_clients_menu(menus)) == ["lux", "lux (2)"]
+        assert [_labels_under(_submenu(menus, n)) for n in ("lux", "lux (2)")] == [
+            ["claude"],
+            ["claude"],
+        ]
 
     def test_a_clients_own_command_is_not_the_details_command(self) -> None:
         menus = _menus(("lux", _session("claude", "/w/lux", _beads())))
@@ -427,33 +437,21 @@ class TestWhatContributesNothing:
 
 
 class TestTheAgentSession:
-    """The mcp-session that drives the display earns a place with only Details.
+    """The mcp-session that drives the display earns a place with only its own entry.
 
     DES-098: the agent registers no menu callback of its own, yet the user must
-    be able to reach it — so it is grouped under Clients like any client, with a
-    connection-Details entry at minimum, even before it registers anything.
+    be able to reach it — so it is grouped under Clients like any client, with an
+    entry named for itself, even before it registers anything.
     """
 
-    def test_an_identified_agent_with_no_callbacks_shows_only_details(self) -> None:
+    def test_an_identified_agent_with_no_callbacks_shows_only_its_entry(self) -> None:
         # A bare mcp-session, no command registered — the acting agent's shape.
         menus = _menus(("mcp", _session("claude", "/w/lux")))
 
-        # It earns a submenu under Clients, named for its repo, showing just
-        # Details — one entry, no leading rule above nothing.
         assert _labels_under(_clients_menu(menus)) == ["lux"]
         (only,) = _submenu(menus, "lux").items  # exactly one entry, no separator
         assert isinstance(only, MenuAction)
-        assert only.label == "Details"
-
-    def test_the_bare_agents_details_names_the_hub(self) -> None:
-        conn = ConnectionId("mcp")
-        menus = _menus(("mcp", _session("claude", "/w/lux")))
-
-        (details,) = _submenu(menus, "lux").items
-        assert isinstance(details, MenuAction)
-        invocation = CallbackInvocation.from_menu_id(details.id)
-        assert invocation.connection_id == conn
-        assert invocation.is_details
+        assert only.label == "claude"
 
     def test_an_unidentified_session_does_not_appear(self) -> None:
         # No identity means no kind to earn presence on — nothing is shown.
@@ -485,7 +483,7 @@ class TestAppletGrouping:
     """DES-067: two applets in one session render as one submenu.
 
     The user reads them as one entity; the composed menu says so, with each
-    applet's callbacks under the shared label and one Details entry.
+    applet's callbacks under the shared label.
     """
 
     def test_two_applets_in_one_session_share_one_submenu(self) -> None:
@@ -498,9 +496,9 @@ class TestAppletGrouping:
             ("vox", _applet_session(pid, "vox-panel", vox)),
         )
 
-        # One submenu, both applets' callbacks together, one Details.
+        # One submenu, both applets' callbacks together.
         assert _labels_under(_clients_menu(menus)) == ["lux"]
-        assert _labels_under(_submenu(menus, "lux")) == ["Beads", "Music", "Details"]
+        assert _labels_under(_submenu(menus, "lux")) == ["Beads", "Music"]
 
     def test_two_applets_in_one_session_route_clicks_to_their_own_connection(
         self,
@@ -529,26 +527,6 @@ class TestAppletGrouping:
         assert by_label["Beads"].id == CallbackInvocation(beads_conn, "beads").menu_id
         assert by_label["Music"].id == CallbackInvocation(vox_conn, "music").menu_id
 
-    def test_details_aims_at_the_senior_member(self) -> None:
-        """The Details entry points at the first-registered applet's connection."""
-        pid = 12345
-        beads_conn = ConnectionId("beads")
-
-        menus = _menus(
-            (
-                "beads",
-                _applet_session(pid, "lux-beads", SessionCallback(id="b", label="B")),
-            ),
-            (
-                "vox",
-                _applet_session(pid, "vox-panel", SessionCallback(id="m", label="M")),
-            ),
-        )
-
-        details = _submenu(menus, "lux").items[-1]
-        assert isinstance(details, MenuAction)
-        assert details.id == CallbackInvocation.details(beads_conn).menu_id
-
     def test_two_different_sessions_are_still_two_submenus(self) -> None:
         """DES-064's collision-numbering stays for its designed case."""
         beads = SessionCallback(id="b", label="B")
@@ -559,34 +537,6 @@ class TestAppletGrouping:
         )
 
         assert _labels_under(_clients_menu(menus)) == ["lux", "lux (2)"]
-
-    def test_details_migrates_to_the_junior_when_the_senior_departs(self) -> None:
-        """When the senior is released, Details re-aims at the surviving junior.
-
-        Composition reads the group's members from a fresh roster each time,
-        so a release plus a fresh compose is atomic at the composition boundary
-        — no ghost Details entry surviving into the next paint. This proves the
-        rebuild path, not the display-side cached-menu window (that class is
-        deferred to a follow-up as its own concern).
-        """
-        pid = 12345
-        vox_conn = ConnectionId("vox")
-        roster = ClientRoster()
-        beads = ("beads", _applet_session(pid, "lux-beads", _beads()))
-        vox = (
-            "vox",
-            _applet_session(pid, "vox-panel", SessionCallback(id="m", label="M")),
-        )
-        # Compose once with both members so the group is named.
-        _menus(beads, vox, roster=roster)
-
-        # Senior departs; recompose with just the junior.
-        roster.release([ConnectionId("beads")])
-        menus = _menus(vox, roster=roster)
-
-        details = _submenu(menus, "lux").items[-1]
-        assert isinstance(details, MenuAction)
-        assert details.id == CallbackInvocation.details(vox_conn).menu_id
 
 
 class TestTheReplica:
@@ -619,14 +569,6 @@ class TestTheReplica:
                             {
                                 "label": "Beads",
                                 "id": CallbackInvocation(conn, "beads").menu_id,
-                            },
-                            {"label": "---"},
-                            {
-                                "label": "Details",
-                                "id": CallbackInvocation.details(conn).menu_id,
-                                "frame_id": ConnectionScopedId.compose(
-                                    conn, f"lux.client-details.{conn}"
-                                ),
                             },
                         ],
                     }

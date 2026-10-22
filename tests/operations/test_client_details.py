@@ -232,7 +232,7 @@ class TestHowItIsShown:
         owners = store.scene_owners(_scoped("c1", result.scene_id))
         assert [str(owner.connection_id) for owner in owners] == ["c1"]
 
-    def test_the_frame_is_titled_for_the_client_the_menu_named(self) -> None:
+    def test_the_frame_is_titled_with_the_program_it_runs(self) -> None:
         store, hub = HubDisplay(), Hub()
         _named(store, "c1", _identity())
         details, _marks = _wired(store, hub)
@@ -241,7 +241,7 @@ class TestHowItIsShown:
 
         assert isinstance(result, SceneShown)
         presentation = store.frames.presentation_for(_scoped("c1", result.scene_id))
-        assert presentation.frame_title == "lux — client details"
+        assert presentation.frame_title == "lux-beads"  # the program; Display qualifies
 
     def test_two_clients_details_are_two_scenes(self) -> None:
         store, hub = HubDisplay(), Hub()

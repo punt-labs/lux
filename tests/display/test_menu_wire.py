@@ -331,7 +331,7 @@ class TestTheFrameIdRoundTrip:
         conn = ConnectionId("lux")
         named = NamedSessions.over({conn: _bare_session()}, ClientRoster())
 
-        raised = _click(named, "Details")
+        raised = _click(named, "claude")
 
         # The key the installed Details scene is recorded under (DES-086).
         real_key = ConnectionScopedId.compose(conn, f"lux.client-details.{conn}")
@@ -341,25 +341,25 @@ class TestTheFrameIdRoundTrip:
         assert raised == [real_key]
         assert book.restore(raised[0]) is True
 
-    def test_each_command_raises_its_own_frame(self) -> None:
-        conn = ConnectionId("lux")
+    def test_each_entry_raises_its_own_frame(self) -> None:
+        agent, applet = ConnectionId("agent"), ConnectionId("lux")
         callback = SessionCallback(id="beads", label="Beads", frame_id="beads-lux")
-        named = NamedSessions.over({conn: _bare_session(callback)}, ClientRoster())
+        named = NamedSessions.over(
+            {agent: _bare_session(), applet: _bare_session(callback)}, ClientRoster()
+        )
 
         beads = _click(named, "Beads")
-        details = _click(named, "Details")
+        own = _click(named, "claude")
 
-        assert beads == [ConnectionScopedId.compose(conn, "beads-lux")]
-        assert details == [
-            ConnectionScopedId.compose(conn, f"lux.client-details.{conn}")
-        ]
+        assert beads == [ConnectionScopedId.compose(applet, "beads-lux")]
+        assert own == [ConnectionScopedId.compose(agent, f"lux.client-details.{agent}")]
 
     def test_raising_a_frame_the_display_never_saw_is_a_silent_no_op(self) -> None:
         """The Hub may have dropped the client; the Display raises regardless."""
         conn = ConnectionId("gone")
         named = NamedSessions.over({conn: _bare_session()}, ClientRoster())
 
-        (raised_id,) = _click(named, "Details")
+        (raised_id,) = _click(named, "claude")
 
         assert FrameBook().restore(raised_id) is False
 
@@ -377,17 +377,17 @@ def _bare_session(*callbacks: SessionCallback) -> ClientSession:
 
 
 def _click(named: NamedSessions, label: str) -> list[str]:
-    """Wire one client's real submenu to the Display, click ``label``, return raises."""
+    """Wire every submenu to the Display, click ``label``, return what it raised."""
     (clients_menu,) = CallbackMenu.from_named(named)
-    (submenu,) = [entry for entry in clients_menu.items if isinstance(entry, Menu)]
     raised: list[str] = []
-    display_menu = Submenu.from_wire(
-        _checked(submenu.to_wire()),
-        MenuHandlers(
-            ignore, lambda frame_id, _hub: raised.append(frame_id), HubId.stub()
-        ),
-    )
-    display_menu.render(FakeImGui((label,)))
+    for submenu in clients_menu.items:
+        assert isinstance(submenu, Menu)
+        Submenu.from_wire(
+            _checked(submenu.to_wire()),
+            MenuHandlers(
+                ignore, lambda frame_id, _hub: raised.append(frame_id), HubId.stub()
+            ),
+        ).render(FakeImGui((label,)))
     return raised
 
 

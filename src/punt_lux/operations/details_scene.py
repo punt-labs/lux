@@ -21,6 +21,7 @@ from punt_lux.operations.scene_submission import SceneSubmission
 from punt_lux.protocol.compositions.client_details import ClientDetailsComposition
 
 if TYPE_CHECKING:
+    from punt_lux.domain.hub.named_sessions import NamedSession
     from punt_lux.operations.models.query_clients import HubClient
 
 __all__ = ["DetailsScene"]
@@ -33,14 +34,14 @@ class DetailsScene:
     """The Details scene for one client: how it is named, framed, and filled."""
 
     _client: HubClient
-    _label: str
+    _named: NamedSession
     _frame: DetailsFrame
-    __slots__ = ("_client", "_frame", "_label")
+    __slots__ = ("_client", "_frame", "_named")
 
-    def __new__(cls, client: HubClient, label: str) -> Self:
+    def __new__(cls, client: HubClient, named: NamedSession) -> Self:
         self = super().__new__(cls)
         self._client = client
-        self._label = label
+        self._named = named
         self._frame = DetailsFrame(client.connection_id)
         return self
 
@@ -50,12 +51,11 @@ class DetailsScene:
         return self._frame.raw_id
 
     def submission(self) -> SceneSubmission:
-        """Offer the table in its own frame, titled for the client it describes."""
-        title = f"{self._label} — client details"
-        facts = ClientIdentityFacts(self._client, self._label).build()
+        """Offer the table in its own frame, titled with the program."""
+        facts = ClientIdentityFacts(self._client, self._named.name).build()
         return SceneSubmission.of(
             ClientDetailsComposition.build(facts, element_id=_TABLE_ID),
             self.scene_id,
-            self._frame.presentation(title),
+            self._frame.presentation(self._named.program),
             None,
         )

@@ -61,8 +61,7 @@ class FrameOwnerFacts:
         """Return the senior owner's rows, or ``None`` if unowned or departed.
 
         The senior owner is the scene's first-appearance root owner
-        (``HubDisplay.scene_owners``) -- the same convention the Clients menu's
-        Details command points at. A connection the roster no longer holds a
+        (``HubDisplay.scene_owners``). A connection the roster no longer holds a
         live session for (a departure raced this read) reports ``None`` too;
         the display keeps its last cached snapshot rather than blanking it.
         """

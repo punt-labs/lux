@@ -1,10 +1,10 @@
 """ClientDetailsOperations — show one client's connection state as a scene.
 
-The Hub's own menu command. Every client's submenu carries ``Details``, and the
-Hub answers it itself rather than routing it to the client, because what it
-reports is the Hub's own record of that connection — the same record
-``list_clients`` returns, narrowed to one client and rendered by
-:class:`~punt_lux.operations.details_scene.DetailsScene`.
+The Hub's own menu command. A client with no command is listed under Clients by
+its own name; the Hub answers that entry itself rather than routing it to the
+client, because what it reports is the Hub's own record of that connection —
+the same record ``list_clients`` returns, narrowed to one client and rendered
+by :class:`~punt_lux.operations.details_scene.DetailsScene`.
 
 The scene is owned by the client it describes, so it appears among that client's
 scenes and goes when that client's scenes are cleared. That ownership is
@@ -87,7 +87,7 @@ class ClientDetailsOperations:
 
     def _shown(self, named: NamedSession) -> SceneShown | OpError:
         """Install this client's details as the scene that client owns."""
-        scene = DetailsScene(self._queries.client_facts(named), named.name)
+        scene = DetailsScene(self._queries.client_facts(named), named)
         return self._installer.install(scene.submission(), owner=named.connection_id)
 
     @staticmethod

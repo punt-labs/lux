@@ -113,8 +113,8 @@ class ClientSession:
         """Whether this session earns a Clients submenu, command or not.
 
         A session earns its place by registering a command; the agent (an
-        mcp-session) is kept present on its kind alone, with its Details, because
-        it drives the display yet registers no command of its own (DES-098).
+        mcp-session) is kept present on its kind alone, with an entry of its
+        own, because it drives the display yet registers no command of its own.
         """
         identity = self._identity
         return bool(self.callbacks) or (identity is not None and identity.is_agent)

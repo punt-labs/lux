@@ -162,3 +162,19 @@ class TestLifecycleRobustness:
         rendering.forget_connection(_PEMBROKE_1, "c1")  # the Hub departs
         assert rendering.frame_title(frame) == "Vox"
         assert rendering.frame_window_id(frame).endswith("vox")
+
+
+class TestADetailsFrameTitle:
+    """The Hub titles a Details frame with the program; the Display qualifies it."""
+
+    def test_a_lone_details_frame_reads_as_the_program(self) -> None:
+        rendering = _rendering((_PEMBROKE_1, "c1"))
+        frame = _frame(_PEMBROKE_1, "c1\x1flux.client-details.c1", "z-spec")
+
+        assert rendering.frame_title(frame) == "z-spec"
+
+    def test_across_hubs_the_hub_rung_is_added(self) -> None:
+        rendering = _rendering((_PEMBROKE_1, "c1"), (_OKINOS, "c2"))
+        frame = _frame(_PEMBROKE_1, "c1\x1flux.client-details.c1", "z-spec")
+
+        assert rendering.frame_title(frame) == "pembroke :: z-spec"
