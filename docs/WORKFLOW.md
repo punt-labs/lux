@@ -399,7 +399,11 @@ the worker's result inside the mission before the leader accepts it.
 **Remote review findings are the one delegation that is not a mission.**
 When Copilot or Bugbot report on the PR, the leader reads each finding and
 hands the mechanical fix to a bare agent, then pushes and resolves the thread
-itself.
+itself. The exception covers *mechanical* fixes only: a fix that changes a
+design — new classes, moved responsibilities, a ratchet regression to resolve
+— is a mission with an evaluator, whatever review raised it. A bare agent has
+no evaluator, so nothing checks its work before its report reaches the
+leader.
 
 ### The lifecycle
 
@@ -414,6 +418,40 @@ itself.
    the work, and every design result states which ADRs it builds on or
    supersedes — a design that cites none on a topic the log covers is
    returned unread.
+
+   Every implementation contract carries the **standing worker contract**
+   below verbatim. The leader does not paraphrase it per round: rules
+   rewritten from memory each time drift, and a worker reads a missing rule as
+   permission.
+
+   > **Goal.** Good SOLID object-oriented design, stated as responsibilities:
+   > which object owns what, who depends on what. The OO and coupling ratchet
+   > numbers are *signals* of that design, never targets. A change that moves
+   > a number without improving responsibilities — a grab-bag class, a bundle
+   > of collaborators handed out for callers to reach through, a second facade
+   > forwarding to the first — is rejected even when the gate goes green.
+   >
+   > **Forbidden.** Writing `.oo-baseline.json`, `.oo-audit.jsonl`,
+   > `.oo-coupling-baseline.json`, or `.oo-coupling-audit.jsonl` by any means
+   > other than `make update-oo` / `make update-coupling`. Running
+   > `--rebaseline-files` (a bless) at all — it is the leader's act alone,
+   > under DES-096/097. Restoring any file from git (`git show REV:path >
+   > path`, `checkout --`, `restore`, `reset`, `stash`), `rm`, `clean`, or
+   > switching branches. Pushing, or touching a PR. Calling MCP tools.
+   > Piping a gate through `head`, `tail`, or `grep`.
+   >
+   > **On any ratchet regression: stop.** Do not extract a class to move the
+   > number, do not bless, do not commit. Report the design and the numbers
+   > to the leader, who decides.
+   >
+   > **Evidence, not claims.** Run `make check` with output saved to a file
+   > under `.tmp/`; cite the file and its final summary line. A commit is
+   > made only after that file shows exit 0. The evaluator and the leader
+   > re-run it; a report that disagrees with their run rejects the work.
+
+   No contract sets a numeric target for a ratchet metric ("LCOM at or below
+   X"). Stating the number as the goal is what produces the number-chasing
+   the contract forbids.
 2. **Dispatch is two operations.** Creating the mission writes the contract;
    a separate background agent spawn starts the worker. Verify the worker is
    actually running — a contract with no agent behind it is orphaned work.
