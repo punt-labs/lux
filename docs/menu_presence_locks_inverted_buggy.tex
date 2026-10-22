@@ -1,0 +1,179 @@
+%
+% menu_presence_locks_inverted_buggy.tex
+%
+% FIDELITY CONTROL for docs/menu_presence_locks.tex: the REJECTED design in
+% which the registry fires the presence hook from inside its own lock. The
+% only change from menu_presence_locks.tex is that the readers (BeginRead,
+% EndRead) are replaced by BeginRegistryWrite and FireHook. A deadlock is
+% reachable. The rest of this header is that of the fixed model.
+%
+% menu_presence_locks.tex
+%
+% Companion to docs/menu_presence.tex: the LOCK ORDER the fixed design
+% requires, checked for deadlock-freedom.
+%
+% menu_presence.tex makes every presence-changing registry transition one
+% atomic step. That atomicity is only real if the code can actually hold the
+% locks it needs without a cycle. The locks in play:
+%
+%   StoreLock   HubDisplay._lock, a re-entrant write lock. Held by
+%               identify_client, register_client, drop_connection, apply,
+%               _depart_lapsed, and by bind_departure_sink. The departure
+%               sinks run inside it.
+%   RegLock     HubClientRegistry._lock, a plain (non-re-entrant) lock. Taken
+%               INSIDE StoreLock by every writer (record, attach_listener,
+%               discard, reap_lapsed_locked), and ALONE by the readers
+%               (named_sessions, live_sessions, session_of).
+%   (marker)    The DirtyMarker's own lock, taken by mark_menus. It is a leaf:
+%               nothing is acquired while it is held, so it contributes no
+%               edge to the acquisition graph and is not modelled.
+%
+% Re-entrancy of StoreLock contributes no edge either: a thread already
+% holding it never waits on it, so a nested acquire is a self-loop. It is
+% modelled by omission.
+%
+% THE FIXED DESIGN: every presence-changing writer enters through HubDisplay
+% (StoreLock first, then RegLock); the registry returns "presence changed" and
+% the caller, still inside StoreLock, marks and binds. Readers take RegLock
+% alone and never wait for the store. The acquisition graph has the single
+% edge StoreLock -> RegLock: acyclic, so deadlock-free.
+%
+% THE REJECTED DESIGN (menu_presence_locks_inverted_buggy.tex): the registry
+% itself fires the mark/bind hook from inside record(), i.e. while holding
+% RegLock, and binding a sink takes StoreLock. Writers that enter through the
+% registry then hold RegLock and want StoreLock, against HubDisplay's writers
+% that hold StoreLock and want RegLock: a cycle. ProB finds the deadlock.
+%
+% Type-check:  fuzz docs/menu_presence_locks.tex
+% Model-check: probcli docs/menu_presence_locks.tex -model_check \
+%                -p DEFAULT_SETSIZE 2
+% Expected: no deadlock, no invariant violation (the fixed order).
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+
+\begin{document}
+
+\title{lux Menu Presence: the Lock Order}
+\maketitle
+
+\begin{zed}
+  [T]
+\end{zed}
+
+A thread: an MCP tool thread, the listen leg's event-loop thread, the lease
+sweep, the replicator tick. Two suffice for a cycle.
+
+\begin{zed}
+  PC ::= pidle | pstore | pboth | preg
+\end{zed}
+
+A thread's program counter: holding nothing; holding the store lock and
+wanting the registry's; holding both; holding the registry lock alone (a
+read).
+
+\begin{schema}{Locks}
+  pc : T \fun PC \\
+  storeHeld : \power T \\
+  regHeld : \power T
+\where
+  \# storeHeld \leq 1 \\
+  \# regHeld \leq 1 \\
+  storeHeld = \{ t : T | pc~t = pstore \lor pc~t = pboth \} \\
+  regHeld = \{ t : T | pc~t = pboth \lor pc~t = preg \}
+\end{schema}
+
+The lock tables are derived from the program counters, so they can never
+disagree with them; the cardinality bounds are mutual exclusion.
+
+\begin{schema}{Init}
+  Locks'
+\where
+  pc' = T \cross \{ pidle \} \\
+  storeHeld' = \emptyset \\
+  regHeld' = \emptyset
+\end{schema}
+
+\begin{schema}{BeginWrite}
+  \Delta Locks \\
+  t? : T
+\where
+  pc~t? = pidle \\
+  storeHeld = \emptyset \\
+  pc' = pc \oplus \{ t? \mapsto pstore \} \\
+  storeHeld' = \{ t? \} \\
+  regHeld' = regHeld
+\end{schema}
+
+A presence-changing writer takes the store lock first (HubDisplay's
+\texttt{identify\_client}, \texttt{\_depart}, \texttt{\_depart\_lapsed}, and
+the read loop once it is routed through HubDisplay).
+
+\begin{schema}{TakeRegistry}
+  \Delta Locks \\
+  t? : T
+\where
+  pc~t? = pstore \\
+  regHeld = \emptyset \\
+  pc' = pc \oplus \{ t? \mapsto pboth \} \\
+  storeHeld' = storeHeld \\
+  regHeld' = \{ t? \}
+\end{schema}
+
+\begin{schema}{Finish}
+  \Delta Locks \\
+  t? : T
+\where
+  pc~t? = pboth \\
+  pc' = pc \oplus \{ t? \mapsto pidle \} \\
+  storeHeld' = \emptyset \\
+  regHeld' = \emptyset
+\end{schema}
+
+The upsert or removal happens under both locks; the registry returns, and the
+caller marks and binds under the store lock it still holds, then releases
+both. (The marker's leaf lock, taken in between, is not modelled.)
+
+\begin{schema}{BeginRegistryWrite}
+  \Delta Locks \\
+  t? : T
+\where
+  pc~t? = pidle \\
+  regHeld = \emptyset \\
+  pc' = pc \oplus \{ t? \mapsto preg \} \\
+  storeHeld' = storeHeld \\
+  regHeld' = \{ t? \}
+\end{schema}
+
+A writer that enters through the registry directly, as
+\texttt{ws\_listen}'s read loop does today (\texttt{clients.record}).
+
+\begin{schema}{FireHook}
+  \Delta Locks \\
+  t? : T
+\where
+  pc~t? = preg \\
+  storeHeld = \emptyset \\
+  pc' = pc \oplus \{ t? \mapsto pboth \} \\
+  storeHeld' = \{ t? \} \\
+  regHeld' = regHeld
+\end{schema}
+
+The defect: the registry fires the mark/bind hook from inside \texttt{record},
+while holding its own lock, and binding a sink takes the store lock. The edge
+RegLock $\to$ StoreLock closes a cycle with BeginWrite's StoreLock $\to$
+RegLock.
+
+Expected: a DEADLOCK is found.
+
+\begin{verbatim}
+  probcli docs/menu_presence_locks_inverted_buggy.tex -model_check \
+    -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+Trace: BeginWrite(t1); BeginRegistryWrite(t2) leaves t1 waiting for the
+registry (held by t2) and t2 waiting for the store (held by t1).
+
+\end{document}
