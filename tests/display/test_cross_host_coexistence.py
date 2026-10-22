@@ -12,6 +12,7 @@ as before, unaffected by whether cross-host is enabled alongside it.
 
 from __future__ import annotations
 
+import select
 import socket
 import ssl
 import tempfile
@@ -33,6 +34,8 @@ from punt_lux.protocol import (
 from punt_lux.trust import CertificateAuthority
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from punt_lux.protocol.messages import Message
 
 # ---------------------------------------------------------------------------
@@ -119,6 +122,24 @@ def _drive_until_tls_ready(
         time.sleep(0.005)  # give the client thread's connect+handshake a chance
 
 
+def _poll_until(
+    listener: SocketListener, done: Callable[[], bool], *, timeout: float = 5.0
+) -> None:
+    """Poll the listener until ``done()`` holds, blocking on readiness between polls.
+
+    ``poll_clients`` selects with a zero timeout, so a fixed number of back-to-back
+    calls can finish before the kernel has delivered the peer's data or its FIN.
+    Waiting on the sockets themselves, against a deadline, makes the outcome
+    depend on the events and not on how fast the test thread spins.
+    """
+    deadline = time.monotonic() + timeout
+    while not done():
+        remaining = deadline - time.monotonic()
+        assert remaining > 0, "the listener never reached the expected state"
+        select.select(list(listener.clients), [], [], min(remaining, 0.05))
+        listener.poll_clients()
+
+
 class TestCoexistence:
     def test_af_unix_and_cross_host_clients_are_served_by_one_listener(
         self, tmp_path: Path
@@ -181,12 +202,7 @@ class TestCoexistence:
                 send_message(unix_client, unix_scene)
                 send_message(tls_client, tls_scene)
 
-                # select() needs a beat to see both sockets readable.
-                unix_listener.poll_clients()
-                deadline_rounds = 100
-                while len(received) < 2 and deadline_rounds:
-                    unix_listener.poll_clients()
-                    deadline_rounds -= 1
+                _poll_until(unix_listener, lambda: len(received) >= 2)
 
                 dispatched_ids = {
                     msg.id for _fd, msg in received if isinstance(msg, SceneMessage)
@@ -195,8 +211,7 @@ class TestCoexistence:
 
                 # -- closing the TLS leg leaves the AF_UNIX leg untouched --
                 tls_client.close()
-                for _ in range(50):
-                    unix_listener.poll_clients()
+                _poll_until(unix_listener, lambda: len(unix_listener.clients) == 1)
                 assert len(unix_listener.clients) == 1
                 assert unix_server_fd in unix_listener.fd_to_client
             finally:
