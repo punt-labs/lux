@@ -95,7 +95,7 @@ So the door slice is about 300 call sites, not 700. The 326 constructions matter
 more than the 272 door sites: the constructor signature changes (§4.3), so every
 test that builds a store is touched once, mechanically.
 
-Source files with door sites: `operations/scenes.py`, `pubsub.py`, `identity.py`,
+Source files with door sites: `operations/scenes.py` (since split, §4.9), `pubsub.py`, `identity.py`,
 `callbacks.py`, `menu_arming.py`, `menu_arming_deps.py`, `frame_owner_facts.py`,
 `client_details_port.py`, `client_listing.py`, `ws_listen.py`,
 `domain/hub/inbox.py`, `lifecycle.py`, `scene_writer.py`,
@@ -154,8 +154,9 @@ take the store alone.
 
 | Consumer | Takes | Uses |
 |---|---|---|
-| `SceneOperations` (via `SceneOperationsDeps`) | `HubDisplay`, `ClientLifecycle` | `arrive` (in `install`, the only door work) |
-| `SceneClearer`, `HubSceneWriter` | `HubDisplay` only | `writing_as` (store) |
+| `ShowScene` | `ClientLifecycle`, `SceneInstaller`, `WireTreeDecoder` (built by `ShowScene.for_store` over `HubDisplay`) | `arrive` (in `install`, the only door work) |
+| `UpdateScene`, `HubSceneWriter` | `HubDisplay` only (`UpdateScene` also the replicator and `Hub`) | `writing_as` (store) |
+| `ClearScene` | `HubDisplay` only (and the replicator) | `writing_as`, through the writer |
 | `PubSubOperations` | `ClientLifecycle` | `renew` |
 | `CallbackOperations` | `ClientLifecycle`, `ListenerLegs` | `renew`; `listener_for`, `register_callback` |
 | the `Clients` menu read (`MenuOperationsDeps.callback_menus`) | `CallbackMenuReplica` (over `HubClientRegistry`) | `callback_menus` |
@@ -451,8 +452,8 @@ are therefore redundant?
 |---|---|---|
 | `HubSceneWriter.apply` | renew, then validate and commit | **No.** Field patches commit through `write_seam`, which never reaches `apply`; only removals do. A field-only batch, or one rejected whole, would be no contact at all, which is what I6 ("a live writer is never reaped by its own write") forbids. The renew is the *store's* contact rule applied to a write that bypasses `apply`. |
 | `HubSceneWriter.clear` | renew, then `apply` per owned root | Partly (each `apply` renews), but an owner with nothing to clear still makes contact today. Same answer. |
-| `SceneClearer` | none of its own; through the writer | n/a |
-| `SceneOperations.install` | `arrive` | **No, and it is door work.** `apply` renews *iff registered*; `arrive` registers. A client that only ever shows is still a client (the docstring on `install`), and `replace_scene` says "a write registers nobody: a session comes only from its own arrival". |
+| `ClearScene` | none of its own; through the writer | n/a |
+| `ShowScene.install` | `arrive` | **No, and it is door work.** `apply` renews *iff registered*; `arrive` registers. A client that only ever shows is still a client (the docstring on `install`), and `replace_scene` says "a write registers nobody: a session comes only from its own arrival". |
 | `PubSubOperations._contact` | `renew`, then `ports.ensure_writer` | For subscribe, publish and receive the production port (`inbox.ensure_writer`) runs `arrive`, which renews, so the renew is redundant *with that implementation*. The port's contract is "bind the session's inbox writer; idempotent", the tests inject fakes, and `unsubscribe` calls no port at all: it renews and nothing else. Deleting the renew would couple the concern to an incidental behaviour of `inbox.py` and drop contact on `unsubscribe`. Kept. Its only door act is the lease, so it takes `ClientLifecycle`. |
 | `CallbackOperations.register_callback` | `renew`, then `listener_for` | No; renew-iff-registered is door work. |
 | `MenuArming.admit` | `renew`, identity check, `arm` | No; door work. |
@@ -475,7 +476,7 @@ members `apply` already uses (`_lock`, `_lifecycle`), so it shares state with
 `apply` and does not add a disjoint cluster. It is not one of the eleven forwarders
 (R3): those exposed the door; this holds the store's lock for a write. `HubSceneWriter.apply`
 and `.clear` use it in place of `write_lock()` plus `renew_contact`, and
-`HubSceneWriter(display)` and `SceneClearer(display, replicator)` keep their
+`HubSceneWriter(display)` and `ClearScene(display, replicator)` keep their
 baseline signatures. The leader's other options are weaker: deleting the renew
 changes I6 for field-only writes, and leaving it on the writer makes two
 scene-write classes depend on the door for a rule the store owns.
@@ -549,6 +550,35 @@ live sessions. Two copies of "read several fields of `NamedSessions` and build a
   `ClientDetailsOperations` loses the registry parameter it has at the baseline.
 - The three `for_store` recipes (`FrameOwnerFacts`, `CanonicalFrameOwner`,
   `ClientDetailsPort`) take `clients`, to build the `ClientListing`.
+
+### 4.9 The scene commands (third amendment)
+
+`SceneOperations` held three verbs that share nothing but a scope: `render` and
+`install` (decoder, installer, door), `update` (store, replicator, Hub), `clear`
+(a clearer). Its LCOM was 0.6 at HEAD, and giving the one verb that does door work
+a `ClientLifecycle` raised it to 0.667, which the ratchet will not bless. The
+leader ruled the cure: the Command pattern of `punt-kit/standards/python.md`
+Rule 5 and DES-055, one `@final` callable class per operation, named as the
+actions the surfaces already share (`scene_show`, `scene_update`, `scene_clear`)
+and with no generic suffix:
+
+- **`ShowScene`** -- `__call__(request, *, scope)` decodes a wire tree in the
+  caller's scope and installs it; `install(submission, *, scope)` is the same
+  install for a tree the Hub built (the table and dashboard conveniences).
+  `for_store(display, lifecycle, replicator, element_factory)` builds it. It is the
+  only scene command that takes the door, for `arrive`.
+- **`UpdateScene`** -- `__call__(scene_id, request, *, scope)`. Takes the store, the
+  replicator and the `Hub`; the write is contact by the store (§4.7).
+- **`ClearScene`** -- `__call__(*, scope, scene_id=None)`. The old `SceneClearer`,
+  renamed and made callable; the facade's `clear` and `clear_scene` both call it.
+
+`SceneOperationsDeps` is deleted: each command takes the few collaborators it uses,
+so there is no bundle to carry (the five-field dataclass existed to keep one class's
+constructor under four parameters). `OperationsConcerns` carries `show_scene`,
+`update_scene` and `clear_scene` where it carried `scenes`; `ConvenienceOperations`
+takes a `ShowScene`. The facade's public method names are unchanged, so there is no
+rename train. `QueryOperations.for_store` joins `ShowScene.for_store` so the facade's
+`for_store` does not import more modules than it did.
 
 ## 5. Migration
 
@@ -649,7 +679,7 @@ cap that applies. `check-coupling` caps: efferent 7, public names 15, avg LCOM
 | `replicator_instance.py` | public names | 4 to 5 | within |
 | `hub_store_factory.py` (new) | efferent, LCOM | 7, 0.5 | **at** both caps; new files are judged by the same `<=`, but there is no margin: one more runtime import fails it. The fallback is the one in the first draft (build registry, cascade and lifecycle in a small `ClientLifecycleFactory`, bringing the builder to 5). |
 | `store_instance.py` (new) | | efferent 1, LCOM 0 | within |
-| **`scenes.py`** | max, avg LCOM | **0.6 to 0.667** | **over (0.5), and already over at HEAD: not blessable** |
+| **`facade.py`** | max, avg LCOM | **0.845 to 0.854** | **over (0.5), and already over at HEAD: not blessable** (§4.9) |
 
 `check-oo` (all within cap): `callback_menu.py` size 81 to 84;
 `client_lifecycle.py` size 103 to 111; `hub_display.py` `avg_params`,
@@ -664,8 +694,7 @@ size 130 to 136, `avg_params` 0.73 to 0.81, `avg_complexity` 1.4 to 1.44;
 to 2.33; `client_listing.py` size 74 to 89, `avg_params` 1.5 to 1.6,
 `top_level_statements` 2 to 3; `facade.py` size 276 to 289, `avg_params` 1.38 to
 1.47; `frame_owner_facts.py` `avg_params` 1.75 to 2.33, `avg_complexity` 1.5 to
-1.67; `identity.py` size 53 to 55, `avg_params` 1.33 to 1.67; `scene_deps.py`
-size 22 to 24; `scenes.py` size 157 to 161; `ws_listen.py` size 245 to 250,
+1.67; `identity.py` size 53 to 55, `avg_params` 1.33 to 1.67; `ws_listen.py` size 245 to 250,
 `avg_params` 0.82 to 0.91; `ws_transport.py` size 101 to 108, `avg_params` 1.4 to
 1.6. The largest value reached is `facade.py` at 289 of 300 and `avg_params` at
 2.33 of 4.0.
@@ -677,27 +706,36 @@ ratchet also requires comes from `hub_display.py` (`module_size` 382 to 342,
 and the removal of eleven members), `client_details.py` (a parameter and a
 method gone) and `callbacks.py`/`hub_display.py` coupling.
 
-**The one over-cap item, `scenes.py`.** `SceneOperations.install` is the only
-caller of `arrive` (§4.7: it is door work, not redundant), so the class gains a
-`_lifecycle` used by one method, and `install` stops sharing `_display` with
-`update`. Its LCOM was 0.6 at HEAD (over the cap, grandfathered) and rises to
-0.667. The tool refuses to bless an over-cap value that regressed. The options,
-for the leader:
+**Measured on the implemented tree (the real `make check`).** `check-coupling`
+scopes itself to the files committed since the merge base, so before the code is
+committed it checks only the files earlier commits on the branch touched, and
+reports `client_lifecycle.py` LCOM 0.073 to 0.076 (within cap) and `facade.py`
+LCOM 0.845 to 0.854 (over cap). Scoring every file this change touches against the
+coupling baseline gives the full list the post-commit run will show: those two,
+plus `identity.py` LCOM 0 to 0.333, `client_listing.py` LCOM 0.333 to 0.5 (at the
+cap), and `replicator_instance.py` public names 4 to 5, all within cap; and the
+new files, none over (`hub_store_factory.py` at efferent 7 and LCOM 0.5,
+`update_scene.py` at efferent 7). The improvements: `hub_display.py` (efferent 26
+to 21, LCOM 0.636 to 0.593, public names 5 to 4), `callbacks.py` (efferent 4 to 3,
+LCOM 0.533 to 0.5), `client_details.py` (LCOM 0.667 to 0), `named_sessions.py`
+(LCOM 0.411 to 0.4), `frame_owner_facts.py` (efferent 4 to 2) and
+`menu_arming_deps.py` (efferent 2 to 1). `check-oo` reports twenty-nine regressed
+metrics in twenty files, every one within cap; the largest is `facade.py`
+`module_size` 284 to 293 of 300.
 
-1. **Split `SceneOperations` by verb.** `render`/`install` (decoder, installer,
-   lifecycle) and `update`/`clear` (display, replicator, hub, clearer). By the
-   tool's formula each half comes to 0.333 (hand-computed, not measured), which
-   would also retire the HEAD debt. It is a real SRP split, not a number move, but
-   it ripples through `OperationsConcerns`, `ConvenienceOperations` and the
-   facade; I did not prototype it.
-2. **Leave `arrive` where it is and accept a tree that cannot go green**, which
-   is not an option.
-3. **Move `arrive` into `SceneInstaller`.** Refused: Details installs a scene for
-   *another* connection through the same class, and an `arrive` there would renew
-   an inspected client's lease.
-
-I recommend (1) if the leader wants this unit green on its own, and a bead for it
-if not (the unit then waits on it).
+**The one over-cap item, now `facade.py` (§4.9).** The first draft's over-cap
+item was `scenes.py` (0.6 to 0.667). The leader ruled the Command pattern, so
+`SceneOperations` is gone and each of `ShowScene` (0.333), `UpdateScene` (0.333)
+and `ClearScene` (0.0) is cohesive; `scenes.py` and its LCOM debt no longer exist.
+The cost moves to the facade: four of its methods (`render`, `update`, `clear`,
+`clear_scene`) shared one attribute and now touch three, so the pairs of facade
+methods with disjoint state rise by seven, and its LCOM goes 0.845 to 0.854 (the
+facade was over the cap at HEAD). The tool refuses to bless an over-cap value that
+regressed. Options, for the leader: hold the three commands in one attribute (a
+bundle, the shape rejected in R1), or accept that the facade's LCOM is fixed only
+by retiring the facade's one-method-per-concern shape (bead `lux-x4ex` renames the
+facade and concerns; it is the place to cure this), or rule that the facade is
+exempt. I recommend the second and have not worked around it.
 
 ## 7. Alternatives rejected
 
@@ -781,10 +819,9 @@ facade), §4.8 (`CallbackMenuReplica` carries the Clients-menu read; `FrameOwner
 and `ClientDetailsOperations` take `ClientListing`), one implementation commit
 (§5), and the predicted net regressions with their caps (§6).
 
-**Left for the leader.** The over-cap item in §6: `scenes.py` LCOM 0.6 to 0.667,
-which cannot be blessed. Splitting `SceneOperations` by verb is the honest fix; the
-alternative is to hold the unit until a bead does it. Everything else in §6 is
-within cap and is the leader's to bless as a list.
+**Left for the leader.** The over-cap item in §6: `facade.py` LCOM 0.845 to 0.854,
+which cannot be blessed. Everything else in §6 is within cap and is the leader's
+to bless as a list.
 
 **Observation (not a decision).** `ListenerLegs.register_callback`
 (`callbacks.py`) and `ListenerLegs.detach` (`ws_listen.py`) change who the Clients
@@ -811,8 +848,12 @@ the singleton out; `writing_as` in), `client_lifecycle.py` (`exclusive()`),
 `callback_menu.py` (`callback_menus`), `named_sessions.py` (`named`),
 `departure_cascade.py` (docstring, F5), `domain/hub/__init__.py` (re-exports).
 
-**Changed, operations and surfaces.** `operations/facade.py`, `scenes.py`,
-`scene_deps.py`, `scene_clearing.py`, `pubsub.py`, `callbacks.py`, `identity.py`,
+**New, operations.** `show_scene.py`, `update_scene.py`, and `clear_scene.py` (the
+old `scene_clearing.py`, renamed); `tests/scene_commands.py`,
+`tests/operations/test_show_scene.py`. **Removed.** `scenes.py`, `scene_deps.py`.
+
+**Changed, operations and surfaces.** `operations/facade.py`, `concerns.py`,
+`conveniences.py`, `queries.py` (`for_store`), `pubsub.py`, `callbacks.py`, `identity.py`,
 `menu_arming.py`, `menu_arming_deps.py`, `client_listing.py`,
 `client_details.py`, `client_details_port.py`, `frame_owner_facts.py`,
 `canonical_frame_owner.py`; `ws_listen.py`, `ws_transport.py`, `luxd.py`,
