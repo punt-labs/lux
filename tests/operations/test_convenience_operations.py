@@ -6,6 +6,7 @@ from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.operations import (
     OpError,
@@ -44,7 +45,8 @@ def _conveniences(store: HubDisplay) -> ConvenienceOperations:
 
 
 def test_render_table_installs_a_table_element() -> None:
-    store = HubDisplay()
+    factory = HubStoreFactory()
+    store = factory.display
     request = RenderTableRequest.parse(
         {"scene_id": "tbl", "columns": ["A"], "rows": [["x"]]}
     )
@@ -55,7 +57,8 @@ def test_render_table_installs_a_table_element() -> None:
 
 
 def test_render_dashboard_installs_metric_and_table_sections() -> None:
-    store = HubDisplay()
+    factory = HubStoreFactory()
+    store = factory.display
     request = RenderDashboardRequest.parse(
         {
             "scene_id": "dash",
@@ -73,7 +76,7 @@ def test_render_dashboard_installs_metric_and_table_sections() -> None:
 def test_render_table_rejects_a_bad_filter_shape_without_raising() -> None:
     # The composition's fail-loud guards raise ValueError; render_table must fold
     # that into an OpError (no traceback out of show_table), like the render path.
-    store = HubDisplay()
+    factory = HubStoreFactory()
     request = RenderTableRequest.parse(
         {
             "scene_id": "tbl",
@@ -82,7 +85,7 @@ def test_render_table_rejects_a_bad_filter_shape_without_raising() -> None:
             "filters": [{"type": "slider", "column": 0}],  # unknown filter type
         }
     )
-    result = _conveniences(store).render_table(request, scope=_LOCAL)
+    result = _conveniences(factory.display).render_table(request, scope=_LOCAL)
     assert isinstance(result, OpError)
     assert result.code == "rejected"
     assert "unknown table filter type" in result.reason
@@ -90,9 +93,15 @@ def test_render_table_rejects_a_bad_filter_shape_without_raising() -> None:
 
 def test_render_table_passes_an_op_error_straight_through() -> None:
     error = OpError(code="invalid_request", reason="bad")
-    assert _conveniences(HubDisplay()).render_table(error, scope=_LOCAL) is error
+    assert (
+        _conveniences(HubStoreFactory().display).render_table(error, scope=_LOCAL)
+        is error
+    )
 
 
 def test_render_dashboard_passes_an_op_error_straight_through() -> None:
     error = OpError(code="invalid_request", reason="bad")
-    assert _conveniences(HubDisplay()).render_dashboard(error, scope=_LOCAL) is error
+    assert (
+        _conveniences(HubStoreFactory().display).render_dashboard(error, scope=_LOCAL)
+        is error
+    )

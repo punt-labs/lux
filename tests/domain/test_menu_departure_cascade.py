@@ -16,12 +16,13 @@ from __future__ import annotations
 from typing import Self, final
 
 from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.menu_models import Menu
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.operations.menu_arming import MenuArming
 from punt_lux.operations.menu_arming_deps import MenuArmingDeps
+from punt_lux.operations.menus import MenuDepartureSink
 
 
 class _Clock:
@@ -67,17 +68,18 @@ def _cli(name: str) -> ClientIdentity:
 
 
 def _armed(
-    hub_display: HubDisplay, registry: HubMenuRegistry, marker: _MarkerSpy
+    factory: HubStoreFactory, registry: HubMenuRegistry, marker: _MarkerSpy
 ) -> MenuArming:
     """MenuArming wired exactly as ``facade.for_store`` wires it, over a test store.
 
     The display's shared menu sink is the production :class:`MenuDepartureSink`,
     which prunes the registry AND marks the bar dirty.
     """
-    return MenuArmingDeps.over(
-        hub_display,
-        registry,
-        marker,
+    lifecycle = factory.lifecycle
+    lifecycle.present_as(marker, MenuDepartureSink(registry, marker))
+    return MenuArmingDeps(
+        lifecycle,
+        factory.clients,
         lambda _cid: None,  # ensure_writer: incidental to the departure leg
     ).arming()
 
@@ -90,17 +92,19 @@ def test_a_lease_lapse_departure_withdraws_the_sessions_menu() -> None:
     bar, leaving a ``menuOwner`` with no ``registered`` session behind it.
     """
     clock = _Clock()
-    hub_display = HubDisplay(clock)
-    registry = HubMenuRegistry(hub_display.clients)
-    arming = _armed(hub_display, registry, _MarkerSpy())
+    factory = HubStoreFactory(clock=clock)
+    lifecycle = factory.lifecycle
+    clients = factory.clients
+    registry = HubMenuRegistry(clients)
+    arming = _armed(factory, registry, _MarkerSpy())
 
     conn = ConnectionId("agent")
-    hub_display.identify_client(conn, _cli("agent"))
+    lifecycle.identify(conn, _cli("agent"))
     registry.set_menus(conn, [Menu(label="Tools", items=[])])
     assert arming.admit(conn) is True  # binds the registry prune as a departure sink
 
     clock.advance(91.0)  # past the 90s cli lease; nothing renews
-    reaped = hub_display.reap_lapsed_leases()  # the timer's own sweep, nothing else
+    reaped = lifecycle.depart_lapsed(frozenset())  # the timer's own sweep, nothing else
 
     assert reaped == frozenset({conn})
     # MO: no menuOwner outlives its registration — the prune sink ran on departure.
@@ -118,18 +122,20 @@ def test_a_lease_lapse_departure_marks_the_menu_bar_for_re_push() -> None:
     old registry-only sink left ``menu_marks`` at zero.
     """
     clock = _Clock()
-    hub_display = HubDisplay(clock)
-    registry = HubMenuRegistry(hub_display.clients)
+    factory = HubStoreFactory(clock=clock)
+    lifecycle = factory.lifecycle
+    clients = factory.clients
+    registry = HubMenuRegistry(clients)
     marker = _MarkerSpy()
-    arming = _armed(hub_display, registry, marker)
+    arming = _armed(factory, registry, marker)
 
     conn = ConnectionId("agent")
-    hub_display.identify_client(conn, _cli("agent"))
+    lifecycle.identify(conn, _cli("agent"))
     registry.set_menus(conn, [Menu(label="Tools", items=[])])
     assert arming.admit(conn) is True
 
     clock.advance(91.0)  # past the 90s cli lease; nothing renews
-    assert hub_display.reap_lapsed_leases() == frozenset({conn})
+    assert lifecycle.depart_lapsed(frozenset()) == frozenset({conn})
 
     # The re-push was flagged, so the replicator drops the ghost bar next send.
     assert marker.menu_marks == 1
@@ -139,20 +145,22 @@ def test_a_lease_lapse_departure_marks_the_menu_bar_for_re_push() -> None:
 def test_a_renewing_menu_owner_keeps_its_bar_across_reap_opportunities() -> None:
     """D2 companion: an owner that keeps renewing is never swept, so its bar stands."""
     clock = _Clock()
-    hub_display = HubDisplay(clock)
-    registry = HubMenuRegistry(hub_display.clients)
+    factory = HubStoreFactory(clock=clock)
+    lifecycle = factory.lifecycle
+    clients = factory.clients
+    registry = HubMenuRegistry(clients)
     marker = _MarkerSpy()
-    arming = _armed(hub_display, registry, marker)
+    arming = _armed(factory, registry, marker)
 
     conn = ConnectionId("steady")
-    hub_display.identify_client(conn, _cli("steady"))
+    lifecycle.identify(conn, _cli("steady"))
     registry.set_menus(conn, [Menu(label="Tools", items=[])])
     assert arming.admit(conn) is True
 
     for _ in range(3):
         clock.advance(60.0)  # inside the 90s cli lease if renewed each time
-        hub_display.register_client(conn)  # a bare contact renews the lease
-        assert hub_display.reap_lapsed_leases() == frozenset()
+        lifecycle.arrive(conn)  # a bare contact renews the lease
+        assert lifecycle.depart_lapsed(frozenset()) == frozenset()
 
     assert [menu.label for menu in registry.menu_bar()] == ["Tools"]
     assert marker.menu_marks == 0  # a renewed owner is never swept, so never re-marked

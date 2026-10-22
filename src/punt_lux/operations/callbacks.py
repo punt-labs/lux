@@ -22,14 +22,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
 
-from punt_lux.domain.hub.callback_menu import CallbackMenu
 from punt_lux.domain.hub.session_callback import CallbackInvocation
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.menu_results import Ok
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.callback_hold import CallbackRouter
-    from punt_lux.domain.hub.hub_display import HubDisplay
+    from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
+    from punt_lux.domain.hub.listener_legs import ListenerLegs
     from punt_lux.domain.hub.menu_models import Menu
     from punt_lux.domain.hub.registry_outcomes import CallbackRegistration
     from punt_lux.operations.models.callbacks import RegisterCallbackRequest
@@ -64,19 +64,22 @@ class CallbackMenuSource(Protocol):
 class CallbackOperations:
     """Register callbacks, route their clicks, and read the callback menu."""
 
-    _display: HubDisplay
+    _lifecycle: ClientLifecycle
+    _legs: ListenerLegs
     _router: CallbackRouter
     _replicator: DirtyMarker
-    __slots__ = ("_display", "_replicator", "_router")
+    __slots__ = ("_legs", "_lifecycle", "_replicator", "_router")
 
     def __new__(
         cls,
-        display: HubDisplay,
+        lifecycle: ClientLifecycle,
+        legs: ListenerLegs,
         router: CallbackRouter,
         replicator: DirtyMarker,
     ) -> Self:
         self = super().__new__(cls)
-        self._display = display
+        self._lifecycle = lifecycle
+        self._legs = legs
         self._router = router
         self._replicator = replicator
         return self
@@ -102,12 +105,12 @@ class CallbackOperations:
         """
         if isinstance(request, OpError):
             return request
-        self._display.renew_contact(scope.connection_id)
-        expected = self._display.clients.legs.listener_for(scope.connection_id)
+        self._lifecycle.renew(scope.connection_id)
+        expected = self._legs.listener_for(scope.connection_id)
         if expected is None:
             return _PUSH_REQUIRED
         return self._registered(
-            self._display.clients.legs.register_callback(
+            self._legs.register_callback(
                 scope.connection_id, request.callback, expected
             )
         )
@@ -122,10 +125,6 @@ class CallbackOperations:
             )
         self._replicator.mark_menus()
         return Ok()
-
-    def callback_menus(self) -> list[Menu]:
-        """Build the uniform ``Clients`` menu from one read of the named clients."""
-        return CallbackMenu.from_named(self._display.clients.named_sessions())
 
     def pending_callbacks(self, *, scope: Scope) -> tuple[CallbackInvocation, ...]:
         """Return the caller's held callback invocations without clearing them.

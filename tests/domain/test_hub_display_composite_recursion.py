@@ -18,6 +18,7 @@ from typing import Literal, Self
 import pytest
 
 from punt_lux.domain.hub.hub_display import HubDisplay, UnknownElementError
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.domain.update import AddElement, RemoveElement, SetProperty
 from punt_lux.protocol.elements import (
@@ -71,8 +72,10 @@ class _Composite:
 
 def test_apply_add_element_installs_every_composite_descendant() -> None:
     """Every descendant of a composite root lands in the index."""
-    hub_display = HubDisplay()
-    hub_display.register_client(_CONN)
+    factory = HubStoreFactory()
+    hub_display = factory.display
+    lifecycle = factory.lifecycle
+    lifecycle.arrive(_CONN)
     root = _Composite(
         id=str(_ROOT_ID),
         children=(
@@ -97,8 +100,10 @@ def test_apply_add_element_installs_every_composite_descendant() -> None:
 
 def test_remove_element_walks_subtree_recorded_by_install_recursion() -> None:
     """RemoveElement at the root drops every descendant installed by recursion."""
-    hub_display = HubDisplay()
-    hub_display.register_client(_CONN)
+    factory = HubStoreFactory()
+    hub_display = factory.display
+    lifecycle = factory.lifecycle
+    lifecycle.arrive(_CONN)
     inner = _Composite(
         id=str(_CHILD_B_ID),
         children=(_Leaf(id=str(_GRANDCHILD_ID)),),
@@ -117,8 +122,10 @@ def test_remove_element_walks_subtree_recorded_by_install_recursion() -> None:
 
 def _install_tab_bar_scene() -> HubDisplay:
     """Install an ABC tab_bar (tabs → text children) as the sole scene root."""
-    hub_display = HubDisplay()
-    hub_display.register_client(_CONN)
+    factory = HubStoreFactory()
+    hub_display = factory.display
+    lifecycle = factory.lifecycle
+    lifecycle.arrive(_CONN)
     bar = TabBarElement(
         id="tb",
         tabs=(
@@ -183,8 +190,10 @@ def test_tab_change_repush_keeps_single_root_no_duplication() -> None:
 
 def test_header_toggle_repush_keeps_single_root_no_duplication() -> None:
     """A collapsing_header toggle re-push leaves exactly the original root."""
-    hub_display = HubDisplay()
-    hub_display.register_client(_CONN)
+    factory = HubStoreFactory()
+    hub_display = factory.display
+    lifecycle = factory.lifecycle
+    lifecycle.arrive(_CONN)
     header = CollapsingHeaderElement(
         id="ch",
         label="Section",

@@ -3,8 +3,8 @@
 The one identity store, keyed by ``ConnectionId`` and serialized by ``_lock``.
 Each session carries a lease; the live reads (:meth:`live_sessions`,
 :meth:`repos`) filter to sessions still in lease without removing anyone —
-a read changes nothing here. Departure is the province of ``HubDisplay``'s
-single atomic deregister-and-release coordinator, which reaches
+a read changes nothing here. Departure is the province of ``ClientLifecycle``'s
+single atomic deregister-and-release step, which reaches
 :meth:`reap_lapsed_locked` — one lock hold that finds and removes the lapsed
 set together, so a renewal racing in between can't be evicted anyway. The
 clock is injected for deterministic tests.

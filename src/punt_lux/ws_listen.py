@@ -12,7 +12,7 @@ the WebSocket lives on the server's event loop. So the pub-sub writer and the
 the loop with ``call_soon_threadsafe`` and enqueue a frame the write task drains.
 Taking the listener slot and binding the writer run under the Hub store's write
 lock, nesting the client registry's own lock inside it exactly as
-``HubDisplay.register_client`` does — so a same-identity reconnect can never
+``ClientLifecycle.arrive`` does — so a same-identity reconnect can never
 land inside a departure cascade's registry-removal-to-cascade-tail span and
 have its fresh listener and writer wiped out by the stale cascade's tail.
 
@@ -49,8 +49,9 @@ from punt_lux.protocol.messages.listen import (
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.callback_hold import CallbackRouter
+    from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
     from punt_lux.domain.hub.hub import Hub
-    from punt_lux.domain.hub.hub_display import HubDisplay
+    from punt_lux.domain.hub.listener_legs import ListenerLegs
     from punt_lux.domain.ids import ConnectionId
     from punt_lux.operations.ports import DirtyMarker
     from punt_lux.protocol.messages.observer import ObserverMessage
@@ -77,16 +78,18 @@ class HubListenSession:
     _conn: ConnectionId
     _identity: ClientIdentity
     _hub: Hub
-    _display: HubDisplay
+    _lifecycle: ClientLifecycle
+    _legs: ListenerLegs
     _router: CallbackRouter
     _outbound: asyncio.Queue[ServerFrame]
     _loop: asyncio.AbstractEventLoop
     _menus: DirtyMarker
     __slots__ = (
         "_conn",
-        "_display",
         "_hub",
         "_identity",
+        "_legs",
+        "_lifecycle",
         "_loop",
         "_menus",
         "_outbound",
@@ -100,7 +103,8 @@ class HubListenSession:
         conn: ConnectionId,
         identity: ClientIdentity,
         hub: Hub,
-        display: HubDisplay,
+        lifecycle: ClientLifecycle,
+        legs: ListenerLegs,
         router: CallbackRouter,
         menus: DirtyMarker,
     ) -> Self:
@@ -109,7 +113,8 @@ class HubListenSession:
         self._conn = conn
         self._identity = identity
         self._hub = hub
-        self._display = display
+        self._lifecycle = lifecycle
+        self._legs = legs
         self._router = router
         self._menus = menus
         self._outbound = asyncio.Queue()
@@ -154,8 +159,8 @@ class HubListenSession:
         The attach itself marks the menus and binds the Hub's one shared menu sink
         for an agent that newly appears, so nothing here is bound per attach.
         """
-        with self._display.write_lock():
-            self._display.lifecycle.attach(self._conn, self._identity, self)
+        with self._lifecycle.exclusive():
+            self._lifecycle.attach(self._conn, self._identity, self)
             self._hub.register_writer(self._conn, self.deliver_event)
 
     async def _pump(self) -> None:
@@ -196,7 +201,7 @@ class HubListenSession:
                 raw = await self._ws.receive_text()
             except WebSocketDisconnect:
                 return
-            self._display.identify_client(self._conn, self._identity)
+            self._lifecycle.identify(self._conn, self._identity)
             try:
                 frame = ClientFrames.validate_json(raw)
             except ValidationError:
@@ -278,7 +283,7 @@ class HubListenSession:
         can interleave among them. Adding an ``await`` here reopens that window and
         invalidates the model this design was checked against.
         """
-        detachment = self._display.clients.legs.detach(self._conn, self)
+        detachment = self._legs.detach(self._conn, self)
         if detachment in {"released_with_callbacks", "released_with_session"}:
             self._menus.mark_menus()
         self._hub.release_writer(self._conn, self.deliver_event)

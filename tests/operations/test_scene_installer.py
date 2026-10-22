@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Self, final
 
-from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.operations.scene_installer import SceneInstaller
@@ -50,7 +50,7 @@ def _scoped(local: str) -> SceneId:
 
 def _installed() -> tuple[SceneInstaller, _Marks]:
     marks = _Marks()
-    installer = SceneInstaller(HubDisplay(), marks)
+    installer = SceneInstaller(HubStoreFactory().display, marks)
     for scene in ("s1", "s2"):
         _show(installer, marks, scene, "shared")
     return installer, marks

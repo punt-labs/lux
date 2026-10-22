@@ -55,8 +55,8 @@ class SceneScope:
 class HubSceneWriter:
     """Apply ``update`` / ``clear`` mutations to the authoritative ``HubDisplay``.
 
-    Stateless beyond its store reference; the caller re-pushes after a successful
-    write, and the writer never talks to the Display.
+    Stateless beyond its store reference; the caller re-pushes after a
+    successful write, and the writer never talks to the Display.
     """
 
     _display: HubDisplay
@@ -81,8 +81,7 @@ class HubSceneWriter:
         """
         # One store-lock hold spans the whole batch so the replicator never
         # snapshots it half-applied; reentrant, so nested writes re-enter freely.
-        with self._display.write_lock():
-            self._display.renew_contact(scope.connection_id)
+        with self._display.writing_as(scope.connection_id):
             try:
                 batch = PatchBatch.from_wire(patches)
                 realizations = self._field_realizations(scope, batch)
@@ -114,8 +113,7 @@ class HubSceneWriter:
         its real frame and reclaims it after (deferred so the blank keeps its frame).
         """
         touched: set[SceneId] = set()
-        with self._display.write_lock():
-            self._display.renew_contact(connection_id)
+        with self._display.writing_as(connection_id):
             for owned_scene, element_id in self._display.elements_owned_by(
                 connection_id
             ):

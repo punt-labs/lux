@@ -19,7 +19,8 @@ from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.identity import Identified
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.hub_display import HubDisplay
+    from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
+    from punt_lux.domain.hub.hub_clients import HubClientRegistry
     from punt_lux.operations.scope import Scope
 
 __all__ = ["IdentityOperations"]
@@ -29,12 +30,14 @@ __all__ = ["IdentityOperations"]
 class IdentityOperations:
     """Record the identity a client declares against its connection."""
 
-    _display: HubDisplay
-    __slots__ = ("_display",)
+    _lifecycle: ClientLifecycle
+    _clients: HubClientRegistry
+    __slots__ = ("_clients", "_lifecycle")
 
-    def __new__(cls, display: HubDisplay) -> Self:
+    def __new__(cls, lifecycle: ClientLifecycle, clients: HubClientRegistry) -> Self:
         self = super().__new__(cls)
-        self._display = display
+        self._lifecycle = lifecycle
+        self._clients = clients
         return self
 
     def identify(
@@ -53,7 +56,7 @@ class IdentityOperations:
             identity = ClientIdentity.model_validate(declaration)
         except ValidationError as exc:
             return OpError.from_validation(exc)
-        self._display.identify_client(scope.connection_id, identity)
+        self._lifecycle.identify(scope.connection_id, identity)
         return Identified(identity=identity)
 
     def current(self, scope: Scope) -> ClientIdentity | None:
@@ -64,5 +67,4 @@ class IdentityOperations:
         identity regardless (e.g. a command's ``Ctx``) supply their own
         documented fallback rather than this method inventing one.
         """
-        session = self._display.clients.session_of(scope.connection_id)
-        return session.identity if session is not None else None
+        return self._clients.identity_of(scope.connection_id)

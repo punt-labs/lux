@@ -99,6 +99,10 @@ class CallbackMenuReplica:
         self._clients = clients
         return self
 
+    def callback_menus(self) -> list[Menu]:
+        """Return the ``Clients`` menu built from one read of the named clients."""
+        return CallbackMenu.from_named(self._clients.named_sessions())
+
     def callback_menu_wire(self) -> list[dict[str, object]]:
         """Return the ``Clients`` menu as wire payloads."""
         menus = CallbackMenu.from_named(self._clients.named_sessions())

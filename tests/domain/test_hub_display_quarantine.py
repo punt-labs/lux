@@ -10,6 +10,7 @@ no orphan quarantine outlives its scene.
 from __future__ import annotations
 
 from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.quarantine_record import QuarantineRecord
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
@@ -22,8 +23,10 @@ _SCENE = SceneId("s1")
 
 def _seeded_with_quarantine(record: QuarantineRecord) -> HubDisplay:
     """Return a store holding one owned root under _SCENE, quarantined."""
-    store = HubDisplay()
-    store.register_client(_CONN)
+    factory = HubStoreFactory()
+    store = factory.display
+    lifecycle = factory.lifecycle
+    lifecycle.arrive(_CONN)
     store.replace_scene(_CONN, _SCENE, [TextElement(id="t1", content="x")])
     store.quarantine(_SCENE, record)
     return store
@@ -62,8 +65,10 @@ def test_ttl_expiry_fires_quarantine_cleared_observers() -> None:
     # the only Hub-side teardown left -- a user closing a frame on the Display
     # no longer reaches the Hub at all (DES-088).
     now = [1000.0]
-    store = HubDisplay(clock=lambda: now[0])
-    store.register_client(_CONN)
+    factory = HubStoreFactory(clock=lambda: now[0])
+    store = factory.display
+    lifecycle = factory.lifecycle
+    lifecycle.arrive(_CONN)
     store.show_scene(
         _CONN,
         _SCENE,
@@ -87,8 +92,10 @@ def test_observers_are_not_fired_on_a_clean_scene() -> None:
     # A teardown of a scene that was never quarantined must not fire a phantom
     # observer event — the callback names a real quarantine lift, not every
     # teardown.
-    store = HubDisplay()
-    store.register_client(_CONN)
+    factory = HubStoreFactory()
+    store = factory.display
+    lifecycle = factory.lifecycle
+    lifecycle.arrive(_CONN)
     store.replace_scene(_CONN, _SCENE, [TextElement(id="t1", content="x")])
     observed: list[SceneId] = []
     store.add_quarantine_cleared_observer(observed.append)

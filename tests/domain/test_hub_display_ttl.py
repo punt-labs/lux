@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import Literal, Self, final
 
 from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.ids import ConnectionId, SceneId
 
@@ -77,7 +78,8 @@ def _show(
 
 def test_a_ttl_frame_expires_its_scene_after_the_deadline() -> None:
     clock = FakeClock()
-    display = HubDisplay(clock)
+    factory = HubStoreFactory(clock=clock)
+    display = factory.display
     scene = SceneId("s")
     _show(display, scene, ttl_seconds=5.0)
     assert display.scene_roots(scene)  # installed
@@ -91,7 +93,8 @@ def test_a_ttl_frame_expires_its_scene_after_the_deadline() -> None:
 
 def test_expire_due_is_empty_before_the_deadline() -> None:
     clock = FakeClock()
-    display = HubDisplay(clock)
+    factory = HubStoreFactory(clock=clock)
+    display = factory.display
     scene = SceneId("s")
     _show(display, scene, ttl_seconds=5.0)
 
@@ -102,7 +105,8 @@ def test_expire_due_is_empty_before_the_deadline() -> None:
 
 def test_a_frame_without_ttl_never_expires() -> None:
     clock = FakeClock()
-    display = HubDisplay(clock)
+    factory = HubStoreFactory(clock=clock)
+    display = factory.display
     scene = SceneId("s")
     _show(display, scene, ttl_seconds=None)
 
@@ -114,7 +118,8 @@ def test_a_frame_without_ttl_never_expires() -> None:
 
 def test_a_reshow_with_a_new_ttl_refreshes_the_deadline() -> None:
     clock = FakeClock()
-    display = HubDisplay(clock)
+    factory = HubStoreFactory(clock=clock)
+    display = factory.display
     scene = SceneId("s")
     _show(display, scene, ttl_seconds=5.0)
 
@@ -130,7 +135,8 @@ def test_a_reshow_with_a_new_ttl_refreshes_the_deadline() -> None:
 
 def test_a_reshow_without_a_ttl_makes_the_frame_permanent() -> None:
     clock = FakeClock()
-    display = HubDisplay(clock)
+    factory = HubStoreFactory(clock=clock)
+    display = factory.display
     scene = SceneId("s")
     _show(display, scene, ttl_seconds=5.0)
 
@@ -143,7 +149,8 @@ def test_a_reshow_without_a_ttl_makes_the_frame_permanent() -> None:
 
 def test_forget_disarms_the_ttl_once_the_frame_empties() -> None:
     clock = FakeClock()
-    display = HubDisplay(clock)
+    factory = HubStoreFactory(clock=clock)
+    display = factory.display
     scene = SceneId("s")
     _show(display, scene, ttl_seconds=5.0)
 
@@ -153,7 +160,8 @@ def test_forget_disarms_the_ttl_once_the_frame_empties() -> None:
 
 def test_forget_keeps_the_ttl_while_another_scene_holds_the_frame() -> None:
     clock = FakeClock()
-    display = HubDisplay(clock)
+    factory = HubStoreFactory(clock=clock)
+    display = factory.display
     first = SceneId("a")
     second = SceneId("b")
     _show(display, first, ttl_seconds=5.0)
@@ -168,7 +176,8 @@ def test_forget_keeps_the_ttl_while_another_scene_holds_the_frame() -> None:
 
 def test_expire_due_removes_every_scene_the_frame_holds() -> None:
     clock = FakeClock()
-    display = HubDisplay(clock)
+    factory = HubStoreFactory(clock=clock)
+    display = factory.display
     first = SceneId("a")
     second = SceneId("b")
     _show(display, first, ttl_seconds=5.0)
@@ -184,7 +193,8 @@ def test_expire_due_removes_every_scene_the_frame_holds() -> None:
 
 def test_seconds_until_next_expiry_reports_the_soonest_deadline() -> None:
     clock = FakeClock()
-    display = HubDisplay(clock)
+    factory = HubStoreFactory(clock=clock)
+    display = factory.display
     _show(display, SceneId("a"), frame_id="fa", ttl_seconds=3.0)
     _show(display, SceneId("b"), frame_id="fb", ttl_seconds=1.0)
     assert display.frames.seconds_until_next() == 1.0
@@ -199,7 +209,8 @@ def test_reclaiming_a_blanked_ttl_frame_disarms_its_deadline() -> None:
     keeps waking until the stale deadline fires as a no-op.
     """
     clock = FakeClock()
-    display = HubDisplay(clock)
+    factory = HubStoreFactory(clock=clock)
+    display = factory.display
     scene = SceneId("s")
     _show(display, scene, ttl_seconds=5.0)
 
@@ -220,7 +231,8 @@ def test_a_reused_frame_id_does_not_inherit_a_reclaimed_frames_deadline() -> Non
     down prematurely by the departed scene's stale deadline.
     """
     clock = FakeClock()
-    display = HubDisplay(clock)
+    factory = HubStoreFactory(clock=clock)
+    display = factory.display
     first = SceneId("first")
     _show(display, first, ttl_seconds=5.0)  # _FRAME armed at 5s
     display.replace_scene(_OWNER, first, ())

@@ -15,7 +15,7 @@ import threading
 from typing import TYPE_CHECKING
 
 from punt_lux.domain.hub.hub import hub
-from punt_lux.domain.hub.hub_display import hub_display
+from punt_lux.domain.hub.hub_store_factory import hub_lifecycle
 from punt_lux.domain.hub.inbox_queue import BoundedInbox
 
 if TYPE_CHECKING:
@@ -87,12 +87,12 @@ def ensure_writer(connection_id: ConnectionId) -> None:
     straddle a departure cascade the way a same-identity reconnect could
     otherwise land inside.
     """
-    with hub_display.write_lock():
-        hub_display.register_client(connection_id)
+    with hub_lifecycle.exclusive():
+        hub_lifecycle.arrive(connection_id)
         # The inbox and its cleanup exist independently of any Hub writer, so a
         # listener session (writer already bound) still receives menu_set clicks.
         inbox_for(connection_id)
-        hub_display.bind_departure_sink(connection_id, drop_session)
+        hub_lifecycle.bind_sink(connection_id, drop_session)
         if hub.has_writer(connection_id):
             return
 

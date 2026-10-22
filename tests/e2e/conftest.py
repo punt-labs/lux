@@ -3,7 +3,7 @@
 Stands up the in-process rig, points the Hub re-push at it (so the
 handler-driven re-push stays hermetic), and hands out simulated agents.
 Teardown runs the shipped disconnect cascade for every connection a test
-touched — ``hub.on_disconnect`` + ``hub_display.drop_connection`` +
+touched — ``hub.on_disconnect`` + ``hub_lifecycle.depart`` +
 ``inbox.drop_session`` — so no scenario leaks subscriptions, writers, or
 HubDisplay roots into the next.
 """
@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Self
 
 import pytest
 
-from punt_lux.domain.hub import client_registry, hub, hub_display
+from punt_lux.domain.hub import client_registry, hub, hub_lifecycle
 from punt_lux.domain.hub.inbox import drop_session
 from punt_lux.domain.ids import ConnectionId
 
@@ -51,7 +51,7 @@ class LoopHarness:
         """Run the disconnect cascade for each connection, then close the rig."""
         for connection_id in self._created:
             hub.on_disconnect(connection_id)
-            hub_display.drop_connection(connection_id)
+            hub_lifecycle.depart(connection_id)
             drop_session(connection_id)
         self._rig.close()
 

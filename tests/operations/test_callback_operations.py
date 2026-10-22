@@ -14,9 +14,10 @@ from __future__ import annotations
 from typing import Self, final
 
 from punt_lux.domain.hub.callback_hold import CallbackRouter
+from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
-from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.menu_models import Menu
 from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.operations.callbacks import CallbackOperations
@@ -93,23 +94,35 @@ class _Wired:
     """
 
     _clients: HubClientRegistry
+    _menus: CallbackMenuReplica
     _router: CallbackRouter
     _marker: _MarkerSpy
     _ops: CallbackOperations
-    __slots__ = ("_clients", "_marker", "_ops", "_router")
+    __slots__ = ("_clients", "_marker", "_menus", "_ops", "_router")
 
     def __new__(cls, *, clock: _Clock | None = None) -> Self:
         self = super().__new__(cls)
-        display = HubDisplay(clock) if clock is not None else HubDisplay()
-        self._clients = display.clients
+        factory = (
+            HubStoreFactory(clock=clock) if clock is not None else HubStoreFactory()
+        )
+        self._clients = factory.clients
+        self._menus = CallbackMenuReplica(self._clients)
         self._router = CallbackRouter(self._clients)
         self._marker = _MarkerSpy()
-        self._ops = CallbackOperations(display, self._router, self._marker)
+        self._ops = CallbackOperations(
+            factory.lifecycle,
+            self._clients.legs,
+            self._router,
+            self._marker,
+        )
         return self
 
     @property
     def ops(self) -> CallbackOperations:
         return self._ops
+
+    def callback_menus(self) -> list[Menu]:
+        return self._menus.callback_menus()
 
     @property
     def pushed(self) -> int:
@@ -194,7 +207,7 @@ def test_an_identified_listening_session_registers_and_the_menu_is_pushed() -> N
 
     assert isinstance(wired.register(conn), Ok)
     assert wired.pushed == 1
-    menus = wired.ops.callback_menus()
+    menus = wired.callback_menus()
     assert [menu.label for menu in menus] == ["Clients"]
     # The client is named for the repository it works in, not for its wire name.
     client = menus[0].items[0]

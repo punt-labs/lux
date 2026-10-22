@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING, cast, final
 
 import pytest
 
-from punt_lux.domain.hub import hub, hub_display
+from punt_lux.domain.hub import hub, hub_lifecycle
 from punt_lux.domain.hub.hub import Hub
-from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.inbox import (
     drop_session,
     ensure_writer,
@@ -62,7 +62,7 @@ def _ports(
 
 
 def _ops() -> PubSubOperations:
-    return PubSubOperations(hub, hub_display, _ports())
+    return PubSubOperations(hub, hub_lifecycle, _ports())
 
 
 @pytest.fixture
@@ -113,7 +113,7 @@ def test_receive_drains_without_blocking(scope: Scope) -> None:
         seen.append(timeout)
         return
 
-    ops = PubSubOperations(hub, hub_display, _ports(next_event_fn=_record))
+    ops = PubSubOperations(hub, hub_lifecycle, _ports(next_event_fn=_record))
     result = ops.receive(scope=scope)
     assert result.event is None
     assert seen == [0.0]
@@ -147,9 +147,12 @@ def test_a_pubsub_only_client_keeps_its_scene_ownership_past_its_ttl() -> None:
     the client sits between two ordinary unsubscribe calls.
     """
     clock = _Clock()
-    display = HubDisplay(clock)
+    factory = HubStoreFactory(clock=clock)
+    display = factory.display
+    lifecycle = factory.lifecycle
+    clients = factory.clients
     owner = ConnectionId("pubsub-only")
-    display.register_client(owner)
+    lifecycle.arrive(owner)
     scene_id = SceneId("pubsub-scene")
     display.apply(
         owner,
@@ -157,14 +160,14 @@ def test_a_pubsub_only_client_keeps_its_scene_ownership_past_its_ttl() -> None:
             scene_id=scene_id, element=TextElement(id="t", content="x"), parent_id=None
         ),
     )
-    ops = PubSubOperations(Hub(), display, _ports(lambda _c: None, _no_event))
+    ops = PubSubOperations(Hub(), lifecycle, _ports(lambda _c: None, _no_event))
 
     for _ in range(3):
         clock.advance(1801.0)  # past the 1800s unidentified-session lease
         ops.unsubscribe("some.topic", scope=Scope(owner))
-        assert display.reap_lapsed_leases() == frozenset()
+        assert lifecycle.depart_lapsed(frozenset()) == frozenset()
 
-    assert display.is_client(owner)
+    assert clients.session_of(owner) is not None
     assert display.owner_of(scene_id, ElementId("t")) == owner
 
 

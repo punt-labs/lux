@@ -29,15 +29,16 @@ from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.details_binding import DetailsBinding
 from punt_lux.domain.hub.hub import Hub
+from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_interaction_dispatch import HubInteractionDispatch
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.session_callback import SessionCallback
 from punt_lux.domain.identity import HubId
 from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.operations.client_details import ClientDetailsOperations
 from punt_lux.operations.client_details_port import ClientDetailsPort
 from punt_lux.operations.client_listing import ClientListing
-from punt_lux.operations.queries import QueryOperations
 from punt_lux.operations.scene_installer import SceneInstaller
 from punt_lux.protocol.elements.table import TableElement
 from tests.menu_doubles import FakeImGui, ignore
@@ -88,46 +89,29 @@ class _Marks:
 
 
 @final
-class _Port:
-    """A display port that fails the test if a Hub read reaches around to it."""
-
-    def query(self, method: str, params: object) -> object:
-        msg = f"the Hub reached around to the display: query({method!r})"
-        raise AssertionError(msg)
-
-    def ping(self, wait: float | None) -> object:
-        msg = f"the Hub reached around to the display: ping({wait!r})"
-        raise AssertionError(msg)
-
-
-@final
 class _Wired:
     """A Hub with two live clients, and the display model of the menu it composes."""
 
     _store: HubDisplay
+    _clients: HubClientRegistry
     _details: ClientDetailsPort
     _router: CallbackRouter
     _legs: dict[ConnectionId, _Leg]
     _sent: list[RemoteEventHandlerInvocation]
-    __slots__ = ("_details", "_legs", "_router", "_sent", "_store")
+    __slots__ = ("_clients", "_details", "_legs", "_router", "_sent", "_store")
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
-        self._store = HubDisplay()
+        factory = HubStoreFactory()
+        display = factory.display
+        self._store = display
+        self._clients = factory.clients
         marks = _Marks()
-        clients = ClientListing(self._store, Hub(), _zero_inbox_depth)
+        listing = ClientListing(display, self._clients, Hub(), _zero_inbox_depth)
         self._details = ClientDetailsPort(
-            ClientDetailsOperations(
-                QueryOperations(
-                    self._store,
-                    _Port(),  # type: ignore[arg-type]  # structural port
-                    clients,
-                ),
-                SceneInstaller(self._store, marks),
-                self._store.clients,
-            )
+            ClientDetailsOperations(listing, SceneInstaller(display, marks))
         )
-        self._router = CallbackRouter(self._store.clients)
+        self._router = CallbackRouter(self._clients)
         self._legs = {}
         self._sent = []
         return self
@@ -136,13 +120,13 @@ class _Wired:
         """Bring a client up the way the listen route does, and register a command."""
         leg = _Leg()
         self._legs[connection_id] = leg
-        self._store.clients.legs.attach(connection_id, identity, leg)
+        self._clients.legs.attach(connection_id, identity, leg)
         command = (
             SessionCallback(id="music", label="Music")
             if connection_id == _VOXD
             else SessionCallback(id="beads", label="Beads")
         )
-        self._store.clients.legs.register_callback(connection_id, command, leg)
+        self._clients.legs.register_callback(connection_id, command, leg)
 
     def draw(self, *clicks: str) -> FakeImGui:
         """Decode the wire the Hub would send and draw it, clicking what is named.
@@ -153,7 +137,7 @@ class _Wired:
         """
         imgui = FakeImGui(clicks)
         field = WireField("callback_menus")
-        for wire in CallbackMenuReplica(self._store.clients).callback_menu_wire():
+        for wire in CallbackMenuReplica(self._clients).callback_menu_wire():
             menu = WireMenu.of_payload(wire, field=field)
             handlers = MenuHandlers(self._sent.append, ignore, HubId.stub())
             Submenu.from_wire(menu, handlers).render(imgui)
@@ -174,7 +158,7 @@ class _Wired:
 
     def sweep(self, connection_id: ConnectionId) -> None:
         """Drop a client the way the lease sweep does, after the menu was drawn."""
-        self._store.clients.discard(connection_id)
+        self._clients.discard(connection_id)
 
     def has_details(self, connection_id: ConnectionId) -> bool:
         """Whether the Hub holds a details scene for this client."""

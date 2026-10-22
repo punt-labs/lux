@@ -30,6 +30,7 @@ from punt_lux.domain.hub.hub_display import (
     HubOwnershipError,
     UnknownElementError,
 )
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.scene_snapshot import SceneSnapshot
 from punt_lux.domain.ids import ClientId, ConnectionId, ElementId, SceneId
 from punt_lux.domain.interaction import ButtonClicked, ValueChanged
@@ -68,13 +69,14 @@ class _WireButton:
         return cls(id=str(d["id"]), label=str(d.get("label", "")))
 
 
-def _store(*connections: str) -> tuple[HubDisplay, tuple[ConnectionId, ...]]:
+def _store(*connections: str) -> tuple[HubStoreFactory, tuple[ConnectionId, ...]]:
     """Return a fresh store and the named connections registered as its clients."""
-    display = HubDisplay()
+    factory = HubStoreFactory()
+    lifecycle = factory.lifecycle
     ids = tuple(ConnectionId(name) for name in connections)
     for connection_id in ids:
-        display.register_client(connection_id)
-    return display, ids
+        lifecycle.arrive(connection_id)
+    return factory, ids
 
 
 def _install(
@@ -106,21 +108,24 @@ def _progress(display: HubDisplay, element_id: str) -> ProgressElement:
 
 
 def test_registered_connections_are_distinct_clients() -> None:
-    display, (alice, bob) = _store("alice", "bob")
+    factory, (alice, bob) = _store("alice", "bob")
+    clients = factory.clients
     assert alice != bob
-    assert display.is_client(alice)
-    assert display.is_client(bob)
-    assert set(display.client_sessions()) == {alice, bob}
+    assert clients.session_of(alice) is not None
+    assert clients.session_of(bob) is not None
+    assert set(clients.live_sessions()) == {alice, bob}
 
 
 def test_an_unregistered_connection_is_not_a_client() -> None:
-    display, _ = _store()
-    assert not display.is_client(ConnectionId("ghost"))
+    factory, _ = _store()
+    clients = factory.clients
+    assert clients.session_of(ConnectionId("ghost")) is None
 
 
 def test_a_scene_comes_into_existence_with_its_first_root() -> None:
     """The Hub has no ``add_scene``: installing a root is what creates a scene."""
-    display, (alice,) = _store("alice")
+    factory, (alice,) = _store("alice")
+    display = factory.display
     assert display.live_scene_ids() == ()
 
     _install(display, alice, ButtonElement(id="b1", label="hi"))
@@ -133,7 +138,8 @@ def test_a_scene_comes_into_existence_with_its_first_root() -> None:
 
 
 def test_add_element_installs_it_and_records_its_owner() -> None:
-    display, (alice,) = _store("alice")
+    factory, (alice,) = _store("alice")
+    display = factory.display
     btn = ButtonElement(id="b1", label="hi")
 
     _install(display, alice, btn)
@@ -150,7 +156,8 @@ def test_re_adding_an_id_replaces_the_element_under_it() -> None:
     is last-writer-wins rather than a rejection the agent would have to
     reconcile against state it cannot see.
     """
-    display, (alice,) = _store("alice")
+    factory, (alice,) = _store("alice")
+    display = factory.display
     _install(display, alice, ButtonElement(id="b1", label="hi"))
 
     _install(display, alice, ButtonElement(id="b1", label="hello"))
@@ -160,7 +167,8 @@ def test_re_adding_an_id_replaces_the_element_under_it() -> None:
 
 
 def test_add_element_reaches_a_scene_that_holds_nothing_yet() -> None:
-    display, (alice,) = _store("alice")
+    factory, (alice,) = _store("alice")
+    display = factory.display
     ghost_scene = SceneId("ghost")
 
     _install(display, alice, ButtonElement(id="b1", label="hi"), scene_id=ghost_scene)
@@ -172,7 +180,8 @@ def test_add_element_reaches_a_scene_that_holds_nothing_yet() -> None:
 
 
 def test_remove_element_drops_it_from_the_index() -> None:
-    display, (alice,) = _store("alice")
+    factory, (alice,) = _store("alice")
+    display = factory.display
     _install(display, alice, ButtonElement(id="b1", label="hi"))
 
     display.apply(alice, RemoveElement(scene_id=_SCENE, element_id=ElementId("b1")))
@@ -184,7 +193,8 @@ def test_remove_element_drops_it_from_the_index() -> None:
 
 def test_removing_an_unknown_element_is_a_no_op() -> None:
     """Removal is idempotent: a frame close and a TTL may both reach one scene."""
-    display, (alice,) = _store("alice")
+    factory, (alice,) = _store("alice")
+    display = factory.display
     _install(display, alice, ButtonElement(id="b1", label="hi"))
 
     display.apply(alice, RemoveElement(scene_id=_SCENE, element_id=ElementId("ghost")))
@@ -196,7 +206,8 @@ def test_removing_an_unknown_element_is_a_no_op() -> None:
 
 
 def test_set_property_patches_the_element_in_place() -> None:
-    display, (alice,) = _store("alice")
+    factory, (alice,) = _store("alice")
+    display = factory.display
     _install(display, alice, ButtonElement(id="b1", label="hi"))
 
     display.apply(
@@ -211,7 +222,8 @@ def test_set_property_patches_the_element_in_place() -> None:
 
 def test_set_property_with_wrong_type_raises_and_leaves_the_value() -> None:
     """The element's own setter is the type authority (DES-039), and it fails loud."""
-    display, (alice,) = _store("alice")
+    factory, (alice,) = _store("alice")
+    display = factory.display
     _install(display, alice, ButtonElement(id="b1", label="hi"))
 
     with pytest.raises(TypeError, match="label must be str"):
@@ -226,7 +238,8 @@ def test_set_property_with_wrong_type_raises_and_leaves_the_value() -> None:
 
 
 def test_set_property_on_an_undeclared_field_raises() -> None:
-    display, (alice,) = _store("alice")
+    factory, (alice,) = _store("alice")
+    display = factory.display
     _install(display, alice, ButtonElement(id="b1", label="hi"))
 
     with pytest.raises(AttributeError):
@@ -242,7 +255,8 @@ def test_set_property_on_an_undeclared_field_raises() -> None:
 
 
 def test_set_property_on_bool_field_accepts_bool() -> None:
-    display, (alice,) = _store("alice")
+    factory, (alice,) = _store("alice")
+    display = factory.display
     _install(display, alice, ButtonElement(id="b1", label="hi"))
 
     display.apply(
@@ -263,7 +277,8 @@ def test_set_property_on_float_field_accepts_int() -> None:
     setter must match that semantics or a legitimate integer fraction is
     wrongly refused.
     """
-    display, (alice,) = _store("alice")
+    factory, (alice,) = _store("alice")
+    display = factory.display
     _install(display, alice, ProgressElement(id="p1", fraction=0.0))
 
     display.apply(
@@ -282,7 +297,8 @@ def test_set_property_on_int_field_refuses_float() -> None:
     ``json.dumps(1.0)`` is ``"1.0"``, distinct from ``json.dumps(1)`` (``"1"``),
     so a float literal arriving for an int-only field is a real type mismatch.
     """
-    display, (alice,) = _store("alice")
+    factory, (alice,) = _store("alice")
+    display = factory.display
     combo = ComboElement(id="c1", label="Pick", items=["a", "b"], selected=0)
     _install(display, alice, combo)
 
@@ -299,7 +315,8 @@ def test_set_property_on_int_field_refuses_float() -> None:
 
 def test_set_property_on_float_field_still_refuses_bool() -> None:
     """``bool`` is a subclass of ``int`` but must not silently coerce to ``float``."""
-    display, (alice,) = _store("alice")
+    factory, (alice,) = _store("alice")
+    display = factory.display
     _install(display, alice, ProgressElement(id="p1", fraction=0.0))
 
     with pytest.raises(TypeError, match="fraction must be a number"):
@@ -320,7 +337,8 @@ def test_set_property_on_float_field_still_refuses_bool() -> None:
 
 
 def test_cross_connection_set_property_is_refused() -> None:
-    display, (alice, bob) = _store("alice", "bob")
+    factory, (alice, bob) = _store("alice", "bob")
+    display = factory.display
     _install(display, alice, ButtonElement(id="b1", label="hi"))
 
     with pytest.raises(HubOwnershipError) as exc_info:
@@ -338,7 +356,8 @@ def test_cross_connection_set_property_is_refused() -> None:
 
 
 def test_cross_connection_remove_is_refused() -> None:
-    display, (alice, bob) = _store("alice", "bob")
+    factory, (alice, bob) = _store("alice", "bob")
+    display = factory.display
     _install(display, alice, ButtonElement(id="b1", label="hi"))
 
     with pytest.raises(HubOwnershipError):
@@ -354,13 +373,15 @@ def test_an_unregistered_connection_still_owns_what_it_installs() -> None:
     install from an unregistered connection lands and is owned by it, and the
     ownership gate protects it from every other connection just the same.
     """
-    display, (alice,) = _store("alice")
+    factory, (alice,) = _store("alice")
+    display = factory.display
+    clients = factory.clients
     ghost = ConnectionId("ghost")
 
     _install(display, ghost, ButtonElement(id="b1", label="hi"))
 
     assert display.owner_of(_SCENE, ElementId("b1")) == ghost
-    assert not display.is_client(ghost)
+    assert not (clients.session_of(ghost) is not None)
     with pytest.raises(HubOwnershipError):
         display.apply(alice, RemoveElement(scene_id=_SCENE, element_id=ElementId("b1")))
 
@@ -370,21 +391,26 @@ def test_an_unregistered_connection_still_owns_what_it_installs() -> None:
 
 def test_dropping_a_connection_releases_ownership_but_keeps_its_elements() -> None:
     """A session's UI survives the session; departing it releases ownership."""
-    display, (alice,) = _store("alice")
+    factory, (alice,) = _store("alice")
+    display = factory.display
+    lifecycle = factory.lifecycle
+    clients = factory.clients
     _install(display, alice, ButtonElement(id="b1", label="hi"))
     _install(display, alice, ButtonElement(id="b2", label="bye"))
 
-    display.drop_connection(alice)
+    lifecycle.depart(alice)
 
-    assert not display.is_client(alice)
+    assert not (clients.session_of(alice) is not None)
     assert display.element_count(_SCENE) == 2  # content stands
     assert display.elements_owned_by(alice) == ()  # ownership released
 
 
 def test_dropping_an_unknown_connection_is_a_no_op() -> None:
-    display, _ = _store()
-    display.drop_connection(ConnectionId("ghost"))
-    assert display.client_sessions() == {}
+    factory, _ = _store()
+    lifecycle = factory.lifecycle
+    clients = factory.clients
+    lifecycle.depart(ConnectionId("ghost"))
+    assert clients.live_sessions() == {}
 
 
 # -- Observer cascade -------------------------------------------------------
@@ -397,7 +423,8 @@ def test_a_root_dismissing_itself_leaves_the_index() -> None:
     root. Flipping ``_removed`` on the element — what a dialog's dismiss
     callback does — must reach the index without anyone calling ``apply``.
     """
-    display, (alice,) = _store("alice")
+    factory, (alice,) = _store("alice")
+    display = factory.display
     modal = ModalElement(id="m1", title="Confirm")
     _install(display, alice, modal)
 
@@ -409,7 +436,8 @@ def test_a_root_dismissing_itself_leaves_the_index() -> None:
 
 def test_a_refused_write_notifies_nothing() -> None:
     """A refused patch leaves the element's observers unfired — no half-write."""
-    display, (alice, bob) = _store("alice", "bob")
+    factory, (alice, bob) = _store("alice", "bob")
+    display = factory.display
     button = ButtonElement(id="b1", label="hi")
     _install(display, alice, button)
     observed: list[str] = []
@@ -431,7 +459,8 @@ def test_a_refused_write_notifies_nothing() -> None:
 
 def test_a_snapshot_is_decoupled_from_later_mutation() -> None:
     """The replicator reads copies: a later patch cannot tear an in-flight send."""
-    display, (alice,) = _store("alice")
+    factory, (alice,) = _store("alice")
+    display = factory.display
     _install(display, alice, ButtonElement(id="b1", label="hi"))
     before = display.reader.snapshot(_SCENE)
 
@@ -492,7 +521,8 @@ class _SnapshotLabels:
 
 
 def test_scene_roots_forgets_a_removed_root() -> None:
-    display, (alice,) = _store("alice")
+    factory, (alice,) = _store("alice")
+    display = factory.display
     _install(display, alice, ButtonElement(id="b1", label="hi"))
     _install(display, alice, ButtonElement(id="b2", label="bye"))
 

@@ -20,6 +20,7 @@ import pytest
 from punt_lux.domain.hub.deferral_errors import StructuralFieldWriteError
 from punt_lux.domain.hub.field_gate import FieldGate
 from punt_lux.domain.hub.hub_display import HubDisplay, UnknownElementError
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.scene_writer import HubSceneWriter, SceneScope
 from punt_lux.domain.hub.write_errors import ImmutableFieldError
 from punt_lux.domain.hub.write_result import WriteRejected
@@ -74,8 +75,10 @@ def _assert_gate_names_field_under_adversarial_seed(
 
 def _seed_tab_bar() -> HubDisplay:
     """Install a ``TabBarElement`` root whose tab holds a child."""
-    hub_display = HubDisplay()
-    hub_display.register_client(_CONN)
+    factory = HubStoreFactory()
+    hub_display = factory.display
+    lifecycle = factory.lifecycle
+    lifecycle.arrive(_CONN)
     bar = TabBarElement(
         id=str(_TAB_BAR_ID),
         tabs=(
@@ -137,8 +140,10 @@ def test_set_property_structural_field_is_rejected_fail_loud() -> None:
     can never reach the store primitive, so a later composite gaining a setter
     cannot reopen the desync.
     """
-    hub_display = HubDisplay()
-    hub_display.register_client(_CONN)
+    factory = HubStoreFactory()
+    hub_display = factory.display
+    lifecycle = factory.lifecycle
+    lifecycle.arrive(_CONN)
     bar = TabBarElement(
         id=str(_TAB_BAR_ID),
         tabs=(Tab(tab_id="tab-1", label="One", children=()),),
@@ -193,8 +198,10 @@ def test_reject_names_highest_precedence_structural_field() -> None:
 
 def test_set_property_non_structural_field_still_applies() -> None:
     """The gate blocks only structural fields — a scalar set still commits."""
-    hub_display = HubDisplay()
-    hub_display.register_client(_CONN)
+    factory = HubStoreFactory()
+    hub_display = factory.display
+    lifecycle = factory.lifecycle
+    lifecycle.arrive(_CONN)
     bar = TabBarElement(
         id=str(_TAB_BAR_ID),
         tabs=(

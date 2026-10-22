@@ -14,11 +14,12 @@ from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub import client_registry, hub
 from punt_lux.domain.hub.callback_hold import CallbackRouter
-from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
+from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
 from punt_lux.domain.hub.departure_cascade import DepartureCascade
 from punt_lux.domain.hub.departure_sinks import DepartureSink
-from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.inbox import ensure_writer, inbox_depth_for, next_event
 from punt_lux.domain.hub.lease_reap_sweep import LeaseReapSweep
 from punt_lux.domain.hub.menu_models import Menu, MenuAction
@@ -66,14 +67,21 @@ class _MarkerSpy:
 
 def _rig(
     clock: Callable[[], float] = time.monotonic,
-) -> tuple[Operations, HubDisplay, _MarkerSpy]:
-    store, spy = HubDisplay(clock), _MarkerSpy()
+) -> tuple[Operations, HubStoreFactory, _MarkerSpy]:
+    factory = HubStoreFactory(clock=clock)
+    store = factory.display
+    lifecycle = factory.lifecycle
+    clients = factory.clients
+    spy = _MarkerSpy()
     ops = Operations.for_store(
         store,
         spy,
+        lifecycle=lifecycle,
+        clients=clients,
         hub=hub,
-        menu_registry=HubMenuRegistry(store.clients),
-        callback_router=CallbackRouter(store.clients),
+        menu_registry=HubMenuRegistry(clients),
+        callback_router=CallbackRouter(clients),
+        callback_menus=CallbackMenuReplica(clients),
         ports=HubPorts(
             element_factory=hub_element_factory,
             ensure_writer=ensure_writer,
@@ -84,7 +92,7 @@ def _rig(
             ),
         ),
     )
-    return ops, store, spy
+    return ops, factory, spy
 
 
 def _sent_entries(ops: Operations) -> list[str]:
@@ -100,7 +108,7 @@ def _sent_entries(ops: Operations) -> list[str]:
 
 
 def test_identifying_a_callbackless_agent_marks_menus_and_it_is_listed() -> None:
-    ops, _store, spy = _rig()
+    ops, _factory, spy = _rig()
 
     ops.identify(_AGENT, scope=Scope(_CONN))
 
@@ -109,7 +117,7 @@ def test_identifying_a_callbackless_agent_marks_menus_and_it_is_listed() -> None
 
 
 def test_re_identifying_marks_menus_again() -> None:
-    ops, _store, spy = _rig()
+    ops, _factory, spy = _rig()
     ops.identify(_AGENT, scope=Scope(_CONN))
     before = spy.menu_marks
 
@@ -119,11 +127,12 @@ def test_re_identifying_marks_menus_again() -> None:
 
 
 def test_its_departure_marks_menus_and_the_entry_is_gone() -> None:
-    ops, store, spy = _rig()
+    ops, factory, spy = _rig()
+    lifecycle = factory.lifecycle
     ops.identify(_AGENT, scope=Scope(_CONN))
     before = spy.menu_marks
 
-    store.drop_connection(_CONN)
+    lifecycle.depart(_CONN)
 
     assert spy.menu_marks > before
     assert _sent_entries(ops) == []
@@ -132,12 +141,13 @@ def test_its_departure_marks_menus_and_the_entry_is_gone() -> None:
 def test_a_lease_lapse_reap_marks_menus_and_the_entry_is_gone() -> None:
     """The timer's own sweep -- no disconnect signal -- withdraws the entry."""
     now = [0.0]
-    ops, store, spy = _rig(lambda: now[0])
+    ops, factory, spy = _rig(lambda: now[0])
+    lifecycle = factory.lifecycle
     ops.identify(_AGENT, scope=Scope(_CONN))
     before = spy.menu_marks
 
     now[0] += 1_000_000.0  # far past any kind's lease; nothing renews
-    reaped = LeaseReapSweep(store).sweep()
+    reaped = LeaseReapSweep(lifecycle).sweep()
 
     assert reaped == frozenset({_CONN})
     assert spy.menu_marks > before
@@ -146,7 +156,7 @@ def test_a_lease_lapse_reap_marks_menus_and_the_entry_is_gone() -> None:
 
 def test_repeating_an_identical_identify_marks_menus_once() -> None:
     """REST re-declares identity on every write; that must not re-push the menu."""
-    ops, _store, spy = _rig()
+    ops, _factory, spy = _rig()
     ops.identify(_AGENT, scope=Scope(_CONN))
     after_first = spy.menu_marks
 
@@ -160,10 +170,11 @@ def test_a_departure_cannot_interleave_with_binding_the_sink(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The record and the bind are one step under the store's write lock."""
-    ops, store, _spy = _rig()
+    ops, factory, _spy = _rig()
+    lifecycle = factory.lifecycle
     ops.identify(_AGENT, scope=Scope(_CONN))
     real_bind = DepartureCascade.bind_sink
-    intruder = threading.Thread(target=store.drop_connection, args=(_CONN,))
+    intruder = threading.Thread(target=lifecycle.depart, args=(_CONN,))
     overlapped: list[bool] = []
 
     def _bind(
@@ -186,79 +197,85 @@ _CLI: dict[str, object] = {"kind": "cli", "name": "tool", "repo": "/w/lux"}
 _FAR_FUTURE = 1_000_000.0  # past any kind's lease; nothing renews
 
 
-def _departure_marks(store: HubDisplay, spy: _MarkerSpy, conn: ConnectionId) -> int:
+def _departure_marks(
+    lifecycle: ClientLifecycle, spy: _MarkerSpy, conn: ConnectionId
+) -> int:
     """How many menu marks one departure of ``conn`` raises: the sinks it fires."""
     before = spy.menu_marks
-    store.drop_connection(conn)
+    lifecycle.depart(conn)
     return spy.menu_marks - before
 
 
 def test_identifying_an_anonymous_registered_connection_as_an_agent_marks_menus_and_binds_one_sink() -> (  # noqa: E501
     None
 ):
-    ops, store, spy = _rig()
-    store.register_client(_CONN)  # registered, anonymous: the Connect step first
+    ops, factory, spy = _rig()
+    lifecycle = factory.lifecycle
+    lifecycle.arrive(_CONN)  # registered, anonymous: the Connect step first
     assert spy.menu_marks == 0
 
     ops.identify(_AGENT, scope=Scope(_CONN))
 
     assert spy.menu_marks >= 1
     assert _sent_entries(ops) == ["claude"]
-    assert _departure_marks(store, spy, _CONN) == 1
+    assert _departure_marks(lifecycle, spy, _CONN) == 1
 
 
 def test_a_cli_identify_marks_nothing_and_binds_no_sink() -> None:
     """A cli earns no Clients entry, so naming it owes the Display nothing."""
-    ops, store, spy = _rig()
+    ops, factory, spy = _rig()
+    lifecycle = factory.lifecycle
 
     ops.identify(_CLI, scope=Scope(_CONN))
 
     assert spy.menu_marks == 0
-    assert _departure_marks(store, spy, _CONN) == 0
+    assert _departure_marks(lifecycle, spy, _CONN) == 0
 
 
 def test_identify_binds_exactly_one_menu_sink() -> None:
-    ops, store, spy = _rig()
+    ops, factory, spy = _rig()
+    lifecycle = factory.lifecycle
 
     for _ in range(3):
         ops.identify(_AGENT, scope=Scope(_CONN))
 
-    assert _departure_marks(store, spy, _CONN) == 1
+    assert _departure_marks(lifecycle, spy, _CONN) == 1
 
 
-def test_a_departure_between_the_before_snapshot_and_the_record_still_marks_and_binds() -> (  # noqa: E501
-    None
-):
+def test_a_departure_landing_before_the_record_still_marks_and_binds() -> None:
     """A departure landing just before the record leaves no ghost (D5).
 
-    The intruder drops the connection as the record begins, so the identify that
-    follows re-registers a session the departure already took. The end state
-    must be the same as a first identify: marked, listed, one sink bound, and a
-    later departure marks the entry away.
+    The test thread holds the store lock through the door's own ``exclusive()``,
+    so an identify on a worker thread queues behind it; the departure lands inside
+    that hold, and the identify then runs wholly after it. The session the
+    departure took is re-registered by the identify, and the end state must be the
+    same as a first identify: marked, listed, one sink bound, and a later departure
+    marks the entry away.
     """
-    ops, store, spy = _rig()
+    ops, factory, spy = _rig()
+    lifecycle = factory.lifecycle
     ops.identify(_AGENT, scope=Scope(_CONN))
-    real_identify = store.identify_client
-    marks_after_intrusion: list[int] = []
+    worker = threading.Thread(
+        target=ops.identify, args=(_AGENT,), kwargs={"scope": Scope(_CONN)}
+    )
 
-    def _intruded(connection_id: ConnectionId, identity: ClientIdentity) -> None:
-        store.drop_connection(connection_id)
-        marks_after_intrusion.append(spy.menu_marks)
-        real_identify(connection_id, identity)
+    with lifecycle.exclusive():
+        worker.start()
+        lifecycle.depart(_CONN)
+        marks_after_departure = spy.menu_marks
+    worker.join(timeout=5.0)
 
-    store.identify_client = _intruded  # type: ignore[method-assign]  # spy
-    ops.identify(_AGENT, scope=Scope(_CONN))
-
-    assert spy.menu_marks > marks_after_intrusion[0]
+    assert not worker.is_alive()
+    assert spy.menu_marks > marks_after_departure
     assert _sent_entries(ops) == ["claude"]
-    assert _departure_marks(store, spy, _CONN) == 1
+    assert _departure_marks(lifecycle, spy, _CONN) == 1
     assert _sent_entries(ops) == []
 
 
 def test_a_lease_lapse_alone_marks_nothing() -> None:
     """A lapse is time passing, not a Hub event: it cannot mark."""
     now = [0.0]
-    ops, _store, spy = _rig(lambda: now[0])
+    ops, _factory, spy = _rig(lambda: now[0])
     ops.identify(_AGENT, scope=Scope(_CONN))
     before = spy.menu_marks
 
@@ -270,12 +287,13 @@ def test_a_lease_lapse_alone_marks_nothing() -> None:
 def test_another_clients_push_drops_a_lapsed_unswept_agent() -> None:
     """The roster is lease-filtered, so a push omits the lapsed agent unswept."""
     now = [0.0]
-    ops, store, _spy = _rig(lambda: now[0])
+    ops, factory, _spy = _rig(lambda: now[0])
+    clients = factory.clients
     ops.identify(_AGENT, scope=Scope(_CONN))
 
     now[0] += _FAR_FUTURE
 
-    assert store.is_client(_CONN)  # no sweep has run
+    assert clients.session_of(_CONN) is not None  # no sweep has run
     assert _sent_entries(ops) == []
 
 
@@ -283,7 +301,7 @@ def test_a_rest_write_renewing_a_lapsed_agent_marks_menus_and_restores_its_entry
     None
 ):
     now = [0.0]
-    ops, _store, spy = _rig(lambda: now[0])
+    ops, _factory, spy = _rig(lambda: now[0])
     ops.identify(_AGENT, scope=Scope(_CONN))
     now[0] += _FAR_FUTURE
     before = spy.menu_marks
@@ -299,7 +317,7 @@ def test_an_mcp_call_renewing_a_lapsed_agent_marks_menus_and_restores_its_entry(
 ):
     """The D4 test: an identify with an unchanged identity must still mark."""
     now = [0.0]
-    ops, _store, spy = _rig(lambda: now[0])
+    ops, _factory, spy = _rig(lambda: now[0])
     ops.identify(_AGENT, scope=Scope(_CONN))
     now[0] += _FAR_FUTURE
     before = spy.menu_marks
@@ -312,24 +330,26 @@ def test_an_mcp_call_renewing_a_lapsed_agent_marks_menus_and_restores_its_entry(
 
 def test_renewing_a_lapsed_agent_leaves_exactly_one_menu_sink() -> None:
     now = [0.0]
-    ops, store, spy = _rig(lambda: now[0])
+    ops, factory, spy = _rig(lambda: now[0])
+    lifecycle = factory.lifecycle
     ops.identify(_AGENT, scope=Scope(_CONN))
     now[0] += _FAR_FUTURE
     ops.clear(scope=Scope(_CONN))
 
-    assert _departure_marks(store, spy, _CONN) == 1
+    assert _departure_marks(lifecycle, spy, _CONN) == 1
 
 
 def test_the_sweep_removes_every_lapsed_agent_with_a_mark() -> None:
     now = [0.0]
-    ops, store, spy = _rig(lambda: now[0])
+    ops, factory, spy = _rig(lambda: now[0])
+    lifecycle = factory.lifecycle
     other = ConnectionId("c2")
     ops.identify(_AGENT, scope=Scope(_CONN))
     ops.identify({**_AGENT, "name": "codex"}, scope=Scope(other))
     before = spy.menu_marks
     now[0] += _FAR_FUTURE
 
-    reaped = LeaseReapSweep(store).sweep()
+    reaped = LeaseReapSweep(lifecycle).sweep()
 
     assert reaped == frozenset({_CONN, other})
     assert spy.menu_marks > before
@@ -337,9 +357,10 @@ def test_the_sweep_removes_every_lapsed_agent_with_a_mark() -> None:
 
 
 def test_a_non_agent_departure_marks_nothing() -> None:
-    ops, store, spy = _rig()
+    ops, factory, spy = _rig()
+    lifecycle = factory.lifecycle
     ops.identify(_CLI, scope=Scope(_CONN))
-    store.register_client(ConnectionId("anon"))
+    lifecycle.arrive(ConnectionId("anon"))
 
-    assert _departure_marks(store, spy, ConnectionId("anon")) == 0
-    assert _departure_marks(store, spy, _CONN) == 0
+    assert _departure_marks(lifecycle, spy, ConnectionId("anon")) == 0
+    assert _departure_marks(lifecycle, spy, _CONN) == 0

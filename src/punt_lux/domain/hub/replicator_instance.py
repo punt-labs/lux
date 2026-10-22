@@ -19,7 +19,7 @@ from punt_lux.domain.hub.callback_hold import CallbackRouter
 from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
 from punt_lux.domain.hub.clients import client_registry
 from punt_lux.domain.hub.frame_owner_facts_instance import hub_frame_owner_facts
-from punt_lux.domain.hub.hub_display import hub_display
+from punt_lux.domain.hub.hub_store_factory import hub_clients, hub_display
 from punt_lux.domain.hub.inbox import offer as inbox_offer
 from punt_lux.domain.hub.menu_event import MenuEventRouter
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.replicator_ports import ClientProvider
 
 __all__ = [
+    "hub_callback_menus",
     "hub_callback_router",
     "hub_menu_event_router",
     "hub_menu_registry",
@@ -40,24 +41,26 @@ __all__ = [
 # the owning session so two sessions never clobber and a departed one's bar leaves
 # (it reads the shared HubDisplay's live sessions to compose). Written only through
 # MenuOperations, injected into the operations facade by tools.py.
-hub_menu_registry = HubMenuRegistry(hub_display.clients)
+hub_menu_registry = HubMenuRegistry(hub_clients)
 
 # The one process-wide router for menu-callback clicks. Both composition roots
 # inject this instance so a click held on one surface is drained on any other; it
 # routes against the session registry that lives in the shared HubDisplay.
-hub_callback_router = CallbackRouter(hub_display.clients)
+hub_callback_router = CallbackRouter(hub_clients)
 
 # Delivers an agent menu-item click to the owning MCP session's inbox — the same
 # live-session read the callback router uses, then the non-resurrecting inbox sink.
-hub_menu_event_router = MenuEventRouter(hub_display.clients, inbox_offer)
+hub_menu_event_router = MenuEventRouter(hub_clients, inbox_offer)
 
 # DisplayLink satisfies the port at runtime — its show_async takes the concrete
 # protocol.Element union every WireElement root is; the cast bridges list invariance.
 # hub_display satisfies QuarantinePort structurally (quarantine / is_quarantined).
+hub_callback_menus = CallbackMenuReplica(hub_clients)
+
 hub_replicator = HubReplicator(
     hub_display.reader,
     hub_menu_registry,
-    CallbackMenuReplica(hub_display.clients),
+    hub_callback_menus,
     cast("ClientProvider", client_registry),
     DisplayPaths(),
     hub_display,

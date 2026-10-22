@@ -13,22 +13,17 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.named_sessions import NamedSession
 from punt_lux.operations.client_identity_facts import ClientIdentityFacts
 from punt_lux.operations.client_listing import ClientListing
-from punt_lux.operations.queries import QueryOperations
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.hub import Hub
+    from punt_lux.domain.hub.hub_clients import HubClientRegistry
     from punt_lux.domain.hub.hub_display import HubDisplay
-    from punt_lux.domain.ids import ConnectionId, SceneId
+    from punt_lux.domain.ids import SceneId
     from punt_lux.operations.ports import HubPorts
 
 __all__ = ["FrameOwnerFacts"]
-
-# What the popup calls a client the roster never named -- one the Hub holds a
-# session for but that declared no identity (mirrors ClientDetailsOperations).
-_UNNAMED = "client"
 
 
 @final
@@ -36,17 +31,24 @@ class FrameOwnerFacts:
     """Resolve one scene's senior owner into the popup's field/value rows."""
 
     _display: HubDisplay
-    _queries: QueryOperations
-    __slots__ = ("_display", "_queries")
+    _clients: ClientListing
+    __slots__ = ("_clients", "_display")
 
-    def __new__(cls, display: HubDisplay, queries: QueryOperations) -> Self:
+    def __new__(cls, display: HubDisplay, clients: ClientListing) -> Self:
         self = super().__new__(cls)
         self._display = display
-        self._queries = queries
+        self._clients = clients
         return self
 
     @classmethod
-    def for_store(cls, display: HubDisplay, *, hub: Hub, ports: HubPorts) -> Self:
+    def for_store(
+        cls,
+        display: HubDisplay,
+        clients: HubClientRegistry,
+        *,
+        hub: Hub,
+        ports: HubPorts,
+    ) -> Self:
         """Wire the reader from the collaborators the facade is wired from.
 
         Mirrors :meth:`ClientDetailsPort.for_store` — the composition root hands
@@ -54,8 +56,7 @@ class FrameOwnerFacts:
         builds its own ``ClientListing``/``QueryOperations``, so a composition
         root doesn't need those two imports just to bind this one reader.
         """
-        clients = ClientListing(display, hub, ports.inbox_depth)
-        return cls(display, QueryOperations(display, ports.display_port, clients))
+        return cls(display, ClientListing(display, clients, hub, ports.inbox_depth))
 
     def facts_for(self, scene_id: SceneId) -> tuple[tuple[str, str], ...] | None:
         """Return the senior owner's rows, or ``None`` if unowned or departed.
@@ -68,15 +69,8 @@ class FrameOwnerFacts:
         owners = self._display.scene_owners(scene_id)
         if not owners:
             return None
-        named = self._named(owners[0].connection_id)
+        named = self._clients.named(owners[0].connection_id)
         if named is None:
             return None
-        client = self._queries.client_facts(named)
+        client = self._clients.facts(named)
         return ClientIdentityFacts(client, named.name).build().rows()
-
-    def _named(self, connection_id: ConnectionId) -> NamedSession | None:
-        """Read one connection's live session and menu name together, or ``None``."""
-        live = self._display.clients.named_sessions()
-        session = live.sessions.get(connection_id)
-        name = live.name_of(connection_id, _UNNAMED)
-        return None if session is None else NamedSession(connection_id, name, session)

@@ -10,7 +10,7 @@ from mcp.shared.message import SessionMessage
 
 from punt_lux.domain.hub import disconnect_connection
 from punt_lux.domain.hub.hub import Hub
-from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.ids import ConnectionId, Topic
 from punt_lux.mcp_session import SessionRegistry, SessionScopedServer
 from punt_lux.operations.client_listing import ClientListing
@@ -235,20 +235,23 @@ class TestSharedKeyDisconnectPreservesSubscriptions:
         not in which functions got called (lux-95zt).
         """
         hub = Hub()
-        display = HubDisplay(hub=hub)
+        factory = HubStoreFactory(hub=hub)
+        display = factory.display
+        lifecycle = factory.lifecycle
+        clients = factory.clients
         conn = ConnectionId("sess-shared")
 
         def _writer(_message: object) -> bool:
             """The shared connection's one Hub-side outbound writer."""
             return True
 
-        display.register_client(conn)
+        lifecycle.arrive(conn)
         hub.register_writer(conn, _writer)
         hub.subscribe(conn, Topic("work.saved"))
 
         def _disconnect(connection_id: object) -> None:
             disconnect_connection(
-                cast("ConnectionId", connection_id), hub_display=display
+                cast("ConnectionId", connection_id), lifecycle=lifecycle
             )
 
         monkeypatch.setattr("punt_lux.session_cleanup.OPERATIONS", _NoopMenu())
@@ -261,7 +264,9 @@ class TestSharedKeyDisconnectPreservesSubscriptions:
         def _reads() -> tuple[bool, list[str]]:
             client = next(
                 c
-                for c in ClientListing(display, hub, lambda _c: 0).read().clients
+                for c in ClientListing(display, clients, hub, lambda _c: 0)
+                .read()
+                .clients
                 if c.connection_id == str(conn)
             )
             return client.writer_bound, client.subscribed_topics
@@ -310,8 +315,8 @@ class TestSharedKeyDisconnectPreservesSubscriptions:
         # Hub state is truly gone -- and session_ls no longer lists it at all.
         assert hub.has_writer(conn) is False
         assert hub.topics_for(conn) == frozenset()
-        clients = ClientListing(display, hub, lambda _c: 0).read().clients
-        assert all(c.connection_id != str(conn) for c in clients)
+        listed = ClientListing(display, clients, hub, lambda _c: 0).read().clients
+        assert all(c.connection_id != str(conn) for c in listed)
 
 
 class _NoopMenu:

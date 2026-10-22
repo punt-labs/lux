@@ -19,7 +19,7 @@ import pytest
 from punt_lux.domain.hub.dirty_signal import DrainedBatch
 from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
 from punt_lux.domain.hub.frame_owner_facts import NoFrameOwnerFacts
-from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.menu_models import Menu, MenuAction
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.hub.reconnect_wait import ReconnectWait
@@ -45,10 +45,11 @@ _CONN = ConnectionId("repl-conn")
 _FILE_BAR = [[{"label": "File", "items": [], "owner": "repl-conn"}]]
 
 
-def _seed(store: HubDisplay, scene: str, content: str = "x") -> SceneId:
+def _seed(factory: HubStoreFactory, scene: str, content: str = "x") -> SceneId:
     """Install one owned root in ``scene`` and record a framed presentation."""
+    store = factory.display
     scene_id = SceneId(scene)
-    store.register_client(_CONN)
+    factory.lifecycle.arrive(_CONN)
     store.replace_scene(
         _CONN, scene_id, [TextElement(id=f"{scene}-root", content=content)]
     )
@@ -397,17 +398,18 @@ class _FakeLifecycle:
 
 
 def _replicator(
-    store: HubDisplay,
+    factory: HubStoreFactory,
     menu_registry: HubMenuRegistry | None = None,
     callback_wire: list[dict[str, object]] | None = None,
     owner_facts: FrameOwnerFactsReader | None = None,
     reader: SceneReader | None = None,
 ) -> tuple[HubReplicator, _FakeSender, _FakeProvider, _FakeLifecycle]:
+    store = factory.display
     sender = _FakeSender()
     provider = _FakeProvider(sender)
     lifecycle = _FakeLifecycle()
     registry = (
-        menu_registry if menu_registry is not None else HubMenuRegistry(store.clients)
+        menu_registry if menu_registry is not None else HubMenuRegistry(factory.clients)
     )
     repl = HubReplicator(
         reader if reader is not None else store.reader,
@@ -429,9 +431,9 @@ def _replicator(
 
 
 def test_a_dirty_scene_is_sent_to_the_display() -> None:
-    store = HubDisplay()
-    scene = _seed(store, "s1")
-    repl, sender, _provider, _lifecycle = _replicator(store)
+    factory = HubStoreFactory()
+    scene = _seed(factory, "s1")
+    repl, sender, _provider, _lifecycle = _replicator(factory)
     repl.start()
     try:
         repl.mark_dirty(scene)
@@ -444,13 +446,15 @@ def test_a_dirty_scene_is_sent_to_the_display() -> None:
 def test_menu_state_is_pushed_from_a_fresh_registry_read() -> None:
     # A menu change is Hub-owned and payload-less: the operation flags it, and this
     # one background writer reads the registry fresh and sends the agent bar.
-    store = HubDisplay()
-    store.register_client(_CONN)
-    registry = HubMenuRegistry(store.clients)
+    factory = HubStoreFactory()
+    lifecycle = factory.lifecycle
+    clients = factory.clients
+    lifecycle.arrive(_CONN)
+    registry = HubMenuRegistry(clients)
     registry.set_menus(
         _CONN, [Menu(label="File", items=[MenuAction(id="open", label="Open")])]
     )
-    repl, sender, _provider, _lifecycle = _replicator(store, registry)
+    repl, sender, _provider, _lifecycle = _replicator(factory, registry)
     repl.start()
     try:
         repl.mark_menus()
@@ -471,12 +475,12 @@ def test_menu_state_is_pushed_from_a_fresh_registry_read() -> None:
 def test_callback_submenus_are_pushed_on_a_menu_change() -> None:
     # A menu change also re-sends the live Clients menu, read
     # fresh from the session registry beside the agent bar.
-    store = HubDisplay()
+    factory = HubStoreFactory()
     submenu: dict[str, object] = {
         "label": "voxd",
         "items": [{"label": "Music", "id": "voxd\x1fmusic"}],
     }
-    repl, sender, _provider, _lifecycle = _replicator(store, callback_wire=[submenu])
+    repl, sender, _provider, _lifecycle = _replicator(factory, callback_wire=[submenu])
     repl.start()
     try:
         repl.mark_menus()
@@ -491,11 +495,13 @@ def test_a_menu_change_during_a_failed_send_wins_over_the_stale_state() -> None:
     # handshake: the first send is held until v2 has landed, then released to
     # fail; recovery re-marks the flag and the next send re-reads the registry, so
     # v2 ships. A drained v1 payload can never be re-pushed — there is no payload.
-    store = HubDisplay()
-    store.register_client(_CONN)
-    registry = HubMenuRegistry(store.clients)
+    factory = HubStoreFactory()
+    lifecycle = factory.lifecycle
+    clients = factory.clients
+    lifecycle.arrive(_CONN)
+    registry = HubMenuRegistry(clients)
     registry.set_menus(_CONN, [Menu(label="v1", items=[])])
-    repl, sender, _provider, _lifecycle = _replicator(store, registry)
+    repl, sender, _provider, _lifecycle = _replicator(factory, registry)
     gate = threading.Event()
     sender.block_next(gate)  # the first send parks here
     sender.arm_failure(OSError("EPIPE"))  # and fails once released
@@ -522,11 +528,12 @@ def test_a_scene_only_reap_re_pushes_the_agent_bar() -> None:
     # unconditionally and the respawned display gets the bar re-pushed from a fresh
     # registry read. Without the unconditional re-mark the bar is silently lost
     # until some unrelated menu write.
-    store = HubDisplay()
-    scene = _seed(store, "s1")
-    registry = HubMenuRegistry(store.clients)
+    factory = HubStoreFactory()
+    clients = factory.clients
+    scene = _seed(factory, "s1")
+    registry = HubMenuRegistry(clients)
     registry.set_menus(_CONN, [Menu(label="File", items=[])])
-    repl, sender, provider, lifecycle = _replicator(store, registry)
+    repl, sender, provider, lifecycle_spy = _replicator(factory, registry)
     sender.arm_failure(BlockingIOError())  # the scene send wedges → reap/respawn
     repl.start()
     try:
@@ -536,7 +543,7 @@ def test_a_scene_only_reap_re_pushes_the_agent_bar() -> None:
             if sender.menus:
                 break
             threading.Event().wait(0.01)
-        assert lifecycle.calls == ["reap"]
+        assert lifecycle_spy.calls == ["reap"]
         assert provider.drops == 1
         assert sender.shows == ["s1"]  # the scene repainted
         assert sender.menus == _FILE_BAR  # bar restored
@@ -549,11 +556,13 @@ def test_a_wedged_menu_send_is_reaped_and_the_bar_re_delivered() -> None:
     # menu leg. The worker reaps and respawns, re-marks the menu, and re-delivers
     # the bar to the fresh display. This is the wedged/reap counterpart to the
     # dead-peer menu recovery the race test already covers.
-    store = HubDisplay()
-    store.register_client(_CONN)
-    registry = HubMenuRegistry(store.clients)
+    factory = HubStoreFactory()
+    lifecycle = factory.lifecycle
+    clients = factory.clients
+    lifecycle.arrive(_CONN)
+    registry = HubMenuRegistry(clients)
     registry.set_menus(_CONN, [Menu(label="File", items=[])])
-    repl, sender, provider, lifecycle = _replicator(store, registry)
+    repl, sender, provider, lifecycle_spy = _replicator(factory, registry)
     sender.arm_failure(BlockingIOError())  # set_menu is the first guarded send
     repl.start()
     try:
@@ -563,7 +572,7 @@ def test_a_wedged_menu_send_is_reaped_and_the_bar_re_delivered() -> None:
             if sender.menus:
                 break
             threading.Event().wait(0.01)
-        assert lifecycle.calls == ["reap"]
+        assert lifecycle_spy.calls == ["reap"]
         assert provider.drops == 1
         assert sender.menus == _FILE_BAR  # re-delivered
     finally:
@@ -575,11 +584,13 @@ def test_a_generic_menu_send_error_restores_the_flag_and_retries() -> None:
     # reaches the cycle's outer guard, which restores the batch — menu flag and all
     # — and backs off. The retry re-reads the registry and re-delivers the bar;
     # nothing is dropped, and neither reap nor reconnect runs for a generic failure.
-    store = HubDisplay()
-    store.register_client(_CONN)
-    registry = HubMenuRegistry(store.clients)
+    factory = HubStoreFactory()
+    lifecycle = factory.lifecycle
+    clients = factory.clients
+    lifecycle.arrive(_CONN)
+    registry = HubMenuRegistry(clients)
     registry.set_menus(_CONN, [Menu(label="File", items=[])])
-    repl, sender, provider, lifecycle = _replicator(store, registry)
+    repl, sender, provider, lifecycle_spy = _replicator(factory, registry)
     sender.arm_failure(RuntimeError("boom"))  # a non-socket error at set_menu
     repl.start()
     try:
@@ -590,7 +601,7 @@ def test_a_generic_menu_send_error_restores_the_flag_and_retries() -> None:
                 break
             threading.Event().wait(0.01)
         assert sender.menus == _FILE_BAR  # re-delivered
-        assert lifecycle.calls == []  # generic failure never reaps
+        assert lifecycle_spy.calls == []  # generic failure never reaps
         assert provider.drops == 0  # nor reconnects
     finally:
         repl.stop()
@@ -614,11 +625,11 @@ class _FakeOwnerFacts:
 def test_the_resend_carries_the_owner_facts_the_reader_resolves() -> None:
     # The replicator attaches whatever the bound FrameOwnerFactsReader resolves
     # for the scene id -- populated fresh at every send, like the menu bar.
-    store = HubDisplay()
-    scene = _seed(store, "s1")
+    factory = HubStoreFactory()
+    scene = _seed(factory, "s1")
     rows = (("Client", "lux"), ("Kind", "agent"))
     repl, sender, _provider, _lifecycle = _replicator(
-        store, owner_facts=_FakeOwnerFacts({"s1": rows})
+        factory, owner_facts=_FakeOwnerFacts({"s1": rows})
     )
     repl.start()
     try:
@@ -632,10 +643,10 @@ def test_the_resend_carries_the_owner_facts_the_reader_resolves() -> None:
 def test_an_unowned_scene_sends_none_owner_facts() -> None:
     # The reader reporting no facts for a scene (never resolved, or the
     # dict simply has no entry) sends None -- the display keeps its cache.
-    store = HubDisplay()
-    scene = _seed(store, "s1")
+    factory = HubStoreFactory()
+    scene = _seed(factory, "s1")
     repl, sender, _provider, _lifecycle = _replicator(
-        store, owner_facts=_FakeOwnerFacts({})
+        factory, owner_facts=_FakeOwnerFacts({})
     )
     repl.start()
     try:
@@ -649,12 +660,14 @@ def test_an_unowned_scene_sends_none_owner_facts() -> None:
 def test_the_resend_carries_the_recorded_frame() -> None:
     # A scene shown into a differently-named frame is resent into that frame,
     # never hoisted into a frame named for itself.
-    store = HubDisplay()
+    factory = HubStoreFactory()
+    store = factory.display
+    lifecycle = factory.lifecycle
     scene = SceneId("s1")
-    store.register_client(_CONN)
+    lifecycle.arrive(_CONN)
     store.replace_scene(_CONN, scene, [TextElement(id="s1-root", content="x")])
     store.frames.record(scene, ScenePresentation(frame_id="hello-frame"))
-    repl, sender, _provider, _lifecycle = _replicator(store)
+    repl, sender, _provider, _lifecycle = _replicator(factory)
     repl.start()
     try:
         repl.mark_dirty(scene)
@@ -667,10 +680,11 @@ def test_the_resend_carries_the_recorded_frame() -> None:
 def test_the_resend_carries_the_stores_current_value() -> None:
     # The worker snapshots the store at send time, so a mutation that lands
     # before the send is carried, not a stale copy.
-    store = HubDisplay()
-    scene = _seed(store, "s1", content="first")
+    factory = HubStoreFactory()
+    store = factory.display
+    scene = _seed(factory, "s1", content="first")
     store.replace_scene(_CONN, scene, [TextElement(id="s1-root", content="second")])
-    repl, sender, _provider, _lifecycle = _replicator(store)
+    repl, sender, _provider, _lifecycle = _replicator(factory)
     repl.start()
     try:
         repl.mark_dirty(scene)
@@ -684,16 +698,16 @@ def test_the_resend_carries_the_stores_current_value() -> None:
 def test_a_wedged_display_is_reaped_respawned_and_repainted() -> None:
     # P3 / K1 / K2: BlockingIOError → reap (the service unit respawns it), drop
     # the dead fd, re-mark every live scene, and repaint the fresh display.
-    store = HubDisplay()
-    scene = _seed(store, "s1")
-    repl, sender, provider, lifecycle = _replicator(store)
+    factory = HubStoreFactory()
+    scene = _seed(factory, "s1")
+    repl, sender, provider, lifecycle_spy = _replicator(factory)
     sender.arm_failure(BlockingIOError())
     repl.start()
     try:
         repl.mark_dirty(scene)
         # The first send raises; recovery heals and the re-mark repaints.
         assert sender.wait_sent(3.0)
-        assert lifecycle.calls == ["reap"]
+        assert lifecycle_spy.calls == ["reap"]
         assert provider.drops == 1
         assert sender.shows == ["s1"]
     finally:
@@ -703,15 +717,15 @@ def test_a_wedged_display_is_reaped_respawned_and_repainted() -> None:
 def test_a_dead_peer_reconnects_without_reaping() -> None:
     # P4 / RC1 / RC3: OSError → drop and reconnect, never reap; re-mark every
     # live scene so the fresh, empty display is repainted.
-    store = HubDisplay()
-    scene = _seed(store, "s1")
-    repl, sender, provider, lifecycle = _replicator(store)
+    factory = HubStoreFactory()
+    scene = _seed(factory, "s1")
+    repl, sender, provider, lifecycle_spy = _replicator(factory)
     sender.arm_failure(OSError("ECONNRESET"))
     repl.start()
     try:
         repl.mark_dirty(scene)
         assert sender.wait_sent(3.0)
-        assert lifecycle.calls == []  # nothing killed — the peer was already gone
+        assert lifecycle_spy.calls == []  # nothing killed — the peer was already gone
         assert provider.drops == 1
         assert sender.shows == ["s1"]
     finally:
@@ -723,11 +737,11 @@ def test_a_recovery_failure_restores_the_batch_and_retries() -> None:
     # display on the first try — must not drop the drained work. The worker puts
     # the batch back, backs off, and the next cycle retries it once the display
     # recovers, so nothing is lost when a kill transiently fails.
-    store = HubDisplay()
-    scene = _seed(store, "s1")
-    repl, sender, _provider, lifecycle = _replicator(store)
+    factory = HubStoreFactory()
+    scene = _seed(factory, "s1")
+    repl, sender, _provider, lifecycle_spy = _replicator(factory)
     sender.arm_failure(BlockingIOError())  # first send wedges → reap
-    lifecycle.arm_reap_failure(RuntimeError("cannot kill display"))
+    lifecycle_spy.arm_reap_failure(RuntimeError("cannot kill display"))
     repl.start()
     try:
         repl.mark_dirty(scene)
@@ -735,7 +749,9 @@ def test_a_recovery_failure_restores_the_batch_and_retries() -> None:
         # and the retry, with a healed display, repaints the scene.
         assert sender.wait_sent(3.0)
         assert sender.shows == ["s1"]
-        assert lifecycle.calls == ["reap"]  # raised once; the retry's send never wedged
+        assert lifecycle_spy.calls == [
+            "reap"
+        ]  # raised once; the retry's send never wedged
     finally:
         repl.stop()
 
@@ -746,13 +762,15 @@ def test_an_emptied_scene_is_blanked_into_its_frame() -> None:
     # session left, disappears from the display rather than lingering. The frame is
     # named distinctly from the scene so a regression that blanked into the default
     # frame (frame_id == scene id) would fail on the frames assertion.
-    store = HubDisplay()
+    factory = HubStoreFactory()
+    store = factory.display
+    lifecycle = factory.lifecycle
     scene = SceneId("s1")
-    store.register_client(_CONN)
+    lifecycle.arrive(_CONN)
     store.replace_scene(_CONN, scene, [TextElement(id="s1-root", content="x")])
     store.frames.record(scene, ScenePresentation(frame_id="hello-frame"))
     store.replace_scene(_CONN, scene, ())  # empty the scene
-    repl, sender, _provider, _lifecycle = _replicator(store)
+    repl, sender, _provider, _lifecycle = _replicator(factory)
     repl.start()
     try:
         repl.mark_dirty(scene)  # the now-empty scene
@@ -771,13 +789,15 @@ def test_blanking_an_emptied_scene_reclaims_its_presentation() -> None:
     # the frame map does not grow for the process lifetime. A distinct frame name
     # makes the reclaim observable — presentation_for falls back to the self-framed
     # default (frame_id == scene id) once the recorded frame is dropped.
-    store = HubDisplay()
+    factory = HubStoreFactory()
+    store = factory.display
+    lifecycle = factory.lifecycle
     scene = SceneId("s1")
-    store.register_client(_CONN)
+    lifecycle.arrive(_CONN)
     store.replace_scene(_CONN, scene, [TextElement(id="s1-root", content="x")])
     store.frames.record(scene, ScenePresentation(frame_id="hello-frame"))
     store.replace_scene(_CONN, scene, ())  # empty the scene
-    repl, sender, _provider, _lifecycle = _replicator(store)
+    repl, sender, _provider, _lifecycle = _replicator(factory)
     repl.start()
     try:
         repl.mark_dirty(scene)
@@ -798,13 +818,15 @@ def test_a_failed_blank_is_re_marked_then_retried_and_the_frame_reclaimed() -> N
     # batch's own scenes, the retry blanks it into the frame it was shown in, and
     # only then is its presentation reclaimed. Forgetting waits for a delivered
     # blank, so the retry still has the recorded frame to blank into.
-    store = HubDisplay()
+    factory = HubStoreFactory()
+    store = factory.display
+    lifecycle = factory.lifecycle
     scene = SceneId("s1")
-    store.register_client(_CONN)
+    lifecycle.arrive(_CONN)
     store.replace_scene(_CONN, scene, [TextElement(id="s1-root", content="x")])
     store.frames.record(scene, ScenePresentation(frame_id="hello-frame"))
     store.replace_scene(_CONN, scene, ())  # empty the scene
-    repl, sender, provider, _lifecycle = _replicator(store)
+    repl, sender, provider, _lifecycle = _replicator(factory)
     gate = threading.Event()
     sender.block_next(gate)  # park the worker in the first blank send
     sender.arm_failure(OSError())  # ...which then fails as a dead peer
@@ -836,13 +858,15 @@ def test_a_reshow_during_the_blank_send_keeps_its_new_presentation() -> None:
     # frame. The reclaim re-checks rootless under the write lock, so it sees the new
     # roots and skips the forget — the new frame survives, not clobbered by a stale
     # reclaim of the scene the worker thought it had emptied.
-    store = HubDisplay()
+    factory = HubStoreFactory()
+    store = factory.display
+    lifecycle = factory.lifecycle
     scene = SceneId("s1")
-    store.register_client(_CONN)
+    lifecycle.arrive(_CONN)
     store.replace_scene(_CONN, scene, [TextElement(id="s1-root", content="x")])
     store.frames.record(scene, ScenePresentation(frame_id="old-frame"))
     store.replace_scene(_CONN, scene, ())  # empty it, so the worker will blank it
-    repl, sender, _provider, _lifecycle = _replicator(store)
+    repl, sender, _provider, _lifecycle = _replicator(factory)
     gate = threading.Event()
     sender.block_next(gate)  # park the worker inside the blank send
     repl.start()
@@ -874,14 +898,16 @@ def test_a_requeued_blank_targets_the_recorded_frame() -> None:
     # is deferred to a clean cycle, the blanked scene's frame is not forgotten
     # mid-cycle, so its retry blanks into the recorded frame — every blank of either
     # scene targets its recorded frame, never the self-framed default.
-    store = HubDisplay()
+    factory = HubStoreFactory()
+    store = factory.display
+    lifecycle = factory.lifecycle
     a, b = SceneId("s1"), SceneId("s2")
-    store.register_client(_CONN)
+    lifecycle.arrive(_CONN)
     for sid, frame in ((a, "frame-a"), (b, "frame-b")):
         store.replace_scene(_CONN, sid, [TextElement(id=f"{sid}-root", content="x")])
         store.frames.record(sid, ScenePresentation(frame_id=frame))
         store.replace_scene(_CONN, sid, ())  # empty it
-    repl, sender, provider, _lifecycle = _replicator(store)
+    repl, sender, provider, _lifecycle = _replicator(factory)
     sender.fail_on_scene("s2", OSError())  # scene B's blank fails once
     repl.start()
     try:
@@ -911,9 +937,9 @@ def test_a_recovered_cycle_backs_off_and_a_clean_cycle_resets(
     # deterministic and instant.
     slept: list[float] = []
     monkeypatch.setattr("punt_lux.domain.hub.replicator.time.sleep", slept.append)
-    store = HubDisplay()
-    scene = _seed(store, "s1")
-    repl, sender, _provider, _lifecycle = _replicator(store)
+    factory = HubStoreFactory()
+    scene = _seed(factory, "s1")
+    repl, sender, _provider, _lifecycle = _replicator(factory)
     batch = DrainedBatch(frozenset({scene}), shutting=False)
 
     sender.arm_failure(OSError())  # the send fails; recovery reconnects
@@ -936,9 +962,9 @@ def test_a_dial_failure_drives_the_disconnected_branch_not_the_wedged_backoff(
     # It must never trip the wedged-display backoff (_back_off/time.sleep).
     slept: list[float] = []
     monkeypatch.setattr("punt_lux.domain.hub.replicator.time.sleep", slept.append)
-    store = HubDisplay()
-    scene = _seed(store, "s1")
-    repl, _sender, provider, _lifecycle = _replicator(store)
+    factory = HubStoreFactory()
+    scene = _seed(factory, "s1")
+    repl, _sender, provider, _lifecycle = _replicator(factory)
     batch = DrainedBatch(frozenset({scene}), shutting=False)
     provider.arm_unreachable()
 
@@ -958,9 +984,9 @@ def test_a_non_dial_runtime_error_never_drives_the_disconnected_branch(
     # misclassified as "never connected" and routed onto the slow backoff.
     slept: list[float] = []
     monkeypatch.setattr("punt_lux.domain.hub.replicator.time.sleep", slept.append)
-    store = HubDisplay()
-    scene = _seed(store, "s1")
-    repl, _sender, provider, _lifecycle = _replicator(store)
+    factory = HubStoreFactory()
+    scene = _seed(factory, "s1")
+    repl, _sender, provider, _lifecycle = _replicator(factory)
     batch = DrainedBatch(frozenset({scene}), shutting=False)
     provider.arm_generic_runtime_error()
 
@@ -975,9 +1001,9 @@ def test_a_shutting_batch_skips_the_disconnected_wait() -> None:
     # not block on the (up to 120s) disconnected backoff -- mirrors
     # SendRecovery.recover's own early return on batch.shutting, so
     # HubReplicator.stop()'s bounded join is never left waiting behind it.
-    store = HubDisplay()
-    scene = _seed(store, "s1")
-    repl, _sender, provider, _lifecycle = _replicator(store)
+    factory = HubStoreFactory()
+    scene = _seed(factory, "s1")
+    repl, _sender, provider, _lifecycle = _replicator(factory)
     batch = DrainedBatch(frozenset({scene}), shutting=True)
     provider.arm_unreachable()
 
@@ -991,9 +1017,9 @@ def test_content_pushed_while_disconnected_is_held_then_delivered_on_reconnect()
 ):
     # Nothing is lost while disconnected (I1): the real worker thread restores
     # the batch and, once the display becomes reachable again, delivers it.
-    store = HubDisplay()
-    scene = _seed(store, "s1")
-    repl, sender, provider, _lifecycle = _replicator(store)
+    factory = HubStoreFactory()
+    scene = _seed(factory, "s1")
+    repl, sender, provider, _lifecycle = _replicator(factory)
     provider.arm_unreachable()
     repl.start()
     try:
@@ -1016,9 +1042,9 @@ def test_content_pushed_while_disconnected_is_held_then_delivered_on_reconnect()
 def test_the_disconnected_backoff_climbs_from_base_to_cap() -> None:
     # I4: the disconnected backoff is genuinely exponential and reaches its
     # own, higher, slow steady state -- 2s -> 4s -> ... -> 120s (design §6.2).
-    store = HubDisplay()
-    scene = _seed(store, "s1")
-    repl, _sender, provider, _lifecycle = _replicator(store)
+    factory = HubStoreFactory()
+    scene = _seed(factory, "s1")
+    repl, _sender, provider, _lifecycle = _replicator(factory)
     batch = DrainedBatch(frozenset({scene}), shutting=False)
     provider.arm_unreachable()
 
@@ -1043,10 +1069,11 @@ def test_the_disconnected_backoff_resets_on_a_clean_send_not_on_dial_success() -
     # (outcome == "clean"), not merely on the dial succeeding. A dial that
     # succeeds but whose send then fails is "recovered", not "clean", and
     # must leave the climbed disconnected delay untouched.
-    store = HubDisplay()
-    scene = _seed(store, "s1")
-    registry = HubMenuRegistry(store.clients)
-    repl, sender, provider, _lifecycle = _replicator(store, registry)
+    factory = HubStoreFactory()
+    clients = factory.clients
+    scene = _seed(factory, "s1")
+    registry = HubMenuRegistry(clients)
+    repl, sender, provider, _lifecycle = _replicator(factory, registry)
     batch = DrainedBatch(frozenset({scene}), shutting=False)
 
     provider.arm_unreachable()
@@ -1067,9 +1094,10 @@ def test_recovery_of_an_emptied_store_repaints_nothing() -> None:
     # K3: a live scene's send fails and triggers recovery; by the time recovery
     # re-marks, the store has been emptied, so live_scene_ids is empty and the
     # fresh display is repainted with nothing.
-    store = HubDisplay()
-    scene = _seed(store, "s1")
-    repl, sender, provider, lifecycle = _replicator(store)
+    factory = HubStoreFactory()
+    store = factory.display
+    scene = _seed(factory, "s1")
+    repl, sender, provider, lifecycle_spy = _replicator(factory)
     gate = threading.Event()
     sender.block_next(gate)  # park the worker in the send
     sender.arm_failure(BlockingIOError())  # ...then fail when released
@@ -1084,7 +1112,7 @@ def test_recovery_of_an_emptied_store_repaints_nothing() -> None:
                 break
             threading.Event().wait(0.01)
         assert provider.drops == 1
-        assert lifecycle.calls == ["reap"]
+        assert lifecycle_spy.calls == ["reap"]
         assert sender.shows == []  # nothing live to repaint
     finally:
         gate.set()
@@ -1094,10 +1122,12 @@ def test_recovery_of_an_emptied_store_repaints_nothing() -> None:
 def test_a_mutator_makes_progress_while_the_worker_is_stuck_sending() -> None:
     # P6: the whole point — a mutator completes a full replace while the worker
     # is blocked in a send to a wedged display. The agent path never waits on I/O.
-    store = HubDisplay()
-    scene = _seed(store, "s1")
+    factory = HubStoreFactory()
+    store = factory.display
+    lifecycle = factory.lifecycle
+    scene = _seed(factory, "s1")
     other = SceneId("s2")
-    repl, sender, _provider, _lifecycle = _replicator(store)
+    repl, sender, _provider, _lifecycle = _replicator(factory)
     gate = threading.Event()
     sender.block_next(gate)
     repl.start()
@@ -1110,7 +1140,7 @@ def test_a_mutator_makes_progress_while_the_worker_is_stuck_sending() -> None:
         done = threading.Event()
 
         def mutate() -> None:
-            store.register_client(_CONN)
+            lifecycle.arrive(_CONN)
             store.replace_scene(_CONN, other, [TextElement(id="s2-root", content="y")])
             done.set()
 
@@ -1127,10 +1157,12 @@ def test_a_mutation_during_recovery_is_repainted_after_respawn() -> None:
     # K5: a mutation lands while the worker is reaping and respawning a wedged
     # display. The recovery re-marks every live scene, so the fresh display is
     # repainted with the latest state — including the scene added mid-recovery.
-    store = HubDisplay()
-    scene = _seed(store, "s1")
+    factory = HubStoreFactory()
+    store = factory.display
+    lifecycle = factory.lifecycle
+    scene = _seed(factory, "s1")
     other = SceneId("s2")
-    repl, sender, _provider, _lifecycle = _replicator(store)
+    repl, sender, _provider, _lifecycle = _replicator(factory)
     gate = threading.Event()
     sender.block_next(gate)
     sender.arm_failure(BlockingIOError())
@@ -1140,7 +1172,7 @@ def test_a_mutation_during_recovery_is_repainted_after_respawn() -> None:
         assert sender.wait_entered(2.0)  # worker parked in the send to "s1"
         # A new scene is installed while the worker is stuck; the send then
         # fails and recovery re-marks every live scene, both of them.
-        store.register_client(_CONN)
+        lifecycle.arrive(_CONN)
         store.replace_scene(_CONN, other, [TextElement(id="s2-root", content="y")])
         gate.set()  # release → send raises → reap/ensure/re-mark
         for _ in range(300):
@@ -1159,9 +1191,10 @@ def test_the_worker_snapshot_waits_for_a_mutation_to_commit() -> None:
     # It waits for the write lock to release, then copies the committed value —
     # never a half-updated one. Asserting the pushed value equals the
     # post-mutation value proves the snapshot saw the whole commit, not a tear.
-    store = HubDisplay()
-    scene = _seed(store, "s1", content="before")
-    repl, sender, _provider, _lifecycle = _replicator(store)
+    factory = HubStoreFactory()
+    store = factory.display
+    scene = _seed(factory, "s1", content="before")
+    repl, sender, _provider, _lifecycle = _replicator(factory)
     repl.start()
     try:
         with store.write_lock():
@@ -1186,9 +1219,9 @@ def test_stop_wakes_a_worker_parked_in_the_disconnected_wait_promptly() -> None:
     # must not be trapped behind it: stop() wakes the provider's own wait, not
     # merely the dirty signal, so the join below returns well under its own
     # timeout instead of surviving past it with a logged warning.
-    store = HubDisplay()
-    scene = _seed(store, "s1")
-    repl, _sender, provider, _lifecycle = _replicator(store)
+    factory = HubStoreFactory()
+    scene = _seed(factory, "s1")
+    repl, _sender, provider, _lifecycle = _replicator(factory)
     provider.arm_unreachable()
     provider.arm_blocking_reconnect_wait()
     repl.start()
@@ -1215,9 +1248,9 @@ def test_a_stop_flushes_a_send_in_flight_then_exits() -> None:
     # never abandons a send already in flight. The worker is parked mid-send via
     # the gate, so the flush is provably underway when the stop is requested, and
     # the stop runs on its own thread because it joins the worker it is stopping.
-    store = HubDisplay()
-    scene = _seed(store, "s1")
-    repl, sender, _provider, _lifecycle = _replicator(store)
+    factory = HubStoreFactory()
+    scene = _seed(factory, "s1")
+    repl, sender, _provider, _lifecycle = _replicator(factory)
     gate = threading.Event()
     sender.block_next(gate)
     repl.start()
@@ -1235,13 +1268,13 @@ def test_a_stop_flushes_a_send_in_flight_then_exits() -> None:
 def test_a_fresh_replicator_after_a_stop_starts_idle_and_works() -> None:
     # SH4: luxd restarting is a fresh replicator over the same store — idle, then
     # it sends on the first mark.
-    store = HubDisplay()
-    scene = _seed(store, "s1")
-    first, _s1, _p1, _l1 = _replicator(store)
+    factory = HubStoreFactory()
+    scene = _seed(factory, "s1")
+    first, _s1, _p1, _l1 = _replicator(factory)
     first.start()
     first.stop()
 
-    second, sender, _provider, _lifecycle = _replicator(store)
+    second, sender, _provider, _lifecycle = _replicator(factory)
     second.start()
     try:
         second.mark_dirty(scene)
@@ -1256,8 +1289,8 @@ def test_a_stop_before_start_makes_start_raise() -> None:
     # stop itself is a clean no-op, but it latches the dirty signal shutting, so a
     # later start would spawn a worker that exits at once and drops every mark. The
     # start must raise loudly, not fail silently.
-    store = HubDisplay()
-    repl, _sender, _provider, _lifecycle = _replicator(store)
+    factory = HubStoreFactory()
+    repl, _sender, _provider, _lifecycle = _replicator(factory)
     repl.stop()  # no worker to join; latches shutting
     with pytest.raises(RuntimeError, match="was stopped"):
         repl.start()
@@ -1267,8 +1300,8 @@ def test_restarting_a_stopped_replicator_raises() -> None:
     # A6: a replicator that ran and stopped is terminal. Restarting it would
     # spawn a worker whose latched signal makes it exit at once, silently
     # dropping every later mark. The restart must raise, not fail silently.
-    store = HubDisplay()
-    repl, _sender, _provider, _lifecycle = _replicator(store)
+    factory = HubStoreFactory()
+    repl, _sender, _provider, _lifecycle = _replicator(factory)
     repl.start()
     repl.stop()
     with pytest.raises(RuntimeError, match="was stopped"):
@@ -1289,9 +1322,9 @@ def _wait_until(predicate: Callable[[], bool], timeout: float = 3.0) -> bool:
 
 
 def test_a_death_switches_the_replicator_to_isolating_mode() -> None:
-    store = HubDisplay()
-    scene = _seed(store, "s1")
-    repl, sender, _provider, _lifecycle = _replicator(store)
+    factory = HubStoreFactory()
+    scene = _seed(factory, "s1")
+    repl, sender, _provider, _lifecycle = _replicator(factory)
     sender.crash_forever_on("s1")
     repl.start()
     try:
@@ -1306,9 +1339,10 @@ def test_a_deterministic_crasher_is_quarantined_and_never_sent() -> None:
     # render must reach the attribution threshold and stop being replicated —
     # it is never seen in sender.shows at all, since every genuine send attempt
     # raised before recording it.
-    store = HubDisplay()
-    scene = _seed(store, "crasher")
-    repl, sender, _provider, _lifecycle = _replicator(store)
+    factory = HubStoreFactory()
+    store = factory.display
+    scene = _seed(factory, "crasher")
+    repl, sender, _provider, _lifecycle = _replicator(factory)
     sender.crash_forever_on("crasher")
     repl.start()
     try:
@@ -1328,10 +1362,11 @@ def test_an_innocent_scene_co_batched_with_a_crasher_is_never_quarantined() -> N
     # between — the property under test is only that "good" stays clean, not
     # when it happens to be sent, so the "good in shows" check polls
     # separately, after quarantine has excluded "bad" from later batches.
-    store = HubDisplay()
-    good = _seed(store, "good")
-    bad = _seed(store, "bad")
-    repl, sender, _provider, _lifecycle = _replicator(store)
+    factory = HubStoreFactory()
+    store = factory.display
+    good = _seed(factory, "good")
+    bad = _seed(factory, "bad")
+    repl, sender, _provider, _lifecycle = _replicator(factory)
     sender.crash_forever_on("bad")
     repl.start()
     try:
@@ -1348,9 +1383,10 @@ def test_a_quarantined_scene_is_dropped_from_a_batch_that_still_carries_it() -> 
     # Invariant 1, enforced at send time regardless of what got re-marked
     # dirty: once quarantined, the scene is filtered out of every subsequent
     # batch before either send path runs.
-    store = HubDisplay()
-    scene = _seed(store, "crasher")
-    repl, sender, _provider, _lifecycle = _replicator(store)
+    factory = HubStoreFactory()
+    store = factory.display
+    scene = _seed(factory, "crasher")
+    repl, sender, _provider, _lifecycle = _replicator(factory)
     sender.crash_forever_on("crasher")
     repl.start()
     try:
@@ -1378,10 +1414,11 @@ def test_isolation_probe_blames_the_scene_whose_render_crashed_not_the_next() ->
     # to tally 1), then in the isolation cycle scene "left" is a deferred
     # crasher: its send succeeds, its probe returns False, and recovery
     # attributes to {"left"} (not {"right"}). Only "left" reaches THRESHOLD=2.
-    store = HubDisplay()
-    left = _seed(store, "left")
-    right = _seed(store, "right")
-    repl, sender, _provider, _lifecycle = _replicator(store)
+    factory = HubStoreFactory()
+    store = factory.display
+    left = _seed(factory, "left")
+    right = _seed(factory, "right")
+    repl, sender, _provider, _lifecycle = _replicator(factory)
     sender.crash_forever_on("both-batched")  # a synthetic first death to prime
     repl._attribution.attribute_death(frozenset({left, right}))  # both tally=1
 
@@ -1401,12 +1438,14 @@ def test_menu_send_failure_does_not_smear_deaths_across_live_scenes() -> None:
     # send now runs with an empty suspect set, so even if it raises, no scene
     # accrues a death from that crash — the false-positive class isolation was
     # written to prevent stays closed on the menu path.
-    store = HubDisplay()
-    a = _seed(store, "a")
-    b = _seed(store, "b")
-    registry = HubMenuRegistry(store.clients)
+    factory = HubStoreFactory()
+    store = factory.display
+    clients = factory.clients
+    a = _seed(factory, "a")
+    b = _seed(factory, "b")
+    registry = HubMenuRegistry(clients)
     registry.set_menus(_CONN, [Menu(label="poison", items=[])])
-    repl, sender, _provider, _lifecycle = _replicator(store, registry)
+    repl, sender, _provider, _lifecycle = _replicator(factory, registry)
     sender.arm_failure(BlockingIOError())  # set_menu is the first guarded send
     repl.start()
     try:
@@ -1439,8 +1478,8 @@ def test_isolation_exits_after_stable_interval_without_new_writes(
         return original(self)
 
     monkeypatch.setattr(CrashAttribution, "exit_isolation_if_stable", spy)
-    store = HubDisplay()
-    repl, _sender, _provider, _lifecycle = _replicator(store)
+    factory = HubStoreFactory()
+    repl, _sender, _provider, _lifecycle = _replicator(factory)
     repl.start()
     try:
         # Do not touch any signal — no dirty scene, no menu change.

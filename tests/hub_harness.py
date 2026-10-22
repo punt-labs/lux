@@ -16,6 +16,7 @@ from unittest.mock import MagicMock
 
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_interaction_dispatch import HubInteractionDispatch
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.domain.update import AddElement
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
@@ -24,6 +25,8 @@ if TYPE_CHECKING:
     import pytest
 
     from punt_lux.domain.element import Element as WireElement
+    from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
+    from punt_lux.domain.hub.hub_clients import HubClientRegistry
 
 __all__ = ["IsolatedHub"]
 
@@ -33,14 +36,19 @@ class IsolatedHub:
     """A test-local ``HubDisplay`` wired in place of the process singletons."""
 
     display: HubDisplay
+    lifecycle: ClientLifecycle
+    clients: HubClientRegistry
     replicator: MagicMock
-    __slots__ = ("display", "replicator")
+    __slots__ = ("clients", "display", "lifecycle", "replicator")
 
     def __new__(cls, monkeypatch: pytest.MonkeyPatch) -> Self:
         import punt_lux.domain.hub as hub_module
 
         self = super().__new__(cls)
-        self.display = HubDisplay()
+        factory = HubStoreFactory()
+        self.display = factory.display
+        self.lifecycle = factory.lifecycle
+        self.clients = factory.clients
         self.replicator = MagicMock()
         monkeypatch.setattr(hub_module, "hub_display", self.display)
         monkeypatch.setattr(
@@ -51,7 +59,7 @@ class IsolatedHub:
     def connect(self, name: str) -> ConnectionId:
         """Register a connection as a Hub client and return its id."""
         connection_id = ConnectionId(name)
-        self.display.register_client(connection_id)
+        self.lifecycle.arrive(connection_id)
         return connection_id
 
     def install(

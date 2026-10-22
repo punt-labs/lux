@@ -25,6 +25,7 @@ from punt_lux.domain.hub.frame_owner_facts import NoFrameOwnerFacts
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.hub.quarantine_record import QuarantineRecord
 from punt_lux.domain.hub.reconnect_wait import ReconnectWait
@@ -180,12 +181,13 @@ class _NoCallbackMenus:
 def _stack() -> tuple[
     HubDisplay, HubReplicator, _FaultInjectingSender, SceneOperations
 ]:
-    store = HubDisplay()
+    factory = HubStoreFactory()
+    store = factory.display
     sender = _FaultInjectingSender()
     provider = _Provider(sender, store)
     repl = HubReplicator(
         store.reader,
-        HubMenuRegistry(store.clients),
+        HubMenuRegistry(factory.clients),
         _NoCallbackMenus(),
         provider,
         _Lifecycle(),
@@ -194,8 +196,7 @@ def _stack() -> tuple[
     )
     provider.attach(repl)
     deps = SceneOperationsDeps(store, repl, hub_element_factory, Hub())
-    ops = SceneOperations(deps)
-    return store, repl, sender, ops
+    return store, repl, sender, SceneOperations(deps)
 
 
 def test_a_scene_that_crashes_the_display_is_quarantined_at_the_threshold() -> None:

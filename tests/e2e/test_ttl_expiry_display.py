@@ -19,7 +19,7 @@ import time
 import pytest
 
 from punt_lux.display.replica import SceneReplica
-from punt_lux.domain.hub import hub, hub_display
+from punt_lux.domain.hub import hub, hub_display, hub_lifecycle
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.protocol import SceneMessage, TextElement
@@ -66,4 +66,4 @@ def test_ttl_expiry_removes_the_frame_from_the_display_tier() -> None:
         # The sweep above already tore the scene down; dropping the connection
         # clears whatever a failed assertion left behind.
         hub.on_disconnect(conn)
-        hub_display.drop_connection(conn)
+        hub_lifecycle.depart(conn)

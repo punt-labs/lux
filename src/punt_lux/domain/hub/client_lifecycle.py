@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.domain.hub.menu_presence import MenuPresence
 
 if TYPE_CHECKING:
+    from contextlib import AbstractContextManager
+
     from punt_lux.domain.hub.callback_ports import CallbackListener
     from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.domain.hub.departure_cascade import DepartureCascade
@@ -55,6 +57,15 @@ class ClientLifecycle:
         self._lock = lock
         self._presence = MenuPresence.silent()
         return self
+
+    def exclusive(self) -> AbstractContextManager[bool]:
+        """Hold the store lock across a door step and the Hub step beside it.
+
+        The lock every method here takes, reentrant. A caller that must bind a
+        Hub writer or an inbox in the same step as a door transition holds it so a
+        departure cannot interleave.
+        """
+        return self._lock.write()
 
     def present_as(self, marker: DirtyMarker, sink: DepartureSink) -> None:
         """Wire the marker and the one shared menu sink presence changes pay to."""

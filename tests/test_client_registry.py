@@ -292,8 +292,8 @@ def test_reconcile_reads_live_scene_ids_so_quarantined_scenes_never_leak(
     reconcile never touches the introspection-only read — and checks that the
     quarantined scene does not appear in the marks the reconcile fired.
     """
+    from punt_lux.domain.hub import hub_display, hub_lifecycle
     from punt_lux.domain.hub.clients import ClientRegistry
-    from punt_lux.domain.hub.hub_display import hub_display
     from punt_lux.domain.hub.quarantine_record import QuarantineRecord
     from punt_lux.domain.ids import ConnectionId
     from punt_lux.protocol.elements.text import TextElement
@@ -308,7 +308,7 @@ def test_reconcile_reads_live_scene_ids_so_quarantined_scenes_never_leak(
         raise AssertionError(msg)
 
     monkeypatch.setattr(hub_display, "all_scene_ids", raise_if_called)
-    hub_display.register_client(conn)
+    hub_lifecycle.arrive(conn)
     hub_display.replace_scene(conn, kept, [TextElement(id="k", content="ok")])
     hub_display.replace_scene(conn, poison, [TextElement(id="p", content="ok")])
     hub_display.quarantine(poison, QuarantineRecord(death_count=2, last_death_at=1.0))
@@ -328,7 +328,7 @@ def test_reconcile_reads_live_scene_ids_so_quarantined_scenes_never_leak(
         monkeypatch.setattr(hub_display, "all_scene_ids", original_all)
         hub_display.replace_scene(conn, kept, ())  # cleanup
         hub_display.replace_scene(conn, poison, ())
-        hub_display.drop_connection(conn)
+        hub_lifecycle.depart(conn)
 
 
 # -- DisplayLinkage: is_connected / wait_for_reconnect (design §6.3, §9) -----

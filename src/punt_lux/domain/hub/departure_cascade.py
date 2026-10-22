@@ -1,7 +1,7 @@
 """DepartureCascade — the subscriptions/writer/inbox tail of a departure.
 
-``HubDisplay``'s own ``_depart``/``_depart_lapsed`` already run the
-registry-and-ownership half of a departure atomically, under ``StoreLock``.
+``ClientLifecycle`` already runs the registry-and-ownership half of a
+departure atomically, under ``StoreLock``.
 This collaborator sequences the two remaining legs — dropping the
 connection's Hub subscriptions and writer binding
 (:meth:`~punt_lux.domain.hub.hub.Hub.on_disconnect`), and firing its

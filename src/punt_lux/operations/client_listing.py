@@ -16,6 +16,7 @@ from punt_lux.operations.scene_listing import SceneListing
 if TYPE_CHECKING:
     from punt_lux.domain.hub.client_session import ClientSession
     from punt_lux.domain.hub.hub import Hub
+    from punt_lux.domain.hub.hub_clients import HubClientRegistry
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.hub.named_sessions import NamedSession
     from punt_lux.domain.ids import ConnectionId
@@ -23,19 +24,31 @@ if TYPE_CHECKING:
 
 __all__ = ["ClientListing"]
 
+# What a client the menu never named is called -- one the Hub holds a session for
+# that declared no identity.
+_UNNAMED = "client"
+
 
 @final
 class ClientListing:
     """Every connected client's facts, read from the authoritative session registry."""
 
     _display: HubDisplay
+    _clients: HubClientRegistry
     _hub: Hub
     _inbox_depth: InboxDepth
-    __slots__ = ("_display", "_hub", "_inbox_depth")
+    __slots__ = ("_clients", "_display", "_hub", "_inbox_depth")
 
-    def __new__(cls, display: HubDisplay, hub: Hub, inbox_depth: InboxDepth) -> Self:
+    def __new__(
+        cls,
+        display: HubDisplay,
+        clients: HubClientRegistry,
+        hub: Hub,
+        inbox_depth: InboxDepth,
+    ) -> Self:
         self = super().__new__(cls)
         self._display = display
+        self._clients = clients
         self._hub = hub
         self._inbox_depth = inbox_depth
         return self
@@ -50,9 +63,13 @@ class ClientListing:
         return ClientList(
             clients=[
                 self._client(entry, now)
-                for entry in self._display.client_sessions().items()
+                for entry in self._clients.live_sessions().items()
             ]
         )
+
+    def named(self, connection_id: ConnectionId) -> NamedSession | None:
+        """Read one connection's live session and menu name together, or ``None``."""
+        return self._clients.named_sessions().named(connection_id, _UNNAMED)
 
     def facts(self, named: NamedSession) -> HubClient:
         """Return one session's facts — what Details renders and :meth:`read` lists."""

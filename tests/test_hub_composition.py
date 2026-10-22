@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from punt_lux.domain.hub import hub_display
+from punt_lux.domain.hub import hub_clients
 from punt_lux.domain.hub.details_instance import hub_client_details
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.hub_composition import HubComposition
@@ -39,7 +39,7 @@ def test_both_surfaces_are_wired_over_the_one_process_store() -> None:
     second = HubComposition.operations()
 
     assert first.list_scenes().scenes == second.list_scenes().scenes
-    assert len(first.list_clients().clients) == len(hub_display.clients.live_sessions())
+    assert len(first.list_clients().clients) == len(hub_clients.live_sessions())
 
 
 def test_binding_details_installs_a_renderer_the_dispatch_can_run(

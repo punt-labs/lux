@@ -12,7 +12,7 @@ from urllib.parse import quote
 
 from punt_lux.connection_identity import connection_for
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
-from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.id_separator import ID_SEPARATOR
 from punt_lux.domain.ids import SceneId
 from punt_lux.operations.display_reply import DisplayReplied
@@ -31,8 +31,9 @@ def test_remove_frame_of_a_nonexistent_frame_is_not_found() -> None:
 
 
 def test_remove_frame_removes_the_callers_own_frame() -> None:
-    store = HubDisplay()
-    client = make_client(display_port=StubPort(DisplayReplied({})), store=store)
+    factory = HubStoreFactory()
+    store = factory.display
+    client = make_client(display_port=StubPort(DisplayReplied({})), factory=factory)
     client.put(
         "/scenes/s1",
         json={"scene_id": "s1", "elements": [_TEXT], "frame": {"frame_id": "board"}},
@@ -50,21 +51,24 @@ def test_remove_frame_of_another_connections_frame_is_not_found() -> None:
     # DES-086: a frame named by another connection's local id is
     # indistinguishable from one that never existed, so this is not_found
     # too -- and the other caller's scene is left standing.
-    store = HubDisplay()
+    factory = HubStoreFactory()
+    store = factory.display
     owner_identity = {
         "X-Lux-Client-Kind": "cli",
         "X-Lux-Client-Name": "owner",
         "X-Lux-Client-Repo": "/w/owner",
     }
     owner_client = make_client(
-        display_port=StubPort(DisplayReplied({})), store=store, identity=owner_identity
+        display_port=StubPort(DisplayReplied({})),
+        factory=factory,
+        identity=owner_identity,
     )
     owner_client.put(
         "/scenes/s1",
         json={"scene_id": "s1", "elements": [_TEXT], "frame": {"frame_id": "board"}},
     )
     stranger_client = make_client(
-        display_port=StubPort(DisplayReplied({})), store=store
+        display_port=StubPort(DisplayReplied({})), factory=factory
     )
 
     resp = stranger_client.post("/display/frames/board/remove")

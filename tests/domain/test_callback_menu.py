@@ -14,11 +14,12 @@ from __future__ import annotations
 from typing import final
 
 from punt_lux.domain.hub.applet_name_format import format_name
-from punt_lux.domain.hub.callback_menu import CallbackMenu
+from punt_lux.domain.hub.callback_menu import CallbackMenu, CallbackMenuReplica
 from punt_lux.domain.hub.client_identity import ClientIdentity, ClientKind
 from punt_lux.domain.hub.client_roster import ClientRoster
 from punt_lux.domain.hub.client_session import ClientSession
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
+from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.hub.menu_models import Menu, MenuAction, MenuSeparator
 from punt_lux.domain.hub.named_sessions import NamedSessions
 from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
@@ -543,8 +544,6 @@ class TestTheReplica:
     """What the replicator sends is the composed menu, as wire."""
 
     def test_replica_nests_a_client_under_clients(self) -> None:
-        from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
-        from punt_lux.domain.hub.hub_clients import HubClientRegistry
 
         registry = HubClientRegistry()
         conn = ConnectionId("lux")
@@ -578,8 +577,6 @@ class TestTheReplica:
 
     def test_the_replica_and_the_hub_read_name_a_client_the_same(self) -> None:
         """One roster: what the display shows and what list_menus reports agree."""
-        from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
-        from punt_lux.domain.hub.hub_clients import HubClientRegistry
 
         registry = HubClientRegistry()
         beads = SessionCallback(id="beads", label="Beads")
@@ -608,8 +605,6 @@ class TestTheReplica:
         ``lux (2)`` — a number with nothing in sight to be a second of. The moment
         the ghost is let go the newcomer holds the base, and the next send says so.
         """
-        from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
-        from punt_lux.domain.hub.hub_clients import HubClientRegistry
 
         registry = HubClientRegistry()
         ghost, arriving = ConnectionId("outgoing"), ConnectionId("incoming")
@@ -642,11 +637,26 @@ class TestTheReplica:
         assert [client["label"] for client in clients] == ["lux"]
 
     def test_replica_is_empty_when_only_a_non_agent_holds_no_callback(self) -> None:
-        from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
-        from punt_lux.domain.hub.hub_clients import HubClientRegistry
 
         registry = HubClientRegistry()
         # A cli is not the agent, so with no callback it earns no submenu.
         registry.record(ConnectionId("cli"), ClientIdentity(kind="cli", name="lux-cli"))
 
         assert CallbackMenuReplica(registry).callback_menu_wire() == []
+
+
+class TestTheReplicasMenuRead:
+    """The replica composes the same menu twice over: as menus and as wire."""
+
+    def test_the_menus_and_the_wire_agree(self) -> None:
+
+        clients = HubClientRegistry()
+        conn = ConnectionId("a")
+        identity = ClientIdentity(kind="mcp-session", name="claude", repo="/w/lux")
+        clients.record(conn, identity)
+        replica = CallbackMenuReplica(clients)
+
+        menus = replica.callback_menus()
+
+        assert [menu.label for menu in menus] == ["Clients"]
+        assert replica.callback_menu_wire() == [menu.to_wire() for menu in menus]

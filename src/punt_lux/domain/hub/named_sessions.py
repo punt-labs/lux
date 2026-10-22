@@ -114,6 +114,15 @@ class NamedSessions:
         """What the menu calls *connection_id*, or *fallback* if it holds no name."""
         return self._names.get(connection_id, fallback)
 
+    def named(self, connection_id: ConnectionId, fallback: str) -> NamedSession | None:
+        """Return the live session for *connection_id* with its name, or ``None``."""
+        session = self._sessions.get(connection_id)
+        if session is None:
+            return None
+        return NamedSession(
+            connection_id, self.name_of(connection_id, fallback), session
+        )
+
     def commanding(self) -> Iterator[NamedSession]:
         """Yield each named client that earns a submenu, in connection order.
 

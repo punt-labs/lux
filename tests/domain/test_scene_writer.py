@@ -17,7 +17,8 @@ from typing import final
 
 import pytest
 
-from punt_lux.domain.hub.hub_display import HubDisplay, UnknownElementError
+from punt_lux.domain.hub.hub_display import UnknownElementError
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.scene_writer import HubSceneWriter, SceneScope
 from punt_lux.domain.hub.write_result import WriteAccepted, WriteRejected
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
@@ -45,23 +46,26 @@ class _Clock:
         self._now += seconds
 
 
-def _seed_one_text() -> HubDisplay:
+def _seed_one_text() -> HubStoreFactory:
     """Install a single ABC text root owned by ``_OWNER``."""
-    hub_display = HubDisplay()
-    hub_display.register_client(_OWNER)
+    factory = HubStoreFactory()
+    hub_display = factory.display
+    lifecycle = factory.lifecycle
+    lifecycle.arrive(_OWNER)
     text = TextElement(id=str(_ELEM_ID), content="hello")
     hub_display.apply(_OWNER, AddElement(scene_id=_SCENE, element=text, parent_id=None))
-    return hub_display
+    return factory
 
 
-def _seed_two_texts() -> HubDisplay:
+def _seed_two_texts() -> HubStoreFactory:
     """Install two ABC text roots (``t1``, ``t2``) owned by ``_OWNER``."""
-    hub_display = _seed_one_text()
+    factory = _seed_one_text()
+    hub_display = factory.display
     second = TextElement(id=str(_SECOND_ID), content="world")
     hub_display.apply(
         _OWNER, AddElement(scene_id=_SCENE, element=second, parent_id=None)
     )
-    return hub_display
+    return factory
 
 
 def test_remove_present_owned_element_evicts_it() -> None:
@@ -71,7 +75,8 @@ def test_remove_present_owned_element_evicts_it() -> None:
     ``is_present`` / ``ElementIndex.contains`` staging refactor — an absent-skip
     that also skipped present removals would pass every idempotency test.
     """
-    hub_display = _seed_one_text()
+    factory = _seed_one_text()
+    hub_display = factory.display
     writer = HubSceneWriter(hub_display)
 
     result = writer.apply(
@@ -91,7 +96,8 @@ def test_absent_removal_skip_is_logged(
     A mistyped id must not vanish silently: the skip emits a DEBUG line naming
     the absent id and scene so an operator can find the typo in the Hub log.
     """
-    hub_display = _seed_one_text()
+    factory = _seed_one_text()
+    hub_display = factory.display
     writer = HubSceneWriter(hub_display)
 
     with caplog.at_level(logging.DEBUG, logger="punt_lux.domain.hub.scene_writer"):
@@ -113,8 +119,10 @@ def test_remove_absent_by_non_owner_is_accepted() -> None:
     no-op on a non-existent element leaks nothing and mutates nothing, so the
     idempotent ``ack`` is correct even when the caller owns nothing in the scene.
     """
-    hub_display = _seed_one_text()
-    hub_display.register_client(_OTHER)
+    factory = _seed_one_text()
+    hub_display = factory.display
+    lifecycle = factory.lifecycle
+    lifecycle.arrive(_OTHER)
     writer = HubSceneWriter(hub_display)
 
     result = writer.apply(SceneScope(_OTHER, _SCENE), [{"id": "ghost", "remove": True}])
@@ -130,7 +138,8 @@ def test_mixed_batch_absent_skip_does_not_abort_field_or_present_removal() -> No
     The absent skip must not abort the committed field realization or the present
     removal — all three requests land in one ``apply``.
     """
-    hub_display = _seed_two_texts()
+    factory = _seed_two_texts()
+    hub_display = factory.display
     writer = HubSceneWriter(hub_display)
 
     result = writer.apply(
@@ -154,7 +163,8 @@ def test_mixed_batch_absent_skip_does_not_abort_field_or_present_removal() -> No
 
 def test_remove_absent_element_is_idempotent_no_op() -> None:
     """A remove of an un-installed id is accepted; the store is untouched."""
-    hub_display = _seed_one_text()
+    factory = _seed_one_text()
+    hub_display = factory.display
     writer = HubSceneWriter(hub_display)
 
     result = writer.apply(SceneScope(_OWNER, _SCENE), [{"id": "ghost", "remove": True}])
@@ -180,8 +190,11 @@ def test_a_patch_only_client_keeps_its_lease_and_ownership_past_its_ttl() -> Non
     timer tick between calls; the client must survive every one.
     """
     clock = _Clock()
-    hub_display = HubDisplay(clock)
-    hub_display.register_client(_OWNER)
+    factory = HubStoreFactory(clock=clock)
+    hub_display = factory.display
+    lifecycle = factory.lifecycle
+    clients = factory.clients
+    lifecycle.arrive(_OWNER)
     text = TextElement(id=str(_ELEM_ID), content="hello")
     hub_display.apply(_OWNER, AddElement(scene_id=_SCENE, element=text, parent_id=None))
     writer = HubSceneWriter(hub_display)
@@ -193,9 +206,9 @@ def test_a_patch_only_client_keeps_its_lease_and_ownership_past_its_ttl() -> Non
             [{"id": str(_ELEM_ID), "set": {"content": f"patch-{i}"}}],
         )
         assert isinstance(result, WriteAccepted)
-        assert hub_display.reap_lapsed_leases() == frozenset()
+        assert lifecycle.depart_lapsed(frozenset()) == frozenset()
 
-    assert hub_display.is_client(_OWNER)
+    assert clients.session_of(_OWNER) is not None
     patched = hub_display.resolve(_SCENE, _ELEM_ID)
     assert isinstance(patched, TextElement)
     assert patched.content == "patch-2"
@@ -203,8 +216,10 @@ def test_a_patch_only_client_keeps_its_lease_and_ownership_past_its_ttl() -> Non
 
 def test_remove_owned_by_another_connection_is_rejected() -> None:
     """A remove of an installed element owned by another connection fails loud."""
-    hub_display = _seed_one_text()
-    hub_display.register_client(_OTHER)
+    factory = _seed_one_text()
+    hub_display = factory.display
+    lifecycle = factory.lifecycle
+    lifecycle.arrive(_OTHER)
     writer = HubSceneWriter(hub_display)
 
     result = writer.apply(

@@ -18,7 +18,7 @@ from pydantic import ValidationError
 
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
-from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.menu_models import Menu, MenuAction, MenuSeparator
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.ids import ConnectionId, SceneId
@@ -79,11 +79,13 @@ class _Ops:
 
     def __new__(cls, callback_menus: Sequence[Menu] = ()) -> Self:
         self = super().__new__(cls)
-        display = HubDisplay()
-        self.clients = display.clients
+        factory = HubStoreFactory()
+        lifecycle = factory.lifecycle
+        clients = factory.clients
+        self.clients = clients
         self.marker = _MenuMarkerSpy()
         self.registry = HubMenuRegistry(self.clients)
-        arming = MenuArming(MenuArmingDeps(display, lambda _cid: None))
+        arming = MenuArming(MenuArmingDeps(lifecycle, clients, lambda _cid: None))
         self.ops = MenuOperations(
             MenuOperationsDeps(
                 registry=self.registry,
@@ -355,10 +357,11 @@ def test_set_menu_holds_the_write_lock_across_admit_and_store(
     the ``with`` (``enter, admit, exit, set_menus``) or the push moves inside it.
     """
     events: list[str] = []
-    display = HubDisplay()
-    clients = display.clients
+    factory = HubStoreFactory()
+    lifecycle = factory.lifecycle
+    clients = factory.clients
     registry = HubMenuRegistry(clients)
-    arming = MenuArming(MenuArmingDeps(display, lambda _cid: None))
+    arming = MenuArming(MenuArmingDeps(lifecycle, clients, lambda _cid: None))
 
     original_admit = MenuArming.admit
     original_set_menus = HubMenuRegistry.set_menus
@@ -407,10 +410,11 @@ def test_set_menu_does_not_store_when_admit_refuses_under_the_lock(
     entered and exited with no ``set_menus`` and no push between.
     """
     events: list[str] = []
-    display = HubDisplay()
-    clients = display.clients
+    factory = HubStoreFactory()
+    lifecycle = factory.lifecycle
+    clients = factory.clients
     registry = HubMenuRegistry(clients)
-    arming = MenuArming(MenuArmingDeps(display, lambda _cid: None))
+    arming = MenuArming(MenuArmingDeps(lifecycle, clients, lambda _cid: None))
 
     original_set_menus = HubMenuRegistry.set_menus
 

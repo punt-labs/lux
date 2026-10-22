@@ -18,13 +18,13 @@ from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.ids import ConnectionId, SceneId, Topic
 from punt_lux.operations.client_details import ClientDetailsOperations
 from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.scene_results import SceneShown
-from punt_lux.operations.queries import QueryOperations
 from punt_lux.operations.scene_installer import SceneInstaller
 from punt_lux.operations.scene_submission import SceneSubmission
 from punt_lux.protocol.elements.table import TableElement
@@ -68,44 +68,29 @@ class _Clock:
         self._now += seconds
 
 
-class _ForbiddenPort:
-    """A DisplayPort that fails the test if the read reaches around to it."""
-
-    def query(self, method: str, params: object) -> object:
-        msg = f"Details reached around to the display: query({method!r})"
-        raise AssertionError(msg)
-
-    def ping(self, wait: float | None) -> object:
-        msg = f"Details reached around to the display: ping({wait!r})"
-        raise AssertionError(msg)
-
-
 def _zero_inbox_depth(_connection_id: ConnectionId) -> int:
     """Report every connection's inbox empty; these tests don't exercise it."""
     return 0
 
 
-def _wired(store: HubDisplay, hub: Hub) -> tuple[ClientDetailsOperations, _Marks]:
+def _wired(
+    factory: HubStoreFactory, hub: Hub
+) -> tuple[ClientDetailsOperations, _Marks]:
     """Build the details operation over real stores, with no display in reach."""
     marks = _Marks()
-    clients = ClientListing(store, hub, _zero_inbox_depth)
-    queries = QueryOperations(
-        store,
-        cast("object", _ForbiddenPort()),  # type: ignore[arg-type]  # structural port
-        clients,
-    )
-    installer = SceneInstaller(store, marks)
-    return ClientDetailsOperations(queries, installer, store.clients), marks
+    store = factory.display
+    listing = ClientListing(store, factory.clients, hub, _zero_inbox_depth)
+    return ClientDetailsOperations(listing, SceneInstaller(store, marks)), marks
 
 
 def _identity(name: str = "lux · lux · #4b97 · lux-beads") -> ClientIdentity:
     return ClientIdentity(kind="applet", name=name, repo="/Users/someone/lux")
 
 
-def _named(store: HubDisplay, connection: str, identity: ClientIdentity) -> None:
+def _named(factory: HubStoreFactory, connection: str, identity: ClientIdentity) -> None:
     """Record a client and take the read that names it, as the menu build does."""
-    store.identify_client(ConnectionId(connection), identity)
-    store.clients.named_sessions()
+    factory.lifecycle.identify(ConnectionId(connection), identity)
+    factory.clients.named_sessions()
 
 
 def _scoped(owner: str, scene_id: str) -> SceneId:
@@ -129,9 +114,11 @@ class TestWhatDetailsReports:
     """The Hub's record of one connection, rendered."""
 
     def test_the_scene_carries_the_wire_identity_the_label_dropped(self) -> None:
-        store, hub = HubDisplay(), Hub()
-        _named(store, "c1", _identity())
-        details, _marks = _wired(store, hub)
+        factory = HubStoreFactory()
+        store = factory.display
+        hub = Hub()
+        _named(factory, "c1", _identity())
+        details, _marks = _wired(factory, hub)
 
         result = details.show_client_details(ConnectionId("c1"))
 
@@ -148,8 +135,10 @@ class TestWhatDetailsReports:
         # (SceneInstaller.install), so the store holds it under the composed
         # key "c1\x1fboard" — the Scenes row must still read the caller's own
         # raw name, never the composed key with its embedded separator.
-        store, hub = HubDisplay(), Hub()
-        _named(store, "c1", _identity())
+        factory = HubStoreFactory()
+        store = factory.display
+        hub = Hub()
+        _named(factory, "c1", _identity())
         hub.register_writer(ConnectionId("c1"), lambda _msg: True)
         hub.subscribe(ConnectionId("c1"), Topic("work.saved"))
         group = hub_element_factory(ConnectionId("c1")).element_from_dict(
@@ -165,7 +154,7 @@ class TestWhatDetailsReports:
             ),
             owner=ConnectionId("c1"),
         )
-        details, _marks = _wired(store, hub)
+        details, _marks = _wired(factory, hub)
 
         result = details.show_client_details(ConnectionId("c1"))
 
@@ -175,9 +164,11 @@ class TestWhatDetailsReports:
         assert rows["Scenes"] == "board"
 
     def test_an_empty_field_reads_as_none_rather_than_blank(self) -> None:
-        store, hub = HubDisplay(), Hub()
-        _named(store, "c1", ClientIdentity(kind="app", name="voxd"))
-        details, _marks = _wired(store, hub)
+        factory = HubStoreFactory()
+        store = factory.display
+        hub = Hub()
+        _named(factory, "c1", ClientIdentity(kind="app", name="voxd"))
+        details, _marks = _wired(factory, hub)
 
         result = details.show_client_details(ConnectionId("c1"))
 
@@ -189,9 +180,11 @@ class TestWhatDetailsReports:
         assert rows["Scenes"] == "none"
 
     def test_a_lease_that_never_lapses_reads_as_permanent(self) -> None:
-        store, hub = HubDisplay(), Hub()
-        _named(store, "c1", ClientIdentity(kind="app", name="voxd"))
-        details, _marks = _wired(store, hub)
+        factory = HubStoreFactory()
+        store = factory.display
+        hub = Hub()
+        _named(factory, "c1", ClientIdentity(kind="app", name="voxd"))
+        details, _marks = _wired(factory, hub)
 
         result = details.show_client_details(ConnectionId("c1"))
 
@@ -199,9 +192,11 @@ class TestWhatDetailsReports:
         assert _rows(store, "c1", result.scene_id)["Lease"] == "permanent"
 
     def test_a_declared_lease_reads_as_a_span_a_person_says(self) -> None:
-        store, hub = HubDisplay(), Hub()
+        factory = HubStoreFactory()
+        store = factory.display
+        hub = Hub()
         _named(
-            store,
+            factory,
             "c1",
             ClientIdentity(
                 kind="applet",
@@ -210,7 +205,7 @@ class TestWhatDetailsReports:
                 lease_ttl=60.0,
             ),
         )
-        details, _marks = _wired(store, hub)
+        details, _marks = _wired(factory, hub)
 
         result = details.show_client_details(ConnectionId("c1"))
 
@@ -222,9 +217,11 @@ class TestHowItIsShown:
     """Where the scene lands, and who owns it."""
 
     def test_the_scene_is_owned_by_the_client_it_describes(self) -> None:
-        store, hub = HubDisplay(), Hub()
-        _named(store, "c1", _identity())
-        details, _marks = _wired(store, hub)
+        factory = HubStoreFactory()
+        store = factory.display
+        hub = Hub()
+        _named(factory, "c1", _identity())
+        details, _marks = _wired(factory, hub)
 
         result = details.show_client_details(ConnectionId("c1"))
 
@@ -233,9 +230,11 @@ class TestHowItIsShown:
         assert [str(owner.connection_id) for owner in owners] == ["c1"]
 
     def test_the_frame_is_titled_with_the_program_it_runs(self) -> None:
-        store, hub = HubDisplay(), Hub()
-        _named(store, "c1", _identity())
-        details, _marks = _wired(store, hub)
+        factory = HubStoreFactory()
+        store = factory.display
+        hub = Hub()
+        _named(factory, "c1", _identity())
+        details, _marks = _wired(factory, hub)
 
         result = details.show_client_details(ConnectionId("c1"))
 
@@ -244,10 +243,11 @@ class TestHowItIsShown:
         assert presentation.frame_title == "lux-beads"  # the program; Display qualifies
 
     def test_two_clients_details_are_two_scenes(self) -> None:
-        store, hub = HubDisplay(), Hub()
-        _named(store, "c1", _identity())
-        _named(store, "c2", ClientIdentity(kind="app", name="voxd"))
-        details, _marks = _wired(store, hub)
+        factory = HubStoreFactory()
+        hub = Hub()
+        _named(factory, "c1", _identity())
+        _named(factory, "c2", ClientIdentity(kind="app", name="voxd"))
+        details, _marks = _wired(factory, hub)
 
         first = details.show_client_details(ConnectionId("c1"))
         second = details.show_client_details(ConnectionId("c2"))
@@ -258,9 +258,10 @@ class TestHowItIsShown:
 
     def test_asking_twice_repaints_the_same_scene(self) -> None:
         """A second look at one client replaces its frame instead of stacking one."""
-        store, hub = HubDisplay(), Hub()
-        _named(store, "c1", _identity())
-        details, marks = _wired(store, hub)
+        factory = HubStoreFactory()
+        hub = Hub()
+        _named(factory, "c1", _identity())
+        details, marks = _wired(factory, hub)
 
         first = details.show_client_details(ConnectionId("c1"))
         second = details.show_client_details(ConnectionId("c1"))
@@ -273,9 +274,10 @@ class TestHowItIsShown:
 
     def test_the_install_marks_the_scene_for_the_replicator(self) -> None:
         """The Hub writes its store and marks; the replicator does every send."""
-        store, hub = HubDisplay(), Hub()
-        _named(store, "c1", _identity())
-        details, marks = _wired(store, hub)
+        factory = HubStoreFactory()
+        hub = Hub()
+        _named(factory, "c1", _identity())
+        details, marks = _wired(factory, hub)
 
         result = details.show_client_details(ConnectionId("c1"))
 
@@ -287,8 +289,9 @@ class TestAClickThatOutlivedItsClient:
     """The menu is a replica; a lease can lapse between the paint and the pointer."""
 
     def test_a_connection_the_hub_no_longer_holds_is_refused(self) -> None:
-        store, hub = HubDisplay(), Hub()
-        details, _marks = _wired(store, hub)
+        factory = HubStoreFactory()
+        hub = Hub()
+        details, _marks = _wired(factory, hub)
 
         result = details.show_client_details(ConnectionId("gone"))
 
@@ -297,8 +300,10 @@ class TestAClickThatOutlivedItsClient:
         assert "gone" in result.reason
 
     def test_a_refusal_installs_no_scene(self) -> None:
-        store, hub = HubDisplay(), Hub()
-        details, marks = _wired(store, hub)
+        factory = HubStoreFactory()
+        store = factory.display
+        hub = Hub()
+        details, marks = _wired(factory, hub)
 
         details.show_client_details(ConnectionId("gone"))
 
@@ -315,16 +320,20 @@ class TestAClickThatOutlivedItsClient:
         for a departed connection would otherwise register it again and put a
         client back in ``list_clients`` that nothing is on the other end of.
         """
-        store, hub = HubDisplay(), Hub()
-        _named(store, "c1", _identity())
-        store.drop_connection(ConnectionId("c1"))
-        details, marks = _wired(store, hub)
+        factory = HubStoreFactory()
+        store = factory.display
+        lifecycle = factory.lifecycle
+        clients = factory.clients
+        hub = Hub()
+        _named(factory, "c1", _identity())
+        lifecycle.depart(ConnectionId("c1"))
+        details, marks = _wired(factory, hub)
 
         result = details.show_client_details(ConnectionId("c1"))
 
         assert isinstance(result, OpError)
         assert result.code == "not_found"
-        assert dict(store.client_sessions()) == {}
+        assert dict(clients.live_sessions()) == {}
         assert marks.marked == []
         assert list(store.live_scene_ids()) == []
 
@@ -337,9 +346,12 @@ class TestAClickThatOutlivedItsClient:
         second read for the sweep to fall between.
         """
         clock = _Clock()
-        store, hub = HubDisplay(clock), Hub()
+        factory = HubStoreFactory(clock=clock)
+        store = factory.display
+        clients = factory.clients
+        hub = Hub()
         _named(
-            store,
+            factory,
             "c1",
             ClientIdentity(
                 kind="applet",
@@ -348,13 +360,13 @@ class TestAClickThatOutlivedItsClient:
                 lease_ttl=60.0,
             ),
         )
-        details, marks = _wired(store, hub)
+        details, marks = _wired(factory, hub)
 
         clock.advance(61.0)  # the lease lapses while the entry sits on screen
         result = details.show_client_details(ConnectionId("c1"))
 
         assert isinstance(result, OpError)
         assert result.code == "not_found"
-        assert dict(store.client_sessions()) == {}
+        assert dict(clients.live_sessions()) == {}
         assert marks.marked == []
         assert list(store.live_scene_ids()) == []

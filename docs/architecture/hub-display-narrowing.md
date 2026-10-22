@@ -296,8 +296,13 @@ unpacked into three module names, and by tests as their composition root. The
 defaults (`hub=default_hub`, `clock=time.monotonic`) mirror `HubDisplay.__new__`
 today, so a test construction rewrites to `HubStoreFactory().display`.
 
-**Process singletons** — new `domain/hub/store_instance.py`, in the house style of
-`replicator_instance.py` and `details_instance.py`:
+**Process singletons** — at the bottom of `domain/hub/hub_store_factory.py`, the
+module that owns the build. (A first draft put them in a module of their own,
+`store_instance.py`; a module of bare singletons has no class, and the new-file
+strict rule on `method_ratio` and `class_to_func_ratio` refuses it. Beside the
+factory they add no import, so the module's efferent coupling stays at 7, and no
+cycle arises: everything that imported `store_instance` already imported through
+this module.)
 
 ```python
 _store = HubStoreFactory(hub)
@@ -313,7 +318,7 @@ at HEAD); dropping them keeps the package at 15 public names and 10 imported
 modules, so the roots that import several singletons from the package gain no
 import. `hub_display.py` no longer defines a singleton. The modules that import
 the singleton from `hub_display.py` (`clients.py`, `inbox.py`, `lifecycle.py`,
-`replicator_instance.py`) import the specific name they use from `store_instance`.
+`replicator_instance.py`) import the specific name they use from `hub_store_factory`.
 
 **Roots that hand the objects on** (the only places that name the singletons):
 
@@ -397,7 +402,7 @@ tests (apply renews and sweeps others, a departure empties the registry and
 releases ownership, the menu mark and sink fire once) use
 `HubStoreFactory(clock, hub)`; the factory is the test's composition root.
 `tests/hub_harness.py::IsolatedHub` is rebuilt over the factory and
-monkeypatches the three `store_instance` names instead of one.
+patches the package's `hub_display` name, as before.
 
 **No reach-through in tests (F4).** A test binds `store = HubStoreFactory(...)`
 once in its fixture or setup, then names the three objects it uses —
@@ -619,7 +624,7 @@ flip. The two are one rollback-coherent unit and are judged on their net numbers
 
 | Commit | What |
 |---|---|
-| **Implementation** | `HubStoreFactory`, `store_instance`, `HubDisplay.writing_as`; `HubDisplay.__new__` takes `(lock, owners, lifecycle, clients, clock)`; all eleven door members and the singleton leave `hub_display.py`; every consumer in §4.2 takes the class it uses; `ClientLifecycle.exclusive()`; the `present_as` seat moves into `Operations.for_store`; `LeaseReaper.depart_lapsed(exclude)` (F1); `CallbackMenuReplica.callback_menus` (§4.8); `NamedSessions.named` and `ClientListing.named` (§4.8); `departure_cascade.py` docstring (F5); the whole test migration. |
+| **Implementation** | `HubStoreFactory` with the singletons beside it, `HubDisplay.writing_as`; `HubDisplay.__new__` takes `(lock, owners, lifecycle, clients, clock)`; all eleven door members and the singleton leave `hub_display.py`; every consumer in §4.2 takes the class it uses; `ClientLifecycle.exclusive()`; the `present_as` seat moves into `Operations.for_store`; `LeaseReaper.depart_lapsed(exclude)` (F1); `CallbackMenuReplica.callback_menus` (§4.8); `NamedSessions.named` and `ClientListing.named` (§4.8); `departure_cascade.py` docstring (F5); the whole test migration. |
 | **Docs** | DES-101 (the leader writes it) and `system.tex`'s subsection "HubDisplay: the Authoritative Store". |
 
 **The test migration** is mechanical per construction site and wholly checked by
@@ -703,7 +708,6 @@ cap that applies. `check-coupling` caps: efferent 7, public names 15, avg LCOM
 | `identity.py` | max, avg LCOM | 0 to 0.333 | within |
 | `replicator_instance.py` | public names | 4 to 5 | within |
 | `hub_store_factory.py` (new) | efferent, LCOM | 7, 0.5 | **at** both caps; new files are judged by the same `<=`, but there is no margin: one more runtime import fails it. The fallback is the one in the first draft (build registry, cascade and lifecycle in a small `ClientLifecycleFactory`, bringing the builder to 5). |
-| `store_instance.py` (new) | | efferent 1, LCOM 0 | within |
 
 `check-oo` as the prototype predicted it (all within cap; the measurement below
 supersedes it): `callback_menu.py` size 81 to 84;
@@ -847,8 +851,7 @@ bead.
 
 The design names it; the implementation mission's contract should list these.
 
-**New.** `src/punt_lux/domain/hub/hub_store_factory.py`,
-`src/punt_lux/domain/hub/store_instance.py`,
+**New.** `src/punt_lux/domain/hub/hub_store_factory.py` (the factory and the singletons),
 `tests/domain/test_hub_store_factory.py`.
 
 **Changed, domain.** `hub_display.py` (constructor; the eleven door members and
@@ -889,7 +892,7 @@ internal and not user-visible.
 > scene write is contact by the store's own rule (`HubDisplay.writing_as`). The
 > shared `StoreLock` and `OwnerTracker` are created by `HubStoreFactory`, which
 > builds the door and then the store over them; process singletons are exported
-> by name from `store_instance.py`. A `Protocol` is added only where a real
+> by name from `hub_store_factory.py`. A `Protocol` is added only where a real
 > dependency direction requires one.
 >
 > **Rejected.** `HubParts`; forwarding methods; a `ClientDoor` record; one

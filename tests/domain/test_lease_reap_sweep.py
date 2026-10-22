@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from typing import Literal, Self, final
 
 from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.lease_reap_sweep import LeaseReapSweep
 from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.domain.update import AddElement
@@ -65,54 +65,61 @@ def _cli(name: str) -> ClientIdentity:
 def test_sweep_reaps_a_lapsed_connection_with_no_other_activity() -> None:
     """TR1: kill the transport, wait, tick the reaper -- nothing else runs."""
     clock = _FakeClock()
-    display = HubDisplay(clock)
+    factory = HubStoreFactory(clock=clock)
+    display = factory.display
+    lifecycle = factory.lifecycle
+    clients = factory.clients
     dead = ConnectionId("dead-conn")
-    display.identify_client(dead, _cli("dead"))
+    lifecycle.identify(dead, _cli("dead"))
     display.apply(
         dead,
         AddElement(scene_id=_SCENE, element=_WireLeaf(id="track"), parent_id=None),
     )
-    sweep = LeaseReapSweep(display)
+    sweep = LeaseReapSweep(lifecycle)
 
     clock.advance(91.0)  # past the 90s cli lease; nothing else ever touches it
     reaped = sweep.sweep()
 
     assert reaped == frozenset({dead})
-    assert not display.is_client(dead)
+    assert not (clients.session_of(dead) is not None)
     assert display.elements_owned_by(dead) == ()
 
 
 def test_sweep_is_empty_when_nothing_has_lapsed() -> None:
     clock = _FakeClock()
-    display = HubDisplay(clock)
+    factory = HubStoreFactory(clock=clock)
+    lifecycle = factory.lifecycle
+    clients = factory.clients
     live = ConnectionId("live-conn")
-    display.identify_client(live, _cli("live"))
-    sweep = LeaseReapSweep(display)
+    lifecycle.identify(live, _cli("live"))
+    sweep = LeaseReapSweep(lifecycle)
 
     assert sweep.sweep() == frozenset()
-    assert display.is_client(live)
+    assert clients.session_of(live) is not None
 
 
 def test_run_sweeps_until_cancelled() -> None:
     clock = _FakeClock()
-    display = HubDisplay(clock)
+    factory = HubStoreFactory(clock=clock)
+    lifecycle = factory.lifecycle
+    clients = factory.clients
     dead = ConnectionId("dead-conn")
-    display.identify_client(dead, _cli("dead"))
+    lifecycle.identify(dead, _cli("dead"))
     clock.advance(91.0)  # already lapsed when the loop starts
-    sweep = LeaseReapSweep(display, interval_seconds=0.01)
+    sweep = LeaseReapSweep(lifecycle, interval_seconds=0.01)
 
     async def drive() -> None:
         task = asyncio.create_task(sweep.run())
         for _ in range(200):  # poll up to ~2s for the first tick to fire
             await asyncio.sleep(0.01)
-            if not display.is_client(dead):
+            if not (clients.session_of(dead) is not None):
                 break
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
 
     asyncio.run(drive())
-    assert not display.is_client(dead)
+    assert not (clients.session_of(dead) is not None)
 
 
 @final
@@ -133,7 +140,9 @@ class _RaiseOnceReaper:
     def calls(self) -> int:
         return self._calls
 
-    def reap_lapsed_leases(self) -> frozenset[ConnectionId]:
+    def depart_lapsed(
+        self, exclude: frozenset[ConnectionId]
+    ) -> frozenset[ConnectionId]:
         self._calls += 1
         if self._calls == 1:
             msg = "reap boom"

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from punt_lux.domain import ElementId, SceneId
 from punt_lux.domain.element import Element
-from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.domain.update import AddElement
 from punt_lux.protocol import (
@@ -95,9 +95,11 @@ def test_text_element_from_dict_accepts_arbitrary_style_string() -> None:
 
 def test_text_element_wire_path_through_hub_apply() -> None:
     """Wire-decoded TextElement reaches HubDisplay.apply and is installed."""
-    display = HubDisplay()
+    factory = HubStoreFactory()
+    display = factory.display
+    lifecycle = factory.lifecycle
     client = ConnectionId("alice")
-    display.register_client(client)
+    lifecycle.arrive(client)
 
     wire = {"kind": "text", "id": "t1", "content": "hello"}
     elem = agent_element_factory().element_from_dict(wire)
@@ -185,9 +187,11 @@ def test_markdown_element_round_trip() -> None:
 
 def test_every_basics_kind_flows_through_hub_apply() -> None:
     """PY-RF-2: every new domain type has a production caller from day one."""
-    display = HubDisplay()
+    factory = HubStoreFactory()
+    display = factory.display
+    lifecycle = factory.lifecycle
     client = ConnectionId("alice")
-    display.register_client(client)
+    lifecycle.arrive(client)
 
     elements: list[Element] = [
         TextElement(id="t1", content="hi"),

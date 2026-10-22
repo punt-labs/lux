@@ -38,7 +38,7 @@ from punt_lux.domain.hub.callback_menu import CallbackMenu
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
-from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.menu_models import Menu, MenuAction
 from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
 from punt_lux.domain.ids import ClientId, ElementId, SceneId, Topic
@@ -109,11 +109,12 @@ class _MenuFlag:
 def _wired() -> tuple[TestClient, Hub, HubClientRegistry, CallbackRouter]:
     """Mount the production listen transport over fresh domain objects."""
     hub = Hub()
-    display = HubDisplay(hub=hub)
-    clients = display.clients
+    factory = HubStoreFactory(hub=hub)
+    lifecycle = factory.lifecycle
+    clients = factory.clients
     router = CallbackRouter(clients)
     app = FastAPI()
-    HubListenTransport(hub, display, router, _MenuFlag()).mount(app)
+    HubListenTransport(hub, lifecycle, clients.legs, router, _MenuFlag()).mount(app)
     return TestClient(app), hub, clients, router
 
 

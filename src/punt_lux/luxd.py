@@ -163,14 +163,14 @@ def serve(
     async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         # Workers and sweeps start/stop with luxd; imported lazily to keep the
         # Hub singletons out of module import.
-        from punt_lux.domain.hub import hub_display
+        from punt_lux.domain.hub import hub_display, hub_lifecycle
         from punt_lux.domain.hub.display_workers import display_workers
         from punt_lux.domain.hub.expiry_sweep import ExpirySweep
         from punt_lux.domain.hub.lease_reap_sweep import LeaseReapSweep
 
         display_workers.start()
         expiry = ExpirySweep(hub_display.frames, display_workers.replicator)
-        lease_reap = LeaseReapSweep(hub_display)
+        lease_reap = LeaseReapSweep(hub_lifecycle)
         try:
             # Both sweeps are cancelled and awaited on exit, before the
             # replicator stops; the lease reap has no dependency on it, so

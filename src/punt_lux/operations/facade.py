@@ -18,7 +18,11 @@ from punt_lux.operations.display_link import DisplayLinkOperations
 from punt_lux.operations.frame_removal import FrameRemover
 from punt_lux.operations.identity import IdentityOperations
 from punt_lux.operations.menu_arming_deps import MenuArmingDeps
-from punt_lux.operations.menus import MenuOperations, MenuOperationsDeps
+from punt_lux.operations.menus import (
+    MenuDepartureSink,
+    MenuOperations,
+    MenuOperationsDeps,
+)
 from punt_lux.operations.models.inspect_scope import HUB_ONLY, InspectScope
 from punt_lux.operations.pubsub import PubSubOperations
 from punt_lux.operations.queries import QueryOperations
@@ -29,11 +33,14 @@ from punt_lux.operations.timing import Timed
 if TYPE_CHECKING:
     from punt_lux.domain.hub.callback_hold import CallbackRouter
     from punt_lux.domain.hub.client_identity import ClientIdentity
+    from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
     from punt_lux.domain.hub.hub import Hub
+    from punt_lux.domain.hub.hub_clients import HubClientRegistry
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.hub.menu_registry import HubMenuRegistry
     from punt_lux.domain.hub.session_callback import CallbackInvocation
     from punt_lux.domain.ids import ConnectionId
+    from punt_lux.operations.callbacks import CallbackMenuSource
     from punt_lux.operations.display_link import ReplicatorLink
     from punt_lux.operations.models import (
         Cleared,
@@ -121,24 +128,28 @@ class Operations:
         display: HubDisplay,
         replicator: ReplicatorLink,
         *,
+        lifecycle: ClientLifecycle,
+        clients: HubClientRegistry,
         hub: Hub,
         menu_registry: HubMenuRegistry,
         callback_router: CallbackRouter,
+        callback_menus: CallbackMenuSource,
         ports: HubPorts,
     ) -> Self:
         """Wire every concern class from injected collaborators — no singletons."""
+        lifecycle.present_as(replicator, MenuDepartureSink(menu_registry, replicator))
         deps = SceneOperationsDeps(display, replicator, ports.element_factory, hub)
         scenes = SceneOperations(deps)
-        callbacks = CallbackOperations(display, callback_router, replicator)
-        arming = MenuArmingDeps.over(
-            display, menu_registry, replicator, ports.ensure_writer
-        ).arming()
-        clients = ClientListing(display, hub, ports.inbox_depth)
-        queries = QueryOperations(display, ports.display_port, clients)
+        callbacks = CallbackOperations(
+            lifecycle, clients.legs, callback_router, replicator
+        )
+        arming = MenuArmingDeps(lifecycle, clients, ports.ensure_writer).arming()
+        listing = ClientListing(display, clients, hub, ports.inbox_depth)
+        queries = QueryOperations(display, ports.display_port, listing)
         return cls(
             OperationsConcerns(
                 scenes=scenes,
-                pubsub=PubSubOperations(hub, display, ports),
+                pubsub=PubSubOperations(hub, lifecycle, ports),
                 config=DisplayModeOperations(),
                 display=DisplayControlOperations(ports.display_port),
                 queries=queries,
@@ -146,12 +157,12 @@ class Operations:
                     MenuOperationsDeps(
                         registry=menu_registry,
                         replicator=replicator,
-                        callback_menus=callbacks,
+                        callback_menus=callback_menus,
                         arming=arming,
                         write_lock=display.write_lock,
                     )
                 ),
-                identity=IdentityOperations(display),
+                identity=IdentityOperations(lifecycle, clients),
                 callbacks=callbacks,
                 frame_remover=FrameRemover(display, replicator),
                 link=DisplayLinkOperations(ports.display_port, display, replicator),

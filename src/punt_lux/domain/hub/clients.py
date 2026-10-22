@@ -12,8 +12,8 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Self
 
 from punt_lux.domain.hub.display_link import DisplayLink
-from punt_lux.domain.hub.hub_display import hub_display
 from punt_lux.domain.hub.hub_interaction_dispatch import HubInteractionDispatch
+from punt_lux.domain.hub.hub_store_factory import hub_display
 from punt_lux.domain.hub.null_dirty_marker import NullDirtyMarker
 from punt_lux.domain.hub.reconnect_wait import ReconnectWait
 

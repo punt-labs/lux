@@ -6,6 +6,7 @@ from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.id_separator import ID_SEPARATOR
 from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.operations import Ok, OpError, RenderRequest, Scope
@@ -54,7 +55,9 @@ def _show_framed(
 def test_remove_of_a_nonexistent_frame_is_not_found() -> None:
     # A frame never shown by anyone reports why, rather than a blanket
     # "removed" that tore nothing down (lux-03k6).
-    store, recorder = HubDisplay(), _Recorder()
+    factory = HubStoreFactory()
+    store = factory.display
+    recorder = _Recorder()
     result = FrameRemover(store, recorder).remove("ghost", _CONNECTION)
     assert isinstance(result, OpError)
     assert result.code == "not_found"
@@ -67,7 +70,9 @@ def test_remove_of_another_connections_frame_is_not_found() -> None:
     # collision unrepresentable, so this is indistinguishable from "does not
     # exist" and reports the identical not_found. The other owner's scene is
     # left standing.
-    store, recorder = HubDisplay(), _Recorder()
+    factory = HubStoreFactory()
+    store = factory.display
+    recorder = _Recorder()
     stranger = ConnectionId("agent-b")
     _show_framed(store, recorder, stranger, "board")
     recorder.dirtied.clear()  # isolate remove()'s own dirty marks
@@ -83,7 +88,9 @@ def test_remove_of_another_connections_frame_is_not_found() -> None:
 def test_remove_of_a_blank_local_id_is_invalid_request() -> None:
     # ConnectionScopedId.compose raises ValueError for a blank local id;
     # FrameRemover maps it to a typed refusal rather than an unhandled fault.
-    store, recorder = HubDisplay(), _Recorder()
+    factory = HubStoreFactory()
+    store = factory.display
+    recorder = _Recorder()
     result = FrameRemover(store, recorder).remove("   ", _CONNECTION)
     assert isinstance(result, OpError)
     assert result.code == "invalid_request"
@@ -93,7 +100,9 @@ def test_remove_of_a_blank_local_id_is_invalid_request() -> None:
 def test_remove_of_a_local_id_carrying_the_separator_is_invalid_request() -> None:
     # ConnectionScopedId.compose also raises for a local id carrying the unit
     # separator -- the same boundary condition, same typed refusal.
-    store, recorder = HubDisplay(), _Recorder()
+    factory = HubStoreFactory()
+    store = factory.display
+    recorder = _Recorder()
     result = FrameRemover(store, recorder).remove(f"a{ID_SEPARATOR}b", _CONNECTION)
     assert isinstance(result, OpError)
     assert result.code == "invalid_request"
@@ -101,7 +110,9 @@ def test_remove_of_a_local_id_carrying_the_separator_is_invalid_request() -> Non
 
 
 def test_remove_removes_the_callers_own_frame_and_marks_dirty() -> None:
-    store, recorder = HubDisplay(), _Recorder()
+    factory = HubStoreFactory()
+    store = factory.display
+    recorder = _Recorder()
     _show_framed(store, recorder, _CONNECTION, "board")
     recorder.dirtied.clear()  # isolate remove()'s own dirty marks
 
