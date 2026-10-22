@@ -2,20 +2,17 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
-
+from punt_lux.domain.hub.frame_ownership import FrameOwnership
 from punt_lux.domain.hub.scene_presentation import (
     ScenePresentation,
     ScenePresentationRegistry,
 )
 from punt_lux.domain.ids import ConnectionId, SceneId
-
-if TYPE_CHECKING:
-    from punt_lux.domain.element import Element as WireElement
+from punt_lux.protocol import SceneMessage
 
 
 class _RecordingPusher:
-    """Capture the one ``show_async`` call a presentation makes."""
+    """Capture the one ``send_scene`` call a presentation makes."""
 
     calls: list[dict[str, object]]
 
@@ -24,32 +21,20 @@ class _RecordingPusher:
         self.calls = []
         return self
 
-    def show_async(
-        self,
-        scene_id: str,
-        elements: list[WireElement],
-        *,
-        title: str | None = None,
-        layout: str = "single",
-        frame_id: str | None = None,
-        frame_title: str | None = None,
-        frame_size: tuple[int, int] | None = None,
-        frame_flags: dict[str, bool] | None = None,
-        frame_layout: Literal["tab", "stack"] | None = None,
-        frame_owner_facts: tuple[tuple[str, str], ...] | None = None,
-    ) -> None:
+    def send_scene(self, message: SceneMessage) -> None:
         self.calls.append(
             {
-                "scene_id": scene_id,
-                "elements": elements,
-                "title": title,
-                "layout": layout,
-                "frame_id": frame_id,
-                "frame_title": frame_title,
-                "frame_size": frame_size,
-                "frame_flags": frame_flags,
-                "frame_layout": frame_layout,
-                "frame_owner_facts": frame_owner_facts,
+                "scene_id": message.id,
+                "elements": message.elements,
+                "title": message.title,
+                "layout": message.layout,
+                "frame_id": message.frame_id,
+                "frame_title": message.frame_title,
+                "frame_size": message.frame_size,
+                "frame_flags": message.frame_flags,
+                "frame_layout": message.frame_layout,
+                "frame_owner_facts": message.frame_owner_facts,
+                "frame_scope_label": message.frame_scope_label,
             }
         )
 
@@ -134,7 +119,7 @@ def test_push_resends_every_presentation_field() -> None:
         frame_layout="stack",
     )
     pusher = _RecordingPusher()
-    pres.push(pusher, SceneId("beads"), [])
+    pres.push(pusher, SceneId("beads"), [], ownership=FrameOwnership())
     (call,) = pusher.calls
     assert call["scene_id"] == "beads"
     assert call["frame_id"] == "board"
@@ -145,23 +130,30 @@ def test_push_resends_every_presentation_field() -> None:
     assert call["title"] == "Board"
 
 
-def test_push_forwards_the_owner_facts_it_is_given() -> None:
-    # Owner facts are resolved fresh at send time, never part of the
+def test_push_forwards_the_ownership_it_is_given() -> None:
+    # Ownership is resolved fresh at send time, never part of the
     # presentation's own persisted fields -- a push-time parameter only.
     pres = ScenePresentation(frame_id="board")
     pusher = _RecordingPusher()
     rows = (("Client", "lux"),)
-    pres.push(pusher, SceneId("beads"), [], frame_owner_facts=rows)
+    pres.push(pusher, SceneId("beads"), [], ownership=FrameOwnership(rows, "lux (2)"))
     (call,) = pusher.calls
     assert call["frame_owner_facts"] == rows
+    assert call["frame_scope_label"] == "lux (2)"
 
 
-def test_push_defaults_owner_facts_to_none() -> None:
+def test_push_of_an_unowned_frame_sends_neither_rows_nor_label() -> None:
     pres = ScenePresentation(frame_id="board")
     pusher = _RecordingPusher()
-    pres.push(pusher, SceneId("beads"), [])
+    pres.push(pusher, SceneId("beads"), [], ownership=FrameOwnership())
     (call,) = pusher.calls
     assert call["frame_owner_facts"] is None
+    assert call["frame_scope_label"] is None
+
+
+def test_the_presentation_persists_no_ownership_field() -> None:
+    assert "ownership" not in ScenePresentation.__dataclass_fields__
+    assert "frame_scope_label" not in ScenePresentation.__dataclass_fields__
 
 
 def test_frame_id_for_local_resolves_a_recorded_scoped_frame() -> None:
@@ -257,3 +249,59 @@ def test_a_forgotten_scene_shown_again_enters_at_the_end() -> None:
     registry.record(SceneId("s1"), ScenePresentation(frame_id="f"))
 
     assert registry.scenes_in_frame("f") == [SceneId("s2"), SceneId("s1")]
+
+
+class TestMessage:
+    """The presentation builds the whole-scene wire message; no sender does."""
+
+    def test_carries_every_presentation_field(self) -> None:
+        pres = ScenePresentation(
+            frame_id="board",
+            title="Board",
+            layout="rows",
+            frame_title="Beads: lux",
+            frame_size=(640, 480),
+            frame_flags={"no_resize": True},
+            frame_layout="stack",
+        )
+
+        message = pres.message(SceneId("beads"), [])
+
+        assert (message.id, message.frame_id, message.title) == (
+            "beads",
+            "board",
+            "Board",
+        )
+        assert (message.layout, message.frame_title) == ("rows", "Beads: lux")
+        assert (message.frame_size, message.frame_layout) == ((640, 480), "stack")
+        assert message.frame_flags == {"no_resize": True}
+
+    def test_defaults_to_an_unowned_frame(self) -> None:
+        message = ScenePresentation(frame_id="board").message("s", [])
+
+        assert message.frame_owner_facts is None
+        assert message.frame_scope_label is None
+
+    def test_carries_the_ownership_it_is_given(self) -> None:
+        rows = (("Client", "lux"),)
+
+        message = ScenePresentation(frame_id="board").message(
+            "s", [], FrameOwnership(rows, "lux (2)")
+        )
+
+        assert message.frame_owner_facts == rows
+        assert message.frame_scope_label == "lux (2)"
+
+    def test_copies_the_flags_so_the_wire_never_aliases_the_presentation(
+        self,
+    ) -> None:
+        flags = {"no_resize": True}
+        message = ScenePresentation(frame_id="board", frame_flags=flags).message(
+            "s", []
+        )
+
+        assert message.frame_flags == flags
+        assert message.frame_flags is not flags
+
+    def test_a_blank_scene_has_no_elements(self) -> None:
+        assert ScenePresentation(frame_id="board").message("s", []).elements == []

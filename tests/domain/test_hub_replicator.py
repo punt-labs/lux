@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Self, cast
 
 import pytest
 
@@ -20,6 +20,7 @@ from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
 from punt_lux.domain.hub.dirty_signal import DrainedBatch
 from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
 from punt_lux.domain.hub.frame_owner_facts import NoFrameOwnerFacts
+from punt_lux.domain.hub.frame_ownership import FrameOwnership
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
@@ -33,6 +34,7 @@ from punt_lux.domain.hub.replicator import (
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.hub.session_callback import MenuLeaf
 from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.elements.text import TextElement
 
 if TYPE_CHECKING:
@@ -74,6 +76,7 @@ class _FakeSender:
     frames: list[str | None]
     roots: list[list[WireElement]]
     owner_facts: list[tuple[tuple[str, str], ...] | None]
+    scope_labels: list[str | None]
     menus: list[list[dict[str, object]]]
     callback_submenus: list[list[dict[str, object]]]
     timeline: list[str]
@@ -101,6 +104,7 @@ class _FakeSender:
         "menus",
         "owner_facts",
         "roots",
+        "scope_labels",
         "shows",
         "timeline",
     )
@@ -111,6 +115,7 @@ class _FakeSender:
         self.frames = []
         self.roots = []
         self.owner_facts = []
+        self.scope_labels = []
         self.menus = []
         self.callback_submenus = []
         self.timeline = []
@@ -152,7 +157,7 @@ class _FakeSender:
         The right model for Finding 3: the send returns cleanly (fire-and-forget
         writes to a socket buffer), but the display crashes while processing
         the scene, so the *next* write or probe surfaces the death. Under this
-        arming ``show_async(scene_id, ...)`` records the send and then flips
+        arming ``send_scene(message)`` records the send and then flips
         ``_deferred_dead`` on; any subsequent send raises OSError and any
         subsequent ``probe_alive`` returns False.
         """
@@ -182,15 +187,8 @@ class _FakeSender:
             exc, self._fail = self._fail, None
             raise exc
 
-    def show_async(
-        self,
-        scene_id: str,
-        elements: list[WireElement],
-        *,
-        frame_id: str | None = None,
-        frame_owner_facts: tuple[tuple[str, str], ...] | None = None,
-        **_kwargs: object,
-    ) -> None:
+    def send_scene(self, message: SceneMessage) -> None:
+        scene_id = message.id
         self._guard()
         if self._deferred_dead:
             # A previous send left the display dead; every subsequent write
@@ -204,9 +202,10 @@ class _FakeSender:
             raise OSError(f"{scene_id} crashed the display (again)")
         with self._lock:
             self.shows.append(scene_id)
-            self.frames.append(frame_id)
-            self.roots.append(list(elements))
-            self.owner_facts.append(frame_owner_facts)
+            self.frames.append(message.frame_id)
+            self.roots.append(cast("list[WireElement]", list(message.elements)))
+            self.owner_facts.append(message.frame_owner_facts)
+            self.scope_labels.append(message.frame_scope_label)
             self.timeline.append(f"show:{scene_id}")
         if self._defer_after == scene_id:
             # The send succeeded, but the display crashes on render — the
@@ -231,10 +230,10 @@ class _FakeSender:
         """Report the display alive so long as no send has yet blown up.
 
         Mirrors ``DisplayLink.probe_alive``'s roundtrip semantics: crashes
-        surface synchronously through ``show_async`` in this fake (a crasher
+        surface synchronously through ``send_scene`` in this fake (a crasher
         send raises immediately), so a probe *between* sends sees a healthy
         display right up to the send that actually raises. Nothing to detect
-        here that ``show_async`` hasn't already surfaced. Tests that need to
+        here that ``send_scene`` hasn't already surfaced. Tests that need to
         exercise the deferred-crash path (the crash of scene N surfacing on
         N+1's write) set ``_deferred_dead`` via ``crash_after_render`` — the
         one path where the probe genuinely earns its keep.
@@ -625,16 +624,16 @@ def test_a_generic_menu_send_error_restores_the_flag_and_retries() -> None:
 class _FakeOwnerFacts:
     """A FrameOwnerFactsReader returning a fixed rows tuple for one frame id."""
 
-    _rows: dict[str, tuple[tuple[str, str], ...] | None]
-    __slots__ = ("_rows",)
+    _ownerships: dict[str, FrameOwnership]
+    __slots__ = ("_ownerships",)
 
-    def __new__(cls, rows: dict[str, tuple[tuple[str, str], ...] | None]) -> Self:
+    def __new__(cls, ownerships: dict[str, FrameOwnership]) -> Self:
         self = super().__new__(cls)
-        self._rows = rows
+        self._ownerships = ownerships
         return self
 
-    def facts_for_frame(self, frame_id: str) -> tuple[tuple[str, str], ...] | None:
-        return self._rows.get(frame_id)
+    def facts_for_frame(self, frame_id: str) -> FrameOwnership:
+        return self._ownerships.get(frame_id, FrameOwnership())
 
 
 def test_the_resend_carries_the_owner_facts_the_reader_resolves() -> None:
@@ -647,13 +646,16 @@ def test_the_resend_carries_the_owner_facts_the_reader_resolves() -> None:
     scene = _seed(store, lifecycle, "s1")
     rows = (("Client", "lux"), ("Kind", "agent"))
     repl, sender, _provider, _lifecycle = _replicator(
-        store, clients, owner_facts=_FakeOwnerFacts({"s1": rows})
+        store,
+        clients,
+        owner_facts=_FakeOwnerFacts({"s1": FrameOwnership(rows, "lux (2)")}),
     )
     repl.start()
     try:
         repl.mark_dirty(scene)
         assert sender.wait_sent(2.0)
         assert sender.owner_facts == [rows]
+        assert sender.scope_labels == ["lux (2)"]
     finally:
         repl.stop()
 
@@ -674,6 +676,7 @@ def test_an_unowned_scene_sends_none_owner_facts() -> None:
         repl.mark_dirty(scene)
         assert sender.wait_sent(2.0)
         assert sender.owner_facts == [None]
+        assert sender.scope_labels == [None]
     finally:
         repl.stop()
 

@@ -558,6 +558,61 @@ class TestSerialization:
         assert any("frame_owner_facts" in record.message for record in caplog.records)
         assert all(record.levelno == logging.WARNING for record in caplog.records)
 
+    def test_framed_scene_with_scope_label_roundtrip(self):
+        original = SceneMessage(
+            id="s1",
+            elements=[TextElement(id="t1", content="hello")],
+            frame_id="f1",
+            frame_scope_label="lux (2)",
+        )
+        d = message_to_dict(original)
+        assert d["frame_scope_label"] == "lux (2)"
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        assert restored.frame_scope_label == "lux (2)"
+
+    def test_framed_scene_without_scope_label_omits_the_field(self):
+        original = SceneMessage(
+            id="s1",
+            elements=[TextElement(id="t1", content="hello")],
+            frame_id="f1",
+        )
+        d = message_to_dict(original)
+        assert "frame_scope_label" not in d
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        assert restored.frame_scope_label is None
+
+    @pytest.mark.parametrize("bad_label", ["", 7, ["lux"], {"name": "lux"}, True])
+    def test_scene_decode_degrades_a_malformed_scope_label_and_logs(
+        self, caplog: pytest.LogCaptureFixture, bad_label: object
+    ) -> None:
+        with caplog.at_level(logging.WARNING):
+            restored = SceneMessage.from_dict(
+                {
+                    "id": "s1",
+                    "frame_id": "s1",
+                    "elements": [],
+                    "frame_scope_label": bad_label,
+                }
+            )
+        assert restored.frame_scope_label is None
+        assert any("frame_scope_label" in record.message for record in caplog.records)
+
+    def test_an_old_hub_scene_without_the_field_decodes_with_a_plain_title(self):
+        restored = SceneMessage.from_dict(
+            {"id": "s1", "frame_id": "s1", "elements": [], "frame_title": "Vox"}
+        )
+        assert restored.frame_scope_label is None
+        assert restored.frame_title == "Vox"
+
+    def test_a_new_hub_scene_decodes_cleanly_when_the_field_is_unknown_to_it(self):
+        # Additive both ways: the field is just another optional key.
+        restored = SceneMessage.from_dict(
+            {"id": "s1", "frame_id": "s1", "elements": [], "future_field": 1}
+        )
+        assert restored.frame_scope_label is None
+
     def test_scene_decode_rejects_an_out_of_set_layout(self):
         # The layout field is a Literal; decode must reject an out-of-set value
         # with the same named error the RenderRequest boundary raises, not smuggle

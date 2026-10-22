@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
+from punt_lux.domain.hub.frame_ownership import FrameOwnership
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.hub.hub_display import HubDisplay
@@ -58,13 +59,15 @@ class TestASceneWithALiveOwner:
         scene_id = _identified_scene(store, lifecycle, clients, "c1")
         reader = _reader(store, clients, hub)
 
-        rows = reader.facts_for(scene_id)
+        ownership = reader.facts_for(scene_id)
+        rows = ownership.rows
 
         assert rows is not None
         fields = dict(rows)
         assert fields["Client"] == "lux"
         assert fields["Kind"] == "cli"
         assert fields["Connection"] == "c1"
+        assert ownership.scope_label == "lux"
 
     def test_field_order_matches_client_details_rows(self) -> None:
         # Proves the shared-source reuse the module docstring claims: the
@@ -78,7 +81,8 @@ class TestASceneWithALiveOwner:
         scene_id = _identified_scene(store, lifecycle, clients, "c1")
         reader = _reader(store, clients, hub)
 
-        rows = reader.facts_for(scene_id)
+        ownership = reader.facts_for(scene_id)
+        rows = ownership.rows
 
         canonical = ClientDetails(
             label="lux",
@@ -126,7 +130,8 @@ class TestASceneWithALiveOwner:
         )
         reader = _reader(store, clients, hub)
 
-        rows = reader.facts_for(scene_id)
+        ownership = reader.facts_for(scene_id)
+        rows = ownership.rows
 
         assert rows is not None
         assert dict(rows)["Connection"] == "c1"
@@ -140,7 +145,7 @@ class TestASceneWithNoOwner:
         hub = Hub()
         reader = _reader(store, clients, hub)
 
-        assert reader.facts_for(SceneId("nobody-installed-this")) is None
+        assert reader.facts_for(SceneId("nobody-installed-this")) == FrameOwnership()
 
     def test_a_scene_whose_owner_departed_reports_none(self) -> None:
         # The Hub-side departure guarantee: OwnerTracker releases the departed
@@ -156,4 +161,4 @@ class TestASceneWithNoOwner:
         lifecycle.depart(ConnectionId("c1"))
         reader = _reader(store, clients, hub)
 
-        assert reader.facts_for(scene_id) is None
+        assert reader.facts_for(scene_id) == FrameOwnership()

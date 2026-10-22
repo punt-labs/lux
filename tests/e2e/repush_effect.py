@@ -2,7 +2,7 @@
 
 target.md's canonical replication rule: "when a handler mutates Hub-side
 state, the Hub re-pushes the full scene tree to the Display." That re-push
-leg lives inside ``_hub_interaction_dispatch`` (``client.show_async`` after
+leg lives inside ``_hub_interaction_dispatch`` (``client.send_scene`` after
 ``element.fire``) and is distinct from the agent's own ``update`` re-push.
 A ``RepushEffect`` asserts the leg fired *for real* by reading the Display
 replica **after dispatch but before any agent update**:

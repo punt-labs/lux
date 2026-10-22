@@ -62,7 +62,7 @@ class MenuReader(Protocol):
 class DisplaySender(ScenePusher, Protocol):
     """A connection the replicator sends whole scenes and menus over.
 
-    Extends ``ScenePusher`` (``show_async``) with the two menu writes so the
+    Extends ``ScenePusher`` (``send_scene``) with the two menu writes so the
     replicator is the sole writer of the menu state: ``set_menu`` for the agent
     menu bar and ``set_callback_menus`` for the ``Clients`` menu.
     """

@@ -52,8 +52,6 @@ hub_callback_router = CallbackRouter(hub_clients)
 # live-session read the callback router uses, then the non-resurrecting inbox sink.
 hub_menu_event_router = MenuEventRouter(hub_clients, inbox_offer)
 
-# DisplayLink satisfies the port at runtime — its show_async takes the concrete
-# protocol.Element union every WireElement root is; the cast bridges list invariance.
 # hub_display satisfies QuarantinePort structurally (quarantine / is_quarantined).
 hub_callback_menus = CallbackMenuReplica(hub_clients)
 

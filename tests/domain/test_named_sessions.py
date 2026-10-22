@@ -239,3 +239,26 @@ class TestFindingOneConnection:
         named = _over(("a", _session()))
 
         assert named.named(ConnectionId("ghost"), "client") is None
+
+
+class TestScopeLabel:
+    """The name a client's windows carry: its roster name, never a fallback."""
+
+    def test_an_identified_session_labels_its_windows_with_its_name(self) -> None:
+        named = _over(("first", _session()), ("second", _session()))
+
+        found = named.named(ConnectionId("second"), "client")
+
+        assert found is not None
+        assert found.scope_label == "lux (2)"
+
+    def test_an_anonymous_session_has_no_label_despite_its_fallback_name(self) -> None:
+        named = NamedSessions.over(
+            {ConnectionId("bare"): ClientSession(0.0)}, ClientRoster()
+        )
+
+        found = named.named(ConnectionId("bare"), "client")
+
+        assert found is not None
+        assert found.name == "client"
+        assert found.scope_label is None

@@ -13,6 +13,7 @@ from punt_lux.display.replica import SceneReplica
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
+from punt_lux.domain.hub.frame_ownership import FrameOwnership
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.hub.hub_display import HubDisplay
@@ -78,7 +79,7 @@ class TestAFrameComposingScenesWithDifferentOwners:
         store.frames.record(first, frame)
         store.frames.record(second, frame)
 
-        rows = _reader(store, clients, hub).facts_for_frame("shared-frame")
+        rows = _reader(store, clients, hub).facts_for_frame("shared-frame").rows
 
         assert rows is not None
         assert dict(rows)["Connection"] == "c1"
@@ -98,7 +99,7 @@ class TestAFrameComposingScenesWithDifferentOwners:
         store.frames.record(senior, frame)
         store.frames.record(junior, frame)
 
-        rows = _reader(store, clients, hub).facts_for_frame("shared-frame")
+        rows = _reader(store, clients, hub).facts_for_frame("shared-frame").rows
 
         assert rows is not None
         assert dict(rows)["Connection"] == "z"
@@ -114,10 +115,60 @@ class TestAFrameComposingScenesWithDifferentOwners:
         store.frames.record(first, ScenePresentation(frame_id="elsewhere"))
         store.frames.record(second, ScenePresentation(frame_id="shared-frame"))
 
-        rows = _reader(store, clients, hub).facts_for_frame("shared-frame")
+        rows = _reader(store, clients, hub).facts_for_frame("shared-frame").rows
 
         assert rows is not None
         assert dict(rows)["Connection"] == "c2"
+
+
+class TestRowsAndLabelComeFromOneOwner:
+    def test_the_label_is_the_canonical_owners_roster_name(self) -> None:
+        factory = HubStoreFactory()
+        lifecycle = factory.lifecycle
+        clients = factory.clients
+        store = factory.display
+        hub = Hub()
+        first = _identified_scene(store, lifecycle, clients, "c1", name="alpha")
+        second = _identified_scene(store, lifecycle, clients, "c2", name="beta")
+        frame = ScenePresentation(frame_id="shared-frame")
+        store.frames.record(first, frame)
+        store.frames.record(second, frame)
+
+        ownership = _reader(store, clients, hub).facts_for_frame("shared-frame")
+
+        assert ownership.scope_label == "alpha"
+        assert ownership.rows is not None
+        assert dict(ownership.rows)["Connection"] == "c1"
+
+    def test_an_anonymous_owner_keeps_its_rows_but_has_no_scope_label(self) -> None:
+        factory = HubStoreFactory()
+        lifecycle = factory.lifecycle
+        clients = factory.clients
+        store = factory.display
+        hub = Hub()
+        conn = ConnectionId("anon")
+        lifecycle.arrive(conn)
+        scene_id = SceneId("anon-scene")
+        store.replace_scene(conn, scene_id, [TextElement(id="t1", content="hi")])
+
+        ownership = _reader(store, clients, hub).facts_for_frame(str(scene_id))
+
+        assert ownership.scope_label is None
+        assert ownership.rows is not None
+        assert dict(ownership.rows)["Kind"] == "unidentified"
+
+    def test_an_owner_that_departed_yields_neither_rows_nor_label(self) -> None:
+        factory = HubStoreFactory()
+        lifecycle = factory.lifecycle
+        clients = factory.clients
+        store = factory.display
+        hub = Hub()
+        scene_id = _identified_scene(store, lifecycle, clients, "c1", name="alpha")
+        lifecycle.depart(ConnectionId("c1"))
+
+        ownership = _reader(store, clients, hub).facts_for_frame(str(scene_id))
+
+        assert ownership == FrameOwnership(None, None)
 
 
 class TestASelfFramedScene:
@@ -130,7 +181,7 @@ class TestASelfFramedScene:
         hub = Hub()
         scene_id = _identified_scene(store, lifecycle, clients, "c1", name="alpha")
 
-        rows = _reader(store, clients, hub).facts_for_frame(str(scene_id))
+        rows = _reader(store, clients, hub).facts_for_frame(str(scene_id)).rows
 
         assert rows is not None
         assert dict(rows)["Connection"] == "c1"
@@ -141,9 +192,9 @@ class TestASelfFramedScene:
         clients = factory.clients
         hub = Hub()
 
-        assert (
-            _reader(store, clients, hub).facts_for_frame("nobody-framed-this") is None
-        )
+        assert _reader(store, clients, hub).facts_for_frame(
+            "nobody-framed-this"
+        ) == FrameOwnership(None, None)
 
 
 @final
@@ -231,7 +282,7 @@ class TestTheFramesCanonicalOwnerFollowsFrameEntryOrder:
         store.frames.record(s2, ScenePresentation(frame_id="shared"))
         store.frames.record(s1, ScenePresentation(frame_id="shared"))
 
-        rows = _reader(store, clients, hub).facts_for_frame("shared")
+        rows = _reader(store, clients, hub).facts_for_frame("shared").rows
 
         assert rows is not None
         assert dict(rows)["Connection"] == "c2"
@@ -248,7 +299,7 @@ class TestTheFramesCanonicalOwnerFollowsFrameEntryOrder:
         store.frames.record(s2, ScenePresentation(frame_id="shared"))
         store.frames.record(s1, ScenePresentation(frame_id="shared", title="again"))
 
-        rows = _reader(store, clients, hub).facts_for_frame("shared")
+        rows = _reader(store, clients, hub).facts_for_frame("shared").rows
 
         assert rows is not None
         assert dict(rows)["Connection"] == "c1"
@@ -266,7 +317,7 @@ class TestTheFramesCanonicalOwnerFollowsFrameEntryOrder:
             store.frames.record(scene, ScenePresentation(frame_id="shared"))
         store.frames.record(s1, ScenePresentation(frame_id="elsewhere"))
 
-        rows = _reader(store, clients, hub).facts_for_frame("shared")
+        rows = _reader(store, clients, hub).facts_for_frame("shared").rows
 
         assert rows is not None
         assert dict(rows)["Connection"] == "c2"
@@ -328,6 +379,7 @@ class _Pipeline:
                     elements=cast("list[Element]", self._sender.roots[index]),
                     frame_id=self._sender.frames[index] or "",
                     frame_owner_facts=self._sender.owner_facts[index],
+                    frame_scope_label=self._sender.scope_labels[index],
                 ),
                 owner_fd=1,
             )

@@ -66,7 +66,7 @@ class SceneSnapshot:
             sender,
             self._scene_id,
             self._roots,
-            frame_owner_facts=owners.facts_for_frame(frame_id),
+            ownership=owners.facts_for_frame(frame_id),
         )
 
 

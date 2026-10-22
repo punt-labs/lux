@@ -129,7 +129,9 @@ class TestConnect:
                 client.connect()
             mock_set.assert_called_once()
             (applied_to,) = mock_set.call_args.args
-            assert applied_to is client._sock  # its own connected fd, not any socket
+            assert (
+                applied_to is client._connection.current
+            )  # its own connected fd, not any socket
             client.close()
         finally:
             if server_conn:
@@ -589,20 +591,23 @@ class TestErrorHandling:
     def test_poll_event_after_listener_exit_raises_timeout(self) -> None:
         """A listener that started and exited surfaces as TimeoutError.
 
-        The gate is ``_listener_thread is not None`` (it was started),
-        not ``is_alive()`` — an exited listener is the no-event-arrived
-        case with a clearer message, not a misuse RuntimeError.
+        The gate is that the listener was started, not that it is alive —
+        an exited listener is the no-event-arrived case with a clearer
+        message, not a misuse RuntimeError. The listener exits here the way
+        it does in production: the display closes the connection.
         """
         import tempfile
 
         short_dir = tempfile.mkdtemp(prefix="lux-")
         sock_path = Path(short_dir) / "d.sock"
         ready_event = threading.Event()
+        accepted = threading.Event()
         server_conn: socket.socket | None = None
 
         def serve() -> None:
             nonlocal server_conn
             server_conn = _mini_display(sock_path, ready_event)
+            accepted.set()
 
         t = threading.Thread(target=serve, daemon=True)
         t.start()
@@ -612,12 +617,14 @@ class TestErrorHandling:
             with DisplayLink(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
-                dead = threading.Thread(target=lambda: None)
-                dead.start()
-                dead.join()
-                client._listener_thread = dead
+                assert accepted.wait(timeout=5), "display never accepted"
+                assert server_conn is not None
+                client.start_listener()
+                server_conn.close()
+                # The wait is bounded and the message is chosen when it ends,
+                # by which time the listener has read the close and exited.
                 with pytest.raises(TimeoutError, match="listener thread has exited"):
-                    client.poll_event(timeout=0.1)
+                    client.poll_event(timeout=1.0)
         finally:
             if server_conn:
                 server_conn.close()
@@ -978,8 +985,8 @@ class TestBackgroundListener:
 
             shutil.rmtree(short_dir, ignore_errors=True)
 
-    def test_show_async_from_callback(self) -> None:
-        """show_async() works from inside a callback without deadlock."""
+    def test_send_scene_from_callback(self) -> None:
+        """send_scene() works from inside a callback without deadlock."""
         import tempfile
 
         short_dir = tempfile.mkdtemp(prefix="lux-")
@@ -1013,9 +1020,12 @@ class TestBackgroundListener:
             client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
 
             def on_trigger(msg: RemoteEventHandlerInvocation) -> None:
-                client.show_async(
-                    "response",
-                    elements=[TextElement(id="t1", content="Callback fired")],
+                client.send_scene(
+                    SceneMessage(
+                        id="response",
+                        elements=[TextElement(id="t1", content="Callback fired")],
+                        frame_id="response",
+                    )
                 )
                 callback_done.set()
 
@@ -1235,11 +1245,11 @@ class TestBackgroundListener:
             shutil.rmtree(short_dir, ignore_errors=True)
 
     def test_hello_world_menu_callback(self) -> None:
-        """E2E proof: menu click → callback → show_async opens a frame.
+        """E2E proof: menu click → callback → send_scene opens a frame.
 
         Simulates the full pipeline: a menu leaf click arrives as a
         ``RemoteEventHandlerInvocation``, the registered callback fires
-        show_async to display "Hello World!" in a frame. The client's own
+        send_scene to display "Hello World!" in a frame. The client's own
         ``set_menu`` doubles as the readiness handshake so the server sends the
         click only after the listener is up.
         """
@@ -1283,13 +1293,15 @@ class TestBackgroundListener:
             client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
 
             def on_hello(msg: RemoteEventHandlerInvocation) -> None:
-                client.show_async(
-                    "hello-scene",
-                    elements=[
-                        TextElement(id="greeting", content="Hello World!"),
-                    ],
-                    frame_id="hello-frame",
-                    frame_title="Greeting",
+                client.send_scene(
+                    SceneMessage(
+                        id="hello-scene",
+                        elements=[
+                            TextElement(id="greeting", content="Hello World!"),
+                        ],
+                        frame_id="hello-frame",
+                        frame_title="Greeting",
+                    )
                 )
                 callback_fired.set()
 

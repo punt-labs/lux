@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.domain.hub.frame_ownership import FrameOwnership
 from punt_lux.operations.client_identity_facts import ClientIdentityFacts
 from punt_lux.operations.client_listing import ClientListing
 
@@ -58,19 +59,22 @@ class FrameOwnerFacts:
         """
         return cls(display, ClientListing(display, clients, hub, ports.inbox_depth))
 
-    def facts_for(self, scene_id: SceneId) -> tuple[tuple[str, str], ...] | None:
-        """Return the senior owner's rows, or ``None`` if unowned or departed.
+    def facts_for(self, scene_id: SceneId) -> FrameOwnership:
+        """Return the senior owner's rows and scope label, empty if unowned.
 
         The senior owner is the scene's first-appearance root owner
         (``HubDisplay.scene_owners``). A connection the roster no longer holds a
-        live session for (a departure raced this read) reports ``None`` too;
-        the display keeps its last cached snapshot rather than blanking it.
+        live session for (a departure raced this read) reports the empty
+        ownership too; the display keeps what it last held rather than blanking.
+        Rows and label come from the one ``named`` read, so they cannot
+        disagree.
         """
         owners = self._display.scene_owners(scene_id)
         if not owners:
-            return None
+            return FrameOwnership()
         named = self._clients.named(owners[0].connection_id)
         if named is None:
-            return None
+            return FrameOwnership()
         client = self._clients.facts(named)
-        return ClientIdentityFacts(client, named.name).build().rows()
+        rows = ClientIdentityFacts(client, named.name).build().rows()
+        return FrameOwnership(rows, named.scope_label)

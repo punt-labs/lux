@@ -35,6 +35,7 @@ from punt_lux.domain.hub.scene_snapshot import SceneSnapshot
 from punt_lux.domain.ids import ClientId, ConnectionId, ElementId, SceneId
 from punt_lux.domain.interaction import ButtonClicked, ValueChanged
 from punt_lux.domain.update import AddElement, RemoveElement, SetProperty
+from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.elements import (
     ButtonElement,
     CheckboxElement,
@@ -47,7 +48,6 @@ from tests.hub_harness import IsolatedHub
 
 if TYPE_CHECKING:
     from punt_lux.domain.element import Element as WireElement
-    from punt_lux.domain.hub.scene_presentation import SceneLayout
 
 _SCENE = SceneId("s1")
 
@@ -498,24 +498,9 @@ class _SnapshotLabels:
         self._snapshot.push(self, NoFrameOwnerFacts())
         return self._labels
 
-    def show_async(
-        self,
-        scene_id: str,
-        elements: list[WireElement],
-        *,
-        title: str | None = None,
-        layout: SceneLayout = "single",
-        frame_id: str,
-        frame_title: str | None = None,
-        frame_size: tuple[int, int] | None = None,
-        frame_flags: dict[str, bool] | None = None,
-        frame_layout: Literal["tab", "stack"] | None = None,
-        frame_owner_facts: tuple[tuple[str, str], ...] | None = None,
-    ) -> None:
+    def send_scene(self, message: SceneMessage) -> None:
         """Keep the pushed roots' labels — the ``ScenePusher`` side of a resend."""
-        del scene_id, title, layout, frame_id, frame_title
-        del frame_size, frame_flags, frame_layout
-        for root in elements:
+        for root in message.elements:
             assert isinstance(root, ButtonElement)
             self._labels.append(root.label)
 

@@ -35,12 +35,12 @@ from punt_lux.operations import OpError, RenderRequest, SceneShown, UpdateReques
 from punt_lux.operations.scene_deps import SceneOperationsDeps
 from punt_lux.operations.scenes import SceneOperations
 from punt_lux.operations.scope import Scope
+from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.elements.text import TextElement
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from punt_lux.domain.element import Element as WireElement
 
 pytestmark = pytest.mark.integration
 
@@ -74,17 +74,10 @@ class _FaultInjectingSender:
     def crash_on(self, scene_id: str) -> None:
         self._crashers.add(scene_id)
 
-    def show_async(
-        self,
-        scene_id: str,
-        elements: list[WireElement],
-        *,
-        frame_id: str | None = None,
-        **_kwargs: object,
-    ) -> None:
-        if scene_id in self._crashers:
-            raise OSError(f"{scene_id} crashed the display")
-        self.shows.append(scene_id)
+    def send_scene(self, message: SceneMessage) -> None:
+        if message.id in self._crashers:
+            raise OSError(f"{message.id} crashed the display")
+        self.shows.append(message.id)
 
     def set_menu(self, menus: list[dict[str, object]]) -> None:
         pass

@@ -14,47 +14,50 @@ from punt_lux.domain.hub.frame_owner_facts import (
     FrameOwnerFactsReader,
     NoFrameOwnerFacts,
 )
+from punt_lux.domain.hub.frame_ownership import FrameOwnership
 
 
 @final
 class _Reader:
-    """A reader returning a fixed rows tuple for one frame id, None otherwise."""
+    """A reader returning a fixed ownership for one frame id, unowned otherwise."""
 
-    _rows: dict[str, tuple[tuple[str, str], ...]]
-    __slots__ = ("_rows",)
+    _owned: dict[str, FrameOwnership]
+    __slots__ = ("_owned",)
 
-    def __new__(cls, rows: dict[str, tuple[tuple[str, str], ...]]) -> Self:
+    def __new__(cls, owned: dict[str, FrameOwnership]) -> Self:
         self = super().__new__(cls)
-        self._rows = rows
+        self._owned = owned
         return self
 
-    def facts_for_frame(self, frame_id: str) -> tuple[tuple[str, str], ...] | None:
-        return self._rows.get(frame_id)
+    def facts_for_frame(self, frame_id: str) -> FrameOwnership:
+        return self._owned.get(frame_id, FrameOwnership())
 
 
 def test_a_bound_reader_answers_the_query() -> None:
     binding = FrameOwnerFactsBinding()
-    binding.bind(_Reader({"s1": (("Client", "lux"),)}))
+    binding.bind(_Reader({"s1": FrameOwnership((("Client", "lux"),), "lux")}))
 
-    assert binding.facts_for_frame("s1") == (("Client", "lux"),)
+    assert binding.facts_for_frame("s1") == FrameOwnership((("Client", "lux"),), "lux")
 
 
 def test_the_last_binding_wins() -> None:
     """luxd builds a reader at the MCP root and another at REST; either answers."""
     binding = FrameOwnerFactsBinding()
-    binding.bind(_Reader({"s1": (("Client", "first"),)}))
-    binding.bind(_Reader({"s1": (("Client", "second"),)}))
+    binding.bind(_Reader({"s1": FrameOwnership((("Client", "first"),), "first")}))
+    binding.bind(_Reader({"s1": FrameOwnership((("Client", "second"),), "second")}))
 
-    assert binding.facts_for_frame("s1") == (("Client", "second"),)
+    assert binding.facts_for_frame("s1") == FrameOwnership(
+        (("Client", "second"),), "second"
+    )
 
 
 def test_an_unbound_binding_reports_every_frame_unowned() -> None:
     """A send before luxd finished composing itself is unowned, not an error."""
-    assert FrameOwnerFactsBinding().facts_for_frame("s1") is None
+    assert FrameOwnerFactsBinding().facts_for_frame("s1") == FrameOwnership()
 
 
 def test_the_null_object_reports_unowned() -> None:
-    assert NoFrameOwnerFacts().facts_for_frame("s1") is None
+    assert NoFrameOwnerFacts().facts_for_frame("s1") == FrameOwnership(None, None)
 
 
 def test_the_null_object_satisfies_the_reader_contract() -> None:

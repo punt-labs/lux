@@ -57,6 +57,16 @@ class NamedSession:
         return self._name
 
     @property
+    def scope_label(self) -> str | None:
+        """The name a window of this client's carries, or ``None`` if anonymous.
+
+        An anonymous session is listed under a fallback name but declared none, so
+        it has no scope to show: its windows keep their plain titles (DES-100).
+        """
+        # None = the session declared no identity, hence no scope to label.
+        return None if self._session.identity is None else self._name
+
+    @property
     def program(self) -> str:
         """What this one connection is called beneath its submenu, not its group."""
         identity = self._session.identity
