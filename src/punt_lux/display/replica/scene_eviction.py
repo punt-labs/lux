@@ -1,9 +1,9 @@
 """SceneEviction — takes one scene out of its frame and settles what is left.
 
 A frame the eviction empties is disposed, husk and all. One that stays occupied
-forgets the removed scene's owner and takes the Hub's word on the rest. That is
-not the owner *connection* departing -- its scenes stand, and the Hub's ``None``
-leaves the last snapshot in place -- here the scene those rows described is gone.
+keeps its owner snapshot unless the removed scene was its oldest, the one those
+rows describe; then it takes the Hub's word. The owner *connection* departing is
+different: its scenes stand, and the Hub's ``None`` leaves the snapshot in place.
 """
 
 from __future__ import annotations
@@ -53,13 +53,12 @@ class SceneEviction:
         scene_id: str,
         facts_after: tuple[tuple[str, str], ...] | None,
     ) -> None:
-        """Remove ``scene_id`` from ``frame``; dispose it if emptied, else re-own it.
-
-        ``facts_after`` is the Hub's word on what remains, ``None`` if it said none.
-        """
+        """Remove ``scene_id`` from ``frame``; dispose it if emptied, else re-own it."""
+        was_oldest = frame.scene_order[:1] == [scene_id]
         if self._disposer.dismiss_framed_scene(frame, scene_id):
             self._disposer.dispose_frame(frame.frame_id, frame.hub)
             return
         frame_key = HubScopedKey(frame.hub, frame.frame_id)
+        carried = facts_after if was_oldest else self._owner_facts.rows_for(frame_key)
         self._owner_facts.prune(frame_key)
-        self._owner_facts.adopt(frame_key, facts_after)
+        self._owner_facts.adopt(frame_key, carried)

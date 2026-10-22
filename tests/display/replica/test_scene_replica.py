@@ -1550,3 +1550,127 @@ class TestOwnerFactsHubScoping:
 
         assert mgr.owner_facts_for("main", _HUB_A) is None
         assert mgr.owner_facts_for("main", _HUB_B) == self._ROWS_B
+
+
+class TestOwnerFactsSurviveAYoungerSceneLeaving:
+    """The snapshot describes the frame's oldest scene: a younger scene leaving,
+    by any path, leaves it be; the oldest leaving replaces it."""
+
+    _SENIOR = (("Client", "senior"),)
+    _NEXT = (("Client", "next-oldest"),)
+
+    def _frame_of_two(self) -> SceneReplica:
+        mgr, _ = _make_manager()
+        for scene_id in ("s1", "s2"):
+            mgr.handle_framed_scene(
+                _make_scene(
+                    scene_id=scene_id, frame_id="f", frame_owner_facts=self._SENIOR
+                ),
+                owner_fd=10,
+                hub=_HUB_A,
+            )
+        return mgr
+
+    def _facts(self, mgr: SceneReplica) -> tuple[tuple[str, str], ...] | None:
+        return mgr.owner_facts_for("f", _HUB_A)
+
+    def test_a_younger_scene_emptied_keeps_the_facts(self) -> None:
+        mgr = self._frame_of_two()
+
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s2", frame_id="f", elements=[]),
+            owner_fd=10,
+            hub=_HUB_A,
+        )
+
+        assert self._facts(mgr) == self._SENIOR
+
+    def test_a_younger_scene_moved_away_keeps_the_facts(self) -> None:
+        mgr = self._frame_of_two()
+
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s2", frame_id="elsewhere"), owner_fd=10, hub=_HUB_A
+        )
+
+        assert self._facts(mgr) == self._SENIOR
+
+    def test_a_younger_tab_closed_keeps_the_facts(self) -> None:
+        mgr = self._frame_of_two()
+        frame = mgr.frame("f", _HUB_A)
+        assert frame is not None
+
+        mgr.departure.of_dismissal(frame, "s2")
+
+        assert self._facts(mgr) == self._SENIOR
+
+    def test_a_younger_scene_purged_by_a_manifest_keeps_the_facts(self) -> None:
+        mgr = self._frame_of_two()
+
+        mgr.departure.sweep.run(_HUB_A, frozenset({"s1"}), frozenset({_HUB_A}))
+
+        assert self._facts(mgr) == self._SENIOR
+
+    def test_the_oldest_scene_emptied_adopts_the_facts_the_push_carries(self) -> None:
+        mgr = self._frame_of_two()
+
+        mgr.handle_framed_scene(
+            _make_scene(
+                scene_id="s1", frame_id="f", elements=[], frame_owner_facts=self._NEXT
+            ),
+            owner_fd=10,
+            hub=_HUB_A,
+        )
+
+        assert self._facts(mgr) == self._NEXT
+
+    def test_the_oldest_scene_moved_away_forgets_the_facts(self) -> None:
+        mgr = self._frame_of_two()
+
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s1", frame_id="elsewhere"), owner_fd=10, hub=_HUB_A
+        )
+
+        assert self._facts(mgr) is None
+
+    def test_the_oldest_tab_closed_forgets_the_facts(self) -> None:
+        mgr = self._frame_of_two()
+        frame = mgr.frame("f", _HUB_A)
+        assert frame is not None
+
+        mgr.departure.of_dismissal(frame, "s1")
+
+        assert self._facts(mgr) is None
+
+    def test_the_oldest_scene_purged_by_a_manifest_forgets_the_facts(self) -> None:
+        mgr = self._frame_of_two()
+
+        mgr.departure.sweep.run(_HUB_A, frozenset({"s2"}), frozenset({_HUB_A}))
+
+        assert self._facts(mgr) is None
+
+    def test_a_scene_moved_in_is_younger_than_the_scenes_already_there(self) -> None:
+        # s3 enters "f" last (moved from "g"), so its leaving keeps the facts
+        # even though it was shown before s2 ever was.
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s3", frame_id="g"), owner_fd=10, hub=_HUB_A
+        )
+        for scene_id in ("s1", "s2"):
+            mgr.handle_framed_scene(
+                _make_scene(
+                    scene_id=scene_id, frame_id="f", frame_owner_facts=self._SENIOR
+                ),
+                owner_fd=10,
+                hub=_HUB_A,
+            )
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s3", frame_id="f"), owner_fd=10, hub=_HUB_A
+        )
+
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s3", frame_id="f", elements=[]),
+            owner_fd=10,
+            hub=_HUB_A,
+        )
+
+        assert self._facts(mgr) == self._SENIOR

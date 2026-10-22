@@ -6,8 +6,10 @@ same owner, whichever scene the replicator sent last.
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Self, cast, final
 
+from punt_lux.display.replica import SceneReplica
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
@@ -17,12 +19,14 @@ from punt_lux.operations.canonical_frame_owner import CanonicalFrameOwner
 from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.frame_owner_facts import FrameOwnerFacts
 from punt_lux.operations.queries import QueryOperations
+from punt_lux.protocol import Element, SceneMessage
 from punt_lux.protocol.elements.text import TextElement
-from tests.domain.test_hub_replicator import _replicator
+from tests.domain.test_hub_replicator import _FakeSender, _replicator
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from punt_lux.domain.hub.replicator import HubReplicator
     from punt_lux.domain.hub.scene_snapshot import SceneReader, SceneSnapshot
 
 
@@ -232,3 +236,102 @@ class TestTheFramesCanonicalOwnerFollowsFrameEntryOrder:
 
         assert rows is not None
         assert dict(rows)["Connection"] == "c2"
+
+
+def _ignore_stale(stale_ids: list[str]) -> None:
+    """Take no interest in the element ids a replacement drops."""
+
+
+@final
+class _Pipeline:
+    """A real replicator feeding a real Display replica, driven one send at a time."""
+
+    _store: HubDisplay
+    _replica: SceneReplica
+    _repl: HubReplicator
+    _sender: _FakeSender
+    _cursor: int
+    __slots__ = ("_cursor", "_repl", "_replica", "_sender", "_store")
+
+    def __new__(cls, store: HubDisplay, hub: Hub) -> Self:
+        self = super().__new__(cls)
+        self._store = store
+        self._replica = SceneReplica(on_scene_replaced=_ignore_stale)
+        self._repl, self._sender, _provider, _lifecycle = _replicator(
+            store, owner_facts=_reader(store, hub)
+        )
+        self._cursor = 0
+        return self
+
+    def __enter__(self) -> Self:
+        self._repl.start()
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self._repl.stop()
+
+    def resend(self, scene: SceneId) -> str | None:
+        """Resend ``scene``; return the owner connection the Display then shows."""
+        self._repl.mark_dirty(scene)
+        deadline = time.monotonic() + 3.0
+        while len(self._sender.shows) <= self._cursor:
+            assert time.monotonic() < deadline, "the replicator never sent"
+            time.sleep(0.005)
+        for index in range(self._cursor, len(self._sender.shows)):
+            self._replica.handle_framed_scene(
+                SceneMessage(
+                    id=self._sender.shows[index],
+                    elements=cast("list[Element]", self._sender.roots[index]),
+                    frame_id=self._sender.frames[index] or "",
+                    frame_owner_facts=self._sender.owner_facts[index],
+                ),
+                owner_fd=1,
+            )
+        self._cursor = len(self._sender.shows)
+        rows = self._replica.owner_facts_for("shared")
+        return None if rows is None else dict(rows)["Connection"]
+
+
+class TestTheDisplayAdoptsTheNextCanonicalOwnerWhenTheCanonicalSceneLeaves:
+    """Hub replicator -> Display replica, end to end, in process."""
+
+    @staticmethod
+    def _two_scene_frame() -> tuple[HubDisplay, Hub, SceneId, SceneId]:
+        store, hub = HubDisplay(), Hub()
+        s1 = _identified_scene(store, "c1", name="alpha")
+        s2 = _identified_scene(store, "c2", name="beta")
+        store.frames.record(s1, ScenePresentation(frame_id="shared"))
+        store.frames.record(s2, ScenePresentation(frame_id="shared"))
+        return store, hub, s1, s2
+
+    def test_a_blanked_canonical_scene_hands_the_frame_to_the_next_oldest(self) -> None:
+        store, hub, s1, s2 = self._two_scene_frame()
+        with _Pipeline(store, hub) as pipe:
+            before = [pipe.resend(s1), pipe.resend(s2)]
+            store.replace_scene(ConnectionId("c1"), s1, [])
+            after = pipe.resend(s1)
+
+        assert (before, after) == (["c1", "c1"], "c2")
+
+    def test_a_moved_canonical_scene_leaves_the_frame_unknown_until_it_is_resent(
+        self,
+    ) -> None:
+        store, hub, s1, s2 = self._two_scene_frame()
+        with _Pipeline(store, hub) as pipe:
+            pipe.resend(s1)
+            pipe.resend(s2)
+            store.frames.record(s1, ScenePresentation(frame_id="elsewhere"))
+            after_move = pipe.resend(s1)
+            after_resend = pipe.resend(s2)
+
+        assert (after_move, after_resend) == (None, "c2")
+
+    def test_a_moved_younger_scene_never_disturbs_the_frames_owner(self) -> None:
+        store, hub, s1, s2 = self._two_scene_frame()
+        with _Pipeline(store, hub) as pipe:
+            pipe.resend(s1)
+            pipe.resend(s2)
+            store.frames.record(s2, ScenePresentation(frame_id="elsewhere"))
+            after_move = pipe.resend(s2)
+
+        assert after_move == "c1"

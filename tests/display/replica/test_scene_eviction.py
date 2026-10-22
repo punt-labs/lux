@@ -54,6 +54,7 @@ def _hold(book: FrameBook, scene_id: str) -> Frame:
         frame_id="f",
     )
     frame = book.ensure(msg, 1, _HUB)
+    frame.scene_order.append(scene_id)
     book.set_frame(HubScopedKey(_HUB, scene_id), "f")
     return frame
 
@@ -105,3 +106,52 @@ def test_eviction_from_the_holder_of_an_unheld_scene_touches_nothing() -> None:
     eviction.from_holder(HubScopedKey(_HUB, "ghost"), _NEW)
 
     assert (facts.rows_for(_FRAME), disposer.disposed) == (_OLD, [])
+
+
+def test_a_junior_scene_leaving_keeps_the_frames_owner_facts() -> None:
+    eviction, book, facts, _ = _eviction(emptied=False)
+    _hold(book, "senior")
+    frame = _hold(book, "junior")
+
+    eviction.from_frame(frame, "junior", None)
+
+    assert facts.rows_for(_FRAME) == _OLD
+
+
+def test_a_junior_scene_leaving_ignores_the_facts_the_trigger_carried() -> None:
+    eviction, book, facts, _ = _eviction(emptied=False)
+    _hold(book, "senior")
+    frame = _hold(book, "junior")
+
+    eviction.from_frame(frame, "junior", _NEW)
+
+    assert facts.rows_for(_FRAME) == _OLD
+
+
+def test_the_senior_scene_leaving_clears_the_facts_when_none_were_carried() -> None:
+    eviction, book, facts, _ = _eviction(emptied=False)
+    frame = _hold(book, "senior")
+    _hold(book, "junior")
+
+    eviction.from_frame(frame, "senior", None)
+
+    assert facts.rows_for(_FRAME) is None
+
+
+def test_the_senior_scene_leaving_adopts_the_facts_the_trigger_carried() -> None:
+    eviction, book, facts, _ = _eviction(emptied=False)
+    frame = _hold(book, "senior")
+    _hold(book, "junior")
+
+    eviction.from_frame(frame, "senior", _NEW)
+
+    assert facts.rows_for(_FRAME) == _NEW
+
+
+def test_a_scene_the_frame_does_not_hold_is_not_senior() -> None:
+    eviction, book, facts, _ = _eviction(emptied=False)
+    frame = _hold(book, "senior")
+
+    eviction.from_frame(frame, "ghost", None)
+
+    assert facts.rows_for(_FRAME) == _OLD

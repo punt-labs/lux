@@ -58,6 +58,7 @@ def _departure(
 
 def _hold(book: FrameBook, scene_id: str, frame_id: str) -> Frame:
     frame = book.ensure(_scene(scene_id, frame_id), 1, _HUB)
+    frame.scene_order.append(scene_id)
     book.set_frame(HubScopedKey(_HUB, scene_id), frame_id)
     return frame
 
