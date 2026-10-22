@@ -62,7 +62,7 @@ def _ports(
 
 
 def _ops() -> PubSubOperations:
-    return PubSubOperations(hub, hub_display.clients, _ports())
+    return PubSubOperations(hub, hub_display, _ports())
 
 
 @pytest.fixture
@@ -113,7 +113,7 @@ def test_receive_drains_without_blocking(scope: Scope) -> None:
         seen.append(timeout)
         return
 
-    ops = PubSubOperations(hub, hub_display.clients, _ports(next_event_fn=_record))
+    ops = PubSubOperations(hub, hub_display, _ports(next_event_fn=_record))
     result = ops.receive(scope=scope)
     assert result.event is None
     assert seen == [0.0]
@@ -157,7 +157,7 @@ def test_a_pubsub_only_client_keeps_its_scene_ownership_past_its_ttl() -> None:
             scene_id=scene_id, element=TextElement(id="t", content="x"), parent_id=None
         ),
     )
-    ops = PubSubOperations(Hub(), display.clients, _ports(lambda _c: None, _no_event))
+    ops = PubSubOperations(Hub(), display, _ports(lambda _c: None, _no_event))
 
     for _ in range(3):
         clock.advance(1801.0)  # past the 1800s unidentified-session lease

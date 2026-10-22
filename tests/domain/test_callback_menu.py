@@ -552,8 +552,8 @@ class TestTheReplica:
         identity = ClientIdentity(
             kind="applet", name="lux · lux · #4b97 · lux-beads", repo="/w/lux"
         )
-        registry.attach_listener(conn, identity, leg)
-        registry.register_callback(
+        registry.legs.attach(conn, identity, leg)
+        registry.legs.register_callback(
             conn, SessionCallback(id="beads", label="Beads"), leg
         )
 
@@ -585,10 +585,10 @@ class TestTheReplica:
         beads = SessionCallback(id="beads", label="Beads")
         for name in ("first", "second"):
             conn, leg = ConnectionId(name), _SilentLeg()
-            registry.attach_listener(
+            registry.legs.attach(
                 conn, ClientIdentity(kind="mcp-session", name=name, repo="/w/lux"), leg
             )
-            registry.register_callback(conn, beads, leg)
+            registry.legs.register_callback(conn, beads, leg)
 
         wire = CallbackMenuReplica(registry).callback_menu_wire()
         read = CallbackMenu.from_named(registry.named_sessions())
@@ -620,14 +620,14 @@ class TestTheReplica:
             ),
         )
         leg = _SilentLeg()
-        registry.attach_listener(
+        registry.legs.attach(
             arriving,
             ClientIdentity(
                 kind="applet", name="lux · lux · #f00d · lux-beads", repo="/w/lux"
             ),
             leg,
         )
-        registry.register_callback(
+        registry.legs.register_callback(
             arriving, SessionCallback(id="beads", label="Beads"), leg
         )
         replica = CallbackMenuReplica(registry)

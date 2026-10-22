@@ -183,7 +183,7 @@ def make_client(
     display = store if store is not None else HubDisplay()
     router = CallbackRouter(display.clients)
     if listening:
-        display.clients.attach_listener(
+        display.clients.legs.attach(
             DEFAULT_CONNECTION, DEFAULT_IDENTITY_MODEL, SilentListener()
         )
     facade = make_facade(display_port=port, store=display, router=router)

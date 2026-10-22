@@ -119,9 +119,7 @@ def _isolated_ops(*, listening: bool = True) -> Generator[tuple[Operations, _Rig
     router = CallbackRouter(display.clients)
     listener = _Listener()
     if listening:
-        display.clients.attach_listener(
-            ConnectionId(_SESSION), _tool_identity(), listener
-        )
+        display.clients.legs.attach(ConnectionId(_SESSION), _tool_identity(), listener)
     ports = HubPorts(
         element_factory=hub_element_factory,
         ensure_writer=ensure_writer,

@@ -42,8 +42,8 @@ type WriteLock = Callable[[], AbstractContextManager[bool]]
 class MenuDepartureSink:
     """Withdraw a departed session's agent bar and re-push it, as a departure sink.
 
-    Bound at ``menu_set`` admit and fired by the departure cascade on EVERY
-    trigger — graceful disconnect and the lease timer alike. It prunes the owner's
+    The Hub's one shared sink, fired by the departure cascade on EVERY trigger —
+    graceful disconnect and the lease timer alike. It prunes the owner's
     bar from the registry, then marks the menu bar dirty so the replicator
     re-reads the live set and re-pushes. Without the mark, the lease-lapse path
     prunes Hub memory but leaves the departed owner's entries rendered on the

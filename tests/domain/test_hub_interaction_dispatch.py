@@ -170,8 +170,10 @@ def test_menu_click_routes_the_callback_to_its_owning_session(
     registry, router, replicator = _isolated_router(monkeypatch)
     conn = ConnectionId("vox-1")
     leg = _SilentLeg()
-    registry.attach_listener(conn, ClientIdentity(kind="app", name="voxd"), leg)
-    registry.register_callback(conn, SessionCallback(id="music", label="Music"), leg)
+    registry.legs.attach(conn, ClientIdentity(kind="app", name="voxd"), leg)
+    registry.legs.register_callback(
+        conn, SessionCallback(id="music", label="Music"), leg
+    )
 
     menu_id = CallbackInvocation(conn, "music").menu_id
     HubInteractionDispatch.dispatch(
@@ -213,8 +215,10 @@ def test_a_details_click_is_answered_by_the_hub_not_routed_to_the_client(
     registry, router, replicator = _isolated_router(monkeypatch)
     conn = ConnectionId("vox-1")
     leg = _SilentLeg()
-    registry.attach_listener(conn, ClientIdentity(kind="app", name="voxd"), leg)
-    registry.register_callback(conn, SessionCallback(id="music", label="Music"), leg)
+    registry.legs.attach(conn, ClientIdentity(kind="app", name="voxd"), leg)
+    registry.legs.register_callback(
+        conn, SessionCallback(id="music", label="Music"), leg
+    )
     renderer = MagicMock()
     renderer.render_details.return_value = DetailsShown()
     binding = DetailsBinding()
@@ -376,8 +380,8 @@ def test_a_same_named_callback_and_menu_item_route_apart() -> None:
     conn = ConnectionId("dual-owner")
     leg = _SilentLeg()
     clients = hub_display.clients
-    clients.attach_listener(conn, ClientIdentity(kind="app", name="dual"), leg)
-    clients.register_callback(conn, SessionCallback(id="run", label="Run"), leg)
+    clients.legs.attach(conn, ClientIdentity(kind="app", name="dual"), leg)
+    clients.legs.register_callback(conn, SessionCallback(id="run", label="Run"), leg)
     ensure_writer(conn)  # arm the inbox; the same session owns a menu item too
     try:
         HubInteractionDispatch.dispatch(

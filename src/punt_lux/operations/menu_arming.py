@@ -8,8 +8,7 @@ session has identified and that its inbox is armed, because a ``menu_set`` click
 an agent-in-the-loop notification delivered on that inbox — not a sub-100 ms push.
 
 This is the ``menu_set`` half: admit an identified session by arming its inbox
-writer and departure sink, and refuse an anonymous one. ``track`` binds the same
-departure prune for any identified connection, whether or not it sets a menu.
+writer and the Hub's one shared menu sink, and refuse an anonymous one.
 """
 
 from __future__ import annotations
@@ -17,7 +16,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.domain.ids import ConnectionId
     from punt_lux.operations.menu_arming_deps import MenuArmingDeps
 
@@ -40,31 +38,16 @@ class MenuArming:
         """Renew the caller, arm its inbox and menu prune iff identified; report if in.
 
         An identified session has its lease renewed, its inbox writer armed (so a
-        click has somewhere to land), and its menu-registry prune bound as a
-        departure sink — so EVERY departure trigger (graceful disconnect or the
-        lease timer) withdraws its bar, not only the graceful leg (MO: menuOwner ⊆
-        registered, modelled in ``docs/menu_lifecycle.tex``). An anonymous session
-        is refused, arming nothing.
+        click has somewhere to land), and the Hub's shared menu sink bound — so
+        EVERY departure trigger (graceful disconnect or the lease timer) withdraws
+        its bar, not only the graceful leg (MO: menuOwner ⊆ registered, modelled in
+        ``docs/menu_lifecycle.tex``). An anonymous session is refused, arming
+        nothing.
         """
         deps = self._deps
-        deps.clients.renew_if_registered(connection_id)
-        if deps.clients.identity_of(connection_id) is None:
+        deps.display.renew_contact(connection_id)
+        if deps.display.clients.identity_of(connection_id) is None:
             return False
         deps.ensure_writer(connection_id)
-        deps.arm_departure(connection_id)
+        deps.display.lifecycle.arm(connection_id)
         return True
-
-    def track(self, connection_id: ConnectionId, before: ClientIdentity | None) -> None:
-        """Bind the prune and re-push the Clients menu if the identity changed.
-
-        ``before`` is what the connection declared until now: the same declaration
-        repeated changes nothing, so a client re-declaring itself on every request
-        neither re-binds nor resends the menu. Check and bind are one step under
-        the store's write lock, so a departure cannot land between them and leave
-        a sink bound to a connection that has gone.
-        """
-        deps = self._deps
-        with deps.write_lock():
-            if deps.clients.identity_of(connection_id) not in (None, before):
-                deps.arm_departure(connection_id)
-                deps.mark_menus()

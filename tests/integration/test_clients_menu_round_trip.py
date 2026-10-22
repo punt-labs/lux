@@ -136,13 +136,13 @@ class _Wired:
         """Bring a client up the way the listen route does, and register a command."""
         leg = _Leg()
         self._legs[connection_id] = leg
-        self._store.clients.attach_listener(connection_id, identity, leg)
+        self._store.clients.legs.attach(connection_id, identity, leg)
         command = (
             SessionCallback(id="music", label="Music")
             if connection_id == _VOXD
             else SessionCallback(id="beads", label="Beads")
         )
-        self._store.clients.register_callback(connection_id, command, leg)
+        self._store.clients.legs.register_callback(connection_id, command, leg)
 
     def draw(self, *clicks: str) -> FakeImGui:
         """Decode the wire the Hub would send and draw it, clicking what is named.

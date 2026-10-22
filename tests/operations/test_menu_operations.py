@@ -10,7 +10,7 @@ the typed model, then appends the Clients menu.
 from __future__ import annotations
 
 from collections.abc import Generator, Sequence
-from contextlib import AbstractContextManager, contextmanager, nullcontext
+from contextlib import contextmanager, nullcontext
 from typing import Self, final
 
 import pytest
@@ -18,6 +18,7 @@ from pydantic import ValidationError
 
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
+from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.menu_models import Menu, MenuAction, MenuSeparator
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.ids import ConnectionId, SceneId
@@ -27,11 +28,6 @@ from punt_lux.operations.menus import MenuOperations, MenuOperationsDeps
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.menu_results import MenuList, Ok, SetMenuRequest
 from punt_lux.operations.scope import Scope
-
-
-def _write_lock() -> AbstractContextManager[bool]:
-    """A write lock that excludes nobody: these tests are single-threaded."""
-    return nullcontext(True)
 
 
 @final
@@ -83,18 +79,11 @@ class _Ops:
 
     def __new__(cls, callback_menus: Sequence[Menu] = ()) -> Self:
         self = super().__new__(cls)
-        self.clients = HubClientRegistry()
+        display = HubDisplay()
+        self.clients = display.clients
         self.marker = _MenuMarkerSpy()
         self.registry = HubMenuRegistry(self.clients)
-        arming = MenuArming(
-            MenuArmingDeps(
-                self.clients,
-                lambda _cid: None,
-                lambda _cid: None,
-                lambda: None,
-                _write_lock,
-            )
-        )
+        arming = MenuArming(MenuArmingDeps(display, lambda _cid: None))
         self.ops = MenuOperations(
             MenuOperationsDeps(
                 registry=self.registry,
@@ -366,13 +355,10 @@ def test_set_menu_holds_the_write_lock_across_admit_and_store(
     the ``with`` (``enter, admit, exit, set_menus``) or the push moves inside it.
     """
     events: list[str] = []
-    clients = HubClientRegistry()
+    display = HubDisplay()
+    clients = display.clients
     registry = HubMenuRegistry(clients)
-    arming = MenuArming(
-        MenuArmingDeps(
-            clients, lambda _cid: None, lambda _cid: None, lambda: None, _write_lock
-        )
-    )
+    arming = MenuArming(MenuArmingDeps(display, lambda _cid: None))
 
     original_admit = MenuArming.admit
     original_set_menus = HubMenuRegistry.set_menus
@@ -421,13 +407,10 @@ def test_set_menu_does_not_store_when_admit_refuses_under_the_lock(
     entered and exited with no ``set_menus`` and no push between.
     """
     events: list[str] = []
-    clients = HubClientRegistry()
+    display = HubDisplay()
+    clients = display.clients
     registry = HubMenuRegistry(clients)
-    arming = MenuArming(
-        MenuArmingDeps(
-            clients, lambda _cid: None, lambda _cid: None, lambda: None, _write_lock
-        )
-    )
+    arming = MenuArming(MenuArmingDeps(display, lambda _cid: None))
 
     original_set_menus = HubMenuRegistry.set_menus
 

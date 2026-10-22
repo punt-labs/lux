@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Self
 
 from punt_lux.domain.element import Element as WireElement
 from punt_lux.domain.hub.child_index import ChildIndex
+from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
 from punt_lux.domain.hub.departure_cascade import DepartureCascade
 from punt_lux.domain.hub.dismissal_walk import DismissalWalk
 from punt_lux.domain.hub.element_index import (
@@ -112,7 +113,7 @@ class HubDisplay:
     _quarantine: QuarantineRegistry
     _quarantine_cleared_observers: list[QuarantineClearedObserver]
     _eviction: SceneEviction
-    _cascade: DepartureCascade
+    _lifecycle: ClientLifecycle
 
     def __new__(
         cls, clock: Callable[[], float] = time.monotonic, hub: Hub = default_hub
@@ -121,7 +122,6 @@ class HubDisplay:
         self._index = ElementIndex()
         self._clients = HubClientRegistry(clock)
         self._owners = OwnerTracker()
-        self._cascade = DepartureCascade(hub)
         self._roots = RootRegistry()
         self._children = ChildIndex()
         self._dismissal = DismissalWalk(self._index, self._children)
@@ -147,6 +147,9 @@ class HubDisplay:
             root_removal.route,
         )
         self._lock = StoreLock()
+        self._lifecycle = ClientLifecycle(
+            self._clients, self._owners, DepartureCascade(hub), self._lock
+        )
         self._frame_lifecycle = FrameLifecycle(
             self._frames, self._eviction, FrameExpiry(clock), self._lock
         )
@@ -167,15 +170,13 @@ class HubDisplay:
 
     def register_client(self, connection_id: ConnectionId) -> None:
         """Record a connection's own arrival as a client, renewing its lease."""
-        with self._lock.write():
-            self._clients.record(connection_id)
+        self._lifecycle.arrive(connection_id)
 
     def identify_client(
         self, connection_id: ConnectionId, identity: ClientIdentity
     ) -> None:
         """Record the identity a connection declared, registering it if new."""
-        with self._lock.write():
-            self._clients.record(connection_id, identity)
+        self._lifecycle.identify(connection_id, identity)
 
     def is_client(self, connection_id: ConnectionId) -> bool:
         """Return True if the connection is currently registered."""
@@ -183,14 +184,18 @@ class HubDisplay:
 
     def renew_contact(self, connection_id: ConnectionId) -> None:
         """Renew the lease iff registered -- the write-contact choke point."""
-        self._clients.renew_if_registered(connection_id)
+        self._lifecycle.renew(connection_id)
 
     def bind_departure_sink(
         self, connection_id: ConnectionId, sink: DepartureSink
     ) -> None:
         """Register ``sink`` as the connection's transport-owned cleanup."""
-        with self._lock.write():
-            self._cascade.bind_sink(connection_id, sink)
+        self._lifecycle.bind_sink(connection_id, sink)
+
+    @property
+    def lifecycle(self) -> ClientLifecycle:
+        """Return the client lifecycle -- arrival, contact, listener seat, departure."""
+        return self._lifecycle
 
     @property
     def clients(self) -> HubClientRegistry:
@@ -399,8 +404,8 @@ class HubDisplay:
         go of.
         """
         with self._lock.write():
-            self._clients.renew_if_registered(connection_id)
-            self._depart_lapsed(exclude=frozenset({connection_id}))
+            self._lifecycle.renew(connection_id)
+            self._lifecycle.depart_lapsed(frozenset({connection_id}))
             match update:
                 case AddElement(scene_id=sid, parent_id=pid, element=elem):
                     session = self._clients.session_of(connection_id)
@@ -431,8 +436,7 @@ class HubDisplay:
         The graceful-disconnect and SDK-idle-reap path — no lease condition
         gates it, unlike a lapse-triggered departure.
         """
-        with self._lock.write():
-            self._depart(connection_id)
+        self._lifecycle.depart(connection_id)
 
     def reap_lapsed_leases(self) -> frozenset[ConnectionId]:
         """Depart every connection whose lease has lapsed; return who left.
@@ -440,27 +444,7 @@ class HubDisplay:
         The background timer's hook — independent of any read, any other
         connection's write, and any disconnect signal.
         """
-        return self._depart_lapsed(exclude=frozenset())
-
-    def _depart_lapsed(
-        self, *, exclude: frozenset[ConnectionId]
-    ) -> frozenset[ConnectionId]:
-        """Depart every lapsed connection except ``exclude``; return who left."""
-        with self._lock.write():
-            lapsed = self._clients.reap_lapsed_locked(exclude)
-            self._owners.release_departed(lapsed)
-            self._cascade.run_all(lapsed)
-            return lapsed
-
-    def _depart(self, connection_id: ConnectionId) -> None:
-        """Atomically deregister and release everything ``connection_id`` owned.
-
-        The one step every departure trigger funnels through. Caller holds
-        the store write lock.
-        """
-        self._clients.discard(connection_id)
-        self._owners.release_all(connection_id)
-        self._cascade.run(connection_id)
+        return self._lifecycle.depart_lapsed(frozenset())
 
 
 hub_display = HubDisplay()

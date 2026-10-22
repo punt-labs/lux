@@ -35,7 +35,6 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.session_callback import CallbackInvocation
     from punt_lux.domain.ids import ConnectionId
     from punt_lux.operations.display_link import ReplicatorLink
-    from punt_lux.operations.menu_arming import MenuArming
     from punt_lux.operations.models import (
         Cleared,
         DisplayModeState,
@@ -83,13 +82,11 @@ class Operations:
     _display: DisplayControlOperations
     _queries: QueryOperations
     _menus: MenuOperations
-    _arming: MenuArming
     _identity: IdentityOperations
     _callbacks: CallbackOperations
     _frame_remover: FrameRemover
     _link: DisplayLinkOperations
     __slots__ = (
-        "_arming",
         "_callbacks",
         "_config",
         "_conveniences",
@@ -112,7 +109,6 @@ class Operations:
         self._display = concerns.display
         self._queries = concerns.queries
         self._menus = concerns.menus
-        self._arming = concerns.arming
         self._identity = concerns.identity
         self._callbacks = concerns.callbacks
         self._frame_remover = concerns.frame_remover
@@ -133,7 +129,7 @@ class Operations:
         """Wire every concern class from injected collaborators — no singletons."""
         deps = SceneOperationsDeps(display, replicator, ports.element_factory, hub)
         scenes = SceneOperations(deps)
-        callbacks = CallbackOperations(display.clients, callback_router, replicator)
+        callbacks = CallbackOperations(display, callback_router, replicator)
         arming = MenuArmingDeps.over(
             display, menu_registry, replicator, ports.ensure_writer
         ).arming()
@@ -142,11 +138,10 @@ class Operations:
         return cls(
             OperationsConcerns(
                 scenes=scenes,
-                pubsub=PubSubOperations(hub, display.clients, ports),
+                pubsub=PubSubOperations(hub, display, ports),
                 config=DisplayModeOperations(),
                 display=DisplayControlOperations(ports.display_port),
                 queries=queries,
-                arming=arming,
                 menus=MenuOperations(
                     MenuOperationsDeps(
                         registry=menu_registry,
@@ -305,10 +300,7 @@ class Operations:
         self, declaration: dict[str, object], *, scope: Scope
     ) -> Identified | OpError:
         """Record the caller's declared identity, or reject a malformed one."""
-        before = self._identity.current(scope)
-        result = self._identity.identify(declaration, scope=scope)
-        self._arming.track(scope.connection_id, before)
-        return result
+        return self._identity.identify(declaration, scope=scope)
 
     def identity_of(self, *, scope: Scope) -> ClientIdentity | None:
         """Return the identity already declared for ``scope``, or ``None``."""

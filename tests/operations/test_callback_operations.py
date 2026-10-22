@@ -16,6 +16,7 @@ from typing import Self, final
 from punt_lux.domain.hub.callback_hold import CallbackRouter
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
+from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.menu_models import Menu
 from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.operations.callbacks import CallbackOperations
@@ -99,12 +100,11 @@ class _Wired:
 
     def __new__(cls, *, clock: _Clock | None = None) -> Self:
         self = super().__new__(cls)
-        self._clients = (
-            HubClientRegistry(clock) if clock is not None else HubClientRegistry()
-        )
+        display = HubDisplay(clock) if clock is not None else HubDisplay()
+        self._clients = display.clients
         self._router = CallbackRouter(self._clients)
         self._marker = _MarkerSpy()
-        self._ops = CallbackOperations(self._clients, self._router, self._marker)
+        self._ops = CallbackOperations(display, self._router, self._marker)
         return self
 
     @property
@@ -126,12 +126,12 @@ class _Wired:
     ) -> _Listener:
         """Bring a session up as a live listen leg does: one call, identity and leg."""
         listener = _Listener()
-        self._clients.attach_listener(conn, identity or _identity(), listener)
+        self._clients.legs.attach(conn, identity or _identity(), listener)
         return listener
 
     def drop_leg(self, conn: ConnectionId, listener: _Listener) -> None:
         """Tear the session's leg down the way its own teardown does."""
-        self._clients.detach_listener(conn, listener)
+        self._clients.legs.detach(conn, listener)
 
     def register(self, conn: ConnectionId, callback_id: str = "beads") -> Ok | OpError:
         request = RegisterCallbackRequest.parse(CallbackFields(callback_id, "Beads"))

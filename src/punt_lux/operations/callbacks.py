@@ -29,7 +29,7 @@ from punt_lux.operations.models.menu_results import Ok
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.callback_hold import CallbackRouter
-    from punt_lux.domain.hub.hub_clients import HubClientRegistry
+    from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.hub.menu_models import Menu
     from punt_lux.domain.hub.registry_outcomes import CallbackRegistration
     from punt_lux.operations.models.callbacks import RegisterCallbackRequest
@@ -64,19 +64,19 @@ class CallbackMenuSource(Protocol):
 class CallbackOperations:
     """Register callbacks, route their clicks, and read the callback menu."""
 
-    _clients: HubClientRegistry
+    _display: HubDisplay
     _router: CallbackRouter
     _replicator: DirtyMarker
-    __slots__ = ("_clients", "_replicator", "_router")
+    __slots__ = ("_display", "_replicator", "_router")
 
     def __new__(
         cls,
-        clients: HubClientRegistry,
+        display: HubDisplay,
         router: CallbackRouter,
         replicator: DirtyMarker,
     ) -> Self:
         self = super().__new__(cls)
-        self._clients = clients
+        self._display = display
         self._router = router
         self._replicator = replicator
         return self
@@ -102,12 +102,12 @@ class CallbackOperations:
         """
         if isinstance(request, OpError):
             return request
-        self._clients.renew_if_registered(scope.connection_id)
-        expected = self._clients.listener_of(scope.connection_id)
+        self._display.renew_contact(scope.connection_id)
+        expected = self._display.clients.legs.listener_for(scope.connection_id)
         if expected is None:
             return _PUSH_REQUIRED
         return self._registered(
-            self._clients.register_callback(
+            self._display.clients.legs.register_callback(
                 scope.connection_id, request.callback, expected
             )
         )
@@ -125,7 +125,7 @@ class CallbackOperations:
 
     def callback_menus(self) -> list[Menu]:
         """Build the uniform ``Clients`` menu from one read of the named clients."""
-        return CallbackMenu.from_named(self._clients.named_sessions())
+        return CallbackMenu.from_named(self._display.clients.named_sessions())
 
     def pending_callbacks(self, *, scope: Scope) -> tuple[CallbackInvocation, ...]:
         """Return the caller's held callback invocations without clearing them.

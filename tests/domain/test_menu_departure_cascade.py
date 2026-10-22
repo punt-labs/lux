@@ -71,8 +71,8 @@ def _armed(
 ) -> MenuArming:
     """MenuArming wired exactly as ``facade.for_store`` wires it, over a test store.
 
-    The third argument — the departure arm — binds the production
-    :class:`MenuDepartureSink`, which prunes the registry AND marks the bar dirty.
+    The display's shared menu sink is the production :class:`MenuDepartureSink`,
+    which prunes the registry AND marks the bar dirty.
     """
     return MenuArmingDeps.over(
         hub_display,

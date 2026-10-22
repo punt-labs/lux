@@ -50,7 +50,6 @@ from punt_lux.protocol.messages.listen import (
 if TYPE_CHECKING:
     from punt_lux.domain.hub.callback_hold import CallbackRouter
     from punt_lux.domain.hub.hub import Hub
-    from punt_lux.domain.hub.hub_clients import HubClientRegistry
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.ids import ConnectionId
     from punt_lux.operations.ports import DirtyMarker
@@ -78,14 +77,12 @@ class HubListenSession:
     _conn: ConnectionId
     _identity: ClientIdentity
     _hub: Hub
-    _clients: HubClientRegistry
     _display: HubDisplay
     _router: CallbackRouter
     _outbound: asyncio.Queue[ServerFrame]
     _loop: asyncio.AbstractEventLoop
     _menus: DirtyMarker
     __slots__ = (
-        "_clients",
         "_conn",
         "_display",
         "_hub",
@@ -103,7 +100,6 @@ class HubListenSession:
         conn: ConnectionId,
         identity: ClientIdentity,
         hub: Hub,
-        clients: HubClientRegistry,
         display: HubDisplay,
         router: CallbackRouter,
         menus: DirtyMarker,
@@ -113,7 +109,6 @@ class HubListenSession:
         self._conn = conn
         self._identity = identity
         self._hub = hub
-        self._clients = clients
         self._display = display
         self._router = router
         self._menus = menus
@@ -136,9 +131,10 @@ class HubListenSession:
         same reason at thread scope: nothing may observe this session identified
         but unreachable, or holding the slot but anonymous.
 
-        The bar is re-pushed when taking the slot clears the previous occupant's
-        entries (a user clicking a cleared entry would discover the fault, not
-        repair it), and when an agent attaches: it is listed with no entries.
+        The bar is re-pushed by the attach itself when taking the slot clears the
+        previous occupant's entries (a user clicking a cleared entry would
+        discover the fault, not repair it), and when an agent attaches: it is
+        listed with no entries.
         """
         await self._ws.accept()
         self._loop = asyncio.get_running_loop()
@@ -153,18 +149,14 @@ class HubListenSession:
             self._teardown()
 
     def _attach_and_register_writer(self) -> None:
-        """Take the slot, bind the writer and a departure re-push (module docstring)."""
+        """Take the slot and bind the writer, together (module docstring).
+
+        The attach itself marks the menus and binds the Hub's one shared menu sink
+        for an agent that newly appears, so nothing here is bound per attach.
+        """
         with self._display.write_lock():
-            attachment = self._clients.attach_listener(self._conn, self._identity, self)
+            self._display.lifecycle.attach(self._conn, self._identity, self)
             self._hub.register_writer(self._conn, self.deliver_event)
-            self._display.bind_departure_sink(
-                self._conn, lambda _: self._menus.mark_menus()
-            )
-        listed = (
-            self._identity.is_agent
-        )  # an agent is listed with no entries of its own
-        if any((attachment == "attached_over_callbacks", listed)):
-            self._menus.mark_menus()
 
     async def _pump(self) -> None:
         """Read until the peer goes away, with the writer draining alongside."""
@@ -204,7 +196,7 @@ class HubListenSession:
                 raw = await self._ws.receive_text()
             except WebSocketDisconnect:
                 return
-            self._clients.record(self._conn, self._identity)
+            self._display.identify_client(self._conn, self._identity)
             try:
                 frame = ClientFrames.validate_json(raw)
             except ValidationError:
@@ -286,7 +278,7 @@ class HubListenSession:
         can interleave among them. Adding an ``await`` here reopens that window and
         invalidates the model this design was checked against.
         """
-        detachment = self._clients.detach_listener(self._conn, self)
+        detachment = self._display.clients.legs.detach(self._conn, self)
         if detachment in {"released_with_callbacks", "released_with_session"}:
             self._menus.mark_menus()
         self._hub.release_writer(self._conn, self.deliver_event)

@@ -10,11 +10,7 @@ set together, so a renewal racing in between can't be evicted anyway. The
 clock is injected for deterministic tests.
 
 The registry also holds each connection's listen leg, so the leg and its
-callbacks are written under this same lock. One connection is shared by
-successive sessions of one identity, so every write is a compare against the
-session occupying the slot: :meth:`attach_listener`, :meth:`register_callback`,
-and :meth:`detach_listener` each make that compare-and-write one critical
-section.
+callbacks are written under this same lock, through :attr:`legs`.
 
 The menu names live here too, reached only under this lock, so a name is
 assigned only to a session live at that instant and released only by the
@@ -31,20 +27,16 @@ from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.client_roster import ClientRoster
 from punt_lux.domain.hub.client_session import ClientSession
+from punt_lux.domain.hub.listener_legs import ListenerLegs
 from punt_lux.domain.hub.named_sessions import NamedSessions
-from punt_lux.domain.hub.registry_outcomes import (
-    CallbackRegistration,
-    ListenerAttachment,
-    ListenerDetachment,
-)
-from punt_lux.domain.ids import ConnectionId
+from punt_lux.domain.hub.session_write import SessionWrite
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
-    from punt_lux.domain.hub.callback_ports import CallbackListener
     from punt_lux.domain.hub.client_identity import ClientIdentity
-    from punt_lux.domain.hub.session_callback import SessionCallback
+    from punt_lux.domain.hub.menu_listing import PresenceChange
+    from punt_lux.domain.ids import ConnectionId
 
 __all__ = ["HubClientRegistry"]
 
@@ -70,91 +62,36 @@ class HubClientRegistry:
         self._clock = clock
         return self
 
+    @property
+    def legs(self) -> ListenerLegs:
+        """A view of the connections' listener slots, under this registry's lock."""
+        return ListenerLegs(self._sessions, self._lock, self._clock)
+
     def record(
         self, connection_id: ConnectionId, identity: ClientIdentity | None = None
-    ) -> None:
+    ) -> PresenceChange:
         """Upsert the connection's session, renewing its lease and any identity.
 
         Any contact is a renewal: an existing session keeps its connect time
         and pushes its lease forward. The first call stamps the connect time.
         """
         with self._lock:
-            base = self._renewed(connection_id)
-            self._sessions[connection_id] = (
-                base.with_identity(identity) if identity is not None else base
+            write = SessionWrite.recorded(
+                self._sessions.get(connection_id), self._clock(), identity
             )
+            self._sessions[connection_id] = write.after
+            return write.presence
 
-    def renew_if_registered(self, connection_id: ConnectionId) -> None:
+    def renew_if_registered(self, connection_id: ConnectionId) -> PresenceChange:
         """Renew the lease iff already registered; a write must never register."""
         with self._lock:
-            existing = self._sessions.get(connection_id)
-            # An empty update is a true no-op: "renew" and "absent" are one write.
-            renewed = None if existing is None else existing.renewed(self._clock())
-            self._sessions.update({connection_id: renewed} if renewed else {})
-
-    def attach_listener(
-        self,
-        connection_id: ConnectionId,
-        identity: ClientIdentity,
-        listener: CallbackListener,
-    ) -> ListenerAttachment:
-        """Install ``listener`` as the connection's leg, recording ``identity``.
-
-        Records and takes the slot in one step; taking it clears the previous
-        occupant's callbacks and reports ``attached_over_callbacks``.
-        """
-        with self._lock:
-            base = self._renewed(connection_id)
-            self._sessions[connection_id] = base.with_identity(identity).attached(
-                listener
+            before = self._sessions.get(connection_id)
+            write = SessionWrite.recorded(before, self._clock(), None)
+            # An absent connection stays absent: an empty update is a true no-op.
+            self._sessions.update(
+                {} if before is None else {connection_id: write.after}
             )
-            return "attached_over_callbacks" if base.callbacks else "attached"
-
-    def detach_listener(
-        self, connection_id: ConnectionId, listener: CallbackListener
-    ) -> ListenerDetachment:
-        """Release the slot and its callbacks if ``listener`` still holds it.
-
-        One critical section: a session superseded while suspended is
-        genuinely ``kept``, but one the lease sweep already took is not.
-        """
-        with self._lock:
-            session = self._sessions.get(connection_id)
-            if session is None:
-                return "released_with_session"
-            released = session.detached(listener)
-            if released is None:
-                return "kept"
-            self._sessions[connection_id] = released
-            return "released_with_callbacks" if session.callbacks else "released"
-
-    def register_callback(
-        self,
-        connection_id: ConnectionId,
-        callback: SessionCallback,
-        expected: CallbackListener,
-    ) -> CallbackRegistration:
-        """Register ``callback`` if ``expected`` still holds the connection's slot.
-
-        The gate and the write are one critical section; the session itself
-        decides whether it accepts -- an anonymous or lapsed one declines.
-        """
-        with self._lock:
-            now = self._clock()
-            session = self._sessions.get(connection_id)
-            if session is None or not session.held_by(expected):
-                return "superseded"
-            updated = session.registering(callback, now)
-            if updated is None:
-                return "declined"
-            self._sessions[connection_id] = updated
-            return "registered"
-
-    def listener_of(self, connection_id: ConnectionId) -> CallbackListener | None:
-        """The connection's listen leg, or ``None`` when it holds none."""
-        with self._lock:
-            session = self._sessions.get(connection_id)
-            return session.listener if session is not None else None
+            return write.presence
 
     def session_of(self, connection_id: ConnectionId) -> ClientSession | None:
         """Return the connection's raw session, or ``None``, with no lease filter."""
@@ -203,8 +140,9 @@ class HubClientRegistry:
 
     def repos(self) -> frozenset[str]:
         """Return the distinct repositories the live identified sessions declared."""
-        declared = map(attrgetter("declared_repo"), self.live_sessions().values())
-        return frozenset(filter(None, declared))
+        with self._lock:
+            declared = map(attrgetter("declared_repo"), self._live_locked().values())
+            return frozenset(filter(None, declared))
 
     def _live_locked(self) -> dict[ConnectionId, ClientSession]:
         """The sessions whose lease has not lapsed, as of now. Caller locks."""
@@ -214,9 +152,3 @@ class HubClientRegistry:
     def _lapsed_locked(self) -> frozenset[ConnectionId]:
         """Every registered connection whose lease has lapsed. Caller locks."""
         return frozenset(self._sessions) - self._live_locked().keys()
-
-    def _renewed(self, connection_id: ConnectionId) -> ClientSession:
-        """The connection's session, renewed now, or a fresh one; caller locks."""
-        now = self._clock()
-        existing = self._sessions.get(connection_id)
-        return existing.renewed(now) if existing is not None else ClientSession(now)

@@ -108,11 +108,12 @@ class _MenuFlag:
 
 def _wired() -> tuple[TestClient, Hub, HubClientRegistry, CallbackRouter]:
     """Mount the production listen transport over fresh domain objects."""
-    hub, clients = Hub(), HubClientRegistry()
+    hub = Hub()
     display = HubDisplay(hub=hub)
+    clients = display.clients
     router = CallbackRouter(clients)
     app = FastAPI()
-    HubListenTransport(hub, clients, display, router, _MenuFlag()).mount(app)
+    HubListenTransport(hub, display, router, _MenuFlag()).mount(app)
     return TestClient(app), hub, clients, router
 
 
@@ -162,8 +163,8 @@ def test_the_music_build_shows_one_voxd_submenu_with_a_music_leaf() -> None:
     _client, _hub, clients, _router = _wired()
     # voxd connects: identity and listen leg in one write, as the /ws route does.
     leg = _SilentLeg()
-    clients.attach_listener(_CONN, _IDENTITY, leg)
-    outcome = clients.register_callback(
+    clients.legs.attach(_CONN, _IDENTITY, leg)
+    outcome = clients.legs.register_callback(
         _CONN, SessionCallback(id="music", label="Music"), leg
     )
     assert outcome == "registered"
@@ -192,9 +193,9 @@ def test_a_music_leaf_click_reaches_voxds_live_websocket() -> None:
         # Registration happens from the live connection, which is what an app's
         # on_connect hook does: a leg taking the slot clears what the last one
         # owned, so entries registered before connecting would not survive it.
-        leg = clients.listener_of(_CONN)
+        leg = clients.legs.listener_for(_CONN)
         assert leg is not None
-        registration = clients.register_callback(
+        registration = clients.legs.register_callback(
             _CONN, SessionCallback(id="music", label="Music"), leg
         )
         assert registration == "registered"

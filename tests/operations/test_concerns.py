@@ -1,4 +1,4 @@
-"""OperationsConcerns -- the eleven-field bundle Operations.__new__ takes."""
+"""OperationsConcerns -- the ten-field bundle Operations.__new__ takes."""
 
 from __future__ import annotations
 
@@ -20,7 +20,6 @@ def _concerns() -> OperationsConcerns:
         display=object(),  # type: ignore[arg-type]  # sentinel
         queries=object(),  # type: ignore[arg-type]  # sentinel
         menus=object(),  # type: ignore[arg-type]  # sentinel
-        arming=object(),  # type: ignore[arg-type]  # sentinel
         identity=object(),  # type: ignore[arg-type]  # sentinel
         callbacks=object(),  # type: ignore[arg-type]  # sentinel
         frame_remover=object(),  # type: ignore[arg-type]  # sentinel
@@ -36,7 +35,6 @@ def test_every_field_round_trips() -> None:
     assert concerns.display is not None
     assert concerns.queries is not None
     assert concerns.menus is not None
-    assert concerns.arming is not None
     assert concerns.identity is not None
     assert concerns.callbacks is not None
     assert concerns.frame_remover is not None
