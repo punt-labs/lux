@@ -851,7 +851,7 @@ def test_a_click_that_could_not_be_started_is_reported_rather_than_lost(
     def _no_worker(func: object, /, *args: object, **kwargs: object) -> None:
         raise RuntimeError("no worker thread could be started")
 
-    monkeypatch.setattr("punt_lux.applets.runner.asyncio.to_thread", _no_worker)
+    monkeypatch.setattr("punt_lux.apps.bd_child.asyncio.to_thread", _no_worker)
 
     with caplog.at_level(logging.ERROR):
         asyncio.run(_clicked(leg))  # draining re-raises anything the task let out
