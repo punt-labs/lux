@@ -1,0 +1,196 @@
+%
+% menu_presence_d1_buggy.tex
+%
+% FIDELITY CONTROL for docs/menu_presence.tex, defect D1 (and D2).
+%
+% Differs from menu_presence.tex in exactly one place: Identify records the
+% agent identity but does NOT raise the mark -- the shipped code before the
+% lux-ghhf fix, where Operations.identify called identify_client and nothing
+% else. (D2, the listen-leg attach that never marked, is the same omission at
+% another entry point; Attach below keeps the mark, so this control isolates
+% the identify path.)
+%
+% Expected: P1's negation is REACHABLE.
+%   probcli docs/menu_presence_d1_buggy.tex -model_check -nodead \
+%     -goal "dirty = fclear & shown /= earns" -p DEFAULT_SETSIZE 3
+% Trace: Identify(c) leaves earns = {c}, dirty = fclear, shown = {}.
+%
+% The remaining operations are those of menu_presence.tex, whose prose
+% describes them.
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+
+\begin{document}
+
+\title{lux Menu Presence, D1 control: identify never marks}
+\maketitle
+
+\begin{zed}
+  [CONN]
+\end{zed}
+
+\begin{zed}
+  FSTATE ::= fclear | fset
+\end{zed}
+
+\begin{schema}{MenuPres}
+  registered : \power CONN \\
+  earns : \power CONN \\
+  lapsed : \power CONN \\
+  open : \power CONN \\
+  sinks : CONN \fun 0 \upto 2 \\
+  dirty : FSTATE \\
+  shown : \power CONN
+\where
+  earns \subseteq registered \\
+  lapsed \subseteq registered
+\end{schema}
+
+\begin{schema}{Init}
+  MenuPres'
+\where
+  registered' = \emptyset \\
+  earns' = \emptyset \\
+  lapsed' = \emptyset \\
+  open' = \emptyset \\
+  sinks' = CONN \cross \{ 0 \} \\
+  dirty' = fclear \\
+  shown' = \emptyset
+\end{schema}
+
+\begin{schema}{AgentRecord}
+  \Delta MenuPres \\
+  c? : CONN
+\where
+  registered' = registered \cup \{ c? \} \\
+  earns' = earns \cup \{ c? \} \\
+  lapsed' = lapsed \setminus \{ c? \} \\
+  sinks' = sinks \oplus \{ c? \mapsto 1 \} \\
+  (c? \in earns \land dirty' = dirty) \lor
+    (c? \notin earns \land dirty' = fset) \\
+  shown' = shown
+\end{schema}
+
+\begin{schema}{AgentRecordQuiet}
+  \Delta MenuPres \\
+  c? : CONN
+\where
+  registered' = registered \cup \{ c? \} \\
+  earns' = earns \cup \{ c? \} \\
+  lapsed' = lapsed \setminus \{ c? \} \\
+  sinks' = sinks \oplus \{ c? \mapsto 1 \} \\
+  dirty' = dirty \\
+  shown' = shown
+\end{schema}
+
+\texttt{AgentRecordQuiet} is the defect: the record without the mark.
+
+\begin{zed}
+  Identify \defs AgentRecordQuiet \land [\Delta MenuPres | open' = open]
+\end{zed}
+
+\begin{zed}
+  Attach \defs AgentRecord \land [\Delta MenuPres; c? : CONN | open' = open \cup \{ c? \}]
+\end{zed}
+
+\begin{zed}
+  ReadLoopRecord \defs AgentRecord \land
+    [\Delta MenuPres; c? : CONN | open' = open \land c? \in open]
+\end{zed}
+
+\begin{schema}{Connect}
+  \Delta MenuPres \\
+  c? : CONN
+\where
+  registered' = registered \cup \{ c? \} \\
+  earns' = earns \\
+  lapsed' = lapsed \setminus \{ c? \} \\
+  open' = open \\
+  sinks' = sinks \\
+  dirty' = dirty \\
+  shown' = shown
+\end{schema}
+
+\begin{schema}{Renew}
+  \Delta MenuPres \\
+  c? : CONN
+\where
+  c? \in registered \\
+  registered' = registered \\
+  earns' = earns \\
+  lapsed' = lapsed \setminus \{ c? \} \\
+  open' = open \\
+  sinks' = sinks \\
+  dirty' = dirty \\
+  shown' = shown
+\end{schema}
+
+\begin{schema}{LeaseLapse}
+  \Delta MenuPres \\
+  c? : CONN
+\where
+  c? \in registered \\
+  c? \notin lapsed \\
+  registered' = registered \\
+  earns' = earns \\
+  lapsed' = lapsed \cup \{ c? \} \\
+  open' = open \\
+  sinks' = sinks \\
+  dirty' = dirty \\
+  shown' = shown
+\end{schema}
+
+\begin{schema}{Departure}
+  \Delta MenuPres \\
+  c? : CONN
+\where
+  c? \in registered \\
+  registered' = registered \setminus \{ c? \} \\
+  earns' = earns \setminus \{ c? \} \\
+  lapsed' = lapsed \setminus \{ c? \} \\
+  open' = open \\
+  sinks' = sinks \oplus \{ c? \mapsto 0 \} \\
+  (c? \in earns \land dirty' = fset) \lor
+    (c? \notin earns \land dirty' = dirty) \\
+  shown' = shown
+\end{schema}
+
+\begin{zed}
+  DropGraceful \defs Departure
+\end{zed}
+
+\begin{zed}
+  Sweep \defs Departure \land [MenuPres; c? : CONN | c? \in lapsed]
+\end{zed}
+
+\begin{schema}{Teardown}
+  \Delta MenuPres \\
+  c? : CONN
+\where
+  c? \in open \\
+  registered' = registered \\
+  earns' = earns \\
+  lapsed' = lapsed \\
+  open' = open \setminus \{ c? \} \\
+  sinks' = sinks \\
+  dirty' = dirty \\
+  shown' = shown
+\end{schema}
+
+\begin{schema}{Push}
+  \Delta MenuPres
+\where
+  dirty = fset \\
+  registered' = registered \\
+  earns' = earns \\
+  lapsed' = lapsed \\
+  open' = open \\
+  sinks' = sinks \\
+  dirty' = fclear \\
+  shown' = earns
+\end{schema}
+
+\end{document}
