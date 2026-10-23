@@ -30,7 +30,7 @@ and what hid the first of the two defects below.
 
 | Finding | Shape | Model step that fixes it |
 |---|---|---|
-| INV-1 | `ListenerLegs.register_callback` (and `detach`) write presence under the registry lock only, from `CallbackOperations` and `ws_listen`, with no store lock, no sink bound, the mark raised by hand. A lapse then departs the session with no sink to fire: the entry lingers past the sweep (P1, P2). | `RegisterCallback` and `Detach` are `ClientLifecycle` steps: store lock, then registry lock, then mark and bind the one shared sink. |
+| INV-1 | The listener-leg writes (then `ListenerLegs`, now `PresenceWrites.register_callback` and `detach`) wrote presence under the registry lock only, from `CallbackOperations` and `ws_listen`, with no store lock, no sink bound, the mark raised by hand. A lapse then departs the session with no sink to fire: the entry lingers past the sweep (P1, P2). | `RegisterCallback` and `Detach` are `ClientLifecycle` steps: store lock, then registry lock, then mark and bind the one shared sink. |
 | INV-2 | A survivor renumbered while its lease is lapsed-but-unswept is resolved to no label (`FrameOwnerFacts.facts_for` reads live sessions only); a later renewal marks the menus and never the survivor's scenes. | Every step that ends a lapse (`Renew`, `Connect`, `AgentRecord`, `AppletAttach`, `RegisterCallback`) also marks the connection's scenes. |
 
 ## What the model adds that the findings do not say (INV-1b, M1)
@@ -49,13 +49,15 @@ as a non-agent (a `cli`) reads `unchanged` and is renewed; witness
 (`menu_presence_redeclare_buggy.tex`): `Identify(c); Push; LeaseLapse(c);
 Redeclare(c)`.
 
-Today's code is right by accident for `detach`: `ws_listen._teardown` marks by
-hand and `Attachment.menu_change` turns `attached_over_callbacks` into
-`revised`. It is not right for re-identification.
+The code before this fix was right by accident for `detach`: `ws_listen._teardown`
+marked by hand and `Attachment.menu_change` (since removed) turned
+`attached_over_callbacks` into `revised`. It was not right for re-identification.
 
 **The rule, stated once, in `MenuListing`:** a session that *earned before,
 ignoring the lease*, and does not earn after, reads `revised`, whatever the lease
-says. That single rule covers `detach`, attach-over-callbacks and re-identify as
+says; the registered entries are part of what it compares, so a lapsed session
+that loses entries reads `revised` and so does any entry added, withdrawn or
+relabelled on a listed one. That single rule covers `detach`, attach-over-callbacks and re-identify as
 a non-agent together; a gain still reads the lease (not live before, live and
 earning after, is `gained`). The implementer puts it where every route passes
 rather than adding a mark per step.
@@ -66,7 +68,8 @@ nothing (a `cli`) has a label too, and its revival is `unchanged` for the menu.
 
 ## The fix design the model proves
 
-1. **Presence is lease-filtered, per the settled ADRs; no ADR is amended.**
+1. **Presence is lease-filtered, per the settled ADRs; no lease ADR is amended.**
+   DES-101 is amended for the callback route, which passes through the lifecycle.
    A session earns presence while it is registered, earning (an agent, or
    holding a callback), and its lease is live: DES-058 ("entries live on the
    session's lease and leave when it lapses"), DES-064 §1 ("an entry exists
@@ -78,13 +81,13 @@ nothing (a `cli`) has a label too, and its revival is `unchanged` for the menu.
 2. **One transition, owned by `ClientLifecycle`.** `arrive`, `identify`,
    `attach`, `renew`, `register_callback`, `detach`, `depart`, `depart_lapsed`
    are each a single method that holds the store write lock, calls the
-   registry (or `ListenerLegs`, called by `ClientLifecycle` alone), and settles
+   registry's write surface (`PresenceWrites`, taken once by `ClientLifecycle`), and settles
    what the write owes the Hub: the menu mark, the one sink, the scene marks of a
    revived session. Callers compare nothing and remember nothing.
-   `CallbackOperations` and `ws_listen` are no longer handed `ListenerLegs` for
+   `CallbackOperations` and `ws_listen` are no longer handed `PresenceWrites` for
    these writes.
 3. **The registry never calls out of its own lock.** Firing the hook from inside
-   the registry (or `ListenerLegs`) takes the store lock under the registry
+   the registry (or `PresenceWrites`) takes the store lock under the registry
    lock, the reverse of every existing path. `menu_presence_locks_inverted_buggy.tex`
    finds the deadlock in three steps; `menu_presence_locks.tex` shows the order
    (store, then registry; readers registry-only), callback steps included, has
@@ -156,7 +159,7 @@ has exactly one bound menu sink afterwards. Identifiers: **A** agent record,
 | C9 | `detach` by a session that lost the slot | clears nothing; marks nothing | `test_ws_listen.py::test_a_superseded_sessions_teardown_leaves_its_successor_whole`, `test_hub_clients.py::test_a_teardown_by_a_session_that_lost_the_slot_removes_nothing` | covered |
 | C10 | re-attach clears the predecessor's callbacks | marks | `test_ws_listen.py::test_a_new_leg_arrives_with_none_of_its_predecessors_menu_entries`, `test_hub_clients.py::test_attaching_over_callbacks_revises_the_menu_though_presence_held` | covered (live case) |
 | C11 | re-attach clears callbacks of a lapsed applet (INV-1b) | marks | `tests/domain/test_client_lifecycle_callbacks.py::TestAttachingOverCallbacks::test_the_callbacks_of_a_lapsed_applet_are_cleared_with_a_mark` | covered |
-| C12 | `register_callback` refused (no leg, anonymous, superseded) | nothing marks, nothing binds | `test_callback_operations.py::test_registration_requires_a_push_reachable_connection`, `test_a_dropped_listener_closes_the_door_to_new_registrations`; `test_hub_clients.py::test_register_callback_refuses_an_unknown_session`, `test_register_callback_refuses_a_lapsed_session`, `test_a_registration_gated_against_a_departed_leg_is_refused`, `test_a_registration_gated_against_a_replaced_leg_is_refused` | covered |
+| C12 | `register_callback` refused (no leg, anonymous, superseded) | nothing marks, nothing binds | `test_callback_operations.py::test_registration_requires_a_push_reachable_connection`, `test_a_dropped_listener_closes_the_door_to_new_registrations`; `test_hub_clients.py::test_register_callback_refuses_an_unknown_session`, `test_register_callback_refuses_a_lapsed_session`, `test_a_registration_gated_against_a_departed_leg_is_refused`, `test_a_registration_lands_on_the_leg_that_now_holds_the_connection` | covered |
 
 ### DP: departure (graceful drop, lease sweep)
 
@@ -228,7 +231,7 @@ has exactly one bound menu sink afterwards. Identifiers: **A** agent record,
 
 | # | Partition | Expected | Covering test | Status |
 |---|---|---|---|---|
-| K1 | `HubClientRegistry.record`, `renew_if_registered`, `discard`, `reap_lapsed_locked`, and `ListenerLegs.attach`, `register_callback`, `detach` complete while another thread holds the store write lock | the registry never waits on the store lock | `tests/domain/test_client_lifecycle_lock_order.py::TestRegistryWritesNeverWaitOnTheStoreLock::test_every_registry_write_completes_while_the_store_lock_is_held` | covered |
+| K1 | `PresenceWrites.record`, `renew_if_registered`, `discard`, `reap_lapsed`, `attach`, `register_callback` and `detach` complete while another thread holds the store write lock | the registry never waits on the store lock | `tests/domain/test_client_lifecycle_lock_order.py::TestRegistryWritesNeverWaitOnTheStoreLock::test_every_registry_write_completes_while_the_store_lock_is_held` | covered |
 | K2 | a presence-changing `ClientLifecycle` step (including `register_callback` and `detach`) completes while a reader holds the registry lock | no deadlock | `tests/domain/test_client_lifecycle_lock_order.py::TestLifecycleStepsNeverWaitOnAReader::test_every_step_completes_once_the_reader_lets_go` (identify, register_callback, detach, depart_lapsed) | covered |
 
 ## Tests the implementation mission added
@@ -254,10 +257,11 @@ count is not asserted) and L4 (a menu owner, not an agent), both unchanged.
    fixed spec reports no P1, P2 or P3 counter-example and no deadlock; each
    control reports its negation found; the lock model reports no deadlock and its
    inverted control a deadlock. (Done by the model mission, round 2.)
-3. `ListenerLegs` is called by `ClientLifecycle` alone for attach, register and
-   detach; `CallbackOperations` and `ws_listen` hold none. (Checked: neither
-   `operations/callbacks.py` nor `ws_listen.py` names `ListenerLegs` or a `legs`
-   attribute.)
-4. No ADR is amended. The DESIGN.md entry for this work cites DES-057, DES-058,
+3. `PresenceWrites` is taken once by `ClientLifecycle` and called by it alone for
+   every presence write; `CallbackOperations` and `ws_listen` hold none.
+   (Checked: neither `operations/callbacks.py` nor `ws_listen.py` names
+   `PresenceWrites` or `take_writes`; the structural guard
+   `tests/domain/test_presence_writes_only_through_lifecycle.py` reads the source.)
+4. No lease ADR is amended; DES-101 is amended for the callback route. The DESIGN.md entry for this work cites DES-057, DES-058,
    DES-064, DES-067, DES-094, DES-098, DES-099, DES-100 and DES-101 (the entry is
    the leader's and is not audited here).

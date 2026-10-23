@@ -38,11 +38,12 @@
 %       HubListenSession.
 %   INV-1  The callback route. A non-agent session (an applet) earns presence
 %       only by registering a callback. CallbackOperations.register_callback
-%       reached ListenerLegs.register_callback, which writes under the
-%       registry lock only: no store lock, no sink bound, the mark raised by
-%       the caller afterwards. A lapse then departs the session with no sink to
-%       fire, so the entry lingers past the sweep. ListenerLegs.detach is the
-%       same shape in the other direction (ws_listen marks by hand).
+%       reached the registry's listener-leg write (then ListenerLegs, now
+%       PresenceWrites), which wrote under the registry lock only: no store
+%       lock, no sink bound, the mark raised by the caller afterwards. A lapse
+%       then departs the session with no sink to fire, so the entry lingers
+%       past the sweep. The leg's detach was the same shape in the other
+%       direction (ws_listen marked by hand).
 %   INV-2  The label of a renumbered survivor. A departure renumbers the
 %       survivors of its group and marks their scenes. A survivor whose lease
 %       had lapsed (unswept) is resolved to no label (FrameOwnerFacts reads
@@ -91,13 +92,14 @@
 % departure cascade and its three paths; I1, I5, I7) and docs/menu_lifecycle.tex
 % (MO: menuOwner within registered), and the code:
 % src/punt_lux/domain/hub/client_lifecycle.py (ClientLifecycle.arrive,
-% identify, attach, renew, depart, depart_lapsed), listener_legs.py
-% (ListenerLegs.attach, register_callback, detach), hub_clients.py
-% (HubClientRegistry.record, renew_if_registered, reap_lapsed_locked,
-% named_sessions), menu_presence.py (MenuPresence.announce, scenes_renamed),
-% session_write.py, departure_sinks.py (bind, fire), operations/callbacks.py
+% identify, attach, renew, depart, depart_lapsed), presence_writes.py
+% (PresenceWrites.record, renew_if_registered, discard, reap_lapsed, attach,
+% register_callback, detach), hub_clients.py (HubClientRegistry.take_writes,
+% named_sessions), menu_listing.py (MenuListing.change_to), menu_presence.py
+% (MenuPresence.announce, retitle_scenes), session_write.py, departure_sinks.py (bind, fire), operations/callbacks.py
 % (CallbackOperations.register_callback), operations/frame_owner_facts.py
-% (FrameOwnerFacts.facts_for), and src/punt_lux/ws_listen.py (_attach, _read_loop,
+% (FrameOwnerFacts.facts_for), and src/punt_lux/ws_listen.py
+% (_attach_and_register_writer, _read_loop,
 % _teardown).
 %
 % Type-check:  fuzz docs/menu_presence.tex
@@ -173,9 +175,9 @@ revision no longer elides it: that elision is what hid INV-1.
 
 Three guards of the real code are deliberately not modelled because they only
 \emph{restrict} behaviour, so leaving them out makes the model a superset and
-the invariants stronger: \texttt{ListenerLegs.register\_callback} declines an
-anonymous session (one that never identified); the leg it needs must still be
-the one the caller read (``superseded''); and \texttt{ClientSession.registering}
+the invariants stronger: \texttt{PresenceWrites.register\_callback} declines an
+anonymous session (one that never identified); the connection must hold a leg
+to push to (``superseded''); and \texttt{ClientSession.registering}
 declines a \emph{lapsed} session. The third cannot be reached in the fixed
 design in any case, because \texttt{register\_callback} renews the lease under
 the store lock before it registers.
@@ -274,10 +276,10 @@ $c? \in lapsed$ is a revival in the model.
 \subsection{Recording an agent --- one transition, three entry points}
 
 \texttt{AgentRecord} is the single registry transition by which a session
-that is an agent is recorded: the upsert \texttt{HubClientRegistry.record}
+that is an agent is recorded: the upsert \texttt{PresenceWrites.record}
 performs for \texttt{ClientLifecycle.identify}, for
 \texttt{ClientLifecycle.attach} (which seats the leg through
-\texttt{ListenerLegs.attach}), and for the read loop's per-frame
+\texttt{PresenceWrites.attach}), and for the read loop's per-frame
 \texttt{identify}. It registers the connection if absent, renews its lease,
 and adds it to the presence set. If that changed the presence set (the
 connection was not already earning, or was earning but lapsed, so the record
@@ -420,8 +422,8 @@ next push re-reads the roster. P1 states exactly how long this may last
 A session that is not an agent earns presence only by registering a callback,
 and loses it when its callbacks are withdrawn. Both are presence transitions.
 In the code before this revision both were writes to the registry made through
-\texttt{ListenerLegs}, under the registry lock alone, by a caller that then
-marked by hand; the fixed design makes each a \texttt{ClientLifecycle} step like
+its listener-leg write (then \texttt{ListenerLegs}, now \texttt{PresenceWrites}),
+under the registry lock alone, by a caller that then marked by hand; the fixed design makes each a \texttt{ClientLifecycle} step like
 every other.
 
 \begin{schema}{AppletAttach}
@@ -727,8 +729,8 @@ entry stays \emph{for good} (the trace
 \texttt{AppletAttach(c); RegisterCallback(c); Push; LeaseLapse(c); AppletAttach(c)}
 reaches $dirty = fclear$ with $c$ shown, registered, live and not earning). The
 old code avoided this by marking by hand in \texttt{ws\_listen}'s
-\texttt{\_teardown} and through \texttt{Attachment.menu\_change}'s ``revised''
-on \texttt{attached\_over\_callbacks}; a new \texttt{ClientLifecycle.detach}
+\texttt{\_teardown} and through the since-removed \texttt{Attachment.menu\_change}'s
+``revised'' on \texttt{attached\_over\_callbacks}; a new \texttt{ClientLifecycle.detach}
 that merely announced \texttt{PresenceChange} would lose it. The same root
 makes \texttt{Redeclare} (M1) a ghost: a lapsed agent re-identifying as a
 \texttt{cli}. The fixed model marks on any loss from \texttt{earns}, lapsed or
@@ -746,7 +748,8 @@ A session earns presence while it is registered, earning (an agent or holding
 a callback), and its lease is live: DES-058 (``entries live on the session's
 lease and leave when it lapses''), DES-064 \S1 (``an entry exists exactly while
 its registrant holds a lease''), DES-057 (``leases expire state whose owner
-left''). No ADR is amended. The consequences the model makes explicit: a lapse
+left''). No lease ADR is amended; DES-101 is amended for the callback route,
+which now passes through the lifecycle too. The consequences the model makes explicit: a lapse
 is time, not an event, so it cannot mark and the entry may linger until the
 sweep or the next push; a renewal that ends a lapse \emph{is} an event that
 grows the presence set, so it must mark and re-assert the one sink
@@ -761,8 +764,10 @@ store lock) that calls a registry upsert returning what changed, then marks and
 binds the one shared sink. The entry points are \texttt{identify},
 \texttt{attach}, and the read loop's \texttt{identify}; the callback route adds
 \texttt{register\_callback} and \texttt{detach}, which are \texttt{ClientLifecycle}
-methods too. \texttt{ListenerLegs} stays the registry's own compare-and-write
-for the listener slot, called by \texttt{ClientLifecycle} alone: neither
+methods too. \texttt{PresenceWrites} is the registry's whole write surface (the
+upsert, renewal, discard and reap, and the listener slot's compare-and-write);
+\texttt{HubClientRegistry.take\_writes} hands it over once, to
+\texttt{ClientLifecycle}, which alone calls it: neither
 \texttt{CallbackOperations} nor \texttt{ws\_listen} is handed it for these
 writes. The read loop and the teardown must no longer reach the registry
 directly.
@@ -770,7 +775,10 @@ directly.
 \paragraph{One rule for withdrawal.}
 The implementation states it once, in \texttt{MenuListing}, where every route
 passes: a session that \emph{earned before, ignoring the lease}, and does not
-earn after, reads ``revised'', whatever the lease says. That single rule covers
+earn after, reads ``revised'', whatever the lease says. The registered entries are
+part of what it compares, so a lapsed session that loses its entries reads
+``revised'' too, and any entry added, withdrawn or relabelled on a listed session
+is a revision. That single rule covers
 \texttt{detach}, attach-over-callbacks and re-identification as a non-agent
 (\texttt{Detach}, \texttt{AppletAttach} and \texttt{Redeclare} here). A gain
 still reads the lease: not live before and live and earning after is
