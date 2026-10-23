@@ -9,8 +9,9 @@ if TYPE_CHECKING:
 
 __all__ = ["TmpGuard"]
 
-# Every directory the suite makes for a socket carries this prefix, so a
-# survivor with it is a test that never cleaned up after itself.
+# Every directory the suite makes for a socket carries this prefix. Each test's
+# own are removed when it ends, so a survivor is one made outside a test's window:
+# by a module- or session-scoped fixture that never cleaned up after itself.
 PREFIX = "lux-"
 
 

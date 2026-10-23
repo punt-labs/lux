@@ -313,10 +313,32 @@ def _joined(*threads: threading.Thread) -> None:
         assert not running.is_alive(), "a thread never finished"
 
 
+def _package_sources() -> dict[str, str]:
+    """Every module under ``src/punt_lux``, by path relative to it."""
+    root = Path(next(iter(applets_package.__path__))).parent
+    return {
+        path.relative_to(root).as_posix(): path.read_text(encoding="utf-8")
+        for path in root.rglob("*.py")
+    }
+
+
 def _applet_sources() -> dict[str, str]:
-    """Every module of the applets package, by file name."""
-    root = Path(next(iter(applets_package.__path__)))
-    return {path.name: path.read_text(encoding="utf-8") for path in root.glob("*.py")}
+    """Every module of the applets package, by path relative to ``src/punt_lux``."""
+    return {
+        name: text
+        for name, text in _package_sources().items()
+        if name.startswith("applets/")
+    }
+
+
+def _calls(source: str, *names: str) -> bool:
+    """Whether this module calls a method called any of ``names``, with any arity."""
+    return any(
+        isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Attribute)
+        and call.func.attr in names
+        for call in ast.walk(ast.parse(source))
+    )
 
 
 def _writers(source: str) -> set[str]:
@@ -336,22 +358,6 @@ def _writers(source: str) -> set[str]:
             for call in ast.walk(method)
         )
     }
-
-
-def _tells_a_state_to_show(source: str) -> bool:
-    """Whether this module tells a state to put itself on the display.
-
-    A state is told with one argument, the click's work; the region is *entered*
-    with two, the work and what the caller would have shown. Counting arguments
-    is what tells the two apart without naming either caller.
-    """
-    return any(
-        isinstance(call, ast.Call)
-        and isinstance(call.func, ast.Attribute)
-        and call.func.attr == "shows"
-        and len(call.args) == 1
-        for call in ast.walk(ast.parse(source))
-    )
 
 
 def _imports(source: str) -> set[str]:
@@ -619,21 +625,48 @@ def test_nothing_writes_the_display_from_outside_the_push_region() -> None:
     # A state writes the display in one method and nowhere else, so telling one
     # to show itself is the only way anything reaches the glass. The write's own
     # definition is the third module here, and it is a definition, not a caller.
-    for state in ("held_board.py", "no_board.py"):
+    for state in ("applets/held_board.py", "applets/no_board.py"):
         assert _writers(sources[state]) == {"shows"}, f"{state} writes elsewhere"
-    assert _writers(sources["board_work.py"]) == {"push"}
+    assert _writers(sources["applets/board_work.py"]) == {"push"}
     writing = {name for name, text in sources.items() if _writers(text)}
-    assert writing == {"board_work.py", "held_board.py", "no_board.py"}
+    assert writing == {
+        "applets/board_work.py",
+        "applets/held_board.py",
+        "applets/no_board.py",
+    }
 
-    # And only the region tells one to, holding its lock while it does.
-    telling = {name for name, text in sources.items() if _tells_a_state_to_show(text)}
-    assert telling == {"board_glass.py"}, "a state was shown outside the region"
-    region = sources["board_glass.py"]
+    # The Hub write itself: a ``render``/``render_table`` on the board's ops is the
+    # one place a board leaves for the Hub. ``ScopedBoardOps`` is that surface's
+    # definition, forwarding to the transport; the channel is the click path's only
+    # caller. ``lux beads`` is a one-shot process that renders once and exits, so it
+    # races no click and holds no slot: it is the second, and last, writer.
+    package = _package_sources()
+    on_board_ops = {
+        name
+        for name, text in package.items()
+        if "BoardOps" in text and _calls(text, "render", "render_table")
+    }
+    assert on_board_ops == {
+        "applets/board_channel.py",
+        "applets/board_ops.py",
+        "cli/beads.py",
+    }
+
+    # Telling anything to show, under any arity and from anywhere in the package,
+    # is confined to the region and the two modules that enter it. A call is found
+    # by name, so a rewritten signature cannot slip past it.
+    showing = {name for name, text in package.items() if _calls(text, "shows")}
+    assert showing == {
+        "applets/applet_board.py",
+        "applets/beads_service.py",
+        "applets/board_glass.py",
+    }, "a state was shown from outside the region and its entrances"
+    region = sources["applets/board_glass.py"]
     assert region.index("with self._lock:") < region.index(".shows(work)"), (
         "the region's lock is not held across the write"
     )
 
-    slot = sources["board_slot.py"]
+    slot = sources["applets/board_slot.py"]
     assert _imports(slot).isdisjoint({"punt_lux.applets.board_glass"}), (
         "the slot can reach the region's lock"
     )

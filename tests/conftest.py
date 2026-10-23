@@ -35,6 +35,11 @@ def _private_tmpdir(
         pytest.MonkeyPatch.context() as patch,
     ):
         patch.setenv("TMPDIR", run)
+        # The display's default socket is $LUX_SOCKET, else under $XDG_RUNTIME_DIR;
+        # a test that dials it must reach the session's private root, never the
+        # user's own display.
+        patch.setenv("LUX_SOCKET", f"{run}/display.sock")
+        patch.setenv("XDG_RUNTIME_DIR", run)
         patch.setattr(tempfile, "tempdir", run)
         # pytest picks its base temp lazily from the first test's TMPDIR; fix
         # it here so it lives for the session rather than for one test.

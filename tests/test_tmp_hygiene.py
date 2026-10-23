@@ -38,3 +38,44 @@ class TestEachTestHasItsOwnTempDir:
     def test_second_finds_it_removed(self) -> None:
         assert _made, "the first test of this pair did not run"
         assert not _made[0].exists()
+
+
+pytest_plugins = ("pytester",)
+
+
+class TestTheGuardIsWiredIntoTheSession:
+    """A session-scoped fixture that leaks ``lux-*`` makes the run error."""
+
+    def test_a_leaking_session_fixture_errors_the_run(
+        self, pytester: pytest.Pytester
+    ) -> None:
+        pytester.makeconftest(
+            "from tests.conftest import _private_tmpdir  # noqa: F401\n"
+        )
+        pytester.makepyfile(
+            """
+            import tempfile
+
+            import pytest
+
+            @pytest.fixture(scope="session")
+            def leaks():
+                tempfile.mkdtemp(prefix="lux-x")
+
+            def test_uses_the_leak(leaks):
+                pass
+            """
+        )
+
+        result = pytester.runpytest_inprocess()
+
+        result.assert_outcomes(passed=1, errors=1)
+        result.stdout.fnmatch_lines(["*outlived the test run*lux-x*"])
+
+    def test_a_clean_session_passes(self, pytester: pytest.Pytester) -> None:
+        pytester.makeconftest(
+            "from tests.conftest import _private_tmpdir  # noqa: F401\n"
+        )
+        pytester.makepyfile("def test_nothing():\n    pass\n")
+
+        pytester.runpytest_inprocess().assert_outcomes(passed=1)
