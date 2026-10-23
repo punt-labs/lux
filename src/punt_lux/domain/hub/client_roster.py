@@ -70,17 +70,21 @@ class ClientRoster:
         labels = self._names.labels()
         return {cid: labels[self._key_of[cid]] for cid in identities}
 
-    def release(self, departed: Iterable[ConnectionId]) -> None:
+    def release(self, departed: Iterable[ConnectionId]) -> frozenset[ConnectionId]:
         """Drop *departed* connections and free any group whose last member left.
 
         A group whose last connection departs frees its base, which is handed
-        on to a survivor still numbered against it. Releasing a connection the
-        roster never named is no error.
+        on to a survivor still numbered against it. Returns the survivors whose
+        held name that hand-over changed, so their windows can be retitled.
+        Releasing a connection the roster never named is no error.
         """
+        before = self.held()
         freed = {
             k for cid in departed if (k := self._key_of.pop(cid, None)) is not None
         }
         self._names.drop(freed - set(self._key_of.values()))
+        # A name now held that was not held before: the pairs that moved.
+        return frozenset(cid for cid, _ in self.held().items() - before.items())
 
     def held(self) -> dict[ConnectionId, str]:
         """The names held right now, as the last assignment or fallback left them."""

@@ -454,3 +454,48 @@ class TestAppletGrouping:
         )
 
         assert sorted(names.values()) == ["lux", "lux (2)"]
+
+
+class TestReleaseReportsWhoseNameMoved:
+    """Releasing a group's last member hands its base to a numbered survivor."""
+
+    def test_the_survivor_that_inherits_the_base_name_is_reported(self) -> None:
+        roster = ClientRoster()
+        roster.names_for({ConnectionId("a"): _lux(), ConnectionId("b"): _lux()})
+
+        moved = roster.release((ConnectionId("a"),))
+
+        assert moved == frozenset({ConnectionId("b")})
+        assert roster.held() == {ConnectionId("b"): "lux"}
+
+    def test_a_release_that_moves_no_name_reports_nobody(self) -> None:
+        roster = ClientRoster()
+        roster.names_for({ConnectionId("a"): _lux(), ConnectionId("b"): _lux()})
+
+        assert roster.release((ConnectionId("b"),)) == frozenset()
+
+    def test_a_departed_connection_is_never_among_the_moved(self) -> None:
+        roster = ClientRoster()
+        roster.names_for({ConnectionId("a"): _lux(), ConnectionId("b"): _lux()})
+
+        moved = roster.release((ConnectionId("a"), ConnectionId("b")))
+
+        assert moved == frozenset()
+
+    def test_releasing_a_connection_never_named_reports_nobody(self) -> None:
+        assert ClientRoster().release((ConnectionId("ghost"),)) == frozenset()
+
+    def test_only_the_senior_numbered_survivor_moves(self) -> None:
+        roster = ClientRoster()
+        roster.names_for(
+            {
+                ConnectionId("a"): _lux(),
+                ConnectionId("b"): _lux(),
+                ConnectionId("c"): _lux(),
+            }
+        )
+
+        moved = roster.release((ConnectionId("a"),))
+
+        assert moved == frozenset({ConnectionId("b")})
+        assert roster.held()[ConnectionId("c")] == "lux (3)"

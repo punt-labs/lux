@@ -27,6 +27,7 @@ from punt_lux.domain.hub.client_roster import ClientRoster
 from punt_lux.domain.hub.client_session import ClientSession
 from punt_lux.domain.hub.listener_legs import ListenerLegs
 from punt_lux.domain.hub.named_sessions import NamedSessions
+from punt_lux.domain.hub.reaped import Reaped
 from punt_lux.domain.hub.session_write import SessionWrite
 
 if TYPE_CHECKING:
@@ -67,18 +68,20 @@ class HubClientRegistry:
 
     def record(
         self, connection_id: ConnectionId, identity: ClientIdentity | None = None
-    ) -> PresenceChange:
+    ) -> SessionWrite:
         """Upsert the connection's session, renewing its lease and any identity.
 
         Any contact is a renewal: an existing session keeps its connect time
         and pushes its lease forward. The first call stamps the connect time.
+        Returns the write, so the caller can read what it did to the menu and
+        whether it named the connection.
         """
         with self._lock:
             write = SessionWrite.recorded(
                 self._sessions.get(connection_id), self._clock(), identity
             )
             self._sessions[connection_id] = write.after
-            return write.presence
+            return write
 
     def renew_if_registered(self, connection_id: ConnectionId) -> PresenceChange:
         """Renew the lease iff already registered; a write must never register."""
@@ -100,11 +103,14 @@ class HubClientRegistry:
         """The identity the connection declared; None if unregistered or anonymous."""
         return self._sessions.get(connection_id, _ANONYMOUS).identity
 
-    def discard(self, connection_id: ConnectionId) -> None:
-        """Drop the registration, its identity, and the menu name it held."""
+    def discard(self, connection_id: ConnectionId) -> frozenset[ConnectionId]:
+        """Drop the registration, its identity, and the menu name it held.
+
+        Returns the survivors whose name the release moved.
+        """
         with self._lock:
             self._sessions.pop(connection_id, None)
-            self._roster.release((connection_id,))
+            return self._roster.release((connection_id,))
 
     def sessions(self) -> Mapping[ConnectionId, ClientSession]:
         """Return every recorded session, live or lapsed, without sweeping."""
@@ -125,7 +131,7 @@ class HubClientRegistry:
 
     def reap_lapsed_locked(
         self, exclude: frozenset[ConnectionId] = frozenset()
-    ) -> frozenset[ConnectionId]:
+    ) -> Reaped:
         """Atomically find-and-remove every lapsed connection except ``exclude``.
 
         One lock hold: a renewal cannot slip between the find and the remove.
@@ -133,8 +139,7 @@ class HubClientRegistry:
         with self._lock:
             lapsed = self._lapsed_locked() - exclude
             deque(map(self._sessions.pop, lapsed), maxlen=0)
-            self._roster.release(lapsed)
-            return lapsed
+            return Reaped(lapsed, self._roster.release(lapsed))
 
     def _live_locked(self) -> dict[ConnectionId, ClientSession]:
         """The sessions whose lease has not lapsed, as of now. Caller locks."""

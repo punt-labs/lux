@@ -114,3 +114,40 @@ def test_a_silent_presence_marks_nothing_anywhere() -> None:
 
     assert len(binder.bound) == 1  # the sink is bound; firing it does nothing
     binder.bound[0][1](_CONN)  # raises nothing: there is no replicator to mark
+
+
+@final
+class _SceneMarker:
+    """A DirtyMarker recording which scenes were marked."""
+
+    scenes: list[SceneId]
+    __slots__ = ("scenes",)
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self.scenes = []
+        return self
+
+    def mark_dirty(self, scene_id: SceneId) -> None:
+        self.scenes.append(scene_id)
+
+    def mark_menus(self) -> None:
+        raise AssertionError("a rename must not mark the menus")
+
+
+def test_renamed_scenes_are_each_marked_dirty() -> None:
+    marker = _SceneMarker()
+
+    MenuPresence(marker, MarkMenusSink(marker)).scenes_renamed(
+        [SceneId("s1"), SceneId("s2")]
+    )
+
+    assert marker.scenes == [SceneId("s1"), SceneId("s2")]
+
+
+def test_no_renamed_scene_marks_nothing() -> None:
+    marker = _SceneMarker()
+
+    MenuPresence(marker, MarkMenusSink(marker)).scenes_renamed(())
+
+    assert marker.scenes == []

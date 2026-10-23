@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.menu_listing import PresenceChange
     from punt_lux.domain.hub.owner_tracker import OwnerTracker
     from punt_lux.domain.hub.replicator_ports import DirtyMarker
+    from punt_lux.domain.hub.session_write import SessionWrite
     from punt_lux.domain.hub.store_lock import StoreLock
     from punt_lux.domain.ids import ConnectionId
 
@@ -75,12 +76,12 @@ class ClientLifecycle:
     def arrive(self, connection_id: ConnectionId) -> None:
         """Record the connection's own arrival, renewing its lease."""
         with self._lock.write():
-            self._announce(connection_id, self._clients.record(connection_id))
+            self._settle(connection_id, self._clients.record(connection_id))
 
     def identify(self, connection_id: ConnectionId, identity: ClientIdentity) -> None:
         """Record the identity the connection declared, registering it if new."""
         with self._lock.write():
-            self._announce(connection_id, self._clients.record(connection_id, identity))
+            self._settle(connection_id, self._clients.record(connection_id, identity))
 
     def attach(
         self,
@@ -92,6 +93,7 @@ class ClientLifecycle:
         with self._lock.write():
             attachment = self._clients.legs.attach(connection_id, identity, listener)
             self._announce(connection_id, attachment.menu_change)
+            self._retitle(connection_id, named=attachment.identified)
 
     def renew(self, connection_id: ConnectionId) -> None:
         """Renew the lease iff registered; reviving a lapsed agent is announced."""
@@ -116,20 +118,32 @@ class ClientLifecycle:
         The one step every departure trigger funnels through.
         """
         with self._lock.write():
-            self._clients.discard(connection_id)
+            relabelled = self._clients.discard(connection_id)
             self._owners.release_all(connection_id)
             self._cascade.run(connection_id)
+            self._presence.scenes_renamed(self._owners.scenes_of(relabelled))
 
     def depart_lapsed(
         self, exclude: frozenset[ConnectionId]
     ) -> frozenset[ConnectionId]:
         """Depart every lapsed connection except ``exclude``; return who left."""
         with self._lock.write():
-            lapsed = self._clients.reap_lapsed_locked(exclude)
-            self._owners.release_departed(lapsed)
-            self._cascade.run_all(lapsed)
-            return lapsed
+            reaped = self._clients.reap_lapsed_locked(exclude)
+            self._owners.release_departed(reaped.lapsed)
+            self._cascade.run_all(reaped.lapsed)
+            self._presence.scenes_renamed(self._owners.scenes_of(reaped.relabelled))
+            return reaped.lapsed
 
     def _announce(self, connection_id: ConnectionId, change: PresenceChange) -> None:
         """Pay a presence change's debt -- mark and sink -- in the same step."""
         self._presence.announce(change, connection_id, self._cascade)
+
+    def _settle(self, connection_id: ConnectionId, write: SessionWrite) -> None:
+        """Pay what a registry write owes: the menu, and a retitle if it named."""
+        self._announce(connection_id, write.presence)
+        self._retitle(connection_id, named=write.identified)
+
+    def _retitle(self, connection_id: ConnectionId, *, named: bool) -> None:
+        """Mark the connection's own scenes dirty if it has just been named."""
+        if named:
+            self._presence.scenes_renamed(self._owners.scenes_of((connection_id,)))

@@ -30,6 +30,7 @@ class Attachment:
 
     slot: ListenerAttachment
     presence: PresenceChange
+    identified: bool  # whether the write named (or renamed) the connection
 
     @property
     def menu_change(self) -> PresenceChange:
@@ -76,6 +77,17 @@ class SessionWrite:
         return cls(before, declared.after.attached(listener), now)
 
     @property
+    def identified(self) -> bool:
+        """Whether the write changed who the session says it is.
+
+        A repository-kind client may register no callback, so presence can hold
+        while the connection has just been named; this is the signal that its
+        windows are owed a retitle.
+        """
+        prior = None if self.before is None else self.before.identity
+        return prior != self.after.identity
+
+    @property
     def presence(self) -> PresenceChange:
         """How the write changed who the Clients menu lists."""
         return MenuListing(self.before, self.now).change_to(
@@ -87,5 +99,7 @@ class SessionWrite:
         """The write read as taking the listener slot."""
         over_callbacks = self.before is not None and bool(self.before.callbacks)
         return Attachment(
-            "attached_over_callbacks" if over_callbacks else "attached", self.presence
+            "attached_over_callbacks" if over_callbacks else "attached",
+            self.presence,
+            self.identified,
         )

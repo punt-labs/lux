@@ -45,7 +45,7 @@ def test_attaching_seats_the_listener_and_reports_the_slot() -> None:
     write = SessionWrite.attached(None, 0.0, _agent(), leg)
 
     assert write.after.held_by(leg)
-    assert write.attachment == Attachment("attached", "gained")
+    assert write.attachment == Attachment("attached", "gained", identified=True)
 
 
 def test_attaching_over_callbacks_reports_them_cleared() -> None:
@@ -62,8 +62,52 @@ def test_attaching_over_callbacks_reports_them_cleared() -> None:
 def test_an_attach_that_clears_callbacks_revises_the_menu_though_presence_held() -> (
     None
 ):
-    assert Attachment("attached_over_callbacks", "unchanged").menu_change == "revised"
+    assert (
+        Attachment("attached_over_callbacks", "unchanged", identified=False).menu_change
+        == "revised"
+    )
 
 
 def test_an_attach_that_gains_presence_reports_the_gain() -> None:
-    assert Attachment("attached_over_callbacks", "gained").menu_change == "gained"
+    assert (
+        Attachment("attached_over_callbacks", "gained", identified=True).menu_change
+        == "gained"
+    )
+
+
+class TestIdentified:
+    """A write names the connection when the identity it stores is a new one."""
+
+    def test_the_first_declaration_names_a_new_session(self) -> None:
+        assert SessionWrite.recorded(None, 0.0, _agent()).identified
+
+    def test_an_anonymous_arrival_names_nobody(self) -> None:
+        assert not SessionWrite.recorded(None, 0.0, None).identified
+
+    def test_declaring_the_same_identity_again_names_nobody(self) -> None:
+        declared = ClientSession(0.0).with_identity(_agent())
+
+        assert not SessionWrite.recorded(declared, 1.0, _agent()).identified
+
+    def test_a_changed_declaration_names_the_connection_anew(self) -> None:
+        declared = ClientSession(0.0).with_identity(_agent())
+        other = ClientIdentity(kind="mcp-session", name="claude", repo="/w/other")
+
+        assert SessionWrite.recorded(declared, 1.0, other).identified
+
+    def test_a_bare_contact_with_an_identity_already_held_names_nobody(self) -> None:
+        declared = ClientSession(0.0).with_identity(_agent())
+
+        assert not SessionWrite.recorded(declared, 1.0, None).identified
+
+    def test_an_attach_that_declares_names_the_connection(self) -> None:
+        write = SessionWrite.attached(None, 0.0, _agent(), _Leg())
+
+        assert write.attachment.identified
+
+    def test_an_attach_repeating_the_declaration_names_nobody(self) -> None:
+        declared = ClientSession(0.0).with_identity(_agent())
+
+        write = SessionWrite.attached(declared, 1.0, _agent(), _Leg())
+
+        assert not write.attachment.identified
