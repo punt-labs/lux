@@ -61,7 +61,7 @@ class SceneEviction:
         was_oldest = holder.scene_order[:1] == [key.local]
         self.from_frame(holder, key.local, facts_after)
         if was_oldest and self._book.frame(holder.frame_id, holder.hub) is holder:
-            holder.heading.scope_label = label_after
+            holder.heading.relabel(label_after)
 
     def from_frame(
         self,

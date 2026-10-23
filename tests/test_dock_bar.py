@@ -258,7 +258,7 @@ def test_a_pill_reads_the_title_the_seam_gives_not_the_raw_frame_title() -> None
     """The dock shows the same label the window does (DES-089's one seam)."""
     imgui = _FakeImGui()
     scenes = _FakeScenes({"f1": _frame("f1", "Vox", visibility=FrameVisibility.DOCKED)})
-    scenes.frames["f1"].heading.scope_label = "lux"
+    scenes.frames["f1"].heading.relabel("lux")
     bar = DockBar(imgui, cast("SceneReplica", scenes), AddressRendering())
 
     bar.render(any_frame_hovered=False)

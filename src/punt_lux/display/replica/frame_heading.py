@@ -33,15 +33,32 @@ class FrameHeading:
         """The title the client gave the window."""
         return self._title
 
-    @title.setter
-    def title(self, value: str) -> None:
-        self._title = value
-
     @property
     def scope_label(self) -> str | None:
         """The Hub's name for the frame's owner, or ``None`` if it named none."""
         return self._scope_label
 
-    @scope_label.setter
-    def scope_label(self, value: str | None) -> None:
-        self._scope_label = value
+    def adopt(
+        self,
+        title: str | None,  # PY-TS-14: a push may omit what it does not change
+        scope_label: str | None,  # PY-TS-14: absent = the Hub named no owner now
+    ) -> None:
+        """Take what a content push carries; an omitted field means "leave it".
+
+        A title that is empty or absent leaves the last one, and a missing label
+        never blanks the one held: the Hub's ``None`` for a departed owner is the
+        departure guarantee, so the frame keeps the name it last had.
+        """
+        if title:
+            self._title = title
+        if scope_label is not None:
+            self._scope_label = scope_label
+
+    def relabel(self, scope_label: str | None) -> None:
+        """Replace the label with the Hub's fresh word for it, absence included.
+
+        Only an empty push that removed the frame's oldest scene calls this: it
+        carries the Hub's current answer for the frame's new oldest scene, so
+        ``None`` there means the Hub has no name for the owner now.
+        """
+        self._scope_label = scope_label

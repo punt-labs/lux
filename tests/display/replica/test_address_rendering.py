@@ -152,7 +152,7 @@ class TestFrameWindowLabel:
         frame = _frame(_PEMBROKE_1, "vox", "Vox")
         before = rendering.frame_window_label(frame)
 
-        frame.heading.scope_label = "lux"
+        frame.heading.relabel("lux")
         after = rendering.frame_window_label(frame)
 
         assert before.partition("##")[2] == after.partition("##")[2]

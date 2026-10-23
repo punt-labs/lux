@@ -17,20 +17,72 @@ def test_holds_the_scope_label_it_is_given() -> None:
     assert FrameHeading("Vox", "lux (2)").scope_label == "lux (2)"
 
 
-def test_the_title_and_the_label_move_independently() -> None:
-    heading = FrameHeading("Vox", "lux")
+class TestAdopt:
+    """A content push: what it carries replaces, what it omits is left alone."""
 
-    heading.title = "Beads"
-    assert (heading.title, heading.scope_label) == ("Beads", "lux")
+    def test_takes_a_new_title_and_a_new_label(self) -> None:
+        heading = FrameHeading("Vox", "lux")
 
-    heading.scope_label = "lux (2)"
-    assert (heading.title, heading.scope_label) == ("Beads", "lux (2)")
+        heading.adopt("Beads", "lux (2)")
+
+        assert (heading.title, heading.scope_label) == ("Beads", "lux (2)")
+
+    def test_an_omitted_title_leaves_the_last_one(self) -> None:
+        heading = FrameHeading("Vox", "lux")
+
+        heading.adopt(None, "lux (2)")
+
+        assert (heading.title, heading.scope_label) == ("Vox", "lux (2)")
+
+    def test_an_empty_title_leaves_the_last_one(self) -> None:
+        heading = FrameHeading("Vox")
+
+        heading.adopt("", None)
+
+        assert heading.title == "Vox"
+
+    def test_a_missing_label_never_blanks_the_one_held(self) -> None:
+        heading = FrameHeading("Vox", "lux")
+
+        heading.adopt("Vox", None)
+
+        assert heading.scope_label == "lux"
+
+    def test_a_label_arrives_on_a_heading_that_had_none(self) -> None:
+        heading = FrameHeading("Vox")
+
+        heading.adopt(None, "lux")
+
+        assert heading.scope_label == "lux"
+
+    def test_adopting_nothing_changes_nothing(self) -> None:
+        heading = FrameHeading("Vox", "lux")
+
+        heading.adopt(None, None)
+
+        assert (heading.title, heading.scope_label) == ("Vox", "lux")
 
 
-def test_the_label_can_be_withdrawn() -> None:
-    heading = FrameHeading("Vox", "lux")
+class TestRelabel:
+    """An empty push: the Hub's fresh answer replaces the label, absence included."""
 
-    heading.scope_label = None
+    def test_replaces_the_label(self) -> None:
+        heading = FrameHeading("Vox", "lux")
 
-    assert heading.scope_label is None
-    assert heading.title == "Vox"
+        heading.relabel("lux (2)")
+
+        assert heading.scope_label == "lux (2)"
+
+    def test_takes_the_hubs_absence_where_adopt_would_not(self) -> None:
+        heading = FrameHeading("Vox", "lux")
+
+        heading.relabel(None)
+
+        assert heading.scope_label is None
+
+    def test_never_touches_the_title(self) -> None:
+        heading = FrameHeading("Vox", "lux")
+
+        heading.relabel(None)
+
+        assert heading.title == "Vox"

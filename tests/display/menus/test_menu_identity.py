@@ -312,7 +312,7 @@ class TestWindowsMenuReopenIdentity:
 
     def test_the_reopen_entry_reads_the_title_the_seam_gives(self) -> None:
         frame = make_frame("f1", visibility=_CLOSED, title="Vox", hub=_HUB_A)
-        frame.heading.scope_label = "lux (2)"
+        frame.heading.relabel("lux (2)")
         windows = WindowsMenu(
             get_frames=lambda: {"f1": frame},
             addressing=AddressRendering(),

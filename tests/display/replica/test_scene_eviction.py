@@ -164,7 +164,7 @@ class TestTheScopeLabel:
         eviction, book, _, _ = _eviction(emptied=False)
         senior = _hold(book, "senior")
         _hold(book, "junior")
-        senior.heading.scope_label = "lux"
+        senior.heading.relabel("lux")
 
         eviction.from_frame(senior, "senior", None)
 
@@ -174,7 +174,7 @@ class TestTheScopeLabel:
         eviction, book, _, _ = _eviction(emptied=False)
         frame = _hold(book, "senior")
         _hold(book, "junior")
-        frame.heading.scope_label = "lux (2)"
+        frame.heading.relabel("lux (2)")
 
         eviction.from_frame(frame, "senior", _NEW)
 
@@ -184,7 +184,7 @@ class TestTheScopeLabel:
         eviction, book, _, _ = _eviction(emptied=False)
         frame = _hold(book, "senior")
         _hold(book, "junior")
-        frame.heading.scope_label = "lux"
+        frame.heading.relabel("lux")
 
         eviction.from_holder(HubScopedKey(_HUB, "senior"), _NEW, "lux (2)")
 
@@ -194,7 +194,7 @@ class TestTheScopeLabel:
         eviction, book, _, _ = _eviction(emptied=False)
         frame = _hold(book, "senior")
         _hold(book, "junior")
-        frame.heading.scope_label = "lux"
+        frame.heading.relabel("lux")
 
         eviction.from_holder(HubScopedKey(_HUB, "senior"), None, None)
 
@@ -204,7 +204,7 @@ class TestTheScopeLabel:
         eviction, book, _, _ = _eviction(emptied=False)
         _hold(book, "senior")
         frame = _hold(book, "junior")
-        frame.heading.scope_label = "lux"
+        frame.heading.relabel("lux")
 
         eviction.from_holder(HubScopedKey(_HUB, "junior"), None, "other")
 
