@@ -123,9 +123,8 @@ class BdRun:
         except subprocess.TimeoutExpired:
             return BeadsFailure(f"{cmd_str}: timed out after {_BD_TIMEOUT_SECONDS}s")
         bd_ms = self._since(waiting)
-        if done.returncode != 0:
-            err = done.stderr.strip()[:_STDERR_LIMIT] or f"exit {done.returncode}"
-            return BeadsFailure(f"{cmd_str}: {err}")
+        if not done.succeeded:
+            return BeadsFailure(f"{cmd_str}: {done.failure(_STDERR_LIMIT)}")
         if not done.stdout.strip():
             return BeadsFailure(f"{cmd_str}: no output")
         return BdOutput(done.stdout, spawn_ms, bd_ms)

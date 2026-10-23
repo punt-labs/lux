@@ -98,17 +98,23 @@ class _FakeProcess:
     _out: str
     _err: str
     _overruns: bool
-    returncode: int
+    _code: int
+    returncode: int | None  # None until communicate completes, as for a real process
+    stdout: None
+    stderr: None
     waited_with: float | None  # None until communicate is called
     killed: bool
     pid: int
     __slots__ = (
+        "_code",
         "_err",
         "_out",
         "_overruns",
         "killed",
         "pid",
         "returncode",
+        "stderr",
+        "stdout",
         "waited_with",
     )
 
@@ -119,7 +125,10 @@ class _FakeProcess:
         self._out = out
         self._err = err
         self._overruns = overruns
-        self.returncode = code
+        self._code = code
+        self.returncode = None
+        self.stdout = None
+        self.stderr = None
         self.waited_with = None
         self.killed = False
         # Never a real process id: the fake group signal below finds it by this.
@@ -134,6 +143,7 @@ class _FakeProcess:
         self.waited_with = timeout
         if self._overruns and not self.killed:
             raise subprocess.TimeoutExpired(cmd="bd list --json", timeout=timeout or 0)
+        self.returncode = self._code
         return self._out, self._err
 
     def kill(self) -> None:

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import subprocess
 import sys
 import threading
@@ -249,7 +250,7 @@ def test_a_child_that_will_not_die_is_logged_and_the_wait_still_ends(
         child.output(0.2)
 
     ending(child)
-    assert "did not exit" in caplog.text
+    assert "did not finish after being ended" in caplog.text
     assert str(child.pid) in caplog.text
 
 
@@ -318,7 +319,11 @@ def test_a_cancelled_calls_ended_bd_is_logged_at_debug_not_as_a_failure(
         asyncio.run(serve_then_cancel())
 
     messages = [(r.levelno, r.getMessage()) for r in caplog.records]
-    assert (logging.DEBUG, "the call was cancelled; its bd was ended") in messages
+    assert any(
+        level == logging.DEBUG
+        and message.startswith("the call was cancelled; its bd was ended: bd list")
+        for level, message in messages
+    )
     assert all(level < logging.WARNING for level, _ in messages)
 
 
@@ -337,3 +342,109 @@ def test_a_nonzero_exit_is_a_value_not_an_exception() -> None:
     exit_ = BdChild(failing, BdLeash()).output(_JOIN_SECONDS)
 
     assert exit_.returncode == 3
+
+
+def _bd_exiting_with_a_grandchild(
+    directory: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[Path, Path]:
+    """A ``bd`` that exits 0 at once, leaving a sleeping grandchild on its pipes."""
+    started = directory / "started"
+    grandchild = directory / "grandchild"
+    script = directory / "bd"
+    script.write_text(
+        f'#!/bin/sh\nsleep 60 &\necho $! > "{grandchild}"\necho $$ > "{started}"\n'
+        "exit 0\n"
+    )
+    script.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{directory}:/usr/bin:/bin")
+    return started, grandchild
+
+
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def test_cancelling_reaches_a_grandchild_that_outlives_an_exited_bd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    started, grandchild = _bd_exiting_with_a_grandchild(tmp_path, monkeypatch)
+    leash = BdLeash()
+    outcome: list[BaseException] = []
+
+    def work() -> None:
+        try:
+            BdChild(_scope().argv(), leash).output(60)
+        except BdCancelledError as exc:
+            outcome.append(exc)
+
+    worker = _in_thread(work)
+    _await(started)
+    _await(grandchild)
+    # Give bd time to exit: the leader is a zombie, the grandchild holds the pipes.
+    waiting = threading.Event()
+    waiting.wait(0.3)
+
+    leash.cancel()
+    worker.join(timeout=_JOIN_SECONDS)
+
+    assert not worker.is_alive()
+    assert isinstance(outcome[0], BdCancelledError)
+    pid = int(grandchild.read_text())
+    gone = threading.Event()
+    while _alive(pid) and not gone.wait(0.05):
+        pass
+    assert not _alive(pid)
+
+
+def test_a_cancel_that_loses_the_race_with_the_timeout_still_reads_as_cancelled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    leash = BdLeash()
+    child = BdChild(_SLEEP, leash)
+    reaped = BdChild.__dict__["_reaped"]
+
+    def cancelled_while_reaping(this: BdChild) -> None:
+        leash.cancel()
+        reaped(this)
+
+    monkeypatch.setattr(BdChild, "_reaped", cancelled_while_reaping)
+
+    with pytest.raises(BdCancelledError):
+        child.output(0.2)
+
+
+def test_a_reap_that_gives_up_closes_the_pipes(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    child = BdChild(_SLEEP, BdLeash())
+    ending = BdChild.end
+
+    def does_not_end(_child: BdChild) -> None:
+        return None
+
+    monkeypatch.setattr(BdChild, "end", does_not_end)
+    monkeypatch.setattr("punt_lux.apps.bd_child._REAP_SECONDS", 0.2)
+
+    with caplog.at_level(logging.ERROR), pytest.raises(subprocess.TimeoutExpired):
+        child.output(0.2)
+
+    assert not child.pipes_open
+    ending(child)
+
+
+class TestBdExit:
+    def test_a_zero_status_succeeded(self) -> None:
+        assert BdExit("[]", "", 0).succeeded
+
+    def test_a_nonzero_status_did_not(self) -> None:
+        assert not BdExit("", "boom", 3).succeeded
+
+    def test_the_failure_is_the_trimmed_stderr_up_to_the_limit(self) -> None:
+        assert BdExit("", "  broken pipe \n", 1).failure(6) == "broken"
+
+    def test_a_silent_failure_names_its_status(self) -> None:
+        assert BdExit("", " \n", 3).failure(200) == "exit 3"

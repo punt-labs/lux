@@ -102,8 +102,8 @@ class BdLeash:
         def run() -> None:
             try:
                 job()
-            except BdCancelledError:
-                logger.debug("the call was cancelled; its bd was ended")
+            except BdCancelledError as cancelled:
+                logger.debug("the call was cancelled; its bd was ended: %s", cancelled)
 
         with self.bound():
             try:
@@ -171,9 +171,24 @@ class BdChild:
         """The process id of the child, which is also its process group's."""
         return self._process.pid
 
+    @property
+    def pipes_open(self) -> bool:
+        """Whether the child's output pipes are still held open."""
+        return any(
+            pipe is not None and not pipe.closed
+            for pipe in (self._process.stdout, self._process.stderr)
+        )
+
     def end(self) -> None:
-        """End the child and everything it started; a child already gone is fine."""
-        if self._process.poll() is not None:
+        """End the child and everything it started; a child already gone is fine.
+
+        The group is signalled while its leader is still unreaped: a leader that
+        has exited but not been waited for is a zombie whose group a grandchild
+        may still hold, and polling it first would reap the leader and skip the
+        signal. Only a leader some wait already reaped (``returncode`` is set) is
+        left alone, since its process id may belong to another process by now.
+        """
+        if self._process.returncode is not None:
             return
         try:
             os.killpg(self._process.pid, signal.SIGKILL)
@@ -193,6 +208,8 @@ class BdChild:
             stdout, stderr = self._process.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
             self._reaped()
+            if self._leash.cancelled:
+                raise BdCancelledError(" ".join(self._argv)) from None
             raise
         finally:
             self._leash.detach(self)
@@ -207,7 +224,10 @@ class BdChild:
             self._process.communicate(timeout=_REAP_SECONDS)
         except subprocess.TimeoutExpired:
             logger.error(
-                "bd did not exit after being killed: argv=%s pid=%d",
+                "bd's output did not finish after being ended: argv=%s pid=%d",
                 " ".join(self._argv),
                 self._process.pid,
             )
+            for pipe in (self._process.stdout, self._process.stderr):
+                if pipe is not None:
+                    pipe.close()

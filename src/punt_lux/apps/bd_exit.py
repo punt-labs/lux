@@ -45,6 +45,19 @@ class BdExit:
         """The status the child exited with."""
         return self._returncode
 
+    @property
+    def succeeded(self) -> bool:
+        """Whether the child exited with status zero."""
+        return self._returncode == 0
+
+    def failure(self, limit: int) -> str:
+        """The reason to show for a failed exit: its stderr, else its status.
+
+        At most ``limit`` characters of the child's own complaint; a child that
+        said nothing is named by its exit status.
+        """
+        return self._stderr.strip()[:limit] or f"exit {self._returncode}"
+
 
 class BdCancelledError(BaseException):
     """The call that started this ``bd`` was cancelled, so lux ended it.
